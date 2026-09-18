@@ -21,9 +21,9 @@ class ArchitectureTests(unittest.TestCase):
         for host, prepare, context_file in [('codex', codex_prepare, 'AGENTS.md'), ('claude-code', claude_prepare, 'CLAUDE.md')]:
             with self.subTest(host=host), tempfile.TemporaryDirectory() as d:
                 output = Path(d)/'host'
-                previous = prepare(ROOT/'examples/minimal_adapter', output, sys.executable)
+                previous = prepare(ROOT/'examples/minimal_shop', output, sys.executable)
                 self.assertTrue(previous['server'])
-                result = prepare(ROOT/'examples/prompt_only', output, sys.executable)
+                result = prepare(ROOT/'architectures/prompt_only', output, sys.executable)
                 self.assertIsNone(result['server'])
                 self.assertIsNone(result['server_name'])
                 self.assertIsNone(result['audit_log'])
@@ -38,7 +38,7 @@ class ArchitectureTests(unittest.TestCase):
                 else:
                     self.assertEqual(json.loads((output/'.mcp.json').read_text())['mcpServers'], {})
                 self.assertNotIn('wm(', (output/'PROMPT.md').read_text())
-        core = Adapter(ROOT/'examples/prompt_only')
+        core = Adapter(ROOT/'architectures/prompt_only')
         self.assertEqual(core.tools, {})
         self.assertEqual(core.agent_definitions(), [])
 

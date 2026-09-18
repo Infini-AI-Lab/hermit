@@ -181,7 +181,7 @@ if __name__=='__main__':
         source=args.adapter
         preset=args.evolver or args.reference
     else:
-        aliases={'prompt-only':ROOT/'examples/prompt_only','mwm':ROOT/'examples/mwm_adapter','minimal-shop':ROOT/'examples/minimal_adapter'}
+        aliases={'prompt-only':ROOT/'architectures/prompt_only','mwm':ROOT/'architectures/mwm','minimal-shop':ROOT/'examples/minimal_shop'}
         reference=args.architecture or args.reference
         source=aliases.get(reference,Path(reference))
         # A user-supplied prompt selects the generic client, not a hidden MWM algorithm.

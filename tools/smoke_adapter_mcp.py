@@ -45,6 +45,6 @@ async def smoke(adapter: Path):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--adapter", type=Path, default=ROOT / "examples/minimal_adapter")
+    parser.add_argument("--adapter", type=Path, default=ROOT / "examples/minimal_shop")
     args = parser.parse_args()
     asyncio.run(smoke(args.adapter))

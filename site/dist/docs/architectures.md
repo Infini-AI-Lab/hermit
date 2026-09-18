@@ -5,13 +5,25 @@ An architecture is a starting adapter repo with no learned task knowledge. Evolu
 | | Prompt-only | MWM |
 | --- | --- | --- |
 | Built-in name | prompt-only | mwm |
-| Core directory | examples/prompt_only | examples/mwm_adapter |
+| Core directory | architectures/prompt_only | architectures/mwm |
 | Acting context | ADAPTER.md | Generated from the MWM package |
 | Adapter tools | None | One wm tool |
 | Adapter MCP server | Not registered | Started by the acting host |
 | Initial native roles | None | None; roles can be defined later |
 | Representation | One learned-context document | Memories, examples, tools, roles, briefing, journal, and cases |
 | Default update method | Generic prompt-driven Evolver | Bundled MWM Evolver |
+
+## Repository layout
+
+```text
+architectures/
+  prompt_only/    Initial prompt structure
+  mwm/            Initial world-model structure
+examples/
+  minimal_shop/   Populated integration demo
+```
+
+Architecture sources are reusable starting points. Evolved Adapters are separate outputs; the current CLI stores candidates under .demo/evolution/. The built-in names prompt-only, mwm, and minimal-shop are unchanged.
 
 ## Prompt-only
 

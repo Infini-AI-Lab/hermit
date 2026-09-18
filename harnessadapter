@@ -55,7 +55,7 @@ def main():
 
     from host_inputs import adapter_id
     from prepare_codex_demo import load_manifest
-    builtins = {"prompt-only": ROOT / "examples/prompt_only", "minimal-shop": ROOT / "examples/minimal_adapter", "mwm": ROOT / "examples/mwm_adapter"}
+    builtins = {"prompt-only": ROOT / "architectures/prompt_only", "minimal-shop": ROOT / "examples/minimal_shop", "mwm": ROOT / "architectures/mwm"}
     adapter = builtins.get(args.adapter, Path(args.adapter)).resolve()
     manifest = load_manifest(adapter)
     identity = adapter_id(manifest)

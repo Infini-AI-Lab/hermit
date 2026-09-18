@@ -110,7 +110,7 @@ def main():
     script = app.read_text()
     start = script.index("const templates=") + len("const templates=")
     templates, length = json.JSONDecoder().raw_decode(script[start:])
-    core = ROOT / "examples/mwm_adapter"
+    core = ROOT / "architectures/mwm"
     names = ["adapter.json", "ADAPTER.md", "EVOLVER.md", "interface.py", "memory/_template.md",
              "examples/_template.md", "tools/_template/TOOL.md", "tools/_template/run.py",
              "tools/_template/test.py", "agents/_template/SPEC.md", "consumption/brief.md",
@@ -119,7 +119,7 @@ def main():
     templates["knowledge"]["description"] = "Corrected MWM core: original artifact bundles, empty learned tools and roles, one wm interface, and persistent cases separate from the journal. Generic transport stays in the framework."
     templates["knowledge"]["tags"] = ["original MWM structure", "single wm interface", "sandbox-gated programs"]
     app.write_text(script[:start] + json.dumps(templates, ensure_ascii=False, indent=2) + script[start + length:])
-    prompt_core = ROOT / "examples/prompt_only"
+    prompt_core = ROOT / "architectures/prompt_only"
     templates["skill"] = {
         "title": "prompt-only/", "kind": "IMPLEMENTED ARCHITECTURE",
         "description": "A context-only architecture. No learned instructions initially, no native roles, and no adapter MCP server. Choose the Evolver separately.",

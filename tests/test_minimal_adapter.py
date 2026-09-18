@@ -3,7 +3,7 @@ import importlib.util
 from pathlib import Path
 import unittest
 
-PATH = Path(__file__).resolve().parents[1] / "examples/minimal_adapter/adapter_tools.py"
+PATH = Path(__file__).resolve().parents[1] / "examples/minimal_shop/adapter_tools.py"
 SPEC = importlib.util.spec_from_file_location("demo_tools", PATH)
 tools = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(tools)

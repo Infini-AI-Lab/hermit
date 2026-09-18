@@ -37,7 +37,7 @@ class EvolutionBoundaryTests(unittest.TestCase):
     def test_validation_does_not_execute_candidate_code(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)
-            shutil.copytree(ROOT/'examples/minimal_adapter',root/'adapter')
+            shutil.copytree(ROOT/'examples/minimal_shop',root/'adapter')
             marker=root/'unexpected-execution'
             path=root/'adapter/adapter_tools.py'
             path.write_text(f'from pathlib import Path\nPath({str(marker)!r}).touch()\n'+path.read_text())
@@ -52,7 +52,7 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         before=hashlib.sha256(wrapper.read_bytes()).hexdigest()
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);core=root/'adapter'
-            shutil.copytree(ROOT/'examples/minimal_adapter',core)
+            shutil.copytree(ROOT/'examples/minimal_shop',core)
             policy_path=core/'memory/policies.json'
             policies=json.loads(policy_path.read_text())
             policies['returns']['max_days_after_delivery']=7
@@ -81,7 +81,7 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(hashlib.sha256(wrapper.read_bytes()).hexdigest(),before)
 
     async def test_mwm_trace_requires_explicit_evidence_binding(self):
-        core=ROOT/'examples/mwm_adapter';wrapper=ROOT/'framework/mcp_server.py'
+        core=ROOT/'architectures/mwm';wrapper=ROOT/'framework/mcp_server.py'
         for bound in (False,True):
             args=[str(wrapper),'--adapter',str(core)]
             if bound:args.extend(['--evidence',str(ROOT/'fixtures/mwm_evidence')])

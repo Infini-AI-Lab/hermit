@@ -49,7 +49,7 @@ const templates={
     }
   },
   "knowledge": {
-    "title": "examples/mwm_adapter/",
+    "title": "architectures/mwm/",
     "description": "Corrected MWM core: original artifact bundles, empty learned tools and roles, one wm interface, and persistent cases separate from the journal. Generic transport stays in the framework.",
     "tags": [
       "original MWM structure",

@@ -10,7 +10,7 @@ The framework owns loading, MCP wrapping, invocation logging, resource binding, 
 
 | Component | Location in this prototype | Evolver access |
 |---|---|---|
-| Adapter core | `examples/minimal_adapter/` or `examples/mwm_adapter/` | Read/write in an independent candidate copy |
+| Adapter core | `examples/minimal_shop/` or `architectures/mwm/` | Read/write in an independent candidate copy |
 | Method algorithm | `evolvers/mwm/` | Supplies the method prompt and memory index; not part of the candidate |
 | MCP wrapper and loader | `framework/adapter.py`, `framework/mcp_server.py` | No learner edit capability |
 | Host conversion | `tools/prepare_codex_demo.py`, `tools/prepare_claude_demo.py` | No learner edit capability |

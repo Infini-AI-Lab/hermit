@@ -115,7 +115,7 @@ def prepare(adapter: Path, output: Path, python: str, evidence: Path | None = No
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--adapter", type=Path, default=ROOT / "examples/minimal_adapter")
+    parser.add_argument("--adapter", type=Path, default=ROOT / "examples/minimal_shop")
     parser.add_argument("--output", type=Path, default=ROOT / ".demo/codex")
     parser.add_argument("--python", default=sys.executable)
     args = parser.parse_args()

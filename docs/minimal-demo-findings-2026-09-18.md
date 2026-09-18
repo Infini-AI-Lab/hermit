@@ -4,7 +4,7 @@ Date: 2026-09-18. Tested with local Codex CLI 0.154.0, Python 3.12, and MCP Pyth
 
 ## What was built
 
-`examples/minimal_adapter/` is an ordinary directory in the main repository, with no submodule or nested `.git`. Users can copy it and initialize an independent repository or publish it to GitHub themselves.
+`examples/minimal_shop/` is an ordinary directory in the main repository, with no submodule or nested `.git`. Users can copy it and initialize an independent repository or publish it to GitHub themselves.
 
 The example contains a Context document, three memory records, three Python MCP tools, and one native role definition. The MCP server makes no model calls. Codex's native subagent mechanism launches `ha_memory_scout`.
 

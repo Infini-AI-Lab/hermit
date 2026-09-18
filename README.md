@@ -30,10 +30,22 @@ Evolution returns a separate candidate directory; deploy that path to use the le
 
 [Read the guide](docs/guide/index.md), or visit the [local Docs site](http://127.0.0.1:8873/docs/). Optional `--validation DIR` binds read-only, learner-visible storage, not an automatic evaluator.
 
+## Repository layout
+
+```text
+architectures/           # Starting structures, without learned task knowledge
+  prompt_only/
+  mwm/
+examples/                # Pre-populated, runnable demonstrations
+  minimal_shop/
+```
+
+Evolved Adapters are independent outputs, not additions to architectures/. The current CLI writes candidates under the ignored .demo/evolution/ directory; deploy the candidate path reported by the run.
+
 ## Core and framework ownership
 
-- `examples/minimal_adapter/`: shop knowledge and plain Python capabilities. No MCP server inside.
-- `examples/mwm_adapter/`: The original MWM layout: prose memory, worked examples, per-tool bundles, SPEC.md roles, briefing, journal, and persistent cases. All core files may evolve.
+- `examples/minimal_shop/`: shop knowledge and plain Python capabilities. No MCP server inside.
+- `architectures/mwm/`: The original MWM layout: prose memory, worked examples, per-tool bundles, SPEC.md roles, briefing, journal, and persistent cases. All core files may evolve.
 - `framework/`: the shared loader, MCP wrapper, experience binding, and candidate evolution facilities.
 - `evolvers/mwm/`: the MWM method prompt and memory-index builder.
 - `tools/`: Codex / Claude conversion helpers and verification utilities.
@@ -72,7 +84,7 @@ The experience is a synthetic integration fixture, not benchmark data. The learn
 
 ## Minimal runnable demo
 
-[`examples/minimal_adapter/`](examples/minimal_adapter/README.md) contains a small memory store, a Context prompt, three ordinary Python capabilities exposed by the framework as MCP tools, and one role converted into native Codex or Claude Code subagent definitions. It is an ordinary directory, with no submodule or nested `.git`. Users can copy it out and initialize an independent Git repository.
+[`examples/minimal_shop/`](examples/minimal_shop/README.md) contains a small memory store, a Context prompt, three ordinary Python capabilities exposed by the framework as MCP tools, and one role converted into native Codex or Claude Code subagent definitions. It is an ordinary directory, with no submodule or nested `.git`. Users can copy it out and initialize an independent Git repository.
 
 From this repository, prepare and open either host:
 
@@ -100,7 +112,7 @@ cd .demo/claude && claude
 
 The dedicated workspaces contain the adapter context, MCP settings, and converted native roles. The launcher preserves normal host settings and does not edit global configuration. Both hosts use a visibly labeled, replaceable adapter block in their project instructions (AGENTS.md or CLAUDE.md), preserving text outside that block. The helper still targets a generated demo workspace, not arbitrary existing-project attachment.
 
-This is a repository-local command, not a released package or adapter registry. The `./` prefix selects this checkout's executable. See the [developer instructions](examples/minimal_adapter/README.md#developer-checks) for automated trials and verification. The Claude Code trial verified context loading, native child memory calls, and the parent calculation using actual event and server logs.
+This is a repository-local command, not a released package or adapter registry. The `./` prefix selects this checkout's executable. See the [developer instructions](examples/minimal_shop/README.md#developer-checks) for automated trials and verification. The Claude Code trial verified context loading, native child memory calls, and the parent calculation using actual event and server logs.
 
 ## Design documents
 
