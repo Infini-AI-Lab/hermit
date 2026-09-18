@@ -1,0 +1,50 @@
+{
+  "contract": "harnessadapter.python.v1",
+  "id": "mwm",
+  "name": "mwm",
+  "version": "mwm-structure-v2",
+  "context": {
+    "entrypoint": "interface.py:context"
+  },
+  "agents": {
+    "entrypoint": "interface.py:agent_definitions"
+  },
+  "resources": {
+    "evidence": {
+      "required": false,
+      "access": "read"
+    }
+  },
+  "tools": [
+    {
+      "name": "wm",
+      "description": "The MWM world model: memory, recall, trace, search, read, list, and admitted learned tools through wm(name, args). run requires the framework sandbox; delegate gives native-host guidance.",
+      "entrypoint": "interface.py:wm",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "args": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object"
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    }
+  ],
+  "evolver_readme": "EVOLVER.md"
+}

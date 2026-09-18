@@ -1,0 +1,82 @@
+<mxfile host="drawio" version="26.0.0">
+  <diagram name="Three harnesses + optional integration" id="current-design">
+    <mxGraphModel grid="1" gridSize="10" page="1" pageWidth="1000" pageHeight="700">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="metaharness" value="Meta Harness&lt;br&gt;Learner editing and checking environment&lt;br&gt;LEARNER EXECUTION ENVIRONMENT" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e5efd8;strokeColor=#91a584;fontColor=#294b37;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="45" y="55" width="295" height="85" />
+        </mxCell>
+        <mxCell id="evolver" value="Evolver&lt;br&gt;Learning algorithm · Uses Meta Harness" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#91a584;fontColor=#294b37;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="65" y="160" width="260" height="60" />
+        </mxCell>
+        <mxCell id="manager" value="Default Manager&lt;br&gt;CLI update orchestration&lt;br&gt;SHARED SDK CALLER" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#91a584;fontColor=#294b37;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="570" y="55" width="229" height="100" />
+        </mxCell>
+        <mxCell id="adapter" value="Harness Adapter&lt;br&gt;An evolvable core repo&lt;br&gt;Code / knowledge / declarations&lt;br&gt;EVERY CORE FILE CAN CHANGE" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e5efd8;strokeColor=#91a584;fontColor=#294b37;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="305" y="255" width="231" height="125" />
+        </mxCell>
+        <mxCell id="runtime" value="Framework Runtime&lt;br&gt;Load declarations; expose MCP&lt;br&gt;WRAPPER OUTSIDE ADAPTER" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#91a584;fontColor=#294b37;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="570" y="265" width="229" height="90" />
+        </mxCell>
+        <mxCell id="connector" value="Bootstrap / Connector&lt;br&gt;Convert, prepare, verify as needed&lt;br&gt;OPTIONAL INTEGRATION HELPER" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#91a584;fontColor=#294b37;fontSize=12;dashed=1;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="45" y="445" width="264" height="100" />
+        </mxCell>
+        <mxCell id="acting" value="Acting Harness&lt;br&gt;Run tasks and native subagents&lt;br&gt;FIXED DEFINITIONS PER RUN" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e5efd8;strokeColor=#91a584;fontColor=#294b37;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry as="geometry" x="565" y="445" width="234" height="100" />
+        </mxCell>
+        <mxCell id="edge0" value="Trigger Evolver" source="manager" target="metaharness" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;labelBackgroundColor=#ffffff;strokeColor=#91a584;">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="edge1" value="Use" source="evolver" target="metaharness" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;labelBackgroundColor=#ffffff;strokeColor=#91a584;">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="edge2" value="Edit candidate repo" source="evolver" target="adapter" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;labelBackgroundColor=#ffffff;strokeColor=#91a584;dashed=1;">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="205" y="235" />
+              <mxPoint x="420" y="235" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge3" value="Tool implementation" source="adapter" target="runtime" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;labelBackgroundColor=#ffffff;strokeColor=#91a584;">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="edge4" value="MCP calls" source="runtime" target="acting" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;labelBackgroundColor=#ffffff;strokeColor=#91a584;">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="edge5" value="Direct integration" source="adapter" target="acting" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;labelBackgroundColor=#ffffff;strokeColor=#91a584;">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="480" y="408" />
+              <mxPoint x="595" y="408" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge6" value="As needed" source="adapter" target="connector" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;labelBackgroundColor=#ffffff;strokeColor=#91a584;dashed=1;">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="380" y="418" />
+              <mxPoint x="177" y="418" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge7" value="Optional integration helper" source="connector" target="acting" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;labelBackgroundColor=#ffffff;strokeColor=#91a584;dashed=1;">
+          <mxGeometry as="geometry" relative="1" />
+        </mxCell>
+        <mxCell id="edge8" value="Available host execution records" source="acting" target="metaharness" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;fontSize=10;labelBackgroundColor=#ffffff;strokeColor=#91a584;dashed=1;">
+          <mxGeometry as="geometry" relative="1">
+            <Array as="points">
+              <mxPoint x="820" y="510" />
+              <mxPoint x="820" y="22" />
+              <mxPoint x="110" y="22" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="legend" value="Green: three core roles; yellow: orchestrator; grey: supporting facilities.&lt;br&gt;Bootstrap / Connector is OPTIONAL. New role definitions are loaded before a new formal run." vertex="1" parent="1" style="rounded=0;html=1;whiteSpace=wrap;fillColor=#ffffff;strokeColor=#cccccc;fontSize=11;">
+          <mxGeometry as="geometry" x="45" y="600" width="755" height="60" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

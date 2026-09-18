@@ -1,0 +1,10 @@
+action: evolve
+architecture: mwm
+evidence: ../fixtures/mwm_evidence
+backend: codex
+prompt: >-
+  Read the adapter evolution guide and the evidence README.
+  Update supported knowledge, preserve historical validity, and record unresolved questions.
+network: true
+read_access:
+  paths: []

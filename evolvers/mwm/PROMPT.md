@@ -1,0 +1,3 @@
+Maintain an environment-centered world model using the MWM method. Begin with the adapter's EVOLVER.md and the evidence store's README.md. Follow the original contract, agenda, skills, and patterns supplied in the method area. The deployment bridge explains how to access them through framework capabilities.
+
+Repair contradicted or outdated knowledge, retain valid historical readings and their scope, maintain the persistent docket, and update the host briefing. Add executable capabilities or native roles only when the method's evidence and admission criteria justify them. Return a reviewed candidate rather than modifying the deployed source.

@@ -1,0 +1,99 @@
+# Evaluation-domain vocabulary that must never appear in the library.
+# One lowercase substring per line; '#' starts a comment.
+# -- benchmark / harness
+rho-bank
+tau2
+banking_knowledge
+banking_kb
+# -- product names (deposit accounts, cards)
+evergreen
+light blue
+purple account
+green account
+sky blue
+cobalt blue
+hunter green
+gold saver
+silver plus
+light green
+green fee-free
+bronze rewards
+silver rewards
+gold rewards
+platinum rewards
+diamond elite
+crypto-cash back
+ecocard
+silver zoom
+world blue
+# -- domain tool names
+file_credit_card_transaction_dispute
+file_debit_card_transaction_dispute
+open_bank_account
+close_bank_account
+apply_checking_account_credit
+get_user_dispute_history
+order_replacement_credit_card
+submit_cash_back_dispute
+deposit_check
+transfer_to_human
+log_verification
+# -- domain terms specific enough to leak the solution space
+provisional credit
+provisional_credit
+customer_max_liability
+account_class
+cash back
+cash_back
+apy
+reg e
+regulation e
+# -- tier-ladder and account vocabulary
+entry tier
+mid tier
+premium tier
+elite tier
+bluest
+blue account
+gold plus
+platinum plus
+gold years
+
+# DABstep (payments) — added 2026-08-21 when the library was wired in
+merchant_data
+payments.csv
+fee rule
+fee_rule
+card_scheme
+acquirer_country
+dabstep
+# CL-Bench database_exploration
+items_g1
+items_g2
+items_g3
+fdbk_g
+attrs_g
+product_attributes
+sqlite
+# CL-Bench exploitable_poker
+poker
+big blind
+small blind
+calling station
+calling_station
+fit_or_fold
+loose_aggressive
+preflop
+# Retail (customer-order) venue and the old warehouse demo vocabulary — added 2026-09-06
+dispatch
+restock
+supplier
+warehouse
+receiving log
+receiving record
+pallet
+carrier
+clerk
+customer
+refund
+sku-

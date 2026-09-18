@@ -1,0 +1,24 @@
+{
+  "returns": {
+    "title": "Fictional shop: ordinary return policy",
+    "scope": "Unopened ordinary items returned for non-defect reasons; excludes custom items and other unspecified cases",
+    "max_days_after_delivery": 14,
+    "fee_rate": "0.05",
+    "rule": "Eligible items delivered no more than 14 days ago may be returned for the item amount less a 5% fee on the item subtotal.",
+    "source": "demo-policy/returns-v1"
+  },
+  "shipping": {
+    "title": "Fictional shop: original shipping policy",
+    "scope": "Ordinary returns for non-defect reasons",
+    "original_shipping_refundable": false,
+    "rule": "Original shipping is not refundable. The calculate_refund item_subtotal includes only the item amount, excluding original shipping.",
+    "source": "demo-policy/shipping-v1"
+  },
+  "rounding": {
+    "title": "Monetary calculation rules",
+    "currency": "CNY",
+    "rounding": "ROUND_HALF_UP",
+    "rule": "The item subtotal has at most two decimal places. Round the fee to cents using ROUND_HALF_UP before subtracting it from the item subtotal.",
+    "source": "demo-policy/rounding-v1"
+  }
+}

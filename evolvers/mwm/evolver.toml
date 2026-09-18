@@ -1,0 +1,10 @@
+prompt = "PROMPT.md"
+# Optional MWM-specific journal/docket maintenance; generic Evolvers need no Python.
+lifecycle = "mwm"
+
+[execution]
+backend = "codex"
+network = true
+
+[execution.read_access]
+paths = []

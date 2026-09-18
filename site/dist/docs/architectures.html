@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Architectures · Harness Adapter Docs</title><link rel="stylesheet" href="docs.css"><script defer src="docs.js"></script></head>
+<body><header><a class="brand" href="../">H<span>↗</span> Harness Adapter</a><a href="../">Design notebook ↗</a></header>
+<div class="layout"><aside class="navigation"><div class="eyebrow">DOCUMENTATION / V0</div><nav aria-label="Documentation"><a href="index.html">Introduction</a><a href="quickstart.html">Quickstart</a><a href="components.html">Components</a><a href="architectures.html" aria-current="page">Architectures</a><a href="deployment.html">Deployment</a><a href="evolution.html">Evolution & experience</a><a href="configuration.html">Configuration</a><a href="status.html">Status & limits</a></nav><div class="note">Local prototype<br>English sources in docs/guide</div></aside>
+<main><div class="eyebrow">GUIDE / 04</div><h1>Two initial architectures</h1>
+<p>An architecture is a starting adapter repo with no learned task knowledge. Evolution copies it into a candidate. The source stays unchanged. An evolved adapter uses the same manifest contract and can be updated again.</p>
+<div class="journal-table-wrap"><table><thead><tr><th scope="col"></th><th scope="col">Prompt-only</th><th scope="col">MWM</th></tr></thead><tbody><tr><td>Built-in name</td><td>prompt-only</td><td>mwm</td></tr><tr><td>Core directory</td><td>examples/prompt_only</td><td>examples/mwm_adapter</td></tr><tr><td>Acting context</td><td>ADAPTER.md</td><td>Generated from the MWM package</td></tr><tr><td>Adapter tools</td><td>None</td><td>One wm tool</td></tr><tr><td>Adapter MCP server</td><td>Not registered</td><td>Started by the acting host</td></tr><tr><td>Initial native roles</td><td>None</td><td>None; roles can be defined later</td></tr><tr><td>Representation</td><td>One learned-context document</td><td>Memories, examples, tools, roles, briefing, journal, and cases</td></tr><tr><td>Default update method</td><td>Generic prompt-driven Evolver</td><td>Bundled MWM Evolver</td></tr></tbody></table></div>
+<h2 id="prompt-only">Prompt-only</h2>
+<pre><code>adapter.json      Context path; empty tools list
+ADAPTER.md        Initially no learned instructions
+EVOLVER.md        Guidance for maintaining the prompt
+README.md         Human-facing usage</code></pre>
+<p>This makes prompt-oriented experiments possible without a tool service. It is not an implementation of GEPA or SkillOpt. Their optimization algorithms and evaluation requirements would need their own integrations.</p>
+<p>The current manifest retains the name harnessadapter.python.v1 for compatibility; a static Markdown context and empty tools list require no Python code in the adapter. The framework itself still uses Python and its shared dependency environment.</p>
+<h2 id="mwm">MWM</h2>
+<pre><code>adapter.json · ADAPTER.md · EVOLVER.md
+interface.py · mwm_core/
+memory/           Scoped environment knowledge
+examples/         Worked cases
+tools/            Learned program bundles and tests
+agents/           Optional SPEC.md native-role definitions
+consumption/      Acting briefing
+meta/             Journal and persistent cases</code></pre>
+<p>MWM retains its reference layout and update conventions. The framework owns MCP wrapping and host conversion. Other architectures need not adopt MWM directories or claims.</p>
+<h2 id="what-may-evolve">What may evolve</h2>
+<p>All core files are editable, subject to the interface contract. For a prompt-only study, the update instructions restrict the chosen search space to context; that is a study choice, not a platform-wide limitation. Adding tools later will cause the connector to register MCP on the next deployment.</p>
+<p>minimal-shop remains a small, pre-populated integration demo. It is not a third empty architecture. A 4B search-helper architecture remains a future example.</p><footer><a href="architectures.md">Markdown source ↓</a><a href="deployment.html">Next: Deployment →</a></footer></main>
+<aside class="toc"><div class="eyebrow">ON THIS PAGE</div><a href="#prompt-only">Prompt-only</a><a href="#mwm">MWM</a><a href="#what-may-evolve">What may evolve</a></aside></div></body></html>

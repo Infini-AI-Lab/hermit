@@ -1,0 +1,9 @@
+{
+  "contract": "harnessadapter.python.v1",
+  "id": "prompt-only",
+  "name": "Prompt-only Architecture",
+  "version": "0.1.0",
+  "context": "ADAPTER.md",
+  "evolver_readme": "EVOLVER.md",
+  "tools": []
+}

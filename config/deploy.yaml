@@ -1,0 +1,5 @@
+action: deploy
+adapter: minimal-shop
+host: codex
+workdir: ../.demo/yaml-shop/codex
+# Add prepare_only: true to generate files without opening the host.
