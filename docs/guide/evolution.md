@@ -72,3 +72,11 @@ Pass --evolver /path/to/my-evolver to reuse it. The bundled MWM preset additiona
 Framework tools enforce the read/write and network policy using an OS sandbox. Both learner backends currently require the Codex CLI as the shared sandbox executor. Authenticated client transport and vendor bookkeeping remain a trusted control plane; this is not a whole-client-process isolation claim.
 
 Each session records the candidate, input snapshots, checks, tool audit, report, and result. candidate_ready means the run completed and structural checks passed. It does not mean measured improvement. No candidate is automatically activated.
+
+## Visual Experience
+
+The Evolver can call read_image(area="evidence", path="observations/frames/frame_000.png") to receive an actual MCP image block. PNG and JPEG are supported up to 4 MiB each. Reads run through the same OS sandbox and workspace containment checks as text reads; traversal and links to unauthorized files are rejected. Image hashes and sizes are logged without duplicating image data in the audit. Native unrestricted view_image remains disabled.
+
+A sequence should include a frame manifest with capture timestamps, order, viewport and pixel dimensions. These are sampled images, not native video input, and may miss fast events. Merely placing a file in the Experience directory does not show it to the model: it must call read_image.
+
+Use --model gpt-5.6-sol --reasoning-effort high for an explicit Codex learner configuration. The reasoning-effort option currently applies only to Codex.

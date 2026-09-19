@@ -13,7 +13,7 @@ def compile_launch(path: Path, prepare_only=False):
     path=path.resolve();data=yaml.safe_load(path.read_text())
     if not isinstance(data,dict):raise ValueError('Launch YAML must contain a mapping')
     allowed={'action','adapter','adapters','architecture','template','evidence','validation','prompt','prompt_file','evolver',
-             'backend','host','workdir','read_access','network','prepare_only','timeout','max_budget_usd'}
+             'backend','model','reasoning_effort','host','workdir','read_access','network','prepare_only','timeout','max_budget_usd'}
     if set(data)-allowed:raise ValueError('Unknown launch fields: '+', '.join(sorted(set(data)-allowed)))
     action=data.get('action')
     if action not in ('deploy','evolve'):raise ValueError('action must be deploy or evolve')
@@ -37,7 +37,7 @@ def compile_launch(path: Path, prepare_only=False):
     cmd=[action]
     if action=='deploy':
         if template:raise ValueError('Evolve an architecture into an adapter before deploying through launch YAML')
-        if any(k in data for k in ('validation','prompt','prompt_file','evolver','backend','read_access','network','timeout','max_budget_usd')):
+        if any(k in data for k in ('validation','prompt','prompt_file','evolver','backend','model','reasoning_effort','read_access','network','timeout','max_budget_usd')):
             raise ValueError('Evolution-only fields are not valid for deploy')
         cmd.append(location(adapter,True))
         host=string('host') or 'codex'
@@ -52,6 +52,10 @@ def compile_launch(path: Path, prepare_only=False):
         if string('prompt'):cmd.extend(['--prompt',data['prompt']])
         if string('prompt_file'):cmd.extend(['--prompt-file',location(data['prompt_file'])])
         if string('evolver'):cmd.extend(['--evolver',location(data['evolver'],True)])
+        if string('model'):cmd.extend(['--model',data['model']])
+        if string('reasoning_effort'):
+            if data['reasoning_effort'] not in ('low','medium','high','xhigh'):raise ValueError('Unsupported reasoning effort')
+            cmd.extend(['--reasoning-effort',data['reasoning_effort']])
         backend=string('backend')
         if backend:
             if backend not in ('codex','claude-code'):raise ValueError('Unsupported learner backend')

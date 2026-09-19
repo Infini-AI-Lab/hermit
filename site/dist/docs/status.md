@@ -2,6 +2,8 @@
 
 ## Implemented
 
+- Sandboxed PNG/JPEG reads returned as MCP image blocks, with size limits and audit hashes; explicit Codex reasoning-effort override.
+
 - Prompt-only and MWM starting architectures; minimal-shop as a separate integration demo.
 - Optional MCP registration, marked context injection, and native role conversion for Codex and Claude Code.
 - Prompt-driven Codex or Claude evolution, with a generic preset and an MWM method preset.

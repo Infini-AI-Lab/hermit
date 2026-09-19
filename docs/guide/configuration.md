@@ -44,6 +44,8 @@ workdir: ../.demo/prompt-only/codex
 | --validation DIR | Optional visible read-only validation storage |
 | --prompt TEXT / --prompt-file FILE | User update instructions |
 | --evolver NAME | Reusable basic or mwm preset, or local definition directory |
+| --model ID | Explicit learner model |
+| --reasoning-effort LEVEL | Codex effort: low, medium, high, xhigh |
 | --backend | codex or claude-code |
 | --workdir DIR | Read-only environment cwd for learner commands |
 | --read-dir DIR / --read-all | Additional reads; never grants writes |

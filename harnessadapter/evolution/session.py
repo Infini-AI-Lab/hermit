@@ -14,13 +14,13 @@ import tempfile
 from harnessadapter.adapter.loader import load_manifest
 from harnessadapter.evolution.workspace import Workspace, copy_tree, fingerprint
 from harnessadapter.policy.execution import ExecutionPolicy, PolicySandbox, load_policy
-from harnessadapter.evolution.backends import command_for
+from harnessadapter.evolution.backends import command_for, codex_turn_outcome
 from harnessadapter.evolution.definition import EvolverDefinition
 
 from harnessadapter.paths import PACKAGE_ROOT, resolve_architecture, workspace_root
 
 
-def evolve(source: Path, evidence: Path, goal: str, timeout=240, budget=None, prepare_only=False, block=1, tick=0, policy=None, definition=None, source_kind='adapter', validation_data: Path | None = None, output: Path | None = None, model: str | None = None):
+def evolve(source: Path, evidence: Path, goal: str, timeout=240, budget=None, prepare_only=False, block=1, tick=0, policy=None, definition=None, source_kind='adapter', validation_data: Path | None = None, output: Path | None = None, model: str | None = None, reasoning_effort: str | None = None):
     definition = definition or EvolverDefinition('mwm')
     policy = policy or definition.policy
     if policy.backend == 'codex' and budget is not None:
@@ -97,13 +97,13 @@ def evolve(source: Path, evidence: Path, goal: str, timeout=240, budget=None, pr
               'source_kind':source_kind,'candidate_kind':'adapter',
               'validation_data':str(session/'validation') if validation_data is not None else None,
               'source_revision':hashlib.sha256(json.dumps(baseline['source'],sort_keys=True).encode()).hexdigest(),
-              'evolver':str(definition.root), 'meta_harness':policy.backend, 'activated':False, 'maintenance':maintenance,
+              'evolver':str(definition.root), 'requested_model':model, 'reasoning_effort':reasoning_effort, 'meta_harness':policy.backend, 'activated':False, 'maintenance':maintenance,
               'execution_policy':policy_document, 'preflight':enforcement}
     if prepare_only:
         result['status']='prepared'
         (session/'control/result.json').write_text(json.dumps(result,indent=2)+'\n')
         return result
-    command = command_for(session, policy, config, 3.0 if budget is None else budget, model=model)
+    command = command_for(session, policy, config, 3.0 if budget is None else budget, model=model, reasoning_effort=reasoning_effort)
     (session/'control/invocation.json').write_text(json.dumps({'argv':command,'cwd':str(session/'host'),'timeout':timeout},indent=2)+'\n')
     env=dict(os.environ);env['ENABLE_TOOL_SEARCH']='false'
     print(f'Evolution session: {session}',flush=True)
@@ -124,9 +124,7 @@ def evolve(source: Path, evidence: Path, goal: str, timeout=240, budget=None, pr
         final=next((e for e in reversed(events) if e.get('type')=='result'),{})
         (session/'control/report.md').write_text(final.get('result','')+'\n')
     else:
-        completed=any(e.get('type')=='turn.completed' for e in events)
-        failed=any(e.get('type') in ('turn.failed','error') for e in events)
-        final={'subtype':'success' if completed and not failed else 'error','is_error':not completed or failed}
+        final=codex_turn_outcome(events)
     admission = definition.finalize(session/'adapter',session)
     candidate=fingerprint(session/'adapter')
     unchanged={'source':fingerprint(source)==baseline['source'],
@@ -164,6 +162,7 @@ def main(argv=None):
     parser.add_argument('--timeout',type=int,default=240)
     parser.add_argument('--output',type=Path,help='Directory for evolution sessions (default: .demo/evolution inside this repo)')
     parser.add_argument('--model',help='Learner model id, overriding the client configuration (codex: -c model=...; Claude Code: --model)')
+    parser.add_argument('--reasoning-effort',choices=['low','medium','high','xhigh'],help='Codex reasoning effort override')
     parser.add_argument('--max-budget-usd',type=float,default=None,help='Claude Code only; default 3 USD there')
     parser.add_argument('--prepare-only',action='store_true')
     parser.add_argument('--block',type=int,default=1,help='Caller-supplied session number')
@@ -192,7 +191,7 @@ def main(argv=None):
     definition=EvolverDefinition(preset,prompt_override=prompt_override)
     policy=load_policy(args.config,backend=args.backend,read_paths=args.read_dir,read_all=args.read_all,network=args.network,defaults=definition.policy.serialize(),working_directory=args.workdir)
     kind='architecture' if args.architecture or (args.reference in ('mwm','prompt-only') and not args.adapter) else 'adapter'
-    result=evolve(source,args.evidence,args.goal,args.timeout,args.max_budget_usd,args.prepare_only,args.block,args.tick,policy,definition,kind,validation_data=args.validation,output=args.output,model=args.model)
+    result=evolve(source,args.evidence,args.goal,args.timeout,args.max_budget_usd,args.prepare_only,args.block,args.tick,policy,definition,kind,validation_data=args.validation,output=args.output,model=args.model,reasoning_effort=args.reasoning_effort)
     print(json.dumps(result,indent=2))
     raise SystemExit(0 if result['status'] in ('prepared','candidate_ready') else 1)
 

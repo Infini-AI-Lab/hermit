@@ -9,23 +9,23 @@
 <h2 id="evolution-yaml">Evolution YAML</h2>
 <pre><code>action: evolve
 architecture: prompt-only
-evidence: ../fixtures/mwm_evidence
+evidence: ../examples/mwm_evidence
 backend: codex
 prompt: Read the evidence and improve ADAPTER.md.
 network: false
 read_access:
   paths: []</code></pre>
 <p>Use adapter instead of architecture to continue an existing candidate. Use prompt_file instead of prompt for a Markdown instruction file. An optional validation field points to a separate validation directory. --template and the YAML template key remain compatibility aliases for architecture.</p>
-<pre><code>./harnessadapter run config/evolve.yaml --dry-run
-./harnessadapter run config/evolve.yaml --prepare-only
-./harnessadapter run config/evolve.yaml</code></pre>
+<pre><code>harnessadapter run config/evolve.yaml --dry-run
+harnessadapter run config/evolve.yaml --prepare-only
+harnessadapter run config/evolve.yaml</code></pre>
 <h2 id="deployment-yaml">Deployment YAML</h2>
 <pre><code>action: deploy
 adapter: prompt-only
 host: codex
 workdir: ../.demo/prompt-only/codex</code></pre>
 <h2 id="evolution-flags">Evolution flags</h2>
-<div class="journal-table-wrap"><table><thead><tr><th scope="col">Flag</th><th scope="col">Meaning</th></tr></thead><tbody><tr><td>--architecture NAME</td><td>Initialize a separate candidate from prompt-only, mwm, or a directory</td></tr><tr><td>positional adapter</td><td>Continue from an existing adapter directory</td></tr><tr><td>--evidence DIR</td><td>Required read-only storage with README.md</td></tr><tr><td>--validation DIR</td><td>Optional visible read-only validation storage</td></tr><tr><td>--prompt TEXT / --prompt-file FILE</td><td>User update instructions</td></tr><tr><td>--evolver NAME</td><td>Reusable basic or mwm preset, or local definition directory</td></tr><tr><td>--backend</td><td>codex or claude-code</td></tr><tr><td>--workdir DIR</td><td>Read-only environment cwd for learner commands</td></tr><tr><td>--read-dir DIR / --read-all</td><td>Additional reads; never grants writes</td></tr><tr><td>--network / --no-network</td><td>Agent tool networking; default on</td></tr><tr><td>--config FILE</td><td>Execution policy in TOML, JSON, or YAML</td></tr><tr><td>--timeout SECONDS</td><td>Model session timeout; default 240</td></tr><tr><td>--max-budget-usd N</td><td>Claude-only model budget; rejected for Codex</td></tr><tr><td>--prepare-only</td><td>Prepare candidate and run permission preflight, no learner model call</td></tr></tbody></table></div>
+<div class="journal-table-wrap"><table><thead><tr><th scope="col">Flag</th><th scope="col">Meaning</th></tr></thead><tbody><tr><td>--architecture NAME</td><td>Initialize a separate candidate from prompt-only, mwm, or a directory</td></tr><tr><td>positional adapter</td><td>Continue from an existing adapter directory</td></tr><tr><td>--evidence DIR</td><td>Required read-only storage with README.md</td></tr><tr><td>--validation DIR</td><td>Optional visible read-only validation storage</td></tr><tr><td>--prompt TEXT / --prompt-file FILE</td><td>User update instructions</td></tr><tr><td>--evolver NAME</td><td>Reusable basic or mwm preset, or local definition directory</td></tr><tr><td>--model ID</td><td>Explicit learner model</td></tr><tr><td>--reasoning-effort LEVEL</td><td>Codex effort: low, medium, high, xhigh</td></tr><tr><td>--backend</td><td>codex or claude-code</td></tr><tr><td>--workdir DIR</td><td>Read-only environment cwd for learner commands</td></tr><tr><td>--read-dir DIR / --read-all</td><td>Additional reads; never grants writes</td></tr><tr><td>--network / --no-network</td><td>Agent tool networking; default on</td></tr><tr><td>--config FILE</td><td>Execution policy in TOML, JSON, or YAML</td></tr><tr><td>--timeout SECONDS</td><td>Model session timeout; default 240</td></tr><tr><td>--max-budget-usd N</td><td>Claude-only model budget; rejected for Codex</td></tr><tr><td>--prepare-only</td><td>Prepare candidate and run permission preflight, no learner model call</td></tr></tbody></table></div>
 <p>Launch YAML uses backend for the learner and host for the acting agent. Unknown fields fail validation. A list of multiple adapters is explicitly rejected until multi-adapter deployment exists.</p>
 <h2 id="training-state-protocol">Training State protocol</h2>
 <p>Training State is an optional input/output for a stateful Evolver, separate from the Adapter and reusable algorithm definition. No generic training-state CLI or YAML field is implemented yet; do not treat run logs as resumable optimizer state. Stateless methods require no state artifact.</p><footer><a href="configuration.md">Markdown source ↓</a><a href="status.html">Next: Status & limits →</a></footer></main>

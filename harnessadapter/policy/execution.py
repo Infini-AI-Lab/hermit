@@ -140,7 +140,7 @@ class PolicySandbox:
         return {'filesystem':self.filesystem(writable=writable),
                 'network':{'enabled':self.policy.network if network is None else network}}
 
-    def run(self, argv, *, cwd=None, network=None, timeout=30):
+    def run(self, argv, *, cwd=None, network=None, timeout=30, output_limit=30000):
         if not self.executor or sys.platform not in ('darwin','linux'):
             raise RuntimeError('Enforcement unavailable: this release requires Codex CLI with its macOS/Linux sandbox backend')
         cwd=Path(cwd or self.policy.working_directory or self.adapter).resolve()
@@ -172,17 +172,20 @@ class PolicySandbox:
             try:os.killpg(process.pid,signal.SIGKILL)
             except ProcessLookupError:pass
             def tail(stream):
-                size=stream.tell();stream.seek(max(0,size-30000))
-                return stream.read().decode('utf-8',errors='replace'),size>30000
+                size=stream.tell();stream.seek(max(0,size-output_limit))
+                return stream.read().decode('utf-8',errors='replace'),size>output_limit
             out,out_cut=tail(stdout);err,err_cut=tail(stderr)
         return {'exit_code':process.returncode,'timed_out':timed_out,'stdout':out,'stderr':err,
                 'output_truncated':out_cut or err_cut}
 
     def operation(self, name, arguments):
         result=self.run([sys.executable,'-m','harnessadapter.policy.operation',
-                         '--session',str(self.session),'--name',name,'--arguments',json.dumps(arguments)],network=False)
+                         '--session',str(self.session),'--name',name,'--arguments',json.dumps(arguments)],network=False,
+                        output_limit=6*1024*1024 if name=='read_image' else 30000)
         if result['exit_code']!=0 or result['timed_out']:
             raise RuntimeError('Sandboxed file operation failed: '+result['stderr'][-1200:])
+        if result['output_truncated']:
+            raise ValueError('Sandboxed file result exceeded its output limit')
         response=json.loads(result['stdout'])
         if 'error' in response:raise ValueError(response['error'])
         return response['result']

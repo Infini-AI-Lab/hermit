@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Framework-owned learner file tools. No shell or arbitrary execution tool."""
+"""Framework-owned learner tools with enforced file, image, and execution boundaries."""
 import argparse
 from datetime import datetime, timezone
 import json
@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from mcp.server import MCPServer
+from mcp.types import CallToolResult, ImageContent, TextContent
 from mcp.server.mcpserver.exceptions import ToolError
 
 from harnessadapter.evolution.workspace import Workspace
@@ -60,6 +61,8 @@ def create_server(root):
                 # Even file operations execute under the OS boundary, not just
                 # a vulnerable check-then-open path test in a privileged broker.
                 result = sandbox.operation(name, args)
+            if name == 'read_image':
+                record['image']={key:result[key] for key in ('mime_type','sha256','bytes')}
             record['status'] = 'ok'
             return result
         except Exception as exc:
@@ -78,6 +81,14 @@ def create_server(root):
     def read_file(area: str, path: str, offset: int = 0) -> dict[str, Any]:
         """Read up to 30,000 characters from a relative file; follow next_offset."""
         return call('read_file', area=area, path=path, offset=offset)
+
+    @server.tool()
+    def read_image(area: str, path: str) -> CallToolResult:
+        """Display one PNG/JPEG (up to 4 MiB) from an authorized workspace area. For Experience frames, use area=evidence and consult their timestamp manifest. Does not play videos."""
+        result=call('read_image',area=area,path=path)
+        metadata={key:value for key,value in result.items() if key != 'data'}
+        return CallToolResult(content=[TextContent(type='text',text=json.dumps(metadata)),
+            ImageContent(type='image',data=result['data'],mime_type=result['mime_type'])])
 
     @server.tool(structured_output=True)
     def write_file(area: str, path: str, content: str) -> dict[str, Any]:

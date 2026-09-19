@@ -1,8 +1,8 @@
 # Deployment
 
 ```sh
-./harnessadapter deploy prompt-only --host codex --workdir .demo/my-codex
-./harnessadapter deploy mwm --host claude-code --workdir .demo/my-claude
+harnessadapter deploy prompt-only --host codex --workdir .demo/my-codex
+harnessadapter deploy mwm --host claude-code --workdir .demo/my-claude
 ```
 
 Deploy consumes the selected adapter. --workdir names a generated acting workspace, not an environment-read grant. This prototype accepts an empty directory or a workspace previously generated for that host. It refuses an unrelated populated project rather than rewriting its configuration.

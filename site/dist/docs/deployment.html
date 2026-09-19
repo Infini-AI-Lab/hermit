@@ -4,8 +4,8 @@
 <body><header><a class="brand" href="../">H<span>↗</span> Harness Adapter</a><a href="../">Design notebook ↗</a></header>
 <div class="layout"><aside class="navigation"><div class="eyebrow">DOCUMENTATION / V0</div><nav aria-label="Documentation"><a href="index.html">Introduction</a><a href="quickstart.html">Quickstart</a><a href="components.html">Components</a><a href="architectures.html">Architectures</a><a href="deployment.html" aria-current="page">Deployment</a><a href="evolution.html">Evolution & experience</a><a href="configuration.html">Configuration</a><a href="status.html">Status & limits</a></nav><div class="note">Local prototype<br>English sources in docs/guide</div></aside>
 <main><div class="eyebrow">GUIDE / 05</div><h1>Deployment</h1>
-<pre><code>./harnessadapter deploy prompt-only --host codex --workdir .demo/my-codex
-./harnessadapter deploy mwm --host claude-code --workdir .demo/my-claude</code></pre>
+<pre><code>harnessadapter deploy prompt-only --host codex --workdir .demo/my-codex
+harnessadapter deploy mwm --host claude-code --workdir .demo/my-claude</code></pre>
 <p>Deploy consumes the selected adapter. --workdir names a generated acting workspace, not an environment-read grant. This prototype accepts an empty directory or a workspace previously generated for that host. It refuses an unrelated populated project rather than rewriting its configuration.</p>
 <h2 id="what-gets-delivered">What gets delivered</h2>
 <div class="journal-table-wrap"><table><thead><tr><th scope="col">Export</th><th scope="col">Codex</th><th scope="col">Claude Code</th></tr></thead><tbody><tr><td>Context</td><td>Marked adapter block in AGENTS.md</td><td>Marked adapter block in CLAUDE.md</td></tr><tr><td>Nonempty tool list</td><td>MCP entry in .codex/config.toml</td><td>MCP entry in .mcp.json</td></tr><tr><td>Optional native roles</td><td>Generated .codex/agents files</td><td>Generated .claude/agents files</td></tr></tbody></table></div>

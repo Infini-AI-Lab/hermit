@@ -3,7 +3,7 @@
 An Evolver can be just a prompt and configuration. It runs through Codex or Claude Code, reads the adapter guide and experience README, and updates a separate candidate.
 
 ```sh
-./harnessadapter evolve --architecture prompt-only \
+harnessadapter evolve --architecture prompt-only \
   --evidence /path/to/evidence \
   --prompt-file /path/to/update-instructions.md \
   --backend codex --no-network
@@ -28,7 +28,7 @@ Provide a directory containing README.md and records in your own format. The REA
 The candidate is writable. Experience, previous revision, and method materials are read-only. Scratch is writable for temporary work. Additional environment reads are explicitly configured.
 
 ```sh
-./harnessadapter evolve /path/to/adapter --evidence /path/to/evidence \
+harnessadapter evolve /path/to/adapter --evidence /path/to/evidence \
   --prompt "Investigate the supplied records and update the adapter." \
   --workdir /path/to/environment --read-dir /path/to/reference
 ```
@@ -38,7 +38,7 @@ Here --workdir is an environment directory: readable, used as command cwd, but n
 ## Optional validation
 
 ```sh
-./harnessadapter evolve --architecture prompt-only \
+harnessadapter evolve --architecture prompt-only \
   --evidence /path/to/evidence --validation /path/to/validation \
   --prompt "Follow the evidence and validation READMEs; report checks performed."
 ```
@@ -72,3 +72,11 @@ Pass --evolver /path/to/my-evolver to reuse it. The bundled MWM preset additiona
 Framework tools enforce the read/write and network policy using an OS sandbox. Both learner backends currently require the Codex CLI as the shared sandbox executor. Authenticated client transport and vendor bookkeeping remain a trusted control plane; this is not a whole-client-process isolation claim.
 
 Each session records the candidate, input snapshots, checks, tool audit, report, and result. candidate_ready means the run completed and structural checks passed. It does not mean measured improvement. No candidate is automatically activated.
+
+## Visual Experience
+
+The Evolver can call read_image(area="evidence", path="observations/frames/frame_000.png") to receive an actual MCP image block. PNG and JPEG are supported up to 4 MiB each. Reads run through the same OS sandbox and workspace containment checks as text reads; traversal and links to unauthorized files are rejected. Image hashes and sizes are logged without duplicating image data in the audit. Native unrestricted view_image remains disabled.
+
+A sequence should include a frame manifest with capture timestamps, order, viewport and pixel dimensions. These are sampled images, not native video input, and may miss fast events. Merely placing a file in the Experience directory does not show it to the model: it must call read_image.
+
+Use --model gpt-5.6-sol --reasoning-effort high for an explicit Codex learner configuration. The reasoning-effort option currently applies only to Codex.
