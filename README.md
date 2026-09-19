@@ -5,7 +5,7 @@
   <img src="assets/wordmark-light.svg" alt="MetaHarnessAdapter" width="540">
 </picture>
 
-**Evolvable adapters for coding agents: learn from experience, deploy as context, tools, and roles.**
+**A Continual Learning Framework for the Deployment and Evolution of Harness Adapters**
 
 [Quickstart](#quickstart) · [How it works](#how-it-works) · [Architectures](#architectures) · [Guide](docs/guide/index.md) · [Status](docs/guide/status.md)
 
@@ -15,15 +15,7 @@
 
 ---
 
-Coding agents such as Codex and Claude Code already have a harness. What they lack is a capability that keeps improving without changing the agent itself. MetaHarnessAdapter adds that layer.
-
-An **Adapter** is a plain directory of prompts, knowledge, ordinary Python functions, and role definitions. The framework projects it into whatever a host understands: project instructions, an MCP server, native subagents. A separate **Evolver** reads recorded experience and rewrites the Adapter inside an OS sandbox, producing a new candidate you can review and deploy. The acting agent and the learning loop stay decoupled.
-
-Use it when you want to:
-
-- Give an existing agent domain knowledge or tools that live outside its prompt and version independently.
-- Turn logs, observations, or feedback into a better Adapter with an explicit, auditable update step.
-- Try different learning methods (a plain prompt-driven Evolver, the bundled MWM method, your own) against the same Adapter.
+MetaHarnessAdapter is an open-source continual learning framework for deploying and evolving external harness adapters. Instead of evolving the original harness, which can be impractical in many cases, we propose optimizing an external, portable harness (harness adapter) to improve agent performance in continual learning. The harness adapter enables us to enhance even complex or black-box agents, such as Codex and Claude Code. This repository provides the abstractions and interfaces that support the deployment and evolution of harness adapters.
 
 ## Quickstart
 
