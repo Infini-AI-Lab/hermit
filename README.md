@@ -1,141 +1,179 @@
-# metaHarnessAdapter
+<div align="center">
 
-A prototype framework for core-only, evolvable Harness Adapters. Adapters contain knowledge, prompts, ordinary Python capabilities, roles, and declarations. The framework owns MCP wrapping, host integration, and candidate evolution outside the adapter.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/wordmark-dark.svg">
+  <img src="assets/wordmark-light.svg" alt="MetaHarnessAdapter" width="540">
+</picture>
 
-The interactive design notebook is in [`site/`](site/README.md). Start it locally:
+**Evolvable adapters for coding agents: learn from experience, deploy as context, tools, and roles.**
+
+[Quickstart](#quickstart) · [How it works](#how-it-works) · [Architectures](#architectures) · [Guide](docs/guide/index.md) · [Status](docs/guide/status.md)
+
+</div>
+
+---
+
+Coding agents such as Codex and Claude Code already have a harness. What they lack is a capability that keeps improving without changing the agent itself. MetaHarnessAdapter adds that layer.
+
+An **Adapter** is a plain directory of prompts, knowledge, ordinary Python functions, and role definitions. The framework projects it into whatever a host understands: project instructions, an MCP server, native subagents. A separate **Evolver** reads recorded experience and rewrites the Adapter inside an OS sandbox, producing a new candidate you can review and deploy. The acting agent and the learning loop stay decoupled.
+
+Use it when you want to:
+
+- Give an existing agent domain knowledge or tools that live outside its prompt and version independently.
+- Turn logs, observations, or feedback into a better Adapter with an explicit, auditable update step.
+- Try different learning methods (a plain prompt-driven Evolver, the bundled MWM method, your own) against the same Adapter.
+
+## Quickstart
+
+Requirements: Python 3.11+, and an installed, signed-in Codex CLI. Claude Code CLI is optional as a second host or learner. Model calls use your existing accounts.
 
 ```sh
-python3 -m http.server 8873 --bind 127.0.0.1 --directory site/dist
-```
-
-Visit <http://127.0.0.1:8873>. The `harnessadapter` package and CLI are implemented; a published release and framework integrations remain planned.
-
-## Install
-
-```sh
-pip install -e .          # Python 3.11+; installs the harnessadapter command
+pip install -e .
 harnessadapter --help
 ```
 
-Evolution sessions need an installed, signed-in Codex CLI (its sandbox is the tool broker for both learner backends) and, for Claude Code as the learner, that CLI too. Learned-program admission needs Linux bubblewrap.
-
-## Start with an architecture
-
-Two initial architectures share the same deployment and evolution pipeline:
-
-| Architecture | Acting exports | Core |
-| --- | --- | --- |
-| `prompt-only` | Markdown context only; no adapter MCP server | One initially empty learned prompt |
-| `mwm` | Generated context + `wm` MCP tool; optional roles later | MWM memory, examples, programs, roles, briefing, journal, cases |
+**1. Deploy a starting architecture to a host.** This generates a managed workspace and opens Codex in it.
 
 ```sh
-harnessadapter evolve --architecture prompt-only --evidence examples/mwm_evidence \
-  --prompt "Read the evidence and improve ADAPTER.md." --no-network
 harnessadapter deploy prompt-only --host codex
-harnessadapter run config/evolve.yaml --dry-run
 ```
 
-Evolution returns a separate candidate directory; deploy that path to use the learned version. Architecture and Evolver are separate choices. Prompt-only does not implement GEPA or SkillOpt. `minimal-shop` remains a pre-populated integration demo.
+**2. Evolve it from experience.** The Evolver reads the evidence directory and writes a candidate under `.demo/evolution/`. The source is never modified.
 
-[Read the guide](docs/guide/index.md), or visit the [local Docs site](http://127.0.0.1:8873/docs/). Optional `--validation DIR` binds read-only, learner-visible storage, not an automatic evaluator.
+```sh
+harnessadapter evolve --architecture prompt-only \
+  --evidence examples/mwm_evidence \
+  --prompt "Read the evidence and write useful, scoped instructions in ADAPTER.md." \
+  --no-network
+```
 
-## Repository layout
+**3. Review and deploy the candidate.** Read the session's `control/report.md`, then deploy the path it reports.
+
+```sh
+harnessadapter deploy /path/to/session/adapter --host codex
+```
+
+The same lifecycle is available from YAML:
+
+```sh
+harnessadapter run config/evolve.yaml --dry-run   # print the equivalent CLI
+harnessadapter run config/evolve.yaml
+```
+
+## How it works
 
 ```text
-harnessadapter/          # the package (pip install -e .)
-  cli.py                   harnessadapter deploy | evolve | run
-  adapter/                 manifest loading, in-process exports, evidence bindings
-  runtime/                 MCP wrapper, bubblewrap execution primitive
-  evolution/               evolution sessions, Evolver definitions, learner clients, launch YAML
-  policy/                  the sandboxed tool broker and its file operations
-  hosts/                   Codex / Claude Code workspace conversion
-  evolvers/                bundled Evolver presets: basic, mwm
-  architectures/           bundled starting structures: prompt_only, mwm
-examples/                # minimal_shop (runnable demo) and mwm_evidence (its synthetic evidence)
-tools/                   # developer scripts (demo runs, verification, MCP smoke)
-docs/  tests/  config/  site/
+  Adapter or Architecture  +  Experience  +  Config  +  Training State (optional)
+                                     │
+                                  Evolver           (runs in an OS sandbox,
+                                     │               bounded file tools only)
+                    ┌────────────────┴────────────────┐
+             Candidate Adapter               Training State (optional)
+                    │                                 │
+            review → deploy                    next iteration
 ```
 
-Bundled evolvers and architectures ship with the package; a local path works wherever a bundled name does. Evolved Adapters are independent outputs, not additions to the bundled architectures: by default candidates go under .demo/evolution/ in the checkout (`--output` names another directory); deploy the candidate path reported by the run.
+The design borrows the vocabulary of model training, because the roles line up:
 
-## Core and framework ownership
+| Model training | MetaHarnessAdapter |
+| --- | --- |
+| Base model | The existing acting agent and its harness |
+| Model architecture | **Architecture**: starting files, representation, interfaces |
+| Trained adaptation module | **Adapter**: the learned prompt, knowledge, code, and roles |
+| Training algorithm | **Evolver**: instructions plus an update procedure |
+| Training data | **Experience**: histories, observations, feedback |
+| Checkpoint / optimizer state | Adapter / optional **Training State** |
+| Inference | Deploying the Adapter to a host |
 
-- `examples/minimal_shop/`: shop knowledge and plain Python capabilities. No MCP server inside.
-- `harnessadapter/architectures/mwm/`: The original MWM layout: prose memory, worked examples, per-tool bundles, SPEC.md roles, briefing, journal, and persistent cases. All core files may evolve.
-- `harnessadapter/adapter/`, `runtime/`, `evolution/`, `policy/`: the shared loader, MCP wrapper, experience binding, tool broker, and candidate evolution facilities.
-- `harnessadapter/evolvers/mwm/`: the MWM method materials, prompt renderer, and journal/docket maintenance.
-- `harnessadapter/hosts/`: Codex / Claude Code workspace conversion; `tools/`: developer verification scripts.
+Architecture and Evolver are independent choices. Adapters are text and code rather than weights, so evolution may change structure, not only content.
 
-[Read the core and evolution contract](docs/core-and-evolution.md), or the [MWM fidelity correction](docs/mwm-fidelity-correction.md).
+**Deployment.** An Adapter exports up to three things. Context is injected into the host's project instructions (`AGENTS.md` or `CLAUDE.md`) inside a marked, replaceable block. Plain Python callables are served as MCP tools by the framework; the Adapter contains no server. Role definitions are converted to native Codex or Claude Code subagents. Hosts start the MCP server themselves; no global settings are touched.
 
-## Optional Training State
+**Evolution.** A learner session (Codex or Claude Code as the model) edits the candidate through framework-owned file tools: list, read, write, move, delete, read image, validate. Every operation executes under the Codex OS sandbox with an explicit policy: the candidate is writable, experience is read-only, additional environment reads are opt-in, and network can be disabled for tools without disabling model inference. Each session records input snapshots, the tool audit, a report, and a result. `candidate_ready` means the run completed and structural checks passed, not that performance improved. Nothing is promoted automatically.
 
-The agreed evolution protocol returns two outputs: an updated Adapter and optional Training State, analogous to a model checkpoint and optimizer state. Stateless Evolvers return no state. Stateful Evolvers define their own state format separately from their reusable logic; acting agents only consume the Adapter. Generic Training State persistence and resume are planned, not current CLI features. See [the component contract](docs/guide/components.md).
+See [Components](docs/guide/components.md), [Evolution](docs/guide/evolution.md), and the [execution policy](docs/execution-policy.md).
+
+## Architectures
+
+Two bundled starting points share one deployment and evolution pipeline. A local directory path works anywhere a bundled name does.
+
+| Architecture | What the host sees | What evolves |
+| --- | --- | --- |
+| `prompt-only` | Markdown context only; no MCP server | One learned `ADAPTER.md`, initially empty |
+| `mwm` | Generated context plus a `wm` MCP tool; optional native roles | Prose memory, worked examples, per-tool bundles, roles, briefing, journal, cases |
+
+```sh
+harnessadapter deploy mwm --host claude-code
+harnessadapter evolve --architecture mwm --evidence examples/mwm_evidence --no-network
+```
+
+Without `--prompt`, `mwm` selects the bundled MWM Evolver, which maintains a journal and docket alongside the memory. With `--prompt`, the generic prompt-driven Evolver runs instead. Pass `--evolver /path/to/definition` to bring your own.
 
 ## Evolver permissions
 
-The candidate is writable, experience is always readable and read-only, and additional environment reads are user-defined. Network is on by default and can be disabled for agent tools and commands without disabling model inference.
-
 ```sh
-harnessadapter evolve mwm --backend codex \
-  --evidence examples/mwm_evidence --no-network
-
-harnessadapter evolve mwm --backend claude-code \
-  --evidence examples/mwm_evidence --read-all
+harnessadapter evolve mwm --backend codex       --evidence ./evidence --no-network
+harnessadapter evolve mwm --backend claude-code --evidence ./evidence --read-all
+harnessadapter evolve mwm --evidence ./evidence --read-dir ../project --model gpt-5.6-sol --reasoning-effort high
 ```
 
-Use `--read-dir` for specific read-only environment directories or `--config config/evolution.toml`. Both clients use framework-controlled tools and real sandbox preflight. The current shared executor requires an installed Codex CLI even for the Claude learner. See [the execution policy](docs/execution-policy.md) for enforcement, runtime exceptions, and network semantics.
+| Flag | Effect |
+| --- | --- |
+| `--evidence DIR` | Read-only experience, snapshotted into the session |
+| `--validation DIR` | Optional read-only storage visible to the learner; not an automatic evaluator |
+| `--read-dir DIR` / `--read-all` | Additional read-only environment access; never grants writes |
+| `--no-network` | Blocks network for tools and commands, not for model inference |
+| `--model` / `--reasoning-effort` | Explicit learner model; effort applies to Codex only |
+| `--prepare-only` | Generate the session without calling a model |
 
-## MWM reference implementation
+Full reference: [Configuration](docs/guide/configuration.md).
 
-```sh
-harnessadapter mwm --codex
-harnessadapter mwm --claude
+## Example: minimal shop
 
-# Invokes the default Codex learner; writes a separate candidate, not this architecture
-harnessadapter evolve mwm --evidence examples/mwm_evidence
-```
-
-The experience is a synthetic integration fixture, not benchmark data. The learner edits through bounded file tools. Learned programs require sandboxed admission; this Mac lacks the Linux backend, so no unsandboxed execution is substituted. Checks establish interface validity, not performance improvement. See the contract for omitted research backends and sandbox limitations.
-
-## Minimal runnable demo
-
-[`examples/minimal_shop/`](examples/minimal_shop/README.md) contains a small memory store, a Context prompt, three ordinary Python capabilities exposed by the framework as MCP tools, and one role converted into native Codex or Claude Code subagent definitions. It is an ordinary directory, with no submodule or nested `.git`. Users can copy it out and initialize an independent Git repository.
-
-From this repository, prepare and open either host:
+[`examples/minimal_shop/`](examples/minimal_shop/README.md) is a complete Adapter in one ordinary directory: a memory store, a context prompt, three Python capabilities exposed as MCP tools, and one role converted to a native subagent. Copy it out to start your own.
 
 ```sh
-# Codex
-harnessadapter minimal-shop --codex
-
-# Claude Code
-harnessadapter minimal-shop --claude
+harnessadapter minimal-shop --codex     # or --claude
 ```
 
 Then send: `Run the adapter integration task in PROMPT.md.`
 
-Python 3.11+, `pip install -e .`, and an installed, signed-in host CLI are required. The host starts the stdio MCP server, so no separate server terminal is needed. Accept the host's normal workspace trust and MCP approval prompts when shown.
+## Repository layout
 
-To prepare without launching:
-
-```sh
-harnessadapter minimal-shop --host codex
-codex -C .demo/codex
-
-harnessadapter minimal-shop --host claude-code
-cd .demo/claude && claude
+```text
+harnessadapter/        the package (pip install -e .)
+  cli.py                 deploy | evolve | run
+  adapter/               manifest loading, in-process exports, evidence bindings
+  runtime/               MCP wrapper, bubblewrap execution primitive
+  evolution/             sessions, Evolver definitions, learner backends, launch YAML
+  policy/                the sandboxed tool broker and its file operations
+  hosts/                 Codex / Claude Code workspace conversion
+  evolvers/              bundled Evolver presets: basic, mwm
+  architectures/         bundled starting structures: prompt_only, mwm
+examples/              minimal_shop demo and mwm_evidence fixture
+docs/                  guide/ plus design notes and contracts
+site/                  interactive design notebook (python3 -m http.server --directory site/dist)
+tests/  tools/  config/
 ```
 
-The dedicated workspaces contain the adapter context, MCP settings, and converted native roles. The launcher preserves normal host settings and does not edit global configuration. Both hosts use a visibly labeled, replaceable adapter block in their project instructions (AGENTS.md or CLAUDE.md), preserving text outside that block. The helper still targets a generated demo workspace, not arbitrary existing-project attachment.
+## Status
 
-This is a source checkout, not a released package or adapter registry. See the [developer instructions](examples/minimal_shop/README.md#developer-checks) for automated trials and verification. The Claude Code trial verified context loading, native child memory calls, and the parent calculation using actual event and server logs.
+This is a working local prototype, not a released package.
 
-## Design documents
+**Implemented.** Prompt-only and MWM architectures. Context injection, MCP registration, and native role conversion for Codex and Claude Code. Prompt-driven evolution with either host as the learner, plus the MWM method preset. OS-enforced tool boundaries with audit records. Sandboxed image reads for visual experience. CLI and YAML launch.
 
-- [Design discussion, 2026-09-18](docs/design-discussion-2026-09-18.md): decisions, rationale, and open questions.
-- [Adapter contract v0](docs/adapter-contract-v0.md): Context, MCP tools, optional role definitions, and optional integration helpers.
-- [Subagent field survey](docs/subagent-fields-2026-09-18.md): candidate extensions and configuration scopes across Codex, Claude Code, Pi, and Hermes.
-- [Claude Code integration findings](docs/claude-demo-findings-2026-09-18.md): native loading, role-name conversion, linked tool calls, and test scope.
-- [Minimal demo findings](docs/minimal-demo-findings-2026-09-18.md): actual MCP and native Codex subagent calls, plus integration issues found during implementation.
+**Not yet.** A published package or SDK. Generic Training State persistence and resume. Automated evaluation, candidate promotion, or rollback. Merging an Adapter into an existing project's settings rather than a generated workspace. GEPA, SkillOpt, Reef, or external Evolver plugins. Both learners currently require the Codex CLI as the sandbox executor; MWM learned-program admission additionally needs Linux bubblewrap.
 
-Repository documentation, code comments, examples, prompts, and website content are maintained in English. Historical execution records retain their original content.
+Details and troubleshooting: [Status and limits](docs/guide/status.md).
+
+## Learn more
+
+- [Guide](docs/guide/index.md): quickstart, components, architectures, deployment, evolution, configuration.
+- [Adapter contract v0](docs/adapter-contract-v0.md): context, MCP tools, optional roles and helpers.
+- [Core and evolution contract](docs/core-and-evolution.md) and the [MWM fidelity correction](docs/mwm-fidelity-correction.md).
+- [Design discussion](docs/design-discussion-2026-09-18.md), [subagent field survey](docs/subagent-fields-2026-09-18.md), and integration findings for [Claude Code](docs/claude-demo-findings-2026-09-18.md) and the [minimal demo](docs/minimal-demo-findings-2026-09-18.md).
+- Interactive design notebook: `python3 -m http.server 8873 --bind 127.0.0.1 --directory site/dist`, then open <http://127.0.0.1:8873>.
+
+## Contributing
+
+Issues and pull requests are welcome. Run `pytest` before submitting; tests that need the Codex sandbox skip automatically when it is absent. Repository documentation, examples, and prompts are maintained in English.

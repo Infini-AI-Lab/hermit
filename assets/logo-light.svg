@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="MetaHarnessAdapter">
+  <g transform="translate(6.4 6.4) scale(0.8)">
+    <path d="M13 22V20A7 7 0 0 1 20 13H22" fill="none" stroke="#1B1D22" stroke-width="10"/>
+    <path d="M42 13H44A7 7 0 0 1 51 20V44A7 7 0 0 1 44 51H20A7 7 0 0 1 13 44V42" fill="none" stroke="#1B1D22" stroke-width="10"/>
+    <rect x="8.0" y="23.75" width="10" height="16.5" rx="1.75" fill="#C6743C"/>
+    <rect x="23.75" y="8.0" width="16.5" height="10" rx="1.75" fill="#C6743C"/>
+  </g>
+</svg>
