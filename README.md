@@ -7,7 +7,7 @@
 
 **A Continual Learning Framework for the Deployment and Evolution of Harness Adapters**
 
-[Quickstart](#quickstart) · [How it works](#how-it-works) · [Architectures](#architectures) · [Guide](docs/guide/index.md) · [Status](docs/guide/status.md)
+[What is a harness adapter?](#what-is-a-harness-adapter) · [Pipeline](#deployment-and-evolution-pipeline) · [Quickstart](#quickstart) · [Architectures](#architectures) · [Guide](docs/guide/index.md) · [Status](docs/guide/status.md)
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-C6743C.svg)](LICENSE) [![Python](https://img.shields.io/badge/python-3.11%2B-1B1D22.svg)](pyproject.toml)
 
@@ -16,6 +16,57 @@
 ---
 
 MetaHarnessAdapter is an open-source continual learning framework for deploying and evolving external harness adapters. Instead of evolving the original harness, which can be impractical in many cases, we propose optimizing an external, portable harness (harness adapter) to improve agent performance in continual learning. The harness adapter enables us to enhance even complex or black-box agents, such as Codex and Claude Code. This repository provides the abstractions and interfaces that support the deployment and evolution of harness adapters.
+
+## What is a harness adapter?
+
+An agent's **harness** is everything around the model that turns it into an agent: the system prompt, the tools, the subagents, the loop. For products such as Codex and Claude Code that harness is fixed, closed, and frequently updated, so improving an agent by editing its harness is impractical.
+
+A **harness adapter** is a separate, portable harness that attaches to the existing one from the outside. It is an ordinary directory of text and code. When deployed, the framework projects it into the three things a host already understands:
+
+| Export | What it becomes in the host | Where it lives in the adapter |
+| --- | --- | --- |
+| Context | A marked, replaceable block in the project instructions (`AGENTS.md` or `CLAUDE.md`) | `ADAPTER.md` or a declared renderer |
+| Tools | An MCP server started by the host, serving the adapter's plain Python callables | `adapter.json` plus ordinary Python modules |
+| Roles | Native Codex or Claude Code subagent definitions | `agents/` |
+
+The adapter contains no server, no host-specific code, and no evolution logic. Those belong to the framework. Because the adapter is external, it can be versioned, shared, and evolved independently, and the same adapter can be deployed to any supported host. Because it is small and legible, every change to it can be reviewed.
+
+Three components divide the work:
+
+- The **acting harness** is the agent that solves tasks, with the adapter attached.
+- The **harness adapter** is the learned artifact: context, knowledge, capabilities, and roles.
+- The **meta harness** is the learner that reads experience and produces a better adapter.
+
+## Deployment and evolution pipeline
+
+```text
+  Adapter or Architecture  +  Experience  +  Config  +  Training State (optional)
+                                     │
+                                  Evolver           (runs in an OS sandbox,
+                                     │               bounded file tools only)
+                    ┌────────────────┴────────────────┐
+             Candidate Adapter               Training State (optional)
+                    │                                 │
+            review → deploy                    next iteration
+```
+
+**Deployment** takes an adapter and a target host and generates a managed workspace: the context block is written into the host's project instructions, the MCP server is registered so the host starts it on launch, and role definitions are converted to native subagents. No global settings are touched. Deploy a bundled architecture to start from an empty adapter, or deploy a candidate that a previous evolution produced.
+
+**Evolution** takes an adapter, a directory of recorded experience, and an Evolver, and produces a new candidate directory. A learner session, with Codex or Claude Code as the model, edits the candidate through framework-owned file tools: list, read, write, move, delete, read image, validate. Every operation runs under the Codex OS sandbox with an explicit policy: the candidate is writable, experience is read-only, additional environment reads are opt-in, and network can be disabled for tools without disabling model inference. Each session records input snapshots, the tool audit, a report, and a result. `candidate_ready` means the run completed and structural checks passed, not that performance improved. Nothing is promoted automatically; the source adapter is never modified.
+
+The design borrows the vocabulary of model training, because the roles line up:
+
+| Model training | MetaHarnessAdapter |
+| --- | --- |
+| Base model | The existing acting agent and its harness |
+| Model architecture | **Architecture**: starting files, representation, interfaces |
+| Trained adaptation module | **Adapter**: the learned prompt, knowledge, code, and roles |
+| Training algorithm | **Evolver**: instructions plus an update procedure |
+| Training data | **Experience**: histories, observations, feedback |
+| Checkpoint / optimizer state | Adapter / optional **Training State** |
+| Inference | Deploying the Adapter to a host |
+
+Architecture and Evolver are independent choices. Adapters are text and code rather than weights, so evolution may change structure, not only content. See [Components](docs/guide/components.md), [Deployment](docs/guide/deployment.md), [Evolution](docs/guide/evolution.md), and the [execution policy](docs/execution-policy.md).
 
 ## Quickstart
 
@@ -53,39 +104,6 @@ The same lifecycle is available from YAML:
 harnessadapter run config/evolve.yaml --dry-run   # print the equivalent CLI
 harnessadapter run config/evolve.yaml
 ```
-
-## How it works
-
-```text
-  Adapter or Architecture  +  Experience  +  Config  +  Training State (optional)
-                                     │
-                                  Evolver           (runs in an OS sandbox,
-                                     │               bounded file tools only)
-                    ┌────────────────┴────────────────┐
-             Candidate Adapter               Training State (optional)
-                    │                                 │
-            review → deploy                    next iteration
-```
-
-The design borrows the vocabulary of model training, because the roles line up:
-
-| Model training | MetaHarnessAdapter |
-| --- | --- |
-| Base model | The existing acting agent and its harness |
-| Model architecture | **Architecture**: starting files, representation, interfaces |
-| Trained adaptation module | **Adapter**: the learned prompt, knowledge, code, and roles |
-| Training algorithm | **Evolver**: instructions plus an update procedure |
-| Training data | **Experience**: histories, observations, feedback |
-| Checkpoint / optimizer state | Adapter / optional **Training State** |
-| Inference | Deploying the Adapter to a host |
-
-Architecture and Evolver are independent choices. Adapters are text and code rather than weights, so evolution may change structure, not only content.
-
-**Deployment.** An Adapter exports up to three things. Context is injected into the host's project instructions (`AGENTS.md` or `CLAUDE.md`) inside a marked, replaceable block. Plain Python callables are served as MCP tools by the framework; the Adapter contains no server. Role definitions are converted to native Codex or Claude Code subagents. Hosts start the MCP server themselves; no global settings are touched.
-
-**Evolution.** A learner session (Codex or Claude Code as the model) edits the candidate through framework-owned file tools: list, read, write, move, delete, read image, validate. Every operation executes under the Codex OS sandbox with an explicit policy: the candidate is writable, experience is read-only, additional environment reads are opt-in, and network can be disabled for tools without disabling model inference. Each session records input snapshots, the tool audit, a report, and a result. `candidate_ready` means the run completed and structural checks passed, not that performance improved. Nothing is promoted automatically.
-
-See [Components](docs/guide/components.md), [Evolution](docs/guide/evolution.md), and the [execution policy](docs/execution-policy.md).
 
 ## Architectures
 
