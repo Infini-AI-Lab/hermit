@@ -20,7 +20,7 @@ async def smoke(adapter: Path):
     run = Path(tempfile.mkdtemp(prefix="smoke-", dir=output))
     audit = run / "tool-calls.jsonl"
     server = StdioServerParameters(command=sys.executable,
-                                   args=[str(ROOT / "framework/mcp_server.py"), "--adapter", str(adapter), "--audit-log", str(audit)],
+                                   args=["-m", "harnessadapter.runtime.mcp_server", "--adapter", str(adapter), "--audit-log", str(audit)],
                                    cwd=run)
     async with Client(server, read_timeout_seconds=20) as client:
         tools = (await client.list_tools()).tools

@@ -10,9 +10,8 @@ import threading
 import unittest
 
 ROOT=Path(__file__).resolve().parents[1]
-sys.path.insert(0,str(ROOT/'framework'))
-from execution_policy import ExecutionPolicy, PolicySandbox, load_policy
-from evolution_backends import command_for
+from harnessadapter.policy.execution import ExecutionPolicy, PolicySandbox, load_policy
+from harnessadapter.evolution.backends import command_for
 from mcp import Client
 from mcp.client.stdio import StdioServerParameters
 
@@ -92,7 +91,7 @@ class PolicyMcpTests(unittest.IsolatedAsyncioTestCase):
     async def test_broker_enforces_network_off_and_exposes_policy(self):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d).resolve();session(root,ExecutionPolicy(network=False))
-            params=StdioServerParameters(command=sys.executable,args=[str(ROOT/'framework/evolution_server.py'),'--session',str(root)])
+            params=StdioServerParameters(command=sys.executable,args=['-m','harnessadapter.evolution.server','--session',str(root)])
             async with Client(params,read_timeout_seconds=30) as client:
                 p=await client.call_tool('get_policy',{})
                 self.assertFalse(p.structured_content['requested']['network'])

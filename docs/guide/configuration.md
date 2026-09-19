@@ -9,7 +9,7 @@ The conceptual input is **Experience**. The existing CLI and YAML spellings rema
 ```yaml
 action: evolve
 architecture: prompt-only
-evidence: ../fixtures/mwm_evidence
+evidence: ../examples/mwm_evidence
 backend: codex
 prompt: Read the evidence and improve ADAPTER.md.
 network: false
@@ -20,9 +20,9 @@ read_access:
 Use adapter instead of architecture to continue an existing candidate. Use prompt_file instead of prompt for a Markdown instruction file. An optional validation field points to a separate validation directory. --template and the YAML template key remain compatibility aliases for architecture.
 
 ```sh
-./harnessadapter run config/evolve.yaml --dry-run
-./harnessadapter run config/evolve.yaml --prepare-only
-./harnessadapter run config/evolve.yaml
+harnessadapter run config/evolve.yaml --dry-run
+harnessadapter run config/evolve.yaml --prepare-only
+harnessadapter run config/evolve.yaml
 ```
 
 ## Deployment YAML

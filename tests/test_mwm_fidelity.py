@@ -9,21 +9,21 @@ import tempfile
 import unittest
 
 ROOT=Path(__file__).resolve().parents[1]
-sys.path.insert(0,str(ROOT/'framework'));sys.path.insert(0,str(ROOT/'tools'))
-from adapter import Adapter
-from prepare_codex_demo import prepare as prepare_codex
-from prepare_claude_demo import prepare as prepare_claude
+from harnessadapter.adapter.loader import Adapter
+from harnessadapter.paths import ARCHITECTURES as ARCH, EVOLVERS
+from harnessadapter.hosts.codex import prepare as prepare_codex
+from harnessadapter.hosts.claude_code import prepare as prepare_claude
 
 
 def copied(root):
     target=root/'adapter'
-    shutil.copytree(ROOT/'architectures/mwm',target,ignore=shutil.ignore_patterns('__pycache__'))
+    shutil.copytree(ARCH/'mwm',target,ignore=shutil.ignore_patterns('__pycache__'))
     return target
 
 
 class MwmFidelityTests(unittest.TestCase):
     def test_initial_layout_and_no_invented_role(self):
-        root=ROOT/'architectures/mwm';adapter=Adapter(root)
+        root=ARCH/'mwm';adapter=Adapter(root)
         for path in ['memory/_template.md','examples/_template.md','tools/_template/TOOL.md',
                      'tools/_template/run.py','tools/_template/test.py','agents/_template/SPEC.md',
                      'meta/cases/README.md','meta/journal.md','consumption/brief.md']:
@@ -59,7 +59,7 @@ class MwmFidelityTests(unittest.TestCase):
             (root/'control').mkdir();(root/'environment').mkdir()
             (core/'meta/journal.md').write_text('# Journal\n\n## Older sessions (digests)\n'+''.join(f'\n## Session {i}\nDigest: fact {i}\nObservation {i}.\n' for i in range(1,8)))
             (core/'meta/cases/01-open.md').write_text('Unresolved investigation.\n'+'x'*4000)
-            spec=importlib.util.spec_from_file_location('method_under_test',ROOT/'evolvers/mwm/prompt.py')
+            spec=importlib.util.spec_from_file_location('method_under_test',EVOLVERS/'mwm/prompt.py')
             method=importlib.util.module_from_spec(spec);spec.loader.exec_module(method)
             result=method.prepare_session(core,root,block=8,tick=20)
             self.assertIn('meta/journal.md',result['rolled'])
@@ -98,7 +98,7 @@ class MwmAdmissionTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(accepted.invoked);self.assertFalse(canary.exists())
 
     async def test_record_addresses_and_turn_windows(self):
-        from resources import EvidenceStore
+        from harnessadapter.adapter.resources import EvidenceStore
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);core=copied(root);ev=root/'evidence/block001';ev.mkdir(parents=True)
             (ev/'q017_case.json').write_text(json.dumps([{'response':'first','observation':'old'},{'response':'second','observation':'new'}]))

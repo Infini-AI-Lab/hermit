@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "harnessadapter"
+version = "0.1.0"
+description = "Evolvable Harness Adapters: cores an acting agent consumes as context, MCP tools and native roles, evolved by sandboxed learner sessions"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp==2.2.0",
+    "jsonschema==4.26.0",
+    "PyYAML==6.0.3",
+]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.scripts]
+harnessadapter = "harnessadapter.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["harnessadapter*"]
+
+[tool.setuptools.package-data]
+harnessadapter = ["evolvers/**/*", "architectures/**/*"]
+
+[tool.setuptools]
+include-package-data = true

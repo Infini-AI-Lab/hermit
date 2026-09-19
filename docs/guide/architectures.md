@@ -5,7 +5,7 @@ An architecture is a starting adapter repo with no learned task knowledge. Evolu
 | | Prompt-only | MWM |
 | --- | --- | --- |
 | Built-in name | prompt-only | mwm |
-| Core directory | architectures/prompt_only | architectures/mwm |
+| Core directory | harnessadapter/architectures/prompt_only | harnessadapter/architectures/mwm |
 | Acting context | ADAPTER.md | Generated from the MWM package |
 | Adapter tools | None | One wm tool |
 | Adapter MCP server | Not registered | Started by the acting host |
@@ -16,7 +16,7 @@ An architecture is a starting adapter repo with no learned task knowledge. Evolu
 ## Repository layout
 
 ```text
-architectures/
+harnessadapter/architectures/
   prompt_only/    Initial prompt structure
   mwm/            Initial world-model structure
 examples/

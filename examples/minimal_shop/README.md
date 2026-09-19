@@ -21,10 +21,10 @@ From the `harnessadapter` repository root, choose one host:
 
 ```sh
 # Prepare and launch Codex
-./harnessadapter minimal-shop --codex
+harnessadapter minimal-shop --codex
 
 # Prepare and launch Claude Code
-./harnessadapter minimal-shop --claude
+harnessadapter minimal-shop --claude
 ```
 
 In the resulting session, send: `Run the adapter integration task in PROMPT.md.`
@@ -83,15 +83,15 @@ The launcher supports minimal-shop, mwm, and local repos using the current Pytho
 The following checks are for development and verification, not required user setup. Run the quick start first to prepare the environment, or use the explicit setup below:
 
 ```sh
-python3 -m venv .venv-demo
-.venv-demo/bin/python -m pip install -r framework/requirements.txt
+python3 -m venv .venv
+.venv/bin/pip install -e ".[test]"
 
 # No model calls: unit checks and a real MCP protocol check
-.venv-demo/bin/python -m unittest discover -s tests -v
-.venv-demo/bin/python tools/smoke_adapter_mcp.py
+.venv/bin/python -m pytest -q tests
+.venv/bin/python tools/smoke_adapter_mcp.py
 
 # Low-level alternative to the quick-start preparation command
-.venv-demo/bin/python tools/prepare_codex_demo.py
+.venv/bin/python -m harnessadapter.hosts.codex
 ```
 
 ### Automated Codex integration trial
@@ -100,7 +100,7 @@ python3 -m venv .venv-demo
 An existing local Codex login is required. The following runs a real model task using the model and reasoning effort in the current global configuration:
 
 ```sh
-.venv-demo/bin/python tools/run_codex_demo.py
+.venv/bin/python tools/run_codex_demo.py
 ```
 
 The runner does not change global Codex settings. It supplies MCP and role settings as command arguments and omits unrelated global MCP servers. It retains the parent session for native subagent creation and does not use `--ephemeral`.
@@ -110,7 +110,7 @@ Logs are saved in `.demo/codex/runs/codex-*/`: `events.jsonl`, `answer.md`, `too
 Verify that run with the framework's helper:
 
 ```sh
-.venv-demo/bin/python tools/verify_codex_demo.py .demo/codex/runs/codex-<run-id>
+.venv/bin/python tools/verify_codex_demo.py .demo/codex/runs/codex-<run-id>
 ```
 
 It checks the native role request, parent/child thread linkage, child memory calls, and parent calculation call, then writes `verification.json`. It depends on the local Codex rollout format.
@@ -122,8 +122,8 @@ You can also open the generated `.demo/codex` folder in the Codex App and send `
 After preparing the Claude workspace:
 
 ```sh
-.venv-demo/bin/python tools/run_claude_demo.py
-.venv-demo/bin/python tools/verify_claude_demo.py .demo/claude/runs/claude-<run-id>
+.venv/bin/python tools/run_claude_demo.py
+.venv/bin/python tools/verify_claude_demo.py .demo/claude/runs/claude-<run-id>
 ```
 
 This calls the existing configured Claude model using the existing login. The trial has a default 180-second timeout and a reported API-cost budget of USD 2; the reported cost is not necessarily an incremental subscription charge. Logs stay in the ignored run directory.
@@ -139,10 +139,10 @@ Copy this directory elsewhere and install its dependencies. Users decide whether
 The copied repo contains core only. Run it using the separately installed framework, for example from a framework checkout:
 
 ```sh
-./harnessadapter /absolute/path/to/copied-adapter --codex
+harnessadapter /absolute/path/to/copied-adapter --codex
 ```
 
-The framework installs its own dependencies and launches `framework/mcp_server.py --adapter <repo>`. No server.py, MCP decorators, host paths, or MCP SDK dependencies belong in the copied adapter. All core files, including adapter.json and adapter_tools.py, may evolve; new revisions must satisfy the public contract.
+The framework installs its own dependencies and launches `harnessadapter/runtime/mcp_server.py --adapter <repo>`. No server.py, MCP decorators, host paths, or MCP SDK dependencies belong in the copied adapter. All core files, including adapter.json and adapter_tools.py, may evolve; new revisions must satisfy the public contract.
 
 ## Verifiable behavior
 

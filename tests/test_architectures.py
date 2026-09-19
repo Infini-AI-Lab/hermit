@@ -7,13 +7,12 @@ import tomllib
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT/'framework'))
-sys.path.insert(0, str(ROOT/'tools'))
-from adapter import Adapter
-from evolution_workspace import Workspace
-from launch import compile_launch
-from prepare_codex_demo import prepare as codex_prepare
-from prepare_claude_demo import prepare as claude_prepare
+from harnessadapter.adapter.loader import Adapter
+from harnessadapter.paths import ARCHITECTURES as ARCH
+from harnessadapter.evolution.workspace import Workspace
+from harnessadapter.evolution.launch import compile_launch
+from harnessadapter.hosts.codex import prepare as codex_prepare
+from harnessadapter.hosts.claude_code import prepare as claude_prepare
 
 
 class ArchitectureTests(unittest.TestCase):
@@ -23,7 +22,7 @@ class ArchitectureTests(unittest.TestCase):
                 output = Path(d)/'host'
                 previous = prepare(ROOT/'examples/minimal_shop', output, sys.executable)
                 self.assertTrue(previous['server'])
-                result = prepare(ROOT/'architectures/prompt_only', output, sys.executable)
+                result = prepare(ARCH/'prompt_only', output, sys.executable)
                 self.assertIsNone(result['server'])
                 self.assertIsNone(result['server_name'])
                 self.assertIsNone(result['audit_log'])
@@ -38,7 +37,7 @@ class ArchitectureTests(unittest.TestCase):
                 else:
                     self.assertEqual(json.loads((output/'.mcp.json').read_text())['mcpServers'], {})
                 self.assertNotIn('wm(', (output/'PROMPT.md').read_text())
-        core = Adapter(ROOT/'architectures/prompt_only')
+        core = Adapter(ARCH/'prompt_only')
         self.assertEqual(core.tools, {})
         self.assertEqual(core.agent_definitions(), [])
 

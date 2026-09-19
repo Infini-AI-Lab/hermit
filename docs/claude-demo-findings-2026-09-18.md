@@ -39,7 +39,7 @@ The interactive shortcut starts ordinary Claude Code with normal settings and pr
 From the framework repository:
 
 ```sh
-./harnessadapter minimal-shop --claude
+harnessadapter minimal-shop --claude
 ```
 
 Then send: `Run the adapter integration task in PROMPT.md.`

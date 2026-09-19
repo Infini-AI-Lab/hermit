@@ -3,8 +3,7 @@ from pathlib import Path
 import sys
 import unittest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
-from adapter_context import START, END, append_context
+from harnessadapter.hosts.context import START, END, append_context
 
 
 class ContextBlockTests(unittest.TestCase):

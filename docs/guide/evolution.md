@@ -3,7 +3,7 @@
 An Evolver can be just a prompt and configuration. It runs through Codex or Claude Code, reads the adapter guide and experience README, and updates a separate candidate.
 
 ```sh
-./harnessadapter evolve --architecture prompt-only \
+harnessadapter evolve --architecture prompt-only \
   --evidence /path/to/evidence \
   --prompt-file /path/to/update-instructions.md \
   --backend codex --no-network
@@ -28,7 +28,7 @@ Provide a directory containing README.md and records in your own format. The REA
 The candidate is writable. Experience, previous revision, and method materials are read-only. Scratch is writable for temporary work. Additional environment reads are explicitly configured.
 
 ```sh
-./harnessadapter evolve /path/to/adapter --evidence /path/to/evidence \
+harnessadapter evolve /path/to/adapter --evidence /path/to/evidence \
   --prompt "Investigate the supplied records and update the adapter." \
   --workdir /path/to/environment --read-dir /path/to/reference
 ```
@@ -38,7 +38,7 @@ Here --workdir is an environment directory: readable, used as command cwd, but n
 ## Optional validation
 
 ```sh
-./harnessadapter evolve --architecture prompt-only \
+harnessadapter evolve --architecture prompt-only \
   --evidence /path/to/evidence --validation /path/to/validation \
   --prompt "Follow the evidence and validation READMEs; report checks performed."
 ```

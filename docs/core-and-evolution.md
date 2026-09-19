@@ -10,10 +10,10 @@ The framework owns loading, MCP wrapping, invocation logging, resource binding, 
 
 | Component | Location in this prototype | Evolver access |
 |---|---|---|
-| Adapter core | `examples/minimal_shop/` or `architectures/mwm/` | Read/write in an independent candidate copy |
-| Method algorithm | `evolvers/mwm/` | Supplies the method prompt and memory index; not part of the candidate |
-| MCP wrapper and loader | `framework/adapter.py`, `framework/mcp_server.py` | No learner edit capability |
-| Host conversion | `tools/prepare_codex_demo.py`, `tools/prepare_claude_demo.py` | No learner edit capability |
+| Adapter core | `examples/minimal_shop/` or `harnessadapter/architectures/mwm/` | Read/write in an independent candidate copy |
+| Method algorithm | `harnessadapter/evolvers/mwm/` | Supplies the method prompt and memory index; not part of the candidate |
+| MCP wrapper and loader | `harnessadapter/adapter/loader.py`, `harnessadapter/runtime/mcp_server.py` | No learner edit capability |
+| Host conversion | `harnessadapter/hosts/codex.py`, `harnessadapter/hosts/claude_code.py` | No learner edit capability |
 | Original experience | Explicit external input, copied into a session snapshot | Read-only through learner tools |
 | Run status, audit, baseline fingerprints | Session `control/` | Not exposed through learner file tools |
 | Temporary work | Session `scratch/` | Read/write, not delivered |
@@ -67,17 +67,17 @@ This is a runnable reference port, not a reproduction of the complete research s
 
 ```sh
 # Use the initial MWM core in either acting host
-./harnessadapter mwm --codex
-./harnessadapter mwm --claude
+harnessadapter mwm --codex
+harnessadapter mwm --claude
 
 # Run an actual MWM learning session against the synthetic fixture
-./harnessadapter evolve mwm --evidence fixtures/mwm_evidence
+harnessadapter evolve mwm --evidence examples/mwm_evidence
 
 # Inspect a prepared learning session without calling a model
-./harnessadapter evolve mwm --evidence fixtures/mwm_evidence --prepare-only
+harnessadapter evolve mwm --evidence examples/mwm_evidence --prepare-only
 
 # After reviewing the reported candidate, prepare a fresh acting workspace
-./harnessadapter /absolute/path/to/session/adapter --host codex \
+harnessadapter /absolute/path/to/session/adapter --host codex \
   --workspace /absolute/path/to/new-host-workspace \
   --evidence /absolute/path/to/session/evidence
 ```

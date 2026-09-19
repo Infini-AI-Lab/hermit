@@ -8,9 +8,10 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / 'framework'))
-from adapter import load_manifest
-from evolution_workspace import Workspace
+from harnessadapter.adapter.loader import load_manifest
+from harnessadapter.runtime import mcp_server as _mcp
+from harnessadapter.paths import ARCHITECTURES as ARCH
+from harnessadapter.evolution.workspace import Workspace
 from mcp import Client
 from mcp.client.stdio import StdioServerParameters
 
@@ -48,7 +49,7 @@ class EvolutionBoundaryTests(unittest.TestCase):
 
 class RuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def test_core_edit_adds_tool_without_wrapper_edit(self):
-        wrapper=ROOT/'framework/mcp_server.py'
+        wrapper=Path(_mcp.__file__)
         before=hashlib.sha256(wrapper.read_bytes()).hexdigest()
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);core=root/'adapter'
@@ -66,7 +67,7 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
                 'input_schema':{'type':'object','properties':{'days_after_delivery':{'type':'integer','minimum':0}},'required':['days_after_delivery'],'additionalProperties':False},
                 'output_schema':{'type':'object','properties':{'eligible':{'type':'boolean'}},'required':['eligible']}})
             (core/'adapter.json').write_text(json.dumps(manifest))
-            params=StdioServerParameters(command=sys.executable,args=[str(wrapper),'--adapter',str(core)])
+            params=StdioServerParameters(command=sys.executable,args=['-m','harnessadapter.runtime.mcp_server','--adapter',str(core)])
             async with Client(params,read_timeout_seconds=20) as client:
                 names={t.name for t in (await client.list_tools()).tools}
                 self.assertIn('check_return_eligibility',names)
@@ -81,10 +82,10 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(hashlib.sha256(wrapper.read_bytes()).hexdigest(),before)
 
     async def test_mwm_trace_requires_explicit_evidence_binding(self):
-        core=ROOT/'architectures/mwm';wrapper=ROOT/'framework/mcp_server.py'
+        core=ARCH/'mwm';wrapper=Path(_mcp.__file__)
         for bound in (False,True):
-            args=[str(wrapper),'--adapter',str(core)]
-            if bound:args.extend(['--evidence',str(ROOT/'fixtures/mwm_evidence')])
+            args=['-m','harnessadapter.runtime.mcp_server','--adapter',str(core)]
+            if bound:args.extend(['--evidence',str(ROOT/'examples/mwm_evidence')])
             async with Client(StdioServerParameters(command=sys.executable,args=args),read_timeout_seconds=20) as client:
                 reply=await client.call_tool('wm',{'name':'trace','args':{'address':'q2'}})
                 self.assertFalse(reply.is_error)

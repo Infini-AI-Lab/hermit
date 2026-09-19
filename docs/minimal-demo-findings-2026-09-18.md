@@ -8,7 +8,7 @@ Date: 2026-09-18. Tested with local Codex CLI 0.154.0, Python 3.12, and MCP Pyth
 
 The example contains a Context document, three memory records, three Python MCP tools, and one native role definition. The MCP server makes no model calls. Codex's native subagent mechanism launches `ha_memory_scout`.
 
-`tools/prepare_codex_demo.py` is an optional deterministic integration helper for this demo, writing to the ignored `.demo/codex/` directory. It is not a completed general Connector.
+`harnessadapter/hosts/codex.py` is an optional deterministic integration helper for this demo, writing to the ignored `.demo/codex/` directory. It is not a completed general Connector.
 
 ## Observed results
 

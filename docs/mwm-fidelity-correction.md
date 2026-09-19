@@ -32,7 +32,7 @@ Only templates are initialized. There are no pre-seeded learned tools or researc
 
 ## Ownership adaptation
 
-The adapter owns its representation and consumption implementation (`interface.py` and `mwm_core/`) as editable core. The framework owns the MCP protocol, host configuration, explicit resource bindings, and file capabilities. MWM-specific maintenance remains in evolvers/mwm/maintenance rather than becoming a universal framework policy.
+The adapter owns its representation and consumption implementation (`interface.py` and `mwm_core/`) as editable core. The framework owns the MCP protocol, host configuration, explicit resource bindings, and file capabilities. MWM-specific maintenance remains in harnessadapter/evolvers/mwm/maintenance rather than becoming a universal framework policy.
 
 Original CONTRACT.md and learner skills are supplied in a read-only method area. Original evidence, environment capability descriptions, controller state, and immutable history snapshots stay outside the core. All core files remain editable. The generated contract explicitly replaces the old write-scope paragraph with this boundary.
 
@@ -50,7 +50,7 @@ The offline reference has no active environment probes, benchmark evaluator, or 
 
 The regression suite checks seed layout, an empty initial role set, one wm export, five-section context ordering, native SPEC conversion and retirement, journal/docket maintenance, original trace addressing, and admission-before-invocation. Admission success/failure policy tests use a stub execution resource; they do not claim a live bubblewrap test on this Mac.
 
-Source: `/Users/haizhong/code/metaworld`, commit `22b67ea64eb86e68b7947f09f940ecee66b967c1`. See evolvers/mwm/source-map.json for source hashes. Original source files and benchmark data were read only. The earlier demo and its raw run logs remain preserved, explicitly superseded as evidence about MWM fidelity.
+Source: `/Users/haizhong/code/metaworld`, commit `22b67ea64eb86e68b7947f09f940ecee66b967c1`. See harnessadapter/evolvers/mwm/source-map.json for source hashes. Original source files and benchmark data were read only. The earlier demo and its raw run logs remain preserved, explicitly superseded as evidence about MWM fidelity.
 
 ## Corrected integration run
 

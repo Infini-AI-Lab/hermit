@@ -1,6 +1,6 @@
 action: evolve
 architecture: mwm
-evidence: ../fixtures/mwm_evidence
+evidence: ../examples/mwm_evidence
 backend: codex
 prompt: >-
   Read the adapter evolution guide and the evidence README.
