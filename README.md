@@ -9,6 +9,8 @@
 
 [Quickstart](#quickstart) · [How it works](#how-it-works) · [Architectures](#architectures) · [Guide](docs/guide/index.md) · [Status](docs/guide/status.md)
 
+[![License](https://img.shields.io/badge/license-Apache--2.0-C6743C.svg)](LICENSE) [![Python](https://img.shields.io/badge/python-3.11%2B-1B1D22.svg)](pyproject.toml)
+
 </div>
 
 ---
@@ -177,3 +179,7 @@ Details and troubleshooting: [Status and limits](docs/guide/status.md).
 ## Contributing
 
 Issues and pull requests are welcome. Run `pytest` before submitting; tests that need the Codex sandbox skip automatically when it is absent. Repository documentation, examples, and prompts are maintained in English.
+
+## License
+
+[Apache License 2.0](LICENSE). Contributions are accepted under the same terms, as described in section 5 of the license.

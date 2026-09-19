@@ -7,6 +7,8 @@ name = "harnessadapter"
 version = "0.1.0"
 description = "Evolvable Harness Adapters: cores an acting agent consumes as context, MCP tools and native roles, evolved by sandboxed learner sessions"
 readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = [
     "mcp==2.2.0",
