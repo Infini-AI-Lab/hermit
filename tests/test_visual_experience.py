@@ -42,7 +42,12 @@ class VisualExperienceTests(unittest.IsolatedAsyncioTestCase):
                 image=next(x for x in reply.content if x.type=='image')
                 self.assertEqual(image.mime_type,'image/png')
                 self.assertEqual(base64.b64decode(image.data),data)
-                for area,path in [('control','private.png'),('evidence','../control/private.png'),('evidence','escape.png'),('evidence','fake.png'),('evidence','huge.png')]:
+                canonical=await client.call_tool('read_image',{'area':'learning_material','path':'frame.png'})
+                self.assertFalse(canonical.is_error)
+                self.assertEqual(base64.b64decode(next(x for x in canonical.content if x.type=='image').data),data)
+                blocked=await client.call_tool('write_file',{'area':'learning_material','path':'frame.png','content':'bad'})
+                self.assertTrue(blocked.is_error)
+                for area,path in [('control','private.png'),('evidence','../control/private.png'),('evidence','escape.png'),('learning_material','escape.png'),('evidence','fake.png'),('evidence','huge.png')]:
                     with self.subTest(area=area,path=path):
                         rejected=await client.call_tool('read_image',{'area':area,'path':path})
                         self.assertTrue(rejected.is_error)

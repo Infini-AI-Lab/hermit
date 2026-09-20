@@ -12,11 +12,13 @@ from mcp.server.stdio import stdio_server
 from mcp.types import CallToolResult, ListToolsResult, TextContent, Tool, ToolAnnotations
 
 from harnessadapter.adapter.loader import Adapter
-from harnessadapter.adapter.resources import EvidenceStore
+from harnessadapter.adapter.resources import LearningMaterial, resolve_learning_material
 
 
-async def serve(root: Path, audit_log: Path | None, evidence: Path | None = None):
-    resources = {"evidence": EvidenceStore(evidence)} if evidence is not None else {}
+async def serve(root: Path, audit_log: Path | None, evidence: Path | None = None, *, learning_material: Path | None = None):
+    evidence = resolve_learning_material(learning_material, evidence)
+    store = LearningMaterial(evidence) if evidence is not None else None
+    resources = {"learning_material": store, "evidence": store} if store is not None else {}
     adapter = Adapter(root, resources=resources)
     if audit_log is not None and audit_log.resolve().is_relative_to(adapter.root):
         raise ValueError("Framework audit logs must live outside the adapter core")
@@ -60,6 +62,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--adapter", type=Path, required=True)
     parser.add_argument("--audit-log", type=Path)
-    parser.add_argument("--evidence", type=Path, help="Optional external evidence directory")
+    material = parser.add_mutually_exclusive_group(required=False)
+    material.add_argument("--learning-material", dest="evidence", type=Path, help="Read-only LearningMaterial directory with README.md")
+    material.add_argument("--evidence", dest="evidence", type=Path, help="Compatibility alias for --learning-material")
     args = parser.parse_args()
     asyncio.run(serve(args.adapter, args.audit_log, args.evidence))

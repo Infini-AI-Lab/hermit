@@ -83,9 +83,9 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_mwm_trace_requires_explicit_evidence_binding(self):
         core=ARCH/'mwm';wrapper=Path(_mcp.__file__)
-        for bound in (False,True):
+        for bound in (None,'--evidence','--learning-material'):
             args=['-m','harnessadapter.runtime.mcp_server','--adapter',str(core)]
-            if bound:args.extend(['--evidence',str(ROOT/'examples/mwm_evidence')])
+            if bound:args.extend([bound,str(ROOT/'examples/mwm_evidence')])
             async with Client(StdioServerParameters(command=sys.executable,args=args),read_timeout_seconds=20) as client:
                 reply=await client.call_tool('wm',{'name':'trace','args':{'address':'q2'}})
                 self.assertFalse(reply.is_error)

@@ -33,11 +33,11 @@ def create_server(root):
                 raise ValueError('Execution policy changed during the session; refusing to continue')
             if name == 'get_policy':
                 result = {'requested': policy.serialize(),
-                          'adapter': str(root / 'adapter'), 'evidence': str(root / 'evidence'),
+                          'adapter': str(root / 'adapter'), 'learning_material': str(root / 'evidence'), 'evidence': str(root / 'evidence'),
                           'scratch': str(root / 'scratch'),
                           'validation': str(root / 'validation') if (root/'validation').is_dir() else None,
                           'working_directory': policy.working_directory or str(root / 'adapter'),
-                          'write_rule': 'Only candidate adapter and isolated scratch are writable; evidence is always readable and read-only.'}
+                          'write_rule': 'Only candidate adapter and isolated scratch are writable; LearningMaterial is always readable and read-only.'}
             elif name == 'run_command':
                 result = sandbox.run(['/bin/sh', '-c', args['command']], cwd=args.get('cwd') or None,
                                      timeout=min(max(args.get('timeout_seconds', 30), 1), 90))
@@ -74,7 +74,7 @@ def create_server(root):
 
     @server.tool(structured_output=True)
     def list_files(area: str) -> dict[str, Any]:
-        """List adapter, evidence, history, scratch, method, environment, or bound validation files."""
+        """List adapter, learning_material (legacy evidence), history, scratch, method, environment, or bound validation files."""
         return call('list_files', area=area)
 
     @server.tool(structured_output=True)
@@ -84,7 +84,7 @@ def create_server(root):
 
     @server.tool()
     def read_image(area: str, path: str) -> CallToolResult:
-        """Display one PNG/JPEG (up to 4 MiB) from an authorized workspace area. For Experience frames, use area=evidence and consult their timestamp manifest. Does not play videos."""
+        """Display one PNG/JPEG (up to 4 MiB) from an authorized workspace area. For LearningMaterial frames, use area=learning_material and consult their timestamp manifest. Does not play videos."""
         result=call('read_image',area=area,path=path)
         metadata={key:value for key,value in result.items() if key != 'data'}
         return CallToolResult(content=[TextContent(type='text',text=json.dumps(metadata)),
@@ -92,7 +92,7 @@ def create_server(root):
 
     @server.tool(structured_output=True)
     def write_file(area: str, path: str, content: str) -> dict[str, Any]:
-        """Create or replace a UTF-8 file in adapter or scratch; evidence is read-only."""
+        """Create or replace a UTF-8 file in adapter or scratch; LearningMaterial is read-only."""
         return call('write_file', area=area, path=path, content=content)
 
     @server.tool(structured_output=True)
@@ -117,12 +117,12 @@ def create_server(root):
 
     @server.tool(structured_output=True)
     def get_policy() -> dict[str, Any]:
-        """Show immutable grants: core read/write, evidence read-only, configured environment reads and network."""
+        """Show immutable grants: core read/write, LearningMaterial read-only, configured environment reads and network."""
         return call('get_policy')
 
     @server.tool(structured_output=True)
     def read_path(path: str, offset: int = 0) -> dict[str, Any]:
-        """Read a filesystem path only within the user-defined read scope. Evidence is always readable."""
+        """Read a filesystem path only within the user-defined read scope. LearningMaterial is always readable."""
         return call('read_path', path=path, offset=offset)
 
     @server.tool(structured_output=True)

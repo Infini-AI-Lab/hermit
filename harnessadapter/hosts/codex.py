@@ -25,7 +25,9 @@ def inside(root: Path, relative: str) -> Path:
     return path
 
 
-def prepare(adapter: Path, output: Path, python: str, evidence: Path | None = None) -> dict:
+def prepare(adapter: Path, output: Path, python: str, evidence: Path | None = None, *, learning_material: Path | None = None) -> dict:
+    from harnessadapter.adapter.resources import resolve_learning_material
+    evidence = resolve_learning_material(learning_material, evidence)
     adapter = adapter.resolve()
     output = output.resolve()
     previous = {}
@@ -67,7 +69,7 @@ def prepare(adapter: Path, output: Path, python: str, evidence: Path | None = No
     server = {"command": python, "args": ["-m", "harnessadapter.runtime.mcp_server", "--adapter", str(adapter), "--audit-log", str(audit)],
               "startup_timeout_sec": 20, "tool_timeout_sec": 20, "required": True}
     if evidence is not None:
-        server["args"].extend(["--evidence", str(evidence.resolve())])
+        server["args"].extend(["--learning-material", str(evidence.resolve())])
     mcp_name = server_name(manifest) if has_tools else None
     if not has_tools:
         server = None

@@ -15,7 +15,9 @@ from harnessadapter.paths import resolve_architecture, workspace_root
 MARKER = ".ha-demo-generated.json"
 
 
-def prepare(adapter: Path, output: Path, python: str, evidence: Path | None = None) -> dict:
+def prepare(adapter: Path, output: Path, python: str, evidence: Path | None = None, *, learning_material: Path | None = None) -> dict:
+    from harnessadapter.adapter.resources import resolve_learning_material
+    evidence = resolve_learning_material(learning_material, evidence)
     adapter, output = adapter.resolve(), output.resolve()
     previous = {}
     if output == adapter or adapter in output.parents or output in adapter.parents:
@@ -65,7 +67,7 @@ def prepare(adapter: Path, output: Path, python: str, evidence: Path | None = No
     server = {"type": "stdio", "command": python,
               "args": ["-m", "harnessadapter.runtime.mcp_server", "--adapter", str(adapter), "--audit-log", str(audit)]}
     if evidence is not None:
-        server["args"].extend(["--evidence", str(evidence.resolve())])
+        server["args"].extend(["--learning-material", str(evidence.resolve())])
     mcp_name = server_name(manifest) if has_tools else None
     if not has_tools:
         server = None

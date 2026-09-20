@@ -20,7 +20,11 @@ from harnessadapter.evolution.definition import EvolverDefinition
 from harnessadapter.paths import PACKAGE_ROOT, resolve_architecture, workspace_root
 
 
-def evolve(source: Path, evidence: Path, goal: str, timeout=240, budget=None, prepare_only=False, block=1, tick=0, policy=None, definition=None, source_kind='adapter', validation_data: Path | None = None, output: Path | None = None, model: str | None = None, reasoning_effort: str | None = None):
+def evolve(source: Path, evidence: Path | None = None, goal: str = "Improve the adapter using supplied LearningMaterial.", timeout=240, budget=None, prepare_only=False, block=1, tick=0, policy=None, definition=None, source_kind='adapter', validation_data: Path | None = None, output: Path | None = None, model: str | None = None, reasoning_effort: str | None = None, learning_material: Path | None = None):
+    from harnessadapter.adapter.resources import resolve_learning_material
+    evidence = resolve_learning_material(learning_material, evidence)
+    if evidence is None:
+        raise ValueError("LearningMaterial is required")
     definition = definition or EvolverDefinition('mwm')
     policy = policy or definition.policy
     if policy.backend == 'codex' and budget is not None:
@@ -34,15 +38,15 @@ def evolve(source: Path, evidence: Path, goal: str, timeout=240, budget=None, pr
             raise ValueError('Validation storage must be a directory with README.md')
         for other in (source, evidence):
             if validation_data == other or validation_data in other.parents or other in validation_data.parents:
-                raise ValueError('Validation storage must be separate from adapter and evidence')
+                raise ValueError('Validation storage must be separate from adapter and LearningMaterial')
     manifest=load_manifest(source)
     guide=manifest.get('evolver_readme','EVOLVER.md')
     from harnessadapter.adapter.loader import inside
     inside(source,guide)
     if not evidence.is_dir() or evidence == source or source in evidence.parents or evidence in source.parents:
-        raise ValueError('Evidence must be a separate directory outside the adapter')
+        raise ValueError('LearningMaterial must be a separate directory outside the adapter')
     if not (evidence/'README.md').is_file():
-        raise ValueError('Evidence storage must provide README.md describing its records and structure')
+        raise ValueError('LearningMaterial must provide README.md describing its records and structure')
     # Sessions default to the ignored .demo/evolution; a caller running a campaign
     # elsewhere names its own output root so its records never enter this repo.
     output = (output.resolve() if output is not None else workspace_root() / 'evolution')
@@ -61,7 +65,7 @@ def evolve(source: Path, evidence: Path, goal: str, timeout=240, budget=None, pr
     maintenance = definition.prepare_session(session/'adapter', session, block=block, tick=tick)
     # Evidence is an intrinsic read-only area, independent of optional environment grants.
     policy_document = {'requested': policy.serialize(), 'candidate': str(session/'adapter'),
-                       'evidence': str(session/'evidence'), 'scratch': str(session/'scratch'),
+                       'learning_material': str(session/'evidence'), 'evidence': str(session/'evidence'), 'scratch': str(session/'scratch'),
                        'write_scope': 'candidate-and-scratch-only',
                        'network_scope': 'agent tool/command traffic; model API transport is separate',
                        'executor': 'codex sandbox (shared by both learner backends)'}
@@ -70,8 +74,8 @@ def evolve(source: Path, evidence: Path, goal: str, timeout=240, budget=None, pr
     enforcement = sandbox.preflight()
     (session/'control/preflight.json').write_text(json.dumps(enforcement,indent=2)+'\n')
     environment_text = (
-        '# Execution environment and evidence\n\n'
-        'The adapter candidate is readable/writable. The evidence store is always readable and read-only; its README defines its format. '
+        '# Execution environment and LearningMaterial\n\n'
+        'The adapter candidate is readable/writable. LearningMaterial is always readable and read-only; its README defines its format. MCP area learning_material and legacy area evidence resolve to the same immutable evidence/ snapshot. '
         'Method materials and history are also read-only. Only adapter and isolated scratch accept writes.\n\n'
         'Additional environment read scope: ' + json.dumps(policy.serialize()['read_access']) + '\n'
         'Default command working directory: ' + (policy.working_directory or str(session/'adapter')) + '\n'
@@ -94,7 +98,7 @@ def evolve(source: Path, evidence: Path, goal: str, timeout=240, budget=None, pr
            'args':['-m', 'harnessadapter.evolution.server', '--session', str(session)]}}}
     config = session/'control/mcp.json'; config.write_text(json.dumps(mcp, indent=2)+'\n')
     result = {'session':str(session), 'source':str(source), 'candidate':str(session/'adapter'),
-              'source_kind':source_kind,'candidate_kind':'adapter',
+              'source_kind':source_kind,'candidate_kind':'adapter','learning_material':str(session/'evidence'),
               'validation_data':str(session/'validation') if validation_data is not None else None,
               'source_revision':hashlib.sha256(json.dumps(baseline['source'],sort_keys=True).encode()).hexdigest(),
               'evolver':str(definition.root), 'requested_model':model, 'reasoning_effort':reasoning_effort, 'meta_harness':policy.backend, 'activated':False, 'maintenance':maintenance,
@@ -156,9 +160,11 @@ def main(argv=None):
     prompts=parser.add_mutually_exclusive_group()
     prompts.add_argument('--prompt',help='Your update instructions; no Evolver files required')
     prompts.add_argument('--prompt-file',type=Path,help='Read your update instructions from Markdown')
-    parser.add_argument('--evidence',type=Path,required=True)
+    material = parser.add_mutually_exclusive_group(required=True)
+    material.add_argument("--learning-material", dest="evidence", type=Path, help="Read-only LearningMaterial directory with README.md")
+    material.add_argument("--evidence", dest="evidence", type=Path, help="Compatibility alias for --learning-material")
     parser.add_argument('--validation',type=Path,help='Optional read-only validation storage with README.md; no automatic evaluator')
-    parser.add_argument('--goal',default='Improve the selected adapter using supplied evidence. Follow its evolution guide and report verified changes.')
+    parser.add_argument('--goal',default='Improve the selected adapter using supplied LearningMaterial. Follow its evolution guide and report verified changes.')
     parser.add_argument('--timeout',type=int,default=240)
     parser.add_argument('--output',type=Path,help='Directory for evolution sessions (default: .demo/evolution inside this repo)')
     parser.add_argument('--model',help='Learner model id, overriding the client configuration (codex: -c model=...; Claude Code: --model)')

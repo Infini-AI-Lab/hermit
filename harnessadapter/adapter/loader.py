@@ -87,7 +87,14 @@ class Adapter:
         self.manifest = load_manifest(self.root)
         self.tools = {t["name"]: t for t in self.manifest.get("tools", [])}
         self.functions = {}
-        self.resources = resources or {}
+        self.resources = dict(resources or {})
+        material = self.resources.get('learning_material')
+        legacy = self.resources.get('evidence')
+        if material is not None and legacy is not None and material is not legacy:
+            raise ValueError('Conflicting learning_material and legacy evidence resources')
+        material = material if material is not None else legacy
+        if material is not None:
+            self.resources['learning_material'] = self.resources['evidence'] = material
         from harnessadapter.runtime.python_sandbox import PythonSandbox
         self.resources.setdefault("python_sandbox", PythonSandbox(self.root))
         self.namespace = "_adapter_" + uuid.uuid4().hex

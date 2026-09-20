@@ -12,9 +12,13 @@ import yaml
 def compile_launch(path: Path, prepare_only=False):
     path=path.resolve();data=yaml.safe_load(path.read_text())
     if not isinstance(data,dict):raise ValueError('Launch YAML must contain a mapping')
-    allowed={'action','adapter','adapters','architecture','template','evidence','validation','prompt','prompt_file','evolver',
+    allowed={'action','adapter','adapters','architecture','template','learning_material','evidence','validation','prompt','prompt_file','evolver',
              'backend','model','reasoning_effort','host','workdir','read_access','network','prepare_only','timeout','max_budget_usd'}
     if set(data)-allowed:raise ValueError('Unknown launch fields: '+', '.join(sorted(set(data)-allowed)))
+    if 'learning_material' in data and 'evidence' in data:
+        raise ValueError('Specify learning_material or legacy evidence, not both')
+    if 'learning_material' in data:
+        data['evidence'] = data['learning_material']
     action=data.get('action')
     if action not in ('deploy','evolve'):raise ValueError('action must be deploy or evolve')
     def string(key):
@@ -47,7 +51,7 @@ def compile_launch(path: Path, prepare_only=False):
         if 'host' in data or adapters is not None:raise ValueError('Evolution uses backend and a single adapter/architecture')
         cmd.extend(['--architecture',location(template,True)] if template else [location(adapter,True)])
         if string('validation'):cmd.extend(['--validation',location(data['validation'])])
-        if not string('evidence'):raise ValueError('Evolution requires evidence storage')
+        if not string('evidence'):raise ValueError('Evolution requires LearningMaterial')
         if string('prompt') and string('prompt_file'):raise ValueError('Choose prompt or prompt_file')
         if string('prompt'):cmd.extend(['--prompt',data['prompt']])
         if string('prompt_file'):cmd.extend(['--prompt-file',location(data['prompt_file'])])
@@ -77,7 +81,7 @@ def compile_launch(path: Path, prepare_only=False):
                 if isinstance(value,bool) or not isinstance(value,(int,float)) or value<=0:raise ValueError(key+' must be positive')
                 cmd.extend([flag,str(value)])
     if string('workdir'):cmd.extend(['--workdir',location(data['workdir'])])
-    if string('evidence'):cmd.extend(['--evidence',location(data['evidence'])])
+    if string('evidence'):cmd.extend(['--learning-material',location(data['evidence'])])
     if 'prepare_only' in data and not isinstance(data['prepare_only'],bool):raise ValueError('prepare_only must be boolean')
     if prepare_only or data.get('prepare_only',False):cmd.append('--prepare-only')
     return cmd

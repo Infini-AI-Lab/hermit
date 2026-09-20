@@ -38,12 +38,14 @@ class Workspace:
         self.root = root.resolve()
         self.areas = {name: self.root / name for name in ('adapter', 'evidence', 'scratch', 'method', 'environment', 'history')}
 
+        self.areas['learning_material'] = self.areas['evidence']
+
         if (self.root / 'validation').is_dir():
             self.areas['validation'] = self.root / 'validation'
 
     def path(self, area, relative, write=False):
         if area not in self.areas or (write and area not in ('adapter', 'scratch')):
-            raise ValueError('Read: adapter/evidence/scratch/method/environment. Write: adapter/scratch only.')
+            raise ValueError('Read: adapter/learning_material (legacy evidence)/scratch/method/environment/history. Write: adapter/scratch only.')
         if not isinstance(relative, str) or Path(relative).is_absolute() or '..' in Path(relative).parts or '.git' in Path(relative).parts:
             raise ValueError('Use a relative path without parent traversal or .git')
         base = self.areas[area].resolve()
