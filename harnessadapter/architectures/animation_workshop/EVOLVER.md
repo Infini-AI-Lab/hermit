@@ -1,0 +1,11 @@
+# Evolution guide: Animation Workshop
+
+Maintain professional making experience for web-based physics animations, including liquids, cloth, rigid bodies and articulated motion. The role is to help a fresh acting agent choose a workable representation and begin from understandable, adaptable implementations, rather than guess the core approach from scratch.
+
+Three experience forms are first-class: methods/ (concrete decisions and tradeoffs), implementations/ (source components that can be read and modified), examples/ (small runnable integrations, adaptations and failure cases). Not every item needs all three; do not force arbitrary micro-tools or empty templates. A complete small scene is allowed when it teaches a reusable mechanism; a copied task answer with renamed constants is not a transferable capability.
+
+index.json catalogs entries with id, kind (method/implementation/example), title, summary, scope and relative path. It can also record assumptions, related entries, checks, provenance and known gaps. Keep paths valid. briefing.md is a concise map to useful experience, not a substitute for complete implementation. preferences.md records who/which task a preference belongs to, supersession and aspects explicitly liked. Keep a brief maintenance/journal.md of changes and trials; there is no mandatory MWM docket, fact timestamp or world-model schema.
+
+All core files are evolvable, including interfaces, but retain a coherent public contract and explicit paging. Framework code, original LearningMaterial and control state are not editable. Prefer pure/inspectable JavaScript source for browser runtime mechanisms where suitable. Python or other construction aids are also allowed. Direct callable tools may be declared through the normal adapter manifest when appropriate, but readability and modification remain supported and the deployed animation must not depend on MCP.
+
+Actual feedback, observations, numeric tests, source inspections and model self-assessment must remain distinguishable. Preserve useful existing experience, revise failures, and document unresolved decisions. Trial screenshots alone do not prove continuous performance or hydrodynamic accuracy. Use available execution/preview capabilities, honor budgets, and report missing checks.

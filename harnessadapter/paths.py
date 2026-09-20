@@ -4,8 +4,8 @@ from pathlib import Path
 PACKAGE_ROOT = Path(__file__).resolve().parent
 EVOLVERS = PACKAGE_ROOT / "evolvers"              # bundled Evolver presets
 ARCHITECTURES = PACKAGE_ROOT / "architectures"    # bundled starting structures
-BUILTIN_ARCHITECTURES = {"prompt-only": ARCHITECTURES / "prompt_only", "mwm": ARCHITECTURES / "mwm"}
-BUILTIN_EVOLVERS = {"basic", "mwm", "animation-coach", "physics-builder", "physics-builder-v2"}
+BUILTIN_ARCHITECTURES = {"prompt-only": ARCHITECTURES / "prompt_only", "mwm": ARCHITECTURES / "mwm", "animation-workshop": ARCHITECTURES / "animation_workshop"}
+BUILTIN_EVOLVERS = {"basic", "mwm", "animation-coach", "physics-builder", "physics-builder-v2", "animation-workshop"}
 
 
 def repo_root() -> Path | None:

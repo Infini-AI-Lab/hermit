@@ -17,7 +17,7 @@ from harnessadapter.policy.execution import ExecutionPolicy, PolicySandbox, load
 from harnessadapter.evolution.backends import command_for, codex_turn_outcome
 from harnessadapter.evolution.definition import EvolverDefinition
 
-from harnessadapter.paths import PACKAGE_ROOT, resolve_architecture, workspace_root
+from harnessadapter.paths import PACKAGE_ROOT, resolve_architecture, workspace_root, BUILTIN_ARCHITECTURES
 
 
 def evolve(source: Path, evidence: Path | None = None, goal: str = "Improve the adapter using supplied LearningMaterial.", timeout=240, budget=None, prepare_only=False, block=1, tick=0, policy=None, definition=None, source_kind='adapter', validation_data: Path | None = None, output: Path | None = None, model: str | None = None, reasoning_effort: str | None = None, learning_material: Path | None = None, preview_enabled: bool = False):
@@ -198,7 +198,7 @@ def main(argv=None):
         preset=args.evolver or ('basic' if prompt_override is not None else 'mwm' if reference=='mwm' else 'basic')
     definition=EvolverDefinition(preset,prompt_override=prompt_override)
     policy=load_policy(args.config,backend=args.backend,read_paths=args.read_dir,read_all=args.read_all,network=args.network,defaults=definition.policy.serialize(),working_directory=args.workdir)
-    kind='architecture' if args.architecture or (args.reference in ('mwm','prompt-only') and not args.adapter) else 'adapter'
+    kind='architecture' if args.architecture or (args.reference in BUILTIN_ARCHITECTURES and not args.adapter) else 'adapter'
     result=evolve(source,args.evidence,args.goal,args.timeout,args.max_budget_usd,args.prepare_only,args.block,args.tick,policy,definition,kind,validation_data=args.validation,output=args.output,model=args.model,reasoning_effort=args.reasoning_effort)
     print(json.dumps(result,indent=2))
     raise SystemExit(0 if result['status'] in ('prepared','candidate_ready') else 1)

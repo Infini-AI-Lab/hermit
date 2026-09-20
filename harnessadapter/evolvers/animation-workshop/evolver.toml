@@ -1,0 +1,9 @@
+prompt = "PROMPT.md"
+requires_validation = false
+
+[execution]
+backend = "codex"
+network = true
+
+[execution.read_access]
+paths = []
