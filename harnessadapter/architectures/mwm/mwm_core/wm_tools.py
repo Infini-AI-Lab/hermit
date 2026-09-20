@@ -30,6 +30,7 @@ serves channel actions.
 from __future__ import annotations
 
 import os
+import hashlib
 import re
 import subprocess
 from pathlib import Path
@@ -38,6 +39,7 @@ from . import clbench_recall
 
 # Same values as the database venue's channel serving.
 TOOL_OUT_CHARS = 4000
+READ_PAGE_MAX_CHARS = 16000
 SEARCH_MAX_HITS = 20
 
 # Memory delivery (frozen-setting v1.1).
@@ -249,6 +251,49 @@ def read_memory(wrepo: str | Path, name: str) -> str:
                 + f"\n[... truncated at {MEMORY_OUT_CHARS} chars of "
                 f"{len(text)}]")
     return text
+
+
+def read_target_page(wrepo: Path, evidence_dir: Path, target: str,
+                     offset: int = 0, limit: int = TOOL_OUT_CHARS,
+                     expected_sha256: str | None = None) -> dict:
+    """Read one text page. Offsets count Unicode code points, not bytes."""
+    if type(offset) is not int or offset < 0:
+        raise ValueError("offset must be a nonnegative integer")
+    if type(limit) is not int or not 1 <= limit <= READ_PAGE_MAX_CHARS:
+        raise ValueError(f"limit must be an integer from 1 to {READ_PAGE_MAX_CHARS}")
+    if expected_sha256 is not None and (
+        not isinstance(expected_sha256, str)
+        or not re.fullmatch(r"[0-9a-f]{64}", expected_sha256)
+    ):
+        raise ValueError("expected_sha256 must be a lowercase SHA-256 digest")
+    target = (target or "").strip()
+    if target.startswith('/world-model/'):
+        root, relative = wrepo.resolve(), target[len('/world-model/'):]
+    elif target.startswith('/evidence/'):
+        root, relative = evidence_dir.resolve(), target[len('/evidence/'):]
+    else:
+        raise ValueError('give a /world-model/... or /evidence/... path')
+    path = (root / relative).resolve()
+    if not path.is_relative_to(root):
+        raise ValueError('denied: path escapes the requested area')
+    if path.is_dir():
+        content = '\n'.join(sorted(item.name for item in path.iterdir()))
+        raw, kind = content.encode('utf-8'), 'directory'
+    elif path.is_file():
+        raw, kind = path.read_bytes(), 'file'
+        content = raw.decode('utf-8', errors='replace')
+    else:
+        raise ValueError(f'not found: {target!r}')
+    digest = hashlib.sha256(raw).hexdigest()
+    if expected_sha256 is not None and expected_sha256 != digest:
+        raise ValueError('content changed since the previous page; restart at offset 0')
+    if offset > len(content):
+        raise ValueError(f'offset exceeds total_chars ({len(content)})')
+    end = min(offset + limit, len(content))
+    return {'text': content[offset:end], 'path': target, 'kind': kind,
+            'offset': offset, 'limit': limit, 'total_chars': len(content),
+            'next_offset': end if end < len(content) else None,
+            'eof': end == len(content), 'sha256': digest}
 
 
 def _read_target(wrepo: Path, evidence_dir: Path, target: str) -> str:

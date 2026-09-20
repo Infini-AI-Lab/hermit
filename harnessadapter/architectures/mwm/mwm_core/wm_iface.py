@@ -125,7 +125,13 @@ briefing offers it, nothing requires it. Built-in names, input -> output:
   read     input {"path": "<a /world-model/... path — from the layout
     that list returns, from a search hit, or a directory: reading
     /world-model/ lists what is there>"}
-    output: the file's text, or the directory's listing.
+    optional args: offset (default 0), limit (default 4000, max 16000),
+      expected_sha256 (use a prior page's sha256 to detect content changes).
+    output: text plus total_chars, next_offset, eof, and sha256 through MCP.
+      Read another page only when useful, using the returned next_offset.
+      Offsets count Unicode characters, not bytes. Concatenate text fields
+      to reconstruct source; metadata is not part of the source. Short text
+      need not be followed by another call. No automatic full-file read.
     e.g. {eg_read}
 
   list     input {}
@@ -430,7 +436,9 @@ class WorldModelInterface:
             if name == "search":
                 return wm_tools._search(self.wrepo, str(args.get("query", "")))
             if name == "read":
-                return self._read(str(args.get("path", "")))
+                return self._read(str(args.get("path", "")),
+                                  args.get("offset", 0), args.get("limit", 4000),
+                                  args.get("expected_sha256"))
             if name == "run":
                 if not self.code_channel:
                     return ("run: not available in this deployment (the "
@@ -490,16 +498,32 @@ class WorldModelInterface:
         return (f"\nraw record: {n} — wm(name=\"trace\", args={{\"address\": "
                 f"\"{address}\"}}), or the file {mount}")
 
-    def _read(self, target: str) -> str:
+    def read_page(self, target: str, offset=0, limit=4000,
+                  expected_sha256=None) -> dict:
         target = (target or "").strip()
         if target.startswith("/evidence"):
-            return ("read: /evidence is not reachable through wm — earlier "
+            raise ValueError("/evidence is not reachable through wm — earlier "
                     "episodes reach you as worked examples (recall); where "
                     "your harness reads files directly, open the record "
                     "store yourself")
         if not target.startswith("/world-model/"):
-            return f"read: give a /world-model/... path, not {target!r}"
-        return wm_tools._read_target(self.wrepo, self.evidence_dir, target)
+            raise ValueError(f"give a /world-model/... path, not {target!r}")
+        return wm_tools.read_target_page(self.wrepo, self.evidence_dir, target,
+                                         offset, limit, expected_sha256)
+
+    def _read(self, target: str, offset=0, limit=4000,
+              expected_sha256=None) -> str:
+        try:
+            page = self.read_page(target, offset, limit, expected_sha256)
+        except (ValueError, OSError) as exc:
+            return f"read: {exc}"
+        if page['eof']:
+            return page['text']
+        # Text-only callers must also be told when more source remains.
+        followup = {'path': target, 'offset': page['next_offset'],
+                    'limit': limit, 'expected_sha256': page['sha256']}
+        return (page['text'] + '\n[More text available; continue when useful: '
+                + 'wm(name="read", args=' + json.dumps(followup) + ')]')
 
     def _run_tool(self, name: str, args: dict) -> str:
         if "/" in name or name.startswith("."):

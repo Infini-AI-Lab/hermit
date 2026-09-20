@@ -13,6 +13,8 @@ from mcp.server.mcpserver.exceptions import ToolError
 from harnessadapter.evolution.workspace import Workspace
 from harnessadapter.policy.execution import ExecutionPolicy, PolicySandbox
 import sys
+import re
+import uuid
 from urllib.parse import urlparse
 
 
@@ -38,6 +40,25 @@ def create_server(root):
                           'validation': str(root / 'validation') if (root/'validation').is_dir() else None,
                           'working_directory': policy.working_directory or str(root / 'adapter'),
                           'write_rule': 'Only candidate adapter and isolated scratch are writable; LearningMaterial is always readable and read-only.'}
+            elif name == 'request_preview':
+                if not policy_document.get('preview_enabled'):
+                    raise ValueError('No browser preview renderer is bound')
+                queue = root / 'control/preview_jobs'
+                queue.mkdir(exist_ok=True)
+                if len(list(queue.iterdir())) >= 2:
+                    raise ValueError('This evolution has used its two preview requests')
+                snapshot = sandbox.operation('snapshot_preview', args)
+                identifier = uuid.uuid4().hex
+                job = queue / identifier
+                job.mkdir()
+                (job / 'index.html').write_text(snapshot['html'])
+                result = {'id': identifier, 'status': 'pending', 'source_sha256': snapshot['sha256'],
+                          'network': policy.network, 'source': args, 'poll_after_seconds': 15}
+                (job / 'status.json').write_text(json.dumps(result))
+            elif name == 'get_preview':
+                if not re.fullmatch(r'[0-9a-f]{32}', args['identifier']):
+                    raise ValueError('Invalid preview identifier')
+                result = json.loads((root / 'control/preview_jobs' / args['identifier'] / 'status.json').read_text())
             elif name == 'run_command':
                 result = sandbox.run(['/bin/sh', '-c', args['command']], cwd=args.get('cwd') or None,
                                      timeout=min(max(args.get('timeout_seconds', 30), 1), 90))
@@ -73,8 +94,18 @@ def create_server(root):
                 stream.write(json.dumps(record) + '\n')
 
     @server.tool(structured_output=True)
+    def request_preview(area: str, path: str) -> dict[str, Any]:
+        """If a renderer is bound, snapshot one self-contained HTML example (<=1MB) for asynchronous canvas frames. Max two per session; no local companion files. CDN follows network policy. These are observations, not a quality score."""
+        return call('request_preview', area=area, path=path)
+
+    @server.tool(structured_output=True)
+    def get_preview(identifier: str) -> dict[str, Any]:
+        """Read pending/complete/error preview status. Wait at least 15 seconds between polls; do other work while pending. Completed images are in read-only observations/."""
+        return call('get_preview', identifier=identifier)
+
+    @server.tool(structured_output=True)
     def list_files(area: str) -> dict[str, Any]:
-        """List adapter, learning_material (legacy evidence), history, scratch, method, environment, or bound validation files."""
+        """List adapter, learning_material (legacy evidence), history, scratch, method, environment, observations, or bound validation files."""
         return call('list_files', area=area)
 
     @server.tool(structured_output=True)

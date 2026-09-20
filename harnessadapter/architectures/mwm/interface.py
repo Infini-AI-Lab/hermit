@@ -51,5 +51,13 @@ def wm(name: str, args: dict | None = None, _resources=None) -> dict:
         if '/' in address or '\\' in address or address.startswith('.'):
             return {'text':'invalid memory or record address'}
     token=capabilities.RESOURCES.set(resources)
-    try:return {'text':Interface(resources).call(name,args)}
+    try:
+        if name.strip().lower() == 'read':
+            try:
+                return Interface(resources).read_page(
+                    str(args.get('path', '')), args.get('offset', 0),
+                    args.get('limit', 4000), args.get('expected_sha256'))
+            except (ValueError, OSError) as exc:
+                return {'text': f'read: {exc}', 'error': 'read_failed'}
+        return {'text':Interface(resources).call(name,args)}
     finally:capabilities.RESOURCES.reset(token)

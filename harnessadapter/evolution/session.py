@@ -20,7 +20,7 @@ from harnessadapter.evolution.definition import EvolverDefinition
 from harnessadapter.paths import PACKAGE_ROOT, resolve_architecture, workspace_root
 
 
-def evolve(source: Path, evidence: Path | None = None, goal: str = "Improve the adapter using supplied LearningMaterial.", timeout=240, budget=None, prepare_only=False, block=1, tick=0, policy=None, definition=None, source_kind='adapter', validation_data: Path | None = None, output: Path | None = None, model: str | None = None, reasoning_effort: str | None = None, learning_material: Path | None = None):
+def evolve(source: Path, evidence: Path | None = None, goal: str = "Improve the adapter using supplied LearningMaterial.", timeout=240, budget=None, prepare_only=False, block=1, tick=0, policy=None, definition=None, source_kind='adapter', validation_data: Path | None = None, output: Path | None = None, model: str | None = None, reasoning_effort: str | None = None, learning_material: Path | None = None, preview_enabled: bool = False):
     from harnessadapter.adapter.resources import resolve_learning_material
     evidence = resolve_learning_material(learning_material, evidence)
     if evidence is None:
@@ -52,7 +52,7 @@ def evolve(source: Path, evidence: Path | None = None, goal: str = "Improve the 
     output = (output.resolve() if output is not None else workspace_root() / 'evolution')
     output.mkdir(parents=True, exist_ok=True)
     session = Path(tempfile.mkdtemp(prefix='evolve-', dir=output))
-    for name in ('adapter', 'evidence', 'scratch', 'control', 'host', 'method', 'environment', 'history'):
+    for name in ('adapter', 'evidence', 'scratch', 'control', 'host', 'method', 'environment', 'history', 'observations'):
         (session / name).mkdir()
     copy_tree(source, session / 'adapter')
     copy_tree(evidence, session / 'evidence')
@@ -68,6 +68,7 @@ def evolve(source: Path, evidence: Path | None = None, goal: str = "Improve the 
                        'learning_material': str(session/'evidence'), 'evidence': str(session/'evidence'), 'scratch': str(session/'scratch'),
                        'write_scope': 'candidate-and-scratch-only',
                        'network_scope': 'agent tool/command traffic; model API transport is separate',
+                       'preview_enabled': bool(preview_enabled),
                        'executor': 'codex sandbox (shared by both learner backends)'}
     (session/'control/policy.json').write_text(json.dumps(policy_document,indent=2)+'\n')
     sandbox = PolicySandbox(session, policy)
@@ -84,6 +85,7 @@ def evolve(source: Path, evidence: Path | None = None, goal: str = "Improve the 
         'fetch_url for HTTP(S) when enabled. No benchmark-specific environment or evaluator is implicitly provided. '
         'Environment directories stay read-only even when used as a command working directory. '
         'MWM executable admission still uses its stricter test_python sandbox; ordinary run_command success is not admission.\n')
+    environment_text += ('\nBrowser preview service: ' + ('enabled. Use request_preview for a single self-contained HTML file in adapter/scratch; then get_preview and read_image in observations. At most two requests. Rendering is a diagnostic, not independent quality feedback.' if preview_enabled else 'not bound. Do not wait for preview results.') + '\n')
     (session/'environment/README.md').write_text(environment_text)
     protected_areas = ('method', 'environment', 'history') + (('validation',) if validation_data is not None else ())
     for area in protected_areas:

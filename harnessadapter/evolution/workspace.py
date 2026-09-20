@@ -36,7 +36,7 @@ def copy_tree(source: Path, target: Path):
 class Workspace:
     def __init__(self, root: Path):
         self.root = root.resolve()
-        self.areas = {name: self.root / name for name in ('adapter', 'evidence', 'scratch', 'method', 'environment', 'history')}
+        self.areas = {name: self.root / name for name in ('adapter', 'evidence', 'scratch', 'method', 'environment', 'history', 'observations')}
 
         self.areas['learning_material'] = self.areas['evidence']
 

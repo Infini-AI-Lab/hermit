@@ -31,6 +31,16 @@ def execute(session, name, args):
         if offset<0:raise ValueError('offset must be nonnegative')
         return {'path':str(path),'entries':entries[offset:offset+200],
                 'next_offset':offset+200 if len(entries)>offset+200 else None}
+    if name == 'snapshot_preview':
+        if args['area'] not in ('adapter', 'scratch'):
+            raise ValueError('Preview source must be in adapter or scratch')
+        path = Workspace(session).path(args['area'], args['path'])
+        if path.suffix.lower() not in ('.html', '.htm'):
+            raise ValueError('Preview requires a self-contained HTML file')
+        data = path.read_bytes()
+        if len(data) > 1_000_000:
+            raise ValueError('Preview HTML exceeds 1 MB')
+        return {'html': data.decode('utf-8'), 'sha256': hashlib.sha256(data).hexdigest()}
     if name == 'read_image':
         path=Workspace(session).path(args['area'],args['path'])
         if path.suffix.lower() not in ('.png','.jpg','.jpeg'):

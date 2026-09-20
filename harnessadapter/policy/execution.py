@@ -96,7 +96,7 @@ class PolicySandbox:
     def __init__(self, session: Path, policy: ExecutionPolicy):
         self.session=session.resolve();self.policy=policy
         self.adapter=self.session/'adapter';self.scratch=self.session/'scratch'
-        self.readable=[self.session/n for n in ('adapter','scratch','evidence','method','environment','history')]
+        self.readable=[self.session/n for n in ('adapter','scratch','evidence','method','environment','history','observations')]
         if (self.session/'validation').is_dir():
             self.readable.append(self.session/'validation')
         self.readable += [Path(p) for p in policy.read_paths]
@@ -106,6 +106,29 @@ class PolicySandbox:
         # checkout) are runtime infrastructure, read-only inside the sandbox.
         package=Path(__file__).resolve().parents[1]
         self.runtime_roots=list(dict.fromkeys([Path(sys.prefix).resolve(),Path(sys.base_prefix).resolve(),package,package.parent]))
+        # Node is optional infrastructure for JavaScript examples, not a user-data grant.
+        node = shutil.which('node')
+        if node:
+            real_node = Path(node).resolve()
+            self.runtime_roots += [Path(node), real_node.parent.parent]
+            if sys.platform == 'darwin':
+                if Path('/opt/homebrew/etc/openssl@3').is_dir():
+                    self.runtime_roots.append(Path('/opt/homebrew/etc/openssl@3'))
+                # Homebrew Node uses shared libraries outside its own keg.
+                pending, seen = [real_node], set()
+                while pending:
+                    binary = pending.pop()
+                    if binary in seen: continue
+                    seen.add(binary)
+                    links = subprocess.run(['/usr/bin/otool', '-L', str(binary)], capture_output=True, text=True, timeout=5)
+                    for line in links.stdout.splitlines()[1:]:
+                        name = line.strip().split(' (', 1)[0]
+                        if not name.startswith('/opt/homebrew/'): continue
+                        dependency = Path(name)
+                        if dependency.exists():
+                            resolved = dependency.resolve()
+                            self.runtime_roots += [Path('/opt/homebrew/opt'), resolved.parent.parent]
+                            if resolved not in seen: pending.append(resolved)
         # Linux: the sandbox re-executes the codex binary under the name
         # codex-linux-sandbox, found on PATH inside the bwrap tree. The
         # standalone release ships no such file, so a session-local link
@@ -150,7 +173,7 @@ class PolicySandbox:
                  '-c','permissions.'+self.PROFILE+'='+toml_value(profile),
                  '-c','features.network_proxy=false','--',*map(str,argv)]
         # Do not pass the learner client's tokens or arbitrary parent environment to programs.
-        executables=[self.executor,shutil.which('node'),sys.executable]
+        executables=[self.executor,str(Path(shutil.which('node')).resolve()) if shutil.which('node') else None,sys.executable]
         tool_path=':'.join(dict.fromkeys(([str(self.helper_dir)] if self.helper_dir else [])+['/usr/bin','/bin','/usr/sbin','/sbin']+[str(Path(p).parent) for p in executables if p]))
         # Codex resolves a home directory before it applies -c overrides (Linux
         # 0.155: "Could not find home directory" with no HOME). An empty
@@ -181,7 +204,7 @@ class PolicySandbox:
     def operation(self, name, arguments):
         result=self.run([sys.executable,'-m','harnessadapter.policy.operation',
                          '--session',str(self.session),'--name',name,'--arguments',json.dumps(arguments)],network=False,
-                        output_limit=6*1024*1024 if name=='read_image' else 30000)
+                        output_limit=6*1024*1024 if name in ('read_image','snapshot_preview') else 30000)
         if result['exit_code']!=0 or result['timed_out']:
             raise RuntimeError('Sandboxed file operation failed: '+result['stderr'][-1200:])
         if result['output_truncated']:
