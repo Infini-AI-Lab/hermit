@@ -31,7 +31,7 @@ After editing the three source documents listed above, run `python3 site/sync-do
 
 The current ownership section shows core-only adapters and the framework-owned wrapper. The MWM explorer displays source files from the reference core. The lifecycle section links the real Evolver agenda and a dated integration report, with synthetic-fixture and execution-boundary limitations.
 
-The execution-policy panel previews the implemented TOML configuration for Codex/Claude Code, additional environment reads, and networking. The fixed adapter/evidence write boundaries never change in that preview. It does not execute or alter real permissions.
+The execution-policy panel previews the implemented TOML configuration for Codex/Claude Code, additional environment reads, and networking. The fixed adapter/LearningMaterial write boundaries never change in that preview. It does not execute or alter real permissions.
 
 ## Documentation site
 

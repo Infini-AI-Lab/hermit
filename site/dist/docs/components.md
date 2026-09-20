@@ -10,7 +10,7 @@ The Acting Harness solves tasks. The Harness Adapter supplies independently main
 | Model architecture | Adapter Architecture: starting files, representation, and interfaces |
 | Trained adaptation module | Evolved Adapter: current prompt, knowledge, code, and optional roles |
 | Training algorithm | Evolver: instructions and an update procedure |
-| Training data | Experience: histories, observations, or feedback |
+| Training data | LearningMaterial: histories, observations, or feedback |
 | Validation data | Optional validation storage or method-specific evaluation |
 | Model checkpoint | Adapter: the learned capability artifact |
 | Optimizer state | Optional Training State: internal progress for continuing evolution |
@@ -21,7 +21,7 @@ This is a conceptual analogy. Adapters contain text and executable code rather t
 ## One iteration, two outputs
 
 ```text
-Adapter + Experience + Configuration + Training State (optional)
+Adapter + LearningMaterial + Configuration + Training State (optional)
                               |
                            Evolver
                               |
@@ -34,7 +34,7 @@ Adapter + Experience + Configuration + Training State (optional)
 
 The Evolver is the reusable algorithm definition. Training State is a separate input/output artifact, not part of its shared implementation. Its format belongs to that Evolver; the framework need not prescribe one knowledge or optimizer-state schema.
 
-A stateless Evolver returns training_state = None. A stateful Evolver may retain candidate scores, search history, processed-experience progress, or other algorithm-specific information. State compatibility must be checked when changing Evolver implementations or versions; an arbitrary state artifact is not interchangeable across methods.
+A stateless Evolver returns training_state = None. A stateful Evolver may retain candidate scores, search history, processed-LearningMaterial progress, or other algorithm-specific information. State compatibility must be checked when changing Evolver implementations or versions; an arbitrary state artifact is not interchangeable across methods.
 
 Deploying or sharing an Adapter does not require Training State. To continue a previous optimization process, optionally provide compatible state alongside the Adapter. A candidate can be rejected for deployment while its attempted update still contributes useful search history; publication and state retention are separate decisions.
 
@@ -49,8 +49,8 @@ This is the agreed protocol design. The current CLI produces a candidate and exe
 | Adapter core | Context, knowledge, capabilities, role definitions, and declarations |
 | Runtime | Loading core exports, MCP transport, resource binding |
 | Host connector | Preparing context, tool registrations, and native role files for a host |
-| Evolver | How experience is interpreted and how the candidate changes |
-| Evolution infrastructure | Experience snapshots, writable boundaries, execution checks, and result records |
+| Evolver | How LearningMaterial is interpreted and how the candidate changes |
+| Evolution infrastructure | LearningMaterial snapshots, writable boundaries, execution checks, and result records |
 
 The connector is optional in the abstraction. The current CLI provides connectors for Codex and Claude Code. External frameworks can eventually use the same core operations while retaining their own scheduling and publication policy; the public SDK and Reef integration are not implemented yet.
 
@@ -60,4 +60,4 @@ The connector is optional in the abstraction. The current CLI provides connector
 - ADAPTER.md, or a declared renderer, supplies context to the acting agent.
 - EVOLVER.md explains the adapter's structure and update conventions to the learner.
 
-Experience has its own README.md. None of these documents grants filesystem or network permissions; framework configuration determines those.
+LearningMaterial has its own README.md. None of these documents grants filesystem or network permissions; framework configuration determines those.

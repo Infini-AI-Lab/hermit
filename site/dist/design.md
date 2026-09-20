@@ -32,8 +32,8 @@ See [adapter-contract-v0.md](adapter-contract-v0.md). Filenames and serializatio
 
 - **Harness Adapter:** an independent capability workspace containing code, prompts, knowledge state, interfaces, and resource declarations. Methods retain their own internal structures.
 - **Adapter Runtime:** runs adapter tools and binds models, tools, and state. Native subagents run in the Acting Harness.
-- **Evolver:** reads experience and produces candidates, potentially through multi-round search, testing, and selection. Its search history is separate from adapter knowledge.
-- **Host Connector (optional):** assists with Context/MCP integration, role conversion, and readiness checks. External integrations can handle these themselves. Experience collection requires a separate integration based on available host capabilities.
+- **Evolver:** reads LearningMaterial and produces candidates, potentially through multi-round search, testing, and selection. Its search history is separate from adapter knowledge.
+- **Host Connector (optional):** assists with Context/MCP integration, role conversion, and readiness checks. External integrations can handle these themselves. LearningMaterial collection requires a separate integration based on available host capabilities.
 - **Evolution Manager:** default orchestration for evidence selection, triggers, checks, evaluation, and activation. External frameworks may replace it.
 
 ## Two usage modes
@@ -47,7 +47,7 @@ Reef is a target integration. Its tree mutations require explicit conversion and
 
 - A template is an initialization recipe; updates do not automatically overwrite learned knowledge.
 - A package contains shareable code, prompts, declarations, and optional initial knowledge.
-- An instance holds project settings, private experience, persistent state, and resource bindings.
+- An instance holds project settings, private LearningMaterial, persistent state, and resource bindings.
 - A revision identifies compatible code and knowledge state. External state must declare snapshot, migration, or reconstruction behavior.
 
 ## Update conventions
@@ -67,7 +67,7 @@ MWM can supply a default adapter and evolver. Its memory directories, claims, br
 
 ## Acceptance questions
 
-Can another author run, collect experience, update, and deliver their method without understanding or adopting MWM internals? When changing hosts or orchestration, are required code changes confined to connection and integration boundaries?
+Can another author run, collect LearningMaterial, update, and deliver their method without understanding or adopting MWM internals? When changing hosts or orchestration, are required code changes confined to connection and integration boundaries?
 
 ## References
 

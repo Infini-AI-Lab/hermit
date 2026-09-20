@@ -2,16 +2,16 @@
 
 Use CLI flags directly or a YAML launch file. Both reach the same implementation. YAML paths resolve relative to the configuration file.
 
-The conceptual input is **Experience**. The existing CLI and YAML spellings remain `--evidence` and `evidence`; use these names in executable configuration.
+The public input is **LearningMaterial**. Use `--learning-material DIR` or YAML `learning_material: DIR`. The old `--evidence` and `evidence` names remain aliases; do not supply both names. Paths in YAML resolve relative to the configuration file.
 
 ## Evolution YAML
 
 ```yaml
 action: evolve
 architecture: prompt-only
-evidence: ../examples/mwm_evidence
+learning_material: ../examples/mwm_evidence
 backend: codex
-prompt: Read the evidence and improve ADAPTER.md.
+prompt: Read the LearningMaterial and improve ADAPTER.md.
 network: false
 read_access:
   paths: []
@@ -40,10 +40,10 @@ workdir: ../.demo/prompt-only/codex
 | --- | --- |
 | --architecture NAME | Initialize a separate candidate from prompt-only, mwm, or a directory |
 | positional adapter | Continue from an existing adapter directory |
-| --evidence DIR | Required read-only storage with README.md |
+| --learning-material DIR | Required read-only storage with README.md |
 | --validation DIR | Optional visible read-only validation storage |
 | --prompt TEXT / --prompt-file FILE | User update instructions |
-| --evolver NAME | Reusable basic or mwm preset, or local definition directory |
+| --evolver NAME | Reusable basic, mwm, animation-coach, or physics-builder preset, or local definition directory |
 | --model ID | Explicit learner model |
 | --reasoning-effort LEVEL | Codex effort: low, medium, high, xhigh |
 | --backend | codex or claude-code |

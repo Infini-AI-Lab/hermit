@@ -35,12 +35,12 @@ Three components divide the work:
 
 - The **acting harness** is the agent that solves tasks, with the adapter attached.
 - The **harness adapter** is the learned artifact: context, knowledge, capabilities, and roles.
-- The **meta harness** is the learner that reads experience and produces a better adapter.
+- The **meta harness** is the learner that reads LearningMaterial and produces a better adapter.
 
 ## Deployment and evolution pipeline
 
 ```text
-  Adapter or Architecture  +  Experience  +  Config  +  Training State (optional)
+  Adapter or Architecture  +  LearningMaterial  +  Config  +  Training State (optional)
                                      │
                                   Evolver           (runs in an OS sandbox,
                                      │               bounded file tools only)
@@ -52,7 +52,7 @@ Three components divide the work:
 
 **Deployment** takes an adapter and a target host and generates a managed workspace: the context block is written into the host's project instructions, the MCP server is registered so the host starts it on launch, and role definitions are converted to native subagents. No global settings are touched. Deploy a bundled architecture to start from an empty adapter, or deploy a candidate that a previous evolution produced.
 
-**Evolution** takes an adapter, a directory of recorded experience, and an Evolver, and produces a new candidate directory. A learner session, with Codex or Claude Code as the model, edits the candidate through framework-owned file tools: list, read, write, move, delete, read image, validate. Every operation runs under the Codex OS sandbox with an explicit policy: the candidate is writable, experience is read-only, additional environment reads are opt-in, and network can be disabled for tools without disabling model inference. Each session records input snapshots, the tool audit, a report, and a result. `candidate_ready` means the run completed and structural checks passed, not that performance improved. Nothing is promoted automatically; the source adapter is never modified.
+**Evolution** takes an adapter, a directory of recorded LearningMaterial, and an Evolver, and produces a new candidate directory. A learner session, with Codex or Claude Code as the model, edits the candidate through framework-owned file tools: list, read, write, move, delete, read image, validate. Every operation runs under the Codex OS sandbox with an explicit policy: the candidate is writable, LearningMaterial is read-only, additional environment reads are opt-in, and network can be disabled for tools without disabling model inference. Each session records input snapshots, the tool audit, a report, and a result. `candidate_ready` means the run completed and structural checks passed, not that performance improved. Nothing is promoted automatically; the source adapter is never modified.
 
 The design borrows the vocabulary of model training, because the roles line up:
 
@@ -62,7 +62,7 @@ The design borrows the vocabulary of model training, because the roles line up:
 | Model architecture | **Architecture**: starting files, representation, interfaces |
 | Trained adaptation module | **Adapter**: the learned prompt, knowledge, code, and roles |
 | Training algorithm | **Evolver**: instructions plus an update procedure |
-| Training data | **Experience**: histories, observations, feedback |
+| Training data | **LearningMaterial**: histories, observations, feedback |
 | Checkpoint / optimizer state | Adapter / optional **Training State** |
 | Inference | Deploying the Adapter to a host |
 
@@ -83,12 +83,12 @@ harnessadapter --help
 harnessadapter deploy prompt-only --host codex
 ```
 
-**2. Evolve it from experience.** The Evolver reads the evidence directory and writes a candidate under `.demo/evolution/`. The source is never modified.
+**2. Evolve it from LearningMaterial.** The Evolver reads the evidence directory and writes a candidate under `.demo/evolution/`. The source is never modified.
 
 ```sh
 harnessadapter evolve --architecture prompt-only \
-  --evidence examples/mwm_evidence \
-  --prompt "Read the evidence and write useful, scoped instructions in ADAPTER.md." \
+  --learning-material examples/mwm_evidence \
+  --prompt "Read the LearningMaterial and write useful, scoped instructions in ADAPTER.md." \
   --no-network
 ```
 
@@ -116,7 +116,7 @@ Two bundled starting points share one deployment and evolution pipeline. A local
 
 ```sh
 harnessadapter deploy mwm --host claude-code
-harnessadapter evolve --architecture mwm --evidence examples/mwm_evidence --no-network
+harnessadapter evolve --architecture mwm --learning-material examples/mwm_evidence --no-network
 ```
 
 Without `--prompt`, `mwm` selects the bundled MWM Evolver, which maintains a journal and docket alongside the memory. With `--prompt`, the generic prompt-driven Evolver runs instead. Pass `--evolver /path/to/definition` to bring your own.
@@ -124,14 +124,14 @@ Without `--prompt`, `mwm` selects the bundled MWM Evolver, which maintains a jou
 ## Evolver permissions
 
 ```sh
-harnessadapter evolve mwm --backend codex       --evidence ./evidence --no-network
-harnessadapter evolve mwm --backend claude-code --evidence ./evidence --read-all
-harnessadapter evolve mwm --evidence ./evidence --read-dir ../project --model gpt-5.6-sol --reasoning-effort high
+harnessadapter evolve mwm --backend codex       --learning-material ./learning-material --no-network
+harnessadapter evolve mwm --backend claude-code --learning-material ./learning-material --read-all
+harnessadapter evolve mwm --learning-material ./learning-material --read-dir ../project --model gpt-5.6-sol --reasoning-effort high
 ```
 
 | Flag | Effect |
 | --- | --- |
-| `--evidence DIR` | Read-only experience, snapshotted into the session |
+| `--learning-material DIR` | Read-only LearningMaterial, snapshotted into the session |
 | `--validation DIR` | Optional read-only storage visible to the learner; not an automatic evaluator |
 | `--read-dir DIR` / `--read-all` | Additional read-only environment access; never grants writes |
 | `--no-network` | Blocks network for tools and commands, not for model inference |
@@ -155,12 +155,12 @@ Then send: `Run the adapter integration task in PROMPT.md.`
 ```text
 harnessadapter/        the package (pip install -e .)
   cli.py                 deploy | evolve | run
-  adapter/               manifest loading, in-process exports, evidence bindings
+  adapter/               manifest loading, in-process exports, LearningMaterial bindings
   runtime/               MCP wrapper, bubblewrap execution primitive
   evolution/             sessions, Evolver definitions, learner backends, launch YAML
   policy/                the sandboxed tool broker and its file operations
   hosts/                 Codex / Claude Code workspace conversion
-  evolvers/              bundled Evolver presets: basic, mwm
+  evolvers/              bundled Evolver presets: basic, mwm, animation-coach, physics-builder
   architectures/         bundled starting structures: prompt_only, mwm
 examples/              minimal_shop demo and mwm_evidence fixture
 docs/                  guide/ plus design notes and contracts
@@ -172,7 +172,7 @@ tests/  tools/  config/
 
 This is a working local prototype, not a released package.
 
-**Implemented.** Prompt-only and MWM architectures. Context injection, MCP registration, and native role conversion for Codex and Claude Code. Prompt-driven evolution with either host as the learner, plus the MWM method preset. OS-enforced tool boundaries with audit records. Sandboxed image reads for visual experience. CLI and YAML launch.
+**Implemented.** Prompt-only and MWM architectures. Context injection, MCP registration, and native role conversion for Codex and Claude Code. Prompt-driven evolution with either host as the learner, plus the MWM method preset. OS-enforced tool boundaries with audit records. Sandboxed image reads for visual LearningMaterial. CLI and YAML launch.
 
 **Not yet.** A published package or SDK. Generic Training State persistence and resume. Automated evaluation, candidate promotion, or rollback. Merging an Adapter into an existing project's settings rather than a generated workspace. GEPA, SkillOpt, Reef, or external Evolver plugins. Both learners currently require the Codex CLI as the sandbox executor; MWM learned-program admission additionally needs Linux bubblewrap.
 
@@ -193,3 +193,9 @@ Issues and pull requests are welcome. Run `pytest` before submitting; tests that
 ## License
 
 [Apache License 2.0](LICENSE). Contributions are accepted under the same terms, as described in section 5 of the license.
+
+### LearningMaterial naming
+
+LearningMaterial includes task descriptions, code, logs, observations, screenshots, and user feedback. Use `--learning-material DIR` or YAML `learning_material: DIR`. Python clients can use `evolve(source=..., learning_material=..., goal=...)` and `LearningMaterial` from `harnessadapter.adapter`. Evolution tools accept `area="learning_material"`.
+
+The old `--evidence`, `evidence=`, YAML `evidence`, `EvidenceStore`, and tool area `evidence` remain compatibility aliases. Supplying both input names is rejected. Internal `evidence/` snapshot paths and existing MWM resource bindings remain compatible; archived runs and their data are not rewritten.

@@ -10,8 +10,8 @@ spec = importlib.util.spec_from_file_location('site_sync', ROOT/'site/sync-docs.
 renderer = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(renderer)
 PAGES = [('index', 'Introduction'), ('quickstart', 'Quickstart'), ('components', 'Components'),
-         ('architectures', 'Architectures'), ('deployment', 'Deployment'),
-         ('evolution', 'Evolution & experience'), ('configuration', 'Configuration'), ('status', 'Status & limits')]
+         ('architectures', 'Architectures'), ('animation-workshop', 'Animation Workshop'), ('deployment', 'Deployment'),
+         ('evolution', 'Evolution & LearningMaterial'), ('configuration', 'Configuration'), ('status', 'Status & limits')]
 dest = ROOT/'site/dist/docs'
 dest.mkdir(exist_ok=True)
 for index, (slug, title) in enumerate(PAGES):

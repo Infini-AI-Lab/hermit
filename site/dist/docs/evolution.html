@@ -1,30 +1,31 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Evolution &amp; experience · Harness Adapter Docs</title><link rel="stylesheet" href="docs.css"><script defer src="docs.js"></script></head>
+<title>Evolution &amp; LearningMaterial · Harness Adapter Docs</title><link rel="stylesheet" href="docs.css"><script defer src="docs.js"></script></head>
 <body><header><a class="brand" href="../">H<span>↗</span> Harness Adapter</a><a href="../">Design notebook ↗</a></header>
-<div class="layout"><aside class="navigation"><div class="eyebrow">DOCUMENTATION / V0</div><nav aria-label="Documentation"><a href="index.html">Introduction</a><a href="quickstart.html">Quickstart</a><a href="components.html">Components</a><a href="architectures.html">Architectures</a><a href="deployment.html">Deployment</a><a href="evolution.html" aria-current="page">Evolution & experience</a><a href="configuration.html">Configuration</a><a href="status.html">Status & limits</a></nav><div class="note">Local prototype<br>English sources in docs/guide</div></aside>
-<main><div class="eyebrow">GUIDE / 06</div><h1>Evolution and experience</h1>
-<p>An Evolver can be just a prompt and configuration. It runs through Codex or Claude Code, reads the adapter guide and experience README, and updates a separate candidate.</p>
+<div class="layout"><aside class="navigation"><div class="eyebrow">DOCUMENTATION / V0</div><nav aria-label="Documentation"><a href="index.html">Introduction</a><a href="quickstart.html">Quickstart</a><a href="components.html">Components</a><a href="architectures.html">Architectures</a><a href="animation-workshop.html">Animation Workshop</a><a href="deployment.html">Deployment</a><a href="evolution.html" aria-current="page">Evolution & LearningMaterial</a><a href="configuration.html">Configuration</a><a href="status.html">Status & limits</a></nav><div class="note">Local prototype<br>English sources in docs/guide</div></aside>
+<main><div class="eyebrow">GUIDE / 07</div><h1>Evolution and LearningMaterial</h1>
+<p>An Evolver can be just a prompt and configuration. It runs through Codex or Claude Code, reads the adapter guide and LearningMaterial README, and updates a separate candidate.</p>
 <pre><code>harnessadapter evolve --architecture prompt-only \
-  --evidence /path/to/evidence \
+  --learning-material /path/to/learning-material \
   --prompt-file /path/to/update-instructions.md \
   --backend codex --no-network</code></pre>
 <p>To continue from a learned artifact, replace --architecture prompt-only with the candidate directory. Architecture initialization and continued evolution use the same update interface.</p>
 <h2 id="optional-training-state">Optional Training State</h2>
-<p>The iteration contract is: Adapter + Experience + Configuration + optional Training State → updated Adapter + optional updated Training State. Stateless Evolvers return no Training State; stateful methods define their own format.</p>
+<p>The iteration contract is: Adapter + LearningMaterial + Configuration + optional Training State → updated Adapter + optional updated Training State. Stateless Evolvers return no Training State; stateful methods define their own format.</p>
 <p>Training State is optimizer-like information for the next update, such as candidate history or search progress. It stays separate from the reusable Evolver definition and the deployable Adapter. Acting hosts never need it just to use the Adapter.</p>
 <p>This contract is a design decision, not an available CLI flag. The current prototype returns a candidate and run records. Generic state input/output and resume support are planned; a successful run log is not automatically an optimizer checkpoint.</p>
-<h2 id="experience-storage">Experience storage</h2>
-<p>Experience is the public concept name. The current CLI flag remains <code>--evidence</code>, the launch YAML key remains <code>evidence</code>, and the internal session area remains <code>evidence/</code>. They all refer to the supplied Experience storage; this terminology update does not change the runtime interface.</p>
+<h2 id="learningmaterial-storage">LearningMaterial storage</h2>
+<p>LearningMaterial is the public name for task inputs, source artifacts, execution records, screenshots, user feedback, and other material supplied to an Evolver. Use <code>--learning-material</code> in the CLI, <code>learning_material</code> in launch YAML and Python, and <code>area=&quot;learning_material&quot;</code> in evolution tools. Legacy <code>--evidence</code>, YAML <code>evidence</code>, Python <code>evidence=</code>, and tool area <code>evidence</code> remain compatibility aliases. Supplying both input names is rejected.</p>
+<p>Session snapshots still use the physical <code>evidence/</code> directory and old audit fields for compatibility with existing adapters, pinned MWM instructions, and archived runs. Both tool-area names refer to this same read-only directory; no duplicate data is created and historical runs are not renamed.</p>
 <p>Provide a directory containing README.md and records in your own format. The README should explain filenames, fields, chronology, feedback meaning, missing information, and which facts were actually observed. The framework copies the storage without converting it into an MWM schema.</p>
-<p>The candidate is writable. Experience, previous revision, and method materials are read-only. Scratch is writable for temporary work. Additional environment reads are explicitly configured.</p>
-<pre><code>harnessadapter evolve /path/to/adapter --evidence /path/to/evidence \
+<p>The candidate is writable. LearningMaterial, previous revision, and method materials are read-only. Scratch is writable for temporary work. Additional environment reads are explicitly configured.</p>
+<pre><code>harnessadapter evolve /path/to/adapter --learning-material /path/to/learning-material \
   --prompt &quot;Investigate the supplied records and update the adapter.&quot; \
   --workdir /path/to/environment --read-dir /path/to/reference</code></pre>
 <p>Here --workdir is an environment directory: readable, used as command cwd, but not writable. --read-all broadens reads only. Network is enabled by default; --no-network disables agent tool and command networking while retaining model inference transport.</p>
 <h2 id="optional-validation">Optional validation</h2>
 <pre><code>harnessadapter evolve --architecture prompt-only \
-  --evidence /path/to/evidence --validation /path/to/validation \
+  --learning-material /path/to/learning-material --validation /path/to/validation \
   --prompt &quot;Follow the evidence and validation READMEs; report checks performed.&quot;</code></pre>
 <p>Validation storage must be separate and contain README.md. It is copied into an additional read-only area only when supplied. The learner can inspect it: this is not hidden held-out evaluation. Binding data does not automatically run an evaluator, calculate a score, or select a better candidate.</p>
 <p>An Evolver definition may set requires_validation = true. The framework then rejects runs without it before invoking a model. A method decides how validation is used; performance evaluation remains method-specific.</p>
@@ -40,11 +41,21 @@ network = true
 [execution.read_access]
 paths = []</code></pre>
 <p>Pass --evolver /path/to/my-evolver to reuse it. The bundled MWM preset additionally uses method lifecycle code. Arbitrary Python lifecycle plugins are not yet a public interface.</p>
+<h3>Animation Coach</h3>
+<p><code>--evolver animation-coach</code> is an animation-focused variant for the MWM architecture. It learns scoped implementation strategies and explicitly unverified design hypotheses alongside observations and validated experience. It reuses MWM journal/docket maintenance and executable checks, but loads its own learning contract instead of the environment-only MWM policy. It does not require human feedback or validation data, force acting tool calls, or claim that each update improves quality.</p>
+<pre><code>harnessadapter evolve --architecture mwm --evolver animation-coach \
+  --learning-material /path/to/learning-material \
+  --model gpt-5.6-sol --reasoning-effort high --no-network --timeout 1200 \
+  --output /path/outside-framework/evolution</code></pre>
+<p>Replace <code>--architecture mwm</code> with a learned adapter path to continue. The output is a candidate; deploy it in a separate acting run to generate the next animation. No animation experiment runs automatically. Full method instructions live in <code>harnessadapter/evolvers/animation-coach/</code>.</p>
+<h3>Physics Builder</h3>
+<p><code>--evolver physics-builder</code> reuses MWM storage and maintenance with a different learning objective: diagnose a consequential failure, investigate competing causes with available experiments, and deliver scoped knowledge, computational tools, diagnostic checks or reusable source components. It does not require creating a tool every iteration. Its full core prompt and runtime limitations live in <code>harnessadapter/evolvers/physics-builder/</code>.</p>
+<p>All assistance is for animation construction. Runtime code must be integrated into the final deliverable, which must not depend on WM/MCP during playback. This preset does not fix the existing macOS learned-tool admission limitation: scratch diagnostics and retrievable code are distinct from admitted executable tools. An actual experiment is needed to establish utility.</p>
 <h2 id="enforcement-and-outputs">Enforcement and outputs</h2>
 <p>Framework tools enforce the read/write and network policy using an OS sandbox. Both learner backends currently require the Codex CLI as the shared sandbox executor. Authenticated client transport and vendor bookkeeping remain a trusted control plane; this is not a whole-client-process isolation claim.</p>
 <p>Each session records the candidate, input snapshots, checks, tool audit, report, and result. candidate_ready means the run completed and structural checks passed. It does not mean measured improvement. No candidate is automatically activated.</p>
-<h2 id="visual-experience">Visual Experience</h2>
-<p>The Evolver can call read_image(area=&quot;evidence&quot;, path=&quot;observations/frames/frame_000.png&quot;) to receive an actual MCP image block. PNG and JPEG are supported up to 4 MiB each. Reads run through the same OS sandbox and workspace containment checks as text reads; traversal and links to unauthorized files are rejected. Image hashes and sizes are logged without duplicating image data in the audit. Native unrestricted view_image remains disabled.</p>
-<p>A sequence should include a frame manifest with capture timestamps, order, viewport and pixel dimensions. These are sampled images, not native video input, and may miss fast events. Merely placing a file in the Experience directory does not show it to the model: it must call read_image.</p>
+<h2 id="visual-learningmaterial">Visual LearningMaterial</h2>
+<p>The Evolver can call read_image(area=&quot;learning_material&quot;, path=&quot;observations/frames/frame_000.png&quot;) to receive an actual MCP image block. PNG and JPEG are supported up to 4 MiB each. Reads run through the same OS sandbox and workspace containment checks as text reads; traversal and links to unauthorized files are rejected. Image hashes and sizes are logged without duplicating image data in the audit. Native unrestricted view_image remains disabled.</p>
+<p>A sequence should include a frame manifest with capture timestamps, order, viewport and pixel dimensions. These are sampled images, not native video input, and may miss fast events. Merely placing a file in the LearningMaterial directory does not show it to the model: it must call read_image.</p>
 <p>Use --model gpt-5.6-sol --reasoning-effort high for an explicit Codex learner configuration. The reasoning-effort option currently applies only to Codex.</p><footer><a href="evolution.md">Markdown source ↓</a><a href="configuration.html">Next: Configuration →</a></footer></main>
-<aside class="toc"><div class="eyebrow">ON THIS PAGE</div><a href="#optional-training-state">Optional Training State</a><a href="#experience-storage">Experience storage</a><a href="#optional-validation">Optional validation</a><a href="#reusable-evolvers">Reusable Evolvers</a><a href="#enforcement-and-outputs">Enforcement and outputs</a><a href="#visual-experience">Visual Experience</a></aside></div></body></html>
+<aside class="toc"><div class="eyebrow">ON THIS PAGE</div><a href="#optional-training-state">Optional Training State</a><a href="#learningmaterial-storage">LearningMaterial storage</a><a href="#optional-validation">Optional validation</a><a href="#reusable-evolvers">Reusable Evolvers</a><a href="#enforcement-and-outputs">Enforcement and outputs</a><a href="#visual-learningmaterial">Visual LearningMaterial</a></aside></div></body></html>

@@ -7,7 +7,7 @@
 - Prompt-only and MWM starting architectures; minimal-shop as a separate integration demo.
 - Optional MCP registration, marked context injection, and native role conversion for Codex and Claude Code.
 - Prompt-driven Codex or Claude evolution, with a generic preset and an MWM method preset.
-- Separate candidate directories, read-only experience, optional visible validation, and protected method/history snapshots.
+- Separate candidate directories, read-only LearningMaterial, optional visible validation, and protected method/history snapshots.
 - OS-enforced tool operations: candidate/scratch writes, configurable environment reads, and networking.
 - CLI and YAML launch, source fingerprints, audit records, and static interface checks.
 

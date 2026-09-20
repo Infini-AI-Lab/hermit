@@ -38,16 +38,16 @@ Full reading is not full access: only the candidate and scratch remain writable.
 
 ```sh
 harnessadapter evolve mwm \
-  --evidence examples/mwm_evidence \
+  --learning-material examples/mwm_evidence \
   --config config/evolution.toml
 
 # Equivalent CLI overrides
 harnessadapter evolve mwm --backend codex \
-  --evidence examples/mwm_evidence \
+  --learning-material examples/mwm_evidence \
   --read-dir /path/to/project --no-network
 
 harnessadapter evolve mwm --backend claude-code \
-  --evidence examples/mwm_evidence --read-all --network
+  --learning-material examples/mwm_evidence --read-all --network
 ```
 
 Repeat --read-dir for multiple directories. CLI overrides take precedence over the file. Relative paths inside a policy file resolve against that file's directory. --prepare-only constructs and tests the policy without making a model call.

@@ -1,9 +1,9 @@
 action: evolve
 architecture: mwm
-evidence: ../examples/mwm_evidence
+learning_material: ../examples/mwm_evidence
 backend: codex
 prompt: >-
-  Read the adapter evolution guide and the evidence README.
+  Read the adapter evolution guide and the LearningMaterial README.
   Update supported knowledge, preserve historical validity, and record unresolved questions.
 network: true
 read_access:

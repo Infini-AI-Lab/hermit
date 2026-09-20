@@ -5,7 +5,7 @@
   <meta name="description" content="Harness Adapter design notebook: independent capability packages, pluggable Evolvers, and shared boundaries for SDK, CLI, and Reef integration.">
   <meta name="theme-color" content="#f5f6f2"><title>Harness Adapter — Design Notebook</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect width='48' height='48' rx='12' fill='%231e4d40'/%3E%3Cpath d='M12 13v22m24-22v22M12 24h24M19 18v12m10-12v12' stroke='%23d9f3b3' stroke-width='4'/%3E%3C/svg%3E">
-  <link rel="stylesheet" href="styles.css?v=20260918-experience4"><script defer src="app.js?v=20260918-experience4"></script>
+  <link rel="stylesheet" href="styles.css?v=20260919-learning-material"><script defer src="app.js?v=20260919-learning-material"></script>
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
@@ -40,7 +40,7 @@
       <div class="visual-top mono"><span>SEPARATE THE CHANGE</span><span>↗</span></div>
       <div class="host-outline"><span class="mono">ACTING HARNESS</span><strong>Existing agent + native subagents</strong><div class="host-caption">Load definitions first · Create instances on demand</div></div>
       <div class="port"><span></span><code>Context / MCP / Agent Definitions</code><span></span></div>
-      <div class="adapter-hero"><div class="adapter-hero-top"><span class="mini-logo">H↔A</span><span class="mono">ADAPTER</span><span class="rev">r12 → r13</span></div><strong>A capability package that grows</strong><div class="artifact-pills"><span>Context</span><span>MCP tools</span><span>Agent specs</span></div><div class="adapter-bottom"><span class="pulse-dot"></span>Experience → Evolution → New revision</div></div>
+      <div class="adapter-hero"><div class="adapter-hero-top"><span class="mini-logo">H↔A</span><span class="mono">ADAPTER</span><span class="rev">r12 → r13</span></div><strong>A capability package that grows</strong><div class="artifact-pills"><span>Context</span><span>MCP tools</span><span>Agent specs</span></div><div class="adapter-bottom"><span class="pulse-dot"></span>LearningMaterial → Evolution → New revision</div></div>
       <div class="visual-caption mono">META HARNESS + EVOLVER → NEXT REPO REVISION</div>
     </div>
   </section>
@@ -89,7 +89,7 @@
   memory/ · examples/
   tools/&lt;name&gt;/ · agents/&lt;name&gt;/
   consumption/ · meta/cases/</pre></article>
-      <article><div class="eyebrow">FRAMEWORK / REUSED INFRASTRUCTURE</div><h3>No wrapper to maintain.</h3><p>Loading, MCP protocol, invocation logs, host conversion, experience snapshots, and candidate lifecycle stay outside the core.</p><pre>framework/
+      <article><div class="eyebrow">FRAMEWORK / REUSED INFRASTRUCTURE</div><h3>No wrapper to maintain.</h3><p>Loading, MCP protocol, invocation logs, host conversion, LearningMaterial snapshots, and candidate lifecycle stay outside the core.</p><pre>framework/
   adapter.py · mcp_server.py
   evolution_workspace.py
   evolution_server.py · evolve.py
@@ -97,25 +97,25 @@ evolvers/mwm/
   materials/ · maintenance/
   METHOD.md · prompt.py</pre></article>
     </div>
-    <div class="annotation"><span>↳</span><p><strong>Every core file may change; the contract still applies.</strong> Original experience is learner read-only. Framework/control files are not exposed by the learner tools. Static checks do not execute candidate code or establish performance gains. <a href="core-and-evolution.md">Read the implemented boundary ↗</a></p></div>
+    <div class="annotation"><span>↳</span><p><strong>Every core file may change; the contract still applies.</strong> Original LearningMaterial is learner read-only. Framework/control files are not exposed by the learner tools. Static checks do not execute candidate code or establish performance gains. <a href="core-and-evolution.md">Read the implemented boundary ↗</a></p></div>
     <div class="template-tabs" role="tablist" aria-label="Adapter examples"><button id="tab-skill" role="tab" aria-controls="template-panel" aria-selected="false" data-template="skill">01 <span>Prompt-only</span><small>Context only · No MCP</small></button><button id="tab-knowledge" role="tab" aria-controls="template-panel" aria-selected="true" class="selected" data-template="knowledge">02 <span>MWM Architecture</span><small>Context + wm tool</small></button><button id="tab-helper" role="tab" aria-controls="template-panel" aria-selected="false" data-template="helper">03 <span>4B Search Helper</span><small>Future example</small></button></div>
     <div id="template-panel" class="workspace" role="tabpanel" aria-labelledby="tab-knowledge"><div class="workspace-top"><span><span class="folder-icon">▱</span> <span id="workspace-title">project-knowledge/</span></span><span class="mono" id="workspace-kind">SOURCE STRUCTURE</span></div><div class="workspace-content"><div class="file-tree" id="file-tree" aria-label="Example files"></div><div class="code-pane"><div class="code-header"><span id="file-title">adapter.json</span><button class="copy-button" id="copy-file">Copy</button></div><pre><code id="file-content"></code></pre></div></div><div class="workspace-foot"><p id="template-description"></p><div id="template-tags" class="tag-list"></div></div></div>
 
-    <div class="implementation-note"><div class="eyebrow">TWO STARTING ARCHITECTURES</div><h3>Choose the representation. Choose the Evolver separately.</h3><p><strong>Prompt-only</strong> starts with an empty learned-context document. No adapter MCP server is registered. <strong>MWM</strong> starts with its knowledge structure and a single <code>wm</code> interface. Both produce candidates through the same framework.</p><pre>./harnessadapter evolve --architecture prompt-only --evidence ./evidence --prompt "Improve ADAPTER.md."
-./harnessadapter evolve --architecture mwm --evidence ./evidence</pre><p>Prompt-oriented architecture does not imply a GEPA or SkillOpt implementation. <a href="docs/architectures.html">Architecture guide ↗</a></p></div>
+    <div class="implementation-note"><div class="eyebrow">TWO STARTING ARCHITECTURES</div><h3>Choose the representation. Choose the Evolver separately.</h3><p><strong>Prompt-only</strong> starts with an empty learned-context document. No adapter MCP server is registered. <strong>MWM</strong> starts with its knowledge structure and a single <code>wm</code> interface. Both produce candidates through the same framework.</p><pre>harnessadapter evolve --architecture prompt-only --learning-material ./learning-material --prompt "Improve ADAPTER.md."
+harnessadapter evolve --architecture mwm --learning-material ./learning-material</pre><p>Prompt-oriented architecture does not imply a GEPA or SkillOpt implementation. <a href="docs/architectures.html">Architecture guide ↗</a></p></div>
     <section class="training-map" id="training-analogy" aria-labelledby="training-map-title">
       <header class="training-map-heading"><div><div class="eyebrow">THE TRAINING ANALOGY</div><h3 id="training-map-title">Familiar building blocks.<br><em>A different kind of learning.</em></h3></div><a href="docs/components.html">Read the concepts <span aria-hidden="true">↗</span></a></header>
       <p class="training-map-intro">Keep the acting agent. Evolve the capability beside it.</p>
       <div class="training-base"><span class="training-symbol" aria-hidden="true">◈</span><div><span class="training-overline">BASE MODEL</span><strong>Acting agent + harness</strong></div><span class="training-base-note">Existing model and execution loop</span></div>
       <div class="training-pairs">
         <article><span class="training-overline">01 / MODEL ARCHITECTURE</span><span class="training-pair-arrow" aria-hidden="true">↘</span><h4>Adapter Architecture</h4><p>The starting structure.<br>Prompt-only or MWM.</p></article>
-        <article><span class="training-overline">02 / TRAINING DATA</span><span class="training-pair-arrow" aria-hidden="true">↘</span><h4>Experience</h4><p>Interactions to learn from.<br>Records, observations, feedback.</p></article>
+        <article><span class="training-overline">02 / TRAINING DATA</span><span class="training-pair-arrow" aria-hidden="true">↘</span><h4>LearningMaterial</h4><p>Interactions to learn from.<br>Records, observations, feedback.</p></article>
         <article><span class="training-overline">03 / TRAINING ALGORITHM</span><span class="training-pair-arrow" aria-hidden="true">↘</span><h4>Evolver</h4><p>The update procedure.<br>Runs through a Meta Harness.</p></article>
         <article><span class="training-overline">04 / VALIDATION DATA</span><span class="training-pair-arrow" aria-hidden="true">↘</span><h4>Validation <small>Optional</small></h4><p>Method-defined checks.<br>No mandatory validation set.</p></article>
       </div>
       <div class="training-cycle">
         <div class="training-cycle-top"><div><span class="training-overline">ONE ITERATION</span><h4>Two outputs. Different destinations.</h4></div><div class="training-state-switch" role="group" aria-label="Evolver state mode"><button type="button" data-training-state="stateless" aria-pressed="false">Stateless</button><button type="button" data-training-state="stateful" class="selected" aria-pressed="true">Stateful</button></div></div>
-        <div class="training-inputs"><span>Adapter</span><b>+</b><span>Experience</span><b>+</b><span>Config</span><b class="training-state-input">+</b><span class="training-state-input">Training State <small>t</small></span></div>
+        <div class="training-inputs"><span>Adapter</span><b>+</b><span>LearningMaterial</span><b>+</b><span>Config</span><b class="training-state-input">+</b><span class="training-state-input">Training State <small>t</small></span></div>
         <div class="training-process"><span aria-hidden="true">↓</span><div><strong>Evolver</strong><small>Update the candidate</small></div><span aria-hidden="true">↓</span></div>
         <div class="training-outputs"><article class="training-output-adapter"><span class="training-overline">MODEL CHECKPOINT</span><h4>Adapter <small>t + 1</small></h4><p>Learned prompt, knowledge &amp; code.</p><div class="training-destination">Deploy to the acting agent <span aria-hidden="true">↗</span></div></article><article class="training-output-state" id="training-state-output"><span class="training-overline">OPTIMIZER STATE</span><h4 id="training-state-title">Training State <small>t + 1</small></h4><p id="training-state-description">Search history, candidates &amp; progress.</p><div class="training-destination" id="training-state-destination">Resume the next iteration <span aria-hidden="true">↻</span></div></article></div>
         <p class="training-mode-note" id="training-mode-note" aria-live="polite">Stateful Evolvers return separate training state. Acting agents only need the Adapter.</p>
@@ -126,7 +126,7 @@ evolvers/mwm/
 description: Investigate project behavior and gather evidence
 instructions: agents/researcher.md</code></pre></div>
     <div class="small-note">The current prototype reads adapter.json. Core functions and declarations are editable; the framework generates MCP launch settings and native role files outside the repo.</div>
-    <div class="object-grid"><article><span class="mono">PACKAGE</span><h3>A shareable package</h3><p>Code, prompts, interfaces, resource declarations, and optional initial knowledge. An architecture provides the starting point.</p></article><article><span class="mono">INSTANCE</span><h3>A project instance</h3><p>Project settings, private experience, runtime state, and resource bindings. Architecture updates do not overwrite learned content.</p></article><article><span class="mono">REVISION</span><h3>A consistent revision</h3><p>Identifies compatible code and knowledge state. External state declares snapshot, migration, or reconstruction behavior.</p></article></div>
+    <div class="object-grid"><article><span class="mono">PACKAGE</span><h3>A shareable package</h3><p>Code, prompts, interfaces, resource declarations, and optional initial knowledge. An architecture provides the starting point.</p></article><article><span class="mono">INSTANCE</span><h3>A project instance</h3><p>Project settings, private LearningMaterial, runtime state, and resource bindings. Architecture updates do not overwrite learned content.</p></article><article><span class="mono">REVISION</span><h3>A consistent revision</h3><p>Identifies compatible code and knowledge state. External state declares snapshot, migration, or reconstruction behavior.</p></article></div>
     <div class="annotation"><span>↳</span><p><strong>Training State is optional.</strong> Stateful Evolvers return it separately from the Adapter; stateless Evolvers return none. Acting agents consume the Adapter, not the training state.</p></div>
   </section>
 
@@ -138,10 +138,10 @@ instructions: agents/researcher.md</code></pre></div>
       <div class="step-content" aria-live="polite"><div class="step-explanation"><span class="mono" id="step-eyebrow">01 / SELECT</span><h3 id="step-title"></h3><p id="step-description"></p><div id="step-facts" class="step-facts"></div></div><div class="step-console"><div class="console-label"><span class="console-dots">● ● ●</span><span id="console-title">adapter / exports</span></div><pre id="step-output"></pre></div></div>
       <div class="evolution-foot"><span>Interactive example · No real agents or model calls</span><button id="next-bootstrap" disabled>Deploy the candidate next →</button></div>
     </div>
-    <div class="implementation-note"><div class="eyebrow">IMPLEMENTED / MWM REFERENCE</div><h3>Original MWM structure, framework-owned delivery.</h3><p>The MWM Evolver runs through Codex or Claude Code using framework-enforced capabilities. It can revise every core file. The framework retains experience, execution logs, and candidate status outside the repo. The original source is never activated or overwritten automatically.</p><pre>./harnessadapter evolve mwm --evidence fixtures/mwm_evidence</pre><p>The initial simplified demo was not a faithful MWM port. The corrected learner used the original contract, skills, and patterns, producing six knowledge/journal/case artifacts through one wm interface. It kept unresolved assumptions open and created no speculative executable. <a href="mwm-fidelity-correction.md">Read the correction and verification ↗</a> · <a href="mwm-evolver.md">Read the deployment bridge ↗</a></p></div>
+    <div class="implementation-note"><div class="eyebrow">IMPLEMENTED / MWM REFERENCE</div><h3>Original MWM structure, framework-owned delivery.</h3><p>The MWM Evolver runs through Codex or Claude Code using framework-enforced capabilities. It can revise every core file. The framework retains LearningMaterial, execution logs, and candidate status outside the repo. The original source is never activated or overwritten automatically.</p><pre>harnessadapter evolve mwm --learning-material examples/mwm_evidence</pre><p>The initial simplified demo was not a faithful MWM port. The corrected learner used the original contract, skills, and patterns, producing six knowledge/journal/case artifacts through one wm interface. It kept unresolved assumptions open and created no speculative executable. <a href="mwm-fidelity-correction.md">Read the correction and verification ↗</a> · <a href="mwm-evolver.md">Read the deployment bridge ↗</a></p></div>
     <div id="execution-policy" class="policy-lab">
       <div class="eyebrow">INFRA / EVOLVER EXECUTION POLICY</div>
-      <h3>One writable core. Experience always readable. Environment access by choice.</h3>
+      <h3>One writable core. LearningMaterial always readable. Environment access by choice.</h3>
       <p>Codex and Claude Code use the same enforced policy. Users choose additional reads and networking; the framework fixes write boundaries, runs real preflight probes, and refuses unsupported enforcement.</p>
       <div class="policy-layout">
         <div><div class="policy-controls">
@@ -152,12 +152,12 @@ instructions: agents/researcher.md</code></pre></div>
         </div>
         <table class="policy-table"><thead><tr><th>Area</th><th>Read</th><th>Write</th></tr></thead><tbody>
           <tr><td>Adapter candidate</td><td>Always</td><td>Allowed</td></tr>
-          <tr><td>Experience store</td><td>Always</td><td>Blocked</td></tr>
+          <tr><td>LearningMaterial store</td><td>Always</td><td>Blocked</td></tr>
           <tr><td>Other environment</td><td id="policy-environment-read">Not granted</td><td>Blocked</td></tr>
         </tbody></table><p id="policy-network-note"></p></div>
-        <div class="policy-code"><div class="code-header"><span>evolution.toml · implemented configuration</span><button class="copy-button" id="copy-policy">Copy</button></div><pre id="policy-config"></pre><code>./harnessadapter evolve mwm --evidence /path/to/evidence --config evolution.toml</code></div>
+        <div class="policy-code"><div class="code-header"><span>evolution.toml · implemented configuration</span><button class="copy-button" id="copy-policy">Copy</button></div><pre id="policy-config"></pre><code>harnessadapter evolve mwm --learning-material /path/to/learning-material --config evolution.toml</code></div>
       </div>
-      <p class="policy-footnote">Preview only; this panel does not start a learner or change permissions. Experience keeps its own storage layout. Scratch is an isolated, writable runtime exception and is not published. Model API transport remains available when tool networking is off. The current shared sandbox executor requires Codex CLI for either backend. <a href="execution-policy.md">Read the exact contract and limits ↗</a></p>
+      <p class="policy-footnote">Preview only; this panel does not start a learner or change permissions. LearningMaterial keeps its own storage layout. Scratch is an isolated, writable runtime exception and is not published. Model API transport remains available when tool networking is off. The current shared sandbox executor requires Codex CLI for either backend. <a href="execution-policy.md">Read the exact contract and limits ↗</a></p>
     </div>
     <div class="two-notes"><div><span class="note-number">A</span><div><h4>Optional helpers, explicit readiness</h4><p>Native mechanisms, manual configuration, or external frameworks can handle integration. Even with our helpers, generated files do not prove successful loading.</p></div></div><div><span class="note-number">B</span><div><h4>Fixed definitions, on-demand instances</h4><p>v0 loads roles before formal tasks. New definitions enter the next run without relying on hot loading. Performance improvements require separate evaluation.</p></div></div></div>
   </section>

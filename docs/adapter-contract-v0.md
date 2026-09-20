@@ -75,7 +75,7 @@ This decision does not make all knowledge and tool state immutable. Other state-
 
 - **Acting Harness:** runs user tasks and loads native role definitions. The parent agent chooses when to delegate; the host creates and manages instances.
 - **Harness Adapter:** exports Context, Tools, and optional Agent Definitions while retaining method-specific internals.
-- **Meta Harness:** supplies the learner's execution environment for reading experience, editing the adapter repo, and checking changes.
+- **Meta Harness:** supplies the learner's execution environment for reading LearningMaterial, editing the adapter repo, and checking changes.
 - **Evolver:** the update algorithm, distinct from the Meta Harness execution environment.
 - **Connector / bootstrap helper (optional):** assists with conversion, configuration, and readiness checks. Native, manual, or external integrations can bypass it.
 - **Adapter Runtime:** runs adapter tools and their model calls, resources, and state. Its own model services are not presented as native host subagents.

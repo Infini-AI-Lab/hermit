@@ -37,17 +37,17 @@ read_access = "all"
 Full reading is not full access: only the candidate and scratch remain writable. There is no configurable write_all switch. Unknown policy fields and invalid values are rejected.
 
 ```sh
-./harnessadapter evolve mwm \
-  --evidence fixtures/mwm_evidence \
+harnessadapter evolve mwm \
+  --learning-material examples/mwm_evidence \
   --config config/evolution.toml
 
 # Equivalent CLI overrides
-./harnessadapter evolve mwm --backend codex \
-  --evidence fixtures/mwm_evidence \
+harnessadapter evolve mwm --backend codex \
+  --learning-material examples/mwm_evidence \
   --read-dir /path/to/project --no-network
 
-./harnessadapter evolve mwm --backend claude-code \
-  --evidence fixtures/mwm_evidence --read-all --network
+harnessadapter evolve mwm --backend claude-code \
+  --learning-material examples/mwm_evidence --read-all --network
 ```
 
 Repeat --read-dir for multiple directories. CLI overrides take precedence over the file. Relative paths inside a policy file resolve against that file's directory. --prepare-only constructs and tests the policy without making a model call.

@@ -58,3 +58,8 @@ MWM retains its reference layout and update conventions. The framework owns MCP 
 All core files are editable, subject to the interface contract. For a prompt-only study, the update instructions restrict the chosen search space to context; that is a study choice, not a platform-wide limitation. Adding tools later will cause the connector to register MCP on the next deployment.
 
 minimal-shop remains a small, pre-populated integration demo. It is not a third empty architecture. A 4B search-helper architecture remains a future example.
+
+
+## Animation Workshop (experimental)
+
+`animation-workshop` organizes methods, readable and modifiable implementations, and integration examples for web physics animation. It starts empty and uses its own Evolver, not the MWM lifecycle. See [Animation Workshop](animation-workshop.html) for source paging, trial previews, and evaluation limits.
