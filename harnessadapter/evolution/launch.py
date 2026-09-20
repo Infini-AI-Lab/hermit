@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 import yaml
+from harnessadapter.paths import BUILTIN_EVOLVERS, BUILTIN_ARCHITECTURES
 
 
 
@@ -26,7 +27,7 @@ def compile_launch(path: Path, prepare_only=False):
         if value is not None and (not isinstance(value,str) or not value.strip()):raise ValueError(key+' must be a nonempty string')
         return value
     def location(value,reference=False):
-        if reference and value in ('mwm','prompt-only','minimal-shop','basic'):return value
+        if reference and value in (set(BUILTIN_ARCHITECTURES) | {'minimal-shop'} | BUILTIN_EVOLVERS):return value
         p=Path(value).expanduser();return str((path.parent/p).resolve() if not p.is_absolute() else p.resolve())
     adapters=data.get('adapters')
     adapter=string('adapter')

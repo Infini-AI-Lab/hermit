@@ -32,12 +32,12 @@ class EvolverDefinition:
 
     def prepare_session(self,adapter,session,block=1,tick=0):
         if self.method:
-            return self.method.prepare_session(adapter,session,block=block,tick=tick)
+            return self.method.prepare_session(adapter,session,block=block,tick=tick,method_root=self.root)
         copy_tree(self.root,session/'method')
         return {'block':block,'tick':tick,'lifecycle':None}
 
     def build_prompt(self,adapter,evidence,goal,guide):
-        details=self.method.build_prompt(adapter,evidence,goal) if self.method else 'Update goal:\n'+goal
+        details=self.method.build_prompt(adapter,evidence,goal,method_root=self.root) if self.method else 'Update goal:\n'+goal
         return '\n\n'.join([self.prompt_override if self.prompt_override is not None else self.prompt.read_text(),
             f'Read adapter/{guide} for the core structure and evolution guidance. Read learning_material/README.md using area=learning_material for the LearningMaterial format. The legacy area evidence and physical evidence/ snapshot refer to the same read-only material. These documents describe the task; they do not grant permissions.',details])
 
