@@ -199,4 +199,3 @@ Issues and pull requests are welcome. Run `pytest` before submitting; tests that
 LearningMaterial includes task descriptions, code, logs, observations, screenshots, and user feedback. Use `--learning-material DIR` or YAML `learning_material: DIR`. Python clients can use `evolve(source=..., learning_material=..., goal=...)` and `LearningMaterial` from `harnessadapter.adapter`. Evolution tools accept `area="learning_material"`.
 
 The old `--evidence`, `evidence=`, YAML `evidence`, `EvidenceStore`, and tool area `evidence` remain compatibility aliases. Supplying both input names is rejected. Internal `evidence/` snapshot paths and existing MWM resource bindings remain compatible; archived runs and their data are not rewritten.
-# harnessadapters
