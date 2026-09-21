@@ -13,8 +13,14 @@ class EvolverDefinition:
     def __init__(self, reference, prompt_override=None):
         self.root=resolve_evolver(reference).resolve()
         self.config=tomllib.loads((self.root/'evolver.toml').read_text())
-        if set(self.config)-{'prompt','execution','lifecycle','requires_validation'}:
-            raise ValueError('Evolver configuration supports prompt, execution, and optional lifecycle')
+        if set(self.config)-{'prompt','execution','lifecycle','requires_validation','protected'}:
+            raise ValueError('Evolver configuration supports prompt, execution, optional lifecycle, and protected')
+        # Adapter paths this Evolver never edits (a lifecycle may declare its own
+        # PROTECTED_PATHS instead): the broker refuses writes there and a session
+        # that changed them is not adopted.
+        self.protected=tuple(self.config.get('protected',()) or ())
+        if not all(isinstance(x,str) for x in self.protected):
+            raise ValueError('protected must be a list of adapter-relative paths')
         self.requires_validation = self.config.get('requires_validation', False)
         if not isinstance(self.requires_validation, bool):
             raise ValueError('requires_validation must be boolean')

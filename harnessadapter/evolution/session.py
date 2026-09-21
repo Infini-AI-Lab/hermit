@@ -98,7 +98,7 @@ def evolve(source: Path, evidence: Path | None = None, goal: str = "Improve the 
     # The definition's immutable core (its interface and library code): the
     # broker refuses writes under these paths and finalize refuses the
     # candidate if they changed by any other route (a shell in the sandbox).
-    protected_paths = list(getattr(definition.method, 'PROTECTED_PATHS', ()) or ())
+    protected_paths = list(getattr(definition.method, 'PROTECTED_PATHS', ()) or definition.protected or ())
     (session / 'control/protected.json').write_text(json.dumps(protected_paths) + '\n')
     # The reference for the protected files is the adapter AFTER the
     # definition prepared it (prepare_session writes CONTRACT.md itself).

@@ -1,4 +1,6 @@
 prompt = "PROMPT.md"
+# The manifest and the guide are the experiment's, not the learner's.
+protected = ["adapter.json", "EVOLVER.md"]
 
 [execution]
 backend = "codex"
