@@ -140,6 +140,9 @@ class NativeMountPaths(unittest.TestCase):
             self.assertEqual(sandbox.operation("read_file", {"area": "adapter", "path": "/evidence/README.md"})["text"], "# e\n")
             self.assertEqual(sandbox.operation("read_file", {"area": "learning_material", "path": "skills/keep-journal/SKILL.md"})["text"], "# keep-journal\n")
             self.assertEqual(sandbox.operation("list_path", {"path": "/patterns"})["entries"], ["DECIDE.md"])
+            self.assertEqual(sandbox.operation("read_file", {"area": "adapter", "path": "../evidence/README.md"})["text"], "# e\n")
+            with self.assertRaises(ValueError):
+                sandbox.operation("read_file", {"area": "adapter", "path": "../control/policy.json"})
             self.assertEqual(sandbox.operation("read_path", {"path": "/world-model/CONTEXT.md"})["text"], "probe\n")
             with self.assertRaises(ValueError):
                 sandbox.operation("read_path", {"path": "/etc/hostname"})

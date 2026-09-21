@@ -65,6 +65,9 @@ class Workspace:
         parts = Path(str(path)).parts
         if parts and parts[0] == '/':
             parts = parts[1:]
+        # "../evidence/x" from the adapter's own directory is the same mount.
+        while parts and parts[0] == '..':
+            parts = parts[1:]
         if not parts or parts[0] not in self.MOUNTS:
             return None
         area, prefix = self.MOUNTS[parts[0]]
@@ -75,7 +78,7 @@ class Workspace:
         return area, ('' if relative == '.' else relative)
 
     def path(self, area, relative, write=False):
-        if not write and isinstance(relative, str) and (relative.startswith('/') or (area in self.areas and not (self.areas[area] / relative).exists())):
+        if not write and isinstance(relative, str) and (relative.startswith(('/', '..')) or (area in self.areas and not (self.areas[area] / relative).exists())):
             mapped = self.mount(relative)
             if mapped is not None:
                 area, relative = mapped
