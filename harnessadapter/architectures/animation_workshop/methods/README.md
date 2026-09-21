@@ -1,3 +1,3 @@
-# methods
+# Methods
 
-No learned entries yet. The Evolver may organize useful experience here without a mandatory per-entry template.
+Store actionable choices and tradeoffs, with their scope, scene assumptions and the useful behavior to check after adaptation. Distinguish reusable decisions from one task's preference or successful outcome.
