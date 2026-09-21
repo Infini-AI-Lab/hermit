@@ -1,0 +1,42 @@
+{
+  "name": "hier_search_adapter",
+  "version": "b000",
+  "id": "hier-search",
+  "contract": "harnessadapter.python.v1",
+  "context": "ADAPTER.md",
+  "evolver_readme": "EVOLVER.md",
+  "tools": [
+    {
+      "name": "deep_search",
+      "description": "Retrieve the top documents for `query` and have the local reading assistant read their full text for `goal`. Returns the assistant's report and the docids it read.",
+      "entrypoint": "interface.py:deep_search",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "goal": {"type": "string", "description": "The specific thing you want confirmed or extracted from the documents"},
+          "query": {"type": "string", "description": "Keyword search query"}
+        },
+        "required": ["goal", "query"],
+        "additionalProperties": false
+      },
+      "output_schema": {"type": "object"},
+      "annotations": {"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false}
+    },
+    {
+      "name": "read_for",
+      "description": "Have the local reading assistant read the full text of documents you already found (by docid) for `goal`. Returns the assistant's report.",
+      "entrypoint": "interface.py:read_for",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "goal": {"type": "string", "description": "The specific thing you want confirmed or extracted from the documents"},
+          "docids": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 10, "description": "Document ids, for example from search results"}
+        },
+        "required": ["goal", "docids"],
+        "additionalProperties": false
+      },
+      "output_schema": {"type": "object"},
+      "annotations": {"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false}
+    }
+  ]
+}
