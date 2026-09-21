@@ -36,8 +36,13 @@ class EvolverDefinition:
         copy_tree(self.root,session/'method')
         return {'block':block,'tick':tick,'lifecycle':None}
 
-    def build_prompt(self,adapter,evidence,goal,guide):
-        details=self.method.build_prompt(adapter,evidence,goal,method_root=self.root) if self.method else 'Update goal:\n'+goal
+    def build_prompt(self,adapter,evidence,goal,guide,notes=''):
+        if self.method and self.prompt_override is None:
+            # A lifecycle method renders the complete learner prompt itself
+            # (the native session prompt plus the transport bridge); the
+            # generic Evolver opener is not added on top of it.
+            return self.method.build_prompt(adapter,evidence,goal,method_root=self.root,notes=notes,guide=guide)
+        details=self.method.build_prompt(adapter,evidence,goal,method_root=self.root,notes=notes,guide=guide) if self.method else 'Update goal:\n'+goal
         return '\n\n'.join([self.prompt_override if self.prompt_override is not None else self.prompt.read_text(),
             f'Read adapter/{guide} for the core structure and evolution guidance. Read learning_material/README.md using area=learning_material for the LearningMaterial format. The legacy area evidence and physical evidence/ snapshot refer to the same read-only material. These documents describe the task; they do not grant permissions.',details])
 

@@ -29,7 +29,7 @@ class AnimationCoachTests(unittest.TestCase):
                 self.assertTrue((core / 'meta/journal-archive.md').exists())
                 prompt = definition.build_prompt(core, session / 'evidence', 'Learn animation strategies.', 'EVOLVER.md')
                 self.assertIn('REVIEW SESSION #8', prompt)
-                self.assertIn('[Memory index]', prompt)
+                self.assertIn('world model: 0 memory entries', prompt)   # the index block appears only when memory has entries (native)
                 contract = (session / 'method/CONTRACT.md').read_text()
                 if name == 'animation-coach':
                     self.assertIn('Hypothesis / proposed strategy', contract)

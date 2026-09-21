@@ -99,6 +99,8 @@ class PolicySandbox:
         self.readable=[self.session/n for n in ('adapter','scratch','evidence','method','environment','history','observations')]
         if (self.session/'validation').is_dir():
             self.readable.append(self.session/'validation')
+        if (self.session/'deployment').is_dir():
+            self.readable.append(self.session/'deployment')
         self.readable += [Path(p) for p in policy.read_paths]
         if policy.working_directory:self.readable.append(Path(policy.working_directory))
         self.executor=shutil.which('codex')
@@ -152,8 +154,10 @@ class PolicySandbox:
         fs={':minimal':'read'}
         if self.policy.read_all:fs['/']='read'
         for p in self.readable+self.runtime_roots:fs[str(p)]='read'
-        # The operation helper reads only its immutable policy, not arbitrary control data.
+        # The operation helper reads only its immutable policy and the
+        # definition's protected-path list, not arbitrary control data.
         fs[str(self.session/'control/policy.json')]='read'
+        fs[str(self.session/'control/protected.json')]='read'
         for p in (self.adapter,self.scratch):
             if p.is_symlink() or p.resolve()!=p:raise ValueError('A sandbox root was replaced; refusing execution')
             fs[str(p)]='write' if writable else 'read'
@@ -200,6 +204,61 @@ class PolicySandbox:
             out,out_cut=tail(stdout);err,err_cut=tail(stderr)
         return {'exit_code':process.returncode,'timed_out':timed_out,'stdout':out,'stderr':err,
                 'output_truncated':out_cut or err_cut}
+
+    def run_rpc(self, argv, handler, *, cwd=None, timeout=120, output_limit=200000):
+        """Run argv under the sandbox WITHOUT network, serving it a line-JSON
+        request channel over stdin/stdout: every stdout line of the form
+        {"rpc": id, ...} goes to `handler(request) -> value` and the value
+        comes back on stdin as {"rpc": id, "result": value} (or "error"); the
+        line {"done": value} ends the exchange and is returned. The child
+        never reaches a socket; the broker (this process) does its I/O."""
+        if not self.executor or sys.platform not in ('darwin','linux'):
+            raise RuntimeError('Enforcement unavailable: this release requires Codex CLI with its macOS/Linux sandbox backend')
+        cwd=Path(cwd or self.policy.working_directory or self.adapter).resolve()
+        if not cwd.is_dir() or not self.can_read(cwd):raise ValueError('Command cwd must be in the readable scope')
+        profile=self.profile(network=False)
+        command=[self.executor,'sandbox','-P',self.PROFILE,'-C',str(cwd),
+                 '-c','permissions.'+self.PROFILE+'='+toml_value(profile),
+                 '-c','features.network_proxy=false','--',*map(str,argv)]
+        executables=[self.executor,str(Path(shutil.which('node')).resolve()) if shutil.which('node') else None,sys.executable]
+        tool_path=':'.join(dict.fromkeys(([str(self.helper_dir)] if self.helper_dir else [])+['/usr/bin','/bin','/usr/sbin','/sbin']+[str(Path(p).parent) for p in executables if p]))
+        home=self.session/'host/sandbox-home';home.mkdir(parents=True,exist_ok=True)
+        env={'PATH':tool_path,'HOME':str(home),'TMPDIR':str(self.scratch),'PYTHONDONTWRITEBYTECODE':'1','PYTHONNOUSERSITE':'1','LANG':'en_US.UTF-8'}
+        import threading
+        with tempfile.TemporaryFile() as stderr:
+            process=subprocess.Popen(command,cwd=self.session/'host',env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,
+                                     stderr=stderr,start_new_session=True,text=True,bufsize=1)
+            done=None;timed_out=False;requests=0
+            def expire():
+                nonlocal timed_out
+                timed_out=True
+                try:os.killpg(process.pid,signal.SIGKILL)
+                except ProcessLookupError:pass
+            watchdog=threading.Timer(timeout,expire);watchdog.daemon=True;watchdog.start()
+            try:
+                for line in process.stdout:
+                    if len(line)>output_limit:raise ValueError('rpc line exceeded its output limit')
+                    try:message=json.loads(line)
+                    except ValueError:continue
+                    if not isinstance(message,dict):continue
+                    if 'done' in message:done=message['done'];break
+                    if 'rpc' in message:
+                        requests+=1
+                        try:reply={'rpc':message['rpc'],'result':handler(message)}
+                        except Exception as exc:reply={'rpc':message['rpc'],'error':f'{type(exc).__name__}: {exc}'}
+                        process.stdin.write(json.dumps(reply,default=str)+'\n');process.stdin.flush()
+            except BrokenPipeError:pass
+            finally:
+                watchdog.cancel()
+                try:process.stdin.close()
+                except OSError:pass
+                try:process.wait(timeout=5)
+                except subprocess.TimeoutExpired:pass
+                try:os.killpg(process.pid,signal.SIGKILL)
+                except ProcessLookupError:pass
+                process.wait()
+            stderr.seek(0);err=stderr.read()[-4000:].decode('utf-8',errors='replace')
+        return {'exit_code':process.returncode,'timed_out':timed_out,'done':done,'requests':requests,'stderr':err}
 
     def operation(self, name, arguments):
         result=self.run([sys.executable,'-m','harnessadapter.policy.operation',

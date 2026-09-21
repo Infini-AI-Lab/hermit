@@ -68,6 +68,20 @@ SECTION_TITLES = {
     "reach": "=== Reaching the world model ===",
 }
 
+FRAMEWORK_CALLS_SENTENCE = ("These calls reach the world model, not the environment. This standalone\n"
+                            "deployment has no benchmark score or episode budget; the acting host owns\n"
+                            "its limits.")
+FRAMEWORK_LIBRARIES_SENTENCE = "Libraries: the sandbox Python standard library; no extra packages are promised."
+PAGING_READ_DOC = """    optional args: offset (default 0), limit (default 4000, max 16000),
+      expected_sha256 (use a prior page's sha256 to detect content changes).
+    output: text plus total_chars, next_offset, eof, and sha256 through MCP.
+      Read another page only when useful, using the returned next_offset.
+      Offsets count Unicode characters, not bytes. Concatenate text fields
+      to reconstruct source; metadata is not part of the source. Short text
+      need not be followed by another call. No automatic full-file read.
+"""
+NATIVE_READ_DOC = "    output: the file's text, or the directory's listing.\n"
+
 BUILTIN_DOC = """The world model is a repository maintained between episodes from the graded
 records of earlier episodes. You reach it through one tool, wm(name, args).
 These calls reach the world model, not the environment. This standalone
@@ -325,13 +339,28 @@ class WorldModelInterface:
         a sub-agent (user 2026-09-07)."""
         from . import delegation as _dl
         doc = BUILTIN_DOC.replace("{calls_cap}", str(CALLS_PER_EPISODE))
+        # Deployment-supplied host sentences (bound as resource `deployment`):
+        # the benchmark budget line comes first, so the run-channel splice
+        # below finds the native wording it was written against.
+        try:
+            from . import capabilities as _cap
+            deployment = (_cap.RESOURCES.get() or {}).get("deployment") or {}
+        except Exception:                                   # noqa: BLE001
+            deployment = {}
+        if not isinstance(deployment, dict):
+            deployment = {}
+        if deployment.get("wm_calls_sentence"):
+            doc = doc.replace(FRAMEWORK_CALLS_SENTENCE, deployment["wm_calls_sentence"].strip())
+        if deployment.get("read_paging") is False:
+            doc = doc.replace(PAGING_READ_DOC, NATIVE_READ_DOC)
         if self.code_channel:
-            doc = doc.replace("never the environment. One past episode",
-                              "never the environment. " + RUN_INTRO
-                              + "One past episode")
+            for tail in ("never the environment. One past episode", "its limits. One past episode"):
+                doc = doc.replace(tail, tail[:-len("One past episode")] + RUN_INTRO + "One past episode")
             doc = doc.replace("  list     input {}", RUN_DOC + "\n  list     input {}")
         if self.delegation == "managed" and with_delegate:
             doc = doc.replace("  list     input {}", DELEGATE_DOC + "\n  list     input {}")
+        if deployment.get("run_libraries"):
+            doc = doc.replace(FRAMEWORK_LIBRARIES_SENTENCE, "Libraries: " + deployment["run_libraries"].strip())
         for n, a in _EXAMPLE_ARGS.items():
             doc = doc.replace("{eg_" + n + "}", _example(n, a))
         parts = [doc]

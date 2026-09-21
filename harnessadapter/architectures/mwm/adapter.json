@@ -18,7 +18,7 @@
   "tools": [
     {
       "name": "wm",
-      "description": "The MWM world model: memory, recall, trace, search, read, list, and admitted learned tools through wm(name, args). run requires the framework sandbox; delegate gives native-host guidance.",
+      "description": "The world model \u2014 knowledge maintained between episodes from earlier graded episodes. name: one of memory, recall, trace, search, read, run, delegate, list, or an admitted tool's name; args: an object per that name (see the 'Reaching the world model' section). Calls are free. wm reaches the world model only, never the environment.",
       "entrypoint": "interface.py:wm",
       "input_schema": {
         "type": "object",

@@ -1,5 +1,6 @@
 """MWM export bridge. The method keeps its original artifact structures and wm API."""
 from pathlib import Path
+import shutil
 
 from .mwm_core import capabilities, delegate
 from .mwm_core.wm_iface import WorldModelInterface
@@ -11,9 +12,12 @@ class Interface(WorldModelInterface):
     def __init__(self, resources):
         self.evidence_bound = resources.get('evidence') is not None
         evidence = str(resources['evidence'].root) if self.evidence_bound else str(ROOT/'_no_evidence_binding')
-        sandbox = resources.get('python_sandbox')
-        super().__init__(str(ROOT), evidence, delegation='native',
-                         code_channel=bool(sandbox and sandbox.status()['available']))
+        deployment = resources.get('deployment') or {}
+        mode = deployment.get('delegation', 'native') if isinstance(deployment, dict) else 'native'
+        # wm run has its own bubblewrap child (mwm_core/sandbox.py, the native
+        # one); it does not depend on the framework's learned-tool sandbox.
+        super().__init__(str(ROOT), evidence, delegation=mode if mode in ('native', 'none') else 'native',
+                         code_channel=shutil.which('bwrap') is not None)
 
     def _trace_pointer(self, address):
         return super()._trace_pointer(address) if self.evidence_bound else ''
@@ -28,10 +32,12 @@ class Interface(WorldModelInterface):
 def context(_resources=None):
     resources=_resources or {};token=capabilities.RESOURCES.set(resources)
     try:
-        text=Interface(resources).package('The host exposes the single wm(name, args) tool through MCP. Native roles come from agents/<name>/SPEC.md; no role is seeded by default.')
+        deployment=resources.get('deployment') or {}
+        note=(deployment.get('transport_note') if isinstance(deployment,dict) else None) or 'The host exposes the single wm(name, args) tool through MCP. Native roles come from agents/<name>/SPEC.md; no role is seeded by default.'
+        text=Interface(resources).package(note)
         sandbox=resources.get('python_sandbox')
         if sandbox is None or not sandbox.status()['available']:
-            text+='\n\nExecution availability: the required sandbox is unavailable. Learned programs are not admitted or executed; use their TOOL.md prose fallback. wm run is unavailable.'
+            text+='\n\nExecution availability: the required sandbox is unavailable. Learned programs are not admitted or executed; use their TOOL.md prose fallback.'
         return text
     finally:capabilities.RESOURCES.reset(token)
 
@@ -52,6 +58,13 @@ def wm(name: str, args: dict | None = None, _resources=None) -> dict:
             return {'text':'invalid memory or record address'}
     token=capabilities.RESOURCES.set(resources)
     try:
+        deployment=resources.get('deployment') or {}
+        if name.strip().lower() == 'read' and isinstance(deployment,dict) and deployment.get('read_paging') is False:
+            # Native behaviour: the first 4000 characters, no paging metadata.
+            try:
+                return {'text': Interface(resources).read_page(str(args.get('path','')), 0, 4000, None)['text']}
+            except (ValueError, OSError) as exc:
+                return {'text': f'read: {exc}'}
         if name.strip().lower() == 'read':
             try:
                 return Interface(resources).read_page(
