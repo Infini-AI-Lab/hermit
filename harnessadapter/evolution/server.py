@@ -59,6 +59,69 @@ def create_server(root):
                 if not re.fullmatch(r'[0-9a-f]{32}', args['identifier']):
                     raise ValueError('Invalid preview identifier')
                 result = json.loads((root / 'control/preview_jobs' / args['identifier'] / 'status.json').read_text())
+            elif name == 'try_tool':
+                specs = policy_document.get('bindings') or []
+                if not specs:
+                    raise ValueError('No resource bindings were supplied to this session')
+                # Candidate code runs in a child under the OS sandbox with no
+                # network, never in this process; its binding calls come back
+                # here over a pipe and this process (the only one that may
+                # reach the services) performs them on the real bindings.
+                if not re.fullmatch(r'[A-Za-z0-9_.-]{1,80}', str(args['tool'])):
+                    raise ValueError('tool must be a declared tool name')
+                from harnessadapter.adapter.bindings import parse_bindings
+                real = parse_bindings(specs)
+                argv = [sys.executable, '-m', 'harnessadapter.adapter.try_tool', '--adapter', str(root / 'adapter'),
+                        '--tool', str(args['tool']), '--arguments', json.dumps(args.get('arguments') or {})]
+                for binding_name, obj in real.items():
+                    argv += ['--binding', f"{binding_name}:{obj.describe() if hasattr(obj, 'describe') else ''}"]
+
+                def serve(request):
+                    obj = real[request['binding']]
+                    method = str(request.get('method') or '')
+                    if method.startswith('_') or not callable(getattr(obj, method, None)):
+                        raise ValueError(f'binding {request["binding"]!r} has no method {method!r}')
+                    return getattr(obj, method)(*request.get('args') or [], **(request.get('kwargs') or {}))
+
+                child = sandbox.run_rpc(argv, serve, cwd=root / 'adapter', timeout=120)
+                if child['timed_out']:
+                    raise ValueError('try_tool timed out after 120 s')
+                response = child['done']
+                if not isinstance(response, dict):
+                    raise ValueError('try_tool produced no result: ' + child['stderr'][-1200:])
+                if 'error' in response:
+                    raise ValueError(response['error'])
+                result = response['result']
+            elif name == 'sql':
+                specs = [b for b in (policy_document.get('bindings') or []) if str(b).startswith('sql=')]
+                if not specs:
+                    raise ValueError('No sql binding was supplied to this session')
+                from harnessadapter.adapter.bindings import parse_bindings
+                result = parse_bindings(specs)['sql'].query(args['query'])
+                with (root / 'control' / 'environment-calls.jsonl').open('a') as stream:
+                    stream.write(json.dumps({'time': record['time'], 'kind': 'sql', 'query': args['query'],
+                                             'rows': len(result.get('rows', [])) if isinstance(result, dict) else None,
+                                             'error': result.get('error') if isinstance(result, dict) else None}) + '\n')
+            elif name == 'history':
+                from harnessadapter.adapter import versioning
+                if args.get('path'):
+                    if not re.fullmatch(r'[A-Za-z0-9_./-]{1,200}', args['path']) or '..' in args['path']:
+                        raise ValueError('path must be a relative adapter path')
+                    result = {'diff': versioning.diff(root / 'adapter', args.get('ref') or 'HEAD~1', args['path'])}
+                elif args.get('ref'):
+                    result = {'diff': versioning.diff(root / 'adapter', args['ref'])}
+                else:
+                    result = {'log': versioning.log(root / 'adapter', args.get('n', 10))}
+            elif name == 'small_model':
+                specs = [b for b in (policy_document.get('bindings') or []) if str(b).startswith('small_model=')]
+                if not specs:
+                    raise ValueError('No small_model binding was supplied to this session')
+                from harnessadapter.adapter.bindings import parse_bindings
+                reader = parse_bindings(specs)['small_model']
+                messages = args['messages']
+                if not isinstance(messages, list) or not all(isinstance(m, dict) and 'role' in m and 'content' in m for m in messages):
+                    raise ValueError('messages must be a list of {role, content}')
+                result = reader.chat(messages, max_tokens=min(max(int(args.get('max_tokens', 1500)), 1), 4000), temperature=0.0)
             elif name == 'run_command':
                 result = sandbox.run(['/bin/sh', '-c', args['command']], cwd=args.get('cwd') or None,
                                      timeout=min(max(args.get('timeout_seconds', 30), 1), 90))
@@ -104,8 +167,38 @@ def create_server(root):
         return call('get_preview', identifier=identifier)
 
     @server.tool(structured_output=True)
+    def try_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Load the current candidate adapter with the session's resource bindings and call one declared tool. Edits to the candidate are picked up on every call. Returns the tool's JSON output (reader usage included when the tool reports it)."""
+        return call('try_tool', tool=name, arguments=arguments)
+
+    @server.tool(structured_output=True)
+    def bash(command: str, cwd: str = '', timeout_seconds: int = 30) -> dict[str, Any]:
+        """Run a shell command in the sandbox (the native name of run_command): no network, adapter and scratch writable, everything else read-only."""
+        return call('run_command', command=command, cwd=cwd, timeout_seconds=timeout_seconds)
+
+    @server.tool(structured_output=True)
+    def captest(directory: str) -> dict[str, Any]:
+        """Run a learned tool's own test (tools/<name>/test.py) in the admission sandbox; the native name of test_python. Passing is what admits the tool."""
+        return call('test_python', directory=directory)
+
+    @server.tool(structured_output=True)
+    def sql(query: str) -> dict[str, Any]:
+        """Run one read-only SQL statement (SELECT/WITH/PRAGMA/EXPLAIN) against the bound environment database. Rows and characters are capped by the service; every statement is logged to the session. Available only when the session bound `sql`."""
+        return call('sql', query=query)
+
+    @server.tool(structured_output=True)
+    def history(n: int = 10, ref: str = '', path: str = '') -> dict[str, Any]:
+        """Read the candidate adapter's revision history (git, framework-maintained). No arguments: the last n commits with file stats. `ref` (e.g. HEAD~1): the diff from that revision to the working candidate; add `path` to limit it to one file."""
+        return call('history', n=n, ref=ref or None, path=path or None)
+
+    @server.tool(structured_output=True)
+    def small_model(messages: list[dict[str, Any]], max_tokens: int = 1500) -> dict[str, Any]:
+        """Call the bound reader model directly with chat messages (temperature 0). Use it to try a reader prompt on document text taken from the learning material."""
+        return call('small_model', messages=messages, max_tokens=max_tokens)
+
+    @server.tool(structured_output=True)
     def list_files(area: str) -> dict[str, Any]:
-        """List adapter, learning_material (legacy evidence), history, scratch, method, environment, observations, or bound validation files."""
+        """List adapter, learning_material (legacy evidence), history, scratch, method, environment, observations, deployment (when supplied), or bound validation files."""
         return call('list_files', area=area)
 
     @server.tool(structured_output=True)

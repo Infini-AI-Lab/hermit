@@ -8,7 +8,7 @@ import tomllib
 from harnessadapter.policy.execution import PolicySandbox, toml_value
 
 
-def command_for(session, policy, mcp_config, budget, model=None, reasoning_effort=None):
+def command_for(session, policy, mcp_config, budget, model=None, reasoning_effort=None, provider=None):
     if not shutil.which('codex'):
         raise RuntimeError('The shared sandbox executor requires an installed Codex CLI')
     if reasoning_effort is not None and reasoning_effort not in ('low','medium','high','xhigh'):
@@ -30,8 +30,19 @@ def command_for(session, policy, mcp_config, budget, model=None, reasoning_effor
     def setting(key,value):command.extend(['-c',key+'='+toml_value(value)])
     config=Path(os.environ.get('CODEX_HOME',str(Path.home()/'.codex')))/'config.toml'
     values=tomllib.loads(config.read_text()) if config.exists() else {}
-    if values.get('model_provider','openai')!='openai':
-        raise RuntimeError('This initial Codex backend supports the existing OpenAI login/provider only')
+    if provider:
+        # An explicit OpenAI-compatible provider (base_url + key env var): the
+        # launcher may point it at a relay/meter; nothing else is inferred.
+        name=provider['name']
+        setting('model_provider',name)
+        setting(f'model_providers.{name}.name',name)
+        setting(f'model_providers.{name}.base_url',provider['base_url'])
+        setting(f'model_providers.{name}.env_key',provider['env_key'])
+        setting(f'model_providers.{name}.wire_api',provider.get('wire_api','chat'))
+        if provider.get('requires_openai_auth') is not None:
+            setting(f'model_providers.{name}.requires_openai_auth',bool(provider['requires_openai_auth']))
+    elif values.get('model_provider','openai')!='openai':
+        raise RuntimeError('This Codex backend supports the existing OpenAI login, or an explicit --provider-* set; the client configuration names another provider')
     for key in ('model','model_reasoning_effort'):
         if key in values:setting(key,values[key])
     if reasoning_effort is not None:setting('model_reasoning_effort',reasoning_effort)

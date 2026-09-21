@@ -42,12 +42,23 @@ class Workspace:
 
         if (self.root / 'validation').is_dir():
             self.areas['validation'] = self.root / 'validation'
+        if (self.root / 'deployment').is_dir():
+            self.areas['deployment'] = self.root / 'deployment'
+        # Adapter paths the evolver definition declares immutable (its core
+        # code); the session writes control/protected.json before the broker
+        # starts, and finalize refuses a candidate whose protected files changed.
+        self.protected = ('CONTRACT.md',)
+        listing = self.root / 'control/protected.json'
+        if listing.is_file():
+            self.protected = tuple(dict.fromkeys(('CONTRACT.md', *json.loads(listing.read_text()))))
 
     def path(self, area, relative, write=False):
         if area not in self.areas or (write and area not in ('adapter', 'scratch')):
-            raise ValueError('Read: adapter/learning_material (legacy evidence)/scratch/method/environment/history. Write: adapter/scratch only.')
+            raise ValueError('Read: adapter/learning_material (legacy evidence)/scratch/method/environment/history/deployment. Write: adapter/scratch only.')
         if not isinstance(relative, str) or Path(relative).is_absolute() or '..' in Path(relative).parts or '.git' in Path(relative).parts:
             raise ValueError('Use a relative path without parent traversal or .git')
+        if write and area == 'adapter' and self.protected_hit(relative):
+            raise ValueError(f'{self.protected_hit(relative)} is protected core of this architecture; it is not editable')
         base = self.areas[area].resolve()
         result = (base / relative).resolve()
         if not result.is_relative_to(base):
@@ -55,6 +66,19 @@ class Workspace:
         if write and result == base:
             raise ValueError('An area root cannot be replaced or removed')
         return result
+
+    def protected_hit(self, relative):
+        """The protected entry `relative` falls under, or None."""
+        parts = Path(relative).parts
+        for entry in self.protected:
+            entry_parts = Path(entry).parts
+            if parts[:len(entry_parts)] == entry_parts:
+                return entry
+        return None
+
+    def protected_files(self, hashes):
+        """The subset of a fingerprint that lies under a protected entry."""
+        return {path: digest for path, digest in hashes.items() if self.protected_hit(path)}
 
     def list_files(self, area):
         base = self.path(area, '')
@@ -102,6 +126,12 @@ class Workspace:
         findings = []
         try:
             manifest = load_manifest(root)
+            context = manifest['context']
+            if isinstance(context, dict):
+                module, function = context['entrypoint'].split(':', 1)
+                tree = ast.parse(inside(root, module).read_text())
+                if not any(isinstance(n, ast.FunctionDef) and n.name == function for n in tree.body):
+                    findings.append(f'Context renderer must be a top-level Python function: {context["entrypoint"]}')
             for tool in manifest.get('tools', []):
                 for key in ('input_schema', 'output_schema'):
                     Draft202012Validator.check_schema(tool[key])

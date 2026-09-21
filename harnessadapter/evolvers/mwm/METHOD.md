@@ -23,6 +23,6 @@ Learned tools retain tools/<name>/{TOOL.md,run.py,test.py}, literal SCHEMA, and 
 
 ## Lifecycle
 
-The method prepares journal rolling, docket caps, and status before each session. A read-only history area, when available, preserves the prior core snapshot and pre-maintenance content. The framework retains immutable session snapshots and hashes instead of editing .git inside the core. There is no automatic activation.
+The method prepares journal rolling, docket caps, and status before each session. A read-only history area preserves the prior core snapshot and pre-maintenance content, and the candidate carries its git revision history, committed by the framework after each adopted session (the `history` tool reads it; you do not run git). There is no automatic activation.
 
 The framework-generated environment README and get_policy define this run's additional readable directories and network access. Use read_path/list_path to inspect permitted environment files, and run_command/fetch_url for permitted interaction. Network is enabled by default and may be disabled by the user. No benchmark-specific environment actions are implicitly supplied. Do not claim an observation you did not make. Context/run/delegation budgets are owned by the acting host in this standalone integration, not a benchmark evaluator.

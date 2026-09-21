@@ -20,7 +20,29 @@ from harnessadapter.evolution.definition import EvolverDefinition
 from harnessadapter.paths import PACKAGE_ROOT, resolve_architecture, workspace_root, BUILTIN_ARCHITECTURES
 
 
-def evolve(source: Path, evidence: Path | None = None, goal: str = "Improve the adapter using supplied LearningMaterial.", timeout=240, budget=None, prepare_only=False, block=1, tick=0, policy=None, definition=None, source_kind='adapter', validation_data: Path | None = None, output: Path | None = None, model: str | None = None, reasoning_effort: str | None = None, learning_material: Path | None = None, preview_enabled: bool = False):
+def learner_usage(events):
+    """Token usage of the learner's own model calls, summed over the backend's
+    turn events: codex reports one `turn.completed` with `usage` per turn,
+    claude-code one `result` with `usage`. Zero when a backend reports none."""
+    usage = {'input': 0, 'cached': 0, 'output': 0, 'reasoning': 0, 'turns': 0}
+    for event in events:
+        if event.get('type') == 'turn.completed':
+            u = event.get('usage') or {}
+            usage['input'] += int(u.get('input_tokens') or 0)
+            usage['cached'] += int(u.get('cached_input_tokens') or 0)
+            usage['output'] += int(u.get('output_tokens') or 0)
+            usage['reasoning'] += int(u.get('reasoning_output_tokens') or 0)
+            usage['turns'] += 1
+        elif event.get('type') == 'result' and isinstance(event.get('usage'), dict):
+            u = event['usage']
+            usage['input'] += int(u.get('input_tokens') or 0)
+            usage['cached'] += int(u.get('cache_read_input_tokens') or 0)
+            usage['output'] += int(u.get('output_tokens') or 0)
+            usage['turns'] += 1
+    return usage
+
+
+def evolve(source: Path, evidence: Path | None = None, goal: str = "Improve the adapter using supplied LearningMaterial.", timeout=240, budget=None, prepare_only=False, block=1, tick=0, policy=None, definition=None, source_kind='adapter', validation_data: Path | None = None, output: Path | None = None, model: str | None = None, reasoning_effort: str | None = None, learning_material: Path | None = None, preview_enabled: bool = False, bindings: list | None = None, deployment: Path | None = None, notes: str = '', provider: dict | None = None):
     from harnessadapter.adapter.resources import resolve_learning_material
     evidence = resolve_learning_material(learning_material, evidence)
     if evidence is None:
@@ -57,18 +79,39 @@ def evolve(source: Path, evidence: Path | None = None, goal: str = "Improve the 
     copy_tree(source, session / 'adapter')
     copy_tree(evidence, session / 'evidence')
     copy_tree(source, session / 'history')
+    # Revision history rides with the candidate: the source's repository is
+    # carried over (or started here) and the framework commits the outcome.
+    from harnessadapter.adapter import versioning
+    versioning.copy_history(source, session / 'adapter')
+    source_head = versioning.ensure_repo(session / 'adapter')
+    if deployment is not None:
+        deployment = deployment.resolve()
+        if not deployment.is_dir():
+            raise ValueError('Deployment must be a directory')
+        copy_tree(deployment, session / 'deployment')
     if validation_data is not None:
         copy_tree(validation_data, session/'validation')
     baseline = {'source': fingerprint(source), 'evidence': fingerprint(session / 'evidence'),
                 'framework': fingerprint(PACKAGE_ROOT, exclude=('evolvers', 'architectures')), 'candidate': fingerprint(session / 'adapter')}
     (session / 'control/baseline.json').write_text(json.dumps(baseline, indent=2)+'\n')
     maintenance = definition.prepare_session(session/'adapter', session, block=block, tick=tick)
+    # The definition's immutable core (its interface and library code): the
+    # broker refuses writes under these paths and finalize refuses the
+    # candidate if they changed by any other route (a shell in the sandbox).
+    protected_paths = list(getattr(definition.method, 'PROTECTED_PATHS', ()) or ())
+    (session / 'control/protected.json').write_text(json.dumps(protected_paths) + '\n')
+    # The reference for the protected files is the adapter AFTER the
+    # definition prepared it (prepare_session writes CONTRACT.md itself).
+    baseline['protected'] = Workspace(session).protected_files(fingerprint(session / 'adapter'))
     # Evidence is an intrinsic read-only area, independent of optional environment grants.
     policy_document = {'requested': policy.serialize(), 'candidate': str(session/'adapter'),
                        'learning_material': str(session/'evidence'), 'evidence': str(session/'evidence'), 'scratch': str(session/'scratch'),
                        'write_scope': 'candidate-and-scratch-only',
                        'network_scope': 'agent tool/command traffic; model API transport is separate',
                        'preview_enabled': bool(preview_enabled),
+                       'bindings': list(bindings or []),
+                       'deployment': str(session/'deployment') if deployment is not None else None,
+                       'notes': notes or '',
                        'executor': 'codex sandbox (shared by both learner backends)'}
     (session/'control/policy.json').write_text(json.dumps(policy_document,indent=2)+'\n')
     sandbox = PolicySandbox(session, policy)
@@ -85,16 +128,35 @@ def evolve(source: Path, evidence: Path | None = None, goal: str = "Improve the 
         'fetch_url for HTTP(S) when enabled. No benchmark-specific environment or evaluator is implicitly provided. '
         'Environment directories stay read-only even when used as a command working directory. '
         'MWM executable admission still uses its stricter test_python sandbox; ordinary run_command success is not admission.\n')
+    if bindings:
+        names = [str(b).split('=',1)[0] for b in bindings]
+        environment_text += ('\nBound resources: ' + ', '.join(names) + '. Session tools reach them through the broker; commands inside the sandbox cannot. '
+            + ('try_tool(name, arguments) loads the current candidate with the bindings and calls one declared tool. ' if any(n in ('search','documents','small_model') for n in names) else '')
+            + ('small_model(messages, max_tokens) calls the bound reader model. ' if 'small_model' in names else '')
+            + ('sql(query) runs one read-only statement against the environment database (SELECT/WITH/PRAGMA/EXPLAIN; rows and characters capped; every statement is logged). ' if 'sql' in names else '')
+            + '\n')
+    if deployment is not None:
+        environment_text += '\nDeployment texts for this run are readable under area deployment (contract/, host.json); the method has already rendered them into its contract.\n'
+    environment_text += '\nRevision history: the candidate adapter is a git repository maintained by the framework; history(n) lists commits, history(ref=..., path=...) shows a diff. You do not run git yourself.\n'
     environment_text += ('\nBrowser preview service: ' + ('enabled. Use request_preview for a single self-contained HTML file in adapter/scratch; then get_preview and read_image in observations. At most two requests. Rendering is a diagnostic, not independent quality feedback.' if preview_enabled else 'not bound. Do not wait for preview results.') + '\n')
-    (session/'environment/README.md').write_text(environment_text)
+    native_env=(session/'deployment/environment/README.md') if deployment is not None else None
+    if native_env is not None and native_env.is_file():
+        # The deployment supplies the environment surface the learner reads
+        # (what a host can reach, nothing more); the framework's own policy
+        # text is kept beside it for reference.
+        (session/'environment/README.md').write_text(native_env.read_text())
+        (session/'environment/FRAMEWORK.md').write_text(environment_text)
+    else:
+        (session/'environment/README.md').write_text(environment_text)
     protected_areas = ('method', 'environment', 'history') + (('validation',) if validation_data is not None else ())
     for area in protected_areas:
         baseline[area] = fingerprint(session / area)
     (session / 'control/baseline.json').write_text(json.dumps(baseline, indent=2)+'\n')
-    prompt = definition.build_prompt(session/'adapter', session/'evidence', goal, guide)
+    prompt = definition.build_prompt(session/'adapter', session/'evidence', goal, guide, notes=notes)
     if validation_data is not None:
         prompt += '\n\nOptional validation is bound read-only at validation/. Read validation/README.md. These records are visible to you, not hidden held-out evaluation. No evaluator is run automatically; report which checks you actually performed.'
-    prompt += '\n\nFramework execution policy:\n' + environment_text + '\nRead and obey it before interacting with the environment. All edits and execution use the evolution MCP tools. Native host tools are not an alternate permission path.'
+    if not getattr(definition.method, 'NATIVE_PROMPT', False):
+        prompt += '\n\nFramework execution policy:\n' + environment_text + '\nRead and obey it before interacting with the environment. All edits and execution use the evolution MCP tools. Native host tools are not an alternate permission path.'
     (session/'control/prompt.md').write_text(prompt)
     mcp = {'mcpServers': {'evolution': {'type':'stdio', 'command':str(Path(sys.executable).absolute()),
            'args':['-m', 'harnessadapter.evolution.server', '--session', str(session)]}}}
@@ -109,7 +171,7 @@ def evolve(source: Path, evidence: Path | None = None, goal: str = "Improve the 
         result['status']='prepared'
         (session/'control/result.json').write_text(json.dumps(result,indent=2)+'\n')
         return result
-    command = command_for(session, policy, config, 3.0 if budget is None else budget, model=model, reasoning_effort=reasoning_effort)
+    command = command_for(session, policy, config, 3.0 if budget is None else budget, model=model, reasoning_effort=reasoning_effort, provider=provider)
     (session/'control/invocation.json').write_text(json.dumps({'argv':command,'cwd':str(session/'host'),'timeout':timeout},indent=2)+'\n')
     env=dict(os.environ);env['ENABLE_TOOL_SEARCH']='false'
     print(f'Evolution session: {session}',flush=True)
@@ -132,22 +194,31 @@ def evolve(source: Path, evidence: Path | None = None, goal: str = "Improve the 
     else:
         final=codex_turn_outcome(events)
     admission = definition.finalize(session/'adapter',session)
+    gate_findings = list((admission or {}).get('gates') or [])
     candidate=fingerprint(session/'adapter')
+    committed = versioning.commit_all(session/'adapter', f'evolve: block {block} session {session.name}') if candidate != baseline['candidate'] else None
     unchanged={'source':fingerprint(source)==baseline['source'],
                'evidence':fingerprint(session/'evidence')==baseline['evidence'],
                'framework':fingerprint(PACKAGE_ROOT, exclude=('evolvers', 'architectures'))==baseline['framework']}
     for area in protected_areas:
         unchanged[area] = fingerprint(session / area) == baseline[area]
-    validation=Workspace(session).validate()
+    workspace = Workspace(session)
+    unchanged['protected'] = workspace.protected_files(candidate) == baseline['protected']
+    validation=workspace.validate()
+    usage = learner_usage(events)
     audit=session/'control/file-calls.jsonl'
     broker_calls=[json.loads(line) for line in audit.read_text().splitlines()] if audit.exists() else []
     broker_used=any(call.get('status')=='ok' for call in broker_calls)
     success=proc.returncode==0 and not timed_out and final.get('subtype')=='success' and not final.get('is_error') and broker_used
+    # Gate findings are advice for the next session (native V2 behaviour:
+    # gates.check() reports, it does not revert); they never block adoption.
     result.update(status='candidate_ready' if success and all(unchanged.values()) and validation['passed'] else 'needs_review',
+                  gates=gate_findings, source_head=source_head, candidate_commit=committed,
                   exit_code=proc.returncode,timed_out=timed_out,validation=validation,unchanged=unchanged,
                   changes=[p for p in sorted(candidate.keys() | baseline['candidate'].keys()) if candidate.get(p)!=baseline['candidate'].get(p)],
                   revision=hashlib.sha256(json.dumps(candidate,sort_keys=True).encode()).hexdigest(),
                   broker_calls_succeeded=sum(call.get('status')=='ok' for call in broker_calls),
+                  usage=usage,
                   admission=admission, total_cost_usd=final.get('total_cost_usd'),model=next((e.get('model') for e in events if e.get('subtype')=='init'),None))
     (session/'control/result.json').write_text(json.dumps(result,indent=2)+'\n')
     return result
@@ -178,6 +249,13 @@ def main(argv=None):
     parser.add_argument('--config',type=Path,help='Framework execution policy: TOML, JSON, or YAML')
     parser.add_argument('--backend',choices=['codex','claude-code'])
     parser.add_argument('--workdir',type=Path,help='Read-only environment working directory; commands default here, writes still only target candidate/scratch')
+    parser.add_argument('--deployment',type=Path,help='Deployment directory (venue texts for the method: contract/<slot>.md, delegation, host.json); copied read-only into the session')
+    parser.add_argument('--notes',default='',help='Wrapper notes for this session (parked tools, brief overrun); rendered into the prompt by the method')
+    parser.add_argument('--provider-name',help='Explicit OpenAI-compatible model provider for the Codex learner (with --provider-base-url and --provider-env-key)')
+    parser.add_argument('--provider-base-url')
+    parser.add_argument('--provider-env-key',help='Environment variable holding the provider API key')
+    parser.add_argument('--provider-wire-api',choices=['chat','responses'],default='chat')
+    parser.add_argument('--bind',action='append',default=None,metavar='NAME=SPEC',help='Resource binding for the candidate adapter (search=URL, documents=URL, small_model=URL|model); repeatable. Enables the try_tool and small_model session tools.')
     reads=parser.add_mutually_exclusive_group()
     reads.add_argument('--read-dir',type=Path,action='append',default=None,help='Additional environment directory, read-only; repeatable')
     reads.add_argument('--read-all',action='store_true',help='Allow all filesystem reads; never expands write scope')
@@ -199,7 +277,12 @@ def main(argv=None):
     definition=EvolverDefinition(preset,prompt_override=prompt_override)
     policy=load_policy(args.config,backend=args.backend,read_paths=args.read_dir,read_all=args.read_all,network=args.network,defaults=definition.policy.serialize(),working_directory=args.workdir)
     kind='architecture' if args.architecture or (args.reference in BUILTIN_ARCHITECTURES and not args.adapter) else 'adapter'
-    result=evolve(source,args.evidence,args.goal,args.timeout,args.max_budget_usd,args.prepare_only,args.block,args.tick,policy,definition,kind,validation_data=args.validation,output=args.output,model=args.model,reasoning_effort=args.reasoning_effort)
+    provider=None
+    if args.provider_name or args.provider_base_url or args.provider_env_key:
+        if not (args.provider_name and args.provider_base_url and args.provider_env_key):
+            parser.error('--provider-name, --provider-base-url and --provider-env-key go together')
+        provider={'name':args.provider_name,'base_url':args.provider_base_url,'env_key':args.provider_env_key,'wire_api':args.provider_wire_api}
+    result=evolve(source,args.evidence,args.goal,args.timeout,args.max_budget_usd,args.prepare_only,args.block,args.tick,policy,definition,kind,validation_data=args.validation,output=args.output,model=args.model,reasoning_effort=args.reasoning_effort,bindings=args.bind,deployment=args.deployment,notes=args.notes,provider=provider)
     print(json.dumps(result,indent=2))
     raise SystemExit(0 if result['status'] in ('prepared','candidate_ready') else 1)
 
