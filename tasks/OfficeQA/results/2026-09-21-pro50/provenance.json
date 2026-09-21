@@ -1,0 +1,31 @@
+{
+  "framework_revision": "81342794b83f115a358011afcd5453b79aed1bd2",
+  "original_artifact_sha256": {
+    "state.json": "745c6a76c707d86bf5fb41f692b6a1757e003a4294178c14f8d7b8f5225069a2",
+    "freeze.json": "b0ce27c83c7365547ec3df1af4e58a7cdfde1ff49a448c03436c6413adff12eb",
+    "private-evaluation/paired-metrics.json": "7487426c0234f89d3576e757057f3213e31c79b702b046f2c675cb66bfb9db68",
+    "baseline-predictions.jsonl": "8fa01e4185f4d2539ddf2c5cb471d8e69417cee7830002a5534e32410068762b",
+    "adapted-predictions.jsonl": "b0ea639d4764305f0b486b6d10bcf7e96520ab4d211b9cd7bf289b260df2dcae",
+    "PROTOCOL.md": "0a1916df38ab87659502daad62e850d6e946913faabdc36dade693e23e711818"
+  },
+  "original_execution_file_sha256": {
+    "acting.py": "96dfbfd977a9c5219533e85ccf41ee0ed17298a3547e1ed10d7cf3d53dd7ea5e",
+    "broker.py": "48a91f43e6bbb1a7ca1f79b20e65b4449063d12e41698da44c2ff717884e3b75",
+    "campaign.py": "f1e89cf22b028f8e76619abbaf8d19d3f943a6a82e4681c54bb141be1951525f",
+    "client.py": "64a69f06da0d9b984a1b2f993a0ac4d9d0d83e311c96c5fc0662a211092a5048",
+    "data.py": "5fbda422ca345ee440724eec6cc4529884badf06ab5b705f3ca8cc3ce1d400cf",
+    "learning.py": "ed2d5bb9792ae5ff0d87ac1f8f01a58e462888a59ef462c2c542f65df6902571",
+    "rate_control.py": "5c7fe3df892b2feb30303765e61103243c704b95aaef25714f84dd78117eda36",
+    "run.py": "626bf756d85fc3641127d24e4f3bca92378c5bbcbddb2b8b311132ae2f642796",
+    "PROTOCOL.md": "0a1916df38ab87659502daad62e850d6e946913faabdc36dade693e23e711818"
+  },
+  "note": "Hashes identify private local originals; raw evidence is not redistributed.",
+  "runtime": {
+    "codex_version": "0.155.0-alpha.9",
+    "native_adapter_commit": "81342794b83f115a358011afcd5453b79aed1bd2",
+    "packages": {
+      "mcp": "2.2.0",
+      "jsonschema": "4.26.0"
+    }
+  }
+}
