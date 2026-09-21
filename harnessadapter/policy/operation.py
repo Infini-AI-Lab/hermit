@@ -14,8 +14,20 @@ def execute(session, name, args):
     policy=ExecutionPolicy.parse(document['requested'])
     sandbox=PolicySandbox(session,policy)
     if name in ('read_path','list_path'):
+        # A native mount path (/evidence, /skills, /patterns, /environment,
+        # /world-model) resolves through the workspace areas.
+        mapped=Workspace(session).mount(args['path'])
+        if mapped is not None:
+            area,relative=mapped
+            if name=='read_path':
+                return Workspace(session).read_file(area,relative,args.get('offset',0))
+            base=Workspace(session).path(area,relative)
+            entries=sorted(p.name for p in base.iterdir());offset=args.get('offset',0)
+            if offset<0:raise ValueError('offset must be nonnegative')
+            return {'path':args['path'],'entries':entries[offset:offset+200],
+                    'next_offset':offset+200 if len(entries)>offset+200 else None}
         path=Path(args['path']).expanduser().resolve()
-        if not sandbox.can_read(path):raise ValueError('Path is outside the user-defined readable scope')
+        if not sandbox.can_read(path):raise ValueError('Path is outside the user-defined readable scope; the native mounts /evidence, /skills, /patterns, /environment and /world-model are readable by those names')
         if name=='read_path':
             offset=args.get('offset',0)
             if offset<0:raise ValueError('offset must be nonnegative')

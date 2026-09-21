@@ -167,15 +167,78 @@ class PolicySandbox:
         return {'filesystem':self.filesystem(writable=writable),
                 'network':{'enabled':self.policy.network if network is None else network}}
 
-    def run(self, argv, *, cwd=None, network=None, timeout=30, output_limit=30000):
-        if not self.executor or sys.platform not in ('darwin','linux'):
-            raise RuntimeError('Enforcement unavailable: this release requires Codex CLI with its macOS/Linux sandbox backend')
-        cwd=Path(cwd or self.policy.working_directory or self.adapter).resolve()
-        if not cwd.is_dir() or not self.can_read(cwd):raise ValueError('Command cwd must be in the readable scope')
-        profile=self.profile(network=network)
-        command=[self.executor,'sandbox','-P',self.PROFILE,'-C',str(cwd),
-                 '-c','permissions.'+self.PROFILE+'='+toml_value(profile),
-                 '-c','features.network_proxy=false','--',*map(str,argv)]
+    # The native learner's mounts: what the contract calls /skills, /patterns,
+    # /evidence and /environment are the session's method/skills, method/
+    # patterns, evidence and environment, read-only, at those names.
+    MOUNTS=(('skills','method/skills'),('patterns','method/patterns'),('evidence','evidence'),('environment','environment'))
+
+    @property
+    def bwrap(self):
+        return shutil.which('bwrap') if sys.platform.startswith('linux') else None
+
+    @property
+    def executor_name(self):
+        return 'bwrap' if self.bwrap else 'codex sandbox'
+
+    def _bwrap_command(self, cwd, *, network, writable=True):
+        """A bubblewrap prefix enforcing the policy on Linux: an empty root
+        with /usr and the interpreter prefixes read-only, the session's
+        readable areas and the policy's read grants read-only at their own
+        paths, adapter and scratch writable, the native mounts by name, a
+        private /tmp, every namespace unshared (the network one only when
+        the policy denies network), the parent's death killing the child."""
+        cmd=[self.bwrap,'--unshare-user','--unshare-pid','--unshare-ipc','--unshare-uts','--unshare-cgroup',
+             '--die-with-parent','--new-session','--proc','/proc','--dev','/dev']
+        if not network:cmd.append('--unshare-net')
+        # /tmp is private and mounted FIRST: a later bind of a session that
+        # itself lives under /tmp must shadow the tmpfs, not the reverse.
+        cmd+=['--tmpfs','/tmp']
+        if self.policy.read_all:
+            # Every top-level entry read-only, one by one, so the root itself
+            # stays a tmpfs where the native mount points can be created.
+            for entry in sorted(os.listdir('/')):
+                if entry in ('proc','dev','tmp','sys','run'):continue
+                path='/'+entry
+                if os.path.islink(path):cmd+=['--symlink',os.readlink(path),path]
+                elif os.path.isdir(path):cmd+=['--ro-bind',path,path]
+            # A session that lives under the private /tmp is still readable.
+            cmd+=['--ro-bind',str(self.session),str(self.session)]
+            for root in dict.fromkeys(self.readable+self.runtime_roots):
+                if Path(root).exists():cmd+=['--ro-bind',str(root),str(root)]
+        else:
+            cmd+=['--ro-bind','/usr','/usr']
+            for link,target in (('/lib','usr/lib'),('/lib64','usr/lib64'),('/bin','usr/bin'),('/sbin','usr/sbin')):
+                if os.path.islink(link):cmd+=['--symlink',os.readlink(link),link]
+                elif os.path.isdir(link):cmd+=['--ro-bind',link,link]
+            for etc in ('/etc/ld.so.cache','/etc/ld.so.conf','/etc/ld.so.conf.d','/etc/alternatives','/etc/ssl','/etc/pki','/etc/resolv.conf','/etc/hosts','/etc/nsswitch.conf','/etc/passwd','/etc/group'):
+                if os.path.exists(etc):cmd+=['--ro-bind',etc,etc]
+            for root in dict.fromkeys(self.readable+self.runtime_roots):
+                root=Path(root)
+                if root.exists() and not root.is_relative_to(Path('/usr')):cmd+=['--ro-bind',str(root),str(root)]
+        for f in ('control/policy.json','control/protected.json'):
+            if (self.session/f).is_file():cmd+=['--ro-bind',str(self.session/f),str(self.session/f)]
+        for p in (self.adapter,self.scratch):
+            if p.is_symlink() or p.resolve()!=p:raise ValueError('A sandbox root was replaced; refusing execution')
+            cmd+=['--bind' if writable else '--ro-bind',str(p),str(p)]
+        home=self.session/'host/sandbox-home';home.mkdir(parents=True,exist_ok=True)
+        cmd+=['--bind',str(home),str(home)]
+        for name,source in self.MOUNTS:
+            src=self.session/source
+            if src.is_dir():cmd+=['--ro-bind',str(src),'/'+name]
+        return cmd+['--chdir',str(cwd),'--']
+
+    def _codex_command(self, cwd, *, network, writable=True):
+        profile=self.profile(network=network,writable=writable)
+        return [self.executor,'sandbox','-P',self.PROFILE,'-C',str(cwd),
+                '-c','permissions.'+self.PROFILE+'='+toml_value(profile),
+                '-c','features.network_proxy=false','--']
+
+    def _prefix(self, cwd, *, network, writable=True):
+        if self.bwrap:return self._bwrap_command(cwd,network=network,writable=writable)
+        if self.executor and sys.platform in ('darwin','linux'):return self._codex_command(cwd,network=network,writable=writable)
+        raise RuntimeError('Enforcement unavailable: this release requires bubblewrap (Linux) or Codex CLI with its macOS/Linux sandbox backend')
+
+    def _environment(self):
         # Do not pass the learner client's tokens or arbitrary parent environment to programs.
         executables=[self.executor,str(Path(shutil.which('node')).resolve()) if shutil.which('node') else None,sys.executable]
         tool_path=':'.join(dict.fromkeys(([str(self.helper_dir)] if self.helper_dir else [])+['/usr/bin','/bin','/usr/sbin','/sbin']+[str(Path(p).parent) for p in executables if p]))
@@ -183,9 +246,15 @@ class PolicySandbox:
         # 0.155: "Could not find home directory" with no HOME). An empty
         # session-local home keeps the parent's credentials out of reach.
         home=self.session/'host/sandbox-home';home.mkdir(parents=True,exist_ok=True)
-        env={'PATH':tool_path,'HOME':str(home),
-             'TMPDIR':str(self.scratch),'PYTHONDONTWRITEBYTECODE':'1','PYTHONNOUSERSITE':'1',
-             'LANG':'en_US.UTF-8'}
+        return {'PATH':tool_path,'HOME':str(home),
+                'TMPDIR':str(self.scratch),'PYTHONDONTWRITEBYTECODE':'1','PYTHONNOUSERSITE':'1',
+                'LANG':'en_US.UTF-8'}
+
+    def run(self, argv, *, cwd=None, network=None, timeout=30, output_limit=30000):
+        cwd=Path(cwd or self.policy.working_directory or self.adapter).resolve()
+        if not cwd.is_dir() or not self.can_read(cwd):raise ValueError('Command cwd must be in the readable scope')
+        command=self._prefix(cwd,network=self.policy.network if network is None else network)+[*map(str,argv)]
+        env=self._environment()
         # Files capture output without unbounded memory growth or writable control paths.
         with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
             process=subprocess.Popen(command,cwd=self.session/'host',env=env,stdin=subprocess.DEVNULL,
@@ -212,18 +281,10 @@ class PolicySandbox:
         comes back on stdin as {"rpc": id, "result": value} (or "error"); the
         line {"done": value} ends the exchange and is returned. The child
         never reaches a socket; the broker (this process) does its I/O."""
-        if not self.executor or sys.platform not in ('darwin','linux'):
-            raise RuntimeError('Enforcement unavailable: this release requires Codex CLI with its macOS/Linux sandbox backend')
         cwd=Path(cwd or self.policy.working_directory or self.adapter).resolve()
         if not cwd.is_dir() or not self.can_read(cwd):raise ValueError('Command cwd must be in the readable scope')
-        profile=self.profile(network=False)
-        command=[self.executor,'sandbox','-P',self.PROFILE,'-C',str(cwd),
-                 '-c','permissions.'+self.PROFILE+'='+toml_value(profile),
-                 '-c','features.network_proxy=false','--',*map(str,argv)]
-        executables=[self.executor,str(Path(shutil.which('node')).resolve()) if shutil.which('node') else None,sys.executable]
-        tool_path=':'.join(dict.fromkeys(([str(self.helper_dir)] if self.helper_dir else [])+['/usr/bin','/bin','/usr/sbin','/sbin']+[str(Path(p).parent) for p in executables if p]))
-        home=self.session/'host/sandbox-home';home.mkdir(parents=True,exist_ok=True)
-        env={'PATH':tool_path,'HOME':str(home),'TMPDIR':str(self.scratch),'PYTHONDONTWRITEBYTECODE':'1','PYTHONNOUSERSITE':'1','LANG':'en_US.UTF-8'}
+        command=self._prefix(cwd,network=False)+[*map(str,argv)]
+        env=self._environment()
         import threading
         with tempfile.TemporaryFile() as stderr:
             process=subprocess.Popen(command,cwd=self.session/'host',env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,
@@ -261,9 +322,14 @@ class PolicySandbox:
         return {'exit_code':process.returncode,'timed_out':timed_out,'done':done,'requests':requests,'stderr':err}
 
     def operation(self, name, arguments):
+        # The helper prints one JSON document: a 30,000-character page plus
+        # escaping and metadata, or a whole area's file list, so its own
+        # limit sits well above the page size (30,000 used to be the limit
+        # here too, and any file over ~28k characters was unreadable even by
+        # its first page — measured 2026-09-21, 76 refused reads in 242 sessions).
         result=self.run([sys.executable,'-m','harnessadapter.policy.operation',
                          '--session',str(self.session),'--name',name,'--arguments',json.dumps(arguments)],network=False,
-                        output_limit=6*1024*1024 if name in ('read_image','snapshot_preview') else 30000)
+                        output_limit=6*1024*1024 if name in ('read_image','snapshot_preview') else 512*1024)
         if result['exit_code']!=0 or result['timed_out']:
             raise RuntimeError('Sandboxed file operation failed: '+result['stderr'][-1200:])
         if result['output_truncated']:
@@ -314,4 +380,4 @@ print(json.dumps(out))
         if (probe/'private.txt').read_text()!='private probe':raise RuntimeError('Sandbox modified protected probe')
         for root in (self.adapter,self.scratch):
             (root/'permission-probe.tmp').unlink(missing_ok=True)
-        return {'passed':True,'executor':'codex sandbox','platform':sys.platform,'observed':facts}
+        return {'passed':True,'executor':self.executor_name,'platform':sys.platform,'observed':facts}

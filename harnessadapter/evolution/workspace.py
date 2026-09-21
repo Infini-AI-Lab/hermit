@@ -52,7 +52,33 @@ class Workspace:
         if listing.is_file():
             self.protected = tuple(dict.fromkeys(('CONTRACT.md', *json.loads(listing.read_text()))))
 
+    # The native learner's mounts, as its contract names them, mapped onto
+    # the areas this transport serves: "/skills/curate-brief" is the method
+    # area's skills/curate-brief, "/evidence/README.md" the evidence area's
+    # README.md. The texts stay native; the resolver does the translation.
+    MOUNTS = {'evidence': ('evidence', ''), 'skills': ('method', 'skills'), 'patterns': ('method', 'patterns'),
+              'environment': ('environment', ''), 'world-model': ('adapter', '')}
+
+    def mount(self, path):
+        """(area, relative) for a native mount path such as /skills/x or
+        skills/x, or None when `path` names no mount."""
+        parts = Path(str(path)).parts
+        if parts and parts[0] == '/':
+            parts = parts[1:]
+        if not parts or parts[0] not in self.MOUNTS:
+            return None
+        area, prefix = self.MOUNTS[parts[0]]
+        if area not in self.areas:
+            return None
+        rest = Path(*parts[1:]) if len(parts) > 1 else Path('')
+        relative = str(Path(prefix) / rest) if prefix else str(rest)
+        return area, ('' if relative == '.' else relative)
+
     def path(self, area, relative, write=False):
+        if not write and isinstance(relative, str) and (relative.startswith('/') or (area in self.areas and not (self.areas[area] / relative).exists())):
+            mapped = self.mount(relative)
+            if mapped is not None:
+                area, relative = mapped
         if area not in self.areas or (write and area not in ('adapter', 'scratch')):
             raise ValueError('Read: adapter/learning_material (legacy evidence)/scratch/method/environment/history/deployment. Write: adapter/scratch only.')
         if not isinstance(relative, str) or Path(relative).is_absolute() or '..' in Path(relative).parts or '.git' in Path(relative).parts:

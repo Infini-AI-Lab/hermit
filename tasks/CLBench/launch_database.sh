@@ -53,7 +53,7 @@ start_meter() {  # port ledger log [extra env...]
 }
 start_meter $WM_PORT "$RUNS/clbench_${TAG}_wire_ledger.json" "$RUNS/clbench_${TAG}_wire_meter.log"
 start_meter $META_PORT "$RUNS/clbench_${TAG}_meta_wire_ledger.json" "$RUNS/clbench_${TAG}_meta_wire_meter.log" \
-  REWRITE_DEVELOPER_ROLE=1 REWRITE_STRIP_SERVER_TOOLS=1
+  REWRITE_DEVELOPER_ROLE=1 REWRITE_STRIP_SERVER_TOOLS=1 REWRITE_REPAIR_TOOL_ARGS=1 DUMP_REJECTED="$RUNS/${TAG}_rejected"
 
 HEAD=$(git -C "$FRAMEWORK" rev-parse --short HEAD)$([ -n "$(git -C "$FRAMEWORK" status --porcelain)" ] && echo -dirty || true)
 CLB_HEAD=$(git rev-parse --short HEAD)$([ -n "$(git status --porcelain)" ] && echo -dirty || true)
