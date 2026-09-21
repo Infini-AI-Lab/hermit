@@ -1,0 +1,7 @@
+Copyright (2025) Databricks, Inc.
+
+This repository includes materials developed by Databricks, Inc. (https://www.databricks.com/) and contains files provided under different licenses.
+
+The files reward.py, corpus_scripts/transform_scripts/transform_parsed_files.py, corpus_scripts/transform_scripts/transform_files_page_level.py, corpus_scripts/ocr_removal.ipynb, and corpus_scripts/render-officeqa-json.ipynb are licensed under the Apache 2.0 license. See the LICENSE-APACHE file in this repository for details.
+
+The files officeqa_pro.csv and officeqa_full.csv are licensed under the Creative Commons Attribution-ShareAlike 4.0 license and are available on Hugging Face at https://huggingface.co/datasets/databricks/officeqa. See the LICENSE-CC-BY-SA file in this repository for details.

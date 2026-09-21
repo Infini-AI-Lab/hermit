@@ -163,6 +163,7 @@ harnessadapter/        the package (pip install -e .)
   evolvers/              bundled Evolver presets: basic, mwm, animation-coach, physics-builder
   architectures/         bundled starting structures: prompt_only, mwm
 examples/              minimal_shop demo and mwm_evidence fixture
+tasks/                 venue-specific evaluations (CLBench, OfficeQA)
 docs/                  guide/ plus design notes and contracts
 site/                  interactive design notebook (python3 -m http.server --directory site/dist)
 tests/  tools/  config/
@@ -180,6 +181,7 @@ Details and troubleshooting: [Status and limits](docs/guide/status.md).
 
 ## Learn more
 
+- [OfficeQA paired evaluation](tasks/OfficeQA/README.md): GLM + native Codex with and without online adapter learning, with the recorded 50-question results.
 - [Guide](docs/guide/index.md): quickstart, components, architectures, deployment, evolution, configuration.
 - [Adapter contract v0](docs/adapter-contract-v0.md): context, MCP tools, optional roles and helpers.
 - [Core and evolution contract](docs/core-and-evolution.md) and the [MWM fidelity correction](docs/mwm-fidelity-correction.md).
