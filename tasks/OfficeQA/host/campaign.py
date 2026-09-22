@@ -17,6 +17,7 @@ sys.path.insert(0, str(REPOSITORY))
 import acting
 import broker
 import data
+from experiment import FULL, PROFILE, ACTOR_SECONDS, BROKER_OPTIONS
 
 MODEL = broker.MODEL
 W0 = REPOSITORY / 'harnessadapter/architectures/mwm'
@@ -107,9 +108,13 @@ def actor(key, arm, ordinal, task, adapter=None):
     current_revision = revision(adapter) if adapter else None
     prepare_workspace(workspace, adapter)
     save(base / 'task.json', {'ordinal': ordinal, **task})
-    with broker.Broker(key, base / 'api') as relay:
+    sandbox = None
+    if FULL and adapter:
+        from full_runtime import DockerPythonSandbox
+        sandbox = DockerPythonSandbox(adapter)
+    with broker.Broker(key, base / 'api', local_sandbox=sandbox, **BROKER_OPTIONS) as relay:
         result = acting.run_actor(workspace, records, prompt_for(task), CORPUS, INDEX,
-                                  adapter=adapter, timeout=1800, endpoint=relay.endpoint)
+                                  adapter=adapter, timeout=ACTOR_SECONDS, endpoint=relay.endpoint)
     transport = read(base / 'api/summary.json')
     final = records / 'final.md'
     eligible = result['status'] == 'completed' and not transport['failed']
@@ -273,11 +278,14 @@ def verify_freeze(frozen):
 
 def run(key):
     import learning
+    if FULL:
+        import full_learning as learning
+        broker.rate_control.GLOBAL = broker.rate_control.RateScheduler(max_in_flight=float('inf'), min_interval=0)
     tasks = data.load_tasks(ROOT)
     safe_audit = data.verify_prepared(ROOT)
     save(ROOT / 'preflight/data-verification.json', safe_audit)
     frozen = freeze()
-    state = {'status':'running', 'started_utc':utc(), 'model':MODEL, 'learn_every':LEARN_EVERY,
+    state = {'status':'running', 'started_utc':utc(), 'model':MODEL, 'learn_every':LEARN_EVERY, 'profile':PROFILE,
              'arms':{arm:{'completed':0, 'results':[]} for arm in ('baseline','adapted')}, 'learning':[]}
     lock = threading.RLock()
     stopping = threading.Event()

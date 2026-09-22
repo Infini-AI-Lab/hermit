@@ -33,9 +33,9 @@ def fingerprint(root):
 
 
 def implementation():
-    return {name: fingerprint(TASK / name) for name in ('host', 'tests', 'deployments', 'vendor')} | {
+    return {name: fingerprint(TASK / name) for name in ('host', 'tests', 'deployments', 'vendor', 'execution')} | {
         'framework': fingerprint(FRAMEWORK / 'harnessadapter'),
-        'protocol': sha(TASK / 'PROTOCOL.md'), 'launcher': sha(__file__)}
+        'protocol': sha(TASK / 'PROTOCOL.md'), 'full_protocol':sha(TASK/'PROTOCOL-FULL-MWM.md'), 'launcher': sha(__file__)}
 
 
 def save(path, value):
@@ -67,6 +67,9 @@ def check(native=False):
     env = runtime_environment(TASK / 'host')
     env['OFFICEQA_RUN_NATIVE_ACTOR_TEST'] = '1' if native else '0'
     env['OFFICEQA_RUN_NATIVE_LEARNER_TEST'] = '1' if native else '0'
+    if native:
+        env['OFFICEQA_DOCKER_HOST'] = subprocess.check_output(
+            ['docker','context','inspect','--format','{{.Endpoints.docker.Host}}'],text=True).strip()
     command = [sys.executable, '-B', str(TASK / 'tests/run_checks.py'), str(receipt)]
     result = subprocess.run(command, cwd=TASK, env=env)
     data = json.loads(receipt.read_text()) if receipt.exists() else {'passed': False}
@@ -81,7 +84,7 @@ def check(native=False):
     print(json.dumps({k: data[k] for k in ('passed', 'native', 'tests', 'skipped')}, indent=2))
 
 
-def prepare(root, cache, codex):
+def prepare(root, cache, codex, profile='memory_bounded'):
     root, cache, codex = root.resolve(), cache.resolve(), codex.absolute()
     if root.exists():
         raise ValueError('Use a new run directory; existing trials are never overwritten')
@@ -94,11 +97,16 @@ def prepare(root, cache, codex):
     root.mkdir(parents=True)
     for path in (TASK / 'host').glob('*.py'):
         shutil.copy2(path, root / path.name)
-    shutil.copy2(TASK / 'PROTOCOL.md', root / 'PROTOCOL.md')
+    shutil.copy2(TASK / ('PROTOCOL-FULL-MWM.md' if profile=='full_mwm_unbounded' else 'PROTOCOL.md'), root / 'PROTOCOL.md')
     shutil.copytree(TASK / 'vendor', root / 'vendor')
-    shutil.copytree(TASK / 'deployments/officeqa', root / 'deployment')
-    save(root / '.task-paths.json', {'framework': str(FRAMEWORK), 'data_cache': str(cache),
-                                   'codex': str(codex)})
+    deployment='officeqa-full' if profile=='full_mwm_unbounded' else 'officeqa'
+    shutil.copytree(TASK / 'deployments' / deployment, root / 'deployment')
+    config={'framework':str(FRAMEWORK),'data_cache':str(cache),'codex':str(codex),'profile':profile}
+    if profile=='full_mwm_unbounded':
+        config['docker_binary']=shutil.which('docker')
+        config['docker_host']=subprocess.check_output(['docker','context','inspect','--format','{{.Endpoints.docker.Host}}'],text=True).strip()
+        config['execution_image']=subprocess.check_output(['docker','image','inspect','officeqa-mwm-exec:20260921','--format','{{.Id}}'],text=True).strip()
+    save(root / '.task-paths.json', config)
     save(root / 'packaging.json', {'implementation': implementation(),
                                   'note': 'Relocated runtime; new runs use the current framework, not historical v4 scores.'})
     execute(root, 'data.py', 'prepare')
@@ -121,9 +129,10 @@ def paid_run(root, gold_feedback):
     for path in (TASK / 'host').glob('*.py'):
         if sha(root / path.name) != sha(path):
             raise ValueError('Prepared runtime was modified: ' + path.name)
-    if sha(root / 'PROTOCOL.md') != sha(TASK / 'PROTOCOL.md'):
+    full=json.loads((root/'.task-paths.json').read_text()).get('profile')=='full_mwm_unbounded'
+    if sha(root / 'PROTOCOL.md') != sha(TASK / ('PROTOCOL-FULL-MWM.md' if full else 'PROTOCOL.md')):
         raise ValueError('Prepared protocol changed')
-    if fingerprint(root / 'deployment') != fingerprint(TASK / 'deployments/officeqa'):
+    if fingerprint(root / 'deployment') != fingerprint(TASK / 'deployments' / ('officeqa-full' if full else 'officeqa')):
         raise ValueError('Prepared deployment changed')
     if fingerprint(root / 'vendor') != fingerprint(TASK / 'vendor'):
         raise ValueError('Pinned evaluator changed')
@@ -165,6 +174,7 @@ def main():
     c.add_argument('--run-dir', type=Path, required=True)
     c.add_argument('--data-cache', type=Path, required=True)
     c.add_argument('--codex', type=Path, default=codex_path())
+    c.add_argument('--profile', choices=('memory_bounded','full_mwm_unbounded'), default='memory_bounded')
     for name in ('run', 'report', 'audit', 'cost'):
         c = commands.add_parser(name)
         c.add_argument('--run-dir', type=Path, required=True)
@@ -184,14 +194,17 @@ def main():
         return
     root = args.run_dir.resolve()
     if args.command == 'prepare':
-        return prepare(root, args.data_cache, args.codex)
+        return prepare(root, args.data_cache, args.codex, args.profile)
     if args.command == 'run':
         return paid_run(root, args.gold_feedback)
     if args.command == 'export':
         sys.path.insert(0, str(TASK / 'host'))
         from export_results import export
         return export(root, args.output.resolve(), args.framework_revision)
-    execute(root, args.command + '.py', '--root', root)
+    name=args.command
+    if name=='audit' and json.loads((root/'.task-paths.json').read_text()).get('profile')=='full_mwm_unbounded':
+        name='full_audit'
+    execute(root, name + '.py', '--root', root)
 
 
 if __name__ == '__main__':

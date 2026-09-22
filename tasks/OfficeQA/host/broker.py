@@ -81,8 +81,12 @@ def normalized(payload, remaining, max_response=65536):
             for child in value: reject_remote(child)
     reject_remote(payload.get('input'))
     result = dict(payload)
-    result.update(model=MODEL, store=False, temperature=0,
-                  max_output_tokens=min(max_response, remaining))
+    result.update(model=MODEL, store=False, temperature=0)
+    if remaining is None and max_response is None:
+        for field in ('max_output_tokens', 'max_tokens', 'max_completion_tokens', 'reasoning', 'thinking'):
+            result.pop(field, None)
+    else:
+        result['max_output_tokens'] = min(x for x in (max_response, remaining) if x is not None)
     # The native Responses reasoning field is preserved; both arms use high.
     return result
 
@@ -92,7 +96,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         raise ValueError('Inference redirects are prohibited')
 
 
-def read_wire(response, stop, deadline=None):
+def read_wire(response, stop, deadline=None, *, unbounded=False):
     """Buffer native bytes unchanged; retain evidence of even discarded generation."""
     content_type = response.headers.get('Content-Type', 'application/json')
     final, data_lines, wire, errors = None, [], bytearray(), []
@@ -104,7 +108,7 @@ def read_wire(response, stop, deadline=None):
             if deadline is not None and time.monotonic() >= deadline:
                 raise TimeoutError('Wire wall-clock deadline exhausted')
             wire.extend(line)
-            if len(wire) > 32_000_000: raise ValueError('Response transport size exceeded')
+            if not unbounded and len(wire) > 32_000_000: raise ValueError('Response transport size exceeded')
             if line.startswith(b'data:'):
                 data_lines.append(line[5:].strip())
             elif not line.strip() and data_lines:
@@ -121,8 +125,8 @@ def read_wire(response, stop, deadline=None):
                 if kind == 'error': errors.append(public(event))
         if final is None: raise ValueError('No terminal Responses event')
     else:
-        raw = response.read(32_000_001)
-        if len(raw) > 32_000_000: raise ValueError('Response transport size exceeded')
+        raw = response.read() if unbounded else response.read(32_000_001)
+        if not unbounded and len(raw) > 32_000_000: raise ValueError('Response transport size exceeded')
         wire.extend(raw)
         final = json.loads(raw)
     return final, bytes(wire), content_type, is_sse, generated, errors
@@ -130,7 +134,8 @@ def read_wire(response, stop, deadline=None):
 
 class Broker:
     def __init__(self, key, output, *, max_calls=None, max_completion=65536,
-                 max_response=65536, request_timeout=1200, scheduler=None):
+                 max_response=65536, request_timeout=1200, scheduler=None,
+                 max_attempts=rate_control.MAX_ATTEMPTS, local_sandbox=None):
         if max_calls is not None:
             raise ValueError('Actor inference requests are unbounded; max_calls must be None')
         self.key = key
@@ -138,6 +143,8 @@ class Broker:
         self.max_calls, self.max_completion = max_calls, max_completion
         self.max_response, self.request_timeout = max_response, request_timeout
         self.scheduler = scheduler
+        self.max_attempts = max_attempts
+        self.local_sandbox = local_sandbox
         self.calls = 0
         self.usage = Counter()
         self.failed = False
@@ -159,23 +166,54 @@ class Broker:
             def log_message(self, *_): pass
             def do_GET(self): self.send_error(405)
             def do_POST(self):
+                if self.path == '/v1/local-mwm' and broker.local_sandbox is not None:
+                    try:
+                        length = int(self.headers.get('Content-Length', '0'))
+                        if length <= 0: raise ValueError('Missing local tool body')
+                        payload = json.loads(self.rfile.read(length))
+                        from full_runtime import local_operation
+                        reply = local_operation(broker.local_sandbox, payload)
+                        data = json.dumps(reply).encode()
+                        self.send_response(200)
+                        self.send_header('Content-Type','application/json')
+                        self.send_header('Content-Length',str(len(data)))
+                        self.end_headers(); self.wfile.write(data)
+                    except Exception:
+                        self.send_error(400, 'Local MWM execution failed')
+                    return
                 if self.path != '/v1/responses':
                     self.send_error(404)
                     return
-                if not broker.lock.acquire(blocking=False):
+                if not broker.lock.acquire(blocking=broker.max_completion is None):
                     self.send_error(409, 'Concurrent requests within one actor prohibited')
                     return
                 number, record = None, {}
+                heartbeat_stop = threading.Event()
+                heartbeat = None
+                streaming_headers = False
                 begun = time.monotonic()
                 try:
                     if broker.failed or broker.stop.is_set():
                         raise ValueError('Task stopped after prior failure')
-                    remaining = broker.max_completion - broker.usage['output_tokens']
-                    if remaining <= 0: raise BudgetExhausted('Task completion budget exhausted')
+                    remaining = None if broker.max_completion is None else broker.max_completion - broker.usage['output_tokens']
+                    if remaining is not None and remaining <= 0: raise BudgetExhausted('Task completion budget exhausted')
                     length = int(self.headers.get('Content-Length', '0'))
-                    if not 0 < length <= 16_000_000: raise ValueError('Invalid request size')
+                    if length <= 0 or (broker.max_completion is not None and length > 16_000_000): raise ValueError('Invalid request size')
                     incoming = json.loads(self.rfile.read(length))
                     outgoing = normalized(incoming, remaining, broker.max_response)
+                    if broker.request_timeout is None and outgoing.get('stream'):
+                        self.send_response(200)
+                        self.send_header('Content-Type','text/event-stream')
+                        self.end_headers()
+                        streaming_headers = True
+                        def keep_alive():
+                            while not heartbeat_stop.wait(15):
+                                try:
+                                    self.wfile.write(b': controller waiting for Fireworks\n\n')
+                                    self.wfile.flush()
+                                except (OSError,ValueError): return
+                        heartbeat=threading.Thread(target=keep_alive,daemon=True)
+                        heartbeat.start()
                     broker.calls += 1
                     number = broker.calls
                     broker.pending.add(number)
@@ -185,13 +223,14 @@ class Broker:
                               'native_request_settings': {k: incoming.get(k) for k in
                               ('model', 'reasoning', 'temperature', 'max_output_tokens', 'stream')},
                               'changes': {'temperature': 0, 'store': False,
-                              'max_output_tokens': outgoing['max_output_tokens']}}
+                              'max_output_tokens': outgoing.get('max_output_tokens'),
+                              'provider_default_reasoning': broker.max_completion is None}}
                     request_body = json.dumps(outgoing).encode()
                     request_sha = hashlib.sha256(request_body).hexdigest()
                     record['request_sha256'] = request_sha
 
                     def attempt(wire_timeout, attempt_number):
-                        wire_end = time.monotonic() + wire_timeout
+                        wire_end = None if wire_timeout is None else time.monotonic() + wire_timeout
                         request = urllib.request.Request(URL, data=request_body,
                             headers={'Authorization': 'Bearer ' + broker.key, 'Content-Type': 'application/json'},
                             method='POST')
@@ -203,7 +242,8 @@ class Broker:
                             with broker.opener.open(request, timeout=wire_timeout) as response:
                                 broker.active_response = response
                                 with rate_control.wire_deadline(response, wire_end):
-                                    final, wire, content_type, sse, generated, errors = read_wire(response, broker.stop, wire_end)
+                                    final, wire, content_type, sse, generated, errors = read_wire(response, broker.stop, wire_end,
+                                        unbounded=broker.max_completion is None)
                                 usage = final.get('usage') or {}
                                 details = {'http_status':response.status, 'response_model':final.get('model'),
                                     'response_id':final.get('id'), 'response_status':final.get('status'),
@@ -222,12 +262,12 @@ class Broker:
                                 if response.status != 200 or final.get('status') not in ('completed', 'incomplete'):
                                     raise rate_control.AttemptFailure('Provider response failed', details=details)
                                 output_tokens = token_count(usage.get('output_tokens')) if isinstance(usage, dict) else None
-                                if output_tokens is None:
+                                if output_tokens is None and broker.max_completion is not None:
                                     details.update(usage_known=False, failure_kind='output_usage_missing_or_invalid')
                                     raise rate_control.AttemptFailure(
                                         'Generated response has no reliable output-token count; aggregate budget cannot be verified',
                                         details=details)
-                                if output_tokens > outgoing['max_output_tokens']:
+                                if outgoing.get('max_output_tokens') is not None and output_tokens is not None and output_tokens > outgoing['max_output_tokens']:
                                     details['failure_kind'] = 'provider_output_budget_exceeded'
                                     raise rate_control.AttemptFailure(
                                         'Provider output-token count exceeded the requested remaining allowance', details=details)
@@ -257,7 +297,7 @@ class Broker:
                     try:
                         value, attempt_records = rate_control.run(attempt, timeout=broker.request_timeout,
                             request_sha256=request_sha, scheduler=broker.scheduler,
-                            stop=broker.stop, on_attempt=log_attempt)
+                            stop=broker.stop, on_attempt=log_attempt, max_attempts=broker.max_attempts)
                     except rate_control.TransportFailure as exc:
                         attempt_records = exc.attempts
                         broker.failure_kind = next((a['failure_kind'] for a in reversed(attempt_records)
@@ -283,10 +323,13 @@ class Broker:
                     record.update(response_model=final.get('model'), response_id=final.get('id'),
                                   response_status=final.get('status'))
                     if broker.stop.is_set(): raise TimeoutError('Actor stopped before response forwarding')
-                    self.send_response(status)
-                    self.send_header('Content-Type', content_type)
-                    self.send_header('Content-Length', str(len(wire)))
-                    self.end_headers()
+                    heartbeat_stop.set()
+                    if heartbeat: heartbeat.join()
+                    if not streaming_headers:
+                        self.send_response(status)
+                        self.send_header('Content-Type', content_type)
+                        self.send_header('Content-Length', str(len(wire)))
+                        self.end_headers()
                     self.wfile.write(wire)
                     self.wfile.flush()
                 except Exception as exc:
@@ -298,9 +341,16 @@ class Broker:
                         record['http_status'] = exc.code
                         error += ': ' + exc.read().decode(errors='replace')[:3000]
                     record['error'] = error.replace(broker.key, '[REDACTED]')
-                    try: self.send_error(400, 'Inference relay stopped; see controller audit')
+                    heartbeat_stop.set()
+                    if heartbeat: heartbeat.join()
+                    try:
+                        if streaming_headers:
+                            self.wfile.write(b'event: error\ndata: {"type":"error","message":"Inference relay stopped; see controller audit"}\n\n')
+                            self.wfile.flush()
+                        else: self.send_error(400, 'Inference relay stopped; see controller audit')
                     except (BrokenPipeError, OSError): pass
                 finally:
+                    heartbeat_stop.set()
                     record['seconds'] = round(time.monotonic() - begun, 3)
                     if number: save(broker.output / f'{number:03}/transport.json', record)
                     else: save(broker.output / 'rejected.json', record)
@@ -346,7 +396,7 @@ class Broker:
             'rate_refusals':sum(a.get('status')=='rate_refused' for a in self.attempts),
             'scheduler_wait_seconds':round(sum(a.get('wait_seconds',0) for a in self.attempts),6),
             'limits': {'requests': self.max_calls, 'completion_tokens': self.max_completion,
-                       'per_response':self.max_response, 'attempts_per_request':rate_control.MAX_ATTEMPTS,
+                       'per_response':self.max_response, 'attempts_per_request':self.max_attempts,
                        'request_timeout_seconds':self.request_timeout},
             'private_reasoning': 'Forwarded unchanged in RAM; omitted from public request/response records'}
             temporary = self.output / 'summary.tmp'

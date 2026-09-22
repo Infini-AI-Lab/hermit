@@ -31,28 +31,31 @@ def redact(value,key):
 def token_count(value):
     return isinstance(value,int) and not isinstance(value,bool) and value >= 0
 
-def complete(key, messages, *, timeout=1200, **options):
+def complete(key, messages, *, timeout=1200, unbounded=False, **options):
     payload = dict(model=MODEL, messages=messages, temperature=0, top_k=40,
                    presence_penalty=0, frequency_penalty=0, max_tokens=65536, reasoning_effort=4096)
     # options are applied separately so a caller can set a smaller token limit.
     payload.update(options)
+    if unbounded:
+        for field in ('max_tokens', 'max_completion_tokens', 'reasoning_effort', 'thinking'):
+            payload.pop(field, None)
     if payload['model'] != MODEL:
         raise ValueError('Only the exact GLM model is allowed')
-    if not token_count(payload.get('max_tokens')) or not 0 < payload['max_tokens'] <= 65536:
+    if not unbounded and (not token_count(payload.get('max_tokens')) or not 0 < payload['max_tokens'] <= 65536):
         raise ValueError('max_tokens must be a positive integer within the remaining 65536-token budget')
     request_body = json.dumps(payload).encode()
     request_sha = hashlib.sha256(request_body).hexdigest()
     start = time.monotonic()
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
     def attempt(wire_timeout, number):
-        deadline = time.monotonic() + wire_timeout
+        deadline = None if wire_timeout is None else time.monotonic() + wire_timeout
         request = urllib.request.Request(URL, data=request_body,
             headers={'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json'}, method='POST')
         try:
             with opener.open(request, timeout=wire_timeout) as response:
                 with rate_control.wire_deadline(response, deadline):
-                    raw = response.read(32_000_001)
-                    if len(raw) > 32_000_000: raise ValueError('Response transport size exceeded')
+                    raw = response.read() if unbounded else response.read(32_000_001)
+                    if not unbounded and len(raw) > 32_000_000: raise ValueError('Response transport size exceeded')
                     result = json.loads(raw)
                 usage = result.get('usage') or {}
                 details = {'http_status':response.status, 'usage':usage,
@@ -61,9 +64,9 @@ def complete(key, messages, *, timeout=1200, **options):
                     'response_model':result.get('model'), 'response_id':result.get('id')}
                 if response.status != 200 or result.get('model') != MODEL or not result.get('choices'):
                     raise rate_control.AttemptFailure('Invalid or unexpected model response', details=details)
-                if not details['completion_usage_valid']:
+                if not unbounded and not details['completion_usage_valid']:
                     raise rate_control.AttemptFailure('Successful generation lacks valid completion-token usage; stop to preserve aggregate budget',details=details)
-                if usage['completion_tokens'] > payload['max_tokens']:
+                if not unbounded and usage['completion_tokens'] > payload['max_tokens']:
                     raise rate_control.AttemptFailure('Provider completion usage exceeded the requested remaining budget',details=details)
                 return rate_control.Outcome(result, details)
         except urllib.error.HTTPError as exc:
@@ -82,7 +85,8 @@ def complete(key, messages, *, timeout=1200, **options):
             raise rate_control.AttemptFailure('HTTP ' + str(exc.code), details=details, retryable=refusal,
                 retry_after=rate_control.retry_after_seconds(exc.headers.get('Retry-After'))) from exc
     try:
-        result, attempts = rate_control.run(attempt, timeout=timeout, request_sha256=request_sha)
+        result, attempts = rate_control.run(attempt, timeout=timeout, request_sha256=request_sha,
+            **({'max_attempts':None} if unbounded else {}))
         error = None
     except rate_control.TransportFailure as exc:
         result, attempts = None, exc.attempts

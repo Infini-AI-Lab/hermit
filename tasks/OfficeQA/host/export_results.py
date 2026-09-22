@@ -18,6 +18,7 @@ def sha(path):
 def summarize(root, framework_revision='unrecorded'):
     root = Path(root)
     state = read(root / 'state.json')
+    full = state.get('profile') == 'full_mwm_unbounded'
     metrics = state.get('metrics', {})
     scores = {r['task_id']: r for r in metrics.get('results', [])}
     pairs = {}
@@ -74,6 +75,19 @@ def summarize(root, framework_revision='unrecorded'):
                   'Offline 50-question parsed-TXT subset, not the official PDF-and-web leaderboard condition.',
                   'Adapted arm also receives extra learning compute and completed-batch answers.',
                   'Published tables omit questions, predictions, reference answers, raw traces and learned memory.']}
+    if full:
+        result.update(profile='full_mwm_unbounded',protocol='officeqa-pro50-full-mwm-unbounded-v1',
+            active_learning_block=state.get('active_learning_block'),
+            budgets={'seconds':None,'completion_tokens':None,'request_limit':None,'per_response':None},
+            limitations=[
+                'One sequential online run; the final results are pending until all original predictions are sealed and graded.',
+                'Same 50 questions and corpus; both arms have no client inference budgets. Fireworks limits still apply.',
+                'Full native MWM artifacts, corpus investigation, local calculations, tested programs and roles are enabled.',
+                'The adapted arm receives extra learning compute and answers only after each completed batch.',
+                'Linux executable bridge is new task infrastructure; actors retain macOS Seatbelt isolation.',
+                'Only GLM supplies semantic feedback and continuation summaries. No human/Astra quality gate.',
+                'Native tool mechanics and immutable evaluation boundaries remain in force.',
+                'Offline parsed-TXT subset, not the official full PDF-and-web leaderboard condition.'])
     audit_path = root / 'preflight/final-audit.json'
     if audit_path.is_file():
         audit = read(audit_path)

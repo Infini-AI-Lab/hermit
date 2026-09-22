@@ -12,6 +12,7 @@ import math
 import socket
 import threading
 import time
+import itertools
 
 MAX_ATTEMPTS = 5
 BACKOFF_SECONDS = (15, 30, 60, 120)
@@ -109,7 +110,7 @@ class RateScheduler:
                 now = time.monotonic()
                 if stop is not None and stop.is_set():
                     raise TimeoutError("Transport stopped before dispatch")
-                if now >= deadline:
+                if deadline is not None and now >= deadline:
                     raise TimeoutError("Transport deadline exhausted while waiting for inference admission")
                 not_before = max(self.cool_until, self.last_dispatch + self.min_interval)
                 if self.in_flight < self.max_in_flight and now >= not_before:
@@ -119,7 +120,7 @@ class RateScheduler:
                             "in_flight_at_dispatch": self.in_flight,
                             "global_min_dispatch_interval_seconds": self.min_interval,
                             "global_max_in_flight": self.max_in_flight}
-                delay = min(.1, deadline - now)
+                delay = .1 if deadline is None else min(.1, deadline - now)
                 if not_before > now:
                     delay = min(delay, not_before - now)
                 self.condition.wait(max(.001, delay))
@@ -153,6 +154,9 @@ GLOBAL = RateScheduler()
 @contextmanager
 def wire_deadline(response, deadline):
     """Stop indefinite HTTP/SSE drips; socket timeout alone is only an idle bound."""
+    if deadline is None:
+        yield
+        return
     expired = threading.Event()
     def expire():
         expired.set()
@@ -198,7 +202,8 @@ class TransportFailure(Exception):
         self.attempts = attempts
 
 
-def run(operation, *, timeout, request_sha256, scheduler=None, stop=None, on_attempt=None):
+def run(operation, *, timeout, request_sha256, scheduler=None, stop=None, on_attempt=None,
+        max_attempts=MAX_ATTEMPTS):
     """Return (operation value, records); at most five identical-body attempts.
 
     operation(wire_timeout, attempt_number) must return Outcome or raise
@@ -206,9 +211,9 @@ def run(operation, *, timeout, request_sha256, scheduler=None, stop=None, on_att
     A logical call's timeout includes global queue/cooldown waits and every wire.
     """
     scheduler = GLOBAL if scheduler is None else scheduler
-    deadline = time.monotonic() + timeout
+    deadline = None if timeout is None else time.monotonic() + timeout
     records = []
-    for number in range(1, MAX_ATTEMPTS + 1):
+    for number in itertools.count(1):
         queued_at = time.monotonic()
         record = {"attempt": number, "request_sha256": request_sha256,
                   "queued_utc": utc(), "dispatched": False, "phase": "waiting"}
@@ -232,9 +237,9 @@ def run(operation, *, timeout, request_sha256, scheduler=None, stop=None, on_att
             if stop is not None and stop.is_set():
                 raise AttemptFailure("Transport stopped before wire dispatch",
                                      details={"wire_dispatched":False,"usage_known":True})
-            response = operation(min(600, max(.01, deadline - begin)), number)
+            response = operation(None if deadline is None else min(600, max(.01, deadline - begin)), number)
             value = response.value
-            if time.monotonic() > deadline:
+            if deadline is not None and time.monotonic() > deadline:
                 raise AttemptFailure("Transport completed after its total deadline; not forwarded",
                                      details={**response.details, "completed_after_deadline":True})
             record.update(response.details, status="succeeded", retryable=False)
@@ -259,6 +264,6 @@ def run(operation, *, timeout, request_sha256, scheduler=None, stop=None, on_att
             on_attempt(dict(record))
         if failure is None:
             return value, records
-        if not failure.retryable or number == MAX_ATTEMPTS:
+        if not failure.retryable or (max_attempts is not None and number >= max_attempts):
             raise TransportFailure(str(failure), records) from failure
     raise AssertionError("Unreachable attempt loop")

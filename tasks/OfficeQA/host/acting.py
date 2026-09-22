@@ -22,6 +22,7 @@ import time
 import tomllib
 
 from paths import CODEX
+from experiment import FULL
 MODEL = 'accounts/fireworks/models/glm-5p3-flash'
 PROVIDER = 'officeqa_fireworks'
 EFFORT = 'high'
@@ -95,9 +96,17 @@ left behind. Candidate Python is trusted code: review it before this call.
         raise ValueError('Workspace must be empty before preparation')
     info = None
     if adapter is not None:
+        if FULL:
+            from full_runtime import render_exports
+            import harnessadapter.hosts.codex as native_connector
+            original_render = native_connector.render_exports
+            native_connector.render_exports = render_exports
         from harnessadapter.hosts.codex import prepare
         from harnessadapter.hosts.context import PROJECT_CONTEXT
-        info = prepare(adapter, workspace, str(Path(sys.executable).absolute()))
+        try:
+            info = prepare(adapter, workspace, str(Path(sys.executable).absolute()))
+        finally:
+            if FULL: native_connector.render_exports = original_render
         current = (workspace / 'AGENTS.md').read_text()
         if not current.startswith(PROJECT_CONTEXT):
             raise ValueError('Unexpected generated context framing')
@@ -110,6 +119,8 @@ left behind. Candidate Python is trusted code: review it before this call.
         (workspace / '.codex/config.toml').write_text('# Prepared baseline; runtime config is explicit.\n')
     for name in ('.actor-home', '.actor-tmp'):
         (workspace / name).mkdir()
+    if FULL:
+        shutil.copy2(Path(__file__).parent/'full_runtime.py',workspace/'.codex/mwm-runtime.py')
     metadata = {
         'workspace': str(workspace), 'adapter': str(adapter) if adapter else None,
         'common_instructions_sha256': hashlib.sha256(common_instructions.rstrip().encode()).hexdigest(),
@@ -275,6 +286,9 @@ def build_settings(workspace, output, corpus, index, adapter=None, *, endpoint):
                 # segments. Set the entire map, including ~/.codex/... paths.
                 'projects': {str(workspace): {'trust_level': 'trusted'}}}
     settings.update({f'features.{name}': False for name in DISABLED_FEATURES})
+    if FULL:
+        settings.update({'agents.enabled':True, 'features.multi_agent':True,
+                         'model_context_window':1048576, 'model_auto_compact_token_limit':800000})
     # Native role registrations are intentionally not enabled in this comparison.
     if adapter is not None:
         info = metadata['deployment']
@@ -285,10 +299,18 @@ def build_settings(workspace, output, corpus, index, adapter=None, *, endpoint):
             server_args = ['-i', *[f'{k}={v}' for k, v in env.items()],
                            str(Path(sys.executable).absolute()), '-B', '-m',
                            'harnessadapter.runtime.mcp_server', '--adapter', str(Path(adapter).resolve())]
+            if FULL:
+                server_args = ['-i', *[f'{k}={v}' for k,v in env.items()],
+                    str(Path(sys.executable).absolute()), '-B', str(workspace/'.codex/mwm-runtime.py'),
+                    '--adapter',str(Path(adapter).resolve()),'--endpoint',endpoint]
             prefix = 'mcp_servers.' + info['server_name'] + '.'
             settings.update({prefix + 'command': '/usr/bin/env', prefix + 'args': server_args,
                              prefix + 'required': True, prefix + 'startup_timeout_sec': 30,
                              prefix + 'tool_timeout_sec': 30, prefix + 'default_tools_approval_mode': 'approve'})
+        if FULL:
+            for role, path in info.get('roles', {}).items():
+                role_info = tomllib.loads(Path(path).read_text())
+                settings['agents.'+role] = {'description':role_info['description'], 'config_file':path}
     return settings
 
 
@@ -426,7 +448,7 @@ def run_actor(workspace, output, prompt, corpus, index, adapter=None, timeout=18
         raise ValueError('Run records must be outside the actor workspace')
     if adapter is not None and not _separate(output, Path(adapter).resolve()):
         raise ValueError('Run records and adapter must be disjoint')
-    if timeout <= 0 or not isinstance(prompt, str) or not prompt.strip():
+    if (timeout is not None and timeout <= 0) or not isinstance(prompt, str) or not prompt.strip():
         raise ValueError('Positive timeout and nonempty prompt required')
     settings = build_settings(workspace, output, corpus, index, adapter, endpoint=endpoint)
     if output.exists() and any(output.iterdir()):

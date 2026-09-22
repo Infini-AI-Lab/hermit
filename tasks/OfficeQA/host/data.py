@@ -144,6 +144,12 @@ def _prepare_from_sources(root: Path, *, csv_path: Path, corpus: Path,
                 "hidden_from_agent": ["agent/tasks.jsonl", "answer", "source_docs", "source_files", "private/", "original CSV", "download cache", "other tasks and completed results", "private-evaluation/"],
                 "runtime_requirement": "Enforced filesystem isolation: corpus and index read-only plus current task workspace. Deny all other project files, task list, private keys, other workspaces, credentials, and general network. Inference transport may reach only the fixed Fireworks endpoint. A folder alone is not isolation.",
             })
+            from experiment import FULL
+            if FULL:
+                manifest.update(protocol='officeqa-pro50-full-mwm-unbounded-v1',
+                    track='Same ordered 50 tasks; native Codex; full MWM; unbounded inference; completed-batch GLM answer feedback',
+                    actor_budgets={'requests':None,'seconds':None,'completion_tokens':None,'per_response':None})
+                manifest['learner_policy']['learning_type']='Full native MWM artifacts, corpus investigation, calculations, tested programs and roles; model weights unchanged'
             (staging / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             for relative in ("agent/tasks.jsonl", "manifest.json", "index-metadata.json", "private/answers.jsonl", "private/provenance.jsonl", "private/reward.py"):
                 (staging / relative).chmod(0o400 if relative.startswith("private/") else 0o444)

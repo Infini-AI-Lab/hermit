@@ -1,5 +1,32 @@
 # OfficeQA Pro: GLM + Codex, with and without an evolved adapter
 
+## Full MWM with unbounded inference
+
+The new opt-in profile `full_mwm_unbounded` removes client-side actor/learner
+deadlines, cumulative token/call/cost budgets and per-response token/reasoning
+limits. Fireworks provider limits/defaults remain. It enables corpus investigation,
+calculations, all native MWM artifact layers, tested programs and native roles.
+Only the last five completed adapted questions receive reference answers.
+See [the full protocol](PROTOCOL-FULL-MWM.md); the historical results below are
+not results of this new profile.
+
+The macOS actor keeps its original Seatbelt boundary. A local Linux container
+executes native bubblewrap capability tests/tools; it has no network and mounts
+only the current read-only adapter. The actor never receives the Docker socket.
+
+```sh
+docker build -t officeqa-mwm-exec:20260921 tasks/OfficeQA/execution
+python tasks/OfficeQA/launch.py check --native
+python tasks/OfficeQA/launch.py prepare --profile full_mwm_unbounded \
+  --data-cache /absolute/path/to/authorized-officeqa-cache \
+  --run-dir /absolute/path/to/new-private-run
+python tasks/OfficeQA/launch.py run --gold-feedback \
+  --run-dir /absolute/path/to/new-private-run
+```
+
+The selected container image is frozen by ID during preparation. Calls and costs
+are recorded. No new score is claimed until the campaign completes and is graded.
+
 This task packages the most recent **50-question paired OfficeQA experiment**.
 Both arms use `accounts/fireworks/models/glm-5p3-flash` through native Codex.
 Only the adapted arm learns from completed batches, using GLM as its learner.

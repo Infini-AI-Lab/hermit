@@ -31,9 +31,13 @@ def smoke(key, name):
                   'Return only the exact string inside note.txt as your final response.')
         if adapter:
             prompt += ' Also make one real wm MCP call to inspect the available memory before your final response.'
-        with c.broker.Broker(key, base / 'api', max_completion=65536) as relay:
+        sandbox = None
+        if c.FULL and adapter:
+            from full_runtime import DockerPythonSandbox
+            sandbox = DockerPythonSandbox(adapter)
+        with c.broker.Broker(key, base / 'api', local_sandbox=sandbox, **c.BROKER_OPTIONS) as relay:
             result = c.acting.run_actor(workspace, base / 'records', prompt, corpus, index,
-                                       adapter=adapter, endpoint=relay.endpoint, timeout=1800)
+                                       adapter=adapter, endpoint=relay.endpoint, timeout=c.ACTOR_SECONDS)
         answer = (base / 'records/final.md').read_text().strip() if (base / 'records/final.md').exists() else ''
         native = result['completed_item_counts']
         transport = c.read(base / 'api/summary.json')
@@ -79,6 +83,11 @@ def main():
     subprocess.Popen(['/usr/bin/caffeinate','-i','-w',str(os.getpid())],
                      stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
     c.run(key)
+    if c.FULL:
+        import cost, full_audit, report
+        cost.build(c.ROOT)
+        full_audit.build(c.ROOT)
+        report.build(c.ROOT)
 
 
 if __name__=='__main__': main()
