@@ -118,6 +118,9 @@ class SchedulerTests(unittest.TestCase):
 
     def test_classification_never_retries_partial_or_nonzero_usage(self):
         self.assertTrue(R.retryable_refusal(429,None))
+        for status in (500,502,503,504):
+            self.assertTrue(R.retryable_refusal(status,None))              # an HTML outage page, nothing generated
+        self.assertFalse(R.retryable_refusal(503,{'choices':[{'message':{'content':'partial'}}]}))
         self.assertTrue(R.retryable_refusal(200,refused(),sse=True))
         for body, generated in [(refused(output=[{'type':'message'}]),False),
                                 (refused(usage={'input_tokens':1,'output_tokens':0}),False),

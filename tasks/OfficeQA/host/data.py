@@ -161,12 +161,13 @@ def load_tasks(root: Path = DEFAULT_ROOT) -> list[dict]:
     if sha256(tasks_file) != manifest["tasks_sha256"]:
         raise ValueError("Task records changed after preparation")
     tasks = _legacy.load_jsonl(tasks_file)
-    if len(tasks) != COUNT or any(set(row) != {"task_id", "question"} for row in tasks):
-        raise ValueError("Task records must contain 50 question-only records")
+    count = manifest["sample_count"]  # 50 for the v1 sample; the whole set for v2
+    if len(tasks) != count or any(set(row) != {"task_id", "question"} for row in tasks):
+        raise ValueError(f"Task records must contain {count} question-only records")
     if any(not isinstance(row["question"], str) or not row["question"].strip() for row in tasks):
         raise ValueError("Task questions must be nonempty text")
     ids = [row["task_id"] for row in tasks]
-    if len(set(ids)) != COUNT or ids != manifest["task_ids"] or _ids_hash(ids) != manifest["ordered_task_ids_sha256"]:
+    if len(set(ids)) != count or ids != manifest["task_ids"] or _ids_hash(ids) != manifest["ordered_task_ids_sha256"]:
         raise ValueError("Task ID order differs from the frozen manifest")
     return tasks
 

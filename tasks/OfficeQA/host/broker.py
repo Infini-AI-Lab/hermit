@@ -81,8 +81,13 @@ def normalized(payload, remaining, max_response=65536):
             for child in value: reject_remote(child)
     reject_remote(payload.get('input'))
     result = dict(payload)
-    result.update(model=MODEL, store=False, temperature=0,
-                  max_output_tokens=min(max_response, remaining))
+    result.update(model=MODEL, store=False, temperature=0)
+    if max_response is None and remaining is None:
+        # No output limit at all (user decision 2026-09-21, as the database
+        # host's requests carry none): the provider's default applies.
+        result.pop('max_output_tokens', None)
+    else:
+        result['max_output_tokens'] = min(x for x in (max_response, remaining) if x is not None)
     # The native Responses reasoning field is preserved; both arms use high.
     return result
 
@@ -170,8 +175,11 @@ class Broker:
                 try:
                     if broker.failed or broker.stop.is_set():
                         raise ValueError('Task stopped after prior failure')
-                    remaining = broker.max_completion - broker.usage['output_tokens']
-                    if remaining <= 0: raise BudgetExhausted('Task completion budget exhausted')
+                    # max_completion None: no cumulative output budget (the
+                    # per-response ceiling max_response still applies).
+                    remaining = (broker.max_completion - broker.usage['output_tokens']
+                                 if broker.max_completion is not None else None)
+                    if remaining is not None and remaining <= 0: raise BudgetExhausted('Task completion budget exhausted')
                     length = int(self.headers.get('Content-Length', '0'))
                     if not 0 < length <= 16_000_000: raise ValueError('Invalid request size')
                     incoming = json.loads(self.rfile.read(length))
@@ -185,7 +193,7 @@ class Broker:
                               'native_request_settings': {k: incoming.get(k) for k in
                               ('model', 'reasoning', 'temperature', 'max_output_tokens', 'stream')},
                               'changes': {'temperature': 0, 'store': False,
-                              'max_output_tokens': outgoing['max_output_tokens']}}
+                              'max_output_tokens': outgoing.get('max_output_tokens')}}
                     request_body = json.dumps(outgoing).encode()
                     request_sha = hashlib.sha256(request_body).hexdigest()
                     record['request_sha256'] = request_sha
@@ -203,7 +211,20 @@ class Broker:
                             with broker.opener.open(request, timeout=wire_timeout) as response:
                                 broker.active_response = response
                                 with rate_control.wire_deadline(response, wire_end):
-                                    final, wire, content_type, sse, generated, errors = read_wire(response, broker.stop, wire_end)
+                                    try:
+                                        final, wire, content_type, sse, generated, errors = read_wire(response, broker.stop, wire_end)
+                                    except ValueError as exc:
+                                        if 'No terminal Responses event' not in str(exc):
+                                            raise
+                                        # The upstream closed the stream before its terminal event
+                                        # (Fireworks' gateway ends a connection at ~600 s). Retried
+                                        # like a rate refusal (user decision 2026-09-22): same bytes,
+                                        # up to MAX_ATTEMPTS, within the logical call's deadline.
+                                        raise rate_control.AttemptFailure(
+                                            'Upstream closed the stream before completion',
+                                            details={'http_status': response.status, 'usage': {}, 'usage_known': False,
+                                                     'stream_cut': True, 'failure_kind': 'stream_cut'},
+                                            retryable=True, retry_after=0)
                                 usage = final.get('usage') or {}
                                 details = {'http_status':response.status, 'response_model':final.get('model'),
                                     'response_id':final.get('id'), 'response_status':final.get('status'),
@@ -227,7 +248,7 @@ class Broker:
                                     raise rate_control.AttemptFailure(
                                         'Generated response has no reliable output-token count; aggregate budget cannot be verified',
                                         details=details)
-                                if output_tokens > outgoing['max_output_tokens']:
+                                if outgoing.get('max_output_tokens') is not None and output_tokens > outgoing['max_output_tokens']:
                                     details['failure_kind'] = 'provider_output_budget_exceeded'
                                     raise rate_control.AttemptFailure(
                                         'Provider output-token count exceeded the requested remaining allowance', details=details)
@@ -256,7 +277,7 @@ class Broker:
 
                     try:
                         value, attempt_records = rate_control.run(attempt, timeout=broker.request_timeout,
-                            request_sha256=request_sha, scheduler=broker.scheduler,
+                            request_sha256=request_sha, scheduler=broker.scheduler, wire_cap=broker.request_timeout,
                             stop=broker.stop, on_attempt=log_attempt)
                     except rate_control.TransportFailure as exc:
                         attempt_records = exc.attempts
@@ -333,6 +354,16 @@ class Broker:
             self.failure_kind = self.failure_kind or 'transport_in_flight'
         self.write_summary()
 
+    def infra_seconds(self):
+        """Time this actor spent on the transport's failures rather than on the
+        model: retry backoff waits plus the wire time of attempts that did
+        not succeed (5xx, stream cuts). The question's guard excludes it
+        (insurance, 2026-09-22)."""
+        with self.summary_lock:
+            attempts = list(self.attempts)
+        return round(sum(a.get('wait_seconds', 0) or 0 for a in attempts)
+                     + sum(a.get('wire_seconds', 0) or 0 for a in attempts if a.get('status') != 'succeeded'), 3)
+
     def write_summary(self):
         with self.summary_lock:
             unknown = sorted(self.pending | self.unknown_usage)
@@ -343,6 +374,7 @@ class Broker:
             'in_flight_calls':sorted(self.pending), 'usage_unknown_calls':unknown,
             'usage_complete':not unknown, 'usage_is_lower_bound':bool(unknown),
             'wire_attempts':sum(bool(a.get('dispatched')) for a in self.attempts),
+            'infra_seconds':round(sum(a.get('wait_seconds',0) or 0 for a in self.attempts)+sum(a.get('wire_seconds',0) or 0 for a in self.attempts if a.get('status')!='succeeded'),3),
             'rate_refusals':sum(a.get('status')=='rate_refused' for a in self.attempts),
             'scheduler_wait_seconds':round(sum(a.get('wait_seconds',0) for a in self.attempts),6),
             'limits': {'requests': self.max_calls, 'completion_tokens': self.max_completion,

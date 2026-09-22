@@ -62,8 +62,8 @@ def revision(path):
     return hashlib.sha256(json.dumps(snapshot(path), sort_keys=True).encode()).hexdigest()
 
 
-def prepare_workspace(workspace, adapter=None, *, corpus=CORPUS, index=INDEX):
-    info = acting.prepare_actor_workspace(workspace, adapter, common_instructions=COMMON)
+def prepare_workspace(workspace, adapter=None, *, corpus=CORPUS, index=INDEX, **acting_options):
+    info = acting.prepare_actor_workspace(workspace, adapter, common_instructions=COMMON, **acting_options)
     shutil.copyfile(SOURCE / 'officeqa_tools.py', workspace / 'officeqa.py')
     text = f'''# Local document tools
 

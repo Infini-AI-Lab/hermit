@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import selectors
 import shutil
@@ -18,13 +19,23 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import tomllib
 
 from paths import CODEX
-MODEL = 'accounts/fireworks/models/glm-5p3-flash'
+# Which model acts. flash: GLM 5.3 Flash on Fireworks through the per-question
+# broker (endpoint required). sol: gpt-5.6-sol through codex's default OpenAI
+# provider on the user's ChatGPT sign-in (no broker; a throwaway CODEX_HOME
+# holding a copy of auth.json, outside the actor's readable paths).
+ACTOR = os.environ.get('OFFICEQA_ACTOR', 'flash')
+if ACTOR not in ('flash', 'sol'):
+    raise ValueError('OFFICEQA_ACTOR must be flash or sol')
+MODEL = 'accounts/fireworks/models/glm-5p3-flash' if ACTOR == 'flash' else 'gpt-5.6-sol'
+LOGIN = ACTOR == 'sol'
 PROVIDER = 'officeqa_fireworks'
 EFFORT = 'high'
+FLASH_CONTEXT_WINDOW = 1048576   # Fireworks' declared context_length for glm-5p3-flash (models API, 2026-09-22)
 PROFILE = 'officeqa_actor'
 MARKER = '.acting-prepared.json'
 COMMON_INSTRUCTIONS = """# Task workspace
@@ -78,7 +89,8 @@ def _separate(a, b):
     return not (a == b or a in b.parents or b in a.parents)
 
 
-def prepare_actor_workspace(workspace, adapter=None, *, common_instructions=COMMON_INSTRUCTIONS):
+def prepare_actor_workspace(workspace, adapter=None, *, common_instructions=COMMON_INSTRUCTIONS,
+                            evidence=None, deployment_host=None, context=None, python_sandbox=False):
     """Create an EMPTY, dedicated workspace; caller may then copy task inputs.
 
 Uses the repository's real Codex connector, then replaces its demo framing with
@@ -102,6 +114,11 @@ left behind. Candidate Python is trusted code: review it before this call.
         if not current.startswith(PROJECT_CONTEXT):
             raise ValueError('Unexpected generated context framing')
         (workspace / 'AGENTS.md').write_text(common_instructions.rstrip() + '\n' + current[len(PROJECT_CONTEXT):])
+        if context is not None:
+            # A caller-rendered context (the adapter's package with the
+            # deployment's host texts and the run's evidence bound) replaces
+            # the connector's plain rendering.
+            (workspace / 'AGENTS.md').write_text(common_instructions.rstrip() + '\n\n' + context.rstrip() + '\n')
         (workspace / 'PROMPT.md').unlink(missing_ok=True)
     else:
         workspace.mkdir(parents=True, exist_ok=True)
@@ -115,12 +132,25 @@ left behind. Candidate Python is trusted code: review it before this call.
         'common_instructions_sha256': hashlib.sha256(common_instructions.rstrip().encode()).hexdigest(),
         'agents_sha256': _sha(workspace / 'AGENTS.md'),
         'prepared_utc': _utc(), 'deployment': info,
+        'evidence': str(Path(evidence).resolve()) if evidence else None,
+        'deployment_host': str(Path(deployment_host).resolve()) if deployment_host else None,
+        'python_sandbox': bool(python_sandbox),
     }
     _json(workspace / MARKER, metadata)
     return metadata
 
 
-def runtime_roots():
+LINUX = sys.platform.startswith('linux')
+
+
+def sandbox_helper_dir(workspace):
+    """Linux: codex re-executes its own binary as `codex-linux-sandbox`, found
+    on PATH; the standalone release ships no such file, so the client home
+    carries a link (the same arrangement as the framework's PolicySandbox)."""
+    return Path(workspace).resolve() / '.client-home' / 'bin'
+
+
+def runtime_roots(workspace=None):
     """Exact code/interpreter roots; never grant the whole project or home."""
     import harnessadapter
     roots = [Path(sys.prefix), Path(sys.base_prefix), Path(harnessadapter.__file__).parent]
@@ -128,6 +158,10 @@ def runtime_roots():
     if node.is_dir():
         roots.append(node)
     roots.append(CODEX)
+    if LINUX:
+        roots.append(Path(CODEX).resolve().parent)
+        if workspace is not None:
+            roots.append(sandbox_helper_dir(workspace))
     return list(dict.fromkeys(str(p.resolve()) for p in roots))
 
 
@@ -135,7 +169,10 @@ def permission_profile(workspace, corpus, index, adapter=None, *, audit=None, se
     workspace = Path(workspace).resolve()
     fs = {':root': 'deny', ':minimal': 'read'}
     fs.update({str(Path(p).resolve()): 'read' for p in (corpus, index)})
-    fs.update({p: 'read' for p in runtime_roots()})
+    fs.update({p: 'read' for p in runtime_roots(workspace)})
+    if LINUX:
+        # Name lookups inside the command sandbox (`id`, shells) read these.
+        fs.update({p: 'read' for p in ('/etc/passwd', '/etc/group') if Path(p).is_file()})
     fs[str(workspace)] = 'read' if server else 'write'
     for name in ('AGENTS.md', 'README.md', 'officeqa.py', '.codex', MARKER, '.ha-demo-generated.json'):
         fs[str(workspace / name)] = 'read'
@@ -155,21 +192,61 @@ def tool_environment(workspace):
     paths = [str(Path(sys.executable).absolute().parent),
              '/Applications/ChatGPT.app/Contents/Resources/cua_node/bin',
              '/usr/bin', '/bin', '/usr/sbin', '/sbin']
+    if LINUX:
+        # codex spawns its command sandbox as `codex-linux-sandbox` found on
+        # the COMMAND environment's PATH; the link lives in the client home.
+        paths.insert(0, str(sandbox_helper_dir(workspace)))
     return {'HOME': str(workspace / '.actor-home'), 'TMPDIR': str(workspace / '.actor-tmp'),
             'PATH': ':'.join(paths), 'LANG': 'en_US.UTF-8',
             'PYTHONNOUSERSITE': '1', 'PYTHONDONTWRITEBYTECODE': '1',
             'MPLCONFIGDIR': str(workspace / '.actor-tmp/matplotlib')}
 
 
-def client_environment(home):
-    """Per-subprocess HOME only; does not modify os.environ or global Codex config."""
-    return {'HOME': str(Path(home).resolve()), 'TMPDIR': str(Path(home).resolve()),
-            'PATH': '/usr/bin:/bin:/usr/sbin:/sbin',
-            'LANG': 'en_US.UTF-8', 'PYTHONNOUSERSITE': '1', 'PYTHONDONTWRITEBYTECODE': '1'}
+def client_environment(home, codex_home=None):
+    """Per-subprocess HOME only; does not modify os.environ or global Codex config.
+    codex_home (login mode) is the throwaway CODEX_HOME holding the sign-in."""
+    home = Path(home).resolve()
+    path = '/usr/bin:/bin:/usr/sbin:/sbin'
+    if LINUX:
+        helper = home / 'bin'
+        helper.mkdir(parents=True, exist_ok=True)
+        for name in ('codex-linux-sandbox', 'codex-code-mode-host'):
+            link = helper / name
+            if link.is_symlink() or link.exists():
+                link.unlink()
+            target = Path(CODEX).resolve() if name == 'codex-linux-sandbox' else Path(CODEX).resolve().parent / name
+            if target.exists():
+                link.symlink_to(target)
+        path = str(helper) + ':' + path
+    env = {'HOME': str(home), 'TMPDIR': str(home),
+           'PATH': path,
+           'LANG': 'en_US.UTF-8', 'PYTHONNOUSERSITE': '1', 'PYTHONDONTWRITEBYTECODE': '1'}
+    if codex_home is not None:
+        env['CODEX_HOME'] = str(Path(codex_home).resolve())
+    return env
+
+
+def login_home(directory):
+    """A throwaway CODEX_HOME with a copy of the user's codex sign-in and
+    nothing else (no config, no history): the same arrangement the container
+    learner used for gpt-5.6-sol. It must lie outside every path the actor's
+    command sandbox can read."""
+    source = Path(os.environ.get('CODEX_HOME', Path.home() / '.codex')) / 'auth.json'
+    if not source.is_file():
+        raise RuntimeError('codex is not signed in (auth.json missing); run `codex login` first')
+    directory = Path(directory).resolve()
+    directory.mkdir(mode=0o700)
+    shutil.copy2(source, directory / 'auth.json')
+    (directory / 'auth.json').chmod(0o600)
+    return directory
 
 
 def validate_endpoint(endpoint):
     from urllib.parse import urlparse
+    if endpoint is None:
+        if not LOGIN:
+            raise ValueError('The Fireworks actor needs its own local broker endpoint')
+        return
     parsed = urlparse(endpoint)
     if (parsed.scheme != 'http' or parsed.hostname != '127.0.0.1' or not parsed.port
             or parsed.username or parsed.password or parsed.query or parsed.fragment
@@ -236,6 +313,13 @@ def client_policy(workspace, corpus, index, adapter=None, *, endpoint):
 
 
 def client_command(command, workspace, output, corpus, index, adapter=None, *, endpoint):
+    if LINUX:
+        # No outer OS sandbox on Linux: the client process reaches only its
+        # broker (no credentials, no other URL), and every command it runs
+        # goes through codex's own bubblewrap sandbox with the permissions
+        # profile of build_settings (root denied, corpus/index/adapter read,
+        # workspace write, network off).
+        return list(command)
     return ['/usr/bin/sandbox-exec', '-p', client_policy(workspace, corpus, index, adapter,
                                                        endpoint=endpoint), *command]
 
@@ -254,19 +338,9 @@ def build_settings(workspace, output, corpus, index, adapter=None, *, endpoint):
         raise ValueError('Adapter argument must match prepared workspace')
     if _sha(workspace / 'AGENTS.md') != metadata['agents_sha256']:
         raise ValueError('Prepared project instructions were changed')
-    settings = {'model': MODEL, 'model_provider': PROVIDER, 'model_reasoning_effort': EFFORT,
-                # The inherited OS sandbox enforces the boundary for the client
-                # and all its children; nested Seatbelt policies are unsupported.
-                'sandbox_mode': 'danger-full-access',
-                f'model_providers.{PROVIDER}': {
-                    'name': 'GLM 5.3 Flash via local Fireworks-only broker',
-                    'base_url': endpoint, 'wire_api': 'responses', 'requires_openai_auth': False,
-                    'supports_websockets': False, 'supports_standalone_web_search': False,
-                    'request_max_retries': 0, 'stream_max_retries': 0,
-                    'stream_idle_timeout_ms': 1250000},
+    settings = {'model': MODEL, 'model_reasoning_effort': EFFORT,
                 'analytics.enabled': False, 'feedback.enabled': False,
                 'otel.exporter': 'none', 'otel.trace_exporter': 'none', 'otel.metrics_exporter': 'none',
-                'model_context_window': 196608, 'model_auto_compact_token_limit': 160000,
                 'approval_policy': 'never', 'agents.enabled': False, 'web_search': 'disabled',
                 'project_root_markers': [], 'features.skip_host_skill_discovery': True,
                 'shell_environment_policy.inherit': 'none',
@@ -274,7 +348,36 @@ def build_settings(workspace, output, corpus, index, adapter=None, *, endpoint):
                 # CLI override splitting does not preserve quoted dotted path
                 # segments. Set the entire map, including ~/.codex/... paths.
                 'projects': {str(workspace): {'trust_level': 'trusted'}}}
-    settings.update({f'features.{name}': False for name in DISABLED_FEATURES})
+    if endpoint is not None:
+        settings.update({'model_provider': PROVIDER,
+                         f'model_providers.{PROVIDER}': {
+                             'name': 'GLM 5.3 Flash via local Fireworks-only broker',
+                             'base_url': endpoint, 'wire_api': 'responses', 'requires_openai_auth': False,
+                             'supports_websockets': False, 'supports_standalone_web_search': False,
+                             'request_max_retries': 0, 'stream_max_retries': 0,
+                             'stream_idle_timeout_ms': 1250000}})
+    # Context window = the model's own maximum (user decision 2026-09-22), and
+    # codex's default auto-compaction rule on top of it. gpt-5.6-sol carries
+    # its window in codex's model metadata (272,000); GLM has no metadata in
+    # codex, so its window is the one Fireworks declares for the model.
+    if endpoint is not None:
+        settings['model_context_window'] = FLASH_CONTEXT_WINDOW
+    # Login mode: no model_provider setting, so codex uses its built-in OpenAI
+    # provider with the sign-in found in CODEX_HOME (the throwaway copy).
+    # On the ChatGPT sign-in the account's remote configuration routes the
+    # shell tool through codex's code-mode host (observed 2026-09-22: every
+    # command failed closed with "code-mode host is disabled" when the host
+    # feature was off), so login mode leaves the code-mode features at their
+    # defaults; commands still run under the same permission profile.
+    disabled = tuple(name for name in DISABLED_FEATURES if not (LOGIN and name.startswith('code_mode')))
+    settings.update({f'features.{name}': False for name in disabled})
+    if LINUX:
+        settings['default_permissions'] = PROFILE
+        settings[f'permissions.{PROFILE}'] = permission_profile(workspace, corpus, index, adapter)
+    else:
+        # The inherited OS sandbox enforces the boundary for the client
+        # and all its children; nested Seatbelt policies are unsupported.
+        settings['sandbox_mode'] = 'danger-full-access'
     # Native role registrations are intentionally not enabled in this comparison.
     if adapter is not None:
         info = metadata['deployment']
@@ -285,6 +388,16 @@ def build_settings(workspace, output, corpus, index, adapter=None, *, endpoint):
             server_args = ['-i', *[f'{k}={v}' for k, v in env.items()],
                            str(Path(sys.executable).absolute()), '-B', '-m',
                            'harnessadapter.runtime.mcp_server', '--adapter', str(Path(adapter).resolve())]
+            # The host's world-model tool serves recall/trace from the run's
+            # evidence, renders the deployment's host texts, and can run
+            # admitted learned tools (the same bindings as the CLBench hosts).
+            for flag, value in (('--evidence', metadata.get('evidence')), ('--deployment', metadata.get('deployment_host'))):
+                if value:
+                    server_args += [flag, str(value)]
+            # Every wm call lands in the run records, outside the actor's workspace.
+            server_args += ['--audit-log', str(output / 'tool-calls.jsonl')]
+            if metadata.get('python_sandbox'):
+                server_args.append('--python-sandbox')
             prefix = 'mcp_servers.' + info['server_name'] + '.'
             settings.update({prefix + 'command': '/usr/bin/env', prefix + 'args': server_args,
                              prefix + 'required': True, prefix + 'startup_timeout_sec': 30,
@@ -335,6 +448,7 @@ def parse_events(path):
                 last_agent_message = item['text']
     return {'turn_completed': completed, 'event_count': len(events), 'malformed_event_lines': malformed,
             'terminal_type': terminal[-1][1]['type'] if terminal else None,
+            'terminal_error': ((terminal[-1][1].get('error') or {}).get('message') if terminal and isinstance(terminal[-1][1].get('error'), dict) else None),
             'usage': dict(usage) if usage_events else None, 'usage_events': usage_events,
             'completed_item_counts': dict(Counter(i.get('type', 'unknown') for i in items.values())),
             'error_notifications': sum(e.get('type') == 'error' for e in events),
@@ -343,7 +457,7 @@ def parse_events(path):
             'reported_models': list(dict.fromkeys(e['model'] for e in events if isinstance(e.get('model'), str)))}
 
 
-def collect_final(workspace, output, expected_text, *, byte_limit=1048576):
+def collect_final(workspace, output, expected_text, *, byte_limit=1048576, accept_any=False):
     """Accept only a bounded regular final matching the immutable CLI event.
 
     The submitted path is actor-controlled: never follow symlinks, open FIFOs
@@ -376,12 +490,18 @@ def collect_final(workspace, output, expected_text, *, byte_limit=1048576):
         text = data.decode('utf-8')
     except UnicodeDecodeError:
         return {'valid': False, 'reason': 'final_not_utf8'}
-    if not isinstance(expected_text, str) or not text.strip() or text.strip() != expected_text.strip():
+    candidates = expected_text if isinstance(expected_text, list) else [expected_text]
+    candidates = [c.strip() for c in candidates if isinstance(c, str)]
+    if not text.strip():
+        return {'valid': False, 'reason': 'final_empty'}
+    if text.strip() not in candidates and not accept_any:
         return {'valid': False, 'reason': 'final_event_mismatch'}
     # Output belongs to the controller and is excluded from the actor sandbox.
     (Path(output) / 'final.md').write_bytes(data)
     return {'valid': True, 'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest(),
-            'matched': 'last item.completed agent_message.text, ignoring boundary whitespace'}
+            'matched': ('the CLI-written final of a completed turn (no agent_message event to compare; login mode has no broker record)'
+                        if accept_any and text.strip() not in candidates else
+                        'last item.completed agent_message.text or the broker-recorded last response message, ignoring boundary whitespace')}
 
 
 def _stop_group(process, grace=5):
@@ -419,8 +539,37 @@ def _stop_group(process, grace=5):
     process.wait()
 
 
-def run_actor(workspace, output, prompt, corpus, index, adapter=None, timeout=1800, *, endpoint):
-    """Run exactly one fresh Codex task; no retries, grading or answer repair."""
+TOOL_ITEMS = ('command_execution', 'mcp_tool_call', 'file_change', 'web_search')
+
+# Provider-side trouble a turn can end with in login mode (no broker to
+# classify it): capacity refusals, gateway pages, rate limits, disconnects
+# before any completion. None of these is the model's doing.
+INFRA_ERROR = re.compile(r'at capacity|rate limit|too many requests|overloaded|502|503|504|bad gateway|gateway time|service unavailable|<!DOCTYPE|error response|connection reset|stream disconnected before completion(?!.*max_output_tokens)', re.I | re.S)
+
+
+def infra_failure(result, transport=None):
+    """True when a question ended because of the transport or the provider,
+    not because of the model: a failed broker transport, or (login mode) a
+    failed turn whose terminal error is a provider-side refusal. A response
+    the provider truncated at its output cap is the model's own outcome."""
+    if transport is not None and transport.get('failed') and transport.get('failure_kind') != 'budget_exhausted':
+        return True
+    if result.get('status') == 'failed':
+        text = result.get('terminal_error') or ''
+        return bool(text) and bool(INFRA_ERROR.search(text)) and 'max_output_tokens' not in text
+    return False
+
+
+def run_actor(workspace, output, prompt, corpus, index, adapter=None, timeout=1800, *, endpoint=None, max_requests=None, extra_time=None):
+    """Run exactly one fresh Codex task; no retries, grading or answer repair.
+
+    max_requests caps the model requests of the task: codex makes one request
+    per tool round, so the cap is enforced on the stream of completed tool
+    items (a request whose tool item completes was request number
+    tool_items + 1). Reaching it stops the client the way the timeout does;
+    the record says request_cap. extra_time() (optional) returns seconds the
+    transport spent on its own failures; the guard is extended by that much,
+    so infrastructure trouble never eats the model's time."""
     workspace, output = Path(workspace).resolve(), Path(output).resolve()
     if not _separate(workspace, output):
         raise ValueError('Run records must be outside the actor workspace')
@@ -428,6 +577,8 @@ def run_actor(workspace, output, prompt, corpus, index, adapter=None, timeout=18
         raise ValueError('Run records and adapter must be disjoint')
     if timeout <= 0 or not isinstance(prompt, str) or not prompt.strip():
         raise ValueError('Positive timeout and nonempty prompt required')
+    if max_requests is not None and (not isinstance(max_requests, int) or max_requests < 1):
+        raise ValueError('max_requests must be a positive integer or None')
     settings = build_settings(workspace, output, corpus, index, adapter, endpoint=endpoint)
     if output.exists() and any(output.iterdir()):
         raise ValueError('Run output must be empty; prior trials are never overwritten')
@@ -435,45 +586,108 @@ def run_actor(workspace, output, prompt, corpus, index, adapter=None, timeout=18
     (output / 'prompt.md').write_text(prompt)
     args = client_command(command_for(workspace, output, settings), workspace, output,
                           corpus, index, adapter, endpoint=endpoint)
-    invocation = {'argv': args, 'cwd': str(workspace), 'timeout_seconds': timeout,
+    invocation = {'argv': args, 'cwd': str(workspace), 'timeout_seconds': timeout, 'max_requests': max_requests,
                   'requested_model': MODEL, 'reasoning_effort': EFFORT, 'settings': settings,
                   'adapter': str(Path(adapter).resolve()) if adapter else None,
                   'corpus': str(Path(corpus).resolve()), 'index': str(Path(index).resolve()),
-                  'sandbox_scope': 'Single inherited OS sandbox for whole Codex client/tools/MCP; network only own Fireworks broker TCP port; controller records excluded',
+                  'sandbox_scope': ('Codex client unsandboxed on the OpenAI transport (ChatGPT sign-in in a throwaway CODEX_HOME); commands and MCP under codex\'s own bubblewrap profile, network off; controller records excluded'
+                                    if endpoint is None else
+                                    'Single inherited OS sandbox for whole Codex client/tools/MCP; network only own Fireworks broker TCP port; controller records excluded'),
                   'prompt_sha256': _sha(output / 'prompt.md'), 'agents_sha256': _sha(workspace / 'AGENTS.md'),
                   'feedback_source': 'No dynamic human/Astra feedback; only model and tool outputs'}
     _json(output / 'invocation.json', invocation)
-    started = _utc(); begin = time.monotonic(); timed_out = False; launch_error = None; process = None
+    started = _utc(); begin = time.monotonic(); timed_out = False; capped = False; launch_error = None; process = None
+    tool_items = 0
     # Fresh subprocess environment: never inherit credentials, login, shell hooks,
     # user MCP configuration, or ambient proxy variables. Controller has a local
     # per-run home separate from the model-readable task workspace.
     client_home = workspace / '.client-home'; client_home.mkdir()
-    env = client_environment(client_home)
+    # The sign-in copy lives beside the workspace, not in it: the command
+    # sandbox may read the whole workspace, never its parent.
+    env = client_environment(client_home, login_home(workspace.parent / '.codex-home') if endpoint is None else None)
     with (output / 'events.jsonl').open('w') as out, (output / 'stderr.log').open('w') as err:
         try:
             process = subprocess.Popen(args, cwd=workspace, env=env, stdin=subprocess.PIPE,
                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
+            cap_hit = threading.Event()
+
+            def pump_events():
+                nonlocal tool_items
+                for line in process.stdout:   # the CLI's --json stream, one event per line, as it happens
+                    out.write(line); out.flush()
+                    if max_requests is None:
+                        continue
+                    try:
+                        event = json.loads(line)
+                    except ValueError:
+                        continue
+                    item = event.get('item') if isinstance(event, dict) and event.get('type') == 'item.completed' else None
+                    if isinstance(item, dict) and item.get('type') in TOOL_ITEMS:
+                        tool_items += 1
+                        if tool_items >= max_requests:
+                            cap_hit.set()
+
+            def pump_stderr():
+                for line in process.stderr:
+                    err.write(line)
+
+            readers = [threading.Thread(target=pump_events, daemon=True), threading.Thread(target=pump_stderr, daemon=True)]
+            for reader in readers:
+                reader.start()
             try:
-                stdout, stderr = process.communicate(prompt, timeout=timeout)
-                out.write(stdout); err.write(stderr)
-            except subprocess.TimeoutExpired:
-                timed_out = True
-                _stop_group(process)
-                stdout, stderr = process.communicate(timeout=10)
-                out.write(stdout); err.write(stderr)
+                try:
+                    process.stdin.write(prompt); process.stdin.close()
+                except (BrokenPipeError, OSError):
+                    pass
+                while process.poll() is None:
+                    allowance = timeout + (float(extra_time()) if extra_time is not None else 0.0)
+                    if time.monotonic() - begin >= allowance:
+                        timed_out = True
+                        break
+                    if cap_hit.wait(0.25):
+                        capped = True
+                        break
+                if timed_out or capped:
+                    _stop_group(process)
             finally:
                 _stop_group(process)
+                for reader in readers:
+                    reader.join(timeout=10)
         except OSError as exc:
             launch_error = f'{type(exc).__name__}: {exc}'
     parsed = parse_events(output / 'events.jsonl')
-    final_validation = collect_final(workspace, output, parsed.pop('last_agent_message'))
+    expected = parsed.pop('last_agent_message')
+    # The CLI's --json stream does not always carry the final assistant
+    # message as an agent_message item (observed 2026-09-22: a correct "12"
+    # written to final.md with no matching event). The broker's own record
+    # of the last model response is controller-written and equally immutable
+    # to the actor, so a final that matches its message text is accepted too.
+    if expected is None or (output.parent / 'api').is_dir():
+        expected = [expected] if expected is not None else []
+        try:
+            responses = sorted((output.parent / 'api').glob('[0-9]*/response.json'))
+            if responses:
+                last = json.loads(responses[-1].read_text())
+                texts = [''.join(c.get('text', '') for c in item.get('content', []) if isinstance(c, dict))
+                         for item in last.get('output', []) if isinstance(item, dict) and item.get('type') == 'message']
+                expected += [t for t in texts if t]
+        except (OSError, ValueError):
+            pass
+    # Login mode has no broker record to fall back on: when the turn completed
+    # and the stream carried no agent_message at all, the final codex itself
+    # wrote (--output-last-message) is the answer (user decision 2026-09-22).
+    accept_any = endpoint is None and parsed['turn_completed'] and not expected
+    final_validation = collect_final(workspace, output, expected, accept_any=accept_any)
     exit_code = process.returncode if process is not None else None
-    status = ('launch_error' if launch_error else 'timeout' if timed_out else
+    status = ('launch_error' if launch_error else 'timeout' if timed_out else 'request_cap' if capped else
               'invalid_final' if exit_code == 0 and parsed['turn_completed'] and not final_validation['valid'] else
               'completed' if exit_code == 0 and parsed['turn_completed'] else 'failed')
-    result = {'status': status, 'started_utc': started, 'finished_utc': _utc(),
+    infra = round(float(extra_time()), 3) if extra_time is not None else 0.0
+    result = {'status': status, 'started_utc': started, 'finished_utc': _utc(), 'infra_seconds': infra,
               'elapsed_seconds': round(time.monotonic() - begin, 6), 'exit_code': exit_code,
-              'timed_out': timed_out, 'launch_error': launch_error, **parsed,
+              'timed_out': timed_out, 'request_capped': capped, 'tool_items_seen': tool_items,
+              'final_message_event': bool(expected),
+              'max_requests': max_requests, 'launch_error': launch_error, **parsed,
               'final_validation': final_validation,
               'requested_model': MODEL, 'reasoning_effort': EFFORT,
               'final_message_present': (output / 'final.md').is_file(),

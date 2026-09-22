@@ -87,6 +87,12 @@ def retryable_refusal(http_status, body, *, sse=False, observed_generation=False
         return False
     if http_status == 429:
         return True
+    # A provider-side outage (5xx before any generation) is transport, not
+    # the model: retried like a rate refusal, up to MAX_ATTEMPTS (5) with the
+    # same backoff (user decision 2026-09-22 after a 30-second Fireworks 503
+    # blip took four questions off one arm).
+    if http_status in (500, 502, 503, 504):
+        return True
     return (http_status == 200 and sse and isinstance(body, dict) and body.get("status") == "failed"
             and (explicit_rate_error(body.get("error")) or explicit_rate_error(list(stream_errors))))
 
@@ -198,7 +204,7 @@ class TransportFailure(Exception):
         self.attempts = attempts
 
 
-def run(operation, *, timeout, request_sha256, scheduler=None, stop=None, on_attempt=None):
+def run(operation, *, timeout, request_sha256, scheduler=None, stop=None, on_attempt=None, wire_cap=600):
     """Return (operation value, records); at most five identical-body attempts.
 
     operation(wire_timeout, attempt_number) must return Outcome or raise
@@ -232,7 +238,7 @@ def run(operation, *, timeout, request_sha256, scheduler=None, stop=None, on_att
             if stop is not None and stop.is_set():
                 raise AttemptFailure("Transport stopped before wire dispatch",
                                      details={"wire_dispatched":False,"usage_known":True})
-            response = operation(min(600, max(.01, deadline - begin)), number)
+            response = operation(min(wire_cap, max(.01, deadline - begin)), number)
             value = response.value
             if time.monotonic() > deadline:
                 raise AttemptFailure("Transport completed after its total deadline; not forwarded",

@@ -49,7 +49,13 @@ class PreparationTests(Fixture):
         self.assertEqual(settings['web_search'], 'disabled')
         for env in (acting.client_environment(self.output), acting.tool_environment(self.workspace)):
             self.assertFalse(any('KEY' in k or 'TOKEN' in k or k == 'CODEX_HOME' for k in env))
-        self.assertEqual(settings['sandbox_mode'], 'danger-full-access')
+        if acting.LINUX:
+            # Linux: no outer OS sandbox; codex's own command sandbox enforces the profile.
+            self.assertNotIn('sandbox_mode', settings)
+            self.assertEqual(settings['default_permissions'], acting.PROFILE)
+            self.assertEqual(settings[f'permissions.{acting.PROFILE}'], acting.permission_profile(self.workspace, self.corpus, self.index))
+        else:
+            self.assertEqual(settings['sandbox_mode'], 'danger-full-access')
         profile = acting.permission_profile(self.workspace, self.corpus, self.index)
         self.assertFalse(profile['network']['enabled'])
         self.assertEqual(profile['filesystem'][':root'], 'deny')
@@ -76,7 +82,13 @@ class PreparationTests(Fixture):
                                          self.index, adapter, endpoint=ENDPOINT)
         self.assertEqual(settings['mcp_servers.mwm.command'], '/usr/bin/env')
         self.assertNotIn('sandbox', settings['mcp_servers.mwm.args'])
-        self.assertNotIn('--audit-log', settings['mcp_servers.mwm.args'])
+        if acting.LINUX:
+            # The server runs outside the command sandbox; its call log lands in
+            # the controller's records, which the actor cannot write.
+            args = settings['mcp_servers.mwm.args']
+            self.assertEqual(args[args.index('--audit-log') + 1], str(self.output / 'tool-calls.jsonl'))
+        else:
+            self.assertNotIn('--audit-log', settings['mcp_servers.mwm.args'])
         self.assertNotIn('--evidence', settings['mcp_servers.mwm.args'])
         self.assertFalse((self.root/'adapted/PROMPT.md').exists())
 
@@ -309,3 +321,143 @@ class NativeMcpTests(unittest.IsolatedAsyncioTestCase):
 
 
 if __name__ == '__main__': unittest.main()
+
+
+class RequestCapTests(unittest.TestCase):
+    """The per-question request cap counts completed tool items on the live
+    --json stream and stops the client the way the timeout does."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='officeqa-cap-test-')
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name).resolve()
+        self.workspace = self.root / 'actor'
+        self.corpus = self.root / 'corpus'; self.corpus.mkdir()
+        (self.corpus / 'document.txt').write_text('public document')
+        self.index = self.root / 'index.json'; self.index.write_text('{}')
+        self.output = self.root / 'records'
+        acting.prepare_actor_workspace(self.workspace)
+
+    def fake(self, items, tail_sleep):
+        script = ('import json,sys,time\n'
+                  'for i in range(%d):\n'
+                  '    print(json.dumps({"type":"item.completed","item":{"id":"c%%d"%%i,"type":"command_execution","command":"x","exit_code":0}}), flush=True)\n'
+                  '    time.sleep(0.05)\n'
+                  'time.sleep(%s)\n'
+                  'print(json.dumps({"type":"item.completed","item":{"id":"m","type":"agent_message","text":"42"}}), flush=True)\n'
+                  'print(json.dumps({"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}), flush=True)\n'
+                  'open(sys.argv[1]).close() if False else None\n') % (items, tail_sleep)
+        return [sys.executable, '-B', '-c', script]
+
+    def run_actor(self, **kwargs):
+        return acting.run_actor(self.workspace, self.output, 'Read the provided document.',
+                                self.corpus, self.index, endpoint=ENDPOINT, **kwargs)
+
+    def test_cap_reached_stops_and_is_recorded(self):
+        with patch.object(acting, 'command_for', return_value=self.fake(5, 30)):
+            result = self.run_actor(timeout=20, max_requests=3)
+        self.assertEqual(result['status'], 'request_cap')
+        self.assertTrue(result['request_capped'])
+        self.assertGreaterEqual(result['tool_items_seen'], 3)
+        self.assertFalse(result['turn_completed'])
+        self.assertLess(result['elapsed_seconds'], 15)
+        self.assertEqual(json.loads((self.output / 'invocation.json').read_text())['max_requests'], 3)
+
+    def test_under_cap_completes_with_streamed_events(self):
+        with patch.object(acting, 'command_for', return_value=self.fake(2, 0)):
+            (self.workspace / 'final.md').write_text('42')
+            result = self.run_actor(timeout=20, max_requests=100)
+        self.assertEqual(result['status'], 'completed')
+        self.assertEqual(result['tool_items_seen'], 2)
+        self.assertEqual(result['usage'], {'input_tokens': 1, 'output_tokens': 1})
+        self.assertEqual(result['completed_item_counts'], {'command_execution': 2, 'agent_message': 1})
+
+    def test_no_cap_by_default(self):
+        with patch.object(acting, 'command_for', return_value=self.fake(4, 0)):
+            (self.workspace / 'final.md').write_text('42')
+            result = self.run_actor(timeout=20)
+        self.assertEqual(result['status'], 'completed')
+        self.assertIsNone(result['max_requests'])
+
+
+class LoginFinalTests(unittest.TestCase):
+    """Login mode (no broker): a completed turn whose stream carries no
+    agent_message keeps the final codex wrote; a mismatching final with an
+    agent_message present is still refused."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='officeqa-login-test-')
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name).resolve()
+        self.workspace = self.root / 'actor'
+        self.corpus = self.root / 'corpus'; self.corpus.mkdir()
+        (self.corpus / 'document.txt').write_text('public document')
+        self.index = self.root / 'index.json'; self.index.write_text('{}')
+        self.output = self.root / 'records'
+        acting.prepare_actor_workspace(self.workspace)
+        self.home = self.root / 'fake-home'; self.home.mkdir()
+        patches = [patch.object(acting, 'LOGIN', True), patch.object(acting, 'login_home', lambda d: self.home)]
+        for p in patches:
+            p.start(); self.addCleanup(p.stop)
+
+    def fake(self, message):
+        lines = ['{"type":"turn.started"}']
+        if message is not None:
+            lines.append(json.dumps({"type": "item.completed", "item": {"id": "m", "type": "agent_message", "text": message}}))
+        lines.append('{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}')
+        script = 'import sys\n' + ''.join(f'print({json.dumps(l)})\n' for l in lines)
+        return [sys.executable, '-B', '-c', script]
+
+    def run_actor(self):
+        return acting.run_actor(self.workspace, self.output, 'Read the provided document.',
+                                self.corpus, self.index, endpoint=None, timeout=20)
+
+    def test_final_without_message_event_is_kept(self):
+        with patch.object(acting, 'command_for', return_value=self.fake(None)):
+            (self.workspace / 'final.md').write_text('42\n')
+            result = self.run_actor()
+        self.assertEqual(result['status'], 'completed')
+        self.assertFalse(result['final_message_event'])
+        self.assertEqual((self.output / 'final.md').read_text(), '42\n')
+
+    def test_mismatch_with_message_event_still_refused(self):
+        with patch.object(acting, 'command_for', return_value=self.fake('41')):
+            (self.workspace / 'final.md').write_text('42\n')
+            result = self.run_actor()
+        self.assertEqual(result['status'], 'invalid_final')
+        self.assertTrue(result['final_message_event'])
+
+    def test_settings_have_no_provider_in_login_mode(self):
+        settings = acting.build_settings(self.workspace, self.output, self.corpus, self.index, None, endpoint=None)
+        self.assertNotIn('model_provider', settings)
+        self.assertEqual(settings['model'], acting.MODEL)
+        self.assertNotIn('features.code_mode_host', settings)
+
+
+class InsuranceTests(unittest.TestCase):
+    """Infrastructure failures are classified apart from the model's own
+    outcomes, and the transport's failure time extends the question guard."""
+
+    def test_infra_failure_classifier(self):
+        f = acting.infra_failure
+        self.assertTrue(f({'status': 'failed', 'terminal_error': 'Selected model is at capacity. Please try a different model.'}))
+        self.assertTrue(f({'status': 'failed', 'terminal_error': '<!DOCTYPE HTML>\n<html><title>Error response</title>'}))
+        self.assertTrue(f({'status': 'failed', 'terminal_error': 'stream disconnected before completion: connection reset'}))
+        self.assertFalse(f({'status': 'failed', 'terminal_error': 'stream disconnected before completion: Incomplete response returned, reason: max_output_tokens'}))
+        self.assertFalse(f({'status': 'completed', 'terminal_error': None}))
+        self.assertTrue(f({'status': 'completed'}, {'failed': True, 'failure_kind': 'transport_rejected'}))
+        self.assertFalse(f({'status': 'completed'}, {'failed': True, 'failure_kind': 'budget_exhausted'}))
+        self.assertFalse(f({'status': 'completed'}, {'failed': False, 'failure_kind': None}))
+
+    def test_guard_extends_by_infra_time(self):
+        temp = tempfile.TemporaryDirectory(prefix='officeqa-ins-'); self.addCleanup(temp.cleanup)
+        root = Path(temp.name).resolve(); ws = root / 'actor'; corpus = root / 'corpus'; corpus.mkdir()
+        (corpus / 'd.txt').write_text('x'); index = root / 'i.json'; index.write_text('{}'); out = root / 'records'
+        acting.prepare_actor_workspace(ws)
+        script = [sys.executable, '-B', '-c', 'import time,json; time.sleep(1.2); print(json.dumps({"type":"item.completed","item":{"id":"m","type":"agent_message","text":"42"}}), flush=True); print(json.dumps({"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}), flush=True)']
+        with patch.object(acting, 'command_for', return_value=script):
+            (ws / 'final.md').write_text('42')
+            # A 0.3 s guard would time out; 2 s of infrastructure time extends it past the sleep.
+            result = acting.run_actor(ws, out, 'q', corpus, index, endpoint=ENDPOINT, timeout=0.3, extra_time=lambda: 2.0)
+        self.assertEqual(result['status'], 'completed')
+        self.assertEqual(result['infra_seconds'], 2.0)

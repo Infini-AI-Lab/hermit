@@ -83,10 +83,10 @@ tests, image tools, delegates, or other models are available to this learner.
 The broker runs file operations in the native Codex folder/network sandbox.
 Only the controller's fixed Fireworks API transport can reach the model service.
 Read areas: adapter, evidence, history, method, environment, scratch. Write only
-Markdown under memory/, examples/, meta/cases/, consumption/brief.md,
+Markdown under memory/, examples/, meta/cases/, ADAPTER.md,
 meta/journal.md or meta/journal-archive.md. Scratch accepts isolated text only.
 No changes to manifest, core, interface, executable files, tools or agent roles.
-Keep consumption/brief.md at most 6000 characters. Do not claim measured score
+Keep ADAPTER.md at most 6000 characters. Do not claim measured score
 improvement. Validate before finishing; give a public final summary of your own
 feedback, changes, evidence and uncertainty. Structurally valid, provenance-valid
 updates are admitted automatically; no human or Astra semantic approval occurs.
@@ -170,7 +170,7 @@ def allowed_candidate_path(name):
     if any(not p or p in (".", "..") or p.startswith(".") for p in parts):
         return False
     return (len(parts) >= 2 and parts[0] in ("memory", "examples") or
-            name in ("consumption/brief.md", "meta/journal.md", "meta/journal-archive.md") or
+            name in ("ADAPTER.md", "meta/journal.md", "meta/journal-archive.md") or
             len(parts) >= 3 and parts[:2] == ["meta", "cases"])
 
 
@@ -208,7 +208,7 @@ def check_arguments(session, name, args):
         content = args.get("content")
         if not isinstance(content, str) or len(content.encode()) > 1_000_000 or "\x00" in content:
             raise ValueError("Write content must be UTF-8 text without NUL, at most 1 MB")
-        if area == "adapter" and args["path"] == "consumption/brief.md" and len(content) > MAX_BRIEF:
+        if area == "adapter" and args["path"] == "ADAPTER.md" and len(content) > MAX_BRIEF:
             raise ValueError("Brief exceeds 6000 characters")
 
 
@@ -626,7 +626,7 @@ def mechanical_admission(session, source, evidence, source_before, evidence_befo
         protected[area] = fingerprint(session / area) == base[area]
     forbidden = [name for name in learned_changes if not allowed_candidate_path(name)]
     executable_markdown = [name for name in changed if name in after and after[name]["mode"] & 0o111]
-    brief_path = candidate / "consumption/brief.md"
+    brief_path = candidate / "ADAPTER.md"
     brief = brief_path.read_text() if brief_path.is_file() else None
     provenance_ok = hashes == state.get("expected_candidate_hashes")
     coverage = evidence_coverage(required_evidence_files(session / "evidence"), state.get("evidence_reads_delivered", []))

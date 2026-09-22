@@ -1,16 +1,16 @@
-# OfficeQA Pro: offline parsed-text deployment
+# This environment, as reachable from here
 
-The acting host is native Codex, served exclusively by GLM-5.3-Flash on Fireworks.
-It can search/read 697 read-only Treasury Bulletin TXT documents and calculate
-inside its current workspace. It cannot read answer keys or other episodes.
+Everything under /environment mirrors what a host can reach of the
+environment — nothing more. Facts about the environment itself are in
+CONTRACT.md ("This environment") and in /evidence.
 
-The learner can read only the supplied completed-batch LearningMaterial and
-adapter/method/history/environment areas. It has no corpus search, shell,
-calculator, browser, independent grader, delegate, or additional model.
-This preserves the most recent experiment's review-only learning protocol.
-The fixed controller sends model requests; file-tool processes have no network.
-
-Only GLM authors interpretations, comparisons and reusable lessons. Supplied
-reference answers are not verified derivations or critiques. Future questions
-and their reference answers remain hidden. See the session goal for the exact
-five-episode feedback schema and complete-evidence-read requirement.
+Channels in this run:
+- documents: the corpus directory {corpus} (697 text files, read-only)
+  and its full-text index {corpus.sqlite}, at the same paths a host uses;
+  the client officeqa.py (a host has it in its workspace as officeqa.py;
+  here it is /environment/officeqa.py):
+  python3 officeqa.py --corpus {corpus} --index {corpus.sqlite} search '<query>' [--limit N]
+  returns ranked excerpts with file name and line numbers, and
+  python3 officeqa.py --corpus {corpus} --index {corpus.sqlite} read <filename> --start-line N --num-lines M
+  returns numbered lines. The same files may be read directly. Reads do
+  not count toward any host's score.

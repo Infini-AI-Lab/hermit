@@ -129,7 +129,7 @@ class Boundaries(unittest.TestCase):
 
     def test_approved_knowledge_paths_only(self):
         for name in ("memory/a.md", "memory/nested/a.md", "examples/a.md", "meta/cases/x.md",
-                     "meta/journal.md", "meta/journal-archive.md", "consumption/brief.md"):
+                     "meta/journal.md", "meta/journal-archive.md", "ADAPTER.md"):
             self.assertTrue(L.allowed_candidate_path(name), name)
         for name in ("/memory/a.md", "memory/../a.md", "memory//a.md", "memory/.x.md", "memory/a.py",
                      "interface.py", "adapter.json", "agents/a.md", "tools/a.md", "core.md", "memory\\a.md", None):
@@ -143,7 +143,7 @@ class Boundaries(unittest.TestCase):
                  ("read_file", {"area": "control", "path": "policy.json"}),
                  ("run_command", {"command": "echo blocked"}),
                  ("fetch_url", {"url": "https://example.invalid/"}),
-                 ("write_file", {"area": "adapter", "path": "consumption/brief.md", "content": "x" * 6001})]
+                 ("write_file", {"area": "adapter", "path": "ADAPTER.md", "content": "x" * 6001})]
         for name, args in cases:
             with self.subTest(name=name, args=list(args)), self.assertRaises(ValueError):
                 L.check_arguments(self.session, name, args)
