@@ -56,7 +56,7 @@ def host_context(adapter: Path, evidence_dir: Path) -> str:
 INFRA_RETRIES = 3   # fresh attempts a question gets when the transport or the provider fails it
 
 
-def actor(key, run: Path, ordinal: int, task: dict, adapter: Path | None, evidence_dir: Path, corpus, index, timeout: int, max_requests: int | None = None):
+def actor(key, run: Path, ordinal: int, task: dict, adapter: Path | None, evidence_dir: Path, corpus, index, timeout: int, max_tool_ops: int | None = None):
     """One question with insurance: an attempt that ended in infrastructure
     failure (5xx, stream cut, capacity refusal, gateway page) is archived
     as <ordinal>.infraN and the question is attempted again from scratch, up
@@ -64,7 +64,7 @@ def actor(key, run: Path, ordinal: int, task: dict, adapter: Path | None, eviden
     status the grade lists separately and never counts as the model's 0."""
     base = run / "questions" / f"{ordinal:03d}"
     for attempt in range(1, INFRA_RETRIES + 1):
-        summary = _attempt(key, run, ordinal, task, adapter, evidence_dir, corpus, index, timeout, max_requests)
+        summary = _attempt(key, run, ordinal, task, adapter, evidence_dir, corpus, index, timeout, max_tool_ops)
         if not summary.pop("_infra", False):
             return summary
         summary["status"] = "transport_lost" if attempt == INFRA_RETRIES else summary["status"]
@@ -77,7 +77,7 @@ def actor(key, run: Path, ordinal: int, task: dict, adapter: Path | None, eviden
     return summary
 
 
-def _attempt(key, run: Path, ordinal: int, task: dict, adapter: Path | None, evidence_dir: Path, corpus, index, timeout: int, max_requests: int | None = None):
+def _attempt(key, run: Path, ordinal: int, task: dict, adapter: Path | None, evidence_dir: Path, corpus, index, timeout: int, max_tool_ops: int | None = None):
     base = run / "questions" / f"{ordinal:03d}"
     workspace, out = base / "workspace", base / "records"
     if base.exists():
@@ -96,7 +96,7 @@ def _attempt(key, run: Path, ordinal: int, task: dict, adapter: Path | None, evi
         # there is no broker and no per-request record; usage comes from the
         # CLI's own turn events (input/cached/output/reasoning tokens).
         result = acting.run_actor(workspace, out, campaign.prompt_for(task), corpus, index,
-                                  adapter=adapter, timeout=timeout, endpoint=None, max_requests=max_requests)
+                                  adapter=adapter, timeout=timeout, endpoint=None, max_tool_ops=max_tool_ops)
         reported = result.get("usage") or {}
         transport = {"failed": False, "failure_kind": None, "calls": None, "usage_complete": bool(reported),
                      "usage": {"input_tokens": reported.get("input_tokens", 0), "output_tokens": reported.get("output_tokens", 0),
@@ -111,7 +111,7 @@ def _attempt(key, run: Path, ordinal: int, task: dict, adapter: Path | None, evi
                            scheduler=rate_control.RateScheduler(max_in_flight=1_000_000, min_interval=0.0)) as relay:
             # The guard excludes the transport's own failure time (insurance).
             result = acting.run_actor(workspace, out, campaign.prompt_for(task), corpus, index,
-                                      adapter=adapter, timeout=timeout, endpoint=relay.endpoint, max_requests=max_requests,
+                                      adapter=adapter, timeout=timeout, endpoint=relay.endpoint, max_tool_ops=max_tool_ops,
                                       extra_time=relay.infra_seconds)
         transport = json.loads((base / "api/summary.json").read_text())
     final = out / "final.md"
@@ -122,7 +122,7 @@ def _attempt(key, run: Path, ordinal: int, task: dict, adapter: Path | None, evi
         raise ValueError("Actor mutated its read-only adapter")
     # A guard stop (timeout, request cap) is the question's outcome even though
     # it leaves a broker request pending; it is not a transport failure.
-    status = (result["status"] if result["status"] in ("timeout", "request_cap") else
+    status = (result["status"] if result["status"] in ("timeout", "request_cap", "tool_cap") else
               (transport["failure_kind"] or "transport_rejected") if transport["failed"] else result["status"])
     summary = {"ordinal": ordinal, "task_id": task["task_id"], "status": status, "answer": answer,
                "elapsed_seconds": result["elapsed_seconds"], "infra_seconds": result.get("infra_seconds", 0.0),
@@ -131,7 +131,7 @@ def _attempt(key, run: Path, ordinal: int, task: dict, adapter: Path | None, evi
                "adapter": adapter.name if adapter else None,
                "native_codex_items": result["completed_item_counts"]}
     save(base / "summary.json", summary)
-    summary["_infra"] = acting.infra_failure(result, None if acting.LOGIN else transport) and status not in ("timeout", "request_cap")
+    summary["_infra"] = acting.infra_failure(result, None if acting.LOGIN else transport) and status not in ("timeout", "request_cap", "tool_cap")
     return summary
 
 
@@ -147,12 +147,12 @@ def main():
     parser.add_argument("--evolver-model", default="accounts/fireworks/models/glm-5p3-flash")
     parser.add_argument("--evolver-timeout", type=int, default=1800)
     parser.add_argument("--actor-timeout", type=int, default=1800, help="infrastructure guard per question, not a budget")
-    parser.add_argument("--max-requests", type=int, default=100, help="model requests per question (0 = unlimited); reaching it ends the question as request_cap")
+    parser.add_argument("--max-tool-ops", type=int, default=100, help="tool operations per question (commands, wm calls, file changes; 0 = unlimited); reaching it ends the question as tool_cap")
     parser.add_argument("--key-file", type=Path, required=True)
     parser.add_argument("--resume", action="store_true",
                         help="continue an existing run: keep finished questions and learned blocks, redo questions that were in flight or lost to transport")
     args = parser.parse_args()
-    cap = args.max_requests if args.max_requests > 0 else None
+    cap = args.max_tool_ops if args.max_tool_ops > 0 else None
 
     key = args.key_file.read_text().strip()
     run = args.run_dir.resolve()
@@ -171,8 +171,34 @@ def main():
     # /environment/corpus and /environment/corpus.sqlite (read-only).
     learner = Learner(run, args.arm, evidence_dir, model=args.evolver_model, timeout=args.evolver_timeout,
                       mounts={"corpus": corpus, "corpus.sqlite": index}) if args.arm != "stateless" else None
+    settings = {"arm": args.arm, "actor": acting.ACTOR, "actor_model": acting.MODEL,
+                "context_window": acting.FLASH_CONTEXT_WINDOW if not acting.LOGIN else "model-metadata",
+                "evolver_model": args.evolver_model if args.arm != "stateless" else None,
+                "learn_every": args.learn_every, "concurrency": args.concurrency, "feedback": args.feedback,
+                "actor_timeout": args.actor_timeout, "max_tool_ops": cap, "prepared": str(prepared),
+                "deployment": DEPLOYMENT.name, "task_ids_sha256": data._ids_hash([t["task_id"] for t in tasks])}
     if args.resume:
         state = json.loads((run / "state.json").read_text())
+        # A resumed run must be the same experiment: the same question at every
+        # kept ordinal, and the same settings (the question count may grow).
+        by_ordinal = {o: t for o, t in enumerate(tasks, start=1)}
+        for r in state["results"]:
+            expected = by_ordinal.get(r["ordinal"], {}).get("task_id")
+            if expected != r["task_id"]:
+                raise ValueError(f"resume refused: ordinal {r['ordinal']} is {expected!r} in the prepared root but {r['task_id']!r} in the run")
+        previous = state.get("settings")
+        changed = {k: (previous.get(k), v) for k, v in settings.items() if k != "task_ids_sha256" and previous.get(k) != v} if previous else {}
+        if previous and previous.get("task_ids_sha256") != settings["task_ids_sha256"]:
+            # the prepared root may be a longer set with the same prefix (checked above per ordinal)
+            changed.pop("task_ids_sha256", None)
+        if changed and not os.environ.get("MW_RESUME_FORCE"):
+            raise ValueError("resume refused: settings differ from the run's (" + ", ".join(f"{k}: {a!r} -> {b!r}" for k, (a, b) in changed.items()) + "); set MW_RESUME_FORCE=1 to continue anyway")
+        # Final outputs of the earlier stretch are history until the extended run regrades.
+        if state.get("grade") or state.get("finished_utc"):
+            state.setdefault("grade_history", []).append({"finished_utc": state.get("finished_utc"), "questions": state.get("questions"), "grade": state.get("grade")})
+            state.pop("grade", None); state.pop("finished_utc", None)
+        state["questions"] = len(tasks)
+        state["settings"] = settings
         learned = {int(l["block"]) for l in state.get("learning", []) if l.get("block")}
         final_blocks = set()          # questions of a learned block are final: the learner already read them
         if learner:
@@ -214,7 +240,7 @@ def main():
         for r in state["results"]:
             # Guard stops are final: the question had its 30 minutes / its
             # request cap. Only transport losses and restart kills are redone.
-            if r["ordinal"] in final_blocks or r["status"] in ("timeout", "request_cap") or (r["status"] not in ("transport_rejected", "transport_lost") and not killed(r["ordinal"])):
+            if r["ordinal"] in final_blocks or r["status"] in ("timeout", "request_cap", "tool_cap") or (r["status"] not in ("transport_rejected", "transport_lost") and not killed(r["ordinal"])):
                 keep.append(r)
             else:
                 redo.append(r["ordinal"])
@@ -229,12 +255,14 @@ def main():
                 n = len(list(run.glob(f"questions/{o:03d}.retry*"))) + 1
                 q.rename(run / "questions" / f"{o:03d}.retry{n}")
         state["results"] = sorted(keep, key=lambda r: r["ordinal"])
-        state.setdefault("resumes", []).append({"utc": utc(), "redo": sorted(set(redo)), "kept": len(keep)})
+        state.setdefault("resumes", []).append({"utc": utc(), "redo": sorted(set(redo)), "kept": len(keep),
+                                               "settings_changed": changed or None, "questions": len(tasks)})
         save(run / "state.json", state)
         print(json.dumps({"resume": True, "kept": len(keep), "redo": sorted(set(redo)), "learned_blocks": sorted(learned)}), flush=True)
     else:
         state = {"arm": args.arm, "started_utc": utc(), "questions": len(tasks), "learn_every": args.learn_every,
-                 "feedback": args.feedback, "framework": campaign.framework_revision(), "results": [], "learning": []}
+                 "feedback": args.feedback, "framework": campaign.framework_revision(), "settings": settings,
+                 "results": [], "learning": []}
         save(run / "state.json", state)
     if learner:
         records.write_readme(evidence_dir)

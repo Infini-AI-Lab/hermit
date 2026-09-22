@@ -560,14 +560,15 @@ def infra_failure(result, transport=None):
     return False
 
 
-def run_actor(workspace, output, prompt, corpus, index, adapter=None, timeout=1800, *, endpoint=None, max_requests=None, extra_time=None):
+def run_actor(workspace, output, prompt, corpus, index, adapter=None, timeout=1800, *, endpoint=None, max_tool_ops=None, extra_time=None):
     """Run exactly one fresh Codex task; no retries, grading or answer repair.
 
-    max_requests caps the model requests of the task: codex makes one request
-    per tool round, so the cap is enforced on the stream of completed tool
-    items (a request whose tool item completes was request number
-    tool_items + 1). Reaching it stops the client the way the timeout does;
-    the record says request_cap. extra_time() (optional) returns seconds the
+    max_tool_ops is the task's tool-operation budget: the number of completed
+    tool items (commands, wm calls, file changes) read off the live --json
+    stream. It is a budget on operations, not on model requests: a model
+    request that ends in a message, or a compaction round, is not counted.
+    Reaching it stops the client the way the timeout does; the record says
+    tool_cap. extra_time() (optional) returns seconds the
     transport spent on its own failures; the guard is extended by that much,
     so infrastructure trouble never eats the model's time."""
     workspace, output = Path(workspace).resolve(), Path(output).resolve()
@@ -577,8 +578,8 @@ def run_actor(workspace, output, prompt, corpus, index, adapter=None, timeout=18
         raise ValueError('Run records and adapter must be disjoint')
     if timeout <= 0 or not isinstance(prompt, str) or not prompt.strip():
         raise ValueError('Positive timeout and nonempty prompt required')
-    if max_requests is not None and (not isinstance(max_requests, int) or max_requests < 1):
-        raise ValueError('max_requests must be a positive integer or None')
+    if max_tool_ops is not None and (not isinstance(max_tool_ops, int) or max_tool_ops < 1):
+        raise ValueError('max_tool_ops must be a positive integer or None')
     settings = build_settings(workspace, output, corpus, index, adapter, endpoint=endpoint)
     if output.exists() and any(output.iterdir()):
         raise ValueError('Run output must be empty; prior trials are never overwritten')
@@ -586,7 +587,7 @@ def run_actor(workspace, output, prompt, corpus, index, adapter=None, timeout=18
     (output / 'prompt.md').write_text(prompt)
     args = client_command(command_for(workspace, output, settings), workspace, output,
                           corpus, index, adapter, endpoint=endpoint)
-    invocation = {'argv': args, 'cwd': str(workspace), 'timeout_seconds': timeout, 'max_requests': max_requests,
+    invocation = {'argv': args, 'cwd': str(workspace), 'timeout_seconds': timeout, 'max_tool_ops': max_tool_ops,
                   'requested_model': MODEL, 'reasoning_effort': EFFORT, 'settings': settings,
                   'adapter': str(Path(adapter).resolve()) if adapter else None,
                   'corpus': str(Path(corpus).resolve()), 'index': str(Path(index).resolve()),
@@ -615,7 +616,7 @@ def run_actor(workspace, output, prompt, corpus, index, adapter=None, timeout=18
                 nonlocal tool_items
                 for line in process.stdout:   # the CLI's --json stream, one event per line, as it happens
                     out.write(line); out.flush()
-                    if max_requests is None:
+                    if max_tool_ops is None:
                         continue
                     try:
                         event = json.loads(line)
@@ -624,7 +625,7 @@ def run_actor(workspace, output, prompt, corpus, index, adapter=None, timeout=18
                     item = event.get('item') if isinstance(event, dict) and event.get('type') == 'item.completed' else None
                     if isinstance(item, dict) and item.get('type') in TOOL_ITEMS:
                         tool_items += 1
-                        if tool_items >= max_requests:
+                        if tool_items >= max_tool_ops:
                             cap_hit.set()
 
             def pump_stderr():
@@ -679,15 +680,15 @@ def run_actor(workspace, output, prompt, corpus, index, adapter=None, timeout=18
     accept_any = endpoint is None and parsed['turn_completed'] and not expected
     final_validation = collect_final(workspace, output, expected, accept_any=accept_any)
     exit_code = process.returncode if process is not None else None
-    status = ('launch_error' if launch_error else 'timeout' if timed_out else 'request_cap' if capped else
+    status = ('launch_error' if launch_error else 'timeout' if timed_out else 'tool_cap' if capped else
               'invalid_final' if exit_code == 0 and parsed['turn_completed'] and not final_validation['valid'] else
               'completed' if exit_code == 0 and parsed['turn_completed'] else 'failed')
     infra = round(float(extra_time()), 3) if extra_time is not None else 0.0
     result = {'status': status, 'started_utc': started, 'finished_utc': _utc(), 'infra_seconds': infra,
               'elapsed_seconds': round(time.monotonic() - begin, 6), 'exit_code': exit_code,
-              'timed_out': timed_out, 'request_capped': capped, 'tool_items_seen': tool_items,
+              'timed_out': timed_out, 'tool_capped': capped, 'tool_items_seen': tool_items,
               'final_message_event': bool(expected),
-              'max_requests': max_requests, 'launch_error': launch_error, **parsed,
+              'max_tool_ops': max_tool_ops, 'launch_error': launch_error, **parsed,
               'final_validation': final_validation,
               'requested_model': MODEL, 'reasoning_effort': EFFORT,
               'final_message_present': (output / 'final.md').is_file(),

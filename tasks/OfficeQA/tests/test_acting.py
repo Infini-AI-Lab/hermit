@@ -355,18 +355,18 @@ class RequestCapTests(unittest.TestCase):
 
     def test_cap_reached_stops_and_is_recorded(self):
         with patch.object(acting, 'command_for', return_value=self.fake(5, 30)):
-            result = self.run_actor(timeout=20, max_requests=3)
-        self.assertEqual(result['status'], 'request_cap')
-        self.assertTrue(result['request_capped'])
+            result = self.run_actor(timeout=20, max_tool_ops=3)
+        self.assertEqual(result['status'], 'tool_cap')
+        self.assertTrue(result['tool_capped'])
         self.assertGreaterEqual(result['tool_items_seen'], 3)
         self.assertFalse(result['turn_completed'])
         self.assertLess(result['elapsed_seconds'], 15)
-        self.assertEqual(json.loads((self.output / 'invocation.json').read_text())['max_requests'], 3)
+        self.assertEqual(json.loads((self.output / 'invocation.json').read_text())['max_tool_ops'], 3)
 
     def test_under_cap_completes_with_streamed_events(self):
         with patch.object(acting, 'command_for', return_value=self.fake(2, 0)):
             (self.workspace / 'final.md').write_text('42')
-            result = self.run_actor(timeout=20, max_requests=100)
+            result = self.run_actor(timeout=20, max_tool_ops=100)
         self.assertEqual(result['status'], 'completed')
         self.assertEqual(result['tool_items_seen'], 2)
         self.assertEqual(result['usage'], {'input_tokens': 1, 'output_tokens': 1})
@@ -377,7 +377,7 @@ class RequestCapTests(unittest.TestCase):
             (self.workspace / 'final.md').write_text('42')
             result = self.run_actor(timeout=20)
         self.assertEqual(result['status'], 'completed')
-        self.assertIsNone(result['max_requests'])
+        self.assertIsNone(result['max_tool_ops'])
 
 
 class LoginFinalTests(unittest.TestCase):
