@@ -123,11 +123,10 @@ their performance is what this repository contains.
   layer described in "This environment", where it can be tested. A formula written as code in a claim is
   re-executed by a reader every time and gets it wrong sometimes; the same
   formula as a tested program is right every time.
-- `consumption/brief.md` — the opening block every host sees; how far past
-  it a host can reach is described in "This environment". Budget 30000
-  chars, ENFORCED: hosts receive the briefing truncated at that size (a
-  visible seam marks the cut), and the wrapper reports the file's size
-  with every session. It must help ANY competent agent, not one
+- `ADAPTER.md` — the opening block every host sees; how far past
+  it a host can reach is described in "This environment". No size cap:
+  hosts receive it whole, and the wrapper reports its size with every
+  session. It must help ANY competent agent, not one
   particular model. Updating it every session, what goes in, what is
   evicted and how to word it: /skills/curate-brief.
 <!-- HYP:BEGIN -->
@@ -227,7 +226,7 @@ describes the record, the per-episode files, and the address form used in
 ### How hosts reach the model
 
 Every host receives, above its task, one package: the briefing
-(consumption/brief.md), the open questions compiled from entries' `open:`
+(ADAPTER.md), the open questions compiled from entries' `open:`
 lines, the memory catalog (one `[id] brief` line per entry, up to 100),
 and the description of the tool wm. Through wm(name, args) a host
 reaches: `memory` — a full entry, by the `[id]` in the catalog; `recall`

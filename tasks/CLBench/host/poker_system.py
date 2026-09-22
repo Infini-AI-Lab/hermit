@@ -244,6 +244,15 @@ class HarnessAdapterPokerSystem(MetaWorldPokerSystem):
             state = {"done": True, "failed": True}
         self._bootstrap_state.write_text(json.dumps(state, indent=1) + "\n")
 
+    def _read_brief(self) -> str:
+        """The host-facing text of a framework adapter is ADAPTER.md, whole
+        (2026-09-22); the native reader looked for consumption/brief.md under
+        a cap. Statistics only (brief_chars)."""
+        try:
+            return (self.wrepo / "ADAPTER.md").read_text().strip()
+        except OSError:
+            return ""
+
     def _learn(self) -> None:
         self._block += 1
         hands = poker_evidence.group_hands(self._pending)

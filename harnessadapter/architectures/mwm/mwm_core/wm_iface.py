@@ -25,7 +25,6 @@ from pathlib import Path
 from typing import Callable, List, Optional
 
 from . import capabilities, clbench_recall, host_framing, wm_tools
-from .brief import served
 
 BUILTINS = ("memory", "recall", "trace", "search", "read", "run", "delegate", "list")
 
@@ -91,12 +90,12 @@ grains: the briefing line that draws a conclusion from it; `recall`, the
 world model's summary of that episode — what was asked, what decided it,
 what was accepted, what the environment said — under the address the
 line names; and `trace`, the raw record behind the same address, the
-process turn by turn with nothing summarised. Before you rely on a
-briefing claim for a decisive choice, and whenever exploration seems
-expensive, reach for the world model first: `memory` for an entry named
-in the catalog, `recall` for the summary behind an address, `trace` when
-you need the process itself. Following an address is your call: the
-briefing offers it, nothing requires it. Built-in names, input -> output:
+process turn by turn with nothing summarised. Before you act, reach for
+the world model first: `memory` for an entry named in the catalog,
+`recall` for the summary behind an address, `trace` when you need the
+process itself; `search` when the catalog does not name what you are
+looking for. The briefing points at what is there; the world model holds
+the details. Built-in names, input -> output:
 
   memory   input {"id": "<an [id] from the catalog>"}
     output: that entry's file — last_confirmed_t (the tick it was last
@@ -393,11 +392,12 @@ class WorldModelInterface:
         with_delegate=False: the same package for a sub-agent, whose
         section 5 lists no delegate."""
         w = str(self.wrepo)
-        bp = self.wrepo / "consumption" / "brief.md"
+        bp = self.wrepo / "ADAPTER.md"
         try:
-            # a brief.md that is a link outside the repository reads as
-            # empty (the host must not fetch host files for the learner)
-            brief = (served(bp.read_text().strip())
+            # an ADAPTER.md that is a link outside the repository reads as
+            # empty (the host must not fetch host files for the learner).
+            # No size cap (2026-09-22): hosts receive the briefing whole.
+            brief = (bp.read_text().strip()
                      if wm_tools.inside(self.wrepo, bp) else "")
         except OSError:
             brief = ""
@@ -433,7 +433,7 @@ class WorldModelInterface:
         lines.append(f"  tools/        {len(tools)} admitted" + (": " + ", ".join(tools) if tools else "") + " (tools/<name>/TOOL.md documents one)")
         specs = [n for n, _ in self.specs()]
         lines.append(f"  agents/       {len(specs)} sub-agent specs" + (": " + ", ".join(specs) if specs else "") + " (agents/<name>/SPEC.md)")
-        lines.append("  consumption/  brief.md (the briefing above)")
+        lines.append("  ADAPTER.md    the briefing above")
         meta = self.wrepo / "meta"
         if meta.is_dir():
             items = sorted(f.name + ("/" if f.is_dir() else "") for f in meta.iterdir() if not f.name.startswith("."))

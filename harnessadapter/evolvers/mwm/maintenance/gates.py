@@ -68,7 +68,7 @@ from typing import List
 # The briefing budget is NOT enforced here. Two constants used to sit at this
 # spot, BRIEF_MAX_CHARS and BRIEF_HARD_CHARS, the second commented as the point
 # where "the wrapper actually truncates". Nothing read either one: the venue
-# plugin renders consumption/brief.md in full, and no gate measures its length.
+# plugin renders ADAPTER.md in full, and no gate measures its length.
 # The comment was therefore describing a truncation that does not happen —
 # removed 2026-08-20 rather than left to mislead the next reader.
 #
@@ -199,7 +199,7 @@ def _check_derived_from(wrepo: str, errs: List[str]) -> None:
                if "_template" not in p
                and os.path.basename(p) != "README.md"
                and os.sep + "examples" + os.sep not in p]
-    brief_p = os.path.join(wrepo, "consumption", "brief.md")
+    brief_p = os.path.join(wrepo, "ADAPTER.md")
     if os.path.exists(brief_p):
         targets.append(("brief", open(brief_p, errors="replace").read()))
     found: List[str] = []
@@ -230,7 +230,7 @@ def _check_recall_index(wrepo: str, errs: List[str]) -> None:
     reads as "the library is empty". A host follows an `[id]` with wm memory
     and a bare address (or its examples/<address>.md path) with wm recall.
     """
-    brief_p = os.path.join(wrepo, "consumption", "brief.md")
+    brief_p = os.path.join(wrepo, "ADAPTER.md")
     if not os.path.exists(brief_p):
         return
     brief = open(brief_p, errors="replace").read()
@@ -320,8 +320,8 @@ def check(wrepo: str) -> List[str]:
     if not hasattr(_C, "gate"):   # native capabilities.gate is a no-op; a port without it means the same
         _C = type("_NoGate", (), {"gate": staticmethod(lambda wrepo: [])})
     errs += _C.gate(wrepo)
-    if not os.path.exists(os.path.join(wrepo, "consumption", "brief.md")):
-        errs.append("consumption/brief.md deleted — hosts read it every episode")
+    if not os.path.exists(os.path.join(wrepo, "ADAPTER.md")):
+        errs.append("ADAPTER.md deleted — hosts read it every episode")
     _wmt = _adapter_module(wrepo, "wm_tools"); BRIEF_MAX_CHARS = _wmt.BRIEF_MAX_CHARS; memory_dir = _wmt.memory_dir
     cdir = str(memory_dir(wrepo))
     mname = os.path.basename(cdir) if os.path.isdir(cdir) else "memory"
@@ -351,7 +351,7 @@ def check(wrepo: str) -> List[str]:
         if re.search(r"^\s*(import |def |subprocess|exec\()", body, re.M):
             captest = CAPTEST
             errs.append(f"{mname}/{fn}: contains code. {mname}/ is prose only — put programs in tools/<name>/run.py with a SCHEMA dict and a run() function, plus TOOL.md and test.py, then verify with: {captest} --wrepo . --name <name>")
-    brief_p = os.path.join(wrepo, "consumption", "brief.md")
+    brief_p = os.path.join(wrepo, "ADAPTER.md")
     if os.path.exists(brief_p):
         brief = open(brief_p).read()
         # Over-budget is NOT a session-killing violation any more. Reverting a

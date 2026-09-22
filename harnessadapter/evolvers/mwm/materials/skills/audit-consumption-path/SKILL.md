@@ -10,7 +10,7 @@ the reader runs in.
 
 ## The checks (all mechanical; run them, do not eyeball)
 
-1. Every path named in consumption/brief.md exists under this repository.
+1. Every path named in ADAPTER.md exists under this repository.
 2. Every [[name]] link resolves somewhere: memory/<name>.md, or a
    flat file / directory of that name under one of the type directories
    (memory/, examples/, tools/, agents/).

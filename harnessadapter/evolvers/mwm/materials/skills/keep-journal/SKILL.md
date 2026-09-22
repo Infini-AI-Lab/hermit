@@ -74,5 +74,5 @@ beats complete-historical.
 
 Not a workspace for every-session operations, not a
 home for settled facts (memory/), not a channel to hosts
-(consumption/brief.md carries that). If a thing will never settle, it
+(ADAPTER.md carries that). If a thing will never settle, it
 is not a case — it is either a claim about the environment or nothing.

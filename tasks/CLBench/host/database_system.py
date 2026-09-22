@@ -365,6 +365,15 @@ class HarnessAdapterSystem(MetaWorldV6System):
         except OSError:
             pass
 
+    def _read_brief(self) -> str:
+        """The host-facing text of a framework adapter is ADAPTER.md, whole
+        (2026-09-22); the native reader looked for consumption/brief.md under
+        a cap. Statistics only (brief_chars)."""
+        try:
+            return (self.wrepo / "ADAPTER.md").read_text().strip()
+        except OSError:
+            return ""
+
     def _learn(self) -> None:
         self._block += 1
         qs = clbench_evidence.group_questions(self._pending)

@@ -1,2 +1,2 @@
-memory/, examples/, consumption/, meta/,
+memory/, examples/, ADAPTER.md, meta/,
        tools/, agents/, bin/

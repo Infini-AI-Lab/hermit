@@ -12,7 +12,7 @@ A world model of an external environment: scoped and dated knowledge, its ground
 - examples/<record-address>.md: authored worked examples grounding those claims.
 - tools/<name>/{TOOL.md,run.py,test.py}: learned programs with literal SCHEMA and run(**kwargs), admitted only after sandboxed tests.
 - agents/<name>/SPEC.md: role trigger, scope, dates, provenance, and instructions. The framework converts these for the acting host.
-- consumption/brief.md: the current briefing; host delivery applies the original cap.
+- ADAPTER.md: the current briefing (the host-facing text); hosts receive it whole, no size cap.
 - meta/cases/: unresolved investigations that persist until settled.
 - meta/journal.md and its archive: session records with separate rolling behavior.
 - interface.py and mwm_core/: method-specific consumption and dispatch code.

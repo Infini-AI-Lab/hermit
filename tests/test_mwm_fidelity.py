@@ -26,7 +26,7 @@ class MwmFidelityTests(unittest.TestCase):
         root=ARCH/'mwm';adapter=Adapter(root)
         for path in ['memory/_template.md','examples/_template.md','tools/_template/TOOL.md',
                      'tools/_template/run.py','tools/_template/test.py','agents/_template/SPEC.md',
-                     'meta/cases/README.md','meta/journal.md','consumption/brief.md']:
+                     'meta/cases/README.md','meta/journal.md','ADAPTER.md']:
             self.assertTrue((root/path).is_file(),path)
         self.assertEqual(adapter.agent_definitions(),[])
         self.assertEqual(set(adapter.tools),{'wm'})

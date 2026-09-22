@@ -17,5 +17,5 @@ How to run the docket — opening, advancing, the settling line in the
 briefing, triage when full: /skills/keep-journal.
 
 NOT for: operations to run every session, settled
-facts (memory/), host-facing knowledge (consumption/brief.md), session
+facts (memory/), host-facing knowledge (ADAPTER.md), session
 narration (meta/journal.md).

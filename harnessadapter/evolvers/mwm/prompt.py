@@ -50,7 +50,7 @@ SLOT_NAMES=('domain_what','domain_read_exception','domain_write_dirs','env_consu
 GENERIC_SLOTS={
     'domain_what':'This standalone deployment learns from supplied evidence and any environment access granted by the framework policy. No venue facts are pre-seeded.',
     'domain_read_exception':', the supplied evidence, method, environment, and history areas',
-    'domain_write_dirs':'memory/, examples/, tools/, agents/, consumption/, meta/, and other core files (all core files are editable)',
+    'domain_write_dirs':'memory/, examples/, tools/, agents/, ADAPTER.md, meta/, and other core files (all core files are editable)',
     'env_consumption':'Hosts receive the original five-part MWM package and one wm(name,args) tool. Native roles are exported from SPEC.md.',
     'env_executable':'Learned tools use tools/<name>/{TOOL.md,run.py,test.py}. Verification uses the framework test_python capability; unavailable sandbox means no admission.',
     'env_verification':'The environment README declares readable directories, network policy, and available instruments. No benchmark-specific probe is implicitly provided.'}
@@ -71,7 +71,7 @@ BOOTSTRAP_PROMPT=(
     " — each entry naming the case shape that would test it, "
     "with the stated value as the working default. "
     "Where it lists none, memory/ starts empty. Build an initial "
-    "consumption/brief.md that honestly states what is unverified "
+    "ADAPTER.md that honestly states what is unverified "
     "— or that nothing is known yet"
     " — and record your open questions in meta/cases/.")
 
@@ -182,12 +182,12 @@ def prepare_session(adapter, session, block=1, tick=0, method_root=None):
 
 
 def _status_block(adapter: Path, state: dict) -> str:
-    brief=adapter/'consumption/brief.md'
+    brief=adapter/'ADAPTER.md'
     if brief.exists():
         n=len(brief.read_text())
-        bline=f"consumption/brief.md: {n}/30000 chars"+(" OVER BUDGET — the hosts of the block just played received it TRUNCATED at 30000 (visible seam at the cut); trim it now" if n>30000 else "")
+        bline=f"ADAPTER.md: {n} chars"
     else:
-        bline="consumption/brief.md: (missing)"
+        bline="ADAPTER.md: (missing)"
     index=state.get('index') or ''
     index_block=("[Memory index] one line per entry — [id] t=<its last_confirmed_t> · brief — newest edit first, the order and brief the hosts see:\n"+index) if index else ''
     cases=state.get('docket') or ''

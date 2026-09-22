@@ -57,10 +57,46 @@ RULE3_NATIVE = '    3. Do not edit state.json.\n'
 RULE3_HERE = '    3. Do not edit the code that serves the world model to hosts:\n       adapter.json, interface.py, mwm_core/.\n'
 
 
+# The briefing file (2026-09-22): native keeps consumption/brief.md under a
+# 30,000-character cap; here the host-facing text is ADAPTER.md, whole, as in
+# every other adapter. The comparison maps native's wording onto ours.
+BRIEF_NATIVE = [
+    ("Budget 30000\n  chars, ENFORCED: hosts receive the briefing truncated at that size (a\n  visible seam marks the cut), and the wrapper reports the file's size\n  with every session.",
+     "No size cap:\n  hosts receive it whole, and the wrapper reports its size with every\n  session."),
+    ("memory/, examples/, consumption/, meta/,", "memory/, examples/, ADAPTER.md, meta/,"),
+    ("`consumption/brief.md`", "`ADAPTER.md`"),
+    ("(consumption/brief.md)", "(ADAPTER.md)"),
+    ("  consumption/  brief.md (the briefing above)", "  ADAPTER.md    the briefing above"),
+    # 2026-09-22: hosts are told to consult the world model before acting,
+    # unconditionally; native keeps the "whenever exploration seems
+    # expensive … nothing requires it" wording.
+    ("""process turn by turn with nothing summarised. Before you rely on a
+briefing claim for a decisive choice, and whenever exploration seems
+expensive, reach for the world model first: `memory` for an entry named
+in the catalog, `recall` for the summary behind an address, `trace` when
+you need the process itself. Following an address is your call: the
+briefing offers it, nothing requires it. Built-in names, input -> output:""",
+     """process turn by turn with nothing summarised. Before you act, reach for
+the world model first: `memory` for an entry named in the catalog,
+`recall` for the summary behind an address, `trace` when you need the
+process itself; `search` when the catalog does not name what you are
+looking for. The briefing points at what is there; the world model holds
+the details. Built-in names, input -> output:"""),
+]
+
+
+def _brief_here(text: str) -> str:
+    for native, here in BRIEF_NATIVE:
+        text = text.replace(native, here)
+    return text
+
+
 def _normalise(text: str) -> str:
-    """The only admitted difference: what rules 2 and 3 of THREE RULES name
-    (this transport's wrapper files and its protected serving code)."""
+    """The admitted differences: what rules 2 and 3 of THREE RULES name
+    (this transport's wrapper files and its protected serving code) and the
+    briefing file's name and cap (BRIEF_NATIVE)."""
     text = text.replace(RULE2_NATIVE, RULE2_HERE).replace(RULE3_NATIVE, RULE3_HERE)
+    text = _brief_here(text)
     return re.sub(r"\n{3,}", "\n\n", text).strip() + "\n"
 
 
@@ -83,6 +119,11 @@ class PackageParity(unittest.TestCase):
             tmp = Path(tmp)
             wrepo = tmp / "wrepo"
             shutil.copytree(FRAMEWORK / "harnessadapter/architectures/mwm", wrepo)
+            # native reads the briefing from consumption/brief.md; give it the
+            # same text our ADAPTER.md carries (the two names are the admitted
+            # difference, see BRIEF_NATIVE).
+            (wrepo / "consumption").mkdir()
+            shutil.copyfile(wrepo / "ADAPTER.md", wrepo / "consumption/brief.md")
             evidence = tmp / "evidence"
             evidence.mkdir()
             (evidence / "README.md").write_text("# evidence\n")
@@ -97,7 +138,7 @@ class PackageParity(unittest.TestCase):
             ours = Adapter(wrepo, {"evidence": LearningMaterial(evidence), "deployment": host}).context()
         # The whole package: the deployment supplies the transport sentence, the
         # budget sentence, the library list and the native read behaviour.
-        n, o = native, ours
+        n, o = _brief_here(native), ours
         if n != o:
             import difflib
             diff = "\n".join(list(difflib.unified_diff(n.splitlines(), o.splitlines(), "native", "framework", lineterm=""))[:60])

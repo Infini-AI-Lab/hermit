@@ -40,9 +40,8 @@
     {
       "source": "mwm/brief.py",
       "sha256": "0f0e3985f16e8e4e156b374d0c238ed274e13cbb5fbffe7575bf9345ef3cb0d5",
-      "destination": "mwm_core/brief.py",
-      "changes": "Relative imports; wm_iface deployment budget/library wording; trace path containment where applicable.",
-      "destination_sha256": "0f0e3985f16e8e4e156b374d0c238ed274e13cbb5fbffe7575bf9345ef3cb0d5"
+      "destination": null,
+      "changes": "Not ported since 2026-09-22: the framework serves the briefing (ADAPTER.md) whole, without the native 30,000-character cap; nothing here truncates."
     },
     {
       "source": "mwm/staleness.py",

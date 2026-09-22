@@ -7,16 +7,15 @@ Read at agenda item 4.
 The briefing is prepended before the task; a host reads top-down and acts on
 the first thing that tells it what to do. Everything else lives at /world-model and is
 reached only if the host knows to look — the briefing's routing lines are how
-it knows. Budget ~30000 chars. It also means hosts tend to execute every
+it knows. It also means hosts tend to execute every
 sentence they read, hedges included — "do not assume X" reads to a host
 as a prohibition on X.
 
 ## What the briefing must do
 
 Updating it every session is not optional: a host reading a stale or
-near-empty briefing works blind. Hosts receive it truncated at 30000
-chars (a visible seam marks the cut) and the wrapper reports the file's
-size with every session. It should be a ROUTE MAP rather than a dump —
+near-empty briefing works blind. Hosts receive it whole, and the wrapper
+reports its size with every session. It should be a ROUTE MAP rather than a dump —
 what just changed, what bites most often, and what can be asked about.
 Curate it: for each thing that recurs, the rule a host follows today —
 one line, with the scope it holds in, its evidence extent and age, and
