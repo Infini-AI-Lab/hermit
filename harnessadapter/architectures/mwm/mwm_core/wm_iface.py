@@ -26,7 +26,7 @@ from typing import Callable, List, Optional
 
 from . import capabilities, clbench_recall, host_framing, wm_tools
 
-BUILTINS = ("memory", "recall", "trace", "search", "read", "run", "delegate", "list")
+BUILTINS = ("memory", "recall", "trace", "read", "run", "delegate", "list")
 
 # wm calls per episode, every venue, delegation included — the one number
 # a host is told. It is a runaway guard, not a budget (user decision
@@ -45,7 +45,7 @@ TOOL_SPEC = {
         "description": (
             "The world model — knowledge maintained between episodes from "
             "earlier graded episodes. name: one of memory, recall, trace, "
-            "search, read, run, delegate, list, or an admitted tool's name; args: an "
+            "read, run, delegate, list, or an admitted tool's name; args: an "
             "object per that name (see the 'Reaching the world model' "
             "section). wm reaches the world model only, "
             "never the environment."),
@@ -93,8 +93,7 @@ line names; and `trace`, the raw record behind the same address, the
 process turn by turn with nothing summarised. Before you act, reach for
 the world model first: `memory` for an entry named in the catalog,
 `recall` for the summary behind an address, `trace` when you need the
-process itself; `search` when the catalog does not name what you are
-looking for. The briefing points at what is there; the world model holds
+process itself. The briefing points at what is there; the world model holds
 the details. Built-in names, input -> output:
 
   memory   input {"id": "<an [id] from the catalog>"}
@@ -128,15 +127,8 @@ the details. Built-in names, input -> output:
     continue from. "no record" for an address that has none.
     e.g. {eg_trace}
 
-  search   input {"query": "<a word or phrase>"}
-    output: every line in the world model that contains it, each with
-    the file it is in — a way to find the entry that mentions a table, a
-    term or a value when the catalog does not name it. "no matches"
-    otherwise.
-    e.g. {eg_search}
-
   read     input {"path": "<a /world-model/... path — from the layout
-    that list returns, from a search hit, or a directory: reading
+    that list returns, or a directory: reading
     /world-model/ lists what is there>"}
     optional args: offset (default 0), limit (default 4000, max 16000),
       expected_sha256 (use a prior page's sha256 to detect content changes).
@@ -159,7 +151,6 @@ _EXAMPLE_ARGS = {
     "memory": '{"id": "<id>"}',
     "recall": '{"address": "q17"}',
     "trace": '{"address": "q17", "from": 0}',
-    "search": '{"query": "<word>"}',
     "read": '{"path": "/world-model/memory/"}',
     "run": '{"code": "<Python>", "args": {}}',
     "delegate": '{"spec": "<name>", "task": "<text>"}',
@@ -462,8 +453,6 @@ class WorldModelInterface:
                 return _trace.render(str(self.evidence_dir),
                                      str(args.get("address", "")),
                                      args.get("from", 0))
-            if name == "search":
-                return wm_tools._search(self.wrepo, str(args.get("query", "")))
             if name == "read":
                 return self._read(str(args.get("path", "")),
                                   args.get("offset", 0), args.get("limit", 4000),

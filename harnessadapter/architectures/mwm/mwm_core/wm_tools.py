@@ -14,8 +14,8 @@ the learner builds:
   token budget.
 
 Plus the older defaults: recall a worked example by its evidence address,
-read any world-model or evidence file (low-level fallback), search the
-repository. The database venue has carried those three since v6 as the
+read any world-model or evidence file (low-level fallback). The database
+venue carried these, with a substring search, since v6 as the
 RECALL/READ/SEARCH channel actions (clbench
 src/systems/metaworld/system.py); the banking venue shipped without them,
 so its briefings carried hundreds of evidence addresses no host could
@@ -40,7 +40,6 @@ from . import clbench_recall
 # Same values as the database venue's channel serving.
 TOOL_OUT_CHARS = 4000
 READ_PAGE_MAX_CHARS = 16000
-SEARCH_MAX_HITS = 20
 
 # Memory delivery (frozen-setting v1.1).
 CATALOG_MAX_ENTRIES = 100
@@ -196,7 +195,7 @@ def index(wrepo: str | Path, now_t: int = 0,
     dropped = len(files) - cap
     if dropped > 0:
         lines.append(f"(+{dropped} older entries not listed — "
-                     f"still readable by id, findable via search)")
+                     f"still readable by id)")
     return "\n".join(lines)
 
 
@@ -224,7 +223,7 @@ def catalog(wrepo: str | Path, cap: int = CATALOG_MAX_ENTRIES) -> str:
              for p in files[:cap]]
     if dropped > 0:
         lines.append(f"(+{dropped} older entries not listed — "
-                     f"still readable by id, findable via search)")
+                     f"still readable by id)")
     out = "\n".join(lines)
     _catalog_cache[str(w)] = (fp, out)
     return out
@@ -323,27 +322,3 @@ def _read_target(wrepo: Path, evidence_dir: Path, target: str) -> str:
         return f"not found: {target!r}"
 
 
-def _search(wrepo: Path, needle: str) -> str:
-    """Port of the database venue's _search: case-insensitive substring
-    over the repository, .git skipped, capped hit list."""
-    if not needle:
-        return "empty search"
-    hits = []
-    for dirpath, dirs, files in os.walk(wrepo):
-        dirs[:] = [d for d in dirs if d != ".git"]
-        for fn in files:
-            fp = Path(dirpath) / fn
-            if not inside(wrepo, fp):
-                continue
-            try:
-                for i, line in enumerate(
-                        fp.read_text(errors="replace").splitlines(), 1):
-                    if needle.lower() in line.lower():
-                        rel = fp.relative_to(wrepo)
-                        hits.append(f"/world-model/{rel}:{i}: "
-                                    f"{line.strip()[:160]}")
-                        if len(hits) >= SEARCH_MAX_HITS:
-                            return "\n".join(hits)
-            except OSError:
-                continue
-    return "\n".join(hits) if hits else "no matches"

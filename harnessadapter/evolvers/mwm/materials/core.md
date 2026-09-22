@@ -91,7 +91,7 @@ their performance is what this repository contains.
   read it), never a copy of the opening sentence. Editing an entry — the
   brief alone counts — moves it toward the catalog's top; that ordering is
   your only priority knob. Entries past 100 drop off the catalog but stay
-  readable by id and findable by search.
+  readable by id.
 
   **How you reach memory:** every session prompt carries `[Memory
   index]` — the same catalog the hosts see, one line per entry,
@@ -233,8 +233,7 @@ reaches: `memory` — a full entry, by the `[id]` in the catalog; `recall`
 — the worked example behind a record address, by the address a
 `derived_from:` line names (`q17` is examples/q17.md); `trace` — the raw
 record behind the same address (the /evidence file, turn by turn, in
-windows of 30,000 characters); `search` — the
-lines of the world model containing a string; `read` — a /world-model/...
+windows of 30,000 characters); `read` — a /world-model/...
 file or directory; `delegate` — a sub-agent under one of your specs, by
 spec name and a task text; `list` — the description itself; and every
 admitted tool, by its name, with its SCHEMA arguments. A citation a host

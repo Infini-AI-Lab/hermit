@@ -79,9 +79,24 @@ briefing offers it, nothing requires it. Built-in names, input -> output:""",
      """process turn by turn with nothing summarised. Before you act, reach for
 the world model first: `memory` for an entry named in the catalog,
 `recall` for the summary behind an address, `trace` when you need the
-process itself; `search` when the catalog does not name what you are
-looking for. The briefing points at what is there; the world model holds
+process itself. The briefing points at what is there; the world model holds
 the details. Built-in names, input -> output:"""),
+    # 2026-09-22: the `search` builtin is withdrawn (substring matching sent
+    # hosts away from the world model: 91 of 100 queries found nothing).
+    ("""  search   input {"query": "<a word or phrase>"}
+    output: every line in the world model that contains it, each with
+    the file it is in — a way to find the entry that mentions a table, a
+    term or a value when the catalog does not name it. "no matches"
+    otherwise.
+    e.g. wm(name="search", args={"query": "<word>"})
+
+""", ""),
+    ("name: one of memory, recall, trace, search, read, run, delegate, list,", "name: one of memory, recall, trace, read, run, delegate, list,"),
+    ("    that list returns, from a search hit, or a directory: reading", "    that list returns, or a directory: reading"),
+    ("still readable by id, findable via search)", "still readable by id)"),
+    ("  readable by id and findable by search.", "  readable by id."),
+    ("""windows of 30,000 characters); `search` — the
+lines of the world model containing a string; `read` — a /world-model/...""", """windows of 30,000 characters); `read` — a /world-model/..."""),
 ]
 
 
@@ -221,7 +236,7 @@ class ToolSpecParity(unittest.TestCase):
         native = json.loads(subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env, check=True).stdout)
         tool = json.loads((FRAMEWORK / "harnessadapter/architectures/mwm/adapter.json").read_text())["tools"][0]
         self.assertEqual(tool["name"], native["name"])
-        self.assertEqual(tool["description"], native["description"])
+        self.assertEqual(tool["description"], _brief_here(native["description"]))
         self.assertEqual(tool["input_schema"]["properties"], native["parameters"]["properties"])
         self.assertEqual(tool["input_schema"]["required"], native["parameters"]["required"])
 

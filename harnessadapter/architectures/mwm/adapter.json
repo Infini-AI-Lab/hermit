@@ -18,7 +18,7 @@
   "tools": [
     {
       "name": "wm",
-      "description": "The world model \u2014 knowledge maintained between episodes from earlier graded episodes. name: one of memory, recall, trace, search, read, run, delegate, list, or an admitted tool's name; args: an object per that name (see the 'Reaching the world model' section). Calls are free. wm reaches the world model only, never the environment.",
+      "description": "The world model \u2014 knowledge maintained between episodes from earlier graded episodes. name: one of memory, recall, trace, read, run, delegate, list, or an admitted tool's name; args: an object per that name (see the 'Reaching the world model' section). Calls are free. wm reaches the world model only, never the environment.",
       "entrypoint": "interface.py:wm",
       "input_schema": {
         "type": "object",
