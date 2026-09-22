@@ -196,3 +196,31 @@ class LargeFilesPage(unittest.TestCase):
             for _ in range(300):
                 (session / "evidence" / f"f{_:03d}.json").write_text("{}")
             self.assertEqual(len(sandbox.operation("list_files", {"area": "evidence"})["files"]), 301)
+
+
+@unittest.skipUnless(SANDBOX and shutil.which("bwrap"), "requires bubblewrap")
+class EnvironmentMounts(unittest.TestCase):
+    """A --mount NAME=PATH is readable at /environment/NAME from the shell and
+    through the broker's path tools, never writable, never copied."""
+
+    def test_mount_reads_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session = _session(Path(tmp))
+            data = Path(tmp) / "data"; data.mkdir(); (data / "doc.txt").write_text("corpus line\n")
+            single = Path(tmp) / "index.sqlite"; single.write_bytes(b"SQLITE")
+            (session / "environment/corpus").mkdir(); (session / "environment/index.sqlite").touch()
+            (session / "control/mounts.json").write_text(json.dumps({"corpus": str(data), "index.sqlite": str(single)}))
+            policy = ExecutionPolicy.parse({"backend": "codex", "read_access": {"paths": []}, "network": False})
+            (session / "control/policy.json").write_text(json.dumps({"requested": policy.serialize()}))
+            sandbox = PolicySandbox(session, policy)
+            out = sandbox.run(["/bin/sh", "-c", "cat /environment/corpus/doc.txt; head -c 6 /environment/index.sqlite; echo; cat ../environment/corpus/doc.txt"])
+            self.assertEqual(out["exit_code"], 0, out["stderr"]); self.assertEqual(out["stdout"], "corpus line\nSQLITE\ncorpus line\n")
+            self.assertNotEqual(sandbox.run(["/bin/sh", "-c", "echo x > /environment/corpus/new.txt"])["exit_code"], 0)
+            self.assertFalse((data / "new.txt").exists())
+            self.assertEqual(sandbox.operation("read_path", {"path": "/environment/corpus/doc.txt"})["text"], "corpus line\n")
+            self.assertEqual(sandbox.operation("read_file", {"area": "environment", "path": "corpus/doc.txt"})["text"], "corpus line\n")
+            self.assertEqual(sandbox.operation("list_path", {"path": "/environment/corpus"})["entries"], ["doc.txt"])
+            with self.assertRaises(ValueError):
+                sandbox.operation("write_file", {"area": "environment", "path": "corpus/new.txt", "content": "x"})
+            with self.assertRaises(ValueError):
+                sandbox.operation("read_path", {"path": "/environment/corpus/../../etc/hostname"})

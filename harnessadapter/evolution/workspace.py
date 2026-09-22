@@ -51,6 +51,12 @@ class Workspace:
         listing = self.root / 'control/protected.json'
         if listing.is_file():
             self.protected = tuple(dict.fromkeys(('CONTRACT.md', *json.loads(listing.read_text()))))
+        # Environment mounts (control/mounts.json): host paths readable at
+        # environment/<name>, never writable, never copied.
+        self.mounts = {}
+        mounts = self.root / 'control/mounts.json'
+        if mounts.is_file():
+            self.mounts = {k: Path(v) for k, v in json.loads(mounts.read_text()).items()}
 
     # The native learner's mounts, as its contract names them, mapped onto
     # the areas this transport serves: "/skills/curate-brief" is the method
@@ -89,6 +95,15 @@ class Workspace:
         if write and area == 'adapter' and self.protected_hit(relative):
             raise ValueError(f'{self.protected_hit(relative)} is protected core of this architecture; it is not editable')
         base = self.areas[area].resolve()
+        parts = Path(relative).parts if isinstance(relative, str) else ()
+        if area == 'environment' and parts and parts[0] in self.mounts:
+            if write:
+                raise ValueError('Environment mounts are read-only')
+            target = self.mounts[parts[0]].resolve()
+            result = (target / Path(*parts[1:])).resolve() if len(parts) > 1 else target
+            if not (result == target or result.is_relative_to(target)):
+                raise ValueError('Path escapes the mount')
+            return result
         result = (base / relative).resolve()
         if not result.is_relative_to(base):
             raise ValueError('Path escapes the granted area')

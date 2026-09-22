@@ -103,6 +103,12 @@ class PolicySandbox:
             self.readable.append(self.session/'deployment')
         self.readable += [Path(p) for p in policy.read_paths]
         if policy.working_directory:self.readable.append(Path(policy.working_directory))
+        # Environment mounts declared by the session (control/mounts.json).
+        self.mounts={}
+        mounts=self.session/'control/mounts.json'
+        if mounts.is_file():
+            self.mounts={k:Path(v) for k,v in json.loads(mounts.read_text()).items()}
+        self.readable += list(self.mounts.values())
         self.executor=shutil.which('codex')
         # The package and its checkout (editable installs resolve through the
         # checkout) are runtime infrastructure, read-only inside the sandbox.
@@ -225,6 +231,12 @@ class PolicySandbox:
         for name,source in self.MOUNTS:
             src=self.session/source
             if src.is_dir():cmd+=['--ro-bind',str(src),'/'+name]
+        for name,target in self.mounts.items():
+            # Over the placeholder the session created under environment/,
+            # so the same name works at /environment/<name> and at the area
+            # path — and at the target's own path, the one the hosts use.
+            for at in ('/environment/'+name, str(self.session/'environment'/name), str(target)):
+                cmd+=['--ro-bind',str(target),at]
         return cmd+['--chdir',str(cwd),'--']
 
     def _codex_command(self, cwd, *, network, writable=True):

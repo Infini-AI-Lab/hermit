@@ -4,6 +4,8 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import shutil
+import re
 import os
 from pathlib import Path
 import signal
@@ -42,7 +44,7 @@ def learner_usage(events):
     return usage
 
 
-def evolve(source: Path, evidence: Path | None = None, goal: str = "Improve the adapter using supplied LearningMaterial.", timeout=240, budget=None, prepare_only=False, block=1, tick=0, policy=None, definition=None, source_kind='adapter', validation_data: Path | None = None, output: Path | None = None, model: str | None = None, reasoning_effort: str | None = None, learning_material: Path | None = None, preview_enabled: bool = False, bindings: list | None = None, deployment: Path | None = None, notes: str = '', provider: dict | None = None):
+def evolve(source: Path, evidence: Path | None = None, goal: str = "Improve the adapter using supplied LearningMaterial.", timeout=240, budget=None, prepare_only=False, block=1, tick=0, policy=None, definition=None, source_kind='adapter', validation_data: Path | None = None, output: Path | None = None, model: str | None = None, reasoning_effort: str | None = None, learning_material: Path | None = None, preview_enabled: bool = False, bindings: list | None = None, deployment: Path | None = None, notes: str = '', provider: dict | None = None, mounts: dict | None = None):
     from harnessadapter.adapter.resources import resolve_learning_material
     evidence = resolve_learning_material(learning_material, evidence)
     if evidence is None:
@@ -91,6 +93,25 @@ def evolve(source: Path, evidence: Path | None = None, goal: str = "Improve the 
         copy_tree(deployment, session / 'deployment')
     if validation_data is not None:
         copy_tree(validation_data, session/'validation')
+    # Environment mounts: host paths the learner reads at /environment/<name>
+    # (a directory or a file), read-only, in the sandbox and through the
+    # broker alike — the environment's own data, never copied into the session.
+    requested_mounts = dict(mounts or {})
+    mounts = {}
+    for name, target in requested_mounts.items():
+        if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,63}', name) or name in ('README.md', 'FRAMEWORK.md'):
+            raise ValueError(f'Mount name must be a plain file name: {name!r}')
+        target = Path(target).resolve()
+        if not target.exists():
+            raise ValueError(f'Mount target does not exist: {target}')
+        placeholder = session / 'environment' / name
+        if target.is_dir():
+            placeholder.mkdir(parents=True, exist_ok=True)
+        else:
+            placeholder.parent.mkdir(parents=True, exist_ok=True)
+            placeholder.touch()
+        mounts[name] = str(target)
+    (session / 'control/mounts.json').write_text(json.dumps(mounts) + '\n')
     baseline = {'source': fingerprint(source), 'evidence': fingerprint(session / 'evidence'),
                 'framework': fingerprint(PACKAGE_ROOT, exclude=('evolvers', 'architectures')), 'candidate': fingerprint(session / 'adapter')}
     (session / 'control/baseline.json').write_text(json.dumps(baseline, indent=2)+'\n')
@@ -110,6 +131,7 @@ def evolve(source: Path, evidence: Path | None = None, goal: str = "Improve the 
                        'network_scope': 'agent tool/command traffic; model API transport is separate',
                        'preview_enabled': bool(preview_enabled),
                        'bindings': list(bindings or []),
+                       'mounts': mounts,
                        'deployment': str(session/'deployment') if deployment is not None else None,
                        'notes': notes or '',
                        'executor': 'codex sandbox (shared by both learner backends)'}
@@ -143,9 +165,14 @@ def evolve(source: Path, evidence: Path | None = None, goal: str = "Improve the 
     if native_env is not None and native_env.is_file():
         # The deployment supplies the environment surface the learner reads
         # (what a host can reach, nothing more); the framework's own policy
-        # text is kept beside it for reference.
+        # text is kept beside it for reference. Other files of the
+        # deployment's environment directory (a client for a channel) ride
+        # along at /environment/<name>.
         (session/'environment/README.md').write_text(native_env.read_text())
         (session/'environment/FRAMEWORK.md').write_text(environment_text)
+        for extra in sorted(native_env.parent.iterdir()):
+            if extra.is_file() and extra.name != 'README.md' and not (session/'environment'/extra.name).exists():
+                shutil.copy2(extra, session/'environment'/extra.name)
     else:
         (session/'environment/README.md').write_text(environment_text)
     protected_areas = ('method', 'environment', 'history') + (('validation',) if validation_data is not None else ())
@@ -256,6 +283,7 @@ def main(argv=None):
     parser.add_argument('--provider-env-key',help='Environment variable holding the provider API key')
     parser.add_argument('--provider-wire-api',choices=['chat','responses'],default='chat')
     parser.add_argument('--bind',action='append',default=None,metavar='NAME=SPEC',help='Resource binding for the candidate adapter (search=URL, documents=URL, small_model=URL|model); repeatable. Enables the try_tool and small_model session tools.')
+    parser.add_argument('--mount',action='append',default=None,metavar='NAME=PATH',help='Environment mount: the host directory or file PATH is readable at /environment/NAME (sandbox and broker); repeatable')
     reads=parser.add_mutually_exclusive_group()
     reads.add_argument('--read-dir',type=Path,action='append',default=None,help='Additional environment directory, read-only; repeatable')
     reads.add_argument('--read-all',action='store_true',help='Allow all filesystem reads; never expands write scope')
@@ -282,7 +310,12 @@ def main(argv=None):
         if not (args.provider_name and args.provider_base_url and args.provider_env_key):
             parser.error('--provider-name, --provider-base-url and --provider-env-key go together')
         provider={'name':args.provider_name,'base_url':args.provider_base_url,'env_key':args.provider_env_key,'wire_api':args.provider_wire_api}
-    result=evolve(source,args.evidence,args.goal,args.timeout,args.max_budget_usd,args.prepare_only,args.block,args.tick,policy,definition,kind,validation_data=args.validation,output=args.output,model=args.model,reasoning_effort=args.reasoning_effort,bindings=args.bind,deployment=args.deployment,notes=args.notes,provider=provider)
+    mounts={}
+    for item in args.mount or []:
+        name,sep,target=str(item).partition('=')
+        if not sep or not name.strip():parser.error('--mount takes NAME=PATH')
+        mounts[name.strip()]=target
+    result=evolve(source,args.evidence,args.goal,args.timeout,args.max_budget_usd,args.prepare_only,args.block,args.tick,policy,definition,kind,validation_data=args.validation,output=args.output,model=args.model,reasoning_effort=args.reasoning_effort,bindings=args.bind,deployment=args.deployment,notes=args.notes,provider=provider,mounts=mounts)
     print(json.dumps(result,indent=2))
     raise SystemExit(0 if result['status'] in ('prepared','candidate_ready') else 1)
 

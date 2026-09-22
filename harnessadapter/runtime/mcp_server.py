@@ -15,10 +15,18 @@ from harnessadapter.adapter.loader import Adapter
 from harnessadapter.adapter.resources import LearningMaterial, resolve_learning_material
 
 
-async def serve(root: Path, audit_log: Path | None, evidence: Path | None = None, *, learning_material: Path | None = None):
+async def serve(root: Path, audit_log: Path | None, evidence: Path | None = None, *, learning_material: Path | None = None,
+                deployment: Path | None = None, python_sandbox: bool = False):
     evidence = resolve_learning_material(learning_material, evidence)
     store = LearningMaterial(evidence) if evidence is not None else None
     resources = {"learning_material": store, "evidence": store} if store is not None else {}
+    if deployment is not None:
+        # The deployment's host texts (a host.json), the same resource the
+        # in-process hosts bind.
+        resources["deployment"] = json.loads(Path(deployment).read_text())
+    if python_sandbox:
+        from harnessadapter.runtime.python_sandbox import PythonSandbox
+        resources["python_sandbox"] = PythonSandbox(root)
     adapter = Adapter(root, resources=resources)
     if audit_log is not None and audit_log.resolve().is_relative_to(adapter.root):
         raise ValueError("Framework audit logs must live outside the adapter core")
@@ -65,5 +73,7 @@ if __name__ == "__main__":
     material = parser.add_mutually_exclusive_group(required=False)
     material.add_argument("--learning-material", dest="evidence", type=Path, help="Read-only LearningMaterial directory with README.md")
     material.add_argument("--evidence", dest="evidence", type=Path, help="Compatibility alias for --learning-material")
+    parser.add_argument("--deployment", type=Path, help="A host.json of deployment texts, bound as the `deployment` resource")
+    parser.add_argument("--python-sandbox", action="store_true", help="Bind the bubblewrap Python sandbox so admitted learned tools can run")
     args = parser.parse_args()
-    asyncio.run(serve(args.adapter, args.audit_log, args.evidence))
+    asyncio.run(serve(args.adapter, args.audit_log, args.evidence, deployment=args.deployment, python_sandbox=args.python_sandbox))
