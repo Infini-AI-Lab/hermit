@@ -63,3 +63,14 @@ minimal-shop remains a small, pre-populated integration demo. It is not a third 
 ## Animation Workshop (experimental)
 
 `animation-workshop` organizes methods, readable and modifiable implementations, and integration examples for web physics animation. It starts empty and uses its own Evolver, not the MWM lifecycle. See [Animation Workshop](animation-workshop.html) for source paging, trial previews, and evaluation limits.
+
+
+## Lemma board (multi-agent, experimental)
+
+`lemma-board` is a collaboration protocol rather than a knowledge store: N
+acting agents prove the same Lean theorem in parallel and share work only
+through a board of lemmas, reached by six `board_*` MCP tools (list, post,
+claim, done, blocked, pull). Communication is asynchronous; no agent waits
+for another. Proof verification is the launcher's job, outside the adapter.
+The evolvable parts are the acting context and the tool semantics. See
+`harnessadapter/architectures/lemma_board/README.md`.
