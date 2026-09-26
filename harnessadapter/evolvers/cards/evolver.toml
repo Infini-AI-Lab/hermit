@@ -1,0 +1,10 @@
+prompt = "PROMPT.md"
+# The learner proposes cards through the host; nothing in the adapter is writable by it.
+protected = ["adapter.json", "EVOLVER.md", "README.md", "interface.py", "cards_core", "PREAMBLE.md", "cards"]
+
+[execution]
+backend = "codex"
+network = false
+
+[execution.read_access]
+paths = []
