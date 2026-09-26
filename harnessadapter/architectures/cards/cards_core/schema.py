@@ -31,20 +31,24 @@ FIELDS = ("id", "scope", "claim", "unless", "support", "admitted")
 CLAIM_MAX = 600      # UTF-8 bytes the actor reads per card
 UNLESS_MAX = 300
 SCOPE_MIN, SCOPE_MAX = 1, 8
-KEYWORD_MIN = 4
+KEYWORD_MIN = 3
 ID_PATTERN = re.compile(r"C\d{3}")
 STOPWORDS = frozenset("""
+the and for was are did has how its not but per any all one two use may can what who why
 about above after again against also amount answer around because been before being below between both
 could does doing down during each either every from further have having here into just least less more most much must
 number only other over question report same should since some such than that their them then there these they this those
 through under until using value values very want were what when where which while whose will with within without would
 year years your
 """.split())
+# Lines that would restructure the document the actor reads (headings, fences, comment markers).
+STRUCTURE = re.compile(r"^\s{0,3}(#{1,6}(\s|$)|`{3,}|~{3,}|<!--)")
 
 
 def normalize(text: str) -> str:
-    """Casefold, turn punctuation into spaces, collapse whitespace."""
+    """Casefold, drop possessives, turn punctuation into spaces, collapse whitespace."""
     text = str(text).casefold().replace("_", " ")
+    text = re.sub(r"['’]s\b", "", text)
     text = re.sub(r"[^\w\s]", " ", text)
     return re.sub(r"\s+", " ", text).strip()
 
@@ -121,7 +125,7 @@ def validate(card) -> list[str]:
     if not SCOPE_MIN <= len(words) <= SCOPE_MAX:
         errors.append(f"scope needs {SCOPE_MIN}-{SCOPE_MAX} comma-separated keywords or short phrases")
     for word in words:
-        if len(word) < KEYWORD_MIN:
+        if min(len(token) for token in word.split()) < KEYWORD_MIN:
             errors.append(f"scope keyword too short: {word!r}")
         elif word in STOPWORDS:
             errors.append(f"scope keyword is a stopword: {word!r}")
@@ -135,6 +139,10 @@ def validate(card) -> list[str]:
     unless = str(card.get("unless", "") or "").strip()
     if len(unless.encode()) > UNLESS_MAX:
         errors.append(f"unless exceeds {UNLESS_MAX} bytes")
+    for field, text in (("claim", claim), ("unless", unless)):
+        for line in text.splitlines():
+            if STRUCTURE.match(line):
+                errors.append(f"{field} line looks like Markdown structure: {line.strip()[:40]!r}")
     try:
         if len(support_list(card.get("support"))) < 1:
             errors.append("support needs at least one question ordinal")

@@ -23,9 +23,12 @@ GOOD = {"id": "C001", "scope": "fiscal year, annual row, later issue",
         "unless": "The question names a specific issue or date.", "support": [3, 8]}
 
 
+REFERENCES = {1: "[-7.397, 7.697, -3.312]", 3: "2511", 8: "17", 2: "94,239.71", 4: "3320.13 million", 5: "Vermontia"}
+
+
 def released(n=10, wrong=(1, 3, 8)):
     return {o: {"question": f"Question number {o} about the fiscal year annual row in a later issue" if o in (3, 8, 5) else f"Question number {o} about something else",
-                "submitted": "x", "reference": "y", "strict": 0 if o in wrong else 1, "status": "completed"} for o in range(1, n + 1)}
+                "submitted": "x", "reference": REFERENCES.get(o, "y"), "strict": 0 if o in wrong else 1, "status": "completed"} for o in range(1, n + 1)}
 
 
 class SchemaTests(unittest.TestCase):
@@ -43,7 +46,10 @@ class SchemaTests(unittest.TestCase):
     def test_validation_rejects_bad_cards(self):
         self.assertIn("id must look like C001", schema.validate({**GOOD, "id": "card1"}))
         self.assertTrue(any("stopword" in e for e in schema.validate({**GOOD, "scope": "year"})))
-        self.assertTrue(any("too short" in e for e in schema.validate({**GOOD, "scope": "tax"})))
+        self.assertTrue(any("too short" in e for e in schema.validate({**GOOD, "scope": "a gdp"})))
+        self.assertEqual(schema.validate({**GOOD, "scope": "gdp, cpi"}), [])
+        self.assertTrue(any("Markdown structure" in e for e in schema.validate({**GOOD, "claim": "# Rule\nuse it"})))
+        self.assertTrue(any("Markdown structure" in e for e in schema.validate({**GOOD, "unless": "```\nx"})))
         self.assertTrue(any("exceeds" in e for e in schema.validate({**GOOD, "claim": "x" * 601})))
         self.assertEqual(schema.validate({**GOOD, "support": [3]}), [])
         self.assertTrue(any("support" in e for e in schema.validate({**GOOD, "support": []})))
@@ -52,6 +58,8 @@ class SchemaTests(unittest.TestCase):
     def test_matches_whole_words(self):
         self.assertEqual(schema.matches("What is the Fiscal Year total?", "fiscal year, annual"), ["fiscal year"])
         self.assertEqual(schema.matches("annually reported", "annual"), [])
+        self.assertEqual(schema.matches("the Treasury's holdings", "treasury"), ["treasury"])
+        self.assertEqual(schema.matches("debt-to-GDP ratio", "gdp"), ["gdp"])
 
 
 class RenderTests(unittest.TestCase):
@@ -121,6 +129,12 @@ class BlockTests(unittest.TestCase):
         self.assertTrue(any("leak - corpus file name" in r for r in block.screen({**GOOD, "claim": "See treasury_bulletin_2016_09.txt"}, [1, 3, 8], rel, [], [])["reasons"]))
         self.assertTrue(any("large number" in r for r in block.screen({**GOOD, "claim": "The value is 131973 in the table."}, [1, 3, 8], rel, [], [])["reasons"]))
         self.assertTrue(block.screen({**GOOD, "claim": "Use 2019 minus 2011 = 8 years and 365/7 = 52.14 weeks."}, [1, 3, 8], rel, [], [])["ok"])
+        self.assertTrue(block.screen({**GOOD, "claim": "Tables are in millions; divide by 1,000 to report billions."}, [1, 3, 8], rel, [], [])["ok"])
+        self.assertTrue(any("reference value of support q003" in r for r in block.screen({**GOOD, "claim": "The Army figure is 2511."}, [1, 3, 8], rel, [], [])["reasons"]))
+        self.assertTrue(any("reference value of support q008" in r for r in block.screen({**GOOD, "claim": "There are seventeen local maxima.", "support": [8]}, [1, 3, 8], rel, [], [])["reasons"]))
+        self.assertTrue(any("reference value of q002" in r for r in block.screen({**GOOD, "claim": "The rupee total is 94239.71.", "support": [3]}, [1, 3, 8], rel, [], [])["reasons"]))
+        self.assertTrue(any("reference value of q001" in r for r in block.screen({**GOOD, "claim": "Report 7.697 as the decay factor.", "support": [3]}, [1, 3, 8], rel, [], [])["reasons"]))
+        self.assertTrue(block.screen({**GOOD, "claim": "Count 7 rungs before the 12 monthly rows.", "support": [3]}, [1, 3, 8], rel, [], [])["ok"])
         self.assertTrue(any("copies a question" in r for r in block.screen({**GOOD, "claim": "question number 3 about the fiscal year annual row in a later issue"}, [1, 3, 8], rel, [], [])["reasons"]))
         self.assertTrue(block.screen({**GOOD, "claim": "an annual row in a later issue is revised"}, [1, 3, 8], rel, [], [])["ok"])
         self.assertTrue(block.screen({**GOOD, "support": [3]}, [1, 3, 8], rel, [], [])["ok"])
@@ -155,7 +169,10 @@ class BlockTests(unittest.TestCase):
         self.assertFalse(verdict["admitted"])
         self.assertEqual(verdict["inconclusive"], [8])
         single_keep_wrong = good[:4] + [run(5, "keep", 1, 0), dict(run(5, "keep", 2, 0), excluded=True)] + good[6:]
-        self.assertTrue(block.judge(single_keep_wrong, originals)["keep_ok"])
+        verdict = block.judge(single_keep_wrong, originals)
+        self.assertFalse(verdict["admitted"])
+        self.assertEqual(verdict["inconclusive"], [5])
+        self.assertEqual(verdict["lost"], [])
         one_support = [run(3, "support", 1, 1), run(3, "support", 2, 1)] + good[4:]
         self.assertTrue(block.judge(one_support, originals)["admitted"])
         one_support_miss = [run(3, "support", 1, 1), run(3, "support", 2, 0)] + good[4:]
@@ -179,10 +196,30 @@ class BlockTests(unittest.TestCase):
     def test_status_text_mentions_pool_and_deck(self):
         rel = released()
         text = block.status_text(2, [1, 3], [2, 4], rel, [{**GOOD, "admitted": 1}], {"C001": [[9, 1], [10, 0]]},
-                                 [{"t": 1, "id": "C001", "action": "add", "admitted": True, "reason": "support 4/4"}])
+                                 [{"t": 1, "id": "C001", "action": "add", "admitted": True, "reason": "support 4/4",
+                                   "card": GOOD, "rationale": "S1 vintage"}], stale=[6])
         self.assertIn("pool q001", text)
         self.assertIn("1 right / 1 wrong", text)
         self.assertIn("ADMITTED", text)
+        self.assertIn(GOOD["claim"], text)
+        self.assertIn("rationale: S1 vintage", text)
+        self.assertIn("Older wrong questions", text)
+
+    def test_next_id_never_reuses(self):
+        self.assertEqual(block.next_id(1, [], []), 1)
+        self.assertEqual(block.next_id(2, [{"id": "C004"}], [{"card": {"id": "C007"}}, {"id": "C002"}]), 8)
+
+    def test_assemble_then_commit_adds_only_cards_and_gitignore(self):
+        from harnessadapter.adapter.versioning import commit_all, ensure_repo
+        with tempfile.TemporaryDirectory() as d:
+            target = Path(d) / "next"
+            before = {p.relative_to(CARDS).as_posix() for p in CARDS.rglob("*") if p.is_file() and "__pycache__" not in p.parts}
+            written = block.assemble(CARDS, target, [dict(GOOD)], block=1, after_copy=ensure_repo)
+            commit = commit_all(target, "cards: block 1")
+            self.assertIsNotNone(commit)
+            after = {p.relative_to(target).as_posix() for p in target.rglob("*") if p.is_file() and ".git" not in p.parts and "__pycache__" not in p.parts}
+            self.assertEqual(after - before, {"cards/C001.md", ".gitignore"})
+            self.assertEqual(written, ["C001.md"])
 
 
 if __name__ == "__main__":

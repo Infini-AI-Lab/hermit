@@ -12,9 +12,5 @@ How to use the deck
 1. Before you start, read the cards whose "applies when" line matches the task.
 2. Follow a matching card unless its "Not when" line matches; when two cards
    conflict, the more specific one wins.
-3. Verify every value you use in the sources (name the file, table, row,
-   column, period and unit), compute at full precision, round only the final
-   answer as the task asks, and make your final message the answer alone in the
-   requested format: a progress note as the last message is graded as the answer.
 
 ## Cards
