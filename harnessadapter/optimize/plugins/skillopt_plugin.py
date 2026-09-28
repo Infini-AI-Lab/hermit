@@ -28,6 +28,7 @@ so run one SkillOpt session per process.
 """
 from __future__ import annotations
 
+import hashlib
 import importlib.metadata
 import itertools
 import json
@@ -85,12 +86,22 @@ def write_splits(split_dir: Path, splits: dict[str, list[Task]]) -> None:
         (split_dir / name / "items.json").write_text(json.dumps(items, ensure_ascii=False, indent=1) + "\n")
 
 
+def _clip(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    head = limit * 2 // 5
+    return text[:head] + f" [... {len(text) - limit} characters left out ...] " + text[-(limit - head):]
+
+
 def budget_steps(steps: list[dict], limit: int) -> list[dict]:
-    """Keep the first and last steps within `limit` characters (0: no limit,
-    SkillOpt's own choice: its reflection shows full trajectories)."""
+    """Keep the first and last steps within about `limit` characters (0: no
+    limit, SkillOpt's own choice: its reflection shows full trajectories).
+    A single step larger than its share is clipped, so the ending survives."""
     size = lambda step: len(json.dumps(step, ensure_ascii=False))
     if limit <= 0 or sum(size(s) for s in steps) <= limit:
         return steps
+    share = max(200, limit // 8)
+    steps = [{k: _clip(v, share) if isinstance(v, str) else v for k, v in s.items()} for s in steps]
     head, tail, used = [], [], 0
     for step in steps:                       # beginning: the approach
         if used + size(step) > limit * 2 // 5:
@@ -103,7 +114,7 @@ def budget_steps(steps: list[dict], limit: int) -> list[dict]:
         tail.insert(0, step)
         used += size(step)
     omitted = len(steps) - len(head) - len(tail)
-    return head + [{"role": "system", "content": f"[{omitted} steps of the trajectory left out]"}] + tail
+    return head + ([{"role": "system", "content": f"[{omitted} steps of the trajectory left out]"}] if omitted else []) + tail
 
 
 def conversation(rollout, prompt: str, limit: int = 0) -> list[dict]:
@@ -161,32 +172,59 @@ def make_env_adapter(context: OptimizeContext, settings: dict, component: str):
 
         def rollout(self, env_manager, skill_content: str, out_dir: str, **kwargs) -> list[dict]:
             items = list(env_manager)
-            tasks = [self._tasks[str(item["id"])] for item in items]
-            with self._lock:
-                number = next(self._counter)
-            adapter = context.store.path({component: skill_content})
             where = Path(out_dir)
-            label = f"skillopt/{number:04d}-{where.parent.name}-{where.name}"
-            rollouts = context.environment.evaluate(adapter, tasks, label=label)
-            results = []
-            for task, rollout in zip(tasks, rollouts):
-                hard = int(rollout.score >= 1.0 - 1e-9)
-                record = where / "predictions" / task.id
-                record.mkdir(parents=True, exist_ok=True)
-                if not rollout.infra:
-                    # An episode the infrastructure lost is not evidence about
-                    # the skill: without conversation.json SkillOpt's
-                    # reflection skips it (its score still counts).
+            results_path = where / "results.jsonl"
+            # As SkillOpt's own run_batch does: a resumed step keeps the
+            # episodes it already paid for and runs only the missing ones,
+            # provided they were run with this same skill text.
+            skill_sha = hashlib.sha256(skill_content.encode()).hexdigest()
+            done = {}
+            if results_path.is_file():
+                for line in results_path.read_text().splitlines():
+                    try:
+                        row = json.loads(line)
+                    except ValueError:
+                        continue
+                    if (row.get("skill_sha256") == skill_sha and not row.get("infra")
+                            and (where / "predictions" / str(row.get("id")) / "conversation.json").is_file()):
+                        done[str(row["id"])] = row
+            pending = [self._tasks[str(item["id"])] for item in items if str(item["id"]) not in done]
+            fresh = {}
+            if pending:
+                with self._lock:
+                    number = next(self._counter)
+                adapter = context.store.path({component: skill_content})
+                label = f"skillopt/{number:04d}-{where.parent.name}-{where.name}"
+                rollouts = context.environment.evaluate(adapter, pending, label=label)
+                lost = [r.task_id for r in rollouts if r.infra]
+                if lost:
+                    # Still lost after the session's re-runs. A 0 here would
+                    # bias the selection gate or read as a regression in the
+                    # slow update, so stop; the session resumes from its
+                    # Training State and re-runs only these episodes.
+                    raise RuntimeError(f"Episodes lost to the infrastructure after re-runs: {lost[:5]}; "
+                                       "resume the session from its training_state")
+                for task, rollout in zip(pending, rollouts):
+                    hard = int(rollout.score >= 1.0 - 1e-9)
+                    record = where / "predictions" / task.id
+                    record.mkdir(parents=True, exist_ok=True)
                     (record / "conversation.json").write_text(json.dumps(
                         conversation(rollout, task.prompt, self.trace_chars), ensure_ascii=False, indent=1) + "\n")
-                results.append({"id": task.id, "hard": hard, "soft": float(rollout.score),
-                                "fail_reason": "" if hard else (rollout.feedback or f"status {rollout.status}"),
-                                "task_description": task.prompt, "task_type": task.kind or "task",
-                                "n_turns": len(rollout.steps), "agent_ok": rollout.status == "completed",
-                                "status": rollout.status, "infra": rollout.infra, "prediction": rollout.output})
-            with (where / "results.jsonl").open("w") as out:
-                out.writelines(json.dumps(r, ensure_ascii=False) + "\n" for r in results)
-            return results
+                    fresh[task.id] = {"id": task.id, "hard": hard, "soft": float(rollout.score),
+                                      "fail_reason": "" if hard else (rollout.feedback or f"status {rollout.status}"),
+                                      "task_description": task.prompt, "task_type": task.kind or "task",
+                                      "n_turns": len(rollout.steps), "agent_ok": rollout.status == "completed",
+                                      "status": rollout.status, "infra": rollout.infra,
+                                      "predicted_answer": rollout.output, "prediction": rollout.output,
+                                      "skill_sha256": skill_sha}
+                with results_path.open("a") as out:
+                    out.writelines(json.dumps(fresh[t.id], ensure_ascii=False) + "\n" for t in pending)
+            return [done.get(str(item["id"])) or fresh[str(item["id"])] for item in items]
+
+        def reflect(self, results, skill_content, out_dir, **kwargs):
+            # Upstream reflection, unchanged, over the episodes that are
+            # evidence about the skill.
+            return super().reflect([r for r in results if not r.get("infra")], skill_content, out_dir, **kwargs)
 
         def get_task_types(self) -> list[str]:
             return sorted({t.kind or "task" for t in self._tasks.values()})

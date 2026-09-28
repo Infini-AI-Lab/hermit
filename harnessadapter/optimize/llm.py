@@ -21,6 +21,20 @@ import urllib.request
 RETRY_STATUS = {408, 409, 429, 500, 502, 503, 504, 529}
 
 
+class LMText(str):
+    """A completion that keeps the provider's finish_reason (GEPA's LMOutput
+    contract): a proposer can reject a truncated output after one call
+    instead of the caller raising and the proposer asking again."""
+
+    def __new__(cls, value: str, *, finish_reason: str | None = None):
+        instance = super().__new__(cls, value)
+        instance.finish_reason = finish_reason
+        return instance
+
+    def strip(self, chars: str | None = None) -> "LMText":
+        return type(self)(super().strip(chars), finish_reason=self.finish_reason)
+
+
 class ChatLM:
     def __init__(self, model: str, *, base_url: str, api_key_env: str, temperature: float | None = None,
                  max_tokens: int = 32768, timeout: float = 900, retries: int = 5, reasoning_effort: str | None = None,
@@ -107,9 +121,7 @@ class ChatLM:
                 ensure_ascii=False, indent=1) + "\n")
         if response is None:
             raise RuntimeError(f"Optimizer model call failed after {self.retries} attempts: {error}")
-        if finish == "length":
-            raise RuntimeError("Optimizer model output was truncated (finish_reason=length); raise max_tokens")
-        return text
+        return LMText(text, finish_reason=finish)
 
     def _post(self, body: dict) -> dict:
         request = urllib.request.Request(

@@ -51,10 +51,13 @@ class HarnessAdapterGEPAAdapter:
 
     propose_new_texts = None
 
-    def __init__(self, context: OptimizeContext, tasks, trace_chars: int):
+    def __init__(self, context: OptimizeContext, tasks, trace_chars: int, *, skip_perfect_score: bool = True,
+                 perfect_score: float = 1.0):
         self.context = context
         self.prompts = {t.id: t.prompt for t in tasks}
         self.trace_chars = trace_chars
+        self.skip_perfect_score = skip_perfect_score
+        self.perfect_score = perfect_score
         self._counter = itertools.count(1)
         self._lock = threading.Lock()
 
@@ -71,9 +74,14 @@ class HarnessAdapterGEPAAdapter:
                                trajectories=list(rollouts) if capture_traces else None)
 
     def make_reflective_dataset(self, candidate, eval_batch, components_to_update):
-        rollouts = list(eval_batch.trajectories or [])
         # An episode the infrastructure lost is not evidence about the text.
-        rollouts = [r for r in rollouts if not r.infra] or rollouts
+        rollouts = [r for r in (eval_batch.trajectories or []) if not r.infra]
+        # With no evidence left, or only perfect episodes once losses are set
+        # aside (GEPA's own skip_perfect_score test counted the losses as 0),
+        # an empty dataset makes GEPA skip the proposal: no reflection call,
+        # no child rollouts.
+        if not rollouts or (self.skip_perfect_score and all(r.score >= self.perfect_score for r in rollouts)):
+            return {name: [] for name in components_to_update}
         records = []
         for rollout in rollouts:
             records.append({
@@ -101,7 +109,9 @@ class GEPAPlugin:
             version = "unknown (imported from source without metadata)"
         train = context.environment.tasks("train")
         val = context.environment.tasks("val")
-        adapter = HarnessAdapterGEPAAdapter(context, train + val, int(s["trace_chars"]))
+        adapter = HarnessAdapterGEPAAdapter(context, train + val, int(s["trace_chars"]),
+                                            skip_perfect_score=bool(s["skip_perfect_score"]),
+                                            perfect_score=float(s["perfect_score"]))
         context.log(f"[gepa] train={len(train)} val={len(val)} budget={s['max_metric_calls']} rollouts; "
                     f"components={context.surface.components}")
         result = gepa.optimize(

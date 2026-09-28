@@ -81,10 +81,15 @@ class EnvironmentContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             store = CandidateStore(TextSurface(PROMPT_ONLY), Path(d) / "c")
             good = store.path({"ADAPTER.md": "RULE_ALPHA RULE_BETA RULE_GAMMA RULE_DELTA"})
-            result = evaluate_adapters(env, {"good": good}, "test", output=Path(d))["good"]
+            results = evaluate_adapters(env, {"good": good, "none": None}, "test", output=Path(d), infra_pause=0)
+            saved = json.loads((Path(d) / "test-scores.json").read_text())
+        result = results["good"]
         self.assertEqual(result["mean"], 1.0)
         self.assertEqual(result["runs"][0]["scored"], 3)
         self.assertEqual(result["runs"][0]["infra_lost"], [env.tasks("test")[0].id])
+        self.assertEqual(saved["paired_tasks"], 3)                     # tasks every adapter scored
+        self.assertEqual((results["good"]["paired_mean"], results["none"]["paired_mean"]), (1.0, 0.0))
+        self.assertEqual(len([c for c in env.calls if "infra-rerun" in c["label"]]), 4)   # 2 reruns x 2 adapters
 
     def test_guard_hides_the_test_split(self):
         with tempfile.TemporaryDirectory() as d:
@@ -109,6 +114,20 @@ class EnvironmentContractTests(unittest.TestCase):
         val = env.evaluate(None, env.tasks("val")[:1], label="v")[0]
         self.assertIn("requires RULE_", train.feedback)
         self.assertNotIn("RULE_", val.feedback)
+
+
+class ResumeTests(unittest.TestCase):
+    def test_resume_is_refused_when_the_split_assignment_changed(self):
+        from harnessadapter.optimize.session import check_resume_splits, split_fingerprint
+        with tempfile.TemporaryDirectory() as d:
+            state = Path(d)
+            (state / "harnessadapter-splits.json").write_text(json.dumps(split_fingerprint(KeywordEnvironment())))
+            check_resume_splits(state, split_fingerprint(KeywordEnvironment()))
+            with self.assertRaisesRegex(ValueError, "assignment differs"):
+                check_resume_splits(state, split_fingerprint(KeywordEnvironment(train=6, val=6)))
+            (state / "harnessadapter-splits.json").unlink()
+            with self.assertRaisesRegex(ValueError, "records no split"):
+                check_resume_splits(state, split_fingerprint(KeywordEnvironment()))
 
 
 class RegistryTests(unittest.TestCase):
@@ -153,10 +172,30 @@ class ChatLMTests(unittest.TestCase):
                 server.httpd.RequestHandlerClass.do_POST = original
         self.assertTrue(text.startswith("```"))
         self.assertEqual(lm.usage["calls"], 1)
+        self.assertEqual(text.strip().finish_reason, "stop")        # GEPA's LMOutput contract
 
 
 @unittest.skipUnless(HAS_GEPA, "gepa is not installed")
 class GEPATests(unittest.TestCase):
+    def test_no_evidence_means_no_proposal(self):
+        from gepa import EvaluationBatch
+        from harnessadapter.optimize.plugin import OptimizeContext
+        from harnessadapter.optimize.plugins.gepa_plugin import HarnessAdapterGEPAAdapter
+        env = KeywordEnvironment()
+        with tempfile.TemporaryDirectory() as d:
+            context = OptimizeContext(surface=TextSurface(PROMPT_ONLY), environment=env, lm=None, state_dir=Path(d),
+                                      work_dir=Path(d), settings={}, log=lambda m: None)
+            adapter = HarnessAdapterGEPAAdapter(context, env.tasks("train"), 1000)
+            lost = [Rollout(task_id=t.id, split="train", score=0.0, infra=True, status="transport_lost")
+                    for t in env.tasks("train")[:3]]
+            batch = EvaluationBatch(outputs=[{}] * 3, scores=[0.0] * 3, trajectories=lost)
+            self.assertEqual(adapter.make_reflective_dataset({}, batch, ["ADAPTER.md"]), {"ADAPTER.md": []})
+            mixed = lost[:2] + [Rollout(task_id=env.tasks("train")[2].id, split="train", score=1.0)]
+            batch = EvaluationBatch(outputs=[{}] * 3, scores=[0.0, 0.0, 1.0], trajectories=mixed)
+            self.assertEqual(adapter.make_reflective_dataset({}, batch, ["ADAPTER.md"]), {"ADAPTER.md": []})
+            mixed[2].score = 0.0
+            self.assertEqual(len(adapter.make_reflective_dataset({}, batch, ["ADAPTER.md"])["ADAPTER.md"]), 1)
+
     def test_gepa_finds_the_rules_and_leaves_test_untouched(self):
         env = KeywordEnvironment()
         with tempfile.TemporaryDirectory() as d, FakeChatServer() as server, redirect_stdout(io.StringIO()):
@@ -224,6 +263,42 @@ class SkillOptTests(unittest.TestCase):
 
 @unittest.skipUnless(HAS_SKILLOPT, "skillopt is not installed")
 class SkillOptPieceTests(unittest.TestCase):
+    def _env_adapter(self, env, d):
+        from harnessadapter.optimize.plugin import OptimizeContext, load_optimizer
+        from harnessadapter.optimize.plugins.skillopt_plugin import make_env_adapter
+        guarded = GuardedEnvironment(env, Path(d) / "log.jsonl", infra_pause=0)
+        context = OptimizeContext(surface=TextSurface(PROMPT_ONLY), environment=guarded, lm=None, state_dir=Path(d),
+                                  work_dir=Path(d) / "work", settings={}, log=lambda m: None)
+        return make_env_adapter(context, load_optimizer("skillopt").settings, "ADAPTER.md")
+
+    def test_rollout_resumes_paid_episodes_for_the_same_skill_only(self):
+        env = KeywordEnvironment()
+        with tempfile.TemporaryDirectory() as d:
+            adapter = self._env_adapter(env, d)
+            items = [{"id": t.id} for t in env.tasks("train")[:4]]
+            first = adapter.rollout(items[:2], "RULE_ALPHA", str(Path(d) / "step/rollout"))
+            again = adapter.rollout(items, "RULE_ALPHA", str(Path(d) / "step/rollout"))
+            self.assertEqual([r["id"] for r in again], [i["id"] for i in items])
+            self.assertEqual(again[:2], first)
+            self.assertEqual([c["tasks"] for c in env.calls], [[i["id"] for i in items[:2]], [i["id"] for i in items[2:]]])
+            adapter.rollout(items, "RULE_BETA", str(Path(d) / "step/rollout"))          # another skill: all re-run
+            self.assertEqual(len(env.calls[-1]["tasks"]), 4)
+            self.assertIn("predicted_answer", again[0])
+
+    def test_persistent_infra_loss_stops_instead_of_scoring_zero(self):
+        class Down(KeywordEnvironment):
+            def evaluate(self, adapter, tasks, *, label):
+                rollouts = super().evaluate(adapter, tasks, label=label)
+                for r in rollouts:
+                    r.infra, r.status, r.score = True, "transport_lost", 0.0
+                return rollouts
+        env = Down()
+        with tempfile.TemporaryDirectory() as d:
+            adapter = self._env_adapter(env, d)
+            with self.assertRaisesRegex(RuntimeError, "resume the session"):
+                adapter.rollout([{"id": env.tasks("val")[0].id}], "x", str(Path(d) / "sel"))
+            self.assertEqual(len(env.calls), 3)                      # the call and two session re-runs
+
     def test_resume_points_runtime_state_into_the_copied_state(self):
         from harnessadapter.optimize.plugins.skillopt_plugin import relocate_runtime_state
         with tempfile.TemporaryDirectory() as d:

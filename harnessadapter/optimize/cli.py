@@ -147,5 +147,7 @@ def evaluate_main(argv=None):
         adapters[name.strip()] = resolve_architecture(path).resolve() if path.strip() else None
     environment = load_callable(args.environment)(**_mapping(args.environment_config))
     results = evaluate_adapters(environment, adapters, args.split, output=args.output, repeats=args.repeats)
-    print(json.dumps({name: {"mean": r["mean"], "runs": [run["mean"] for run in r["runs"]]} for name, r in results.items()}, indent=2))
+    print(json.dumps({name: {"mean": r["mean"], "paired_mean": r["paired_mean"],
+                             "runs": [{"mean": run["mean"], "scored": run["scored"], "infra_lost": len(run["infra_lost"])}
+                                      for run in r["runs"]]} for name, r in results.items()}, indent=2))
     return 0

@@ -82,24 +82,38 @@ class OfficeQAEnvironmentTests(unittest.TestCase):
         self.assertNotIn("hidden", train[0].trace)                    # model reasoning is not trajectory
         self.assertEqual(train[0].steps[0], {"type": "tool_call", "cmd": "python officeqa.py search", "obs": "table row 1990: 101"})
         calls = sorted((self.root / "runs/evaluations").iterdir())
-        self.assertEqual(len(calls), 3)
+        self.assertEqual(len(calls), 2)                               # train and val calls
         self.assertEqual(json.loads((calls[0] / "call.json").read_text())["label"], "gepa/0001-minibatch")
+        self.assertNotIn("gepa", calls[0].name)                        # the actor's directory carries no label
+        heldout = list((self.root / "runs/heldout").iterdir())
+        self.assertEqual(len(heldout), 1)                             # test episodes live apart
 
-    def test_a_crashed_episode_is_an_infra_loss_retried_once(self):
+    def test_an_adapter_crash_is_a_scored_failure_not_an_infra_loss(self):
         calls = []
 
         def broken(*args, **kwargs):
             calls.append(args[1])
-            raise RuntimeError("sandbox refused")
-        with mock.patch.object(optimize_env.arm, "actor", broken), mock.patch.object(optimize_env, "INFRA_PAUSE", 0):
+            raise KeyError("renderer")
+        with mock.patch.object(optimize_env.arm, "actor", broken):
             [rollout] = self.env.evaluate(None, self.env.tasks("train")[:1], label="x")
-        self.assertEqual((rollout.score, rollout.status, rollout.infra), (0.0, "error: RuntimeError", True))
-        self.assertEqual(len(calls), 2)
-        self.assertEqual(calls[1].name, "infra-retry")
-        self.assertNotIn("106", rollout.feedback)                     # no answer for an episode that never ran
+        self.assertEqual((rollout.score, rollout.status, rollout.infra), (0.0, "error: KeyError", False))
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(rollout.trace, "")                           # exception text stays on disk
+        self.assertIn("crashed", rollout.feedback)
+        self.assertTrue(list(calls[0].glob("error-*.txt")))
+
+    def test_machinery_failures_are_infra_losses_without_the_answer(self):
+        def broken(*args, **kwargs):
+            raise ConnectionResetError("provider went away")
+        with mock.patch.object(optimize_env.arm, "actor", broken):
+            [rollout] = self.env.evaluate(None, self.env.tasks("train")[:1], label="x")
+        self.assertEqual((rollout.status, rollout.infra), ("infra-error: ConnectionResetError", True))
+        self.assertNotIn("106", rollout.feedback)
         self.assertIn("infrastructure", rollout.feedback)
 
-    def test_transport_lost_is_flagged_and_a_retry_can_recover(self):
+    def test_transport_lost_is_flagged_and_the_session_rerun_recovers_it(self):
+        import tempfile as _tempfile
+        from harnessadapter.optimize.session import GuardedEnvironment
         actor = fake_actor({5: "105"})
         outcomes = iter(["transport_lost", "completed"])
 
@@ -107,9 +121,14 @@ class OfficeQAEnvironmentTests(unittest.TestCase):
             summary = actor(*args, **kwargs)
             summary["status"] = next(outcomes)
             return summary
-        with mock.patch.object(optimize_env.arm, "actor", flaky), mock.patch.object(optimize_env, "INFRA_PAUSE", 0):
-            [rollout] = self.env.evaluate(None, self.env.tasks("train")[:1], label="x")
+        with _tempfile.TemporaryDirectory() as d, mock.patch.object(optimize_env.arm, "actor", flaky):
+            guarded = GuardedEnvironment(self.env, Path(d) / "log.jsonl", infra_pause=0)
+            [rollout] = guarded.evaluate(None, self.env.tasks("train")[:1], label="x")
+            log = json.loads((Path(d) / "log.jsonl").read_text())
         self.assertEqual((rollout.status, rollout.infra, rollout.score), ("completed", False, 1.0))
+        self.assertIsNone(rollout.record)                             # plugins get no record locations
+        self.assertEqual(log["infra_reruns"], 1)
+        self.assertNotIn("prepared", guarded.describe())
 
     def test_a_repeated_task_in_one_batch_gets_its_own_episode(self):
         actor = fake_actor({5: "105", 6: "106"})

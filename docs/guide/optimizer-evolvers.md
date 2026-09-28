@@ -56,16 +56,32 @@ optimizer may learn from each split:
   which may name the reference answer. This matches the feedback functions of
   both papers.
 - **val**: the score and the trajectory, never the reference.
-- **test**: never shown to an optimizer. The session wraps the environment:
-  `tasks()` answers only for train and val, and every task a plugin asks to
-  evaluate is resolved by id against those registered tasks, so a test task
-  cannot be requested or relabeled. Environments decide what feedback may
-  reveal from the registered split of the id, never from the caller's label.
+- **test**: never used by an optimizer. The session wraps the environment:
+  `tasks()` answers only for train and val, every task a plugin asks to
+  evaluate is resolved by id against those registered tasks (a test task is
+  refused, a relabeled one is evaluated as what it is), and rollouts come back
+  without record locations. Environments decide what feedback may reveal from
+  the registered split of the id, never from the caller's label. The OfficeQA
+  environment also keeps held-out episodes in a separate directory tree.
+
+The wrapper keeps a well-behaved plugin away from held-out data; it is not a
+sandbox. An optimizer plugin is trusted code in the same process: it holds the
+optimizer model's key (SkillOpt drives its own client) and could reach
+anything the process can. Review third-party plugins as you would any code.
 
 A Rollout with `infra=True` was lost to the infrastructure (provider outage,
-transport failure) after the environment's own retries. Optimizers score it 0
-(they have no way to re-run it) but do not reflect on it; `evaluate` leaves it
-out of the mean and lists it separately.
+transport failure, a failing file or socket operation), not decided by the
+agent. The session re-runs such episodes twice more after a pause, for
+optimizers and for `evaluate` alike. What is still lost: GEPA scores it 0 and
+does not reflect on it (a minibatch with no evidence left is skipped); SkillOpt
+stops with an error rather than let a 0 bias its gate or read as a regression,
+and the session resumes from its Training State; `evaluate` leaves it out of
+the adapter's mean and reports `paired_mean` over the tasks every adapter
+scored. An exception caused by the adapter itself (a renderer that raises) is
+a scored failure, not an infrastructure loss.
+
+Resuming (`--training-state`) is refused when the environment's train, val or
+test assignment differs from the one the state was built on.
 
 `harnessadapter evaluate` scores several adapters on one split with the same
 environment. It is the comparison every Evolver is judged by.

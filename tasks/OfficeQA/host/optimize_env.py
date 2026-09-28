@@ -24,13 +24,12 @@ it is outside every sandbox, and prediction text is recorded before grading.
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+import http.client
 import json
 import os
 from pathlib import Path
-import re
 import sys
 import threading
-import time
 import uuid
 
 ROOT = Path(__file__).resolve().parent
@@ -44,12 +43,15 @@ from harnessadapter.optimize.environment import Environment, Rollout, Task  # no
 DEFAULT_SPLITS = {"test": "1-50", "val": "51-70", "train": "71-133"}
 # Outcomes the infrastructure decided, not the agent: arm.actor has already
 # retried transport failures three times before reporting transport_lost.
+# The optimize session re-runs these episodes (harnessadapter.optimize.session).
 INFRA_STATUSES = ("transport_lost", "launch_error")
-INFRA_PAUSE = 60
+# Exceptions from the machinery (files, sockets, the provider); any other
+# exception (e.g. an adapter whose renderer raises) is the episode's failure.
+INFRA_EXCEPTIONS = (OSError, http.client.HTTPException)
 
 
 def is_infra(status: str) -> bool:
-    return status in INFRA_STATUSES or status.startswith("error:")
+    return status in INFRA_STATUSES or status.startswith("infra-error:")
 
 
 def ordinals(spec: str) -> list[int]:
@@ -128,7 +130,7 @@ class OfficeQAEnvironment(Environment):
         self._evidence = self.run_root / "no-evidence"      # no README: nothing bound into the context
         self._evidence.mkdir(exist_ok=True)
         self._lock = threading.Lock()
-        self._calls = len(list((self.run_root / "evaluations").glob("*"))) if (self.run_root / "evaluations").is_dir() else 0
+        self._calls = sum(len(list((self.run_root / d).glob("*"))) for d in ("evaluations", "heldout") if (self.run_root / d).is_dir())
 
     def tasks(self, split):
         return list(self._tasks[split])
@@ -150,6 +152,8 @@ class OfficeQAEnvironment(Environment):
         if is_infra(status):
             return ("The episode was lost to an infrastructure failure before the agent finished "
                     f"({status}); it says nothing about the instructions.")
+        if status.startswith("error:"):
+            return f"The episode crashed before the agent answered ({status[7:].strip()})."
         note = "" if status == "completed" else f" The run ended with status {status}."
         if correct:
             return "CORRECT." + note
@@ -163,9 +167,11 @@ class OfficeQAEnvironment(Environment):
         with self._lock:
             self._calls += 1
             number = self._calls
-        safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", label)[:80]
-        # Unique across processes that share a run root.
-        run = self.run_root / "evaluations" / f"{number:05d}-{os.getpid()}-{uuid.uuid4().hex[:6]}-{safe}"
+        # Held-out episodes live apart from the tree optimizer rollouts point
+        # into. Directory names are opaque (the actor sees its working
+        # directory); the label is recorded in call.json, outside every sandbox.
+        heldout = any(self._split_of[t.id] == "test" for t in tasks)
+        run = self.run_root / ("heldout" if heldout else "evaluations") / f"{number:05d}-{os.getpid()}-{uuid.uuid4().hex[:8]}"
         run.mkdir(parents=True)
         (run / "call.json").write_text(json.dumps({"label": label, "adapter": str(adapter) if adapter else None,
                                                    "tasks": [t.id for t in tasks]}, indent=1) + "\n")
@@ -184,10 +190,15 @@ class OfficeQAEnvironment(Environment):
             try:
                 summary = arm.actor(self._key, where, ordinal, {"task_id": row["task_id"], "question": row["question"]},
                                     adapter, self._evidence, self.corpus, self.index, self.actor_timeout, self.max_tool_ops)
-            except Exception as exc:   # a crashed episode is a scored failure, not a crashed optimizer
-                status = f"error: {type(exc).__name__}"
-                return Rollout(task_id=task.id, split=task.split, score=0.0, status=status, infra=True,
-                               feedback=self._feedback(task, "", False, status), trace=str(exc)[:2000])
+            except Exception as exc:   # a crashed episode is a result, not a crashed optimizer
+                where.mkdir(parents=True, exist_ok=True)
+                (where / f"error-{ordinal:03d}.txt").write_text(f"{type(exc).__name__}: {exc}\n")
+                infra = isinstance(exc, INFRA_EXCEPTIONS)
+                status = f"{'infra-error' if infra else 'error'}: {type(exc).__name__}"
+                # The exception text stays in the run directory; it is not
+                # trajectory and is not sent to an optimizer model.
+                return Rollout(task_id=task.id, split=task.split, score=0.0, status=status, infra=infra,
+                               feedback=self._feedback(task, "", False, status))
             status = summary.get("status", "unknown")
             answer = summary.get("answer", "")
             correct = bool(answer) and bool(int(self._score(self._answers[task.id], answer, tolerance=self.tolerance)))
@@ -201,16 +212,8 @@ class OfficeQAEnvironment(Environment):
                            usage={"usage": summary.get("usage"), "requests": summary.get("requests"),
                                   "elapsed_seconds": summary.get("elapsed_seconds")})
 
-        def one(task: Task, where: Path) -> Rollout:
-            rollout = episode(task, where)
-            if rollout.infra:
-                # One more fresh attempt after a pause before the loss stands.
-                time.sleep(INFRA_PAUSE)
-                rollout = episode(task, where / "infra-retry")
-            return rollout
-
         with ThreadPoolExecutor(max_workers=min(self.concurrency, len(tasks)) or 1) as pool:
-            rollouts = list(pool.map(one, tasks, places))
+            rollouts = list(pool.map(episode, tasks, places))
         (run / "scores.json").write_text(json.dumps(
             [{"task_id": r.task_id, "split": r.split, "score": r.score, "status": r.status, "infra": r.infra}
              for r in rollouts], indent=1) + "\n")
