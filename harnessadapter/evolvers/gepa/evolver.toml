@@ -1,0 +1,23 @@
+kind = "optimizer"
+plugin = "harnessadapter.optimize.plugins.gepa_plugin:GEPAPlugin"
+description = "GEPA reflective prompt evolution (gepa-ai/gepa), run unchanged over the adapter's text surface"
+
+# gepa.optimize() arguments. Defaults follow the library, except the budget,
+# which an experiment must always choose (one metric call = one rollout of the
+# acting harness on one task).
+[settings]
+max_metric_calls = 150
+reflection_minibatch_size = 3
+candidate_selection_strategy = "pareto"
+frontier_type = "instance"
+module_selector = "round_robin"
+skip_perfect_score = true
+perfect_score = 1.0
+use_merge = false
+max_merge_invocations = 5
+acceptance_criterion = "strict_improvement"
+cache_evaluation = false
+reflection_prompt_template = ""   # empty: GEPA's default instruction-proposal template
+trace_chars = 12000               # per-rollout trajectory text shown to the reflection model
+raise_on_exception = true         # false: a failed proposal is logged and the search continues
+seed = 0

@@ -1,0 +1,181 @@
+"""Optimizer Evolvers (GEPA, SkillOpt) end to end without a model or a paid call.
+
+The real upstream optimizers run here: gepa.optimize() and SkillOpt's
+ReflACTTrainer, against the deterministic KeywordEnvironment, with a local
+OpenAI-compatible server answering their prompts.
+"""
+import importlib.util
+import io
+import json
+import os
+from contextlib import redirect_stdout
+from pathlib import Path
+import tempfile
+import unittest
+
+from harnessadapter.evolution.definition import EvolverDefinition
+from harnessadapter.optimize.environment import Rollout, Task, check_rollouts
+from harnessadapter.optimize.llm import ChatLM
+from harnessadapter.optimize.plugin import is_optimizer, load_optimizer
+from harnessadapter.optimize.session import GuardedEnvironment, evaluate_adapters, optimize
+from harnessadapter.optimize.surface import CandidateStore, TextSurface
+from harnessadapter.optimize.testing import FakeChatServer, KeywordEnvironment
+from harnessadapter.paths import ARCHITECTURES
+
+PROMPT_ONLY = ARCHITECTURES / "prompt_only"
+HAS_GEPA = importlib.util.find_spec("gepa") is not None
+HAS_SKILLOPT = importlib.util.find_spec("skillopt") is not None
+
+
+def fake_lm(server):
+    os.environ.setdefault("HARNESSADAPTER_FAKE_KEY", "fake")
+    return ChatLM("scripted", base_url=server.base_url, api_key_env="HARNESSADAPTER_FAKE_KEY", retries=1)
+
+
+class SurfaceTests(unittest.TestCase):
+    def test_default_surface_is_the_context_file_and_materializes_a_loadable_adapter(self):
+        surface = TextSurface(PROMPT_ONLY)
+        self.assertEqual(surface.components, ["ADAPTER.md"])
+        with tempfile.TemporaryDirectory() as d:
+            store = CandidateStore(surface, Path(d))
+            first = store.path({"ADAPTER.md": "# Rules\n- one\n"})
+            self.assertEqual(store.path({"ADAPTER.md": "# Rules\n- one\n"}), first)
+            self.assertEqual((first / "ADAPTER.md").read_text(), "# Rules\n- one\n")
+            self.assertTrue((first / "adapter.json").is_file())
+            self.assertNotEqual(store.path({"ADAPTER.md": "other"}), first)
+            self.assertEqual((PROMPT_ONLY / "ADAPTER.md").read_text().splitlines()[0], "# Adapter context")
+
+    def test_surface_refuses_manifest_and_foreign_components(self):
+        with self.assertRaises(ValueError):
+            TextSurface(PROMPT_ONLY, ["adapter.json"])
+        with self.assertRaises(ValueError):
+            TextSurface(PROMPT_ONLY).check({"README.md": "x"})
+
+
+class EnvironmentContractTests(unittest.TestCase):
+    def test_guard_hides_the_test_split(self):
+        with tempfile.TemporaryDirectory() as d:
+            guarded = GuardedEnvironment(KeywordEnvironment(), Path(d) / "log.jsonl")
+            with self.assertRaises(PermissionError):
+                guarded.tasks("test")
+            test_task = KeywordEnvironment().tasks("test")[0]
+            with self.assertRaises(PermissionError):
+                guarded.evaluate(None, [test_task], label="x")
+            self.assertEqual(len(guarded.evaluate(None, guarded.tasks("val")[:2], label="val")), 2)
+
+    def test_rollouts_must_match_tasks(self):
+        task = Task(id="a", split="train", prompt="p")
+        with self.assertRaises(ValueError):
+            check_rollouts([task], [Rollout(task_id="b", split="train", score=1.0)])
+        with self.assertRaises(ValueError):
+            check_rollouts([task], [Rollout(task_id="a", split="train", score=2.0)])
+
+    def test_val_feedback_never_names_the_answer(self):
+        env = KeywordEnvironment()
+        train = env.evaluate(None, env.tasks("train")[:1], label="t")[0]
+        val = env.evaluate(None, env.tasks("val")[:1], label="v")[0]
+        self.assertIn("requires RULE_", train.feedback)
+        self.assertNotIn("RULE_", val.feedback)
+
+
+class RegistryTests(unittest.TestCase):
+    def test_bundled_optimizers_and_session_evolver_separation(self):
+        self.assertTrue(is_optimizer("gepa"))
+        self.assertTrue(is_optimizer("skillopt"))
+        self.assertFalse(is_optimizer("basic"))
+        with self.assertRaisesRegex(ValueError, "harnessadapter optimize"):
+            EvolverDefinition("gepa")
+        with self.assertRaisesRegex(ValueError, "harnessadapter evolve"):
+            load_optimizer("basic")
+        with self.assertRaisesRegex(ValueError, "Unknown gepa settings"):
+            load_optimizer("gepa").merged({"no_such_setting": 1})
+
+
+@unittest.skipUnless(HAS_GEPA, "gepa is not installed")
+class GEPATests(unittest.TestCase):
+    def test_gepa_finds_the_rules_and_leaves_test_untouched(self):
+        env = KeywordEnvironment()
+        with tempfile.TemporaryDirectory() as d, FakeChatServer() as server, redirect_stdout(io.StringIO()):
+            result = optimize(PROMPT_ONLY, env, "gepa", lm=fake_lm(server), output=Path(d),
+                              settings={"max_metric_calls": 40}, log=lambda m: None)
+            session = Path(result["session"])
+            self.assertEqual(result["status"], "candidate_ready")
+            self.assertEqual(result["plugin"]["seed_val_score"], 0.0)
+            self.assertEqual(result["plugin"]["selected_val_score"], 1.0)
+            text = (session / "candidate/ADAPTER.md").read_text()
+            for kind in ("ALPHA", "BETA", "GAMMA", "DELTA"):
+                self.assertIn(f"RULE_{kind}", text)
+            self.assertTrue((session / "training_state/gepa_state.bin").is_file())
+            self.assertTrue((session / "candidate/.git").is_dir())
+            self.assertIn("ADAPTER.md", (PROMPT_ONLY / "adapter.json").read_text())
+            self.assertNotIn("RULE_", (PROMPT_ONLY / "ADAPTER.md").read_text())
+            test_ids = {t.id for t in env.tasks("test")}
+            self.assertFalse(any(set(c["tasks"]) & test_ids for c in env.calls))
+            prompts = "\n".join(r["messages"][0]["content"] for r in server.requests)
+            self.assertIn("requires RULE_", prompts)          # train feedback reaches the reflection
+            self.assertIn("[action] read context", prompts)   # so does the agent's trajectory
+            scores = evaluate_adapters(env, {"w0": PROMPT_ONLY, "gepa": session / "candidate"}, "test", output=Path(d) / "eval")
+            self.assertEqual(scores["w0"]["mean"], 0.0)
+            self.assertEqual(scores["gepa"]["mean"], 1.0)
+
+    def test_gepa_resumes_from_its_training_state(self):
+        env = KeywordEnvironment()
+        with tempfile.TemporaryDirectory() as d, FakeChatServer() as server, redirect_stdout(io.StringIO()):
+            first = optimize(PROMPT_ONLY, env, "gepa", lm=fake_lm(server), output=Path(d), settings={"max_metric_calls": 12},
+                             log=lambda m: None)
+            state = Path(first["session"]) / "training_state"
+            second = optimize(PROMPT_ONLY, env, "gepa", lm=fake_lm(server), output=Path(d), settings={"max_metric_calls": 60},
+                              training_state=state, log=lambda m: None)
+            self.assertEqual(second["resumed_from"], str(state))
+            self.assertGreaterEqual(second["plugin"]["total_metric_calls"], first["plugin"]["total_metric_calls"])
+            self.assertEqual(second["plugin"]["selected_val_score"], 1.0)
+
+
+@unittest.skipUnless(HAS_SKILLOPT, "skillopt is not installed")
+class SkillOptTests(unittest.TestCase):
+    def test_skillopt_trainer_accepts_gated_edits(self):
+        env = KeywordEnvironment()
+        settings = {"num_epochs": 2, "batch_size": 4, "minibatch_size": 2, "merge_batch_size": 2,
+                    "analyst_workers": 2, "slow_update_samples": 4}
+        with tempfile.TemporaryDirectory() as d, FakeChatServer() as server, redirect_stdout(io.StringIO()):
+            result = optimize(PROMPT_ONLY, env, "skillopt", lm=fake_lm(server), output=Path(d), settings=settings,
+                              log=lambda m: None)
+            session = Path(result["session"])
+            self.assertEqual(result["status"], "candidate_ready")
+            self.assertEqual(result["plugin"]["seed_val_score"], 0.0)
+            self.assertEqual(result["plugin"]["selected_val_score"], 1.0)
+            self.assertGreaterEqual(result["plugin"]["total_accepts"], 1)
+            self.assertIn("RULE_", (session / "candidate/ADAPTER.md").read_text())
+            conversations = list((session / "training_state/steps").rglob("conversation.json"))
+            self.assertTrue(conversations)
+            self.assertIn("cat AGENTS.md", conversations[0].read_text())
+            self.assertGreater(result["optimizer_usage"]["calls"], 0)       # SkillOpt's own token tracker
+            config = json.loads((session / "training_state/config.json").read_text())
+            self.assertFalse(config["eval_test"])
+            test_ids = {t.id for t in env.tasks("test")}
+            self.assertFalse(any(set(c["tasks"]) & test_ids for c in env.calls))
+            for request in server.requests:
+                self.assertEqual(request["model"], "scripted")
+
+
+@unittest.skipUnless(HAS_GEPA, "gepa is not installed")
+class CommandLineTests(unittest.TestCase):
+    def test_optimize_and_evaluate_commands(self):
+        from harnessadapter.cli import main
+        with tempfile.TemporaryDirectory() as d, redirect_stdout(io.StringIO()) as out:
+            code = main(["optimize", "prompt-only", "--evolver", "gepa", "--fake-optimizer",
+                         "--environment", "harnessadapter.optimize.testing:KeywordEnvironment",
+                         "--set", "max_metric_calls=30", "--output", d])
+            self.assertEqual(code, 0)
+            session = next(Path(d).glob("optimize-gepa-*"))
+            code = main(["evaluate", "--environment", "harnessadapter.optimize.testing:KeywordEnvironment",
+                         "--adapter", "none=", "--adapter", f"gepa={session / 'candidate'}", "--output", str(Path(d) / "eval")])
+            self.assertEqual(code, 0)
+            scores = json.loads((Path(d) / "eval/test-scores.json").read_text())["results"]
+            self.assertEqual(scores["none"]["mean"], 0.0)
+            self.assertEqual(scores["gepa"]["mean"], 1.0)
+        self.assertIn("candidate_ready", out.getvalue())
+
+
+if __name__ == "__main__":
+    unittest.main()

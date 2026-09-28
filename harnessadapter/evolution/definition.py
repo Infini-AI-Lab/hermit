@@ -13,6 +13,8 @@ class EvolverDefinition:
     def __init__(self, reference, prompt_override=None):
         self.root=resolve_evolver(reference).resolve()
         self.config=tomllib.loads((self.root/'evolver.toml').read_text())
+        if self.config.get('kind')=='optimizer':
+            raise ValueError(f'{reference} is an optimizer Evolver; run it with `harnessadapter optimize`')
         if set(self.config)-{'prompt','execution','lifecycle','requires_validation','protected'}:
             raise ValueError('Evolver configuration supports prompt, execution, optional lifecycle, and protected')
         # Adapter paths this Evolver never edits (a lifecycle may declare its own

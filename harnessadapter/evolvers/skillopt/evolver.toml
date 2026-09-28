@@ -1,0 +1,26 @@
+kind = "optimizer"
+plugin = "harnessadapter.optimize.plugins.skillopt_plugin:SkillOptPlugin"
+description = "SkillOpt bounded, validation-gated skill optimization (microsoft/SkillOpt), run unchanged over one adapter document"
+
+# SkillOpt's published defaults (paper section 4; configs/_base_/default.yaml).
+# An experiment with expensive rollouts scales epochs and batch sizes down.
+[settings]
+num_epochs = 4
+batch_size = 40
+accumulation = 1
+minibatch_size = 8
+merge_batch_size = 8
+analyst_workers = 16
+failure_only = false
+learning_rate = 4          # textual learning rate: max edits per step
+min_learning_rate = 2
+lr_scheduler = "cosine"
+skill_update_mode = "patch"
+use_slow_update = true
+slow_update_samples = 20
+use_meta_skill = true
+use_gate = true
+reasoning_effort = "medium"
+prompt_env = ""            # "officeqa": SkillOpt's OfficeQA analyst prompts; empty: its generic prompts
+seed = 42
+base_config = ""           # empty: the installed SkillOpt checkout's configs/_base_/default.yaml
