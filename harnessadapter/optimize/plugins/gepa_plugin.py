@@ -18,6 +18,7 @@ written every iteration, and a session started from it resumes the search.
 """
 from __future__ import annotations
 
+import importlib.metadata
 import itertools
 import json
 import threading
@@ -70,8 +71,11 @@ class HarnessAdapterGEPAAdapter:
                                trajectories=list(rollouts) if capture_traces else None)
 
     def make_reflective_dataset(self, candidate, eval_batch, components_to_update):
+        rollouts = list(eval_batch.trajectories or [])
+        # An episode the infrastructure lost is not evidence about the text.
+        rollouts = [r for r in rollouts if not r.infra] or rollouts
         records = []
-        for rollout in eval_batch.trajectories or []:
+        for rollout in rollouts:
             records.append({
                 "Inputs": {"Task given to the agent": self.prompts[rollout.task_id]},
                 "Generated Outputs": {
@@ -91,6 +95,10 @@ class GEPAPlugin:
         import gepa
 
         s = context.settings
+        try:
+            version = importlib.metadata.version("gepa")
+        except importlib.metadata.PackageNotFoundError:
+            version = "unknown (imported from source without metadata)"
         train = context.environment.tasks("train")
         val = context.environment.tasks("val")
         adapter = HarnessAdapterGEPAAdapter(context, train + val, int(s["trace_chars"]))
@@ -119,8 +127,7 @@ class GEPAPlugin:
                       for i, c in enumerate(result.candidates)]
         (context.state_dir / "harnessadapter-candidates.json").write_text(json.dumps(
             [{"index": i, "texts": c} for i, c in enumerate(result.candidates)], ensure_ascii=False, indent=1) + "\n")
-        import importlib.metadata
-        summary = {"algorithm": "gepa", "gepa_version": importlib.metadata.version("gepa"),
+        summary = {"algorithm": "gepa", "gepa_version": version,
                    "seed_val_score": result.val_aggregate_scores[0],
                    "selected_index": result.best_idx, "selected_val_score": result.val_aggregate_scores[result.best_idx],
                    "candidates": candidates, "total_metric_calls": result.total_metric_calls,

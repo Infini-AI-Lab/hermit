@@ -33,6 +33,7 @@ class KeywordEnvironment(Environment):
 
     def __init__(self, train: int = 8, val: int = 4, test: int = 4):
         self._tasks = {}
+        self._split_of = {}
         counts = {"train": train, "val": val, "test": test}
         n = 0
         for split, count in counts.items():
@@ -41,6 +42,7 @@ class KeywordEnvironment(Environment):
                 kind = KINDS[n % len(KINDS)]
                 self._tasks[split].append(Task(id=f"{split}-{i:02d}", split=split, kind=kind.lower(),
                                                prompt=f"Solve toy task {split}-{i:02d} of kind {kind}."))
+                self._split_of[f"{split}-{i:02d}"] = split
                 n += 1
         self.calls: list[dict] = []
 
@@ -57,8 +59,9 @@ class KeywordEnvironment(Environment):
         for task in tasks:
             rule = f"RULE_{task.kind.upper()}"
             ok = rule in context
+            reveal = self._split_of[task.id] == "train"          # the registered split, not the caller's label
             feedback = "CORRECT." if ok else ("INCORRECT. The adapter context requires " + rule + "."
-                                              if task.split == "train" else "INCORRECT.")
+                                              if reveal else "INCORRECT.")
             rollouts.append(Rollout(task_id=task.id, split=task.split, score=1.0 if ok else 0.0,
                                     output="done" if ok else "unsure", feedback=feedback,
                                     trace=f"[action] read context\n[obs] {len(context)} characters",

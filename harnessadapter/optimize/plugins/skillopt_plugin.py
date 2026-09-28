@@ -28,6 +28,7 @@ so run one SkillOpt session per process.
 """
 from __future__ import annotations
 
+import importlib.metadata
 import itertools
 import json
 import os
@@ -84,11 +85,33 @@ def write_splits(split_dir: Path, splits: dict[str, list[Task]]) -> None:
         (split_dir / name / "items.json").write_text(json.dumps(items, ensure_ascii=False, indent=1) + "\n")
 
 
-def conversation(rollout, prompt: str) -> list[dict]:
+def budget_steps(steps: list[dict], limit: int) -> list[dict]:
+    """Keep the first and last steps within `limit` characters (0: no limit,
+    SkillOpt's own choice: its reflection shows full trajectories)."""
+    size = lambda step: len(json.dumps(step, ensure_ascii=False))
+    if limit <= 0 or sum(size(s) for s in steps) <= limit:
+        return steps
+    head, tail, used = [], [], 0
+    for step in steps:                       # beginning: the approach
+        if used + size(step) > limit * 2 // 5:
+            break
+        head.append(step)
+        used += size(step)
+    for step in reversed(steps[len(head):]):  # end: how it finished
+        if used + size(step) > limit:
+            break
+        tail.insert(0, step)
+        used += size(step)
+    omitted = len(steps) - len(head) - len(tail)
+    return head + [{"role": "system", "content": f"[{omitted} steps of the trajectory left out]"}] + tail
+
+
+def conversation(rollout, prompt: str, limit: int = 0) -> list[dict]:
     """The trajectory in the record shapes SkillOpt's fmt_trajectory renders."""
     steps = [dict(s) for s in rollout.steps if isinstance(s, dict)]
     if not steps and rollout.trace:
         steps = [{"role": "assistant", "content": rollout.trace}]
+    steps = budget_steps(steps, limit)
     return ([{"role": "user", "content": prompt}] + steps +
             [{"role": "assistant", "content": f"Final answer: {rollout.output or '(none)'}"},
              {"role": "system", "content": f"Run status: {rollout.status}; score: {rollout.score:g}"}])
@@ -108,6 +131,7 @@ def make_env_adapter(context: OptimizeContext, settings: dict, component: str):
             self.minibatch_size = int(settings["minibatch_size"])
             self.edit_budget = int(settings["learning_rate"])
             self.prompt_env = str(settings["prompt_env"] or "")
+            self.trace_chars = int(settings["trace_chars"])
             self.dataloader = TaskSplitLoader(split_mode="split_dir", seed=int(settings["seed"]))
             self._tasks = {t.id: t for split in ("train", "val") for t in context.environment.tasks(split)}
             self._counter = itertools.count(1)
@@ -149,12 +173,17 @@ def make_env_adapter(context: OptimizeContext, settings: dict, component: str):
                 hard = int(rollout.score >= 1.0 - 1e-9)
                 record = where / "predictions" / task.id
                 record.mkdir(parents=True, exist_ok=True)
-                (record / "conversation.json").write_text(json.dumps(conversation(rollout, task.prompt), ensure_ascii=False, indent=1) + "\n")
+                if not rollout.infra:
+                    # An episode the infrastructure lost is not evidence about
+                    # the skill: without conversation.json SkillOpt's
+                    # reflection skips it (its score still counts).
+                    (record / "conversation.json").write_text(json.dumps(
+                        conversation(rollout, task.prompt, self.trace_chars), ensure_ascii=False, indent=1) + "\n")
                 results.append({"id": task.id, "hard": hard, "soft": float(rollout.score),
                                 "fail_reason": "" if hard else (rollout.feedback or f"status {rollout.status}"),
                                 "task_description": task.prompt, "task_type": task.kind or "task",
                                 "n_turns": len(rollout.steps), "agent_ok": rollout.status == "completed",
-                                "status": rollout.status, "prediction": rollout.output})
+                                "status": rollout.status, "infra": rollout.infra, "prediction": rollout.output})
             with (where / "results.jsonl").open("w") as out:
                 out.writelines(json.dumps(r, ensure_ascii=False) + "\n" for r in results)
             return results
@@ -165,6 +194,25 @@ def make_env_adapter(context: OptimizeContext, settings: dict, component: str):
     return HarnessAdapterSkillOptEnv()
 
 
+def relocate_runtime_state(state: Path) -> None:
+    """SkillOpt records absolute skill paths in runtime_state.json and opens
+    them on resume. A resumed session works on a copy of that state, so point
+    them into the copy."""
+    path = state / "runtime_state.json"
+    if not path.is_file():
+        return
+    runtime = json.loads(path.read_text())
+    for key in ("current_skill_path", "best_skill_path"):
+        old = runtime.get(key)
+        if not old:
+            continue
+        parts = Path(old).parts
+        anchor = next((i for i in range(len(parts) - 1, -1, -1) if parts[i] in ("skills", "best_skill.md")), None)
+        if anchor is not None:
+            runtime[key] = str(state.joinpath(*parts[anchor:]))
+    path.write_text(json.dumps(runtime, indent=2, ensure_ascii=False) + "\n")
+
+
 class SkillOptPlugin:
     name = "skillopt"
 
@@ -173,6 +221,10 @@ class SkillOptPlugin:
         from skillopt.model import openai_compatible_backend
 
         s = context.settings
+        try:
+            version = importlib.metadata.version("skillopt")
+        except importlib.metadata.PackageNotFoundError:
+            version = "unknown (imported from source without metadata)"
         if len(context.surface.components) != 1:
             raise ValueError("SkillOpt optimizes one skill document; give the surface exactly one component")
         component = context.surface.components[0]
@@ -183,6 +235,7 @@ class SkillOptPlugin:
         seed_path = state / "seed_skill.md"
         if not seed_path.exists():
             seed_path.write_text(context.seed()[component])
+        relocate_runtime_state(state)
         split_dir = state / "splits"
         write_splits(split_dir, {"train": context.environment.tasks("train"), "val": context.environment.tasks("val")})
         openai_compatible_backend.configure_openai_compatible(
@@ -199,15 +252,16 @@ class SkillOptPlugin:
         trained = json.loads(summary_path.read_text()) if summary_path.is_file() else {}
         best = (state / "best_skill.md").read_text()
         history = json.loads((state / "history.json").read_text()) if (state / "history.json").is_file() else []
-        import importlib.metadata
-        summary = {"algorithm": "skillopt", "skillopt_version": importlib.metadata.version("skillopt"),
+        summary = {"algorithm": "skillopt", "skillopt_version": version,
+                   # SkillOpt's openai_compatible backend accepts reasoning_effort but does not send it.
+                   "optimizer_reasoning_effort_sent": None,
                    "seed_val_score": trained.get("baseline_selection_hard"),
                    "selected_val_score": trained.get("best_selection_hard"),
                    "best_step": trained.get("best_step"), "best_origin": trained.get("best_origin"),
                    "total_steps": trained.get("total_steps"), "total_accepts": trained.get("total_accepts"),
                    "total_rejects": trained.get("total_rejects"), "total_skips": trained.get("total_skips"),
                    "epoch_stats": trained.get("epoch_stats"), "token_summary": trained.get("token_summary"),
-                   "steps": [{k: h.get(k) for k in ("epoch", "step", "action", "rollout_hard", "n_edits_ranked", "edit_budget",
-                                                        "selection_hard", "current_score", "best_score")}
+                   "steps": [{k: h.get(k) for k in ("epoch", "step", "action", "rollout_hard", "n_failure_patches", "n_success_patches",
+                                                        "n_edits_ranked", "edit_budget", "selection_hard", "current_score", "best_score")}
                              for h in history]}
         return Outcome(candidate={component: best}, summary=summary)

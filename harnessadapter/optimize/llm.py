@@ -9,6 +9,7 @@ str | messages -> str, which is exactly GEPA's LanguageModel protocol.
 """
 from __future__ import annotations
 
+import http.client
 import json
 import os
 from pathlib import Path
@@ -74,7 +75,9 @@ class ChatLM:
                 error = f"HTTP {exc.code}: {exc.read()[:500].decode(errors='replace')}"
                 if exc.code not in RETRY_STATUS:
                     break
-            except (urllib.error.URLError, TimeoutError, ConnectionError, OSError) as exc:
+            except (urllib.error.URLError, TimeoutError, ConnectionError, OSError,
+                    http.client.HTTPException, ValueError) as exc:
+                # ValueError: a 200 carrying a gateway page instead of JSON.
                 error = f"{type(exc).__name__}: {exc}"
             if attempt + 1 < self.retries:
                 time.sleep(min(120, 10 * 2 ** attempt))

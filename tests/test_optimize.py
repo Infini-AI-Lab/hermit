@@ -53,6 +53,39 @@ class SurfaceTests(unittest.TestCase):
 
 
 class EnvironmentContractTests(unittest.TestCase):
+    def test_guard_resolves_tasks_by_id_so_test_cannot_be_relabeled(self):
+        env = KeywordEnvironment()
+        with tempfile.TemporaryDirectory() as d:
+            guarded = GuardedEnvironment(env, Path(d) / "log.jsonl")
+            test_task = env.tasks("test")[0]
+            disguised = Task(id=test_task.id, split="train", prompt=test_task.prompt, kind=test_task.kind)
+            with self.assertRaises(PermissionError):
+                guarded.evaluate(None, [disguised], label="x")
+            val_task = env.tasks("val")[0]
+            relabeled = Task(id=val_task.id, split="train", prompt=val_task.prompt, kind=val_task.kind)
+            [rollout] = guarded.evaluate(None, [relabeled], label="y")
+            self.assertEqual(rollout.split, "val")                     # the registered task was evaluated
+            self.assertNotIn("RULE_", rollout.feedback)
+            self.assertFalse(hasattr(guarded, "inner"))
+        # The environment itself decides from the registered split, too.
+        [direct] = env.evaluate(None, [relabeled], label="z")
+        self.assertNotIn("RULE_", direct.feedback)
+
+    def test_evaluate_adapters_leaves_infra_losses_out_of_the_mean(self):
+        class Flaky(KeywordEnvironment):
+            def evaluate(self, adapter, tasks, *, label):
+                rollouts = super().evaluate(adapter, tasks, label=label)
+                rollouts[0].infra, rollouts[0].status, rollouts[0].score = True, "transport_lost", 0.0
+                return rollouts
+        env = Flaky()
+        with tempfile.TemporaryDirectory() as d:
+            store = CandidateStore(TextSurface(PROMPT_ONLY), Path(d) / "c")
+            good = store.path({"ADAPTER.md": "RULE_ALPHA RULE_BETA RULE_GAMMA RULE_DELTA"})
+            result = evaluate_adapters(env, {"good": good}, "test", output=Path(d))["good"]
+        self.assertEqual(result["mean"], 1.0)
+        self.assertEqual(result["runs"][0]["scored"], 3)
+        self.assertEqual(result["runs"][0]["infra_lost"], [env.tasks("test")[0].id])
+
     def test_guard_hides_the_test_split(self):
         with tempfile.TemporaryDirectory() as d:
             guarded = GuardedEnvironment(KeywordEnvironment(), Path(d) / "log.jsonl")
@@ -89,6 +122,37 @@ class RegistryTests(unittest.TestCase):
             load_optimizer("basic")
         with self.assertRaisesRegex(ValueError, "Unknown gepa settings"):
             load_optimizer("gepa").merged({"no_such_setting": 1})
+
+
+class ChatLMTests(unittest.TestCase):
+    def test_gateway_page_with_status_200_is_retried(self):
+        answers = iter(["<html>gateway</html>", None])
+        with FakeChatServer() as server:
+            original = server.httpd.RequestHandlerClass.do_POST
+
+            def flaky(handler):
+                if next(answers, None):
+                    body = b"<html>gateway</html>"
+                    handler.rfile.read(int(handler.headers.get("Content-Length", 0)))
+                    handler.send_response(200)
+                    handler.send_header("Content-Length", str(len(body)))
+                    handler.end_headers()
+                    handler.wfile.write(body)
+                    return
+                original(handler)
+            server.httpd.RequestHandlerClass.do_POST = flaky
+            lm = fake_lm(server)
+            lm.retries = 2
+            import harnessadapter.optimize.llm as llm_module
+            sleep = llm_module.time.sleep
+            llm_module.time.sleep = lambda s: None
+            try:
+                text = lm("I provided an assistant with the following instructions\n```\nx\n```")
+            finally:
+                llm_module.time.sleep = sleep
+                server.httpd.RequestHandlerClass.do_POST = original
+        self.assertTrue(text.startswith("```"))
+        self.assertEqual(lm.usage["calls"], 1)
 
 
 @unittest.skipUnless(HAS_GEPA, "gepa is not installed")
@@ -156,6 +220,34 @@ class SkillOptTests(unittest.TestCase):
             self.assertFalse(any(set(c["tasks"]) & test_ids for c in env.calls))
             for request in server.requests:
                 self.assertEqual(request["model"], "scripted")
+
+
+@unittest.skipUnless(HAS_SKILLOPT, "skillopt is not installed")
+class SkillOptPieceTests(unittest.TestCase):
+    def test_resume_points_runtime_state_into_the_copied_state(self):
+        from harnessadapter.optimize.plugins.skillopt_plugin import relocate_runtime_state
+        with tempfile.TemporaryDirectory() as d:
+            state = Path(d) / "new/training_state"
+            (state / "skills").mkdir(parents=True)
+            (state / "runtime_state.json").write_text(json.dumps({
+                "last_completed_step": 3, "current_score": 0.5,
+                "current_skill_path": "/old/session/training_state/skills/skill_v0003.md",
+                "best_skill_path": "/old/session/training_state/best_skill.md"}))
+            relocate_runtime_state(state)
+            runtime = json.loads((state / "runtime_state.json").read_text())
+        self.assertEqual(runtime["current_skill_path"], str(state / "skills/skill_v0003.md"))
+        self.assertEqual(runtime["best_skill_path"], str(state / "best_skill.md"))
+        self.assertEqual(runtime["current_score"], 0.5)
+
+    def test_trajectory_budget_keeps_both_ends(self):
+        from harnessadapter.optimize.plugins.skillopt_plugin import budget_steps
+        steps = [{"type": "tool_call", "cmd": f"step {i}", "obs": "x" * 500} for i in range(40)]
+        self.assertEqual(budget_steps(steps, 0), steps)
+        kept = budget_steps(steps, 5000)
+        self.assertEqual(kept[0]["cmd"], "step 0")
+        self.assertEqual(kept[-1]["cmd"], "step 39")
+        self.assertIn("left out", next(s["content"] for s in kept if s.get("role") == "system"))
+        self.assertLess(len(json.dumps(kept)), 6000)
 
 
 @unittest.skipUnless(HAS_GEPA, "gepa is not installed")

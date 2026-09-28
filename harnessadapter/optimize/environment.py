@@ -47,7 +47,10 @@ class Rollout:
     the optimizer (already filtered by split). trace is the agent's public
     trajectory as text; steps is the same trajectory as records
     ({"type": "tool_call", "cmd", "obs"} or {"role", "content"}) for
-    optimizers that format it themselves.
+    optimizers that format it themselves. infra marks an episode lost to the
+    infrastructure (provider outage, transport failure) rather than decided by
+    the agent: it scores 0 for an optimizer, which cannot re-run it, and
+    evaluate_adapters leaves it out of means and reports it separately.
     """
     task_id: str
     split: str
@@ -59,6 +62,7 @@ class Rollout:
     steps: list = field(default_factory=list)
     usage: dict = field(default_factory=dict)
     record: str | None = None
+    infra: bool = False
 
     def to_json(self) -> dict:
         return asdict(self)
@@ -66,7 +70,7 @@ class Rollout:
     def public(self) -> dict:
         """What may be stored in an optimizer's own state files."""
         return {"task_id": self.task_id, "split": self.split, "score": self.score,
-                "output": self.output, "status": self.status}
+                "output": self.output, "status": self.status, "infra": self.infra}
 
 
 class Environment(ABC):
@@ -91,6 +95,8 @@ class Environment(ABC):
         return {"name": self.name}
 
     def task(self, task_id: str) -> Task:
+        """The registered task for an id. Environments decide what a result
+        may reveal from this record, never from a Task object a caller built."""
         for split in SPLITS:
             for task in self.tasks(split):
                 if task.id == task_id:

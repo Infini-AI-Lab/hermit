@@ -56,8 +56,16 @@ optimizer may learn from each split:
   which may name the reference answer. This matches the feedback functions of
   both papers.
 - **val**: the score and the trajectory, never the reference.
-- **test**: never shown to an optimizer. The session wraps the environment so
-  that `tasks("test")` and any test evaluation raise.
+- **test**: never shown to an optimizer. The session wraps the environment:
+  `tasks()` answers only for train and val, and every task a plugin asks to
+  evaluate is resolved by id against those registered tasks, so a test task
+  cannot be requested or relabeled. Environments decide what feedback may
+  reveal from the registered split of the id, never from the caller's label.
+
+A Rollout with `infra=True` was lost to the infrastructure (provider outage,
+transport failure) after the environment's own retries. Optimizers score it 0
+(they have no way to re-run it) but do not reflect on it; `evaluate` leaves it
+out of the mean and lists it separately.
 
 `harnessadapter evaluate` scores several adapters on one split with the same
 environment. It is the comparison every Evolver is judged by.
@@ -148,3 +156,6 @@ call ledger. Pass `--evolver /path/to/my-optimizer`.
 - Optimizer-model cost for SkillOpt comes from its own token tracker; GEPA's
   from the session ledger. Acting-harness cost comes from the environment's
   records.
+- SkillOpt's `openai_compatible` backend does not send `reasoning_effort`; the
+  provider default applies to its optimizer calls.
+  `--optimizer-reasoning-effort` applies to ChatLM calls (GEPA's reflection).

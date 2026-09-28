@@ -46,39 +46,45 @@ def _save(path: Path, value) -> None:
 
 
 class GuardedEnvironment(Environment):
-    """What a plugin actually holds: the session's environment with the test
-    split removed, every call checked and counted, and a log of calls."""
+    """What a plugin actually holds: the session's environment restricted to
+    its train and val tasks. Every requested task is resolved by id against
+    those registered tasks (a caller cannot relabel a test task as train), and
+    every call is counted and logged."""
 
     def __init__(self, inner: Environment, log_path: Path):
-        self.inner = inner
+        self._inner = inner
         self.name = inner.name
         self.log_path = log_path
         self.rollouts = 0
         self.calls = 0
         self._lock = threading.Lock()
+        self._visible = {t.id: t for split in ("train", "val") for t in inner.tasks(split)}
 
     def tasks(self, split: str):
-        if split == "test":
-            raise PermissionError("Optimizers never see the test split")
-        return self.inner.tasks(split)
+        if split not in ("train", "val"):
+            raise PermissionError("Optimizers see only the train and val splits")
+        return self._inner.tasks(split)
 
     def evaluate(self, adapter, tasks, *, label):
-        tasks = list(tasks)
-        if any(t.split == "test" for t in tasks):
-            raise PermissionError("Optimizers never evaluate on the test split")
+        requested = list(tasks)
+        unknown = [t.id for t in requested if t.id not in self._visible]
+        if unknown:
+            raise PermissionError(f"Optimizers evaluate only train and val tasks; refused {unknown[:5]}")
+        registered = [self._visible[t.id] for t in requested]
         started = time.monotonic()
-        rollouts = check_rollouts(tasks, self.inner.evaluate(adapter, tasks, label=label))
+        rollouts = check_rollouts(registered, self._inner.evaluate(adapter, registered, label=label))
         with self._lock, self.log_path.open("a") as out:
             self.calls += 1
             self.rollouts += len(rollouts)
             out.write(json.dumps({"utc": _utc(), "label": label, "adapter": Path(adapter).name if adapter else None,
-                                  "tasks": [t.id for t in tasks], "splits": sorted({t.split for t in tasks}),
+                                  "tasks": [t.id for t in registered], "splits": sorted({t.split for t in registered}),
                                   "scores": [r.score for r in rollouts], "statuses": [r.status for r in rollouts],
+                                  "infra": sum(1 for r in rollouts if r.infra),
                                   "seconds": round(time.monotonic() - started, 1)}) + "\n")
         return rollouts
 
     def describe(self):
-        return self.inner.describe()
+        return self._inner.describe()
 
 
 def optimize(source: Path, environment: Environment, evolver: str, *, lm: Callable, output: Path,
@@ -123,7 +129,9 @@ def optimize(source: Path, environment: Environment, evolver: str, *, lm: Callab
     selected = surface.check(outcome.candidate)
     candidate = session / "candidate"
     candidate.mkdir()
-    copy_adapter(source, candidate)
+    # From the snapshot the candidates were evaluated against; only the
+    # revision history comes from the live source.
+    copy_adapter(session / "source", candidate)
     versioning.copy_history(source, candidate)
     versioning.ensure_repo(candidate)
     for name, text in selected.items():
@@ -133,10 +141,17 @@ def optimize(source: Path, environment: Environment, evolver: str, *, lm: Callab
     record.update(status="candidate_ready", finished_utc=_utc(), seconds=round(time.monotonic() - started, 1),
                   candidate=str(candidate), candidate_hash=candidate_hash(selected), candidate_commit=commit,
                   changed_components=changed, rollouts=guarded.rollouts, evaluation_calls=guarded.calls,
+                  infra_lost_rollouts=_infra_count(session / "control/evaluations.jsonl"),
                   optimizer_usage=_usage(lm, outcome.summary), plugin=outcome.summary)
     _save(session / "control/result.json", record)
     (session / "report.md").write_text(render_report(record, selected))
     return record
+
+
+def _infra_count(log: Path) -> int:
+    if not log.is_file():
+        return 0
+    return sum(json.loads(line).get("infra", 0) for line in log.read_text().splitlines() if line.strip())
 
 
 def _usage(lm, summary: dict) -> dict:
@@ -156,7 +171,8 @@ def render_report(record: dict, selected: dict[str, str]) -> str:
              f"- Source: `{record['source']}`",
              f"- Environment: {json.dumps(record['environment'], ensure_ascii=False)}",
              f"- Splits: {record['splits']} (test is never evaluated during optimization)",
-             f"- Rollouts used: {record['rollouts']} in {record['evaluation_calls']} evaluation calls",
+             f"- Rollouts used: {record['rollouts']} in {record['evaluation_calls']} evaluation calls "
+             f"({record.get('infra_lost_rollouts', 0)} lost to infrastructure, scored 0)",
              f"- Optimizer model: {record['optimizer_model']}; usage {record['optimizer_usage']}",
              f"- Changed components: {record['changed_components'] or 'none (the seed was kept)'}",
              f"- Seed val score: {plugin.get('seed_val_score')}; selected val score: {plugin.get('selected_val_score')}",
@@ -170,7 +186,8 @@ def render_report(record: dict, selected: dict[str, str]) -> str:
 def evaluate_adapters(environment: Environment, adapters: dict[str, Path | None], split: str, *,
                       output: Path, repeats: int = 1) -> dict:
     """Score several adapters on the same split (normally test) with the
-    same environment: the comparison every optimizer is judged by."""
+    same environment: the comparison every optimizer is judged by. Episodes
+    lost to the infrastructure are left out of the mean and counted."""
     tasks = environment.tasks(split)
     results = {}
     for name, adapter in adapters.items():
@@ -178,11 +195,14 @@ def evaluate_adapters(environment: Environment, adapters: dict[str, Path | None]
         for repeat in range(repeats):
             rollouts: list[Rollout] = check_rollouts(tasks, environment.evaluate(
                 adapter, tasks, label=f"{split}/{name}/r{repeat + 1}"))
-            runs.append({"mean": sum(r.score for r in rollouts) / len(rollouts),
+            valid = [r for r in rollouts if not r.infra]
+            runs.append({"mean": sum(r.score for r in valid) / len(valid) if valid else None,
+                         "scored": len(valid), "infra_lost": [r.task_id for r in rollouts if r.infra],
                          "scores": {r.task_id: r.score for r in rollouts},
                          "statuses": {r.task_id: r.status for r in rollouts}})
+        means = [r["mean"] for r in runs if r["mean"] is not None]
         results[name] = {"adapter": str(adapter) if adapter else None, "runs": runs,
-                         "mean": sum(r["mean"] for r in runs) / len(runs)}
+                         "mean": sum(means) / len(means) if means else None}
         _save(Path(output) / f"{split}-scores.json", {"split": split, "tasks": [t.id for t in tasks],
                                                         "environment": environment.describe(), "results": results})
     return results

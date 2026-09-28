@@ -85,12 +85,49 @@ class OfficeQAEnvironmentTests(unittest.TestCase):
         self.assertEqual(len(calls), 3)
         self.assertEqual(json.loads((calls[0] / "call.json").read_text())["label"], "gepa/0001-minibatch")
 
-    def test_a_crashed_episode_is_a_scored_failure(self):
+    def test_a_crashed_episode_is_an_infra_loss_retried_once(self):
+        calls = []
+
         def broken(*args, **kwargs):
+            calls.append(args[1])
             raise RuntimeError("sandbox refused")
-        with mock.patch.object(optimize_env.arm, "actor", broken):
+        with mock.patch.object(optimize_env.arm, "actor", broken), mock.patch.object(optimize_env, "INFRA_PAUSE", 0):
             [rollout] = self.env.evaluate(None, self.env.tasks("train")[:1], label="x")
-        self.assertEqual((rollout.score, rollout.status), (0.0, "error: RuntimeError"))
+        self.assertEqual((rollout.score, rollout.status, rollout.infra), (0.0, "error: RuntimeError", True))
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[1].name, "infra-retry")
+        self.assertNotIn("106", rollout.feedback)                     # no answer for an episode that never ran
+        self.assertIn("infrastructure", rollout.feedback)
+
+    def test_transport_lost_is_flagged_and_a_retry_can_recover(self):
+        actor = fake_actor({5: "105"})
+        outcomes = iter(["transport_lost", "completed"])
+
+        def flaky(*args, **kwargs):
+            summary = actor(*args, **kwargs)
+            summary["status"] = next(outcomes)
+            return summary
+        with mock.patch.object(optimize_env.arm, "actor", flaky), mock.patch.object(optimize_env, "INFRA_PAUSE", 0):
+            [rollout] = self.env.evaluate(None, self.env.tasks("train")[:1], label="x")
+        self.assertEqual((rollout.status, rollout.infra, rollout.score), ("completed", False, 1.0))
+
+    def test_a_repeated_task_in_one_batch_gets_its_own_episode(self):
+        actor = fake_actor({5: "105", 6: "106"})
+        train = self.env.tasks("train")
+        with mock.patch.object(optimize_env.arm, "actor", actor):
+            rollouts = self.env.evaluate(None, [train[0], train[1], train[0]], label="gepa/0003-minibatch")
+        self.assertEqual([r.score for r in rollouts], [1.0, 1.0, 1.0])
+        self.assertFalse(any(r.infra for r in rollouts))
+        self.assertNotEqual(rollouts[0].record, rollouts[2].record)
+
+    def test_feedback_follows_the_registered_split(self):
+        from harnessadapter.optimize.environment import Task
+        actor = fake_actor({3: "0"})
+        val = self.env.tasks("val")[0]
+        disguised = Task(id=val.id, split="train", prompt=val.prompt, kind=val.kind)
+        with mock.patch.object(optimize_env.arm, "actor", actor):
+            [rollout] = self.env.evaluate(None, [disguised], label="x")
+        self.assertEqual(rollout.feedback, "INCORRECT.")
 
     def test_candidate_adapter_is_passed_to_the_actor(self):
         actor = fake_actor({5: "105"})

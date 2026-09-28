@@ -78,6 +78,9 @@ def main(argv=None):
     parser.add_argument("--optimizer-key-env", default="FIREWORKS_API_KEY", help="Environment variable holding the optimizer key")
     parser.add_argument("--optimizer-max-tokens", type=int, default=32768)
     parser.add_argument("--optimizer-temperature", type=float, default=None)
+    parser.add_argument("--optimizer-reasoning-effort", choices=["low", "medium", "high"], default=None,
+                        help="Sent with every call ChatLM makes (GEPA's reflection model). SkillOpt drives its own "
+                             "openai_compatible client, which does not send it; the provider default applies there.")
     parser.add_argument("--fake-optimizer", action="store_true", help="$0: a local scripted model server instead of a provider")
     args = parser.parse_args(argv)
 
@@ -108,7 +111,8 @@ def main(argv=None):
         if not args.optimizer_model:
             parser.error("--optimizer-model is required (or --fake-optimizer)")
         lm = ChatLM(args.optimizer_model, base_url=args.optimizer_base_url, api_key_env=args.optimizer_key_env,
-                    max_tokens=args.optimizer_max_tokens, temperature=args.optimizer_temperature)
+                    max_tokens=args.optimizer_max_tokens, temperature=args.optimizer_temperature,
+                    reasoning_effort=args.optimizer_reasoning_effort)
         result = run(lm)
     print(json.dumps({k: result.get(k) for k in ("status", "session", "candidate", "changed_components", "rollouts",
                                                  "optimizer_usage")}, indent=2))
