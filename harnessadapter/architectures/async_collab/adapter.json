@@ -1,0 +1,42 @@
+{
+  "contract": "harnessadapter.python.v1",
+  "id": "async-collab",
+  "name": "Async Collaboration",
+  "version": "0.1.0",
+  "context": "ADAPTER.md",
+  "evolver_readme": "EVOLVER.md",
+  "tools": [
+    {
+      "name": "check",
+      "description": "Compile a Lean file of your workspace against Mathlib (default: Problem.lean) and report the errors; for Problem.lean also the axioms the target depends on. Use it for every compile instead of a shell command. Every helper lemma of your Problem.lean that compiles without sorry is added to the team library automatically; every helper that still has a sorry becomes an open subgoal others can see. The reply ends with what changed in the team since your last call.",
+      "entrypoint": "collab.py:check",
+      "input_schema": {"type": "object", "properties": {"file": {"type": "string", "description": "A .lean file in your workspace; default Problem.lean"}}, "required": [], "additionalProperties": false},
+      "output_schema": {"type": "object"},
+      "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false}
+    },
+    {
+      "name": "pull",
+      "description": "Copy a verified library lemma (and the library lemmas it uses) into your Problem.lean, just before the target theorem, so you can use it. Names are listed in the library's index.md and in the `new verified` lines of tool replies.",
+      "entrypoint": "collab.py:pull",
+      "input_schema": {"type": "object", "properties": {"name": {"type": "string", "description": "The lemma's name as listed in the library"}}, "required": ["name"], "additionalProperties": false},
+      "output_schema": {"type": "object"},
+      "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false}
+    },
+    {
+      "name": "refute",
+      "description": "Record that an open subgoal or a claim is false, with the evidence (a counterexample, a computation, a reference). The subgoal is marked refuted for everyone.",
+      "entrypoint": "collab.py:refute",
+      "input_schema": {"type": "object", "properties": {"name": {"type": "string", "description": "The subgoal or lemma name"}, "evidence": {"type": "string", "description": "Why it is false, at most 600 characters"}}, "required": ["name", "evidence"], "additionalProperties": false},
+      "output_schema": {"type": "object"},
+      "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false}
+    },
+    {
+      "name": "say",
+      "description": "Post a short message to the team channel. type is one of idea (a route worth trying), plan (what you are doing next), feedback (your assessment of a lemma, subgoal or message; ref required), request (what you need from others). At most 300 characters; refer to lemmas or files instead of pasting code.",
+      "entrypoint": "collab.py:say",
+      "input_schema": {"type": "object", "properties": {"type": {"type": "string", "enum": ["idea", "plan", "feedback", "request"]}, "text": {"type": "string"}, "ref": {"type": "string", "description": "What the message is about: a lemma or subgoal name, or a message id"}}, "required": ["type", "text"], "additionalProperties": false},
+      "output_schema": {"type": "object"},
+      "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false}
+    }
+  ]
+}
