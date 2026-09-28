@@ -17,7 +17,8 @@
 
 - A repository-local prototype, not a published SDK or package.
 - One adapter per generated acting workspace; no general merge into existing project settings.
-- GEPA, SkillOpt, Reef, external Evolver plugins, and marketplace integration are not implemented.
+- GEPA and SkillOpt are available as optimizer Evolvers (`harnessadapter optimize`), with external optimizer plugins through `evolver.toml` (`kind = "optimizer"`). Reef and marketplace integration are not implemented.
+- Training State input/output and resume exist for optimizer Evolvers (`--training-state`); session Evolvers still return no Training State.
 - No automated performance evaluator, candidate promotion, scheduled updates, or live process reload.
 - File snapshots and hashes are implemented; Git release workflows and complete external-state rollback are not.
 - Both learner backends currently need Codex CLI for the framework sandbox executor.

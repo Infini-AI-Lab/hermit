@@ -11,6 +11,7 @@ This is a local prototype. Its CLI and execution boundary work; a public package
 - [Architectures](architectures.html): choose Prompt-only or MWM.
 - [Deployment](deployment.html): context, optional MCP tools, and optional native roles.
 - [Evolution and LearningMaterial](evolution.html): prompt-driven updates, permissions, and optional validation.
+- [Optimizer Evolvers](optimizer-evolvers.html): GEPA and SkillOpt as Evolvers, the Environment contract, and writing your own.
 - [Configuration](configuration.html): CLI and YAML reference.
 - [Status and limits](status.html): what is implemented and what remains open.
 

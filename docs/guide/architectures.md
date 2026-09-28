@@ -34,7 +34,7 @@ EVOLVER.md        Guidance for maintaining the prompt
 README.md         Human-facing usage
 ```
 
-This makes prompt-oriented experiments possible without a tool service. It is not an implementation of GEPA or SkillOpt. Their optimization algorithms and evaluation requirements would need their own integrations.
+This makes prompt-oriented experiments possible without a tool service. GEPA and SkillOpt optimize it as optimizer Evolvers against an Environment; see [Optimizer Evolvers](optimizer-evolvers.md).
 
 The current manifest retains the name harnessadapter.python.v1 for compatibility; a static Markdown context and empty tools list require no Python code in the adapter. The framework itself still uses Python and its shared dependency environment.
 

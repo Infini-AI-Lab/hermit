@@ -160,7 +160,8 @@ harnessadapter/        the package (pip install -e .)
   evolution/             sessions, Evolver definitions, learner backends, launch YAML
   policy/                the sandboxed tool broker and its file operations
   hosts/                 Codex / Claude Code workspace conversion
-  evolvers/              bundled Evolver presets: basic, mwm, animation-coach, physics-builder
+  evolvers/              bundled Evolver presets: basic, mwm, animation-coach, physics-builder, gepa, skillopt
+  optimize/              optimizer Evolvers: Environment contract, sessions, GEPA and SkillOpt plugins
   architectures/         bundled starting structures: prompt_only, mwm
 examples/              minimal_shop demo and mwm_evidence fixture
 tasks/                 venue-specific evaluations (CLBench, OfficeQA)
@@ -175,7 +176,9 @@ This is a working local prototype, not a released package.
 
 **Implemented.** Prompt-only and MWM architectures. Context injection, MCP registration, and native role conversion for Codex and Claude Code. Prompt-driven evolution with either host as the learner, plus the MWM method preset. OS-enforced tool boundaries with audit records. Sandboxed image reads for visual LearningMaterial. CLI and YAML launch.
 
-**Not yet.** A published package or SDK. Generic Training State persistence and resume. Automated evaluation, candidate promotion, or rollback. Merging an Adapter into an existing project's settings rather than a generated workspace. GEPA, SkillOpt, Reef, or external Evolver plugins. Both learners currently require the Codex CLI as the sandbox executor; MWM learned-program admission additionally needs Linux bubblewrap.
+**Optimizer Evolvers.** GEPA and SkillOpt run as Evolvers through `harnessadapter optimize`, each using its upstream library unchanged, against an Environment that deploys the candidate to the acting harness and scores it; `harnessadapter evaluate` compares adapters on a held-out split. See [Optimizer Evolvers](docs/guide/optimizer-evolvers.md).
+
+**Not yet.** A published package or SDK. Training State persistence for session Evolvers. Candidate promotion or rollback. Merging an Adapter into an existing project's settings rather than a generated workspace. Reef. Both learners currently require the Codex CLI as the sandbox executor; MWM learned-program admission additionally needs Linux bubblewrap.
 
 Details and troubleshooting: [Status and limits](docs/guide/status.md).
 
