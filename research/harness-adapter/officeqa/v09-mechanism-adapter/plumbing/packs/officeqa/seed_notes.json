@@ -1,0 +1,56 @@
+[
+  {
+    "id": "oq_latest_printing",
+    "triggers": [
+      "*"
+    ],
+    "text": "Bulletins revise earlier numbers. Unless the question names a publication date or issue, use the latest printing of each value: for every table cell you use, run `printings --table <id> --row <period> --col <column>` and take the value printed by the latest issue listed.",
+    "admitted_block": 0,
+    "origin": "seed",
+    "stats": {}
+  },
+  {
+    "id": "oq_period_match",
+    "triggers": [
+      "*"
+    ],
+    "text": "Match the period exactly. FY (federal fiscal year: July-June through FY1976, October-September from FY1977) and CY (calendar year) rows are different rows even with the same year number. show_table fills the period of every row (FY/CY from the banners); check that the period of each cell you use is the one the question asks for.",
+    "admitted_block": 0,
+    "origin": "seed",
+    "stats": {}
+  },
+  {
+    "id": "oq_flagged_cells",
+    "triggers": [
+      "*"
+    ],
+    "text": "show_table marks rows it repaired (SHIFT+1, SPLIT, ROWSPLIT), month rows whose year is not printed (Y?), and rows where the table's total identity FAILS. If a value you use sits on such a row, compare it with another printing (printings) before using it. r/p marks (revised/preliminary) alone are not a problem.",
+    "admitted_block": 0,
+    "origin": "seed",
+    "stats": {}
+  },
+  {
+    "id": "oq_table_choice",
+    "triggers": [
+      "*"
+    ],
+    "text": "Several tables in one issue can look alike. Search with find_tables using the question's key nouns and prefer the table whose title and column headers match the question's wording; note its id so printings can follow it across issues.",
+    "admitted_block": 0,
+    "origin": "seed",
+    "stats": {}
+  },
+  {
+    "id": "oq_row_coverage",
+    "triggers": [
+      "sum",
+      "total",
+      "combined",
+      "aggregate",
+      "altogether"
+    ],
+    "text": "For a sum over the columns of one row, list the whole row (show_table <file> <line> --long --grep <period>) and decide for each column whether the question includes it; compute the sum with calc from the printed cells, not from memory.",
+    "admitted_block": 0,
+    "origin": "seed",
+    "stats": {}
+  }
+]

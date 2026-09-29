@@ -1,0 +1,45 @@
+{
+  "task_id": "UID0109",
+  "correct": {"a": 1, "b": 0, "c": 1},
+  "summary": "All three cells used FFO-3 (On-Budget and Off-Budget Outlays by Agency) and the FY2011-FY2020 annual rows at their latest printings. They applied the same Hazen rule: for 10 values, the 85th Hazen percentile falls exactly on the 9th order statistic. The only difference was which columns make up the 'Department of Defense' total. Cells a and c used the 'Department of Defense, military' column alone. They read 'on-budget and off-budget' and 'nominal' as echoes of the table title and units, not as a request to add columns. Cell b summed that column with the separate 'Other Defense, civil programs' column (which sits in a different part of the multi-part table), reasoning that a 'total' for DoD should cover both defense lines. a had pulled both columns, computed the percentile for both variants in one calc, and then chose military-only on the wording. b briefly doubted the inclusion at [38] and looked for footnotes it could not see, but submitted the summed variant with no --alt. The gate stayed silent.",
+  "b_vs_a": {
+    "applies": true,
+    "first_divergence": {
+      "stage": "CELL_SELECTION",
+      "where": "b events [14]-[15] (decides 'DoD = military + Other Defense, civil programs'), [16]-[35] gathers both columns across issues, [37] calc sums both, [38]-[43] brief doubt and footnote look, [44] submit",
+      "what_b_did": "Built each year's DoD total as the sum of 'Department of Defense, military' and 'Other Defense, civil programs'. It assembled those values from show_table --raw on two issues (2015_03 for FY2011-2014, 2020_03 for FY2015-2019) plus FY2020 from a later issue, and took the Hazen 9th order statistic of the sums.",
+      "what_a_did": "Pulled both columns for every year via printings (latest printing summaries). It computed the Hazen percentile for military-only and for the sum in the same calc, weighed the wording, and answered with the military-only column."
+    },
+    "seed_text_effect": {
+      "a_used_seed_advice": "yes",
+      "which_advice": "when two candidate values fit ... weigh them against the question's exact wording and answer the one it asks for",
+      "evidence": "a [16]-[22]: printings per FY for both columns, taking the 'latest printing' summary lines (latest-printing advice). [28]: one calc computing both candidate variants. [25]/[27]/[29]: reasoning weighs 'total nominal' and 'on-budget and off-budget' against the table title before choosing. Both text-seed cells (a and c) chose military-only. b, whose seed lacks the Alternatives and 'decide for each column whether the question includes it' notes, over-included.",
+      "would_b_have_benefited": "unclear"
+    },
+    "mechanism_effect": {
+      "submit_rounds": 1,
+      "findings": [],
+      "offers_right": "none",
+      "b_changed_answer_because_of_gate": "no_change",
+      "loop_notes": 0,
+      "loop_note_helped": "n/a",
+      "ledger_splice": "no",
+      "workflow_cost": "The gate did not cost or help anything: one submit, all 10 rules silent. No rule targets 'an extra column added to an entity total'. row_coverage only complains about unused cells in a summed row, which pushes toward more inclusion, and table_alternatives compares tables, not columns. b doubted the inclusion at [38] but did not pass --alt. Had it done so, competing_candidates would have offered the military-only variant, which is right here but is the same coin flip that hurt UID0097. The larger cost was tool friction on the multi-part table: an invalid show_table flag, --cols/--match not reaching part 2, and printings --years filtering that found no rows. That added up to 21 requests versus a's 14."
+    },
+    "tools_usage": {
+      "a": "find_tables, show_table --grep/--stitch on the latest FFO-3 (window starts at 2020), then a shell loop of printings --table FFO-3 --row FY<y> for both columns with awk to extract the latest-printing summaries, sed of the raw 2025_09 table, rg for 'Hazen' (none), and calc with numpy's hazen method for both variants.",
+      "b": "find_tables --all, show_table with an invalid --table flag, show_table --stitch/--cols/--match/--raw across FFO-3 parts, printings --years 2020-2025 (no matches for older FY rows), printings --years 2015-2020 | rg for summary lines, show_table --raw on 2015_03 to read values, calc over hand-typed sums, and a single submit."
+    }
+  },
+  "c_vs_a": {
+    "applies": false,
+    "first_divergence": {
+      "stage": "OTHER",
+      "where": "n/a (no divergence)",
+      "what_c_did": "Chose the 'Department of Defense, military' column after explicitly considering 'Other Defense, civil programs' ([16], [20]). It pulled latest printings per FY and computed numpy's hazen quantile with calc, giving the same answer as a.",
+      "what_a_did": "Same column choice and the same Hazen computation."
+    },
+    "temperature_effect": "No effect on the outcome. c made the same column choice and used the same Hazen rule, and finished faster than a (11 requests, about 71 s)."
+  },
+  "lesson": "The entity-scope ambiguity ('which columns are Department of Defense') was resolved correctly by both cells whose AGENTS.md text tells them to weigh alternatives against the wording and to decide for each column whether the question includes it. b had that knowledge moved into submit-time rules that cannot see scope errors, and it silently over-included. Some seed advice has no mechanical check. Keep the textual 'Alternatives' and 'decide per column' notes in the mechanism arm's AGENTS.md instead of relying on the gate. If a rule is wanted, it should flag sums that combine columns from different table parts or different entity labels, and show the single-column variant as information rather than an Accept/Keep offer. Better show_table/printings handling of multi-part tables would also cut b-style tool churn."
+}

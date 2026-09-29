@@ -1,0 +1,18 @@
+{
+  "admitted_block": 0,
+  "enabled": true,
+  "finding": "The question asks for {count.expected} value(s); your answer has {count.got}.",
+  "id": "answer_count",
+  "offer": null,
+  "origin": "seed",
+  "priority": 10,
+  "scope": "core",
+  "stats": {},
+  "triggers": [],
+  "when": [
+    {
+      "args": {},
+      "pred": "count_mismatch"
+    }
+  ]
+}

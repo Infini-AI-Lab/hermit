@@ -1,0 +1,49 @@
+{
+  "task_id": "UID0220",
+  "correct": {
+    "a": 1,
+    "b": 0,
+    "c": 0
+  },
+  "summary": "All three cells had to pick a series for 'total federal expenditures' and a formula for an ambiguous 'absolute percent difference'. Cell a first found the 'Federal Expenditures - General' table. It then deliberately searched with find_tables for a broader 'total federal expenditures' series and switched to the Expenditures > Total column of the 1939-issue 'Summary of Federal Receipts and Expenditures'. It printed both months with printings and computed a symmetric, midpoint-denominator percent difference with calc. Cell c (T=1) stopped at the 'General' table, whose Total column covers general expenditures only and leaves out recovery/relief and revolving funds. It never looked for the broader total and used a percent change relative to the earlier month. Cell b (no seed text) spent its opening steps fighting officeqa.py and reached the tables through 'Budget Receipts and Expenditures' wording. It landed on a 1940s monthly budget series and followed 'latest printing' to a 1948 restated (likely reclassified) revision of the February value. It computed three formula variants and submitted the one based on the earlier month's value, without --alt. The gate recorded that answer with no finding. b and c were both wrong on source and on formula; a got both right.",
+  "b_vs_a": {
+    "applies": true,
+    "first_divergence": {
+      "stage": "SOURCE_TABLE",
+      "where": "b [15]-[27] (officeqa.py fumbling, then find_tables 'Budget Receipts and Expenditures' and show_table 1940_11 'Total Budget Receipts and Expenditures, by Months'); b [30]-[31] printings picked a 1948 reclassified revision; b [39]-[41] formula choice",
+      "what_b_did": "Used a later, differently classified monthly budget-expenditure series from 1940-1948 issues. Applied latest-printing to a 1948 table in which the February 1938 figure had been restated on a new basis. It then took the earlier month's value as the denominator: of three computed variants (relative-to-Feb, relative-to-Jan, symmetric) it submitted relative-to-Feb. The result was substantially higher than a's.",
+      "what_a_did": "After finding 'Federal Expenditures - General', asked whether a broader total series existed ([21]-[23] find_tables 'total federal expenditures' --years 1938-1939). It took 'Summary of Federal Receipts and Expenditures' > Expenditures Total from contemporaneous 1939 issues, confirmed both months with printings ([32]-[33]) and computed the symmetric midpoint-denominator percent difference with calc ([36])."
+    },
+    "seed_text_effect": {
+      "a_used_seed_advice": "yes",
+      "which_advice": "prefer the table whose title and column headers match the question's wording",
+      "evidence": "a opened with find_tables on the question's nouns ([7],[9]). At [22]-[23] it re-ran find_tables with 'total federal expenditures' to check for a broader series, which is what moved it off the sub-component table. It ran printings on each cell ([18],[32],[33]) and computed the final value with calc ([36]). a's AGENTS.md also names the L1 tools. b's AGENTS.md carries only the submit note, and b started with raw officeqa.py searches (permission denied, then printing dict keys).",
+      "would_b_have_benefited": "yes"
+    },
+    "mechanism_effect": {
+      "submit_rounds": 1,
+      "findings": [],
+      "offers_right": "none",
+      "b_changed_answer_because_of_gate": "no_change",
+      "loop_notes": 0,
+      "loop_note_helped": "n/a",
+      "ledger_splice": "no",
+      "workflow_cost": "Low direct cost. b submitted once and got 'recorded' immediately. The gate could not help. b had calc'd three competing formulas but passed no --alt, so competing_candidates had nothing to fire on. The later_printing logic agreed with b's choice of a reclassified 1948 revision rather than questioning it. table_alternatives did not compare b's 1940s budget table with the 1939 summary table. The indirect cost was the missing tool cues: b's AGENTS.md mentions only submit, and b spent about 6 steps on officeqa.py before discovering find_tables with 'which'."
+    },
+    "tools_usage": {
+      "a": "find_tables x3 (question-noun queries, one with --years 1938-1939 to look for a broader total); show_table --long/--grep/--from-row/--cols on two tables; printings for both months in both candidate tables; calc once for the final symmetric percent difference.",
+      "b": "officeqa.py via python (3 attempts, one permission error); find_tables x5 on 'Budget Receipts/Expenditures' wording; show_table --stitch on the 1940_11 monthly table; printings by year-row and month-column, which surfaced the 1948 revision; calc once printing three formula variants; submit once."
+    }
+  },
+  "c_vs_a": {
+    "applies": true,
+    "first_divergence": {
+      "stage": "SOURCE_TABLE",
+      "where": "c [10]-[17] (find_tables 'federal expenditures', show_table 1939_02 'Federal Expenditures - General', printings on its Total column); c [20]-[21] formula",
+      "what_c_did": "Took the Total column of 'Federal Expenditures - General', which counts general expenditures only. It went straight to calc and never asked whether a broader total existed. It then used the percent change relative to the earlier month rather than a symmetric difference. The result was noticeably higher than a's.",
+      "what_a_did": "Read the same 'General' table first. It then searched for a broader 'total federal expenditures' series, switched to the Summary table's Expenditures > Total, and used the midpoint denominator."
+    },
+    "temperature_effect": "c and a started identically, with the same find_tables query and the same first table. c's run was much shorter (8 requests, about 40 s, versus 17 requests, about 200 s for a). At T=1 the sampled trajectory committed to the first plausible table and skipped a's 'is there a broader total?' verification detour, which was the decisive move. The formula choice among relative, reverse-relative and symmetric was also resampled and landed on relative-to-earlier."
+  },
+  "lesson": "For 'total X' questions the harness needs a check that the chosen column is the broadest total, meaning a summary-table total rather than a sub-category table's Total. That check was the only thing separating a from c. The mech gate cannot see ambiguity the actor resolves silently. It should collect the competing values from calc output itself rather than rely on --alt, because b computed three formula variants and the gate saw one. Latest-printing should be limited to the same table lineage and accounting basis, because following it into a reclassified 1948 series moved b further from the answer. The mech arm's AGENTS.md should keep the L1 tool cues so the actor does not waste its opening steps on raw search."
+}

@@ -1,0 +1,98 @@
+TABLE [Table 3] Interest-Bearing Public Marketable Securities by Issues
+  file treasury_bulletin_1963_03.txt  issue 1963_03  lines 3756-3830  part 1
+  units: (Par values - in millions of dollars)
+  as-of: JANUARY 31, 1963
+  section: TREASURY SURVEY OF OWNERSHIP, JANUARY 31, 1963
+COLUMNS:
+  c0   Issue [period] -> shown as 'period' (filled) and 'label' (raw)
+  v1   = c1 Total amount outstanding [num]
+  v2   = c2 Held by investors covered in Treasury Survey > 6,152 commercial banks  [num]
+  v3   = c3 Held by investors covered in Treasury Survey > 508 mutual savings bank [num]
+  v4   = c4 Held by investors covered in Treasury Survey > 301 life [num]
+  v5   = c5 Held by investors covered in Treasury Survey > Insurance companies 508 [num]
+  v6   = c6 Held by investors covered in Treasury Survey > 488 savings and loan as [num]
+  v7   = c7 Held by investors covered in Treasury Survey > 473 corporations [num]
+  v8   = c8 Held by investors covered in Treasury Survey > 295 general funds [num]
+  v9   = c9 Held by investors covered in Treasury Survey > 185 pension and retirem [num]
+  v10  = c10 State and local governments [num]
+  v11  = c11 U.S. Government investment accounts and Federal Reserve Banks [num]
+  v12  = c12 Held by all other investors 4/ [empty]
+NOTES:
+  - columns empty in every data row: c12
+  - the LAST labelled column(s) c12 ('Held by all other investors 4/') never hold data: the header probably has a spurious extra label, so labels right of it sit one column too far right - pin columns with an identity or a sibling printing
+  - identity: c1 = sum c2..c11 on 65/66 rows (6 segment/panel(s)); FAILS at lines 3819 - OCR misread or shifted cell?
+ROWS:
+line  pnl  period   label                                    v1       v2    v3   v4      v5   v6    v7    v8   v9    v10      v11  v12    flags
+           ==       Treasury bills > Regular weekly
+3760  1             Feb. 1963 - Apr. 1963               24728.0   4119.0   165  153   233.0  159  3157  1848  253   1825  12817.0
+3761  1             May 1963 - July 1963                12210.0   2082.0    53   58    29.0   32  1592   560   31   1037   6734.0
+           ==       Tax anticipation
+3763  1             Mar. 1963                            3005.0    446.0     2   58    23.0    1  1317    11    -     19   1128.0
+           ==       Other
+3765  1    1963-04  Apr. 1963                            2001.0    256.0    10   15     9.0    7   132   151    *     46   1373.0
+3766  1    1963-07  July 1963                            2004.0    318.0    12    1     6.0   19   188   330    2     47   1081.0
+3767  1    1963-10  Oct. 1963                            2500.0    898.0    34    1     5.0   19   330   120    3    269    821.0
+3768  1    1964-01  Jan. 1964                            2496.0   1164.0    21    7     3.0   26   334   144    1     59    736.0
+3769  1             Total Treasury bills                48944.0   9282.0   298  294   309.0  264  7050  3165  291   3302  24690.0       PERIOD?
+           ==       Certificates of indebtedness
+3771  1             3-1/2% Feb. 1963-A                   5719.0   1021.0    27    1    53.0   16   211   122    5   3510    753.0
+3772  1             3-1/4 May 1963-B                     5284.0    979.0    20    4    59.0   13   408   170    *   2551   1081.0
+3773  1             3-1/2 Aug. 1963-C                    6851.0   1308.0    64   46    44.0   13   202   255   16   3818   1085.0
+3774  1             3-1/8 Nov. 1963-D                    4856.0    315.0    10    *    28.0    5   143    74    1   3794    486.0
+3775  1             Total certificates of indebtedness  22710.0   3623.0   121   51   185.0   46   963   621   21  13674   3405.0
+           ==       Treasury notes
+3777  1             2-5/8% Feb. 1963-A                   1487.0    496.0    19    5    32.0   19   248    29    3    245    392.0
+3778  1             3-1/4 Feb. 1963-E                    2259.0    993.0    19   11    44.0   12   187    77    *    229    688.0
+3779  1             4 May 1963-B                         1183.0    438.0    46    1    21.0   11    48    16    5     53    545.0
+3780  1             3-1/4 May 1963-D                     3027.0   1345.0    17    3    16.0   46    25   173    *    831    571.0
+3781  1             4-7/8 Nov. 1963-C                    3011.0    914.0   142   10    89.0   22   103    63   24    332   1311.0
+3782  1             3-3/4 May 1964-D                     3893.0   1900.0    60    5   162.0   43    51    87   12    302   1270.0
+3783  1             4-3/4 May 1964-A                     4933.0    618.0   107   17    58.0   22    49    46   54   2859   1104.0
+3784  1             5 Aug. 1964-B                        2316.0    332.0    94   13    55.0   13    53    18   22    219   1497.0
+3785  1             3-3/4 Aug. 1964-E                    5019.0   1963.0    55    4    63.0   41    34    77    2   1759   1020.0
+3786  1             4-7/8 Nov. 1964-C                    4195.0    723.0   125    7    56.0   18    43    67   52   2335    769.0
+3787  1             4-5/8 May 1965-A                     2113.0    699.0   117   13    70.0   32    12    47   17    401    706.0
+3788  1             3-1/2 Nov. 1965-B                    3286.0   2084.0    48    3   112.0   59   105    22    *     18    835.0
+3789  1             3-5/8 Feb. 1966-B                    3114.0   2031.0    60    2    65.0   54    54    38    1    218    591.0
+3790  1             4 Aug. 1966-A                        4454.0   1648.0   106    6    68.0   54    81    30    1   1697    764.0
+3791  1             3-3/4 Aug. 1967-A                    5282.0   3489.0   150    5   140.0   57    66    40    2    160   1173.0
+3792  1             1-1/2 Apr. 1963-EA                    533.0    157.0     2    -    25.0    *   198     5    *     15    131.0
+3793  1             1-1/2 Oct. 1963-EO                    506.0    224.0     *    -    19.0    *   131     4    *      -    127.0
+3794  1             1-1/2 Apr. 1964-EA                    457.0    165.0     1    3    26.0    *   146     1    1      -    114.0
+3795  1             1-1/2 Oct. 1964-EO                    490.0    198.0     3    4    25.0    2   164     *    -      -     94.0
+3796  1             1-1/2 Apr. 1965-EA                    466.0    218.0    13   18    14.0    -    64     *    1      -    136.0
+3797  1             1-1/2 Oct. 1965-EO                    315.0    162.0     2    5     8.0    1    45     -    *      -     92.0
+3798  1             1-1/2 Apr. 1966-EA                    675.0    265.0     2  165    29.0    2   105     1    -      -    106.0
+3799  1             1-1/2 Oct. 1966-EO                    357.0    240.0     2    2    20.0    2    58     *    1      -     31.0
+3800  1             1-1/2 Apr. 1967-EA                    270.0    133.0     2   17     7.0    1    77     -    -      -     34.0
+3801  1             1-1/2 Oct. 1967-EO                     57.0     31.0     1    1     1.0    -    10     *    -      -     12.0
+3802  1             Total Treasury notes                53697.0  21464.0  1192  321  1226.0  509  2158   842  198  11673  14113.0
+           ==       Treasury bonds
+3804  1             2-1/2% June 1962-67                  1462.0    539.0    60    7   101.0   26    65    15    9    204    436.0
+3805  1             2-1/2 Aug. 1963                      4317.0   1909.0    34    8   200.0   65   544   116   13    365   1065.0
+3806  1             2-1/2 Dec. 1963-68                   1816.0    671.0   126   43   173.0   53    27    29   21    230    444.0
+3807  1             3 Feb. 1964                          2700.0   1423.0    21    2    50.0   35    51    64    3    112    940.0
+3808  1             2-1/2 June 1964-69                   2633.0    766.0   299   98   168.0   62     2    43   36    509    648.0
+3809  1             2-1/2 Dec. 1964-69                   2544.0    649.0   242  121   117.0   71     7    89   52    538    659.0
+3810  1             2-5/8 Feb. 1965                      4682.0   2444.0    28   28   226.0   69   213    77   13    474   1111.0
+3811  1             2-1/2 Mar. 1965-70                   2423.0    381.0   162  138   149.0   37     6    67   69    773    640.0
+3812  1             2-1/2 Mar. 1966-71                   1411.0    149.0   107  121    88.0   32     2    61   36    388    427.0
+3813  1             3-3/4 May 1966                       3597.0   1871.0   105   18   101.0   70    45    33    5    309   1041.0
+3814  1             3 Aug. 1966                          1484.0    853.0    31    3    42.0   55    12    21    7    148    313.0
+3815  1             3-3/8 Nov. 1966                      2438.0   1171.0    48   18    93.0   61    16    31   24    233    744.0
+3816  1             2-1/2 June 1967-72                   1325.0    169.0    88   48    39.0   54    14    46   38    128    701.0
+3817  1             2-1/2 Sept. 1967-72                  1952.0   1015.0    95   10   107.0   71     1    23   13     76    540.0
+3818  1             3-5/8 Nov. 1967                      3604.0   1250.0   102   40   137.0  116    33    79   33    762   1052.0
+3819  1             2-1/2 Dec. 1967-72                   2800.0    165.0    80  123    95.0   86    11   148   91    209   1752.0
+3820  1             3-7/8 May 1968                       2460.0    730.0   119   17    88.0   54     4    64   56    395    933.0
+3821  1             3-3/4 Aug. 1968                      1258.0    700.0    53    3    22.0   33    13     7    9    130    286.0
+3822  1             4 Feb. 1969                          1844.0   1219.0    71    5    17.0   42    18     2    2    119    350.0
+3823  1             4 Oct. 1969                          2538.0    671.0   166   24    79.0   69     *    18   61    333   1115.0
+3824  1             4 Aug. 1971                          2806.0   1266.0   116   13    67.0   89     6    41   24    462    722.0
+3825  1             3-7/8 Nov. 1971                      1246.0    435.0    71    3    49.0   80     *    67   29    119    393.0
+3826  1             4 Feb. 1972                          2344.0   1394.0   163   28    53.0   87    12    22   83     42    458.0
+3827  1             4 Aug. 1972                          2579.0    857.0   196   77    63.0  121    18    33  128    386    700.0
+3828  1             3-7/8 Nov. 1974                      1171.0     49.0    80   36    47.0   58     5    65   98    378    356.0
+3829  1             4-1/4 May 1975-85                     470.0     17.0    18    9     6.0    6     *    33  140    114    127.0
+3830  1             3-1/4 June 1978-83                   1592.0     33.0    48   99    30.0   37     1   204  408    181    551.0
+(66 of 66 rows; period = YYYY-MM filled down from the first row of each year block; 'Y?' = year not printed; 'year+1 inferred' = rollover without a label; <..~> = inferred column period; raw cells kept, so r/p flags and footnote marks stay visible)

@@ -1,0 +1,52 @@
+{
+  "task_id": "UID0243",
+  "correct": {
+    "a": 0,
+    "b": 1,
+    "c": 0
+  },
+  "summary": "The question needs three fiscal-year-end public-debt levels from the corpus and three BLS CPI-U annual averages that are not in the corpus. Cell b picked the 'Public debt' column of the July 1962 'Summary of Federal Securities' and checked it against the July 1963 printing. It used the published one-decimal CPI-U annual averages from memory and computed once with calc. The gate raised two findings, 'grounded' on the CPI inputs and a false-positive 'table_alternatives'. Neither offered a value. b searched the corpus in vain, received one loop note, and kept its first answer twice. Cell a took the 1969 FD-1 'Total outstanding > Total' column, which adds agency securities, although the same table printed the public-debt-securities column beside it. It also rebuilt CPI-U from misremembered monthly values, which gave extra-precision annual averages with the 1962 value off. a's answer was about 2.7 times the correct value. The debt column alone accounts for about 2.4 times and the CPI alone for about 1.3 times. Cell c used the correct CPI but took interest-bearing public debt from the computed-interest-charge table, which is also wrong.",
+  "b_vs_a": {
+    "applies": true,
+    "first_divergence": {
+      "stage": "CELL_SELECTION",
+      "where": "a [10]-[12] (FD-1 in 1969_10 and printings of 'Total outstanding > Total') vs b [20]-[22] (1962_07 Summary of Federal Securities, 'Public debt' column), b [41]-[43] later-printing check; second divergence a [38], [56], [60]-[78] vs b [22], [37]-[38], [44] (EXTERNAL_KNOWLEDGE: CPI values)",
+      "what_b_did": "Chose the public-debt column, reading 'public debt outstanding' as excluding guaranteed and agency securities, and confirmed it in a later issue. It used the standard one-decimal BLS CPI-U annual averages. It computed once with calc, and that first submit was already right.",
+      "what_a_did": "Chose FD-1's grand-total column (public debt plus agency securities), although the public-debt-securities component was printed beside it in the same row. It made the choice without weighing the column against the question's wording ([11]). It could not find CPI in the corpus and reconstructed annual averages from misremembered monthly values, adding precision the published series does not have. The 1962 figure was wrong. It also went through two Fraction scaling slips before the final calc."
+    },
+    "seed_text_effect": {
+      "a_used_seed_advice": "yes",
+      "which_advice": "Provenance: use numbers you have seen printed by a tool.",
+      "evidence": "a ran printings for the latest printing of each debt value ([12]). It spent about 25 steps ([15]-[72]) searching the corpus for a printed CPI-U line (CPI, 1982-84, purchasing power, cost of living), repeating several searches, before falling back to memory. It did the final arithmetic in calc ([60]-[78]). None of this advice touches the two decisive choices, the total versus public-debt column and the precision of external CPI values. The latest-printing advice may have steered a toward the 1969 FD-1 lineage, whose headline column is the grand total.",
+      "would_b_have_benefited": "no"
+    },
+    "mechanism_effect": {
+      "submit_rounds": 3,
+      "findings": [
+        "grounded",
+        "table_alternatives"
+      ],
+      "offers_right": "none",
+      "b_changed_answer_because_of_gate": "no_change",
+      "loop_notes": 1,
+      "loop_note_helped": "yes",
+      "ledger_splice": "no",
+      "workflow_cost": "The gate cost b about 13 requests and about 50 s and changed nothing. 'grounded' fired on the CPI inputs, which the question tells the solver to take from BLS and which exist nowhere in the corpus. That sent b on a futile corpus search ([46]-[64]) that included one rg command issued 3 times. The loop_guard note (the only controller splice; there was no compaction) listed the current candidate, and b moved to submit --keep. The second-round 'table_alternatives' matched an accrued-interest table on the generic words 'adjust/adjusted'. It was a false positive: b opened that table ([68]), found it unrelated and kept. The Accept/Keep protocol caused no confusion, and b's reasons for keeping were correct."
+    },
+    "tools_usage": {
+      "a": "find_tables (debt; CPI queries returned nothing); show_table --grep on FD-1; printings for FY1960-62 on the Total column; officeqa.py search and many rg sweeps for CPI, several repeated; calc x4, including two Fraction slips before the final run.",
+      "b": "officeqa.py search (unhelpful); find_tables x5 (limitation table, 'Debt outstanding', 'Summary of Federal Securities', 'Consumer Price Index'); show_table --stitch on the 1962_07 and 1963_07 Summary of Federal Securities; rg sweeps for CPI; calc once; submit x3 (initial, keep, keep)."
+    }
+  },
+  "c_vs_a": {
+    "applies": false,
+    "first_divergence": {
+      "stage": "SOURCE_TABLE",
+      "where": "c [22]-[62], [82]",
+      "what_c_did": "Both cells were wrong in different ways. c used 'Total interest-bearing securities > Public debt' from the computed-interest-charge table (DO-2), which leaves out non-interest-bearing debt. It used the correct one-decimal CPI-U values.",
+      "what_a_did": "Used the FD-1 grand total including agency securities, with reconstructed extra-precision CPI values."
+    },
+    "temperature_effect": "Not applicable (both wrong). At T=1, c took a different wrong path from a: a debt series found by rg on 'debt outstanding' wording instead of find_tables. It also made one denied /tmp write attempt. It did recall the published one-decimal CPI correctly where a did not."
+  },
+  "lesson": "Questions that need an external statistic such as CPI-U should get a reference-data tool, or at least a seed line saying: use the published annual averages at their published precision and never rebuild them from memory. The 'grounded' rule should exempt inputs the question explicitly sources outside the corpus. Here it only generated a futile search loop on an already-right answer. table_alternatives, which scores word overlap on generic words like 'adjust', needs a stop-word or semantic filter to avoid false positives. The decisive error for the text arm was taking a grand-total column when the question names a component, public debt as distinct from agency or guaranteed securities. A seed line or rule check along the lines of 'the question's noun must match the column's own label, not its parent Total' would target it."
+}

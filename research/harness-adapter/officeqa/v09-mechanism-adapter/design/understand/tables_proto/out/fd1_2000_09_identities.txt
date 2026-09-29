@@ -1,0 +1,40 @@
+TABLE [FD-1] Sum mary of Fed eral Debt
+  file treasury_bulletin_2000_09.txt  issue 2000_09  lines 957-975  part 1
+  units: [In mil lions of dol lars. Source: "Monthly Trea sury State ment of Re ceipts and Out lays of the United States Gov ern ment"]
+  section: FEDERAL DEBT
+COLUMNS:
+  c0   End of fis cal year or month [period] -> shown as 'period' (filled) and 'label' (raw)
+  v1   = c1 Amount outstanding > Total (1) [num]
+  v2   = c2 Amount outstanding > Public debt securities (2) [num]
+  v3   = c3 Amount outstanding > Agency securities (3) [num]
+  v4   = c4 Government accounts > Total (4) [num]
+  v5   = c5 Government accounts > Public debt securities (5) [num]
+  v6   = c6 Government accounts > Agency securities (6) [num]
+  v7   = c7 The public > Total (7) [num]
+  v8   = c8 The public > Public debt securities (8) [num]
+  v9   = c9 The public > Agency securities (9) [num]
+NOTES:
+  - identity: c1 = sum c2+c3 on 17/17 rows (1 segment/panel(s))
+  - identity: c4 = sum c5+c6 on 17/17 rows (1 segment/panel(s))
+  - identity: c7 = sum c8+c9 on 17/17 rows (1 segment/panel(s))
+ROWS:
+line  pnl  period   label             v1       v2     v3       v4       v5    v6       v7       v8     v9  flags
+           ==
+959   1    FY1995   1995         5000945  4973983  26962  1320800  1320784    16  3680145  3653199  26946
+960   1    FY1996   1996         5259854  5224811  35043  1454608  1447001  7606  3805246  3777810  27437
+961   1    FY1997   1997         5446333  5413146  33187  1605557  1598459  7098  3840776  3814687  26089
+962   1    FY1998   1998         5555565  5526193  29372  1769497  1765580  3917  3786068  3760613  25455
+963   1    FY1999   1999         5685181  5656271  28910  1989705  1989072   634  3695476  3667199  28276
+964   1    1999-06  1999 - June  5667682  5638780  28902  1954247  1953613   634  3713435  3685167  28268
+965   1    1999-07  July         5667400  5638656  28744  1952587  1951953   634  3714813  3686703  28110
+966   1    1999-08  Aug          5701027  5672386  28641  1959698  1959064   634  3741329  3713322  28007
+967   1    1999-09  Sept         5685181  5656271  28910  1989705  1989072   634  3695476  3667199  28276
+968   1    1999-10  Oct          5708360  5679727  28633  2006868  2006234   634  3701492  3673493  27999
+969   1    1999-11  Nov          5724359  5693600  30759  2016199  2015565   634  3708160  3678035  30125
+970   1    1999-12  Dec          5805009  5776091  28918  2061194  2060560   634  3743815  3715531  28284
+971   1    2000-01  2000 - Jan   5739855  5711285  28570  2080525  2080140   384  3659330  3631145  28186
+972   1    2000-02  Feb          5763410  5735333  28077  2086246  2085861   384  3677164  3649472  27693
+973   1    2000-03  Mar          5801544  5773392  28152  2085801  2085418   384  3715743  3687974  27768
+974   1    2000-04  Apr          5713047  5685108  27939  2111144  2110760   384  3601903  3574348  27555
+975   1    2000-05  May          5674829  5647170  27659  2127690  2127639    51  3547139  3519531  27608
+(17 of 17 rows; period = YYYY-MM filled down from the first row of each year block; 'Y?' = year not printed; 'year+1 inferred' = rollover without a label; <..~> = inferred column period; raw cells kept, so r/p flags and footnote marks stay visible)

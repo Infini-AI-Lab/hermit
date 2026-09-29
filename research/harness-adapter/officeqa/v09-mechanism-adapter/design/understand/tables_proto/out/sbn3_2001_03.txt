@@ -1,0 +1,45 @@
+TABLE [SBN-3] Sales and Re demptions by Period, Series E, EE, H, HH and I
+  file treasury_bulletin_2001_03.txt  issue 2001_03  lines 2040-2067  part 1
+  units: [In mil lions of dol lars. Source: "Monthly State ment of the Pub lic Debt of the United States," Bu reau of the Pub lic Debt, Of fice of Pub lic Debt Ac count ing]
+  section: U.S. SAVINGS BONDS AND NOTES
+COLUMNS:
+  c0   Period [period] -> shown as 'period' (filled) and 'label' (raw)
+  v1   = c1 Sales (1) [num]
+  v2   = c2 Accrued discount (2) [num]
+  v3   = c3 Sales plus accrued discount (3) [num]
+  v4   = c4 Total (4) [num]
+  v5   = c5 Redemptions Sales price (5) [num]
+  v6   = c6 Accrued discount (6) [num]
+  v7   = c7 Exchange of E bonds for H and HH bonds (7) [num]
+  v8   = c8 Amount out stand ing Interest-bearing debt (8) [num]
+  v9   = c9 Matured non-interest-bearing debt (9) [num]
+NOTES:
+  - identity: c3 = sum c1+c2 on 10/10 rows (2 segment/panel(s))
+ROWS:
+line  pnl  period               label                              v1      v2      v3      v4      v5     v6     v7      v8    v9           flags
+           ==                   Series E and EE > Fiscalyears
+2044  1    FY1941-1995 (range)  1941-95                        329121  169936  499057  302428  223816  77650  17980  170005  1977
+2045  1    FY1996               1996                             6035    9708   15743   11809    6480   5315   1173  172483  2276
+2046  1    FY1997               1997                             5334    9067   14401    8435    7541   6456   1254  169969  3584
+2047  1    FY1998               1998                             4765    9141   13906   14136    6954   7182   1190  180744  5091
+2048  1    FY1999               1999                             4630    8349   12979   12407    6744   7500   1090  166529  6169
+2049  1    FY2000               2000                             3848    6899   10747   11161    5853   6583   1924  182749  6525
+           ==                   Calendaryears
+2051  1    CY1941-1996 (range)  1941-96                        332811  185957  518768  312108  235780  83241  19745  170744  4198
+2052  1    CY1997               1997                             9316   16499   25815   24863   13044  11598   2192  168892  5359
+2053  1    CY1998               1998                             4870    9152   14022   14123    6669   6328   1981  167375  6250
+2054  1    CY1999               1999                             4909    8098   13007   12551    5602   5856   1013  165702  6983
+           ==                   1999 - Dec 2000
+2056  1    2000-01              Jan                               551     676    1334    1253     569    579     88  165702  6983  year from sect
+2057  1    2000-02              Feb                               384     784    1295     791     738    791     86  165358  6832  year from sect
+2058  1    2000-03              Mar                               360     689    1165     690     520    690    102  165146  6677  year from sect
+2059  1    2000-04              Apr                               430     647    1184     766     656    766    112  164719  6534  year from sect
+2060  1    2000-05              May                               369     797    1254    1354     580    686     89  164558  6416  year from sect
+2061  1    2000-06              June                              387     601    1115    1249     540    611     98  163679  6934  year from sect
+2062  1    2000-07              July                              378     644    1276    1317     579    652     86  163420  6810  year from sect
+2063  1    2000-08              Aug                               324     757    1349    1246     562    600     84  163267  6713  year from sect
+2064  1    2000-09              Sept                              329     671    1270    1392     626    666    101  162876  6610  year from sect
+2065  1    2000-10              Oct                               336     633    1177    1103     483    542     78  162749  6525  year from sect
+2066  1    2000-11              Nov                               334     780    1391    1087     482    520     74  162807  6449  year from sect
+2067  1    2000-12              Dec                               414     652    1243    1023     463    499     69  161386  7739  year from sect
+(22 of 22 rows; period = YYYY-MM filled down from the first row of each year block; 'Y?' = year not printed; 'year+1 inferred' = rollover without a label; <..~> = inferred column period; raw cells kept, so r/p flags and footnote marks stay visible)

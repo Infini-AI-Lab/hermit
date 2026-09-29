@@ -1,0 +1,64 @@
+PASS     ffo3_2004_03_stitch               [Q81 Q16 Q86] FFO-3 split into 3 OCR parts (13/12/12 columns) + year fill-down
+         parts=3 column numbers found=37/37 periods_match=True; r-flag cells parsed e.g. ('r',)
+
+PASS     ffo3_printings_2003_01_gsa        [Q81] same row (Jan 2003, GSA column) across every FFO-3 printing
+         issues=['2003_06', '2003_09', '2003_12', '2004_03'] (Opus: ['2003_06', '2003_09', '2003_12', '2004_03'])
+
+PASS     ffo3_printings_1987_01_judiciary  [Q86] vintage map; 1987_09 prints both FFO-3 bands in ONE pipe table
+         issues=['1987_06', '1987_09', '1987_12', '1988_03']; distinct=2; (before the per-row-label fix the second band's row was reported under 'The judiciary')
+
+PASS     ay1_1970_06_years_lost            [Q11 Q18] AY-1: 4 column groups x 3 Jan..Dec blocks, year labels lost
+         groups=[1, 2, 3, 4] rows/group={1: 36, 2: 36, 3: 36, 4: 29} all YEAR_UNKNOWN=True group4 3rd block months=5 (ends May => issue-date anchor) siblings_listed=True
+
+PASS     ay1_1970_05_years_anchored        [Q18] sibling printing whose year-label rows anchor every block
+         group spans={1: ('1959-01', '1961-12'), 2: ('1962-01', '1964-12'), 3: ('1965-01', '1967-12'), 4: ('1968-01', '1970-04')}; column names from title block=True
+
+PASS     yields_1944_03_label_slide        [Q30] 3 side-by-side panels; 1943-Jan label slid into the middle panel
+         sequence breaks flagged at [(4031, 2), (4031, 3), (4032, 2), (4041, 2)]; 2-value panels marked unreliable=2; weekly dates filled=True
+
+PASS     yields_1956_07_header_shift       [Q62] header 'Period > From 10 to 20 years' slid one column left
+         1956_07 panel-1 labels: c1='From 10 to 20 years 3/' c2='Taxable Treasury bonds, due or callable > and after' c3="Moody's Aaa corporate bonds" (VERIFY note=True); 1956_08 in-body header gives c2='..20 years and after' in 4 layout(s)
+
+PASS     ffo2_windows                      [Q14 Q130] 13-month rolling window: which calendar/fiscal months an issue covers
+         2011_03: month span 2009-12..2010-12 contains target months=True; 2018_12: month span 2017-09..2018-09 contains target months=True; 2011_12: month span 2010-09..2011-09 contains target months=False  (2011_12 must NOT contain Oct-Dec 2011)
+
+PARTIAL  pdo1_1972_03_row_shift            [Q9] maturity schedule: 2 panels, rows slid left, garbled year labels
+         rows repaired SHIFT+1=48; identities: ['identity: c2 = sum c3+c4 on 37/40 rows (1 segment/panel(s)); FAILS at lines 2085,2090,2100 - OCR misread or shifted cell?', 'identity: c7 = sum c8+c9 on 29/30 rows (1 segment/panel(s)); FAILS at lines 2096 - OCR misread or shifted cell?']; garbled year labels ('1976' on 1972 rows) are NOT repaired - only the identity failures and the note expose the damage
+
+PARTIAL  mq1_1982_03_header_shift          [Q15] two-panel bill quotations; header labels shifted right of the data
+         type/label mismatch warnings=3 (["c6 labelled 'Maturity date' holds num values - header probably shifted"]); labels are NOT realigned (needs a type-guided alignment of label list to non-empty columns)
+
+PASS     cm_column_periods                 [Q89 Q13] month columns whose year is printed only on the first/annual columns
+         2000_12 CM-I-3: {1: '1997 (year)', 2: '1998 (year)', 3: '1999 (year)', 4: '2000-05', 5: '2000-06', 6: '2000-07', 7: '2000-08', 8: '2000-09'}; 2001_12 CM-I-2: {1: '1998 (year)', 2: '1999 (year)', 3: '2000 (year)', 4: '2001-05', 5: '2001-06', 6: '2001-07', 7: '2001-08', 8: '2001-09'}; 2013_03 CM-I-1: {1: '2011 (year)', 2: '2012-06', 3: '2012-07', 4: '2012-08', 5: '2012-09', 6: '2012-10', 7: '2012-11', 8: '2012-12'}
+
+PASS     fd1_2000_09_identities            [Q101 Q8] FD-1 in a syllable-split OCR issue; column identities prove alignment
+         id=FD-1 title='Sum mary of Fed eral Debt'; identities=['identity: c1 = sum c2+c3 on 17/17 rows (1 segment/panel(s))', 'identity: c4 = sum c5+c6 on 17/17 rows (1 segment/panel(s))', 'identity: c7 = sum c8+c9 on 17/17 rows (1 segment/panel(s))']; find by phrase hits FD-1=True
+
+PASS     months_by_year_1950_02            [Q17] year x month matrix with Total column; OCR-misread cells
+         row-total identity failures at [('Budget expenditures 2/', 'CY1941'), ('Budget expenditures 2/', 'CY1942'), ('Budget expenditures 2/', 'CY1947'), ('Budget surplus, or def', 'CY1946'), ('Budget surplus, or def', 'CY1948')] (Opus found misreads in the 1942 and 1947 expenditure rows of this printing)
+
+PARTIAL  tso3_1963_03_spurious_label       [Q43] survey-of-ownership by issue; spurious extra header label
+         header labels=12 vs non-empty value columns=11; spurious-label warning=True; identities=['identity: c1 = sum c2..c11 on 65/66 rows (6 segment/panel(s)); FAILS at lines 3819 - OCR misread or shifted cell?'] (the tool says labels are shifted but cannot tell WHICH label is spurious)
+
+PASS     sbn3_2001_03_blocks               [Q122] savings-bond table: FY vs CY annual rows, unlabeled month block, OCR row shift
+         annual rows tagged FY/CY from section banners=True; unlabeled 'Mar' -> 2000-03 flagged=True; printings marks the 2001_03 printing of col (8) as an ISOLATED outlier=True (its month block is shifted one row against the 2000_06..2001_06 printings)
+
+PASS     expenditures_1956_08_two_bands    [Q60] agencies table split in two column bands; parent header spans sub-columns
+         parts=2 Defense labels=['Defense Department > Military functions', 'Defense Department > Civil functions', 'Defense Department > Undistributed foreign transactions'] (parent > child kept in the label)
+
+PARTIAL  ffo5_1981_12_garbled_cell         [Q88] total row fell out of the pipe table; 'r' OCR'd as '1'
+         orphan-row note for line 916=True; '1-156' typed as 'text' (not silently a number). The tool does not decode '2/155,598' (footnote 2/ + OCR'd r + value) - printings() against the previous issue is the check
+
+PASS     ofs2_2013_03_newest_first         [Q105 Q44] OFS-2 lists quarters newest-first: 2012 - Dec, Sept, June, Mar, 2011 - Dec
+         first periods=['2012-12', '2012-09', '2012-06', '2012-03', '2011-12', '2011-09', '2011-06', '2011-03', '2010-12'] (a naive fill-down gives 2013-09 for the 'Sept' under '2012 - Dec'); false sequence flags=0
+
+PASS     ofs1_2007_09_stitch               [Q44 Q77 Q101] OFS-1 in two column bands; marketable + nonmarketable = total
+         2006-06 row present=True; identities=['  - part1: identity: c3 = sum c4+c5 on 18/18 rows (1 segment/panel(s))', '  - part2: identity: c1 = sum c2+c3 on 17/18 rows (1 segment/panel(s)); FAILS at lines 1825 - OCR misread or shifted cell?']
+
+PASS     esf1_2012_06_balance_sheet        [Q39] item rows x date columns; units banner inside the header; section paths
+         column dates={1: 'Sept. 30, 2011', 2: 'Oct. 1, 2011 through Dec. 31, 2011', 3: 'Dec. 31, 2011'}; section paths=['Assets > U.S. dollars > Held with Treasury', 'Capital', 'Foreign exchange and securities'] (indentation is lost: whether 'Accounts receivable' sits under 'Foreign exchange and securities:' cannot be recovered - shown as nearest banner)
+
+PASS     find_tables_recall                [Q109 Q101 Q16] phrase -> table lookup incl. OCR-split words and lowercase labels
+         SN-1 & SB-2 listed together=True; 'judicial branch' -> FFO-3 header=True; syllable-split FD-1 title=True; 'Cal en dar year' header found via squashed match=True
+
+SUMMARY: {'PASS': 17, 'PARTIAL': 4}

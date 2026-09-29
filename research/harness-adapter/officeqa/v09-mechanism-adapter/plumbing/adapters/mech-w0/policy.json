@@ -1,0 +1,10 @@
+{
+  "disabled_rules": [],
+  "enforce_min_remaining_s": 60,
+  "enforce_requery_max": 1,
+  "gate_findings_per_round": 1,
+  "gate_rounds_max": 2,
+  "ledger_splice_bytes": 8000,
+  "loop_notes_max": 3,
+  "loop_threshold": 3
+}

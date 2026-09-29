@@ -1,0 +1,45 @@
+{
+  "task_id": "UID0182",
+  "correct": {"a": 1, "b": 0, "c": 0},
+  "summary": "The deciding step was which table to use for 'Canadian dollar liabilities', and it came down to one search phrase. a searched with 'liabilities payable in Canadian dollars', the Treasury's own wording. That surfaced CM-I-1 'Total Liabilities by Type and Holder' (Treasury International Capital data). This single table has a 'Payable in foreign currencies > Canadian dollars' row and a 'Total liabilities to all foreigners' row, both in USD with calendar-year columns. a took the latest printing of each of the six cells and computed the three ratios and their maximum with calc. b and c both matched 'liabilities to foreign countries' to the IFS-2 header ('Liabilities to foreign countries > Total') for the denominator. For the numerator they took 'Foreign currency denominated > Liabilities' from the Foreign Currency Positions tables, which cover only reporting FX market participants and are stated in Canadian dollars. They converted it with the table's exchange rate. b used the monthly FCP-I-2 series, giving an answer about 3x a's. c added the monthly and quarterly (FCP-I-3) populations, giving about 4x a's. Neither b nor c ever had CM-I-1 in any tool output. Note that v8_prompt was the only other arm to get this right and Opus got it wrong, so a's win looks like search luck on a hard question rather than a robust behaviour.",
+  "b_vs_a": {
+    "applies": true,
+    "first_divergence": {
+      "stage": "SOURCE_TABLE",
+      "where": "b item_9 (find_tables 'liabilities to foreign countries' / 'Canadian dollar liabilities' / 'liabilities to foreigners', all --all; none lists CM-I-1); item_11-item_12 (declares IFS-2 the relevant table); item_23 (reasoning: numerator from FCP, denominator from IFS-2, convert CAD to USD); item_43 (chooses monthly FCP-I-2 over quarterly FCP-I-3); item_53 calc; item_55 submit",
+      "what_b_did": "Built a cross-table ratio: FCP-I-2 'Foreign currency denominated > Liabilities' (millions of CAD, major market participants), converted with the FCP exchange rate, divided by the IFS-2 total liabilities to foreign countries, then took the max over 2009-2011.",
+      "what_a_did": "After four other phrasings, a's fifth find_tables query 'liabilities payable in Canadian dollars' returned CM-I-1. a read the raw table with sed, confirmed a 'Canadian dollars' row under 'Payable in foreign currencies' next to 'Total liabilities to all foreigners', ran printings for those rows in the CY2009/2010/2011 columns, and computed the ratios in calc."
+    },
+    "seed_text_effect": {
+      "a_used_seed_advice": "unclear",
+      "which_advice": "Search with find_tables using the question's key nouns and prefer the table whose title and column headers match",
+      "evidence": "a iterated find_tables over five rephrasings of the question's nouns (items 5-13) and opened CM-I-1 only once a phrasing returned it. a also ran printings for all six cells (item_23, item_25, item_27), in line with the latest-printing advice. c had the identical seed, however, and made the same table choice as b, so the seed text is not what separated a from b.",
+      "would_b_have_benefited": "unclear"
+    },
+    "mechanism_effect": {
+      "submit_rounds": 1,
+      "findings": [],
+      "offers_right": "none",
+      "b_changed_answer_because_of_gate": "no_change",
+      "loop_notes": 0,
+      "loop_note_helped": "n/a",
+      "ledger_splice": "no",
+      "workflow_cost": "The gate was inert. All rules were silent: table_alternatives because CM-I-1 was never loaded, so there was nothing better in the ledger to compare. b's reasoning weighed unresolved alternatives (monthly vs quarterly FCP numerator, with vs without FX conversion) but it submitted without --alt, so competing_candidates had nothing to check. b ran about 2x a's wall time (192 s vs 99 s, 26 vs 15 requests), all of it spent reconciling FCP tables. None of that time came from the submit protocol."
+    },
+    "tools_usage": {
+      "a": "find_tables x5, rephrasing the key nouns each time (--rows, not --all); show_table on CM-I-1 (grep matched nothing, then a partial page); sed of the raw corpus lines to see the 'Canadian dollars' row; printings for the Canadian dollars and Total rows x three calendar-year columns; calc for the three ratios, the max and the rounding.",
+      "b": "find_tables x7 (mostly --all); show_table --stitch on IFS-2 (2013_03, 2013_12), FCP-I-3 and FCP-I-2; sed of raw pages; rg over the corpus; the officeqa.py search helper (printed only dict keys); printings piped through tail for FCP liabilities and exchange rates; calc; submit."
+    }
+  },
+  "c_vs_a": {
+    "applies": true,
+    "first_divergence": {
+      "stage": "SOURCE_TABLE",
+      "where": "c item_8 (find_tables 'Canadian dollar liabilities' --all plus 'foreign countries' --all), item_11 (find_tables 'liabilities to foreign countries' --years 2009-2012 finds only IFS-2), item_21-item_23 (settles on an FCP numerator over an IFS-2 denominator), item_48-item_49 (sums the monthly FCP-I-2 and quarterly FCP-I-3 populations), item_61 final",
+      "what_c_did": "Same cross-table construction as b, but it summed the monthly and quarterly FCP liability series as 'total Canadian dollar liabilities', converted to USD, and divided by IFS-2 totals. It took the IFS-2 denominators from printings' e-notation SUMMARY (6 significant digits), which was harmless at 3-decimal rounding.",
+      "what_a_did": "Used CM-I-1, a single USD table holding both the Canadian-dollar liability row and the total-liabilities-to-foreigners row, with latest printings and a calc max."
+    },
+    "temperature_effect": "Sampling changed the search phrasings. c's second query paired 'Canadian dollar liabilities' --all with 'foreign countries' --all, while a went through 'Canadian dollar' --rows and 'U.S. liabilities to foreign countries' before reaching 'liabilities payable in Canadian dollars'. Once c anchored on IFS-2 plus FCP, the extra exploration at T=1.0 (27 requests, about 9k output tokens, 210 s) did not surface CM-I-1. It even compounded the error by adding a second reporting population. b ran at T=0 but with a different context, and it also missed CM-I-1. So the T=0 success here reflects one lucky query path, not systematically better search."
+  },
+  "lesson": "Table discovery by lexical search is the bottleneck. The correct table can be found only through the Treasury's idiom 'payable in <currency>', or through its row labels, which title and header search does not reach. Three harness changes follow. First, index row labels in find_tables, so 'Canadian dollar liabilities' can hit CM-I-1's 'Canadian dollars' row under 'Payable in foreign currencies'. Second, when a ratio's numerator and denominator come from different tables, units (CAD vs USD) or reporting populations, have the harness raise a findable warning: 'look for one table that holds both'. Third, submit-time rules cannot rescue a table that never entered the ledger, so the mechanism's value here is capped by discovery. Seed text did not separate the cells, since c had it and failed like b."
+}

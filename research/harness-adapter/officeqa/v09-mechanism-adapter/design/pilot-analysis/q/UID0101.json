@@ -1,0 +1,45 @@
+{
+  "task_id": "UID0101",
+  "correct": {"a": 0, "b": 0, "c": 1},
+  "summary": "All three cells used the same source: FFO-3 (On-Budget and Off-Budget Outlays by Agency), Department of Labor column, FY2011 and FY2019 annual rows. Cells a and c confirmed those values with printings; b read them off show_table instead. All three agreed on the first two outputs (CAGR, and the annual decay factor taken as 1+CAGR). The whole split is the third output, 'arc elasticity (using midpoint percentage change)'. Cells a and b divided the midpoint percentage change in outlays by the midpoint percentage change in the year number, treating time as the second variable. That gives a value hundreds of times larger in magnitude than the other outputs. a even noted that it was 'huge' but kept it. Cell c's calc printed both the raw midpoint percentage change and the time-elasticity. c then reasoned that the parenthetical names the quantity wanted, and answered the plain midpoint (arc) percentage change, which the grading marks right. No retrieval, cell or arithmetic difference was involved. It was a single formula-definition choice, and every v8 arm and Opus also missed it.",
+  "b_vs_a": {
+    "applies": false,
+    "first_divergence": {
+      "stage": "OTHER",
+      "where": "n/a (no divergence)",
+      "what_b_did": "Used the same FFO-3 FY2011/FY2019 Labor values (read from show_table, no printings), used the same time-based arc-elasticity formula, and submitted the same answer as a. The gate recorded it with every rule silent.",
+      "what_a_did": "Used FFO-3 values confirmed with printings, and the time-based arc-elasticity formula."
+    },
+    "seed_text_effect": {
+      "a_used_seed_advice": "yes",
+      "which_advice": "Compute every final number with `calc`, not in your head",
+      "evidence": "a [12]/[22]/[24]: ran printings on the FFO-3 and FFO-4 Labor cells. [26]: computed all three outputs in one calc. Neither piece of advice touches the formula ambiguity that decided correctness.",
+      "would_b_have_benefited": "no"
+    },
+    "mechanism_effect": {
+      "submit_rounds": 1,
+      "findings": [],
+      "offers_right": "none",
+      "b_changed_answer_because_of_gate": "no_change",
+      "loop_notes": 0,
+      "loop_note_helped": "n/a",
+      "ledger_splice": "no",
+      "workflow_cost": "None visible. b made one submit, all 10 rules were silent, and it ended right after recording. No rule can see a formula-definition choice."
+    },
+    "tools_usage": {
+      "a": "find_tables (0 hits for the full phrase, then FFO-3/FFO-4 with --rows), show_table on FFO-3 and FFO-4, printings on FFO-3 FY rows and on the FFO-4 'Total funds' columns (it saw that FFO-4 is fiscal-year-to-date), and one calc for all three outputs.",
+      "b": "officeqa.py search (empty-looking results at first), find_tables 'FFO-3' --years to locate the issues, show_table --stitch/--cols on the 2021_12 and 2016_09 FFO-3 issues to read FY2019 and FY2011, calc, a corpus search for the metric names, and a single submit. It did not run printings."
+    }
+  },
+  "c_vs_a": {
+    "applies": true,
+    "first_divergence": {
+      "stage": "FORMULA",
+      "where": "c events [38] (calc prints both the midpoint %-change and the time-elasticity), [39]-[41] deliberation on what 'arc elasticity (using midpoint percentage change)' means, [42] final",
+      "what_c_did": "Computed the midpoint percentage change of outlays as an explicit intermediate next to the time-elasticity. It reasoned that the question's parenthetical names the quantity, because there is no second economic variable, and answered the midpoint percentage change as the 'arc elasticity'.",
+      "what_a_did": "Computed only the ratio of the midpoint %-change in outlays to the midpoint %-change in the year number, and kept that large-magnitude result despite remarking that it was huge."
+    },
+    "temperature_effect": "The table, cells, CAGR and decay factor were all the same. T=1 sampling led c to write the raw midpoint change as a separate named intermediate in its calc and then reopen the formula question. Greedy a (and b) committed to the textbook elasticity-over-time formula. c's run was about twice as long (17 requests, about 97 s vs about 47 s; roughly 2x a's output tokens). Because every v8 arm and Opus also missed this item, c's win is best read as one lucky exploratory branch, not systematically better reasoning."
+  },
+  "lesson": "Ambiguity about how a named measure is defined (an 'arc elasticity' with no second variable) sits outside anything the table-oriented seed text or the submit-time rules can check. Neither arm had a lever here. A cheap, general guard would be a plausibility check: flag a multi-value answer when one value is orders of magnitude away from its siblings, or when a 'rate' or 'elasticity' is far outside a typical range, and ask the model to reread the definition. A seed note could say that when a measure names only one series, it should compute the quantity the parenthetical describes. The T=1 win is a single-item fluke and does not argue against the T=0 rule."
+}

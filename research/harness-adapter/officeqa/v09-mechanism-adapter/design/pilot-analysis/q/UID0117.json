@@ -1,0 +1,52 @@
+{
+ "task_id": "UID0117",
+ "correct": {
+  "a": 1,
+  "b": 0,
+  "c": 1
+ },
+ "summary": "All three cells found the five end-of-February PDO-1 maturity schedules. Each sits in the March issue of its year and is a two-panel OCR table whose year stub is mislabeled after flattening. From each schedule, a and c took the printed calendar-year 'Total' row of the first block and ignored the wrong stub labels. They got identical correct inputs and ran the z-score in calc. b read the same raw 1973 table, where that year's Total row sits beside a mislabeled '1978' stub. It took the stub labels literally and summed in its head only the five securities under the '1977' stub. That left out the Aug-Nov 1973 maturities and the printed Total, so one of five inputs was about 40% too low. b's z-score came out well under half the magnitude of a's. The gate's `grounded` rule flagged exactly that input as a value no tool had printed. But it came second, after a `flagged_cells` finding on a correct cell, and it carried no offer. b kept its answer with a prose justification.",
+ "b_vs_a": {
+  "applies": true,
+  "first_divergence": {
+   "stage": "CELL_SELECTION",
+   "where": "b events item 27 (sed of the treasury_bulletin_1973_03 PDO-1 table: the Total row for 1973 is printed next to a '1978' stub), item 28/30 (b notices the stub labels are wrong but only for the first rows), item 36 (value list with a short 1973 figure), item 37 (calc), item 47 (b's own row list: five securities, Apr-Jun 1973 only)",
+   "what_b_did": "Assigned calendar-1973 maturities by the flattened year stub. It summed only the first block's five rows (stub '1977'), mentally and outside calc. It treated the Aug/Oct/Nov 1973 securities and the 1973 Total line (stub '1978') as another year. The calc input for 1973 was therefore a number that no tool ever printed.",
+   "what_a_did": "Printed the raw 1973_03 table (a item 43) and read its first 'Total' row as the 1973 total ('1973 total ... Good', item 44). It did the same for 1974-1976 (items 49-54) and computed mean, sample SD and z in one calc (item 45)."
+  },
+  "seed_text_effect": {
+   "a_used_seed_advice": "yes",
+   "which_advice": "Before you rely on a value, print the line it comes from",
+   "evidence": "a printed the raw PDO-1 lines for every schedule before using its total (items 33, 43, 49, 51, 53), with a note after each: '1973 total ... Good', '1976 total ... Good', '1975 total ... Good', '1974 total ... Good'. It also ran every number through calc (items 45, 47) and tried printings for revisions (item 35, not informative for a one-date schedule).",
+   "would_b_have_benefited": "yes"
+  },
+  "mechanism_effect": {
+   "submit_rounds": 3,
+   "findings": [
+    "flagged_cells",
+    "grounded"
+   ],
+   "offers_right": "none",
+   "b_changed_answer_because_of_gate": "no_change",
+   "loop_notes": 0,
+   "loop_note_helped": "n/a",
+   "ledger_splice": "no",
+   "workflow_cost": "There were 3 submits and 2 gate rounds, and neither finding carried an offer. Round 1 showed only `flagged_cells` (gate_findings_per_round=1). It targeted the correct 1972 total because it sits on a SHIFT+1 repaired row. It also labeled that cell period '1976', from the same stub mislabel, and suggested `printings --row 1976`, which pointed b the wrong way. b spent the round re-verifying a correct value by re-summing its line items, then kept. The real error came only in round 2 as `grounded`. b's search for the 1973 value in the corpus found nothing (item 46), which was a clear sign. But b re-summed the same five rows and used the 'or keep' path with a prose reason. Round 3 recorded it because gate_rounds_max=2 was used up. Net effect: the right signal existed but was ranked below a low-value finding, and a sentence could dismiss it. No early stop and no compaction."
+  },
+  "tools_usage": {
+   "a": "find_tables got no hits for the 1970s PDO-1 by title. a located the five March-issue tables with rg on 'Outstanding February (28|29), 197x'. show_table --long on the 1972 table showed the mislabeled periods. printings (row 1972, uninformative for a snapshot table). sed of the raw text for all five schedules. calc with statistics.mean/stdev for the z-score, plus a calc re-sum of 1972 line items.",
+   "b": "find_tables also got no 1970s hit. b located the tables with rg on 'Table PDO-1|Outstanding February' in the *_03 issues. show_table --stitch (mislabeled years), then sed/python for raw lines. One calc for the z-score, with one input typed from a mental sum. After the gate: printings --row 1972 (uninformative), rg for the typed value (no hit), and submit three times."
+  }
+ },
+ "c_vs_a": {
+  "applies": false,
+  "first_divergence": {
+   "stage": "OTHER",
+   "where": "n/a (no divergence)",
+   "what_c_did": "Used show_table --raw on each March-issue PDO-1 table. It took the first annual Total of each year's own end-of-February schedule, including the Feb-29 table in the 1976_03 issue, which also holds a January table. It computed the z-score in calc.",
+   "what_a_did": "Took the same five first-block Totals via sed raw lines and computed the z-score in calc."
+  },
+  "temperature_effect": "No effect on the outcome. c's run was a bit shorter (19 requests vs 25). It first opened the Jan-31 PDO-1 in the 1976_03 issue, caught that, and switched to the Feb-29 table. Its note explicitly rejected revised values from the previous year's schedule because the question pins each schedule's as-of date."
+ },
+ "lesson": "The submit-time `grounded` rule fired on the actual error, but gate ordering and the keep path made it useless. A one-finding-per-round gate showed a repair flag on a correct, printed cell first, and a prose keep dismissed the ungrounded-input finding. Give an ungrounded input on the answer's calc path top priority. Do not accept a keep for `grounded` unless b prints a line that contains the value (or run the check before the answer is formed). a got the same guard for free as up-front seed text ('print the line it comes from') and used it all the way through. This supports delivering provenance advice as text in the actor's context, not only as a post-hoc rule. Separately, show_table/find_tables mislabel year stubs on two-panel PDO-1 tables. That fed both b's misreading and the misleading 'row 1976' hint in the finding. Fixing that anchoring would remove the root cause."
+}

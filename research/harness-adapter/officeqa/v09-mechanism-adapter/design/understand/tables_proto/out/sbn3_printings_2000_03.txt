@@ -1,0 +1,28 @@
+printings(row='2000-03', table='SBN-3', period=None, col='(8)'): 19 table parts searched in issues 2000..2001
+  issue    file:line                          part period       label | col = <v> [flags]
+  2000_06  treasury_bulletin_2000_06.txt:2167   p1 2000-03      'Mar' | c8 'Interest-bearing debt (8)' = <v>
+  2000_06  treasury_bulletin_2000_06.txt:2206   p2 2000-03      'Mar' | c8 'Amount out standing > Interest-bearing d' = <v>
+  2000_06  treasury_bulletin_2000_06.txt:2225   p2 2000-03      'Mar' | c8 'Amount out standing > Interest-bearing d' = <v>
+  2000_09  treasury_bulletin_2000_09.txt:1962   p1 2000-03      'Mar' | c8 'Amount out standing > Interest-bearing d' = <v>
+  2000_09  treasury_bulletin_2000_09.txt:2001   p2 2000-03      'Mar' | c8 'Amount out standing > Interest-bearing d' = <v>
+  2000_09  treasury_bulletin_2000_09.txt:2020   p2 2000-03      'Mar' | c8 'Amount out standing > Interest-bearing d' = <v>
+  2000_12  treasury_bulletin_2000_12.txt:2226   p1 2000-03      'Mar' | c8 'Interest-bearing debt (8)' = <v>
+  2000_12  treasury_bulletin_2000_12.txt:2265   p2 2000-03      'Mar' | c8 'Amount outstanding > Interest-bearing de' = <v>
+  2001_03  treasury_bulletin_2001_03.txt:2058   p1 2000-03      'Mar' | c8 'Amount out stand ing Interest-bearing de' = <v>
+  2001_03  treasury_bulletin_2001_03.txt:2095   p2 2000-03      'Mar' | c8 'Amount outstanding > Interest-bearing de' = <v>
+  2001_03  treasury_bulletin_2001_03.txt:2118   p3 2000-03      'Mar' | c8 'Amount outstanding > Interest-bearing de' = <v>
+  2001_06  treasury_bulletin_2001_06.txt:2151   p1 2000-03      '2000 - Mar' | c8 'Interest-bearing debt (8)' = <v>
+  2001_06  treasury_bulletin_2001_06.txt:2188   p2 2000-03      '2000 - Mar' | c8 'Amount out standing > Interest-bearing d' = <v>
+SUMMARY (per column & period: value -> issues; first and latest printing):
+  [2000-03] part1 col (8) (Interest-bearing debt (8)): 5 printings, 2 distinct values - REVISED/DIFFERS across printings
+      <v>: 2000_06..2001_06 (4)
+      <v>: 2001_03..2001_03 (1)
+      <v>: 2001_03 (treasury_bulletin_2001_03.txt:2058) disagrees with the printings before and after it, which agree - likely OCR/row shift in that issue, not a revision
+      first printing 2000_06 (treasury_bulletin_2000_06.txt:2167), latest printing 2001_06 (treasury_bulletin_2001_06.txt:2151)
+  [2000-03] part2 col (8) (Amount out standing > Interest-bearing d): 7 printings, 2 distinct values - REVISED/DIFFERS across printings
+      <v>: 2000_06..2001_06 (5)
+      <v>: 2000_06..2000_09 (2)
+      first printing 2000_06 (treasury_bulletin_2000_06.txt:2206), latest printing 2001_06 (treasury_bulletin_2001_06.txt:2188)
+  [2000-03] part3 col (8) (Amount outstanding > Interest-bearing de): 1 printings, 1 distinct values - same in all printings
+      <v>: 2001_03..2001_03 (1)
+      first printing 2001_03 (treasury_bulletin_2001_03.txt:2118), latest printing 2001_03 (treasury_bulletin_2001_03.txt:2118)

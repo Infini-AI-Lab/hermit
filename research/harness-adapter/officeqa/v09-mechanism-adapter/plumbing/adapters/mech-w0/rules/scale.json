@@ -1,0 +1,21 @@
+{
+  "admitted_block": 0,
+  "enabled": true,
+  "finding": "Your answer {value.text} is {relation} the output {compute.value} of calc {compute.sha}; {why}.",
+  "id": "scale",
+  "offer": {
+    "args": {},
+    "op": "unscale"
+  },
+  "origin": "seed",
+  "priority": 20,
+  "scope": "core",
+  "stats": {},
+  "triggers": [],
+  "when": [
+    {
+      "args": {},
+      "pred": "scaled_100"
+    }
+  ]
+}

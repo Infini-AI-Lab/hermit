@@ -1,0 +1,28 @@
+{
+  "admitted_block": 0,
+  "enabled": true,
+  "finding": "Your answer uses {cell.locator} = {cell.text}, on {flag.why}. {flag.check}",
+  "id": "flagged_cells",
+  "offer": {
+    "args": {},
+    "op": "substitute_printing"
+  },
+  "origin": "seed",
+  "priority": 45,
+  "scope": "pack",
+  "stats": {},
+  "triggers": [],
+  "when": [
+    {
+      "args": {
+        "flags": [
+          "repair",
+          "Y?",
+          "identity_fail"
+        ],
+        "with_printing": true
+      },
+      "pred": "cell_flags"
+    }
+  ]
+}

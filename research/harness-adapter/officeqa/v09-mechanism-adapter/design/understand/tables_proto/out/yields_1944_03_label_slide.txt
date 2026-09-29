@@ -1,0 +1,181 @@
+TABLE [-] Average Yields of Long-Term Treasury and Corporate Bonds - (Continued)
+  file treasury_bulletin_1944_03.txt  issue 1944_03  lines 4019-4074  part 1 of a multi-part table
+  units: (Percent per annum)
+  as-of: FEB. 29, 1944
+  section: YIELDS OF TREASURY SECURITIES FEB. 29, 1944
+COLUMNS:
+  c0   Date [period] -> shown as 'period' (filled) and 'label' (raw)
+  -- layout 1 (sections: Monthly Series 4/ - (continued))
+  v1   = p1:c1 Partially tax-exempt Treasury bonds 1/ ? [num] | p2:c4 Partially tax-exempt Treasury bonds 1/ ? [period] | p3:c7 Partially tax-exempt Treasury bonds 1/ [num]
+  v2   = p1:c2 Taxable Treasury bonds 2/ ? [num] | p2:c5 Taxable Treasury bonds 2/ ? [num] | p3:c8 Taxable Treasury bonds 2/ [period]
+  v3   = p3:c9 High-grade corporate bonds 1/ [num]
+  -- layout 2 (sections: Weekly Series - Saturday Figures 5/; Daily Series)
+  v1   = p1:c1 Partially tax-exempt Treasury bonds 1/ [num] | p2:c5 Partially tax-exempt Treasury bonds 1/ [num] | p3:c9 Partially tax-exempt Treasury bonds 1/ [num]
+  v2   = p1:c2 Taxable Treasury bonds 2/ [num] | p2:c6 Taxable Treasury bonds 2/ [num] | p3:c10 Taxable Treasury bonds 2/ [num]
+  v3   = p1:c3 High-grade corporate bonds 1/ [num] | p2:c7 High-grade corporate bonds 1/ [num] | p3:c11 High-grade corporate bonds 1/ [num]
+NOTES:
+  - text line(s) just after the table look like a table row that fell out of the pipe table (label + 4+ numbers) at line(s) 4076,4078: read them with --raw/read
+  - [Monthly Series 4/ - (continued)] panel 1: 2 value columns but the header group has 3 value labels - labels are NOT reliable here (a column is missing/merged); VERIFY against a sibling printing or an identity
+  - [Monthly Series 4/ - (continued)] panel 2: 2 value columns but the header group has 3 value labels - labels are NOT reliable here (a column is missing/merged); VERIFY against a sibling printing or an identity
+  - 4 rows break the period sequence (OCR label/row damage?) at lines 4031,4032,4041,4031 - VERIFY those rows
+  - 3 side-by-side panels (period columns c0, c3, c6) unstacked: all rows of panel 1, then panel 2, ...
+  - SIBLINGS (same table, same width, nearby issues; use them to anchor years/headers): treasury_bulletin_1944_04.txt:3439; treasury_bulletin_1944_04.txt:3522; treasury_bulletin_1944_04.txt:3602
+ROWS:
+line  pnl  period      label                                  v1       v2    v3           flags
+           ==          Monthly Series 4/ - (continued)
+4022  1    1938-10     1938-Oct                             2.55     3.06
+4023  1    1938-11     Nov                                  2.56     3.04
+4024  1    1938-12     Dec                                  2.56     3.02
+4025  1    1939-01     1939-Jan                             2.54     2.96
+4026  1    1939-02     Feb                                  2.51     2.90
+4027  1    1939-03     Mar                                  2.43     2.87
+4028  1    1939-04     Apr                                  2.38     2.92
+4029  1    1939-05     May                                  2.27     2.86
+4030  1    1939-06     June                                 2.22     2.78
+4031  1    1939-07     July                                 2.23     2.76
+4032  1    1939-08     Aug                                  2.27     2.79
+4033  1    1939-09     Sep                                  2.67     3.29
+4034  1    1939-10     Oct                                  2.60     3.14
+4035  1    1939-11     Nov                                  2.46     2.93
+4036  1    1939-12     Dec                                  2.35     2.86
+4037  1    1940-01     1940-Jan                             2.30     2.81
+4038  1    1940-02     Feb                                  2.32     2.79
+4039  1    1940-03     Mar                                  2.26     2.77
+4040  1    1940-04     Apr                                  2.26     2.74
+4041  1    1940-05     May                                  2.39     2.87
+4042  1    1940-06     June                                 2.40     2.93
+4022  2    1940-07     1940-July                            2.30     2.85
+4023  2    1940-08     Aug                                  2.31     2.30
+4024  2    1940-09     Sep                                  2.25     2.71
+4025  2    1940-10     Oct                                  2.21     2.70
+4026  2    1940-11     Nov                                  2.09     2.65
+4027  2    1940-12     Dec                                  2.01     2.59
+4028  2    1941-01     1941-Jan                             2.12     2.57
+4029  2    1941-02     Feb                                  2.22     2.71
+4030  2    1941-03     Mar                                  2.12     2.73
+4031  2    1943-01     1943-Jan                             2.11     2.46        SEQ step +22 (
+4032  2    1943-04     Apr                                  2.07     2.76        SEQ step +3 (u
+4033  2    1943-05     May                                  2.04     2.75
+4034  2    1943-06     June                                 2.01     2.70
+4035  2    1943-07     July                                 1.98     2.66
+4036  2    1943-08     Aug                                  2.01     2.65
+4037  2    1943-09     Sep                                  2.02     2.64
+4038  2    1943-10     Oct                                  1.98     2.51
+4039  2    1943-11     Nov                                  1.95     2.51
+4040  2    1943-12     Dec                                  2.06     2.47
+4041  2    1942-01     1942-Jan                             2.10     2.76        YEAR_BACKWARDS
+4042  2    1942-02     Feb                                  2.17     2.80
+4022  3    1942-04     1942-Apr                             2.07     2.44  2.71
+4023  3    1942-05     May                                  2.06     2.45  2.76
+4024  3    1942-06     June                                 2.04     2.43  2.75
+4025  3    1942-07     July                                 2.04     2.46  2.74
+4026  3    1942-08     Aug                                  2.06     2.47  2.73
+4027  3    1942-09     Sep                                  2.08     2.46  2.73
+4028  3    1942-10     Oct                                  2.09     2.45  2.72
+4029  3    1942-11     Nov                                  2.10     2.47  2.71
+4030  3    1942-12     Dec                                  2.13     2.49  2.72
+4031  3    1943-02     Feb                                  2.11     2.46  2.70  year+1 inferre
+4032  3    1943-03     Mar                                  2.12     2.48  2.70
+4033  3    1943-04     Apr                                  2.05     2.48  2.68
+4034  3    1943-05     May                                  1.96     2.46  2.65
+4035  3    1943-06     June                                 1.91     2.45  2.63
+4036  3    1943-07     July                                 1.91     2.45  2.58
+4037  3    1943-08     Aug                                  1.92     2.46  2.57
+4038  3    1943-09     Sep                                  1.90     2.48  2.59
+4039  3    1943-10     Oct                                  1.90     2.48  2.60
+4040  3    1943-11     Nov                                  1.94     2.48  2.61
+4041  3    1943-12     Dec                                  1.95     2.49  2.63
+4042  3    1944-01     1944-Jan                             1.95     2.49  2.65
+           ==          Weekly Series - Saturday Figures 5/
+4044  1    1943-09-04  1943-Sept. 4                         1.92     2.48  2.57
+4045  1    1943-09-11  11                                   1.90     2.48  2.58
+4046  1    1943-09-18  18                                   1.90     2.48  2.61
+4047  1    1943-09-25  25                                   1.90     2.48  2.60
+4048  1    1943-10-02  Oct. 2                               1.89     2.48  2.61
+4049  1    1943-10-09  9                                    1.90     2.47  2.60
+4050  1    1943-10-16  16                                   1.91  2.48 6/  2.60
+4051  1    1943-10-23  23                                   1.91     2.48  2.59
+4052  1    1943-10-30  30                                   1.91     2.48  2.59
+4044  2    1943-11-06  1943-Nov. 6                          1.93     2.48  2.59
+4045  2    1943-11-13  13                                   1.94     2.48  2.61
+4046  2    1943-11-20  20                                   1.95     2.49  2.61
+4047  2    1943-11-27  27                                   1.95     2.49  2.61
+4048  2    1943-12-04  Dec. 4                               1.95     2.49  2.62
+4049  2    1943-12-11  11                                   1.95     2.49  2.62
+4050  2    1943-12-18  18                                   1.95     2.49  2.63
+4051  2    1943-12-24  24                                   1.95     2.49  2.64
+4052  2    1943-12-31  31                                   1.96     2.49  2.65
+4044  3    1944-01-08  1944-Jan. 8                          1.94     2.49  2.62
+4045  3    1944-01-15  15                                   1.95     2.49  2.64
+4046  3    1944-01-22  22                                   1.95     2.49  2.65
+4047  3    1944-01-29  29                                   1.95     2.49  2.67
+4048  3    1944-02-05  Feb. 5                               1.95     2.49  2.66
+4049  3    1944-02-11  11                                   1.94     2.49  2.66
+4050  3    1944-02-19  19                                   1.92  2.49 6/  2.65
+4051  3    1944-02-26  26                                   1.90     2.49  2.65
+4052  3    1944-03-04  Mar. 4                               1.89     2.49  2.66
+           ==          Daily Series
+4054  1    1944-01-01  1944-Jan. 1                            1/       1/    1/
+4055  1    1944-01-03  3                                    1.96     2.49  2.64
+4056  1    1944-01-04  4                                    1.95     2.49  2.64
+4057  1    1944-01-05  5                                    1.95     2.49  2.64
+4058  1    1944-01-06  6                                    1.94     2.49  2.64
+4059  1    1944-01-07  7                                    1.94     2.49  2.63
+4060  1    1944-01-08  8                                    1.94     2.49  2.62
+4061  1    1944-01-10  10                                   1.94     2.49  2.63
+4062  1    1944-01-11  11                                   1.95     2.49  2.63
+4063  1    1944-01-12  12                                   1.95     2.49  2.63
+4064  1    1944-01-13  13                                   1.95     2.49  2.63
+4065  1    1944-01-14  14                                   1.95     2.49  2.64
+4066  1    1944-01-15  15                                   1.95     2.49  2.64
+4067  1    1944-01-17  17                                   1.95     2.49  2.66
+4068  1    1944-01-18  18                                   1.95     2.49  2.65
+4069  1    1944-01-19  19                                   1.95     2.49  2.64
+4070  1    1944-01-20  20                                   1.95     2.49  2.65
+4071  1    1944-01-21  21                                   1.95     2.49  2.66
+4072  1    1944-01-22  22                                   1.95     2.49  2.65
+4073  1    1944-01-24  24                                   1.95     2.49  2.67
+4074  1    1944-01-25  25                                   1.95     2.49  2.67
+4054  2    1944-01-26  1944-Jan. 26                         1.95     2.49  2.67
+4055  2    1944-01-27  27                                   1.95     2.49  2.67
+4056  2    1944-01-28  28                                   1.95     2.49  2.67
+4057  2    1944-01-29  29                                   1.95     2.49  2.67
+4058  2    1944-01-31  31                                   1.96     2.49  2.67
+4059  2    1944-02-01  Feb. 1                               1.96     2.49  2.66
+4060  2    1944-02-02  2                                    1.96     2.49  2.65
+4061  2    1944-02-03  3                                    1.96     2.49  2.65
+4062  2    1944-02-04  4                                    1.96     2.49  2.66
+4063  2    1944-02-05  5                                    1.95     2.49  2.66
+4064  2    1944-02-07  7                                    1.94     2.49  2.65
+4065  2    1944-02-08  8                                    1.94     2.49  2.65
+4066  2    1944-02-09  9                                    1.94     2.49  2.65
+4067  2    1944-02-10  10                                   1.94     2.49  2.66
+4068  2    1944-02-11  11                                   1.94     2.49  2.66
+4069  2    1944-02-12  12                                     1/       1/    1/
+4070  2    1944-02-14  14                                   1.94     2.49  2.65
+4071  2    1944-02-15  15                                   1.93     2.49  2.65
+4072  2    1944-02-16  16                                   1.93  2.49 6/  2.65
+4073  2    1944-02-17  17                                   1.92     2.49  2.65
+4074  2    1944-02-18  18                                   1.92     2.49  2.65
+4054  3    1944-02-21  1944-Feb. 21                         1.91     2.49  2.64
+4055  3    1944-02-22  22                                     1/       1/    1/
+4056  3    1944-02-23  23                                   1.90     2.49  2.65
+4057  3    1944-02-24  24                                   1.90     2.49  2.64
+4058  3    1944-02-25  25                                   1.90     2.49  2.65
+4059  3    1944-02-26  26                                   1.90     2.49  2.65
+4060  3    1944-02-28  28                                   1.90     2.49  2.65
+4061  3    1944-02-29  29                                   1.90     2.49  2.64
+4062  3    1944-03-01  Mar. 1                               1.90     2.49  2.65
+4063  3    1944-03-02  2                                    1.89     2.49  2.67
+4064  3    1944-03-03  3                                    1.89     2.49  2.66
+4065  3    1944-03-04  4                                    1.89     2.49  2.66
+4066  3    1944-03-06  6                                    1.89     2.49  2.65
+4067  3    1944-03-07  7                                    1.90     2.49  2.65
+4068  3    1944-03-08  8                                    1.90     2.49  2.64
+4069  3    1944-03-09  9                                    1.90     2.49  2.64
+4070  3    1944-03-10  10                                   1.90     2.49  2.65
+4071  3    1944-03-11  11                                   1.90     2.49  2.64
+4072  3    1944-03-13  13                                   1.91     2.48  2.63
+4073  3    1944-03-14  14                                   1.91     2.48  2.63
+4074  3    1944-03-15  15                                   1.91     2.49  2.64
+(153 of 153 rows; period = YYYY-MM filled down from the first row of each year block; 'Y?' = year not printed; 'year+1 inferred' = rollover without a label; <..~> = inferred column period; raw cells kept, so r/p flags and footnote marks stay visible)

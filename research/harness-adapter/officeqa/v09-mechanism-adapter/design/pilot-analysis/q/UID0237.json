@@ -1,0 +1,49 @@
+{
+  "task_id": "UID0237",
+  "correct": {
+    "a": 1,
+    "b": 0,
+    "c": 0
+  },
+  "summary": "The question asks for a 'mid-point normalized difference' but then says 'reported in billions of nominal dollars'. All three cells found the right June 2006 and June 2007 private-investor holdings (a from OFS-2 in billions, b and c from OFS-1 in millions). All three computed both the raw dollar difference and the midpoint-normalized ratio. The source-table difference is harmless because the rounded ratio is the same from either table. The deciding step was the reading of the question. Cell a treated the metric noun as decisive and the units phrase as describing the inputs. It reported the unscaled ratio and cited its AGENTS.md 'percent or fraction' advice to rule out multiplying by 100. Cells b and c both judged the units phrase decisive and reported the raw difference in billions, dropping the normalization the question names. b's gate recorded that answer with no finding.",
+  "b_vs_a": {
+    "applies": true,
+    "first_divergence": {
+      "stage": "INTERPRETATION",
+      "where": "b [15], [18], [20], [23]-[25] (earlier, harmless: b [8]-[17] chose OFS-1 in millions where a used OFS-2 in billions)",
+      "what_b_did": "Noted the midpoint formula, then decided that 'reported in billions of nominal dollars' named the output unit. It printed both the raw difference and the ratio in one calc and submitted the raw difference in billions, a dollar amount instead of a unitless ratio. It passed no --alt.",
+      "what_a_did": "Computed the difference divided by the midpoint ([20]). It weighed ratio, percent and raw difference ([21], [24]), concluded that 'billions' describes the inputs, and chose the unscaled ratio, citing the AGENTS.md percent/fraction advice to avoid multiplying by 100."
+    },
+    "seed_text_effect": {
+      "a_used_seed_advice": "yes",
+      "which_advice": "when it asks for a ratio, fraction or decimal, do not multiply by 100",
+      "evidence": "a [24] note: 'AGENTS says percent vs fraction... Since asks \"difference\" not percent, answer decimal'. It quoted the Percent-or-fraction bullet to choose between the ratio and percent forms. It also ran printings on both cells ([17]-[18]) and used calc for the final value ([20]).",
+      "would_b_have_benefited": "unclear"
+    },
+    "mechanism_effect": {
+      "submit_rounds": 1,
+      "findings": [],
+      "offers_right": "none",
+      "b_changed_answer_because_of_gate": "no_change",
+      "loop_notes": 0,
+      "loop_note_helped": "n/a",
+      "ledger_splice": "no",
+      "workflow_cost": "None visible. b submitted once and got 'recorded' at once. No rule covers an answer that drops an operator named in the question: scale only tests x100, and competing_candidates needs --alt. The ratio was in the same calc output as the submitted value, but nothing harvested it. The short 11-request run was not shaped by the protocol."
+    },
+    "tools_usage": {
+      "a": "find_tables with question nouns, then by OFS-2 title with --years; show_table --long --grep June --from-row --cols; printings on both cells (stable across printings); calc once for diff/midpoint in ratio and percent forms; rg for the phrase in the corpus.",
+      "b": "find_tables x3 ('Ownership of Federal Securities', OFS-1 title, 'private investors'); show_table --stitch on OFS-1; printings on both cells; rg x2 for 'mid-point' in the corpus; calc once printing the raw difference and the ratio; submit once."
+    }
+  },
+  "c_vs_a": {
+    "applies": true,
+    "first_divergence": {
+      "stage": "INTERPRETATION",
+      "where": "c [19], [21], [25], [35]-[36] (c also wavered between OFS-1 and OFS-2 at [26]-[35], which does not affect the rounded ratio)",
+      "what_c_did": "Computed the raw difference and the ratio in one calc ([24]) and listed the ratio and percent readings. It judged that 'reported in billions' 'strongly' pointed to the raw difference and answered with the dollar gap in billions, the same reading as b. It spent several steps comparing OFS-1 with OFS-2, which could not change the rounded ratio.",
+      "what_a_did": "Same values and the same three candidate forms, but it chose the unscaled midpoint ratio, treating the units phrase as describing the inputs and using the percent/fraction seed bullet to rule out x100."
+    },
+    "temperature_effect": "c had the same seed text as a, so the difference comes from the sampled deliberation. At T=1 the weighing of 'units phrase vs metric noun' tipped the other way. c also ran longer (17 requests versus 9 for a) because it detoured into the OFS-1 versus OFS-2 question, and it ended on the units phrase. This is a coin-flip ambiguity that T=0 happened to resolve correctly with the seed's help."
+  },
+  "lesson": "This is a disputed-wording question, so the useful harness behaviour is a decision rule: when the question names a unitless operator (normalized, ratio, share), report that operator's output and read unit phrases as describing the inputs. The seed bullet on percent versus fraction covered half of this and helped a at T=0. It did not stop c at T=1. The gate should check that every operation named in the question appears in the calc chain that produced the submitted value. It should also harvest the other printed candidates from the same calc (the ratio was right there) instead of relying on --alt. Table-choice checks (OFS-1 vs OFS-2) are a distraction on this question and should not cost turns."
+}

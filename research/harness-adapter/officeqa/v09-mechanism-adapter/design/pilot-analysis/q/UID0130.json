@@ -1,0 +1,49 @@
+{
+ "task_id": "UID0130",
+ "correct": {
+  "a": 1,
+  "b": 1,
+  "c": 0
+ },
+ "summary": "Two tables in the same issues report a February month-end total of federal securities. TSO-1 'Summary of Federal Securities' is the Treasury Survey of Ownership snapshot, as of Feb 28/29. OFS-1 'Distribution of Federal Securities by Class(es) of Investors' is a monthly series. Their totals differ by one unit (million) in both years. a (T=0) went straight to TSO-1 from the find_tables list, printed its raw rows for both years, and computed the weighted average in calc. b first landed on OFS-1. It then searched the corpus for the exact 'Total ... Federal securities' label, found the TSO-1 row, saw the one-unit disagreement, and chose TSO-1 before submitting. The gate stayed silent. c (T=1) took OFS-1, checked that 13 printings of that same series agree, never looked for a sibling table, and was off by one in the last digit (relative error ~1e-6).",
+ "b_vs_a": {
+  "applies": false,
+  "first_divergence": {
+   "stage": "OTHER",
+   "where": "n/a (no divergence in outcome)",
+   "what_b_did": "Started from OFS-1 (item 12), then ran an explicit label search (items 15-27). That found the TSO-1 'Total Federal securities' row one table away, one unit off. b chose TSO-1 because the question says 'federal securities values reported ... for the February month-end' (items 28-36). It used calc and submitted once.",
+   "what_a_did": "Picked TSO-1 from the find_tables listing (items 9-10) and printed its raw rows for Feb 1980 and Feb 1981 (item 27). It noted an OCR identity failure in the 1981 table but kept the printed Total row, then used calc (item 33)."
+  },
+  "seed_text_effect": {
+   "a_used_seed_advice": "unclear",
+   "which_advice": "prefer the table whose title and column headers match the question's wording",
+   "evidence": "a named TSO-1 'Summary of Federal Securities' right after the find_tables listing (item 10) with no explicit comparison to OFS-1, which was listed higher. It did print source lines (item 27) and used calc (item 33). c had the same seed and chose OFS-1, so the seed did not reliably decide the table.",
+   "would_b_have_benefited": "no"
+  },
+  "mechanism_effect": {
+   "submit_rounds": 1,
+   "findings": [],
+   "offers_right": "none",
+   "b_changed_answer_because_of_gate": "no_change",
+   "loop_notes": 0,
+   "loop_note_helped": "n/a",
+   "ledger_splice": "no",
+   "workflow_cost": "None visible. One submit, all rules silent, recorded. b's switch from OFS-1 to TSO-1 came from its own label search before submit, not from the gate. `table_alternatives` did not fire even though b had first read OFS-1, because b's final inputs came from sed-printed TSO-1 lines. b ran somewhat longer than a (19 requests / 91 s vs 15 / 61 s)."
+  },
+  "tools_usage": {
+   "a": "find_tables (with --years 1980-1982, listing TSO-1 and OFS-1), printings (TSO-1 row by period, uninformative for a snapshot table), show_table --long/--cols on the 1980_04 and 1981_04 TSO-1, sed raw lines, rg for the 1981 total (cross-check, no other hit), and calc.",
+   "b": "find_tables, show_table --stitch on OFS-1 1981_04, several rg searches for the 'Total ... Federal securities' label, officeqa search, sed of the TSO-1 blocks in 1980_04 and 1981_04, printings (uninformative), calc, and one submit."
+  }
+ },
+ "c_vs_a": {
+  "applies": true,
+  "first_divergence": {
+   "stage": "SOURCE_TABLE",
+   "where": "c events items 8-10 (chooses OFS-1 from a find_tables listing that also shows TSO-1), items 17-26 (reads Feb 1981 from the 1982_04 OFS-1 and Feb 1980 from the 1981_04 OFS-1), item 29 (printings of the OFS-1 Feb-1980 cell: 13 identical printings), item 31 (calc)",
+   "what_c_did": "Used OFS-1 'Distribution of Federal Securities by Class of Investors', column 'Total Federal securities outstanding', for both February month-ends, taking the latest printing of each. It did not look for another table reporting the same concept.",
+   "what_a_did": "Used TSO-1 'Summary of Federal Securities' as of February 28/29, row 'Total Federal securities'. Each year's value is one unit away from OFS-1's."
+  },
+  "temperature_effect": "Most likely a different table choice from the same candidate list. find_tables listed OFS-1 above TSO-1 for both a and c. a (T=0) picked TSO-1 by title, and c (T=1) went with the higher-ranked OFS-1. c then checked only within that series: 13 identical OFS-1 printings gave false confidence. It never searched for the question's label, which is what saved b. c's run was short (13 requests / 66 s). The arithmetic was fine; the whole error is the one-unit gap between the two tables."
+ },
+ "lesson": "Two tables in one issue can report the same concept with slightly different values, and printings only checks consistency within one table. It cannot catch this. Neither the seed nor the gate distinguished TSO-1 from OFS-1 (`table_alternatives` scores word overlap, not value disagreement). A cheap check would help: for each input, find other tables in the same issue with the same period and a similar row/column label, and surface any value that disagrees, as a finding with an offer or as a tool. So would a pack note on which table is the month-end 'reported' snapshot (TSO-1 here). This is also a clear case for keeping T=0: at T=1 the actor took the first plausible table and stopped."
+}

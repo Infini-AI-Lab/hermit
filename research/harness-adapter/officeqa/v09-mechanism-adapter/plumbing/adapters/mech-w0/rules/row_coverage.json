@@ -1,0 +1,18 @@
+{
+  "admitted_block": 0,
+  "enabled": true,
+  "finding": "Your sum uses {row.used} cells of row {row.locator} ({row.period}); {row.unused_n} other cells of that row are unused, e.g. {row.unused}.",
+  "id": "row_coverage",
+  "offer": null,
+  "origin": "seed",
+  "priority": 58,
+  "scope": "pack",
+  "stats": {},
+  "triggers": [],
+  "when": [
+    {
+      "args": {},
+      "pred": "row_coverage"
+    }
+  ]
+}

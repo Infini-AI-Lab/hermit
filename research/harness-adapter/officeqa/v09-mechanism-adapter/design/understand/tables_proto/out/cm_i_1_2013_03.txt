@@ -1,0 +1,32 @@
+TABLE [CM-I-1] Total Liabilities by Type and Holder
+  file treasury_bulletin_2013_03.txt  issue 2013_03  lines 2247-2290  part 1
+  units: [Position at end of period in millions of dollars. Source: Treasury International Capital Reporting System]
+  section: CAPITAL MOVEMENTS
+COLUMNS:
+  c0   Type of Liability [text] -> shown as 'period' (filled) and 'label' (raw)
+  v1   = c1 Calendar Year 2011 r <2011 (year)> [num]
+  v2   = c2 June r <2012-06~> [num]
+  v3   = c3 July r <2012-07~> [num]
+  v4   = c4 Aug. r <2012-08~> [num]
+  v5   = c5 Sept. <2012-09~> [num]
+  v6   = c6 Oct. <2012-10~> [num]
+  v7   = c7 Nov. <2012-11~> [num]
+  v8   = c8 Dec. p <2012-12~> [num]
+NOTES:
+  - column periods without a printed year were inferred (after annual columns: last year + 1; months wrap -> +1); check against the issue date 2013_03
+ROWS:
+line  pnl  period  label                                                v1         v2         v3         v4         v5         v6         v7         v8  flags
+           ==
+2249  1            Total liabilities to all foreigners           4925045.0  4531535.0  4580136.0  4616606.0  4606686.0  4549546.0  4491070.0  4543437.0
+2250  1            Payable in dollars                            4661832.0  4275519.0  4324120.0  4360590.0  4363183.0  4306043.0  4247567.0  4299934.0
+2251  1            Foreign official institutions                  563583.0   553801.0   553251.0   573320.0   582808.0   584630.0   578211.0   577219.0
+2252  1            Deposits, excluding negotiable CDs              56962.0    50724.0    54947.0    52930.0    54246.0    55795.0    52125.0    50344.0
+2253  1            U.S. Treasury bills and certificates           357610.0   362205.0   354975.0   372971.0   383757.0   379389.0   383452.0   372720.0
+2254  1            Other short-term negotiable securities, nego    13578.0    10827.0    13256.0    12149.0    11374.0    11152.0    11583.0    12731.0
+2255  1            Other liabilities                              135433.0   130045.0   130073.0   135270.0   133431.0   138294.0   131051.0   141424.0
+2256  1            Foreign banks (including own foreign offices  4060924.0  3688222.0  3738962.0  3754457.0  3743864.0  3680709.0  3632096.0  3679859.0
+2257  1            Deposits, excluding negotiable CDs            2105417.0  1785933.0  1852515.0  1818149.0  1846165.0  1784316.0  1731677.0  1793975.0
+2258  1            U.S. Treasury bills and certificates           281091.0   260953.0   253723.0   273030.0   286388.0   280185.0   280011.0   279706.0
+2259  1            Other short-term negotiable securities, nego   349825.0   378016.0   379356.0   389530.0   383129.0   391571.0   390094.0   395207.0
+2260  1            Other liabilities                             1324591.0  1263320.0  1253368.0  1273748.0  1228182.0  1224637.0  1230314.0  1210971.0
+(12 of 39 rows; period = YYYY-MM filled down from the first row of each year block; 'Y?' = year not printed; 'year+1 inferred' = rollover without a label; <..~> = inferred column period; raw cells kept, so r/p flags and footnote marks stay visible)

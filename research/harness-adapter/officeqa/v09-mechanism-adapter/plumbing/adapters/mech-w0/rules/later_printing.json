@@ -1,0 +1,21 @@
+{
+  "admitted_block": 0,
+  "enabled": true,
+  "finding": "Your answer uses {cell.locator} ({cell.column}) = {cell.text}; latest printing {printing.locator} = {printing.text} (latest wins unless a date is pinned).",
+  "id": "later_printing",
+  "offer": {
+    "args": {},
+    "op": "substitute_printing"
+  },
+  "origin": "seed",
+  "priority": 30,
+  "scope": "pack",
+  "stats": {},
+  "triggers": [],
+  "when": [
+    {
+      "args": {},
+      "pred": "later_printing_differs"
+    }
+  ]
+}

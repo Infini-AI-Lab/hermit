@@ -1,0 +1,18 @@
+{
+  "admitted_block": 0,
+  "enabled": true,
+  "finding": "Your answer {value.text} is not an output of any calc run. Run the final arithmetic with calc and submit its result, or keep.",
+  "id": "recompute_final",
+  "offer": null,
+  "origin": "seed",
+  "priority": 60,
+  "scope": "core",
+  "stats": {},
+  "triggers": [],
+  "when": [
+    {
+      "args": {},
+      "pred": "not_from_compute"
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "admitted_block": 0,
+  "enabled": true,
+  "finding": "Your answer uses {cell.locator} ({cell.period}); the question asks for {question.period}: same column, {alt.period} row {alt.locator} = {alt.text}.",
+  "id": "period_match",
+  "offer": {
+    "args": {},
+    "op": "substitute_period"
+  },
+  "origin": "seed",
+  "priority": 25,
+  "scope": "pack",
+  "stats": {},
+  "triggers": [],
+  "when": [
+    {
+      "args": {
+        "require_alt": true
+      },
+      "pred": "period_mismatch"
+    }
+  ]
+}

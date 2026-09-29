@@ -1,0 +1,18 @@
+{
+  "admitted_block": 0,
+  "enabled": true,
+  "finding": "calc {compute.sha} uses {input.literal}, a value no tool output showed. Print the line it comes from, or keep.",
+  "id": "grounded",
+  "offer": null,
+  "origin": "seed",
+  "priority": 50,
+  "scope": "core",
+  "stats": {},
+  "triggers": [],
+  "when": [
+    {
+      "args": {},
+      "pred": "ungrounded_inputs"
+    }
+  ]
+}

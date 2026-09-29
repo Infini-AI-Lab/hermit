@@ -1,0 +1,38 @@
+TABLE [ESF-1] Balances as of September 30, 2011, and December 31, 2011
+  file treasury_bulletin_2012_06.txt  issue 2012_06  lines 4722-4749  part 1
+  as-of: September 30, 2011
+  section: FOREIGN CURRENCY POSITIONS
+COLUMNS:
+  c0   Assets, liabilities, and capital [text] -> shown as 'period' (filled) and 'label' (raw)
+  v1   = c1 Sept. 30, 2011 <Sept. 30, 2011> [num]
+  v2   = c2 Oct. 1, 2011, through Dec. 31, 2011 <Oct. 1, 2011 through Dec. 31, 2011> [num]
+  v3   = c3 Dec. 31, 2011 <Dec. 31, 2011> [num]
+NOTES:
+  - every header cell starts with the same banner '[In thousands of dollars. Source: Office of the Assistant Secretary of': stripped from the labels
+  - identity: c3 = sum c1+c2 on 15/15 rows (5 segment/panel(s))
+ROWS:
+line  pnl  period  label                                                v1        v2         v3  flags
+           ==      Assets > U.S. dollars > Held with Treasury
+4727  1            Fund Balance                                          -         -          -
+4728  1            U.S. Government securities                     22721204    -21923   22699281
+4729  1            Government Sponsored Enterprises (GSE) Secur          -         -          -
+4730  1            Special drawing rights 1                       55875301   -920371   54954930
+           ==      Foreign exchange and securities
+4732  1            European euro                                  14217421   -462436   13754985
+4733  1            Japanese yen                                   12039902     17178   12057080
+4734  1            Accounts receivable                              149719    -17333     132386
+4735  1            Total assets                                  105003547  -1404885  103598662
+           ==      Liabilities and capital > Current liabilitie
+4738  1            Accounts payable                                  35457    -18611      16846
+4739  1            Total current liabilities                         35457    -18611      16846
+           ==      Other liabilities
+4741  1            SDR certificates                                5200000         -    5200000
+4742  1            SDR allocations                                55149673   -930568   54219105
+4743  1            Unearned revenue                                      -         -          -
+4744  1            Total other liabilities                        60349673   -930568   59419105
+           ==      Capital
+4746  1            Capital account                                  200000         -     200000
+4747  1            Net income (+) or loss (-) (see Table ESF-2)    1085653  -1541358    -455705
+4748  1            Total capital                                  44618417   -455706   44162711
+4749  1            Total liabilities and capital                 105003547  -1404885  103598662
+(18 of 18 rows; period = YYYY-MM filled down from the first row of each year block; 'Y?' = year not printed; 'year+1 inferred' = rollover without a label; <..~> = inferred column period; raw cells kept, so r/p flags and footnote marks stay visible)

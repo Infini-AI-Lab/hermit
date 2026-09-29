@@ -1,0 +1,45 @@
+{
+  "task_id": "UID0180",
+  "correct": {"a": 0, "b": 0, "c": 1},
+  "summary": "The task needs five fiscal-year-end values of one series, each from its latest printing, then a sum. a and c chose the same, correct table: OFS-1 'Distribution of Federal Securities', column 'Public debt securities > Held by U.S. Government accounts > Total', which matches the question's wording. Both used printings. The only difference is how they read its output. c ran printings once per year without truncation and copied exact integers from the per-issue lines. a read FY2005 in full, but for FY2006-2009 it piped a shell loop of printings through `tail -n 4`, so it saw only the SUMMARY block. That block prints values in %g format (6 significant digits, e-notation). a padded those rounded figures with zeros and summed them, ending a few units low (relative error about 1.5e-7). This is purely a precision/extraction slip. b picked a different but near-identical series: FD-1 'Summary of Federal Debt', column 'Government accounts > Public debt securities', sourced from the Monthly Treasury Statement. Its values differ slightly every year, which left b's sum about 1e-6 low. b never saw OFS-1, because its `find_tables ... --all` page was filled entirely by FD-1's issue listing.",
+  "b_vs_a": {
+    "applies": false,
+    "first_divergence": {
+      "stage": "SOURCE_TABLE",
+      "where": "b item_11 (find_tables 'securities outstanding Government accounts' --all: the 8 KB page lists only FD-1 issues, so OFS-1 is never shown); item_14-item_15 (commits to FD-1, show_table --stitch on 2010_12); item_17 (printings FD-1 FY2005); item_19 calc; item_21 submit",
+      "what_b_did": "Used FD-1 Summary of Federal Debt, column 'Government accounts > Public debt securities'. It took FY2006-2009 from the stitched 2010_12 show_table and FY2005 from printings. All inputs were exact integers, so no precision was lost, but the series differs slightly from the one the question names.",
+      "what_a_did": "Used OFS-1, column 'Public debt securities Held by U.S. Government accounts > Total', which matches the question wording. It lost precision on four of the five years by reading the e-notation SUMMARY of printings."
+    },
+    "seed_text_effect": {
+      "a_used_seed_advice": "yes",
+      "which_advice": "for every table cell you use, run `printings --table <id> --row <period> --col <column>`",
+      "evidence": "a item_12 reasoning: 'Rows 2020 onward only. Need printings row 2005 col total.' In item_15 a ran printings for 2006-2009, but through `| tail -n 4`. That ignored the neighbouring seed line 'Before you rely on a value, print the line it comes from', and following the printings advice this way caused the error.",
+      "would_b_have_benefited": "unclear"
+    },
+    "mechanism_effect": {
+      "submit_rounds": 1,
+      "findings": [],
+      "offers_right": "none",
+      "b_changed_answer_because_of_gate": "no_change",
+      "loop_notes": 0,
+      "loop_note_helped": "n/a",
+      "ledger_splice": "no",
+      "workflow_cost": "None visible. One submit was accepted and all 10 rules were silent: table_alternatives because OFS-1 never appeared in any b output, later_printing because FD-1 values were stable across printings. Run length matched a (about 42 s each, 10 vs 8 requests)."
+    },
+    "tools_usage": {
+      "a": "find_tables x2; the second, with --rows and no --all, listed several groups including OFS-1. show_table on the 2025_09 OFS-1 printed only 2020+ rows. Then printings with full output for FY2005, printings | tail -n 4 in a loop for FY2006-2009 (SUMMARY only, %g-rounded), and calc for the sum.",
+      "b": "find_tables x3: one failed on an argument error, and the --all call returned only FD-1 issue rows. Then find_tables FD-1 --years, show_table --stitch on the 2010_12 FD-1 (full row values), printings for FY2005 on FD-1, calc, and submit."
+    }
+  },
+  "c_vs_a": {
+    "applies": true,
+    "first_divergence": {
+      "stage": "EXTRACTION",
+      "where": "a item_15 (for-loop of printings | tail -n 4 over 2006-2009) and item_17 (calc with zero-padded %g values); c item_17, item_19, item_21, item_22, item_23 (one untruncated printings per year) then item_25 calc",
+      "what_c_did": "Ran printings separately for each fiscal year with the full per-issue listing, copied the exact latest-printing integers into calc, and summed them.",
+      "what_a_did": "Used the same table, column and latest-printing rule. For four years, though, it read only the SUMMARY block, whose values are rounded to 6 significant digits, expanded them with trailing zeros, and summed them. The result was slightly low."
+    },
+    "temperature_effect": "The reasoning did not diverge. Both cells chose the same table and column and both applied the printings advice. The split came from how each cell built its command: a batched four years into one loop and trimmed the output with tail, while c issued one command per year and read the whole listing. c's run was somewhat longer (14 vs 8 requests, about 68 s vs 42 s), and that extra reading happened to avoid the truncation trap. Sampling mainly changed command formation. T=0 was deterministic here, but not more careful."
+  },
+  "lesson": "The failure came from tool output, not missing knowledge. printings' SUMMARY prints values in %g (6 significant digits), so any agent that tails or skims it gets silently rounded numbers. The fix belongs in the tool: print SUMMARY values exactly as raw text. That is better than adding more advice. A provenance check that does not accept an e-notation display as grounding for a zero-padded integer would also have caught a. Separately, find_tables --all lets one very large group (FD-1, 300+ issues) crowd every other candidate table off the 8 KB page. The tool should cap rows per group even under --all, so near-duplicate series like OFS-1 vs FD-1 both stay visible for the model to compare against the question wording."
+}

@@ -1,0 +1,52 @@
+{
+  "task_id": "UID0245",
+  "correct": {
+    "a": 1,
+    "b": 1,
+    "c": 0
+  },
+  "summary": "All three cells found the same AY-1 'Treasury bonds' monthly cells (Aug 1981, Aug 1982) in FY1982-end issues, confirmed them with printings, and chose the same midpoint ('symmetric') growth formula. The only thing separating right from wrong was output scale: c reported the x100 (percent) form, exactly 100 times a's bare decimal fraction. a (T=0) wrote its very first calc as the bare midpoint ratio and never deliberated about scale at all (no note mentions percent). c (T=1) framed every candidate formula x100 in its first calc and kept that frame to the end. b (T=0) computed the bare fraction in calc but then, reasoning that '(in percent)' implies a percent answer, hand-typed the x100 form at submit; the gate's 'scale' rule caught it (answer is 100x a calc output) and b accepted the offered fraction. So a is right by an unexamined default, b is right because of the gate, and c is wrong on the same knife-edge prior that sank all three v8 arms. a also burned about 21 identical show_table/raw-read cycles (135 requests, 738 s, 15.7M input tokens) that ended only when context compaction reset it.",
+  "b_vs_a": {
+    "applies": false,
+    "first_divergence": {
+      "stage": "ROUNDING_FORMAT",
+      "where": "b [35]-[38] (pre-gate only; final answers agree)",
+      "what_b_did": "Computed the bare midpoint fraction in calc [18], then at [35] argued that the yields are '(in percent)' so the growth rate is likely percent, and submitted the hand-typed x100 value [38]. The gate flagged it and b accepted the fraction [40].",
+      "what_a_did": "Computed the bare midpoint fraction in calc [38] and again after compaction [269], and answered with the value calc printed [271], never raising the percent question."
+    },
+    "seed_text_effect": {
+      "a_used_seed_advice": "yes",
+      "which_advice": "Compute every final number with calc, not in your head, and answer with the value it printed",
+      "evidence": "After compaction, a's note [254] says 'instructions say compute every final number with calc, provenance'. It re-ran calc [269] with round(rate,3) and answered with exactly that printed value. The seed's percent/fraction bullet is never cited, and a never weighed scale. The loop bullet did not stop the ~21x repeated cycle between [43] and [251].",
+      "would_b_have_benefited": "unclear"
+    },
+    "mechanism_effect": {
+      "submit_rounds": 2,
+      "findings": [
+        "scale",
+        "recompute_final"
+      ],
+      "offers_right": "yes",
+      "b_changed_answer_because_of_gate": "wrong_to_right",
+      "loop_notes": 0,
+      "loop_note_helped": "n/a",
+      "ledger_splice": "no",
+      "workflow_cost": "None visible. The gate showed only the 'scale' finding (one finding per round); 'recompute_final' also fired but was not shown. b accepted in one step ('Harness says accept') without re-deliberating, then ended. Short run: 20 requests, 94 s. The acceptance was deference to the harness rather than new reasoning. It helped here, but the same compliance could flip a right answer on a false positive."
+    },
+    "tools_usage": {
+      "a": "find_tables (several queries) to locate AY-1; show_table on the 1982_09 AY-1 with --grep Aug; printings for both rows across 1981-1985 (and again after compaction); calc for candidate formulas and for the final value. Also python/sed raw reads. It looped on show_table --from-row 12 (1982_09) and show_table 1981_12 plus python raw reads about 21 times, chasing a misparsed 'New Aa Treasury bonds' weekly header.",
+      "b": "find_tables once (0 hits), then located AY-1 in 1982_10 with rg/sed raw reads. No show_table. printings for both rows (using the table title), which confirmed the values and surfaced the same misparsed weekly header, dismissed in 2 steps. One calc (bare fraction), then submit twice."
+    }
+  },
+  "c_vs_a": {
+    "applies": true,
+    "first_divergence": {
+      "stage": "ROUNDING_FORMAT",
+      "where": "c [31] (first calc, all candidates x100), final calc [39], committed [43]",
+      "what_c_did": "Same table, cells, printings and midpoint formula as a, but from its first calc every candidate (simple, log, midpoint, Fisher) was multiplied by 100. Its deliberation [38]-[42] was only log-difference vs midpoint, never fraction vs percent. It answered with the x100 value that its own calc printed.",
+      "what_a_did": "First calc [38] wrote the midpoint as the bare ratio (no x100). The final calc [269] printed the rounded fraction, and a answered it."
+    },
+    "temperature_effect": "No difference in table, vintage, cells or formula. T=1.0 flipped one unstable framing choice: whether 'growth rate' is written x100. The v8 arms and b's own pre-gate reasoning show the model's prior leans to percent, so a's T=0 fraction was a lucky default rather than a decision. c's sampled x100 framing appeared at the first calc and was never revisited in a short 19-request run. c did verify printings, so this was not less verification. The same sampling that set the scale also let c avoid a's T=0 pathology: a deterministic 21x repeated-command loop rescued only by compaction."
+  },
+  "lesson": "Output scale (fraction vs x100) is a coin-flip prior for GLM here, and seed text does not settle it: a and c had the identical seed, and a never even read the percent bullet into its decision. A deterministic submit-time scale check is the right tool, and b shows it working (wrong to right with a correct offer). The current 'scale' rule only fires when the answer is 100x some calc output, though. It would likely have missed c, whose x100 lived inside the calc expression and so never printed a bare fraction. Extend it to inspect calc expressions for literal x100/x200 factors, and to treat unit phrases that qualify inputs ('(in percent)' on the yields) as not asking for a percent answer. Separately, a's correct T=0 run hides a severe loop cost (about 21 identical cycles, 15.7M input tokens) that the text loop advice did not stop, so a broker-level loop guard is still needed in the text arm."
+}

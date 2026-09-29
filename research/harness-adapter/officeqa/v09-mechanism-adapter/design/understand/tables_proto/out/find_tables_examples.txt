@@ -1,0 +1,47 @@
+find_tables('sales and redemptions', years=1982): 75 table parts in 7 groups
+[SB-3] Sales and Redemptions by Periods, Series E through K  | 11 issues 1982_01..1982_11 | match:title
+    treasury_bulletin_1982_10.txt:4036 part5 cont 10c x 40r rows 1952-71..Sept
+    treasury_bulletin_1982_11.txt:3449 part1 9c x 82r rows 1941-71..Oct
+    treasury_bulletin_1982_11.txt:3548 part2 cont 10c x 1r
+    ... 35 more (use --all)
+[SN-1] Sales and Redemptions by Periods  | 11 issues 1982_01..1982_11 | match:title
+    treasury_bulletin_1982_09.txt:4093 part2 cont 8c x 23r rows 1973..July
+    treasury_bulletin_1982_10.txt:4159 part1 8c x 42r rows 1967-1970..Sept
+    treasury_bulletin_1982_11.txt:3798 part1 8c x 42r rows 1967-1970..Oct
+    ... 9 more (use --all)
+[SB-1] Sales and Redemptions by Series, Cumulative through December 31, 1981  | 11 issues 1982_01..1982_11 | match:title
+    treasury_bulletin_1982_09.txt:3563 part1 7c x 5r as-of August 31, 1982
+    treasury_bulletin_1982_10.txt:3823 part1 7c x 5r as-of September 30, 1982
+    treasury_bulletin_1982_11.txt:3382 part1 7c x 5r as-of October 31, 1982
+    ... 8 more (use --all)
+[SB-2] Sales and Redemptions by Periods, All Series Combined  | 10 issues 1982_01..1982_11 | match:title
+    treasury_bulletin_1982_10.txt:3835 part1 9c x 40r rows 1935-71..Sept
+    treasury_bulletin_1982_11.txt:3394 part1 9c x 40r rows 1935-71..Oct
+    treasury_bulletin_1982_07.txt:3829 part1 9c x 39r rows 1935-71..June
+    ... 7 more (use --all)
+[SB-5] Sales and Redemptions by Denominations, Series E, EE, H, and HH 1/ 2/  | 1 issues 1982_05..1982_05 | match:title
+    treasury_bulletin_1982_05.txt:4001 part1 13c x 42r rows 1941-70..Mar
+    treasury_bulletin_1982_05.txt:4046 part2 cont 13c x 41r rows 1941-70..Mar
+[SB-5] Sales and Redemptions by Denominations, Series E, EE, H, and HH  | 1 issues 1982_02..1982_02 | match:title
+    treasury_bulletin_1982_02.txt:3425 part1 13c x 78r rows 1941-70..Apr
+[SB-2] Sales and Redemptions by Perioda, All Series Combined  | 1 issues 1982_05..1982_05 | match:title
+    treasury_bulletin_1982_05.txt:3671 part1 5c x 37r
+
+find_tables('judicial branch', years=2013): 4 table parts in 1 groups
+[FFO-3] On-Budget and Off-Budget Outlays by Agency  | 4 issues 2013_03..2013_12 | match:header
+    treasury_bulletin_2013_06.txt:748 part1 14c x 21r rows 2008..Fiscal year 2013 to date
+    treasury_bulletin_2013_09.txt:711 part1 14c x 20r rows 2008..June
+    treasury_bulletin_2013_12.txt:740 part1 14c x 21r rows 2009..Fiscal year 2013 to date
+    ... 1 more (use --all)
+
+find_tables('summary of federal debt', years=2000): 12 table parts in 2 groups
+[FD-1] Summary of Federal Debt  | 4 issues 2000_03..2000_12 | match:title
+    treasury_bulletin_2000_09.txt:977 part2 cont 10c x 18r rows 1995..June
+    treasury_bulletin_2000_12.txt:1041 part1 10c x 17r rows 1996..Aug
+    treasury_bulletin_2000_12.txt:1061 part2 cont 10c x 18r rows 1996..Sept
+    ... 5 more (use --all)
+[FFO-1] Summary of Fiscal Operations  | 4 issues 2000_03..2000_12 | match:tokens
+    treasury_bulletin_2000_06.txt:546 part1 13c x 21r rows 1999..Mar
+    treasury_bulletin_2000_09.txt:514 part1 11c x 21r rows 1999..June
+    treasury_bulletin_2000_12.txt:527 part1 12c x 20r rows 1999..Sept
+    ... 1 more (use --all)

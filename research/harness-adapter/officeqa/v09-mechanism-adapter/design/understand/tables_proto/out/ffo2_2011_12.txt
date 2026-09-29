@@ -1,0 +1,45 @@
+TABLE [FFO-2] On-Budget and Off-Budget Receipts by Source
+  file treasury_bulletin_2011_12.txt  issue 2011_12  lines 561-583  part 1
+  units: [In millions of dollars. Source: "Monthly Treasury Statement of Receipts and Outlays of the United States Government"]
+  section: FEDERAL FISCAL OPERATIONS
+COLUMNS:
+  c0   Fiscal year or month [period] -> shown as 'period' (filled) and 'label' (raw)
+  v1   = c1 Income taxes > Withheld (1) [num]
+  v2   = c2 Income taxes > Other (2) [num]
+  v3   = c3 Income taxes > Refunds (3) [num]
+  v4   = c4 Income taxes > Net (4) [num]
+  v5   = c5 Corporation > Gross (5) [num]
+  v6   = c6 Corporation > Refunds (6) [num]
+  v7   = c7 Corporation > Net (7) [num]
+  v8   = c8 Net income taxes (8) [num]
+  v9   = c9 Social insurance and retirement receipts Employment and general retire [num]
+  v10  = c10 Social insurance and retirement receipts Employment and general retire [num]
+  v11  = c11 Social insurance and retirement receipts Employment and general retire [num]
+NOTES:
+  - identity: c5 = sum c6+c7 on 21/21 rows (1 segment/panel(s))
+  - identity: c9 = sum c10+c11 on 21/21 rows (1 segment/panel(s))
+ROWS:
+line  pnl  period      label                  v1      v2      v3       v4      v5     v6      v7       v8      v9   v10     v11  flags
+           ==
+563   1    FY2007      2007               928583  437668  202779  1163472  395534  25292  370243  1533715  822216  2220  819996
+564   1    FY2008      2008               970195  455399  279845  1145748  354293  49947  304346  1450094  854485  2461  852024
+565   1    FY2009      2009               861774  312474  258940   915307  225891  87662  138229  1053536  847184  2511  844673
+566   1    FY2010      2010               880361  278220  260035   898549  279880  88443  191437  1089986  813505  1749  811756
+567   1    FY2011      2011               990952  338347  237827  1091473  243493  62407  181086  1272559  756370  2094  754276
+568   1    FY2011 est  2011 - Est        1089065       -       -  1089065  194193      -  194193  1283258  752398     -  752398
+569   1    FY2012 est  2012 - Est        1208547       -       -  1208547  332820      -  332820  1541367  850985     -  850985
+570   1    2010-09     2010 - Sept         70883   40620    4176   107327   54046   5006   49040   156367   67727  1748   65979
+571   1    2010-10     Oct                 69456   11360    9417    71399    8729  13132   -4404    66995   60675     -   60675
+572   1    2010-11     Nov                 72592    4064   12349    64306    3648   6713   -3065    61241   65456     -   65456
+573   1    2010-12     Dec                111023   11803    2510   120316   48864   5463   43400   163716   53289     -   53289
+574   1    2011-01     2011 - Jan          86420   47292    4740   128973    9213   5568    3645   132618   72868     -   72868
+575   1    2011-02     Feb                 87161    4469   53783    37847    4555   5953   -1397    36450   56688     -   56688
+576   1    2011-03     Mar                101495   10549   59288    52757   23918   7016   16902    69659   59997     -   59997
+577   1    2011-04     Apr                 76384  143394   64217   155561   30969   5922   25046   180607   79707     -   79707
+578   1    2011-05     May                 80651    5847   15807    70691    8529   3123    5406    76097   58693     -   58693
+579   1    2011-06     June                75013   41972    3913   113072   50594   1839   48755   161827   67792     -   67792
+580   1    2011-07     July                74281    5774    4325    75730    8541   2289    6253    81983   56231     -   56231
+581   1    2011-08     Aug                 84027    5715    3302    86440    3757   2120    1637    88077   57580     -   57580
+582   1    2011-09     Sept                72449   46108    4176   114381   42176   3269   38908   153289   67394  2094   65300
+583   1    FY2011      Fiscal year 2011   990952  338347  237827  1091473  243493  62407  181086  1272559  756370  2094  754276
+(21 of 21 rows; period = YYYY-MM filled down from the first row of each year block; 'Y?' = year not printed; 'year+1 inferred' = rollover without a label; <..~> = inferred column period; raw cells kept, so r/p flags and footnote marks stay visible)

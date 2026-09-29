@@ -1,0 +1,69 @@
+TABLE [FFO-3] On-Budget and Off-Budget Outlays by Agency
+  file treasury_bulletin_2004_03.txt  issue 2004_03  lines 728-805  part 1  +2 continuation parts stitched
+  units: [In millions of dollars. Source: "Monthly Treasury Statement of Receipts and Outlays of the United States Government"]
+  section: FEDERAL FISCAL OPERATIONS
+COLUMNS:
+  c0   Fiscal year or month [period] -> shown as 'period' (filled) and 'label' (raw)
+  v1   = c1 Legislative branch (1) [num]
+  v2   = c2 Judicial branch (2) [num]
+  v3   = c3 Department of Agriculture (3) [num]
+  v4   = c4 Department of Commerce (4) [num]
+  v5   = c5 Department of Defense, military (5) [num]
+  v6   = c6 Department of Education (6) [num]
+  v7   = c7 Department of Energy (7) [num]
+  v8   = c8 Department of Health and Human Services (8) [num]
+  v9   = c9 Department of Homeland Security 1 (9) [num]
+  v10  = c10 Department of Housing and Urban Development (10) [num]
+  v11  = c11 Department of the Interior (11) [num]
+  v12  = c12 Department of Justice (12) [num]
+  v13  = c13 Department of Labor (13) [num]
+  c2.1   Department of State (14) [num]  (part 2)
+  c2.2   Department of Transportation (15) [num]  (part 2)
+  c2.3   Department of the Treasury, interest on Treasury debt securities (gross) (16) [num]  (part 2)
+  c2.4   Department of the Treasury, other (17) [num]  (part 2)
+  c2.5   Department of Veterans Affairs (18) [num]  (part 2)
+  c2.6   Corps of Engineers (19) [num]  (part 2)
+  c2.7   Other Defense, civil programs (20) [num]  (part 2)
+  c2.8   Environmental Protection Agency (21) [num]  (part 2)
+  c2.9   Executive Office of the President (22) [num]  (part 2)
+  c2.10  Federal Emergency Management Agency (23) [num]  (part 2)
+  c2.11  General Services Administration (24) [num]  (part 2)
+  c2.12  International Assistance Program (25) [num]  (part 2)
+  c3.1   National Aeronautics and Space Administration (26) [num]  (part 3)
+  c3.2   National Science Foundation (27) [num]  (part 3)
+  c3.3   Office of Personnel Management (28) [num]  (part 3)
+  c3.4   Small Business Administration (29) [num]  (part 3)
+  c3.5   Social Security Administration (30) [num]  (part 3)
+  c3.6   Independent agencies (31) [num]  (part 3)
+  c3.7   Employer share, employee retirement (32) [num]  (part 3)
+  c3.8   Interest received by trust funds (33) [num]  (part 3)
+  c3.9   Rents and royalties on the Outer Continental Shelf (34) [num]  (part 3)
+  c3.10  Other (35) [num]  (part 3)
+  c3.11  Total outlays On-budget (36) [num]  (part 3)
+  c3.12  Total outlays Off-budget (37) [num]  (part 3)
+NOTES:
+  - part3: text line(s) just after the table look like a table row that fell out of the pipe table (label + 4+ numbers) at line(s) 807: read them with --raw/read
+ROWS:
+line  pnl  period          label                          v1    v2     v3    v4      v5        v6     v7      v8       v9    v10      v11       v12       v13   c2.1      c2.2    c2.3      c2.4   c2.5  c2.6   c2.7  c2.8   c2.9  c2.10  c2.11     c2.12   c3.1  c3.2   c3.3  c3.4    c3.5      c3.6      c3.7       c3.8   c3.9  c3.10        c3.11      c3.12  flags
+           ==
+730   1    FY1999          1999                         2612  3793  62839  5036  261379     31492  16054  359700    11797  32736     7814  r 16,311     32459   6463  r 37,757  352841  r 31,522  43169  4186  32008  6752    416      -    -46     10061  13665  3285  47515    58  419790      6903    -35594    -118593  -3098  -1754      1380550     320778
+731   1    FY2000          2000                         2913  4087  75658  7929  281234     33309  15010  382627    12364  30829     8022  r 17,377     31355   6849  r 41,592  361998  r 26,574  47087  4334  32861  7240  r 249      -     25     12084  13443  3487  48660  -422  441810  r 10,581    -37851    -129088  -4580  -1502      1457378     330765
+732   1    FY2001          2001                         3030  4409  68156  5017  291030     35724  16420  426391    14085  33937  r 7,876  r 18,868     39271   7446  r 49,372  359508  r 27,416  45043  4726  34161  7390  r 246      -     -8     11771  14094  3691  50916  -569  461748  r 13,603    -38792  r-144,112  -7194  -1025      1517642     346002
+733   1    FY2002          2002                      r 3,243  4824  68989  5322  332116     46285  17772  466104    15980  31880  r 9,741  r 20,572     64252   9453  r 56,112  332537  r 38,857  50881  4798  35159  7450  r 453      -   -271     13309  14429  4187  52512   492  488694  r 15,865    -42782  r-153,316  -5024     -2  r 1,655,210     355663
+734   1    FY2003          2003                      r 3,428  5123  72467  5680  388891  r 57,399  19385  505410    31843  37470  r 9,204  r 21,529  r 69,173   9257     50808  318149  r 48,607  56892  4749  39881  8065  r 388      -    336  r 13,466  14552  4735  54135  1559  508160   r 6,659  r-49,351    -156111  -5029      *  r 1,793,897  r 363,010
+735   1    FY2004 est      2004 - Est                   4269  5306  77739  6194  435674     62815  20623  547898    30663  46177     9965     23488     59949  11301     58010  319157     49824  60318  4308  40294  8129   6612      -    778     17365  14604  5346  57568  3978  530495     11395    -53147    -153674  -4587      *      1938855     379979
+736   1    2002-12         2002 - Dec                    274   399   8657   525   33607      4123   1156   41936  r 2,257   3222      732  r 11,638      5428    858      4458   84989       777   4495   396   3222   627     23      -     60       604   1207   333   4553   456   41613        18   r-3,850     -70185   -557      -    r 182,455      -4408
+737   1    2003-01         2003 - Jan                    291   520   7753   437   29762      6631   1635   41675  r 1,649   3053      338   r 1,678      6647    426      2930   13163      2059   4928   385   3534   683     38      -    -43      1018   1137   338   4507    58   41915      2311   r-3,905        216   -304      -    r 142,521      34772
+738   1    2003-02         Feb                           253   404   5031   408   28613      5376   1153   38867  r 5,011   2544      559   r 1,555      5342    642      1130   15835     20856   4570   382   3208   587     22      -   -348      1575   1030   331   4203    85   41846      1520   r-3,909      -2126   -412      -    r 148,433      37712
+739   1    2003-03         Mar                         r 309   380   5591   464   28889      9087   1713   37742     2365   2808      705   r 1,985      6137    791      3313   13418     10385   2973   351   3566   706     26      -    304      1824   1249   339   4549    32   39334      2283   r-3,942        -77   -357      -    r 141,141      38102
+740   1    2003-04         Apr                           300   424   4743   362   35553      1255   1299   44360     1975   3134      976   r 1,830      5859    943      4548   14060      5942   4964   341   3226   749     29      -    301      1049   1323   362   4777   925   42147     -2921   r-4,053        -23   -659      *    r 145,463      34637
+741   1    2003-05         May                           281   406   4884   460   36236      5180    674   45482     4184   2907      669   r 1,843      5658    806      4494   20339      2424   6967   426   3253   638     25      -     -4      2101   1175   369   4168    71   45221       -75   r-4,337      -4451   -197      *    r 153,955      38324
+742   1    2003-06         June                          300   417   3625   443   32046      5185   1884   40286     2079   5082      904   r 1,602      5547    546      5042   82734      6649   2164   324   3461   642     33      -    266      1091   1278   439   4630    52   43481     -3009   r-4,339     -72201   -864      *    r 171,913        -93
+743   1    2003-07         July                          233   408   4834   428   33397      2816   2773   43828     1965   2735      804   r 1,718      6390    735      5098   11035   r 2,490   4779   379   3312   649     30      -     -4      1142   1166   464   4993    58   42285      1187   r-4,139        179   -387      -    r 142,543      35249
+744   1    2003-08         Aug                           270   512   4676   555   37418      3539   1571   45246     2766   2795      719   r 1,864      5753    767      5139   16176       977   7424   338   3183   734     37      -   -213      1335   1176   544   4128    40   45452      2533   r-4,493      -2035    -66      -    r 150,940      39920
+745   1    2003-09         Sept                          323   434   5480   689   33330   r 6,520   1384   39731     3608   2555  r 1,233   r 2,330   r 5,284    557   r 6,040   13170   r 7,357   2722   414   3344   802   r 74      -    -60    r -462   1613   461   4598    50   40013   r 2,254   r-4,387       -142   -736      *    r 125,248      39620
+746   1    2003-10         Oct                           405   478  11276   419   37759      4570   2166   48572     2381   3347      428      2178      5473   1234   r 4,814   13312      6071   7065   655   3656   600     37      -     17      1067    878   410   4878    59   45393       430     -4367        -30   -262      *       171636      33734
+747   1    2003-11         Nov                           290   384   7353   479   29239      3881   1332   35965     2094   2886      662      1836      4587    987      3759   19292      1985   2514   382   3265   704    182      -   -181       867   1191   389   4341    82   39685      -421     -4184      -4462   -185      *       122990      38189
+748   1    2003-12         Dec                           331   437   8188   498   40716      5134   1871   50878     2144   3337      835      1971      6166    876      4480   82436      2777   7173   417   3704   810    108      -     72       225   1378   381   4907    68   46021      -755     -4114     -70011   -577      -       206467      -3584
+749   1    FY2004 to date  Fiscal year 2004 to date     1026  1299  26817  1396  107714     13585   5369  135415     6619   9570     1925      5985     16226   3097     13053  115040     10833  16751  1455  10625  2115    327      -    -91      2159   3447  1181  14126   209  131099      -745     12664     -74504  -1025      *       501093      68339
+(20 of 20 rows; period = YYYY-MM filled down from the first row of each year block; 'Y?' = year not printed; 'year+1 inferred' = rollover without a label; <..~> = inferred column period; raw cells kept, so r/p flags and footnote marks stay visible)

@@ -1,0 +1,110 @@
+[
+  {
+    "id": "period_match",
+    "when": [
+      {
+        "pred": "period_mismatch",
+        "args": {
+          "require_alt": true
+        }
+      }
+    ],
+    "finding": "Your answer uses {cell.locator} ({cell.period}); the question asks for {question.period}: same column, {alt.period} row {alt.locator} = {alt.text}.",
+    "offer": {
+      "op": "substitute_period",
+      "args": {}
+    },
+    "priority": 25,
+    "enabled": true,
+    "triggers": [],
+    "scope": "pack",
+    "origin": "seed",
+    "admitted_block": 0,
+    "stats": {}
+  },
+  {
+    "id": "later_printing",
+    "when": [
+      {
+        "pred": "later_printing_differs",
+        "args": {}
+      }
+    ],
+    "finding": "Your answer uses {cell.locator} ({cell.column}) = {cell.text}; latest printing {printing.locator} = {printing.text} (latest wins unless a date is pinned).",
+    "offer": {
+      "op": "substitute_printing",
+      "args": {}
+    },
+    "priority": 30,
+    "enabled": true,
+    "triggers": [],
+    "scope": "pack",
+    "origin": "seed",
+    "admitted_block": 0,
+    "stats": {}
+  },
+  {
+    "id": "flagged_cells",
+    "when": [
+      {
+        "pred": "cell_flags",
+        "args": {
+          "flags": [
+            "repair",
+            "Y?",
+            "identity_fail"
+          ],
+          "with_printing": true
+        }
+      }
+    ],
+    "finding": "Your answer uses {cell.locator} = {cell.text}, on {flag.why}. {flag.check}",
+    "offer": {
+      "op": "substitute_printing",
+      "args": {}
+    },
+    "priority": 45,
+    "enabled": true,
+    "triggers": [],
+    "scope": "pack",
+    "origin": "seed",
+    "admitted_block": 0,
+    "stats": {}
+  },
+  {
+    "id": "table_alternatives",
+    "when": [
+      {
+        "pred": "better_table",
+        "args": {}
+      }
+    ],
+    "finding": "Your answer reads {table.used_ref}; {table.other} ({table.other_ref}) in this issue matches more question words: {table.words}.",
+    "offer": null,
+    "priority": 55,
+    "enabled": true,
+    "triggers": [],
+    "scope": "pack",
+    "origin": "seed",
+    "admitted_block": 0,
+    "stats": {}
+  },
+  {
+    "id": "row_coverage",
+    "when": [
+      {
+        "pred": "row_coverage",
+        "args": {}
+      }
+    ],
+    "finding": "Your sum uses {row.used} cells of row {row.locator} ({row.period}); {row.unused_n} other cells of that row are unused, e.g. {row.unused}.",
+    "offer": null,
+    "priority": 58,
+    "enabled": true,
+    "triggers": [],
+    "scope": "pack",
+    "origin": "seed",
+    "admitted_block": 0,
+    "stats": {}
+  }
+]

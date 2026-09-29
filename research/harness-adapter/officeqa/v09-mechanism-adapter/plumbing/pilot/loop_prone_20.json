@@ -1,0 +1,397 @@
+{
+ "name": "pilot-loop-prone-20",
+ "task_ids": [
+  "UID0004",
+  "UID0028",
+  "UID0030",
+  "UID0037",
+  "UID0039",
+  "UID0093",
+  "UID0114",
+  "UID0121",
+  "UID0122",
+  "UID0150",
+  "UID0154",
+  "UID0165",
+  "UID0172",
+  "UID0183",
+  "UID0188",
+  "UID0205",
+  "UID0214",
+  "UID0220",
+  "UID0238",
+  "UID0245"
+ ],
+ "ordinals": [
+  55,
+  40,
+  47,
+  35,
+  81,
+  66,
+  32,
+  107,
+  39,
+  100,
+  26,
+  33,
+  89,
+  28,
+  10,
+  53,
+  38,
+  21,
+  119,
+  49
+ ],
+ "sha256": "81d2bf20c9f12033965abd728f71960d31a20e291ae3921bacba0f4da844dc56",
+ "rule": {
+  "text": "scored v8 run issued one identical (whitespace-normalised) shell command >= 3 times in any v8 arm; rank by number of v8 arms that looped (desc), then sha256(\"v9-officeqa-pilot-loop-prone\" NUL task_id) (asc); take the first 20",
+  "threshold": 3,
+  "count": 20,
+  "salt": "v9-officeqa-pilot-loop-prone",
+  "v8_arms": [
+   "cards",
+   "none",
+   "prompt"
+  ],
+  "normaliser": "harness_core.ledger.normalize_command",
+  "labels_used": false
+ },
+ "eligible": 46,
+ "questions_scanned": 133,
+ "arms_looped_histogram": {
+  "1": 21,
+  "2": 20,
+  "3": 5
+ },
+ "ranking": [
+  {
+   "task_id": "UID0188",
+   "ordinal": 10,
+   "arms_looped": 3,
+   "looped_in": [
+    "cards",
+    "none",
+    "prompt"
+   ],
+   "max_repeat": {
+    "cards": 56,
+    "none": 56,
+    "prompt": 39
+   },
+   "tie_hash": "3064aee5291a647c33e6b21cd8fd09ffc88e997e61117ff0fedd6d3d835f7b7a"
+  },
+  {
+   "task_id": "UID0150",
+   "ordinal": 100,
+   "arms_looped": 3,
+   "looped_in": [
+    "cards",
+    "none",
+    "prompt"
+   ],
+   "max_repeat": {
+    "cards": 84,
+    "none": 61,
+    "prompt": 11
+   },
+   "tie_hash": "4ba6ef506f90e1ed45100043a07722589b3bf702c8f14fb858846e8ac3809541"
+  },
+  {
+   "task_id": "UID0183",
+   "ordinal": 28,
+   "arms_looped": 3,
+   "looped_in": [
+    "cards",
+    "none",
+    "prompt"
+   ],
+   "max_repeat": {
+    "cards": 74,
+    "none": 37,
+    "prompt": 55
+   },
+   "tie_hash": "87ca257cad3e31568633bf6cd340ea77defbb91e878e0af001d459937272eb0a"
+  },
+  {
+   "task_id": "UID0114",
+   "ordinal": 32,
+   "arms_looped": 3,
+   "looped_in": [
+    "cards",
+    "none",
+    "prompt"
+   ],
+   "max_repeat": {
+    "cards": 107,
+    "none": 123,
+    "prompt": 169
+   },
+   "tie_hash": "ea8e0caee0a5acb3e13727b613c970010960cb9515c269a4d76e49986ee44142"
+  },
+  {
+   "task_id": "UID0037",
+   "ordinal": 35,
+   "arms_looped": 3,
+   "looped_in": [
+    "cards",
+    "none",
+    "prompt"
+   ],
+   "max_repeat": {
+    "cards": 63,
+    "none": 67,
+    "prompt": 65
+   },
+   "tie_hash": "f2acbcde43c0e0df9d1db157f5e7270df9b0cb1123e7b166186607c667931623"
+  },
+  {
+   "task_id": "UID0030",
+   "ordinal": 47,
+   "arms_looped": 2,
+   "looped_in": [
+    "cards",
+    "prompt"
+   ],
+   "max_repeat": {
+    "cards": 190,
+    "none": 1,
+    "prompt": 43
+   },
+   "tie_hash": "216841771e4e2c46094312855d679363c75f9a2b8aaa406b8070af5fc902b94a"
+  },
+  {
+   "task_id": "UID0205",
+   "ordinal": 53,
+   "arms_looped": 2,
+   "looped_in": [
+    "cards",
+    "none"
+   ],
+   "max_repeat": {
+    "cards": 47,
+    "none": 50,
+    "prompt": 1
+   },
+   "tie_hash": "227fc2de3690e5edb267aa6d71b27cb5019d4885e85530d57fbb01cc862decf5"
+  },
+  {
+   "task_id": "UID0245",
+   "ordinal": 49,
+   "arms_looped": 2,
+   "looped_in": [
+    "cards",
+    "none"
+   ],
+   "max_repeat": {
+    "cards": 21,
+    "none": 165,
+    "prompt": 1
+   },
+   "tie_hash": "2a86984ce4c478aa4955f05fa0f9dde27c12f63d601069f4d0d6ada9d39d81b7"
+  },
+  {
+   "task_id": "UID0165",
+   "ordinal": 33,
+   "arms_looped": 2,
+   "looped_in": [
+    "cards",
+    "prompt"
+   ],
+   "max_repeat": {
+    "cards": 47,
+    "none": 1,
+    "prompt": 240
+   },
+   "tie_hash": "3dc9b69ea0ee569a4f5944c8282f2ab2570f6ef5e28269f98ff3c997cff43090"
+  },
+  {
+   "task_id": "UID0039",
+   "ordinal": 81,
+   "arms_looped": 2,
+   "looped_in": [
+    "cards",
+    "none"
+   ],
+   "max_repeat": {
+    "cards": 27,
+    "none": 22,
+    "prompt": 1
+   },
+   "tie_hash": "3eabcaa6bac77c88baebc3f9f0489e779cfb0d5b43d316f682d6f29ab01b4131"
+  },
+  {
+   "task_id": "UID0122",
+   "ordinal": 39,
+   "arms_looped": 2,
+   "looped_in": [
+    "none",
+    "prompt"
+   ],
+   "max_repeat": {
+    "cards": 1,
+    "none": 98,
+    "prompt": 125
+   },
+   "tie_hash": "41515177438907a78cc294e39f91c01b5c371c3be6407d737dc3859b7c1b4632"
+  },
+  {
+   "task_id": "UID0028",
+   "ordinal": 40,
+   "arms_looped": 2,
+   "looped_in": [
+    "cards",
+    "none"
+   ],
+   "max_repeat": {
+    "cards": 32,
+    "none": 41,
+    "prompt": 1
+   },
+   "tie_hash": "4288fa2cc26d3ddcf40c6e68c5fcf97921af89947a7a5539154314702c0bbc1f"
+  },
+  {
+   "task_id": "UID0093",
+   "ordinal": 66,
+   "arms_looped": 2,
+   "looped_in": [
+    "cards",
+    "none"
+   ],
+   "max_repeat": {
+    "cards": 126,
+    "none": 60,
+    "prompt": 1
+   },
+   "tie_hash": "4d3b0b9c0eb8d117de526ee2232ed1e60cab94f48d9d57cd1a0dd767fa17a386"
+  },
+  {
+   "task_id": "UID0004",
+   "ordinal": 55,
+   "arms_looped": 2,
+   "looped_in": [
+    "none",
+    "prompt"
+   ],
+   "max_repeat": {
+    "cards": 1,
+    "none": 41,
+    "prompt": 12
+   },
+   "tie_hash": "55bbd17afa40665643d1e47e5dba0f3c4f1f9f471156d990e5e9ee494748e7c1"
+  },
+  {
+   "task_id": "UID0121",
+   "ordinal": 107,
+   "arms_looped": 2,
+   "looped_in": [
+    "cards",
+    "prompt"
+   ],
+   "max_repeat": {
+    "cards": 118,
+    "none": 1,
+    "prompt": 28
+   },
+   "tie_hash": "5a7a03e24389afd586319efb3fe4f349e8bbbfd95154e5b1613367a6170dbc69"
+  },
+  {
+   "task_id": "UID0220",
+   "ordinal": 21,
+   "arms_looped": 2,
+   "looped_in": [
+    "cards",
+    "prompt"
+   ],
+   "max_repeat": {
+    "cards": 19,
+    "none": 1,
+    "prompt": 4
+   },
+   "tie_hash": "79b62d3f1e9cc45722d7422621e802ac8572e35cdbe6c806caff4569f84626ef"
+  },
+  {
+   "task_id": "UID0214",
+   "ordinal": 38,
+   "arms_looped": 2,
+   "looped_in": [
+    "cards",
+    "prompt"
+   ],
+   "max_repeat": {
+    "cards": 123,
+    "none": 1,
+    "prompt": 56
+   },
+   "tie_hash": "7a22a98ac2e33297351a902fe0021859a4df716a75a38ff6eca776dcb0282cc5"
+  },
+  {
+   "task_id": "UID0238",
+   "ordinal": 119,
+   "arms_looped": 2,
+   "looped_in": [
+    "cards",
+    "none"
+   ],
+   "max_repeat": {
+    "cards": 20,
+    "none": 102,
+    "prompt": 1
+   },
+   "tie_hash": "8c0ad682a9282e8220cfe0ab6fb2b1b46f09d866227c522cbb68008643586a5a"
+  },
+  {
+   "task_id": "UID0172",
+   "ordinal": 89,
+   "arms_looped": 2,
+   "looped_in": [
+    "none",
+    "prompt"
+   ],
+   "max_repeat": {
+    "cards": 1,
+    "none": 21,
+    "prompt": 3
+   },
+   "tie_hash": "a1deb6b9f572e513f6fb1b14f30db3a2a3bc07b642276e8f8fd8df6fee705f32"
+  },
+  {
+   "task_id": "UID0154",
+   "ordinal": 26,
+   "arms_looped": 2,
+   "looped_in": [
+    "none",
+    "prompt"
+   ],
+   "max_repeat": {
+    "cards": 1,
+    "none": 36,
+    "prompt": 41
+   },
+   "tie_hash": "a4d40914072de876228d7f4a667f46c500eb41a34878e0e3942f1fb0f04bd873"
+  }
+ ],
+ "inputs": {
+  "read": [
+   "runs/<arm>/NNN/task.json: task_id, ordinal",
+   "runs/<arm>/NNN/records/events.jsonl: command of completed command_execution items"
+  ],
+  "never_read": [
+   "prediction.json",
+   "final.md",
+   "summary.json",
+   "private-evaluation/",
+   "prepared/private/",
+   "reference answers",
+   "grades",
+   "index.json"
+  ],
+  "v8_runs": {
+   "none": "officeqa-pro133-none-v8-work/runs/baseline",
+   "prompt": "officeqa-pro133-prompt-v8-work/runs/adapted",
+   "cards": "officeqa-pro133-cards-v8-work/runs/adapted"
+  }
+ },
+ "script_sha256": "0a810f09732735c628e52db670e642396a454327fae114e6afd36793bc0c5cc6"
+}

@@ -1,0 +1,45 @@
+TABLE [FFO-2] On-Budget and Off-Budget Receipts by Source
+  file treasury_bulletin_2018_12.txt  issue 2018_12  lines 509-531  part 1
+  units: [In millions of dollars. Source: "Monthly Treasury Statement of Receipts and Outlays of the United States Government"]
+  section: FEDERAL FISCAL OPERATIONS
+COLUMNS:
+  c0   Fiscal year or month [period] -> shown as 'period' (filled) and 'label' (raw)
+  v1   = c1 Income taxes > Individual > Withheld (1) [num]
+  v2   = c2 Income taxes > Individual > Other (2) [num]
+  v3   = c3 Income taxes > Corporation > Refunds (3) [num]
+  v4   = c4 Income taxes > Corporation > Net (4) [num]
+  v5   = c5 Corporation > Employment and general retirement > Gross (5) [num]
+  v6   = c6 Corporation > Employment and general retirement > Refunds (6) [num]
+  v7   = c7 Corporation > Employment and general retirement > Net (7) [num]
+  v8   = c8 Social insurance and retirement receipts > Net income taxes (8) [num]
+  v9   = c9 Social insurance and retirement receipts > Gross (9) [num]
+  v10  = c10 Social insurance and retirement receipts > Refunds (10) [num]
+  v11  = c11 Social insurance and retirement receipts > Net (11) [num]
+NOTES:
+  - identity: c5 = sum c6+c7 on 21/21 rows (1 segment/panel(s))
+  - identity: c9 = sum c10+c11 on 20/21 rows (1 segment/panel(s)); FAILS at lines 513 - OCR misread or shifted cell?
+ROWS:
+line  pnl  period          label                          v1      v2      v3       v4      v5     v6      v7       v8       v9   v10      v11  flags
+           ==
+511   1    FY2014          2014                      1149709  476591  231733  1394567  353553  32822  320729  1715296   962237  2529   959708
+512   1    FY2015          2015                      1220161  554993  234352  1540802  390291  46495  343798  1884598  1007385  2801  1004584
+513   1    FY2016          2016                      1245698  551660  251286  1546076  345981  46411  299572  1845646  1060162  3159  1056993
+514   1    FY2017          2017                      1309265  539528  261678  1587120  338978  41929  297048  1884168  1109837  3290  1106547
+515   1    FY2018          2018                      1325106  626555  268126  1683536  263168  58433  204734  1888270  1118641  3234  1115407
+516   1    FY2018 est      2018 - Est                1685422       -       -  1685422  204252      -  204252  1889674  1115234     -  1115234
+517   1    FY2019 est      2019 - Est                1705230       -       -  1705230  225472      -  225472  1930702  1187808     -  1187808
+518   1    2017-09         2017 - Sept                 95920   73033    3831   165123   66257   2840   63417   228540    98276  3290    94986
+519   1    2017-10         Oct                        113715   23153    9036   127832   10487   6758    3729   131561    80306     -    80306
+520   1    2017-11         Nov                        101408    8043   10748    98703    5169   7473   -2304    96399    86432     -    86432
+521   1    2017-12         Dec                        144523   18089    2736   159877   65713   2930   62783   222660    83617     -    83617
+522   1    2018-01         2018 - Jan                 137338   81673    2698   216313   13700   2374   11326   227639   106578     -   106578
+523   1    2018-02         Feb                        110667   10611   75890    45388    4333   6325   -1992    43396    87263     -    87263
+524   1    2018-03         Mar                        132319   17036   61195    88160   11290   6224    5066    93226    96261     -    96261
+525   1    2018-04         Apr                         99447  277803   62923   314327   48369   6201   42168   356495   118723     -   118723
+526   1    2018-05         May                         95919   18631   22010    92539    6738   3806    2932    95471    90022     -    90022
+527   1    2018-06         June                        99337   70784    7773   162349   41027   3025   38001   200350    93678     -    93678
+528   1    2018-07         July                       104792    9779    4911   109660    7524   3228    4296   113956    85934     -    85934
+529   1    2018-08         Aug                        101508    9343    4412   106439    3987   7440   -3453   102986    87815     -    87815
+530   1    2018-09         Sept                        84133   81610    3794   161949   44831   2649   42182   204131   102012  3234    98778
+531   1    FY2018 to date  Fiscal year 2018 to date  1325106  626555  268126  1683536  263168  58433  204734  1888270  1118641  3234  1115407
+(21 of 21 rows; period = YYYY-MM filled down from the first row of each year block; 'Y?' = year not printed; 'year+1 inferred' = rollover without a label; <..~> = inferred column period; raw cells kept, so r/p flags and footnote marks stay visible)

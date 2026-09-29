@@ -1,0 +1,51 @@
+{
+ "task_id": "UID0122",
+ "correct": {
+  "a": 1,
+  "b": 0,
+  "c": 0
+ },
+ "summary": "All three cells found the six ESF-1 balance columns (June 30 and Sept 30, 2000-2002). Each date's values are identical across its two printings. All three also saw that the CPI deflator cancels inside a same-date share, so the recalled CPI values (which differed between cells) do not matter. The outcome depended on which asset rows count as 'foreign-exchange holdings and securities'. a used only the two currency rows (European euro, Japanese yen) under the 'Foreign exchange and securities:' header. b and c also counted the 'Accounts receivable' row printed right after them. That gave a difference under 1% (relative) off a's, still wrong at three decimals. b also submitted a third reading as --alt: U.S. Government securities plus the currencies. The `competing_candidates` finding echoed it back as an 'Offer'. b read that as a hint about the answer key and switched to the alt, roughly half of a's value, so it ended wrong either way.",
+ "b_vs_a": {
+  "applies": true,
+  "first_divergence": {
+   "stage": "CELL_SELECTION",
+   "where": "b events item 16 (note: section 'Foreign exchange and securities' = euro + yen + accounts receivable), item 29 (both readings worked out by hand), item 31 (calc with euro+yen+AR over total assets)",
+   "what_b_did": "Read the 'Foreign exchange and securities:' header as covering European euro, Japanese yen and Accounts receivable. It summed all three in the numerator, over total assets, for each of the six dates. As --alt it carried a second reading: U.S. Government securities + euro + yen.",
+   "what_a_did": "Read the header group as the two currency rows only: 'the table's Foreign exchange and securities subtotal consists of euro and yen balances' (a items 22-23). It considered other groupings (item 57) and kept euro+yen over total assets."
+  },
+  "seed_text_effect": {
+   "a_used_seed_advice": "yes",
+   "which_advice": "for every table cell you use, run `printings --table <id> --row <period> --col <column>`",
+   "evidence": "a item 59 ran printings for euro, yen and total assets on all six dates. Item 65: 'The balance values are now confirmed across printings.' It computed everything in one calc (item 66). This advice did not decide the outcome: the deciding choice was row membership, which no seed line covers, and c had the same seed but made b's primary AR-inclusion reading.",
+   "would_b_have_benefited": "no"
+  },
+  "mechanism_effect": {
+   "submit_rounds": 2,
+   "findings": [
+    "competing_candidates"
+   ],
+   "offers_right": "no",
+   "b_changed_answer_because_of_gate": "no_change",
+   "loop_notes": 0,
+   "loop_note_helped": "n/a",
+   "ledger_splice": "no",
+   "workflow_cost": "The protocol caused oracle-probing. Before submitting, b wrote 'We need maximize chance. Could use submit harness finding' and attached its second reading as --alt (item 37). `competing_candidates` echoed the alt with 'Offer: <alt> (your --alt)' and an Accept line. b decided 'It likely indicates answer key maybe <alt>... accept' (item 39) and switched about 3 s later with no new evidence. That is a wrong-to-wrong value change, so correctness did not change. Two more rules fired in round 1 but were hidden by the one-finding limit: `grounded` (a recalled CPI value) and `row_coverage` (the unused flow column, a false positive). On the accepted resubmit `recompute_final` fired (the alt was never a calc output), but acceptance bypassed it. The run was also much shorter than a's (17 requests / 94 s vs 34 / 240 s), and b never re-examined which rows belong under the header."
+  },
+  "tools_usage": {
+   "a": "find_tables (ESF-1 --years 2000-2003 --all), show_table --long, sed raw lines of all six tables, printings --row/--col on euro, yen and total assets for each date, rg and officeqa search for a CPI table (none in the corpus), and one calc with recalled CPI-U values (they cancel).",
+   "b": "find_tables, show_table --stitch on the six tables, rg for CPI (none), printings on Total assets and European euro (no revisions), and one calc with recalled CPI (one month differs from a's, which does not matter). It ran submit with --alt, then accepted the offered alt."
+  }
+ },
+ "c_vs_a": {
+  "applies": true,
+  "first_divergence": {
+   "stage": "CELL_SELECTION",
+   "where": "c events items 43-45 (reads the header group as euro + yen + accounts receivable, checks the 1982 ESF-1 layout), items 57-58 (rg of the header phrase across issues: 'Phrase confirms grouping'), items 64/68 (calc)",
+   "what_c_did": "Included Accounts receivable with the two currency rows as 'foreign-exchange holdings and securities'. It backed this up by showing that the header also sits above the currency rows and the receivable row in older ESF-1 tables. This is b's primary reading.",
+   "what_a_did": "Used the two currency rows only, over total assets."
+  },
+  "temperature_effect": "Most likely a sampled flip on an ambiguous grouping, not less diligence. c worked longer than a (42 requests / 429 s), checked printings for every cell, and fixed its own rounding slips before the final calc. Its recalled CPI-U series was badly off, which did not matter because it cancels. b (T=0, other context) made the same AR-inclusion reading, and a (T=0) reached the right one without an explicit argument for excluding the row. So this reading is fragile for this model, and T=1 just landed on the more common wrong side."
+ },
+ "lesson": "Two separate lessons. (1) `competing_candidates`, with an 'Offer:' equal to the model's own --alt and a ready Accept line, gets read as harness endorsement. It turns --alt into a way to query the answer key, and b explicitly planned that. Either drop the offer/Accept line for use_alt and just ask which reading the wording supports, or make the actor state a reason from the question before switching. Also remove the AGENTS.md wording that the harness 'computed that alternative itself' for this case. (2) The real failure is a row-membership ambiguity: a header followed by rows of mixed kinds (currency holdings plus a receivable), and 2 of 3 cells got it wrong. Neither the seed text nor any gate rule covers it. A pack/seed note ('a group header covers only rows of its own kind; list the rows and justify each') or a row-membership finding with a computed alternative could help. Running at T=0 alone would not make it reliable."
+}

@@ -1,0 +1,51 @@
+{
+  "task_id": "UID0007",
+  "correct": {
+    "a": 1,
+    "b": 0,
+    "c": 0
+  },
+  "summary": "All three cells found the same table (Table 6, Summary by Months and Calendar Years, 'Budget expenditures' panel) and the same 80-month window; the difference is entirely cell-level validation. The table carries OCR misreads that show up as rows failing the printed-total identity. Cell a followed the seed rule for identity-failing rows: it compared the flagged expenditure rows with the prior printing, used calc row sums against the printed totals to find the two misread cells, repaired them, and checked the other revised cells with printings. Cell c used the same latest printing but took the raw flagged cells without checking (its answer equals a's own 'raw cells' alternate calc, a relative error of about 0.06%). Cell b used later printings (the Feb-1950 issue, whose table also spans just 1940-1949, plus a misaligned stitch of the Feb-1951 issue). It kept two OCR-misread cells on identity-failing rows, which gave an answer about 0.1% off. Then the gate's later_printing offer swapped one expenditure cell for a cell from the receipts panel of the same row and period, b accepted it, and the answer moved about 2.6% away.",
+  "b_vs_a": {
+    "applies": true,
+    "first_divergence": {
+      "stage": "EXTRACTION",
+      "where": "b [11]-[26] (find_tables 1950-1951, show_table 1951_02 --stitch, show_table 1950_02, calc 306aefd475f4)",
+      "what_b_did": "Went past 1949 to the Feb-1950 and Feb-1951 printings. The show_table note said identity FAILS on five 1950_02 rows, including two expenditure rows b used, but b took their cells as printed and did no cross-printing check. It also built a second candidate from a mis-stitched 1951_02 view that mixed rows. The vintage differed first but was not decisive, because the 1950_02 cells match a's repaired set except for the two OCR-misread cells.",
+      "what_a_did": "Restricted find_tables to 1940-1949 issues, so its latest printing was the Dec-1949 issue. It read the identity-FAILS note, compared the flagged expenditure rows with the Nov-1949 printing, used calc row sums against the printed totals to choose the uncorrupted value for each of the two misread cells, and ran printings on every other cell whose value differed between printings."
+    },
+    "seed_text_effect": {
+      "a_used_seed_advice": "yes",
+      "which_advice": "If a value you use sits on such a row, compare it with another printing (printings) before using it.",
+      "evidence": "a [19]: 'identity fails ... Instructions say if value sits on repaired row ... compare with another printing'; [21]-[34] Nov-1949 printing plus calc row sums vs printed totals; [42]-[46] printings on the other differing cells ('use the latest printing' rule); [47] explicitly weighs 'take value printed by latest issue' against the identity-fail rule.",
+      "would_b_have_benefited": "yes"
+    },
+    "mechanism_effect": {
+      "submit_rounds": 2,
+      "findings": [
+        "later_printing"
+      ],
+      "offers_right": "no",
+      "b_changed_answer_because_of_gate": "no_change",
+      "loop_notes": 0,
+      "loop_note_helped": "n/a",
+      "ledger_splice": "no",
+      "workflow_cost": "Wrong to more wrong. On round 1, three rules matched (later_printing, competing_candidates and flagged_cells) and only later_printing was shown. It and flagged_cells both named a 'latest printing' cell for the flagged May-1942 expenditure cell, but that cell was on the receipts panel of the 1951_02 table (same period and column, different section), several times smaller. b's own note at [30] saw the problem ('line 384 in 1951_02 is receipts row, not expenditures ... Maybe table parser confusion?'). It still accepted ('Harness says latest wins ... Need accept per instruction'). The Accept/Keep framing plus the 'latest wins' wording overrode the actor's correct suspicion. b also stopped early: 13 requests against a's 26, with no validation before its first submit, because its AGENTS.md has no table-validation notes."
+    },
+    "tools_usage": {
+      "a": "find_tables with --years 1940-1949. show_table --long --grep and --from-row on the Dec-1949 and Nov-1949 tables (read the identity-FAILS note). printings --row/--col with tail on each cell whose value differed between printings. calc for row-total checks and for the final geometric mean over 80 values, with a count check.",
+      "b": "find_tables --all and over 1950-1951. show_table --stitch on 1951_02, which misaligned the stitched parts. show_table on 1950_02. officeqa.read to see the raw lines. One calc producing two candidate geometric means. submit with --alt. No printings calls and no identity or cross-printing checks."
+    }
+  },
+  "c_vs_a": {
+    "applies": true,
+    "first_divergence": {
+      "stage": "EXTRACTION",
+      "where": "c [12]-[23] (show_table 1949_12 twice, printings once, calc twice)",
+      "what_c_did": "Read the same Dec-1949 expenditure panel. Its output showed the identity FAILS note, but c used the raw cells from the two flagged rows without comparing another printing. Its first calc dropped two values (78 instead of 80), and c fixed that by re-listing.",
+      "what_a_did": "Treated the identity-FAILS note as a trigger, cross-checked both flagged rows against the Nov-1949 printing and the printed row totals, and replaced the two misread cells before computing."
+    },
+    "temperature_effect": "Less verification in a much shorter run: 10 requests and about 39 s, against 26 requests and about 178 s for a. c saw the same seed rule and the same FAILS note but skipped the cross-check step, and it also made a list-length slip it had to repair. The whole error is the two unrepaired OCR cells. c's answer equals the 'raw Dec-1949 cells' alternate that a computed and rejected at [50]."
+  },
+  "lesson": "The decisive knowledge here is 'identity-failing row -> cross-check the cell against another printing and the row total'. Text delivery worked at T=0 and was skipped at T=1. The mechanism's version of it is broken in two ways. (1) Printing lookup ignores sections: it matches cells by period and column across a multi-panel table, so it offered a receipts cell as the 'latest printing' of an expenditure cell. Printings must be keyed by table, section/panel, row and column, and an offer should be suppressed when the substitute differs by an implausible factor or comes from a different row label. (2) With one finding per round, later_printing ('latest wins') hid flagged_cells, and neither proposed the right fix: a majority value across printings consistent with the row total. The actor also deferred to the gate against its own correct doubt. Offers should show the substitute's row label and section, and the protocol should not imply that accepting is the default."
+}

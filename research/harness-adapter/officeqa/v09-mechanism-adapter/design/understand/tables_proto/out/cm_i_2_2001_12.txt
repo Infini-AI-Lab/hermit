@@ -1,0 +1,32 @@
+TABLE [CM-I-2] Total Liabilities by Country
+  file treasury_bulletin_2001_12.txt  issue 2001_12  lines 3267-3323  part 1
+  units: [Position at end of period in millions of dollars. Source: Treasury International Capital Reporting System]
+  section: CAPITAL MOVEMENTS
+COLUMNS:
+  c0   Country [text] -> shown as 'period' (filled) and 'label' (raw)
+  v1   = c1 1998 <1998 (year)> [num]
+  v2   = c2 1999 <1999 (year)> [num]
+  v3   = c3 2000 r <2000 (year)> [num]
+  v4   = c4 May r <2001-05~> [num]
+  v5   = c5 June <2001-06~> [num]
+  v6   = c6 July <2001-07~> [num]
+  v7   = c7 Aug. <2001-08~> [num]
+  v8   = c8 Sept. p <2001-09~> [num]
+NOTES:
+  - column periods without a printed year were inferred (after annual columns: last year + 1; months wrap -> +1); check against the issue date 2001_12
+ROWS:
+line  pnl  period  label              v1     v2     v3     v4     v5     v6     v7     v8  flags
+           ==      Europe
+3270  1            Austria          3474   2960   2755   2805   2396   2410   2740   2768
+3271  1            Belgium 1       45004  46078  34230   6136   6576   7364   6930   6730
+3272  1            Bulgaria          776    472    367    344    314    264   1261    264
+3273  1            Czech Republic    323    790    626    721    715    729    616    855
+3274  1            Denmark          1720   2357   3134   3038   3152   2685   3383   3332
+3275  1            Finland          2098   1749   1412   1144   2395   1574   1003   1267
+3276  1            France          49839  58317  41275  46680  49676  52309  49261  47863
+3277  1            Germany         30898  29004  41421  35585  42662  42640  38068  30689
+3278  1            Greece           2085   3877   2042   1667   1740   2375   2694   2527
+3279  1            Hungary           911    871   1127    760    707    729    840    717
+3280  1            Ireland          8485   7691   8115  14254  16097  15464  14160  13178
+3281  1            Italy           10103   9756   6755   7841   8383   7493   6377   7419
+(12 of 52 rows; period = YYYY-MM filled down from the first row of each year block; 'Y?' = year not printed; 'year+1 inferred' = rollover without a label; <..~> = inferred column period; raw cells kept, so r/p flags and footnote marks stay visible)

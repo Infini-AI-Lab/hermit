@@ -1,0 +1,45 @@
+TABLE [OFS-2] Estimated Ownership of U.S. Treasury Securities
+  file treasury_bulletin_2013_03.txt  issue 2013_03  lines 1853-1894  part 1
+  units: [In billions of dollars. Source: Office of Debt Management, Office of the Under Secretary for Domestic Finance]
+  section: OWNERSHIP OF FEDERAL SECURITIES
+COLUMNS:
+  c0   End of month [period] -> shown as 'period' (filled) and 'label' (raw)
+  v1   = c1 Total public debt 1 (1) [num]
+  v2   = c2 Federal Reserve and Intragovernmental Holdings 2 (2) [num]
+  v3   = c3 Total privately held (3) [num]
+  v4   = c4 Depository institutions 3,4 (4) [num]
+  v5   = c5 U.S. savings bonds 5 (5) [num]
+  v6   = c6 Pension funds 3 > Private 6 (6) [num]
+  v7   = c7 Pension funds 3 > State and local governments (7) [num]
+  v8   = c8 Pension funds 3 > Insurance companies 3 (8) [num]
+  v9   = c9 Pension funds 3 > Mutual funds 3,7 (9) [num]
+  v10  = c10 State and local governments 3 (10) [num]
+  v11  = c11 Foreign and international 8 (11) [num]
+  v12  = c12 Other investors 9 (12) [num]
+NOTES:
+  - identity: c3 = sum c4..c12 on 39/39 rows (1 segment/panel(s))
+  - identity: c1 = sum c2+c3 on 40/40 rows (1 segment/panel(s))
+ROWS:
+line  pnl  period   label            v1      v2      v3     v4     v5     v6     v7     v8     v9    v10     v11     v12  flags
+           ==
+1855  1    2012-12  2012 - Dec  16432.7  6523.7  9909.1   n.a.  182.5   n.a.   n.a.   n.a.   n.a.   n.a.    n.a.    n.a.
+1856  1    2012-09  Sept        16066.2  6446.8  9619.4  337.4  183.8  615.6  190.3  263.8  889.1  492.2  5475.4  1171.8
+1857  1    2012-06  June        15855.5  6475.8  9379.7  304.4  184.7  605.2  189.6  259.1  864.5  489.6  5312.4  1170.3
+1858  1    2012-03  Mar         15582.3  6397.2  9185.1  320.2  184.8  596.4  189.3  260.5  882.2  483.4  5148.3  1120.1
+1859  1    2011-12  2011 - Dec  15222.8  6439.6  8783.3  279.7  185.2  583.9  188.9  260.7  827.9  485.2  5007.4   964.3
+1860  1    2011-09  Sept        14790.3  6328.0  8462.4  293.7  185.1  569.0  189.0  253.4  719.5  487.9  4912.2   852.7
+1861  1    2011-06  June        14343.1  6220.4  8122.7  279.3  186.0  542.5  186.9  250.6  653.0  508.7  4690.6   825.1
+1862  1    2011-03  Mar         14270.0  5958.9  8311.1  321.2  186.7  532.5  187.9  251.4  641.0  526.0  4481.4  1183.1
+1863  1    2010-12  2010 - Dec  14025.2  5656.2  8368.9  319.1  187.9  520.8  185.6  248.4  638.0  538.7  4435.6  1294.9
+1864  1    2010-09  Sept        13561.6  5350.5  8211.1  322.9  188.7  502.1  185.5  240.6  607.4  531.3  4324.2  1308.4
+1865  1    2010-06  June        13201.8  5345.1  7856.7  266.1  189.6  485.2  182.0  231.8  632.1  537.1  4070.0  1262.8
+1866  1    2010-03  Mar         12773.1  5259.8  7513.3  269.4  190.2  462.8  179.1  225.7  646.4  545.4  3877.9  1116.4
+1867  1    2009-12  2009 - Dec  12311.3  5276.9  7034.4  202.4  191.3  430.5  174.5  222.0  666.3  547.2  3685.1   915.2
+1868  1    2009-09  Sept        11909.8  5127.1  6782.7  198.1  192.5  398.8  167.3  210.2  644.9  543.8  3570.6   856.4
+1869  1    2009-06  June        11545.3  5026.8  6518.5  140.8  193.6  354.0  159.9  200.0  695.6  554.3  3460.8   759.5
+1870  1    2009-03  Mar         11126.9  4785.2  6341.7  125.6  194.0  331.3  150.2  191.0  716.0  556.0  3265.7   812.0
+1871  1    2008-12  2008 - Dec  10699.8  4806.4  5893.4  105.0  194.1  297.3  146.4  171.4  768.8  526.7  3077.2   606.6
+1872  1    2008-09  Sept        10024.7  4692.7  5332.0  130.0  194.3  292.3  143.9  163.4  656.1  544.8  2802.4   404.8
+1873  1    2008-06  June         9492.0  4685.8  4806.2  112.7  195.0  276.7  141.8  159.4  477.2  574.3  2587.4   281.7
+1874  1    2008-03  Mar          9437.6  4694.7  4742.9  125.0  195.4  270.3  142.0  152.1  484.4  582.4  2506.3   285.0
+(20 of 40 rows; period = YYYY-MM filled down from the first row of each year block; 'Y?' = year not printed; 'year+1 inferred' = rollover without a label; <..~> = inferred column period; raw cells kept, so r/p flags and footnote marks stay visible)

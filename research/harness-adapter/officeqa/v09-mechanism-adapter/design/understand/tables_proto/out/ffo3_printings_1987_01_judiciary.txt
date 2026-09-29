@@ -1,0 +1,11 @@
+printings(row='1987-01', table='FFO-3', period=None, col='judiciary'): 43 table parts searched in issues 1987..1990
+  issue    file:line                          part period       label | col = <v> [flags]
+  1987_06  treasury_bulletin_1987_06.txt:482    p1 1987-01      '1987-Jan' | c2 'The Judiciary' = <v>
+  1987_09  treasury_bulletin_1987_09.txt:640    p1 1987-01      '1987-Jan' | c2 'The judiciary' = <v>
+  1987_12  treasury_bulletin_1987_12.txt:671    p1 1987-01      '1987-Jan' | c2 'The judiciary' = <v>
+  1988_03  treasury_bulletin_1988_03.txt:940    p1 1987-01      '1987-Jan' | c2 'The Judiciary' = <v>
+SUMMARY (per column & period: value -> issues; first and latest printing):
+  [1987-01] part1 thejudiciary (The Judiciary): 4 printings, 2 distinct values - REVISED/DIFFERS across printings
+      <v>: 1987_06..1987_12 (3)
+      <v>: 1988_03..1988_03 (1)
+      first printing 1987_06 (treasury_bulletin_1987_06.txt:482), latest printing 1988_03 (treasury_bulletin_1988_03.txt:940)

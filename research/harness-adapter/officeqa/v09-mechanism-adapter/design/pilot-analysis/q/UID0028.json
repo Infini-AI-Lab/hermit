@@ -1,0 +1,51 @@
+{
+  "task_id": "UID0028",
+  "correct": {
+    "a": 1,
+    "b": 0,
+    "c": 0
+  },
+  "summary": "The task has two stages: find the month of the minimum Aa-minus-Treasury spread in the pinned June-1970 AY-1 table (stacked 3-year panels with no year labels), then read that month's Railroad Retirement Account trust receipt from an older issue. Cell a first mapped the panels one year too late, then checked its mapping by comparing per-year averages with the annual series, found the offset, and moved the minimum one year earlier. It took the receipt from the 'Trust Receipts' table (column 'Railroad Retirement Account', integer millions). It also caught that printings' 'latest printing' for that row was a later-year row the tool had given the wrong period, and kept the contemporaneous value. Cell b decided the table held only one year per column group (the header years of a sibling issue), so it considered 36 of the 120 months. It picked a minimum in the wrong year, then (through a competing_candidates offer) chose the one-decimal detailed account table over the Trust Receipts table. Cell c had the correct month and caught the same mislabelled printing, but chose the one-decimal dedicated Railroad Retirement Account table because it looked more precise. Relative difference from a: about 0.1%.",
+  "b_vs_a": {
+    "applies": true,
+    "first_divergence": {
+      "stage": "CELL_SELECTION",
+      "where": "b [15]-[20], [75]-[76], [90]-[92]",
+      "what_b_did": "First read the 36 rows as sequential single years and got a minimum in the wrong year. Then it saw the 1970_03 and 1970_04 sibling header rows, which list the first year of each column group, and concluded the table contains only those years, one year per group. The 1970_04 output also showed the next year's label row, which it missed. It computed spreads for three in-window years only, 36 of 120 months, with hand-typed values, and took a minimum one year later than the true one.",
+      "what_a_did": "Parsed all 4 groups by 3 stacked years. After a first mapping one year off, it checked each block's average against the annual series in calc ([96]-[102]), found the offset, remapped with the 1959 base and recomputed the minimum over all 1960-1969 months."
+    },
+    "seed_text_effect": {
+      "a_used_seed_advice": "yes",
+      "which_advice": "prefer the table whose title and column headers match the question's wording",
+      "evidence": "a [83]: '\"Trust Receipts\" table likely has Railroad Retirement Account column'; [91]/[107] printings --table \"Trust Receipts\" --col \"Railroad Retirement Account\". [92]-[94] rejected a look-alike column (an interfund line). [108]-[122] applied the 'match the period exactly' advice when the latest printing's row turned out to be a different year.",
+      "would_b_have_benefited": "unclear"
+    },
+    "mechanism_effect": {
+      "submit_rounds": 2,
+      "findings": [
+        "competing_candidates"
+      ],
+      "offers_right": "no",
+      "b_changed_answer_because_of_gate": "no_change",
+      "loop_notes": 0,
+      "loop_note_helped": "n/a",
+      "ledger_splice": "no",
+      "workflow_cost": "b submitted the Trust Receipts value (the table family a used) with the one-decimal detailed-table value as --alt. competing_candidates just restated the alt as an 'Offer', and b read it as a harness-computed correction ('Harness says offer alternative from our calculation with one input replaced') and accepted, switching to the table family c also chose wrongly. It was wrong to wrong here, because the month was already wrong, but the offer pushed b away from the source a used. recompute_final also matched on both submits but was not shown (one finding per round), and the second submit was recorded. b also used a lot of budget: 53 requests, about 704 s and about 3.35M input tokens, largely spent searching the June-1970 issue for a railroad table it does not contain. There was no loop note or splice."
+    },
+    "tools_usage": {
+      "a": "find_tables several times (AY-1, Railroad Retirement Account(s), Trust Receipts). show_table --long pages. sed on raw lines. calc scripts for spreads and for per-year averages against the annual series (mapping check). printings --table 'Trust Receipts' --row --col, then a raw read to confirm that the latest printing had the wrong period.",
+      "b": "rg and sed on the June-1970 file. show_table --raw on the June, Mar and Apr 1970 issues. Many find_tables and show_table --raw calls across 1965-1970 issues. printings with --col on both railroad tables. calc on hand-typed yield pairs (first with the sign reversed). submit with --alt, then Accept."
+    }
+  },
+  "c_vs_a": {
+    "applies": true,
+    "first_divergence": {
+      "stage": "SOURCE_TABLE",
+      "where": "c [99]-[104]",
+      "what_c_did": "Had the correct month and period map (anchored from the May-1970 sibling's year rows). It found the Trust Receipts value, saw that the table's latest printing belonged to a different year, then switched to the dedicated 'Railroad Retirement Account' table because its one-decimal figure was 'exact ... not rounded' and the question asks for a 'full number in nominal dollars'.",
+      "what_a_did": "Stayed with the 'Trust Receipts' table (title and column both match 'railroad retirement account trust receipts') and converted its integer-millions value to dollars."
+    },
+    "temperature_effect": "Both cells did the hard parts correctly (panel mapping, the mislabelled latest printing). The difference is a tie-break between two defensible tables. At T=1, c followed a precision heuristic ('maximum precision', 'full number') and chose the more detailed table. At T=0, a followed the wording-match heuristic. The run lengths were similar (42 against 58 requests), so this was a tie-break that went the other way, not a verification lapse."
+  },
+  "lesson": "(1) The main risk is the stacked-panel year map. a survived only because of its own check against the annual series, and b's partial coverage (36 of 120 months) went unnoticed. The harness should emit period-labelled rows for these layouts and assert window coverage (the expected month count in 1960-1969) before an argmin or argmax is taken. (2) competing_candidates offers nothing new, yet the actor treats it as a computed correction and accepts. Drop the offer, or make it ask for a discriminating reason (such as which table title matches the question's wording), and never label a restated --alt as 'Offer'. (3) Source tie-breaks between a summary table and a detailed account table should follow wording match over precision. That seed line helped a, and the mechanism's table_alternatives rule could check it at submit if cells were bound. (4) printings can give a row the wrong period when a table's month labels follow an out-of-order year label. Both a and c caught this by hand, and the tool should flag such rows."
+}

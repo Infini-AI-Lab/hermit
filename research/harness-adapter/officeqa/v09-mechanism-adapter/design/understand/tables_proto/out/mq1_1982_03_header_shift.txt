@@ -1,0 +1,58 @@
+TABLE [-] (untitled)
+  file treasury_bulletin_1982_03.txt  issue 1982_03  lines 4373-4400  part 1
+  as-of: FEBRUARY 26, 1982
+  section: FEBRUARY 26, 1982
+COLUMNS:
+  c0   Amount outstanding (millions) > 13-week [num] -> shown as 'period' (filled) and 'label' (raw)
+  v1   = c1 Amount outstanding (millions) > 26-week [num]
+  v2   = c2 Amount outstanding (millions) [empty]
+  v3   = c3 Issue date > 13-week [date]
+  v4   = c4 Issue date > 26-week [date]
+  v5   = c5 Issue date [date]
+  v6   = c6 Maturity date [num]
+  v7   = c7 Bank discount > Bid [num]
+  v8   = c8 Bank discount > Change from last month [num]
+  v9   = c9 Amount outstanding (millions) > 52-week [date]
+  v10  = c10 Amount outstanding (millions) [date]
+  v11  = c11 Amount outstanding (millions) > 52-week [date]
+  v12  = c12 Issue date [num]
+  v13  = c13 Issue date [num]
+  v14  = c14 Maturity date > Bid [empty]
+  v15  = c15 Bank discount > Change from last month [empty]
+  v16  = c16 Bank discount [empty]
+NOTES:
+  - columns empty in every data row: c2,c14,c15,c16
+  - the LAST labelled column(s) c14,c15,c16 ('Bank discount') never hold data: the header probably has a spurious extra label, so labels right of it sit one column too far right - pin columns with an identity or a sibling printing
+  - c6 labelled 'Maturity date' holds num values - header probably shifted
+  - c12 labelled 'Issue date' holds num values - header probably shifted
+  - c13 labelled 'Issue date' holds num values - header probably shifted
+ROWS:
+line  pnl  period  label       v1  v2        v3        v4       v5      v6     v7              v8          v9            v10           v11             v12    v13  v14  v15  v16  flags
+           ==
+4375  1            $4,723  $4,565      12/03/81   9/03/81  3/04/82  12.05%  +.20%          $4,684                    3/26/81       3/25/82          11.87%  -.33%
+4376  1            4726      4572      12/10/81   9/10/81  3/11/82   11.90   -.09            4261                    4/23/81       4/22/82           12.05   -.49
+4377  1            4724      4556      12/17/81   9/17/81  3/18/82   11.80   -.33            4014                    5/21/81       5/20/82           12.31   -.31
+4378  1            4721      4534      12/24/81   9/24/81  3/25/82   11.87   -.33            4011                    6/18/81       6/17/82           12.62   -.05
+4379  1            4931      4513      12/31/81  10/01/81  4/01/82   11.77   -.44            4011                    7/16/81       7/15/82           12.89   +.15
+4380  1            4933      4546       1/07/82  10/08/81  4/08/82   11.90   -.54            4512                    8/13/81       8/12/82           13.06   +.30
+4381  1            4960      4549       1/14/82  10/15/81  4/15/82   11.88   -.57            4768                    9/10/81       9/09/82           12.87   +.10
+4382  1            4940      4533       1/21/82  10/22/81  4/22/82   12.05   -.49            5251                   10/08/81      10/07/82           12.84   +.08
+4383  1            5042      4728       1/28/82  10/29/81  4/29/82   12.09   -.43            5016                   11/05/81      11/04/82           12.86   +.11
+4384  1            5047      4733       2/04/82  11/05/81  5/06/82   12.17   -.38            5194                   12/03/81      12/02/82           12.77   +.07
+4385  1            5058      4732       2/11/82  11/12/81  5/13/82   12.21   -.38            5260                   12/31/81      12/30/82           12.77   +.11
+4386  1            5041      4730       2/18/82  11/19/81  5/20/82   12.31   -.31            5294                    1/28/82       1/27/83           12.71   +.18
+4387  1            4959      4718       2/25/82  11/27/81  5/27/82   12.44   -.19            5270                    2/25/82       2/24/83           12.72      —
+4388  1                      4722                12/03/81  6/03/82   12.53   -.10
+4389  1                      4716                12/10/81  6/10/82   12.57   -.06
+4390  1                      4617                12/17/81  6/17/82   12.62   -.05
+4391  1                      4715                12/24/81  6/24/82   12.61   -.06                                             Specal Issue
+4392  1                      4922                12/31/81  7/01/82   12.71   -.01
+4393  1                      4929                 1/07/82  7/08/82   12.80   +.07
+4394  1                      4971                 1/14/82  7/15/82   12.89   +.15
+4395  1                      4944                 1/21/82  7/22/82   12.92   +.18                                                            Bank discount
+4396  1                      5050                 1/28/82  7/29/82   12.95   +.25  Amount outstan  Issue date  Maturity date           Bid  Monthly change
+4397  1                      5046                 2/04/82  8/05/82   13.04      —
+4398  1                      5048                 2/11/82  8/12/82   13.06   +.30          $2,001    12/07/81        4/22/82        12.05%           -.49%
+4399  1                      5047                 2/18/82  8/19/82   13.06      —            3002     1/05/82        6/17/82         12.62            -.05
+4400  1                      4949                 2/25/82  8/26/82   13.01      —
+(26 of 26 rows; period = YYYY-MM filled down from the first row of each year block; 'Y?' = year not printed; 'year+1 inferred' = rollover without a label; <..~> = inferred column period; raw cells kept, so r/p flags and footnote marks stay visible)

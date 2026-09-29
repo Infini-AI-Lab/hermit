@@ -1,0 +1,42 @@
+TABLE [OFS-1] Distribution of Federal Securities by Class of Investors and Type of Issues
+  file treasury_bulletin_2007_09.txt  issue 2007_09  lines 1801-1841  part 1  +1 continuation parts stitched
+  units: (In millions of dollars. Source: Financial Management Service)
+  section: OWNERSHIP OF FEDERAL SECURITIES
+COLUMNS:
+  c0   End of fiscal year or month [period] -> shown as 'period' (filled) and 'label' (raw)
+  v1   = c1 Total Federal securities outstanding (1) [num]
+  v2   = c2 Total outstanding (2) [num]
+  v3   = c3 Public debt securities Held by U.S. Government accounts > Total (3) [num]
+  v4   = c4 Public debt securities Held by U.S. Government accounts > Marketable ( [num]
+  v5   = c5 Public debt securities Held by U.S. Government accounts > Nonmarketabl [num]
+  v6   = c6 Public issues held by Federal Reserve banks (6) [num]
+  c2.1   Public debt securities, con. Held by private investors > Total (7) [num]  (part 2)
+  c2.2   Public debt securities, con. Held by private investors > Marketable (8) [num]  (part 2)
+  c2.3   Public debt securities, con. Held by private investors > Nonmarketable (9) [num]  (part 2)
+  c2.4   Agency securities > Total outstanding (10) [num]  (part 2)
+  c2.5   Agency securities > Held by private investors (11) [num]  (part 2)
+NOTES:
+  - part1: identity: c3 = sum c4+c5 on 18/18 rows (1 segment/panel(s))
+  - part2: identity: c1 = sum c2+c3 on 17/18 rows (1 segment/panel(s)); FAILS at lines 1825 - OCR misread or shifted cell?
+ROWS:
+line  pnl  period   label             v1       v2       v3   v4       v5      v6     c2.1     c2.2    c2.3   c2.4   c2.5  flags
+           ==
+1803  1    FY2002   2002         6255406  6228236  2675647  311  2675336  628414  2924175  2507997  416178  27170  27170
+1804  1    FY2003   2003         6809272  6783320  2859291  311  2858980  654593  3269347  2805814  463443  25952  25952
+1805  1    FY2004   2004         7403236  7379053  3075703  142  3075561  698207  3605143  3147752  457391  24183  24183
+1806  1    FY2005   2005         7956346  7932710  3331333    1  3331332  733439  3867938  3351440  516498  23637  23637
+1807  1    FY2006   2006         8530366  8506974  3663773    1  3663772  764828  4078373  3538210  540163  23392  23392
+1808  1    2006-06  2006 - June  8443683  8420042  3622594    1  3622593  762595  4034853  3491421  543431  23641  23641
+1809  1    2006-07  July         8467856  8444347  3624439    1  3624438  760863  4059045  3519546  539499  23509  23509
+1810  1    2006-08  Aug          8538350  8515034  3629882    1  3629881  762732  4122420  3581939  540481  23317  23317
+1811  1    2006-09  Sept         8530366  8506974  3663773    1  3663772  764828  4078373  3538210  540163  23392  23392
+1812  1    2006-10  Oct          8607540  8584329  3703455    1  3703454  764264  4116610  3573704  542906  23211  23211
+1813  1    2006-11  Nov          8656590  8633245  3703130    1  3703129  768492  4161624  3612518  549105  23345  23345
+1814  1    2006-12  Dec          8703738  8680224  3779021    1  3779020  774988  4126215  3566969  559246  23514  23514
+1815  1    2007-01  2007 - Jan   8730892  8707561  3793255    1  3793254  775470  4138836  3571971  566865  23331  23331
+1816  1    2007-02  Feb          8801230  8778111  3798192    1  3798191  777348  4202571  3631212  571359  23119  23119
+1817  1    2007-03  Mar          8872851  8849665  3795393    1  3795392  777348  4276924  3691438  585486  23186  23186
+1818  1    2007-04  Apr          8863150  8840168  3833569    1  3833568  783414  4223185  3628970  594215  22983  22983
+1819  1    2007-05  May          8851992  8828992  3847913    1  3847912  786150  4194929  3592122  602808  23000  23000
+1820  1    2007-06  June         8890838  8867677  3924650    1  3924649  786149  4156876  3552951  603925  23162  23162
+(18 of 18 rows; period = YYYY-MM filled down from the first row of each year block; 'Y?' = year not printed; 'year+1 inferred' = rollover without a label; <..~> = inferred column period; raw cells kept, so r/p flags and footnote marks stay visible)

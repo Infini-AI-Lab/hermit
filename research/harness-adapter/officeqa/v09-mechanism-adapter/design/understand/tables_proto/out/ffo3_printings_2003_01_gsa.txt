@@ -1,0 +1,10 @@
+printings(row='2003-01', table='FFO-3', period=None, col='general services'): 50 table parts searched in issues 2003..2006
+  issue    file:line                          part period       label | col = <v> [flags]
+  2003_06  treasury_bulletin_2003_06.txt:779    p2 2003-01      '2003 - Jan' | c11 'General Services Administration (24)' = <v>
+  2003_09  treasury_bulletin_2003_09.txt:770    p2 2003-01      '2003 - Jan' | c11 'General Services Administration (24)' = <v>
+  2003_12  treasury_bulletin_2003_12.txt:791    p2 2003-01      '2003 - Jan' | c11 'General Services Administration (24)' = <v>
+  2004_03  treasury_bulletin_2004_03.txt:760    p2 2003-01      '2003 - Jan' | c11 'General Services Administration (24)' = <v>
+SUMMARY (per column & period: value -> issues; first and latest printing):
+  [2003-01] part2 col (24) (General Services Administration (24)): 4 printings, 1 distinct values - same in all printings
+      <v>: 2003_06..2004_03 (4)
+      first printing 2003_06 (treasury_bulletin_2003_06.txt:779), latest printing 2004_03 (treasury_bulletin_2004_03.txt:760)

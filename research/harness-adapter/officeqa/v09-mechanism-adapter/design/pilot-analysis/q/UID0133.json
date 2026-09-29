@@ -1,0 +1,50 @@
+{
+  "task_id": "UID0133",
+  "correct": {
+    "a": 1,
+    "b": 0,
+    "c": 0
+  },
+  "step_ref_note": "step refs are item.completed indices in each cell's records/events.jsonl (same numbering for reasoning, message and command items)",
+  "summary": "All three cells first landed on IFS-2 'Selected U.S. Liabilities to Foreigners' and doubted it. a then ran a full-text search for the question's literal noun phrase, found Capital Movements table CM-I-1 whose row label is exactly 'Total liabilities to all foreigners' (section 'Liabilities to foreigners reported by banks'), and used printings on both endpoints, taking the revised latest printing for CY2002 (a 2004 issue) and CY2012 (the Dec 2013 issue). b chose Chart CM-A ('...Reported by U.S. Banks, Brokers, and Dealers...') grand total: same series, same 2002 value, but it read the 2012 value from the Sept 2013 printing of the chart; the Dec 2013 issue reprints that chart with a revised 2012 value but without its 'CHART CM-A' caption, so printings never linked it and b never saw the revision. The result was off by about 0.1% relative, enough to miss exact match. c took a different route at T=1.0: a broad title search led it to CM-I-3 'Total Liabilities by Type and Country, Dec. 31, YYYY, Preliminary'. It read the grand totals from the first (preliminary) snapshot for each year-end by raw line reads and skipped printings, assuming snapshot tables are never revised. The preliminary 2002 total is materially below the revised value, so c's answer was off by about 11% relative.",
+  "b_vs_a": {
+    "applies": true,
+    "first_divergence": {
+      "stage": "SOURCE_ISSUE_VINTAGE",
+      "where": "b items 15-29 (switches from IFS-2 to Chart CM-A; printings --table CM-A --col 2012 returns noisy cross-table 'Grand total' hits, no latest-issue copy), 34 (reads 2012 from the treasury_bulletin_2013_09 chart), 37 (calc), 39 (submit)",
+      "what_b_did": "Picked the Chart CM-A grand-total series (a legitimate twin of the CM-I-1 total row) and took its CY2012 value from the Sept 2013 printing. printings could not follow the chart into the Dec 2013 issue, where it appears without its caption, so b used a superseded 2012 value. Its 2002 endpoint matched a's.",
+      "what_a_did": "Searched the corpus for the literal phrase and found CM-I-1 with the exact row label 'Total liabilities to all foreigners'. It ran printings for 'Calendar Year 2002' and 'Calendar Year 2012' and took the latest revised printing of each (items 44-55)."
+    },
+    "seed_text_effect": {
+      "a_used_seed_advice": "yes",
+      "which_advice": "Unless the question names a publication date or issue, use the latest printing of each value",
+      "evidence": "a item 22 reasons 'Need use printings for CY2002 and CY2012 ... Latest issue listed'. Items 23, 34 and 53 run printings for each endpoint, and a picks the latest printing (the revised 'Calendar Year 2012 r' column in 2013_12 and the 2004 revision of CY2002). a also followed the 'prefer the table whose title and column headers match the question's wording' note by picking the table whose row label matches the question verbatim (item 51).",
+      "would_b_have_benefited": "unclear"
+    },
+    "mechanism_effect": {
+      "submit_rounds": 1,
+      "findings": [],
+      "offers_right": "none",
+      "b_changed_answer_because_of_gate": "no_change",
+      "loop_notes": 0,
+      "loop_note_helped": "n/a",
+      "ledger_splice": "no",
+      "workflow_cost": "No friction: one submit, recorded with no finding, and the turn ended. The silent accept worked as a false all-clear. later_printing is the rule meant for exactly this error, but it had nothing to compare. The ledger tagged b's 2012 cell as printing_of 'CM-A|Grand total|2012', and the only later copy (Dec 2013) is untitled in the corpus, so printings never linked it. b's run was also shorter than a's (17 vs 27 requests). b never ran the literal-phrase search that led a to CM-I-1. The trajectory does not show whether the submit protocol caused that."
+    },
+    "tools_usage": {
+      "a": "find_tables (IFS-2, then CM-I-1 by title with --years), show_table --long/--grep/--from-row, printings on IFS-2 and on CM-I-1 for both endpoints (decisive), officeqa.py FTS search for the question's noun phrase (decisive: surfaced the 'Liabilities to foreigners reported by banks / CM-I-1' contents entry), and calc for the log difference.",
+      "b": "find_tables, show_table --stitch (one call resolved a chart line to CM-I-3 instead), printings --table CM-A (title match pulled hundreds of unrelated 'Grand total' cells from other capital-movement tables and no latest-issue copy of the chart), sed raw reads, rg over the corpus for the exact phrase (output truncated, CM-I-1 hits not followed), calc heredoc, and submit once."
+    }
+  },
+  "c_vs_a": {
+    "applies": true,
+    "first_divergence": {
+      "stage": "SOURCE_TABLE",
+      "where": "c items 16-17 (broad 'liabilities' title search picks CM-I-3), 23 (reasons the snapshot table is not revised and skips printings), 30-32 (raw reads of the grand-total lines in the 2003_03 and 2013_03 preliminary tables), 35 (calc)",
+      "what_c_did": "Used the per-country snapshot table CM-I-3 'Total Liabilities by Type and Country, Dec. 31, YYYY, Preliminary' and took the grand total from each year-end's first, preliminary printing. It saw Chart CM-A but dismissed it as covering only selected countries. It never considered CM-I-1 and ran no printings.",
+      "what_a_did": "Used the CM-I-1 time-series row 'Total liabilities to all foreigners' and followed each endpoint with printings to the latest revised value."
+    },
+    "temperature_effect": "Sampling sent c down a different search path early: generic title searches rather than the literal-phrase FTS search, which led to a plausible but preliminary snapshot table. c then made an unverified assumption ('data likely not revised') instead of following the seed's printings advice, which was in its AGENTS.md. The run was shorter and did less verification (16 requests / 61 s vs 27 / 122 s). The error is table choice plus vintage, not arithmetic."
+  },
+  "lesson": "The latest-printing check has to work across tables whose caption was lost in some issues. printings and the later_printing predicate currently link printings by table id or title, so an untitled latest copy of a chart is invisible and the gate records silently. Linking by row label plus column header (for example 'Grand total' x 'Calendar years > 2012') within the same section would catch b's miss. A literal-phrase search of the question's noun phrase against row labels, which is what a did, was the decisive step for source choice and could be a standard tool step or seed line. For T=1, the seed's printings advice was skipped once the model assumed snapshot tables are final. A mechanism that checks 'Preliminary' snapshot tables against a revised time-series would be more robust than advice text."
+}

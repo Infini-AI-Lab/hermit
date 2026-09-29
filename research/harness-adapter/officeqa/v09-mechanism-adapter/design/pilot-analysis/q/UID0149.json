@@ -1,0 +1,25 @@
+{
+  "task_id": "UID0149",
+  "correct": {
+    "a": 0,
+    "b": 0,
+    "c": 1
+  },
+  "step_ref_note": "step refs are item.completed indices in each cell's records/events.jsonl",
+  "summary": "Everything turns on the acronym 'TABs'. c (T=1.0) read it early as tax anticipation bills (item 12). It went to Table 3 'Interest-Bearing Public Marketable Securities by Issues' in the March 1962 and March 1963 bulletins (Jan 31 survey), summed the tax-anticipation issues per investor category, and grouped life plus fire insurance and general plus pension state/local funds into the 7 named categories. It verified the column mapping against the continuation table header and caught and fixed a bug in its own calc. a and b, both at T=0, followed the same greedy path. They guessed 'TABs' meant Treasury bills and counted categories on the all-Treasury-bills row of Table 2 (Summary), which gives a much larger count. They gave the same wrong answer. a's rg for 'TAB' was limited to 1962-63 files, found nothing, and a concluded the acronym was a garbled 'Treasury bills'. c's corpus-wide rg found 'TAB' used as a label for tax anticipation bills in 1974-75 quotation tables, which supported its reading. The table, issue and aggregation steps were otherwise the same across cells. The miss is purely one of interpretation and external knowledge.",
+  "b_vs_a": {
+    "applies": false,
+    "note": "Both wrong with the same answer and the same reading (TABs = Treasury bills, Table 2 Summary row). b made one submit and it was recorded with no findings. b did the category count in its reasoning without any calc run, yet recompute_final did not fire, so the gate let a mentally computed count through. This did not affect correctness here."
+  },
+  "c_vs_a": {
+    "applies": true,
+    "first_divergence": {
+      "stage": "EXTERNAL_KNOWLEDGE",
+      "where": "c item 12 (expands TABs as tax anticipation bills), 26-28 (chooses the Tax anticipation sub-block of Table 3 by issues), 35 (corpus-wide rg confirms 'TAB' usage), 47-49 (calc of per-category sums, own bug fixed), 51-54 (column mapping verified); a items 6 and 16-17 (guesses Treasury bills or bonds, uses Table 2 'Treasury bills' row), 25-26 (rg for TAB limited to 1962-63 finds nothing and a concludes it was a misreading of 'Treasury bills')",
+      "what_c_did": "Decoded TABs = tax anticipation bills and aggregated only the tax-anticipation issues outstanding at each January survey, per grouped investor category. It kept the March (January-survey) printing because the question names March, rejecting a later printing that belongs to a different survey date.",
+      "what_a_did": "Treated TABs as all Treasury bills and counted categories on the Table 2 Summary 'Treasury bills' row for each year, with the same category grouping."
+    },
+    "temperature_effect": "The difference came from a different early sample of the acronym's meaning, not from better verification of a shared plan. The greedy T=0 path (in both a and b) settled on 'Treasury bills', while the T=1.0 sample produced the correct domain expansion. After that, c ran much longer and more exploratively (30 requests / 198 s vs a's 11 / 45 s). It computed both readings, searched the whole corpus for the acronym, checked the column mapping, and caught its own calc slip. This looks like a lucky draw, not a systematic T=1 advantage."
+  },
+  "lesson": "Neither the seed text nor the mechanism can repair an interpretation error of this kind, so both T=0 cells failed identically. Two cheap harness fixes follow. First, a short domain glossary in the pack (for example TAB = tax anticipation bill, a distinct sub-block of Treasury bills in ownership and quotation tables). Second, a seed or tool rule that an unfamiliar term from the question must be looked up corpus-wide, not only in the target years, before the model decides it is a typo. An interpretation-alternatives step would also help: have the actor list readings of an unexpanded acronym and check which one the table structure supports, since Table 3 has a dedicated 'Tax anticipation' block. b also shows that recompute_final does not fire when an answer involves no calc at all, a gap in the 'compute every final number' check."
+}

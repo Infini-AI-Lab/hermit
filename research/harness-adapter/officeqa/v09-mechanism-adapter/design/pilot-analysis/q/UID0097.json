@@ -1,0 +1,45 @@
+{
+  "task_id": "UID0097",
+  "correct": {"a": 1, "b": 0, "c": 0},
+  "summary": "All three cells found the same table (ESF-1 in the Dec-1989 issue, Mar. 31, 1989 column) and read the same cells. The only open question was which row the phrase 'total nominal capital held' means: the 'Total capital' row (capital account plus cumulative net income) or the 'Capital account' row (the statutory appropriated capital). Cell a mapped it straight to 'Total capital', never looked at the other reading, checked both cells with printings, and was right. Cell b first reasoned its way to the same 'Total capital' pick. But its SEED tells it to pass --alt when it considered another value, so it submitted the capital-account reading as --alt. The competing_candidates rule then handed that alt back as an Offer. In one long re-deliberation turn (about 108 s of a 157 s episode), b decided that 'nominal' means the statutory capital and accepted, which made it wrong. Cell c (T=1) laid out both readings from the start, searched the corpus for the phrase 'nominal capital' (it found nothing relevant), argued that 'nominal' excludes accumulated net income, and chose the capital-account row, so it was wrong too. Nothing separated the cells in retrieval or execution. What separated them was whether the harness or the sampling made the model reconsider a first reading that was already right.",
+  "b_vs_a": {
+    "applies": true,
+    "first_divergence": {
+      "stage": "INTERPRETATION",
+      "where": "b events [12] (reasoning weighs 'Total capital' vs 'Capital account'), [16] calc of both readings, [17] picks Total capital, [18] submit with --alt, checks/001.json competing_candidates finding, [19]-[20] re-decides and accepts the alt",
+      "what_b_did": "Laid out both row readings and first chose 'Total capital' as its primary answer, but submitted the capital-account reading as --alt as the SEED instructs. When the gate re-offered the alt with 'submit the one the question asks for', b reread 'nominal' as meaning statutory capital and accepted the Offer.",
+      "what_a_did": "Mapped 'total nominal capital' directly to the 'Total capital' row without considering the capital-account row, checked both needed cells with printings (same value in every printing), computed with calc, and answered."
+    },
+    "seed_text_effect": {
+      "a_used_seed_advice": "yes",
+      "which_advice": "run `printings --table <id> --row <period> --col <column>` and take the value printed by the latest issue listed",
+      "evidence": "a [17]-[27]: after two printings syntax misses it ran printings for 'Total capital' and 'Total liabilities and capital' on the Mar. 31, 1989 column. [29]: it computed both outputs in one calc. The printings check did not decide the outcome (the values were the same in every printing). What decided it was a's immediate row reading, and a never invoked the seed's 'Alternatives' advice.",
+      "would_b_have_benefited": "no"
+    },
+    "mechanism_effect": {
+      "submit_rounds": 2,
+      "findings": ["competing_candidates"],
+      "offers_right": "no",
+      "b_changed_answer_because_of_gate": "right_to_wrong",
+      "loop_notes": 0,
+      "loop_note_helped": "n/a",
+      "ledger_splice": "no",
+      "workflow_cost": "Yes. The mech SEED line 'add --alt \"<other>\" when you also considered another value' turned b's private doubt into a formal alternative. competing_candidates carries no evidence beyond b's own --alt. It simply echoed the alt back as an 'Offer' with an Accept command line, and b read that as a nudge. The post-finding turn was the longest of the episode, and it ended by flipping a right answer to a wrong one. Without the --alt/gate protocol, b's primary pick would have been recorded, and it matched a's. No loop notes, splices or compactions."
+    },
+    "tools_usage": {
+      "a": "find_tables on the title phrase (no hit when restricted to 1988-1990), then rg across the 1989/1990 issues to locate ESF-1, sed to read the raw table, show_table --long --grep on the Total capital row, printings (2 failed syntax attempts, then a successful row-label/column form) for both rows, and calc for the final values. 15 requests, about 79 s.",
+      "b": "find_tables with --years 1988-1990 --all to reach the ESF-1 group, show_table --stitch, sed of the raw table to see the capital sub-rows, calc computing both readings at once, then submit with --alt, then submit of the alt. It never ran printings. 9 requests, about 157 s, most of it in the post-gate turn."
+    }
+  },
+  "c_vs_a": {
+    "applies": true,
+    "first_divergence": {
+      "stage": "INTERPRETATION",
+      "where": "c events [13] (its first reading of the capital section already leans to 'Capital account'), [17] printings of the Capital account row, [21]/[28]/[32] deliberation, [22]-[27] corpus search for the phrase 'nominal capital', [33] final",
+      "what_c_did": "Treated 'nominal capital' as the Capital account row (the appropriated capital, excluding cumulative net income). It ran printings and calc for both readings, searched the corpus for the phrase (no relevant hits), and chose the capital-account reading. Along the way it made a mental subtraction slip, which it caught and fixed with calc.",
+      "what_a_did": "Took the 'Total capital' row as the meaning of 'total nominal capital' without deliberating, and answered from it."
+    },
+    "temperature_effect": "T=1 sampling produced a longer, more exploratory run (17 requests, about 155 s, roughly 1.8x a's output tokens) that surfaced the second row reading, which greedy T=0 a never considered. c then argued itself into the more literal but wrong 'nominal = capital account' reading. The flip came from exploring an ambiguous word, not from an execution error. Greedy b also first chose the right reading, which suggests the T=0 mode favours the 'Total capital' interpretation."
+  },
+  "lesson": "When the model's first reading is right, anything that makes it formally reconsider an ambiguous word (the --alt plus competing_candidates Offer at T=0, or free exploration at T=1) turns a correct pick into a re-decision, and GLM tends to settle such re-decisions on the more literal but wrong reading. competing_candidates adds no independent evidence, so it should not fire with an Offer/Accept line when its only source is the model's own --alt. The mech SEED should also stop soliciting --alt. Gate findings should fire only on evidence the actor does not already hold, such as a later printing, a period mismatch or an unused cell, not on the actor's own second thoughts."
+}

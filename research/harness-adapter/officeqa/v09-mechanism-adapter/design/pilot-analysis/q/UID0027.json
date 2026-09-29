@@ -1,0 +1,51 @@
+{
+  "task_id": "UID0027",
+  "correct": {
+    "a": 1,
+    "b": 0,
+    "c": 0
+  },
+  "summary": "The June-1970 AY-1 table has lost its year labels in extraction: 36 month rows by 4 column groups, each group a run of 3 stacked years. Cell a saw show_table's note ('anchor the years from a sibling printing ... never by guessing'), read the year labels from the July-1970 sibling, and parsed all months with an explicit year = base + block formula. It filtered to 1960-1969, took the argmax in calc, and encoded month*100 + four-digit year correctly. Cell b inferred the same group-to-year mapping by reasoning, but its calc flattened the cells row-major while it decoded the argmax index group-major, and it never filtered out the 1970 months. The argmax was an out-of-window 1970 month that b labelled as an in-window month. Its first submit also used a two-digit year in the encoding, and the gate's recompute_final made it recompute that in calc. Cell c reached the same month as a after a long detour (it misread the panel layout, went looking for a chart, then took values from a later printing), but encoded the answer as month*100 + two-digit year, inside calc.",
+  "b_vs_a": {
+    "applies": true,
+    "first_divergence": {
+      "stage": "CELL_SELECTION",
+      "where": "b [19]-[28] (calc 172f9e1ddecb run three times, printings AY-1 --row Dec)",
+      "what_b_did": "Parsed the 36 rows into a flat list in row-major order (4 groups per row) but read the argmax index as if the list were group-major (index // 36 = group). It also kept 1970 months in the list. The argmax cell was therefore a 1970 month, outside the question's window, mislabelled as an in-window month. The printings call confirmed the group-to-year mapping but not the index decoding.",
+      "what_a_did": "Parsed row by row with an explicit year = base + (row // 12) for each group, kept only 1960-1969, and printed the top-10 (spread, year, month) tuples, so every candidate carried its period."
+    },
+    "seed_text_effect": {
+      "a_used_seed_advice": "yes",
+      "which_advice": "Unless the question names a publication date or issue, use the latest printing of each value",
+      "evidence": "a [15]: 'Need maybe printings latest? User explicitly exact publication June 1970, so use that issue, not latest'. a used June-1970 values and only took the year structure from the July sibling. It also applied the question's window with an explicit 1960-1969 filter (in the spirit of 'Match the period exactly'). The year anchoring itself came from show_table's SIBLINGS note (tool output), not from the seed.",
+      "would_b_have_benefited": "yes"
+    },
+    "mechanism_effect": {
+      "submit_rounds": 2,
+      "findings": [
+        "recompute_final"
+      ],
+      "offers_right": "none",
+      "b_changed_answer_because_of_gate": "no_change",
+      "loop_notes": 1,
+      "loop_note_helped": "no",
+      "ledger_splice": "no",
+      "workflow_cost": "b issued the identical calc three times with the same reasoning text ([19], [21], [23]). A loop_guard note was spliced in at request 12 ('run a command you have not run yet' or submit a trusted candidate). It broke the repetition, and b's new commands (the next page, printings AY-1 --row Dec) confirmed the group-to-year mapping but never re-checked which cell the argmax index pointed to; b then submitted. The first submit encoded the month with a two-digit year by hand. recompute_final (no offer) made b run the encoding in calc, which exposed the slip, and b resubmitted. The gate fixed a real FORMULA error but could not see the period error: the cells were parsed from the raw file inside calc, so no rule bound them to periods (period_match stayed silent). Wrong to wrong."
+    },
+    "tools_usage": {
+      "a": "find_tables 'Aa' --years 1970 found AY-1. show_table --long --grep, whose NOTES carried the Y? warning and the SIBLINGS list. show_table --raw on the June issue and on the July-1970 sibling (year labels). calc scripts that read the corpus file, filtered years and ranked spreads. No printings (date pinned).",
+      "b": "find_tables with 'yield spread' wording (0 hits), then rg and sed on the raw file. show_table --raw, which does not show the NOTES/SIBLINGS hint. The identical calc three times. sed on the next page. printings AY-1 --row Dec to recover year labels. submit twice."
+    }
+  },
+  "c_vs_a": {
+    "applies": true,
+    "first_divergence": {
+      "stage": "FORMULA",
+      "where": "c [46]-[48] (calc 87cc6a8e6bd9)",
+      "what_c_did": "Found the same argmax month as a, but hard-coded the encoding as month*100 + the two-digit year inside calc. This gives a value that cannot be month*100 + a 1960s year. Earlier ([23]-[43]) it misread the panel layout, first as one year per panel, then as a table ending in 1963 or May 1969. It searched for a chart, then took the needed monthly values from a later (Nov-1970) printing that carries year labels, and compared only 7 hand-typed months.",
+      "what_a_did": "Encoded month*100 + four-digit calendar year, as the question says (in its final reasoning), after parsing all 120 June-1970 months with anchored years."
+    },
+    "temperature_effect": "Sampling at T=1 produced an unstable reading of the panel structure. c held several contradictory year maps in turn, went on a long detour (20 requests against a's 14), and borrowed values from a non-pinned printing instead of anchoring the pinned table's structure. The final slip, a two-digit year in the output encoding, is the kind of token-level variation a T=0 run avoided here. Following 'compute with calc' did not help, because the wrong formula was typed into calc."
+  },
+  "lesson": "Three separate guards would each have caught one failure. (1) Structure: show only the stacked-panel year anchoring (SIBLINGS/Y? notes) when show_table is run without --raw, and b never saw it. The note belongs in every view, or better, the tool should emit a period-labelled long table for AY-1-style layouts, so actors never decode panel indices by hand. (2) The period of the argmax/argmin cell must be checked. The mechanism cannot bind cells parsed from raw files in calc, so period rules are blind to script-parsed data; the tool that emits labelled rows would close this gap. (3) Output-encoding range check: for 'month*100 + year' the answer must fall in a computable range. That check catches both b's and c's two-digit-year encodings, whether typed by hand or in calc. recompute_final caught b's only by accident, because the value was not a calc output. Loop notes stop repetition but do not redirect the actor to the unverified step."
+}

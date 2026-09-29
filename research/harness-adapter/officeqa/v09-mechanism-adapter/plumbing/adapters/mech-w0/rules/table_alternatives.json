@@ -1,0 +1,18 @@
+{
+  "admitted_block": 0,
+  "enabled": true,
+  "finding": "Your answer reads {table.used_ref}; {table.other} ({table.other_ref}) in this issue matches more question words: {table.words}.",
+  "id": "table_alternatives",
+  "offer": null,
+  "origin": "seed",
+  "priority": 55,
+  "scope": "pack",
+  "stats": {},
+  "triggers": [],
+  "when": [
+    {
+      "args": {},
+      "pred": "better_table"
+    }
+  ]
+}

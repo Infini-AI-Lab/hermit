@@ -1,0 +1,21 @@
+{
+  "admitted_block": 0,
+  "enabled": true,
+  "finding": "You also proposed {alt.answer} ({alt.source}); submit the one the question asks for.",
+  "id": "competing_candidates",
+  "offer": {
+    "args": {},
+    "op": "use_alt"
+  },
+  "origin": "seed",
+  "priority": 40,
+  "scope": "core",
+  "stats": {},
+  "triggers": [],
+  "when": [
+    {
+      "args": {},
+      "pred": "competing_candidates"
+    }
+  ]
+}
