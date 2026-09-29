@@ -1,0 +1,11 @@
+{
+  "contract": "harnessadapter.python.v1",
+  "id": "cards",
+  "name": "Cards Architecture",
+  "version": "0.1.0",
+  "context": {
+    "entrypoint": "interface.py:context"
+  },
+  "evolver_readme": "EVOLVER.md",
+  "tools": []
+}

@@ -74,3 +74,16 @@ claim, done, blocked, pull). Communication is asynchronous; no agent waits
 for another. Proof verification is the launcher's job, outside the adapter.
 The evolvable parts are the acting context and the tool semantics. See
 `harnessadapter/architectures/lemma_board/README.md`.
+
+## Cards (experimental)
+
+```text
+adapter.json      Context renderer entrypoint; empty tools list; no roles
+interface.py      context() -> cards_core.render.compile(ROOT)
+cards_core/       Protected card format (schema.py) and deck compiler (render.py)
+PREAMBLE.md       Protected fixed text: what cards are and how to use them
+cards/            Card files C001.md ...; only admitted cards are served
+EVOLVER.md        The contract with the verifier and the learner
+```
+
+`cards` starts as an empty deck for tasks graded by code (short-answer QA over documents, spreadsheet manipulation, document VQA). A card is one rule with a scope, a claim and an `unless` line. A learner proposes cards; the host verifies each one by re-running the acting agent with the card on the questions it targets and on control questions, and only admitted cards are compiled into the context, within a 16,384-byte budget enforced by the adapter's own renderer. The block algorithm (screen, control selection, judge, assembly) is `harnessadapter/evolvers/cards/block.py`; verification is the launcher's job. See the architecture's README and EVOLVER.md.
