@@ -101,7 +101,7 @@ CALC_README = '''Calculation:
 '''
 SUBMIT_README = '''# Submitting your answer
 
-  submit --answer "<answer>" [--alt "<other value>"] [--reading "<assumption>"] [--keep "<reason>"]
+  submit --answer "<answer>" [--reading "<assumption>"] [--keep "<reason>"]
       hands your answer to the harness check before you finish; it prints `recorded` or one finding
       (AGENTS.md explains findings). End your turn with the recorded answer as your final message.
 '''

@@ -665,9 +665,17 @@ def test_committed_first50_list_is_pinned_by_the_addendum_and_re_derives_from_v8
     # the PREREG addendum text pins the list, its script and the metrics script (a later edit must update it)
     addendum = (ROOT / 'pilot/ADDENDUM.md').read_text()
     for label, name in (('pilot-list-file-sha256', 'pilot/first50.json'),
-                        ('pilot-selection-script-sha256', 'pilot/select_first50.py'),
-                        ('pilot-metrics-script-sha256', 'pilot/metrics.py')):
+                        ('pilot-selection-script-sha256', 'pilot/select_first50.py')):
         assert f'{label}: {hashlib.sha256((ROOT / name).read_bytes()).hexdigest()}\n' in addendum, label
+    # addendum P1 pins the metrics script pilot 1 ran (every pilot-1 root carries that copy); addendum P2 pins the
+    # current one (the re-pilot decision rule was added after pilot 1; the P1 code paths are unchanged)
+    p1_metrics = re.search(r'^pilot-metrics-script-sha256: ([0-9a-f]{64})$', addendum, re.M).group(1)
+    for name in ('v9-p1-a', 'v9-p1-b', 'v9-p1-c'):
+        copy = ROOT.parent / name / 'pilot/metrics.py'
+        if copy.is_file():
+            assert hashlib.sha256(copy.read_bytes()).hexdigest() == p1_metrics, name
+    current = hashlib.sha256((ROOT / 'pilot/metrics.py').read_bytes()).hexdigest()
+    assert f'p2-metrics-script-sha256: {current}\n' in (ROOT / 'pilot/ADDENDUM-P2.md').read_text()
     assert f'pilot-list-sha256: {listing["sha256"]}\n' in addendum and 'pilot-list-name: pilot-first50\n' in addendum
     assert '{' not in addendum and run.PLACEHOLDER not in addendum
     assert 'pilot-cell-temperature: 1.0\n' in addendum and 'pilot-cell-top-p: 0.95\n' in addendum

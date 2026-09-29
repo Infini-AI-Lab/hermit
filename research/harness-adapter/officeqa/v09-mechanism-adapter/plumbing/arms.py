@@ -23,7 +23,8 @@ This module also owns the arm-derived pieces every other module needs:
 - `question_order`: the seeded permutation of the task ids for one repeat (identical for every arm of
   that repeat; different between repeats; validity review P5c);
 - `w0_dir` / `build_w0` / `check_w0`: the W0 adapters `adapters/text-w0` (seed knowledge as text) and
-  `adapters/mech-w0` (the same knowledge as executed rules + a minimal SEED.md), DESIGN §1 seed parity;
+  `adapters/mech-w0` (PREREG addendum P2: the same text followed by the finishing text, plus the knowledge as
+  executed rules; its policy.json disables the rules chosen on pilot 1, `W0_DISABLED_RULES`);
 - `model_visible`: the byte count of adapter text the model can see (notes + SEED.md + rule finding
   templates + the controller's fixed wording), checked against contracts.TEXT_BUDGET.
 """
@@ -347,9 +348,10 @@ def blocks_of(n: int, every: int) -> list[range]:
 # W0 adapters (DESIGN §1 seed parity; contracts "Adapter layouts")
 # ---------------------------------------------------------------------------------------------
 
-# The benchmark-neutral half of the seed knowledge, written once as text for the text arms. It says in
-# words what the mech arms execute: the loop guard (L3), the core seed rules answer_count, scale,
-# competing_candidates, grounded and recompute_final (L4), and the provenance advice.
+# The benchmark-neutral half of the seed knowledge, written once as text. It says in words what the mech arms
+# execute: the loop guard (L3), the core seed rules answer_count, scale, competing_candidates, grounded and
+# recompute_final (L4), and the provenance advice. Since PREREG addendum P2 the mech arms read it too (their
+# SEED.md = the text W0's SEED.md + MECH_SEED): rules are added to the advice, not substituted for it.
 CORE_ADVICE = """# Working advice
 
 - Loops: a command repeated with the same output will not change. If a command already showed you its
@@ -366,12 +368,13 @@ CORE_ADVICE = """# Working advice
   against the question's exact wording and answer the one it asks for; do not average them.
 """
 
-# The mech arms' only seed text: how to finish, and what the gate's messages mean. The knowledge itself
-# is in rules/ (executed, not read).
+# The mech arms' finishing text: how to finish, and what the gate's messages mean. It follows the text W0's
+# SEED.md in the mech W0 (addendum P2). `--alt` is not advertised (addendum P2: the competing_candidates offer
+# was the model's own --alt; the submit CLI still accepts the flag).
 MECH_SEED = """# Finishing a question
 
-- When you have an answer, run `submit --answer "<answer>"` (add `--alt "<other>"` when you also
-  considered another value). The harness checks it and prints either `recorded` or one finding.
+- When you have an answer, run `submit --answer "<answer>"`. The harness checks it and prints either
+  `recorded` or one finding.
 - A finding names one possible problem with the submitted answer. When it shows `Offer: <value>`, the
   harness computed that alternative itself, from your own calculation with one input replaced.
   Accept: run the `submit --answer "<value>"` line it prints. Keep: run
@@ -380,6 +383,23 @@ MECH_SEED = """# Finishing a question
 - Lines starting `[harness:...]` come from the harness (loop notes, a summary of your work after a
   context compaction, submit results); they are not part of the task.
 """
+
+
+# Seed rules the mech W0 policy.json disables, per pack (PREREG addendum P2): chosen on the pilot-1 mech-static
+# episodes by the pre-registered procedure (pilot/select_rules_p2.py -> pilot/pilot2-rule-selection.json; a test
+# pins the equality). Rule code and thresholds are unchanged; the gate skips policy['disabled_rules'].
+W0_DISABLED_RULES = {'officeqa': ('competing_candidates', 'flagged_cells', 'grounded', 'row_coverage',
+                                  'table_alternatives')}
+
+
+def text_seed(pack) -> str:
+    """The text W0's SEED.md: the core advice + the pack's seed text."""
+    return CORE_ADVICE.rstrip() + '\n\n' + pack.seed_text().rstrip() + '\n'
+
+
+def w0_policy(pack) -> dict:
+    """The mech W0 policy.json: the defaults with the pack's disabled seed rules (addendum P2)."""
+    return {**C.POLICY_DEFAULTS, 'disabled_rules': list(W0_DISABLED_RULES.get(pack.name, ()))}
 
 
 def w0_dir(arm: C.ArmSpec, adapters: Path | None = None) -> Path | None:
@@ -407,17 +427,20 @@ def w0_files(kind: str, pack) -> dict[str, str]:
     from harness_core import rules as R
     header = {'contract': C.CONTRACT_VERSION, 'pack': pack.name, 'revision': 'w0'}
     if kind == 'text':
-        seed = CORE_ADVICE.rstrip() + '\n\n' + pack.seed_text().rstrip() + '\n'
         return {'adapter.json': json.dumps({'architecture': 'text', **header}, indent=2, sort_keys=True) + '\n',
-                'SEED.md': seed, 'notes/.keep': ''}
+                'SEED.md': text_seed(pack), 'notes/.keep': ''}
     if kind == 'rules':
+        policy = w0_policy(pack)
         files = {'adapter.json': json.dumps({'architecture': 'mechanism', **header}, indent=2, sort_keys=True) + '\n',
-                 'SEED.md': MECH_SEED, 'notes/.keep': '',
-                 'policy.json': json.dumps(C.POLICY_DEFAULTS, indent=2, sort_keys=True) + '\n'}
+                 'SEED.md': text_seed(pack) + '\n' + MECH_SEED, 'notes/.keep': '',
+                 'policy.json': json.dumps(policy, indent=2, sort_keys=True) + '\n'}
         rules = [*R.core_seed_rules(), *pack.seed_rules()]
         ids = [r.id for r in rules]
         if len(set(ids)) != len(ids):
             raise ValueError(f'duplicate seed rule ids: {ids}')
+        unknown = sorted(set(policy['disabled_rules']) - set(ids))
+        if unknown:
+            raise ValueError(f'W0 disables unknown seed rules: {unknown}')
         for rule in rules:
             files[f'rules/{rule.id}.json'] = json.dumps(R.rule_to_dict(rule), ensure_ascii=False, indent=2,
                                                         sort_keys=True) + '\n'

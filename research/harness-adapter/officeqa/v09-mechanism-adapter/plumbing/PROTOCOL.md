@@ -16,7 +16,7 @@ order and advance block by block (5 questions per block; 133 = 26 × 5 + 3).
 | `plain` | ✓ | – | – | – | – | 2 |
 | `text-static` | ✓ | ✓ | text: `adapters/text-w0/SEED.md` | – | – | 1 |
 | `text-evolve` | ✓ | ✓ | text + learned scoped notes | – | text | 3 |
-| `mech-static` | ✓ | ✓ | executed rules `adapters/mech-w0/rules/` + minimal SEED.md | ✓ | – | 3 |
+| `mech-static` | ✓ | ✓ | the text seed + finishing text (SEED.md) + executed rules `adapters/mech-w0/rules/` (PREREG addendum P2) | ✓ | – | 3 |
 | `mech-evolve` | ✓ | ✓ | executed rules + learned rules/policy/notes | ✓ | mechanism | 3 |
 
 - The arm is `contracts.ArmSpec{name, pack, l1_tools, controller, seed, learner, notes}` given by a standard
@@ -100,27 +100,33 @@ tables index as a read-only data root, `OFFICEQA_CORPUS` / `TABLES_INDEX` in the
 - **Loop guard**: an identical normalised command issued a 3rd time gets one fixed-form note (command,
   "output identical", candidates, options); escalation to "submit now" only when a candidate was computed
   after the last new evidence.
-- **Commit gate**: `submit --answer "<a>" [--alt] [--reading] [--keep]` POSTs to `/v1/submit` on the actor's
+- **Commit gate**: `submit --answer "<a>" [--reading] [--keep]` POSTs to `/v1/submit` on the actor's
   broker port; the gate evaluates the adapter's rules (declarative, fixed vocabulary) and prints one finding
   per round with an offer computed by re-running the model's own calc in the sandboxed runner
-  (`Accept:` / `Keep:`). Check inputs are saved to `api/checks/NNN.json`.
+  (`Accept:` / `Keep:`). Check inputs are saved to `api/checks/NNN.json`. Since PREREG addendum P2 `--alt` is
+  accepted but advertised nowhere (SEED.md, README, gate usage line, `submit --help`).
 - **Enforcement re-query** (decided): only when the final answer was never submitted (or differs
   numerically from the last submission) **and the gate has findings** (`requery_when_clean=False`); at most
   once per episode; skipped with < 60 s left; bounded by the actor deadline − 15 s.
 - Seed rules: core `answer_count`, `scale`, `competing_candidates`, `grounded`, `recompute_final`; pack
   `period_match`, `later_printing`, `flagged_cells`, `table_alternatives`, `row_coverage`; policy =
-  `contracts.POLICY_DEFAULTS`. Controller=None arms keep the v8 relay byte for byte.
+  `contracts.POLICY_DEFAULTS` with (OfficeQA, PREREG addendum P2) `disabled_rules` = `competing_candidates`,
+  `flagged_cells`, `grounded`, `row_coverage`, `table_alternatives` (`arms.W0_DISABLED_RULES`, chosen on pilot 1
+  by `pilot/select_rules_p2.py`). Controller=None arms keep the v8 relay byte for byte.
 
 ### L5 notes and W0 adapters (seed parity; DESIGN §1)
 
 - `adapters/text-w0`: `SEED.md` = the core advice (loops, calc for final numbers, provenance, answer count
   and format, percent vs fraction, weighing alternatives) + `OfficeQAPack.seed_text()`; `notes/` empty.
-- `adapters/mech-w0`: the same knowledge as executed rules + a minimal `SEED.md` (how to finish with
-  `submit`, what findings and offers mean, Accept/Keep); `policy.json` = the defaults.
+- `adapters/mech-w0` (PREREG addendum P2): `SEED.md` = the text W0's `SEED.md` verbatim, a blank line, then the
+  finishing text (how to finish with `submit`, what findings and offers mean, Accept/Keep, `[harness:...]`
+  lines); the same knowledge also runs as executed rules; `policy.json` = the defaults + the disabled rules
+  above. Pilot 1 ran the earlier mech W0 (finishing text only, 829 B; all ten rules enabled).
 - Model-visible adapter text (`arms.model_visible`, the learners' `text_budget` formula): SEED.md + every
   note as rendered + every enabled rule template + (controller arms) the controller's loop/enforcement
-  templates ≤ 16,384 B. W0: text 2,478 B, mech 2,429 B (829 SEED + 1,130 rule templates + 470 controller;
-  the gate frame, 275 B, is recorded separately). Both numbers are in `freeze.json` and `readiness.json`.
+  templates ≤ 16,384 B. W0 (addendum P2): text 2,478 B, mech 4,845 B (3,245 SEED + 1,130 rule templates, the
+  five policy-disabled rules' 532 B included + 470 controller; the gate frame, 257 B, is recorded separately).
+  Pilot 1: mech 2,429 B (829 SEED; gate frame 275 B). Both numbers are in `freeze.json` and `readiness.json`.
 - Scoped notes (text-evolve, mech-evolve): at most 3 per episode whose keyword triggers match the question
   (`harness_core.engine.trigger_match`), in (admitted_block, id) order, chosen before the marker hash; the
   ids are in the marker and re-derived by the audit.
@@ -235,7 +241,8 @@ tables index as a read-only data root, `OFFICEQA_CORPUS` / `TABLES_INDEX` in the
 Strict `reward.py` (tolerance 0) on all 133 questions is primary; the same sign is required on the 115
 undisputed questions; 1% tolerance and `fallback_answer` metrics are secondary. A subset root (pilot) seals
 and grades exactly its subset (denominator = its size); its go/no-go numbers come from `pilot/metrics.py`
-(`pilot/README.md`, PREREG addendum text in `pilot/ADDENDUM.md`). `private-evaluation/
+(`pilot/README.md`, PREREG addendum text in `pilot/ADDENDUM.md`); the re-pilot b2 (`v9-p2-a`, addendum P2 in
+`pilot/ADDENDUM-P2.md`) is compared with pilot-1 text-static by the same script. `private-evaluation/
 paired-metrics.json` holds per-question strict and 1% scores with their position in this repeat's order;
 roots are paired by task id across arms within a repeat. Pro-133 is the **development** set (analysed with
 labels before v9); confirmation is on a held-out benchmark (PREREG.md §6).

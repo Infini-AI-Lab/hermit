@@ -489,13 +489,20 @@ def test_committed_w0_equals_generated_and_fits_the_budget():
         assert phrase in seed
     mech_seed = (ROOT / 'adapters/mech-w0/SEED.md').read_text()
     assert 'submit --answer' in mech_seed and 'Accept' in mech_seed and 'Keep' in mech_seed and 'Offer' in mech_seed
+    # PREREG addendum P2: the mech W0 adds the finishing text (and the rules) to the text W0's advice, and no
+    # model-visible text suggests --alt any more
+    assert mech_seed == seed + '\n' + arms.MECH_SEED and '--alt' not in mech_seed
     rules = arms.load_adapter_rules(ROOT / 'adapters/mech-w0')
     assert {r.id for r in rules} == {r.id for r in R.core_seed_rules()} | {r.id for r in pack.seed_rules()}
-    assert json.loads((ROOT / 'adapters/mech-w0/policy.json').read_text()) == C.POLICY_DEFAULTS
+    policy = json.loads((ROOT / 'adapters/mech-w0/policy.json').read_text())
+    assert policy == {**C.POLICY_DEFAULTS, 'disabled_rules': sorted(arms.W0_DISABLED_RULES['officeqa'])}
+    assert set(policy['disabled_rules']) < {r.id for r in rules} and all(r.enabled for r in rules)
     assert not list((ROOT / 'adapters/text-w0/notes').glob('*.json')) and not (ROOT / 'adapters/text-w0/rules').exists()
-    # seed parity: both seed forms are recorded and far inside the same 16 KB budget
-    assert text['model_visible']['total'] > 0 and mech['model_visible']['rule_templates'] > 0
-    assert abs(text['model_visible']['total'] - mech['model_visible']['total']) < 1024
+    # seed parity (addendum P2): mech = the text seed + the finishing text + rule templates + controller templates,
+    # both far inside the same 16 KB budget
+    assert text['model_visible']['total'] == len(seed.encode()) > 0 and mech['model_visible']['rule_templates'] > 0
+    assert mech['model_visible']['total'] == (text['model_visible']['total'] + 1 + len(arms.MECH_SEED.encode())
+                                              + mech['model_visible']['rule_templates'] + mech['model_visible']['controller'])
 
 
 def test_model_visible_equals_the_learners_text_budget(tmp_path):

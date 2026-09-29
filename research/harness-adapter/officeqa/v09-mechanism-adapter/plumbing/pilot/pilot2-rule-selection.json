@@ -1,0 +1,349 @@
+{
+ "disabled_rules": [
+  "competing_candidates",
+  "flagged_cells",
+  "grounded",
+  "row_coverage",
+  "table_alternatives"
+ ],
+ "enabled_rules": [
+  "answer_count",
+  "later_printing",
+  "period_match",
+  "recompute_final",
+  "scale"
+ ],
+ "forced": [
+  "competing_candidates"
+ ],
+ "limits": {
+  "right_fire_max": 0.2,
+  "right_to_wrong_attributable_max": 0
+ },
+ "limits_hold": true,
+ "not_replayable": "criterion 3 (flips after a finding) depends on the model's reply to a finding and is measured again in b2",
+ "order": [
+  "table_alternatives",
+  "grounded",
+  "row_coverage",
+  "competing_candidates",
+  "flagged_cells",
+  "recompute_final",
+  "later_printing",
+  "scale",
+  "answer_count",
+  "period_match"
+ ],
+ "pilot1_gate": {
+  "fire_rate_right": 0.5714285714285714,
+  "fire_rate_wrong": 0.5172413793103449,
+  "fired_pre_right": 12,
+  "fired_right": 12,
+  "fired_wrong": 15,
+  "right_episodes": 21,
+  "right_to_wrong": 2,
+  "wrong_episodes": 29,
+  "wrong_to_right": 1
+ },
+ "procedure": "PREREG addendum P2: disable competing_candidates, then the lowest engine precision first (ties: more right-side episodes, then rule id) until (a) union right-episode fire rate <= 20% and (b) 0 right->wrong flips attributable to an enabled rule",
+ "recheck": {
+  "all_enabled_replay_equal": true,
+  "all_identical": true,
+  "checks": 86,
+  "enabled_replay_equal": 86,
+  "identical": 86,
+  "ledger_sha_ok": 86
+ },
+ "replay_with_enabled": {
+  "final_grade": {
+   "fire_rate_right": 0.2,
+   "fire_rate_wrong": 0.3,
+   "fired_right": 4,
+   "fired_wrong": 9,
+   "right_episodes": 20,
+   "right_to_wrong_attributable": 0,
+   "wrong_episodes": 30
+  },
+  "first_check": {
+   "fire_rate_right": 0.14285714285714285,
+   "fire_rate_wrong": 0.27586206896551724,
+   "fired_right": 3,
+   "fired_wrong": 8,
+   "right_episodes": 21,
+   "right_to_wrong_attributable": 0,
+   "wrong_episodes": 29
+  },
+  "primary": {
+   "fire_rate_right": 0.14285714285714285,
+   "fire_rate_wrong": 0.3103448275862069,
+   "fired_right": 3,
+   "fired_wrong": 9,
+   "right_episodes": 21,
+   "right_to_wrong_attributable": 0,
+   "wrong_episodes": 29
+  }
+ },
+ "rule_table": [
+  {
+   "engine_fired_right": 0,
+   "engine_fired_wrong": 0,
+   "engine_precision": null,
+   "first_shown_right": 0,
+   "first_shown_wrong": 0,
+   "right_to_wrong_attributable": 0,
+   "rule": "answer_count",
+   "shown_episodes": 0
+  },
+  {
+   "engine_fired_right": 2,
+   "engine_fired_wrong": 5,
+   "engine_precision": 0.7142857142857143,
+   "first_shown_right": 2,
+   "first_shown_wrong": 4,
+   "right_to_wrong_attributable": 2,
+   "rule": "competing_candidates",
+   "shown_episodes": 6
+  },
+  {
+   "engine_fired_right": 2,
+   "engine_fired_wrong": 5,
+   "engine_precision": 0.7142857142857143,
+   "first_shown_right": 2,
+   "first_shown_wrong": 4,
+   "right_to_wrong_attributable": 0,
+   "rule": "flagged_cells",
+   "shown_episodes": 6
+  },
+  {
+   "engine_fired_right": 4,
+   "engine_fired_wrong": 6,
+   "engine_precision": 0.6,
+   "first_shown_right": 3,
+   "first_shown_wrong": 1,
+   "right_to_wrong_attributable": 0,
+   "rule": "grounded",
+   "shown_episodes": 8
+  },
+  {
+   "engine_fired_right": 0,
+   "engine_fired_wrong": 1,
+   "engine_precision": 1.0,
+   "first_shown_right": 0,
+   "first_shown_wrong": 1,
+   "right_to_wrong_attributable": 0,
+   "rule": "later_printing",
+   "shown_episodes": 1
+  },
+  {
+   "engine_fired_right": 0,
+   "engine_fired_wrong": 0,
+   "engine_precision": null,
+   "first_shown_right": 0,
+   "first_shown_wrong": 0,
+   "right_to_wrong_attributable": 0,
+   "rule": "period_match",
+   "shown_episodes": 0
+  },
+  {
+   "engine_fired_right": 3,
+   "engine_fired_wrong": 8,
+   "engine_precision": 0.7272727272727273,
+   "first_shown_right": 3,
+   "first_shown_wrong": 2,
+   "right_to_wrong_attributable": 0,
+   "rule": "recompute_final",
+   "shown_episodes": 6
+  },
+  {
+   "engine_fired_right": 1,
+   "engine_fired_wrong": 2,
+   "engine_precision": 0.6666666666666666,
+   "first_shown_right": 1,
+   "first_shown_wrong": 1,
+   "right_to_wrong_attributable": 0,
+   "rule": "row_coverage",
+   "shown_episodes": 2
+  },
+  {
+   "engine_fired_right": 0,
+   "engine_fired_wrong": 2,
+   "engine_precision": 1.0,
+   "first_shown_right": 0,
+   "first_shown_wrong": 2,
+   "right_to_wrong_attributable": 0,
+   "rule": "scale",
+   "shown_episodes": 2
+  },
+  {
+   "engine_fired_right": 2,
+   "engine_fired_wrong": 2,
+   "engine_precision": 0.5,
+   "first_shown_right": 1,
+   "first_shown_wrong": 0,
+   "right_to_wrong_attributable": 0,
+   "rule": "table_alternatives",
+   "shown_episodes": 4
+  }
+ ],
+ "script_sha256": "c26046e611c743891b050e454242d4a158bf6f3411fe24ac53e5cf750da9badf",
+ "sensitivity": {
+  "final_grade": {
+   "disabled_rules": [
+    "competing_candidates",
+    "grounded",
+    "recompute_final",
+    "scale",
+    "table_alternatives"
+   ],
+   "limits_hold": true,
+   "order": [
+    "table_alternatives",
+    "scale",
+    "grounded",
+    "recompute_final",
+    "row_coverage",
+    "flagged_cells",
+    "competing_candidates",
+    "later_printing",
+    "answer_count",
+    "period_match"
+   ],
+   "same_as_primary": false
+  },
+  "first_check": {
+   "disabled_rules": [
+    "competing_candidates",
+    "grounded",
+    "recompute_final",
+    "table_alternatives"
+   ],
+   "limits_hold": true,
+   "order": [
+    "table_alternatives",
+    "grounded",
+    "recompute_final",
+    "row_coverage",
+    "competing_candidates",
+    "flagged_cells",
+    "later_printing",
+    "scale",
+    "answer_count",
+    "period_match"
+   ],
+   "same_as_primary": false
+  }
+ },
+ "served_rules": [
+  "answer_count",
+  "competing_candidates",
+  "flagged_cells",
+  "grounded",
+  "later_printing",
+  "period_match",
+  "recompute_final",
+  "row_coverage",
+  "scale",
+  "table_alternatives"
+ ],
+ "source": {
+  "arm": "mech-static",
+  "checks": 86,
+  "episodes": 50,
+  "labels": "strict official reward.py grades (tolerance 0), controller-side after the seal; the sealed final answers reproduce the root's official grades file",
+  "root": "v9-p1-b",
+  "subset_sha256": "c95f9613db9e37effcdaa4de81875f3c045fabb40edfc9c299ca5e60c1b5a07d",
+  "w0_revision": "70fc897902cf1263cb56a63a2fe6392292a2535c3fc1c6dc15b903d730eb9cbc"
+ },
+ "steps": [
+  {
+   "disable": null,
+   "fire_rate_right": 0.5714285714285714,
+   "fire_rate_wrong": 0.5172413793103449,
+   "fired_right": 12,
+   "fired_wrong": 15,
+   "limit_a_holds": false,
+   "limit_b_holds": false,
+   "limits_hold": false,
+   "reason": "start (all rules enabled)",
+   "right_episodes": 21,
+   "right_to_wrong_attributable": 2,
+   "step": 0,
+   "wrong_episodes": 29
+  },
+  {
+   "disable": "competing_candidates",
+   "fire_rate_right": 0.47619047619047616,
+   "fire_rate_wrong": 0.5172413793103449,
+   "fired_right": 10,
+   "fired_wrong": 15,
+   "limit_a_holds": false,
+   "limit_b_holds": true,
+   "limits_hold": false,
+   "reason": "forced: its offer is the model's own --alt",
+   "right_episodes": 21,
+   "right_to_wrong_attributable": 0,
+   "step": 1,
+   "wrong_episodes": 29
+  },
+  {
+   "disable": "table_alternatives",
+   "fire_rate_right": 0.42857142857142855,
+   "fire_rate_wrong": 0.5172413793103449,
+   "fired_right": 9,
+   "fired_wrong": 15,
+   "limit_a_holds": false,
+   "limit_b_holds": true,
+   "limits_hold": false,
+   "reason": "lowest engine precision among the enabled rules (2 wrong / 4 fired episodes)",
+   "right_episodes": 21,
+   "right_to_wrong_attributable": 0,
+   "step": 2,
+   "wrong_episodes": 29
+  },
+  {
+   "disable": "grounded",
+   "fire_rate_right": 0.2857142857142857,
+   "fire_rate_wrong": 0.4827586206896552,
+   "fired_right": 6,
+   "fired_wrong": 14,
+   "limit_a_holds": false,
+   "limit_b_holds": true,
+   "limits_hold": false,
+   "reason": "lowest engine precision among the enabled rules (6 wrong / 10 fired episodes)",
+   "right_episodes": 21,
+   "right_to_wrong_attributable": 0,
+   "step": 3,
+   "wrong_episodes": 29
+  },
+  {
+   "disable": "row_coverage",
+   "fire_rate_right": 0.23809523809523808,
+   "fire_rate_wrong": 0.4482758620689655,
+   "fired_right": 5,
+   "fired_wrong": 13,
+   "limit_a_holds": false,
+   "limit_b_holds": true,
+   "limits_hold": false,
+   "reason": "lowest engine precision among the enabled rules (2 wrong / 3 fired episodes)",
+   "right_episodes": 21,
+   "right_to_wrong_attributable": 0,
+   "step": 4,
+   "wrong_episodes": 29
+  },
+  {
+   "disable": "flagged_cells",
+   "fire_rate_right": 0.14285714285714285,
+   "fire_rate_wrong": 0.3103448275862069,
+   "fired_right": 3,
+   "fired_wrong": 9,
+   "limit_a_holds": true,
+   "limit_b_holds": true,
+   "limits_hold": true,
+   "reason": "lowest engine precision among the enabled rules (5 wrong / 7 fired episodes)",
+   "right_episodes": 21,
+   "right_to_wrong_attributable": 0,
+   "step": 5,
+   "wrong_episodes": 29
+  }
+ ]
+}

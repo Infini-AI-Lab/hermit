@@ -1,7 +1,7 @@
 """submit — hand an answer to the harness commit gate and print what it says.
 
 Usage:
-    submit --answer "12.34" [--alt "0.1234"] [--reading "fiscal year"] [--keep "<reason>"] [--artifact PATH]
+    submit --answer "12.34" [--reading "fiscal year"] [--keep "<reason>"] [--artifact PATH]
 POSTs a JSON object with the fields contracts.SUBMIT_FIELDS to the URL in $HARNESS_SUBMIT_URL
 (contracts.SUBMIT_ENV), which must be http://127.0.0.1:<port>/v1/submit; anything else is refused.
 Prints the gate's message (the response's JSON 'message', or the plain-text body). Exit codes:
@@ -77,7 +77,7 @@ def message_of(body: bytes) -> str:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog='submit', description='Submit an answer to the harness gate.')
     ap.add_argument('--answer', help='the answer, exactly as it should be graded')
-    ap.add_argument('--alt', help='another answer you considered')
+    ap.add_argument('--alt', help=argparse.SUPPRESS)       # accepted, not listed (PREREG addendum P2)
     ap.add_argument('--reading', help='the reading/assumption the answer rests on')
     ap.add_argument('--keep', help='keep the answer against the last finding, with a reason')
     ap.add_argument('--artifact', help='path of an answer file (artifact tasks)')

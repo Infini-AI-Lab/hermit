@@ -26,7 +26,10 @@ cd $P
 | `first50.json` | its output: 50 ids, their base-order ordinals, the rule, the list sha256 `c95f9613…a07d` |
 | `select_loop_prone.py`, `loop_prone_20.json` | the earlier loop-prone draft list (sha256 `81d2bf20…dc56`), kept for the record; not used by the pilot |
 | `ADDENDUM.md` | the PREREG addendum P1, filled with your decisions and already appended to PREREG.md |
-| `metrics.py` | the go/no-go computation and the temperature-rule verdict over the sealed pilot roots. It never prints an answer value |
+| `metrics.py` | the go/no-go computation, the temperature-rule verdict and (addendum P2) the re-pilot verdict over the sealed pilot roots. It never prints an answer value |
+| `select_rules_p2.py` | addendum P2: replays the pilot-1 mech-static gate inputs and disables rules by the pre-registered procedure (counts and rule ids only) |
+| `pilot2-rule-selection.json` | its output on `v9-p1-b`: disabled / enabled rules, the steps, the recheck counts; = `adapters/mech-w0/policy.json` `disabled_rules` |
+| `ADDENDUM-P2.md` | the PREREG addendum P2 (pilot-1 results, the new mech W0, the re-pilot b2 and its decision rule), appended to PREREG.md |
 
 ## 0. Check the list ($0)
 
@@ -158,3 +161,36 @@ subset, the temperature and the top_p of every request.
 
 Any change after the pilot goes into a new dated PREREG addendum before the first confirmatory call. Such
 changes are a disabled rule, a new W0, the confirmatory temperature (from the rule verdict), or a 4th repeat.
+
+## Re-pilot b2 (PREREG addendum P2): mech-static with the new W0, one root
+
+Pilot 1 was NO-GO (`../v9-p1-metrics.json`). With your approval of 2026-09-28 ("fix b and re-run b only"):
+
+- the mech W0's `SEED.md` = the text W0's `SEED.md` + the finishing text (rules added to the advice, not
+  substituted for it); `--alt` is no longer advertised;
+- `policy.json` disables `competing_candidates`, `flagged_cells`, `grounded`, `row_coverage`,
+  `table_alternatives` (the pre-registered procedure, `select_rules_p2.py` -> `pilot2-rule-selection.json`).
+
+The re-pilot is one root, `v9-p2-a`: `mech-static`, the same 50 questions, repeat 1, order seed as pilot 1,
+temperature 0, no top_p, a barrier over this root only. Steps 1–3 are $0; steps 4–5 are **paid** (pilot-1 b
+cost ≈ $5 known lower bound).
+
+```
+$PY -B pilot/select_rules_p2.py ../v9-p1-b --out /tmp/check.json   # optional: re-derives pilot2-rule-selection.json
+V9_SLOW=1 V9_LIVE_CODEX=1 $PY -B -m pytest -q -p no:cacheprovider tests     # 1. test tiers
+$PY -B run.py pilot2-root                                          # 2. creates ../v9-p2-a (refuses without addendum P2)
+(cd ../v9-p2-a && $PY -B data.py prepare && $PY -B preflight.py --offline-only)          # 3. $0
+(cd ../v9-p2-a && $PY -B preflight.py)                                                  # 4. paid smoke (cents)
+(cd ../v9-p2-a && nohup $PY -B run.py run > campaign-stdout.log 2>&1 &)                 # 5. paid run
+```
+
+After b2 is completed, sealed and graded ($0):
+
+```
+$PY -B pilot/metrics.py ../v9-p1-a ../v9-p2-a --json ../v9-p2-metrics.json
+```
+
+It prints the §7 go/no-go table for b2 and the line `P2 VERDICT: PROCEED | INCONCLUSIVE | STOP`: b2 ≥ 31
+strict correct → plan the confirmatory study with mech = text + rules; b2 ≤ 27 → stop the OfficeQA mechanism
+line and move to the second benchmark; 28–30 → re-run text-static and mech-static concurrently before
+deciding. `v9-p1-a` and b2 run at different times (provider drift; ~27% of questions flip between runs).

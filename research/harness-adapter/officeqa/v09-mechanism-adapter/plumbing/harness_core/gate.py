@@ -39,7 +39,8 @@ from .predicates import ACCEPT_PREFIX, GATE_PREFIX, same_answer
 from .rules import effective_policy, rule_to_dict
 
 LIMITS = {'answer': 1000, 'alt': 1000, 'reading': 1000, 'keep': 500, 'artifact_sha256': 64}
-USAGE = 'submit --answer "<answer>" [--alt "<other>"] [--reading "<assumption>"] [--keep "<reason>"]'
+# `--alt` is still accepted but not advertised (PREREG addendum P2)
+USAGE = 'submit --answer "<answer>" [--reading "<assumption>"] [--keep "<reason>"]'
 
 
 def validate_payload(payload: Any, answer_kind: str = 'text') -> str | None:

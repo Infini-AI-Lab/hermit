@@ -9,6 +9,9 @@
     python run.py pilot-roots [--parent DIR]         $0, no model call: create the three neutral-named pilot
                                                      roots (PREREG §7 + the pilot addendum) next to this
                                                      plumbing; see pilot/README.md
+    python run.py pilot2-root [--parent DIR]         $0, no model call: create the one neutral-named re-pilot
+                                                     root v9-p2-a (mech-static with the P2 mech W0; PREREG
+                                                     addendum P2) next to this plumbing; see pilot/README.md
 
 A formal run requires preflight/readiness.json (preflight.py) with passing offline checks and a passing
 smoke, unchanged source hashes, and the PREREG.md hash recorded there.
@@ -264,17 +267,133 @@ def pilot_roots(parent: Path | None = None, *, framework: Path | None = None, da
             'next': 'per root: data.py prepare, preflight.py, run.py run (pilot/README.md)'}
 
 
+# ---------------------------------------------------------------------------------------------
+# Re-pilot b2 (PREREG addendum P2): $0, creates one directory only
+# ---------------------------------------------------------------------------------------------
+
+# One root: mech-static with the P2 mech W0, the pilot-1 list, repeat and order seed, temperature 0 and no top_p
+# (as pilot-1 cells a and b), a barrier over this root only.
+P2_ROOT = 'v9-p2-a'
+P2_ARM = 'mech-static'
+P2_TEMPERATURE = 0
+P2_BARRIER = 'v9-p2-barrier'
+P2_ADDENDUM_FILE = 'pilot/ADDENDUM-P2.md'
+P2_SELECTION_FILE = 'pilot/pilot2-rule-selection.json'
+ADDENDUM_P2_HEADING = '### Addendum P2:'
+ADDENDUM_P2_LINE = re.compile(r'^(p2-[a-z0-9-]+):[ \t]*(\S+)[ \t]*$', re.M)
+# addendum lines whose value is fixed by this code
+P2_FIXED = {'p2-root': P2_ROOT, 'p2-arm': P2_ARM, 'p2-temperature': str(P2_TEMPERATURE), 'p2-top-p': 'none',
+            'p2-repeat': str(PILOT_REPEAT), 'p2-order-seed': PILOT_ORDER_SEED}
+
+
+def pilot2_pins(source: Path) -> dict:
+    """The values addendum P2 pins, computed from the plumbing: the mech W0 revision, its SEED.md and policy.json,
+    the rule-selection file and script, the metrics script."""
+    source = Path(source)
+    return {'p2-mech-w0-revision': c.revision(source / 'adapters/mech-w0'),
+            'p2-mech-seed-sha256': c.sha(source / 'adapters/mech-w0/SEED.md'),
+            'p2-mech-policy-sha256': c.sha(source / 'adapters/mech-w0/policy.json'),
+            'p2-rule-selection-file-sha256': c.sha(source / P2_SELECTION_FILE),
+            'p2-rule-selection-script-sha256': c.sha(source / 'pilot/select_rules_p2.py'),
+            'p2-metrics-script-sha256': c.sha(source / 'pilot/metrics.py')}
+
+
+def pilot2_addendum(source: Path, subset_sha: str) -> dict:
+    """Addendum P2 in PREREG.md (pilot/ADDENDUM-P2.md appended verbatim after addendum P1): every `p2-...` line
+    once; the fixed values of this code; the pins equal to the plumbing's W0, rule selection and scripts; the
+    selection file's disabled rules = the W0 policy's. Addendum P1 must still hold (pilot_addendum)."""
+    import arms
+    source = Path(source)
+    prereg = source / 'PREREG.md'
+    pilot_addendum(prereg, subset_sha)
+    text = prereg.read_text()
+    addendum = (source / P2_ADDENDUM_FILE).read_text() if (source / P2_ADDENDUM_FILE).is_file() else ''
+    if not addendum or ADDENDUM_P2_HEADING not in addendum or addendum not in text:
+        raise ValueError(f'PREREG.md must carry addendum P2 ({P2_ADDENDUM_FILE}) verbatim')
+    if text.index(addendum) < text.index('### Addendum P1:'):
+        raise ValueError('addendum P2 must follow addendum P1')
+    found: dict[str, list[str]] = {}
+    for key, value in ADDENDUM_P2_LINE.findall(text):
+        found.setdefault(key, []).append(value)
+    if any(len(v) != 1 for v in found.values()):
+        raise ValueError(f'addendum P2 declares {sorted(k for k, v in found.items() if len(v) != 1)} more than once')
+    values = {k: v[0] for k, v in found.items()}
+    for key, expected in {**P2_FIXED, **pilot2_pins(source)}.items():
+        if values.get(key) != expected:
+            raise ValueError(f'addendum P2 "{key}" is {values.get(key)!r}, expected {expected!r}')
+    selection = json.loads((source / P2_SELECTION_FILE).read_text())
+    policy = arms.load_policy(source / 'adapters/mech-w0')
+    if not selection.get('limits_hold') or selection.get('disabled_rules') != sorted(policy.get('disabled_rules') or []):
+        raise ValueError('the mech W0 policy.json does not disable exactly the rules of the P2 rule selection')
+    arms.check_w0(arms.parse_arm(P2_ARM), source / 'adapters')          # committed W0 = generated W0, in budget
+    return {'prereg_sha256': c.sha(prereg), 'pins': values}
+
+
+def pilot2_config(parent: Path, subset: dict, *, framework: Path, data_cache: Path) -> dict:
+    """The re-pilot root's .task-paths.json (parsed and validated with arms.parse_config)."""
+    import arms
+    config = {'profile': 'v9', 'arm': P2_ARM, 'repeat': PILOT_REPEAT, 'pack': 'officeqa', 'order_seed': PILOT_ORDER_SEED,
+              'temperature': P2_TEMPERATURE,
+              'subset': {'name': subset['name'], 'task_ids': list(subset['task_ids']), 'sha256': subset['sha256']},
+              'barrier': {'dir': str(parent / P2_BARRIER), 'roots': [P2_ROOT], 'timeout_s': PILOT_BARRIER_TIMEOUT_S},
+              'framework': str(framework), 'data_cache': str(data_cache)}
+    arms.parse_config(config, root_name=P2_ROOT)
+    return config
+
+
+def pilot2_root(parent: Path | None = None, *, framework: Path | None = None, data_cache: Path | None = None,
+                source: Path | None = None) -> dict:
+    """Create the re-pilot root as a copy of this plumbing next to it (no model call, no data preparation).
+    Refuses: inside a campaign root, without addendum P2 (or with pins that differ from this plumbing), an
+    existing root or barrier directory, missing framework/data-cache directories."""
+    import arms
+    source = Path(source or c.ROOT)
+    if (source / '.task-paths.json').exists():
+        raise ValueError('pilot2-root runs in the plumbing, not inside a campaign root')
+    parent = Path(parent or source.parent).resolve()
+    framework = Path(framework or parent / 'frameworks-v8/next-a48c0f9')
+    data_cache = Path(data_cache or parent / 'baseline-work/data-cache/officeqa-official')
+    for what, path in (('framework', framework), ('data_cache', data_cache)):
+        if not path.is_dir():
+            raise ValueError(f'{what} directory missing: {path}')
+    listing = json.loads((source / PILOT_LIST_FILE).read_text())
+    subset = arms.parse_subset({k: listing[k] for k in ('name', 'task_ids', 'sha256')})
+    addendum = pilot2_addendum(source, subset.sha256)
+    config = pilot2_config(parent, subset.to_json(), framework=framework, data_cache=data_cache)
+    for name in (P2_ROOT, P2_BARRIER):
+        if (parent / name).exists():
+            raise ValueError(f'{parent / name} exists; the re-pilot root is created once')
+    target = parent / P2_ROOT
+    shutil.copytree(source, target, ignore=COPY_IGNORE, symlinks=False)
+    (target / '.task-paths.json').write_text(json.dumps(config, indent=2) + '\n')
+    if c.sha(target / 'PREREG.md') != addendum['prereg_sha256']:
+        raise ValueError(f'{P2_ROOT}: PREREG.md copy differs')
+    if c.revision(target / 'adapters/mech-w0') != addendum['pins']['p2-mech-w0-revision']:
+        raise ValueError(f'{P2_ROOT}: mech W0 copy differs')
+    return {'created': {P2_ROOT: {'arm': P2_ARM, 'temperature': P2_TEMPERATURE, 'top_p': None, 'path': str(target)}},
+            'barrier': str(parent / P2_BARRIER), 'subset': {'name': subset.name, 'sha256': subset.sha256,
+                                                            'count': len(subset.task_ids)},
+            'order_seed': PILOT_ORDER_SEED, 'repeat': PILOT_REPEAT, 'prereg_sha256': addendum['prereg_sha256'],
+            'mech_w0_revision': addendum['pins']['p2-mech-w0-revision'], 'paid_calls': 0,
+            'next': f'in ../{P2_ROOT}: data.py prepare, preflight.py --offline-only, preflight.py, run.py run '
+                    '(pilot/README.md, re-pilot b2)'}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('mode', choices=('smoke', 'run', 'resume', 'audit', 'cost', 'report', 'pilot-roots'))
+    parser.add_argument('mode', choices=('smoke', 'run', 'resume', 'audit', 'cost', 'report', 'pilot-roots',
+                                         'pilot2-root'))
     parser.add_argument('--name', default='smoke-01')
     parser.add_argument('--arms', nargs='*', help='smoke only: standard arm names (default: this root\'s arm)')
     parser.add_argument('--clear-abort', action='store_true', help='resume only: rename the group ABORT file first')
-    parser.add_argument('--parent', type=Path, help='pilot-roots only: where to create them (default: next to '
-                                                    'this plumbing)')
+    parser.add_argument('--parent', type=Path, help='pilot-roots / pilot2-root only: where to create them (default: '
+                                                    'next to this plumbing)')
     args = parser.parse_args()
     if args.mode == 'pilot-roots':
         print(json.dumps(pilot_roots(args.parent), indent=2))
+        return
+    if args.mode == 'pilot2-root':
+        print(json.dumps(pilot2_root(args.parent), indent=2))
         return
     if args.mode == 'smoke':
         key = os.environ.get('FIREWORKS_API_KEY') or getpass.getpass('Fireworks API key (hidden): ')

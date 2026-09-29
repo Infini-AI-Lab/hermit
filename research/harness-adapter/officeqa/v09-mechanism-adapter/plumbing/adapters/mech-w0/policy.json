@@ -1,5 +1,11 @@
 {
-  "disabled_rules": [],
+  "disabled_rules": [
+    "competing_candidates",
+    "flagged_cells",
+    "grounded",
+    "row_coverage",
+    "table_alternatives"
+  ],
   "enforce_min_remaining_s": 60,
   "enforce_requery_max": 1,
   "gate_findings_per_round": 1,

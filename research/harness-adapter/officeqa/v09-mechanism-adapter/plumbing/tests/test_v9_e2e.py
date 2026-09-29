@@ -442,14 +442,16 @@ def test_model_visible_text_never_names_the_arm(group):
 
 @live
 def test_seed_knowledge_reaches_the_model_as_decided(group):
-    """text arms: W0 = the full seed text (core advice + pack.seed_text()); mech arms: the minimal finishing text
-    (the knowledge runs as rules); plain: COMMON only. Checked in the first request each actor sent."""
+    """text arms: W0 = the full seed text (core advice + pack.seed_text()); mech arms (PREREG addendum P2): the same
+    seed text followed by the finishing text (the knowledge also runs as rules); plain: COMMON only. Checked in the
+    first request each actor sent."""
     from packs.toy.pack import ToyPack
     seed = ToyPack().seed_text()
     for arm in ARMS:
         first = json.loads((run_dir(group, arm, 'toy01') / 'api/001/request.json').read_text())
         agents = next(s for s in strings(first['input']) if s.startswith('# AGENTS.md instructions'))
-        assert ('# Working advice' in agents and seed in agents) == (arm.startswith('text-')), arm
+        assert ('# Working advice' in agents and seed in agents) == (arm != 'plain'), arm
+        assert '--alt' not in agents, arm
         assert ('# Finishing a question' in agents) == (arm.startswith('mech-')), arm
         assert '# OfficeQA task workspace' in agents          # COMMON (pack-specific wording; see the S8 report)
     visible = {arm: arms.model_visible(arms.w0_dir(group['specs'][arm].arm, group['code'] / 'adapters'),

@@ -1,6 +1,7 @@
 """Go/no-go metrics of the v9 pilot (PREREG §7) over sealed pilot roots. $0: no model call, no network.
 
     python pilot/metrics.py ROOT [ROOT ...] [--json OUT]      exit 0 = GO, 1 = NO-GO, 2 = not computable
+    python pilot/metrics.py ../v9-p1-a ../v9-p2-a --json ../v9-p2-metrics.json     re-pilot b2 (addendum P2)
 
 Runs only on roots whose campaign completed and whose predictions are sealed
 (private-evaluation/predictions-seal.json). It then grades, controller-side, every candidate the gate
@@ -41,6 +42,15 @@ identified by their frozen settings, on the same question list). The rule's two 
   the sealed final answers, tolerance 0); condition: the difference is >= -2 questions.
 Both met -> every confirmatory arm runs at temperature 1.0, top_p 0.95; otherwise at temperature 0 (no
 top_p). The verdict is printed and written to the JSON; it does not change the go/no-go exit code.
+
+Re-pilot decision rule (PREREG addendum P2, pre-registered before the re-pilot): given the pilot-1 text-static
+reference root (T=0, no top_p; `v9-p1-a`, 31 of 50 strict correct, pinned) and one mech-static root that ran the
+P2 mech W0 (its frozen W0 revision is P2_W0_REVISION; `v9-p2-a`) at T=0 without top_p on the same questions,
+compare b2's strict-correct count with 31: b2 >= 31 PROCEED (plan the confirmatory study with mech = text +
+rules); b2 <= 27 STOP (rules add nothing on OfficeQA: stop the OfficeQA mechanism line, move to the second
+benchmark); 28-30 INCONCLUSIVE (re-run text-static and mech-static concurrently, paired, before deciding). The
+go/no-go table above is computed for b2 as well (the only mech-static root given). Single run, descriptive;
+a and b2 ran at different times. The verdict does not change the exit code.
 """
 from __future__ import annotations
 
@@ -81,6 +91,16 @@ RULE_CELL = {'temperature': 1.0, 'top_p': 0.95}              # cell c (model car
 RULE_ARM = 'text-static'
 RULE_LOOP_REDUCTION_MIN = 0.50    # cell c: at least 50% fewer loop runs than cell a
 RULE_ACCURACY_MARGIN = 2          # cell c: strict-correct count not lower than cell a's by more than 2 questions
+# The re-pilot decision rule (PREREG addendum P2), as numbers
+P2_ARM = 'mech-static'
+P2_W0_REVISION = 'd4e9c3a1a574fca83ab8c25a71babe5fd0393f68346f2292d845bdc5a9102398'   # campaign.revision(adapters/mech-w0)
+P2_REFERENCE = {'arm': 'text-static', 'temperature': 0, 'top_p': None}                # pilot-1 cell a (v9-p1-a)
+P2_REFERENCE_RIGHT = 31          # cell a's strict-correct count in pilot 1 (of 50)
+P2_PROCEED_MIN = 31              # b2 >= 31: PROCEED
+P2_STOP_MAX = 27                 # b2 <= 27: STOP; 28-30: INCONCLUSIVE
+P2_MEANING = {'PROCEED': 'plan the confirmatory study with mech = text + rules',
+              'STOP': 'rules add nothing on OfficeQA: stop the OfficeQA mechanism line and move to the second benchmark',
+              'INCONCLUSIVE': 're-run text-static and mech-static concurrently (paired, same time) before deciding'}
 POLL_TOOLS = ('write_stdin',)
 Grader = Callable[..., float]    # score(reference, predicted, tolerance=0.0) -> 1.0 | 0.0 (reward.py shape)
 
@@ -296,7 +316,7 @@ def root_metrics(root: Path, grader: Grader | None = None) -> dict:
     n = len(episodes)
     loops = [e for e in episodes if e.loop_run]
     value = {'root': root.name, 'arm': arm['name'], 'temperature': frozen['settings'].get('temperature'),
-             'top_p': frozen['settings'].get('top_p'),
+             'top_p': frozen['settings'].get('top_p'), 'w0_revision': (frozen.get('w0') or {}).get('revision'),
              'subset': (frozen['campaign'].get('subset') or {}).get('sha256'), 'episodes': n,
              'right': sum(e.final_right for e in episodes), 'accuracy': _rate(sum(e.final_right for e in episodes), n),
              'empty': sum(not e.final.strip() for e in episodes),
@@ -439,6 +459,32 @@ def temperature_rule(per_root: list[dict]) -> dict:
             'verdict': (f'T={RULE_CELL["temperature"]}, top_p {RULE_CELL["top_p"]}' if switch else 'T=0')}
 
 
+def p2_rule(per_root: list[dict]) -> dict:
+    """The pre-registered re-pilot decision rule (addendum P2): b2 (mech-static, P2 W0, T=0) vs pilot-1 cell a."""
+    refs = [m for m in per_root if m['arm'] == P2_REFERENCE['arm'] and m['temperature'] == P2_REFERENCE['temperature']
+            and m['top_p'] is P2_REFERENCE['top_p']]
+    mech = [m for m in per_root if m['arm'] == P2_ARM and m.get('w0_revision') == P2_W0_REVISION]
+    if len(refs) != 1 or len(mech) != 1:
+        return {'computable': False, 'verdict': None,
+                'reason': (f'needs exactly one {P2_REFERENCE["arm"]} root at T=0 without top_p (found {len(refs)}) and '
+                           f'one {P2_ARM} root that ran the P2 mech W0 (found {len(mech)})')}
+    ref, b2 = refs[0], mech[0]
+    if b2['temperature'] != 0 or b2['top_p'] is not None:
+        return {'computable': False, 'verdict': None, 'reason': f'{b2["root"]} did not run at T=0 without top_p'}
+    if ref['right'] != P2_REFERENCE_RIGHT:
+        return {'computable': False, 'verdict': None,
+                'reason': (f'the reference root {ref["root"]} has {ref["right"]} strict correct; the addendum pins the '
+                           f'pilot-1 value {P2_REFERENCE_RIGHT}')}
+    if ref['episodes'] != b2['episodes']:
+        raise ValueError('the re-pilot and its reference ran different numbers of questions')
+    right = b2['right']
+    verdict = 'PROCEED' if right >= P2_PROCEED_MIN else 'STOP' if right <= P2_STOP_MAX else 'INCONCLUSIVE'
+    return {'computable': True, 'reference': ref['root'], 'repilot': b2['root'], 'questions': b2['episodes'],
+            'right_reference': ref['right'], 'right_repilot': right, 'difference_questions': right - ref['right'],
+            'proceed_min': P2_PROCEED_MIN, 'stop_max': P2_STOP_MAX, 'verdict': verdict, 'meaning': P2_MEANING[verdict],
+            'caveat': 'single run each, at different times (provider drift; ~27% of questions flip between runs)'}
+
+
 def compute(roots, *, grader: Grader | None = None) -> dict:
     per_root = [root_metrics(Path(r), grader) for r in roots]
     subsets = {m['subset'] for m in per_root}
@@ -456,6 +502,7 @@ def compute(roots, *, grader: Grader | None = None) -> dict:
     else:
         result['decision'] = None
     result['temperature_rule'] = temperature_rule(per_root)
+    result['p2_rule'] = p2_rule(per_root)
     return result
 
 
@@ -475,6 +522,19 @@ def render_rule(rule: dict) -> list[str]:
     return lines
 
 
+def render_p2(rule: dict) -> list[str]:
+    lines = ['', 're-pilot decision rule (PREREG addendum P2)']
+    if not rule['computable']:
+        return lines + [f'  not computable: {rule["reason"]}']
+    return lines + [f'  reference = {rule["reference"]} (text-static, T=0); re-pilot b2 = {rule["repilot"]} (mech-static, '
+                    f'P2 W0, T=0); {rule["questions"]} questions each',
+                    f'  strict correct: reference {rule["right_reference"]}, b2 {rule["right_repilot"]} '
+                    f'({rule["difference_questions"]:+d}); b2 >= {rule["proceed_min"]} PROCEED, <= {rule["stop_max"]} STOP, '
+                    f'between INCONCLUSIVE',
+                    f'  P2 VERDICT: {rule["verdict"]} -- {rule["meaning"]}',
+                    f'  caveat: {rule["caveat"]}']
+
+
 def render(result: dict) -> str:
     lines = ['v9 pilot go/no-go (PREREG §7) -- no answer values are shown',
              f'subset sha256: {result["roots"][0]["subset"] if result["roots"] else None}; '
@@ -487,6 +547,7 @@ def render(result: dict) -> str:
                      f'{m["right"]:>5} {m["empty"]:>5} {m["loop_runs"]:>5} {m["loop_runs_recovered"]:>5} '
                      f'{m["loop_runs_right"]:>5}  {json.dumps(m["statuses"], sort_keys=True)}')
     rule_lines = render_rule(result['temperature_rule']) if 'temperature_rule' in result else []
+    rule_lines += render_p2(result['p2_rule']) if 'p2_rule' in result else []
     decision = result.get('decision')
     if decision is None:
         lines += rule_lines + ['', 'No mech-static root given: the go/no-go table needs one.']
