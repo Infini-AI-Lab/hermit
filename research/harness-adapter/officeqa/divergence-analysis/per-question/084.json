@@ -1,0 +1,59 @@
+{
+  "ordinal": 84,
+  "task_id": "UID0187",
+  "question_type": "Geometric mean of five consecutive monthly values read from a rolling 13-month table (U.S. silver production, Apr-Aug 1940)",
+  "skills_required": ["locate_table", "pick_vintage", "read_flattened_table", "multi_value_extraction", "date_or_period_logic", "formula_stats", "rounding_format"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "Five calendar months April-August 1940, values in the table's own unit (thousands of fine ounces), geometric mean rounded to 2 decimals; no issue pinned.", "evidence": "opus logs/084/review.md:6"},
+    {"stage": "locate_table", "decision": "Used 'Silver Production, by Leading Countries', column 'American countries > United States' (third pipe field), which sits next to the world total.", "evidence": "opus logs/084/calc.py:3-4, review.md:8-9"},
+    {"stage": "pick_cells", "decision": "Took the five month rows in the 1941_01 issue (first issue in which every Apr-Aug 1940 row is complete) and confirmed they sit under the '1940-January' anchor row, so their year is 1940.", "evidence": "review.md:10-15; corpus treasury_bulletin_1941_01.txt:2713-2717"},
+    {"stage": "verify", "decision": "Extracted the U.S. column for every issue 1940_07 through 1941_11. First printings of each month and all later printings are identical; one issue (1941_04) has an isolated OCR slip in the August cell, which was ignored as noise, not treated as a revision.", "evidence": "review.md:16-23; calc.py:5-8"},
+    {"stage": "compute", "decision": "Script reads the cited corpus lines, asserts the hard-coded values match, and computes exp(mean(log)).", "evidence": "calc.py:23-36"},
+    {"stage": "round_format", "decision": "Rounded to 2 decimals as asked; arithmetic mean printed only as a sanity comparison.", "evidence": "calc.py:34-36; review.md:25"}
+  ],
+  "opus_key_moves": [
+    "Anchored every monthly row to its year via the 'YYYY-January' row above it before using the value",
+    "Checked every later printing of the same monthly cells (1940_07..1941_11) and found them unrevised, treating a lone single-issue deviation as OCR noise rather than a revision"
+  ],
+  "arms": {
+    "none": {
+      "correct": true,
+      "error_bin": null,
+      "note": "Took April-July from the 1940_09 printing and August from 1940_10 ([27]-[29]), computed in one python -c ([31]); did not check later printings but the cells are never revised."
+    },
+    "prompt": {
+      "correct": true,
+      "error_bin": null,
+      "note": "Read 1940_09/1940_10 ([19]), then scanned later printings and confirmed in 1941_07 that the Apr-Dec 1940 rows are unchanged ([23]-[26]) before computing with Decimal ([27])."
+    },
+    "cards": {
+      "correct": false,
+      "error_bin": "within_1pct",
+      "first_divergence": {
+        "stage": "CELL_SELECTION",
+        "glm_step": "[46]-[51] (decision written out at [51], committed at [56]/[58])",
+        "what_glm_did": "Built a 'latest printing per month' map by walking the rolling silver-production table forward through the 1941_07..1941_11 issues. In 1941_09 and 1941_10 it read the bare 'April', 'May', 'June' rows that follow the '1941-January' anchor (1941_10.txt:3955-3958, 1941_09.txt:3163-3166) as April-June 1940 'revisions', and used them for three of the five inputs (July from 1941_10, August from 1941_11 happened to be the correct 1940 rows).",
+        "what_opus_did": "Read the April-August rows under the '1940-January' anchor in 1941_01 and verified that every printing through 1941_11 carries the same 1940 values.",
+        "why_glm_went_that_way": "It decided monthly silver cells might be revised by analogy to card C003 ('general principle? latest issue printing', [35]) and then keyed on bare month names. At [51] it even states '1941_10 starts July, includes Apr' - i.e. it knew the window began at July 1940 yet did not infer that an April row after that must be April 1941. The flattened table only prints the year on the first month of each year.",
+        "consequence": "Three of five inputs were 1941 production months, not 1940; the geometric mean came out slightly (<1%) off and failed exact match."
+      },
+      "secondary_errors": [
+        {"stage": "OTHER", "glm_step": "[56]-[58]", "note": "It computed both the single-issue candidate (which is the correct value) and its mixed-vintage candidate at [57], then picked the mixed one without any evidence-based reconciliation beyond 'latest printing'."},
+        {"stage": "OPERATIONAL", "glm_step": "[48]-[49], [53]-[54]", "note": "Two reads started at the search-hit line of a different table (seigniorage / silver stock) and had to be redone; outputs were clipped, which hid the anchor rows in some reads."}
+      ],
+      "saw_correct_evidence": {"value": "yes", "where": "[34] read the 1941_01 table (correct rows); [51] notes 1941_08 still prints May with the original value; [57] prints the correct single-issue candidate alongside the wrong one."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[51] 'Hmm weird revisions not monotonic?'; [51] 'question likely expects values from a single issue?'; [58] 'maybe OCR error?'"},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "mild", "tool_friction": "heredoc temp-file failures and missing apply_patch ([6]-[13]) forced a printf-to-file workflow for every script; search hits pointed at the wrong table start ([48],[53]); clipped outputs", "notes": "128 s, 27 requests; the extra forward scan of five later issues is where the error entered."},
+      "adapter_context": {"relevant_item": "C003 (latest-issue revision rule, scoped to department outlays; cited at [20] and [35] as a 'general principle'); C009 (says monthly cells repeat unrevised, but scoped to a different table); C019 (script arithmetic, followed at [57])", "item_was_correct_guidance": "partly", "followed": "partly", "caused_or_contributed_to_error": "possibly", "notes": "No card covers rolling monthly tables or year anchors. C003's out-of-scope 'latest printing' idea motivated the scan into 1941 issues whose windows no longer contain the 1940 spring months; the misread itself is a table-reading failure, not something any card asserted."},
+      "remedies": [
+        {"level": "TOOL", "intervention": "A table reader that returns rows with fully qualified period keys (fill the year down from 'YYYY-Month' anchor rows, so a row prints as 1941-04 not 'April'), plus a per-row lookup 'value of <series, period> in every printing'.", "generality": "document_qa_general", "confidence": "high", "why": "The anchor '1941-January' was in the actor's own output at [46]/[50]; with normalized period keys the April row could not be mistaken for 1940, and an all-printings lookup would have shown the 1940 cells never change."},
+        {"level": "CHECK", "intervention": "Vintage-revision sanity check: when a 'later printing' changes several monthly cells that were identical across many earlier printings, require the actor to quote the row's full period label and the table's first-row date; flag if the claimed month precedes the table window start.", "generality": "document_qa_general", "confidence": "medium", "why": "At [51] the actor itself wrote that the 1941_10 window starts in July 1940 and that the revisions looked 'not monotonic'; a check turning that observation into a hard stop would have caught it."},
+        {"level": "CONTROL", "intervention": "When two candidate answers are computed ([57]), require an explicit reconciliation step that names the deciding evidence (e.g. 'are these the same period?') before commit.", "generality": "domain_general", "confidence": "medium", "why": "The correct candidate was already printed at [57]; the choice was made on a rule of thumb, not evidence."},
+        {"level": "TEXT", "intervention": "Lesson: in rolling monthly tables only the first month of each year carries the year; every bare month row belongs to the most recent 'YYYY-' anchor above it. Card scope: do not generalize C003 beyond its table family.", "generality": "document_qa_general", "confidence": "low", "why": "The actor already knew the window start at [51] and still misattributed the rows, so text alone may not bind; the prompt arm (with generic 'compare with latest bulletin' text) did the forward scan correctly."}
+      ]
+    }
+  },
+  "right_arms_note": "none took the first printings (1940_09/1940_10) and never scanned forward; prompt scanned forward but only to 1941_07, where the 1940 rows are still labeled under a 1940 anchor, and saw identical values. Neither entered issues whose 13-month window had rolled past April-June 1940, so the year-anchor trap never arose (none: lucky that the cells are unrevised; prompt: principled check that happened to stop early enough).",
+  "text_vs_mechanism": "Mostly a mechanism problem: the cards arm had the right evidence and even the right candidate, but the flattened table hides the year on non-January rows; a period-normalizing table reader or a window-start check would fix it deterministically. The prompt arm's generic 'compare with the latest bulletin' text worked here, but only because its forward scan stopped at an issue where the anchors were still 1940.",
+  "notes": "General harness lesson: a 'latest printing' vintage policy is dangerous with rolling-window tables unless rows are keyed by fully qualified period; cross-vintage lookups must match on (series, period), not on bare row label. Also note the OCR slip in one 1941 issue: a naive 'latest printing wins' rule without an outlier check would have been wrong for a different reason."
+}

@@ -1,0 +1,57 @@
+{
+  "ordinal": 126,
+  "task_id": "UID0035",
+  "question_type": "Count of data cells with leading digit 1 across the table(s) on a pinned report page of a pinned issue",
+  "skills_required": ["locate_issue", "locate_table", "read_flattened_table", "multi_value_extraction"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "Issue = May 1980; page = printed report page 23; count every data cell (not row labels or column headers) whose first digit is 1; output one integer.", "evidence": "opus logs/126/worklog.md:7-8"},
+    {"stage": "choose_source", "decision": "Issue and page are pinned, so there is no vintage question.", "evidence": "worklog.md:11"},
+    {"stage": "locate_table", "decision": "Read the issue's Contents: UST-3 is on p.22, MS-1 on p.23, FD-1 on p.24, so page 23 holds only MS-1.", "evidence": "worklog.md:13-17 (treasury_bulletin_1980_05.txt:84-92)"},
+    {"stage": "locate_table", "decision": "Bounded page 23 with running-header markers: 'May 1980' / '23' at 1704-1706 opens the page, '24' at 1777 opens the next. MS-1 is printed as two column blocks, and 'tables' means both blocks.", "evidence": "worklog.md:19-27"},
+    {"stage": "verify", "decision": "Checked the OCR by row/column sums in both blocks and by comparing with the April and June 1980 MS-1 printings, ruling out column shifts.", "evidence": "worklog.md:29-36"},
+    {"stage": "pick_cells", "decision": "Rules: strip commas, footnote markers ('7/') and revision flags ('r'); '*' cells contain no numeral. Tallied per column, including a small column whose every cell is a bare '1'.", "evidence": "worklog.md:38-51; solution.json decisions"},
+    {"stage": "compute", "decision": "Counted in calc.py, then cross-checked against the manual per-column tally.", "evidence": "worklog.md:51-52"},
+    {"stage": "verify", "decision": "Considered whether another table shares the page (no, per the page markers) and excluded row-label years.", "evidence": "worklog.md:54-57; solution.json pitfalls"}
+  ],
+  "opus_key_moves": [
+    "Mapped report page 23 to its content using BOTH the Contents listing and the running-header page markers, which puts the page-22 table (UST-3) outside the page (worklog.md:13-27)",
+    "Counted both column blocks of MS-1, including the all-'1' single-digit column (worklog.md:40-51)"
+  ],
+  "arms": {
+    "none": {
+      "correct": true,
+      "error_bin": null,
+      "right_arms_note": "Read the file head to line 120 [17], so it saw the Contents entry placing MS-1 on page 23 ([18] 'Contents says MS-1 page 23'), located MS-1 by title [21]-[22], and counted both blocks."
+    },
+    "prompt": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "SOURCE_TABLE",
+        "glm_step": "[12]-[14]",
+        "what_glm_did": "Grepped only for a bare '23' line [12] (hit at line 1706), printed lines 1620-1760 [13], and assigned the table ABOVE that marker (UST-3, Gold Assets and Liabilities) to page 23, treating the page number as a footer. It counted UST-3's cells only.",
+        "what_opus_did": "Read the Contents (UST-3 = p.22, MS-1 = p.23) and treated 'May 1980 / 23' as the running header that OPENS page 23, bounded by '24' at line 1777 (worklog.md:13-27).",
+        "why_glm_went_that_way": "Its first look at the file ([9], sed 1-80) stopped a few lines before the Contents entries for pages 22-23, so it never saw the TOC mapping. It never searched for the '22' marker that sits just above the UST-3 title (corpus line 1661). At [16] it asserted 'page 22 at line 1705, page 23 at 1706', a misreading of the marker layout.",
+        "consequence": "Counted the wrong table (the page-22 table), and the count is ~48% below Opus's."
+      },
+      "secondary_errors": [],
+      "saw_correct_evidence": {"value": "yes", "where": "[13]: its own output shows 'May 1980', '23', 'MONETARY STATISTICS', 'Table MS-1. - Currency and Coin in Circulation' and MS-1 rows directly after the marker"},
+      "glm_expressed_doubt": {"value": "yes", "where": "[14] and [16]: questioned the plural 'tables' and whether page 41 maps to page 23 ('But ensure page 41 corresponds printed page 23'), then resolved both without checking the Contents"},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "none", "tool_friction": "rg blocked [3]; string index/rindex slicing bugs while isolating the table [22]-[29]", "notes": "17 requests, 131 s; 1.5M input tokens, dominated by the 221 KB adapter."},
+      "adapter_context": {"relevant_item": "none", "item_was_correct_guidance": "n/a", "followed": "n/a", "caused_or_contributed_to_error": "no", "notes": "The adapter had no lesson on page-number mapping or page-scoped counting questions."},
+      "remedies": [
+        {"level": "TOOL", "intervention": "Page helper docs.page(filename, report_page=N) that returns the text between running-header marker N and marker N+1, plus the Contents entries listed at page N.", "generality": "document_qa_general", "confidence": "high", "why": "The error was purely page-to-text mapping. With the page slice returned, UST-3 would not be in view, and MS-1 was already visible at [13]."},
+        {"level": "CHECK", "intervention": "Page-claim checker: when the actor commits to 'table T is on report page N', verify that T's title appears in that issue's Contents with page N (or lies between markers N and N+1); on mismatch, return the Contents line for page N.", "generality": "document_qa_general", "confidence": "high", "why": "The Contents lists UST-3 at 22 and MS-1 at 23 (1980_05.txt:84-88), so the check fires deterministically on the [14]/[17] claim."},
+        {"level": "TEXT", "intervention": "Convention note: 'In these TXT files page numbers are running HEADERS at the top of a page (odd pages: issue date then number; even pages: number then Treasury Bulletin). Page N's content lies between marker N and marker N+1. Confirm with the Contents list.'", "generality": "officeqa_specific", "confidence": "medium", "why": "The two right arms reached this reading unaided, and the prompt arm had no such text. But the prompt arm often ignores text in its 220 KB context, so a mechanism is more reliable."}
+      ]
+    },
+    "cards": {
+      "correct": true,
+      "error_bin": null,
+      "right_arms_note": "Bounded page 23 between the '23' and '24' running-header markers ([13] 'Output starts page 22 and then page 23', [15]-[17]), took both MS-1 blocks, and caught its own script bug that dropped bare '1' cells ([28]-[30])."
+    }
+  },
+  "right_arms_note": "none used the Contents listing (it read the file head to line 120, and the TOC entry for MS-1 sits just past line 80). cards read the page markers as headers and located the next-page marker. The prompt arm read only lines 1-80, grepped only for '23', and treated the marker as a footer.",
+  "text_vs_mechanism": "A text convention would plausibly fix this: the prompt arm had no relevant text, and the right arms reasoned correctly without any. A page-slice tool or a Contents-based page-claim check would make it robust, and it would be cheap because the TOC is in every issue.",
+  "notes": "(1) Near miss in the right arms: cards' first script silently skipped single-digit '1' cells, and it only caught this by eyeballing the match list. A CHECK that reports per-column cell counts, numeric-parse failures, and the per-column tally would make counting questions safer. (2) Page-pinned questions are a recurring OfficeQA family. A deterministic page slicer keyed on report page, with a pdf-to-report page offset learned per issue, is a high-leverage reusable TOOL. (3) The prompt arm's first file peek (head -80) stopping just short of the relevant TOC line is a pure-luck factor; a tool returning the whole Contents block would remove it."
+}

@@ -1,0 +1,97 @@
+{
+  "ordinal": 89,
+  "task_id": "UID0172",
+  "question_type": "sum of one country's monthly capital-movements liabilities across three years (revised vintage), converted to GBP at a date-pinned, pre-rounded exchange rate",
+  "skills_required": ["locate_issue", "pick_vintage", "locate_table", "read_flattened_table", "multi_value_extraction", "unit_or_scale", "date_or_period_logic", "multi_step_arithmetic", "rounding_format"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "Series = CM 'Total Liabilities by Country', UK row, end-of-June positions; sum three Junes in $M; convert with a 'USD to GBP' rate read as GBP per 1 USD, rounded to hundredths BEFORE converting; listed the ambiguities up front (two tables with the same title, preliminary vs revised, rate direction, June 30 2002 was a Sunday).", "evidence": "opus logs/089/worklog.md:6-15"},
+    {"stage": "locate_table", "decision": "Chose CM-I (bank-reported, monthly) over CM-IV-2 (nonbank, quarterly, much smaller) because the question stresses calendar months.", "evidence": "worklog.md:20-27, 60"},
+    {"stage": "choose_source", "decision": "Mapped every printing: June of year Y is printed only as 'June p' in the Sept-Y issue and revised in the Dec-Y issue; no later reprint. Took the Dec issues (latest revision, no issue pinned).", "evidence": "worklog.md:29-38, 48-49, 61"},
+    {"stage": "pick_cells", "decision": "Read each Dec-issue header and took the cell under the 'June' header; checked alignment by comparing the calendar-year and 'May' columns with the Sept printing.", "evidence": "worklog.md:34-39 (2000_12:3043/3068, 2001_12:3267/3293, 2002_12:3135/3161)"},
+    {"stage": "extract", "decision": "Exchange rate from the FCP Sterling Positions monthly/quarterly June 2002 row (USD per pound), not the 06/26 weekly row; inverted to GBP per USD, then rounded to hundredths.", "evidence": "worklog.md:51-57; calc.py:44-54"},
+    {"stage": "compute", "decision": "calc.py reads the cited cells by line/column with asserts on the row label and computes the chosen route plus the three alternatives (prelim/latest x multiply/divide).", "evidence": "worklog.md:64-74; calc.py:17-74"},
+    {"stage": "verify", "decision": "Magnitude and revision-size sanity checks; the reviewer flagged the answer 'Uncertain' because of vintage and rate-source ambiguity, but found no error.", "evidence": "worklog.md:76-78; review.md 'Verdict'"}
+  ],
+  "opus_key_moves": [
+    "Enumerated every printing of each June cell and took the December (revised) issue",
+    "Selected each cell by its column header and cross-checked alignment against the neighbouring 'May' and calendar-year columns of the other printing",
+    "Resolved the rate direction explicitly (USD to GBP = GBP per USD, rounded before converting) and printed all alternative routes"
+  ],
+  "arms": {
+    "none": {
+      "correct": false,
+      "error_bin": "within_1pct",
+      "first_divergence": {
+        "stage": "SOURCE_ISSUE_VINTAGE",
+        "glm_step": "[29]-[43], decided at [66]",
+        "what_glm_did": "Took all three Junes from the September issues (the 'June p' preliminary column). It saw that the Dec 2002 issue revised June 2002 ([43]) but looked for revised June 2000/2001 only in the NEXT year's September issues (which print calendar-year columns) and never opened the Dec 2000 or Dec 2001 issues; it then used the preliminary values for all three 'for consistency'.",
+        "what_opus_did": "Mapped all printings and took the revised June column of each year's December issue.",
+        "why_glm_went_that_way": "[66]: 'For June 2000, 2001_09 table has calendar year 2000 (Dec) not June ... Could use 2000_09 only' and 'The question likely expects using each issue's June preliminary values'. Its guess about which issue could reprint June was wrong and it never checked the same-year December issue.",
+        "consequence": "Sum about 1.5% low. Combined with the rate-direction choice below, the final value is about 1% low (within_1pct)."
+      },
+      "secondary_errors": [
+        {"stage": "INTERPRETATION", "glm_step": "[66], [238]-[243]", "note": "Rate direction and rounding: rounded the USD-per-pound rate to hundredths and divided, instead of rounding GBP-per-USD and multiplying. Because rounding happens before conversion, the two routes differ (this route is ~0.5% higher than Opus's)."},
+        {"stage": "OPERATIONAL", "glm_step": "[64]-[222]", "note": "Degenerate loop: the same 4-step cycle (search 'TABLE IFS' -> 'No exchange rate table except ESF' -> inspect CM-I-1 -> 'No') repeated about 20 times, then context compaction [224]. It recovered and finished, but used 121 requests and 13.9M input tokens."}
+      ],
+      "saw_correct_evidence": {"value": "partial", "where": "[23]-[26]/[43] saw the revised June 2002 cell in the Dec 2002 issue; [237] saw the June 2002 monthly FCP rate that Opus used. It never saw the revised June 2000/2001 cells (Dec 2000/Dec 2001 never opened)."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[43] 'maybe use latest available? Need infer expected'; [66] weighs preliminary vs revised; [225] 'Need verify perhaps exchange rate interpretation'."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "severe", "tool_friction": "rg not permitted [3]; heredoc failure [5]; read num_lines>150 [17]; after compaction lost the corpus path and ran sed on bare filenames [230]; python3 -> xcode-select error [241], fell back to awk [243]", "notes": "777 s, 121 requests, 13.9M input tokens; about 160 steps of repetition."},
+      "adapter_context": {"relevant_item": "n/a", "item_was_correct_guidance": "n/a", "followed": "n/a", "caused_or_contributed_to_error": "n/a", "notes": "Base instructions only; no vintage convention and no rate-direction convention."},
+      "remedies": [
+        {"level": "TOOL", "intervention": "'All printings of this cell' lookup: given (table family, row label, period), return every issue/line/column header where that period is printed, flagged p/r.", "generality": "document_qa_general", "confidence": "high", "why": "Its error came from a wrong guess about WHERE later printings live; a lookup would have listed the Dec 2000/2001 issues directly."},
+        {"level": "TEXT", "intervention": "Vintage convention: 'Use the latest printing of a cell unless the question pins an issue/date; preliminary (p) values are superseded.' Plus a rate convention: 'An X-to-Y exchange rate is units of Y per 1 X; round in that direction when the question says to round the rate.'", "generality": "officeqa_specific", "confidence": "medium", "why": "The prompt arm had the latest-printing rule and an analogous rate lesson (USD/INR = rupees per dollar) and got both of these decisions right ([33]-[39] for vintage; [43]-[55], esp. [51], for the rate direction via the USD/INR lesson)."},
+        {"level": "CONTROL", "intervention": "Loop breaker: detect near-identical THINK+command cycles (e.g. 3 repeats) and force either a new strategy or a commit with the best candidate.", "generality": "domain_general", "confidence": "high", "why": "[64]-[222] is the same 4-step cycle about 20 times; the decision already existed at [66]."}
+      ]
+    },
+    "prompt": {
+      "correct": false,
+      "error_bin": "1-5pct",
+      "first_divergence": {
+        "stage": "CELL_SELECTION",
+        "glm_step": "[19] (row displayed), adopted at [33]/[35], re-affirmed at [41]/[43]",
+        "what_glm_did": "In the Dec 2000 issue (CM-I-3, header '2000 > May | 2000 > June | 2000 > July | ...') it read the UK cell one column to the right, taking the July 2000 value as the revised June 2000; at [41]/[43] it 're-verified' the same cell without recounting columns.",
+        "what_opus_did": "Took the cell under the 'June' header and checked alignment via the 'May' and calendar-year columns against the Sept printing (worklog.md:39).",
+        "why_glm_went_that_way": "Wide flattened row printed ~25 lines below its header; the arm counted positions by eye. No visible reasoning about which position was June.",
+        "consequence": "Sum about 1.7% high; the final value is ~1.7% high (1-5pct). Vintage choice (latest, Dec issues) and rate route (GBP per USD rounded, multiply) both matched Opus."
+      },
+      "secondary_errors": [],
+      "saw_correct_evidence": {"value": "yes", "where": "[19] output printed the Dec 2000 UK row (under a header naming May/June/July) containing the correct June cell right next to the one it took; the same output also showed the Sept 2000 June p value, which is close to the correct revised value."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[41]-[55] about the exchange-rate source and direction; no doubt about the June 2000 cell."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "mild", "tool_friction": "rg not permitted [3]; repeated identical grep for the rate value [40]/[42]", "notes": "168 s, 26 requests; used python Decimal for the arithmetic ([44]-[46])."},
+      "adapter_context": {"relevant_item": "Convention 'match columns by header, never by position' (AGENTS.md line ~56); L-cmi3-annual-latest-printing / Procedure step 1 (latest printing); L-usd-inr-annual-average-1966 (used by analogy for the rate direction); conflicting convention 'Monthly rows otherwise default to the first printing' (line ~1207)", "item_was_correct_guidance": "partly", "followed": "partly", "caused_or_contributed_to_error": "no", "notes": "It followed the latest-printing rule and the USD/INR analogy, which gave the same vintage and rate route as Opus. It did not follow 'match columns by header' at the one place it mattered. It also set aside a text default ('monthly rows take the first printing') that, if followed, would have led it to the preliminary vintage."},
+      "remedies": [
+        {"level": "TOOL", "intervention": "Header-addressed cell reader: cell(file, table, row_label, column_header) returns the value with its full header path (and errors on ambiguity), replacing positional counting in wide flattened rows.", "generality": "document_qa_general", "confidence": "high", "why": "It already had 'match columns by header, never by position' as text and still slipped one column; the cards arm made the same kind of slip."},
+        {"level": "CHECK", "intervention": "Cited-cell check: every extracted value is submitted with (file, line, column header); the harness re-parses the table and confirms the value sits under a header matching the requested period.", "generality": "document_qa_general", "confidence": "high", "why": "The header row clearly labels the July column; a mechanical check would flag the June/July mismatch."},
+        {"level": "CHECK", "intervention": "Cross-printing consistency check: for a revised cell, compare the preliminary and revised values and the neighbouring columns; flag revisions that break alignment of the shared columns.", "generality": "document_qa_general", "confidence": "medium", "why": "Opus used exactly this alignment check (worklog.md:39); GLM had both printings in its context."}
+      ]
+    },
+    "cards": {
+      "correct": false,
+      "error_bin": "within_1pct",
+      "first_divergence": {
+        "stage": "CELL_SELECTION",
+        "glm_step": "[51]-[52]",
+        "what_glm_did": "Correctly chose the Dec issues (latest revision) and correctly got June 2000 from Dec 2000, but for June 2001 in the Dec 2001 issue it listed the header correctly ('1998, 1999, 2000 r, May r, June, July, Aug, Sept') and then took the LAST cell ('Sept. p') as June.",
+        "what_opus_did": "Took the cell under the 'June' header and verified alignment.",
+        "why_glm_went_that_way": "Positional reading of a wide row; its THINK names the header list and the wrong cell in the same sentence and does not index into it.",
+        "consequence": "Sum about 1.2% low. Partly offset by the rate route below, the final value is ~0.7% low (within_1pct)."
+      },
+      "secondary_errors": [
+        {"stage": "INTERPRETATION", "glm_step": "[62], [66]-[70]", "note": "Rounded the USD-per-pound rate to hundredths and divided, instead of rounding GBP-per-USD and multiplying; [62] raised the GBP-per-USD reading but never resolved it."},
+        {"stage": "SOURCE_TABLE", "glm_step": "[22]-[31]", "note": "Initially read CM-IV-2 (nonbank) and the chart data; self-corrected to CM-I at [33]-[37]. Not causal."}
+      ],
+      "saw_correct_evidence": {"value": "yes", "where": "[51]-[52]: the Dec 2001 UK row it printed contains the correct revised June 2001 cell in the 5th position."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[62] about the rate direction; [68] 'let's not rush' about later revisions; none about the June 2001 cell."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "mild", "tool_friction": "rg not permitted [3]; heredoc failure [8]; apply_patch unavailable/heredoc [11]-[15]; worked around by writing scripts via printf [17]", "notes": "146 s, 34 requests; computed the result in a script (C019) at [70]."},
+      "adapter_context": {"relevant_item": "C019 (compute in a script); C003/C007 (latest-printing principle for other tables); C021 (sterling conversion: pounds per $1 is the reciprocal of dollars per pound, divide by the USD-per-pound rate; its 'Not when' excludes date-pinned rates)", "item_was_correct_guidance": "partly", "followed": "partly", "caused_or_contributed_to_error": "possibly", "notes": "C019 was followed. The latest-printing idea was applied correctly. C021 is not cited in the trajectory, but its 'divide by the dollars-per-pound rate' pattern is exactly the route the arm took; the card is silent on where the rounding goes, which is what matters here. No card on header-matching or CM tables."},
+      "remedies": [
+        {"level": "TOOL", "intervention": "Header-addressed cell reader (row label x column header -> value with header path).", "generality": "document_qa_general", "confidence": "high", "why": "Its THINK lists the correct header yet takes the wrong position; indexing by header removes the step it fails at."},
+        {"level": "CHECK", "intervention": "Cited-cell check re-parsing the table and confirming the cited header is the requested period.", "generality": "document_qa_general", "confidence": "high", "why": "It would have flagged 'Sept. p' vs requested 'June'."},
+        {"level": "TEXT", "intervention": "Rate-direction/rounding convention: 'X to Y rate = Y per 1 X; if the question says to round the rate, round it in that direction before converting'; scope C021 so it does not generalise to date-pinned rates.", "generality": "officeqa_specific", "confidence": "medium", "why": "The prompt arm reached the right route from an analogous text lesson; this arm raised the right reading at [62] and dropped it."}
+      ]
+    }
+  },
+  "right_arms_note": "No arm was right.",
+  "text_vs_mechanism": "Mixed. Vintage and rate direction are convention problems, and text worked for them: the prompt arm, with a latest-printing rule and a USD/INR analogy, matched Opus on both, while the none arm, without that text, got both wrong. Cell selection needs a mechanism: the prompt arm had 'match columns by header, never by position' as text and still slipped a column, and the cards arm slipped a column too. A header-addressed reader or a cited-cell check is required.",
+  "notes": "Opus itself was low-confidence here (solution.json confidence 'low'; reviewer verdict 'Uncertain' over vintage and rate source), so the vintage and rate conventions are somewhat fragile. For harness design, the robust signal is that both adapted arms made the SAME class of error (off-by-one/last-column read in a wide flattened row whose header is far above the data row), even with a mitigating text rule in context. The none arm shows a separate failure: a repetition loop after compaction pressure. The prompt AGENTS.md also contains a conflicting default ('monthly rows take the first printing'); here the arm luckily overrode it. Growing text lessons can conflict with each other."
+}

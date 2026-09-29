@@ -1,0 +1,60 @@
+{
+  "ordinal": 120,
+  "task_id": "UID0049",
+  "question_type": "Coefficient of variation (population SD / mean) of year-to-year log growth of an annual expenditure series whose final year was revised after first printing",
+  "skills_required": ["locate_issue", "pick_vintage", "locate_table", "multi_value_extraction", "formula_stats", "multi_step_arithmetic", "rounding_format"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "Series = National Defense expenditures FY1933-FY1941 (9 values, 8 log growth rates); 'urgent ship construction' read as the Treasury's 'emergency ship construction' footnote; CV = population SD / mean; flagged the FY1941 vintage as the open ambiguity up front.", "evidence": "opus logs/120/worklog.md:8-14"},
+    {"stage": "choose_source", "decision": "Grepped 'ship construction' across 1939-1949 issues; the footnote lives on the U.S. Maritime Commission column of Table 4 'Analysis of National Defense Expenditures' (first appears Oct 1941), whose Total column is total national defense.", "evidence": "worklog.md:19-25"},
+    {"stage": "extract", "decision": "Read the Total column FY1933-1941 in 1941_10 and checked one component sum.", "evidence": "worklog.md:27-35 (1941_10.txt:386-419)"},
+    {"stage": "choose_source", "decision": "Compared the same table across every printing: FY1933-1940 identical everywhere; FY1941 has a first-printing value (1941_10-1942_01) and a revised value from 1942_02 on (1943 Budget reclassification), still printed in tables titled 'Analysis of National Defense Expenditures' through 1942_04 and unchanged in later summaries through 1948.", "evidence": "worklog.md:37-44, 62-70"},
+    {"stage": "choose_source", "decision": "Rejected the pre-Sept-1941 'General, by Major Functions' national-defense series because it excludes the Maritime Commission (the ship-construction clause rules it out).", "evidence": "worklog.md:46-51"},
+    {"stage": "interpret", "decision": "No issue is pinned, so applied 'latest revision unless a date is pinned'; noted the ship-construction clause is satisfied by both FY1941 vintages, so it does not select between them. Cited the latest table still titled National Defense (1942_04).", "evidence": "worklog.md:72-81; solution.json decisions[1]"},
+    {"stage": "compute", "decision": "calc.py reads both vintages from the corpus, computes log growths, population SD and CV for primary and alternative.", "evidence": "worklog.md:83-89"},
+    {"stage": "verify", "decision": "Components sum to totals in both vintages; Summary Table 1 national-defense column gives the identical series; sample-SD variant noted and rejected.", "evidence": "worklog.md:91-95"}
+  ],
+  "opus_key_moves": [
+    "Tabulated the FY1941 cell across every printing and separated 'which series' (ship-construction clause excludes the Maritime-Commission-less series) from 'which vintage' (clause does not decide it)",
+    "Applied the latest-revision default and confirmed the revised value is also printed under the 'National Defense' title (1942_02-1942_04), removing the title-based objection"
+  ],
+  "arms": {
+    "none": {
+      "correct": true,
+      "error_bin": null,
+      "note": "Found both FY1941 printings ([37],[45]), then located the last issue still titled 'Analysis of National Defense Expenditures' (1942_04) and took its revised value ([51]-[53])."
+    },
+    "prompt": {
+      "correct": true,
+      "error_bin": null,
+      "note": "Started from 1942_02 Table 4 (revised value, [11]-[14]), later noticed the first printing ([35]) and chose the latest final vintage per its lesson ([46]), cross-checked Summary Table 1 ([50])."
+    },
+    "cards": {
+      "correct": false,
+      "error_bin": "1-5pct",
+      "first_divergence": {
+        "stage": "SOURCE_ISSUE_VINTAGE",
+        "glm_step": "[35]-[42] (decision), [49] (commit)",
+        "what_glm_did": "After seeing the revised FY1941 value in the 1942_12 printing (reads [30]-[34], noted at [35]), it went back to the 1941_12 Table 4 'Analysis of National Defense Expenditures' ([39]) and used that first-printing FY1941 total. It never opened the 1942_01-1942_04 printings.",
+        "what_opus_did": "Enumerated every printing, found the revised FY1941 value also appears under the 'National Defense' title in 1942_02-1942_04 and persists through 1948, and took the latest revision.",
+        "why_glm_went_that_way": "Title literalism plus reading the qualifier as a source pointer: '\"National Defense\" not \"War activities\" suggests 1941_12' ([42]); 'Question uses \"urgent ship construction\" maybe paraphrase ... from Table 4 footnote. So yes [first printing]' ([49]). It assumed the revised value lived only in renamed 'War activities' tables, which it never verified.",
+        "consequence": "The FY1941 input is the pre-reclassification total (a few percent lower than the revised one), which shrinks the dominant last log-growth term; the CV lands one hundredth below the accepted answer (~1% relative)."
+      },
+      "secondary_errors": [
+        {"stage": "OTHER", "glm_step": "[44]-[47]", "note": "Computed both candidates (first-printing and revised) and saw they differ at the rounded digit, but resolved the fork by title wording rather than by a vintage policy or by checking intermediate issues."}
+      ],
+      "saw_correct_evidence": {"value": "yes", "where": "[30]-[34] reads of 1942_12 showed the revised FY1941 value in the summary table (noted explicitly at [35]); [46] computed the correct candidate."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[42] 'Could mean use [first printing] from Table 4, not [revised]? Let's parse'; [47] 'Need decide'."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "none", "tool_friction": "heredoc and apply_patch failures ([6]-[16]) cost ~10 steps before a printf/python -c workflow worked; officeqa search output format had to be inspected ([18]-[21])", "notes": "Short run (103 s, 23 requests): it committed without surveying the printings between 1941_12 and 1942_12, which is exactly where the deciding evidence sat."},
+      "adapter_context": {"relevant_item": "C032 (says the fiscal-1941 National defense cell should be the original, pre-February-1942 value; scoped to a calendar-1941-43 receipts/defense ratio question); C022 (WWII-era vintage rule for public works, cited at [27]/[29]); C003/C007 (latest-printing rule for agency outlays, dismissed at [42])", "item_was_correct_guidance": "no", "followed": "partly", "caused_or_contributed_to_error": "possibly", "notes": "The deck has no general vintage default, and the only card that speaks to this exact cell (C032) prescribes the first-printing value because that is what its own question's grader wanted. The actor never cited C032, but its final choice coincides with it. The prompt arm, which had a general 'annual defense rows are revised, use the latest bulletin carrying the row' lesson (L-defense-table3-annual-vintage) plus the procedure's 'compare with the latest bulletin' step, got it right."},
+      "remedies": [
+        {"level": "TOOL", "intervention": "'All printings of this row' lookup: given a table family and row label (FY1941, National Defense total), return every issue's value with the table title and footnotes, chronologically sorted.", "generality": "document_qa_general", "confidence": "high", "why": "The actor's objection was that the revised value only appeared under a different title; one call would have shown the revised value under the 'National Defense' title in 1942_02-1942_04, which the actor never opened."},
+        {"level": "TEXT", "intervention": "General vintage default in the deck: unless the question pins an issue or date, take the latest printing of the same series; a table rename or a descriptive qualifier in the question is not by itself a reason to prefer an earlier vintage.", "generality": "officeqa_specific", "confidence": "medium", "why": "Both the none arm (no adapter) and the prompt arm (with such text) chose the latest vintage; the cards deck lacked any general default."},
+        {"level": "STATE", "intervention": "Card hygiene for per-question cards: detect cards that pin a specific vintage for a cell another question also uses (C032 vs this question) and either narrow their scope to the exact question pattern or record the conflict so the default wins outside that pattern.", "generality": "domain_general", "confidence": "low", "why": "C032 encodes the opposite vintage for the same FY1941 cell; the actor did not cite it, so its causal role is uncertain, but it cannot help and may bias."},
+        {"level": "CONTROL", "intervention": "When two computed candidates differ at the answer's precision ([44]/[46]), force a vintage-reconciliation step that lists all printings and states the policy used before commit.", "generality": "domain_general", "confidence": "medium", "why": "The fork was explicit in the actor's own trajectory; it was resolved by a wording heuristic in one THINK step."}
+      ]
+    }
+  },
+  "right_arms_note": "none and prompt both enumerated printings past the reclassification (none up to 1942_04 by title; prompt from 1942_02 onward) and applied an explicit 'latest vintage' rule; cards stopped at the title mismatch and returned to the Dec 1941 printing without looking at Feb-Apr 1942.",
+  "text_vs_mechanism": "A better text default plausibly fixes this: the prompt arm had the 'use the latest bulletin carrying the row' lesson and followed it, and the none arm reasoned its way there. An all-printings lookup tool would make the fix robust by removing the title-based confusion.",
+  "notes": "issue47 = true: the question is on the disputed list and the vintage genuinely matters at the second decimal (the reviewer also found a third, later reclassified FY1941 value in 1948+ tables without the ship-construction footnote). Harness lesson: per-question cards that pin a vintage for a cell can silently conflict with a benchmark-wide default; the evolver should prefer one general vintage rule plus narrowly-scoped exceptions."
+}

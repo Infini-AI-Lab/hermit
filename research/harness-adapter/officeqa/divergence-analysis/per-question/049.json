@@ -1,0 +1,239 @@
+{
+ "ordinal": 49,
+ "task_id": "UID0245",
+ "question_type": "Midpoint ('Fisher Ideal symmetric') growth rate between two monthly yields from Table AY-1, vintage pinned to FY1982-end issues; answer is a unitless rate to 3 decimals",
+ "skills_required": [
+  "locate_issue",
+  "pick_vintage",
+  "locate_table",
+  "read_flattened_table",
+  "multi_value_extraction",
+  "unit_or_scale",
+  "formula_finance",
+  "rounding_format"
+ ],
+ "opus_path": [
+  {
+   "stage": "interpret",
+   "decision": "Parsed series = monthly average yield of long-term Treasury bonds (AY-1), months Aug 1981 (base) and Aug 1982, vintage = FY1982 end (Sep/Oct 1982 issues), output = one number to 3 dp; flagged the formula name as ambiguous",
+   "evidence": "worklog.md:8-13 (Step 1)"
+  },
+  {
+   "stage": "choose_source",
+   "decision": "Listed issues around FY1982 end, chose the Oct 1982 issue as the first issue after FY end",
+   "evidence": "worklog.md:15-20 (Steps 2-3), 22"
+  },
+  {
+   "stage": "locate_table",
+   "decision": "Read AY-1 in treasury_bulletin_1982_10.txt; identified the 4th year panel as 1981/1982 via panel year-label rows",
+   "evidence": "worklog.md:22-29; treasury_bulletin_1982_10.txt:4604-4643"
+  },
+  {
+   "stage": "pick_cells",
+   "decision": "Took the 'Treasury bonds 1/' column (not the adjacent 'New Aa corporate bonds' despite the word 'new'); stripped the '5/' footnote prefix using the footnote text",
+   "evidence": "worklog.md:28-31; solution.json decisions[1],[2]"
+  },
+  {
+   "stage": "verify",
+   "decision": "Cross-vintage check over 1982_09, 1982_11, 1983_03, 1983_06: all FY1982-era printings identical; 1983 issues redefine the series (20-yr constant maturity), so rejected by the vintage pin",
+   "evidence": "worklog.md:33-38 (Step 5)"
+  },
+  {
+   "stage": "compute",
+   "decision": "Fisher ideal index of one series collapses to the ratio; applied the symmetric (midpoint) growth 2(F-1)/(F+1); logged simple, log and geometric-mean alternatives",
+   "evidence": "worklog.md:43-51 (Step 7); calc.py"
+  },
+  {
+   "stage": "round_format",
+   "decision": "Reported the rate as a decimal fraction, explicitly rejecting the percent (x100) form because '(in percent)' qualifies the input yields and the answer clause names no percent",
+   "evidence": "worklog.md:53-54 (Step 8); solution.json decisions[4]"
+  },
+  {
+   "stage": "verify",
+   "decision": "Adversarial reviewer re-opened cells, recomputed, and named decimal-vs-percent as the only residual risk",
+   "evidence": "review.md checks 1-5"
+  }
+ ],
+ "opus_key_moves": [
+  "Treated '(in percent)' as a property of the input yields and the answer clause ('single numeric value rounded to three decimal places') as the output spec, so committed the bare fraction and wrote the percent form down only as a rejected alternative",
+  "Resolved the unfamiliar formula name quickly by reduction (Fisher index of one series = ratio) and logged the alternatives instead of searching the corpus for a definition",
+  "Checked all FY1982-era printings plus the 1983 redefinition, so the vintage question was closed in one step"
+ ],
+ "arms": {
+  "none": {
+   "correct": false,
+   "error_bin": "scale_10^2",
+   "first_divergence": {
+    "stage": "ROUNDING_FORMAT",
+    "glm_step": "[34]-[35], confirmed [53], committed [395]",
+    "what_glm_did": "Found the same AY-1 cells in the Oct 1982 issue ([22]-[23]) and chose the midpoint formula, but equated the fraction with its percent form ('= ...%') at [34], printed only x100 variants at [35], and at [53] decided the growth rate 'likely percent' because the yields are '(in percent)'; submitted the x100 value at [395].",
+    "what_opus_did": "Same cells and formula; kept the result as a decimal fraction because the percent qualifier attaches to the inputs and the answer clause names no percent (worklog.md:53-54).",
+    "why_glm_went_that_way": "Visible reasoning at [53]: \"They don't specify percent sign. '...(in percent)' then 'growth rate' likely percent.\" A prior that growth rates are reported in percent, triggered by the input-unit phrase.",
+    "consequence": "Answer is exactly 100x the reference form (scale_10^2)."
+   },
+   "secondary_errors": [
+    {
+     "stage": "OPERATIONAL",
+     "glm_step": "[52]-[380]",
+     "note": "Degenerate loop: the identical corpus-wide grep for 'symmetric' was re-run 165 times with empty output each time, ending in a context-compaction warning [381]; cost ~25M input tokens and 1843 s but did not change the answer."
+    }
+   ],
+   "saw_correct_evidence": {
+    "value": "yes",
+    "where": "[22]-[23] correct AY-1 Treasury-bond cells for both months in the Oct 1982 issue; [34] wrote the unscaled midpoint fraction before relabelling it as a percent."
+   },
+   "glm_expressed_doubt": {
+    "value": "yes",
+    "where": "[53] considers that the question gives no percent sign, then dismisses it; [36]/[53] doubt about which formula the name denotes."
+   },
+   "operational": {
+    "timed_out": false,
+    "no_answer": false,
+    "loop_or_thrash": "severe",
+    "tool_friction": "rg blocked [3]; heredoc temp-file failure [6]; python3 shim triggers xcode prompt [8], switched to a venv python [13]",
+    "notes": "165 identical re-runs of one grep ([52]-[380]); compaction at [381]; answered from summary afterwards."
+   },
+   "adapter_context": {
+    "relevant_item": "n/a",
+    "item_was_correct_guidance": "n/a",
+    "followed": "n/a",
+    "caused_or_contributed_to_error": "n/a",
+    "notes": "Base instructions only."
+   },
+   "remedies": [
+    {
+     "level": "CHECK",
+     "intervention": "Commit-time answer-scale check: extract the answer clause of the question (e.g. 'report your answer as ...'); if it contains no 'percent'/'%' and the committed number equals 100x the last printed computed value, reject and ask for the bare value (or for an explicit quote of the question span that makes the answer a percent).",
+     "generality": "document_qa_general",
+     "confidence": "medium",
+     "why": "The actor had the unscaled value in its own reasoning ([34]) and chose x100 by prior at [53]; a check at the exact decision point with a deterministic rule removes the prior. Risk: some questions do want percent without saying so in the answer clause."
+    },
+    {
+     "level": "CONTROL",
+     "intervention": "Repeated-command guard: after 3 identical commands with identical output, block the command and force a 'decide and commit' turn with the current candidate.",
+     "generality": "domain_general",
+     "confidence": "high",
+     "why": "165 identical grep runs [52]-[380] and a compaction; the guard would have saved ~1800 s and ~25M tokens (it would not by itself fix the scale error)."
+    },
+    {
+     "level": "TEXT",
+     "intervention": "Convention: a unit phrase attached to the inputs ('yield (in percent)') does not make a derived growth rate a percent; growth/change rates are committed as decimal fractions unless the answer clause says percent.",
+     "generality": "document_qa_general",
+     "confidence": "low",
+     "why": "The prompt arm had essentially this text (L-midpoint-percent-change) and still chose x100 at [38]; text alone is weak for this actor."
+    }
+   ]
+  },
+  "prompt": {
+   "correct": false,
+   "error_bin": "scale_10^2",
+   "first_divergence": {
+    "stage": "ROUNDING_FORMAT",
+    "glm_step": "[25], decided [38], committed [41]",
+    "what_glm_did": "At [17] it had the midpoint formula and the bare 3-dp fraction; at [25] it recalled the symmetric growth rate as 'often expressed as percentage' and at [26] printed both the fraction and x100 form; at [38] it weighed 'If ratio ... Which one likely?' and chose the percent form because 'yields in percent ... usually growth rate reported in percent'.",
+    "what_opus_did": "Same table, cells (Sep 1982 issue, identical to Oct) and formula; committed the decimal fraction (worklog.md:53-54).",
+    "why_glm_went_that_way": "Visible at [38]: \"The question says yields in percent, calculate growth rate. Usually growth rate reported in percent.\" It did not cite L-midpoint-percent-change, which covers exactly this ('unit phrases describe the inputs'; multiply by 100 only when the question says percent).",
+    "consequence": "Answer is 100x the reference form (scale_10^2)."
+   },
+   "secondary_errors": [],
+   "saw_correct_evidence": {
+    "value": "yes",
+    "where": "[16] AY-1 cells in the Sep 1982 issue; [26] printed the unscaled midpoint fraction; [35] confirmed the cells unchanged in the Oct/Nov 1982 issues."
+   },
+   "glm_expressed_doubt": {
+    "value": "yes",
+    "where": "[38] explicitly contrasts the fraction and percent forms before choosing percent."
+   },
+   "operational": {
+    "timed_out": false,
+    "no_answer": false,
+    "loop_or_thrash": "none",
+    "tool_friction": "rg blocked [3]; heredoc temp-file failure [33], recovered with python -c [35]; FTS OR-matching made exact-phrase searches for the formula name useless [19]-[31]",
+    "notes": "Efficient run (20 requests, 538 s); several steps spent searching the corpus for a definition of the formula name, which is not in the corpus."
+   },
+   "adapter_context": {
+    "relevant_item": "L-midpoint-percent-change (conventions block lines 61-67 and lesson body lines 180-215 of this run's AGENTS.md); procedure step 2 (state units)",
+    "item_was_correct_guidance": "yes",
+    "followed": "no",
+    "caused_or_contributed_to_error": "possibly",
+    "notes": "The lesson says trailing unit phrases describe inputs and to commit the bare ratio unless the question says percent; the actor never cited it. Other lessons in the same document show x100 answers for log-growth questions (e.g. the UID0133 section) without stating why, which may have reinforced the 'growth rates are percents' prior. The later adapter (seen by ordinal 80's run, lines 66-67) added 'Fisher Ideal symmetric growth rate is the same bare-fraction family', i.e. the learner fixed the text after this failure."
+   },
+   "remedies": [
+    {
+     "level": "CHECK",
+     "intervention": "Same commit-time answer-scale check as for the none arm: answer clause without 'percent'/'%' plus a committed value equal to 100x a printed computed value -> reject and require the bare value or a quoted justification.",
+     "generality": "document_qa_general",
+     "confidence": "medium",
+     "why": "The actor explicitly held both candidates at [38] and resolved by prior while ignoring an applicable verified lesson; a mechanical check at commit removes the choice."
+    },
+    {
+     "level": "TEXT",
+     "intervention": "Retrieve-and-inject the matching lesson at the decision point (e.g. when the actor computes a growth/change rate, surface the scale rule verbatim) instead of relying on a 80 KB document read once.",
+     "generality": "document_qa_general",
+     "confidence": "low",
+     "why": "The rule was present but buried; no evidence this actor applies long-context rules at the point of use."
+    }
+   ]
+  },
+  "cards": {
+   "correct": false,
+   "error_bin": "scale_10^2",
+   "first_divergence": {
+    "stage": "ROUNDING_FORMAT",
+    "glm_step": "[39]-[40], committed [174]",
+    "what_glm_did": "Located AY-1 (Nov 1982 issue [24], Sep 1982 issue [57]) and wrote the midpoint formula already multiplied by 100 at [39]; [40] printed only x100 variants; never wrote or considered the unscaled fraction; submitted the x100 value at [174] after compaction.",
+    "what_opus_did": "Same cells and formula; committed the decimal fraction because no percent is asked for the result (worklog.md:53-54).",
+    "why_glm_went_that_way": "No visible deliberation: the x100 was built into the formula at [39]. At [48] it judged that no card applied ('No card for yields').",
+    "consequence": "Answer is 100x the reference form (scale_10^2)."
+   },
+   "secondary_errors": [
+    {
+     "stage": "OPERATIONAL",
+     "glm_step": "[49]-[171]",
+     "note": "Loop: the same 4-command block (search AY-1 in 1982_09, read two ranges, recompute the 1983 alternative) plus the same THINK paragraph repeated 21 times; compaction warning at [172]; final answer given from the summary at [173]-[174]."
+    }
+   ],
+   "saw_correct_evidence": {
+    "value": "yes",
+    "where": "[24] AY-1 in the Nov 1982 issue and [56]-[57] in the Sep 1982 issue show the correct Treasury-bond cells; the unscaled fraction was never printed."
+   },
+   "glm_expressed_doubt": {
+    "value": "no",
+    "where": "Doubt at [46]-[168] was only about the series/vintage (old composite vs 1983 20-yr series), never about percent vs fraction."
+   },
+   "operational": {
+    "timed_out": false,
+    "no_answer": false,
+    "loop_or_thrash": "severe",
+    "tool_friction": "rg blocked [3]; heredoc failure [6]; OCR-garbled AY-1 panels in the Nov 1982 issue [24]",
+    "notes": "21 identical cycles [49]-[171] (~13M input tokens, 878 s); the loop was an unresolved vintage deliberation that never produced a decision."
+   },
+   "adapter_context": {
+    "relevant_item": "C003 (midpoint percentage change = (end - start)/average, no x100 stated); C009 (absolute percent difference = midpoint form times 100)",
+    "item_was_correct_guidance": "partly",
+    "followed": "n/a",
+    "caused_or_contributed_to_error": "no",
+    "notes": "The actor explicitly concluded no card applied ([48]). C003 has the right formula but is silent on output scale; C009's 'times 100' is for a different phrase. The deck has no card on output scale for rates."
+   },
+   "remedies": [
+    {
+     "level": "CHECK",
+     "intervention": "Commit-time answer-scale check (answer clause lacks percent and committed value = 100x computed value -> reject).",
+     "generality": "document_qa_general",
+     "confidence": "medium",
+     "why": "The actor never considered the alternative; only an external check could surface it."
+    },
+    {
+     "level": "CONTROL",
+     "intervention": "Repeated-command/THINK guard that forces a written decision on the open question (here: which vintage) and a commit after N identical cycles.",
+     "generality": "domain_general",
+     "confidence": "high",
+     "why": "21 identical cycles [49]-[171] ended only by compaction."
+    }
+   ]
+  }
+ },
+ "right_arms_note": "No arm was right. All three found the correct AY-1 Treasury-bond cells in FY1982-end issues and the midpoint formula; all three reported the x100 form. The difference from Opus is only the output-scale decision.",
+ "text_vs_mechanism": "Text alone is unlikely to fix this: the prompt arm had a verified lesson stating that unit phrases describe the inputs and that the bare ratio is committed unless the question says percent, weighed both forms at [38], and still chose x100 by prior. A commit-time scale check (plus a loop guard for the none/cards arms' thrash) is the more reliable fix.",
+ "notes": "Uniform failure across arms points to a strong actor prior ('growth rate => percent') that is triggered by any 'percent' token in the question. Two of three arms also lost most of their budget to identical-command loops while deliberating (formula definition in none, vintage in cards) with no new information arriving; the corpus contains no definition of the formula name, so corpus search for it is wasted effort. The prompt learner added a specific lesson for this question after the postmortem, so a re-run could test whether question-specific text transfers."
+}

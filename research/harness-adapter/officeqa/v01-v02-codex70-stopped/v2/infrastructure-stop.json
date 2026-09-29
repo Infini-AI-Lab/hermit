@@ -1,0 +1,12 @@
+{
+  "stopped_master_pid": 33342,
+  "dedicated_groups_stopped": [
+    33342,
+    34314,
+    34401,
+    34402
+  ],
+  "processes_in_snapshot": 5,
+  "reason": "Provider explicit pre-generation rate refusal was not retried: Responses text.format configuration misclassified as generated text. Stop ungraded and fix classification; no semantic changes.",
+  "graded": false
+}

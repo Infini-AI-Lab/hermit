@@ -1,0 +1,98 @@
+{
+  "ordinal": 17,
+  "task_id": "UID0007",
+  "question_type": "geometric mean of 80 monthly budget-expenditure cells from a months-by-calendar-year summary table, where the question's year range ('just 1940-1949') pins which printings to use",
+  "skills_required": ["locate_issue", "pick_vintage", "locate_table", "read_flattened_table", "multi_value_extraction", "date_or_period_logic", "formula_stats", "multi_step_arithmetic", "rounding_format"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "Read the question as asking for a table of monthly budget expenditures laid out by calendar year whose rows are exactly 1940-1949. Counted 80 months (Mar 1942 to Oct 1948 inclusive) and used exp(mean ln x). Flagged two risks up front: basis changes between vintages and OCR errors in cells.", "evidence": "logs/017/worklog.md:7-12"},
+    {"stage": "choose_source", "decision": "Listed the row years of 'Table 6.- Summary by Months and Calendar Years' in every 1948-1951 issue (scan.py). Only the Mar 1949 to Feb 1950 printings show exactly 1940-1949. Rejected Jan 1949 (old basis, rows 1939-1948) and Mar 1950 onward (wider year ranges, 1948 months re-based for the Foreign Economic Cooperation Trust Fund, and OCR year labels shifted by one).", "evidence": "logs/017/worklog.md:16-31; solution.json:33-38"},
+    {"stage": "locate_table", "decision": "Read the Budget expenditures block of the Feb 1950 printing, the last one with the 1940-1949 range and the first with a complete 1949 row.", "evidence": "logs/017/worklog.md:33-41"},
+    {"stage": "extract", "decision": "Checked every row against its printed Total and took a per-cell majority across all 12 in-range printings (extract_all.py). This found two OCR-misread cells in Feb 1950 (May 1942, Nov 1947), which it corrected. Clean printings (Jun and Aug 1949) carry identical values, so the result does not depend on which in-range vintage is used.", "evidence": "logs/017/worklog.md:43-51"},
+    {"stage": "compute", "decision": "calc.py first checks the identity expenditures = net receipts - surplus for every target month (the corrected cells pass), then takes the 80-value geometric mean and rounds it to 2 decimals.", "evidence": "logs/017/worklog.md:53-60"},
+    {"stage": "verify", "decision": "An independent reviewer recomputed from the clean Jun 1949 printing, got the same result, and confirmed that only the Mar 1949 to Feb 1950 printings have exactly 1940-1949.", "evidence": "logs/017/review.md:6-12"}
+  ],
+  "opus_key_moves": [
+    "Used 'just the calendar years 1940-1949' to select the vintage: it listed each printing's row-year set and kept only printings whose table spans exactly that range, which excluded the re-based, label-shifted 1950-51 printings",
+    "Checked every extracted row against its printed Total and took a per-cell majority over 12 printings, which caught and repaired two OCR-misread cells",
+    "Cross-checked the repaired cells with an independent within-table identity (receipts - surplus = expenditures)"
+  ],
+  "arms": {
+    "none": {
+      "correct": false,
+      "error_bin": "within_1pct",
+      "first_divergence": {
+        "stage": "EXTRACTION",
+        "glm_step": "[60]-[63], reaffirmed at [73]",
+        "what_glm_did": "Reached the same table and the same Feb 1950 printing as Opus; at [72] it even listed every printing whose expenditure rows are exactly 1940-1949. Summing the 1942 and 1947 rows in code, it found both short of their printed totals and correctly diagnosed OCR misreads of May 1942 and Nov 1947. It then deliberately kept the raw OCR cells.",
+        "what_opus_did": "Same table and vintage. Repaired the two cells using the row totals, a 12-printing majority vote and the receipts-minus-surplus identity (worklog.md:43-57).",
+        "why_glm_went_that_way": "Explicit guessing about how the answer key was built: [63] 'If question generator computed from raw OCR, they'd use [the raw cells]... The benchmark likely uses raw values. We need match expected'; [73] 'Usually these tasks are generated from OCR text and expected answers computed from extracted table values, not human-corrected... we should use the corpus text as-is.'",
+        "consequence": "Two understated cells pulled the geometric mean slightly low. The answer is off by well under 1%, but that is still wrong at 2 decimals."
+      },
+      "secondary_errors": [
+        {"stage": "CELL_SELECTION", "glm_step": "[24]-[26]", "note": "Its first computation used the Aug 1950 printing (rows 1938-1950), where the expenditure block's year labels are shifted by one, so it read the wrong calendar year's months. It recovered at [29]-[41] after noticing the labels disagreed with the Dec 1949 printing."},
+        {"stage": "EXTERNAL_KNOWLEDGE", "glm_step": "[38]", "note": "Used remembered historical calendar-year totals to argue the shifted Aug 1950 labels were correct. The argument was internally inconsistent and did not drive the final answer."},
+        {"stage": "EXTRACTION", "glm_step": "[39], [63]", "note": "Hand-typed 80-value lists into python -c and later credited a list containing a Jan 1950 OCR variant to the Dec 1949 printing. This bookkeeping error around printings did not affect the final choice."}
+      ],
+      "saw_correct_evidence": {"value": "yes", "where": "The [28] Dec 1949 and [31] Nov 1949 printings show both cells printed correctly. Its own row-sum check at [60]-[63] pinpointed both misreads and the digits the totals imply."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[63] and [73] weighed raw OCR against 'if a human read the original PDF' and chose raw OCR."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "mild", "tool_friction": "rg missing (exit 127) [3]; heredoc temp-file failure [6]; search limit >20 error [22]; FTS search returns front-matter chunks, so the table had to be found by direct file scans [42]-[46]; long python -c one-liners with hand-typed value lists", "notes": "76 steps in 208 s. Most of the run ([27]-[53]) went to reconciling OCR year-label shifts across the 1949-1951 printings before it settled on Feb 1950."},
+      "adapter_context": {"relevant_item": "n/a", "item_was_correct_guidance": "n/a", "followed": "n/a", "caused_or_contributed_to_error": "n/a", "notes": "Base instructions only. They say nothing about OCR errors or about whether answers are keyed to printed values or OCR text."},
+      "remedies": [
+        {"level": "TEXT", "intervention": "State the answer convention explicitly: reference answers use the values printed in the original document. When a row's cells do not sum to its printed total, treat the offending cell as an OCR misread and repair it from other printings (majority) or from the total. Never answer from a cell you have shown to be misread.", "generality": "document_qa_general", "confidence": "high", "why": "The actor had already run the check in code and found the right digits. Its only reason for keeping the raw cells was a stated guess about how the key was built ([63], [73]), and a stated convention removes exactly that uncertainty."},
+        {"level": "CHECK", "intervention": "Run a row-total validator automatically on every extracted table row (sum of cells vs printed Total, ±1-2 tolerance for rounding). It should return the suspect cell and a candidate correction from other printings.", "generality": "document_qa_general", "confidence": "medium", "why": "It would have flagged the same two cells. But this actor already knew about them, so the check alone would not change its policy decision without the TEXT convention."},
+        {"level": "TOOL", "intervention": "Add an 'all printings of this row' lookup that returns each cell's value in every issue carrying the row, plus the majority value.", "generality": "officeqa_specific", "confidence": "medium", "why": "Opus's deciding evidence was a 10-of-12 and an 11-of-12 majority (worklog.md:46-47). The actor spent about 25 steps collecting printings by hand."}
+      ]
+    },
+    "prompt": {
+      "correct": false,
+      "error_bin": "5-25pct",
+      "first_divergence": {
+        "stage": "SOURCE_ISSUE_VINTAGE",
+        "glm_step": "[17]-[31]",
+        "what_glm_did": "Applied the context's 'latest bulletin carrying the row' rule and went to the newest printings of Table 6 (Dec 1950, Jan 1951, Feb 1951). Those tables span 1932-1950, not 'just' 1940-1949, and carry the Mar 1950 re-basing of the 1948 months.",
+        "what_opus_did": "Used 'just the calendar years 1940-1949' as the vintage selector: only the Mar 1949 to Feb 1950 printings have exactly those rows. Rejected Mar 1950 onward for the wider range and the re-based 1948 months (worklog.md:22-31).",
+        "why_glm_went_that_way": "[17] 'Need latest bulletin carrying row... Need find latest vintage carrying 1940-1949 calendar years'. This directly echoes procedure self-check 1 and the note 'until a family is checked... use the latest vintage' in its AGENTS.md.",
+        "consequence": "Even with correct row labels, the latest printings would give the re-based 1948 months (Opus's alternative computed from that table is about 0.3% off). The bulk of the error came from the row-label step listed below."
+      },
+      "secondary_errors": [
+        {"stage": "CELL_SELECTION", "glm_step": "[33]-[35], [43]", "note": "The three late printings disagree on the expenditure block's year labels because OCR dropped a row in different places. The arm trusted the one printing (Jan 1951) whose label sequence had no gap and declared Dec 1950 and Feb 1951 shifted, although those two agree with each other and with every 1949 printing. In Jan 1951 the labels are the ones that are off by one: its second-to-last year row is partial and its last year row is entirely blank (checked in the corpus at treasury_bulletin_1951_01.txt:400-419). So the arm read each year's months one calendar year late, which produced the 5-25% error."},
+        {"stage": "OTHER", "glm_step": "[36]-[38]", "note": "Hand-typed the 80-value list and got 79. It fixed this by grouping values by year."}
+      ],
+      "saw_correct_evidence": {"value": "partial", "where": "The [34] Feb 1951 and [42] Dec 1950 printings show correctly aligned rows (their 1942 row matches the 1949 printings' 1942 row and total). It never opened a 1949-era printing that spans exactly 1940-1949."},
+      "glm_expressed_doubt": {"value": "yes", "where": "At [33] it wrote 'Need anchor via annual totals or adjacent vintage' but then settled the question on label-sequence continuity alone. At [45] it noticed cell-level OCR differences in the Nov 1950 printing and did not revisit."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "severe", "tool_friction": "heredoc temp-file failure [4]; search API misuse (limit, dict vs list) [10]-[20]; zsh quoting parse errors [24], [40], [46]", "notes": "The [33] THINK degenerated into verbatim repetition (about 217K characters clipped by the digest), giving 71K output tokens and 485 s for a 48-step run. The run recovered, and the repetition did not itself change the answer."},
+      "adapter_context": {"relevant_item": "Procedure self-check 1 ('compare it with the latest bulletin carrying the same row', AGENTS.md:34-35); the closing note 'Until a family is checked, grep the row forward and use the latest vintage' (AGENTS.md:349-350); the Conventions bullet on flattened multi-panel tables ('Anchor every panel to its year/date ... via explicit label rows in an adjacent vintage ... or annual averages', AGENTS.md:51-57, scoped to PDO-1/AY-1/MQ-1)", "item_was_correct_guidance": "partly", "followed": "yes", "caused_or_contributed_to_error": "yes", "notes": "The latest-vintage default was wrong here: the question pins the table by its row range, and the later printings were re-based. The arm followed it literally. The anchoring convention was right in spirit, and the arm paraphrased it at [33], but it anchored on label continuity instead of comparing row totals across adjacent vintages. The printings it dismissed outnumbered the one it trusted 2 to 1."},
+      "remedies": [
+        {"level": "CHECK", "intervention": "Add a cross-printing year-label check for tables with year rows. For each chosen row, compare its printed row Total with the same-labelled row in adjacent printings and flag a whole-row shift. Also flag a printing whose last labelled year is blank while the year before it is partial.", "generality": "document_qa_general", "confidence": "medium", "why": "The arm had three late printings on screen and explicitly wanted to anchor via annual totals or an adjacent vintage [33], but used label continuity instead. An automatic comparison would have shown Jan 1951 as the odd one out: its row totals sit one label away from the other printings'."},
+        {"level": "TEXT", "intervention": "Refine the vintage rule: when the question describes the table's own scope (e.g. 'for just the calendar years 1940-1949'), use printings whose table has exactly that scope. The latest-vintage default applies only when nothing in the question pins the table.", "generality": "document_qa_general", "confidence": "medium", "why": "The arm followed the existing vintage text literally at [17] and [29], so an amended rule would likely be followed the same way."},
+        {"level": "CONTROL", "intervention": "Add a degenerate-repetition guard: when a reasoning block repeats the same sentence N times, force a short summary and a next action.", "generality": "domain_general", "confidence": "low", "why": "It would have saved time and tokens at [33], but the repetition was not the cause of the wrong answer."}
+      ]
+    },
+    "cards": {
+      "correct": false,
+      "error_bin": "within_0.1pct",
+      "first_divergence": {
+        "stage": "EXTRACTION",
+        "glm_step": "[25]-[28]",
+        "what_glm_did": "Chose the Dec 1949 printing, one of the valid in-range 1940-1949 printings, and copied its expenditure rows verbatim. That included two OCR-misread cells (1943 July and 1945 January) that make their rows fail the printed totals.",
+        "what_opus_did": "Checked every row against its printed total and took per-cell majorities across 12 printings. It noted that these same misreads appear in a minority of printings (worklog.md:48-49).",
+        "why_glm_went_that_way": "It had no validation step. At [26]: 'Use Dec 1949 table likely... Let's calculate', then it committed at [32]. Its only doubt was about the vintage (Dec 1948 vs Dec 1949, [29]-[31]).",
+        "consequence": "Two slightly wrong cells moved the geometric mean by less than 0.1%, which is still wrong at 2 decimals."
+      },
+      "secondary_errors": [
+        {"stage": "SOURCE_ISSUE_VINTAGE", "glm_step": "[31]", "note": "Asserted Dec 1949 is 'the only issue with all 1940-1949' without scanning the 1950 issues (Feb 1950 also qualifies). This was harmless here because the in-range printings agree once OCR errors are corrected."}
+      ],
+      "saw_correct_evidence": {"value": "partial", "where": "Right table and a valid vintage at [25]. It never opened a second in-range printing, so the correct digits for the two cells never appeared in its outputs."},
+      "glm_expressed_doubt": {"value": "no", "where": "At [29]-[31] it doubted only the vintage (Dec 1948 vs Dec 1949), never the cell values."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "none", "tool_friction": "rg blocked [3]; heredoc temp-file failure [5]; search limit error [16]; dict-vs-list TypeError [17]", "notes": "Fast: 55 s and 15 requests. It committed right after its first computation."},
+      "adapter_context": {"relevant_item": "none (it considered C003 at [10] and correctly judged it inapplicable)", "item_was_correct_guidance": "n/a", "followed": "n/a", "caused_or_contributed_to_error": "no", "notes": "The 3 KB deck (C003, C006) had no card about OCR validation or about this table."},
+      "remedies": [
+        {"level": "CHECK", "intervention": "Run a row-total validator automatically on the rows the actor extracts (cells vs printed Total) and block the commit until any mismatch is explained or repaired.", "generality": "document_qa_general", "confidence": "high", "why": "Both misread cells sit in rows that fail their printed totals. The arm never computed a sum, so an automatic check is the only way it would have noticed."},
+        {"level": "TOOL", "intervention": "Add a cross-printing cell lookup that returns the majority value for each cell of a row across all issues carrying it.", "generality": "officeqa_specific", "confidence": "medium", "why": "Opus's fix came from majorities over 12 printings. The arm read only one printing."}
+      ]
+    }
+  },
+  "right_arms_note": "No arm was right. The none arm reached the same table, vintage and OCR diagnosis as Opus, then chose the raw OCR cells. The cards arm had a valid vintage but did no validation. The prompt arm followed the latest-vintage rule into re-based late printings with shifted year labels.",
+  "text_vs_mechanism": "Mixed. For the none arm, a text convention ('answers use printed values; repair cells that fail their row totals') would plausibly have flipped a deliberate choice. The cards arm performed no check, and the prompt arm had vintage and anchoring text, followed it literally and still anchored on the wrong printing, so both need a mechanism: automatic row-total and cross-printing consistency checks.",
+  "notes": "issue47 = true (the question's official answer or wording is disputed). Even so, the grade marks Opus right and all three GLM answers wrong, and Opus's reviewer named a raw-OCR-based key as the residual risk (review.md:15). OCR in this table family fails in two ways: digit misreads in individual cells (every in-range printing has some) and whole-row year-label shifts in the 1950-51 printings. Recurring pattern: the actor guesses how the benchmark key was generated ('raw OCR', 'generated from one table') and lets that override evidence it has already found (none arm [63], [73]). The same pattern decided Q60's prompt arm. Hand-typing 80-value lists into python -c is itself error-prone (prompt [36] miscounted; none [39] mixed printings). A tool that returns parsed rows as arrays with their source line would remove this."
+}

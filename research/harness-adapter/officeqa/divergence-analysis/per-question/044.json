@@ -1,0 +1,101 @@
+{
+  "ordinal": 44,
+  "task_id": "UID0237",
+  "question_type": "midpoint-normalized difference of one monthly ownership series between two dates; the answer form (unscaled ratio, percent, or dollar gap) is ambiguous because a units phrase names billions of dollars (disputed question, issue47)",
+  "skills_required": ["locate_table", "read_flattened_table", "multi_value_extraction", "unit_or_scale", "formula_stats", "rounding_format"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "Mapped the series to Ownership of Federal Securities Table OFS-1 column (7) 'Held by private investors > Total' (OFS-2 'Total privately held' kept as a cross-check); formula (V2-V1)/((V1+V2)/2); flagged the conflict between a unitless normalized difference and 'billions of nominal dollars' and listed the three possible answer forms (ratio, percent, raw difference).", "evidence": "opus-officeqa-133/logs/044/worklog.md:10-19 (no solution.json exists for 044)"},
+    {"stage": "choose_source", "decision": "Started from the Sept 2007 issue as the first to carry June 2007 monthly data.", "evidence": "worklog.md:21-23"},
+    {"stage": "locate_table", "decision": "Located OFS-1 and its second sub-table header in the Sept 2007 issue.", "evidence": "worklog.md:25-28 (treasury_bulletin_2007_09.txt:1797, 1799, 1822)"},
+    {"stage": "pick_cells", "decision": "Took the '2006 - June' row and the June row inside the 2007 block; checked marketable + nonmarketable = total for both rows to rule out a column shift.", "evidence": "worklog.md:30-35 (2007_09:1829, 1841)"},
+    {"stage": "verify", "decision": "Checked every printing 2006_09..2008_09: both June cells never revised, so vintage is moot.", "evidence": "worklog.md:39-43"},
+    {"stage": "verify", "decision": "Checked the OFS-1 identity (government accounts + Federal Reserve + private = total) and showed OFS-2 gives the same rounded result, so the table choice is not load-bearing.", "evidence": "worklog.md:45-54; calc.py"},
+    {"stage": "round_format", "decision": "Reported the dimensionless ratio unscaled (no x100), reading 'in billions of nominal dollars' as the unit of the inputs.", "evidence": "worklog.md:59-63; final.txt"},
+    {"stage": "verify", "decision": "Reviewer re-opened the source lines, re-checked vintages and recomputed; verdict confirmed, residual ambiguity only ratio vs percent presentation.", "evidence": "review.md; review.json"}
+  ],
+  "opus_key_moves": [
+    "Decided the answer type from the metric's noun phrase: a 'normalized difference' is unitless, so it is reported as an unscaled decimal ratio, and the billions phrase describes the inputs.",
+    "Showed that OFS-1 vs OFS-2 does not change the rounded ratio, so it committed without resolving the table question.",
+    "Enumerated the three answer forms once and made a single reasoned decision instead of deliberating repeatedly."
+  ],
+  "arms": {
+    "none": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "INTERPRETATION",
+        "glm_step": "[13], [26]-[29] (committed at [165])",
+        "what_glm_did": "Read 'reported in billions of nominal dollars ... hundredths' as the output specification and submitted the raw dollar gap between the two June values (in billions), treating 'mid-point normalized' as unexplained wording.",
+        "what_opus_did": "Computed the midpoint-normalized ratio and treated the units phrase as describing the inputs.",
+        "why_glm_went_that_way": "[26]/[29] THINK: the billions phrase 'contradicts normalized ratio' and 'strongly' points to a dollar difference; the none arm had no guidance on trailing unit phrases. After a context compaction the final commit ([161]-[165]) relied on the compaction summary ('Summary says extracted. We can trust?') rather than on a fresh decision.",
+        "consequence": "Answer is a dollar amount, more than three orders of magnitude from the ratio form (>25pct)."
+      },
+      "secondary_errors": [
+        {"stage": "SOURCE_TABLE", "glm_step": "[16], [25]", "note": "Used OFS-2 'Total privately held' (billions, Dec 2007 issue) instead of OFS-1 column (7) 'held by private investors', although [29] notes that OFS-1 matches the wording. Irrelevant for the ratio, but it shifts the raw-difference answer by about 0.2%."},
+        {"stage": "OTHER", "glm_step": "[32]-[159]", "note": "Degenerate loop: re-ran the identical FTS query ('normalized difference midpoint') about 64 times, each preceded by 'THINK: No.' and the same pasted paragraph."}
+      ],
+      "saw_correct_evidence": {"value": "yes", "where": "[26]/[29] computed the midpoint-normalized ratio (and its percent form) and named the (A-B)/((A+B)/2) formula; OFS-1 June values quoted at [29]."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[13], [26], [29], [34] and every loop iteration: 'reported in billions ... contradicts normalized ratio', 'Hmm'."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "severe", "tool_friction": "rg not permitted [3], [163]; heredoc temp-file failure [6]; docs.read num_lines capped at 150 [17]-[18]", "notes": "418 s, 82 requests, 9.7M input tokens, almost all spent in the [32]-[159] repetition loop; a context-compaction warning at [160]; final answer taken from the post-compaction summary without recomputation."},
+      "adapter_context": {"relevant_item": "n/a", "item_was_correct_guidance": "n/a", "followed": "n/a", "caused_or_contributed_to_error": "n/a", "notes": "Base instructions only."},
+      "remedies": [
+        {"level": "CONTROL", "intervention": "Loop breaker: when the same command (hash) or the same THINK text repeats 3 times, interrupt with a structured decision turn that lists the candidates already computed and requires a choice by an explicit rule (the metric's noun phrase fixes the answer type; a trailing units phrase describes inputs), then commit.", "generality": "domain_general", "confidence": "high", "why": "All candidates existed by [29]; the next ~130 steps added nothing. The final answer came from a compaction summary, not a decision. Confidence is high for cost and medium for correctness."},
+        {"level": "TEXT", "intervention": "Convention: a trailing units phrase ('in millions/billions of dollars') describes the inputs; a normalized/ratio/percent noun phrase determines the answer type.", "generality": "document_qa_general", "confidence": "medium", "why": "The prompt arm had this text and used it at [44] to rule out exactly the dollar-gap reading this arm submitted."},
+        {"level": "CHECK", "intervention": "Answer-type checker: classify the requested quantity from the question's head noun phrase (normalized difference/ratio/elasticity -> dimensionless) and flag a committed value that equals a raw difference of the cited cells.", "generality": "document_qa_general", "confidence": "medium", "why": "The submitted value is exactly the difference of the two cells the arm cited, which a deterministic check can detect."}
+      ]
+    },
+    "prompt": {
+      "correct": false,
+      "error_bin": "scale_10^2",
+      "first_divergence": {
+        "stage": "INTERPRETATION",
+        "glm_step": "[44]",
+        "what_glm_did": "Computed all three candidate forms at [43]. At [44] it first used its lesson to reject the dollar gap and concluded the unscaled ratio was right because the question does not say 'percent'. It then switched to the x100 percent form, reasoning that a question writer would not ask for hundredths of a small ratio because that loses precision.",
+        "what_opus_did": "Reported the unscaled ratio: a normalized difference is unitless and the question does not ask for a percent.",
+        "why_glm_went_that_way": "Explicit heuristic in [44]: it inferred the scale from the requested rounding granularity ('they'd likely ask ... thousandths'). The lesson it cited (L-midpoint-percent-change) pairs the midpoint denominator with an x100 'absolute percent difference' example, which offered a template for scaling.",
+        "consequence": "Answer is 100x the reference form (scale_10^2)."
+      },
+      "secondary_errors": [],
+      "saw_correct_evidence": {"value": "yes", "where": "[43] printed the unscaled ratio next to the percent and the raw gap; [44] explicitly concluded the unscaled ratio before switching. Table (OFS-1 col 7), values and the vintage check [15]-[22] matched Opus."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[12], [24], [44]: long deliberation among raw difference, ratio and percent."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "none", "tool_friction": "rg not available [2]-[4]; otherwise clean", "notes": "182 s, 24 requests."},
+      "adapter_context": {"relevant_item": "L-midpoint-percent-change (Conventions around lines 61-65; lesson around lines 175-207 of runs/adapted/044/workspace/AGENTS.md); procedure self-check 6 (bare number)", "item_was_correct_guidance": "partly", "followed": "partly", "caused_or_contributed_to_error": "possibly", "notes": "The lesson correctly says the units phrase describes the inputs and that 'percent difference/percent change' wording yields a percent. It has no explicit rule for non-percent 'normalized' wording, and its x100 example is the only worked scaling. The arm used it to reject the dollar gap and to reach the ratio, then left it on a heuristic the lesson does not forbid."},
+      "remedies": [
+        {"level": "TEXT", "intervention": "Explicit rule: multiply by 100 only when the question says percent/percentage/%; 'normalized difference', 'ratio', 'elasticity', 'share' are reported as unscaled decimals; never infer scale from the requested rounding precision.", "generality": "document_qa_general", "confidence": "medium", "why": "The arm reached the right form from text at [44] and left it only because of the granularity heuristic that this rule forbids by name. Confidence is tempered because the question is on the disputed list."},
+        {"level": "CHECK", "intervention": "Answer-form checker: compare the committed value against the computed candidates; if it equals 100x a computed ratio and the question lacks percent wording (or the answer carries a '%'), return a warning that cites the rule.", "generality": "document_qa_general", "confidence": "medium", "why": "All candidates were printed at [43], so a checker can see the x100 relation mechanically."},
+        {"level": "CONTROL", "intervention": "Reviewer pass that must justify the final answer form from the question text only; arguments about what a question writer would 'likely' ask are not accepted as evidence.", "generality": "domain_general", "confidence": "low", "why": "The switch at [44] rests on speculation about author intent, which a reviewer constrained to textual evidence would reject; it is not tested on this actor."}
+      ]
+    },
+    "cards": {
+      "correct": false,
+      "error_bin": "scale_10^2",
+      "first_divergence": {
+        "stage": "INTERPRETATION",
+        "glm_step": "[24]-[29], decided at [231]-[232]",
+        "what_glm_did": "From its first computation ([24], [28]) it treated 'mid-point normalized difference' as a percent (x100) and never considered the unscaled ratio. It only weighed the percent against the raw billions gap, and at [231] chose the percent by citing card C009. It submitted the value with a '%' sign.",
+        "what_opus_did": "Reported the unscaled ratio.",
+        "why_glm_went_that_way": "[18] and [231]: it mapped the phrase onto C009 (applies when 'absolute percent difference, percent difference', rule 'times 100') by analogy, although none of C009's trigger phrases occur in the question. C003, whose applies-when includes 'midpoint percentage change' and whose rule has no x100, was not cited.",
+        "consequence": "Answer is 100x the reference form, with a '%' suffix (scale_10^2)."
+      },
+      "secondary_errors": [
+        {"stage": "SOURCE_TABLE", "glm_step": "[15]-[18], [41]", "note": "Used OFS-2 'Total privately held'. At [41] it concluded that OFS-1 has no June rows after reading only the Dec 2008 issue, whose monthly block starts at Sept 2007; the Sept/Dec 2007 issues carry them (Opus 2007_09:1829/1841). This does not change the rounded ratio."},
+        {"stage": "ARITHMETIC", "glm_step": "[24]", "note": "A mental estimate of the percent was off in the second decimal; python at [28] corrected it."},
+        {"stage": "ROUNDING_FORMAT", "glm_step": "[232]", "note": "Appended '%' although the task wants a bare number."},
+        {"stage": "OTHER", "glm_step": "[29]-[222]", "note": "Degenerate loop: an 18-step cycle (same THINK texts and commands, including the same zsh '===' error and fix) repeated 11 times."}
+      ],
+      "saw_correct_evidence": {"value": "partial", "where": "Correct June values from OFS-2 at [21]-[24] (either table gives the same rounded ratio); [28] printed only ratio x100, and the unscaled ratio never appears in its outputs or reasoning."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[24], [29], [39], [224], [231]: the doubt was always percent vs dollars, never percent vs unscaled ratio."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "severe", "tool_friction": "rg not permitted [3], [228]; heredoc temp-file failure [6]; zsh '===' expansion error reproduced in every loop cycle ([30], [48], ...)", "notes": "1077 s, 114 requests, 13.9M input tokens; context-compaction warning at [223]. After compaction, [224] leaned to the dollar gap (per the summary) and [231] switched to the percent via C009."},
+      "adapter_context": {"relevant_item": "C009 (applied outside its trigger), C003 (applies-when includes 'midpoint percentage change'; no x100)", "item_was_correct_guidance": "partly", "followed": "no", "caused_or_contributed_to_error": "yes", "notes": "C003's rule matches the reference form; C009's x100 is right only for 'percent difference' wording. The final x100 decision at [231] is justified explicitly by C009."},
+      "remedies": [
+        {"level": "CHECK", "intervention": "Card-trigger gate: the harness matches cards to the question by their applies-when terms, tells the actor which cards matched, and warns when the actor cites a card whose triggers are absent from the question.", "generality": "document_qa_general", "confidence": "medium", "why": "[231] relies on C009, although none of its trigger phrases appear in the question, while the matching C003 was ignored."},
+        {"level": "CONTROL", "intervention": "Loop breaker on repeated identical command/THINK sequences (cycle detection over the last N steps), followed by a forced decision-and-commit turn.", "generality": "domain_general", "confidence": "high", "why": "The same 18-step cycle ran 11 times ([29]-[222]); a cycle detector fires at the second repetition. High confidence for cost, medium for correctness."},
+        {"level": "CHECK", "intervention": "Answer-form checker (percent sign present, or value = 100x a computed ratio, while the question has no percent wording).", "generality": "document_qa_general", "confidence": "medium", "why": "Both the '%' and the x100 are mechanically detectable from the arm's own printed computations."},
+        {"level": "TEXT", "intervention": "Add a disambiguation line to C003/C009: multiply by 100 only when the question says percent.", "generality": "document_qa_general", "confidence": "low", "why": "The arm already ignored the more relevant card's scope lines, so extra text within cards may be ignored the same way."}
+      ]
+    }
+  },
+  "right_arms_note": "No GLM arm was right. The prompt arm came closest: at [44] it reached the unscaled ratio from its lesson text, then switched on a rounding-granularity heuristic.",
+  "text_vs_mechanism": "Text is not enough here. The prompt arm had closely relevant text, reasoned its way to the right form, and still switched; the cards arm applied a card outside its trigger. A deterministic answer-form check (percent wording vs the scale of the committed value, raw-gap detection) plus a loop breaker are the more reliable fixes. Because the question is disputed (issue47), any remedy tuned on it should be validated on undisputed ratio questions.",
+  "notes": "issue47: disputed wording (a units phrase contradicts a dimensionless metric); Opus's reviewer also called ratio vs percent a residual presentation ambiguity. Two of the three arms fell into degenerate repetition loops right after listing the competing interpretations: ambiguity with no decision rule led to thrash, not a commit. Both loops ended only through context compaction, and the committed answer then followed the compaction summary (none) or a card analogy (cards). The table choice (OFS-1 vs OFS-2) was a distraction for every arm, although it cannot change the rounded ratio."
+}

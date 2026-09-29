@@ -1,0 +1,100 @@
+{
+  "ordinal": 91,
+  "task_id": "UID0221",
+  "question_type": "Month-over-month absolute and percent difference of one debt-limit table cell after deflating to constant dollars with external monthly CPI-U (NSA)",
+  "skills_required": ["locate_issue", "locate_table", "read_flattened_table", "multi_value_extraction", "date_or_period_logic", "external_knowledge", "formula_finance", "formula_stats", "multi_step_arithmetic", "rounding_format"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "Series = Statutory Debt Limitation Table 2, row 'Total marketable', column 'Subject to statutory debt limitation' (the literal wording; Total outstanding adds securities not subject to the limit). Deflate only the November value into December-1949 dollars with CPI_Dec/CPI_Nov. Percent base = the 'from' month (November), with the December base noted as an alternative.", "evidence": "worklog.md:8-15"},
+    {"stage": "choose_source", "decision": "The Jan 1950 issue carries the Nov 30 table and the Feb 1950 issue carries the Dec 31 table (bulletins lag about one month).", "evidence": "worklog.md:20-24"},
+    {"stage": "pick_cells", "decision": "Read the Total marketable row, Subject column, in both issues.", "evidence": "treasury_bulletin_1950_01.txt:1506,1521; treasury_bulletin_1950_02.txt:1480,1495 (worklog.md:27-39)"},
+    {"stage": "verify", "decision": "Checked that the component rows sum to the total, and grepped all issues for later printings of either date (none exist, so vintage is moot).", "evidence": "worklog.md:31-32, 39, 41-45"},
+    {"stage": "extract", "decision": "Found no 1949 CPI levels in the corpus, so CPI is external knowledge. Recalled BLS CPI-U NSA (1982-84=100) with the full 1949 monthly listing and annual average. December is below November (prices fell).", "evidence": "worklog.md:47-52; solution.json external_knowledge"},
+    {"stage": "compute", "decision": "calc.py rescales November, takes the absolute difference and the percent on the adjusted-November base, and logs the alternatives (December base, nominal).", "evidence": "worklog.md:54-57; calc.py"},
+    {"stage": "verify", "decision": "Sanity check: the nominal change and the real change have opposite signs because prices fell, and the magnitude (under 1%) is plausible. The reviewer confirmed the verdict with an independent recompute and independent CPI recall.", "evidence": "worklog.md:59-61; review.md checks 5-6"}
+  ],
+  "opus_key_moves": [
+    "Recalled the correct CPI-U NSA November and December 1949 levels (December lower), anchored by a full-year monthly listing, so the deflation is a real, non-trivial adjustment",
+    "Matched the question's literal phrase 'subject to statutory debt limitation' to the column header of that name",
+    "Used the starting month as the percent base for 'from November ... to December'"
+  ],
+  "arms": {
+    "none": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "EXTERNAL_KNOWLEDGE",
+        "glm_step": "[13], [28], [40]",
+        "what_glm_did": "Recalled CPI-U for 1949 several times with inconsistent lists. At [13] it used the wrong scale; at [28] it caught itself ('I was adding 100 erroneously'). At [40] it settled on November and December 1949 being equal, so the CPI adjustment became a no-op and it submitted the nominal difference.",
+        "what_opus_did": "Recalled December CPI below November, so November shrinks in December dollars and the real difference is several times the nominal one, with the opposite sign (worklog.md:50-61).",
+        "why_glm_went_that_way": "No CPI in the corpus. It spent [14]-[39] searching the corpus, installed Python modules and the filesystem, then fell back on memory. At [40] it treated 'if equal, the adjustment has no effect' as convenient rather than suspicious.",
+        "consequence": "The answer equals the unadjusted (nominal) difference and percent, which Opus lists as a known pitfall. Both components are far off (more than 25%)."
+      },
+      "secondary_errors": [
+        {"stage": "FORMULA", "glm_step": "[17], [40]", "note": "It never settled the percent base, noting that November-base and midpoint round the same when CPI is equal. With correct CPI the two bases differ at the third decimal, so this was a latent second failure point."},
+        {"stage": "OPERATIONAL", "glm_step": "[31]", "note": "Ran Spotlight (mdfind) over the user's whole home directory looking for CPI series files. This is out-of-scope access that the harness should sandbox."}
+      ],
+      "saw_correct_evidence": {"value": "partial", "where": "The table cells were right: the Subject column for both months at [10]-[12]. The CPI values were never available in its context; the corpus has none."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[17] 'Need exact', [28] explicitly unsure of monthly values, [40] 'Need verify CPI Nov/Dec equal' (then asserted it without verification)."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "mild", "tool_friction": "heredoc failure at [5]; FTS helper returned no CPI hits; broad filesystem searches [22]-[39]", "notes": "116 s, 19 requests. About 20 steps went to hunting for CPI data that does not exist locally."},
+      "adapter_context": {"relevant_item": "n/a", "item_was_correct_guidance": "n/a", "followed": "n/a", "caused_or_contributed_to_error": "n/a", "notes": "No adapter."},
+      "remedies": [
+        {"level": "TOOL", "intervention": "An offline, vintage-labelled reference-data lookup for the external series these questions name explicitly (BLS CPI-U NSA monthly, FRED/BoE FX, BEA annual nominal GDP), returning the value together with its series id and base.", "generality": "officeqa_specific", "confidence": "high", "why": "Every corpus step was right; the whole error is a memory recall of two index levels. All three arms failed on exactly this recall, each in a different way, so the model's memory is unreliable here."},
+        {"level": "CHECK", "intervention": "Identity-transformation flag: when the question mandates an adjustment (deflate, convert, rebase) and the actor's inputs make it an exact no-op, return a warning asking it to re-verify the inputs.", "generality": "domain_general", "confidence": "medium", "why": "At [40] the arm itself observed that the adjustment had no effect, and at the same point the cards arm wondered whether the question 'intentionally picks months with same CPI'. A mechanical nudge at that point targets the exact moment of failure."},
+        {"level": "CHECK", "intervention": "Recall-consistency check: ask for the external value in two independent samples (or ask for the full year plus the annual average and verify that the monthly mean matches) and flag disagreement.", "generality": "domain_general", "confidence": "low", "why": "The arm's own recalls disagreed across [13], [28] and [40], so an agreement test would have exposed low confidence. It may not produce the right value, though."}
+      ]
+    },
+    "prompt": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "EXTERNAL_KNOWLEDGE",
+        "glm_step": "[14]",
+        "what_glm_did": "Recalled 1949 CPI-U on an impossible scale (about 7x the real 1982-84=100 level) and with December above November. The deflation therefore went the wrong way: November was scaled up instead of down.",
+        "what_opus_did": "Recalled the 1982-84=100 levels with December below November (worklog.md:50-52).",
+        "why_glm_went_that_way": "At [14] it acknowledged 'Corpus no CPI table per lessons. External knowledge needed' and produced a monthly list from memory ('I think yes'). It never cross-checked the scale.",
+        "consequence": "The real difference comes out roughly half of Opus's magnitude (the adjustment direction is flipped), so both components are off by more than 25%."
+      },
+      "secondary_errors": [
+        {"stage": "FORMULA", "glm_step": "[22]", "note": "Following L-midpoint-percent-change, it chose the midpoint (or December) denominator over the November base that Opus used. With the right CPI this would change the third decimal. This may be a second, adapter-induced error."}
+      ],
+      "saw_correct_evidence": {"value": "partial", "where": "Correct column and cells at [13]-[14] (Subject column, Jan/Feb 1950 issues, no later printings at [16]-[18]). The correct CPI never appeared."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[14] 'Need exact... I think yes'; [22] 'Need verify CPI-U NSA values' (then reasserted the same list)."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "none", "tool_friction": "rg blocked in sandbox at [2]-[3]; a long-running recursive grep at [16]-[17]", "notes": "505 s and about 69k output tokens, mostly one long deliberation at [22] over the percent-base convention."},
+      "adapter_context": {"relevant_item": "L-cpi-index-values-external-pin-series (corpus has no CPI; never fill index values from memory; pin series and base; if unavailable, commit the best candidate and flag); L-midpoint-percent-change ('absolute percent difference' = midpoint denominator); L-ms1-fed-notes-column-shift (month-M to month-N real dollars = multiply by CPI_N/CPI_M)", "item_was_correct_guidance": "partly", "followed": "partly", "caused_or_contributed_to_error": "possibly", "notes": "The CPI lesson correctly says the corpus lacks CPI, which saved search time ([14]). Its 'never fill from memory' is unactionable because there is no other source, and the arm ignored it. The deflation-direction formula in L-ms1 was applied correctly. The midpoint lesson was followed and may itself be wrong for 'from X to Y' phrasing (Opus used the start-month base and was graded right)."},
+      "remedies": [
+        {"level": "TOOL", "intervention": "The same offline vintage-labelled reference-data lookup (CPI-U NSA monthly with series id and base).", "generality": "officeqa_specific", "confidence": "high", "why": "The arm already had text telling it not to use memory and did anyway, because no alternative existed. Only a data source removes the need to recall."},
+        {"level": "CHECK", "intervention": "Range/scale sanity check on recalled index levels against a few stored anchors (e.g. CPI-U 1982-84=100: the 1949 level is in the low twenties), triggered whenever a script uses a hard-coded external constant.", "generality": "document_qa_general", "confidence": "medium", "why": "The recalled values are about 7x the real level, so a crude anchor check fires. The none arm caught the same scale slip by itself at [28], which shows the model can use such a signal."},
+        {"level": "TEXT", "intervention": "Make L-cpi-index-values-external-pin-series actionable (e.g. 'recall the whole year plus the annual average on the 1982-84=100 base and verify the mean') and scope L-midpoint-percent-change so it does not override 'from <start> to <end>' phrasing.", "generality": "officeqa_specific", "confidence": "low", "why": "The current contradictory text was ignored, and text cannot supply missing data. This would only tidy the two lessons that were in play."}
+      ]
+    },
+    "cards": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "CELL_SELECTION",
+        "glm_step": "[22], [26], [43], [47], [49]",
+        "what_glm_did": "Took the 'Total outstanding' column of Table 2 instead of the 'Subject to statutory debt limitation' column, even though its own literal reading at [26] and [43] was the Subject column.",
+        "what_opus_did": "Matched the question's phrase to the column header 'Subject to statutory debt limitation' and excluded the not-subject securities (worklog.md:9-11; solution.json decisions[0]).",
+        "why_glm_went_that_way": "Card C021, a GBP-conversion card whose trigger list includes 'statutory debt limitation', ends with 'For the debt subtotals take the Total outstanding column of the Application of Limitation table.' The arm cited it at [22] and argued against it at [43] and [47] ('the card may be overgeneralized but tested'). At [49] it deferred: 'Card says so. Use' the Total outstanding values.",
+        "consequence": "On its own this would put the absolute difference a few units off (a wrong whole number). Combined with the CPI error below, both components end up far off (more than 25%)."
+      },
+      "secondary_errors": [
+        {"stage": "EXTERNAL_KNOWLEDGE", "glm_step": "[37], [41], [45], [49]", "note": "Like the none arm, it recalled November and December 1949 CPI-U as equal, so the deflation was a no-op. The recalled monthly lists changed between [37] and [45]. This is the error that drives the >25pct bin."},
+        {"stage": "FORMULA", "glm_step": "[41]-[42], [50]", "note": "It applied C009 (midpoint denominator for 'absolute percent difference'). Opus used the November base. C009's 'Not when' excludes 'percent change from <base>' phrasing, and this question says 'from ... to ...', so the fit is ambiguous."},
+        {"stage": "OPERATIONAL", "glm_step": "[28]-[41]", "note": "It searched the corpus for CPI tables even though C020 says the corpus has none ('do not search for them')."}
+      ],
+      "saw_correct_evidence": {"value": "partial", "where": "It printed both columns at [25] and identified the Subject-column values as the literal match at [26] and [43]. The correct CPI never appeared."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[26], [43], [47]: repeated doubt that C021 applies ('seems counterintuitive', 'overgeneralized'); [37], [45]: unsure of the CPI values."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "mild", "tool_friction": "heredoc and apply_patch failures [5]-[11]; the helper returned object reprs until [14]-[16]", "notes": "149 s, 24 requests."},
+      "adapter_context": {"relevant_item": "C021 (trailing Total-outstanding clause); C020 (corpus has no CPI; index ratios needed for target-month dollars); C009 (midpoint percent difference); C019 (compute in a script)", "item_was_correct_guidance": "no", "followed": "yes", "caused_or_contributed_to_error": "yes", "notes": "C021's column clause was learned on the Q61 GBP question, where Total outstanding was right, and is wrong here. It fired only because 'statutory debt limitation' is one of its trigger keywords. The arm followed it against its own better reading. C020 was correct guidance but was not followed (it searched anyway). C009 was followed and may be wrong for this phrasing."},
+      "remedies": [
+        {"level": "STATE", "intervention": "Scope card sub-claims to the question family they were verified on. Split C021 into a GBP rule and a column rule tied to its own question pattern, require all triggers of a clause to co-occur, and re-run admission on held-out questions that share trigger keywords (this question shares 'statutory debt limitation').", "generality": "domain_general", "confidence": "high", "why": "The error is traceable to one clause of one card, which the arm cited verbatim at [49] as the reason for its choice."},
+        {"level": "TEXT", "intervention": "Deck usage rule: when a card's column or row instruction conflicts with a header the question names literally, the question's wording wins.", "generality": "domain_general", "confidence": "medium", "why": "The arm reached the right column by literal matching at [43] and overrode itself only out of deference to the card, so a precedence rule would have flipped this decision."},
+        {"level": "TOOL", "intervention": "Offline vintage-labelled CPI-U NSA lookup (as for the other arms).", "generality": "officeqa_specific", "confidence": "high", "why": "Even with the right column, the equal-CPI recall alone would still make the answer wrong."}
+      ]
+    }
+  },
+  "right_arms_note": "No GLM arm was right. The none and prompt arms picked the correct column, but none of the three recalled the CPI pair correctly: none and cards used equal levels (a no-op adjustment), and prompt used an impossible scale with the direction reversed.",
+  "text_vs_mechanism": "Needs a mechanism. The prompt arm had a lesson saying the corpus has no CPI and not to fill values from memory, and it still produced a fabricated series, because text cannot supply missing external data. A reference-data TOOL plus a scale/identity CHECK are required. The cards arm also shows text can cause errors: an over-scoped card clause moved it off the right column.",
+  "notes": "Both adapters push a midpoint denominator for 'absolute percent difference' (L-midpoint-percent-change, C009). Opus used the start-month base for 'from Nov to Dec' and was graded right, so that convention may be latently wrong for from/to phrasing; with correct CPI the two differ at the third decimal. The none arm's mdfind over the home directory ([31]) is a sandboxing gap. The chain from the Q61 cards failure to the C021 card to the Q91 column error is a concrete example of cross-question interference in a learned card deck."
+}

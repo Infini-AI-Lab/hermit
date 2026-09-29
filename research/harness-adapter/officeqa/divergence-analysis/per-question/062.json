@@ -1,0 +1,55 @@
+{
+  "ordinal": 62,
+  "task_id": "UID0195",
+  "question_type": "OLS linear trend on 36 monthly bond yields (one maturity column of a multi-panel yield table), one-step-ahead forecast",
+  "skills_required": ["locate_issue", "locate_table", "read_flattened_table", "multi_value_extraction", "date_or_period_logic", "formula_stats", "rounding_format", "pick_vintage"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "Series = 'Taxable Treasury bonds, due or callable - 20 years and after', monthly averages; window Jul 1953-Jun 1956 = 36 calendar months; regress yield on t=1..36 and forecast t=37; nominal = as published.", "evidence": "worklog.md:7-12"},
+    {"stage": "locate_table", "decision": "Found the series name via a footnote ('Included in the average of taxable Treasury bonds due or callable 20 years and after, as shown under Average Yields of Long-Term Bonds') and went to 'Average Yields of Long-Term Bonds, Table 1'.", "evidence": "worklog.md:15-18"},
+    {"stage": "choose_source", "decision": "Saw the July 1956 issue ends at May 1956, so chose the August 1956 issue (first to include June 1956).", "evidence": "worklog.md:20-24"},
+    {"stage": "pick_cells", "decision": "Read the explicit two-row header in the August issue (Period | From 10 to 20 years | 20 years and after | Moody's Aaa, per panel) and took the middle numeric column of each of the three panels.", "evidence": "worklog.md:25-30; treasury_bulletin_1956_08.txt:3176-3177"},
+    {"stage": "verify", "decision": "Parsed the 20-yr+ column from 14 issues (1955_12..1957_02) and earlier vintages; all agree except isolated OCR glitches (one Oct 1954 cell and column shifts in 1956_06), resolved by majority and weekly data.", "evidence": "worklog.md:36-43; review.md:13"},
+    {"stage": "compute", "decision": "numpy polyfit on t=1..36, forecast t=37; checked index-origin invariance of the one-step forecast.", "evidence": "worklog.md:45-48"},
+    {"stage": "round_format", "decision": "Sanity check against the series mean and range; noted that using the 10-20-year column instead is a named pitfall with a distinctly different forecast.", "evidence": "worklog.md:50-53; solution.json:17-18"}
+  ],
+  "opus_key_moves": [
+    "Mapped the '20 years and after' column from an issue whose flattened table carries an explicit label row, not from a shifted header",
+    "Cross-checked the extracted column against many other printings, which would expose any column mix-up"
+  ],
+  "arms": {
+    "none": {
+      "correct": false,
+      "error_bin": "1-5pct",
+      "first_divergence": {
+        "stage": "CELL_SELECTION",
+        "glm_step": "[21] (applied at [25]-[27])",
+        "what_glm_did": "Read the July 1956 issue first ([19]-[20]). Its flattened header is shifted: 3 labels per panel over 4 data cells per panel ('Period > From 10 to 20 years' over the period column, 'Taxable Treasury bonds, due or callable > and after' over the first numeric column, 'Moody's Aaa' over the second, plus trailing 'Unnamed' columns holding the third panel). GLM took the column under the shifted 'and after' label, i.e. the first numeric column of each panel, which is actually the 10-20-year series. When June 1956 was missing it moved to the August 1956 issue ([22]-[25]) but kept the column mapping from the July header and extracted the same (first numeric) column there.",
+        "what_opus_did": "Used the August 1956 issue, whose flattened table has an explicit label row naming 'From 10 to 20 years' and '20 years and after' per panel, and took the middle numeric column.",
+        "why_glm_went_that_way": "[21]: 'Values column \"and after\" (third numeric in each group)' - it trusted the flattened header label positions; its own description ('third numeric') does not even match the column it then listed, and it never re-read the August header before extracting at [25].",
+        "consequence": "Regressed the 10-20-year yields instead of the 20-year-and-after yields; the forecast is ~2% low."
+      },
+      "secondary_errors": [],
+      "saw_correct_evidence": {"value": "yes", "where": "[23] printed treasury_bulletin_1956_08.txt lines 3149-3228, which include the explicit label row at 3177 ('From 10 to 20 years | 20 years and after' per panel); [25] then printed the data rows 3180-3195 with the correct column visible."},
+      "glm_expressed_doubt": {"value": "no", "where": "[28] only a perfunctory 'Need ensure values' before committing; no check was run."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "none", "tool_friction": "rg not permitted, heredoc temp-file denial, FTS snippets blank (fell back to raw sqlite3 queries at [11]-[17])", "notes": "71 s, 16 requests; a fast, confident, wrong column pick."},
+      "adapter_context": {"relevant_item": "n/a", "item_was_correct_guidance": "n/a", "followed": "n/a", "caused_or_contributed_to_error": "n/a", "notes": "Base instructions only."},
+      "remedies": [
+        {"level": "TOOL", "intervention": "Table extractor that reconstructs multi-row headers per panel and flags misalignment (fewer header labels per panel than data cells, trailing 'Unnamed' columns carrying data, a data column whose header label is fused with 'Period'), returning a clean grid with per-column labels.", "generality": "document_qa_general", "confidence": "high", "why": "The error comes entirely from the July 1956 header being shifted by one column; with a correctly labeled grid the actor's plan (take the '20 years and after' column) was right."},
+        {"level": "CHECK", "intervention": "Column-provenance check: for every extracted series, require the header line cited to come from the same file as the data rows and to name the question's column at the same cell index.", "generality": "document_qa_general", "confidence": "medium", "why": "The actor cited the July header ([21]) but extracted August rows ([25]), whose own label row (line 3177) names a different column at that index."},
+        {"level": "CHECK", "intervention": "Cross-vintage consistency: extract the named column from two printings with different layouts and flag disagreement.", "generality": "document_qa_general", "confidence": "medium", "why": "The actor had both issues open; the 'and after' column read by header position in the clean August issue differs from the one it used in every month."},
+        {"level": "TEXT", "intervention": "Convention: in flattened multi-panel tables, if header labels per panel are fewer than data cells or trailing 'Unnamed' columns carry data, the labels are shifted; map columns from a printing with an explicit label row.", "generality": "document_qa_general", "confidence": "low", "why": "The prompt arm had near-identical text (flattened multi-panel tables drop or shift header labels; match columns by header) and was right, but it also never opened the shifted July issue, so the text was not truly tested."}
+      ]
+    },
+    "prompt": {
+      "correct": true,
+      "error_bin": null
+    },
+    "cards": {
+      "correct": true,
+      "error_bin": null
+    }
+  },
+  "right_arms_note": "prompt and cards both reasoned that June 1956 would first appear in the August 1956 issue and opened it directly (prompt [13]-[19], cards [21]-[27]); its flattened table carries an explicit label row naming '20 years and after', and both read the middle column of each panel. Neither ever read the July 1956 issue with the shifted header. Largely a lucky fork in which issue was opened first; the prompt arm additionally had the flattened-multi-panel/AY-1 convention in context ([5] cites the AY-1 lesson) and cross-checked the 1956_09 printing ([23]-[27]).",
+  "text_vs_mechanism": "Weak evidence either way for text: the prompt arm had the relevant 'shifted header labels' convention but avoided the trap by opening a clean issue first. The failure is a table-reading hazard that a header-realigning extractor (TOOL) or a column-provenance check (CHECK) catches deterministically; text alone is unlikely to be reliable because the none arm saw the correct label row at [23] and still did not re-map.",
+  "notes": "Clean example of the flattened-header hazard: the same table in consecutive issues has different header flattening (July 1956 shifted, August 1956 with explicit label row). Whichever issue the actor opens first decides the outcome, so arm differences here are mostly path luck, not adapter quality. A per-table 'known layout' STATE entry (column order of this table: Period, 10-20 yr, 20 yr and after, Moody's Aaa) would also make the mapping robust across issues."
+}

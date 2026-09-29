@@ -1,0 +1,57 @@
+{
+  "ordinal": 122,
+  "task_id": "UID0222",
+  "question_type": "CAGR extrapolation of a monthly stock series (Series I savings bonds interest-bearing debt) from two calendar-month endpoints",
+  "skills_required": ["locate_issue", "pick_vintage", "locate_table", "read_flattened_table", "date_or_period_logic", "formula_finance", "multi_step_arithmetic", "rounding_format"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "Two end-of-month stock values (Amount outstanding > Interest-bearing debt), Series I only, calendar March 2001 and March 2006. 5-year CAGR extended another 5 years, so the projection equals V2006 squared over V2001 exactly.", "evidence": "logs/122/transcripts/solver.jsonl (unwritten worklog, 'Question/Parse' section); review.md:6. worklog.md and solution.json are missing from logs/122 because a safety classifier stopped the write, per the solver's final report."},
+    {"stage": "locate_table", "decision": "Found SBN-1 (cumulative by series) and SBN-3 (by period, per-series panels) in the June 2006 issue. Used SBN-3 Series I panel col (8) for March 2006; SBN-1 'cumulative through March 31, 2006' agrees.", "evidence": "review.md:9; treasury_bulletin_2006_06.txt:2179 and :2063"},
+    {"stage": "choose_source", "decision": "For March 2001, read the June 2001 issue (the first issue whose monthly SBN-3 panel reaches March 2001), taking the 'Mar.' row under the '2001 - Jan.' block.", "evidence": "review.md:8; treasury_bulletin_2001_06.txt:2222; calc.py comments"},
+    {"stage": "verify", "decision": "Rejected the June 2001 SBN-1 Series I cumulative row as stale: its components do not tie, and it matches the prior Dec 2000 and FY2000 figures. Confirmed the SBN-3 March 2001 cell by summing the E/EE, H/HH and I panels to the SBN-2 all-series total.", "evidence": "review.md:10; 2001_06.txt:2084, :2128, :2163, :2200; 2001_03.txt:1988"},
+    {"stage": "pick_cells", "decision": "Vintage check: both cells are unchanged in later printings (2001_09, 2001_12, 2002_03, 2002_06 for 2001; 2006_09, 2006_12, 2007_03, 2007_06 for 2006).", "evidence": "review.md:8-9; calc.py comments"},
+    {"stage": "compute", "decision": "Decimal-precision CAGR and projection, closed form cross-checked, rounded to 2 decimals at the end.", "evidence": "logs/122/calc.py"},
+    {"stage": "verify", "decision": "Reviewer re-opened all source lines, recomputed at 40-digit precision, and flagged the stale-SBN-1 alternative as the only residual risk.", "evidence": "review.md:12-15; review.json"}
+  ],
+  "opus_key_moves": [
+    "Read March 2001 from an issue that actually covers March 2001 (June 2001), from the row whose block label gives the year 2001.",
+    "Validated the chosen cell with a components-sum-to-total tie-out (per-series panels = SBN-2 all-series total) and rejected a stale competing figure in SBN-1."
+  ],
+  "arms": {
+    "none": {
+      "correct": true,
+      "error_bin": null
+    },
+    "prompt": {
+      "correct": true,
+      "error_bin": null
+    },
+    "cards": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "CELL_SELECTION",
+        "glm_step": "[31]-[33], [40]",
+        "what_glm_did": "Opened the March 2001 issue, whose SBN-3 monthly panel only runs through calendar 2000. It took the unlabeled 'Mar' row under the '2000 - Jan' block, which is March 2000, as March 2001, and used it as the start value at [40].",
+        "what_opus_did": "Read the June 2001 issue's SBN-3 Series I panel, 'Mar.' row under the '2001 - Jan.' block (2001_06.txt:2222).",
+        "why_glm_went_that_way": "It assumed an issue dated March 2001 holds March 2001 data ([31] 'Need table around line 2106 in 2001_03'). In the flattened table the year appears only on the first month of each block ('2000 - Jan'), so the bare 'Mar' row looked undated. It spotted this coverage lag for 2006 at [36] ('March 2006 issue only through Dec 2005') but did not apply it to 2001.",
+        "consequence": "The start value is a year too early and several times too small, so the implied 5-year growth factor and the squared projection are about 3.5x Opus's."
+      },
+      "secondary_errors": [
+        {"stage": "OTHER", "glm_step": "[43]-[46]", "note": "Its revision check was malformed and confirmed the error. The grep pattern '2001 - Jan|Feb|Mar' printed both the '2000 - Mar.' row and the true '2001 ... Mar.' row from the June 2001 issue. It read the output as 'June confirms' its value. The grep anchor '^Series I$' matched nothing in the other three issues, so the cross-vintage part returned nothing and it did not notice."}
+      ],
+      "saw_correct_evidence": {"value": "yes", "where": "[45]: the output shows 2001_06.txt:2222, the March 2001 row with the correct value, directly below the '2000 - Mar.' row it had chosen. The right issue, table, row and column were all on screen."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[36] (issue coverage for 2006), [43] ('Need ensure no revision to March 2001? ... Need latest issue printing March 2001'). Its doubt was about revisions, not about the row's year."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "mild", "tool_friction": "rg blocked [3]; heredoc failure [6]; apply_patch unavailable, failed [9]-[13]; cat heredoc failed [15]; worked around with printf-to-file scripts [17]; one helper call failed [22]", "notes": "70 s, 20 requests. About 12 of 47 steps went to shell workarounds."},
+      "adapter_context": {"relevant_item": "none specific to savings bonds or year-block labels. C019 (heredocs fail; use script files) was cited at [7]. C003 (outlays: take the latest issue printing a fiscal year) was cited at [43] to justify a revision check.", "item_was_correct_guidance": "n/a", "followed": "partly", "caused_or_contributed_to_error": "no", "notes": "C003 led to a reasonable latest-printing check, but the check was badly built. No card mentions SBN tables, their ~3-month issue lag, or year labels printed only on a block's first row. The prompt arm's context did have an SBN lesson (L-sbn-redemptions-by-period: SBN-3 per-series panels, latest printing), and that arm was right."},
+      "remedies": [
+        {"level": "TOOL", "intervention": "A flattened-table reader that fills the year down onto every month row (returning (year, month) keys such as 2000-03 and 2001-03) and prints the issue's data coverage window, so the actor asks for a cell by date, not by a bare row label.", "generality": "document_qa_general", "confidence": "high", "why": "The whole failure is reading an unlabeled 'Mar' row under a '2000 - Jan' block as 2001. Even when the right row was printed next to it ([45]), the actor mis-dated the rows. Explicit date keys make this impossible."},
+        {"level": "CHECK", "intervention": "Cell-date check at commit: for each extracted cell, find the nearest block label above it and compare the resolved date with the date the question asks for. Also flag any use of an issue dated month M for month-M monthly data in tables that lag.", "generality": "document_qa_general", "confidence": "high", "why": "Its cited row (2001_03 'Mar' under '2000 - Jan') resolves to March 2000, so the check fires. It already applied the coverage-lag rule for 2006 at [36], so the check only needs to do the same for every endpoint."},
+        {"level": "CHECK", "intervention": "Tie-out verifier: when a per-series cell is taken from a panel table, sum the sibling panels for the same period and compare with the all-series total (Opus's SBN-2 check).", "generality": "document_qa_general", "confidence": "medium", "why": "Opus's tie-out validated exactly this cell. The arm's own 'revision check' ([45]) shows it will do a verification step when prompted, but it needs a check that compares numbers rather than just re-finding the same string."},
+        {"level": "TEXT", "intervention": "'Monthly panels print the year only on the first month of each calendar block; an issue dated month M carries monthly data only through about M-3 (e.g. March data first appears in the June issue).'", "generality": "officeqa_specific", "confidence": "medium", "why": "The none arm used exactly this reasoning ([10], [22]) and was right, and the prompt arm had an SBN lesson and was right. The cards arm knew the lag for 2006 ([36]) but not for 2001, so a stated rule might have been applied to both endpoints."}
+      ]
+    }
+  },
+  "right_arms_note": "none: went directly to the June 2001 and June 2006 issues, reasoning that the June issue carries March (at [22]: 'March 2006 bulletin would have cumulative through Feb ... June has March. For 2001, June has March'), and read the 'Mar.' row under '2001 - Jan.' ([17]-[20]). prompt: grepped for the explicit '2001 - Mar' block label ([12]), located the SBN-3 Series I panel in 2001_06 and read the March 2001 row there ([19]-[26]), then checked later printings ([27]-[33]), consistent with its L-sbn-redemptions-by-period lesson (SBN-3 panels, latest printing). Both avoided the March-dated issue that cannot contain March data.",
+  "text_vs_mechanism": "A text rule (issue lag plus year-only-on-first-row) could plausibly have fixed the cards arm, since it half-knew the lag ([36]) and the other two arms were right with similar reasoning or an SBN lesson. But the arm misread the right row even when it was printed next to its choice ([45]), so a mechanism (a year-filling table reader or a cell-date check) is the more reliable fix.",
+  "notes": "This is the one-off flavour of failure: two of three GLM forks were right, so the skill is within reach and the cards arm's error is a period-labeling slip plus a verification step that confirmed its own mistake (a grep whose pattern matched the wrong row). Harness design lesson: verification steps must compare independent numbers (tie-outs, date resolution), not re-find the same string. Opus's own logs for this question lack worklog.md and solution.json (write blocked), so the Opus path is reconstructed from review.md, calc.py and transcripts/solver.jsonl."
+}

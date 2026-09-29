@@ -1,0 +1,60 @@
+{
+  "ordinal": 13,
+  "task_id": "UID0133",
+  "question_type": "log growth rate of a bank-reported year-end liabilities series between two calendar years, each endpoint revised across later issues",
+  "skills_required": ["locate_table", "pick_vintage", "read_flattened_table", "multi_value_extraction", "date_or_period_logic", "formula_finance", "rounding_format"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "Series is the Capital Movements 'Total liabilities to all foreigners' row in Table CM-I-1 (bank-reported, millions, position at end of period); 'end of calendar year' = the table's 'Calendar Year YYYY' column; log growth = 100*ln(V2012/V2002); default vintage = latest published revision because no issue is pinned.", "evidence": "opus-officeqa-133/logs/013/worklog.md:5-9"},
+    {"stage": "locate_table", "decision": "Found CM-I-1 and its header in the March 2013 issue by grepping the exact row label.", "evidence": "worklog.md:14-18 (treasury_bulletin_2013_03.txt:2247-2249)"},
+    {"stage": "choose_source", "decision": "Followed the Dec-2012/CY2012 cell through the 2013_03, 2013_06, 2013_09 and 2013_12 issues, reading each header; established that CM-I tables stop after 2013_12, so the 'Calendar Year 2012 r' column there is final.", "evidence": "worklog.md:20-27 (2013_12:2820-2822)"},
+    {"stage": "choose_source", "decision": "Followed the CY2002 cell through 2003_03 (Dec p), 2003_06, 2003_09 (Dec r), 2003_12 (first 'Calendar Year 2002 r'), 2004_03, 2004_06, 2004_09, reading each header; saw that 2004_03 still labels its first column 'Calendar Year 2002 r' with a further revision, which then stays unchanged; confirmed with a corpus-wide count that the value recurs through Chart CM-A in 2007_03 with no later change.", "evidence": "worklog.md:29-39 (2004_03:2605-2607, 2007_03:3136)"},
+    {"stage": "verify", "decision": "Cross-checked that the CM-I-1 total equals the CM-I-2 grand total and the Chart CM-A grand total in the same issues (right series).", "evidence": "worklog.md:26, 49-51"},
+    {"stage": "compute", "decision": "Computed 100*ln ratio in calc.py at full precision; logged the alternative vintage pairs and the simple percent change as rejected alternatives.", "evidence": "worklog.md:41-47; calc.py"},
+    {"stage": "verify", "decision": "Independent reviewer re-opened both source line ranges, re-ran the later-printing greps and recomputed; verdict confirmed (vintage ambiguity only).", "evidence": "review.md; review.json"}
+  ],
+  "opus_key_moves": [
+    "Walked the CY2002 cell forward through every quarterly issue and read each issue's column header, so it saw that 2004_03/06/09 still carry a 'Calendar Year 2002' column (a second restatement) after the Dec 2003 'Calendar Year 2002 r' printing.",
+    "Established finality by grep-counting later occurrences (value stable 2004_03 through 2007_03) and by confirming CM-I tables end with the 2013_12 issue.",
+    "Cross-checked the row against CM-I-2 and Chart CM-A totals in the same issue."
+  ],
+  "arms": {
+    "none": {
+      "correct": true,
+      "error_bin": null,
+      "right_arms_note": "Started from the 2003_03 preliminary cell ([34]-[36]) but asked at [37] whether later bulletins revised it; an FTS query for 'Dec 2002' surfaced 2004_03/2004_06, it read the 2004_06 header ('Calendar Year 2002') at [40]-[42], then checked 2003_12 [47] and 2004_03 [49] before committing the latest revision."
+    },
+    "prompt": {
+      "correct": false,
+      "error_bin": "within_1pct",
+      "first_divergence": {
+        "stage": "SOURCE_ISSUE_VINTAGE",
+        "glm_step": "[41]-[44]",
+        "what_glm_did": "At [41] grepped the total row in every 2003 and 2004 issue (row lines only, no headers); at [43] read headers only for 2003_03 and 2003_12; at [44] asserted, without opening it, that the first column of the 2004_03 table is calendar 2003, concluded the Dec 2003 issue is the last printing of CY2002, and used that intermediate restatement.",
+        "what_opus_did": "Read the CM-I-1 header in 2004_03, 2004_06 and 2004_09 (all 'Calendar Year 2002', r in 2004_03) and took the later restatement that stays stable through 2007_03.",
+        "why_glm_went_that_way": "[44] THINK raised the right question ('Could be 2004_03 first col 2002?') and answered it by assumption ('Actually 2004_03 first col ... (calendar 2003)'), apparently expecting the annual column to roll forward by the March issue. The tell-tale pattern in its own [41] output (same first-column value in 2004_03, 2004_06, 2004_09, changing only in 2004_12) was not interpreted.",
+        "consequence": "CY2002 endpoint about 0.5% below the final revision, giving a log-growth answer about 0.6% too high (within_1pct, strict wrong)."
+      },
+      "secondary_errors": [
+        {"stage": "SOURCE_ISSUE_VINTAGE", "glm_step": "[47]", "note": "The pre-commit vintage re-check at [47] was applied only to the 2012 endpoint; the 2002 endpoint was not re-examined."}
+      ],
+      "saw_correct_evidence": {"value": "yes", "where": "[41] output prints the 2004_03, 2004_06 and 2004_09 'Total liabilities to all foreigners' rows whose first cell is the final CY2002 revision; only the header line was missing."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[44] briefly considers that the 2004_03 first column might be 2002, dismisses it without checking; [47] doubts table identity (CM-I-1 vs IFS-2) and the 2012 vintage, not the 2002 one."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "mild", "tool_friction": "rg not permitted [3]; heredoc temp-file failure [6]; python3 invoked the xcode-select stub [8] so the arm fell back to the sqlite3 CLI (snippet() arity error [14]) and awk for arithmetic [46]; zsh '===' expansion error [39]", "notes": "77 s, 22 requests. About 10 steps lost to tooling, but the error is a reasoning shortcut, not tooling."},
+      "adapter_context": {"relevant_item": "Procedure self-check 1 (name the vintage and compare with the latest bulletin carrying the row); L-defense-table3-annual-vintage ('match the column by its header, not by position'); Open-questions note 'grep the row forward and use the latest vintage'", "item_was_correct_guidance": "yes", "followed": "partly", "caused_or_contributed_to_error": "no", "notes": "It did grep the row forward (the letter of self-check 1) but matched later issues' columns by assumed position instead of header. After this episode the learner added L-cmi1-annual-vintage (postmortem:013), visible in later prompt contexts (e.g. runs/adapted/044/workspace/AGENTS.md around line 343)."},
+      "remedies": [
+        {"level": "TOOL", "intervention": "A 'row printings ladder' tool: given a row label, return for every issue the row's cells paired with the resolved column-header text (e.g. 'Calendar Year 2002 r' -> cell) and mark where the value for one period label changes between issues.", "generality": "document_qa_general", "confidence": "high", "why": "The arm's own [41] grep was exactly this ladder minus the headers; with headers attached, the assumption at [44] cannot be made. The cards arm got it right by the equivalent move (grepping the header string 'Calendar Year 2002' across issues at [34]/[39])."},
+        {"level": "CHECK", "intervention": "Cell-provenance check: every value entering the final computation must be cited as file:line plus the column header; the checker resolves the header from the file, rejects a mismatch with the question's period, and searches later issues for the same header label to report any later printing.", "generality": "document_qa_general", "confidence": "medium", "why": "The arm never cited a header for the endpoint; searching later issues for 'Calendar Year 2002' returns 2004_03..2004_09 immediately."},
+        {"level": "STATE", "intervention": "Per-table vintage memory retrieved by table id (CM-I-1 annual cells are restated twice; the last printing of CY N is in the March-September issues of N+2).", "generality": "officeqa_specific", "confidence": "medium", "why": "The learner wrote exactly this lesson after the failure; it only helps when the same table family recurs."},
+        {"level": "TEXT", "intervention": "Sharper wording: 'a later issue's first column is only a later printing if its header text names the same period; open the header before ruling an issue out'.", "generality": "document_qa_general", "confidence": "low", "why": "The prompt arm already had 'match columns by header, not by position' and still assumed the position."}
+      ]
+    },
+    "cards": {
+      "correct": true,
+      "error_bin": null,
+      "right_arms_note": "Reached the same interim conclusion as the prompt arm at [32] (Dec 2003 = latest), but then grepped the header string 'Calendar Year 2002' across all 2000s issues [34]/[39], found 2004_03..2004_09, and read the 2004_09 header and row at [41]; it explicitly generalized card C003's 'latest issue printing that year' rule from fiscal to calendar years ([32], [42])."
+    }
+  },
+  "right_arms_note": "none and cards both ran one extra search that returned later printings WITH their headers (none: FTS query 'Dec 2002' then reading the 2004_06/2004_03 headers; cards: grep for the header string 'Calendar Year 2002'); prompt ran the same forward search on the row label only and filled in the header by assumption.",
+  "text_vs_mechanism": "The prompt arm had the right text (vintage self-check, match columns by header) and followed it only partly, so better text alone is a weak fix. A ladder tool that returns header-resolved cells across issues (or a provenance check that resolves headers) would have made the wrong assumption impossible.",
+  "notes": "A distinctive trap: the first 'r' (revised) printing of an annual column is not final; the same period label persists for three more issues with a second restatement. The signal (identical value repeated across consecutive issues, then changing when the annual column rolls to the next year) was already on screen at [41]. All three arms took similar time (75-97 s); the prompt arm committed right after its first computation, while the right arms spent a few more steps reading headers of later issues."
+}

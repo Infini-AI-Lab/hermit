@@ -1,0 +1,82 @@
+{
+  "ordinal": 14,
+  "task_id": "UID0077",
+  "question_type": "Change (percentage points) in a tax source's share of total receipts between two CALENDAR years, built from monthly fiscal-operations rows",
+  "skills_required": ["locate_issue", "pick_vintage", "locate_table", "read_flattened_table", "multi_value_extraction", "date_or_period_logic", "multi_step_arithmetic", "rounding_format"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "CY = Jan-Dec, not the Oct-Sep fiscal year; answer = share(CY2011) - share(CY2010) in percentage points; share = sum of 12 monthly net individual income tax cells / sum of 12 monthly total receipts cells.", "evidence": "opus logs/014/worklog.md:7-12 (Step 1)"},
+    {"stage": "choose_source", "decision": "Searched for a ready-made calendar-year receipts table, found none (CY tables exist only in capital-movement sections), so decided to build CY totals from monthly rows.", "evidence": "worklog.md:30-33 (Step 5)"},
+    {"stage": "locate_table", "decision": "FFO-1 'Summary of Fiscal Operations' col (1) Total receipts, and FFO-2 'On-Budget and Off-Budget Receipts by Source' col (4) Income taxes > Net (individual).", "evidence": "worklog.md:17-20, 23-27 (Steps 3-4)"},
+    {"stage": "choose_source", "decision": "Worked out that a March issue of year Y+1 carries a 13-month window Dec(Y-1)..Dec(Y), so it contains all 12 months of calendar year Y in one table: CY2010 from the March 2011 issue, CY2011 from the March 2012 issue.", "evidence": "worklog.md:21 (Step 3), worklog.md:40 (Step 6)"},
+    {"stage": "pick_cells", "decision": "Noticed an OCR/flattening pitfall: the column labelled 'Total (44)' in the FFO-2 continuation actually holds net miscellaneous receipts, so total receipts were taken from FFO-1 col (1) instead.", "evidence": "worklog.md:28"},
+    {"stage": "verify", "decision": "Parsed every quarterly issue 2010_03..2012_12 to compare monthly cells across vintages; only negligible revisions found; latest value used.", "evidence": "logs/014/vintage_check.py; worklog.md:35-40 (Step 6)"},
+    {"stage": "extract", "decision": "Hard-coded the 48 cells with file:line and asserted each against the corpus line before summing.", "evidence": "logs/014/calc.py:13-41"},
+    {"stage": "compute", "decision": "Summed each CY, computed both shares, subtracted; also computed round-shares-first variant and relative-change reading (not chosen).", "evidence": "calc.py:43-55; worklog.md:46-51 (Step 8)"},
+    {"stage": "verify", "decision": "Identity checks (on+off = total; withheld+other-refunds = net) and a magnitude cross-check against the FISCAL-year shares, which differ from the CY shares as expected because CY2010 contains a quarter of FY2011.", "evidence": "worklog.md:53-56 (Step 9); review.md:5-15 (reviewer confirmed)"}
+  ],
+  "opus_key_moves": [
+    "Refused to use the annual (fiscal-year) rows and built true calendar-year sums from 12 monthly rows",
+    "Picked the March issues, whose 13-month window Dec(Y-1)..Dec(Y) contains exactly one full calendar year, and assigned each month row its correct year",
+    "Used the fiscal-year shares only as a magnitude check and expected them to DIFFER from the CY shares"
+  ],
+  "arms": {
+    "none": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "CELL_SELECTION",
+        "glm_step": "[52]-[55]",
+        "what_glm_did": "After finding at [51]-[53] that the March 2011 and March 2012 FFO-1/FFO-2 tables carry every CY2010 and CY2011 month, it abandoned its monthly-sum plan and took the ANNUAL rows labelled 2010 and 2011 (fiscal-year rows) as the CY totals ('CY2010 total receipts from annual row ... Use 2012_03 latest annual', [54]) and computed the share change from those four FY cells at [55].",
+        "what_opus_did": "Summed the 12 monthly rows Jan-Dec from the March 2011 issue (CY2010) and the March 2012 issue (CY2011).",
+        "why_glm_went_that_way": "No explicit reason. At [20], [26] and [30] it had correctly said CY requires summing Jan-Dec monthly rows; at [52] it called the FY row '2010 annual total' and at [54] labelled it 'CY2010'. Likely a shortcut after ~50 steps of quoting/truncation friction: the year label '2010' on the annual row was read as the calendar year.",
+        "consequence": "The answer is the fiscal-year share change, not the calendar-year one; ~27% off."
+      },
+      "secondary_errors": [
+        {"stage": "CELL_SELECTION", "glm_step": "[48]-[50]", "note": "While stitching CY2010 from the June/Sept 2010 issues it took the July-Dec rows of the Sept 2010 window (which belong to 2009) as July-Dec 2010 (month rows inherit the year label of the first row of their block). It noticed the Dec mismatch against the Dec 2011 issue at [50] and recovered by opening March 2011 at [51], so this one was not fatal, but it is the same month-year-labelling weakness as the cards arm."},
+        {"stage": "OTHER", "glm_step": "[56]", "note": "Final sanity pass only questioned the word 'nominal', never the FY-vs-CY basis of the cells it had just used."}
+      ],
+      "saw_correct_evidence": {"value": "yes", "where": "[51] printed March 2011 FFO-1/FFO-2 with all Jan-Dec 2010 monthly rows (it said so at [52]); [53] printed March 2012 FFO-1/FFO-2 with the 2011 monthly rows."},
+      "glm_expressed_doubt": {"value": "no", "where": "[54]-[56]: doubts only about which revision of the annual row and about the word 'nominal'; no doubt about using a fiscal-year row for a calendar-year question."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "mild", "tool_friction": "heredoc blocked [5]; FTS queries returned nothing [12]-[15]; read() num_lines>150 rejected [21]; clipped outputs forced re-reads [24],[28],[37]; regex/shell-quoting failures inside python -c [39]-[44]", "notes": "About 20 of 57 steps went to tool friction; the fatal shortcut came right after this stretch."},
+      "adapter_context": {"relevant_item": "n/a", "item_was_correct_guidance": "n/a", "followed": "n/a", "caused_or_contributed_to_error": "n/a", "notes": "Base instructions only."},
+      "remedies": [
+        {"level": "CHECK", "intervention": "Period-basis checker: when the question says CY/calendar year, every cited cell must come from a monthly row whose resolved (year, month) is in Jan-Dec of that year; flag any cited cell from an annual row of a table whose stub reads 'Fiscal year or month'.", "generality": "document_qa_general", "confidence": "high", "why": "The error is a single substitution of a FY annual row for a CY aggregate at [54]; the arm already had the correct monthly rows on screen at [51]/[53], so a flag would have sent it back to data it had already found."},
+        {"level": "TOOL", "intervention": "Month-resolved series extractor: given issue + table + column, return rows as explicit (year, month, value) with year labels propagated down the block, plus a helper that assembles a calendar-year or fiscal-year sum across issues.", "generality": "officeqa_specific", "confidence": "high", "why": "It spent [36]-[50] hand-parsing month rows with failing regexes and mis-assigned 2009 months to 2010 at [50]; a clean (year, month) grid removes both the friction and the label-inheritance error."},
+        {"level": "CONTROL", "intervention": "Plan-execution consistency: record the stated method ('sum Jan-Dec monthly rows') in a plan slot at [30] and require the compute step to cite 12 month cells per year; reject a compute step that cites one annual cell instead.", "generality": "domain_general", "confidence": "medium", "why": "The arm stated the right method three times ([20],[26],[30]) and silently dropped it at [54]; the failure is execution drift, not misunderstanding."}
+      ]
+    },
+    "prompt": {
+      "correct": true,
+      "error_bin": null
+    },
+    "cards": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "SOURCE_ISSUE_VINTAGE",
+        "glm_step": "[15], [24]",
+        "what_glm_did": "Chose the December 2010 and December 2011 issues as sources for CY2010 and CY2011. A December issue's FFO window runs Sept(Y-1)..Sept(Y), i.e. one fiscal year, so neither issue contains Oct-Dec of the target calendar year. At [24] it even described the Dec 2011 window correctly ('rows 2010 - Sept, Oct, Nov, Dec, 2011 Jan-Sep') and in the same thought concluded 'For CY2011, Dec 2011 issue has Jan-Dec 2011'.",
+        "what_opus_did": "Chose the March 2011 and March 2012 issues, whose Dec(Y-1)..Dec(Y) windows contain each full calendar year.",
+        "why_glm_went_that_way": "At [15] it assumed the December issue carries both fiscal years' monthly data; at [24] it invoked card C003 ('completed fiscal year figure first printed in the December issue ... next calendar year's December issue repeats that fiscal year') to justify December issues, though C003 is about FFO-3 agency outlays at fiscal-year endpoints.",
+        "consequence": "At [29]-[30] it filled 'Oct-Dec 2010' with the Oct-Dec 2009 rows of the Dec 2010 issue and 'Oct-Dec 2011' with the Oct-Dec 2010 rows of the Dec 2011 issue, so both 'CY' sums were really FY2010 and FY2011 sums; then at [35] it recomputed with the FY annual rows and submitted the fiscal-year share change (~27% off)."
+      },
+      "secondary_errors": [
+        {"stage": "CELL_SELECTION", "glm_step": "[29]-[30]", "note": "Month rows Oct/Nov/Dec that sit under the previous year's block label were assigned to the target year (year-label inheritance error in flattened tables)."},
+        {"stage": "OTHER", "glm_step": "[34]", "note": "Noticed that its 'CY' sums matched the fiscal-year annual rows almost exactly and read this as confirmation ('So answer ... regardless. Nice.') instead of as proof that it had summed Oct-Sep. The prompt arm made the same comparison at [43], saw the sums DIFFER and accepted that as expected."}
+      ],
+      "saw_correct_evidence": {"value": "partial", "where": "[19] (Dec 2011 FFO-1) printed the true Oct-Dec 2010 rows and [25]-[26] (Dec 2010 FFO-2) printed Jan-Sep 2010, so all CY2010 months were visible across two outputs; it never opened a March issue and never saw Oct-Dec 2011."},
+      "glm_expressed_doubt": {"value": "no", "where": "[31] and [34] questioned only which receipts total to use (on+off budget) and the meaning of 'nominal'; the CY=FY coincidence at [34] was taken as reassurance."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "none", "tool_friction": "heredoc blocked [5]; read() num_lines>150 rejected [17]; list_files limit>100 rejected [32]", "notes": "438 s and ~72K output tokens: long reasoning rather than tool thrash."},
+      "adapter_context": {"relevant_item": "C003 (the only card in the deck; not applicable: FFO-3 agency outlays at fiscal-year endpoints)", "item_was_correct_guidance": "no", "followed": "partly", "caused_or_contributed_to_error": "possibly", "notes": "The actor quoted C003 at [24] as support for taking values from December issues. The December-issue idea first appeared at [15], before the card was mentioned, so the card reinforced the choice rather than causing it. The deck had nothing on calendar-year vs fiscal-year month windows."},
+      "remedies": [
+        {"level": "CHECK", "intervention": "CY/FY coincidence check: when a calendar-year aggregate built from months matches the same-numbered fiscal-year annual row to within ~0.1%, return 'you probably summed Oct-Sep; list the (year, month) of each summand'.", "generality": "document_qa_general", "confidence": "high", "why": "The arm itself computed the comparison at [34] and saw the near-equality; it only lacked the rule that this is a red flag. The prompt arm's use of the same comparison at [43] shows the actor can act on it."},
+        {"level": "TOOL", "intervention": "Month-resolved series extractor returning explicit (year, month, value) rows with block year labels propagated, and a lookup 'which issues print month M of year Y in table T' (the March issue of Y+1 for a full calendar year).", "generality": "officeqa_specific", "confidence": "high", "why": "Both wrong steps ([24] issue choice and [29]-[30] row assignment) are the same year-label inheritance mistake; explicit (year, month) keys make it impossible to take Oct 2009 as Oct 2010."},
+        {"level": "TEXT", "intervention": "Convention: 'Quarterly FFO tables carry a 13-month window ending at the issue's last reported month; December issue = Sept(Y-1)..Sept(Y) = one fiscal year; March issue of Y+1 = Dec(Y-1)..Dec(Y) = one full calendar year. A month row belongs to the year label printed above it.'", "generality": "officeqa_specific", "confidence": "medium", "why": "The actor could describe the window correctly at [24] but not reason from it; text alone may not be enough, so pair it with the check above."},
+        {"level": "STATE", "intervention": "Retrieve cards by table + period basis, not only by keyword triggers, so an out-of-scope card (C003, FFO-3 fiscal endpoints) is not the only guidance shown for an FFO-1/FFO-2 calendar-year question.", "generality": "document_qa_general", "confidence": "low", "why": "The only card shown was irrelevant and was used out of scope at [24]."}
+      ]
+    }
+  },
+  "right_arms_note": "prompt: at [29]-[39] it decided to sum monthly FFO-2 rows and chose the March issues (2011_03 holds Jan-Dec 2010 [38]; 2012_03 holds 2011 [39]), then ran a cross-vintage check over later issues [45]-[54]; at [43] it compared its CY sums with the FY annual rows, found them different and accepted that as reasonable. This was a principled path; its procedure self-check #2 ('fiscal vs calendar year', AGENTS.md:37) was the only relevant text.",
+  "text_vs_mechanism": "Mostly a mechanism problem. The none arm stated the correct CY method three times and still swapped in FY rows. The cards arm described the December window correctly and still mislabelled month rows. The prompt arm's only relevant text was a one-line generic fiscal-vs-calendar self-check. A (year, month)-keyed extractor plus a CY-vs-FY coincidence/basis check would have caught both wrong arms; text alone might help the none arm but not the label-inheritance error.",
+  "notes": "Both wrong arms ended at the same fiscal-year answer by different routes: the none arm shortcut to annual rows, and the cards arm's 'CY' sums collapsed to FY sums. The failure is invisible to identity checks (on+off = total still holds), so the check has to be about period basis, not arithmetic. General lesson: flattened OCR tables give a year label only on the first row of each year block, and the actor repeatedly mis-assigned the rows under it (none [50], cards [30]); the same weakness caused the cards arm's miss on ordinal 130."
+}

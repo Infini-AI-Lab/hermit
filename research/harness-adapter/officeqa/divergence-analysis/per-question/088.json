@@ -1,0 +1,64 @@
+{
+  "ordinal": 88,
+  "task_id": "UID0083",
+  "question_type": "Population standard deviation of 12 monthly fiscal-year totals, taken from the latest rolling-window table (vintage choice plus an OCR-garbled cell)",
+  "skills_required": ["locate_issue", "pick_vintage", "locate_table", "read_flattened_table", "multi_value_extraction", "date_or_period_logic", "formula_stats", "rounding_format"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "FY1981 = Oct 1980 through Sep 1981. 'Net outlays by function' = Table FFO-5 'Budget Outlays by Function(s)', bottom 'Net budget outlays' row. Population SD (divide by N). 'Latest table to include all monthly values in one place' = the latest issue whose rolling 13-month window still covers all 12 months.", "evidence": "worklog.md:7-15 (Step 0)"},
+    {"stage": "choose_source", "decision": "Walked through the rolling windows: Oct 1981 issue (lacks Sep 1981), Nov 1981 (Sep 1980-Sep 1981), Dec 1981 (Oct 1980-Oct 1981), Jan 1982 (drops Oct 1980). Chose Dec 1981 as the latest complete one. Also ruled out FFO-1 and FFO-3 monthly totals because they are not by-function and use a different basis.", "evidence": "worklog.md:20-38, 53-60 (Steps 2-4, 6); treasury_bulletin_1981_12.txt:810-814"},
+    {"stage": "extract", "decision": "Decoded the garbled Oct 1980 cell of the Net budget outlays row (footnote marker '2/' followed by a spurious leading digit) as footnote 2/ plus the revision flag 'r' OCR'd as '1', plus the revised value. Supporting evidence: the same table renders 'r' as '1' or '7' elsewhere, a month of that size is impossible, and the row's own 'Comparable period fiscal 1980' cell prints the same value without the extra digit.", "evidence": "worklog.md:45-50 (Step 5); treasury_bulletin_1981_12.txt:916, footnote 922"},
+    {"stage": "verify", "decision": "Summed all function 'Total'/'Totals' rows plus undistributed offsetting receipts for each column. Found and repaired a second OCR garble in the Oct 1980 column (General government Total, where the revision flag 'r' was printed as a leading digit, making the cell roughly ten times too large), after which every column matched the printed net row within rounding.", "evidence": "worklog.md:62-68 (Step 7); treasury_bulletin_1981_12.txt:903"},
+    {"stage": "compute", "decision": "numpy/statistics population SD (ddof=0) of the 12 Dec-1981-vintage values. Computed the Nov-1981 vintage (~0.7% higher) and the sample SD as named alternatives only.", "evidence": "worklog.md:70-76 (Step 8); calc.py"},
+    {"stage": "verify", "decision": "The reviewer re-derived the Oct 1980 reading from the comparable-period column and the 'r-' revision mark on the undistributed-receipts row, and confirmed Jan 1982 drops Oct 1980.", "evidence": "review.md checks 2-3, 5"}
+  ],
+  "opus_key_moves": [
+    "Enumerated every printing of the rolling window to find the latest one that still holds all 12 FY1981 months (Dec 1981), rather than the first clean-looking one.",
+    "Decoded the garbled first cell as footnote + revision flag + revised value, using the row's own comparable-period cell, instead of importing the older printing's value.",
+    "Ran a column-sum cross-check and repaired the second OCR garble that would otherwise have made the sum 'confirm' the unrevised value."
+  ],
+  "arms": {
+    "none": {
+      "correct": false,
+      "error_bin": "within_1pct",
+      "first_divergence": {
+        "stage": "EXTRACTION",
+        "glm_step": "[33]-[41] (committed at [42]/[54]-[55])",
+        "what_glm_did": "Correctly identified Dec 1981 FFO-5 as the latest table covering all FY1981 months ([45]). It could not decode the Oct 1980 cell of the Net budget outlays row (1981_12.txt:916), called the row 'malformed', and substituted the unrevised Oct 1980 value from the Nov 1981 printing (1981_11.txt:949). The other 11 months are the same in both printings.",
+        "what_opus_did": "Read the token as footnote 2/ plus the OCR'd 'r' revision flag plus the revised value, confirmed by the same row's 'Comparable period fiscal 1980' cell, and kept the Dec 1981 revised value.",
+        "why_glm_went_that_way": "At [35] it first misaligned the row, taking the second token as Oct 1980. At [37]-[41] it concluded one month was 'missing' and the first token was an impossible magnitude. At [40] it grepped the Dec 1981 file for the Nov-1981 Oct 1980 value and got no hit, which was a signal that the value had been revised, but it did not read it that way. At [54] it compared the comparable-period cell with the Nov-1981 value, saw they differed, and dropped the lead ('Let's not overcomplicate').",
+        "consequence": "One of 12 values is the pre-revision figure, so the population SD is about 0.7% high (within_1pct bin), and graded wrong."
+      },
+      "secondary_errors": [
+        {"stage": "OTHER", "glm_step": "[47]-[54]", "note": "Its own column-sum check was misleading. The Oct 1980 sum of function totals landed near the unrevised value only because a second OCR garble in the same column (General government Total at 1981_12.txt:903, where the revision flag 'r' was printed as a leading digit) inflated it by about the size of the revision. It then accepted a residual of several units as 'off by <=1 due OCR rounding' and took that as confirmation."},
+        {"stage": "SOURCE_ISSUE_VINTAGE", "glm_step": "[42]", "note": "The committed series silently mixes vintages: 11 months from the table it called latest, plus one month from the previous printing."}
+      ],
+      "saw_correct_evidence": {"value": "yes", "where": "[32]/[34]/[36] printed 1981_12.txt:916. The correct revised value is visible both in the first token after the spurious digit and in the row's final (comparable-period) cell. [44] printed the Jan 1982 row, whose first value is Nov 1980, which implies the Dec 1981 first value is Oct 1980."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[37] 'weird'; [41] 'Could be OCR line omitted ...'; [45] 'Dec table line malformed'; [54] 'Let's not overcomplicate.'"},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "none", "tool_friction": "rg blocked [3]; heredoc temp-file failure [6]; officeqa API misuse (search limit and num_lines errors) [10], [15], [24]; truncated outputs [18]", "notes": "144 s, 25 requests. It ran the same pstdev twice ([38], [42]) on the imported series."},
+      "adapter_context": {"relevant_item": "n/a", "item_was_correct_guidance": "n/a", "followed": "n/a", "caused_or_contributed_to_error": "n/a", "notes": "Base instructions only."},
+      "remedies": [
+        {"level": "CHECK", "intervention": "Cross-vintage substitution guard. When the actor fills a cell of the chosen (latest) table with a value from a different printing, check whether that value appears in the chosen printing. If it does not, treat the cell as revised, block the substitution, and require the chosen printing's cell to be decoded (or an explicit justification).", "generality": "document_qa_general", "confidence": "medium", "why": "The actor already ran the decisive grep at [40] and got the negative result. The guard only has to turn an observation it already made into a stop signal."},
+        {"level": "TOOL", "intervention": "OCR cell normalizer for statistical tables. It splits footnote markers ('2/'), revision flags ('r', often OCR'd as '1' or '7') and stray characters, and returns candidate readings for any cell that is implausible against its row neighbours (e.g. more than 2x the row median).", "generality": "document_qa_general", "confidence": "medium", "why": "At [37] the actor recognized the value as impossible but could not propose the '2/ + r + value' split on its own. Opus got there by comparing against other garbles in the same table (worklog.md:45-47)."},
+        {"level": "CHECK", "intervention": "Within-row identity check for rolling-window tables. 'Cumulative to date' must equal the sum of the current-FY month cells, and 'Comparable period prior FY' must equal the same months one year earlier. Use it both to validate extraction and to decode garbled month cells.", "generality": "officeqa_specific", "confidence": "medium", "why": "This is exactly how the prompt arm ([30]) and the cards arm ([37]) resolved the token. The none arm looked at the comparable-period cell at [54] but compared it with the wrong vintage."},
+        {"level": "CHECK", "intervention": "Make cross-foot checks report the exact residual and treat anything beyond rounding (e.g. |residual| > 2) as a failed check, not a confirmation. On failure, locate the offending cell.", "generality": "document_qa_general", "confidence": "low", "why": "At [54] a residual of several units was accepted as 'off by <=1'. Treated as a failure, it would have exposed the General government garble, as it did for Opus."}
+      ]
+    },
+    "prompt": {
+      "correct": true,
+      "error_bin": null,
+      "right_arms_note": "At [23]-[30] it noticed that for a one-month cumulative the 'Comparable period fiscal 1980' cell must equal Oct 1980, used that to read the garbled first token as the revised Oct 1980 value, and aligned all 13 months. It confirmed Jan 1982 drops Oct 1980 ([37]-[39]) and that no later FFO-5 holds all 12 months ([44]-[45]), so it stayed in the Dec 1981 vintage.",
+      "adapter_context": {"relevant_item": "none specific to FFO-5; generic Procedure step 1 'name the vintage ... compare with the latest bulletin carrying the same row'; L-cell-disagreeing-printings (AGENTS.md:~1197) about OCR garbles", "item_was_correct_guidance": "partly", "followed": "partly", "caused_or_contributed_to_error": "no", "notes": "No lesson IDs were cited in its reasoning. The decisive decoding came from the actor's own reasoning about the comparable-period column."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "none", "tool_friction": "rg blocked [2]; zsh brace-glob failure [10]; cat -A unsupported [26]", "notes": "190 s, 26 requests."}
+    },
+    "cards": {
+      "correct": true,
+      "error_bin": null,
+      "right_arms_note": "At [37]-[41] it reasoned that October's cumulative-to-date and comparable cells pin Oct 1980, then aligned the Dec 1981 row against the Jan 1982 row (whose first value is Nov 1980) to confirm the first Dec 1981 value is Oct 1980, reading the extra leading digit as footnote noise. It computed in a printf-built script ([43]).",
+      "adapter_context": {"relevant_item": "none relevant (C003/C007 cover FFO-3 annual agency vintages; C019 'compute in a script' was followed)", "item_was_correct_guidance": "n/a", "followed": "partly", "caused_or_contributed_to_error": "no", "notes": "It cited only the heredoc/script card (C019) at [7]. The apply_patch detour ([8]-[11]) came from following that card literally in an environment without apply_patch."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "mild", "tool_friction": "heredoc failure [6]; apply_patch unavailable [8]-[10]; a python loop that printed nothing [25]", "notes": "failure_kind=transport_retry: 1210 s elapsed for only 22 requests (the time is mostly transport retries), with about 77K output tokens."}
+    }
+  },
+  "right_arms_note": "prompt and cards: both reached the same divergence point (the garbled Oct 1980 cell in the Dec 1981 table). Both decoded it from internal table structure: the prompt arm through the comparable-period cell, the cards arm through the comparable cell plus alignment with the Jan 1982 row. The none arm looked at the same cells but fell back to the older printing. Neither right arm had a relevant lesson or card, so the difference is actor variance in the same model rather than adapter guidance.",
+  "text_vs_mechanism": "Text alone is weak evidence here. Neither right arm had FFO-5 guidance, and the wrong arm had all the evidence on screen, so a lesson like 'in rolling-window tables use the comparable-period cell to decode garbled months; never import a cell from an older printing' might help but relies on the actor applying it. A CHECK that blocks cross-vintage substitution when the imported value is absent from the chosen printing (a test the none arm ran itself at [40]) is the more reliable fix.",
+  "notes": "A self-verification trap: the none arm's column-sum check agreed with the wrong value because a second, independent OCR garble in the same column offset the revision by coincidence. Checks built on OCR'd cells need residual reporting and outlier localisation, not just 'close enough'. This question also shows that the 'latest printing' rule interacts with in-place restatement: the Dec 1981 table restates Oct 1980 to the new FY presentation (footnote 2/), so 'latest' and 'first printing' give different values for exactly one month."
+}

@@ -1,0 +1,228 @@
+{
+  "ordinal": 26,
+  "task_id": "UID0154",
+  "question_type": "count of maturity months above a threshold across two dated Treasury Survey of Ownership bill schedules (as-of date vs issue date)",
+  "skills_required": [
+    "locate_issue",
+    "locate_table",
+    "read_flattened_table",
+    "multi_value_extraction",
+    "date_or_period_logic",
+    "unit_or_scale"
+  ],
+  "opus_path": [
+    {
+      "stage": "interpret",
+      "decision": "Read 'treasury ownership surveys' as the monthly Treasury Survey of Ownership, the two sources as the surveys AS OF Jan 31, 1977 and Jan 31, 1978, and 'calendar months' as the maturity-month rows of Treasury bills in TSO-3: bills mature within a year, so each survey's bill schedule covers the next year of maturity months and the two schedules tile the requested window exactly. Rejected month-end outstanding totals (would need many sources and be trivially above the threshold).",
+      "evidence": "worklog.md:8-20; solution.json decisions[0]"
+    },
+    {
+      "stage": "choose_source",
+      "decision": "Noted that the survey for month-end M is printed about two months later, then grepped the as-of header for Jan 31 of both years across all 1977-78 issues; each survey is printed once, in the March 1977 and March 1978 issues, so there is no vintage choice.",
+      "evidence": "worklog.md:10-11, 25-28, 43-46; review.md:11"
+    },
+    {
+      "stage": "locate_table",
+      "decision": "TSO-3 'Interest-Bearing Marketable Public Debt Securities by Issue' (par values, $ millions), block 'Treasury Bills: Regular weekly and annual maturing', first numeric column 'Total amount outstanding'.",
+      "evidence": "worklog.md:30-41 (1977_03:4791-4810); worklog.md:48-56 (1978_03:4762-4781)"
+    },
+    {
+      "stage": "pick_cells",
+      "decision": "Confirmed the column by matching the 'Total Treasury Bills' row with the TSO-2 bills line, and checked that no separate tax-anticipation or cash-management bill category sits inside TSO-3; flagged investor-class columns as a trap because they straddle the threshold.",
+      "evidence": "worklog.md:40-41; solution.json decisions[1], pitfalls"
+    },
+    {
+      "stage": "extract",
+      "decision": "After a regex dead end (month labels without a period were missed) printed the exact line ranges and hard-coded each value with its file:line.",
+      "evidence": "worklog.md:58-62; calc.py:15-40"
+    },
+    {
+      "stage": "compute",
+      "decision": "Script re-reads every cited line and asserts the value, checks row sums against the published totals, applies a strict '>' threshold and prints the closest margins on both sides of the threshold (none close).",
+      "evidence": "calc.py:42-69; worklog.md:64-71"
+    },
+    {
+      "stage": "verify",
+      "decision": "Structural sanity check (13/26-week bills bunch in the first months after the survey date); adversarial reviewer re-opened both tables, grepped for reprints and recounted independently.",
+      "evidence": "worklog.md:73-76; review.md:5-12"
+    }
+  ],
+  "opus_key_moves": [
+    "Treated the question's date as the survey as-of date, not the bulletin issue date, and grepped the dated section header across all issues to find where the Jan 31 surveys are printed (March issues).",
+    "Used the question's window as a consistency check on the source: the two chosen schedules must tile the requested maturity months exactly.",
+    "Validated the column by summing the maturity-month rows against the printed bill total and the TSO-2 bills line."
+  ],
+  "arms": {
+    "none": {
+      "correct": false,
+      "error_bin": "5-25pct",
+      "first_divergence": {
+        "stage": "SOURCE_ISSUE_VINTAGE",
+        "glm_step": "[8]-[10], committed at [26]",
+        "what_glm_did": "Assumed the two sources were the January 1977 and January 1978 bulletin issues ([8] 'likely treasury_bulletin_1977_01 and 1978_01'), whose TSO-3 is the survey as of Nov 30 of the prior year. It read the right table (TSO-3, bill rows by maturity month, 'Total amount outstanding') but from the wrong two surveys, so its rows span Dec-Nov instead of Feb-Jan.",
+        "what_opus_did": "Mapped 'recorded on the end of month January' to the survey as-of date and found the Jan 31 surveys in the March 1977 and March 1978 issues (worklog.md:43-46).",
+        "why_glm_went_that_way": "Mapped 'recorded on the end of month January 1977' to the issue month without checking. It saw the header 'TREASURY SURVEY OF OWNERSHIP, NOVEMBER 30, 1976' at [25]/[29] and 'NOVEMBER 30, 1977' at [27], and at [22] even wondered whether 'recorded' meant a row date rather than an issue, but at [26] it rationalised: 'Likely use TSO-3 from surveys dated Nov 30 1976 (published Jan 1977) and Nov 30 1977 (published Jan 1978)'. It never listed the survey dates of other issues.",
+        "consequence": "The union of the two Nov-30 schedules misses the last month of the requested window and places a different set of months above the threshold (the early-window months fall under different surveys), so the count is wrong (5-25% bin)."
+      },
+      "secondary_errors": [
+        {
+          "stage": "OPERATIONAL",
+          "glm_step": "[33]-[175]",
+          "note": "Degenerate loop: the same two grep commands (for '1979|Other bills|Short-dated bills' and 'short-dated bills') and the same THINK text alternated ~36 times each until a context compaction at [176]. After compaction ([177]-[193]) it re-read the same Jan-issue tables and submitted the pre-loop count with no reconsideration."
+        },
+        {
+          "stage": "CELL_SELECTION",
+          "glm_step": "[30], [36]",
+          "note": "Noticed that the last requested month has no row ('Jan 1979 absent', 'two surveys can't provide actual monthly outstanding') and treated the gap as a feature of the question instead of evidence of a wrong source."
+        }
+      ],
+      "saw_correct_evidence": {
+        "value": "partial",
+        "where": "Right table and column (TSO-3 bill rows, 'Total amount outstanding') at [25]/[27]/[29] and [186]-[192], but only from the Jan 1977/Jan 1978 issues (Nov 30 surveys). It never opened the March 1977 or March 1978 issues."
+      },
+      "glm_expressed_doubt": {
+        "value": "yes",
+        "where": "[22] ('maybe source is a row in a later bulletin's OFS-1 table, not bulletin issue Jan 1977'), [30] and [36] (window end missing, 'two surveys can't provide actual monthly outstanding')"
+      },
+      "operational": {
+        "timed_out": false,
+        "no_answer": false,
+        "loop_or_thrash": "severe",
+        "tool_friction": "rg 'operation not permitted' ([3], [178]); heredoc temp-file failure ([180]); zsh word-splitting failure with 'set -- $spec' ([17]); helper search returns a dict whose repr confused it ([182]-[184]); very large table outputs clipped mid-table",
+        "notes": "574 s, 98 requests, ~11.2M input tokens; about 140 of 194 steps are the repetition loop; a harness compaction warning at [176]."
+      },
+      "adapter_context": {
+        "relevant_item": "n/a",
+        "item_was_correct_guidance": "n/a",
+        "followed": "n/a",
+        "caused_or_contributed_to_error": "n/a",
+        "notes": "Base instructions only (574 bytes)."
+      },
+      "remedies": [
+        {
+          "level": "TOOL",
+          "intervention": "An 'as-of date index' lookup: for a dated section header (e.g. 'TREASURY SURVEY OF OWNERSHIP, <date>', 'as of <date>', 'Market quotations <date>'), return which issue file carries the section for a given as-of date; surface it automatically when a question names a data date ('recorded on the end of month X').",
+          "generality": "document_qa_general",
+          "confidence": "high",
+          "why": "The right arm (cards) solved it exactly by building this index by hand at [38]-[39] (a loop printing the survey header of every 1977/1978 issue), which immediately showed that the Jan 31 surveys are in the March issues. The wrong arms knew the Jan issues carry Nov 30 surveys but never enumerated other issues."
+        },
+        {
+          "level": "CHECK",
+          "intervention": "Period-coverage check before commit: list the periods the question requests and the periods present in the extracted rows; if requested periods are missing or the rows' natural span is offset from the request, return 'source window does not match the question: re-select the source' instead of letting the actor count what it has.",
+          "generality": "domain_general",
+          "confidence": "medium",
+          "why": "Both wrong arms noticed the mismatch themselves (none [30]/[36]: the last month of the window absent; prompt [33]/[169]: 'why ask through Jan 1979 if data only through Nov 1978?') but rationalised it. A hard check would convert that noticed-but-ignored signal into a forced re-selection; whether GLM then finds the March issues is less certain, hence medium."
+        },
+        {
+          "level": "CONTROL",
+          "intervention": "Duplicate-command guard in the harness: hash each shell command; on the 2nd identical re-run, refuse it and inject 'this exact command already ran at [n]; its output was X lines; change the query, read a new location, or commit'. On the 3rd, force a plan-restate turn.",
+          "generality": "domain_general",
+          "confidence": "high",
+          "why": "Both wrong arms spent most of their budget re-running the same pair of commands (none [33]-[175], prompt [34]-[154]) until a context compaction broke the cycle. The prompt arm already had L-no-identical-command-loops as text in its AGENTS.md and still looped ~40 times, so text does not stop this behaviour; the loop did not change the answer here but consumed ~500 s and ~10M input tokens that could have gone to searching other issues."
+        },
+        {
+          "level": "TEXT",
+          "intervention": "Convention: a date attached to the data in a question ('recorded on', 'as of', 'end of month X') is the as-of date printed in the section header, not the bulletin issue month; Treasury Survey of Ownership for month-end M is printed about two issues later.",
+          "generality": "officeqa_specific",
+          "confidence": "medium",
+          "why": "The actor explicitly weighed issue date vs as-of date at [22] and [26] and chose the issue date; a stated convention would have tipped that decision. Untested as text for this actor (neither adapter carried it)."
+        }
+      ]
+    },
+    "prompt": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "SOURCE_ISSUE_VINTAGE",
+        "glm_step": "[13]-[33]",
+        "what_glm_did": "Took the Jan 1977 and Jan 1978 bulletin issues as the two sources ([13] 'Need use two sources: Jan 1977 and Jan 1978 bulletins?'), read TSO-3 bill rows from their Nov 30 surveys ([31]-[33]).",
+        "what_opus_did": "Located the Jan 31 surveys by grepping their dated header across all issues (March issues) (worklog.md:43-46).",
+        "why_glm_went_that_way": "At [31] it stated 'TSO surveys are Nov 30 1976 and Nov 30 1977, not Jan' and resolved it as 'maybe means bulletins published Jan 1977 and Jan 1978'. Its only search for 'January 31, 1977|January 31, 1978' ([164]-[166]) was restricted to the two January files, so it could not find the March issues. A paginated list_files call at [12] (limit=100, next_offset not followed) made it believe the corpus ends in Apr 1978 ([13], [33]), which reinforced the idea that later sources did not exist.",
+        "consequence": "Same wrong pair of Nov-30 schedules as the none arm; combined with the window error below, the count is more than 25% off."
+      },
+      "secondary_errors": [
+        {
+          "stage": "CELL_SELECTION",
+          "glm_step": "[171]",
+          "note": "Mis-applied the date window: treated each source as covering Feb-Nov of its own year and excluded the Dec 1977 and Jan 1978 rows ('Jan 1978 source has Jan 1978 row but range starts Feb 1978'), although those months lie inside the requested window. The count was done mentally, with no script listing which months were in or out of the window."
+        },
+        {
+          "stage": "OPERATIONAL",
+          "glm_step": "[34]-[154]",
+          "note": "Degenerate loop: the same FD-4 grep and read, with the identical THINK 'FD-4 monthly amounts outstanding privately held all marketable, not bills. Threshold 10000 trivial.', repeated ~40 times until a compaction at [155]."
+        },
+        {
+          "stage": "INTERPRETATION",
+          "glm_step": "[175]",
+          "note": "Constructed alternative mappings and declared the answer 'robust' across them, but never tested the one hypothesis it wrote down that fits the question (a Jan 31 survey covering Feb-Jan)."
+        }
+      ],
+      "saw_correct_evidence": {
+        "value": "partial",
+        "where": "Right table and column (TSO-3 bill rows) at [31]-[33], [161], [168]-[170], but only from the Nov 30 surveys; [164]-[166] searched for 'January 31, 1977/1978' only inside the two January files."
+      },
+      "glm_expressed_doubt": {
+        "value": "yes",
+        "where": "[31], [33] ('We have no Dec 1978/Jan 1979 rows'), [169] ('Why ask through Jan 1979 if data only through Nov 1978?')"
+      },
+      "operational": {
+        "timed_out": false,
+        "no_answer": false,
+        "loop_or_thrash": "severe",
+        "tool_friction": "rg 'operation not permitted' ([4], [164]); heredoc temp-file failure ([6]); helper list_files pagination (limit=100) silently truncated the file list at [12]; relative path failure at [158]",
+        "notes": "665 s, 108 requests, ~13.4M input tokens; ~120 of 176 steps are the repetition loop; compaction warning at [155]."
+      },
+      "adapter_context": {
+        "relevant_item": "L-no-identical-command-loops (candidate); Procedure step 1 'Name the vintage' (tangential); no lesson on survey as-of dates vs issue dates",
+        "item_was_correct_guidance": "yes",
+        "followed": "no",
+        "caused_or_contributed_to_error": "no",
+        "notes": "The context (39.7 KB at this ordinal) had no guidance on TSO/as-of dates, so the source error was unguarded. The loop lesson was present verbatim ('Never re-run an identical command') and was ignored for ~120 steps."
+      },
+      "remedies": [
+        {
+          "level": "TOOL",
+          "intervention": "An 'as-of date index' lookup: for a dated section header (e.g. 'TREASURY SURVEY OF OWNERSHIP, <date>', 'as of <date>', 'Market quotations <date>'), return which issue file carries the section for a given as-of date; surface it automatically when a question names a data date ('recorded on the end of month X').",
+          "generality": "document_qa_general",
+          "confidence": "high",
+          "why": "The right arm (cards) solved it exactly by building this index by hand at [38]-[39] (a loop printing the survey header of every 1977/1978 issue), which immediately showed that the Jan 31 surveys are in the March issues. The wrong arms knew the Jan issues carry Nov 30 surveys but never enumerated other issues."
+        },
+        {
+          "level": "CHECK",
+          "intervention": "Period-coverage check before commit: list the periods the question requests and the periods present in the extracted rows; if requested periods are missing or the rows' natural span is offset from the request, return 'source window does not match the question: re-select the source' instead of letting the actor count what it has.",
+          "generality": "domain_general",
+          "confidence": "medium",
+          "why": "Both wrong arms noticed the mismatch themselves (none [30]/[36]: the last month of the window absent; prompt [33]/[169]: 'why ask through Jan 1979 if data only through Nov 1978?') but rationalised it. A hard check would convert that noticed-but-ignored signal into a forced re-selection; whether GLM then finds the March issues is less certain, hence medium."
+        },
+        {
+          "level": "CONTROL",
+          "intervention": "Duplicate-command guard in the harness: hash each shell command; on the 2nd identical re-run, refuse it and inject 'this exact command already ran at [n]; its output was X lines; change the query, read a new location, or commit'. On the 3rd, force a plan-restate turn.",
+          "generality": "domain_general",
+          "confidence": "high",
+          "why": "Both wrong arms spent most of their budget re-running the same pair of commands (none [33]-[175], prompt [34]-[154]) until a context compaction broke the cycle. The prompt arm already had L-no-identical-command-loops as text in its AGENTS.md and still looped ~40 times, so text does not stop this behaviour; the loop did not change the answer here but consumed ~500 s and ~10M input tokens that could have gone to searching other issues."
+        },
+        {
+          "level": "CHECK",
+          "intervention": "Window-filter audit: when the answer is a count over a period, require a script that prints every candidate period with in-window yes/no and above-threshold yes/no, and reject a count that is not the printed output.",
+          "generality": "domain_general",
+          "confidence": "medium",
+          "why": "The secondary window error at [171] was a mental filtering slip ('range starts Feb 1978'); a printed per-month table would have shown the in-window Dec 1977/Jan 1978 rows."
+        },
+        {
+          "level": "TOOL",
+          "intervention": "Make the helper's list_files paginate transparently or print 'TRUNCATED: N more files' prominently.",
+          "generality": "domain_general",
+          "confidence": "low",
+          "why": "The truncated listing at [12] produced the false belief 'corpus ends Apr 1978' at [13]/[33]; it reinforced the wrong source but was not the main cause."
+        }
+      ]
+    },
+    "cards": {
+      "correct": true,
+      "error_bin": null
+    }
+  },
+  "right_arms_note": "cards: started in the same wrong place (Jan 1977 issue, Nov 30 survey, [24]-[37]) but at [37] treated the window mismatch as a signal ('First source covers Feb 1977-Nov 1977 ... Missing Dec 1977-Jan 1978 ... Maybe survey date Jan 31') and at [38]-[39] printed the survey header of every 1977 and 1978 issue, which revealed that the March issues carry the Jan 31 surveys; it then read TSO-3 from 1977_03/1978_03 and counted ([42]-[43]). No card in its deck was relevant; it took 104 s and 23 requests, against ~600 s and ~100 requests for the wrong arms.",
+  "text_vs_mechanism": "Needs a mechanism. The prompt arm's context had no as-of-date lesson, so text is untested here, but both wrong arms noticed the date mismatch and the window gap in their own reasoning and still committed. The loop lesson was present as text and ignored for ~120 steps. An as-of-date lookup (TOOL), which the right arm improvised, plus a period-coverage CHECK and a duplicate-command CONTROL guard are what would have changed the outcome.",
+  "notes": "issue47=true: this question is on the public list of disputed questions; the 0/1 labels come from index.json. Both wrong arms fell into near-identical long repetition loops that ended only at context compaction, which points to a model/provider degeneration pattern rather than a reasoning choice; after compaction both re-derived the same wrong source from their summaries, so compaction summaries carry forward the wrong source choice unchallenged. The cards arm's success came from a generic habit (enumerate all issues' dated headers) that could be packaged as a tool."
+}

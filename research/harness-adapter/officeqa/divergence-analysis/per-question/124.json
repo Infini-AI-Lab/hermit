@@ -1,0 +1,107 @@
+{
+  "ordinal": 124,
+  "task_id": "UID0140",
+  "question_type": "Cubic polynomial extrapolation of a 25-year annual surplus/deficit series stitched across 5-year FFO-1 windows, compared with the Treasury's printed estimate for 2025",
+  "skills_required": ["locate_issue", "pick_vintage", "locate_table", "read_flattened_table", "multi_value_extraction", "date_or_period_logic", "formula_stats", "multi_step_arithmetic", "rounding_format"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "25 annual points 1989-2013, degree-3 least squares in year, extrapolate to 2025, absolute difference vs the Treasury's 2025 estimate; flagged 'calendar years' vs the Bulletin's fiscal-year tables as an ambiguity to resolve.", "evidence": "opus logs/124/worklog.md:7-12"},
+    {"stage": "choose_source", "decision": "Located the comparator as the FFO-1 'Summary of Fiscal Operations' row '2025 - Est', Total surplus/deficit column; listed all three published vintages of that estimate and chose the latest, most-repeated one (4 latest issues).", "evidence": "worklog.md:16-27, 49"},
+    {"stage": "locate_table", "decision": "FFO-1 prints only 5 fiscal years per issue, so the 1989-2013 series must be stitched across issues.", "evidence": "worklog.md:30-32"},
+    {"stage": "extract", "decision": "Wrote extract_ffo1.py to scan every issue >= 1989 for FFO-1 (OCR-tolerant title regex), find the 'Total surplus' column by header, and collect every printing of every year row; separated stable years from revised years (1989, 1999-2005, 2007).", "evidence": "worklog.md:33-37; logs/124/extract_ffo1.py, ffo1_vintages.json"},
+    {"stage": "verify", "decision": "Row-level check receipts - outlays = surplus for every chosen row; fixed a title-regex miss and discarded continuation-table stray values.", "evidence": "worklog.md:39-42"},
+    {"stage": "choose_source", "decision": "Vintage rule: latest printing of each fiscal year (September issue of FY+5); alternatives (block-Sep, block-Dec, first-published) computed and recorded.", "evidence": "worklog.md:44-45, 53-58"},
+    {"stage": "interpret", "decision": "Calendar vs fiscal: only FFO-1 has both the 1989-2013 totals and a 2025 estimate, there is no calendar-year 2025 estimate, so the FFO-1 year rows are the intended 'years'.", "evidence": "worklog.md:28, 47"},
+    {"stage": "compute", "decision": "Exact rational least squares on centered x, numpy cross-check; calc.py re-reads and asserts all 25 cited lines.", "evidence": "worklog.md:51-65"},
+    {"stage": "verify", "decision": "Magnitude sanity and sensitivity: data-vintage choice moves the answer by ~0.2%, first-published data by ~5%, comparator vintage by 10-20%.", "evidence": "worklog.md:67-68"}
+  ],
+  "opus_key_moves": [
+    "Resolved 'calendar years' by asking where both the historical series AND the comparator exist (only FFO-1 year rows), instead of reconstructing calendar sums",
+    "Collected every printing of every year row with a chronologically ordered, header-aware extractor, then took the latest printing per year and verified each row arithmetically",
+    "Used exact arithmetic (centered x, rational normal equations) and printed alternatives for every open choice"
+  ],
+  "arms": {
+    "none": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "INTERPRETATION",
+        "glm_step": "[22]-[28]",
+        "what_glm_did": "Took 'calendar years' literally and decided to build each year's total by summing monthly FFO-1 rows from that year's December issue ([28]); dismissed the FFO-1 annual rows it saw at [19]-[20] because they are fiscal years.",
+        "what_opus_did": "Used the printed FFO-1 annual (fiscal-year) rows, stitched across issues at their latest printing, reasoning that only FFO-1 has both the series and the 2025 estimate.",
+        "why_glm_went_that_way": "[22] 'Question says reported total surplus/deficit values from calendar years 1989-2013 ... Calendar year values can be summed monthly'; [28] 'For calendar year 1989, Dec 1989 bulletin includes Jan-Dec 1989. Great.'",
+        "consequence": "Its 25 inputs are a derived monthly-sum series rather than the printed annual rows; the cubic extrapolation amplifies the differences and the final is ~38% above the accepted answer."
+      },
+      "secondary_errors": [
+        {"stage": "EXTRACTION", "glm_step": "[28], [46]", "note": "Date-window misread: a December issue's monthly block runs September of the prior year through September of the current year (e.g. 1989_12.txt:669-681, 2005_12.txt:610-622), so its 'first Oct/Nov/Dec rows' were the previous year's months. Where the block starts with a year-labeled September, the code actually summed Oct(y-1)..Sep(y), i.e. a fiscal year from first printings, while the actor believed it had calendar years."},
+        {"stage": "EXTRACTION", "glm_step": "[46]", "note": "Label matching on bare month names: in 1989_12 the block's first row is an unlabeled 'Sept' (1988) at line 669, so the code's 'first Sept' precedes '1989 - Jan' and the Jan..Sept slice is empty - the 1989 'total' is only Jan 1989 plus Oct-Dec 1988. It also used a fixed column index r[7] with no header check. Several years deviate by >50% from the printed annual row (1989, 1999-2001) while others match within 1%; no per-year check against printed totals."},
+        {"stage": "OTHER", "glm_step": "[52], [56]", "note": "Its only series validation was recall-based ('known calendar year deficits ... plausible'); at [56] it explicitly asked whether Oct-Dec came from the prior year and reassured itself they were 1989's, and it accepted a 1989 total less than half the printed FY1989 row as a plausible calendar-year figure. The fit arithmetic itself was re-checked by hand at [56] and was consistent."}
+      ],
+      "saw_correct_evidence": {"value": "partial", "where": "[19]-[20] saw FFO-1 annual rows (2009-2013) in 2014_03; [24] saw the correct '2025 - Est' comparator (which it used). Never collected the annual rows for 1989-2008."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[35] 'Could be fiscal year estimate but they call calendar year erroneously. Need infer expected answer.'; [52] 'need ensure series values correct'"},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "none", "tool_friction": "heredoc failure [6]; numpy missing [49] (hand-rolled normal equations); officeqa search output needed inspection [11]-[12]", "notes": "130 s, 27 requests; committed quickly after one construction without cross-checking the derived series against any printed annual total."},
+      "adapter_context": {"relevant_item": "n/a", "item_was_correct_guidance": "n/a", "followed": "n/a", "caused_or_contributed_to_error": "n/a", "notes": "Base instructions only."},
+      "remedies": [
+        {"level": "CONTROL", "intervention": "Interpretation fork: when the question's period word (calendar/fiscal) conflicts with the only table that carries both the historical values and the comparator, compute both readings, prefer the one that uses values the source prints directly ('reported ... values'), and record the alternative.", "generality": "document_qa_general", "confidence": "medium", "why": "The actor raised exactly this doubt at [35] but had no procedure to resolve it; the prompt arm resolved it toward the printed rows ([183], [360]) and got within 0.1%."},
+        {"level": "CHECK", "intervention": "Derived-series sanity check: when an annual value is reconstructed from monthly cells, compare it with any printed annual total for the same or overlapping period and flag large deviations; also require the parser to locate the target column by header text.", "generality": "document_qa_general", "confidence": "medium", "why": "The printed FFO-1 annual rows were one read away; >50% mismatches in several years would have exposed both the window misread and the column misparse."},
+        {"level": "TOOL", "intervention": "Table extractor that returns a clean grid with header-resolved column names and fully qualified period keys for monthly rows (fill the year down from 'YYYY - Mon' anchors).", "generality": "document_qa_general", "confidence": "medium", "why": "Both secondary errors (wrong-year Oct-Dec rows; fixed r[7] index) are parsing errors a structured extractor removes."}
+      ]
+    },
+    "prompt": {
+      "correct": false,
+      "error_bin": "within_0.1pct",
+      "first_divergence": {
+        "stage": "SOURCE_ISSUE_VINTAGE",
+        "glm_step": "[400]-[405] (rebuilt series), reused unchanged at [511]/[528]/[532] and submitted at [540]",
+        "what_glm_did": "After two context compactions it rebuilt the 1989-2013 FFO-1 series with a new extractor that iterates glob.glob(...) (unsorted) and keeps the last hit per year, so for the revised years (1999-2004 and 2007) it took arbitrary intermediate printings instead of the latest; everything else (fiscal-year interpretation, FFO-1 column, '2025 - Est' comparator, centered cubic fit) matched Opus.",
+        "what_opus_did": "Extracted every printing per year in chronological order and took the latest printing for each fiscal year.",
+        "why_glm_went_that_way": "Its pre-compaction self had already established the latest-printing rule and the correct series ([204]-[206]: 'annual rows revised ... use latest carrying each year ... parser last occurrence sorted by filename'). That series was abandoned when a separate bug made its fit look absurd ([215]), and after compactions at [161]/[341]/[493] the rebuilt code dropped the sort. Its final vintage check at [526] grepped for the last file containing each chosen VALUE (circular) rather than the last file printing each YEAR's row.",
+        "consequence": "Seven slightly stale inputs shift the cubic prediction by a tiny amount; the final is ~0.02% off and fails exact match."
+      },
+      "secondary_errors": [
+        {"stage": "CELL_SELECTION", "glm_step": "[170], [208]", "note": "Chronologically first detour: used a fiscal-year-to-date actual from a 2025_09 summary table as the 'Treasury estimate' instead of the FFO-1 '2025 - Est' row. Self-corrected after compaction ([360]-[362])."},
+        {"stage": "ARITHMETIC", "glm_step": "[212], [214]", "note": "Evaluated the ascending-order coefficient vector in reverse (coef[::-1] with powers 0..3), producing an absurd prediction on the otherwise correct latest-vintage series ([210] used exactly Opus's inputs). This is why the correct series was abandoned at [215]."},
+        {"stage": "OPERATIONAL", "glm_step": "[41]-[159], [217]-[339], [407]-[491]", "note": "The same ~6-8-step THINK/RUN cycle was re-executed many times (distinct item ids in events.jsonl, i.e. real re-runs), with three 'multiple compactions' warnings at [161], [341], [493]."}
+      ],
+      "saw_correct_evidence": {"value": "yes", "where": "[204]-[206] listed the revisions and the latest printing per year; [210]-[214] ran the fit on exactly the latest-vintage series Opus used (but with the wrong comparator and a coefficient-order bug)."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[215] 'Huge. Could be answer? But likely not.'; [527] '1998 ... latest 2010_03? That seems odd'"},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "severe", "tool_friction": "rg blocked, heredoc failures, numpy missing ([210],[402],[509]), zsh '===' parse errors ([13],[188]), clipped grep outputs", "notes": "2169 s, 271 requests, ~41.5M input tokens; three compactions; the correct intermediate state was lost across compaction and re-derived with a new bug."},
+      "adapter_context": {"relevant_item": "Procedure self-check 1 ('Name the vintage ... compare it with the latest bulletin carrying the same row'); self-check 2 ('fiscal vs calendar year'); the general default 'grep the row forward and use the latest printing unless the question pins one table'", "item_was_correct_guidance": "yes", "followed": "partly", "caused_or_contributed_to_error": "no", "notes": "It followed the vintage text before the first compaction ([204]-[206]) and resolved calendar-vs-fiscal the same way as Opus ([183], [360]); after compaction the implementation silently violated the rule and the verification was circular. No lesson covers FFO-1 annual revisions specifically."},
+      "remedies": [
+        {"level": "STATE", "intervention": "Persist verified intermediate artifacts in the workspace (the chosen series with file:line and vintage rule per value, the comparator cell) and re-inject them after compaction instead of letting the actor re-derive from scratch.", "generality": "domain_general", "confidence": "high", "why": "The exact correct series existed at [210]; it was lost only because the episode was compacted and rebuilt."},
+        {"level": "TOOL", "intervention": "'All printings of a row' lookup returning (issue, value) chronologically sorted for a given table family and row label, with a 'latest' convenience field.", "generality": "document_qa_general", "confidence": "high", "why": "The final error is an unsorted-glob bug in hand-written extraction code; a tool with defined ordering removes it."},
+        {"level": "CHECK", "intervention": "Vintage checker on committed inputs: for each (table, row label) used, confirm no later issue prints a different value for the same row; reject verifications keyed on the value itself.", "generality": "document_qa_general", "confidence": "high", "why": "The actor did run a vintage check at [526] but keyed it on values, which can only confirm its own choice."},
+        {"level": "TOOL", "intervention": "Provide a vetted numeric toolkit (polyfit/lstsq or an exact-rational solver) since numpy is absent.", "generality": "domain_general", "confidence": "medium", "why": "The coefficient-order bug at [212]/[214] in hand-rolled normal equations is what derailed the correct path."},
+        {"level": "CONTROL", "intervention": "Loop detector: when the same command/THINK cycle repeats, force a state summary and a commit-or-change-plan decision; budget guard before compaction.", "generality": "domain_general", "confidence": "medium", "why": "Three long identical cycles consumed most of the 2169 s and triggered the compactions that lost state."}
+      ]
+    },
+    "cards": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "INTERPRETATION",
+        "glm_step": "[253]-[263] (after the compaction at [247]); already leaning this way pre-compaction at [39]/[47]",
+        "what_glm_did": "Read the FFO-1 annual rows, rejected them because they are fiscal years ('Question explicitly calendar years ... Need sum monthly values by calendar year', [260]), and built calendar-year totals by summing each month's cell from its latest quarterly FFO-1 printing ([262]-[304]).",
+        "what_opus_did": "Used the printed FFO-1 annual (fiscal-year) rows at their latest printing, treating 'calendar years' as loose wording because only FFO-1 carries both the series and the 2025 estimate.",
+        "why_glm_went_that_way": "Literal reading of 'calendar years' plus an explicit analogy to card C030 (FFO-5 calendar-year monthly spans, latest quarterly issue per month): 'Card C030 says FFO-5 ...' ([253]), 'Similar C030 but FFO-1' ([260]); [305] 'The phrase \"calendar years\" likely intentionally requires monthly aggregation.'",
+        "consequence": "A different 25-point series (calendar-year monthly sums) produces a much smaller extrapolated deficit; with the same comparator row as Opus the final is ~49% below the accepted answer."
+      },
+      "secondary_errors": [
+        {"stage": "EXTRACTION", "glm_step": "[289]-[301]", "note": "First pass picked a mislabeled header column (a year showed an impossible surplus); it caught and fixed this itself - a good sanity check, but applied to the wrong series."},
+        {"stage": "OPERATIONAL", "glm_step": "[41]-[245]", "note": "The same six-step cycle (search 1989/2013 rows, re-read 2025_09, re-think calendar vs fiscal) repeated roughly seventeen times before a compaction at [247]."}
+      ],
+      "saw_correct_evidence": {"value": "partial", "where": "[41]-[43] and [307] saw the correct '2025 - Est' comparator (used it); [258]-[260] saw FFO-1 annual rows but rejected them as fiscal; never assembled the 1989-2013 annual series."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[305] 'Could there be a simpler source: FFO-1 annual rows are fiscal years ... could mean use annual rows labeled by calendar year?' - then dismissed."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "severe", "tool_friction": "heredoc and apply_patch failures twice ([6]-[12], [282]-[287]); rg blocked; zsh '=' expansion ([256]); header misparse", "notes": "2105 s, 153 requests, ~16.9M input tokens; the answer was produced entirely in the ~60 steps after the single compaction."},
+      "adapter_context": {"relevant_item": "C030 (FFO-5 net budget outlays, calendar-year monthly spans: take each month from the latest quarterly issue; applies-when 'cy1981, months'); C019 (script arithmetic, followed)", "item_was_correct_guidance": "no", "followed": "yes", "caused_or_contributed_to_error": "yes", "notes": "C030 is scoped to a different table and question pattern but the actor explicitly used it as the template for building calendar-year totals from FFO-1 monthly rows ([253], [260], [263]). No card gives a calendar-vs-fiscal tiebreak or FFO-1 annual-row guidance."},
+      "remedies": [
+        {"level": "CONTROL", "intervention": "Interpretation fork with a tiebreak rule: compute both the printed-annual-row reading and the monthly-aggregation reading, prefer the one that uses directly printed ('reported') values and a comparator from the same table, and log the alternative.", "generality": "document_qa_general", "confidence": "medium", "why": "The actor considered the printed-row reading at [305] but had no rule to choose; the prompt arm, which chose printed rows, got within 0.1%."},
+        {"level": "STATE", "intervention": "Enforce card scope at retrieval/use time: a card whose applies-when keywords and table family do not match should not be offered as a template (or should be shown with its scope violation).", "generality": "domain_general", "confidence": "medium", "why": "C030 (FFO-5, 'cy1981, months') was explicitly borrowed as the method for FFO-1 annual totals."},
+        {"level": "CONTROL", "intervention": "Loop detector on repeated identical command/THINK cycles, forcing a written state summary and a decision.", "generality": "domain_general", "confidence": "high", "why": "Roughly 200 steps [41]-[245] repeated the same cycle without new information."},
+        {"level": "TEXT", "intervention": "Lesson: Treasury Bulletin FFO-1 annual rows are fiscal years; questions saying 'calendar years' about FFO-1 totals and an FFO-1 estimate usually mean these year rows; use the latest printing per year.", "generality": "officeqa_specific", "confidence": "low", "why": "Plausible from Opus's reasoning, but the question is on the disputed list (issue47) and the literal reading is defensible, so the lesson is benchmark-convention knowledge rather than a reading rule."}
+      ]
+    }
+  },
+  "right_arms_note": "No GLM arm was right. The prompt arm matched Opus's interpretation, table, comparator and fit and missed only through stale vintages for seven revised years after state loss; none and cards took 'calendar years' literally and built monthly-sum series.",
+  "text_vs_mechanism": "Mechanism. The prompt arm had and initially applied the relevant vintage text, then lost the correct state through compactions and reintroduced an unsorted-glob bug that its circular check could not catch - that needs STATE persistence plus an all-printings tool/check. For none/cards the calendar-vs-fiscal choice is a genuine ambiguity (issue47) that text could bias, but a two-reading fork with a tiebreak rule is more reliable than a phrasing lesson.",
+  "notes": "issue47 = true: the question is disputed and the calendar/fiscal wording is literally inconsistent with the only table carrying a 2025 estimate. Sensitivity (from Opus): comparator vintage dominates (10-20%), then first-published vs revised data (~5%), then revised-vintage choice (~0.2%) - so a harness should surface the comparator-row choice first. Loop-plus-compaction behavior in both long arms (prompt, cards) is a harness-level failure independent of the question."
+}

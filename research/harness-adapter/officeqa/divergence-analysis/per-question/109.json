@@ -1,0 +1,83 @@
+{
+  "ordinal": 109,
+  "task_id": "UID0227",
+  "question_type": "average of three monthly amount-outstanding values from a series named with an elided noun (United States savings notes vs savings bonds 'Sales and Redemptions by Periods')",
+  "skills_required": ["locate_issue", "locate_table", "read_flattened_table", "multi_value_extraction", "date_or_period_logic", "multi_step_arithmetic", "rounding_format"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "Mapped 'United States ... sales and redemptions ... outstanding' to a 'Sales and Redemptions by Periods' table in a 'UNITED STATES SAVINGS ___' section (bonds SB-x or notes SN-1), with the monthly 'Amount outstanding' column; flagged the missing noun (bonds vs notes) as the main ambiguity; Q3 = Jul/Aug/Sep monthly rows.", "evidence": "opus-officeqa-133/logs/109/worklog.md:7-13"},
+    {"stage": "choose_source", "decision": "Listed the 1982-84 issues: monthly issues through 1982_11 (no 1982_12), then quarterly. Candidates are 1982_10 (table ends at Sept 1982), 1982_11 and the 1983 quarterly issues.", "evidence": "worklog.md:18-21"},
+    {"stage": "locate_table", "decision": "Grepped 'sales and redemptions' in 1982_11 and 1983_03; found SB-1, SB-2, SB-3 and SN-1; 1983_03 has no monthly outstanding table (dead end).", "evidence": "worklog.md:23-26"},
+    {"stage": "pick_cells", "decision": "Read both candidate tables: SB-2 splits 'Amount outstanding' into interest-bearing and matured non-interest-bearing; SN-1 has one un-subdivided 'Amount outstanding' column.", "evidence": "worklog.md:28-38 (1982_11:3392, 3432-3434; 1982_11:3794, 3838-3840)"},
+    {"stage": "verify", "decision": "Checked later vintages: from 1983_06 the sections merge into SBN-2 (bonds+notes combined), so no separate later notes series exists. Noted an OCR slip in the Oct 1982 SB-2 matured column for Sept.", "evidence": "worklog.md:40-54"},
+    {"stage": "verify", "decision": "Cross-checked the notes and bonds monthly values against the independent nonmarketable public-debt table in the 1982_08, 1982_09 and 1982_10 issues; exact match.", "evidence": "worklog.md:56-60"},
+    {"stage": "interpret", "decision": "Built a four-row candidate table (SN-1; SB-2 interest-bearing; SB-2 interest-bearing + matured; SBN-2 combined) and chose SN-1: the question names one un-qualified 'amount outstanding', which only SN-1 has, and SN-1's section heading plus title match the paraphrase with the least dropped text.", "evidence": "worklog.md:62-77; solution.json decisions[0]"},
+    {"stage": "compute", "decision": "Averaged the three monthly cells at full precision in calc.py, then rounded once to the nearest million.", "evidence": "worklog.md:79-83; calc.py"},
+    {"stage": "verify", "decision": "Reviewer confirmed data and arithmetic; verdict 'uncertain' because of the wording ambiguity, with the savings-bonds reading as the main alternative.", "evidence": "review.md; review.json"}
+  ],
+  "opus_key_moves": [
+    "Enumerated every table titled 'Sales and Redemptions by Periods' (SB-2, SB-3, SN-1) and put all readings side by side before choosing.",
+    "Used a column-structure argument: the question names a single un-qualified 'amount outstanding', which only the savings-notes table has; the savings-bonds table would need a sub-column choice the question never names.",
+    "Cross-checked the chosen series against an independent public-debt table."
+  ],
+  "arms": {
+    "none": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "SOURCE_TABLE",
+        "glm_step": "[14]-[16]",
+        "what_glm_did": "Filled the elided noun as 'Savings Bonds' at [14] and went straight to SB-2 'Sales and Redemptions by Periods, All Series Combined' in the Oct 1982 issue [15]. It never opened SN-1, although SN-1's contents entry and its title 'Table SN-1. - Sales and Redemptions by Periods' were in its own grep output at [13].",
+        "what_opus_did": "Enumerated SB-2, SB-3 and SN-1, compared their column structures, and chose the savings-notes table SN-1.",
+        "why_glm_went_that_way": "[14]/[16] THINK: 'United States sales and redemptions outstanding' is read as 'United States Savings Bonds - Sales and Redemptions, Amount Outstanding'. The FTS hits at [6] were all savings-bond tables, and the bonds section is the more prominent one; the arm never compared the tables.",
+        "consequence": "It averaged a different series about 250x larger (>25pct)."
+      },
+      "secondary_errors": [
+        {"stage": "CELL_SELECTION", "glm_step": "[16], [19]", "note": "Summed the interest-bearing and matured non-interest-bearing sub-columns of the bonds table."},
+        {"stage": "SOURCE_ISSUE_VINTAGE", "glm_step": "[24]", "note": "It noticed that the Nov 1982 printing differs for the Sept matured cell, but chose the Oct 1982 printing ('question writer would use one issue'). Opus identifies that Oct cell as an OCR slip (worklog.md:50)."},
+        {"stage": "ROUNDING_FORMAT", "glm_step": "[27]", "note": "Submitted with a dollar sign, a thousands separator and the word 'million', not a bare number (still parsed, format_valid=True)."}
+      ],
+      "saw_correct_evidence": {"value": "partial", "where": "[13] grep output lists 'SN-1. - Sales and redemptions by periods, all series' (contents) and 'Table SN-1. - Sales and Redemptions by Periods' (line 3759, the 1982_08 issue per the prompt arm's grep at [24]). The table was never opened."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[16], [20], [24]: which sub-columns and which printing; it never doubted bonds vs notes."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "none", "tool_friction": "rg not permitted [2]; heredoc temp-file failure [4]; list_files return-type error [8]; zsh '====' expansion error [11]", "notes": "52 s, 14 requests; it committed quickly without comparing candidate tables."},
+      "adapter_context": {"relevant_item": "n/a", "item_was_correct_guidance": "n/a", "followed": "n/a", "caused_or_contributed_to_error": "n/a", "notes": "Base instructions only."},
+      "remedies": [
+        {"level": "CONTROL", "intervention": "Mandatory candidate-table stage: for the question's key series phrase, list every table in the relevant issue whose title contains it (with section heading and column-header tree), and require a written reason to reject each one before extracting any cell.", "generality": "document_qa_general", "confidence": "medium", "why": "SN-1's title was already in this arm's grep output at [13]; the failure was never comparing. Opus's decisive argument came from comparing the column structures of the candidates."},
+        {"level": "TOOL", "intervention": "Table catalog lookup: given an issue and a phrase, return (section heading, table id, title, column headers) for all matching tables in one call.", "generality": "document_qa_general", "confidence": "medium", "why": "One call would have put 'UNITED STATES SAVINGS NOTES / SN-1 / Amount outstanding (single column)' next to the bonds table's split column, the contrast Opus used."},
+        {"level": "STATE", "intervention": "Series-location memory retrieved by phrase ('savings notes', 'sales and redemptions', 'amount outstanding' -> SN-1 in 1982 issues, discontinued/merged into SBN-2 in 1983), learned from earlier questions.", "generality": "document_qa_general", "confidence": "medium", "why": "The only right GLM arm (prompt) was right because a lesson from a different savings-notes question carried exactly this pointer."}
+      ]
+    },
+    "prompt": {
+      "correct": true,
+      "error_bin": null,
+      "right_arms_note": "Its 184 KB context contained lesson L-relative-difference-of-two-rates (written for another savings-notes question), which names 'Table SN-1 (United States Savings Notes ...)' with its Amount outstanding column and file:line anchors in 1982_11. From [1] the arm hypothesized SN-1, searched for it ([6]-[15]), read it at [19]/[26] and computed [28]. It never compared SN-1 with SB-2, so it was right because of retrieved series-location memory, not because it resolved the ambiguity."
+    },
+    "cards": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "SOURCE_TABLE",
+        "glm_step": "[21], [29]-[34]",
+        "what_glm_did": "Assumed 'United States Savings Bonds' at [21] and read SB-2 in the Oct and Nov 1982 issues ([29]-[31]). At [34] it mentioned that savings notes are a separate table, then dismissed them because the question 'says United States sales and redemptions outstanding, not savings notes'. It never opened SN-1, although SN-1's title appeared in its [27] grep output (1982_10:4155, 1982_11:3794).",
+        "what_opus_did": "Compared SN-1 with SB-2 and chose SN-1 from the single-column 'Amount outstanding' argument.",
+        "why_glm_went_that_way": "Surface association of 'United States ... sales and redemptions' with the savings-bonds section, and no comparison of the column structures. No card addresses table disambiguation for this family.",
+        "consequence": "It averaged the savings-bonds series, about 250x larger (>25pct)."
+      },
+      "secondary_errors": [
+        {"stage": "CELL_SELECTION", "glm_step": "[32], [40]", "note": "Summed the interest-bearing and matured sub-columns. For Sept it took the Nov 1982 revision (generalizing C003's latest-issue rule), which avoided the Oct OCR slip; that only matters under the wrong table."},
+        {"stage": "OTHER", "glm_step": "[7]-[17], [36]-[40]", "note": "About 12 steps of tooling thrash trying to obey C019 ('write a python script file') through an apply_patch command that is not on PATH, plus heredoc and quoting failures."}
+      ],
+      "saw_correct_evidence": {"value": "partial", "where": "[27] grep output includes 'Table SN-1. - Sales and Redemptions by Periods' at 1982_10:4155 and 1982_11:3794; [34] names savings notes as a separate table but never opens it."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[30], [32], [41] on interest-bearing only vs total; [34] briefly on notes vs bonds, resolved without looking."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "mild", "tool_friction": "heredoc temp-file failure [6]; apply_patch not available in the shell [8]-[17], [36]-[38]; shell quoting errors [12], [16]", "notes": "104 s, 19 requests; about a third of the steps were spent getting a script file written."},
+      "adapter_context": {"relevant_item": "C019 (script-file arithmetic; its applies-when includes 'all series combined'); C003 (latest issue printing)", "item_was_correct_guidance": "partly", "followed": "yes", "caused_or_contributed_to_error": "no", "notes": "No card covers which savings table a question means. C019's arithmetic advice is sound, but its 'write a script file' instruction, combined with the Codex apply_patch convention, caused the tooling thrash. C019's trigger 'all series combined' coincides with SB-2's title, but there is no visible evidence that it steered the table choice."},
+      "remedies": [
+        {"level": "CONTROL", "intervention": "Mandatory candidate-table stage (as for none): enumerate every table whose title contains the key phrase, show section headings and column headers, and require an explicit rejection reason for each.", "generality": "document_qa_general", "confidence": "medium", "why": "The arm named savings notes at [34] and rejected them on wording alone; a forced side-by-side view of the column headers is what decided the question for Opus."},
+        {"level": "STATE", "intervention": "Series-location memory keyed by phrase (as for none).", "generality": "document_qa_general", "confidence": "medium", "why": "The prompt arm's success came from exactly this kind of pointer; the cards deck, capped at 16 KB and organized by rule rather than by series, had no such entry."},
+        {"level": "TOOL", "intervention": "A native file-write/calculator tool, so that cards requiring script-based arithmetic do not send the actor into shell-quoting workarounds.", "generality": "domain_general", "confidence": "high", "why": "About 12 of 41 steps were spent on apply_patch/heredoc failures. This fixes cost, not correctness."}
+      ]
+    }
+  },
+  "right_arms_note": "prompt was right through memory: a lesson from an earlier savings-notes question named SN-1 and its location, so the arm went straight there and never had to resolve the ambiguity. The wrong arms had SN-1's title in their own grep output but never opened it.",
+  "text_vs_mechanism": "The text that helped was not a rule but a series-location fact that happened to be in the prompt arm's context (memory delivered as text). A general disambiguation instruction is unlikely to be enough on its own: the cards arm considered notes and dismissed them in one line. What generalizes is a forced candidate-table comparison (CONTROL) or a table-catalog tool, plus a retrieval-indexed series memory (STATE) that gives the prompt arm's advantage without a 184 KB context.",
+  "notes": "Opus's own reviewer rated this 'uncertain'; the official answer follows the savings-notes reading. The two wrong arms also split on vintage for the bonds matured cell: none kept the Oct 1982 cell, which is an OCR slip, while cards took the Nov revision. A CHECK comparing a cell across adjacent printings would flag such OCR slips in general. Opus's tie-breaker (prefer the table whose column needs no unnamed sub-column choice) is a reusable document-QA heuristic."
+}

@@ -1,0 +1,19 @@
+{
+  "ordinal": 31,
+  "task_id": "UID0148",
+  "issue47": false,
+  "question_type": "Count of 13-week bills above a threshold across three end-of-April MQ-1 quotation tables, plus geometric mean of the qualifying amounts",
+  "opus_divergence": {
+    "stage": "EXTRACTION",
+    "what_opus_did": "Read the right tables (MQ-1 Treasury Bills in the May 1972/1973/1974 issues, end-of-April quotes), the right column (13-week amount outstanding), the right Feb-Apr issue-date filter and the strict threshold, and reached the same count as GLM. For one 1974 row (the 13-week bill issued 2/14/74) it judged the printed amount in the May-1974 table to be a parser/OCR repeat of the row above, and replaced it with the value printed for the same bill in the April-1974 MQ-1 table (end-March quote), supported by the PDO-2 offering amount in the May-1974 issue. The substitution changes only the second decimal of the geometric mean.",
+    "what_right_glm_did": "All three arms copied the cell exactly as printed in the May-1974 MQ-1 table, the source the question pins ('released during the last week of April'). None of them cross-checked it against another vintage or table.",
+    "evidence": "Opus worklog Step 5 and Step 6; solution.json decisions[3] ('2/14/74 cell ...'); corpus treasury_bulletin_1974_05.txt:4603 (pinned table) vs treasury_bulletin_1974_04.txt:5118 (earlier vintage used for the repair). GLM none [35]-[37], prompt [23]-[27], cards [20]-[29]: the literal printed cell goes straight into the geometric-mean list."
+  },
+  "opus_confidence": "medium",
+  "reviewer_flag": "Verdict CONFIRMED. The reviewer named the 2/14/74 cell as the only residual risk and computed the literal-cell alternative. It still endorsed Opus's repair, arguing that a bill's amount outstanding cannot change after issue and that the same table has another OCR date error.",
+  "right_glm_arms": ["none", "prompt", "cards"],
+  "right_by_principled_choice_or_luck": "Luck, or a literal-transcription default. No GLM arm noticed the duplicated-looking cell or considered another value, and no THINK step mentions it. They were right because the grader used the literal cell from the pinned table, not because they chose it deliberately. GLM was fragile elsewhere: the prompt arm overcounted one year by hand at [20] and only a scripted recount at [27]-[28] fixed it; the cards arm undercounted 1972 by hand at [21]/[28] and its awk output fixed it at [29]-[30].",
+  "wrong_glm_arms_same_as_opus": "n/a: all three GLM arms were right.",
+  "lesson_for_harness": "When the question pins the release ('released during the last week of April'), the printed cell in that release is the basis for the answer. Do not 'repair' a plausible-looking print or OCR slip with a value from a different vintage or a different table unless the pinned table is itself inconsistent (for example, it fails a printed total) or an official errata ('Revisions in Data') exists. A cross-vintage repair check is worth running, but it should report an alternative, not overwrite the value. GLM already defaults to literal extraction, so the harness should not add a generic 'fix OCR errors using other issues' instruction. Any repair CHECK should flag the discrepancy and keep the pinned value.",
+  "notes": "It is uncertain whether the original printed page carries the repeated value or the answer key was built from the same parsed text. Either way, the key follows the printed/parsed cell of the pinned table. Contrast Q111, where a repair was right: there the summary value was preferred over a misprinted detail row in the same issue, and the April-1977 Revisions in Data table confirmed it. Tolerance is effectively exact at the requested decimals: the substitution moved the geometric mean by about 0.004% and was still graded wrong. Opus spent real effort (PDO-2 and cross-vintage scans) that added confidence to the count but converted a right answer into a wrong one on the second output."
+}

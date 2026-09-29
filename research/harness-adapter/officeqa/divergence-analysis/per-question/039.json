@@ -1,0 +1,86 @@
+{
+  "ordinal": 39,
+  "task_id": "UID0122",
+  "question_type": "difference between two averages of a balance-sheet share (ESF foreign-exchange holdings / total assets) over three June and three September quarter-ends, with a CPI adjustment that cancels",
+  "skills_required": ["locate_issue", "pick_vintage", "locate_table", "read_flattened_table", "multi_value_extraction", "unit_or_scale", "date_or_period_logic", "external_knowledge", "formula_stats", "multi_step_arithmetic", "rounding_format"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "ESF-1 balance sheet (thousands); two sets of three observations (June 30 and Sept 30 of 2000-2002); per-date share = foreign exchange and securities / total assets; noticed that deflating numerator and denominator of a same-date share by the same CPI factor cancels, and recorded the pooled-ratio reading as the only one where CPI matters.", "evidence": "opus logs/039/worklog.md:7-12"},
+    {"stage": "choose_source", "decision": "Grepped every ESF-1 title in 2000-2004 issues; saw that June 30 is the closing column in December issues and Sept 30 in March issues, and that titles saying 'July 1'/'Oct. 1' still have a June 30/Sept 30 first column; each date prints twice.", "evidence": "worklog.md:14-26"},
+    {"stage": "pick_cells", "decision": "Read the 'Foreign exchange and securities:' header as grouping the two currency rows (European euro, Japanese yen); listed Accounts receivable as a separate asset row; no subtotal row exists.", "evidence": "worklog.md:29-31"},
+    {"stage": "verify", "decision": "Read both printings of every date (closing column of one issue, opening column of the next): identical, so vintage is moot; confirmed asset rows foot to Total assets.", "evidence": "worklog.md:45-60"},
+    {"stage": "extract", "decision": "Confirmed no CPI index table in the corpus and took BLS CPI-U NSA values from external knowledge, noting they cancel under the chosen reading.", "evidence": "worklog.md:62-67"},
+    {"stage": "compute", "decision": "calc.py computes mean of per-date shares for each set and the pooled alternative; chose mean of shares as the literal meaning of 'average share'.", "evidence": "worklog.md:69-84; solution.json decisions"},
+    {"stage": "round_format", "decision": "Percentage points to the nearest thousandth; alternative recorded.", "evidence": "worklog.md:91"}
+  ],
+  "opus_key_moves": [
+    "Recognised that the CPI adjustment cancels in a same-date share, so the missing CPI table does not block the answer (no hunt for CPI in the corpus)",
+    "Decided the numerator composition once (the two currency rows under the header, with Accounts receivable as a separate asset line) and moved on, recording alternatives instead of deliberating indefinitely",
+    "Mapped the lagged quarterly issues to the requested dates (closing vs opening columns) and checked both printings"
+  ],
+  "arms": {
+    "none": {
+      "correct": false,
+      "error_bin": "within_1pct",
+      "first_divergence": {
+        "stage": "CELL_SELECTION",
+        "glm_step": "[51] (alternative computed), final choice at [274]-[278]",
+        "what_glm_did": "Extracted all six ESF-1 columns correctly ([30]-[36]) and at [48]-[49] computed the same mean-of-shares, euro+yen value as Opus. At [50]-[51] it computed a second candidate that adds 'Accounts receivable' to the numerator. After a 98-command loop and a context compaction ([260]), it re-derived both ([275]) and at [278] chose to include Accounts receivable because it 'sits under' the 'Foreign exchange and securities:' header in the flattened table.",
+        "what_opus_did": "Treated the header as grouping only the two currency rows and Accounts receivable as a separate asset line (worklog.md:30-31).",
+        "why_glm_went_that_way": "Before the loop it leaned the other way with a stated reason ([26], [37]: 'Accounts receivable is not holdings/securities'). After compaction, [274]: 'Summary says' the receivable-inclusive value; [278]: 'I lean including AR because exact table category'. The flattened markdown gives no indentation, so the header's scope is ambiguous on the page.",
+        "consequence": "Numerator includes receivables in every period; the final difference is ~0.7% off (within_1pct)."
+      },
+      "secondary_errors": [
+        {"stage": "OPERATIONAL", "glm_step": "[53]-[259]", "note": "Hunt for a CPI table it had already concluded it did not need ([49]: shares cancel); from [65] it re-ran the identical grep for a CPI value 98 times with THINK 'No.' each time; 906s and ~14.8M input tokens."},
+        {"stage": "OPERATIONAL", "glm_step": "[260]-[274]", "note": "Context compaction ('Long threads and multiple compactions...') dropped its earlier reasoning; the post-compaction summary evidently carried the receivable-inclusive number as the working result, and the final choice followed the summary. The compaction summary itself is not in events.jsonl, so this attribution is inferred from [274]."}
+      ],
+      "saw_correct_evidence": {"value": "yes", "where": "[48]-[49] computed exactly Opus's reading (euro+yen, mean of shares) and wrote it as the answer before second-guessing."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[26], [37], [49], [51], [276]-[278] all debate whether Accounts receivable belongs in the numerator."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "severe", "tool_friction": "rg not permitted [3]; heredoc denied [6]; python3 stub failed, switched to a venv python [8]-[11]; FTS dict printed as keys only [13]; zsh '=' expansion [28]-[29]", "notes": "98 identical consecutive grep commands [65]-[259]; one compaction; the loop consumed most of the episode and was followed by a changed decision."},
+      "adapter_context": {"relevant_item": "n/a", "item_was_correct_guidance": "n/a", "followed": "n/a", "caused_or_contributed_to_error": "n/a", "notes": "Base instructions only."},
+      "remedies": [
+        {"level": "CONTROL", "intervention": "Loop breaker: detect N (e.g. 3) identical consecutive commands or identical THINK texts and inject a hard stop ('this command has already returned the same output; commit your best candidate now'), or end the episode and take the last recorded candidate.", "generality": "domain_general", "confidence": "high", "why": "The loop was 98 byte-identical commands with 'No.' between them; it produced no information and led to the compaction that preceded the flip."},
+        {"level": "STATE", "intervention": "A decision/candidate ledger written by the harness (not by the model's context): each computed candidate with its interpretation choices and the reason given. Re-inject it verbatim after compaction and at commit time.", "generality": "domain_general", "confidence": "medium", "why": "Pre-compaction it had a reasoned preference ([26],[37]); post-compaction it relied on a summary that apparently only kept the last number ([274])."},
+        {"level": "TOOL", "intervention": "A layout-preserving table extractor that returns row hierarchy (indent level / which rows a header groups, subtotal membership) instead of flattened markdown.", "generality": "document_qa_general", "confidence": "medium", "why": "Both GLM arms that raised the receivables question tried to settle it from layout and could not (prompt arm checked for indentation with sed -n l at [30]-[31]: none survives flattening). Whether the source page indents it differently is not verified here."},
+        {"level": "TEXT", "intervention": "Numerator-composition convention: a phrase like 'X holdings and securities' covers the rows that are holdings of X; receivables/payables listed after a group header without a subtotal are separate lines unless the table prints a subtotal that includes them.", "generality": "document_qa_general", "confidence": "low", "why": "The model already articulated this reason itself ([37]) and later abandoned it; text helps only if it survives compaction (see STATE)."}
+      ]
+    },
+    "prompt": {
+      "correct": false,
+      "error_bin": "empty",
+      "first_divergence": {
+        "stage": "OPERATIONAL",
+        "glm_step": "[40]-[288]",
+        "what_glm_did": "Located and extracted all six dates correctly ([12]-[34]), noted that CPI cancels ([35]), computed both the receivable-exclusive and receivable-inclusive candidates ([36]-[37]) and at [39] wrote that it would use the mean-of-shares, euro+yen value (Opus's reading). Instead of committing, it searched for a 'Total foreign exchange and securities' subtotal row ([40]) and then re-ran the identical grep 125 times with 'No subtotal.' and the same long reasoning block until the 3600s timeout; no answer was submitted.",
+        "what_opus_did": "Made the composition decision once, recorded the alternative, and committed.",
+        "why_glm_went_that_way": "[41] THINK (repeated verbatim each iteration): 'Question likely generated by someone reading table. They might ... sum the two currency rows, not AR ... Hmm.' It wanted corpus evidence (a subtotal) to settle a wording ambiguity that the corpus cannot settle, and fell into a degenerate repetition.",
+        "consequence": "Timeout with an empty submission although the correct candidate was already computed and stated at [39]."
+      },
+      "secondary_errors": [
+        {"stage": "OTHER", "glm_step": "[21]-[27]", "note": "Spent several steps on a CPI table and on the ESF footnote before concluding CPI cancels; minor."}
+      ],
+      "saw_correct_evidence": {"value": "yes", "where": "[36]-[39]: computed and preferred Opus's reading."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[18], [27], [37], [39], [41]-[287]: receivables-in-numerator question never resolved."},
+      "operational": {"timed_out": true, "no_answer": true, "loop_or_thrash": "severe", "tool_friction": "rg not permitted [3]; 'cat -A' unsupported on macOS [28]", "notes": "125 identical grep commands [40]-[288], each preceded by the same multi-paragraph THINK; ~295K output tokens; 3600s timeout."},
+      "adapter_context": {
+        "relevant_item": "Procedure step 6 ('Commit as soon as a candidate number exists'); L-commit-when-data-absent (verified: 'commit the best-supported candidate once ... and stop'); L-no-identical-command-loops (status candidate: 'Never re-run an identical command after seeing its output')",
+        "item_was_correct_guidance": "yes",
+        "followed": "no",
+        "caused_or_contributed_to_error": "no",
+        "notes": "Three separate pieces of text told it to commit and not repeat commands; none is cited anywhere in the run. The loop lesson has status 'candidate', and the same procedure tells the actor to apply only 'verified' lessons, so the adapter itself downgraded its most relevant rule. The learned text documents earlier episodes with the same loop-then-timeout shape (UID0100, UID0114, UID0037), i.e. this failure recurs despite the lesson."
+      },
+      "remedies": [
+        {"level": "CONTROL", "intervention": "Loop breaker plus forced commit: after N identical consecutive commands (or identical THINK blocks), stop tool access and require a final answer; independently, at T-minus-5 minutes, force a commit from the latest recorded candidate.", "generality": "domain_general", "confidence": "high", "why": "The candidate existed from [39]; 125 byte-identical greps followed. Text rules against exactly this were in context and ignored."},
+        {"level": "STATE", "intervention": "Harness-side candidate ledger (value + interpretation + step) that the forced-commit path can submit even if the model does not produce a final message.", "generality": "domain_general", "confidence": "high", "why": "An empty submission scored 0 while a ledger entry from [37]-[39] would have been correct."},
+        {"level": "CHECK", "intervention": "Ambiguity budget: when two candidates differ only by one interpretation choice and the corpus search for a disambiguator returns nothing twice, the checker returns 'unresolvable from corpus - pick by wording and commit'.", "generality": "document_qa_general", "confidence": "medium", "why": "The loop was a search for corpus evidence (a subtotal row) that does not exist; an explicit signal that the question is a wording choice ends the search."}
+      ]
+    },
+    "cards": {
+      "correct": true,
+      "error_bin": null,
+      "right_arms_note": "Same path as Opus: found the lagged issues ([19]-[27]), summed the two currency rows ([34]-[35]), noted CPI cancels ([36],[42]), checked both printings ([37]-[38]) and committed after 24 requests; it never raised the receivables question, so it avoided the fork by not seeing it rather than by resolving it."
+    }
+  },
+  "right_arms_note": "cards: took the two currency rows under the header without debating Accounts receivable and committed quickly (104s). The wrong arms both had the right value on screen ([48]-[49] none, [36]-[39] prompt); what differed was not extraction but decisiveness: the wrong arms entered degenerate repetition loops (98 and 125 identical greps), and in the none arm a compaction preceded the switch to the receivable-inclusive reading.",
+  "text_vs_mechanism": "Text is demonstrably insufficient: the prompt arm had a 'commit as soon as a candidate exists' procedure step and two commit/no-loop lessons, and still looped 125 times to timeout with the right candidate in hand. This needs CONTROL (loop detection, forced commit before timeout) plus STATE (a harness-held candidate ledger that survives compaction).",
+  "notes": "Both failures are the GLM repetition pathology (identical command + identical THINK for 100+ iterations), triggered after the answer was computed, by a residual ambiguity (CPI source in none, receivables membership in prompt). A cheap harness mechanism (identical-command counter) would have converted one arm to correct (prompt, if the ledger/forced commit takes the preferred candidate) and plausibly the other (none, if the loop is cut before compaction). Opus did not explicitly deliberate the receivables question; its worklog simply lists Accounts receivable as a separate asset row."
+}

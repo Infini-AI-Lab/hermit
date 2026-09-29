@@ -1,0 +1,58 @@
+{
+  "ordinal": 60,
+  "task_id": "UID0012",
+  "question_type": "largest department's fiscal-year expenditure from an agencies table in which that department is split into sub-columns under one parent header",
+  "skills_required": ["locate_issue", "locate_table", "read_flattened_table", "pick_vintage", "multi_value_extraction", "unit_or_scale", "multi_step_arithmetic"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "Parsed FY1955 as July 1954 to June 1955, 'Federal Department' as a cabinet department, and 'highest spending' as largest budget expenditures, in millions as printed. Flagged the Defense split into Military / Civil functions as the ambiguity to resolve.", "evidence": "logs/060/worklog.md:7-10"},
+    {"stage": "choose_source", "decision": "FY1955-era issues (1955) have only functional classification tables. Found that by-agency tables start with the Aug 1956 issue. Rejected the functional 'National security' totals because they are functions (they include AEC, stockpiling and military assistance), not departments.", "evidence": "logs/060/worklog.md:12-17, 32-39"},
+    {"stage": "locate_table", "decision": "Used treasury_bulletin_1956_08.txt:250 'Table 2.- Expenditures by Agencies', FY1955 rows in both column bands.", "evidence": "logs/060/worklog.md:17-21"},
+    {"stage": "pick_cells", "decision": "Checked vintages: every printing from 1956_08 to 1962_08 carries the same FY1955 row except sporadic OCR noise. Confirmed that one parent header 'Defense Department' spans the Military and Civil functions sub-columns and that no printed Defense grand total exists anywhere.", "evidence": "logs/060/worklog.md:23-30"},
+    {"stage": "compute", "decision": "calc.py sums the Defense sub-columns to get the department total, and sums Treasury's three sub-columns so both departments are ranked on the same basis. It also verifies that all agency columns sum to the printed Total (within 1).", "evidence": "logs/060/worklog.md:41-50"},
+    {"stage": "verify", "decision": "The reviewer re-opened the source, redid the row check, confirmed the values are identical across vintages, and confirmed that the parent-header reading ('Department' = sum of its sub-columns) is the better one.", "evidence": "logs/060/review.md:6-18"}
+  ],
+  "opus_key_moves": [
+    "Treated the parent header 'Defense Department' as the unit asked for and summed its sub-columns, applying the same aggregation to Treasury for a fair ranking",
+    "Rejected the functional national-security tables, which are functions and not departments",
+    "Checked the parsed row by summing every agency column to the printed Total, which rules out OCR column shifts"
+  ],
+  "arms": {
+    "none": {
+      "correct": true,
+      "error_bin": null,
+      "right_arms_note": "It weighed the same single-column vs department-total question ([15], [17], [23]), chose the department total because 'Department' should include civil functions ([27]), and checked that all agency columns sum to the printed Total ([26])."
+    },
+    "prompt": {
+      "correct": false,
+      "error_bin": "1-5pct",
+      "first_divergence": {
+        "stage": "INTERPRETATION",
+        "glm_step": "[30]",
+        "what_glm_did": "Found the right table (Table 2 'Expenditures by Agencies') in its latest carrier (1960_04) and correctly re-mapped the OCR-shifted second header band. It computed the Defense Department total as Military + Civil functions and the Treasury total for ranking, then submitted the single largest column (Military functions only).",
+        "what_opus_did": "Submitted the department total (sum of the sub-columns under the 'Defense Department' parent header) (worklog.md:48-50; solution.json:14).",
+        "why_glm_went_that_way": "In [30] it first argued for the sum ('The question says Department... So conceptually [the sum]'), then reversed itself by guessing how the benchmark was built: 'Usually these QA tasks ask answer extractable from one cell', 'If a question builder used pandas idxmax on row, it picks Military functions', 'They may not aggregate'.",
+        "consequence": "Civil functions was left out, so the answer is a few percent low (bin 1-5pct)."
+      },
+      "secondary_errors": [
+        {"stage": "SOURCE_TABLE", "glm_step": "[1]-[16]", "note": "Started from the FFO-3 'Outlays by Agency' table family named in its context, which does not exist for 1955. It lost about 8 steps before finding Table 2 through the Dec 1956 table of contents ([18]-[22]), then recovered."}
+      ],
+      "saw_correct_evidence": {"value": "yes", "where": "The [29] table shows both Defense sub-columns, and in [30] it computed the correct department total itself before discarding it."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[30] went back and forth several times between the department total and the single column."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "none", "tool_friction": "rg blocked [3]; FTS search returned only 1990s-2000s FFO chunks for the FFO-3 query [7]", "notes": "77 s and 15 requests. The error is purely a reasoning choice made at the last step."},
+      "adapter_context": {"relevant_item": "No lesson on 'Expenditures by Agencies' or on parent-header aggregation existed at this point (the learner added one after this episode, and it appears in later contexts). Nearest items: L-ffo3-agency-outlays-vintage (sent the first search to FFO-3), and L-defense-table3-annual-vintage, whose text says a question phrase 'points at the Army column as printed' and that 'adding a separate Air Force value is the trap' (AGENTS.md:64-72, 280-296).", "item_was_correct_guidance": "no", "followed": "partly", "caused_or_contributed_to_error": "possibly", "notes": "The actor cited no L-ids. The FFO-3 search at [1]-[10] shows it followed the agency-outlays lesson into a table family that does not cover 1955. The 'as printed, adding is the trap' heuristic from a different table points toward single-cell answers when transferred, but the visible reasoning at [30] is about how the benchmark was built, not about that lesson."},
+      "remedies": [
+        {"level": "CONTROL", "intervention": "When the actor itself states two candidate answers along with a semantic preference, run a short reviewer pass (or 3-sample self-consistency) that picks the candidate the question text supports. Disallow tie-breaks based on guesses about how the key was generated.", "generality": "domain_general", "confidence": "medium", "why": "2 of 3 independent arms chose the sum, so a vote would have been right. The arm's own [30] text shows it preferred the sum on semantic grounds before overriding itself."},
+        {"level": "TEXT", "intervention": "Add: 'Answer the question as worded; never pick between readings by guessing how the answer key was produced. When an entity named in the question is split into sub-columns under one parent header, its amount is the sum of those sub-columns; rank peers on the same basis.'", "generality": "document_qa_general", "confidence": "medium", "why": "The failure was a deliberate interpretive choice driven by a speculative argument, and the learner's post-hoc lesson targets exactly this. But this arm reads a ~99 KB context and cited no lesson, so how noticeable the text would be is uncertain."},
+        {"level": "STATE", "intervention": "Keep per-table memory retrieved by table name, e.g. 'Expenditures by Agencies: Defense Department = sum of its sub-columns; by-agency tables start Aug 1956'.", "generality": "officeqa_specific", "confidence": "medium", "why": "It would have prevented both the FFO-3 detour and the single-column choice, but only for this table family."}
+      ]
+    },
+    "cards": {
+      "correct": true,
+      "error_bin": null,
+      "right_arms_note": "It found Table 2 in the 1959_12 printing ([38]-[39]), checked later printings through 1962_12 for revisions ([41]-[52]), and summed Military + Civil functions in a script ([54]) without second-guessing the grader."
+    }
+  },
+  "right_arms_note": "none and cards took the same table and summed the Defense sub-columns because the question says 'Department'. Neither speculated about how the key was generated. The prompt arm reached the same sum at [30], then overrode it with a guess that answers are single cells.",
+  "text_vs_mechanism": "Text could plausibly fix this: the error was a deliberate reading chosen on a speculative argument, and a lesson on parent-header sums plus 'do not guess how the key was built' addresses it directly. But the prompt arm had no applicable text at the time, and it overrode its own correct semantic reading, so a lightweight CONTROL (self-consistency, or a reviewer that disallows grader-guessing tie-breaks) is the more robust fix.",
+  "notes": "The same 'guess how the benchmark key was built' failure appears in Q17 (none arm, raw OCR vs corrected). It is a general pattern worth a dedicated guard. Both right arms submitted the value with a currency sign and a 'million' suffix and were graded correct; the prompt arm submitted a bare number. So the format rule 'bare number' did not matter here, but the content did. After this episode the prompt learner wrote a lesson that contains this question's resolution, which shows text lessons arrive only after the failure (reactively)."
+}

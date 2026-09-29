@@ -1,0 +1,63 @@
+{
+  "ordinal": 9,
+  "task_id": "UID0117",
+  "question_type": "z-score (sample SD) of one year's maturity total within a 5-year series, each value read from a different year's end-of-February PDO-1 maturity schedule (two-panel OCR table)",
+  "skills_required": ["locate_issue", "locate_table", "read_flattened_table", "multi_value_extraction", "date_or_period_logic", "formula_stats", "rounding_format"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "Five values, one per year Y=1972..1976, each the calendar-year-Y 'Total' row of the schedule outstanding at end of February of that same year Y; use the printed Total ('as reported'), sample SD (n-1), signed result rounded to 3 dp.", "evidence": "opus logs/009/worklog.md:6-10"},
+    {"stage": "locate_table", "decision": "Identified Table PDO-1 'Maturity Schedule of Interest-Bearing Marketable Public Debt Securities' by grepping the title in the March 1972 issue.", "evidence": "worklog.md:15-18 (treasury_bulletin_1972_03.txt:2076-2078)"},
+    {"stage": "choose_source", "decision": "Grepped every Jan-Jun issue 1972-1977 for the PDO-1 as-of line; each end-of-February snapshot appears only in that year's March issue, so no vintage choice. Explicitly noted that the March 1976 issue carries BOTH a Feb-29 and a Jan-31 PDO-1 table.", "evidence": "worklog.md:20-24"},
+    {"stage": "pick_cells", "decision": "For each year took the first calendar-year block's Total row in the left panel of the Feb-dated table, ignoring OCR-garbled year labels (1972 panel labelled 1976, 1973 Total beside a 1978 label).", "evidence": "worklog.md:26-36; calc.py:10-16"},
+    {"stage": "verify", "decision": "Cross-checked every printed Total three ways: re-sum of line items, holder split (Govt accounts + other investors + n.a. items), and PDO-3 offering amounts; explained the two OCR discrepancies (a digit error in 1974, a merged/dropped row in 1975) and kept the printed Totals.", "evidence": "worklog.md:29-36; calc.py:18-46"},
+    {"stage": "compute", "decision": "Computed mean, statistics.stdev (sample), z for 1972 in calc.py; population-SD alternative computed and rejected.", "evidence": "worklog.md:38-48; calc.py:48-54"},
+    {"stage": "round_format", "decision": "Rounded z to 3 decimals, keeping the negative sign.", "evidence": "worklog.md:43"}
+  ],
+  "opus_key_moves": [
+    "Enumerated the PDO-1 as-of date of every candidate issue and noticed the March 1976 issue carries two PDO-1 tables (Feb 29 and Jan 31), so values were tied to the Feb-dated table only.",
+    "Read each year's table separately and anchored the chosen Total to the first calendar-year block of the Feb-dated table, not to OCR year labels.",
+    "Verified each Total against the holder split / item re-sum / PDO-3 offerings before computing."
+  ],
+  "arms": {
+    "none": {
+      "correct": true,
+      "error_bin": null,
+      "right_arms_note": "Read each March-issue PDO-1 table in its own call starting at the table header ([47] 1974, [49] 1975, [51] 1976), so the current-year Total a few rows below the header stayed inside the visible head of each output, and it took each first left-panel Total ([48],[50],[52])."
+    },
+    "prompt": {
+      "correct": false,
+      "error_bin": "5-25pct",
+      "first_divergence": {
+        "stage": "CELL_SELECTION",
+        "glm_step": "[42]",
+        "what_glm_did": "Kept the correct 1972-1974 Totals but, for 1975, took the Total of the SECOND calendar-year block (calendar 1976) of the Feb-28-1975 schedule (1975_03 line 1998 instead of 1987), and for 1976 took the first-block Total of the Jan-31-1976 PDO-1 table (1976_03 line 2091, under the header at 2062-2066) instead of the Feb-29-1976 table (line 2007). The resulting z-score is ~9% smaller in magnitude than Opus's.",
+        "what_opus_did": "Took the first calendar-year block's Total of the Feb-dated table in each March issue (1975_03:1987, 1976_03:2007), after listing both PDO-1 tables in the March 1976 issue.",
+        "why_glm_went_that_way": "The correct rows were never in the model-visible output. Codex truncated every multi-table dump to ~10 KB head+tail (verified in api/020/request.json: outputs for [32], [36], [41] carry 'Warning: truncated output' and '...N chars truncated...'; neither 1975_03:1987 nor 1976_03:2007 appears in any visible output). The visible tails happened to contain the wrong Totals: [41]'s tail began inside the calendar-1976 block of the 1975 schedule (after the 1975 Total), and the tails of [32]/[36] began just after the Feb-29-1976 table's 1976 Total and ran on into the Jan-31-1976 table. GLM noticed ('Output truncation combined 1975' at [42]) but guessed ('1975 current total likely ... from line 1998'; '1976 current total from table at line 1984: line 2091?') instead of re-reading. The line-number evidence contradicted the 1976 attribution: [34] had already listed the second PDO-1 header at 1976_03:2062 (Jan 31), which lies between 1984 and 2091, and the Jan-31 header line was visible in the same truncated output as the wrong Total ([32]).",
+        "consequence": "Two of the five inputs were too large (a next-year block Total and a different snapshot's Total), inflating the mean and SD, so the 1972 z-score shrank toward zero and missed the 3-decimal target."
+      },
+      "secondary_errors": [
+        {"stage": "SOURCE_TABLE", "glm_step": "[42]", "note": "The 1976 value came from the wrong snapshot table (Jan 31, 1976) inside the right issue; this is a table/as-of-date error rather than a row error."},
+        {"stage": "OPERATIONAL", "glm_step": "[32],[36],[41]", "note": "Dumped several 70-120-line tables per call; each output exceeded the ~10 KB model-visible limit and was head/tail truncated, hiding exactly the rows needed."},
+        {"stage": "OTHER", "glm_step": "[39]", "note": "Its 'targeted' grep filter required the substring '| 197' on Total rows; the needed left-panel Total rows begin '| Total |' and carry 198x labels, so the filter printed none of the 1974-1976 Totals it was built to find."},
+        {"stage": "OTHER", "glm_step": "[45]", "note": "Planned to 'verify values' but only re-checked the interpretation, then committed; no per-value provenance or item re-sum check."}
+      ],
+      "saw_correct_evidence": {"value": "partial", "where": "Visible: the correct 1972 ([32]/[39]), 1973 ([39]) and 1974 ([41]) Totals and the Feb-dated table headers for 1975/1976 ([34]). Never visible: the correct 1975 Total (1975_03:1987) or 1976 Total (1976_03:2007); both were only in the truncated middles of [36]/[41] and [32]/[36] (checked against api/020/request.json)."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[42] 'Output truncation combined 1975', 'likely', 'line 2091?'; [45] 'Need ensure values ... Let's verify' (not acted on)."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "mild", "tool_friction": "rg blocked ([3]-[4]); heredoc temp-file failure ([6]-[7]); officeqa API shape errors ([10],[15],[17],[28]); ~10 KB head/tail truncation of large table dumps ([32],[36],[41])", "notes": "Fast run (95 s, 20 requests); the error is not a budget problem but committing values guessed from truncated output."},
+      "adapter_context": {"relevant_item": "Procedure self-checks 1 (name the vintage), 3 (count extracted cells), 6 (commit as soon as a candidate number exists); no PDO-1 lesson existed yet (L-pdo1-maturity-total-rows was written from this very failure, see notes)", "item_was_correct_guidance": "partly", "followed": "partly", "caused_or_contributed_to_error": "possibly", "notes": "Self-check 3 (count cells) was satisfied (5 values) but does not check provenance. Self-check 6 ('commit as soon as a candidate number exists') matches the behaviour at [45]-[46]: it committed right after the first computation without resolving its own 'likely'/'?' hedges."},
+      "remedies": [
+        {"level": "CHECK", "intervention": "Cell-provenance check before commit: every input value must be cited as file:line, and the checker verifies (a) the line contains the value, (b) the line lies between the header of the table whose as-of date matches the question (here 'Outstanding February 28/29, Y') and the next table header, and (c) the line was actually shown to the model (not in a truncated span).", "generality": "document_qa_general", "confidence": "high", "why": "Both bad cells fail (b) mechanically: line 2091 sits under the 'Outstanding January 31, 1976' header at 2062-2066, and neither 1987 nor 2007 was ever shown; GLM already cited line numbers in [42], so the check needs no new behaviour from the actor."},
+        {"level": "TOOL", "intervention": "A table-extractor call (e.g. get_table(file, header_line) -> as-of date + list of {section label, rows, Total}) or at minimum a paged read that never silently head/tail-truncates (returns 'N more lines, call again with offset').", "generality": "document_qa_general", "confidence": "high", "why": "The none and cards arms were right only because their one-table-per-call reads happened to fit the head of the truncated output; the failure is caused by output shape, not by reasoning."},
+        {"level": "CONTROL", "intervention": "When the actor's own reasoning marks a value as 'likely'/'?' or mentions truncation, block commit until that value is re-read with a narrow call.", "generality": "domain_general", "confidence": "medium", "why": "GLM explicitly flagged the truncation and the guessed values at [42] and still committed at [46]."},
+        {"level": "TEXT", "intervention": "Lesson: PDO-1 two-panel tables: the year-Y value is the first Total of the left panel of the Feb-dated table; the March issue can carry two PDO-1 tables (Feb and Jan).", "generality": "officeqa_specific", "confidence": "low", "why": "The actor already reasoned correctly about the panel layout for 1972-1974 ([40]); its error came from invisible rows, which text cannot fix."}
+      ]
+    },
+    "cards": {
+      "correct": true,
+      "error_bin": null,
+      "right_arms_note": "Hit the same truncation ([49] 'Output mixed/truncated', [51] 'Output truncated for 1974/75. Need targeted') but responded by re-reading each table separately ([52] 1974, [54] 1975 lines 1966-2055, [56] 1976 lines 1983-2060) before extracting; deck had no cards yet."
+    }
+  },
+  "right_arms_note": "none and cards read one Feb-dated PDO-1 table per call from its header, so the needed first-block Total was visible; cards explicitly re-read after noticing truncation. The prompt arm read several tables per call, lost the rows to head/tail truncation, and filled the gaps from whatever Total rows were visible in the tails.",
+  "text_vs_mechanism": "Mechanism. The prompt arm's interpretation and layout reasoning were correct and it even noticed the truncation; the error came from values that were never on screen, which a provenance CHECK or a non-truncating table TOOL catches reliably, while more text (the learner's later PDO-1 lesson) would at best make the actor more suspicious.",
+  "notes": "The learner later wrote L-pdo1-maturity-total-rows from this episode (visible in later prompt-arm contexts, e.g. runs/adapted/066/workspace/AGENTS.md:370-384); it describes the symptom ('never take an adjacent year's Total') but not the cause (silent 10 KB head/tail truncation of multi-table dumps). Harness-design point: Codex's truncation is not visible in the aggregated_output recorded in events.jsonl; the api/NNN/request.json files show what the model actually saw and should be used when diagnosing 'saw the evidence?' questions."
+}

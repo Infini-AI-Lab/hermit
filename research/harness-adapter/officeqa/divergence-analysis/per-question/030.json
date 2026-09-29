@@ -1,0 +1,59 @@
+{
+  "ordinal": 30,
+  "task_id": "UID0224",
+  "question_type": "Mean of three monthly bond-yield values read from a flattened multi-panel (stacked year blocks) monthly-series table",
+  "skills_required": ["locate_table", "pick_vintage", "read_flattened_table", "multi_value_extraction", "date_or_period_logic", "multi_step_arithmetic", "rounding_format"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "'Calendar months' -> the Monthly series (monthly average of daily yields), High-grade corporate bonds column; simple mean of three values; round to 2 decimals; flagged monthly-vs-weekly and vintage as the ambiguities up front.", "evidence": "worklog.md:9-12"},
+    {"stage": "choose_source", "decision": "Table 'Average Yields of Long-Term Treasury and Corporate Bonds' appears in almost every 1942-1946 issue.", "evidence": "worklog.md:14-17"},
+    {"stage": "locate_table", "decision": "Read the Jan 1945 continuation table, noting its OCR rows are misaligned and some year labels are garbage (e.g. a bogus 1947 label); read the corporate cells for all three months there, and read the article on the Nov 1, 1944 composition change.", "evidence": "worklog.md:19-30; treasury_bulletin_1945_01.txt:3957-3959, 4038, 4044, 4049"},
+    {"stage": "verify", "decision": "Cross-checked each December value in the issue where it is the most recent printed row (Dec 1942 in 1943_01, Dec 1943 in 1944_01) and in 1944_12: identical corporate values, so no vintage choice and no row-shift risk.", "evidence": "worklog.md:32-36; treasury_bulletin_1943_01.txt:3497; treasury_bulletin_1944_01.txt:3305"},
+    {"stage": "pick_cells", "decision": "Nov 1944: took the table value (new composition) printed identically in 8+ later issues; rejected the footnote's old-composition figure and a Feb 1945 OCR slip.", "evidence": "worklog.md:38-46; treasury_bulletin_1945_03.txt:3647, 3689"},
+    {"stage": "verify", "decision": "Checked 1947-1955 printings for monthly restatements: only annual averages, no revision.", "evidence": "worklog.md:48-51"},
+    {"stage": "compute", "decision": "calc.py mean of the three cited values, half-up rounding to hundredths; alternative with old-composition Nov 1944 recorded, not chosen.", "evidence": "worklog.md:53-56; calc.py"}
+  ],
+  "opus_key_moves": [
+    "Anchored each month to its year by reading it in the issue where it is the latest printed row (first publication) and confirming the same cell in the later labelled table, so OCR row misalignment could not shift the year",
+    "Resolved the Nov 1944 composition-break footnote and a one-issue OCR outlier by checking 8+ printings"
+  ],
+  "arms": {
+    "none": {
+      "correct": false,
+      "error_bin": "within_1pct",
+      "first_divergence": {
+        "stage": "CELL_SELECTION",
+        "glm_step": "[11]-[15]",
+        "what_glm_did": "Read Dec 1942 and Dec 1943 from the March 1944 issue's continuation table (treasury_bulletin_1944_03.txt:4015-4042), a flattened 3-panel table in which the right panel's 1943-Jan row is missing (its label slid into the middle panel at :4031, so the right panel jumps from 'Dec.' at :4030 to 'Feb.' at :4031). It assumed a continuous one-row-per-month run, then took the 'Dec.' row at :4041 as Dec 1942 (it is Dec 1943) and the row labelled '1944-Jan.' at :4042 as Dec 1943.",
+        "what_opus_did": "Read each December from the issue where it is the latest printed row (1943_01:3497, 1944_01:3305) and confirmed the same cells in the clearly block-labelled 1945_01 table (:4044, :4038).",
+        "why_glm_went_that_way": "At [15] it inferred the panel layout from the first data row and enumerated line numbers month by month (its own enumeration put Dec 1942 at :4030), but then wrote 'line 4041 ... third group Dec (continuing 1942)'. It noticed the '1944-Jan' label on the row it wanted for Dec 1943 ('Wait third group date 1944-Jan, so Dec 1943 is previous row? Need mapping.') and overrode the printed label with its positional count. Issue choice at [11] was 'likely table includes 1942-44' from a search hit, not a vintage decision.",
+        "consequence": "Dec 1942 got the Dec 1943 value and Dec 1943 got the Jan 1944 value; the mean is ~1% below the reference (Nov 1944, read correctly from 1945_01 at [17], was right)."
+      },
+      "secondary_errors": [
+        {"stage": "OTHER", "glm_step": "[17]-[19]", "note": "No verification: the 1945_01 output at [17] already contained the correctly labelled Dec 1942 and Dec 1943 rows, but it used that read only for Nov 1944 and committed at [19] (10 requests, 39 s) without cross-reading any cell in a second issue."}
+      ],
+      "saw_correct_evidence": {"value": "yes", "where": "[14] output included the correct Dec 1942 row (1944_03:4030) and the correct Dec 1943 row (1944_03:4041); [17] output included both in the labelled 1945_01 table (:4044 in the 1942 block, :4038 in the '1943-Jul' block)."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[15] 'Wait third group date 1944-Jan, so Dec 1943 is previous row? Need mapping.' then resolved it by positional counting."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "none", "tool_friction": "rg blocked [2]; heredoc temp-file failure [4]; search printed only dict keys [6]; helper read outputs clipped", "notes": "Fast, under-verified commit: 10 requests, 39 s, one read per value."},
+      "adapter_context": {"relevant_item": "n/a", "item_was_correct_guidance": "n/a", "followed": "n/a", "caused_or_contributed_to_error": "n/a", "notes": "Base instructions only; the prompt arm's flattened-multi-panel convention (anchor panels to printed year/date labels via an adjacent labelled vintage) would have applied directly."},
+      "remedies": [
+        {"level": "CHECK", "intervention": "Cited-cell label check: each extracted value must be cited with its printed row label and panel header; a checker verifies the printed month/year label equals the requested period (and flags a row labelled with a different month/year).", "generality": "document_qa_general", "confidence": "high", "why": "The row it used for Dec 1943 is printed '1944-Jan.' and the actor itself noticed it at [15]; a mechanical label match would have rejected that row."},
+        {"level": "CHECK", "intervention": "Cross-vintage agreement check: re-extract every cell from a second issue (ideally the first-publication issue where the month is the last printed row) and require agreement before commit.", "generality": "officeqa_specific", "confidence": "high", "why": "The second read already existed in its own output at [17] (1945_01), where both Decembers are in clearly labelled blocks and disagree with its picks."},
+        {"level": "TEXT", "intervention": "Convention: 'Flattened multi-panel tables: anchor every panel to its printed year/date labels, never count rows; prefer the issue where the month is the most recent printed row or a clearly labelled vintage.'", "generality": "document_qa_general", "confidence": "medium", "why": "The prompt arm had this exact convention (flattened multi-panel / AY-1 anchoring) and read the labelled 1945_01 table plus a later vintage; but the cards arm got it right without text, so the text's causal role is suggestive, not proven."},
+        {"level": "CONTROL", "intervention": "Minimum verify stage before commit (at least one independent re-read per extracted cell).", "generality": "domain_general", "confidence": "medium", "why": "The run committed after 10 requests with zero cross-checks; the two right arms both spent their extra steps on later-vintage confirmation."}
+      ]
+    },
+    "prompt": {
+      "correct": true,
+      "error_bin": null,
+      "right_arms_note": "Went straight to the Jan 1945 table ([15]-[17]) whose year blocks are labelled, announced it was 'anchoring the AY-1 yield panels by year and column header' ([5], following its flattened-multi-panel convention), then confirmed all three cells in the latest carrier 1948_02 ([21]-[30]) and noticed the Nov 1944 composition footnote ([26])."
+    },
+    "cards": {
+      "correct": true,
+      "error_bin": null,
+      "right_arms_note": "Read all three months from the Jan 1945 table ([13]-[16]), then checked later issues (1945_02 OCR outlier and composition footnote [20]-[27], 1945_03 [28]-[29], 1945_12/1946_12/1947_07 [30]-[35]) and kept the table value; no card applied (it noted C003 is for outlays at [13])."
+    }
+  },
+  "right_arms_note": "Both right arms read the three cells from the Jan 1945 table, whose panels carry explicit year labels, and then confirmed them in later printings; the none arm instead picked the March 1944 table (row missing in one panel), counted rows instead of trusting printed labels, and never cross-read a second issue.",
+  "text_vs_mechanism": "Text plausibly suffices: the prompt arm had a directly relevant flattened-multi-panel anchoring convention and succeeded, though the cards arm also succeeded without it. A cheap mechanism (printed-label-equals-requested-period check, or second-issue agreement) would have caught this deterministically, since the correct cells were already in the none arm's own outputs.",
+  "notes": "Classic flattened-panel failure: OCR drops or displaces one label row, so positional month counting shifts by a row while printed labels remain correct. The actor noticed the conflicting label and chose its count over the label - a harness should make the printed label authoritative. Choosing the issue in which the target month is the latest row (or a clean later labelled vintage) avoids most multi-year-panel misalignment."
+}

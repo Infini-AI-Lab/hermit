@@ -1,0 +1,19 @@
+{
+  "ordinal": 83,
+  "task_id": "UID0226",
+  "issue47": false,
+  "question_type": "Population standard deviation of three January-31 stock values of public debt subject to the statutory debt limit",
+  "opus_divergence": {
+    "stage": "CELL_SELECTION",
+    "what_opus_did": "Used the Table 1 'Status under Limitation' row 'Total amount of securities outstanding subject to statutory debt limitation' (public debt subject to the limit plus guaranteed securities) from the March 1953/1954/1955 issues. Its reasons: this is the headline figure and the only subject-to-limit time series (it appears in the summary table), and the question writer had paraphrased 'amount of securities' as 'public debt'.",
+    "what_right_glm_did": "All three arms used Table 2 'Application of Limitation to Public Debt and Guaranteed Securities', row 'Total public debt', column 'Subject to statutory debt limitation' (excludes guaranteed securities). The row label plus column header reproduces the question's phrase literally. They used the same issues and the same population-SD formula as Opus.",
+    "evidence": "Opus worklog Step 7; solution.json decisions[0]; treasury_bulletin_1953_03.txt:1409 (Opus) vs :1448 (GLM), and likewise 1954_03:892 vs :931 and 1955_03:964 vs :1001. GLM prompt [9] first took the Table 1 total, then at [11]-[15] reparsed the phrase and switched to the 'Total public debt' row and 'Subject' column. GLM cards [16], [20] and [30] made the same literal parse. GLM none [17]-[18] grepped the literal string 'Total public debt' and took that row."
+  },
+  "opus_confidence": "medium-high",
+  "reviewer_flag": "Verdict UNCERTAIN. No concrete error. The reviewer explicitly noted that the question's 'total public debt ... subject to statutory debt limitation' matches the Table 2 row and column literally, and computed that alternative, but kept the Table 1 headline total as 'most likely'.",
+  "right_glm_arms": ["none", "prompt", "cards"],
+  "right_by_principled_choice_or_luck": "Principled for prompt and cards. Both explicitly weighed 'includes guaranteed securities' against the 'Total public debt' row and chose the literal row-and-column match; prompt reversed its own first pick at [11]-[15]. none's choice was a literal grep match at [17] without weighing the alternative, so it was partly a default.",
+  "wrong_glm_arms_same_as_opus": "n/a: all three GLM arms were right. cards also correctly declined card C021, which says to take the Total outstanding column of the Application of Limitation table, because the question asks for the subject-to-limit amount ([16]).",
+  "lesson_for_harness": "Prefer a literal label match (a row label and column header that together reproduce the question's noun phrase) over a 'headline figure' or 'the question writer paraphrased' argument. Opus's inference that 'public debt' paraphrased 'amount of securities' overrode an exact match that existed in the same section. A cheap CHECK: score each candidate cell by token overlap between the question phrase and its row label plus column header, and require an explicit written justification before choosing a lower-overlap candidate. For the GLM actor, literal matching is already its default, so this is mainly a guard for reviewer or second-pass logic that might 'correct' it.",
+  "notes": "The graded answer is the alternative that Opus and its reviewer both computed. The relative gap is about 0.13%. As in Q50, Opus's error is interpreting question wording away from its most literal reading, and GLM's shallow literal matching was an advantage. A reviewer pass that surfaces the right alternative but has no tie-break rule does not help. The tie-break rule (literal match wins) is the missing piece."
+}

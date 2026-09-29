@@ -1,0 +1,57 @@
+{
+  "ordinal": 58,
+  "task_id": "UID0184",
+  "question_type": "arithmetic mean of one column over all rows of a two-halves market-quotations table on a pinned date",
+  "skills_required": ["locate_issue", "locate_table", "read_flattened_table", "multi_value_extraction", "formula_stats", "multi_step_arithmetic", "rounding_format"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "'average yields' = the table's Yield > Mean column; 'all available entries' = every debenture row across BOTH side-by-side halves; one percent value to 2 dp.", "evidence": "opus logs/058/worklog.md:5-9"},
+    {"stage": "choose_source", "decision": "Grepped the date; only treasury_bulletin_1948_03.txt carries 'MARKET QUOTATIONS, JANUARY 30, 1948' (month-end quotes printed ~2 months later); a full-corpus grep confirmed a single printing.", "evidence": "worklog.md:14-17"},
+    {"stage": "locate_table", "decision": "Section II Table 1 'Debentures: Federal Intermediate Credit Banks (Taxable)'.", "evidence": "worklog.md:19-23 (1948_03:2168-2172)"},
+    {"stage": "pick_cells", "decision": "Rows 2174-2179: 6 entries in the left half + 5 in the right half; checked each Mean equals (Bid+Ask)/2 so the OCR columns are not shifted.", "evidence": "worklog.md:24-32"},
+    {"stage": "verify", "decision": "Ruled out the Feb and Apr 1948 issues (different quotation dates); sanity-checked outstanding amounts.", "evidence": "worklog.md:34-38"},
+    {"stage": "compute", "decision": "calc.py re-parses the rows, asserts they match the hard-coded list, computes the mean in code; sensitivity with unrounded midpoints gives the same 2-dp result.", "evidence": "worklog.md:40-43; calc.py:27-48"}
+  ],
+  "opus_key_moves": [
+    "Included both side-by-side halves of the table (all 11 entries)",
+    "Computed the mean in a script that re-parses and asserts the cited cells, instead of by hand"
+  ],
+  "arms": {
+    "none": {
+      "correct": false,
+      "error_bin": "5-25pct",
+      "first_divergence": {
+        "stage": "ARITHMETIC",
+        "glm_step": "[38]",
+        "what_glm_did": "Listed all 11 correct Mean-yield cells, then summed them mentally in its THINK; the subtotal for the 6 left-half values is off by exactly one whole percentage point (a digit/carry slip), so the mean is about 7% low.",
+        "what_opus_did": "Summed and averaged the same 11 cells in calc.py with an assert against the re-parsed table.",
+        "why_glm_went_that_way": "No visible reason. It had used `python -c` successfully for every corpus read ([7]-[37]) but did the final 11-number sum in prose right before answering; the base instructions do not ask for computation in code.",
+        "consequence": "Correct table, correct cells, correct entry count, wrong sum, so the mean is about 7% low."
+      },
+      "secondary_errors": [],
+      "saw_correct_evidence": {"value": "yes", "where": "[37]-[38]: read 1948_03 Section II Table 1 and enumerated all 11 correct Mean values (6 left + 5 right)."},
+      "glm_expressed_doubt": {"value": "no", "where": "[38] only re-checked the entry count ('yes 11'), not the arithmetic."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "none", "tool_friction": "rg not permitted [3]; heredoc temp-file failure [5]; python -c quoting error [14]; read num_lines>150 error [22]; helper output clipped mid-table [36] (re-read with a narrower window)", "notes": "65 s, 19 requests; first looked in the Feb 1948 issue ([17]-[29]) and self-corrected to March at [30]."},
+      "adapter_context": {"relevant_item": "n/a", "item_was_correct_guidance": "n/a", "followed": "n/a", "caused_or_contributed_to_error": "n/a", "notes": "Base instructions only; nothing asks for computation in code."},
+      "remedies": [
+        {"level": "CONTROL", "intervention": "Compute-in-code stage: the committed number must be the printed output of an executed command over the listed cells; a final answer that does not appear in any command output is bounced back.", "generality": "domain_general", "confidence": "high", "why": "Python was working all episode; the only error is the mental sum. Both adapter arms computed the same 11 values with awk/python and were right."},
+        {"level": "CHECK", "intervention": "Recompute-from-cited-cells: the actor emits the cell list and the aggregation name; the harness recomputes and flags a mismatch with the submitted value.", "generality": "domain_general", "confidence": "high", "why": "The cell list at [38] is complete and correct, so a recompute would have caught a 7% discrepancy."},
+        {"level": "TEXT", "intervention": "'Never do multi-number arithmetic mentally; run it in python (heredocs fail, use python -c or a script file).'", "generality": "domain_general", "confidence": "medium", "why": "The cards arm had this as C019 and the prompt arm had equivalent python lessons; both followed them here ([28]-[29] cards, [13]-[15] prompt). Adherence is not guaranteed (see Q11 prompt arm), so CONTROL is more robust."}
+      ]
+    },
+    "prompt": {
+      "correct": true,
+      "error_bin": null,
+      "right_arms_note": "Same source and cells; at the arithmetic step it first tried python3 [13] (xcode-select shim failed) and then computed the mean with awk over the 11 values [15]. It had initially counted only 5 left-half rows at [12] but recounted before computing.",
+      "adapter_context": {"relevant_item": "python-usage lessons (e.g. L-python-c-not-heredoc) and several 'count in python; do not eyeball' notes", "item_was_correct_guidance": "yes", "followed": "yes", "caused_or_contributed_to_error": "no", "notes": "No FICB-debenture-specific lesson was needed."}
+    },
+    "cards": {
+      "correct": true,
+      "error_bin": null,
+      "right_arms_note": "Same source and cells; it recounted the entries at [27] (initially thought 9) and followed C019, writing calc.py via printf and running it with python [28]-[29].",
+      "adapter_context": {"relevant_item": "C019 (compute any multi-number aggregation in a python script file; never mentally); C006 (market-quotations timing, not directly applicable: quotes here appear two months later)", "item_was_correct_guidance": "yes", "followed": "yes", "caused_or_contributed_to_error": "no", "notes": "[7] explicitly cites the card ('Card says heredocs fail, write script file')."}
+    }
+  },
+  "right_arms_note": "Both right arms found the same table and the same 11 cells as the wrong arm. The only difference is that they computed the mean with a tool (prompt: awk after python3 failed; cards: a python script per C019) instead of in their reasoning text.",
+  "text_vs_mechanism": "Here text was enough: both arms with a 'compute in code' instruction complied and were right, and the arm without it did the sum in its head and was wrong. But in Q11 the prompt arm ignored the same kind of guidance, so a CONTROL gate (answer must come from executed output) or a recompute CHECK is the reliable version.",
+  "notes": "Clean single-cause failure: every retrieval decision matched Opus and only mental arithmetic failed. The sandbox has a broken python3 shim (xcode-select) while `python` works; prompt and cards arms both hit it in other questions. The harness should name one working calculator command in the base instructions."
+}

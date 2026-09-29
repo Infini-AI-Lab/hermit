@@ -1,0 +1,77 @@
+{
+  "ordinal": 16,
+  "task_id": "UID0100",
+  "question_type": "Average YoY growth plus log-linear OLS (slope, intercept on a fiscal-year index) of one agency's annual outlays, FY2007-FY2013, stitched from several issues",
+  "skills_required": ["locate_issue", "pick_vintage", "locate_table", "read_flattened_table", "multi_value_extraction", "date_or_period_logic", "formula_finance", "formula_stats", "multi_step_arithmetic", "rounding_format"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "Mapped 'total on-budget and off-budget outlays' for the Judicial Branch to the FFO-3 table 'On-Budget and Off-Budget Outlays by Agency', column 'Judicial branch (2)', millions; 7 fiscal years -> 6 YoY rates, arithmetic mean (not CAGR); flagged the fiscal-year-index origin (0, 1 or calendar year) as an ambiguity affecting only the intercept.", "evidence": "worklog.md:8-12"},
+    {"stage": "choose_source", "decision": "No issue pinned -> latest published vintage. Noticed each FFO-3 printing carries only 5 actual fiscal years, so FY2007/FY2008 must come from earlier issues.", "evidence": "worklog.md:12, 22-26; treasury_bulletin_2013_12.txt:736-746"},
+    {"stage": "locate_table", "decision": "Grepped case-insensitively for 'judicial' (the table uses lowercase 'Judicial branch'), found the FFO-3 header and a separate FFO-4 'Judicial branch' row.", "evidence": "worklog.md:14-20"},
+    {"stage": "extract", "decision": "Looped over every issue 2007_03..2016_12, pulled the Judicial column from FFO-3 annual rows, tabulated first prints vs revised values per year and took the stable latest revision for each year.", "evidence": "worklog.md:28-38"},
+    {"stage": "pick_cells", "decision": "Explicitly rejected FFO-4 'Summary of Receipts by Source and Outlays by Agency' (Total funds column), whose FY2013 Judicial cell differs from FFO-3 by one unit (fund-group sum rounding), because FFO-3's title matches the question wording.", "evidence": "worklog.md:40; solution.json:14"},
+    {"stage": "compute", "decision": "calc.py asserts every hard-coded cell against the corpus line it cites, then computes the mean YoY and OLS for all three index conventions in one run; chose t=1..7 (FY2007=1).", "evidence": "calc.py:19-38; worklog.md:42-49, 57-58"},
+    {"stage": "verify", "decision": "Sensitivity analysis (first-print vintage, FFO-4 value, CAGR) plus an adversarial reviewer that re-opened the source lines and recomputed in pure Python.", "evidence": "worklog.md:51-55; review.md:5-15"}
+  ],
+  "opus_key_moves": [
+    "Chose FFO-3 because its title literally matches the question phrase and explicitly rejected the FFO-4 'Total funds' cell that differs by one unit in FY2013",
+    "Computed every convention (index origin 0/1/year, first-print vs revised) in one script that also asserted each cited cell, so the chosen convention and number could not drift apart",
+    "Committed once after a single scripted computation and an independent review"
+  ],
+  "arms": {
+    "none": {
+      "correct": true,
+      "error_bin": null
+    },
+    "prompt": {
+      "correct": false,
+      "error_bin": "within_1pct",
+      "first_divergence": {
+        "stage": "OPERATIONAL",
+        "glm_step": "[33]-[169]",
+        "what_glm_did": "Had the correct FFO-3 series and the correct candidate (1-based index, printed by its own script at [26], chosen at [27]), but did not commit. It entered a 3-command cycle (read 2012_09 lines 680-750, FTS search for the phrase 'fiscal year index', FTS search for 'TABLE FFO-3 Judicial branch') repeated ~23 times each, until the Codex context was compacted ([169]). After compaction it re-verified from a handoff note: heredoc failed [172], the relative corpus path was wrong [172], python3 hit the Xcode shim [177], so it hand-wrote an awk OLS at [180] using x=i-1 (a 0-based index) while its reasoning at [178] said the index is 1..7. At [181] it noticed the awk intercept disagreed with the handoff's (correct) value and resolved the conflict by mental arithmetic that mis-estimated the mean of ln(outlays), 'confirming' the buggy awk value.",
+        "what_opus_did": "Computed all index conventions in one asserted script, picked 1-based, and committed after review; no repeated actions, no recomputation outside the script.",
+        "why_glm_went_that_way": "No visible reason for the loop: the repeated THINK lines ([33]/[35]/[37] ...) are verbatim copies, i.e. degenerate repetition rather than a deliberate search. After compaction, the model trusted a fresh (buggy) recomputation over its own pre-compaction result ('Handoff says ... maybe error' at [181]).",
+        "consequence": "Submitted the 0-based intercept (shifted by exactly one slope unit, ~0.3% off) with the correct YoY and slope; 587 s, 91 requests, 10.7 M input tokens."
+      },
+      "secondary_errors": [
+        {"stage": "ARITHMETIC", "glm_step": "[180]-[181]", "note": "Proximate cause: awk loop set x=i-1 (0..6) although the stated convention was 1..7; the mental cross-check at [181] claimed '1..7 gives' the awk value, based on a wrong estimate of the mean of the logs. A script printing both conventions side by side would have exposed it."},
+        {"stage": "OPERATIONAL", "glm_step": "[172], [177]", "note": "Post-compaction tool friction: heredoc temp-file denial, relative corpus path that does not exist in the workspace, python3 Xcode shim; this pushed it to ad-hoc awk."}
+      ],
+      "saw_correct_evidence": {"value": "yes", "where": "[16]-[20] FFO-3 annual rows in 2016_09/2012_12/2011_12; [26] its own script printed the correct 1-based intercept; [27] chose 1-based; the handoff note carried the correct value into [181]."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[181] 'Aha intercept differs handoff ... Which is correct?' (resolved the wrong way by mental arithmetic)."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "severe", "tool_friction": "rg not permitted, heredoc cannot create temp file, numpy missing, python3 triggers Xcode shim, post-compaction relative corpus path wrong", "notes": "Three identical commands repeated ~23 times each ([33]-[168]); one context compaction ([169]); the answer was flipped from right to wrong only after the compaction."},
+      "adapter_context": {"relevant_item": "L-ffo3-agency-outlays-vintage (FFO-3 annual rows, use latest, never '- Est'); Procedure self-check 6 ('Commit as soon as a candidate number exists'); L-silver-monetary-stock tail ('commit the best-supported candidate once, and do not loop'). No lesson on OLS index origin existed at this point.", "item_was_correct_guidance": "yes", "followed": "partly", "caused_or_contributed_to_error": "no", "notes": "The FFO-3 lesson was followed ([13], [21]) and gave the right data. The commit-early and no-loop text was present and ignored for ~135 steps. The learner later added L-ols-fiscal-year-index-1based (seen in the Q62 context), which targets a convention error; but here the actor had already chosen 1-based, so that lesson addresses a misdiagnosed cause (the real cause was loop + compaction + a code bug)."},
+      "remedies": [
+        {"level": "CONTROL", "intervention": "Repeated-action breaker: if the same shell command (normalized) runs 3 times, block it and force a commit of the current best candidate (or a reviewer turn).", "generality": "domain_general", "confidence": "high", "why": "Three commands each ran ~23 times after a correct candidate existed at [26]-[27]; breaking at the 3rd repeat (~[42]) would have committed before compaction."},
+        {"level": "STATE", "intervention": "Compaction-proof candidate ledger (value, convention, cited cells, script path) written as soon as a candidate is computed; after compaction a disagreeing recomputation must be reconciled by re-running both conventions in one script, never by mental arithmetic.", "generality": "domain_general", "confidence": "high", "why": "At [181] the handoff held the correct value; the actor overrode it with a buggy awk plus a wrong mental check."},
+        {"level": "TOOL", "intervention": "A working calculation path: a stats helper (ols(y, x) that echoes the x vector) or a writable script file runner that avoids heredoc/python3 shim failures.", "generality": "domain_general", "confidence": "medium", "why": "The awk fallback at [180] was forced by heredoc and python3 failures at [172]/[177]; an echoed x vector would have shown 0..6."},
+        {"level": "CHECK", "intervention": "Final-answer recompute check: re-run the computation from the cited cells with the convention the actor declared in its reasoning ('index 1..7') and block submission on mismatch.", "generality": "domain_general", "confidence": "medium", "why": "The declared convention at [178] and the implemented one at [180] disagreed; a convention-to-code check catches exactly this."}
+      ]
+    },
+    "cards": {
+      "correct": false,
+      "error_bin": "within_1pct",
+      "first_divergence": {
+        "stage": "SOURCE_TABLE",
+        "glm_step": "[18]-[22]",
+        "what_glm_did": "Following card C003 ('Department outlays ... Total funds column ... latest issue printing that fiscal year'), took each fiscal year from the FFO-4 'Summary of Receipts by Source and Outlays by Agency' table, prior-fiscal-year 'Total funds' column of the next December issue. At [29]-[37] it checked FFO-3, noticed the title matches the question exactly, computed the correct answer from FFO-3 at [35], then at [36]/[38] deliberately switched back to the FFO-4 FY2013 cell because 'Card directs ... Need trust card'.",
+        "what_opus_did": "Chose FFO-3 by title match and explicitly rejected the FFO-4 Total funds cell for FY2013 (one unit different due to fund-group rounding).",
+        "why_glm_went_that_way": "Card C003's 'applies when' keywords ('total outlays') matched the question; C003 has no 'Not when' clause; the deck header says to follow a matching card. [38]: 'card parenthetical Total funds column points FFO-4, not FFO-3 ... Need not consider FFO-3 ... But card explicitly says Total funds column, so not FFO-3.'",
+        "consequence": "One FY2013 value off by one unit shifted the mean YoY by one unit in the reported last decimal (~0.4% off); slope and intercept unaffected at the requested precision."
+      },
+      "secondary_errors": [],
+      "saw_correct_evidence": {"value": "yes", "where": "[31] FFO-3 annual rows 2011-2014 December issues; [35] computed the correct triple from FFO-3; [37] confirmed FFO-3's FY2013 value is stable through 2017_12."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[18] 'Question ... likely FFO-3 annual table ... But card explicitly C003 says ...'; [29] 'the question says ... which is exactly FFO-3 table title'; [36] 'So answer differs ... Card directs ... Need trust card.'"},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "none", "tool_friction": "rg not permitted, heredoc temp-file denial, numpy missing (worked around with python -c)", "notes": "88 s, 17 requests; the error was a deliberate, adapter-driven choice."},
+      "adapter_context": {"relevant_item": "C003 (outlays by agency, Total funds column, latest issue printing the fiscal year)", "item_was_correct_guidance": "no", "followed": "yes", "caused_or_contributed_to_error": "yes", "notes": "C003 was learned for a different question shape (an agency total with trust funds, FFO-4 Total funds) and its keyword trigger over-matched this FFO-3 question. After this failure the deck gained C007 (FFO-3 annual rows, latest December issue printing the year; triggers include 'judicial branch', 'fiscal year index'), visible in the Q62/Q86 decks."},
+      "remedies": [
+        {"level": "TEXT", "intervention": "Scope C003: add 'Not when: the question names the FFO-3 title (on-budget and off-budget outlays by agency) - use FFO-3 annual rows', and name the table (FFO-4) instead of the generic 'outlays-by-agency tables'.", "generality": "officeqa_specific", "confidence": "high", "why": "The actor's only reason to leave FFO-3 was the card ([36], [38]); it had already computed the right answer at [35]."},
+        {"level": "CHECK", "intervention": "Title-match check on cited sources: compare the question's noun phrase with the titles of cited tables and flag when another table's title matches the question more literally than the cited one.", "generality": "document_qa_general", "confidence": "medium", "why": "The actor itself noted at [29] that the question is 'exactly FFO-3 table title'; a check that makes this signal outrank adapter advice would have flipped the choice."},
+        {"level": "CONTROL", "intervention": "When the actor computes two candidate answers from different sources, require a reconciliation turn with a fixed precedence: literal question wording > corpus evidence > adapter advice.", "generality": "domain_general", "confidence": "medium", "why": "Both candidates existed at [35]; the tie was broken by 'trust card', the lowest-evidence tiebreaker."}
+      ]
+    }
+  },
+  "right_arms_note": "none: found FFO-3 by listing the FFO table titles in 2014_03 ([21]) after rejecting FFO-4 as 'monthly not annual' ([20]), took FY2007-FY2008 from the 2012_03 annual rows and FY2009-FY2013 from 2014_03, chose the 1-based index at [26] and committed immediately at [32] (14 requests, no loop, no adapter pulling it toward FFO-4).",
+  "text_vs_mechanism": "Cards failed because of text (an over-broad card), so a scoped card would plausibly fix it, though a title-match check is more robust. The prompt arm already had 'commit as soon as a candidate exists' and 'do not loop' as text and still looped ~135 steps into a compaction, so its failure needs mechanisms: a loop breaker/forced commit (CONTROL) and a compaction-proof candidate ledger (STATE).",
+  "notes": "Two different failure modes on one question: adapter-induced source choice (cards) and a pure episode-control failure (prompt). The prompt learner's follow-up lesson (1-based index) misattributes the cause: the actor intended 1-based and implemented 0-based after compaction. A postmortem that diffs the declared convention against the executed code would diagnose this correctly. The deck header's 'follow a matching card' plus keyword triggers makes cards act as overriding evidence; the actor treated card text as more authoritative than a literal title match it had itself observed."
+}

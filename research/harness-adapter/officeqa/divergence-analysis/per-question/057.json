@@ -1,0 +1,67 @@
+{
+  "ordinal": 57,
+  "task_id": "UID0190",
+  "question_type": "signed difference of total federal receipts for the same calendar month in two consecutive years (1938 vs 1939)",
+  "skills_required": ["locate_issue", "pick_vintage", "locate_table", "read_flattened_table", "date_or_period_logic", "rounding_format"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "Two calendar-month values, Oct 1938 and Oct 1939; 'total federal receipts' = the Receipts > Total column (budget receipts), not internal-revenue collections; flagged that the 'Monthly Treasury Statements' wording has no exact match in 1939 tables (they say 'daily Treasury statements, unrevised').", "evidence": "opus logs/057/worklog.md:5-12"},
+    {"stage": "choose_source", "decision": "Inventoried the corpus (starts 1939_01) and chose the Nov 1939 issue, the first to carry Oct 1939, whose 13-month table starts at Oct 1938 - both months in one table.", "evidence": "worklog.md:14-16"},
+    {"stage": "pick_cells", "decision": "Read Receipts > Total for '1938-Oct.' and for the bare 'Oct.' row that follows 1939-Jan..Sept (year implied by position); cross-checked against the calendar-year 'Monthly Receipts, Expenditures...' table in the same issue.", "evidence": "worklog.md:22-27 (1939_11:211, :223, :168-190)"},
+    {"stage": "verify", "decision": "Scanned every issue from late 1939 to 1942 for the two months: the gross figures are identical in every issue that prints them (never revised).", "evidence": "worklog.md:31-35"},
+    {"stage": "verify", "decision": "Found that from the Aug 1940 issue the monthly tables switch to a NET basis (total receipts less transfers to the OASI trust fund) for BOTH months; reconciled net = gross - transfer for each month using the transfer rows in 1939_11, so the lower later figures are a definition change, not a revision.", "evidence": "worklog.md:37-42, 44-49 (1940_11:192-193, :212-213; 1948_02:529)"},
+    {"stage": "choose_source", "decision": "Kept the gross basis because the question says 'total federal receipts' and Treasury itself labels the later series 'Net budget receipts'; recorded the two net-basis alternatives (each computed with both months on the same basis).", "evidence": "worklog.md:51-59; solution.json decisions"},
+    {"stage": "compute", "decision": "Subtraction in calc.py; already whole millions.", "evidence": "worklog.md:61-62"}
+  ],
+  "opus_key_moves": [
+    "Took both months from one table in one issue, so the two operands share a basis by construction",
+    "When later issues showed a different figure, checked whether the OTHER month changed in the same issue too, and reconciled both changes to a named component (OASI transfers) - identifying a definition change rather than a one-cell revision",
+    "Inventoried which issues exist before concluding where a month is (or is not) printed"
+  ],
+  "arms": {
+    "none": {
+      "correct": true,
+      "error_bin": null,
+      "right_arms_note": "Found the net-basis 1940_11 table first ([18]-[19]), then the Dec/Nov 1939 gross tables ([20]-[24]); at [25] it took both months from the Nov 1939 monthly table and explained the gap as net-of-trust-fund vs total receipts."
+    },
+    "prompt": {
+      "correct": true,
+      "error_bin": null,
+      "right_arms_note": "At [29] it explicitly considered the mixed pair (Jan 1939 gross for 1938, 1940_08 figure for 1939), then at [31] noticed the annual 1938 totals differ between the two tables (old vs new basis) and at [36]-[38] found a single table with both Octobers on the same basis; verified stability across 1940 issues at [45]."
+    },
+    "cards": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "SOURCE_ISSUE_VINTAGE",
+        "glm_step": "[28]-[35]",
+        "what_glm_did": "At [27] it already had both Octobers on the same (gross) basis: Oct 1938 from the Jan 1939 'Summary of Federal Receipts and Expenditures' ([15]) and Oct 1939 from the Jan 1940 'Summary of Receipts and Expenditures' ([27], the same column family). It then said 'checking later issues for any revisions' ([28]), read the Nov 1940 'Total Budget Receipts and Expenditures, by Months' table ([30],[33]) - which prints BOTH years on the new net-of-OASI basis - and replaced only the Oct 1939 value with the net figure, keeping the gross Oct 1938 value from the Jan 1939 issue. It submitted that mixed-basis difference at [35].",
+        "what_opus_did": "Took both months from one table (Nov 1939 issue), and when later issues showed lower numbers, checked that both months dropped in the same issue and reconciled each drop to the OASI transfer - a basis change, not a revision; kept both on the gross basis.",
+        "why_glm_went_that_way": "No reasoning is recorded between [28] and the answer (items 29-36 are commands only). The visible intent at [8] ('Need latest issue printing Oct 1938 and 1939') and [28] ('checking later issues for any revisions') is a latest-revision habit, applied per cell; the 1940_11 footnote defining the new basis was in its output at [30]/[33] but was not discussed.",
+        "consequence": "The difference subtracts a net-basis Oct 1939 from a gross-basis Oct 1938, so it also absorbs the Oct 1939 trust-fund transfer; the result is several times larger in magnitude than any consistent-basis difference (error_bin >25pct)."
+      },
+      "secondary_errors": [
+        {"stage": "SOURCE_ISSUE_VINTAGE", "glm_step": "[6], [16]", "note": "Listed only treasury_bulletin_194[01] files at [6]; at [16] asserted 'Corpus only 1939 Jan-Apr and 1940 onward' after a title grep found the old table title only in 1939_01-04. The May-Dec 1939 issues exist (Opus used 1939_11); the false belief removed the natural source that carries both months in one table."},
+        {"stage": "OPERATIONAL", "glm_step": "[34]-[35]", "note": "The python heredoc for the subtraction failed (exit 1) and it submitted a mentally computed number anyway, contrary to card C019's 'the submitted number must be a script's printed output' (harmless here, but the check point was skipped)."}
+      ],
+      "saw_correct_evidence": {"value": "yes", "where": "[15] Jan 1939 table with gross Oct 1938; [27] Jan 1940 'Summary of Receipts and Expenditures' with gross Oct 1939 (same basis); [30]/[33] Nov 1940 table showing both years on the net basis side by side."},
+      "glm_expressed_doubt": {"value": "no", "where": "Mild doubt about which table at [24] ('Oct 1939 value maybe ...? ... includes budget only?'), but none at the decisive substitution [28]-[35], where no reasoning was emitted."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "none", "tool_friction": "rg not permitted [2]; zsh '=' expansion broke an echo loop [17]; heredoc denied [34]", "notes": "Fast run (82s, 22 requests); the error is a per-cell vintage substitution, not an operational failure."},
+      "adapter_context": {
+        "relevant_item": "C009 (cited at [11]: 'Summary of Federal Receipts and Expenditures' monthly rows; its body says 'Monthly cells print unrevised and repeat identically in later issues'); C003/C007 (latest-issue rules scoped to outlays tables); C019 (script-computed answers)",
+        "item_was_correct_guidance": "partly",
+        "followed": "no",
+        "caused_or_contributed_to_error": "possibly",
+        "notes": "C009 was the closest card and its claim that monthly cells repeat unrevised was true for the gross series and would have argued against chasing a later printing; the actor instead acted on the latest-issue habit that C003/C007 teach for outlays tables ([8] 'Need latest issue printing ...'). No card warns that a later printing can carry a changed definition. C019 was not followed at [34]-[35]."
+      },
+      "remedies": [
+        {"level": "CHECK", "intervention": "Same-basis check on multi-operand answers: every operand of a difference/ratio must cite its table title + issue; if operands come from different tables or issues, require either a shared-table printing of both or an explicit reconciliation; if one operand was replaced by a later printing, re-pull the other operand from that same printing.", "generality": "document_qa_general", "confidence": "high", "why": "The 1940_11 table it used for Oct 1939 printed Oct 1938 in the same column on the same page ([30],[33]); the check would have forced a consistent pair. The prompt arm did this reasoning unaided at [29]-[31] and got it right."},
+        {"level": "TOOL", "intervention": "A 'find all printings of this row' lookup: given a series label and a period (e.g. Oct 1938, Oct 1939), return every issue's value with table title and the basis footnote, aligned so that a simultaneous shift in both periods from one issue onward is visible.", "generality": "officeqa_specific", "confidence": "medium", "why": "The change in both months happens in the same issue (Aug 1940 onward); an aligned view makes 'definition change' obvious, which the actor could not see while grepping one cell at a time."},
+        {"level": "TEXT", "intervention": "'Latest revision' means re-read BOTH operands from the same later printing; if a later issue changes several periods at once and adds a footnote about what is excluded, it is a new definition - keep all operands on one basis and prefer the basis whose label matches the question.", "generality": "document_qa_general", "confidence": "low", "why": "The cards deck already had C009's 'monthly cells repeat unrevised' and the actor still chased a later printing without reasoning; text did not bind at the decisive step."},
+        {"level": "STATE", "intervention": "A corpus coverage map (which issues exist per year) injected at task start, so 'the corpus lacks issue X' claims are checked against it.", "generality": "document_qa_general", "confidence": "medium", "why": "The false belief at [16] that May-Dec 1939 issues are absent removed the single-table source; a one-line coverage fact would have pointed to the Nov/Dec 1939 issues."}
+      ]
+    }
+  },
+  "right_arms_note": "none and prompt both ended with both Octobers from one table on one basis: none via the Nov 1939 monthly table after noticing the gross/net gap ([21]-[25]); prompt after explicitly rejecting the mixed pair when it saw that the annual totals for the same year differ between the old- and new-basis tables ([29]-[31], [36]-[38]). The cards arm had the same consistent pair on screen at [27] and broke it by a one-cell 'revision' substitution.",
+  "text_vs_mechanism": "The prompt arm shows the right reasoning can come from the model itself, but the cards arm had a relevant card (C009) and still substituted a later-vintage cell without any reasoning step, so a text rule is unreliable at the moment of substitution; a same-basis CHECK on operand provenance is the robust fix.",
+  "notes": "issue47: this question's official answer/wording is on the disputed list; Opus's gross reading is graded correct. The cards arm's answer is wrong under every consistent reading (gross-gross or net-net), so the failure is not an artefact of the dispute. The latest-revision habit, learned from outlays tables, is harmful when a series is redefined mid-stream; the harness should treat 'latest printing' as a per-series, all-operands operation."
+}

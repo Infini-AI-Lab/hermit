@@ -1,0 +1,192 @@
+{
+  "ordinal": 82,
+  "task_id": "UID0103",
+  "question_type": "Pearson and partial (time-controlled) correlation of two annual yield series, 1942-1966, from a rolling-window multi-panel table",
+  "skills_required": [
+    "locate_issue",
+    "pick_vintage",
+    "locate_table",
+    "read_flattened_table",
+    "multi_value_extraction",
+    "formula_stats",
+    "rounding_format"
+  ],
+  "opus_path": [
+    {
+      "stage": "interpret",
+      "decision": "Two annual (calendar-year average) series 1942-1966, n=25: Treasury bonds and Moody's Aaa corporate. Output 1 = Pearson r; output 2 = first-order partial correlation controlling for a linear year trend; 3 decimals; '[r, partial]'; 'nominal' = as published.",
+      "evidence": "worklog.md:7-13"
+    },
+    {
+      "stage": "choose_source",
+      "decision": "Reasoned that the first issue after the end of 1966 should be the first carrying the 1966 annual average, and went to treasury_bulletin_1967_01.",
+      "evidence": "worklog.md:15-18"
+    },
+    {
+      "stage": "locate_table",
+      "decision": "AVERAGE YIELDS OF LONG-TERM BONDS, Table 1 'Average Yields of Treasury and Corporate Bonds by Periods', block 'Annual series - calendar year averages of monthly series', laid out as three year-groups side by side on each line.",
+      "evidence": "worklog.md:20-28 (1967_01:3761-3777)"
+    },
+    {
+      "stage": "verify",
+      "decision": "Parsed the annual block of every issue. Found that the table is a rolling window, that 1967_01 is the only issue with all 25 years, and that clean reprints agree. Classified the real differences: one later revision (kept the latest) and one isolated OCR outlier in another printing (rejected by majority).",
+      "evidence": "worklog.md:30-39"
+    },
+    {
+      "stage": "extract",
+      "decision": "Hard-coded values in a dict keyed by year with the source line per year, then re-parsed lines 3769-3777 (splitting the three year-groups) and asserted the parse equals the dict.",
+      "evidence": "calc.py:12-38, 46-51"
+    },
+    {
+      "stage": "compute",
+      "decision": "Pearson r and the partial-correlation formula, cross-checked by correlating residuals of each series regressed on year.",
+      "evidence": "calc.py:62-72; worklog.md:44-58"
+    },
+    {
+      "stage": "verify",
+      "decision": "Sensitivity checks: the alternative window starting in 1943, the OCR value and the older revision; only the rejected alternatives move the partial correlation in the third decimal. The reviewer re-opened the sources and recomputed in pure Python.",
+      "evidence": "worklog.md:60-64; review.md:10-20"
+    }
+  ],
+  "opus_key_moves": [
+    "Found the single printing (Jan 1967) whose rolling window covers the whole requested range, instead of stitching several printings together.",
+    "Checked each year's cells across all printings, so isolated OCR outliers were identified and rejected by majority.",
+    "Keyed the extracted values by year label and asserted them against a re-parse of the cited lines, which rules out transcription and alignment slips."
+  ],
+  "arms": {
+    "none": {
+      "correct": true,
+      "error_bin": null
+    },
+    "prompt": {
+      "correct": false,
+      "error_bin": "1-5pct",
+      "first_divergence": {
+        "stage": "SOURCE_ISSUE_VINTAGE",
+        "glm_step": "[9]-[13], fixed at [29]",
+        "what_glm_did": "Went to the latest bulletin carrying 1966 (1968_02, whose rolling window starts in 1944), then patched the missing early years from other printings: 1943 from 1967_05, and 1942 from 1966_03, an issue it had itself called OCR-garbled at [14]. The 1942 Treasury cell it used is an OCR outlier: the same value appears only in 1966_03 and 1956_08, while many printings (1953-1956 issues, 1966_01, 1967_01) agree on a different value. It never opened 1967_01, the only issue with the full 1942-1966 block.",
+        "what_opus_did": "Used 1967_01, which carries all 25 years in one block (worklog.md:30-39), and cross-checked every year across printings.",
+        "why_glm_went_that_way": "It applied 'latest bulletin carrying the row' to the END year ([9] 'Latest bulletin carrying 1966 likely 1968_02'), not to 1942, the year that is hard to find. To check the 1942 cell it grepped for its own suspect value string ('1942 | <its value> ...' at [17], [19], [26], [28], [30]); by construction that search can only return the outlier printings (and, because '.' is a regex wildcard, it also matched unrelated 1942 rows of other tables). At [25] it saw 1956_08 disagree with later printings for 1943/1944 and chose the later ones, but kept 1942 from the same outlier printings ('Could be OCR?' [29]; 'Could be <its value>. Fine.' [36]).",
+        "consequence": "One wrong input value at the start of the series moves r by about 0.4% and the partial correlation by a few percent, so both reported values are wrong in the third decimal (1-5% bin)."
+      },
+      "secondary_errors": [
+        {
+          "stage": "EXTRACTION",
+          "glm_step": "[29], [33]",
+          "note": "The series was stitched by hand from four printings (1966_03, 1967_05, 1968_02, plus majority checks). The stitching itself was otherwise faithful, but it left no single cited source and no per-cell citation."
+        },
+        {
+          "stage": "OTHER",
+          "glm_step": "[34]-[35]",
+          "note": "Ran a sensitivity variant (1943 from the 1956 printing) but not the one that mattered (1942 from any other printing); it picked between variants by preference, not evidence."
+        }
+      ],
+      "saw_correct_evidence": {
+        "value": "partial",
+        "where": "Correct 1943-1966 values in 1967_05 [15] and 1968_02 [11]. It never saw a correct printing of the 1942 Treasury cell, because its greps searched for the outlier value itself; 1967_01 was never opened."
+      },
+      "glm_expressed_doubt": {
+        "value": "yes",
+        "where": "[14] ('OCR garbled many values in 1966_03'), [29] ('1942 only 1966_03 <value>. Could be OCR?'), [36] ('1966_03 has OCR garbled many values ... Could be <value>. Fine.')"
+      },
+      "operational": {
+        "timed_out": false,
+        "no_answer": false,
+        "loop_or_thrash": "mild",
+        "tool_friction": "rg 'operation not permitted' ([3]); the same grep re-run three times with identical output ([26], [28], [30]); regex '.' in value greps matched unrelated rows",
+        "notes": "124 s, 19 requests, ~1.5M input tokens; the context was 145 KB of adapter text for this question."
+      },
+      "adapter_context": {
+        "relevant_item": "L-cell-disagreeing-printings (verified: 'extract each cell from every printing that carries it (grep the row forward), take the majority'); Procedure step 1 'Name the vintage ... compare it with the latest bulletin carrying the same row'; L-ay1-year-trio-panels (AY-1 layout, tangential)",
+        "item_was_correct_guidance": "yes",
+        "followed": "partly",
+        "caused_or_contributed_to_error": "possibly",
+        "notes": "It applied the majority rule to 1952 at [38]-[40] (grepping the full row both ways) but for 1942 grepped only its own value, so the rule could not fire. The 'latest bulletin carrying the row' step, applied to 1966 rather than to 1942, sent it to a rolling-window printing that lacks the early years and set up the stitching."
+      },
+      "remedies": [
+        {
+          "level": "TOOL",
+          "intervention": "A 'row history' lookup: given a table title (or caption fragment) and a row label (e.g. '1942'), return every printing across issues with file:line and parsed cells, plus the majority value per cell and a flag on minority (likely OCR) printings; also report which single issue covers the widest span of the requested row labels.",
+          "generality": "document_qa_general",
+          "confidence": "high",
+          "why": "The cards arm improvised exactly this at [25] (scan every file for the table title and its '| 1942' row) and found at once that 1967_01 is the latest printing carrying 1942 and the whole 1942-1966 block. The prompt arm instead grepped for its own suspect value ([19], [26], [28], [30]), a search that can only confirm the outlier."
+        },
+        {
+          "level": "CHECK",
+          "intervention": "Cross-printing consistency check on every cell used: automatically grep the same row label in the same table across all issues and fail when the chosen value is a minority value, returning the majority value and its printings.",
+          "generality": "document_qa_general",
+          "confidence": "high",
+          "why": "The prompt arm had this exact rule as verified text (L-cell-disagreeing-printings) and applied it to one year but not the decisive one; an automatic check does not depend on the actor choosing which cells to check."
+        },
+        {
+          "level": "TEXT",
+          "intervention": "Convention: for rolling-window annual tables, prefer ONE printing that covers the whole requested range (often the first issue after the range ends) over stitching printings; apply 'latest vintage' to the hardest-to-find endpoint, not only to the last year.",
+          "generality": "officeqa_specific",
+          "confidence": "medium",
+          "why": "The none arm used exactly this reasoning at [11] ('Could use 1967_01 table likely annual series all') and was right; the prompt arm's stitching is what exposed it to the outlier printing."
+        }
+      ]
+    },
+    "cards": {
+      "correct": false,
+      "error_bin": "within_1pct",
+      "first_divergence": {
+        "stage": "EXTRACTION",
+        "glm_step": "[30]",
+        "what_glm_did": "Found the right issue and rows (1967_01:3769-3777, printed at [27]) but hand-typed the two 25-value lists into its script. It dropped the 1961 pair and appended the 1967 pair it had seen earlier in 1968_11 at [19], so every value from 1961 on is shifted one year relative to 'time = list(range(1942,1967))'. Because both lists still had 25 entries, zip() raised no error.",
+        "what_opus_did": "Stored values in a dict keyed by year label with a per-year source line, and asserted the dict against a fresh parse of the three year-groups on lines 3769-3777 (calc.py:12-38, 46-51).",
+        "why_glm_went_that_way": "The flattened layout puts three year-groups on each line (1942/1950/1958 ...), so building a year-ordered list means reading down each column group. It did this from memory in one step, with values from a different issue still in context, and did no count or year-key check. C019 told it to compute in a script, which it did, but the script took typed values rather than parsed ones.",
+        "consequence": "A one-year misalignment in the last few observations slightly changes r and shifts the partial correlation by about 0.5%, so both reported values are wrong in the third decimal."
+      },
+      "secondary_errors": [],
+      "saw_correct_evidence": {
+        "value": "yes",
+        "where": "[27] printed exactly the correct 1967_01 annual block (lines 3769-3777); [25] had already established 1967_01 as the latest printing carrying 1942."
+      },
+      "glm_expressed_doubt": {
+        "value": "no",
+        "where": "[31] only questioned whether 'nominal average yield' might mean another table; it never re-checked the typed lists."
+      },
+      "operational": {
+        "timed_out": false,
+        "no_answer": false,
+        "loop_or_thrash": "mild",
+        "tool_friction": "rg 'operation not permitted' ([3]); heredoc temp-file failure ([5]); apply_patch via heredoc failed ([8]); apply_patch not installed ([10]); settled on printf '%s\\n' ... > file.py then python file.py ([14] onward)",
+        "notes": "62 s, 14 requests. It found the right source efficiently; the error was introduced in the last computation step."
+      },
+      "adapter_context": {
+        "relevant_item": "C019 (compute any multi-number aggregation by writing a python script file; heredocs fail, numpy may be missing, plain python)",
+        "item_was_correct_guidance": "partly",
+        "followed": "yes",
+        "caused_or_contributed_to_error": "no",
+        "notes": "C019 moved the arithmetic into a script but says nothing about how the inputs get into the script, so the risk moved from arithmetic to transcription. No card covers AY-style multi-panel extraction or year-keyed inputs."
+      },
+      "remedies": [
+        {
+          "level": "CHECK",
+          "intervention": "Recompute-from-cited-cells check: the compute script must load its inputs by parsing cited corpus lines (file:line) into a {row_label: value} map; a checker verifies every (label, value) pair appears on a cited line with that label and that the label set equals the requested range. Here it would flag the missing 1961 pair, the out-of-range 1967 pair and the six year positions (1961-1966) holding the following year's values.",
+          "generality": "document_qa_general",
+          "confidence": "high",
+          "why": "The actor had the correct lines on screen at [27] and the error arose purely in hand transcription at [30]; any automatic label-keyed comparison catches it deterministically."
+        },
+        {
+          "level": "TOOL",
+          "intervention": "A table extractor for flattened multi-panel tables that returns a long-form grid (label, column header, value, file:line), un-stacking side-by-side year-groups.",
+          "generality": "document_qa_general",
+          "confidence": "high",
+          "why": "The error comes from manually un-stacking the three year-groups; Opus's parse loop (calc.py:46-50) is the few-line version of this tool."
+        },
+        {
+          "level": "TEXT",
+          "intervention": "Rule: key every extracted series by its printed row label (dict), never by position in a hand-typed list; assert len == requested periods and keys == requested range before computing.",
+          "generality": "domain_general",
+          "confidence": "medium",
+          "why": "C019-style text already got this actor to use a script; extending it to inputs is cheap, but the actor may still type the dict by hand, so pair it with the CHECK."
+        }
+      ]
+    }
+  },
+  "right_arms_note": "none: went straight from a search hit to 1967_01 at [11], reasoning that the first issue after 1966 should carry the full annual series; transcribed all 25 pairs correctly ([14]/[16]); caught its own sign/formula slip in the partial correlation by a magnitude sanity check at [17]. Same source choice as Opus; the transcription was careful rather than mechanically checked, so a lucky fork is possible.",
+  "text_vs_mechanism": "Needs a mechanism. The prompt arm had the right text (verified L-cell-disagreeing-printings) and still used an outlier cell because it chose which cells to check; the cards arm had C019 script guidance and still mis-typed its inputs. A row-history TOOL or cross-printing CHECK, and a recompute-from-cited-cells CHECK, would each have caught its arm's error deterministically.",
+  "notes": "Two different failure mechanisms for one question: the prompt arm chose a bad source cell, and the cards arm chose the right source but made a bad transcription. Both errors are small in magnitude (third decimal), which is exactly where 'looks plausible' self-review fails, so value-level checks matter more than reasoning-level ones. The 145 KB prompt context did not stop the confirmation-style search; a tool that returns all printings with a majority flag makes the right check the cheapest action."
+}

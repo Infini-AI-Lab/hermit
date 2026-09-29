@@ -1,0 +1,58 @@
+{
+  "ordinal": 79,
+  "task_id": "UID0009",
+  "question_type": "Weighted average denomination (total value / implied note count) from a currency-by-denomination statement pinned by an external-knowledge bureau clue and a specific date",
+  "skills_required": ["external_knowledge", "locate_issue", "pick_vintage", "date_or_period_logic", "locate_table", "multi_value_extraction", "formula_stats", "multi_step_arithmetic", "rounding_format"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "From external knowledge, the bureau is the Financial Management Service (merged with the Bureau of the Public Debt in 2012 to form the Fiscal Service). The corpus confirms FMS publishes the Bulletin and sources the USCC tables.", "evidence": "worklog.md:9-12; treasury_bulletin_2011_06.txt:9, :27, :1904"},
+    {"stage": "interpret", "decision": "Weighted average denomination = total note value / total number of notes, where notes per denomination = value / denomination. 'Currency' means paper money only (coins excluded); round to thousandths.", "evidence": "worklog.md:13-16; solution.json interpretation"},
+    {"stage": "choose_source", "decision": "The SOLVER first chose the June 2011 issue, reading 'published ... June 2011' as the issue month. That issue's USCC-2 is dated March 31, 2011. Opus's structured solver answer from this choice is marked wrong in index.json.", "evidence": "worklog.md:21-24, 42-47; 2011_06.txt:1902, :1930"},
+    {"stage": "verify", "decision": "The solver also computed the alternative vintage: the September 2011 issue's USCC-2 dated June 30, 2011. This made a later switch cheap.", "evidence": "worklog.md:42-45, 58; calc.py sept2011 block; 2011_09.txt:1907-1925"},
+    {"stage": "verify", "decision": "The adversarial REVIEWER re-read the date qualifier. The question pins a specific day, but Bulletin issues are dated only by month, and 'June 30, 2011' does not occur in the June issue. USCC is a month-end statement, and the one dated June 30, 2011 is in the September 2011 issue. The reviewer switched the final answer to the June 30, 2011 data, which index.json marks correct.", "evidence": "review.md 'Vintage / date decision' and 'Verdict'; 2011_09.txt:1879, :1907"},
+    {"stage": "extract", "decision": "Used the USCC-2 'Currency in circulation by denomination' Total column for $1..$10,000 and reconciled the column sums exactly to the printed totals. Fractional notes were excluded (no piece count) after showing they do not change the rounded result, and the '- 5' footnote-marker cell was not treated as a value.", "evidence": "worklog.md:27-40, 49-57; review.md 'Recalculation'; solution.json pitfalls"},
+    {"stage": "compute", "decision": "Exact Decimal/Fraction arithmetic in the script; ROUND_HALF_UP to thousandths.", "evidence": "calc.py; review.md 'Recalculation'"}
+  ],
+  "opus_key_moves": [
+    "The reviewer pass re-read the date qualifier: a named DAY cannot come from a month-dated issue, so it must be the USCC statement's as-of date, which is printed in the next quarterly issue. The solver alone made the same mistake as the cards arm.",
+    "Computed both candidate vintages up front, so the reviewer's switch needed no new extraction.",
+    "Reconciled column sums to the printed totals and checked the fractional-notes sensitivity before rounding."
+  ],
+  "arms": {
+    "none": {
+      "correct": true,
+      "error_bin": null,
+      "right_arms_note": "Read 'last day of June 2011' as the June 30, 2011 as-of date from the start ([4]-[5]), found the USCC tables dated June 30, 2011 in the September 2011 issue [21]-[22], and computed the value-over-implied-count average [24]-[26]."
+    },
+    "prompt": {
+      "correct": true,
+      "error_bin": null,
+      "right_arms_note": "At [9] it reasoned 'Treasury Bulletin likely 2011_09? USCC table dated June 30, 2011', read USCC-2 in the September 2011 issue [11]-[15], reconciled the fractional-notes gap against the printed total [19], and committed a bare value [22]."
+    },
+    "cards": {
+      "correct": false,
+      "error_bin": "within_1pct",
+      "first_divergence": {
+        "stage": "SOURCE_ISSUE_VINTAGE",
+        "glm_step": "[16]-[20], [26]",
+        "what_glm_did": "Read 'report published on the last day of June 2011' as 'the June 2011 Bulletin issue'. It listed only the 2011_05-07 files [16] (finding just 2011_06) and read the USCC tables there, which are headed 'March 31, 2011' [20]. At [26] it resolved the conflict by assuming the June issue was published on June 30.",
+        "what_opus_did": "The final answer, after review, used the USCC statement dated June 30, 2011 in the September 2011 issue (2011_09.txt:1879, :1907). The reviewer reasoned that a specific day must be the statement's as-of date, because Bulletin issues carry only a month. Opus's solver had first made the same choice as this arm.",
+        "why_glm_went_that_way": "[1]-[2] framed the target as 'the June 2011 report'. [26]: 'maybe Treasury Bulletin June 2011 published June 30, table March 31 2011'. It noticed the date mismatch and explained it away instead of looking for a statement dated June 30.",
+        "consequence": "The formula and extraction were correct but applied to the prior quarter's statement, so the answer is about 0.5% low (within_1pct)."
+      },
+      "secondary_errors": [],
+      "saw_correct_evidence": {"value": "no", "where": "Never opened 2011_09. The grep at [18] was restricted to 2011_06, and the only USCC table it read ([20]) was the March 31, 2011 statement."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[26] (weak): named the March 31 table date next to the June publication assumption, then committed."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "none", "tool_friction": "heredoc temp-file failure [5]; two failed apply_patch attempts [8], [10] (C019 says write a script file; apply_patch is not installed); printf-to-file workaround [12]; malformed calc script [23] fixed at [25]", "notes": "53 s, 12 requests. The final answer carried a '$' prefix, which the grader tolerated (error bin is numeric)."},
+      "adapter_context": {"relevant_item": "none for the date and vintage choice (no card covers USCC or 'published on <day>' phrasing). C019 only shaped the script-file workflow.", "item_was_correct_guidance": "n/a", "followed": "n/a", "caused_or_contributed_to_error": "no", "notes": "Cards C006 and C020 encode 'data month differs from issue month' lags for other tables (MQ-1, MS-1), but nothing general. A general 'as-of date vs issue date' card would have applied here."},
+      "remedies": [
+        {"level": "CHECK", "intervention": "Date-qualifier consistency check: pull the dates named in the question and compare them with the as-of date printed in the chosen table's header. If the question names a day and the header's date differs, block the commit and require a table dated that day, or an explicit justification.", "generality": "document_qa_general", "confidence": "high", "why": "The mismatch (question: last day of June; header: March 31) was visible in the [20] output and acknowledged at [26]. A mechanical check turns that weak doubt into a required action."},
+        {"level": "CONTROL", "intervention": "Before commit, run an adversarial reviewer pass that re-reads each question qualifier (dates, 'published', 'revised', definitions) against the chosen source's header and footnotes.", "generality": "domain_general", "confidence": "medium", "why": "Opus's own solver made this same error with much more reasoning; only its review stage (review.md) caught and reversed it. That is direct evidence the mechanism works on this question."},
+        {"level": "TOOL", "intervention": "'Find statement by as-of date' lookup: search every issue for a table title plus a date string and return all issues that print that statement date.", "generality": "document_qa_general", "confidence": "medium", "why": "At [16] the actor narrowed its listing to 2011_05-07 because it assumed publication month = issue month. A date-keyed lookup would surface 2011_09 directly."},
+        {"level": "TEXT", "intervention": "A date named in the question (even 'published on <day>') is the statement's as-of date. Treasury Bulletin issues carry only a month and print quarter-end statements in the following quarterly issue.", "generality": "officeqa_specific", "confidence": "medium", "why": "The none and prompt arms made this reading unprompted, so a text nudge would bias the initial choice. But this arm saw the mismatch and rationalized it, so text is weaker than the CHECK."}
+      ]
+    }
+  },
+  "right_arms_note": "none and prompt both read 'last day of June 2011' as the June 30, 2011 as-of date from the outset (none [4]-[5]; prompt [9]), went straight to the September 2011 issue's USCC tables, and applied the same value/implied-count formula. The difference from the cards arm is only in how the date phrase was read; no adapter text drove either reading.",
+  "text_vs_mechanism": "Mostly mechanism. The cards arm saw the conflicting March 31 header and explained it away, and Opus's solver made the same choice. What fixed Opus was a reviewer stage, i.e. control flow, not better instructions. A date-consistency CHECK or reviewer pass would reliably fix this; a text rule might tip the initial reading, since two of three GLM arms got it right with no relevant text.",
+  "notes": "This is a genuinely ambiguous reading ('published' vs a named day), and the stronger model's solver got it wrong. It is good evidence for putting a qualifier-audit reviewer into the GLM harness. The failure produced a within-1% error, so any tolerance-based grading would hide it; checks must compare as-of dates, not magnitudes. Minor: stripping '$' and other formatting from the final answer would remove residual format risk."
+}

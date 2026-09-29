@@ -1,0 +1,81 @@
+{
+  "ordinal": 102,
+  "task_id": "UID0246",
+  "question_type": "Euclidean norm of the changes in two Treasury-bill category totals (regular weekly/annual vs tax anticipation) between two month-end ownership surveys",
+  "skills_required": ["locate_issue", "pick_vintage", "date_or_period_logic", "locate_table", "read_flattened_table", "multi_value_extraction", "multi_step_arithmetic", "formula_stats", "rounding_format"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "Read the two dates as survey as-of dates (not issue dates) and the two categories as the TSO-3 row groups 'Regular weekly and annual maturing' and 'Tax anticipation'. Change = 1975 minus 1970 per category, then the norm of the two changes, rounded to 2 decimals.", "evidence": "worklog.md:10-18"},
+    {"stage": "choose_source", "decision": "Used the survey dated Jan 31, which is printed two months later, in the March issue. Confirmed this by grepping the survey-date header in 1970_03 and 1975_03. The reviewer confirmed that the February issues carry the Dec 31 survey.", "evidence": "worklog.md:33-36 (1970_03.txt:4229, 1975_03.txt:3770/3782); review.md 'Vintage' section"},
+    {"stage": "locate_table", "decision": "Table TSO-3 'Interest-Bearing Marketable Public Debt Securities by Issue', column 'Total amount outstanding'.", "evidence": "worklog.md:26-28, 37-41 (1970_03.txt:4309-4326; 1975_03.txt:3825-3841)"},
+    {"stage": "pick_cells", "decision": "Took the maturity-month rows under each category label. Excluded the Federal Financing Bank bills block (1975), which is printed separately.", "evidence": "worklog.md:37-42; solution.json decisions[3]"},
+    {"stage": "verify", "decision": "Compared the row sums with the printed 'Total Treasury bills': exact in 1975, a small rounding gap in 1970. Rebuilt every 1970 row from the MQ-1 per-bill amounts to rule out OCR digit errors.", "evidence": "worklog.md:43-58 (MQ-1 at 1970_02.txt:4882)"},
+    {"stage": "compute", "decision": "Category total = script sum of the category's printed rows. Explicitly rejected 'grand total minus TAB' and recorded that alternative answer.", "evidence": "worklog.md:84-86; calc.py:42-58"},
+    {"stage": "round_format", "decision": "Kept full precision until the end, then rounded the norm to hundredths.", "evidence": "calc.py:53,60"},
+    {"stage": "verify", "decision": "The reviewer re-opened both TSO-3 blocks, confirmed that no other printing of the Jan-31 surveys exists, and recomputed independently.", "evidence": "review.md; review.json"}
+  ],
+  "opus_key_moves": [
+    "Pinned each survey by its printed header date (the Jan 31 survey is in the March issue, not the February issue).",
+    "Built each category total as a script sum of its own printed rows, not as the grand total minus the other category. Computed both, saw they disagree by a rounding gap, and chose the direct rows.",
+    "Reconciled the rows against the printed total and against an independent table (MQ-1) before trusting them."
+  ],
+  "arms": {
+    "none": {
+      "correct": false,
+      "error_bin": "1-5pct",
+      "first_divergence": {
+        "stage": "SOURCE_ISSUE_VINTAGE",
+        "glm_step": "[30]-[32]",
+        "what_glm_did": "For 1970 it read TSO-3 from the February 1970 issue (the Dec 31, 1969 survey). For 1975 it read the March 1975 issue (the correct Jan 31, 1975 survey).",
+        "what_opus_did": "Took both years from the March issues. It confirmed each by the 'TREASURY SURVEY OF OWNERSHIP, JANUARY 31, <year>' header (worklog.md:33-36).",
+        "why_glm_went_that_way": "THINK [30] states without checking: 'Need 1970_02 likely Jan 31 data. 1975_03 likely Jan 31.' It applied a one-month lag for one year and a two-month lag for the other, and never read the header above the table. At [38] it only re-asserted the pairing ('Yes').",
+        "consequence": "The Dec 31, 1969 survey has a different mix of maturity rows. In particular, the January-maturity row is still large a month before those bills mature. So the 1970 regular-bill total was wrong, the change was wrong, and the norm came out ~1% high. The tax-anticipation rows happened to be the same in both surveys, which hid the problem."
+      },
+      "secondary_errors": [
+        {"stage": "OTHER", "glm_step": "[38]", "note": "Its only 'verification' re-asserted the issue pairing without looking at the survey-date header or at the inconsistent lag between the two years."}
+      ],
+      "saw_correct_evidence": {"value": "partial", "where": "[27]/[29] grep listed treasury_bulletin_1970_03.txt with the 'Regular weekly and annual maturing' label (line 4309), but it never opened it. The [31] output of the Feb 1970 read contained the page header 'TREASURY SURVEY OF OWNERSHIP, DECEMBER 31, 1969' (1970_02.txt:4253; confirmed in raw events), direct evidence that it was the wrong survey."},
+      "glm_expressed_doubt": {"value": "no", "where": "[34] questioned only a rounding gap. [38] asked whether the sources were right and answered itself 'Yes' without checking."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "none", "tool_friction": "rg blocked [3]; heredoc temp file denied [6]; officeqa search limit>20 raised ValueError [15]; phrase searches filtered to 1970/1975 returned nothing [17]-[21]", "notes": "Short run (18 requests, 77s). Friction cost a few steps but did not cause the error."},
+      "adapter_context": {"relevant_item": "n/a", "item_was_correct_guidance": "n/a", "followed": "n/a", "caused_or_contributed_to_error": "n/a", "notes": "No adapter. The base instructions say nothing about the survey cadence."},
+      "remedies": [
+        {"level": "TEXT", "intervention": "Convention: 'A Treasury Survey of Ownership dated the last day of month M is printed once, in the M+2 bulletin (Jan 31 -> March). Before reading cells, confirm the survey-date header above the table.'", "generality": "officeqa_specific", "confidence": "high", "why": "The prompt arm had exactly this lesson (L-tso-survey-tables). It named the March issues in THINK [1], grepped their headers [4], and answered correctly in 5 requests."},
+        {"level": "CHECK", "intervention": "As-of-date anchor check: for every cited cell, find the nearest preceding date header ('SURVEY OF OWNERSHIP, <date>', 'As of <date>') and compare it with the date the question pins. On a mismatch, reject the cell with the header text.", "generality": "document_qa_general", "confidence": "high", "why": "The wrong-date header (Dec 31, 1969) was already inside the actor's own [31] output. A mechanical header comparison would have fired even though the actor ignored it."},
+        {"level": "TOOL", "intervention": "locate_as_of(table_family, date): returns the file:line of every table whose date header matches the date, e.g. the TSO-3 blocks under 'SURVEY OF OWNERSHIP, JANUARY 31, 1970'.", "generality": "document_qa_general", "confidence": "medium", "why": "The actor searched by row label ([27]-[29]) and got dozens of issues with no dates. A date-keyed lookup would have returned only the March issue."}
+      ]
+    },
+    "prompt": {
+      "correct": true,
+      "error_bin": null,
+      "right_arms_note": "Applied L-tso-survey-tables at [1] (Jan 31 survey -> March issue), grepped both survey headers [4], read TSO-3 [6] and summed each category's maturity rows in a one-line script [8]. It never touched the printed grand total."
+    },
+    "cards": {
+      "correct": false,
+      "error_bin": "within_0.1pct",
+      "first_divergence": {
+        "stage": "CELL_SELECTION",
+        "glm_step": "[40]",
+        "what_glm_did": "Right sources (March 1970 and March 1975 TSO-3). But it obtained each 'regular weekly and annual maturing' total as the printed 'Total Treasury bills' row minus the tax-anticipation sum, instead of summing the category's own maturity rows.",
+        "what_opus_did": "Summed the category's printed rows in a script. Noted that 'total minus TAB' differs in 1970 by a rounding gap and rejected it as less faithful (worklog.md:84-86; solution.json decisions[1]).",
+        "why_glm_went_that_way": "THINK [40] says 'Need sum rows' but then computes each regular total by subtraction from the printed total. This shortcut assumes the printed total equals the row sum. Yet at [29]-[30] it had itself summed all 1970 rows and noted the result was only 'close' to the printed total ('rounding').",
+        "consequence": "The 1970 regular total was off by the rounding gap between the printed total and the row sum. The norm was ~0.004% low, which is wrong at the requested 2-decimal precision."
+      },
+      "secondary_errors": [
+        {"stage": "SOURCE_ISSUE_VINTAGE", "glm_step": "[16]-[21]", "note": "It first read the January 1971 issue (Nov 30, 1970 survey). It self-corrected at [21] by grepping the survey-date header, so this was not causal."},
+        {"stage": "OPERATIONAL", "glm_step": "[42]-[151]", "note": "Severe loop: the same THINK and the same grep/sed pair repeated ~28 times (confirmed in raw events), using about 9M input tokens. Only context compaction ended it [152]."},
+        {"stage": "OTHER", "glm_step": "[153]-[162]", "note": "After compaction it re-read both tables but 'verified' only that the extracts 'match the reported totals' [157]. It then hard-coded the pre-compaction subtracted total into calc.py [162]. The row-sum evidence from [29] was lost in the summary."}
+      ],
+      "saw_correct_evidence": {"value": "yes", "where": "[25]/[27] displayed every maturity row for both years; [29] scripted the sum of all 1970 rows and [30] noted the gap to the printed total."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[26], [28], [30], [32], [42]: repeated doubts about the survey date and why the 1970 rows run Jan-Dec while the 1975 rows run Feb-Jan. It never doubted the total-minus-TAB shortcut."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "severe", "tool_friction": "rg blocked [3]; heredoc and apply_patch heredoc both fail with a temp-file error [6],[8],[158],[160]; it finally wrote calc.py via python -c [162]", "notes": "79 requests, 534s, 9.07M input tokens, mostly the [42]-[151] loop. Compaction erased the intermediate evidence that could have caught the shortcut."},
+      "adapter_context": {"relevant_item": "C019 (do multi-number aggregations in a script file; never do multi-step arithmetic mentally). No card covers the TSO survey tables.", "item_was_correct_guidance": "yes", "followed": "partly", "caused_or_contributed_to_error": "no", "notes": "It obeyed C019 only for the final step ([162] script computes the changes and the norm). The category total itself was derived mentally in THINK [40] and hard-coded. Following C019 literally (sum the 12 rows in the script) would have produced the direct row sum. The deck's only effect on friction: C019's 'heredocs fail' hint did not stop two failed heredoc attempts."},
+      "remedies": [
+        {"level": "CHECK", "intervention": "Input-provenance check on the compute script: every literal in the final calculation must be a cited cell or a script-computed aggregate of cited cells. If an input is derived as 'total minus others' while the component rows exist, compute the direct row sum as well. If the two disagree, return both with a note that printed totals carry rounding.", "generality": "document_qa_general", "confidence": "medium", "why": "The subtracted total entered as a hard-coded literal at [162]. The actor had the rows on screen ([25]/[27]) and had already seen the rounding gap at [30]. A mechanical recompute would have surfaced the disagreement."},
+        {"level": "CONTROL", "intervention": "Loop breaker: when the same (reasoning, command) pair repeats 3 times, inject a message ('you are repeating step X; state what is unresolved or commit') and cap further identical calls.", "generality": "domain_general", "confidence": "high", "why": "28 identical iterations [42]-[151] used most of the 9M tokens. The loop ended only by compaction, and the post-compaction state lost the row-sum evidence from [29]."},
+        {"level": "TEXT", "intervention": "Rule: 'A category's total is the script sum of the category's own printed rows. Do not derive it as a grand total minus other categories; printed totals are rounded independently of their rows.'", "generality": "document_qa_general", "confidence": "medium", "why": "The prompt arm's TSO lesson notes that rows can sum to one unit off the printed total ('printed rounding'), and it summed rows directly at [8]. But the cards arm already ignored the related C019 text, so text alone is uncertain for this actor."}
+      ]
+    }
+  },
+  "right_arms_note": "prompt: went straight to the correct March issues via its cadence lesson and summed each category's rows in a script. Its path matches Opus on both the source choice (none's failure) and the row-sum choice (cards' failure).",
+  "text_vs_mechanism": "For none's vintage error, text alone is shown to work: the prompt arm had the M+2 cadence lesson, used it at [1], and was right. For cards' total-minus-TAB shortcut, the arm already had related text (C019: aggregate in a script, never mentally) and followed it only partly, so a provenance/recompute CHECK on script inputs is more reliable. Its loop needs a CONTROL mechanism.",
+  "notes": "Both wrong arms had the correct evidence on screen: none printed the Dec 31, 1969 header; cards summed the rows at [29]. Both wrong answers come from a shortcut taken without a mechanical check. Cards shows compaction harming accuracy: evidence gathered before the loop ([29]-[30]) was not carried into the summary, and the post-compaction 'verification' only re-read tables and trusted the remembered derived number. A persistent evidence ledger (cell, file:line, how derived) that survives compaction would help. The TSO survey family recurs across the benchmark (lesson ids in the prompt arm reference other UIDs), so a STATE index 'survey date -> issue file:line' would pay off repeatedly."
+}

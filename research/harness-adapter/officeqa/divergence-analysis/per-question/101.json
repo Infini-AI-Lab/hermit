@@ -1,0 +1,81 @@
+{
+  "ordinal": 101,
+  "task_id": "UID0053",
+  "question_type": "Absolute difference of coefficients of variation of log growth rates for two debt-holder series (pinned issue, fiscal-year rows)",
+  "skills_required": ["locate_table", "read_flattened_table", "multi_value_extraction", "formula_stats", "multi_step_arithmetic", "rounding_format"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "Issue pinned to Sept 2000 (no vintage choice); five fiscal-year-end levels 1995-1999 give four year-to-year log growth rates per series; CV = population SD / mean; answer = |CV_gov - CV_public| to 3 decimals; 'nominal' = use table values as printed.", "evidence": "opus logs/101/worklog.md:6-11"},
+    {"stage": "locate_table", "decision": "Grepped the pinned issue for the question's own phrases ('held by the public', 'Government accounts') and found the Table FD-1 'Summary of Federal Debt' header whose columns read 'Government accounts > Public debt securities (5)' and 'The public > Public debt securities (8)', an exact wording match.", "evidence": "worklog.md:16-20 (Step 2); treasury_bulletin_2000_09.txt:957"},
+    {"stage": "pick_cells", "decision": "Took FD-1 col (5) and col (8), fiscal-year rows 1995-1999 (not the monthly 1999-Sept duplicate); checked column alignment with identities col4 = col5+col6, col7 = col8+col9, col2 = col5+col8.", "evidence": "worklog.md:22-32 (Step 3); treasury_bulletin_2000_09.txt:959-963"},
+    {"stage": "choose_source", "decision": "Considered and rejected OFS-1: its 'Held by private investors' column excludes Federal Reserve holdings so it is not 'held by the public', and the OCR columns are misaligned.", "evidence": "worklog.md:34-36 (Step 4); solution.json decisions[0]"},
+    {"stage": "compute", "decision": "numpy log-diff, population SD (ddof=0) / mean per series, absolute difference.", "evidence": "logs/101/calc.py:15-24"},
+    {"stage": "verify", "decision": "Sensitivity analysis showed that agency-inclusive totals, simple growth or sample SD each change the answer materially, because the public series' mean log growth is near zero and CV is very sensitive to it; the question's wording pins the chosen variant. The reviewer re-read FD-1 and recomputed independently.", "evidence": "worklog.md:44-48 (Step 6); review.json (verdict confirmed)"}
+  ],
+  "opus_key_moves": [
+    "Searched the pinned issue for the question's exact noun phrase and took the table whose column header matches it verbatim (FD-1 'The public > Public debt securities')",
+    "Explicitly rejected OFS-1 'Held by private investors' because it excludes Federal Reserve holdings, so it is a different series from 'held by the public'",
+    "Checked column alignment with an identity: the two chosen columns sum to FD-1's public-debt total"
+  ],
+  "arms": {
+    "none": {
+      "correct": true,
+      "error_bin": null
+    },
+    "prompt": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "SOURCE_TABLE",
+        "glm_step": "[1], [6]-[8]",
+        "what_glm_did": "Committed to Table OFS-1 'Distribution of Federal Securities by Class of Investors' in its very first thought ([1] 'Need understand table OFS-1 likely ...'), before reading the corpus. It grepped that exact title at [6], read it at [8], and never opened FD-1.",
+        "what_opus_did": "Searched the pinned issue for the question's phrases and landed on FD-1, whose headers literally say 'Government accounts > Public debt securities' and 'The public > Public debt securities'.",
+        "why_glm_went_that_way": "The table name came from context, not the corpus: its AGENTS.md has a long OFS-1 lesson (UID0237, AGENTS.md:2163-2178) about 'public debt securities held by private investors' that uses the exact table title it grepped at [6]. The FD-1 convention (L-fd1-federal-debt, AGENTS.md:77-81) talks about 'public debt outstanding', not the holder split, so the vocabulary match went to the OFS-1 lesson.",
+        "consequence": "OFS-1 has no 'held by the public' column, so at [11]/[18] it used 'Held by private investors' (which excludes Federal Reserve Banks) as the public series. That series has a different growth profile; with a near-zero mean growth rate the CV moves a lot, and the answer is >80% off."
+      },
+      "secondary_errors": [
+        {"stage": "CELL_SELECTION", "glm_step": "[11], [18]", "note": "Mapped 'U.S public debt securities held by the public' to OFS-1 col (7) 'Held by private investors > Total'. At [18] it reasoned from memory that debt held by the public should be noticeably larger than the private-investor level and that the gap is the Fed's holdings. It knew the column excludes the Fed and accepted the gap anyway."},
+        {"stage": "EXTRACTION", "glm_step": "[12]", "note": "The government-account series from OFS-1 differs slightly from FD-1 col (5) in 1995 (the OFS-1 flattened header is shifted; Opus attributes the small difference to agency holdings or OCR). Negligible next to the public-series error."},
+        {"stage": "OTHER", "glm_step": "[16]-[27]", "note": "Spent its verification effort re-reading OFS-1 in the Dec 2000 and Sept 1999 issues to decode the shifted header, i.e. verified the column mapping inside the wrong table rather than questioning the table."}
+      ],
+      "saw_correct_evidence": {"value": "partial", "where": "[8] output included the OFS introduction saying '[See the Federal debt (FD) tables for a more complete description of the Federal debt.]'; it never printed FD-1 itself."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[13] 'need ensure series identification'; [18] noticed that the held-by-the-public level it expected from memory did not match the OFS-1 private-investor level and rationalized the gap as 'excluding Fed'."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "none", "tool_friction": "rg blocked at [4] (switched to grep)", "notes": "Short, clean run (15 requests, 101 s); the error is purely semantic."},
+      "adapter_context": {"relevant_item": "L-fd1-federal-debt (AGENTS.md:77-81 and brief at :480) points to FD-1; UID0237 OFS-1 private-investors lesson (AGENTS.md:2163-2178) is a near-miss match", "item_was_correct_guidance": "partly", "followed": "no", "caused_or_contributed_to_error": "possibly", "notes": "L-fd1 names the right table but not the Government-accounts / The-public split, so it did not trigger on this question's wording. The OFS-1 lesson matches the words 'public debt securities held by ...' and probably primed OFS-1 at [1]/[6] (the arm named the table and grepped its exact title before reading any corpus text). Grep of AGENTS.md: no lesson says that 'held by the public' includes the Federal Reserve and that OFS-1 'private investors' excludes it."},
+      "remedies": [
+        {"level": "TOOL", "intervention": "Header-phrase column finder: given the pinned issue and the question's series phrases ('held by the public', 'held by ... Government'), return every table/column whose flattened header contains those words, ranked by match quality (FD-1 'The public > Public debt securities' would rank first).", "generality": "document_qa_general", "confidence": "high", "why": "The none arm got it right exactly this way: a single FTS query for the question's phrase in the pinned issue at [14] led to FD-1 at [18]-[20]. The prompt arm never searched and jumped to a table named in its context."},
+        {"level": "CHECK", "intervention": "Series-label match check: every series used in the final computation must cite a column header; flag when the header's holder or qualifier words differ from the question's ('private investors' vs 'the public') and require either a matching column or an explicit justification.", "generality": "document_qa_general", "confidence": "medium", "why": "At [18] the actor saw the mismatch and rationalized it; an external flag that names the mismatch and points to the FD tables (which [8]'s own output referenced) would likely flip the decision."},
+        {"level": "TEXT", "intervention": "Glossary lesson: 'Debt held by the public = FD-1 The public column (includes Federal Reserve Banks); OFS-1 Held by private investors EXCLUDES the FRBs; use FD-1 when the question says held by the public / held by Government accounts.' Surface it by series phrase, not by table name.", "generality": "officeqa_specific", "confidence": "medium", "why": "The cards learner later wrote exactly this as card C039 (visible in the ordinal-130 cards deck), so it is learnable. But the prompt arm already had an FD-1 convention and was steered away by a competing OFS-1 lesson, so text alone is fragile when several lessons partly match."},
+        {"level": "STATE", "intervention": "Retrieve lessons by the question's series phrases and show conflicting lessons side by side with their scope (FD-1 holder split vs OFS-1 investor classes) instead of the whole 180 KB document.", "generality": "document_qa_general", "confidence": "low", "why": "The whole-document context held both a correct pointer (L-fd1) and a distracting OFS-1 lesson; the actor picked the one whose wording overlapped more."}
+      ]
+    },
+    "cards": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "SOURCE_TABLE",
+        "glm_step": "[24]-[28]",
+        "what_glm_did": "Chose OFS-1 over FD-1. At [23] its grep hit the FD-1 introduction (treasury_bulletin_2000_09.txt:929: FD-1 lists debt 'held by the public, including the Federal Reserve'). At [25] it printed lines 900-1020, and the FD-1 header with the Government-accounts and The-public public-debt columns and the 1995-1999 rows appeared near the top of the output (events item_26, ~line 29 of 240). At [26] it moved straight on ('Need OFS-1 likely lines 2020-2070').",
+        "what_opus_did": "Took FD-1 col (5) and col (8), the verbatim header match, and rejected OFS-1 private investors as excluding the Fed.",
+        "why_glm_went_that_way": "Preconception: at [22] it guessed an 'Ownership of Federal Debt' table and at [24] said 'Need table OFS-1'. It passed over the FD-1 rows because it was scanning for an ownership-style table. After context compaction, at [233] it confirmed its mapping with an identity (Government accounts + Federal Reserve + private investors = total interest-bearing), which is correct arithmetic for the wrong concept.",
+        "consequence": "Used OFS-1 'Held by private investors' as 'held by the public'; the final answer matches the prompt arm's wrong value (>80% off)."
+      },
+      "secondary_errors": [
+        {"stage": "CELL_SELECTION", "glm_step": "[233], [237]", "note": "Mapped 'held by the public' to private investors (excludes the Federal Reserve Banks) and took the government series from the OFS-1 1995 cell (slightly different from FD-1 col 5)."},
+        {"stage": "OPERATIONAL", "glm_step": "[35]-[224]", "note": "Severe loop: the same THINK text and the same sed command on the Dec 2000 OFS-1 continuation were repeated about 95 times with identical output, until a context-compaction warning at [225]. After compaction it restarted from a summary, briefly lost the corpus path at [228], and re-derived the OFS-1 mapping from scratch."}
+      ],
+      "saw_correct_evidence": {"value": "yes", "where": "[23] grep showed the FD-1 introduction line 929 ('held by the public, including the Federal Reserve'); [25] output contained the FD-1 header and 1995-1999 fiscal-year rows (events item_26)."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[28] 'But \"held by the public\" maybe total (7) minus held by U.S. Government accounts? Need parse.'; after that the doubt was only about OCR column mapping inside OFS-1, not about the table."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "severe", "tool_friction": "rg blocked [3]; heredoc blocked [6]-[8] and again at [234]; system python3 unusable, switched to a venv python [10]-[14]; zsh '===' echo parse error [30]; ~95 identical command repeats [35]-[224]; context compaction [225]", "notes": "1794 s, 118 requests, 14.1M input tokens, failure_kind transport_retry. It still produced an answer, but almost all of the budget went into the loop."},
+      "adapter_context": {"relevant_item": "none (the deck has no FD-1 or holder-class card; C019 'heredocs fail, write a script file' was used operationally at [7] and [236])", "item_was_correct_guidance": "n/a", "followed": "n/a", "caused_or_contributed_to_error": "no", "notes": "A later deck (the one shown for ordinal 130) contains C039, 'debt sustainability indicator, log growth rates': use FD-1 Government accounts / The public Public debt securities columns and do not substitute OFS-1 Held by private investors. The learner therefore turned this exact failure into a card after this episode."},
+      "remedies": [
+        {"level": "CONTROL", "intervention": "Identical-action loop breaker: if the same command (or the same reasoning text) repeats 3 times with identical output, block the next repeat and inject 'you have seen this output; state your conclusion or choose a different action'.", "generality": "domain_general", "confidence": "high", "why": "About 95 byte-identical THINK/RUN pairs [35]-[224]; a hash comparison catches this deterministically. It would have saved ~25 minutes and the compaction, although on its own it does not fix the table choice."},
+        {"level": "TOOL", "intervention": "Header-phrase column finder over the pinned issue (same as prompt arm): return tables and columns whose headers contain 'the public' / 'Government accounts' together with 'Public debt securities'.", "generality": "document_qa_general", "confidence": "high", "why": "FD-1 was already in its output at [25], but it was scanning for a different table name; a ranked, header-level hit list puts the verbatim match first. The none arm's success via phrase search is direct evidence."},
+        {"level": "CHECK", "intervention": "Series-label match check at commit: the cited column's header words must match the question's series wording; 'private investors' does not match 'the public' and triggers a re-search.", "generality": "document_qa_general", "confidence": "medium", "why": "Its own sum identity at [233] could not catch a concept substitution; a check on labels rather than arithmetic targets the actual failure."},
+        {"level": "TEXT", "intervention": "Card C039 (already learned later): FD-1 holder split; do not substitute OFS-1 private investors.", "generality": "officeqa_specific", "confidence": "medium", "why": "Admitted to the deck after this failure; whether it fixes this run is unverified here, but it names the exact trap."}
+      ]
+    }
+  },
+  "right_arms_note": "none: at [14] it ran an FTS search for the question's literal phrase 'public debt securities held by the public' restricted to the pinned Sept 2000 file, followed the hit to FD-1 [18]-[19] and chose cols 5 and 8 at [20]; a principled, phrase-driven table choice with no adapter context. Both adapted arms instead started from a table name (OFS-1) they already had in mind.",
+  "text_vs_mechanism": "Mostly a mechanism problem. The prompt arm had a correct FD-1 pointer in text and was steered away by a partly matching OFS-1 lesson; the cards arm had FD-1 on screen and skipped it. A phrase-to-header search tool plus a label-match check would have fixed both, as the no-adapter arm shows; the later card C039 shows the text fix is learnable but depends on matching the right trigger words.",
+  "notes": "Adapter context can hurt: the richest context (prompt, 180 KB) led the actor to name a table before looking at the corpus, while the bare arm searched the question's own words and was right. Harness implication: make 'search the question's noun phrases in the pinned issue' a mandatory first locate step before adapter hints can name a table. The cards arm also shows that a components-sum-to-total identity can pass for the wrong concept, so series-identity checks must compare labels, not just arithmetic. The near-zero mean growth of the public series makes the CV very sensitive, so any series substitution produces a >25% error."
+}

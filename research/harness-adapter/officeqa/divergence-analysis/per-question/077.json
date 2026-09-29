@@ -1,0 +1,94 @@
+{
+  "ordinal": 77,
+  "task_id": "UID0173",
+  "question_type": "CPI-deflated (rebased to a named month = 100) average of a monthly debt series over five months",
+  "skills_required": ["locate_table", "pick_vintage", "read_flattened_table", "multi_value_extraction", "date_or_period_logic", "external_knowledge", "formula_finance", "multi_step_arithmetic", "rounding_format"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "Series = 'Total Federal securities outstanding' (OFS-1 column; equals FD-1 'Amount outstanding > Total'), end-of-month Feb-Jun 1980 (all inside FY1980, so no fiscal/calendar clash); normalization = rebase CPI so Feb 1980 = 100 and divide: real_m = nominal_m * CPI_Feb / CPI_m; average of 5 real values, 2 decimals. Listed the CPI-series ambiguity (NSA vs SA, 1982-84 vs 1967 base) up front.", "evidence": "opus logs/077/worklog.md:5-10"},
+    {"stage": "locate_table", "decision": "Found OFS-1 and FD-1 in the Aug 1980 issue; both give identical totals; noted OCR errors in the FD-1 public-debt sub-column that do not affect the Total column (components sum to total within rounding).", "evidence": "worklog.md:15-35 (treasury_bulletin_1980_08.txt:1921-1925 and 5625-5629)"},
+    {"stage": "choose_source", "decision": "Vintage check over 1980_05..1981_12: values unrevised; only OCR noise in 1980_10/1980_11. Used 1980_08.", "evidence": "worklog.md:37-41; solution.json decisions[1]"},
+    {"stage": "extract", "decision": "calc.py re-reads the cited cells from the corpus and asserts them before computing (after first fixing a wrong line citation).", "evidence": "calc.py:25-29; worklog.md:54"},
+    {"stage": "choose_source", "decision": "Searched the corpus for monthly CPI (only an annual 1967=100 row in 1983_06); concluded CPI is external.", "evidence": "worklog.md:43-46"},
+    {"stage": "extract", "decision": "EXTERNAL KNOWLEDGE: BLS CPI-U NSA, 1982-84=100 (CUUR0000SA0), and cross-checked those values against the 1967=100 series via a constant base ratio.", "evidence": "worklog.md:48-51; solution.json external_knowledge"},
+    {"stage": "compute", "decision": "real = nominal * CPI_Feb / CPI_m, mean of five, in a script; sensitivity runs for the 1967 base and the SA series.", "evidence": "calc.py:35-49; worklog.md:53-65"},
+    {"stage": "verify", "decision": "Sanity: Feb real equals nominal; real average is ~2.5% below nominal, about half the Feb->Jun CPI rise; magnitude consistent with FY-end gross debt. Reviewer re-read cells and recomputed independently.", "evidence": "worklog.md:67-69; review.md"},
+    {"stage": "round_format", "decision": "Two decimals, millions of Feb-1980 dollars.", "evidence": "calc.py:44"}
+  ],
+  "opus_key_moves": [
+    "Recalled the correct BLS CPI-U NSA 1982-84=100 monthly values and cross-checked them against the 1967=100 series (constant ratio) before use (worklog.md:50)",
+    "Used the rebased-deflation formula real = nominal * CPI_Feb/CPI_m and verified it with invariants: base month real == nominal, later months real < nominal (worklog.md:67-68)",
+    "Pinned and vintage-checked the nominal cells (OFS-1 = FD-1, unrevised) - all GLM arms also got this part right, so it was not decisive here"
+  ],
+  "arms": {
+    "none": {
+      "correct": false,
+      "error_bin": "1-5pct",
+      "first_divergence": {
+        "stage": "EXTERNAL_KNOWLEDGE",
+        "glm_step": "[34]",
+        "what_glm_did": "Recalled a from-memory CPI-U 1982-84=100 path for Feb-Jun 1980 whose levels sit ~1.4-3% below the values Opus used and whose Feb->Jun rise is much flatter (~3% vs ~4.8%); re-recited and self-confirmed a whole-year list at [43] ('Yes.').",
+        "what_opus_did": "Used the published NSA CPI-U values and cross-checked them against the 1967=100 series (worklog.md:48-51).",
+        "why_glm_went_that_way": "Corpus searches for CPI found nothing ([31]-[33], [37]); THINK [34] 'Could use BLS known values'; no reference data tool exists, so memory was the only source.",
+        "consequence": "Wrong deflators. Alone this would give an answer ~0.5% off; combined with the formula inversion below the submitted value is ~4.6% high."
+      },
+      "secondary_errors": [
+        {"stage": "FORMULA", "glm_step": "[34]-[35]", "note": "Multiplied each nominal value by CPI_m/CPI_Feb (inflating to later-month prices) instead of multiplying by CPI_Feb/CPI_m. This is the larger contributor (~5% on its own). At [43] it considered 'divide by CPI and multiply 100' and wrongly judged it 'Same' as what its code did - a plan/code mismatch that nobody checked."}
+      ],
+      "saw_correct_evidence": {"value": "partial", "where": "Nominal cells: yes, OFS-1 in 1980_08 at [27]-[29] and vintage-stable in 1980_09 at [42]. CPI: not in the corpus, so the correct CPI values could never appear."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[36] 'Need verify CPI values'; [43] questioned the divide-vs-multiply reading, then dismissed it as equivalent"},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "none", "tool_friction": "heredoc blocked [5]; rg blocked; officeqa helper return-type confusion and num_lines cap errors [9]-[25]", "notes": "21 requests, 134 s; friction cost steps but did not affect the answer."},
+      "adapter_context": {"relevant_item": "n/a", "item_was_correct_guidance": "n/a", "followed": "n/a", "caused_or_contributed_to_error": "n/a", "notes": "Base instructions only."},
+      "remedies": [
+        {"level": "TOOL", "intervention": "Ship a vetted read-only BLS CPI-U monthly reference table (NSA and SA; 1982-84=100 and 1967=100) behind a helper call, e.g. docs.reference('CPI-U-NSA', '1980-02'), and tell the actor that memory is not an acceptable source when the tool covers the series.", "generality": "document_qa_general", "confidence": "medium", "why": "The CPI values were the first wrong input and had no in-corpus source. Alone this does not fix the inverted formula at [35]."},
+        {"level": "CHECK", "intervention": "Deflation-invariant checker on the compute script's output: (a) the base-month adjusted value must equal its nominal value; (b) when the index rises after the base month, every later adjusted value must be <= its nominal value. On failure, return 'direction of CPI ratio looks inverted'.", "generality": "domain_general", "confidence": "high", "why": "Check (b) fires on [35]'s output, where every post-Feb value went UP after 'adjustment'. The actor already suspected the direction at [43] but had no signal to break its tie."}
+      ]
+    },
+    "prompt": {
+      "correct": false,
+      "error_bin": "1-5pct",
+      "first_divergence": {
+        "stage": "EXTERNAL_KNOWLEDGE",
+        "glm_step": "[17]-[18]",
+        "what_glm_did": "Recalled a Feb-Jun 1980 CPI-U path whose levels are ~1-3% below the published NSA values and whose Feb->Jun rise is ~2.7% instead of ~4.8%. Otherwise it computed exactly like Opus (same cells, same nominal*CPI_Feb/CPI_m formula, same rounding).",
+        "what_opus_did": "Used the published NSA 1982-84=100 values, cross-checked against the 1967 base (worklog.md:48-51).",
+        "why_glm_went_that_way": "No CPI in the corpus. The adapter repeatedly says CPI is external. It tried `import cpi`/pandas_datareader [24]-[26], then fell back on memory. At [29] it produced two further mutually inconsistent 1980 lists and rejected one with an annual-average test, but it never re-tested the [17] list it had already used.",
+        "consequence": "Submitted value ~1.1% high (the grader is strict on this question)."
+      },
+      "secondary_errors": [],
+      "saw_correct_evidence": {"value": "partial", "where": "Nominal cells: yes, OFS-1 identified [13] and read [15]-[17], and vintage-checked across 1980_09-1981_01 via grep at [21]. CPI: not in the corpus."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[29] 'Let's not rely on memory', after it recalled three different 1980 CPI lists; [22]"},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "severe", "tool_friction": "heredoc blocked [24]; rg blocked", "notes": "After computing its answer at [18], it alternated one identical corpus CPI search with one identical module-availability check (~44 times each, [27]-[200]; 100 requests, 730 s, 15M input tokens). A context-compaction warning followed at [201], and it then resubmitted the [18] number. The loop did not change the answer, but it spent almost the whole episode."},
+      "adapter_context": {"relevant_item": "L-cpi-yoy-published-rate and its CPI worked example (corpus has no CPI table; CPI external); the worked real-dollar example in L-ms1-fed-notes-column-shift (multiply by CPI_N/CPI_M); L-no-identical-command-loops; the 'Rule: the corpus and its helper are the ONLY data sources ... commit once' paragraph (AGENTS.md:895-901)", "item_was_correct_guidance": "yes", "followed": "partly", "caused_or_contributed_to_error": "no", "notes": "It followed the formula-direction guidance (correct formula). It ignored the no-loop and commit-once rules (~88 information-free requests). No item supplied the needed 1980 CPI values, so no text could fix the actual error."},
+      "remedies": [
+        {"level": "TOOL", "intervention": "Vetted read-only BLS CPI-U reference series exposed through the helper (NSA/SA, both bases).", "generality": "document_qa_general", "confidence": "high", "why": "Every other part of this arm's computation matched Opus. The only wrong input was the recalled CPI path, so correct index values alone would have made it right."},
+        {"level": "CHECK", "intervention": "External-recall consistency check: when a script uses external index values, the actor must also state the same months in a second base (1967=100) and the annual average/YoY rates; the checker tests the constant base ratio and the average, and flags disagreement.", "generality": "document_qa_general", "confidence": "low", "why": "The actor already ran such a test by hand at [29] and rejected one list, so it responds to this kind of signal. But even a flagged list would not give it the true values without a data source."}
+      ]
+    },
+    "cards": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "EXTERNAL_KNOWLEDGE",
+        "glm_step": "[34]",
+        "what_glm_did": "Recalled a Feb-Jun 1980 CPI-U path ~1-3% below the published values, with a flat ~2.7% rise, and self-confirmed it ('Yes.').",
+        "what_opus_did": "Used the published NSA 1982-84=100 values, cross-checked against the 1967 base (worklog.md:48-51).",
+        "why_glm_went_that_way": "Card C020 says the corpus has no CPI tables; one confirming grep [38] found none, so memory was the only source.",
+        "consequence": "Wrong deflators (~1.1% error on their own), but the formula slip below dominates."
+      },
+      "secondary_errors": [
+        {"stage": "FORMULA", "glm_step": "[39]-[41]", "note": "The plan at [34] was nominal * CPI_Feb/CPI_m, but at [39] it switched to 'divide by CPI and multiply 100', and the script at [41] divided by the raw 1982-84-based index without rebasing Feb to 100. Every value is inflated by ~27%, and the submitted average is ~30% high. Even the base-month adjusted value differs from its nominal value, which a trivial invariant would catch."}
+      ],
+      "saw_correct_evidence": {"value": "partial", "where": "Nominal cells: yes, 1980_08 OFS-1 at [24]-[25], vintage-stable at [33]. CPI: not in the corpus."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[39] considered whether to use CPI_m/CPI_Feb or divide by CPI; [34] 'Let's verify' on the CPI values, then self-confirmed"},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "none", "tool_friction": "heredoc blocked [6]; apply_patch heredoc failed [8]; zsh quoting/word-splitting errors [27], [31]", "notes": "20 requests, 110 s. Wrote the calculation as a script file per C019."},
+      "adapter_context": {"relevant_item": "C020 (inflation adjusted: no CPI tables in corpus; its Not-when line says target-month dollar adjustments need index ratios for two dates); C019 (compute in a script)", "item_was_correct_guidance": "yes", "followed": "partly", "caused_or_contributed_to_error": "no", "notes": "C019 was followed. C020's 'do not search' was mostly followed (one grep). C020's Not-when hint that a target-month adjustment is a ratio of two index values was not applied: the script used 100/CPI_m on the raw base. C020 gives no CPI values for 1980."},
+      "remedies": [
+        {"level": "CHECK", "intervention": "Deflation-invariant checker: the base-month adjusted value must equal its nominal value (here Feb real == Feb nominal), and later-month adjusted values must be <= nominal when prices rise.", "generality": "domain_general", "confidence": "high", "why": "The script output at [41] prints Feb adjusted ~28% above Feb nominal. The check fires deterministically, and the actor had already written the correct CPI_Feb/CPI_m plan at [34] to fall back to."},
+        {"level": "TOOL", "intervention": "Vetted read-only BLS CPI-U reference series exposed through the helper.", "generality": "document_qa_general", "confidence": "high", "why": "It removes the remaining ~1% CPI-recall error once the formula is fixed. The nominal cells and rounding were already right."}
+      ]
+    }
+  },
+  "right_arms_note": "No arm was right. All three extracted the same (correct, vintage-stable) nominal cells as Opus. All three failed first on recalled CPI values, and each arm recalled a different wrong 1980 path. none and cards added formula errors on top (inverted ratio; no rebasing).",
+  "text_vs_mechanism": "Text alone cannot fix this. The prompt arm had the correct deflation-direction example and the 'CPI is external / commit once / no identical loops' lessons, applied the formula correctly, and still failed purely on recalled CPI values (and looped ~44x despite the no-loop lesson). This needs a TOOL (vetted CPI reference data) plus a CHECK (base-month identity and real<=nominal direction) for the none and cards formula slips.",
+  "notes": "(1) GLM's CPI recall is unreliable and unstable: three arms gave three different Feb-Jun 1980 paths, and the prompt arm produced three different lists within one episode ([17], [29]). (2) The prompt learner's later lesson L-cpi-index-values-external-pin-series (seen in later adapters, e.g. the 106 AGENTS.md) inferred from this failure that the reference 'implies a seasonally adjusted CPI path, inconsistent with every NSA reading'. That inference was built on GLM's wrong recalled NSA values; Opus reproduced the correct result with the NSA 1982-84=100 series. So a text learner that back-solves external constants from the actor's recalled data can write wrong lessons, which argues for grounding external constants in a tool rather than in learned text. (3) The prompt arm's ~44 identical-command loop happened while its adapter contained L-no-identical-command-loops, so a CONTROL-level loop breaker (block a command whose exact text has already run twice; force commit) is needed for efficiency, though here it would not have changed correctness. (4) Plan/code mismatch appeared in two arms (none at [43], cards at [34] vs [41]): the stated formula differed from the executed one. A reviewer pass that re-derives the formula from the question and compares it with the script would catch both."
+}

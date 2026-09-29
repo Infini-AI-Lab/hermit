@@ -1,0 +1,95 @@
+{
+  "ordinal": 114,
+  "task_id": "UID0017",
+  "question_type": "Auction results for a specific Treasury note identified by maturity date: total tenders and the foreign-authority exchange share, from a financing-operations narrative",
+  "skills_required": ["locate_issue", "pick_vintage", "locate_table", "multi_value_extraction", "unit_or_scale", "date_or_period_logic", "multi_step_arithmetic", "rounding_format"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "'2-year notes maturing at the end of July 1984' = the note due July 31, 1984, so it would have been auctioned around July 1982. 'Bids submitted' = tenders received. 'Noncash rollover ... on behalf of global non-domestic investors' = tenders accepted from Federal Reserve banks as agents for foreign and international monetary authorities in exchange for maturing securities. Noted ambiguity about which total.", "evidence": "logs/114/worklog.md:9-16 (Step 1)"},
+    {"stage": "choose_source", "decision": "Grepped the exact due-date string 'July 31, 1984' across the 1982 issues and found the 'Auction of 2-Year Notes' narrative for the 1984 note series in the August 1982 issue.", "evidence": "worklog.md:18-21; treasury_bulletin_1982_08.txt:275"},
+    {"stage": "pick_cells", "decision": "From the same narrative paragraph took the total tenders received and the foreign/international exchange amount accepted. Separated these from the Government-account/FRB own-account exchange amount in the next paragraph.", "evidence": "worklog.md:23-30; 1982_08.txt:279-281"},
+    {"stage": "verify", "decision": "Checked the PDO-4 offerings table: its 'amount tendered' adds the Government-account exchange tenders and is revised upward in 1983-84 printings. The allotment table lumps foreign holders into 'All other', so the foreign figure exists only in the narrative. Kept both numbers from the narrative (one vintage).", "evidence": "worklog.md:32-43; 1982_08.txt:2665; 1983_12.txt:1442,1649"},
+    {"stage": "verify", "decision": "Found the July 1984 auction of the 1986 note series that refunds the notes maturing July 31, 1984. Recorded it as a different security and a pitfall. Noted that BM25 FTS did not surface the 1982 narrative but an exact grep did.", "evidence": "worklog.md:45-51; 1984_12.txt:1240"},
+    {"stage": "compute", "decision": "calc.py: millions to dollars for the first value; percent = foreign exchange accepted / total tenders x 100, rounded to hundredths; alternative denominators listed and rejected.", "evidence": "worklog.md:53-56; logs/114/calc.py"},
+    {"stage": "verify", "decision": "Reviewer re-opened 1982_08.txt:275-281, confirmed the reading of the security and the denominator, and recomputed.", "evidence": "review.md (Verdict: confirmed)"}
+  ],
+  "opus_key_moves": [
+    "Worked out that 'notes maturing at the end of July 1984' means the note due July 31, 1984 (auctioned two years earlier) and found it by grepping the exact due-date string, not by BM25 search.",
+    "Explicitly rejected the July 1984 auction that refunds those maturing notes as a different security.",
+    "Took both the tender total and the foreign-exchange amount from the one narrative paragraph, rejecting the PDO table total, which adds Government-account exchange tenders."
+  ],
+  "arms": {
+    "none": {
+      "correct": false,
+      "error_bin": "count_mismatch(1 vs 2)",
+      "first_divergence": {
+        "stage": "INTERPRETATION",
+        "glm_step": "[10]-[16]",
+        "what_glm_did": "Read the question as 'the July 1984 2-year note auction'. It went to the December 1984 issue's 'Treasury Financing Operations, July-September 1984' and used the auction of the 1986 note series, dated July 31, 1984 and due July 31, 1986, which was held to refund the notes maturing July 31, 1984.",
+        "what_opus_did": "Used the auction of the note due July 31, 1984 (August 1982 issue narrative, 1982_08.txt:275-281) and named the July 1984 refunding auction as a pitfall (worklog.md:49-51).",
+        "why_glm_went_that_way": "[10]: 'Need July 1984 auction likely ... July auction in 1984_12'. Its BM25 search ([7]-[9]) for '2-year Treasury notes July 1984' returned mostly currency tables, and it anchored on the auction month. The 1984_12 narrative contains the string 'notes maturing July 31, 1984', which looked like a match.",
+        "consequence": "Both values come from the wrong security. The tender total is ~56% too high and the percentage is correspondingly off. Its extraction was otherwise the same as Opus's (narrative tender total and the foreign-authorities amount)."
+      },
+      "secondary_errors": [
+        {"stage": "ROUNDING_FORMAT", "glm_step": "[23]", "note": "Submitted the bracket list with no space after the comma. The 'count_mismatch(1 vs 2)' bin comes from error_bins.py's number regex, which reads 'digits,digits' as one number with a thousands comma. The real error is the wrong security (values >25% off). Whether the official grader also mis-parses this is unknown."}
+      ],
+      "saw_correct_evidence": {"value": "no", "where": "No 1982 issue was ever opened or listed. Its only searches ([9], [19], [21]) returned BM25 noise and 1960s bill paragraphs."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[17], [22]: doubts only about the numerator (foreign amount vs the Government-account exchange amount) and the denominator. It never questioned which security the question named."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "none", "tool_friction": "rg blocked [3], heredoc failure [5], read num_lines cap [12]", "notes": "63 s, 10 requests; committed quickly on a first reading it never checked."},
+      "adapter_context": {"relevant_item": "n/a", "item_was_correct_guidance": "n/a", "followed": "n/a", "caused_or_contributed_to_error": "n/a", "notes": "Base instructions only."},
+      "remedies": [
+        {"level": "CHECK", "intervention": "Question-to-source attribute check: pull the entity constraints from the question (instrument, term, maturity/due date) and check them against the cited source sentence before commit. Here the cited narrative says the notes are due in 1986 while the question says maturing end of July 1984, which is a mismatch.", "generality": "document_qa_general", "confidence": "high", "why": "The mismatch is in the very sentence it read at [16] (1984_12.txt:1240). A cheap string or date comparison fires without any domain knowledge."},
+        {"level": "TOOL", "intervention": "Exact-phrase and date search mode in the corpus helper (FTS phrase MATCH or grep across all issues for a normalized date string such as 'due July 31, 1984'), returning hits ordered by issue date.", "generality": "document_qa_general", "confidence": "medium", "why": "The helper's OR-mode BM25 buried the target. In the prompt arm, a phrase MATCH on 'July 31, 1984' ([24]) listed 1982_08 first. Opus also found it only by grep (worklog.md:47-48)."},
+        {"level": "TEXT", "intervention": "'A security \"maturing <date>\" is the issue DUE on that date; it was auctioned one term earlier. An auction that \"refunds notes maturing <date>\" is a different, newer security.'", "generality": "officeqa_specific", "confidence": "low", "why": "The none arm never considered the alternative, so text might catch it. But the prompt and cards arms voiced this exact reading and still chose the refunding auction, so text alone is weak."}
+      ]
+    },
+    "prompt": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "INTERPRETATION",
+        "glm_step": "[23]-[30]",
+        "what_glm_did": "Used the July 1984 refunding auction of the 1986 note series (1984_12.txt:1240-1248) as 'the notes maturing at the end of July 1984'.",
+        "what_opus_did": "Used the auction of the note due July 31, 1984, found in the August 1982 issue (1982_08.txt:275-281).",
+        "why_glm_went_that_way": "At [23] and [30] it raised the right reading ('could refer to notes maturing July 31, 1984, not offered notes due 1986') but did not resolve it. Its phrase-match FTS at [24] returned two chunks, 1982_08 lines 256-355 first and 1984_12 second, and at [25] it opened only the 1984 one. The snippet column printed only filenames, so the 1982 hit showed no content.",
+        "consequence": "Wrong security. A later denominator switch (below) moved the tender total even further from Opus's (~71% too high)."
+      },
+      "secondary_errors": [
+        {"stage": "CELL_SELECTION", "glm_step": "[64]-[71]", "note": "Replaced the narrative's 'tenders totaled' with the PDO-3 table's preliminary 'amount tendered'. It showed that this equals the narrative total plus the foreign and Government-account amounts accepted outside the auction, and still chose it as 'bids submitted by investors'. Opus rejected the equivalent table total for its security (worklog.md:41-43)."}
+      ],
+      "saw_correct_evidence": {"value": "partial", "where": "[24]: the correct chunk (treasury_bulletin_1982_08.txt:256-355) was the first FTS hit for 'July 31, 1984' but was never opened. [30]: it stated the correct reading in words."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[23], [30] (which security), [47], [69], [71] (which total and numerator)"},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "mild", "tool_friction": "heredoc failure [4], unhelpful search repr [6]-[8], worked around by querying corpus.sqlite directly with sqlite3 [10]-[16], zsh glob or quote error [13], one CreateProcess error [41]", "notes": "223 s, 38 requests. Many searches for the paraphrased terms 'noncash rollover', 'global', 'non-domestic' ([11]-[16], [31]-[33], [48]-[50], [60]), which do not occur in the corpus."},
+      "adapter_context": {"relevant_item": "none specific. The 193 KB context has no lesson on identifying a security by maturity date or on narrative-vs-table auction totals. L-bill-offerings-table2-anchor (prefer PDO table over narrative, for bill rates) is nearby but was not cited.", "item_was_correct_guidance": "n/a", "followed": "n/a", "caused_or_contributed_to_error": "no", "notes": "No [L-id] was cited in the run. Its table-over-narrative switch at [65] is in the spirit of the bill-offerings lesson, but there is no evidence it was consulted, and that lesson's scope is bill rates, not tender totals."},
+      "remedies": [
+        {"level": "CONTROL", "intervention": "Ambiguity fork: when the actor's reasoning lists two readings of the target entity, require it to find and open a source for each (here: the 1982 auction and the 1984 refunding auction) and write down why one wins before any computation.", "generality": "domain_general", "confidence": "medium", "why": "It stated the correct alternative at [23]/[30] and even had the 1982_08 hit on screen at [24], but never opened it. The failure was not resolving an ambiguity it had already noticed."},
+        {"level": "CHECK", "intervention": "The same question-to-source attribute check (question 'maturing end of July 1984' vs source 'due July 31, 1986').", "generality": "document_qa_general", "confidence": "high", "why": "The committed source sentence (1984_12.txt:1240) has the wrong due date; a date comparison would block the commit."},
+        {"level": "TEXT", "intervention": "'For auction questions, \"bids submitted\" = the narrative \"Tenders ... totaled\" figure; PDO table \"amount tendered\" adds non-auction exchange and foreign allotments.'", "generality": "officeqa_specific", "confidence": "low", "why": "Fixes only the secondary error. The first divergence (wrong security) would remain."}
+      ]
+    },
+    "cards": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "INTERPRETATION",
+        "glm_step": "[4], [18], [23]",
+        "what_glm_did": "Framed the task as 'the July 1984 2-year Treasury auction' from the start ([4]). At [23] it spelled out the correct reading ('2-year notes maturing end July 1984 were issued July 31 1982, due July 31 1984') and then went back to 'auction of 2-year notes to refund notes maturing July 31, 1984'. It used the 1984_12 narrative for the 1986 note series ([30]).",
+        "what_opus_did": "Used the August 1982 narrative for the note due July 31, 1984 and rejected the 1984 refunding auction (worklog.md:18-30, 49-51).",
+        "why_glm_went_that_way": "The first framing ([4]) anchored on the month July 1984. Its search for 'July 31, 1984' ([25]) crashed on the helper's limit of 20. The retried OR-mode BM25 query ([26]) returned currency tables and other auctions, and 1982_08 appeared only as an unrelated table chunk (line 4421). It then just read 1984_12 ([30]), where the phrase 'notes maturing July 31, 1984' appears.",
+        "consequence": "Wrong security. It submitted the same values as the none arm (tender total ~56% too high)."
+      },
+      "secondary_errors": [],
+      "saw_correct_evidence": {"value": "partial", "where": "[23]: stated the correct security in words. [26]: 1982_08 appeared in search results but as an unrelated chunk; the 1982 auction narrative was never seen."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[23] (which security), [31], [35] (numerator and denominator)"},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "mild", "tool_friction": "heredoc failure [5]; apply_patch attempts failed [9]-[12] before it switched to printf-to-file scripts [13]; helper search limit error [25]; num_lines cap errors [19]-[20]", "notes": "102 s, 19 requests. About a third of the steps went to working around the shell."},
+      "adapter_context": {"relevant_item": "none (C019 heredoc and script advice was applied at [6] for tooling only; no card covers auctions or security identification)", "item_was_correct_guidance": "n/a", "followed": "n/a", "caused_or_contributed_to_error": "no", "notes": "C019's heredoc warning helped a little but also led to failed apply_patch detours [9]-[12]."},
+      "remedies": [
+        {"level": "CHECK", "intervention": "Question-to-source attribute check on the cited security (due date and term vs the question's 'maturing' date).", "generality": "document_qa_general", "confidence": "high", "why": "The cited sentence it read at [30] says the notes are due in 1986; the question says maturing in July 1984."},
+        {"level": "TOOL", "intervention": "Exact-phrase and date search across all issues, with no hard limit crash (clamp the limit instead of raising).", "generality": "document_qa_general", "confidence": "medium", "why": "Its one targeted search for the due date ([25]) crashed on limit=30, and the retry in OR mode buried the 1982 narrative. A phrase search found it first in the prompt arm ([24])."},
+        {"level": "CONTROL", "intervention": "Ambiguity fork that forces a source lookup for each stated reading before committing.", "generality": "domain_general", "confidence": "medium", "why": "At [23] it stated both readings and settled without a lookup."}
+      ]
+    }
+  },
+  "right_arms_note": "No GLM arm was right. All three used the July 1984 refunding auction of the 1986 note series. The none and cards arms then followed Opus's extraction logic (narrative tender total, foreign-authorities amount), so their only error was which security.",
+  "text_vs_mechanism": "Text alone is unlikely to be enough. The prompt and cards arms both wrote down the correct reading ([30] and [23]) and still chose the refunding auction, and the prompt arm even had the correct 1982 hit listed at [24]. What was missing is a mechanism that forces the ambiguity to be resolved against sources (a CONTROL fork) or blocks a commit whose cited source contradicts a question constraint (a CHECK on due date and maturity). A better exact-phrase search TOOL would make the right source easy to reach.",
+  "notes": "This is a clean case of an entity-identity error. The question paraphrases the corpus heavily ('noncash rollover', 'global non-domestic investors' for 'in exchange for maturing securities' and 'foreign and international monetary authorities'), which made all arms spend steps searching for words that do not exist. A harness helper that maps paraphrases to corpus vocabulary, or tells the actor that question wording is paraphrased and not to grep it verbatim, would save budget. The error_bin 'count_mismatch' for the none arm is an artifact of error_bins.py parsing '[a,b]' without a space."
+}

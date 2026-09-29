@@ -1,0 +1,200 @@
+{
+ "ordinal": 80,
+ "task_id": "UID0059",
+ "question_type": "CAGR of a small budget-expenditure line (transfers to the FOASI trust fund) between FY1947 and an event-defined fiscal year (Korean War start), percent per year to hundredths",
+ "skills_required": [
+  "locate_table",
+  "read_flattened_table",
+  "multi_value_extraction",
+  "date_or_period_logic",
+  "external_knowledge",
+  "pick_vintage",
+  "formula_finance",
+  "rounding_format"
+ ],
+ "opus_path": [
+  {
+   "stage": "interpret",
+   "decision": "Series = the budget-expenditure column 'Transfers to Federal Old-Age and Survivors Insurance Trust Fund', explicitly not the much larger 'Appropriations to FOASI Trust Fund' receipt deduction; Korean War start falls in FY1950 under the July-June fiscal year, so n = 3",
+   "evidence": "worklog.md:5-9 (Step 0)"
+  },
+  {
+   "stage": "choose_source",
+   "decision": "Aug 1950 issue as the first with a complete FY1950",
+   "evidence": "worklog.md:17-21 (Step 3)"
+  },
+  {
+   "stage": "locate_table",
+   "decision": "Table 7 'Social Security Act - Budget Receipts and Expenditures', expenditures sub-table header with the Transfers column",
+   "evidence": "worklog.md:23-26 (Step 4); treasury_bulletin_1950_08.txt:399-430"
+  },
+  {
+   "stage": "pick_cells",
+   "decision": "FY1947 and FY1950 rows of the Transfers column; checked that monthly FY1950 cells sum to the annual row; rejected the receipts-side appropriations line",
+   "evidence": "worklog.md:27-30; treasury_bulletin_1950_08.txt:437,440"
+  },
+  {
+   "stage": "verify",
+   "decision": "Cross-checked the same figures in Trust Accounts Table 5 ('Transfers from General Fund') and across all issues 1948_09-1951_08; odd single-issue readings attributed to OCR noise by majority",
+   "evidence": "worklog.md:32-42 (Steps 5-6)"
+  },
+  {
+   "stage": "interpret",
+   "decision": "Confirmed the July-June fiscal-year convention from corpus text before mapping the war start date",
+   "evidence": "worklog.md:44-45 (Step 7); treasury_bulletin_1950_08.txt:312"
+  },
+  {
+   "stage": "compute",
+   "decision": "CAGR computed in calc.py reading cells from the corpus with assertions; printed the rounded percent directly",
+   "evidence": "worklog.md:47-55 (Step 8); calc.py"
+  },
+  {
+   "stage": "verify",
+   "decision": "Reviewer re-derived, confirmed column alignment by summing components to the row total",
+   "evidence": "review.md check 2"
+  }
+ ],
+ "opus_key_moves": [
+  "Read 'expenditure transfers to the trust fund' literally and matched it to a column header that contains 'Transfers to ... Trust Fund', explicitly rejecting look-alike series (receipt-side appropriations; trust-fund-side tables)",
+  "Printed the final rounded percent from a script (no mental rounding)",
+  "Confirmed the fiscal-year convention in the corpus before placing the event year"
+ ],
+ "arms": {
+  "none": {
+   "correct": true,
+   "error_bin": null
+  },
+  "prompt": {
+   "correct": false,
+   "error_bin": "within_0.1pct",
+   "first_divergence": {
+    "stage": "ROUNDING_FORMAT",
+    "glm_step": "[24] (mental estimate), [25] (correct full-precision print), [26]-[27] (commit)",
+    "what_glm_did": "Found the right table and cells (Social Security Act Table 7, 1954_02 vintage, [22]-[24]), right FY and n; at [24] estimated the CAGR mentally and wrote a hundredths value one unit too low; [25] Python printed the full-precision fraction (which rounds up at the hundredths of a percent), but at [26] the actor only debated whether to add '%' and committed the earlier mental figure.",
+    "what_opus_did": "Same series and FY mapping; calc.py printed the percent already rounded to 2 dp (worklog.md:47-55).",
+    "why_glm_went_that_way": "Anchoring on the mental estimate at [24]; it never converted the printed fraction to a percent with explicit rounding. The only deliberation at [26] was about the '%' sign.",
+    "consequence": "Last reported digit off by one (relative error well under 0.1%), scored wrong."
+   },
+   "secondary_errors": [
+    {
+     "stage": "CELL_SELECTION",
+     "glm_step": "[13]",
+     "note": "Briefly read the FY1947 value from the wrong column (a grants figure) in the receipts panel; self-corrected at [24] after reading the expenditure panel."
+    }
+   ],
+   "saw_correct_evidence": {
+    "value": "yes",
+    "where": "[24] correct column and both cells; [25] printed the full-precision CAGR that rounds to the correct value."
+   },
+   "glm_expressed_doubt": {
+    "value": "no",
+    "where": "[24] ('let's not jump') and [26] (whether to append a percent sign) doubt the table choice and the % formatting, never the rounded digit."
+   },
+   "operational": {
+    "timed_out": false,
+    "no_answer": false,
+    "loop_or_thrash": "none",
+    "tool_friction": "rg blocked [2]; heredoc failure [18] recovered with python -c [20] (cited the lesson at [19]); a mislabeled issue date noticed at [15]",
+    "notes": "Fast run (14 requests, 65 s)."
+   },
+   "adapter_context": {
+    "relevant_item": "Procedure step 5 'Round last' and step 6 (commit bare value); L-decimal-half-up (line 279); a lesson line about computing in a python -c loop and 'never answer from memory' (line 1024)",
+    "item_was_correct_guidance": "yes",
+    "followed": "partly",
+    "caused_or_contributed_to_error": "no",
+    "notes": "It computed in Python as advised but did the final scale-and-round step in its head. No lesson on this series or on the Korean War fiscal year existed; the actor got both right unaided."
+   },
+   "remedies": [
+    {
+     "level": "CHECK",
+     "intervention": "Answer-vs-computation consistency check at commit: parse the committed number, find the last printed full-precision value in the trajectory, apply the requested scale (x100 when the question says percent) and half-up rounding, and reject on mismatch.",
+     "generality": "domain_general",
+     "confidence": "high",
+     "why": "The correct full-precision value was printed at [25], one step before the wrong commit; the mismatch is mechanical and a checker would flag it deterministically."
+    },
+    {
+     "level": "TOOL",
+     "intervention": "A finalize/format helper (value, scale, decimals, half-up) whose printed output must be the committed answer.",
+     "generality": "domain_general",
+     "confidence": "medium",
+     "why": "The error happened only in the manual scale+round step; the cards arm, which followed a 'submitted number must be a script's printed output' card (C019), printed a rounded percent from the script at [36]."
+    },
+    {
+     "level": "TEXT",
+     "intervention": "'The final number must be copied from a script line that already applies the requested scale and rounding; never round mentally.'",
+     "generality": "domain_general",
+     "confidence": "low",
+     "why": "The prompt arm already had 'Round last' and 'never answer from memory' and still rounded by hand; text helps only if applied at the commit step."
+    }
+   ]
+  },
+  "cards": {
+   "correct": false,
+   "error_bin": ">25pct",
+   "first_divergence": {
+    "stage": "SOURCE_TABLE",
+    "glm_step": "[21], extracted [33]-[34]",
+    "what_glm_did": "Read 'expenditure transfers to the trust fund' as 'the trust fund's expenditures' and chose Trust Accounts Table 4 'Expenditures Other Than Investments by Principal Accounts', FOASI column (the fund's own outlays, hundreds of millions), from the Dec 1950 issue; computed a CAGR ~82% below the reference.",
+    "what_opus_did": "Took the Social Security Act budget-expenditure column 'Transfers to Federal Old-Age and Survivors Insurance Trust Fund' (tiny amounts, general-fund transfers into the fund) and cross-checked it against the fund's 'Transfers from General Fund' receipt column (worklog.md:5-6, 23-35).",
+    "why_glm_went_that_way": "[21]: \"maybe 'Expenditures by Principal Accounts' table, column 'Federal Old-Age and Survivors Insurance Trust Fund'\" - keyword match on 'expenditure' + fund name; plus \"Card C003/C007 says latest December issue printing fiscal year\" which sent it to December issues and account-level tables.",
+    "consequence": "Wrong series (outflows from the fund instead of transfers into it), so both endpoints and the CAGR are wrong (>25% error)."
+   },
+   "secondary_errors": [],
+   "saw_correct_evidence": {
+    "value": "partial",
+    "where": "[20] search results included the 1948_10 excerpt whose header contains 'Transfers to Federal Old-Age and Survivors Insurance Trust Fund' (the correct column), and [29] printed part of Table 5 (the FOASI trust fund with its transfers receipt column); neither was opened or used."
+   },
+   "glm_expressed_doubt": {
+    "value": "no",
+    "where": "No doubt about the table after [21]; [35] states the figures are 'stable' and commits."
+   },
+   "operational": {
+    "timed_out": false,
+    "no_answer": false,
+    "loop_or_thrash": "mild",
+    "tool_friction": "heredoc temp-file failures [5],[8],[12]; apply_patch not installed [10]; misread helper return types (dict iterated as keys, KeyError on 'text') [14]-[19],[25]",
+    "notes": "About a third of the 17 requests went to shell/helper friction; total 64 s, so no budget pressure - the error is purely a selection error."
+   },
+   "adapter_context": {
+    "relevant_item": "C003 (applies when: cagr, total outlays ...); C007 (outlays); C019 (compute via script file)",
+    "item_was_correct_guidance": "partly",
+    "followed": "yes",
+    "caused_or_contributed_to_error": "possibly",
+    "notes": "C003 fired on the keyword 'cagr' but its scope is department outlays in FFO-style agency tables ('trust funds included ... Total funds column'); the actor used it to pick December-issue vintages ([21]) and its trust-fund wording may have primed account-level trust tables. C019 was followed well (script-printed rounded value at [36])."
+   },
+   "remedies": [
+    {
+     "level": "TOOL",
+     "intervention": "Header-phrase lookup: given the question's key noun phrase ('transfers to ... Old-Age and Survivors Insurance Trust Fund'), return every table/column header across issues that contains it as a phrase (not BM25 OR-tokens), with file:line.",
+     "generality": "document_qa_general",
+     "confidence": "medium",
+     "why": "The correct column header exists verbatim-ish in the corpus; the none arm found it with a literal grep -R at [18] and was right; the cards arm's BM25 search surfaced it at [20] but ranked among many hits."
+    },
+    {
+     "level": "CHECK",
+     "intervention": "Question-to-header alignment check before extraction: every distinctive relational word in the question's series phrase ('transfers', 'to') must appear in the chosen table title or column header; if not, and another candidate header contains them, block and show that candidate.",
+     "generality": "document_qa_general",
+     "confidence": "medium",
+     "why": "The chosen header ('Expenditures Other Than Investments' / fund name) lacks 'transfers', while the correct header contains it; the actor made the choice in one THINK line [21] with no comparison."
+    },
+    {
+     "level": "CONTROL",
+     "intervention": "Mandatory candidate enumeration: list at least two candidate tables/columns with their headers and a one-line reason for the choice before reading values.",
+     "generality": "document_qa_general",
+     "confidence": "medium",
+     "why": "Opus's win came from explicitly rejecting look-alike series (worklog.md:6,30); the actor never listed alternatives."
+    },
+    {
+     "level": "CHECK",
+     "intervention": "Card applicability check: fire a card only when its scope (table family/series) matches, not on a shared keyword like 'cagr'.",
+     "generality": "domain_general",
+     "confidence": "low",
+     "why": "C003 was applied at [21] outside its scope; uncertain how much it drove the table choice."
+    }
+   ]
+  }
+ },
+ "right_arms_note": "none: grepped the literal phrase across the 1950s files at [18], landed on the Social Security Act expenditure header containing 'Transfers to ... Trust Fund', read it in the 1951_03 issue [20], mapped the Korean War start to FY1950, and both estimated and printed the CAGR, rounding correctly at [21]/[24]. The prompt arm reached the same cells and differed only at the final rounding; the cards arm diverged at table choice.",
+ "text_vs_mechanism": "The two failures are different. The prompt arm's rounding slip happened despite 'Round last' text in its context, so a mechanical answer-vs-computation check is the reliable fix. The cards arm's table choice could be fixed by a narrow series-specific text rule, but that does not generalize; a phrase-level header search plus an alignment check between the question and the chosen header is the general mechanism.",
+ "notes": "Correct arm (none) and wrong cards arm differ mainly in search method: a literal phrase grep beat BM25 OR-search for a header whose words are all common. The same exact phrase occurs in both the receipts context ('Appropriations to FOASI Trust Fund') and the trust-account tables, so candidate enumeration with header text is needed. Event-to-fiscal-year mapping (external knowledge) was handled correctly by all three arms."
+}

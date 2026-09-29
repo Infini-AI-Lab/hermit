@@ -1,0 +1,58 @@
+{
+  "ordinal": 61,
+  "task_id": "UID0177",
+  "question_type": "Sum of two public-debt categories at three February snapshot dates, converted to pounds sterling with external calendar-year GBP-per-USD rates, summed, in billions",
+  "skills_required": ["locate_issue", "locate_table", "read_flattened_table", "multi_value_extraction", "date_or_period_logic", "unit_or_scale", "external_knowledge", "multi_step_arithmetic", "rounding_format"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "Read the '12-month periods ending Feb 28/29' as three point-in-time snapshots of the Statutory Debt Limitation tables; 'total nominal amount' = the Total outstanding column; rows Total marketable + Total nonmarketable; FX year = calendar year of each snapshot.", "evidence": "worklog.md:4-14"},
+    {"stage": "choose_source", "decision": "April issues carry the end-of-February statutory tables (March issues = Jan 31 data, May issues = Mar 31 data).", "evidence": "worklog.md:20-38; treasury_bulletin_1950_04.txt:1362, 1951_04.txt:1524, 1952_04.txt:1460"},
+    {"stage": "pick_cells", "decision": "Took Total marketable and Total nonmarketable from the Total outstanding column of Table 2 for each year.", "evidence": "worklog.md:41-48; 1950_04.txt:1377/1384, 1951_04.txt:1541/1548, 1952_04.txt:1475/1481"},
+    {"stage": "verify", "decision": "Detected an OCR slip in the 1952 marketable components, kept the printed Total outstanding figure, and cross-checked all three subtotals against the Debt Outstanding 'Total public issues' column and later reprints (no revisions).", "evidence": "worklog.md:29-32, 58-72"},
+    {"stage": "extract", "decision": "Established that no 1950-52 sterling rate exists in the corpus, so the FX rate is external knowledge. Recalled the Bretton Woods parity, which is quoted as dollars per pound, and explicitly took its reciprocal to get the requested GBP per USD.", "evidence": "worklog.md:51-56, 88-95"},
+    {"stage": "compute", "decision": "Summed the subtotals and multiplied by GBP per USD in calc.py, then converted millions to billions.", "evidence": "worklog.md:74-86; calc.py"},
+    {"stage": "verify", "decision": "Reviewer recomputed under four FX variants (par, Fed market averages, BoE 2-dp, rounded rate) plus the alternative column. All variants land within about 0.2% of each other; the verdict was 'uncertain' only because of the FX series choice.", "evidence": "review.md sections 5-6; review.json"}
+  ],
+  "opus_key_moves": [
+    "Explicitly converted the recalled dollars-per-pound parity into the question's stated direction (pounds per $1) before multiplying, and logged it as external knowledge",
+    "Ran a sensitivity check across FX series variants, so the answer was known to be robust to the exact monthly-rate source"
+  ],
+  "arms": {
+    "none": {
+      "correct": true,
+      "error_bin": null,
+      "right_arms_note": "At [37] it recalled the dollars-per-pound parity and wrote 'Pounds per dollar =' its reciprocal, then multiplied the subtotals by the reciprocal at [38]."
+    },
+    "prompt": {
+      "correct": true,
+      "error_bin": null,
+      "right_arms_note": "At [10] it wrote 'GBP per USD = reciprocal' of the dollars-per-pound parity and divided the USD total by the parity at [16]. It had no GBP-specific lesson."
+    },
+    "cards": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "FORMULA",
+        "glm_step": "[31]-[37]",
+        "what_glm_did": "Recalled the correct post-1949 sterling parity. That number is quoted as US dollars per pound, but the arm used it as if it were pounds per dollar and multiplied the USD subtotals by it at [37]. At [36] it labelled the number 'pounds-per-dollar'.",
+        "what_opus_did": "Took the reciprocal of the dollars-per-pound parity to get GBP per USD, then multiplied (worklog.md:89-92).",
+        "why_glm_went_that_way": "No visible reasoning about direction at all. At [33] it quoted the question's '(pounds per $1)' and even named the FRED series as 'US Dollars to One British Pound', then went straight to the calculation. All of its doubt went to whether the monthly rates were all exactly at parity ([31], [33]), never to the direction.",
+        "consequence": "The converted total is too large by a factor of the parity squared (about 7.8x). The subtotals, table, vintage and aggregation were all identical to Opus."
+      },
+      "secondary_errors": [
+        {"stage": "OPERATIONAL", "glm_step": "[5]-[13]", "note": "About 5 steps were lost to heredoc and apply_patch failures (heredoc at [5] despite C019's warning, apply_patch unavailable at [8]/[10]) before switching to printf-built scripts. This did not affect the answer."}
+      ],
+      "saw_correct_evidence": {"value": "partial", "where": "The corpus has no 1950-52 FX table, but the arm's own search output at [28] showed a Treasury footnote saying United Kingdom pound rates are expressed in U.S. dollars per unit of foreign currency. At [33] it also recalled the FRED series name 'US Dollars to One British Pound'. The direction convention was in front of it twice."},
+      "glm_expressed_doubt": {"value": "no", "where": "[31] and [33] doubted only whether every monthly rate equals the parity exactly. It never questioned the direction of the rate."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "mild", "tool_friction": "heredoc and apply_patch failures [5]-[13]; a BrokenPipe from piping a large scan into head at [32]", "notes": "114 s, 17 requests. The wasted steps were in setup and the FX-table hunt ([28]-[32]), not in the decision."},
+      "adapter_context": {"relevant_item": "C011 (exchange-rate keywords, but INR only, and its 'Not when' excludes other currencies); C019 (compute in a script). This deck had no GBP card. C021, which states the divide-by-parity rule, appears in later decks (e.g. Q91, Q105) and looks like it was learned from this failure.", "item_was_correct_guidance": "n/a", "followed": "partly", "caused_or_contributed_to_error": "no", "notes": "C019 was followed: the final number is a script's printed output. C011 quotes its rate as foreign currency per dollar, which is the right direction pattern, but the arm never referred to it."},
+      "remedies": [
+        {"level": "CHECK", "intervention": "Units and magnitude check on currency conversions: the actor declares each rate with its direction (e.g. a gbp_per_usd variable), and a checker flags a conversion whose result moves the wrong way. In 1950-52 the pound was worth more than the dollar, so a USD amount converted to GBP must shrink; here it grew instead.", "generality": "domain_general", "confidence": "medium", "why": "The arm's own SAY at [36] shows the mislabelled unit. A numeric plausibility signal would have fired regardless of its reasoning, and the error is a pure direction flip with everything else right."},
+        {"level": "CONTROL", "intervention": "A second independent attempt with reconciliation. A disagreement of about 7.8x between attempts is conspicuous and forces a look at the one step where they differ.", "generality": "domain_general", "confidence": "medium", "why": "The none and prompt arms, with the same model and no GBP guidance, both got the direction right. The error is a stochastic fork, not a systematic belief."},
+        {"level": "TEXT", "intervention": "Rule: before using any external rate, write it in the question's stated direction (X per Y). If recalled in the opposite quote convention (e.g. FRED EXUKUS = USD per GBP), invert it.", "generality": "domain_general", "confidence": "low", "why": "The question text itself said '(pounds per $1)', and the arm quoted it at [33] and still multiplied. Adding more text in the same form is weak evidence of a fix. The learner did later add exactly this as C021."}
+      ]
+    }
+  },
+  "right_arms_note": "none [37] and prompt [10] took the same data path as cards (April issues, Table 2 Total outstanding column, parity rate). The only difference is that they explicitly inverted the dollars-per-pound parity to pounds per dollar. It was the same path with one lucky fork, and adapter text did not drive it: the prompt arm had no GBP lesson and the none arm had no adapter at all.",
+  "text_vs_mechanism": "Text alone is unlikely to be enough. The needed direction was stated verbatim in the question, which is the strongest possible text, and the cards arm read it and still inverted the operation. The prompt arm succeeded without relevant text. A units/magnitude CHECK or an independent re-derivation would catch this class of error reliably.",
+  "notes": "Cross-question card interference: C021, the GBP rule apparently created from this failure, also carries a trailing clause ('take the Total outstanding column of the Application of Limitation table') and triggers on 'statutory debt limitation'. In Q91 that clause pushed the cards arm to the wrong column. Card admission should test on other questions that share trigger keywords. The Opus reviewer's residual uncertainty (par vs market FX averages) is within about 0.2%, so it is irrelevant to this failure."
+}

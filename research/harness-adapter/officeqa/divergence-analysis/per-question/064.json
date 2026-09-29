@@ -1,0 +1,98 @@
+{
+  "ordinal": 64,
+  "task_id": "UID0025",
+  "question_type": "Absolute difference of one expenditure category between two fiscal years that no single issue prints together, with the series defined by a footnote paraphrase",
+  "skills_required": ["pick_vintage", "locate_issue", "locate_table", "read_flattened_table", "multi_value_extraction", "date_or_period_logic"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "Took the quantity to be federal 'Public works' general expenditures for fiscal years 1934 and 1946, in $M. Treated the qualifier as a series selector: the column whose footnote includes the Public Works Administration and housing (USHA/FPHA) and excludes FWA war-activity public works from July 1941. Noted up front that no single issue holds both years.", "evidence": "worklog.md:7-16"},
+    {"stage": "choose_source", "decision": "An FTS search on the footnote wording led to Table 3 'Analysis of General Expenditures'. The same footnote appears from 1941_10 through 1948_02.", "evidence": "worklog.md:21-34"},
+    {"stage": "choose_source", "decision": "Ran a systematic per-vintage scan (scan_pw.py) of every 1939-1949 issue for public-works cells in the 1934 and 1946 rows and grouped the values by definition. It rejected: pre-1941_10 FY1934 printings (footnote has no housing or war exclusion); 1939-40 narrower sub-series; and 1948_03+ FY1946 printings (housing moved to its own column). It chose FY1934 from 1941_10..1944_06 and FY1946 from 1946_08..1948_01.", "evidence": "worklog.md:54-80; logs/064/scan_pw.py"},
+    {"stage": "verify", "decision": "Found and rejected OCR hazards: 1944_04's FY1934 cell fails the row sum; the 1946_05 rows labelled 1930-1934 are really FY1936-1940; 1946_09 has a column shift; 1947_04's FY1946 row is split by a footnote-marker cell; 1948_02's FY1946 cell is garbled.", "evidence": "worklog.md:66, 69, 82-85"},
+    {"stage": "pick_cells", "decision": "FY1934 from the 1944_06 Table 3 'Public Works 2/ 3/' column; FY1946 from the 1947_11 Table 3 'Other general expenditures > Public works 1/' column. Each value is identical across its vintage range.", "evidence": "treasury_bulletin_1944_06.txt:1201; treasury_bulletin_1947_11.txt:292; worklog.md:41-52"},
+    {"stage": "verify", "decision": "Row-sum cross-checks on both rows, plus the 1946_08 budget-summary 'Public works' line for FY1946.", "evidence": "worklog.md:85-89; calc.py; review.md 'Source checks'"},
+    {"stage": "interpret", "decision": "Saw the 1945_09+ 'general expenditures now include revolving funds; back figures revised' rebasing. Chose NOT to harmonize, because no issue publishes FY1934 on that basis and both printed cells carry the footnote definition the question paraphrases.", "evidence": "worklog.md:46-47, 95-97; solution.json decisions[3]"},
+    {"stage": "compute", "decision": "Absolute difference of the two printed cells, done in calc.py.", "evidence": "calc.py"}
+  ],
+  "opus_key_moves": [
+    "Mapped the question's qualifier to a specific footnote and used that footnote as the series identity across two vintages.",
+    "Scanned every vintage exhaustively and used row-sum checks to reject OCR-mislabelled, split or shifted rows (1946_05 year labels, 1947_04 split cell, 1944_04/1948_02 garbles).",
+    "Refused to build an unpublished rebased value; used only printed cells that share the definition."
+  ],
+  "arms": {
+    "none": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "CELL_SELECTION",
+        "glm_step": "[45]-[46]",
+        "what_glm_did": "Read the FY1946 row of 1947_04 Table 3, where an OCR-split footnote marker ('11/') occupies its own cell and shifts every later cell one column right. It mapped cells to headers by position and took the Social Security program value as Public works.",
+        "what_opus_did": "Took FY1946 from 1947_11:292, where the marker is merged into the agriculture cell. It flagged the 1947_04 split and the 1946_09 shift and confirmed the cell with row sums and the 1946_08 summary line.",
+        "why_glm_went_that_way": "[46] states the value with no mapping shown. At [66] it explicitly aligned the 1946_12 row by treating the 'agriculture value + footnote' cell as the Social Security cell, so it did try to align but anchored on the wrong column. It never ran a sum check.",
+        "consequence": "The FY1946 endpoint came from the neighbouring column. Together with the FY1934 misread, the final difference is roughly 3x Opus's."
+      },
+      "secondary_errors": [
+        {"stage": "CELL_SELECTION", "glm_step": "[53]-[54]", "note": "Picked a correct vintage and table for FY1934 (1942_08 Table 3, with the matching PWA/housing/war-exclusion footnote), but took the Aid-to-agriculture cell, one column right of Public Works, in a cleanly aligned row."},
+        {"stage": "CELL_SELECTION", "glm_step": "[32], [56]", "note": "Saw a FY1946 Public works value in the 1947_02 budget summary that agrees with Opus's cell. It dismissed it as 'budget document classification' instead of treating the disagreement with its own 1947_04 read as a red flag."}
+      ],
+      "saw_correct_evidence": {"value": "yes", "where": "[53] output shows the 1942_08 FY1934 row with the correct Public Works cell; [32]/[56] a FY1946 value matching Opus's; [65] the 1946_12 FY1946 row, which contains the correct cell."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[56] 'let's not rush' (about the FY1934 vintage, not the column mapping); [66] noticed 'columns shifted due OCR' but resolved the shift the wrong way."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "mild", "tool_friction": "rg missing [3]; heredoc temp-file failure [6]; several python -c exit-1 errors [13], [18], [22]; very large scan outputs [39]-[40]", "notes": "32 requests, about 2.4 minutes elapsed. It found the right table family through the footnote at [53]-[54]; the losses are in reading cells."},
+      "adapter_context": {"relevant_item": "n/a", "item_was_correct_guidance": "n/a", "followed": "n/a", "caused_or_contributed_to_error": "n/a", "notes": "Base instructions only."},
+      "remedies": [
+        {"level": "TOOL", "intervention": "Row extractor that returns {header: cell} for a named row, merges stray footnote-marker tokens ('11/', '13/') into the preceding cell, and warns when the row's cell count differs from the header count.", "generality": "document_qa_general", "confidence": "high", "why": "Both of this arm's errors are positional column misreads, and one is in a cleanly aligned row. A named-cell tool removes the counting step entirely."},
+        {"level": "CHECK", "intervention": "Cross-printing and components-sum check on every extracted cell: re-read the same (row, column) in two or more other printings and block the commit on disagreement.", "generality": "document_qa_general", "confidence": "high", "why": "FY1934 is printed identically in many 1941_10-1944_06 issues and FY1946 in 1946_08-1948_01. The arm itself saw a disagreeing FY1946 value at [56] and ignored it."},
+        {"level": "TEXT", "intervention": "Match columns by header name, never by position. OCR footnote markers (NN/) can occupy their own cell and shift the rest of the row.", "generality": "document_qa_general", "confidence": "medium", "why": "The prompt arm, whose context had a 'match columns by header, never by position' convention, read these same cells correctly [36]."}
+      ]
+    },
+    "prompt": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "INTERPRETATION",
+        "glm_step": "[46]-[48]",
+        "what_glm_did": "Had Opus's exact two cells and difference at [36] (FY1934 from the 1944 Table 3, FY1946 from the 1947_01 Table 3) and confirmed both were stable across printings [43]-[46]. It then read 'revised WWII-era figures' as the 1945_09+ rebasing that folds in revolving funds. It showed that the rebased FY1937-1940 cells equal the old Public Works cell plus the Table 5 revolving-fund public-works cell, and built a rebased FY1934 the same way: a number printed nowhere, as its own searches [49] and [51] confirmed.",
+        "what_opus_did": "Noticed the same rebasing but rejected harmonizing: no issue publishes FY1934 on that basis, and both printed cells carry the footnote definition the question paraphrases.",
+        "why_glm_went_that_way": "[46]-[48]: mixing the older FY1934 basis with the rebased FY1946 basis looked 'inconsistent', and it took 'Use revised WWII-era figures' as an instruction to avoid that. [58] 'So reconstruct.'",
+        "consequence": "The FY1934 endpoint was inflated by the added revolving-fund component, so the committed difference is roughly 2x Opus's."
+      },
+      "secondary_errors": [],
+      "saw_correct_evidence": {"value": "yes", "where": "[36] explicitly computed the same two cells and difference as Opus and called it 'plausible'; [43]-[46] verified both cells were stable across printings."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[48] 'Need determine builder likely expects...'; [60] conceded that 'revised WWII-era figures' 'could simply mean use 1944/1947 tables rather than 1939 unrevised' and then kept the reconstruction."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "none", "tool_friction": "heredoc temp-file failure [19]; otherwise grep-based and efficient", "notes": "638 s and about 80k output tokens: long deliberation after a correct candidate existed. It correctly rejected the mislabelled 1946_05 '1934' row at [24]-[28], the trap the cards arm fell into."},
+      "adapter_context": {"relevant_item": "L-commit-once ('After any computation that produces a candidate number, commit the bare value FIRST; further searching is justified only by a specific, named discrepancy'); Conventions 'Vintage by row type: ANNUAL rows take the latest final vintage'; Procedure step 1 (compare with the latest bulletin carrying the row)", "item_was_correct_guidance": "partly", "followed": "no", "caused_or_contributed_to_error": "possibly", "notes": "No L-id is cited in any THINK. Commit-once would have locked in the correct candidate at [36]. The repeated 'use the latest revision' guidance fits its rationale that the revised basis must govern both endpoints. The learner later added L-public-works-column-pwa-housing ('never add the revolving-funds cell'), which is question-specific."},
+      "remedies": [
+        {"level": "CHECK", "intervention": "Provenance gate: every input to the final computation must be a cited file:line cell that exists verbatim in the corpus. A derived or adjusted input blocks the commit until the actor either reverts to printed cells or states why no published value exists.", "generality": "document_qa_general", "confidence": "high", "why": "The synthesized FY1934 input was searched for and not found ([49], [51]) and the actor went ahead anyway. A gate would have returned it to the published-cell answer it had at [36]."},
+        {"level": "CONTROL", "intervention": "Commit-first-then-challenge: once a candidate exists, record it as the incumbent. A later alternative replaces it only if a reviewer pass accepts a named test (e.g. 'is the adjusted input published anywhere?').", "generality": "domain_general", "confidence": "medium", "why": "L-commit-once existed as text in this context and was not followed. A control-flow incumbent does not depend on the actor remembering the lesson."},
+        {"level": "TEXT", "intervention": "Do not harmonize bases across vintages by constructing unpublished values. When the question paraphrases a footnote definition, use the printed cells whose footnote matches, even if a later rebasing exists.", "generality": "document_qa_general", "confidence": "medium", "why": "Addresses the exact rationale at [48]. The learner judged text sufficient (it added such a lesson later), but this arm ignored adjacent text such as commit-once."}
+      ]
+    },
+    "cards": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "SOURCE_ISSUE_VINTAGE",
+        "glm_step": "[36]-[38]",
+        "what_glm_did": "Applied card C003's 'take each endpoint ... from the latest issue printing that fiscal year', a card scoped to agency outlays ([36]: 'It says department outlays but general principle'). It took FY1934 from 1946_05, the latest file with a row labelled 1934. That '1934' row is an OCR year-mislabel of FY1940: 1946_05's rows labelled 1930-1934 are really FY1936-1940.",
+        "what_opus_did": "Scanned all vintages, identified the 1946_05 mislabel (its values equal the FY1936-1940 rows of 1946_07/08), and took FY1934 from the 1941_10..1944_06 printings (1944_06:1201).",
+        "why_glm_went_that_way": "Explicit card citation at [36]. The [29] file list showed about 45 issues with both 1934 and 1946 rows in this table, and it picked the latest instead of comparing printings.",
+        "consequence": "The FY1934 endpoint is really a FY1940 value. FY1946 was read correctly at [47], and the committed difference is almost 4x Opus's."
+      },
+      "secondary_errors": [
+        {"stage": "SOURCE_ISSUE_VINTAGE", "glm_step": "[51]-[53]", "note": "Noticed that 1947_02's row labelled 1940 carries exactly the values of 1946_05's '1934' row ('OCR mislabels?') but explained it away. It never compared against the earlier FY1934 printings in its own [29] list, whose totals differ."}
+      ],
+      "saw_correct_evidence": {"value": "partial", "where": "[29] listed the 1941_10..1944_06 files that carry the correct FY1934 row but never opened them; [51] saw the duplicate-values evidence of the mislabel; FY1946 correct at [47]."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[51] 'OCR mislabels?' ... then 'Could be duplicate due OCR?' before settling on the mislabelled row at [53]."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "none", "tool_friction": "heredoc temp-file failure [6]; four failed apply_patch attempts [8]-[14] (not installed) triggered by C019's script-file advice plus the Codex apply_patch instruction; then python -c one-liners", "notes": "28 requests, about 2.4 minutes elapsed. Column alignment for FY1946 was handled well at [43]-[47] (it spotted the split footnote-marker cell)."},
+      "adapter_context": {"relevant_item": "C003 (latest-issue rule, applied outside its agency-outlays scope); C019 (heredocs fail, write a script file; caused the apply_patch detour)", "item_was_correct_guidance": "no", "followed": "yes", "caused_or_contributed_to_error": "yes", "notes": "The actor acknowledged the scope mismatch and applied C003 anyway. A later deck adds C022, specific to this question family, which warns about the 1946_05 shifted year labels. That is a post-hoc, question-shaped card."},
+      "remedies": [
+        {"level": "CHECK", "intervention": "Cross-printing consistency on each extracted (row label, column): compare the chosen printing with earlier printings of the same label. If the whole row differs from every earlier printing and matches another year's row elsewhere, flag an OCR year-label shift and block the commit.", "generality": "document_qa_general", "confidence": "high", "why": "The actor already had the file list [29] and saw the matching FY1940 row [51]. An automatic diff makes the mislabel explicit instead of leaving it to judgment."},
+        {"level": "CONTROL", "intervention": "Card-scope gate: allow a card only when the task matches its 'applies when' keywords, and require the actor to state the match before using it.", "generality": "domain_general", "confidence": "medium", "why": "C003's keywords (cagr, total outlays, arc elasticity) do not match this question; [36] notes the mismatch and applies it anyway."},
+        {"level": "STATE", "intervention": "Series-location index learned across questions (which issues print which fiscal-year rows of a table, and known OCR label faults per issue), retrieved by table and year.", "generality": "officeqa_specific", "confidence": "medium", "why": "The mislabel in 1946_05 is a stable corpus fact that Opus found by scanning. An index would hand it to the weaker actor without that scan."},
+        {"level": "TEXT", "intervention": "Add a 'Not when' to latest-printing rules: not when the latest printing's row disagrees with all earlier printings; verify the year label against a neighbouring row or vintage first.", "generality": "document_qa_general", "confidence": "low", "why": "The actor followed card text literally here, so a scoped rule would likely be followed too. But the root problem is out-of-scope application, which text alone did not prevent."}
+      ]
+    }
+  },
+  "right_arms_note": "No arm was right. All three found the Table 3 'Analysis of General Expenditures' family through the footnote. The prompt arm reached Opus's exact cells and difference at [36] and then abandoned them for a synthesized rebased value. The none arm misread both cells by one column. The cards arm read FY1946 correctly but took an OCR-mislabelled '1934' row from the latest printing.",
+  "text_vs_mechanism": "Mechanism. The three failures (positional misreads, synthesizing an unpublished input, a card applied out of scope) would all be caught by a provenance plus cross-printing CHECK on the two endpoint cells. The prompt arm had relevant text (L-commit-once, latest-vintage conventions) and not only failed to follow it; the latest-revision emphasis plausibly fed its over-correction.",
+  "notes": "Each arm failed in a different way on a question where the right table was easy to find, so the difficulty is in cell and vintage hygiene, not search. Both learners later added question-specific rules (C022; L-public-works-column-pwa-housing) with the exact source lines: answer-shaped memory that helps only on a repeat of this question. The generalizable lessons are provenance-only inputs and cross-printing agreement. Opus's per-vintage scan script (scan_pw.py) is a good model for a harness TOOL that lists every printing of a (row, column)."
+}

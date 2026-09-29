@@ -1,0 +1,77 @@
+{
+  "ordinal": 15,
+  "task_id": "UID0225",
+  "question_type": "Average of Treasury-bill bank-discount bid quotes selected by maturity week, from a month-end market-quotation table",
+  "skills_required": ["locate_issue", "locate_table", "read_flattened_table", "multi_value_extraction", "date_or_period_logic", "rounding_format"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "Read 'quotations in the last week of February 1982' as the closing bids for the last trading day (Feb 26, 1982). The value to take is 'Bank discount > Bid'. Weekly bills mature on Thursdays, so June 1982 weeks 2 and 3 are the 6/10/82 and 6/17/82 maturities. The reviewer confirmed this under Sunday-start, Monday-start and Thursday-count week conventions.", "evidence": "worklog.md:8-10; review.md item 3"},
+    {"stage": "choose_source", "decision": "March 1982 issue, Table MQ-1 'Treasury Bills' (Market Quotations, February 26, 1982). It is the only issue that carries the Feb 26 quotes, so there is no competing vintage.", "evidence": "treasury_bulletin_1982_03.txt:4363-4369; review.md item 1"},
+    {"stage": "pick_cells", "decision": "Took the two regular-weekly (13-/26-week panel) rows whose maturity dates are 6/10/82 and 6/17/82. Left out the 52-week bill and the special cash-management issue with the same 6/17/82 maturity, because they sit in different panels.", "evidence": "1982_03.txt:4389-4390 (chosen), :4378 and :4399 (excluded); worklog.md:22, 43"},
+    {"stage": "interpret", "decision": "Settled the conflict between the question's '13-week' label and the June rows, which carry amounts only in the 26-week column. The April 1982 issue shows 13-week bills issued 3/11 and 3/18 that reopen these same maturities, so the rows belong to the regular weekly bill line the question means.", "evidence": "worklog.md:24-27; 1982_04.txt:4937-4938; solution.json decisions[2]"},
+    {"stage": "verify", "decision": "Cross-checked both bids with the 'change from last month' column against the Feb 1982 issue (Jan 29 quotes) and the Apr 1982 issue (Mar 31 quotes; OCR there drops decimals).", "evidence": "worklog.md:29-35; calc.py asserts"},
+    {"stage": "round_format", "decision": "The exact average sits on a half boundary at the hundredths digit. Used Decimal ROUND_HALF_UP to avoid a binary-float round-down, and noted that half-even gives the same result.", "evidence": "worklog.md:38, 44; review.md item 6"}
+  ],
+  "opus_key_moves": [
+    "Selected rows by maturity date. It settled the '13-week' label vs 26-week-column conflict with evidence from the next issue (the 13-week reopenings) instead of dropping or re-mapping the rows.",
+    "Kept out same-maturity rows from the 52-week and special-issue panels.",
+    "Checked both cells against the change column in the adjacent issues, and rounded with Decimal half-up on the exact boundary."
+  ],
+  "arms": {
+    "none": {
+      "correct": true,
+      "error_bin": null,
+      "right_arms_note": "Read MQ-1 in the March 1982 issue [30], picked the rows by maturity date and accepted their placement under the 26-week column [31], then submitted a bare value [34]."
+    },
+    "prompt": {
+      "correct": false,
+      "error_bin": "count_mismatch(7 vs 1)",
+      "first_divergence": {
+        "stage": "ROUNDING_FORMAT",
+        "glm_step": "[25]",
+        "what_glm_did": "Chose the same issue, table and two maturity rows as Opus and computed the same rounded value in its reasoning [24]. It then submitted a full sentence restating both component bids, the unrounded average and the rounded result (seven numeric tokens) instead of the bare value.",
+        "what_opus_did": "Committed only the rounded value.",
+        "why_glm_went_that_way": "[24] never discusses answer format. The adapter procedure in force at this point told it to 'Write the chosen convention next to the number (which rows, which formula, which year basis)' (step 4) and to mention the L-id of every applied lesson (step 6). Both pull annotation into the answer and compete with the base rule 'only a direct answer'.",
+        "consequence": "The grader found several numbers where it expected one (count_mismatch 7 vs 1) and scored 0, although the intended value was right."
+      },
+      "secondary_errors": [],
+      "saw_correct_evidence": {"value": "yes", "where": "[23] printed the MQ-1 rows, including the 6/10/82 and 6/17/82 regular-panel rows; [24] identified them and computed the correct rounded average."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[24] weighed 'by the 2nd and 3rd week' (whether the 6/03 maturity counts) and the same-date special issue. It showed no doubt about answer format."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "none", "tool_friction": "rg not permitted [3]; heredoc temp-file failure [6]; docs.read num_lines>150 ValueError [13]; one oversized read truncated mid-table [21]", "notes": "Fast run (41 s, 11 requests). The only failure is the text of the final message."},
+      "adapter_context": {"relevant_item": "Procedure steps 4 and 6 (annotate conventions next to the number; cite L-ids). No answer-format lesson existed yet: the bare-value clause in step 6 and L-bare-number-final appear only in later contexts (e.g. the q64 context).", "item_was_correct_guidance": "no", "followed": "partly", "caused_or_contributed_to_error": "possibly", "notes": "The adapter text invited annotation without saying it belongs in the trajectory, not the final line. The learner later added exactly the missing rule, and also an MQ-1 convention (L-mq1-bill-quotations) that this arm did not need."},
+      "remedies": [
+        {"level": "CHECK", "intervention": "Final-answer format gate: when the question asks for one value, reject a final message with prose or more than one numeric token and ask for the bare value (or auto-extract the committed number).", "generality": "domain_general", "confidence": "high", "why": "The arm had the correct value at [24]. One bounce-back turn would have converted a 0 into a 1 at almost no cost."},
+        {"level": "TOOL", "intervention": "Structured submit_answer(value) tool that accepts only a scalar or list, so prose cannot reach the grader.", "generality": "domain_general", "confidence": "high", "why": "Removes the failure mode entirely, whatever competing text instructions the adapter carries."},
+        {"level": "TEXT", "intervention": "Put 'the final line is the bare value; conventions and citations go in the trajectory' as the last procedure item, and remove wording that invites annotation in the answer.", "generality": "domain_general", "confidence": "medium", "why": "The base instruction already said 'only a direct answer' and was overridden by the adapter's annotation wording, so text alone is fragile. The later prompt context adds this rule, but it is untested on this question."}
+      ]
+    },
+    "cards": {
+      "correct": false,
+      "error_bin": "5-25pct",
+      "first_divergence": {
+        "stage": "OPERATIONAL",
+        "glm_step": "[31]-[121]",
+        "what_glm_did": "At [30] its grep printed exactly the rows Opus used, and at [31] it named the correct average as a candidate ('Could answer ... But let's not rush'). It was bothered that the June rows sit under the 26-week amount column, so at [32] it searched the corpus for the question's own phrases ('2nd and 3rd week', 'last week of February 1982'). It then repeated that identical command and identical reasoning 44 more times ([33]-[120]; events.jsonl has 45 byte-identical executions of that command) until a context-compaction warning fired at [121].",
+        "what_opus_did": "Had the same doubt about the '13-week' label and settled it in one evidence step: the April 1982 issue shows 13-week issues dated 3/11 and 3/18 for those maturities, so the rows are the regular weekly line. Then it committed.",
+        "why_glm_went_that_way": "[31]/[33] state the label conflict but no way to settle it. The phrase search carried no information, and nothing in the harness detected or broke the repetition.",
+        "consequence": "Compaction erased the working state: after [121] it no longer knew where the corpus was ([124] ran sed on a bare filename). At [134] it re-derived the answer from the flattened MQ-1 header read literally, picked the March-maturing 13-week rows, and committed a value about 6% below Opus's."
+      },
+      "secondary_errors": [
+        {"stage": "CELL_SELECTION", "glm_step": "[134]", "note": "The flattened MQ-1 header has one more left-panel column ('Issue date > Unnamed') than the data rows, so each maturity date sits under an 'Issue date' label. GLM read the 3/11/82 and 3/18/82 maturity cells as 13-week issue dates of bills maturing in June and took those rows' bids (1982_03.txt:4376-4377)."},
+        {"stage": "INTERPRETATION", "glm_step": "[134]", "note": "Settled the label conflict by forcing the literal 13-week column ('The question explicitly 13-week Treasury bills, so should use 13-week section') instead of selecting by the maturity weeks the question names."}
+      ],
+      "saw_correct_evidence": {"value": "yes", "where": "[30] grep output lists the 6/10/82 and 6/17/82 regular-panel rows (1982_03.txt:4389-4390) plus the same-date 52-week and special rows; [31] names the correct average; [133] re-read the same table after compaction."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[31] 'let's not rush'; [134] 'Why summary chose 26-week? It noted uncertainty.'"},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "severe", "tool_friction": "heredoc temp-file failure [4]; docs.read >150 lines [10]; after compaction it lost the corpus path [124] and the helper's return shape (KeyError [131]); 6.97M input tokens over 514 s", "notes": "About 88 of the 135 steps are the same search+THINK pair. The compaction summary kept the doubt but not the candidate value or its line numbers."},
+      "adapter_context": {"relevant_item": "none (the deck at this point held only C003, about agency outlays; the MQ-1 card C006 appears in later decks)", "item_was_correct_guidance": "n/a", "followed": "n/a", "caused_or_contributed_to_error": "no", "notes": "Later decks carry C006, which states the needed rule (average the bids of rows whose maturity dates fall in the named weeks; a blank short-bill amount cell does not remove the row). It was learned after this episode."},
+      "remedies": [
+        {"level": "CONTROL", "intervention": "Identical-action loop breaker: when the same command (or the same reasoning text) repeats a third time, block it and inject 'already run; commit your best candidate or run a different, named check'.", "generality": "domain_general", "confidence": "high", "why": "There were 44 byte-identical repeats. A breaker at the 3rd repeat fires while the correct candidate from [31] is still in context."},
+        {"level": "STATE", "intervention": "Candidate ledger that survives compaction: record each stated candidate with its file:line cells and open doubt in a workspace file, and re-inject it (plus corpus path and helper API) after any compaction.", "generality": "domain_general", "confidence": "high", "why": "After compaction the actor re-discovered basics [124]-[133] and lost the right candidate. The wrong answer came only from the re-derivation."},
+        {"level": "TOOL", "intervention": "Table reader that detects a header/data column-count mismatch in flattened multi-level tables (e.g. MQ-1's extra 'Issue date > Unnamed' column), re-aligns the columns, and returns rows keyed by maturity date.", "generality": "document_qa_general", "confidence": "medium", "why": "The final misread at [134] is a header-shift misread of exactly this kind."},
+        {"level": "TEXT", "intervention": "When the question's label (e.g. '13-week') conflicts with the column a row sits in, select by the most specific constraint (maturity date) and confirm with an adjacent issue. Never search the corpus for the question's own wording.", "generality": "officeqa_specific", "confidence": "medium", "why": "The none arm did this unprompted. The later card C006 encodes it, but a text rule does not address the loop that actually destroyed the candidate."}
+      ]
+    }
+  },
+  "right_arms_note": "none: same table and rows by maturity date [30]-[31]; accepted the 26-week-column placement and submitted a bare value [34]. The prompt arm also read the right rows and value [24] and lost only on answer format. The cards arm had the right rows at [30]-[31] and lost them through a loop and compaction.",
+  "text_vs_mechanism": "Both failures need mechanisms. The prompt arm already had a text rule (base 'only a direct answer') and was pulled off it by other adapter text, so a format CHECK or structured submit tool is the fix. The cards arm failed through a degenerate repetition loop and context compaction, which no text instruction addresses; it needs a loop breaker and state that survives compaction.",
+  "notes": "Both wrong arms had the correct value in hand. This is a clean example of harness-level losses (format, loop, compaction) rather than reading errors. After this episode both learners added the exact fix as text (L-mq1-bill-quotations, L-bare-number-final, the amended step 6, card C006). Rerunning this question is a direct test of whether text fixes or mechanisms are needed. Adapter procedures should never ask for annotation without saying it goes in the trajectory, not the final line."
+}

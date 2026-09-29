@@ -1,0 +1,86 @@
+{
+  "ordinal": 106,
+  "task_id": "UID0120",
+  "question_type": "CPI-deflated monthly series (to a target month's dollars) followed by a 3-point OLS slope and intercept",
+  "skills_required": ["locate_table", "pick_vintage", "read_flattened_table", "multi_value_extraction", "external_knowledge", "formula_finance", "formula_stats", "date_or_period_logic", "rounding_format"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "Series = SB-4 'Unmatured > Total' column, calendar months Jan-Mar 1970, $ millions; deflator = CPI-U NSA 1982-84=100 with real_m = nominal_m * CPI_Mar / CPI_m; OLS of real value on month index, noting that the x coding (Jan=1 vs Jan=0) is ambiguous.", "evidence": "opus logs/106/worklog.md:9-14"},
+    {"stage": "locate_table", "decision": "Table SB-4 'Redemptions of Matured and Unmatured Savings Bonds'. Cross-footed matured + unmatured + unclassified = total to rule out a column shift.", "evidence": "worklog.md:19-28 (treasury_bulletin_1970_06.txt:4151-4202)"},
+    {"stage": "choose_source", "decision": "Vintage loop 1970_03..1972_06: identical in every issue that prints the rows, so vintage is moot. There was one dead end: the loop first keyed on an SB-2 table and was re-keyed on the title.", "evidence": "worklog.md:30-41"},
+    {"stage": "choose_source", "decision": "Confirmed there is no monthly CPI-U table in the corpus, so CPI comes from external knowledge.", "evidence": "worklog.md:43-46"},
+    {"stage": "extract", "decision": "EXTERNAL KNOWLEDGE: CPI-U NSA (CUUR0000SA0) Jan-Mar 1970, anchored against neighbours (Dec 1969, Apr 1970) and the 1970 annual average.", "evidence": "worklog.md:48-50; solution.json external_knowledge"},
+    {"stage": "compute", "decision": "Deflated to March dollars and ran OLS with x=1,2,3 (also reported x=0,1,2 as an alternative), in a script.", "evidence": "calc.py:16-29; worklog.md:52-57; solution.json decisions[3]"},
+    {"stage": "verify", "decision": "Slope equals (y3-y1)/2 for three equally spaced points; magnitude matches the calendar-1969 monthly average. Reviewer re-read cells and recomputed independently.", "evidence": "worklog.md:59-62; review.md checks 2-5"},
+    {"stage": "round_format", "decision": "Hundredths, '[slope, intercept]'.", "evidence": "calc.py:29"}
+  ],
+  "opus_key_moves": [
+    "Recalled the correct CPI-U NSA values for Jan-Mar 1970 and sanity-anchored them against adjacent months and the annual average (worklog.md:48-50)",
+    "Chose x=1..3 explicitly and recorded the x=0..2 alternative (solution.json decisions[3]) - all GLM arms made the same x choice, so this was not decisive"
+  ],
+  "arms": {
+    "none": {
+      "correct": false,
+      "error_bin": "within_1pct",
+      "first_divergence": {
+        "stage": "EXTERNAL_KNOWLEDGE",
+        "glm_step": "[31], [61]",
+        "what_glm_did": "Recalled Jan/Feb/Mar 1970 CPI-U values that are each 0.1-0.2 index points below the published NSA values (gap largest in March), so the Jan and Feb deflation ratios CPI_Mar/CPI_m came out smaller than Opus's. Formula direction, table, cells, x=1..3 and rounding all matched Opus.",
+        "what_opus_did": "Used the published NSA values with neighbour/annual anchors (worklog.md:48-50).",
+        "why_glm_went_that_way": "It searched the corpus/FTS for a CPI table for ~15 steps ([31]-[60]) and found none. At [61], 'Could use known BLS ... search web memory', it recited a full 1970 list and self-confirmed with 'Yes.'",
+        "consequence": "Slope ~0.8% high and intercept ~0.5% low; both rounded values miss."
+      },
+      "secondary_errors": [],
+      "saw_correct_evidence": {"value": "partial", "where": "Nominal cells: yes, SB-4 in 1970_04 at [30]. CPI: not in the corpus."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[31] 'Likely ... Let's verify'; [61] 'But need ensure values', then self-confirmed"},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "mild", "tool_friction": "heredoc blocked [4]; python3 shim missing, so it searched for an interpreter and used a venv python [6]-[10]; shell quoting errors [12]-[14]; numpy missing [62]", "notes": "About 15 corpus searches for a CPI table that does not exist ([31]-[60]). 33 requests, 174 s."},
+      "adapter_context": {"relevant_item": "n/a", "item_was_correct_guidance": "n/a", "followed": "n/a", "caused_or_contributed_to_error": "n/a", "notes": "Base instructions only."},
+      "remedies": [
+        {"level": "TOOL", "intervention": "Vetted read-only BLS CPI-U monthly reference table (NSA/SA; 1982-84=100 and 1967=100) exposed through the officeqa helper, with a stated rule that recalled index values are not accepted when the tool covers the series.", "generality": "document_qa_general", "confidence": "high", "why": "Every other stage of this arm matched Opus exactly (same cells, same deflation direction, same x=1..3, same rounding). Correct CPI inputs alone would have produced the right answer, and they would also have saved the ~15 futile corpus searches."}
+      ]
+    },
+    "prompt": {
+      "correct": false,
+      "error_bin": "within_1pct",
+      "first_divergence": {
+        "stage": "EXTERNAL_KNOWLEDGE",
+        "glm_step": "[49]",
+        "what_glm_did": "Recalled the same slightly-low Jan/Feb/Mar 1970 CPI-U values as the none arm and computed [50] with the right formula and x=1..3, reaching an identical wrong answer.",
+        "what_opus_did": "Used the published NSA values (worklog.md:48-50).",
+        "why_glm_went_that_way": "It recognised the CPI as external at [1] and [49] and had no data source. At [49] it also recalled a 1970 annual average that its own 12-month list does not average to (the list is ~0.2 below), but it did not notice the inconsistency.",
+        "consequence": "Slope ~0.8% high and intercept ~0.5% low."
+      },
+      "secondary_errors": [],
+      "saw_correct_evidence": {"value": "partial", "where": "Nominal cells: yes, SB-4 read at [18] (1970_12) and in several later issues up to [48] (1971_02). CPI: not in the corpus."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[49] 'Need verify', then 'Yes.'"},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "mild", "tool_friction": "rg blocked [3]; repeated wrong sed offsets from grep -m line hits while walking issues to find the latest printing [28]-[46]; zsh '===' parse error [22]", "notes": "It spent [13]-[48] hunting for the latest printing (lesson-driven: 'SBN monthly rows are revised; take the latest printing'), even though the values are identical across issues. This was harmless but slow. 26 requests; 3M input tokens, dominated by the 184 KB adapter."},
+      "adapter_context": {"relevant_item": "L-cpi-index-values-external-pin-series (never fill CPI from memory; pin SA vs NSA; commit once and flag); L-cpi-yoy-published-rate (CPI external); L-ols-fiscal-year-index-1based (1-based x); L-sbn-redemptions-by-period (latest printing)", "item_was_correct_guidance": "partly", "followed": "partly", "caused_or_contributed_to_error": "no", "notes": "The 1-based OLS index lesson was correct (Opus used the same x) and was followed. 'Never fill index values from memory' cannot be followed when no source exists, and the arm filled from memory anyway. That lesson also claims the 077 reference implies a seasonally adjusted path, which Opus's 077 solution contradicts (NSA reproduced it). Here the arm used NSA, so this wrong claim did not affect the answer."},
+      "remedies": [
+        {"level": "TOOL", "intervention": "Vetted read-only BLS CPI-U reference table exposed through the helper.", "generality": "document_qa_general", "confidence": "high", "why": "The rest of the chain matched Opus. The arm already had a text lesson forbidding recalled CPI values and could not comply, because the only missing piece was data."},
+        {"level": "CHECK", "intervention": "Recall-consistency checker for external index values: require the actor to state the annual average (and/or the 1967=100 equivalents) alongside the monthly values it uses, and flag mismatches between the list's mean and the stated annual figure, or a non-constant base ratio.", "generality": "document_qa_general", "confidence": "low", "why": "At [49] the arm's own monthly list and its own annual figure disagree, so the check would fire. Without a data source, though, the actor has no reliable way to repair the values."}
+      ]
+    },
+    "cards": {
+      "correct": false,
+      "error_bin": "within_1pct",
+      "first_divergence": {
+        "stage": "EXTERNAL_KNOWLEDGE",
+        "glm_step": "[37]",
+        "what_glm_did": "Recalled the same slightly-low Jan/Feb/Mar 1970 CPI-U values as the other two arms (its Apr-Dec values differ from theirs), and computed the regression in a script [45] with the right formula and x=1..3.",
+        "what_opus_did": "Used the published NSA values (worklog.md:48-50).",
+        "why_glm_went_that_way": "C020 says the corpus has no CPI tables. A few confirming searches [30]-[38] found none, and at [47] it re-asserted the values ('Yes').",
+        "consequence": "Slope ~0.8% high and intercept ~0.5% low."
+      },
+      "secondary_errors": [],
+      "saw_correct_evidence": {"value": "partial", "where": "Nominal cells: yes, SB-4 at [27]-[28]. CPI: not in the corpus."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[37] 'Need verify'; [47] 'Let's verify CPI values', then 'Yes'"},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "none", "tool_friction": "heredoc blocked [5]; apply_patch via heredoc/printf failed [41], [43]; fell back to python -c writing a script file [45]", "notes": "23 requests, 92 s."},
+      "adapter_context": {"relevant_item": "C020 (no CPI tables in the corpus; target-month adjustment needs index ratios for two dates); C019 (compute in a script)", "item_was_correct_guidance": "yes", "followed": "partly", "caused_or_contributed_to_error": "no", "notes": "It used the ratio formula and a script as advised, but still searched the corpus a few times despite C020's 'do not search'. No card supplies CPI values."},
+      "remedies": [
+        {"level": "TOOL", "intervention": "Vetted read-only BLS CPI-U reference table exposed through the helper.", "generality": "document_qa_general", "confidence": "high", "why": "Formula, cells, x-index and format all matched Opus; only the three recalled index values were wrong."}
+      ]
+    }
+  },
+  "right_arms_note": "No arm was right. All three arms produced the same wrong answer from the same wrong recalled Jan-Mar 1970 CPI values. Everything else (table, cells, deflation direction, x=1..3, rounding) matched Opus.",
+  "text_vs_mechanism": "Text alone cannot fix this: the prompt arm already carried a lesson saying never to fill CPI values from memory and had no alternative source, so it recalled them anyway. The failure is missing external data, so it needs a TOOL (vetted CPI reference series) or equivalent grounded STATE, not more instructions.",
+  "notes": "(1) The CPI recall error is systematic, not random: all three independent arms recalled identical Jan-Mar 1970 values but different Apr-Dec values. A self-consistency or majority-vote CONTROL over multiple recalls would NOT have caught it. Only external reference data would. (2) This is a clean case for measuring the value of a reference-data tool: with correct CPI inputs, all three arms' existing computations would reproduce Opus. (3) The prompt arm's 'latest printing' hunt ([13]-[48]) was driven by a lesson about a different table family (SBN). Scope-mismatched vintage lessons cost time even when harmless; a STATE index of 'series X is vintage-stable in years Y' would let the actor skip it."
+}

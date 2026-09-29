@@ -1,0 +1,75 @@
+{
+  "ordinal": 95,
+  "task_id": "UID0058",
+  "question_type": "Single-month derived total (net position excluding option columns) from the Foreign Currency Positions monthly Euro table, with a later revision of the row",
+  "skills_required": ["locate_issue", "pick_vintage", "locate_table", "multi_value_extraction", "unit_or_scale", "date_or_period_logic", "multi_step_arithmetic"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "'Office of Foreign Exchange Operations' = Source line of the FCP tables; 'Euro position' = Section VII (VI in 2004); 'reported in December 2000' = report month, not the Dec 2000 issue; millions of euros -> weekly/monthly tables (quarterly is labelled billions); exclude Calls/Puts/Net delta; total = spot/forward/futures net + non-capital net. Vintage flagged as open.", "evidence": "worklog.md:7-17"},
+    {"stage": "choose_source", "decision": "Grepped the office name (57 issues, 1988-2005) and located Section VII Euro Positions.", "evidence": "worklog.md:19-22"},
+    {"stage": "locate_table", "decision": "Monthly table FCP-VII-2 in 2001_03 (first issue with Dec 2000 data) has one Dec 2000 report with separate option columns -> primary table; weekly has four reports and no non-capital items; quarterly is billions with n.a. cells.", "evidence": "worklog.md:24-34, 48-52; treasury_bulletin_2001_03.txt:5082-5111"},
+    {"stage": "choose_source", "decision": "Grepped the row's cell values across every later issue: first print identical in 2001_03-2001_12; spot/forward and option cells revised from 2002_03 on, identical through 2004_03 (last carrier, renumbered FCP-VI-2); non-capital cells unchanged.", "evidence": "worklog.md:36-46; treasury_bulletin_2004_03.txt:4838-4846"},
+    {"stage": "compute", "decision": "calc.py re-reads both vintages' rows from the corpus and computes (Purchased - Sold) + (Assets - Liabilities) for each.", "evidence": "worklog.md:54-57; calc.py"},
+    {"stage": "verify", "decision": "Chose the latest published revision because no issue is pinned (also carried by 9 of 13 issues); first print recorded as the alternative; sanity-checked magnitude against neighbouring months.", "evidence": "worklog.md:59-68"},
+    {"stage": "verify", "decision": "Reviewer re-opened headers/rows in both vintages, confirmed no column shift and the latest-revision convention.", "evidence": "review.md checks 1-5"}
+  ],
+  "opus_key_moves": [
+    "Grepped the December 2000 row forward through every later issue, found the March 2002 revision of the spot/forward cells, and took the latest printing because the question pins no issue",
+    "Defined the non-option total as spot/forward/futures net plus non-capital net, dropping all five option columns, from the monthly (millions-of-euros) table"
+  ],
+  "arms": {
+    "none": {
+      "correct": false,
+      "error_bin": "1-5pct",
+      "first_divergence": {
+        "stage": "SOURCE_ISSUE_VINTAGE",
+        "glm_step": "[11]-[16] (first-print row adopted), left unresolved at [21], committed [140]-[141]",
+        "what_glm_did": "Took the Dec 2000 row from the June 2001 issue (a first-print vintage) and computed the right formula on it; after seeing the revised row it never decided the vintage and finally submitted the first-print total.",
+        "what_opus_did": "Checked every later printing, found the March 2002 revision, and used the latest printing (2004_03).",
+        "why_glm_went_that_way": "The 2001_06 issue was simply the top search hit ([10]-[11]). At [21] it saw the revised row in 2002_06 ('Interesting 2002_06 has revised Dec 2000 row ... Need determine whether use 2001_06 or 2002_06'), then read the 2001_03 first print [22] and drifted into searching for a net-position definition. It then looped, and after compaction [139] it committed from the summary ('Summary already', [140]) with the first candidate it had computed at [16].",
+        "consequence": "Spot/forward net taken from the superseded printing; total ~3.6% below the reference."
+      },
+      "secondary_errors": [
+        {"stage": "OPERATIONAL", "glm_step": "[34]-[138]", "note": "Severe loop: the same THINK ('Could inspect footnotes in 2001_03 maybe after tables? Search \"The net position\".') and the identical docs.search command repeated ~52 times; 8.1M input tokens; ended with a 'multiple compactions' warning [139]. The vintage question raised at [21] was never revisited."}
+      ],
+      "saw_correct_evidence": {"value": "yes", "where": "[20]-[21]: the revised Dec 2000 row in the 2002_06 issue, and it computed the revised total in its note at [21]."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[21] 'Need determine whether use 2001_06 or 2002_06. Data revisions.'"},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "severe", "tool_friction": "rg blocked [3]; heredoc temp-file failure [6]; search printed only dict keys [8]; same FTS query re-issued ~52 times [34]-[138]", "notes": "69 requests, 387 s, ~8.1M input tokens; context compaction before the final answer; answer taken from the compaction summary rather than a fresh decision."},
+      "adapter_context": {"relevant_item": "n/a", "item_was_correct_guidance": "n/a", "followed": "n/a", "caused_or_contributed_to_error": "n/a", "notes": "Base instructions only; no vintage default available."},
+      "remedies": [
+        {"level": "TEXT", "intervention": "Default vintage rule in context: 'When no issue is pinned, grep the row forward and use the latest printing carrying it; record the vintage next to the number.'", "generality": "document_qa_general", "confidence": "medium", "why": "The prompt arm, which had this as Procedure self-check 1, applied it explicitly at [45] ('applying the latest-carrier rule') and was right on the same evidence; the none arm had seen the revision at [21] but had no rule to decide with."},
+        {"level": "CONTROL", "intervention": "Repeated-action breaker: after N (e.g. 3) identical commands or identical notes, interrupt and force a decision step that lists open questions (here: vintage, formula) and commits a choice for each.", "generality": "domain_general", "confidence": "high", "why": "The run spent ~100 of its ~140 steps on one identical search [34]-[138]; the open vintage question from [21] was then lost across compaction."},
+        {"level": "STATE", "intervention": "Episode scratchpad that survives compaction: open decisions and all candidate values with their vintages (e.g. 'Dec 2000 row: first print 2001_03-2001_12, revised 2002_03+'), which the final step must resolve explicitly.", "generality": "domain_general", "confidence": "medium", "why": "At [140] it answered from the compaction summary, which evidently carried only the first computed candidate from [16]."},
+        {"level": "CHECK", "intervention": "Cross-vintage consistency checker: when the cited row's cells differ across issues and the question pins no issue, flag an answer drawn from a non-latest printing.", "generality": "officeqa_specific", "confidence": "medium", "why": "The revision was in its outputs at [21]; a checker would have forced the decision it never made."}
+      ]
+    },
+    "prompt": {
+      "correct": true,
+      "error_bin": null,
+      "right_arms_note": "Same table and formula as the wrong arms (it even confirmed the net-position formula from an older FCP footnote at [38]-[39]), but after finding the revised row at [43]-[44] it explicitly applied its procedure's latest-carrier rule ([45]), located the last carrier 2004_03 ([48]-[53]) and computed from the revised row ([56])."
+    },
+    "cards": {
+      "correct": false,
+      "error_bin": "1-5pct",
+      "first_divergence": {
+        "stage": "SOURCE_ISSUE_VINTAGE",
+        "glm_step": "[64] (decision), computed [70], committed [72]",
+        "what_glm_did": "Found the revised row in 2002_03 and later issues ([51]-[56]) and the first print in 2001_03 ([62]-[63]), then deliberately chose the first print.",
+        "what_opus_did": "Used the latest printing carrying the revised row (2004_03), since no issue is pinned.",
+        "why_glm_went_that_way": "At [64] it reasoned that 'reported in December 2000' points at the original report, that the benchmark 'likely uses one document' without revision nuance, and - explicitly from the deck - 'C003 specifically says for department outlays use latest issue ... No card for FCP revisions. This deck is learned; if revision nuance were generally needed, maybe card would exist. It doesn't. So likely use the table as printed in a source issue, probably first occurrence.'",
+        "consequence": "Spot/forward net from the superseded printing; total ~3.6% below the reference."
+      },
+      "secondary_errors": [],
+      "saw_correct_evidence": {"value": "yes", "where": "[51]-[52] revised row in 2002_03 (and it computed the revised total in its note at [52]); [55]-[56] revised row in later issues."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[52] 'Need use latest printing?'; [64] 'Which should answer?'"},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "mild", "tool_friction": "rg blocked [3]; heredoc failure [6]; two failed apply_patch workarounds for writing a script [8], [11]; python quoting error [15]; read limit error [42]; zsh '=' expansion error [57]", "notes": "33 requests, 188 s; formula reasoning [36]-[47] was sound."},
+      "adapter_context": {"relevant_item": "C003 and C007 (latest-printing rules scoped to outlays-by-agency tables), C009/C030/C031 (table-scoped monthly-printing rules, some favouring non-latest printings), C019 (script for aggregation); no FCP card and no general vintage default", "item_was_correct_guidance": "partly", "followed": "n/a", "caused_or_contributed_to_error": "possibly", "notes": "Each card is correct for its own table, but the deck states vintage rules only per table and mixes 'latest' with 'first/December printing' rules. At [64] the actor read the absence of an FCP card as evidence that revisions should be ignored - an inverse inference the deck format invites."},
+      "remedies": [
+        {"level": "TEXT", "intervention": "Add a general default card: 'No issue pinned and the row differs across printings -> latest printing carrying the row, unless a table-specific card says otherwise', plus a deck preamble line: 'absence of a card is not evidence; fall back to the defaults'.", "generality": "document_qa_general", "confidence": "high", "why": "The actor's decisive argument at [64] was the missing card; the prompt arm, holding an equivalent general rule, chose the latest printing at [45] on the same evidence."},
+        {"level": "CHECK", "intervention": "Cross-vintage consistency checker that flags an answer drawn from a superseded printing when no issue is pinned and asks for an explicit justification.", "generality": "officeqa_specific", "confidence": "medium", "why": "The actor had both vintages on screen ([52], [63]); a flag would force it to justify 'first print' against a stated default rather than against the deck's silence."}
+      ]
+    }
+  },
+  "right_arms_note": "The prompt arm reached the same row and formula as the wrong arms; the difference is solely the vintage rule: it had 'compare with the latest bulletin carrying the same row' as a procedure step and applied it explicitly at [45], whereas the none arm had no rule (and lost the question in a loop) and the cards arm inferred from the deck's silence that the first print was intended.",
+  "text_vs_mechanism": "Text is sufficient for the vintage choice here: the prompt arm had a general latest-carrier rule and used it, while the cards arm without a general rule chose wrong on identical evidence. The none arm additionally needs a mechanism (repeated-action breaker / decision state across compaction) because its failure mode was losing the open vintage question in a 50-iteration loop.",
+  "notes": "Two harness-design lessons: (1) table-scoped vintage cards without a stated general default can backfire - the actor treats the missing card as a signal to use the first print; (2) the none arm's final answer came from a compaction summary that preserved an early candidate but not the unresolved decision, so open decisions need explicit, persistent state. All three arms got the non-option formula right; the only discriminating step was the vintage."
+}

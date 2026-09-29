@@ -1,0 +1,102 @@
+{
+  "ordinal": 108,
+  "task_id": "UID0032",
+  "question_type": "Absolute difference of two 4-month sums (two commodity rows) from a two-block customs table (duties block, then values block) whose values-block header labels are OCR-offset from the data",
+  "skills_required": ["locate_issue", "locate_table", "read_flattened_table", "date_or_period_logic", "multi_value_extraction", "unit_or_scale", "multi_step_arithmetic", "rounding_format"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "Issue pinned to March 1941; table = 'Customs Duties and Taxes Collected, and Values of Dutiable and Taxable Imports, Estimated by Tariff Schedules'; the question's 'Internal Revenue collections' wording is loose; use the VALUES block (not duties) for rows 'Tobacco and manufactures' and 'Wool and manufactures'; months Feb-May 1940; thousands -> millions, 2 decimals.", "evidence": "worklog.md:11-19"},
+    {"stage": "locate_table", "decision": "grep for 'dutiable' in the March 1941 issue located the title and the values-block total row.", "evidence": "worklog.md:21-24; treasury_bulletin_1941_03.txt:1660"},
+    {"stage": "pick_cells", "decision": "Read the whole table (both blocks) and noticed the values-block header has more labels than data cells, i.e. labels are offset by one or two columns; interpreted the numeric cells as [CY1939, CY1940, Jan40..Dec40, Jan41].", "evidence": "worklog.md:26-35"},
+    {"stage": "verify", "decision": "Verified the column mapping by checking that the 12 monthly 1940 cells sum exactly to the CY1940 cell for the Tobacco, Wool and Total rows.", "evidence": "worklog.md:38-43"},
+    {"stage": "verify", "decision": "Cross-issue check: the Feb-May 1940 value cells are identical in every 1940-41 printing, so no vintage risk.", "evidence": "worklog.md:46-52"},
+    {"stage": "compute", "decision": "Summed the four months per row in calc.py, took the absolute difference, converted thousands to millions.", "evidence": "worklog.md:54-57"},
+    {"stage": "round_format", "decision": "Rounded to hundredths.", "evidence": "worklog.md:57, 63"},
+    {"stage": "verify", "decision": "Computed and rejected two alternatives: using the duties block, and trusting the offset header labels (which selects Mar-Jun).", "evidence": "worklog.md:59-60; solution.json alternatives_considered"}
+  ],
+  "opus_key_moves": [
+    "Chose the values block over the duties block from the question's 'values' wording and used the same block for both rows.",
+    "Did not trust the OCR header labels; proved the month-to-column mapping with a months-sum-to-annual check on the rows actually used.",
+    "Extracted cells from the source lines in code rather than by eye."
+  ],
+  "arms": {
+    "none": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "CELL_SELECTION",
+        "glm_step": "[18]",
+        "what_glm_did": "Mixed blocks and month windows in one difference: for tobacco it took the values-block row but mapped months by the offset header labels (so it summed Mar-Jun instead of Feb-May); for wool it took the DUTIES-block row (aligned header, Feb-May) because the values-block wool row was never on screen.",
+        "what_opus_did": "Used the values block for both rows and fixed the month mapping by a months-sum-to-annual check (worklog.md:38-43).",
+        "why_glm_went_that_way": "[18] states 'They ask values, so second table', then lists numbers without a visible column check. Its read windows ended at line 1709 ([15]) and at the values-block header line 1699 ([17]), so the values-block tobacco row (1706) was visible but the values-block wool row (1711) was not; the only 'Wool and manufactures' row it had seen was the duties-block one (1676). It trusted the values-block header labels, which are offset one column from the data.",
+        "consequence": "Both operands wrong (tobacco shifted a month, wool from the wrong block); about 75% low."
+      },
+      "secondary_errors": [
+        {"stage": "EXTRACTION", "glm_step": "[13]-[17]", "note": "Fixed-size line windows (150-line helper cap) cut the table mid-block; it never re-read to reach the rest of the values block."},
+        {"stage": "OTHER", "glm_step": "[19]", "note": "Arithmetic was scripted, but on hand-typed numbers, so the script could not catch the selection errors."}
+      ],
+      "saw_correct_evidence": {"value": "partial", "where": "[15] output displayed the values-block tobacco row and [17] the values-block header; the values-block wool row was never displayed."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[18] briefly questioned the 'Internal Revenue collections' wording and which block to use; no doubt about the month mapping or the row source."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "none", "tool_friction": "rg not permitted ([3]); heredoc temp-file failure ([6]); search result printing confusion ([8]-[10]); helper read cap ([13]).", "notes": "35 s, 9 requests; answered quickly without verification."},
+      "adapter_context": {"relevant_item": "n/a", "item_was_correct_guidance": "n/a", "followed": "n/a", "caused_or_contributed_to_error": "n/a", "notes": "Base instructions only."},
+      "remedies": [
+        {"level": "CHECK", "intervention": "Months-sum-to-annual (components-sum-to-total) check on every row the actor draws monthly cells from: the 12 cells it labels Jan-Dec must sum to the row's annual cell, else report the column offset.", "generality": "document_qa_general", "confidence": "high", "why": "This is exactly how Opus fixed the mapping (worklog.md:38-43); under the offset labels the check fails, so it would have flagged the tobacco shift."},
+        {"level": "TOOL", "intervention": "Table-block extractor: given a title or line, return the whole table (title to footnotes) as a grid per block, with header labels realigned when the label count differs from the data-cell count, and cells addressable as (block, row, column).", "generality": "document_qa_general", "confidence": "high", "why": "The none arm's 150-line windows cut the values block before the wool row and it then grabbed a same-named row from the other block; a whole-table grid removes both failure paths."},
+        {"level": "CHECK", "intervention": "Same-source consistency check for multi-operand formulas: operands of one difference/ratio must come from the same block and the same column indices unless the question says otherwise.", "generality": "document_qa_general", "confidence": "medium", "why": "Its two operands came from different blocks of the table, which a citation-level check flags directly."},
+        {"level": "CONTROL", "intervention": "Require cited extraction: numbers enter the computation only through a script that pulls them from cited file:line and column indices (no hand-typed literals), and the script prints the cited cells next to the header labels.", "generality": "domain_general", "confidence": "medium", "why": "Its only script ([19]) summed hand-typed numbers, so the script could not detect that the numbers came from the wrong cells."}
+      ]
+    },
+    "prompt": {
+      "correct": false,
+      "error_bin": "5-25pct",
+      "first_divergence": {
+        "stage": "EXTRACTION",
+        "glm_step": "[17]",
+        "what_glm_did": "Chose the values block correctly and read tobacco Feb-May by the true data positions, but read the wool row one column to the right (effectively Mar-Jun, the positions under the offset 'Feb.'-'May' labels). The two rows were extracted with inconsistent column positions, all by eye in the THINK text.",
+        "what_opus_did": "Parsed both rows in code with one column mapping, validated by the months-sum-to-annual check (worklog.md:38-43).",
+        "why_glm_went_that_way": "No visible column reasoning: [17] lists the four numbers per row directly. The values-block header has one more label than there are data cells, so the 'Feb.' label sits over the March cell; the wool pick matches the labels, the tobacco pick matches the true positions (which also match the aligned duties-block header).",
+        "consequence": "Wool sum uses the wrong four months; about 19% low. Identical wrong value to the cards arm."
+      },
+      "secondary_errors": [
+        {"stage": "OTHER", "glm_step": "[17]", "note": "No script at all: extraction and arithmetic were done mentally, despite lessons saying not to eyeball flattened multi-panel tables."}
+      ],
+      "saw_correct_evidence": {"value": "yes", "where": "[16] output displayed both values-block rows (lines 1706 and 1711) and the offset header (1699)."},
+      "glm_expressed_doubt": {"value": "no", "where": "[17] only double-checked that the values block (not duties) is meant; no doubt about the month columns."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "none", "tool_friction": "rg not permitted ([3]); wrong corpus path ([6]); helper read cap ([12]); middle-truncated output ([14]-[15]).", "notes": "45 s, 8 requests."},
+      "adapter_context": {"relevant_item": "Conventions on flattened multi-panel tables ('OCR ... drops or shifts header labels ... match columns by header, never by position'); L-ay1-year-trio-panels text ('compute ... in python, do not eyeball a flattened multi-panel table'); L-customs-duty-rate-excludes-free-list (same table, names the duties and values panels); Procedure step 3 ('Count the extracted cells before computing').", "item_was_correct_guidance": "partly", "followed": "no", "caused_or_contributed_to_error": "possibly", "notes": "'Use python, do not eyeball' and 'count cells' were right and ignored. 'Match columns by header, never by position' is wrong for this table, where the header labels are the offset part; it may have pulled the wool pick onto the labeled positions."},
+      "remedies": [
+        {"level": "CHECK", "intervention": "Months-sum-to-annual check on each row used (report column offset on failure).", "generality": "document_qa_general", "confidence": "high", "why": "Would fail for the wool row as read; this is Opus's exact verification step."},
+        {"level": "CHECK", "intervention": "Recompute-from-citations: the actor must cite file:line and column index for each input; the checker re-extracts those cells and compares them with the numbers used.", "generality": "document_qa_general", "confidence": "high", "why": "The row was on screen and correct in the source; the error was purely in transcription/column choice, which a re-extraction catches mechanically."},
+        {"level": "TOOL", "intervention": "Table-block grid extractor with header realignment when label count differs from data-cell count.", "generality": "document_qa_general", "confidence": "high", "why": "The offset is machine-detectable (one extra label); giving the actor an aligned grid removes the ambiguity that produced inconsistent row reads."},
+        {"level": "TEXT", "intervention": "Fix the convention: when header label count differs from data-cell count, do not match by header; fix positions by a row-total check, and use one mapping for every row.", "generality": "document_qa_general", "confidence": "low", "why": "The prompt arm ignored the existing 'use python, do not eyeball' text, so a text fix alone is unlikely to stick, but the current text actively points the wrong way for this table."}
+      ]
+    },
+    "cards": {
+      "correct": false,
+      "error_bin": "5-25pct",
+      "first_divergence": {
+        "stage": "EXTRACTION",
+        "glm_step": "[29]",
+        "what_glm_did": "Same slip as the prompt arm: values block chosen correctly, tobacco Feb-May by true positions, wool read one column to the right (under the offset labels). Then at [30] a script summed the hand-typed numbers, satisfying card C019 in letter only.",
+        "what_opus_did": "Parsed both rows in code with one mapping validated by months-sum-to-annual (worklog.md:38-43).",
+        "why_glm_went_that_way": "[29] lists the numbers directly from the displayed table with no column reasoning; the offset values-block header is the likely cause (the wool pick aligns with the labels).",
+        "consequence": "Identical wrong result to the prompt arm; about 19% low."
+      },
+      "secondary_errors": [
+        {"stage": "OPERATIONAL", "glm_step": "[5]-[17]", "note": "About a dozen steps spent working around heredoc/apply_patch/quoting failures to write a script file; did not cause the error."}
+      ],
+      "saw_correct_evidence": {"value": "yes", "where": "[28] output displayed the whole table including both values-block rows (1706, 1711) and the total row."},
+      "glm_expressed_doubt": {"value": "no", "where": "No doubt expressed at [29]-[30]."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "mild", "tool_friction": "heredoc temp-file failures ([6]), apply_patch not available ([8]-[11]), quoting/base64 workarounds ([13]-[17]); middle-truncated output ([27]).", "notes": "59 s, 16 requests."},
+      "adapter_context": {"relevant_item": "C019 (compute aggregations with a script; the submitted number must be a script's printed output). C034's trigger words include 'internal revenue collections' but it concerns a different table's shifted columns; not cited, not applicable.", "item_was_correct_guidance": "partly", "followed": "yes", "caused_or_contributed_to_error": "no", "notes": "C019 was followed ([30]) but only covers arithmetic; the error happened upstream in hand transcription, which the card does not address."},
+      "remedies": [
+        {"level": "CHECK", "intervention": "Recompute-from-citations: re-extract every cited cell from file:line/column and compare with the values in the script.", "generality": "document_qa_general", "confidence": "high", "why": "The cards arm already runs a script; it only needs the inputs to be verified against the source, which catches the one-column slip."},
+        {"level": "CHECK", "intervention": "Months-sum-to-annual check on each row used.", "generality": "document_qa_general", "confidence": "high", "why": "Opus's verification; fails for the wool row as read."},
+        {"level": "TEXT", "intervention": "Amend C019: the script must parse the numbers from the cited source line (split the row, index the columns), never from hand-typed literals.", "generality": "domain_general", "confidence": "medium", "why": "The actor already obeys C019 literally ([30]); extending the card's letter to extraction targets exactly the gap it slipped through."},
+        {"level": "TOOL", "intervention": "Table-block grid extractor with header realignment.", "generality": "document_qa_general", "confidence": "medium", "why": "Removes the offset-header ambiguity at its source."}
+      ]
+    }
+  },
+  "right_arms_note": "No GLM arm was right. The none arm mixed the duties and values blocks (partial read window) and trusted the offset labels; the prompt and cards arms made the identical one-column slip on the wool row while reading tobacco correctly.",
+  "text_vs_mechanism": "Needs a mechanism. The prompt arm had text saying not to eyeball flattened multi-panel tables and to compute in python, and eyeballed anyway; the cards arm obeyed its script card only for the arithmetic. A months-sum-to-annual check or a recompute-from-cited-cells check would have caught all three arms; an aligned-grid table tool would have prevented them.",
+  "notes": "The two adapted arms produced the same wrong value, which points to a systematic model bias when reading rows under an offset header: it reads different rows of one block with different column alignments. Header offset is machine-detectable here (label count exceeds data-cell count by one). All three arms found the right table quickly despite the question's misleading 'Internal Revenue collections' wording, so the failure is purely at cell selection/extraction, the cheapest place to add a check."
+}

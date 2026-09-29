@@ -1,0 +1,78 @@
+{
+  "ordinal": 86,
+  "task_id": "UID0018",
+  "question_type": "Geometric mean of 39 monthly agency outlays stitched from quarterly issues, where some reprints carry OCR-garbled cells",
+  "skills_required": ["locate_issue", "pick_vintage", "locate_table", "read_flattened_table", "multi_value_extraction", "date_or_period_logic", "unit_or_scale", "formula_stats", "multi_step_arithmetic", "rounding_format"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "Series = 'The Judiciary' column of FFO-3 'Budget Outlays by Agency' (millions); Jan 1984-Mar 1987 inclusive = 39 calendar months; GM = exp(mean ln x); nominal = as published; flagged that no single issue covers the window, so vintage choice matters.", "evidence": "worklog.md:6-13"},
+    {"stage": "locate_table", "decision": "Grepped 'judiciary' in a 1985 issue, confirmed the FFO-3 header with The Judiciary as the 2nd data column and 13 monthly rows per quarterly issue.", "evidence": "worklog.md:18-24; treasury_bulletin_1985_06.txt:459-486"},
+    {"stage": "extract", "decision": "extract.py pulled the Judiciary column from every FFO-3 printing 1984-1989 and tabulated each target month across all reprints; manually read issues the parser missed (truncated month labels, 'March').", "evidence": "worklog.md:26-38; extract.py; extracted.json"},
+    {"stage": "verify", "decision": "Found exactly four months whose printings disagree and resolved each with totals printed in the same tables (fiscal-year totals, fiscal-year-to-date rows) and evidence that the outlier printings' blocks are OCR-noisy (other garbled cells in the same issue/row).", "evidence": "worklog.md:40-55"},
+    {"stage": "choose_source", "decision": "Compared three stitching rules (June-issue chain, March issues, latest printing per month); after OCR correction the first two agree and the latest-printing rule differs only in Jan 1987; kept the majority/natural-issue value and recorded the alternative.", "evidence": "worklog.md:57-61; solution.json:69-74"},
+    {"stage": "compute", "decision": "calc.py asserts each hard-coded value against its cited corpus line, computes GM at full precision, rounds once; also computed the alternatives.", "evidence": "worklog.md:63-68"},
+    {"stage": "verify", "decision": "Reviewer independently re-extracted, found the same four conflicts, and settled Jan 1987 with the fiscal-year-to-date chain (Oct-Dec subtotal in 1987_03 + Jan-Mar = Oct-Mar subtotal in 1987_06 only with the majority value).", "evidence": "review.md:15-24"}
+  ],
+  "opus_key_moves": [
+    "Enumerated every printing of every month and surfaced all disagreements instead of applying a blanket first/latest-printing rule",
+    "Adjudicated each disagreement with discriminating same-table subtotals (fiscal-year-to-date rows), treating +-1 gaps against annual totals as rounding noise, not evidence",
+    "Treated a lone disagreeing printing inside an OCR-noisy block as a garble, not a revision"
+  ],
+  "arms": {
+    "none": {
+      "correct": true,
+      "error_bin": null
+    },
+    "prompt": {
+      "correct": false,
+      "error_bin": "within_0.1pct",
+      "first_divergence": {
+        "stage": "SOURCE_ISSUE_VINTAGE",
+        "glm_step": "[38]-[43], finalized at [61]",
+        "what_glm_did": "Found Jan 1987 printed identically in 1987_06, 1987_09 and 1987_12 and differently (by one unit) in 1988_03, the latest printing. At [43] it summed the 12 FY1987 months and found the sum matches the printed FY1987 annual total exactly only with the 1988_03 value, and concluded that the 1988_03 value is correct ('This validates latest/revision'). At [61] it re-did the check and accepted +-1 gaps for FY1984, FY1985 and FY1986 as rounding ('Off 1. Good.'), yet still treated the exact FY1987 match as decisive.",
+        "what_opus_did": "Kept the majority value from the three earlier printings, noting the annual-total test is not decisive given routine +-1 rounding gaps; reviewer showed the Oct-Mar fiscal-year-to-date subtotal in 1987_06 (and the Oct-Dec subtotal in 1987_03) chains exactly only with the majority value, and that the 1988_03 row has another garbled cell (dropped digit in the adjacent column).",
+        "why_glm_went_that_way": "It was trying to apply L-cell-disagreeing-printings ('take the majority value, or the one consistent with the printed row/annual total') plus the vintage prior 'latest printing' ([43]: 'The question likely uses latest bulletin carrying row'). The lesson's two criteria conflicted, and GLM let the (non-discriminating) annual-total test override the majority.",
+        "consequence": "One month off by one unit -> GM ~0.03% high, wrong at the requested thousandth."
+      },
+      "secondary_errors": [
+        {"stage": "OTHER", "glm_step": "[61]", "note": "Inconsistent tolerance: +-1 gaps accepted as rounding for three fiscal years but a 0 gap treated as proof for the fourth. The discriminating subtotals were already in its outputs ([28]/[34] 1987_03 Oct-Dec to-date row; [37] 1987_06 Oct-Mar to-date row) and were never used."},
+        {"stage": "OPERATIONAL", "glm_step": "[50]-[58]", "note": "Heredoc and apply_patch unavailable; wrote the parser as python -c exec strings; parser ran into the second FFO-3 panel and produced duplicates ([57], [61]), after which it fell back to manual value lists."}
+      ],
+      "saw_correct_evidence": {"value": "yes", "where": "[37]/[39] show the majority value in 1987_06, 1987_09, 1987_12; [37] also printed the 1987_06 'Fiscal 1987 to date' row and [28]/[34] the 1987_03 to-date row that discriminate between the two candidates."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[38] 'Which is correct? ... Could be OCR garble or revision'; [40] 'Could be revision or OCR'; [43] 'But majority earlier [value]. Could be revised.'"},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "mild", "tool_friction": "rg not permitted, heredoc and apply_patch unavailable, docs.read num_lines cap, parser bleeding into the continued panel", "notes": "195 s, 32 requests; careful work that caught the Mar 1985 OCR garble via a to-date subtotal ([48]) but did not reuse that same technique for Jan 1987."},
+      "adapter_context": {"relevant_item": "L-cell-disagreeing-printings (majority or total-consistent value; monthly rows otherwise first printing); 'Vintage by row type' convention (annual rows latest; monthly rows per family, FFO-3 monthly unspecified)", "item_was_correct_guidance": "partly", "followed": "partly", "caused_or_contributed_to_error": "possibly", "notes": "Properly applied, the lesson points to the majority value (3 printings vs 1) and its fallback 'monthly rows default to the first printing' also points there. But it gives no precedence between 'majority' and 'total-consistent' and no rounding tolerance, which let the actor use the total branch to overturn the majority. The actor did use the lesson successfully for Mar 1985 ([48])."},
+      "remedies": [
+        {"level": "CHECK", "intervention": "Disputed-cell adjudicator: for each cell whose printings disagree, test every candidate against ALL printed subtotals containing it (fiscal-year-to-date rows in each printing, annual total) with an explicit +-1 rounding tolerance; a subtotal is evidence only if it separates the candidates beyond tolerance; otherwise majority wins.", "generality": "document_qa_general", "confidence": "medium", "why": "The discriminating to-date rows were already in the actor's outputs ([28], [34], [37]); the actor used only the annual total, which cannot separate candidates one unit apart."},
+        {"level": "TOOL", "intervention": "'All printings of this row' lookup that returns, per issue, the target cell plus agreement of its neighboring cells with other printings (to flag OCR-noisy blocks).", "generality": "document_qa_general", "confidence": "medium", "why": "The 1988_03 row carries a second garbled cell; surfacing that would mark the outlier as OCR, which is how Opus's reviewer settled it."},
+        {"level": "TEXT", "intervention": "Sharpen L-cell-disagreeing-printings: majority first; a total overrides the majority only when the majority value misses a subtotal by more than rounding (+-1) and the alternative fits; FFO-3 monthly rows are unrevised, so a lone later disagreement is OCR.", "generality": "officeqa_specific", "confidence": "low", "why": "The actor had the unsharpened lesson and misapplied its total branch; sharper text may help, but the actor also showed it computes totals inconsistently, so a CHECK is more reliable."}
+      ]
+    },
+    "cards": {
+      "correct": false,
+      "error_bin": "within_0.1pct",
+      "first_divergence": {
+        "stage": "SOURCE_ISSUE_VINTAGE",
+        "glm_step": "[54]-[56]",
+        "what_glm_did": "Built an extractor over all 1984-1988 issues ([31]-[53]) and selected, for every month, the value from the LATEST printing it had parsed ([55] 'latest = values[key][-1]'). For Feb 1986 the latest parsed printing was 1987_03, whose Judiciary column is OCR-noisy and differs by one unit from the two earlier printings. At [56] it listed the disagreements (Mar 1985, Feb 1986, Dec 1986) and accepted the latest value in each ('Fine.').",
+        "what_opus_did": "Surfaced all disagreeing cells and resolved each with same-table totals; for Feb 1986 kept the value printed in three issues and fitting the FY1986 to-date and annual totals, noting 1987_03 has other proven garbles in the same column.",
+        "why_glm_went_that_way": "[30]/[54]: 'keeping each month's latest printed revision'; [56]: 'Card C007 says for fiscal-year span take annual rows latest issue printing it. For monthly, likely same principle.' It generalized an annual-row vintage card to monthly rows and assumed disagreements are revisions.",
+        "consequence": "One month off by one unit -> GM ~0.02% high, wrong at the requested thousandth."
+      },
+      "secondary_errors": [
+        {"stage": "EXTRACTION", "glm_step": "[31]-[55]", "note": "Parser coverage gaps: it missed several printings (e.g. 1986_09 with truncated month labels, and the 1987_09/1987_12/1988_03 printings of Jan 1987). The gap happened to hide the 1988_03 garble for Jan 1987, so the latest-printing rule 'worked' there by accident; with full coverage the rule would have produced a second wrong cell."}
+      ],
+      "saw_correct_evidence": {"value": "yes", "where": "[55] printed every parsed printing per month, including the correct Feb 1986 value in 1986_06 and 1986_12 next to the outlier from 1987_03."},
+      "glm_expressed_doubt": {"value": "no", "where": "[56] noticed the three disagreements but dismissed them (for each it restated 'latest' vs the earlier value and wrote 'Good' / 'Fine.')."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "mild", "tool_friction": "heredoc and apply_patch unavailable (wrote scripts with printf > file), regex escaping through printf, parser bleeding into the continued panel, 'July' vs 'Jul' month-map bug", "notes": "129 s, 28 requests; ~20 steps spent debugging the extractor ([31]-[53])."},
+      "adapter_context": {"relevant_item": "C007 (FFO-3 annual rows: take each fiscal year from the latest December issue printing it); C019 (aggregate in a script, not mentally)", "item_was_correct_guidance": "partly", "followed": "partly", "caused_or_contributed_to_error": "possibly", "notes": "C007 is correct for annual rows but silent on monthly rows and OCR disagreements; the actor extended its 'latest' rule to monthly cells by analogy ([56]). C019 was followed (script-computed GM). No card covers disagreeing printings."},
+      "remedies": [
+        {"level": "CHECK", "intervention": "Disagreement gate on multi-printing extraction: when any extracted key has more than one distinct value across printings, block compute until each is resolved by majority or by a subtotal that separates candidates beyond rounding; the actor must name the printings compared.", "generality": "document_qa_general", "confidence": "high", "why": "The actor's own dict already held every printing ([55]); a gate on len(set(values)) > 1 would have forced adjudication of exactly the three cells it waved through at [56]."},
+        {"level": "TEXT", "intervention": "Card: 'FFO-3 monthly rows are not revised; when printings of a month disagree, one is an OCR garble - take the majority or the subtotal-consistent value, never simply the latest'. Add 'Not when: monthly rows' to C007.", "generality": "officeqa_specific", "confidence": "medium", "why": "The actor explicitly reasoned from C007 to monthly rows at [56]; a scoped card removes that analogy and supplies the right rule."},
+        {"level": "TOOL", "intervention": "Robust table-row extractor for these quarterly FFO-3 tables (handles truncated month labels, 'March'/'July' spellings, stops at the continued panel) returning month-keyed values with source line numbers.", "generality": "officeqa_specific", "confidence": "medium", "why": "~20 steps went into parser debugging and coverage was still incomplete, which changed which printing counted as 'latest'."}
+      ]
+    }
+  },
+  "right_arms_note": "none: read the FFO-3 Judiciary column from all 13 quarterly issues 1984_06-1987_06 ([25]) and assembled the 39 months effectively from the June-issue chain (the same chain Opus cited), so each outlier printing (1986_03, 1987_03) was bypassed and the post-window 1988_03 printing was never read. No explicit adjudication appears in its reasoning ([26]), so this is the same path as Opus with a partly lucky fork, not a principled resolution.",
+  "text_vs_mechanism": "The prompt arm had the right lesson as text (majority / total-consistent) and still picked the outlier by letting a non-discriminating total override the majority; the cards arm had no relevant text and applied 'latest printing' mechanically. Text alone is weak here; a mechanism that detects disagreeing printings and adjudicates them against subtotals with an explicit rounding tolerance (CHECK, backed by an all-printings TOOL) is needed.",
+  "notes": "Both wrong arms differ from the reference by one unit in a single month; the question is effectively a test of OCR-noise handling across reprints. A blanket 'latest printing' default (a common adapter lesson for annual rows) is actively harmful for monthly rows here because the latest reprint of a month is often in a noisier block. The none arm's success came from reading only the window-ending issues, which is not a general strategy. Useful generic mechanism: every cross-printing extraction yields a disagreement report that must be resolved before compute."
+}

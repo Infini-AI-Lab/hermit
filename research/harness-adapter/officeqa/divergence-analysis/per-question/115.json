@@ -1,0 +1,128 @@
+{
+ "ordinal": 115,
+ "task_id": "UID0111",
+ "question_type": "HP-filter (lambda=100) structural vs actual budget balance for FY2024 from 15 annual receipts/outlays values stitched across FFO-1 vintages; three-element bracketed answer in millions",
+ "skills_required": [
+  "locate_table",
+  "pick_vintage",
+  "multi_value_extraction",
+  "read_flattened_table",
+  "formula_stats",
+  "multi_step_arithmetic",
+  "rounding_format"
+ ],
+ "opus_path": [
+  {
+   "stage": "interpret",
+   "decision": "FY2010-2024, 15 obs, total (on+off budget) receipts and outlays, nominal, millions; HP lambda=100 separately; structural = trend R - trend O; output order actual, structural, |gap|",
+   "evidence": "worklog.md:3-8"
+  },
+  {
+   "stage": "choose_source",
+   "decision": "FFO-1 'Summary of Fiscal Operations' covers only 5 fiscal years per issue, so data must be stitched from several issues",
+   "evidence": "worklog.md:13-19 (Step 2)"
+  },
+  {
+   "stage": "extract",
+   "decision": "Wrote extract_vintages.py to parse every FFO-1 printing from 2010_12 on and track revisions per fiscal year; noted revised years and one OCR-garbage row",
+   "evidence": "worklog.md:21-39 (Step 3); extract_vintages.py"
+  },
+  {
+   "stage": "pick_cells",
+   "decision": "Latest revision of each fiscal year (last issue printing it); verified headers/units in each chosen issue and checked R - O against the printed deficit column",
+   "evidence": "worklog.md:41-51 (Step 4, Decision)"
+  },
+  {
+   "stage": "compute",
+   "decision": "HP trend via closed form (I + lambda D'D)^-1 y with D the second-difference matrix built with numpy",
+   "evidence": "worklog.md:53-58 (Step 5); calc.py"
+  },
+  {
+   "stage": "verify",
+   "decision": "Sensitivity to first-print vintage and to lambda; plausibility of structural vs actual deficit sign/size; reviewer re-implemented HP as stacked least squares and matched",
+   "evidence": "worklog.md:60-64 (Step 6); review.md 'Independent recomputation'"
+  }
+ ],
+ "opus_key_moves": [
+  "Implemented the HP filter from the standard matrix form using a numerical library (numpy available to Opus), then had it independently re-implemented a second way by the reviewer",
+  "Sanity-checked the result's magnitude and sign against the raw deficits (trend deficit of the same order as actual deficits)",
+  "Systematic vintage extraction across all FFO-1 printings"
+ ],
+ "arms": {
+  "none": {
+   "correct": true,
+   "error_bin": null
+  },
+  "prompt": {
+   "correct": true,
+   "error_bin": null
+  },
+  "cards": {
+   "correct": false,
+   "error_bin": ">25pct",
+   "first_divergence": {
+    "stage": "FORMULA",
+    "glm_step": "[40] (first solver), [44]-[46] ('fix'), mis-verified [51], committed [52]",
+    "what_glm_did": "With the correct 15 x 2 input series ([30], identical to Opus's latest-revision values), hand-wrote the HP normal-equation matrix in plain Python. The first build [40] added only upper-triangle entries of D'D (non-symmetric). At [44] it spotted the symmetry bug and at [46] 'fixed' it by adding each of the six (row,col) contributions to both A[row][col] and A[col][row] - which doubles every diagonal contribution. Result: trend series collapsed to under 1% of the data level, so the structural balance came out ~99% too small in magnitude and the gap ~8x too large; the actual-balance element was correct.",
+    "what_opus_did": "Built D explicitly as the (n-2)xn second-difference matrix and solved (I + lambda D'D) t = y with numpy (worklog.md:53-58); reviewer re-derived via stacked least squares (review.md).",
+    "why_glm_went_that_way": "No numerical library in the Python it used (numpy/statsmodels missing [38], sympy missing [48], no R/julia [50]); card C019 told it to 'implement in plain python' ([30]). At [51] it verified the D'D pattern on paper for n=5 assuming each contribution is added once, so it did not see that its code adds diagonal entries twice.",
+    "consequence": "Two of the three reported values wrong by far more than 25%."
+   },
+   "secondary_errors": [
+    {
+     "stage": "OTHER",
+     "glm_step": "[46]-[52]",
+     "note": "No magnitude sanity check: the printed trend columns at [46] were two orders of magnitude below the raw receipts/outlays in the same printout, and the structural balance was tiny next to every actual deficit, yet the actor committed."
+    }
+   ],
+   "saw_correct_evidence": {
+    "value": "yes",
+    "where": "[30] all 15 receipts/outlays pairs match Opus's latest-revision values; [46] printed the trend series next to the raw series, showing the level mismatch."
+   },
+   "glm_expressed_doubt": {
+    "value": "yes",
+    "where": "[47] 'Need verify symmetry and solution'; [51] 'maybe our matrix construction double counts diagonal?' - it suspected the exact bug, then 'verified' a paper derivation instead of the code and dismissed it."
+   },
+   "operational": {
+    "timed_out": false,
+    "no_answer": false,
+    "loop_or_thrash": "none",
+    "tool_friction": "rg blocked [3]; heredoc failure [6]; apply_patch unavailable [9]; python3 xcode-select shim [32]; numpy/statsmodels [38], sympy [48], R/julia [50] all missing; scripts written via printf line lists",
+    "notes": "22 requests, 565 s, 75k output tokens; much of the effort went into hand-building linear algebra under tooling constraints."
+   },
+   "adapter_context": {
+    "relevant_item": "C019 (compute aggregations in a python script file; heredocs fail; numpy may be missing, implement in plain python); C003 (latest issue printing each fiscal year)",
+    "item_was_correct_guidance": "partly",
+    "followed": "yes",
+    "caused_or_contributed_to_error": "no",
+    "notes": "C019's environment facts were accurate (numpy was indeed missing) and C003's vintage rule matched Opus's choice (the actor checked later printings at [42]-[44]). Neither card addresses verifying a hand-written numerical method. The none and prompt arms faced the same missing-numpy constraint without the card and still implemented HP correctly, so the card is not the cause."
+   },
+   "remedies": [
+    {
+     "level": "TOOL",
+     "intervention": "Provide a Python with numpy/scipy/statsmodels (or a vetted helper such as hp_filter(series, lamb) and solve_linear(A, b)) in the actor's sandbox.",
+     "generality": "domain_general",
+     "confidence": "high",
+     "why": "All three arms first tried numpy/statsmodels (none [31], prompt [35], cards [38]); with the library present the cards arm would have called hpfilter instead of hand-building D'D."
+    },
+    {
+     "level": "CHECK",
+     "intervention": "Method invariant/sanity checks on intermediate outputs: for smoothing filters, trend mean must equal data mean (D'D annihilates constants) and trend values must lie within a small band of the data range; more generally flag a derived quantity that is orders of magnitude off from comparable raw quantities (structural vs actual balance).",
+     "generality": "document_qa_general",
+     "confidence": "high",
+     "why": "The bug made trends <1% of data level - any level check on the [46] printout would have fired; the actor itself never compared magnitudes."
+    },
+    {
+     "level": "CONTROL",
+     "intervention": "Require an executable second implementation (e.g. build D explicitly and multiply D^T D, or solve the stacked least-squares form) and reconcile before commit, instead of accepting a mental/paper derivation as verification.",
+     "generality": "domain_general",
+     "confidence": "medium",
+     "why": "At [51] the actor suspected diagonal double counting but verified on paper; the prompt arm effectively did a second construction at [40] and was right; Opus's reviewer did exactly this."
+    }
+   ]
+  }
+ },
+ "right_arms_note": "none and prompt: same data and same missing-numpy constraint, but they built D'D as the per-row outer product of the [1,-2,1] stencil added once (none [37]; prompt [38] and an explicit coef-outer-product rebuild at [40]), so their trends tracked the data level and matched Opus. The prompt arm also double-checked its matrix by a second construction.",
+ "text_vs_mechanism": "Text cannot reliably prevent a hand-coded linear-algebra bug; the cards arm even suspected the exact bug and mis-verified it. The fix is a mechanism: a numerical library/tool for standard methods, plus an automatic invariant or magnitude check on intermediates.",
+ "notes": "This is a pure compute-stage failure after perfect retrieval and vintage selection; the 'actual balance' element was correct, which a partial-credit grader would not reward. The environment lacking numpy forces every arm into bespoke numerical code for filters/regressions; 2 of 3 arms survived here, which suggests a real per-question failure rate from this constraint alone. A harness-level 'standard methods' toolbox (HP filter, OLS, CAGR, rounding) would remove this class entirely."
+}

@@ -1,0 +1,60 @@
+{
+  "ordinal": 66,
+  "task_id": "UID0093",
+  "question_type": "single by-country liabilities lookup (UK, end of CY1986) with loose attribution wording ('owed by the U.S. Treasury'), vintage choice across Capital Movements reprints, millions -> billions",
+  "skills_required": ["locate_table", "pick_vintage", "read_flattened_table", "unit_or_scale", "date_or_period_logic", "rounding_format"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "Read 'total amount of liabilities ... to the United Kingdom' as the headline by-country Total Liabilities series (Capital Movements CM-I-3, liabilities to foreigners reported by banks in the U.S.); treated 'owed by the U.S. Treasury' as loose question wording because the Bulletin has no Treasury-own liabilities-by-country series. CY1986 = end-of-period position at Dec 31, 1986.", "evidence": "opus logs/066/worklog.md:5-13"},
+    {"stage": "locate_table", "decision": "Scanned the first issue after end-1986 (1987_03) for 'United Kingdom' and CM/IFS table titles; found CM-I-3 (by country, end of period) and CM-I-4 (by type and country, as of Dec 31, 1986, preliminary); checked IFS-3 and found no UK row.", "evidence": "worklog.md:19-28"},
+    {"stage": "choose_source", "decision": "Grepped every later issue for CM-I-3 and extracted the UK row with its header from each reprint (1987_03 .. 1990_12), finding six different vintages of the 1986 cell and the last issue that still carries a 1986 column.", "evidence": "worklog.md:30-54"},
+    {"stage": "verify", "decision": "Considered and rejected CM-IV-2 (same title but nonbank reporters, a much smaller series), CM-I-4's Treasury-obligation sub-columns (a component, not a 'total amount'), IFS-3 (no UK row).", "evidence": "worklog.md:56-61; solution.json decisions[0]"},
+    {"stage": "pick_cells", "decision": "Took the UK row, 1986 column, from the latest revision (1989_06 .. 1990_06 issues, identical); later issues drop the 1986 column.", "evidence": "worklog.md:63-66; calc.py:11-22,38-40"},
+    {"stage": "round_format", "decision": "Divided by 1000 and rounded half-up with Decimal because the value is an exact half at the 2nd decimal (binary float could round down).", "evidence": "worklog.md:67; calc.py:30-31"},
+    {"stage": "verify", "decision": "Plausibility: UK share of Europe and grand total checked; calc.py re-reads and asserts every cited cell.", "evidence": "worklog.md:69-72"}
+  ],
+  "opus_key_moves": [
+    "Resolved the ambiguous 'owed by the U.S. Treasury' phrase in favour of the table whose title matches the question's nouns ('Total Liabilities by Country') and explicitly rejected component columns as not a 'total amount'.",
+    "Grepped the UK/1986 cell forward through every reprint and took the latest revision."
+  ],
+  "arms": {
+    "none": {
+      "correct": true,
+      "error_bin": null,
+      "right_arms_note": "Searched long for a Treasury-owed-by-country table, considered and set aside the CM-I-4 Treasury-obligation columns ([171]), and after finding none concluded the phrase was a paraphrase of CM-I-3 'U.S. liabilities to UK' ([386]); then scanned 1990 issues for the last printing carrying 1986 ([388]-[396]). Right despite severe thrash (one reasoning block repeated ~31x around [70]-[128], 'No.' repeated ~59x around [300]-[330]) and two compactions."
+    },
+    "prompt": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "INTERPRETATION",
+        "glm_step": "[38] -> [47] -> [61]",
+        "what_glm_did": "Read 'liabilities owed by the U.S. Treasury' literally as U.S. Treasury securities held by the UK ([38]), rejected CM-I-3 because it is 'not Treasury' ([47]), and answered with the sum of two sub-columns of CM-I-4 'Total Liabilities by Type and Country, as of Dec 31, 1986, Preliminary' (1987_03) that it believed were the 'Short-term U.S. Treasury obligations' columns ([61]). Its answer is roughly 30x smaller than the headline total.",
+        "what_opus_did": "Treated the Treasury attribution as loose wording, used the headline CM-I-3 'Total Liabilities by Country' UK row (1986 column) and the latest reprint (1989-06 .. 1990-06 issues).",
+        "why_glm_went_that_way": "Literal keyword matching on 'U.S. Treasury': CM-I-4 is the only table with a column label containing 'Treasury' next to a UK row ([45] 'No direct Treasury holdings by country except CM-I-4 short-term U.S. Treasury obligations'). It then justified summing two columns from the word 'total' ([61] 'The word \"total amount\" likely cues summing both columns'). It explicitly weighed the alternatives ('Which is more likely?') and committed after 175 s / 32 requests, far earlier than the right arms (~1400-1600 s).",
+        "consequence": "A component (sub-column) figure instead of the headline total: off by more than an order of magnitude."
+      },
+      "secondary_errors": [
+        {"stage": "CELL_SELECTION", "glm_step": "[61]", "note": "Even under its own literal reading it summed the wrong cells: using the clean June-1987 header it had read at [51] (Treasury obligations = columns 7 and 11), the two UK cells it added at [61] are columns 8 ('Other liabilities') and 13 ('Negotiable CDs'); at [49] it had read column 7 correctly. The flattened CM-I-4 header in 1987_03 (labels shifted against the (1)..(15) number row, 1987_03:4457-4459) caused the drift."},
+        {"stage": "SOURCE_ISSUE_VINTAGE", "glm_step": "[47]-[61]", "note": "Stayed on the March 1987 preliminary snapshot; it had noted a revised CM-I-3 1986 row ([61]) and the 'latest carrying' rule ([13]) but did not apply it because it had left CM-I-3. Irrelevant to the final error once CM-I-4 was chosen."}
+      ],
+      "saw_correct_evidence": {"value": "partial", "where": "[25] displayed CM-I-3 'Total Liabilities by Country' with a 1986 column (1988_09 printing); [49] read the UK total in CM-I-4 (Dec 1986 prelim); [57] located the CM-I-3 UK row in 1987_03; [61] mentions a revised CM-I-3 1986 UK value. It never looked at the 1989-1990 reprints that carry the final revision."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[38] 'but \"owed by U.S. Treasury\" maybe ...'; [47] 'annual row in CM-I-3 gives total liabilities by country, not Treasury'; [61] 'If only col 7 ... If only col 11 ... Which is more likely?'"},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "none", "tool_friction": "rg blocked early ([4]-[5]); OCR-garbled multi-level CM-I-4 header forced it to borrow the header of a different-date printing ([50]-[51])", "notes": "Only 175 s and 32 requests; no budget pressure. The early commit, not a lack of time, ended exploration."},
+      "adapter_context": {"relevant_item": "L-cmi1-annual-vintage and L-cmi2-partA-total-foreign-countries (CM-I family; vintage and 'which total'), procedure self-check 1 (latest bulletin), self-check 6 / L-commit-once (commit as soon as a candidate exists); possibly L-expenditures-by-agencies-defense-subcolumns ('a department's spend is the SUM of its subcolumns')", "item_was_correct_guidance": "partly", "followed": "partly", "caused_or_contributed_to_error": "possibly", "notes": "No lesson addressed loose agent attribution ('owed by the U.S. Treasury') or 'total amount' meaning a headline total vs a sum of component columns. The CM-I lessons are about CM-I-1/CM-I-2 and vintage, not CM-I-3 vs CM-I-4. Self-check 6 and L-commit-once ('Computed candidate matching the question's terms: commit immediately') are consistent with committing at [62] right after the first candidate despite unresolved doubt. The sub-column-sum lesson is a plausible prime for [61]'s 'total amount cues summing both columns', but GLM did not cite it."},
+      "remedies": [
+        {"level": "CONTROL", "intervention": "Interpretation gate: when the actor lists two or more readings of the question (literal agent/keyword vs headline table), require it to state each candidate's table + value, then run an independent second attempt or a reviewer pass that asks 'does the answer's table title/row match the question's nouns (total liabilities, by country, CY)?' before commit.", "generality": "document_qa_general", "confidence": "medium", "why": "GLM explicitly enumerated the options ([47], [61]) and the two arms that explored longer (none, cards) converged on CM-I-3; a forced reconciliation would have put CM-I-3's UK total, which GLM had on screen, against a sub-column sum."},
+        {"level": "TEXT", "intervention": "Convention: questions often attribute a series loosely to the publisher ('owed by the U.S. Treasury', 'reported by Treasury'); 'total amount of X to country C' means the table titled 'Total X by Country', not component columns whose labels share a word with the question. Never sum sub-columns to manufacture a 'total' when a printed total row/column exists.", "generality": "document_qa_general", "confidence": "medium", "why": "The prompt arm had no such text; its doubt at [61] shows it was on the fence, so a tie-breaking rule could plausibly flip it. Uncertain because GLM sometimes ignores text (see other questions)."},
+        {"level": "TOOL", "intervention": "Table extractor that returns a clean grid with column numbers bound to reconstructed multi-level headers (e.g. col 7 = 'To foreign official institutions ... > Short-term U.S. Treasury obligations').", "generality": "document_qa_general", "confidence": "high", "why": "Fixes the secondary column-drift error ([49] vs [61]); would not by itself fix the interpretation error."},
+        {"level": "STATE", "intervention": "Relevance-retrieved series index: 'liabilities to a country (Treasury Bulletin 1970s-1990s) -> CM-I-3 Total Liabilities by Country; annual cells revised; take the last issue still carrying the year'.", "generality": "officeqa_specific", "confidence": "medium", "why": "The learner in fact wrote such a lesson after this episode (L-cmi3-annual-latest-printing appears in later contexts, e.g. runs/adapted/081/workspace/AGENTS.md:283-286), which would have pointed straight to the right table."}
+      ]
+    },
+    "cards": {
+      "correct": true,
+      "error_bin": null,
+      "right_arms_note": "Also saw the CM-I-4 Treasury-obligations column and rejected it as 'not total Treasury liabilities' ([66]); found no Treasury-by-country table ([62]); scanned CM-I-3 reprints forward to the last issue carrying 1986 ([103]-[115]); right despite a ~125x repeated reasoning block and a compaction. No card in the deck applied."
+    }
+  },
+  "right_arms_note": "At the same fork (literal 'Treasury obligations' columns vs headline 'Total Liabilities by Country'), none and cards kept searching for a genuine Treasury-owed-by-country table, found none, and fell back to CM-I-3 as a paraphrase, then applied a forward vintage scan. The prompt arm committed its literal reading early.",
+  "text_vs_mechanism": "Mixed: the core error is an interpretation choice that a text convention about loose attribution and 'total amount' could plausibly fix (the prompt arm had no such text and was visibly undecided), but a reconciliation/reviewer CONTROL step is the more reliable fix; the secondary column drift needs a TOOL.",
+  "notes": "issue47 = true: the question's wording is on the public disputed list, and 'owed by the U.S. Treasury' is genuinely misleading, so part of this failure is question ambiguity. Still, three of four solvers (Opus, none, cards) chose CM-I-3, and the prompt arm's literal computation used the wrong columns anyway. Harness-design point: the prompt arm's speed (175 s) came with an under-explored interpretation, while the right arms were right despite severe repetition loops; a budget policy should protect exploration when the actor has flagged interpretive doubt, and separately break identical-reasoning loops."
+}

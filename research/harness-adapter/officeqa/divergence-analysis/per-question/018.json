@@ -1,0 +1,64 @@
+{
+  "ordinal": 18,
+  "task_id": "UID0029",
+  "question_type": "Mean monthly yield spread (Aa new corporate minus long-term Treasury) over a 10-year span, read from a stacked multi-year-panel table in a pinned issue whose year labels were lost in OCR",
+  "skills_required": ["locate_issue", "locate_table", "read_flattened_table", "date_or_period_logic", "multi_value_extraction", "multi_step_arithmetic", "rounding_format"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "Issue pinned to June 1970; series = 'Aa new corporate bonds' minus 'Treasury bonds' (long-term); 120 months Jan 1960-Dec 1969; mean of monthly spreads in percentage points; noted mean of annual means and difference of means give the same number when every year is complete.", "evidence": "worklog.md:7-13"},
+    {"stage": "locate_table", "decision": "Found Table AY-1 'Average Yields of Treasury, Corporate and Municipal Bonds by Periods' in the June 1970 issue; 13 columns = Period + 4 groups x (Treasury, Aa corporate, municipal); 36 monthly rows = 3 stacked blocks of Jan-Dec; last group partially filled (data only through May), so group 4 ends in the publication year.", "evidence": "worklog.md:15-19; treasury_bulletin_1970_06.txt:4946-4984"},
+    {"stage": "pick_cells", "decision": "Recognized that the June 1970 OCR dropped the year-label rows, so the year of each block is unknown from this printing alone.", "evidence": "worklog.md:20"},
+    {"stage": "pick_cells", "decision": "Recovered year labels from the SAME table in the adjacent May 1970 issue (labels present) and confirmed with July 1970: group1 = first three years starting the year before the range, etc.; used July only for structure because its OCR has digit errors.", "evidence": "worklog.md:23-33; treasury_bulletin_1970_05.txt:4847,4862,4875"},
+    {"stage": "extract", "decision": "Parsed the 36 rows in calc.py, stripping footnote markers glued to some Treasury cells and asserting the month labels cycle Jan..Dec three times; mapped groups to years and kept only 1960-1969 (120 pairs).", "evidence": "calc.py:25-57; worklog.md:35-37"},
+    {"stage": "verify", "decision": "Cross-checked all 240 extracted cells against the May 1970 printing: zero mismatches.", "evidence": "worklog.md:39; calc.py:60-65"},
+    {"stage": "compute", "decision": "Mean of 120 monthly spreads with Decimal arithmetic; confirmed equals mean(corp) - mean(tsy).", "evidence": "worklog.md:40-43; calc.py:67-81"},
+    {"stage": "round_format", "decision": "Five significant digits; the quotient was exact so no rounding was needed.", "evidence": "worklog.md:44; calc.py:83-87"},
+    {"stage": "verify", "decision": "Computed and rejected the off-by-one year-block alternative (treating the first block as 1960, i.e. really 1959-1968) and the include-1970 alternative.", "evidence": "worklog.md:46-52"}
+  ],
+  "opus_key_moves": [
+    "Noticed the June 1970 printing had lost its year-label rows and did not assume a layout; recovered the labels from the same table in the nearest labeled printing of the same calendar year (May 1970).",
+    "Validated the borrowed labels by cell-for-cell value agreement between the two printings (0 mismatches over 240 cells), and used the partially filled last group as a publication-date anchor.",
+    "Explicitly computed the off-by-one block mapping as an alternative and rejected it."
+  ],
+  "arms": {
+    "none": {
+      "correct": true,
+      "error_bin": null,
+      "right_arms_note": "Looked up the same table in the April 1970 issue ([40]-[43]), whose header carries the year labels for the first row-block, and applied that mapping to June 1970."
+    },
+    "prompt": {
+      "correct": true,
+      "error_bin": null,
+      "right_arms_note": "Applied the explicit June 1970 block mapping from lesson L-ay1-year-trio-panels at [11]; then caught its own column-index bug ([24]-[25]) because the per-year breakdown at [26] showed implausible negative spreads ([27]) and recomputed at [28]."
+    },
+    "cards": {
+      "correct": false,
+      "error_bin": "5-25pct",
+      "first_divergence": {
+        "stage": "CELL_SELECTION",
+        "glm_step": "[30]-[38]",
+        "what_glm_did": "Borrowed the year-block layout printed in the February 1971 issue (where the first row-block is labeled with the first year of the range) and applied it unchanged to the June 1970 table ([34], [38]: 'June 1970 table likely columns 1960,1963,1966,1969'). Because the table rolls forward one year each January, this shifted every block by one year, so it averaged Jan 1959-Dec 1968 instead of Jan 1960-Dec 1969.",
+        "what_opus_did": "Took labels from the same table in the May 1970 issue (same calendar year, so same layout) and verified the mapping by exact cell agreement across the two printings (worklog.md:23-33, 39).",
+        "why_glm_went_that_way": "Its FTS search at [29] happened to surface a Feb 1971 excerpt with visible year labels; it read that table at [33] and inferred the June 1970 layout from it at [34] with no check that the two printings align. At [34] it even noted that the Feb 1971 first-block January values were ones 'we earlier thought 1961' in June 1970 (a direct sign of a one-year shift) but resolved the conflict in favour of the Feb 1971 labels. Earlier, at [30], its own magnitude reasoning had placed the fourth group's first block in 1968 (consistent with the correct mapping) before it was overridden.",
+        "consequence": "Year-to-cell mapping off by one year; the submitted mean equals the off-by-one alternative Opus computed and rejected (worklog.md:49); about 12% low."
+      },
+      "secondary_errors": [
+        {"stage": "CELL_SELECTION", "glm_step": "[38]", "note": "Its mapping assigned the partially filled last panel (values Jan-May, nan afterwards) to 1971, a year after the June 1970 publication date; this impossible date was waved through ('maybe 1971 not yet'). A feasibility check would have exposed the shift."},
+        {"stage": "OPERATIONAL", "glm_step": "[6], [14], [28], [35]", "note": "Heredoc failures, helper read cap (num_lines > 150) and search cap (limit > 20) errors; cost a few steps but did not cause the error."}
+      ],
+      "saw_correct_evidence": {"value": "partial", "where": "[29] search results ranked a labeled April 1970 printing of AY-1 first (it chose the Feb 1971 hit instead); [33] Feb 1971 values that coincide with June 1970's second block (it noticed this at [34]); [30] its own magnitude check matched the correct mapping for the fourth group."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[20]-[27] and [30] repeatedly unsure which years the blocks hold; no doubt once the Feb 1971 layout was adopted at [34]/[38]."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "mild", "tool_friction": "zsh heredoc temp-file failures ([6], [35]); rg not permitted ([3]); helper limits (read <=150 lines [14], search limit <=20 [28]); middle-truncated outputs ([16]-[17]).", "notes": "108 s, 24 requests; completed normally."},
+      "adapter_context": {"relevant_item": "none (deck shown was only C003 and C006; no card on AY-1 / stacked year panels / borrowing labels from another vintage)", "item_was_correct_guidance": "n/a", "followed": "n/a", "caused_or_contributed_to_error": "no", "notes": "The prompt arm's context for the same question contained L-ay1-year-trio-panels (learned from sibling ordinal 11 on the same table) with the explicit June 1970 mapping, and that arm got it right; the 16 KB card deck had no equivalent."}
+      ,
+      "remedies": [
+        {"level": "CHECK", "intervention": "Cross-vintage alignment check: whenever the actor maps labels/layout from one printing onto another, require that a sample of cells under the proposed mapping (e.g. one full row-block) match between the two printings; return the matching offset if they do not.", "generality": "document_qa_general", "confidence": "high", "why": "Both printings were already on screen ([33], [37]) and the actor noticed a value coincidence at [34] without acting on it; a mechanical match would have returned the one-year offset directly."},
+        {"level": "CHECK", "intervention": "Date-feasibility check on any period mapping: no mapped period may be after the issue's publication date, and a partially filled panel must be the most recent period.", "generality": "domain_general", "confidence": "medium", "why": "The cards mapping put partially filled data in a year after the June 1970 publication date ([38]); the check fires on exactly this failure."},
+        {"level": "TOOL", "intervention": "A 'find labeled printings of this table' lookup that lists other issues carrying the same table title, ranked by publication-date proximity and preferring the same calendar year (rolling tables shift each January).", "generality": "document_qa_general", "confidence": "medium", "why": "Opus used May 1970 and the none arm April 1970 (same year) and both were right; the cards arm used Feb 1971 (next year, rolled forward) because an FTS hit surfaced it first."},
+        {"level": "STATE", "intervention": "Relevance-retrieved per-table layout memory (e.g. AY-1 year-block mapping per issue range) learned from earlier questions, surfaced when the question names the table/series, instead of a small always-shown card deck.", "generality": "officeqa_specific", "confidence": "high", "why": "The prompt arm had exactly this fact (L-ay1-year-trio-panels) and applied it at [11] to get the right mapping; the cards deck had no room for it."}
+      ]
+    }
+  },
+  "right_arms_note": "none: anchored the year blocks with the April 1970 printing (same calendar year, labeled) at [40]-[43]. prompt: used the explicit June 1970 mapping in L-ay1-year-trio-panels at [11], and a per-year breakdown exposed and fixed its own column-index bug at [26]-[28]. Both took labels from a same-year source; cards took them from the next calendar year's rolled-forward printing.",
+  "text_vs_mechanism": "Text worked here only when it held the specific fact (the prompt arm's AY-1 lesson). A generic text rule such as 'anchor year labels via an adjacent vintage' would not reliably have saved the cards arm, which did anchor via another vintage (the wrong one); a mechanical cross-printing value-alignment check or a date-feasibility check is the robust fix.",
+  "notes": "Two cheap sanity signals would have caught the cards error: the partial panel landing after the publication date, and per-year spread breakdowns (the prompt arm's per-year printout caught a different bug). Worth making a per-group breakdown plus plausibility review a standard step for flattened multi-panel tables. This question's failure is a single-step selection error, not an operational one."
+}

@@ -1,0 +1,60 @@
+{
+  "ordinal": 123,
+  "task_id": "UID0050",
+  "question_type": "Sum of the par amounts of labeled issues (National Defense Series) in one panel of a two-panel debt maturity schedule",
+  "skills_required": ["locate_issue", "date_or_period_logic", "locate_table", "read_flattened_table", "multi_value_extraction", "multi_step_arithmetic"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "Table = 'Maturity Schedule of United States Government Interest-Bearing Public Debt Outstanding' as of Apr 30, 1941. Use the LEFT panel ('Classified by year in which issues are first callable'). Items = rows labeled '(Nat. Defense Series)'. Units = $ millions. Output = one sum.", "evidence": "worklog.md:8-14"},
+    {"stage": "choose_source", "decision": "May 1941 issue (month-end schedule printed the next month). Confirmed 'As of April 30, 1941' in the header. The April and June issues carry the Mar 31 and May 31 schedules and were rejected.", "evidence": "worklog.md:22-27, 56-61 (1941_05.txt:951-955)"},
+    {"stage": "pick_cells", "decision": "Found three ND rows in the left panel: bills (1941 block), Notes D (1944 block), Notes B (1945 block).", "evidence": "worklog.md:33-36 (1941_05.txt:960, 983, 988)"},
+    {"stage": "extract", "decision": "Detected that OCR merged the Notes D row (line 983) with the missing '4% Bonds - 12/15/44-54' row. The callable-column cell on that line belongs to the bonds, not to Notes D. Evidence: the right-panel twin row lists Notes D with only a fixed-maturity amount (982); the right panel's 1954 block lists the 4% bonds with that callable amount; the 1944 callable subtotal reconciles only with the bonds included.", "evidence": "worklog.md:38-41; review.md item 2"},
+    {"stage": "verify", "decision": "Per-year fixed-maturity subtotals reconcile for 1941/1944/1945. Grep finds no other ND label. The financing table (lines 940-941) confirms the two note amounts.", "evidence": "worklog.md:43-51, 63-65"},
+    {"stage": "compute", "decision": "Summed the three ND fixed-maturity amounts in calc.py, which re-reads the cited lines and asserts the labels.", "evidence": "worklog.md:67-68; calc.py"},
+    {"stage": "verify", "decision": "The reviewer re-opened the lines, independently attributed the merged callable cell to the 4% bonds, and confirmed that no competing vintage exists.", "evidence": "review.md; review.json"}
+  ],
+  "opus_key_moves": [
+    "Recognised a row carrying both a fixed-maturity and a callable amount as an OCR merge. Resolved it through the twin row in the other panel and the year subtotal, and excluded the foreign cell.",
+    "Checked per-year subtotals and grepped for every ND label before summing."
+  ],
+  "arms": {
+    "none": {
+      "correct": true,
+      "error_bin": null,
+      "right_arms_note": "At [21] it noticed that the Notes D row carries a callable amount while its right-panel twin does not. It searched the same row across printings [23] (1941_04, 1941_02). In the Mar 31 printing Notes D stands alone with only its fixed amount and the 4% Bonds 12/15/44-54 are a separate row, so it concluded the callable cell belongs to the bonds [24] and excluded it [26]."
+    },
+    "prompt": {
+      "correct": true,
+      "error_bin": null,
+      "right_arms_note": "Same anomaly at [21]. It called it an 'OCR misalignment' [23]-[25], compared the 1941_04 and 1941_06 printings and the 1944 callable subtotal [29], attributed the callable cell to the 4% bonds, and summed only the ND amounts."
+    },
+    "cards": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "EXTRACTION",
+        "glm_step": "[24]-[28]",
+        "what_glm_did": "Took the OCR-merged left-panel line for Notes D at face value. It added both its fixed-maturity amount and the callable-column amount (which belongs to the 4% Bonds 12/15/44-54) to the ND total.",
+        "what_opus_did": "Identified line 983 as a merge of two rows, attributed the callable cell to the 4% bonds using the right-panel twin row, the 1954 block and the 1944 callable subtotal, and summed only the ND fixed-maturity amounts (worklog.md:38-41).",
+        "why_glm_went_that_way": "At [24] it saw the anomaly itself: 'Why same security has both? Maybe OCR row merged? ... notes are not callable?'. It deferred this ('Need verify') and grepped only for other 'Defense' rows [25]. At [26] it settled on 'sum all amounts' ('total par amount ... including both fixed and callable') and committed after a one-line script [28]. The suspicion was never tested.",
+        "consequence": "The ND total included a large non-ND bond issue, so the answer was ~66% too high."
+      },
+      "secondary_errors": [
+        {"stage": "OTHER", "glm_step": "[25]-[26]", "note": "The [25] grep output showed the right-panel Notes D twin (line 982) with only the fixed amount. That is direct disconfirming evidence, and it was not compared against the left-panel row."},
+        {"stage": "OPERATIONAL", "glm_step": "[6]-[13]", "note": "Heredoc, apply_patch-heredoc, piped apply_patch (not installed) and cat-heredoc attempts all failed while trying to follow C019's 'write a script file' advice. Cost ~4 requests but did not cause the error."}
+      ],
+      "saw_correct_evidence": {"value": "yes", "where": "[23] printed the whole 1944 block including the callable subtotal. [25] printed line 982, the right-panel Notes D twin with no callable amount. [16] search results already pointed to the Mar 31 printing (1941_04), which, as the none arm found, lists Notes D alone and the 4% bonds as a separate row."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[24] 'Why same security has both? Maybe OCR row merged? ... notes are not callable?' and [26] 'But let's not rush'. It committed at [30] without resolving either."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "mild", "tool_friction": "rg blocked [3]; heredoc temp file denied [6],[12]; apply_patch heredoc failed [8]; apply_patch not on PATH [10]; officeqa search returns a dict whose iteration printed only keys [14]", "notes": "13 requests, 89s. Fast and cheap, but it committed with an open doubt."},
+      "adapter_context": {"relevant_item": "none (no card covers maturity schedules or merged OCR rows); C019 applied only to the arithmetic", "item_was_correct_guidance": "n/a", "followed": "n/a", "caused_or_contributed_to_error": "no", "notes": "C019 made it write the sum as a script [28], but a script over wrong inputs does not help. C019's heredoc warning did not stop four failed file-writing attempts [6]-[13]. The deck gave nothing on table-structure sanity."},
+      "remedies": [
+        {"level": "CONTROL", "intervention": "Doubt-resolution gate: if the actor's reasoning flags a suspected anomaly ('OCR merged', 'why both', 'not rush') about a cell it later uses, commit is blocked until a recorded cross-check (another printing, the twin panel, or the subtotal) resolves it.", "generality": "domain_general", "confidence": "high", "why": "The actor named the exact failure at [24] and committed 6 steps later. Both right arms reached the same suspicion ([21] in each) and succeeded because they ran the cross-check."},
+        {"level": "TOOL", "intervention": "row_history(label, around_issue): returns the same row label from adjacent issues' printings of the same table, aligned by column.", "generality": "document_qa_general", "confidence": "high", "why": "This is exactly how none [23]-[24] and prompt [23]-[29] resolved the merge: the Mar 31 printing shows the 4% bonds as their own row. The cards actor had the 1941_04 hit in its [16] results but never opened it."},
+        {"level": "CHECK", "intervention": "Twin-panel consistency check for two-panel classification tables: for each selected security, its total (fixed + callable) in one panel must equal its twin in the other panel. A mismatch returns the two lines to the actor.", "generality": "officeqa_specific", "confidence": "medium", "why": "The twin row (982) lists Notes D with only the fixed amount. The check would have fired on the actor's own selection without any interpretation step."},
+        {"level": "TEXT", "intervention": "Convention: 'In maturity schedules, a security appears in either the fixed-maturity or the callable column, never both. A row with both is an OCR merge of two securities; recover the second from the other panel or an adjacent printing.'", "generality": "officeqa_specific", "confidence": "medium", "why": "The actor already suspected this at [24] and lacked the rule to act on it. The prompt arm had no such text and still resolved it, so text is helpful but not proven necessary."}
+      ]
+    }
+  },
+  "right_arms_note": "none and prompt both treated the fixed-plus-callable Notes D row as an anomaly and resolved it with a cross-printing lookup of the same row (plus the 1944 callable subtotal in prompt). Cards noticed the same anomaly and skipped the resolution step: not luck, the difference is whether the doubt was acted on.",
+  "text_vs_mechanism": "The prompt arm had no relevant text and was right, and cards had the suspicion in its own words and was wrong. So the failure is not missing knowledge but committing with an unresolved doubt, which argues for a mechanism (doubt gate, twin-panel CHECK, or a row-history TOOL) over more text.",
+  "notes": "A clean example of 'the actor saw it and moved on'. Its own reasoning is a usable signal: detecting hedges like 'Maybe OCR row merged?' in THINK and turning them into required checks is cheap and domain-general. The callable cell sits on the Notes D line in several printings (1941_02, 1941_05, 1941_06 per the right arms' searches; only the Mar 31 printing separates the rows cleanly), so a cross-issue majority vote could be fooled. The subtotal and twin-panel reconciliation are the robust signals."
+}

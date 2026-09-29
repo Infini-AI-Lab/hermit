@@ -1,0 +1,80 @@
+{
+  "ordinal": 105,
+  "task_id": "UID0219",
+  "question_type": "Ratio of two CAGRs: OFS-2 foreign holdings of Treasury securities (pinned FY2013-end printing) vs external BEA nominal GDP over the same years",
+  "skills_required": ["locate_issue", "pick_vintage", "locate_table", "read_flattened_table", "multi_value_extraction", "date_or_period_logic", "external_knowledge", "formula_finance", "multi_step_arithmetic", "rounding_format"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "Series = OFS-2 'Estimated Ownership of U.S. Treasury Securities', column 'Foreign and international'. 'From March 2003 to 2012' read as March 2003 to March 2012 (9 years); December 2012 was logged as the alternative. 'Reported at the end of FY 2013' = the issue whose first OFS-2 row is 2013-Sept. GDP = BEA annual, 2003 to 2012, 9 years.", "evidence": "worklog.md:8-15"},
+    {"stage": "choose_source", "decision": "Used the December 2013 issue. It is the first to report the end-of-FY2013 row, and its OFS-2 runs back exactly to March 2003.", "evidence": "worklog.md:17-19, 40; review.md 'Question qualifiers'"},
+    {"stage": "pick_cells", "decision": "Read the March 2003 and March 2012 rows in column 11.", "evidence": "treasury_bulletin_2013_12.txt:2412, 2448 (worklog.md:26-28)"},
+    {"stage": "verify", "decision": "Column alignment check (components sum to Total privately held). Compared the Jun 2013, Sep 2013 (parser shifts the foreign column up one row) and Mar 2014 printings; the choice of printing does not change the rounded result.", "evidence": "worklog.md:30-41"},
+    {"stage": "extract", "decision": "Confirmed that nominal GDP levels are absent from the corpus, then recalled BEA NIPA 1.1.5 current-vintage annual values as external knowledge.", "evidence": "worklog.md:43-52"},
+    {"stage": "compute", "decision": "calc.py computes both CAGRs with 9 periods and their ratio, with a sensitivity table (other printing, December-2012 endpoint with 9 and 9.75 years, older GDP vintages).", "evidence": "worklog.md:54-65; calc.py"},
+    {"stage": "verify", "decision": "The reviewer confirmed. The residual risk is the GDP vintage, not the endpoint.", "evidence": "review.md 'Verdict'"}
+  ],
+  "opus_key_moves": [
+    "Read 'from March 2003 to 2012' as the same month in the end year, which gives a 9-period span consistent with the 9-period annual GDP span ('across those same years')",
+    "Pinned the vintage to the December 2013 issue (the first reporting end-of-FY2013 row, back to exactly March 2003) and caught the parser's row shift in the September 2013 printing"
+  ],
+  "arms": {
+    "none": {
+      "correct": false,
+      "error_bin": "1-5pct",
+      "first_divergence": {
+        "stage": "INTERPRETATION",
+        "glm_step": "[25], [45]-[47], [54]",
+        "what_glm_did": "Took the 2012 endpoint as December 2012 (at [54] it also weighed September 2012) and computed the holdings CAGR over 9.75 years, while computing the GDP CAGR over 9 annual periods ([46]).",
+        "what_opus_did": "Used March 2012, 9 periods for both series (worklog.md:11, 63-65).",
+        "why_glm_went_that_way": "At [54] it argued that 'to 2012', rather than 'to March 2012', points to year-end or fiscal-year-end, and that December, September and quarterly-GDP variants all round to the same tenth. It chose by majority across variants, although it had computed the March-2012 variant at [46], noted at [47] that it rounds differently, and called 'to 2012' ambiguous.",
+        "consequence": "The ratio lands one tenth below Opus's (1-5% off). The cells, table, printing and GDP magnitude were otherwise equivalent."
+      },
+      "secondary_errors": [
+        {"stage": "FORMULA", "glm_step": "[46]", "note": "Mismatched period counts in a ratio of growth rates (9.75 years for holdings vs 9 for GDP), even though the question says 'across those same years'."},
+        {"stage": "EXTERNAL_KNOWLEDGE", "glm_step": "[45]", "note": "Its GDP pair mixes vintages (an older 2003 value with a different 2012 value). This was not decisive: with the March-2012 endpoint, its own [46] output rounds the same as Opus."}
+      ],
+      "saw_correct_evidence": {"value": "yes", "where": "[24] printed the Dec 2013 OFS-2 rows including March 2012. [46] computed the March-2012 / 9-year variant, which rounds to Opus's tenth."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[47] raised the March 2003 to March 2012 reading and noted that it rounds differently; [54] 'Need choose', 'Only ambiguity if to 2012 means March 2012'."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "mild", "tool_friction": "heredoc failure at [4]; misuse of the helper API at [10]-[11]; long GDP-table hunt in the corpus [26]-[53]", "notes": "160 s, 30 requests."},
+      "adapter_context": {"relevant_item": "n/a", "item_was_correct_guidance": "n/a", "followed": "n/a", "caused_or_contributed_to_error": "n/a", "notes": "No adapter."},
+      "remedies": [
+        {"level": "CHECK", "intervention": "Period-consistency check for comparisons of growth rates: when a script divides one CAGR by another (or the question says 'same years'), verify that both use the same number of periods and endpoints of the same calendar type. Otherwise return a flag listing the consistent alternatives.", "generality": "document_qa_general", "confidence": "medium", "why": "The actor's own [46] script shows 9.75 vs 9. The flag hits exactly the wrong choice, and the natural consistent fix (same month, 9 and 9) is one of the variants it had already computed."},
+        {"level": "TEXT", "intervention": "Convention: 'from <Month> Y1 to Y2' means the same month in Y2 unless another month is named; CAGR periods = Y2 - Y1.", "generality": "document_qa_general", "confidence": "medium", "why": "The arm explicitly weighed this reading at [47]/[54] and rejected it on a phrasing argument, so a stated convention would decide it. The prompt arm, which chose this reading, was right."},
+        {"level": "CONTROL", "intervention": "Ambiguity protocol: when enumerated interpretations disagree at the rounding digit, choose by structural fit to the question (matching spans, pinned table rows) and record the choice, instead of by how many variants agree.", "generality": "domain_general", "confidence": "low", "why": "The decisive heuristic at [54] was a majority vote over variants of differing plausibility. This is harder to enforce than the check above."}
+      ]
+    },
+    "prompt": {
+      "correct": true,
+      "error_bin": null,
+      "right_arms_note": "It targeted the March 2003 and March 2012 rows from the start ([13]) and used 9 periods for both ([126]). After a revision chase and a context compaction, it re-read the Dec 2013 table at [117] and noticed its compacted summary held wrong values."
+    },
+    "cards": {
+      "correct": false,
+      "error_bin": "1-5pct",
+      "first_divergence": {
+        "stage": "INTERPRETATION",
+        "glm_step": "[42], [71], [220]-[231]",
+        "what_glm_did": "Took the endpoint as December 2012 with a 9.75-year holdings CAGR against a 9-period GDP CAGR ([70], [224]). It committed at [231].",
+        "what_opus_did": "Used March 2012, 9 periods for both series (worklog.md:63-65).",
+        "why_glm_went_that_way": "At [231] it reasoned: 'If they wanted March 2012, they'd likely say to March 2012 ... The question explicitly says March 2003, so likely they expect fractional years.' Earlier, at [71], it had leaned the other way ('both are March data points').",
+        "consequence": "The ratio is one tenth below Opus's (1-5% off). Its table cells and printing were the same as Opus's."
+      },
+      "secondary_errors": [
+        {"stage": "FORMULA", "glm_step": "[70], [224]", "note": "Mismatched period counts (9.75 vs 9) between the two CAGRs, same as the none arm."},
+        {"stage": "OPERATIONAL", "glm_step": "[72]-[184]", "note": "Severe loop: the same six-step cycle (FTS search for GDP numbers, direct scans for the same literals, re-reading the same Profile-of-the-Economy lines, the same THINK text) repeated about 18 times until a context compaction at [185]. The decision then had to be re-derived from a summary."}
+      ],
+      "saw_correct_evidence": {"value": "yes", "where": "[34] printed the Dec 2013 OFS-2 including March 2012. [70] and [224] computed the March-2012 / 9-year variant, which rounds to Opus's tenth."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[71] 'Need know intended'; [222] 'Need exact endpoint'; [231] 'The absence is ambiguous'."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "severe", "tool_friction": "heredoc and apply_patch failures [5]-[11]; python -c quoting errors [16], [27], [44], [58]; rg blocked [188]", "notes": "1194 s, 115 requests, about 11.8M input tokens. Most of the budget went into the [72]-[184] repeat loop hunting GDP levels that the corpus does not contain."},
+      "adapter_context": {"relevant_item": "none (C003 matches the 'cagr' keyword but concerns fiscal-year outlays; C019 is script hygiene). No card covers OFS-2, endpoint conventions or external GDP.", "item_was_correct_guidance": "n/a", "followed": "partly", "caused_or_contributed_to_error": "no", "notes": "C019 was partly followed: calculations ran as python -c one-liners, not as script files. No card was in play at the divergence."},
+      "remedies": [
+        {"level": "CHECK", "intervention": "Period-consistency check on ratios of growth rates, as for the none arm.", "generality": "document_qa_general", "confidence": "medium", "why": "Its [224] computation used exactly the inconsistent pair (9.75 vs 9), and it had the consistent March-2012 variant computed alongside."},
+        {"level": "CONTROL", "intervention": "Loop detector: if the same command or THINK text repeats (e.g. three identical cycles), stop the search branch, record 'not in corpus' in state, and force a decision stage.", "generality": "domain_general", "confidence": "high", "why": "About 18 identical cycles ([72]-[184]) consumed most of the 20-minute run and triggered a compaction. A repeat detector trivially fires on identical commands."},
+        {"level": "STATE", "intervention": "Persisted knowledge: 'annual nominal GDP levels are not in the corpus; use external reference data', retrieved when a question mentions BEA/GDP (or, better, served by a reference-data TOOL).", "generality": "officeqa_specific", "confidence": "medium", "why": "The loop was entirely a search for GDP in the corpus. The none arm spent 25+ steps on the same hunt ([26]-[53])."},
+        {"level": "TEXT", "intervention": "Same-month endpoint convention for 'from <Month> Y1 to Y2'.", "generality": "document_qa_general", "confidence": "medium", "why": "At [71] it had argued for March-to-March before reversing at [231]. A stated convention would have fixed the choice."}
+      ]
+    }
+  },
+  "right_arms_note": "prompt: at the divergence point it read '2012' as March 2012 from its first look at the rows ([13]) and computed both CAGRs over 9 periods ([126]). Principled on the endpoint, lucky on vintage. It spent [17]-[105] following 'take the latest printing' habits (the AGENTS.md has many latest-printing lessons), chasing revisions of the March-2003 cell across 2003-2008 issues, which contradicts the question's pinned FY2013 printing. It recovered only because, after the compaction at [106], it re-read the Dec 2013 table and saw that its summary carried wrong values from the misaligned September 2013 printing ([117]).",
+  "text_vs_mechanism": "A text convention could plausibly have fixed both wrong arms: each explicitly considered March 2012 and rejected it on a phrasing argument, and the prompt arm made the same-month reading without a dedicated lesson. A period-consistency CHECK is more robust, though, because it fires on the actual inconsistency in their scripts (9.75 vs 9 periods). The cards arm's time loss additionally needs a CONTROL loop detector.",
+  "notes": "The GDP vintage, Opus's main residual risk, did not matter for the GLM arms: their mixed-vintage GDP pair with the March-2012 endpoint rounds to Opus's tenth. The only decisive choice was the endpoint. The prompt arm shows two harness hazards: (1) 'latest printing' lessons applied against a question that pins the printing, and (2) a lossy compaction summary that stored wrong cell values; it was saved only by re-reading the source. A STATE mechanism that keeps an evidence ledger (value, file:line, printing) across compaction would make that recovery reliable instead of lucky."
+}

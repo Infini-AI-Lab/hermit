@@ -1,0 +1,81 @@
+{
+  "ordinal": 8,
+  "task_id": "UID0243",
+  "question_type": "Inflation-adjusted (CPI-U, constant-year dollars) difference of fiscal-year-end public debt levels, with an external price index not in the corpus",
+  "skills_required": ["locate_issue", "pick_vintage", "locate_table", "read_flattened_table", "multi_value_extraction", "unit_or_scale", "date_or_period_logic", "external_knowledge", "formula_finance", "multi_step_arithmetic", "rounding_format"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "FY in 1960-62 ends June 30; 'public debt outstanding' = the Public debt series, not Total Federal securities (which adds guaranteed agency securities); flagged the 'total ... public debt' ambiguity; noted CPI-U is not a Treasury Bulletin series so it will likely be external knowledge; FY1962 is only the deflation base.", "evidence": "logs/008/worklog.md:5-14 (Step 1)"},
+    {"stage": "choose_source", "decision": "Started from the August 1962 issue, the first issue carrying the FY1962 year-end; refined a narrative-only grep into a table grep.", "evidence": "worklog.md:19-22 (Step 3)"},
+    {"stage": "locate_table", "decision": "Debt Outstanding, Table 1 'Summary of Federal Securities' (In millions of dollars), column 'Total outstanding > Public debt'.", "evidence": "worklog.md:24-30; treasury_bulletin_1962_08.txt:1832-1845"},
+    {"stage": "pick_cells", "decision": "Took the Public debt column for the 1960/1961/1962 fiscal-year rows and proved column alignment by checking Total = Public debt + Guaranteed on every row.", "evidence": "worklog.md:29"},
+    {"stage": "verify", "decision": "Cross-checked the same three levels in 'Summary of Federal Fiscal Operations, Levels end of period > Public debt' and ran a vintage check across 1961-1966 issues (values never revised; one OCR typo in a Total cell of 1965_08 identified and ignored).", "evidence": "worklog.md:32-43; 1962_08.txt:221-223; 1963_08.txt:160-162"},
+    {"stage": "extract", "decision": "Searched the corpus for CPI index levels (FTS and grep for '1982-84'); found only narrative percent changes, so used external BLS CPI-U annual averages at their published one-decimal precision.", "evidence": "worklog.md:45-50 (Step 7)"},
+    {"stage": "compute", "decision": "calc.py: adj_Y = debt_Y * CPI1962 / CPI_Y, full precision, absolute difference, round only the final value; also computed the rejected guaranteed-inclusive alternative.", "evidence": "worklog.md:52-59; logs/008/calc.py"},
+    {"stage": "verify", "decision": "Sign/magnitude sanity (nominal rise smaller than the CPI-driven rise, so real FY1961 slightly below real FY1960); an independent reviewer re-opened sources and recomputed with exact fractions.", "evidence": "worklog.md:61-64; review.md (Verdict: confirmed)"}
+  ],
+  "opus_key_moves": [
+    "Recognized CPI-U is absent from the corpus and used the standard BLS annual averages at their published one-decimal precision, without inventing extra digits.",
+    "Chose the 'Public debt' column (not the Total that adds guaranteed/agency securities) and verified column alignment by the components-sum-to-total identity.",
+    "Checked later vintages and a second table to confirm the debt levels were never revised."
+  ],
+  "arms": {
+    "none": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "EXTERNAL_KNOWLEDGE",
+        "glm_step": "[32], [47]-[48], [59]",
+        "what_glm_did": "Debt levels were right (public-debt column, vintage-checked at [53]-[56]), but for CPI-U it made up three-decimal 'annual averages' at [32] and used them at [48]. At [47] it recalled one-decimal values, and its 1962 value there was one tenth of an index point higher than the value Opus used. At [57]-[59] it computed the one-decimal variant, then threw it out in favour of the made-up three-decimal set. The submitted value is ~29% too high.",
+        "what_opus_did": "Used the published one-decimal BLS CPI-U annual averages for 1960/1961/1962 (worklog.md:48-50).",
+        "why_glm_went_that_way": "[59]: 'question ... asks final thousandths ... likely expects exact BLS values with 3 decimals'. It took the precision asked for in the answer as the precision of the inputs. It then tried to 'verify' the invented digits by rebuilding monthly CPI from memory ([59]) and by grepping the corpus for the made-up numbers ([42]-[44], unrelated hits dismissed as 'random').",
+        "consequence": "Wrong deflators changed the small real-terms difference a lot: the answer is about 29% above Opus's, even though every corpus number was correct."
+      },
+      "secondary_errors": [
+        {"stage": "EXTERNAL_KNOWLEDGE", "glm_step": "[47]", "note": "Even its one-decimal recall had the 1962 CPI value wrong, so a 'use one decimal' rule alone would still have given a wrong answer ([58] shows that variant, also not Opus's value)."}
+      ],
+      "saw_correct_evidence": {"value": "partial", "where": "Debt: yes, the correct public-debt rows were read at [26] and again at [54]-[56]. CPI: the correct values never appeared, because they are not in the corpus. Its own one-decimal list at [47] was close but wrong for 1962."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[32] 'Let's verify', [43]/[45] 'Could be random', [57] 'let's be certain CPI values', [59] tried to rebuild the annual averages from monthly values it recalled"},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "mild", "tool_friction": "rg blocked by the sandbox [3], heredoc temp-file failure [6], python3 xcode shim [8], read num_lines cap of 150 [38]", "notes": "About 10 steps went to hunting for CPI in a corpus that has none ([29]-[46]). Finished in 133 s."},
+      "adapter_context": {"relevant_item": "n/a", "item_was_correct_guidance": "n/a", "followed": "n/a", "caused_or_contributed_to_error": "n/a", "notes": "Base instructions only. They say 'no internet' but give no way to get standard external series."},
+      "remedies": [
+        {"level": "TOOL", "intervention": "A local, vetted reference-series lookup (e.g. BLS CPI-U annual and monthly averages, NSA, 1982-84=100, stored at their published precision) that the actor can call when a question names an external series. The reply also states the published precision.", "generality": "officeqa_specific", "confidence": "high", "why": "The only fatal error was recalling CPI values. The same model in the cards arm recalled the right values at [31] while this fork made them up. Recall is random across forks, so only a lookup removes the variance. The later cards deck (C020) independently learned 'the corpus has no CPI tables; use the published one-decimal figure'."},
+        {"level": "CHECK", "intervention": "Provenance check before commit: every number in the final calculation must cite a corpus file:line or a declared external source. Flag any external number with more digits than its source publishes.", "generality": "domain_general", "confidence": "medium", "why": "The made-up three-decimal values had no source; at [42]-[44] the actor itself found they did not exist in any relevant table and used them anyway. A blocking signal would have forced the one-decimal variant, which still needs the right 1962 value."},
+        {"level": "TEXT", "intervention": "'Standard BLS CPI-U annual averages before 2000 are published to one decimal; the precision the answer asks for is not the precision of the inputs; never add digits to a remembered statistic.'", "generality": "document_qa_general", "confidence": "low", "why": "It would have stopped the three-decimal invention at [59], but its one-decimal recall at [47] still had 1962 wrong. Text alone does not fix what it remembers."}
+      ]
+    },
+    "prompt": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "CELL_SELECTION",
+        "glm_step": "[25]-[27], [35], [49]",
+        "what_glm_did": "Followed the 'latest vintage' procedure to the December 1969 Table FD-1 'Summary of Federal Debt' and took the 'Total outstanding > Total' column. In that unified-budget-era table this column adds agency securities to public debt securities. It used this Total in its CPI calculations at [35] and [49].",
+        "what_opus_did": "Took the 'Public debt' column of the 1962-era Table 1 'Summary of Federal Securities' and explicitly rejected the Total column (worklog.md:24-30, 58-59).",
+        "why_glm_went_that_way": "[25]: 'Question \"total nominal ... public debt outstanding\" likely Table FD-1 Total outstanding'. The word 'total' in the question was matched to the column header 'Total', and procedure step 1 sent it to a late vintage whose Total has a different make-up.",
+        "consequence": "Nominal levels were inflated by the agency-securities component. Combined with the wrong CPI (below), the submitted value is roughly 2.4x Opus's."
+      },
+      "secondary_errors": [
+        {"stage": "EXTERNAL_KNOWLEDGE", "glm_step": "[34], [49]-[50]", "note": "Same recall error as the none arm: its one-decimal 1962 CPI-U was one tenth of an index point too high, and it also floated made-up three-decimal values. Even with the right column, its [68] variant would still be wrong."},
+        {"stage": "OPERATIONAL", "glm_step": "[73]-[224]", "note": "Severe loop: the same THINK and two identical commands (grep 'public debt outstanding' in the 1960s issues; sed 1445,1490 of 1969_12) repeated about 38 times, followed by a Codex 'multiple compactions' warning at [225]."},
+        {"stage": "OTHER", "glm_step": "[226]-[227]", "note": "After compaction it committed the stale candidate computed at [49] (Total column), although its latest reasoning at [71]/[73] had moved to the public-debt-securities column. The final answer came from the compaction summary, not its current belief."}
+      ],
+      "saw_correct_evidence": {"value": "yes", "where": "[27] printed FD-1 with the 'Public debt securities' column next to Total. At [71]/[73] it reasoned that public-debt securities = interest-bearing + non-interest-bearing and was 'likely' the target. It computed that variant at [68] (with the wrong CPI)."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[50] 'Big difference. Need determine expected CPI precision', [69] 'Need choose', [73] 'Need decide' (repeated through the loop)"},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "severe", "tool_friction": "rg blocked [3], heredoc failure [6], python3 shim [8]; 12.6M input tokens across 112 requests; Codex reported 'Model metadata for glm-5p3-flash not found. Defaulting to fallback metadata' at startup (records/events.jsonl line 3), which likely mis-sized the context and caused repeated compaction (not certain)", "notes": "566 s. About 150 of 227 steps were the loop. The episode ended on the compaction warning, not on a decision."},
+      "adapter_context": {"relevant_item": "Procedure S1 (compare with the latest bulletin carrying the row) and S6 (commit as soon as a candidate exists). This early 5 KB context had no debt-series or CPI lesson.", "item_was_correct_guidance": "partly", "followed": "partly", "caused_or_contributed_to_error": "possibly", "notes": "It followed S1 ([25] 'Latest bulletin carrying row', [51]-[60]). The levels it needed were stable, but S1 took it into a 1969/1970 FD-1 whose 'Total' includes agency securities, a bigger trap than the 1962-era Total. It ignored S6: it did not commit after [49]/[68] and looped instead."},
+      "remedies": [
+        {"level": "CONTROL", "intervention": "Loop breaker plus a decision record: detect N repeats of the same command, then force a 'decide' turn that writes the chosen series, column, cells (file:line) and external inputs to a workspace file. The committed answer must be recomputed from that file, so compaction cannot bring back an older candidate.", "generality": "domain_general", "confidence": "high", "why": "The run lost about 75% of its steps to an exact repeat ([73]-[224]). It then submitted the [49] candidate, which its later reasoning ([71]/[73]) had already moved away from. That is a control and state failure, not a knowledge gap."},
+        {"level": "TOOL", "intervention": "The same vetted reference-series lookup (CPI-U annual averages at published precision) as for the none arm.", "generality": "officeqa_specific", "confidence": "high", "why": "Even the best version of its own reasoning ([68]: public-debt column) would have failed on its misremembered 1962 CPI."},
+        {"level": "CHECK", "intervention": "Column make-up check: when the chosen column is a 'Total' whose table also has a component column matching the question's concept ('public debt'), require the footnote or definition of what Total adds, and flag the mismatch.", "generality": "document_qa_general", "confidence": "medium", "why": "The arm's own reasoning reached the right column once it looked at FD-3 and the components ([71]/[73]). A prompt at [25] would have moved that earlier."},
+        {"level": "TEXT", "intervention": "'\"Public debt outstanding\" = the Public debt (securities) column; FD-1 Total adds agency securities (1960s Table 1 Total adds guaranteed securities). The word \"total\" in a question does not select the Total column.'", "generality": "officeqa_specific", "confidence": "medium", "why": "Would fix the first divergence at [25]. It would not fix the CPI recall or the loop."}
+      ]
+    },
+    "cards": {
+      "correct": true,
+      "error_bin": null
+    }
+  },
+  "right_arms_note": "cards: read the July 1962 issue, rejected the Federal-securities total because it includes guaranteed securities ([17]) and took the public-debt levels ([18]-[19]). It then recalled the correct one-decimal CPI-U annual averages ([31]-[33]). Its deck was empty ('No cards have been admitted yet'), so its CPI recall was a lucky fork rather than guidance. It did no vintage check, and none was needed because the values are stable.",
+  "text_vs_mechanism": "Mostly a mechanism problem. The decisive input (CPI-U) is not in the corpus, and the same model recalled it right in one fork and wrong in two, so only a vetted lookup tool makes it reliable. The prompt arm's context had procedure text (commit early, latest vintage) and it still looped and committed a stale candidate after compaction, which needs a loop breaker and a persisted decision record.",
+  "notes": "External-knowledge questions are high-variance for this actor: it tends to add precision it does not have (three-decimal CPI) and argues itself into it from the answer's rounding instruction. Harness idea: when a question names an external statistic (CPI, exchange rates), route it to a reference-data tool and forbid values from memory. The later cards deck added C020, C011, C021 and C035 for exactly this pattern (pinned external rates), which shows the learner converged on 'serve the constants'. Separately, the prompt arm's compaction behaviour (fallback model metadata, 12.6M input tokens, compaction warning) is an infrastructure issue that can override the actor's reasoning."
+}

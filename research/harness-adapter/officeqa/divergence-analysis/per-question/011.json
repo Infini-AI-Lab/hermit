@@ -1,0 +1,102 @@
+{
+  "ordinal": 11,
+  "task_id": "UID0027",
+  "question_type": "argmax month of a yield spread (Aa corporate minus Treasury) over a decade from one pinned issue, encoded as month*100+year",
+  "skills_required": ["locate_table", "read_flattened_table", "multi_value_extraction", "date_or_period_logic", "multi_step_arithmetic", "rounding_format"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "Spread = 'Aa new corporate bonds' minus 'Treasury bonds' monthly averages; window Jan 1960-Dec 1969 = 120 months; output = month*100 + year; flagged possible ties up front.", "evidence": "opus logs/011/worklog.md:7-13"},
+    {"stage": "choose_source", "decision": "Issue is pinned (June 1970) so no vintage choice for values.", "evidence": "worklog.md:8"},
+    {"stage": "locate_table", "decision": "Table AY-1 'Average Yields of Treasury, Corporate and Municipal Bonds by Periods' in treasury_bulletin_1970_06.txt.", "evidence": "worklog.md:16-17 (1970_06:4944)"},
+    {"stage": "pick_cells", "decision": "Noticed year labels were lost in OCR; counted 36 monthly rows x 4 column groups and inferred each group stacks 3 consecutive years; anchored group 4 = 1968/1969/1970 because its third block stops at May (nan after), consistent with a June 1970 issue.", "evidence": "worklog.md:21-26"},
+    {"stage": "verify", "decision": "Confirmed the year mapping from other printings of the same table where the year-label row survived (1970_03:4789, 1971_06), i.e. used neighbouring issues for STRUCTURE while keeping the pinned issue for values.", "evidence": "worklog.md:28-34"},
+    {"stage": "compute", "decision": "Parsed all 36 rows x 4 groups in a script, asserted exactly 120 in-window months, sorted spreads; top two months differ only in the second decimal, so both cells were checked.", "evidence": "worklog.md:36-45; calc.py:12-36"},
+    {"stage": "verify", "decision": "Checked the top-two cells are identical across ~10 later issues (OCR stability).", "evidence": "worklog.md:47-52"},
+    {"stage": "round_format", "decision": "Applied month*100+year in code, not by hand.", "evidence": "calc.py:37"}
+  ],
+  "opus_key_moves": [
+    "Treated the missing year labels as a structural problem and recovered them from another printing of the same table (1970_03:4789, 1971_06) instead of guessing from recalled yield levels",
+    "Used the cell count (36 rows x 4 groups = 12 years) and the May cut-off in the last block as internal anchors, so the parse covered the question's 1960-1969 window",
+    "Enumerated all 120 months in a script with count asserts and computed the output encoding in code"
+  ],
+  "arms": {
+    "none": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "CELL_SELECTION",
+        "glm_step": "[17]-[21], applied at [30]",
+        "what_glm_did": "Decided each of the 4 column groups is ONE calendar year (1966-1969), anchored only on the weekly section starting in Dec 1969; at [30] it labelled all 36 rows of group j with a single year, so the 1970 rows of group 4 (third block) were labelled 1969 and one of them became the argmax.",
+        "what_opus_did": "Read the table as 4 groups x 3 stacked years (1959-1970), anchored by the May cut-off in the last block and by the year-label row in 1970_03:4789.",
+        "why_glm_went_that_way": "Year labels were missing; [19] reasoned from recalled historical yield levels ('4 panels = 4 years') and ignored its own observation that there are 36 rows, not 48; [21] took the weekly-section start date as proof. At [31] it proposed 'search other bulletins for same table to see year headers' but never ran it.",
+        "consequence": "The chosen month-year came from data outside the question window (1970 rows mislabelled 1969); the final value is far from Opus's (>25%)."
+      },
+      "secondary_errors": [
+        {"stage": "ARITHMETIC", "glm_step": "[34]", "note": "Wrote 'month*100 + year' correctly but evaluated it as digit concatenation (5-digit result); at [19] it had also mis-evaluated the same formula for another candidate. Even the right month would have been encoded wrong."},
+        {"stage": "EXTRACTION", "glm_step": "[22]", "note": "Hand-typed the table as a Python literal: duplicated a panel and filled nan cells with invented values; noticed at [23] and replaced by a programmatic parse at [30]."},
+        {"stage": "INTERPRETATION", "glm_step": "[31]-[34]", "note": "Resolved the conflict between the question's 1960-1969 window and its 4-year reading by doubting the question, not its parse."}
+      ],
+      "saw_correct_evidence": {"value": "yes", "where": "[19] THINK computed Opus's month as the max under a partial reading; [30] output lists that cell (correct spread) 4th in its ranking, below three mislabelled 1970 months."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[19] 'need be certain mapping years'; [31] 'question explicitly says between 1960 and 1969 ... maybe extraction collapsed?'; [34] 'let's be absolutely certain year mapping'."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "mild", "tool_friction": "rg not permitted [2]; heredoc temp-file failure [4]; read num_lines>150 error [12]; multi-line python -c SyntaxError [24]; helper output carries 'NNNN:' line prefixes that broke the parse [26]-[29]; search limit>20 error [32]", "notes": "471 s, 18 requests; roughly 7 turns lost to tool friction, not causal."},
+      "adapter_context": {"relevant_item": "n/a", "item_was_correct_guidance": "n/a", "followed": "n/a", "caused_or_contributed_to_error": "n/a", "notes": "Base instructions only."},
+      "remedies": [
+        {"level": "TOOL", "intervention": "Table-printings lookup: given a table id/title (e.g. AY-1), return the header and label rows of the same table in the neighbouring issues, so OCR-lost period labels can be recovered.", "generality": "document_qa_general", "confidence": "high", "why": "GLM itself proposed this at [31] but never ran it; Opus's decisive move was exactly this (1970_03:4789 has the year row)."},
+        {"level": "CHECK", "intervention": "Period-map sanity check on extracted series: each (period -> cell) key must be unique, no period may postdate the issue date, and the map must cover the question's requested range; otherwise report 'parse suspect'.", "generality": "domain_general", "confidence": "high", "why": "Its map put 36 cells under each of 4 years (duplicate periods) and included months after the June 1970 publication; any of these fires immediately."},
+        {"level": "CHECK", "intervention": "Output-transform check: when the question states an explicit output formula (month*100+year), recompute it in code from the actor's declared (month, year) and range-check the result (4 digits for 1960s years).", "generality": "domain_general", "confidence": "high", "why": "All three arms mis-evaluated the encoding; a 5- or 6-digit answer is trivially out of range."}
+      ]
+    },
+    "prompt": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "CELL_SELECTION",
+        "glm_step": "[9]-[11], used at [21]",
+        "what_glm_did": "Miscounted the monthly rows as 48 ('Jan-Dec repeated 4 times = 4 years'), mapped the 4 column groups to 1966-1969 by guessing from recalled yield levels, then at [21] hand-listed spreads from memory for those four 'years'; its '1969' list mixes the 1970 rows of group 4 with miscomputed differences and picks a spring month.",
+        "what_opus_did": "Counted 36 rows x 4 groups, inferred 3 stacked years per group, verified labels in 1970_03 / 1971_06, computed all 120 months in a script.",
+        "why_glm_went_that_way": "Year labels lost; [17] noticed a 'Contradiction' with the question range; [19] explicitly refused to look at other bulletins ('To get 1960-65, need earlier bulletins, violating') because the question pins June 1970, then spent [13]-[20] hunting for a non-existent longer table or chart data.",
+        "consequence": "Wrong month-year from outside the window; >25% off."
+      },
+      "secondary_errors": [
+        {"stage": "ARITHMETIC", "glm_step": "[21]", "note": "Ran no computation command in the whole episode; mental subtractions contain errors (its top 'spread' does not equal any single row's difference), which moved the argmax."},
+        {"stage": "ARITHMETIC", "glm_step": "[21]-[22]", "note": "Evaluated month*100+year as string concatenation of month digit and year."}
+      ],
+      "saw_correct_evidence": {"value": "partial", "where": "[8] sed output displayed the full AY-1 including the cells Opus used (rows 4971-4972); [11] quotes the group-4 Dec value; never computed their spread."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[17] 'Contradiction'; [19]; [21] 'But 1960-65 could have larger?'"},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "mild", "tool_friction": "rg not permitted [2]; otherwise used grep/sed only; never attempted python", "notes": "432 s, 11 requests but ~69k output tokens of reasoning; [13]-[20] spent searching for a longer table/chart that does not exist."},
+      "adapter_context": {"relevant_item": "Procedure self-check 3 'Count the extracted cells before computing'; L-pdo1-maturity-total-rows (warns that two-panel OCR interleaves years, but scoped to PDO-1)", "item_was_correct_guidance": "partly", "followed": "no", "caused_or_contributed_to_error": "no", "notes": "No AY-1 or output-encoding lesson existed yet. After this question's postmortem the learner wrote L-ay1-year-trio-panels and L-month-x100-plus-year (visible in later AGENTS.md, e.g. the Q58 copy), i.e. the text learner could state the fix, but only after the fact. The generic count-cells step was present and not applied (it even miscounted rows)."},
+      "remedies": [
+        {"level": "CONTROL", "intervention": "Mandatory extract-then-compute stage: the committed number must be the printed output of an executed command over cells parsed from the file (with a cell count printed), never a THINK list.", "generality": "domain_general", "confidence": "high", "why": "This arm ran zero computation commands; its mental spread list has errors that changed the argmax."},
+        {"level": "TOOL", "intervention": "Table-printings lookup returning label/header rows of the same table in adjacent issues.", "generality": "document_qa_general", "confidence": "medium", "why": "It needed the year row but rejected other issues as off-limits ([19]); a tool framed as 'structure lookup' plus a TEXT note that a pinned issue governs values, not structure, would remove that objection."},
+        {"level": "CHECK", "intervention": "Output-transform/range check for question-specified encodings.", "generality": "domain_general", "confidence": "high", "why": "Its final value has the wrong digit count for month*100+year."}
+      ]
+    },
+    "cards": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "CELL_SELECTION",
+        "glm_step": "[16]-[25]",
+        "what_glm_did": "Same misreading as the other arms: '48 monthly rows ... 4 years' mapped to 1966-1969 from recalled yield levels; it never enumerated the table and eyeballed only a few late-year rows.",
+        "what_opus_did": "3 stacked years per group, labels verified in other printings, all 120 months computed.",
+        "why_glm_went_that_way": "Year labels lost; at [23] it wrote 'Could use other issues to infer table years. But user says use June 1970.' and dropped the idea; it concluded the question range was probably a 'typo'.",
+        "consequence": "Non-fatal by luck: the handful of cells it eyeballed happened to include Opus's month-year, which it picked. The answer was wrong only because of the encoding error below."
+      },
+      "secondary_errors": [
+        {"stage": "FORMULA", "glm_step": "[25]-[26]", "note": "Decisive error: submitted year followed by month (year*100+month) instead of month*100+year, although the question spells out the formula."},
+        {"stage": "OPERATIONAL", "glm_step": "[8]-[10]", "note": "python3 invoked the xcode-select shim and failed; the arm abandoned Python for the rest of the episode (did not try `python`, which works in this sandbox) and did all arithmetic mentally."}
+      ],
+      "saw_correct_evidence": {"value": "yes", "where": "[25] computed the spreads of the late-1969 rows and picked the same month-year as Opus."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[21], [23] 'question range 1960-69 odd ... Could be typo?' (doubt about year mapping, none about the encoding)"},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "mild", "tool_friction": "rg not permitted [3]; heredoc temp-file failure [6]; python3 -> xcode-select error [8]", "notes": "436 s, 11 requests; no computation run at all after [8]."},
+      "adapter_context": {"relevant_item": "none (deck held only C003, about fiscal outlays / CAGR)", "item_was_correct_guidance": "n/a", "followed": "n/a", "caused_or_contributed_to_error": "no", "notes": "No card on AY-1 structure, on computing in a script (C019 arrives later), or on output encodings."},
+      "remedies": [
+        {"level": "CHECK", "intervention": "Output-transform check: actor declares the fields (month=?, year=?), harness evaluates the question's stated formula and compares with the submitted value / digit count.", "generality": "domain_general", "confidence": "high", "why": "This arm had the right month-year and failed only on the encoding."},
+        {"level": "TOOL", "intervention": "A guaranteed calculator entry point (a working `python`/`calc` command named in the instructions; do not rely on the python3 shim).", "generality": "domain_general", "confidence": "medium", "why": "After the python3 failure at [8] the arm did everything mentally; the none arm shows `python -c` works in this sandbox."},
+        {"level": "CHECK", "intervention": "Period-map sanity check (unique periods, none after the issue date, covers the requested range).", "generality": "domain_general", "confidence": "medium", "why": "Its correct pick was luck; the same misparse sank the other two arms."}
+      ]
+    }
+  },
+  "right_arms_note": "No arm was right.",
+  "text_vs_mechanism": "Mechanism needed. All three arms saw that a 4-year reading conflicted with the question's 1960-1969 range and blamed the question. The prompt arm already had a generic 'count the extracted cells' step and a two-panel-OCR lesson for another table, and still miscounted rows and computed nothing. The cards arm rejected other issues because the question pins June 1970. A label-recovery tool plus a period-map check would catch the structural error. The encoding error, which hit all three arms, is cheapest to catch with an output-transform/range check.",
+  "notes": "Two failures stack here: (1) a flattened table whose period labels were lost in OCR, and (2) a question-specified output encoding that every arm evaluated wrongly: two concatenated the month digit with the year, one wrote the year first. The none arm computed the spreads in Python but still evaluated the encoding by hand; the other two arms computed nothing in code. The idea 'the question pins issue X, so I may not look at other issues' blocked the cheapest fix (reading the label row from another printing); harness text should separate 'source of values' from 'source of structure'. A STATE index of table layouts (AY-1: 4 groups x 3 stacked years, anchor years via a labelled vintage) would help later AY-1 questions. The prompt learner produced exactly such a lesson after this postmortem (L-ay1-year-trio-panels)."
+}

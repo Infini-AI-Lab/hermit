@@ -1,0 +1,329 @@
+{
+ "note": "Answer-free export: 0/1 scores (official reward.py, strict = 0% tolerance), statuses and totals only.",
+ "campaigns": [
+  {
+   "column": "v03_baseline",
+   "label": "v3 baseline (no adapter)",
+   "root": "officeqa-codex70-v3-work",
+   "n": 70,
+   "strict_correct": 23,
+   "one_percent_correct": 30,
+   "cost_lower_bound": null
+  },
+  {
+   "column": "v03_mwm",
+   "label": "v3 MWM adapter",
+   "root": "officeqa-codex70-v3-work",
+   "n": 70,
+   "strict_correct": 24,
+   "one_percent_correct": 35,
+   "cost_lower_bound": null
+  },
+  {
+   "column": "v04_baseline",
+   "label": "v4 baseline",
+   "root": "officeqa-codex50-gold-v4-work",
+   "n": 50,
+   "strict_correct": 22,
+   "one_percent_correct": 30,
+   "cost_lower_bound": {
+    "logical_calls": 4334,
+    "known_usage": {
+     "input_tokens": 411947789,
+     "cached_input_tokens": 390754304,
+     "output_tokens": 2405383
+    },
+    "known_cost_lower_bound_usd": 16.10434337,
+    "usage_complete": false
+   }
+  },
+  {
+   "column": "v04_mwm_gold",
+   "label": "v4 MWM + gold feedback",
+   "root": "officeqa-codex50-gold-v4-work",
+   "n": 50,
+   "strict_correct": 22,
+   "one_percent_correct": 29,
+   "cost_lower_bound": {
+    "logical_calls": 4334,
+    "known_usage": {
+     "input_tokens": 411947789,
+     "cached_input_tokens": 390754304,
+     "output_tokens": 2405383
+    },
+    "known_cost_lower_bound_usd": 16.10434337,
+    "usage_complete": false
+   }
+  },
+  {
+   "column": "v05_baseline",
+   "label": "v5 baseline",
+   "root": "officeqa-codex50-full-mwm-v5-work",
+   "n": 50,
+   "strict_correct": 17,
+   "one_percent_correct": 21,
+   "cost_lower_bound": {
+    "logical_calls": 6240,
+    "known_usage": {
+     "input_tokens": 705739474,
+     "cached_input_tokens": 684089344,
+     "output_tokens": 3538930
+    },
+    "known_cost_lower_bound_usd": 25.53966482,
+    "usage_complete": false
+   }
+  },
+  {
+   "column": "v05_full_mwm",
+   "label": "v5 full MWM",
+   "root": "officeqa-codex50-full-mwm-v5-work",
+   "n": 50,
+   "strict_correct": 20,
+   "one_percent_correct": 24,
+   "cost_lower_bound": {
+    "logical_calls": 6240,
+    "known_usage": {
+     "input_tokens": 705739474,
+     "cached_input_tokens": 684089344,
+     "output_tokens": 3538930
+    },
+    "known_cost_lower_bound_usd": 25.53966482,
+    "usage_complete": false
+   }
+  },
+  {
+   "column": "v06f_mwm_baseline",
+   "label": "v6f baseline (MWM pair)",
+   "root": "officeqa-codex50-full-mwm-v6f-work",
+   "n": 50,
+   "strict_correct": 26,
+   "one_percent_correct": 31,
+   "cost_lower_bound": {
+    "logical_calls": 5875,
+    "known_usage": {
+     "input_tokens": 614179229,
+     "cached_input_tokens": 581988352,
+     "output_tokens": 6290809
+    },
+    "known_cost_lower_bound_usd": 25.43368661,
+    "usage_complete": false
+   }
+  },
+  {
+   "column": "v06f_mwm",
+   "label": "v6f full MWM + postmortems",
+   "root": "officeqa-codex50-full-mwm-v6f-work",
+   "n": 50,
+   "strict_correct": 24,
+   "one_percent_correct": 29,
+   "cost_lower_bound": {
+    "logical_calls": 5875,
+    "known_usage": {
+     "input_tokens": 614179229,
+     "cached_input_tokens": 581988352,
+     "output_tokens": 6290809
+    },
+    "known_cost_lower_bound_usd": 25.43368661,
+    "usage_complete": false
+   }
+  },
+  {
+   "column": "v06f_po_baseline",
+   "label": "v6f baseline (prompt-only pair)",
+   "root": "officeqa-codex50-full-prompt-only-v6f-work",
+   "n": 50,
+   "strict_correct": 19,
+   "one_percent_correct": 26,
+   "cost_lower_bound": {
+    "logical_calls": 5547,
+    "known_usage": {
+     "input_tokens": 584879742,
+     "cached_input_tokens": 560050176,
+     "output_tokens": 4539545
+    },
+    "known_cost_lower_bound_usd": 22.79571268,
+    "usage_complete": false
+   }
+  },
+  {
+   "column": "v06f_prompt_only",
+   "label": "v6f prompt-only + postmortems",
+   "root": "officeqa-codex50-full-prompt-only-v6f-work",
+   "n": 50,
+   "strict_correct": 25,
+   "one_percent_correct": 32,
+   "cost_lower_bound": {
+    "logical_calls": 5547,
+    "known_usage": {
+     "input_tokens": 584879742,
+     "cached_input_tokens": 560050176,
+     "output_tokens": 4539545
+    },
+    "known_cost_lower_bound_usd": 22.79571268,
+    "usage_complete": false
+   }
+  },
+  {
+   "column": "v07_baseline",
+   "label": "v7 baseline",
+   "root": "officeqa-codex50-cards-v7-work",
+   "n": 50,
+   "strict_correct": 22,
+   "one_percent_correct": 31,
+   "cost_lower_bound": {
+    "logical_calls": 11594,
+    "known_usage": {
+     "input_tokens": 1071350646,
+     "cached_input_tokens": 1021390848,
+     "output_tokens": 7802782
+    },
+    "known_cost_lower_bound_usd": 42.03708614,
+    "usage_complete": false
+   }
+  },
+  {
+   "column": "v07_cards",
+   "label": "v7 cards",
+   "root": "officeqa-codex50-cards-v7-work",
+   "n": 50,
+   "strict_correct": 26,
+   "one_percent_correct": 33,
+   "cost_lower_bound": {
+    "logical_calls": 11594,
+    "known_usage": {
+     "input_tokens": 1071350646,
+     "cached_input_tokens": 1021390848,
+     "output_tokens": 7802782
+    },
+    "known_cost_lower_bound_usd": 42.03708614,
+    "usage_complete": false
+   }
+  },
+  {
+   "column": "v08_none",
+   "label": "v8 none (133)",
+   "root": "officeqa-pro133-none-v8-work",
+   "n": 133,
+   "strict_correct": 62,
+   "one_percent_correct": 79,
+   "cost_lower_bound": {
+    "logical_calls": 7041,
+    "known_usage": {
+     "input_tokens": 652704747,
+     "cached_input_tokens": 622548992,
+     "output_tokens": 3819986
+    },
+    "known_cost_lower_bound_usd": 25.10982601,
+    "usage_complete": false
+   }
+  },
+  {
+   "column": "v08_prompt",
+   "label": "v8 prompt-only (133)",
+   "root": "officeqa-pro133-prompt-v8-work",
+   "n": 133,
+   "strict_correct": 64,
+   "one_percent_correct": 78,
+   "cost_lower_bound": {
+    "logical_calls": 8797,
+    "known_usage": {
+     "input_tokens": 1029204262,
+     "cached_input_tokens": 984115200,
+     "output_tokens": 7538122
+    },
+    "known_cost_lower_bound_usd": 40.0558763,
+    "usage_complete": false
+   }
+  },
+  {
+   "column": "v08_cards",
+   "label": "v8 cards (133)",
+   "root": "officeqa-pro133-cards-v8-work",
+   "n": 133,
+   "strict_correct": 55,
+   "one_percent_correct": 75,
+   "cost_lower_bound": {
+    "logical_calls": 15251,
+    "known_usage": {
+     "input_tokens": 1225499654,
+     "cached_input_tokens": 1160081408,
+     "output_tokens": 10667287
+    },
+    "known_cost_lower_bound_usd": 49.94882264,
+    "usage_complete": false
+   }
+  },
+  {
+   "column": "v09p1_a_text_static",
+   "label": "v9 pilot 1 a: text-static T=0",
+   "root": "v9-p1-a",
+   "n": 50,
+   "strict_correct": 31,
+   "one_percent_correct": 37,
+   "cost_lower_bound": {
+    "logical_calls": 3306,
+    "known_usage": {
+     "input_tokens": 322296040,
+     "cached_input_tokens": 308871168,
+     "output_tokens": 1465665
+    },
+    "known_cost_lower_bound_usd": 12.01269834,
+    "usage_complete": false
+   }
+  },
+  {
+   "column": "v09p1_b_mech_static",
+   "label": "v9 pilot 1 b: mech-static T=0",
+   "root": "v9-p1-b",
+   "n": 50,
+   "strict_correct": 20,
+   "one_percent_correct": 26,
+   "cost_lower_bound": {
+    "logical_calls": 1719,
+    "known_usage": {
+     "input_tokens": 127705645,
+     "cached_input_tokens": 121851904,
+     "output_tokens": 944562
+    },
+    "known_cost_lower_bound_usd": 5.00589927,
+    "usage_complete": false
+   }
+  },
+  {
+   "column": "v09p1_c_text_static_t1",
+   "label": "v9 pilot 1 c: text-static T=1.0 top_p 0.95",
+   "root": "v9-p1-c",
+   "n": 50,
+   "strict_correct": 24,
+   "one_percent_correct": 32,
+   "cost_lower_bound": {
+    "logical_calls": 1177,
+    "known_usage": {
+     "input_tokens": 37851510,
+     "cached_input_tokens": 34430976,
+     "output_tokens": 380832
+    },
+    "known_cost_lower_bound_usd": 1.73642538,
+    "usage_complete": false
+   }
+  },
+  {
+   "column": "opus_final",
+   "label": "Opus 5.5 reference (opus_final)",
+   "root": "opus-officeqa-133",
+   "n": 133,
+   "strict_correct": 87,
+   "one_percent_correct": 103,
+   "cost_lower_bound": null
+  },
+  {
+   "column": "opus_solver",
+   "label": "Opus 5.5 reference (opus_solver)",
+   "root": "opus-officeqa-133",
+   "n": 133,
+   "strict_correct": 77,
+   "one_percent_correct": 93,
+   "cost_lower_bound": null
+  }
+ ]
+}

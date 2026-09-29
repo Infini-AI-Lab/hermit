@@ -1,0 +1,19 @@
+{
+  "ordinal": 36,
+  "task_id": "UID0155",
+  "issue47": true,
+  "question_type": "Geometric mean of the 4 IFS-1 U.S. reserve-asset components at end-July for 2010-2013 (16 values)",
+  "opus_divergence": {
+    "stage": "SOURCE_ISSUE_VINTAGE",
+    "what_opus_did": "Traced every July row through all 2010-2013 issues. It found that the July 2011 'Reserve position in IMF' cell was revised: it is marked 'July r' in 2011_12, and a new footnote says the IMF position now includes New Arrangements to Borrow. Opus took the latest revision for that one cell. Every other cell is identical across printings.",
+    "what_right_glm_did": "The none arm read only the September issue of each year (2010_09 to 2013_09), where July is the newest month, and took the July rows from there. For July 2011 that is the first printing. It never opened a later issue, so it never saw the revision.",
+    "evidence": "Opus: worklog.md:26-38 (Steps 2-3, revision trace); worklog.md:53-57 ('Decision on vintage'); solution.json decisions[1]. GLM none digest: [9]-[10] ('The relevant bulletins are the September issues'), [20]-[23]."
+  },
+  "opus_confidence": "medium",
+  "reviewer_flag": "Verdict confirmed. The reviewer explicitly named the first-print alternative (the Sept 2011 issue) as 'a real ambiguity' and the only residual risk.",
+  "right_glm_arms": ["none"],
+  "right_by_principled_choice_or_luck": "Luck. The none arm treated each year's September issue as the natural home of that year's July. It did no vintage reasoning and no revision check (28 s, 11 requests). It matched the key only because the key uses the first printing.",
+  "wrong_glm_arms_same_as_opus": "Yes. The prompt arm ([13]-[21]) and the cards arm ([17]-[22]) both grepped forward, saw the July 2011 revision and took the latest printing. That is exactly Opus's choice, and both landed within_1pct.",
+  "lesson_for_harness": "This question is on the issue-47 list of disputed questions, so the key's first-print choice should not be generalised into a vintage rule. The only defensible takeaway is procedural. When a cell's first printing and a later 'r'-marked revision differ and no issue is pinned, the question is genuinely ambiguous, and a harness can at most record both candidates. This item should not flip the latest-revision default.",
+  "notes": "Caution for learner design: after this question was graded, the prompt learner wrote a lesson marked verified, L-ifs1-monthly-first-printing ('IFS-1 ... takes the FIRST printing'; it appears in the prompt AGENTS.md at ordinal 85, around lines 177-185). The lesson is derived from this disputed item. Lessons like this can overfit to a disputed key, so a learner should down-weight or quarantine lessons that come from issue-47 questions. All three GLM arms and Opus agreed on reading the question as the 4 components (not the total) and agreed on every other cell. The entire divergence is one revised cell."
+}

@@ -1,0 +1,99 @@
+{
+  "ordinal": 72,
+  "task_id": "UID0196",
+  "question_type": "CPI-deflated month-over-month change of a monthly currency series (external CPI-U needed)",
+  "skills_required": ["locate_issue", "pick_vintage", "locate_table", "read_flattened_table", "unit_or_scale", "external_knowledge", "formula_finance", "multi_step_arithmetic", "rounding_format"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "change = June FRN - May FRN x CPI(June)/CPI(May), in millions, rounded to 0.01. Listed the open choices up front: which FRN column (pre-1929 vs post-1929 notes), which vintage, which CPI base and whether seasonally adjusted.", "evidence": "worklog.md:8-14"},
+    {"stage": "locate_table", "decision": "Table MS-1 'Currency and Coin in Circulation' (in millions of dollars), August 1979 bulletin, May and June 1979 rows.", "evidence": "worklog.md:19-23; treasury_bulletin_1979_08.txt:1751, 1778-1779"},
+    {"stage": "pick_cells", "decision": "Found that the OCR header is shifted one column: the label 'Federal Reserve notes 4/' sits over the 'Total currencies' values. It proved the FRN column by summing the eight components to the printed total, then read footnotes 3/ and 4/ (pre- vs post-July-1929 notes) to pick the live FRN series.", "evidence": "worklog.md:24-27, 36-40; calc.py asserts; treasury_bulletin_1979_08.txt:~1810"},
+    {"stage": "choose_source", "decision": "Checked the 1979_07 through 1980_12 printings. No revision to either cell, so the vintage does not matter. It also spotted an OCR row-label glitch in 1980_07 and ignored it.", "evidence": "worklog.md:29-34 (Step 3)"},
+    {"stage": "extract", "decision": "Searched the corpus for monthly CPI-U (none exists; only narrative text and annual rows in 1983_06). It then used external BLS CPI-U, U.S. city average, NSA, 1982-84=100, checking that the recalled 12 monthly 1979 values average to the published annual figure. The 1967=100 values were kept as a sensitivity.", "evidence": "worklog.md:42-54 (Step 5 and EXTERNAL KNOWLEDGE)"},
+    {"stage": "compute", "decision": "Decimal arithmetic with ROUND_HALF_UP; sensitivities for the 1967 base, for including pre-1929 notes, and for the nominal change.", "evidence": "calc.py; worklog.md:56-59"},
+    {"stage": "verify", "decision": "Sign and magnitude sanity check: the nominal rise is slightly below the monthly CPI rise, so the real change is small and negative. The reviewer independently recalled the same CPI values and recomputed.", "evidence": "worklog.md:61-62; review.md checks 2 and 5"}
+  ],
+  "opus_key_moves": [
+    "Proved which MS-1 column is Federal Reserve notes by summing components to the printed 'Total currencies', overriding the shifted OCR header label.",
+    "Supplied the correct external BLS CPI-U (NSA, 1982-84=100) levels for May and June 1979 and named the series explicitly, with the old base as a sensitivity.",
+    "Checked later printings for revisions before committing."
+  ],
+  "arms": {
+    "none": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "EXTERNAL_KNOWLEDGE",
+        "glm_step": "[28] (never revised; used at [534] and in the final answer [720])",
+        "what_glm_did": "Recalled a May/June 1979 CPI-U pair, labeled it 1982-84=100 although the numbers are on the old 1967=100 scale, and never re-derived it. The pair implies roughly 0.2% May-to-June inflation instead of the actual ~1.1%.",
+        "what_opus_did": "Used BLS CPI-U NSA 1982-84=100 levels and checked that the recalled 1979 monthly series averages to the published annual value.",
+        "why_glm_went_that_way": "The corpus has no monthly CPI. Instead of sanity-checking its memory (1979 inflation was about 1% per month), it spent almost all of the episode trying to find CPI in the corpus. The recalled pair was stated at [28] with 'Yes likely' and was never tested.",
+        "consequence": "The deflator is far too small, so the 'real' change is close to the nominal change: a large positive number instead of a small negative one (>25%)."
+      },
+      "secondary_errors": [
+        {"stage": "OPERATIONAL", "glm_step": "[42]-[494]", "note": "227 identical re-runs of the same full-corpus python grep for 'Urban Consumers', each with the same empty result, until the first Codex context compaction at [495]."},
+        {"stage": "CELL_SELECTION", "glm_step": "[534]", "note": "After the compaction it re-read the MS-1 header at face value, declared 'Aha summary misidentified columns', and switched to the last column (labeled 'Federal Reserve notes 4/' but actually 'Total currencies'). This overrode its own correct identification at [31]-[35], which it had verified against a 1982 MS-1 header. The numeric effect here is small next to the CPI error, but it is a regression caused by compaction."},
+        {"stage": "OPERATIONAL", "glm_step": "[539]-[717], [718]-[720]", "note": "90 identical sqlite queries for 'Consumer Price Index', then a second compaction at [718]. It then submitted the number from the summary without recomputing: 'Summary says done. We can trust.'"}
+      ],
+      "saw_correct_evidence": {"value": "partial", "where": "The correct FRN cells were seen at [19] and correctly identified at [34]-[35]. CPI is not in the corpus, so no correct CPI evidence was ever available. Its searches ([22]-[27], [37]-[494], [514]-[717]) could only show that monthly 1979 CPI is absent."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[28] 'Yes likely' (CPI); [31] doubts about which column is FRN; [532] 'Need determine exact calculation interpretation'; [534] 'Need ensure CPI values ... Need source'"},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "severe", "tool_friction": "rg not permitted [3]; heredoc temp-file failure [6]; two Codex context compactions ([495], [718]) with the harness warning 'Long threads and multiple compactions can cause the model to be less accurate'", "notes": "2097 s, 359 requests, ~46.6M input tokens, 355 shell commands, of which 317 are repeats of just two commands. The only new information after [35] was 'CPI is not in the corpus', which it had already established by [27]."},
+      "adapter_context": {"relevant_item": "n/a", "item_was_correct_guidance": "n/a", "followed": "n/a", "caused_or_contributed_to_error": "n/a", "notes": "Base instructions only."},
+      "remedies": [
+        {"level": "TOOL", "intervention": "Vetted external reference-series store exposed as a lookup tool (e.g. BLS CPI-U NSA monthly with both 1982-84=100 and 1967=100 bases, plus other series these questions use: exchange rates, market yields). External values must come from it, or be flagged as unverified memory.", "generality": "document_qa_general", "confidence": "high", "why": "All three arms failed on CPI recall, each with a different wrong pair. The corpus provably lacks monthly 1979 CPI, so no amount of corpus search or corpus-based checking can fix this."},
+        {"level": "CONTROL", "intervention": "Loop breaker. Detect an identical command re-run 3 or more times, or N consecutive searches with no new hits, and force a choice: commit the best candidate, or change strategy with a stated reason. Put a hard cap on search budget for data already classified as 'not in corpus'.", "generality": "domain_general", "confidence": "high", "why": "227 plus 90 identical re-runs consumed about 2000 s and triggered two compactions. The actor had concluded 'CPI not in corpus' by [27]-[39]."},
+        {"level": "STATE", "intervention": "Compaction-proof fact ledger: a workspace file where the actor records verified facts with their proof (e.g. 'FRN = next-to-last MS-1 column; components sum to printed total'). It is re-injected after compaction, and a later reread may not override a ledger fact without re-running its proof.", "generality": "domain_general", "confidence": "medium", "why": "[534] overrode the mapping verified at [35] immediately after compaction, and [719] trusted the summary's arithmetic without recomputing."},
+        {"level": "CHECK", "intervention": "Plausibility check on external deflators: compare the implied month-over-month rate against a coarse known annual rate for that year (1979: roughly 11-13%) and flag a mismatch larger than a factor of 2.", "generality": "domain_general", "confidence": "medium", "why": "Its recalled pair implies about a fifth of the true monthly inflation. This coarse check would have caught it (though not the smaller errors of the other two arms)."}
+      ]
+    },
+    "prompt": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "CELL_SELECTION",
+        "glm_step": "[27]",
+        "what_glm_did": "Took the last MS-1 column ('Unnamed: 9 > Federal Reserve notes 4/'), which is actually 'Total currencies' because the OCR header is shifted one column, as the Federal Reserve notes series for both months.",
+        "what_opus_did": "Summed the eight preceding components to show that the last column is the printed total and the next-to-last column is FRN (footnote 4/).",
+        "why_glm_went_that_way": "At [27] it read the header label literally. It noticed there were two FRN labels (3/ and 4/) and read the footnotes, but ran no row-sum check. Its adapter convention says 'match columns by header, never by position' (AGENTS.md:51-57), which fits this choice.",
+        "consequence": "On its own, this error puts the result about 4% off: wrong, but not the dominant error (see the secondary CPI error)."
+      },
+      "secondary_errors": [
+        {"stage": "EXTERNAL_KNOWLEDGE", "glm_step": "[27]-[35], commit [40]", "note": "Recalled two different CPI-U sequences for 1979 (one labeled NSA, one labeled SA), and neither matches the BLS levels Opus used. It validated each only by checking that its 12 months average to the 1979 annual value; both passed, so the check could not tell them apart. It picked the 'SA' set by reasoning about FRED series names ('month-over-month suggests seasonally adjusted'). The implied May-to-June inflation is about 0.7% instead of about 1.1%, which flips the sign of the answer. This is the decisive error."}
+      ],
+      "saw_correct_evidence": {"value": "partial", "where": "[26] printed the full MS-1 block with all components, both FRN labels, 'Total currencies' and footnotes 3/-4/: enough to prove the FRN column by summing. CPI is not in the corpus. [30]-[31] confirmed that."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[29] 'Need ensure CPI values'; [35] 'So two candidates ... Need decide'; [39] weighing NSA vs SA without resolution"},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "mild", "tool_friction": "heredoc failure [4]; officeqa search limit error [18]; about 10 steps ([11]-[25]) grepping 1979 files for the lesson's table title 'Money in Circulation', while the 1979 table is titled 'Currency and Coin in Circulation'", "notes": "150 s, 21 requests. At [36]-[38] it opened workspace metadata files (.acting-prepared.json, .ha-demo-generated.json) looking for hints about the CPI convention and found nothing."},
+      "adapter_context": {"relevant_item": "L-ms1-money-in-circulation; L-cpi-yoy-published-rate; convention 'match columns by header, never by position' (AGENTS.md:51-57); open question 'CPI deflation convention' (AGENTS.md:~1390)", "item_was_correct_guidance": "partly", "followed": "partly", "caused_or_contributed_to_error": "possibly", "notes": "The MS-1 lesson warns that the table has several total-like columns but uses the 1969-era title and does not mention the 1979 header shift; its title sent the actor searching for a non-existent heading. The CPI lesson correctly says CPI is external but gives no index levels and covers a different convention (published year-over-year rate). The 'match by header' convention is harmful for shifted OCR headers. No lesson carried the CPI levels themselves."},
+      "remedies": [
+        {"level": "CHECK", "intervention": "Components-sum-to-total verifier: when the chosen cell sits in a row that has a printed total, compute the sum of the other components and flag if the chosen cell equals the total (or if total minus components equals a different column).", "generality": "document_qa_general", "confidence": "high", "why": "Opus's calc.py asserts exactly this identity, and all eight components were on the actor's screen at [26]. The cards arm and the pre-compaction none arm read the same table correctly, so the check only has to catch the header trap."},
+        {"level": "TOOL", "intervention": "Same vetted external-series lookup as for the none arm (CPI-U NSA/SA, both bases).", "generality": "document_qa_general", "confidence": "high", "why": "The decisive error was a wrong recalled CPI sequence, and the actor's only available sanity check (average equals the annual value) passed for two different wrong sequences."},
+        {"level": "TEXT", "intervention": "Replace 'match columns by header, never by position' with 'match by header, then prove the mapping with a row identity (components sum to total), because OCR headers shift by one column'.", "generality": "document_qa_general", "confidence": "medium", "why": "The arm follows conventions (it cited adapter guidance at [1] and [5]), and its current text points it toward the wrong column here."}
+      ]
+    },
+    "cards": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "EXTERNAL_KNOWLEDGE",
+        "glm_step": "[38]-[46], computed at [50]",
+        "what_glm_did": "Located the correct FRN cells (August 1979 MS-1, next-to-last column) and checked later printings. It then recalled a 1979 CPI-U monthly path whose May and June levels sit about one index point above the BLS values. The implied May-to-June inflation is about 1.0% instead of about 1.1%.",
+        "what_opus_did": "Used the BLS CPI-U NSA 1982-84=100 levels, with the reviewer independently confirming them.",
+        "why_glm_went_that_way": "Card C020 told it the corpus has no CPI tables, which was correct. At [38] it tried several recalled sequences, second-guessing individual months ('Wait 1980 Jan ...?'). At [46] it settled on one with 'I recall ... indeed', supported only by the check that the 12 months average to the annual figure, which the wrong path also passes.",
+        "consequence": "The answer is a small difference of two large numbers, so a deflator about 0.15 percentage points too low turns a small negative real change into a small positive one (>25%)."
+      },
+      "secondary_errors": [
+        {"stage": "OPERATIONAL", "glm_step": "[36]-[44]", "note": "Searched the corpus for CPI tables for about 8 steps, although card C020 says 'do not search for them'. This cost time but did not cause the error."}
+      ],
+      "saw_correct_evidence": {"value": "partial", "where": "The correct FRN cells were found and used at [33]-[35] and [48]. CPI is not in the corpus."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[38] 'Let's verify'; [46] 'Need verify CPI-U May/June 1979 ... Wait annual average'"},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "mild", "tool_friction": "heredoc temp failure [5]; apply_patch unavailable [8]-[14] (the actor tried to follow a workflow requiring script files); python -c quoting failure [14]; finally built scripts with printf [16]", "notes": "127 s, 24 requests."},
+      "adapter_context": {"relevant_item": "C020 (inflation adjusted, total currency); C019 (compute in a script file)", "item_was_correct_guidance": "partly", "followed": "partly", "caused_or_contributed_to_error": "no", "notes": "C020 is correct that the corpus has no CPI and that MS-1 lags two months, and the actor used the lag at [30]. Its 'Not when' clause correctly excludes adjusting amounts to a target month's dollars, so it gives no CPI levels for this case. The actor ignored C020's 'do not search' line. C019 was followed (it computed with a printf-built script at [50])."},
+      "remedies": [
+        {"level": "TOOL", "intervention": "Vetted external-series lookup (CPI-U monthly, NSA and SA, both bases).", "generality": "document_qa_general", "confidence": "high", "why": "Everything else in this trajectory was right. The only failure was a recalled external value."},
+        {"level": "CHECK", "intervention": "External-value sensitivity flag. When the answer depends on recalled external values, recompute with each level moved by one unit in its last printed digit. If the answer's sign or leading digit changes, mark the answer as depending on unverified memory and route the value to the lookup tool, or report low confidence.", "generality": "domain_general", "confidence": "medium", "why": "Here a 0.1 index-point change moves the result by roughly the answer's own magnitude. Surfacing that fragility is the only in-episode signal the actor could have acted on."}
+      ]
+    }
+  },
+  "right_arms_note": "none: all three GLM arms failed. Each recalled a different wrong CPI-U pair. The cards arm and the pre-compaction none arm had the correct FRN column; the prompt arm did not.",
+  "text_vs_mechanism": "A text lesson carrying the vetted 1979 CPI-U levels would fix the dominant error for this one question. Generalizing needs a mechanism: an external-series lookup TOOL/STATE. The prompt arm's CPI text said only 'CPI is external' and it still invented a sequence. The MS-1 column error needs a components-sum-to-total CHECK, and the prompt arm's existing 'match columns by header' text actually pointed the wrong way. The none arm's collapse (severe loops, compaction regression) needs CONTROL (loop breaker) and STATE (fact ledger), not text.",
+  "notes": "This question is badly conditioned with respect to the external input. The answer is a difference of two numbers near 1e5, so a 0.1-point error in either CPI level shifts it by about its own magnitude. Opus, the reviewer and two GLM arms all validated their CPI memory with the 'monthly values average to the published annual' check, and both wrong GLM sequences passed it, so the check is not discriminating. The correct external value is the only fix. Also notable: the prompt learner's MS-1 lesson is keyed to the 1969 title 'Money in Circulation', but the table is renamed by 1979, so title-keyed lessons need era-aware aliases."
+}

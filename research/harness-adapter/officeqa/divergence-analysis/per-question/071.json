@@ -1,0 +1,87 @@
+{
+  "ordinal": 71,
+  "task_id": "UID0013",
+  "question_type": "OLS linear trend (slope, intercept on raw year) of an annual tax-receipts series over FY1929-1942, where the question's series descriptor ('net of refunds') has no literal counterpart in the era's tables",
+  "skills_required": ["locate_issue", "locate_table", "pick_vintage", "multi_value_extraction", "unit_or_scale", "formula_stats", "multi_step_arithmetic", "rounding_format"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "Individual income tax only (not corporation, not combined income-and-profits); n = 14 fiscal years; source tables in thousands so divide by a million to get billions; predictor is the raw year, so a large negative intercept is expected.", "evidence": "worklog.md:9-14"},
+    {"stage": "choose_source", "decision": "Searched broadly (FTS variants, grep for 1929 table rows corpus-wide, grep for 'net of refunds'/'less refunds' phrasings) and established that no individual-income-tax series explicitly net of refunds exists for FY1929-1942; in that era refunds were booked as expenditures.", "evidence": "worklog.md:16-33; treasury_bulletin_1943_06.txt:676"},
+    {"stage": "choose_source", "decision": "Accepted the only individual series spanning exactly FY1929-1942: 'Summary of Internal Revenue Collections', column 'Income and profits taxes > Individual'; supported by the companion chart titled 'Fiscal Years 1929 to 1942' drawn in billions (matches the question's range and units).", "evidence": "worklog.md:27, 35-37, 75-78"},
+    {"stage": "choose_source", "decision": "Vintage: 1943_06, the last issue whose table still starts at FY1929; values agree with every other printing except isolated single-printing OCR slips.", "evidence": "worklog.md:52-61"},
+    {"stage": "extract", "decision": "Regex-extracted the Individual column from every 1941-1944 issue and took the modal value per year; identified OCR slips in individual printings; noted a one-thousand-dollar revision for one year with no effect.", "evidence": "worklog.md:53-61"},
+    {"stage": "verify", "decision": "Checked that total = Individual + Corporation + Misc profits for every year in 1943_06, confirming column alignment.", "evidence": "worklog.md:62"},
+    {"stage": "compute", "decision": "Closed-form OLS in calc.py (checked against numpy.polyfit) on billions with the untransformed year.", "evidence": "worklog.md:64-69"},
+    {"stage": "round_format", "decision": "Round only the final coefficients to thousandths; rejected a pre-rounded-inputs variant.", "evidence": "worklog.md:69-70"},
+    {"stage": "verify", "decision": "Magnitude sanity: intercept = mean(y) - slope * mean(year) reproduces the fitted value.", "evidence": "worklog.md:72-73"}
+  ],
+  "opus_key_moves": [
+    "Proved the absence of a literal 'net of refunds' individual series for the era (and why: refunds were expenditures), then committed to the closest series matching subject, year range and units instead of continuing to hunt.",
+    "Used the correct thousands-to-billions factor and full precision until the end.",
+    "Cross-printing modal check to neutralize single-printing OCR slips."
+  ],
+  "arms": {
+    "none": {
+      "correct": true,
+      "error_bin": null,
+      "right_arms_note": "Had the same 'these are gross collections, not net of refunds' doubt at [38], searched ~25 more steps, found nothing better, and computed with the collections Individual column ([47]-[66]); caught its own thousands-to-billions slip at [50]-[52] with a rough cross-check; committed at [85] after 212 s."
+    },
+    "prompt": {
+      "correct": false,
+      "error_bin": "empty",
+      "first_divergence": {
+        "stage": "INTERPRETATION",
+        "glm_step": "[11]",
+        "what_glm_did": "At [10] it read the right table (1940_01 Summary of Internal Revenue Collections, Individual column with rows from 1929) and at [11] rejected it because the table is not labeled 'net of refunds'; it then searched for a literally matching budget-receipts series for the rest of the hour, re-finding and re-rejecting the same series at [164], [348], [401], [925], [1053] and elsewhere.",
+        "what_opus_did": "Searched for a net-of-refunds series, established none exists for the era (refunds were counted as expenditures, 1943_06:676), and adopted the collections Individual column as the intended series (worklog.md:31, 75-78).",
+        "why_glm_went_that_way": "Literal matching of the question's descriptor: [11] 'It says Income and Profits Individual, not net refunds'. FTS queries on the phrase surfaced modern quarterly narratives ('Individual income tax receipts, net of refunds') and modern FFO tables, pulling it toward later-era tables that start decades too late ([39]-[58]).",
+        "consequence": "Never accepted any series; ran out the 3600 s budget and submitted an empty answer."
+      },
+      "secondary_errors": [
+        {"stage": "OPERATIONAL", "glm_step": "[62]-[122], [191]-[283], [553]-[653], [1252]-[1263]", "note": "Severe repetition: 634 commands but only 249 distinct; one command issued 89 times; the same THINK line repeated dozens of times in a row. Seven context compactions, each followed by a restart from the README ('We need continue...' at [125], [318], [478], [659], [889], [1008]), repeating the same search."},
+        {"stage": "ARITHMETIC", "glm_step": "[553]-[554]", "note": "It did finally compute a regression on the collections Individual column, but converted thousands to billions with a factor 1000 too large (treated the cells as dollars), making the slope round to zero; it read the implausible result as evidence of the wrong series ('Need find exact series') instead of a units error, and re-ran the same computation ~16 times without committing."},
+        {"stage": "EXTRACTION", "glm_step": "[553]", "note": "Its hand-typed input list carries, for one year, a single-printing OCR slip that Opus identified (worklog.md:56); small effect, but shows no cross-printing check."}
+      ],
+      "saw_correct_evidence": {"value": "yes", "where": "[10] 1940_01 Summary of Internal Revenue Collections with Individual column from 1929; again at [164], [345]-[348] (1942_12), [557] (grep listing of the 1929 rows), [923]-[925]."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[401] 'maybe \"net of refunds\" means individual column in table is already net?'; [558] 'maybe a red herring'; [1059] 'question likely builder uses table data from Summary of Internal Revenue Collections and calls it ... net of refunds incorrectly?' - the right hypothesis, never acted on."},
+      "operational": {"timed_out": true, "no_answer": true, "loop_or_thrash": "severe", "tool_friction": "rg 'operation not permitted'; heredoc temp-file failures; helper caps (search limit <=20, read <=150 lines); huge grep outputs truncated; seven Codex context compactions with loss of working state.", "notes": "3600 s, 644 requests, ~98M input tokens. The loops span compactions: after each compaction the actor restarted discovery from scratch."},
+      "adapter_context": {"relevant_item": "L-commit-once (verified: commit the best-supported candidate once; an expected-but-absent row is a reason to commit; after any computation commit first), L-no-identical-command-loops (candidate), Procedure step 2 (state units from the caption) and step 6 (commit as soon as a candidate exists), L-python-c-not-heredoc.", "item_was_correct_guidance": "yes", "followed": "no", "caused_or_contributed_to_error": "no", "notes": "It followed L-python-c-not-heredoc ([5] 'Lesson says python -c') but never cited or applied L-commit-once, never stated the units at [553], and re-ran identical commands up to 89 times against an explicit lesson. The adapted cards arm (10 KB context) compacted and looped too, so the 124 KB context is not the main cause of the compactions."},
+      "remedies": [
+        {"level": "CONTROL", "intervention": "Loop breaker: the harness detects an identical command (or identical reasoning line) issued 3 times and forces a decision turn: commit the best current candidate, or name one specific new hypothesis that has not been tried.", "generality": "domain_general", "confidence": "high", "why": "The prompt arm had the no-loop and commit-once rules as text and still repeated one command 89 times; only an external trigger reliably interrupts this actor."},
+        {"level": "CHECK", "intervention": "Unit/scale check on every computed candidate: read the source caption's unit ('In thousands of dollars') and the question's unit ('billions') and verify the conversion factor used in the script.", "generality": "document_qa_general", "confidence": "high", "why": "The one candidate it computed ([553]) was wrong only by a units factor, and that wrong magnitude is what convinced it to keep searching; the none arm made the same slip at [49]-[50] and survived only because a rough cross-check exposed it at [51]-[52]."},
+        {"level": "CONTROL", "intervention": "Candidate-first budget: once a table matching the subject and the exact year range is found, compute a candidate immediately and record it; at a fixed fraction of the time budget, submit the best recorded candidate automatically.", "generality": "domain_general", "confidence": "high", "why": "The right table was on screen at [10]; the none arm, which effectively did candidate-first, finished in 212 s."},
+        {"level": "STATE", "intervention": "A compaction-proof evidence ledger (tables found with file:line, why each was accepted/rejected, candidates computed) re-injected after each context compaction.", "generality": "domain_general", "confidence": "medium", "why": "After each of seven compactions the actor restarted from the README and re-found and re-rejected the same table; a ledger would at least carry 'this is the only FY1929-42 individual series; no net series exists'."},
+        {"level": "TEXT", "intervention": "Convention: question descriptors may be modern labels; if no table of the named era carries the literal label, use the series that matches subject, exact year range and units, and note the mismatch.", "generality": "document_qa_general", "confidence": "low", "why": "L-commit-once already conveyed most of this and was ignored; text alone is unlikely to be sufficient for this actor, but it names the specific trap."}
+      ]
+    },
+    "cards": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "INTERPRETATION",
+        "glm_step": "[30]",
+        "what_glm_did": "Its search at [27] surfaced the right series (1940_01 Summary of Internal Revenue Collections, Individual column with a 1929 row); at [30] it rejected the collections table as 'not net of refunds' and went looking for a budget-receipts series. It re-found and re-rejected the collections series at [214], [224], [481] ('gross collections, so I'm switching'), [515], [637], [665] and [812].",
+        "what_opus_did": "Adopted the collections Individual column after establishing no net-of-refunds individual series exists for the era (worklog.md:31, 75-78).",
+        "why_glm_went_that_way": "Literal reading of 'net of refunds' ([30], [481]); FTS on that phrase returns modern narratives and modern receipts-by-source tables ([27] results list 1999+ narratives), so it kept chasing later-era tables that start in the 1960s-1970s ([498]-[502]).",
+        "consequence": "Never computed from the corpus; at [875]-[881] it substituted values recalled from memory ('Let's recall OMB Table 1.3', rounded to one decimal in billions) and fitted those, giving both coefficients roughly 10% off Opus's."
+      },
+      "secondary_errors": [
+        {"stage": "OPERATIONAL", "glm_step": "[36]-[192], [252]-[456], [517]-[592], [663]-[799]", "note": "Severe repetition: the same 3- to 6-step search cycles re-issued dozens of times (431 commands, only 154 distinct); four context compactions, each followed by a restart ('We need continue...' at [195], [459], [595], [802])."},
+        {"stage": "EXTERNAL_KNOWLEDGE", "glm_step": "[875]-[881]", "note": "Final inputs came from memory, not from the corpus, and at one-decimal precision; it never checked them against the collections table it had repeatedly seen."}
+      ],
+      "saw_correct_evidence": {"value": "yes", "where": "[27] search excerpt 1940_01:511 with the Individual column and a 1929 row; [513]-[515] 1942_07 Summary by Principal Sources; [635]-[637] same table again."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[515] wondered whether a different table is meant; [842] and [875] considered deriving net from gross minus refunds; [880] 'Need ensure values' about its recalled numbers."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "severe", "tool_friction": "heredoc and apply_patch failures ([6]-[13], [505]-[507], [605]-[611]); rg not permitted; helper caps; zsh globbing/quoting errors ([228], [248], [870]); four context compactions.", "notes": "1938 s, 436 requests, ~51M input tokens; answered only after abandoning the corpus."},
+      "adapter_context": {"relevant_item": "C019 (aggregations via a script, never mental) applied; no card on the internal revenue collections series, on descriptor-vs-era mismatches, or on loop/commit discipline. C011/C020/C021 model the pattern 'the corpus lacks this series; use these memorized values'.", "item_was_correct_guidance": "partly", "followed": "yes", "caused_or_contributed_to_error": "possibly", "notes": "C019 was followed (the regression was a python -c run at [879]/[881]), but on recalled inputs. The external-value cards may have normalized answering from memory when the corpus seemed to lack the series; the actor did not cite them, so this is weak evidence."},
+      "remedies": [
+        {"level": "CHECK", "intervention": "Provenance check before submission: every input value in the final computation must be traceable to a corpus file:line the actor cited; values typed from memory are rejected with a pointer to the candidate tables already seen.", "generality": "document_qa_general", "confidence": "high", "why": "The final list at [879] was explicitly recalled ([880] 'I recall'); the corpus series it had rejected was the right one, and a provenance failure would have sent it back there."},
+        {"level": "CONTROL", "intervention": "Loop breaker on repeated identical commands/reasoning (force commit-or-new-hypothesis after 3 repeats).", "generality": "domain_general", "confidence": "high", "why": "Same 3-step cycle repeated ~26 times at [36]-[192] and another ~34 times at [252]-[456] with no progress."},
+        {"level": "CONTROL", "intervention": "Candidate-first: on finding a table matching subject and exact year range, compute and record a candidate before any further search; later search can only replace it with a cited better match.", "generality": "domain_general", "confidence": "high", "why": "The right table appeared at [27]; the none arm, which in effect did this, finished correctly in 212 s."},
+        {"level": "STATE", "intervention": "Compaction-proof evidence ledger re-injected after compaction (candidates, rejections with reasons).", "generality": "domain_general", "confidence": "medium", "why": "Four restarts ([195], [459], [595], [802]) each re-ran the same discovery and re-rejected the same table."},
+        {"level": "TOOL", "intervention": "Era-scoped search: default the FTS filename filter to issues within a few years of the question's period (the helper already accepts filename_glob) so phrase queries do not return modern narratives first.", "generality": "document_qa_general", "confidence": "medium", "why": "Queries on 'net of refunds' ranked 1999-2018 narratives and 1960s+ FFO tables, which repeatedly pulled both adapted arms away from the 1940s tables."}
+      ]
+    }
+  },
+  "right_arms_note": "none: shared the 'gross, not net of refunds' doubt ([38]) but, after a bounded search found nothing better, computed with the collections Individual column and committed; it also caught a thousands-to-billions slip at [50]-[52] by comparing with a rough-rounded recomputation. The two adapted arms had the same table on screen early ([10] prompt, [27] cards) and never accepted it.",
+  "text_vs_mechanism": "Text was not enough: the prompt arm carried verified lessons that say exactly 'commit the best-supported candidate once, never re-run an identical command, commit as soon as a candidate exists', and still looped for 644 requests without committing. This needs CONTROL (loop breaker, candidate-first/forced commit) plus CHECKs (units on the candidate, provenance of inputs) and compaction-proof STATE.",
+  "notes": "Both adapted arms went through repeated Codex context compactions (the logs also carry a 'model metadata not found, defaulting to fallback metadata' warning), and each compaction wiped their working state and restarted discovery; the none arm finished in 43 requests and never compacted. Opus itself rated this medium confidence because the descriptor mismatch is real; the lesson for the harness is not 'ignore descriptors' but 'bound the search for an exact-label match and fall back to the best-matching series with a note'."
+}

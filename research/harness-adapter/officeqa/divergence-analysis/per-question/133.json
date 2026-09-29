@@ -1,0 +1,94 @@
+{
+  "ordinal": 133,
+  "task_id": "UID0233",
+  "question_type": "natural log of the ratio of one named total (Treasury Survey of Ownership table) at two as-of dates ten years apart",
+  "skills_required": ["locate_issue", "locate_table", "read_flattened_table", "date_or_period_logic", "multi_step_arithmetic", "rounding_format"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "Read the question's phrase 'Interest-Bearing Public Marketable Securities ... by issues' as the verbatim title of Treasury Survey of Ownership Section I Table 3; 'Total ... Outstanding' = row 'Total public marketable securities', column 'Total amount outstanding'. Treated Jan 31 as the survey (as-of) date, not the issue date, and expected a lag (Jan 31 surveys print in the April issues).", "evidence": "opus logs/133/worklog.md:7-13"},
+    {"stage": "locate_table", "decision": "Enumerated every candidate 'marketable' total in the early-1948 issues (debt-limitation 'Total marketable issues', the maturity schedule, the Survey of Ownership) and rejected the maturity schedule (no grand total, excludes postal savings bonds) and the March issue's survey (dated Dec 31).", "evidence": "worklog.md:18-31"},
+    {"stage": "choose_source", "decision": "Found the Jan 31, 1948 and Jan 31, 1958 surveys in the April issues (1948_04:1870/1940, 1958_04:2362/2365); the March issues carry the Dec 31 surveys.", "evidence": "worklog.md:33-41; corpus 1948_03:1807 vs 1948_04:1870"},
+    {"stage": "verify", "decision": "Read both full tables, confirmed '(Par values - in millions of dollars)', summed the components to the printed total, and resolved an OCR conflict in Table 1 by using that table's own grand total.", "evidence": "worklog.md:43-51"},
+    {"stage": "verify", "decision": "Reconciled the survey totals with the debt-limitation 'Total marketable' rows: the debt statement excludes the guaranteed FHA debentures, so it is a different scope, not a different vintage.", "evidence": "worklog.md:53-56"},
+    {"stage": "verify", "decision": "Checked for reprints/revisions of the Jan 31 survey totals across the corpus; single-print, no vintage conflict.", "evidence": "worklog.md:58-60; review.md check 3"},
+    {"stage": "compute", "decision": "Computed ln(1948/1958) in calc.py with component asserts; recorded the debt-limitation and maturity-schedule alternatives and noted they give materially different log values.", "evidence": "calc.py; worklog.md:62-65"}
+  ],
+  "opus_key_moves": [
+    "Matched the question's distinctive phrase ('... by issues') to a table TITLE verbatim instead of to a row label that only partly matched",
+    "Enumerated the competing 'total marketable' rows and reconciled them (debt statement = survey total minus guaranteed FHA debentures), so the scope difference was explicit before choosing",
+    "Used the survey's as-of date to pick the April issue (survey lag), rejecting the March issue whose survey is dated Dec 31"
+  ],
+  "arms": {
+    "none": {
+      "correct": true,
+      "error_bin": null,
+      "right_arms_note": "FTS query that kept 'by issues' plus the date and a per-year filename_glob surfaced the April 1948 and April 1958 Survey of Ownership Table 3 ([15]-[17]); read the 'Total public marketable securities' row in both ([19]-[25]) and committed."
+    },
+    "prompt": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "SOURCE_TABLE",
+        "glm_step": "[9]-[12], decision at [27]-[28]",
+        "what_glm_did": "Anchored on the maturity-schedule family in the MARCH bulletins because of lesson L-pdo1-jan31-fixed-maturity-total ([9]); the read of 1958_03 at [12] also showed the debt-limitation 'Application of Limitation' Table 2 printed next to it. Finding no grand total in the maturity schedule ([18]), it settled at [27] on the debt-limitation 'Total marketable (issues)' rows in 1948_03 and 1958_03, rationalising 'by issues' as the row label 'Marketable issues'.",
+        "what_opus_did": "Matched the phrase to the Treasury Survey of Ownership Table 3 title in the APRIL issues and explicitly rejected the debt-limitation total as a narrower scope (excludes guaranteed FHA debentures).",
+        "why_glm_went_that_way": "[9] THINK cites L-pdo1-jan31-fixed-maturity-total as the reason to look at the Jan 31 maturity schedule in the March bulletin; [27] THINK: 'The phrase \"by issues\" appears in row label \"Marketable issues\"' - a partial lexical match accepted after its FTS searches ([6],[10],[15],[17],[20]) never returned the Survey table.",
+        "consequence": "Both endpoints came from a total that excludes guaranteed securities; the two scopes differ by well under 0.1% in level, but because the answer is the log of a ratio close to 1 the log value is off by roughly a third (error_bin >25pct)."
+      },
+      "secondary_errors": [
+        {"stage": "SOURCE_ISSUE_VINTAGE", "glm_step": "[10]-[12]", "note": "Went to the March issues for Jan 31 data (correct for the maturity schedule and the debt statement, wrong for the Survey of Ownership, whose Jan 31 survey is in April). Never opened an April issue."},
+        {"stage": "OTHER", "glm_step": "[6]-[20]", "note": "Search queries were all long OR-ranked phrases without a date/filename filter; BM25 ranked debt summaries and 1940s-60s maturity schedules above the TSO table, so the right table never appeared in any output."}
+      ],
+      "saw_correct_evidence": {"value": "no", "where": "The only Survey mention in its outputs is a footnote pointer ('see chapter on Treasury Survey of Ownership') inside the maturity-schedule read at [22]; neither April issue appears in any output."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[13] and [19] question whether 'by issues' maps to the schedule or a summary table; [27] 'But let's not jump... Need understand \"by issues\"' and then commits anyway."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "none", "tool_friction": "rg not permitted [3]; printing the search dict via a list comprehension printed only keys [6]-[8]; search limit >20 raised ValueError [19]; large reads truncated mid-table [12],[22]", "notes": "Short run (77s, 14 requests); the error is a table choice, not an operational failure."},
+      "adapter_context": {
+        "relevant_item": "L-pdo1-jan31-fixed-maturity-total (cited at [9],[18]); L-debt-limitation-issue-lag (defines the 'Total marketable' row the actor ended on; not cited by id); L-tso-survey-tables (the correct family; never retrieved)",
+        "item_was_correct_guidance": "partly",
+        "followed": "partly",
+        "caused_or_contributed_to_error": "yes",
+        "notes": "The cited lesson is correct for its own question ('fixed maturity type' from the maturity schedule) but is not about this series; it pulled the actor into the March-bulletin debt section. The debt-limitation lesson gives a ready-made definition of 'Total marketable', which made the wrong row look sanctioned. The TSO lesson that names the right family states the cadence 'Jan 31 -> the MARCH bulletin', verified only for the 1960s-70s; in 1948 and 1958 the March issue carries the Dec 31 survey and the Jan 31 survey is in April, so even retrieving it would have mis-pointed the issue unless the actor checked the printed survey date."
+      },
+      "remedies": [
+        {"level": "TOOL", "intervention": "A table-title index/search: list every table title (with its as-of date and issue) whose title matches the question's quoted or Title-Case phrase, ranked by title overlap, filterable by as-of date. Query 'Interest-Bearing Public Marketable Securities by Issues' + 'January 31, 1948' would return 1948_04 TSO Table 3 first.", "generality": "document_qa_general", "confidence": "high", "why": "The none arm reached the right table only because one FTS query happened to keep 'by issues' + date + filename_glob ([17]); the prompt arm's generic FTS queries ([6],[10],[15],[20]) never surfaced it."},
+        {"level": "CONTROL", "intervention": "Mandatory candidate-table stage: before extracting, list at least two candidate tables with their exact titles and score each against the question's noun phrase; choosing a candidate whose title does not contain the question's distinctive qualifier ('by issues') requires an explicit scope reconciliation (which components differ).", "generality": "document_qa_general", "confidence": "medium", "why": "At [27] the actor itself noticed the mismatch ('by issues' vs 'Marketable issues') but had no alternative on screen; a forced enumeration would have sent it looking for a title match."},
+        {"level": "STATE", "intervention": "Series-location memory keyed by (table family, era) with the verified issue lag per era and a check cell, retrieved by the question's dates: e.g. TSO Jan 31 survey -> April issue in 1948/1958, March issue in the 1960s-70s.", "generality": "officeqa_specific", "confidence": "medium", "why": "The prompt arm's text memory had a TSO entry but with a single-era cadence and was not retrieved; a retrieval keyed by date range would both surface the family and give the right lag."},
+        {"level": "CHECK", "intervention": "Sensitivity check for log-ratios/differences of near-equal quantities: when |ratio-1| is small, require the actor to show that both endpoints have the same scope (component list sums to the chosen total) before committing.", "generality": "domain_general", "confidence": "low", "why": "The scope difference here is a small guaranteed-debenture component, invisible at the level but decisive for the log; the actor never looked at components."}
+      ]
+    },
+    "cards": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "SOURCE_TABLE",
+        "glm_step": "[21]-[27], decision at [33]-[36]",
+        "what_glm_did": "Used case-sensitive Python substring greps: first for 'interest-bearing public marketable securities outstanding' ([22]; matches only maturity-schedule titles, since the Survey title has no 'Outstanding'), then for the literal 'January 31, 1948'/'January 31, 1958' ([27]). The April Survey headers are printed in upper case ('TREASURY SURVEY OF OWNERSHIP, JANUARY 31, 1948'), so the grep missed them and listed only the March issues. From the March issues it moved from the maturity schedule (no grand total, [31]-[32]) to the debt-limitation 'Total marketable' rows ([33]-[36]).",
+        "what_opus_did": "Matched the title verbatim and found the Survey in the April issues; rejected the debt-limitation total as a narrower scope.",
+        "why_glm_went_that_way": "[36] THINK: 'Let's inspect all occurrences of Jan 31 1948 and 1958. We saw only March issues. So no revisions.' - it trusted its own case-sensitive date grep as a complete inventory; 'by issues' was rationalised as 'Marketable issues'.",
+        "consequence": "Same wrong scope as the prompt arm (public debt only, excludes guaranteed FHA debentures); log value off by roughly a third."
+      },
+      "secondary_errors": [
+        {"stage": "OPERATIONAL", "glm_step": "[6]-[15]", "note": "Heredoc failed ([6]); tried apply_patch via heredoc and printf pipe ([9],[11]) - not on PATH; finally wrote a script with python -c ([15]) whose loop printed only dict keys. About a third of the run went to shell friction."},
+        {"stage": "SOURCE_ISSUE_VINTAGE", "glm_step": "[27]-[29]", "note": "Read only 1948_03 and 1958_03; never opened an April issue."}
+      ],
+      "saw_correct_evidence": {"value": "no", "where": "The date grep at [27] returned 1948_04:60 (a narrative sentence) and 1958_04:3715 (a banking-claims table), never the Survey headers or Table 3."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[35]-[36] 'But let's not jump... \"by issues reported\" Hmm' and 'Could later issues revise Jan 31 values?'"},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "mild", "tool_friction": "rg not permitted [3]; heredoc temp-file denied [6],[9]; apply_patch unavailable [11]-[13]; case-sensitive substring search as a grep substitute [22],[27]", "notes": "The case-sensitive Python 'grep' replacement is the proximate reason the right table was never seen."},
+      "adapter_context": {
+        "relevant_item": "none. C011's 'applies when' keywords ('ownership survey, marketable interest bearing, ratio') match this question, but its body only gives INR exchange rates; C039 and C003 were considered and correctly set aside ([21],[36]).",
+        "item_was_correct_guidance": "n/a",
+        "followed": "n/a",
+        "caused_or_contributed_to_error": "no",
+        "notes": "C011's trigger words suggest an earlier question used the Ownership Survey's marketable interest-bearing total, but the card compressed away where that series lives; the deck had no pointer to TSO Table 3 or to the survey lag. C019's 'heredocs fail, write a script file' was read at [7] but the actor lacked a way to create the file."
+      },
+      "remedies": [
+        {"level": "TOOL", "intervention": "Provide a corpus grep tool that is case-insensitive and whitespace/hyphen-normalising by default (and restore rg or an equivalent), returning file:line hits with the table title that contains each hit.", "generality": "document_qa_general", "confidence": "high", "why": "The actor's own date search at [27] was the right idea; it failed only because 'JANUARY 31, 1948' is upper case in the Survey header."},
+        {"level": "TOOL", "intervention": "Same table-title index as for the prompt arm (title + as-of date -> issue:line).", "generality": "document_qa_general", "confidence": "high", "why": "Its title search at [22] was also on the right track but required 'Outstanding', which the Survey title lacks; ranked title overlap would have found it."},
+        {"level": "TOOL", "intervention": "A write_file / run_python tool so multi-line scripts do not depend on heredocs or apply_patch.", "generality": "domain_general", "confidence": "medium", "why": "[6]-[15] spent 5 steps getting a script onto disk; the friction pushed it toward one-liner substring scans."},
+        {"level": "CONTROL", "intervention": "Candidate-table enumeration with scope reconciliation before extraction (as for the prompt arm).", "generality": "document_qa_general", "confidence": "medium", "why": "At [33] the actor moved to the adjacent debt table only because the maturity schedule had no total; it never asked whether another table's title matched."}
+      ]
+    }
+  },
+  "right_arms_note": "none: its FTS query kept the qualifier 'by issues' with the date and a per-year filename_glob ([17]), which ranked the April Survey of Ownership Table 3 into the results; the two wrong arms dropped the qualifier or searched case-sensitively and only ever saw the March issues.",
+  "text_vs_mechanism": "Text alone is unlikely to fix this: the prompt arm had ~230 KB of lessons, including one that names the right table family, yet the text it did retrieve steered it to the wrong family and the right lesson carried an era-limited cadence. The failures are retrieval failures (case-sensitive substring search, BM25 ranking without title/date filters), so a title-aware, case-insensitive search tool plus a candidate-table stage is the better lever.",
+  "notes": "Both wrong arms converged on the same debt-limitation row by the same partial-match rationalisation ('by issues' -> 'Marketable issues'), which suggests the actor accepts a partial lexical match when the exact one is not on screen. The error_bin '>25pct' overstates the level error: the scopes differ by a tiny guaranteed-securities component, which a log of a near-1 ratio magnifies. Harness lesson: for answers that are logs/differences of near-equal totals, scope reconciliation is the main risk."
+}

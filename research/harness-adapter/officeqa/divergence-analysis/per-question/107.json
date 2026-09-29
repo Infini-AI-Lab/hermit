@@ -1,0 +1,83 @@
+{
+  "ordinal": 107,
+  "task_id": "UID0121",
+  "question_type": "Count of investor categories above a par-value threshold in one TSO-3 Treasury-bill maturity row of a given month-end survey",
+  "skills_required": ["locate_issue", "pick_vintage", "date_or_period_logic", "locate_table", "read_flattened_table", "multi_value_extraction", "unit_or_scale"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "'As reported at the end of January 1980' = the survey dated Jan 31, 1980. 'Bills ... regular weekly and annual maturings ... in January 1981' = the maturity-month row label 'Jan. 1981' inside that survey's TSO-3 bill block. Threshold is in $ millions par. 'Average level' = the average of sub-columns for the two split categories; the sum was also checked and gives the same count.", "evidence": "worklog.md:11-19"},
+    {"stage": "choose_source", "decision": "March 1980 issue (M+2 cadence), confirmed by the 'TREASURY SURVEY OF OWNERSHIP JANUARY 31, 1980' header. Rejected the Feb 1980 issue (Dec 31, 1979 survey; it has no Jan. 1981 bill row) and the Apr 1980 issue (Feb 29, 1980 survey).", "evidence": "worklog.md:24-27, 49-54 (1980_03.txt:5191, 5098-5100)"},
+    {"stage": "locate_table", "decision": "TSO-3 'by Issue', bill block 'Treasury Bills: Regular weekly and annual maturing:'.", "evidence": "worklog.md:29-32 (1980_03.txt:5136, 5142)"},
+    {"stage": "extract", "decision": "The OCR header of TSO-3 is shifted, so it fixed the column order from TSO-1/TSO-2. The TSO-3 'Total Treasury Bills' row equals the TSO-2 bills row, and the chosen row sums to its own total.", "evidence": "worklog.md:34-47 (1980_03.txt:5079, 5112, 5155)"},
+    {"stage": "pick_cells", "decision": "The single row 'Jan. 1981' (line 5154). Treated '*' as below the threshold.", "evidence": "worklog.md:44-47; solution.json decisions[1],[3]"},
+    {"stage": "compute", "decision": "Counted the 7 named categories whose value exceeds the threshold (average and sum of sub-columns give the same count). Done in calc.py.", "evidence": "worklog.md:56-68"},
+    {"stage": "verify", "decision": "Considered the 12-maturity-row average reading and rejected it because 'in January 1981' pins the row. Also checked for an OCR swap of the corporations/S&L columns (no effect). The reviewer confirmed.", "evidence": "worklog.md:71-78; review.md items 4-6"}
+  ],
+  "opus_key_moves": [
+    "Bound 'January 1981' to the maturity-month row label inside the Jan 31, 1980 survey. It did not treat that date as a survey date and did not average all 12 rows.",
+    "Pinned the survey by its printed header date (March 1980 issue) and rejected the adjacent Feb and Apr printings, whose Jan. 1981 rows belong to other surveys.",
+    "Fixed the column order from the TSO-1/TSO-2 totals because the OCR header of TSO-3 is shifted."
+  ],
+  "arms": {
+    "none": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "SOURCE_ISSUE_VINTAGE",
+        "glm_step": "[15]-[17]",
+        "what_glm_did": "Took TSO-3 from the February 1980 issue (the Dec 31, 1979 survey) as the 'Jan 31, 1980' table and counted categories on its 'Jan. 1980' maturity row. Then [19]-[28] it moved to the February 1981 issue (the Dec 31, 1980 survey) and counted on that survey's 'Jan. 1981' row.",
+        "what_opus_did": "Used the March 1980 issue (header 'JANUARY 31, 1980') and its 'Jan. 1981' maturity row (worklog.md:24-27, 44).",
+        "why_glm_went_that_way": "At [17] it asserted 'We have table TSO-3 in Feb 1980, as of Jan 31 1980, monthly average Jan 1980'. It assumed a one-month publication lag and read the maturity rows as monthly-average rows. Unable to reconcile 'January 1981' with 'end of January 1980', it called 'Jan 1981' a possible typo [19], then hunted for a survey near January 1981 [19]-[27].",
+        "consequence": "Both tables it used are wrong surveys whose January rows are larger. Its count came out higher than Opus's. It took the fact that both wrong tables gave the same count as confirmation ('robust answer') [28]."
+      },
+      "secondary_errors": [
+        {"stage": "INTERPRETATION", "glm_step": "[17],[19]", "note": "Read the TSO-3 bill rows as 'monthly average' holdings rather than maturity months, and treated 'January 1981' as a survey date or a typo instead of a maturity-row label."},
+        {"stage": "SOURCE_ISSUE_VINTAGE", "glm_step": "[21]-[28]", "note": "Switched to the Feb 1981 issue, which it recognised at [28] as the Dec 31, 1980 survey, and used it anyway."},
+        {"stage": "OTHER", "glm_step": "[28]", "note": "Treated agreement between two wrong sources as robustness, not as a sign that neither matched the pinned date."}
+      ],
+      "saw_correct_evidence": {"value": "partial", "where": "[16] output contained the 'DECEMBER 31, 1979' survey header of the table it used (confirmed in raw events). [18] search returned a TSO-3 excerpt from treasury_bulletin_1980_03.txt. [20] search returned 1980_03 with the header 'TREASURY SURVEY OF OWNERSHIP JANUARY 31, 1980'. It never opened that file, so it never saw the correct row."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[19] 'Maybe ... Jan 1981 is a typo? Let's not jump'. [28] noticed the Feb 1981 table is the Dec 31, 1980 survey. It resolved both doubts by agreement between wrong sources, not by pinning the date."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "none", "tool_friction": "rg blocked [2]; heredoc temp file denied [4]; officeqa read limit >150 lines raised ValueError [10]; long clipped outputs", "notes": "Short run (15 requests, 59s). It committed quickly after a weak consistency argument."},
+      "adapter_context": {"relevant_item": "n/a", "item_was_correct_guidance": "n/a", "followed": "n/a", "caused_or_contributed_to_error": "n/a", "notes": "No adapter."},
+      "remedies": [
+        {"level": "CHECK", "intervention": "As-of-date anchor check: compare the survey-date header preceding every cited cell with the date the question pins ('end of January 1980' -> JANUARY 31, 1980). Reject cells on a mismatch.", "generality": "document_qa_general", "confidence": "high", "why": "Both tables it used carry a mismatching header (Dec 31, 1979 in its own [16] output; Dec 31, 1980, which it noticed at [28]), and the correct header was in its [20] search results."},
+        {"level": "TEXT", "intervention": "Convention: 'TSO survey dated end of month M prints in the M+2 bulletin. TSO-3 bill rows are MATURITY months (Feb(M)..Jan(M+1)); a month named in the question that falls after the survey date is a maturity-row label, not a survey date.'", "generality": "officeqa_specific", "confidence": "medium", "why": "The prompt arm had the cadence half of this and found the right issue at [1]-[10], but it lacked the row-label half and still went wrong. Text fixes the vintage error only."},
+        {"level": "CONTROL", "intervention": "Qualifier-binding gate before commit: list each date/entity qualifier in the question and the header or row label it is bound to. Commit is blocked while a qualifier is unbound or explained away as a 'typo'.", "generality": "document_qa_general", "confidence": "medium", "why": "At [19] the actor explicitly left 'January 1981' unbound ('typo?') and at [28] still committed. The gate would have forced it to find a table where both dates bind."}
+      ]
+    },
+    "prompt": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "INTERPRETATION",
+        "glm_step": "[11]-[19] (initial), [143]-[145] (final)",
+        "what_glm_did": "At [11] it read 'in January 1981' as the survey date and went to the Jan 31, 1981 survey (March 1981 issue), planning to average each category over the 12 maturity rows [19]. After compaction it returned to the correct Jan 31, 1980 survey [142] but kept the reading: it averaged each category over all 12 maturity rows Feb 1980-Jan 1981 [143]-[144] and counted averages above the threshold.",
+        "what_opus_did": "Took only the 'Jan. 1981' maturity row of the Jan 31, 1980 survey. Opus explicitly rejected the 12-row average because 'in January 1981' pins the row (worklog.md:71-75).",
+        "why_glm_went_that_way": "The word 'average level' in the question. At [145] it explicitly worked out the single-row reading and its count, then rejected it: 'why \"average level\"? There is only one row Jan 1981 ... question explicitly \"average level of holdings\" likely means average across the 12 maturity rows.' The pre-compaction summary also carried the 12-row-average framing into [122].",
+        "consequence": "The 12-row averages put more categories above the threshold, so the count was higher than Opus's (the same wrong count as the none arm, by a different route)."
+      },
+      "secondary_errors": [
+        {"stage": "OPERATIONAL", "glm_step": "[12]-[120]", "note": "Severe loop: the same THINK and the same grep/sed on treasury_bulletin_1981_03.txt repeated 27 times. Compaction ended it [121]. 74 requests, 10.4M input tokens."},
+        {"stage": "SOURCE_ISSUE_VINTAGE", "glm_step": "[11]-[19]", "note": "Because of the interpretation error it applied the correct M+2 cadence to the wrong date (Jan 31, 1981 -> March 1981). After compaction [143] it reverted to the correct survey, so this was not causal for the final answer."},
+        {"stage": "OPERATIONAL", "glm_step": "[123]-[139]", "note": "After compaction it had lost its working state: rg blocked, relative-path grep failed (files not in the workspace) [125], read limit exceeded [137]."}
+      ],
+      "saw_correct_evidence": {"value": "yes", "where": "[10] sed 5090-5190 of 1980_03 printed the correct 'Jan. 1981' row (confirmed in raw events). [142] re-printed it. [145] computed the single-row count in THINK and discarded it."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[11], [15], [122], [145]: repeatedly unsure how to parse 'average level ... in January 1981, as reported at the end of January 1980'. At [145] it named the correct reading and rejected it."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "severe", "tool_friction": "rg blocked [2],[123]; relative-path grep failed after compaction [125]; officeqa read limit >150 lines raised ValueError [137]", "notes": "487s. Most of the budget went into the [12]-[120] loop re-reading the wrong (1981) survey."},
+      "adapter_context": {"relevant_item": "L-tso-survey-tables (M+2 cadence; Jan 31 survey -> March bulletin); L-tso3-two-survey-month-count (TSO-3 bills = 12 maturity-month rows Feb(M)..Jan(M+1), each read as a month's value)", "item_was_correct_guidance": "partly", "followed": "partly", "caused_or_contributed_to_error": "possibly", "notes": "The cadence lesson is correct and was followed ([1] chose March 1980; [143] chose it again). At [11] the actor applied it to the wrong date. Neither lesson says how to bind a named month to a single maturity row versus aggregating over the block. The month-count lesson's '12 rows Feb(M)..Jan(M+1)' framing matches the actor's 12-row aggregation at [19]/[143], but that link is weak evidence of priming; no lesson tells it to average."},
+      "remedies": [
+        {"level": "CONTROL", "intervention": "Interpretation reconciliation: when the actor's reasoning names two readings with different answers (here [145]), a resolver pass scores each reading against every qualifier ('January 1981' must bind to a row or header; 'end of January 1980' to the survey header). A reading that leaves a qualifier unused loses.", "generality": "document_qa_general", "confidence": "medium", "why": "The actor had the Opus reading in hand at [145] and chose the other on a word-level hunch ('average'). The 12-row average leaves 'in January 1981' unused (it becomes merely the last row), which is exactly Opus's rejection argument."},
+        {"level": "TEXT", "intervention": "Lesson: 'When a question names a month that matches a row label in the chosen table (e.g. TSO-3 maturity month \"Jan. 1981\"), use that row. Phrases like \"average level of holdings\" in generated questions paraphrase the reported level; aggregate across rows only when the question names a span or a count of rows.'", "generality": "officeqa_specific", "confidence": "medium", "why": "The cards arm reached this reading on its own at [533] ('average level ... from question paraphrase, not source') and was right. The prompt arm's context had no such rule and the actor defaulted to the literal word."},
+        {"level": "CONTROL", "intervention": "Loop breaker on repeated identical (reasoning, command) pairs, with a forced 'state the open question or commit' turn.", "generality": "domain_general", "confidence": "high", "why": "27 identical iterations [12]-[120]. The loop was on the wrong-year survey and only compaction broke it."},
+        {"level": "STATE", "intervention": "A compaction-safe evidence ledger (chosen source, bound qualifiers, open interpretation question) written to a file and re-injected after compaction, instead of a free-text summary.", "generality": "domain_general", "confidence": "low", "why": "The post-compaction summary carried the unverified 12-row-average framing ([122] quotes it) while dropping the source-date doubt. A ledger that records 'interpretation: UNRESOLVED' would have kept the question open."}
+      ]
+    },
+    "cards": {
+      "correct": true,
+      "error_bin": null,
+      "right_arms_note": "After compaction [504] it re-derived that TSO-3 bill rows are maturity months by comparing the Dec 31, 1979 and Jan 31, 1980 tables [523]. It then took the single 'Jan. 1981' row of the March 1980 issue [529] and treated 'average level' as question paraphrase [533]. Before that it had looped ~117 times [36]-[503] searching for a literal 'average level' table (1500s, 270 requests, 33.8M input tokens)."
+    }
+  },
+  "right_arms_note": "cards: bound 'January 1981' to the maturity row of the Jan 31, 1980 survey and discounted 'average level' as paraphrase, the same moves as Opus. It got there only after a massive loop and a fresh post-compaction re-read, so it was right by a principled choice made late, not by an efficient path.",
+  "text_vs_mechanism": "Text fixes only part of this. The prompt arm had the correct cadence text, used it, reached the right table, and even computed the right reading, then rejected it on the word 'average'. The missing piece is a mechanism that binds every question qualifier to a header or row and arbitrates between named readings (CONTROL/CHECK). The none arm's wrong-survey error is text- or check-fixable.",
+  "notes": "The question wording is awkward ('average level ... in January 1981, as reported at the end of January 1980'). Both wrong arms landed on the count Opus listed as its rejected alternative, via different routes (none: wrong surveys; prompt: 12-row average). In both prompt and cards the post-compaction re-read is what re-anchored to the correct survey, so compaction was accidentally helpful here, unlike Q102-cards. A 'fresh restart with a structured brief' may be worth trying as a deliberate CONTROL. The loops in prompt (27x) and cards (117x) are the same pathology as in Q102-cards: identical THINK+command repeated until compaction."
+}

@@ -1,0 +1,20 @@
+{
+  "stopped_master_pid": 23813,
+  "dedicated_groups_stopped": [
+    23813,
+    27866,
+    28492,
+    28493,
+    28494,
+    28495,
+    28496,
+    28497,
+    28498,
+    28499,
+    28500,
+    28501
+  ],
+  "processes_in_snapshot": 12,
+  "reason": "Fireworks Responses terminal errors: rate limit exceeded. First GLM learner exhausted48requests before normal completion; no candidate activated. No grades computed.",
+  "graded": false
+}

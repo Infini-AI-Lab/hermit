@@ -1,0 +1,658 @@
+{
+"008-none": [
+"adapter_scoping",
+"external_reference_data",
+"period_date_label_check",
+"recompute_provenance_check"
+],
+"008-prompt": [
+"external_reference_data",
+"ledger_survives_compaction",
+"loop_guard",
+"period_date_label_check",
+"recompute_provenance_check"
+],
+"009-prompt": [
+"adapter_scoping",
+"period_date_label_check",
+"recompute_provenance_check",
+"table_grid_extractor"
+],
+"011-none": [
+"all_printings_vintage_tool",
+"period_date_label_check",
+"recompute_provenance_check",
+"unit_direction_check"
+],
+"011-prompt": [
+"all_printings_vintage_tool",
+"answer_format_scale_check",
+"period_date_label_check",
+"recompute_provenance_check"
+],
+"011-cards": [
+"answer_format_scale_check",
+"numeric_env",
+"period_date_label_check",
+"unit_direction_check"
+],
+"013-prompt": [
+"adapter_scoping",
+"all_printings_vintage_tool",
+"period_date_label_check",
+"recompute_provenance_check",
+"table_grid_extractor"
+],
+"014-none": [
+"all_printings_vintage_tool",
+"period_date_label_check",
+"recompute_provenance_check",
+"table_grid_extractor"
+],
+"014-cards": [
+"adapter_scoping",
+"period_date_label_check",
+"table_grid_extractor"
+],
+"015-prompt": [
+"answer_format_scale_check"
+],
+"015-cards": [
+"adapter_scoping",
+"ledger_survives_compaction",
+"loop_guard",
+"period_date_label_check",
+"recompute_provenance_check",
+"table_grid_extractor"
+],
+"016-prompt": [
+"ledger_survives_compaction",
+"loop_guard",
+"period_date_label_check",
+"recompute_provenance_check",
+"second_attempt_or_review"
+],
+"016-cards": [
+"adapter_scoping",
+"forced_commit_budget",
+"interpretation_fork",
+"loop_guard",
+"period_date_label_check",
+"second_attempt_or_review",
+"table_finder_catalog"
+],
+"017-none": [
+"all_printings_vintage_tool",
+"answer_format_scale_check",
+"period_date_label_check",
+"second_attempt_or_review"
+],
+"017-prompt": [
+"adapter_scoping",
+"all_printings_vintage_tool",
+"loop_guard",
+"period_date_label_check"
+],
+"017-cards": [
+"all_printings_vintage_tool",
+"second_attempt_or_review"
+],
+"018-cards": [
+"adapter_scoping",
+"all_printings_vintage_tool",
+"period_date_label_check",
+"table_finder_catalog"
+],
+"019-none": [
+"adapter_scoping",
+"answer_format_scale_check",
+"interpretation_fork",
+"ledger_survives_compaction",
+"period_date_label_check"
+],
+"019-prompt": [
+"adapter_scoping",
+"interpretation_fork",
+"ledger_survives_compaction",
+"period_date_label_check",
+"second_attempt_or_review"
+],
+"019-cards": [
+"ledger_survives_compaction"
+],
+"026-none": [
+"adapter_scoping",
+"all_printings_vintage_tool",
+"forced_commit_budget",
+"ledger_survives_compaction",
+"loop_guard",
+"period_date_label_check"
+],
+"026-prompt": [
+"adapter_scoping",
+"all_printings_vintage_tool",
+"forced_commit_budget",
+"ledger_survives_compaction",
+"loop_guard",
+"period_date_label_check"
+],
+"030-none": [
+"adapter_scoping",
+"all_printings_vintage_tool",
+"period_date_label_check",
+"recompute_provenance_check",
+"table_grid_extractor"
+],
+"039-none": [
+"answer_format_scale_check",
+"ledger_survives_compaction",
+"loop_guard",
+"period_date_label_check",
+"table_grid_extractor"
+],
+"039-prompt": [
+"forced_commit_budget",
+"ledger_survives_compaction",
+"loop_guard",
+"period_date_label_check"
+],
+"043-none": [
+"period_date_label_check",
+"recompute_provenance_check",
+"second_attempt_or_review",
+"table_grid_extractor"
+],
+"043-prompt": [
+"adapter_scoping",
+"answer_format_scale_check",
+"period_date_label_check"
+],
+"044-none": [
+"answer_format_scale_check",
+"ledger_survives_compaction",
+"loop_guard",
+"period_date_label_check",
+"recompute_provenance_check",
+"unit_direction_check"
+],
+"044-prompt": [
+"answer_format_scale_check",
+"period_date_label_check",
+"second_attempt_or_review"
+],
+"044-cards": [
+"adapter_scoping",
+"answer_format_scale_check",
+"loop_guard"
+],
+"049-none": [
+"answer_format_scale_check",
+"ledger_survives_compaction",
+"loop_guard",
+"period_date_label_check",
+"recompute_provenance_check",
+"unit_direction_check"
+],
+"049-prompt": [
+"adapter_scoping",
+"answer_format_scale_check",
+"period_date_label_check"
+],
+"049-cards": [
+"all_printings_vintage_tool",
+"answer_format_scale_check",
+"external_reference_data",
+"ledger_survives_compaction",
+"loop_guard"
+],
+"052-none": [
+"adapter_scoping",
+"answer_format_scale_check",
+"numeric_env",
+"recompute_provenance_check"
+],
+"057-cards": [
+"adapter_scoping",
+"all_printings_vintage_tool",
+"loop_guard",
+"period_date_label_check",
+"second_attempt_or_review",
+"table_finder_catalog"
+],
+"058-none": [
+"adapter_scoping",
+"recompute_provenance_check"
+],
+"060-prompt": [
+"adapter_scoping",
+"interpretation_fork",
+"period_date_label_check",
+"second_attempt_or_review"
+],
+"061-cards": [
+"external_reference_data",
+"period_date_label_check",
+"second_attempt_or_review",
+"unit_direction_check"
+],
+"062-none": [
+"all_printings_vintage_tool",
+"period_date_label_check",
+"recompute_provenance_check",
+"table_grid_extractor"
+],
+"064-none": [
+"all_printings_vintage_tool",
+"table_grid_extractor"
+],
+"064-prompt": [
+"adapter_scoping",
+"all_printings_vintage_tool",
+"period_date_label_check",
+"recompute_provenance_check",
+"second_attempt_or_review"
+],
+"064-cards": [
+"adapter_scoping",
+"all_printings_vintage_tool",
+"period_date_label_check"
+],
+"066-prompt": [
+"adapter_scoping",
+"all_printings_vintage_tool",
+"interpretation_fork",
+"period_date_label_check",
+"second_attempt_or_review",
+"table_finder_catalog",
+"table_grid_extractor"
+],
+"071-prompt": [
+"answer_format_scale_check",
+"external_reference_data",
+"forced_commit_budget",
+"ledger_survives_compaction",
+"loop_guard",
+"period_date_label_check",
+"recompute_provenance_check",
+"unit_direction_check"
+],
+"071-cards": [
+"adapter_scoping",
+"forced_commit_budget",
+"ledger_survives_compaction",
+"loop_guard",
+"period_date_label_check",
+"recompute_provenance_check"
+],
+"072-none": [
+"external_reference_data",
+"forced_commit_budget",
+"ledger_survives_compaction",
+"loop_guard",
+"period_date_label_check",
+"recompute_provenance_check"
+],
+"072-prompt": [
+"adapter_scoping",
+"external_reference_data",
+"ledger_survives_compaction",
+"period_date_label_check",
+"unit_direction_check"
+],
+"072-cards": [
+"external_reference_data",
+"period_date_label_check",
+"recompute_provenance_check",
+"unit_direction_check"
+],
+"077-none": [
+"external_reference_data",
+"numeric_env",
+"period_date_label_check",
+"unit_direction_check"
+],
+"077-prompt": [
+"external_reference_data",
+"numeric_env",
+"period_date_label_check"
+],
+"077-cards": [
+"answer_format_scale_check",
+"external_reference_data",
+"numeric_env",
+"period_date_label_check",
+"unit_direction_check"
+],
+"079-cards": [
+"all_printings_vintage_tool",
+"period_date_label_check",
+"second_attempt_or_review",
+"table_finder_catalog"
+],
+"080-prompt": [
+"adapter_scoping",
+"answer_format_scale_check",
+"recompute_provenance_check"
+],
+"080-cards": [
+"adapter_scoping",
+"all_printings_vintage_tool",
+"period_date_label_check",
+"recompute_provenance_check",
+"table_finder_catalog",
+"table_grid_extractor"
+],
+"081-none": [
+"all_printings_vintage_tool",
+"ledger_survives_compaction",
+"loop_guard",
+"period_date_label_check",
+"recompute_provenance_check",
+"table_grid_extractor"
+],
+"081-cards": [
+"all_printings_vintage_tool",
+"forced_commit_budget",
+"loop_guard",
+"period_date_label_check",
+"recompute_provenance_check"
+],
+"082-prompt": [
+"adapter_scoping",
+"all_printings_vintage_tool",
+"period_date_label_check",
+"recompute_provenance_check",
+"second_attempt_or_review",
+"table_finder_catalog"
+],
+"082-cards": [
+"loop_guard",
+"period_date_label_check",
+"recompute_provenance_check",
+"table_grid_extractor"
+],
+"084-cards": [
+"adapter_scoping",
+"all_printings_vintage_tool",
+"answer_format_scale_check",
+"period_date_label_check",
+"second_attempt_or_review",
+"unit_direction_check"
+],
+"086-prompt": [
+"adapter_scoping",
+"all_printings_vintage_tool",
+"answer_format_scale_check",
+"period_date_label_check",
+"second_attempt_or_review",
+"unit_direction_check"
+],
+"086-cards": [
+"adapter_scoping",
+"all_printings_vintage_tool",
+"answer_format_scale_check",
+"period_date_label_check",
+"second_attempt_or_review",
+"table_grid_extractor"
+],
+"088-none": [
+"adapter_scoping",
+"all_printings_vintage_tool",
+"answer_format_scale_check",
+"period_date_label_check",
+"unit_direction_check"
+],
+"089-none": [
+"adapter_scoping",
+"all_printings_vintage_tool",
+"loop_guard",
+"period_date_label_check",
+"table_grid_extractor",
+"unit_direction_check"
+],
+"089-prompt": [
+"adapter_scoping",
+"all_printings_vintage_tool",
+"period_date_label_check",
+"table_grid_extractor"
+],
+"089-cards": [
+"adapter_scoping",
+"answer_format_scale_check",
+"period_date_label_check",
+"table_grid_extractor",
+"unit_direction_check"
+],
+"091-none": [
+"adapter_scoping",
+"all_printings_vintage_tool",
+"answer_format_scale_check",
+"external_reference_data",
+"period_date_label_check"
+],
+"091-prompt": [
+"adapter_scoping",
+"all_printings_vintage_tool",
+"answer_format_scale_check",
+"external_reference_data",
+"period_date_label_check",
+"unit_direction_check"
+],
+"091-cards": [
+"adapter_scoping",
+"all_printings_vintage_tool",
+"external_reference_data",
+"period_date_label_check"
+],
+"095-none": [
+"all_printings_vintage_tool",
+"ledger_survives_compaction",
+"loop_guard",
+"period_date_label_check"
+],
+"095-cards": [
+"adapter_scoping",
+"all_printings_vintage_tool"
+],
+"098-none": [
+"all_printings_vintage_tool",
+"answer_format_scale_check",
+"period_date_label_check",
+"second_attempt_or_review"
+],
+"098-prompt": [
+"all_printings_vintage_tool",
+"period_date_label_check",
+"second_attempt_or_review"
+],
+"098-cards": [
+"all_printings_vintage_tool",
+"answer_format_scale_check",
+"forced_commit_budget",
+"ledger_survives_compaction",
+"loop_guard",
+"period_date_label_check",
+"table_grid_extractor"
+],
+"101-prompt": [
+"adapter_scoping",
+"external_reference_data",
+"period_date_label_check",
+"table_grid_extractor"
+],
+"101-cards": [
+"adapter_scoping",
+"ledger_survives_compaction",
+"loop_guard",
+"period_date_label_check"
+],
+"102-none": [
+"adapter_scoping",
+"period_date_label_check",
+"recompute_provenance_check"
+],
+"102-cards": [
+"adapter_scoping",
+"answer_format_scale_check",
+"ledger_survives_compaction",
+"loop_guard",
+"period_date_label_check",
+"recompute_provenance_check",
+"unit_direction_check"
+],
+"105-none": [
+"answer_format_scale_check",
+"period_date_label_check",
+"second_attempt_or_review"
+],
+"105-cards": [
+"external_reference_data",
+"ledger_survives_compaction",
+"loop_guard",
+"period_date_label_check"
+],
+"106-none": [
+"answer_format_scale_check",
+"external_reference_data",
+"numeric_env",
+"period_date_label_check",
+"unit_direction_check"
+],
+"106-prompt": [
+"adapter_scoping",
+"external_reference_data",
+"numeric_env",
+"period_date_label_check"
+],
+"106-cards": [
+"answer_format_scale_check",
+"external_reference_data",
+"numeric_env"
+],
+"107-none": [
+"all_printings_vintage_tool",
+"period_date_label_check",
+"recompute_provenance_check"
+],
+"107-prompt": [
+"adapter_scoping",
+"ledger_survives_compaction",
+"loop_guard",
+"period_date_label_check",
+"second_attempt_or_review"
+],
+"108-none": [
+"period_date_label_check",
+"recompute_provenance_check",
+"table_grid_extractor"
+],
+"108-prompt": [
+"period_date_label_check",
+"recompute_provenance_check",
+"table_grid_extractor"
+],
+"108-cards": [
+"adapter_scoping",
+"period_date_label_check",
+"recompute_provenance_check",
+"table_grid_extractor"
+],
+"109-none": [
+"adapter_scoping",
+"period_date_label_check",
+"table_finder_catalog",
+"table_grid_extractor",
+"unit_direction_check"
+],
+"109-cards": [
+"adapter_scoping",
+"numeric_env",
+"period_date_label_check",
+"table_grid_extractor"
+],
+"114-none": [
+"adapter_scoping",
+"period_date_label_check",
+"table_finder_catalog"
+],
+"114-prompt": [
+"period_date_label_check"
+],
+"114-cards": [
+"interpretation_fork",
+"period_date_label_check",
+"table_finder_catalog"
+],
+"115-cards": [
+"adapter_scoping",
+"external_reference_data",
+"numeric_env",
+"second_attempt_or_review",
+"unit_direction_check"
+],
+"120-cards": [
+"adapter_scoping",
+"all_printings_vintage_tool",
+"period_date_label_check",
+"second_attempt_or_review",
+"table_finder_catalog"
+],
+"122-cards": [
+"adapter_scoping",
+"all_printings_vintage_tool",
+"answer_format_scale_check",
+"period_date_label_check",
+"table_grid_extractor"
+],
+"123-cards": [
+"adapter_scoping",
+"all_printings_vintage_tool",
+"period_date_label_check"
+],
+"124-none": [
+"interpretation_fork",
+"period_date_label_check",
+"table_grid_extractor",
+"unit_direction_check"
+],
+"124-prompt": [
+"all_printings_vintage_tool",
+"external_reference_data",
+"forced_commit_budget",
+"ledger_survives_compaction",
+"loop_guard",
+"numeric_env",
+"period_date_label_check",
+"recompute_provenance_check"
+],
+"124-cards": [
+"adapter_scoping",
+"all_printings_vintage_tool",
+"answer_format_scale_check",
+"interpretation_fork",
+"loop_guard",
+"period_date_label_check"
+],
+"126-prompt": [
+"period_date_label_check"
+],
+"130-cards": [
+"adapter_scoping",
+"answer_format_scale_check",
+"period_date_label_check",
+"table_grid_extractor"
+],
+"133-prompt": [
+"adapter_scoping",
+"period_date_label_check",
+"second_attempt_or_review",
+"table_finder_catalog"
+],
+"133-cards": [
+"adapter_scoping",
+"period_date_label_check",
+"recompute_provenance_check",
+"second_attempt_or_review",
+"table_finder_catalog"
+]
+}

@@ -1,0 +1,134 @@
+{
+  "ordinal": 52,
+  "task_id": "UID0168",
+  "question_type": "least-squares quadratic projection of four monthly capital-movement totals, divided by an external-knowledge day number",
+  "skills_required": [
+    "locate_issue",
+    "locate_table",
+    "read_flattened_table",
+    "multi_value_extraction",
+    "unit_or_scale",
+    "formula_stats",
+    "multi_step_arithmetic",
+    "external_knowledge",
+    "rounding_format"
+  ],
+  "opus_path": [
+    {
+      "stage": "interpret",
+      "decision": "'Aggregate international flows of liquid banking funds (excluding brokerage balances and security transactions)' = the 'MOVEMENT IN SHORT-TERM BANKING FUNDS' section of 'Net Capital Movement between the United States and Foreign Countries' (the other sections are brokerage balances and domestic/foreign securities); 'monthly grand total' = the 'Grand total' column of the 'Total <Month>' row, in $ thousands.",
+      "evidence": "calc.py:1-5; review.md:4"
+    },
+    {
+      "stage": "choose_source",
+      "decision": "Each month's total from the 1939 issue that prints that month: Aug issue (May), Sep (June), Oct (July), Nov (August). Checked later 1939-1940 issues: each prints only its latest month plus cumulative rows, so there are no revised printings.",
+      "evidence": "calc.py:12-15; review.md:10"
+    },
+    {
+      "stage": "extract",
+      "decision": "Took the printed 'Total <Month>' Grand total cell (last numeric cell on the line) and re-read each line in the script with an assertion.",
+      "evidence": "calc.py:10-24"
+    },
+    {
+      "stage": "verify",
+      "decision": "Cross-checked each monthly total against the sum of its weekly rows and against differences of the cumulative rows. For May the weekly rows did not add up because one weekly cell is OCR-garbled; the printed total agreed with the cumulative difference, so the total row was kept.",
+      "evidence": "review.md:6-9"
+    },
+    {
+      "stage": "compute",
+      "decision": "Least-squares quadratic on t=1..4 (np.polyfit) projected to t=5, cross-checked with exact rational normal equations (Fractions + Gaussian elimination); the reviewer also used the closed-form 4-point LS extrapolation weights.",
+      "evidence": "calc.py:26-53; review.md:12"
+    },
+    {
+      "stage": "compute",
+      "decision": "External knowledge: invasion day number in September 1939 (divide by it).",
+      "evidence": "calc.py:55-56"
+    },
+    {
+      "stage": "round_format",
+      "decision": "The unrounded result sits exactly on a .5 boundary; checked that half-up and half-even give the same integer.",
+      "evidence": "review.md:12, 15"
+    }
+  ],
+  "opus_key_moves": [
+    "Treated 'fit a quadratic regression to four points' as an overdetermined least-squares fit and computed it in a script, with an exact-arithmetic cross-check.",
+    "Verified each monthly total against weekly sums and cumulative-row differences, which caught an OCR-garbled weekly cell without letting it change the total."
+  ],
+  "arms": {
+    "none": {
+      "correct": false,
+      "error_bin": "5-25pct",
+      "first_divergence": {
+        "stage": "FORMULA",
+        "glm_step": "[37]-[38]",
+        "what_glm_did": "After np.polyfit failed with 'No module named numpy' at [37], it switched to a mental 'exact quadratic interpolation' by finite differences at [38] ('third difference zero'), extrapolating a difference table instead of fitting a least-squares quadratic. Inside that it also mixed up difference orders (used the third difference as the next second difference). It submitted the hand result at [39] without running any script; the submitted number never appears in any tool output.",
+        "what_opus_did": "Least-squares quadratic via np.polyfit plus exact normal equations in Fractions (calc.py:26-53).",
+        "why_glm_went_that_way": "Tool friction pushed it off scripting. Heredocs failed ([4]), multi-statement 'python -c' one-liners failed with SyntaxErrors ([14], [16]), apply_patch via heredoc failed ([18]), and then numpy was missing ([37]). It did not fall back to plain-Python normal equations. It treated 'regression' through 4 points as interpolation ('Compute exact quadratic interpolation... Check quadratic extrapolation. Yes.').",
+        "consequence": "The projected value, and so the final integer, is about 19% too high (5-25% bin), even though all four inputs matched Opus's."
+      },
+      "secondary_errors": [
+        {
+          "stage": "ARITHMETIC",
+          "glm_step": "[38]",
+          "note": "Even as a finite-difference extrapolation the procedure is inconsistent: it neither holds the second difference constant (quadratic) nor extends the third difference (cubic)."
+        }
+      ],
+      "saw_correct_evidence": {
+        "value": "yes",
+        "where": "[33] and [35]: the four correct 'Total <Month>' Grand total cells (Aug, Sep, Oct, Nov 1939 issues, short-term banking funds section); the [36] data list matches Opus's inputs."
+      },
+      "glm_expressed_doubt": {
+        "value": "no",
+        "where": "[38] ends 'Check quadratic extrapolation. Yes.'; the only doubt was about the series ('liquid banking funds' = short-term banking funds), not the method."
+      },
+      "operational": {
+        "timed_out": false,
+        "no_answer": false,
+        "loop_or_thrash": "mild",
+        "tool_friction": "rg missing/blocked ([2], exit 127); heredoc temp-file failure ([4]); python -c multi-statement SyntaxErrors ([14], [16]); apply_patch via heredoc failed ([18]); zsh 'set -- $spec' word-splitting failure ([29]); numpy not installed ([37])",
+        "notes": "85 s, 20 requests. The run was short; the failure is a silent method substitution caused by missing numpy, not a budget problem."
+      },
+      "adapter_context": {
+        "relevant_item": "n/a",
+        "item_was_correct_guidance": "n/a",
+        "followed": "n/a",
+        "caused_or_contributed_to_error": "n/a",
+        "notes": "Base instructions only. The later cards deck carries C019 ('numpy may be missing, so implement in plain python. Never do multi-step arithmetic mentally; the submitted number must be a script's printed output'), which targets exactly this failure but was not in any arm's context for this question."
+      },
+      "remedies": [
+        {
+          "level": "TOOL",
+          "intervention": "Provide a working numeric environment: preinstall numpy, or ship a small 'calc' helper exposing polyfit/least-squares, correlation/partial correlation, CAGR, etc., in plain Python.",
+          "generality": "domain_general",
+          "confidence": "high",
+          "why": "The actor's first move was the right one (np.polyfit at [37]); it abandoned scripting only because the import failed. With numpy present the same command would have produced the right projection."
+        },
+        {
+          "level": "CHECK",
+          "intervention": "Answer-provenance check: before commit, the submitted number (after the stated rounding) must appear in the output of a tool call in this episode; otherwise reject with 'compute it in a script and print it'.",
+          "generality": "domain_general",
+          "confidence": "high",
+          "why": "The submitted value at [39] was produced only in the THINK at [38] and never printed by any command; this check would have fired deterministically."
+        },
+        {
+          "level": "TEXT",
+          "intervention": "Instruction: 'numpy may be missing and heredocs fail; write multi-line code via python -c \"exec(...)\" or printf > file; a regression on n > degree+1 points is least squares (normal equations), never interpolation or finite differences.'",
+          "generality": "domain_general",
+          "confidence": "medium",
+          "why": "The prompt and cards arms hit the same numpy failure ([14] and [33]) and recovered with stdlib normal equations, so this actor can do it when it keeps scripting. The prompt arm had L-python-c-not-heredoc, which kept it out of heredoc friction."
+        }
+      ]
+    },
+    "prompt": {
+      "correct": true,
+      "error_bin": null
+    },
+    "cards": {
+      "correct": true,
+      "error_bin": null
+    }
+  },
+  "right_arms_note": "prompt and cards extracted the same four cells, hit the same missing-numpy error ([14] prompt, [33] cards), and at that point said explicitly that a quadratic through four points is an overdetermined least-squares problem ([15] prompt 'Quadratic through 4 points least squares'; [34] cards 'overdetermined. Regression least squares'). They solved the normal equations in plain Python ([16] prompt; [40] cards via python -c exec after heredoc and apply_patch failures). The none arm reached the same fork and chose mental finite differences.",
+  "text_vs_mechanism": "A text rule would plausibly fix this, since the same model fixed it unprompted in two of three arms and the later cards deck carries the right text (C019). A mechanism is more reliable because the error is silent and confident: an answer-provenance CHECK or a working numeric TOOL would have prevented it deterministically.",
+  "notes": "Rounding is fragile here (the least-squares projection lands on .5 before rounding), so a correct method with a different rounding convention could still fail; Opus checked both half-up and half-even. Harness friction (no heredoc, no numpy, fragile python -c quoting) is the upstream cause of the method substitution. Fixing the sandbox or documenting the working write-a-script path removes a whole class of 'compute by hand' errors."
+}

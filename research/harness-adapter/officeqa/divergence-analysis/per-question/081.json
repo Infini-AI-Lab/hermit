@@ -1,0 +1,81 @@
+{
+  "ordinal": 81,
+  "task_id": "UID0039",
+  "question_type": "sum of one month's agency outlays across ~30 FFO-3 columns with named exclusions; monthly row revised across four quarterly printings (vintage choice)",
+  "skills_required": ["locate_issue", "pick_vintage", "locate_table", "read_flattened_table", "multi_value_extraction", "multi_step_arithmetic"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "Jan 2003 = the '2003 - Jan' monthly row of FFO-3 'On-Budget and Off-Budget Outlays by Agency' (already in millions). Keep every agency column; drop Commerce, FEMA, Interior, the undistributed-offsetting-receipt columns, Allowances/Other and the totals. No issue pinned, so the vintage must be chosen deliberately.", "evidence": "opus logs/081/worklog.md:8-14"},
+    {"stage": "choose_source", "decision": "Found that the March 2003 issue has no Jan 2003 row, then grepped FFO-3 in every later issue: the Jan 2003 row is printed in exactly four issues (2003_06, 2003_09, 2003_12, 2004_03); later issues start after Jan 2003, so March 2004 is the latest printing.", "evidence": "worklog.md:17-25"},
+    {"stage": "locate_table", "decision": "Mapped all 37 columns across the three OCR parts (13/12/12) and classified cols 1-31 as agency entries, 32-35 as non-agency, 36-37 as totals.", "evidence": "worklog.md:27-34; calc.py:35-43"},
+    {"stage": "extract", "decision": "Parsed the Jan 2003 row from all four printings programmatically (strip 'r' markers and commas, '-' = 0) with asserts on row label and header names.", "evidence": "worklog.md:36-45; calc.py:23-43"},
+    {"stage": "verify", "decision": "Compared cells across vintages (several agency cells revised; FEMA folded into DHS and shown as '-' in 2004_03) and reconciled row sums to printed on+off-budget totals to confirm OCR column alignment.", "evidence": "worklog.md:47-72"},
+    {"stage": "compute", "decision": "Answer = sum(cols 1-31) - Commerce - Interior - FEMA, computed for each vintage in calc.py.", "evidence": "worklog.md:74-79; calc.py:42-48"},
+    {"stage": "choose_source", "decision": "Chose the latest revision (March 2004 issue) under 'latest revision unless the publication date is pinned', noting the FEMA wording as counter-evidence (medium confidence).", "evidence": "worklog.md:81-90; solution.json decisions[0]"}
+  ],
+  "opus_key_moves": [
+    "Grepped the '2003 - Jan' FFO-3 row forward through ALL later issues (including 2004) and took the latest printing.",
+    "Extracted the row programmatically with header-name asserts instead of hand-transcribing ~30 numbers."
+  ],
+  "arms": {
+    "none": {
+      "correct": false,
+      "error_bin": "within_1pct",
+      "first_divergence": {
+        "stage": "EXTRACTION",
+        "glm_step": "[36]-[38]",
+        "what_glm_did": "Wrote the June-2003 Jan row in THINK as a signed expression where a leading '-' marked an excluded agency (Commerce, Interior), then hand-typed the values into a python -c list for [38]; the list silently omitted the General Services Administration cell, which is genuinely negative in that row (27 values instead of the 28 agency columns left after the three exclusions). FEMA was correctly omitted.",
+        "what_opus_did": "Parsed the row cells programmatically, bound to header names, asserted 37 cells, and subtracted only the three named agencies.",
+        "why_glm_went_that_way": "Ad-hoc notation collision: in its own [36] expression '-x' meant 'exclude', so the one agency whose printed value is negative looked like an exclusion when transcribed. No cell count or recompute was done ([39] only re-debated which columns count as agencies).",
+        "consequence": "The June-vintage sum was too high by the magnitude of the GSA cell; this alone would already miss an exact-match answer."
+      },
+      "secondary_errors": [
+        {"stage": "SOURCE_ISSUE_VINTAGE", "glm_step": "[39]-[210], committed at [214]", "note": "Only ever compared June, Sept and Dec 2003 printings ([41]-[50]); never searched 2004 issues, so the latest printing (2004_03) was never seen. It could not decide which printing the question meant ([46] 'Which answer expected?'), looped, and after compaction the handoff summary itself chose 'the initial reported values from the June 2003 bulletin', which GLM trusted at [213]. Net result ~0.2% below the reference."},
+        {"stage": "OPERATIONAL", "glm_step": "[42]-[210]", "note": "Severe loop: the same 4-step cycle (inspect Sept/Dec rows, 'So revised sums', 'I included DHS...', a delta re-check) repeated ~20 times (events.jsonl: 21-23 identical commands/reasoning items) until compaction."}
+      ],
+      "saw_correct_evidence": {"value": "partial", "where": "Right table and right row in three printings ([35] June, [43]-[50] Sept/Dec); the GSA cell was on screen and even written into its [36] expression. The latest printing (2004_03) never appeared in any output."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[39] 'The values may be revised. Need compare'; [46] 'Values differ. Which is \"reported monthly outlay values\" ...'; [54] 'Which answer expected? ... not \"as revised\"' (all about vintage, never about the GSA omission)."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "severe", "tool_friction": "rg blocked, heredoc temp-file failure ([7]); large reads truncated ([20],[34]); zsh '===' glob error ([44])", "notes": "679 s, 105 requests; the final answer was dictated by the compaction handoff summary ('Next step: Final answer should be exactly ...' in api/105/request.json), i.e. the vintage decision was made by the summarizer, not by evidence."},
+      "adapter_context": {"relevant_item": "n/a", "item_was_correct_guidance": "n/a", "followed": "n/a", "caused_or_contributed_to_error": "n/a", "notes": "Base instructions only."},
+      "remedies": [
+        {"level": "CHECK", "intervention": "Cell-count / recompute check: when a sum is committed, require the list of (column header, value) pairs; the checker verifies the count equals (agency columns - named exclusions) and recomputes the sum from the cited row, flagging any agency header that is neither included nor explicitly excluded.", "generality": "document_qa_general", "confidence": "high", "why": "The omission is mechanical (27 vs 28 items; GSA header unaccounted for); the prompt arm's text self-check 3 ('Count the extracted cells') is the text version of this and that arm got the sum right."},
+        {"level": "TOOL", "intervention": "Row-printings lookup: printings(table_title, row_label) -> every issue carrying that row with the parsed cells side by side (here would list 2003_06, 2003_09, 2003_12, 2004_03).", "generality": "document_qa_general", "confidence": "high", "why": "GLM wanted to compare printings ([39]) but searched only 2003 issues; the prompt arm's corpus-wide loop at [22] (the manual version of this tool) is exactly what surfaced 2004_03."},
+        {"level": "CONTROL", "intervention": "Loop breaker plus decision-preserving compaction: detect repeated identical command/reasoning cycles and force a decision step; handoff summaries must carry open decisions and candidate values per option, not pick one.", "generality": "domain_general", "confidence": "medium", "why": "~20 identical cycles consumed most of the run, and the summarizer, not the evidence, settled the vintage."},
+        {"level": "TEXT", "intervention": "Default vintage rule: when no publication is pinned, grep the row forward through ALL later issues and use the latest printing (monthly FFO-3 rows included).", "generality": "officeqa_specific", "confidence": "medium", "why": "The prompt arm had procedure self-check 1 ('compare it with the latest bulletin carrying the same row') and applied it correctly at [20]-[27]."}
+      ]
+    },
+    "prompt": {
+      "correct": true,
+      "error_bin": null,
+      "right_arms_note": "Applied procedure self-check 1 at [20] ('Need latest bulletin carrying row'), ran a corpus-wide loop over every bulletin containing both the FFO-3 title and '2003 - Jan' ([22]), which listed 2004_03, and recomputed from the March 2004 cells ([24]-[27]); its first-pass sum from the Dec 2003 printing (the cards arm's final value) was discarded. It followed the procedure's 'latest' rule even though its context also said monthly rows 'otherwise default to the first printing'."
+    },
+    "cards": {
+      "correct": false,
+      "error_bin": "within_0.1pct",
+      "first_divergence": {
+        "stage": "SOURCE_ISSUE_VINTAGE",
+        "glm_step": "[48]-[50]",
+        "what_glm_did": "Computed the June-2003 sum correctly ([43]-[46]), then cross-checked revisions with a script hard-coded to only the Sept and Dec 2003 issues ([48]); on seeing revisions it declared the December 2003 issue 'the latest issue printing that month' ([49]-[50]) and recomputed from it. It never looked at 2004 issues, so it missed the March 2004 printing's further revisions (a small net change, <0.01% of the total).",
+        "what_opus_did": "Grepped the Jan 2003 FFO-3 row in every later issue, established that 2004_03 is the last printing, and used it.",
+        "why_glm_went_that_way": "It assumed the candidate set instead of searching: [49] 'December 2003 issue ... includes Jan row. Could be latest.' It invoked card C007 at [49] ('Card C007 says annual rows latest, but monthly too?'); C007's rule is phrased as 'the latest December issue printing it' for annual rows, which plausibly anchored it on a December issue.",
+        "consequence": "Correct method and columns but a superseded printing, so the exact-match answer differs slightly from the latest-revision reference."
+      },
+      "secondary_errors": [
+        {"stage": "OPERATIONAL", "glm_step": "[53]-[314]", "note": "Severe loop: the recompute block ('Now recalc with revised values', 'Wait my net calculation wrong', 'Justice didn't differ?', 'Need final only ... likely') repeated ~26 times (events.jsonl) after the candidate already existed; committed only after compaction ([316])."},
+        {"stage": "ARITHMETIC", "glm_step": "[53]-[57]", "note": "Hand-patched the revised values into the old list and missed one revision (Justice) on the first try; caught it by comparing a mental delta with the script output. Recovered, but shows the fragility of hand-transcribed lists."}
+      ],
+      "saw_correct_evidence": {"value": "no", "where": "An early search listing ([22]) showed 2004/2005 issues carry FFO-3 in general, but the Jan 2003 row of the March 2004 printing never appeared in any output."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[49] 'Could be latest.'; [59] 'let's be absolutely sure about interpretation' (about agency scope, not about vintage)."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "severe", "tool_friction": "heredoc and apply_patch failures while following card C019 ([7]-[16]), worked around with printf > script file; truncated outputs ([32],[41])", "notes": "1280 s, 155 requests; had its (wrong-vintage) candidate by ~[59] and then looped ~26 times before a compaction-driven commit."},
+      "adapter_context": {"relevant_item": "C007 (FFO-3; annual rows: take the latest December issue printing the fiscal year), C003 (take the latest issue printing that fiscal year), C019 (compute via a script file)", "item_was_correct_guidance": "partly", "followed": "partly", "caused_or_contributed_to_error": "possibly", "notes": "C007/C003 carry the right principle (latest printing) but are scoped to annual/fiscal-year rows and C007 names 'December issue'; for a monthly row the latest printing is a March issue. GLM applied 'latest' but equated it with the Dec 2003 issue without a forward search. C019's heredoc advice caused tool friction but not the error."},
+      "remedies": [
+        {"level": "CHECK", "intervention": "Later-printing check at commit: given the cited file and row label, automatically search all later issues for the same table + row label and block/flag the commit if a later printing exists (here: 2004_03 with differing cells).", "generality": "document_qa_general", "confidence": "high", "why": "GLM already intended to use the latest printing ([49]) and only failed to enumerate candidates; a flag naming 2004_03 would have been acted on, as the same recompute machinery was in place."},
+        {"level": "TOOL", "intervention": "printings(table_title, row_label) lookup returning every issue that carries the row with parsed cells.", "generality": "document_qa_general", "confidence": "high", "why": "Replaces the hard-coded two-file candidate list at [48]; the prompt arm's manual version of this ([22]) found 2004_03 immediately."},
+        {"level": "TEXT", "intervention": "Rewrite C007/C003 to state the general rule ('grep the row forward through all later issues; the latest printing may be a non-December issue, e.g. monthly rows last printed in a March issue') instead of 'latest December issue'.", "generality": "officeqa_specific", "confidence": "medium", "why": "The actor consulted C007 at the exact decision point ([49]); its December wording is the only visible reason for stopping at Dec 2003."},
+        {"level": "CONTROL", "intervention": "Loop breaker: after N identical reasoning/command cycles with an unchanged candidate, force commit.", "generality": "domain_general", "confidence": "high", "why": "~26 identical cycles did not change the answer; it wasted ~1000 s and risked a timeout-empty submission."}
+      ]
+    }
+  },
+  "right_arms_note": "At the vintage fork the prompt arm searched the whole corpus for printings of the '2003 - Jan' FFO-3 row ([22]) and took the latest (2004_03); cards stopped at the Dec 2003 issue it assumed was latest, and none never left 2003 issues and let the compaction summary pick the first printing (plus it dropped a negative agency cell when transcribing).",
+  "text_vs_mechanism": "Text helped here: the prompt arm's 'compare with the latest bulletin carrying the same row' and 'count the extracted cells' self-checks match exactly what the wrong arms missed, and it followed them. But cards had near-miss text (C007) and misapplied it, so a later-printing CHECK/TOOL and a cell-count CHECK are the robust fixes; the loops need CONTROL.",
+  "notes": "Both wrong arms fell into long identical-cycle loops after they already had a candidate, and both final answers came through compaction handoff summaries that recorded a single 'final answer'. The benchmark's vintage convention (latest revision unless the publication is pinned) held here even though the question names FEMA, which is '-' in the latest printing (Opus flagged this as the main risk). Hand-transcription of ~30 cells into python -c lists was the norm in all GLM arms; a structured row extractor would remove a whole class of errors (the none arm's dropped negative cell, the cards arm's missed revision)."
+}

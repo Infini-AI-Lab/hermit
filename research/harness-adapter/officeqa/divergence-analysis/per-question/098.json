@@ -1,0 +1,94 @@
+{
+  "ordinal": 98,
+  "task_id": "UID0174",
+  "question_type": "two-series arc (midpoint) elasticity between two monthly rows of the IRS collections summary table (total collections vs unemployment insurance)",
+  "skills_required": ["locate_issue", "pick_vintage", "locate_table", "read_flattened_table", "multi_value_extraction", "formula_finance", "multi_step_arithmetic", "rounding_format"],
+  "opus_path": [
+    {"stage": "interpret", "decision": "Q = 'Total collections reported by Internal Revenue Service', P = 'Unemployment insurance' column. Midpoint arc elasticity with January as point 1 and March as point 2, keeping the sign, reported to 3 decimals. No issue is pinned, so all vintages must be checked.", "evidence": "logs/098/worklog.md:8-15"},
+    {"stage": "locate_table", "decision": "INTERNAL REVENUE COLLECTIONS 'Table 1.- Summary by Principal Sources' (in thousands of dollars). The May 1960 issue stops at Feb 1960, so the June 1960 issue or a later one is needed for March.", "evidence": "logs/098/worklog.md:20-28"},
+    {"stage": "choose_source", "decision": "Pulled the Jan and Mar 1960 rows from every printing from 1960_04 through 1961_03, instead of stopping at the first printing that carries March.", "evidence": "logs/098/worklog.md:30-50"},
+    {"stage": "extract", "decision": "The January row is identical everywhere. The March unemployment-insurance cell has three different values: 8 printings agree, and June 1960 and Sept 1960 each show a different single-digit variant. Took the majority value.", "evidence": "logs/098/worklog.md:47-51; solution.json:15"},
+    {"stage": "verify", "decision": "Exact row-sum identity: the four employment/income components sum to the printed subtotal only with the majority value, for both January and March. Also recognized that in some printings the blank Old-age cell migrates to the end of the row, shifting the UI value under the 'Railroad retirement' header.", "evidence": "logs/098/worklog.md:52-53; review.md:14-16"},
+    {"stage": "compute", "decision": "calc.py computes the midpoint formula. A sensitivity line shows that the June-1960 OCR variant reproduces exactly the value all three GLM arms submitted.", "evidence": "logs/098/worklog.md:55-60"}
+  ],
+  "opus_key_moves": [
+    "Extracted the March UI cell from every printing that carries it, not just the first, and found three competing values",
+    "Settled on one value by majority plus an exact row-sum identity computed in code",
+    "Recognized the OCR column shift (a blank cell migrating to the row end), so later printings' values could be read under the right header"
+  ],
+  "arms": {
+    "none": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "EXTRACTION",
+        "glm_step": "[37]-[44]",
+        "what_glm_did": "Got January from the May 1960 issue ([36]-[37]), then read the June 1960 issue, the first printing that carries March 1960 ([41]). It took that printing's March UI cell, which is an OCR digit misread, and computed immediately ([42]-[44]).",
+        "what_opus_did": "Compared all printings. June's March UI value is a one-printing outlier; the majority and the row-sum identity give a different digit (worklog.md:49-52).",
+        "why_glm_went_that_way": "Straight-line search: '[37] Need March data likely June issue' -> '[42] Data: ... Need arc elasticity' -> compute. It never looked at a later printing or summed the row.",
+        "consequence": "One wrong digit in the independent-variable cell changes the %dP midpoint term and therefore the elasticity. Opus's sensitivity line (worklog.md:60) shows this exact cell swap reproduces the submitted answer."
+      },
+      "secondary_errors": [],
+      "saw_correct_evidence": {"value": "no", "where": "It only opened the 1960_02 to 1960_06 printings. Its [34] grep over the later issues matched '1960-' rows from other tables, not this table's 'Mar.' row, so the correct digit (first printed in July 1960) never appeared."},
+      "glm_expressed_doubt": {"value": "no", "where": "No THINK questions the March cell or the vintage."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "none", "tool_friction": "rg blocked [3]; heredoc temp-file failure [5]; the python3 shim failed [7], so it fell back to raw sqlite3 CLI queries [12]-[19]; zsh echo/glob quirk [23]", "notes": "99 s and 23 requests. Correct formula and correct columns; the only error is the single OCR cell."},
+      "adapter_context": {"relevant_item": "n/a", "item_was_correct_guidance": "n/a", "followed": "n/a", "caused_or_contributed_to_error": "n/a", "notes": "Base instructions only."},
+      "remedies": [
+        {"level": "CHECK", "intervention": "Run a row-sum identity check automatically on each extracted row (components vs printed subtotal/total) and report any shortfall and the cell likely responsible.", "generality": "document_qa_general", "confidence": "high", "why": "The March row has an exact additive identity (no rounding) that fails by exactly the misread digit. The arm never summed anything, so only an automatic check would have caught it."},
+        {"level": "TOOL", "intervention": "Add an all-printings cell lookup that returns the March UI value in every issue carrying the row and names the majority value.", "generality": "officeqa_specific", "confidence": "high", "why": "8 printings agree on the correct digit. The arm stopped at the first printing because finding later ones by hand is costly."},
+        {"level": "TEXT", "intervention": "Add: 'The first printing of a monthly row can carry OCR garbles; before computing, read the same row in at least one later printing and check the row sum.'", "generality": "document_qa_general", "confidence": "low", "why": "The prompt arm had equivalent verified text and still failed (see its entry), so text alone is weak for this actor."}
+      ]
+    },
+    "prompt": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "EXTRACTION",
+        "glm_step": "[33]-[38]",
+        "what_glm_did": "Took the June 1960 printing's March UI cell [33]-[34] and computed [35]. At [36]-[38] it did look forward: the 1961_03 printing shows a different March UI digit (under a shifted column, which it correctly recognized). It ran a row-sum check to decide between them, but did the sum in its head and asserted that the June row sums exactly to the printed subtotal. It does not: the June row falls short by exactly the one-digit difference, and the 1961_03 value is the one that sums.",
+        "what_opus_did": "Took the majority across all printings and confirmed it with the same identity, computed in code (worklog.md:49-53).",
+        "why_glm_went_that_way": "At [36] it invoked the context rule 'monthly rows default first printing unless family-specific', which gave it a prior toward June. At [38] it wrote the false mental arithmetic '...UI [June value]. Sum = [subtotal]... Thus 1960_06 is clean and first printing. Good.'",
+        "consequence": "Same wrong digit, and the same submitted elasticity as the other two arms."
+      },
+      "secondary_errors": [
+        {"stage": "ARITHMETIC", "glm_step": "[38]", "note": "The verification sum itself was wrong, done in THINK rather than in code. This step turned correct evidence into a wrong decision."}
+      ],
+      "saw_correct_evidence": {"value": "yes", "where": "The [37]-[38] 1961_03 printing shows the correct March UI value; the arm even identified that printing's column shift and a separate OCR typo in its subtotal."},
+      "glm_expressed_doubt": {"value": "yes", "where": "At [36] 'Need ensure... Could there be revised later printings?' and at [38] it compared printings, then resolved the question with the botched sum."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "none", "tool_friction": "rg blocked [2]; failed search call [11]", "notes": "91 s and 21 requests, but 1.9M input tokens because of the 171 KB context."},
+      "adapter_context": {"relevant_item": "L-cell-disagreeing-printings (verified: 'take the majority value, or the one consistent with the printed row/annual total', AGENTS.md:1248-1265); the 'Vintage by row type' convention ('MONTHLY rows are PER-FAMILY', first-printing default, AGENTS.md:184-192 and 1263-1265); L-internal-revenue-collections-individual ('cross-check a disputed cell against the printed row total', AGENTS.md:309-315)", "item_was_correct_guidance": "partly", "followed": "partly", "caused_or_contributed_to_error": "possibly", "notes": "The disagreeing-printings lesson was exactly right for this question. The arm compared two printings (not all of them, so no majority) and attempted the total-consistency test, but executed it mentally and wrongly. The first-printing default for monthly rows is family-specific and, used as a prior, pointed at the garbled printing."},
+      "remedies": [
+        {"level": "CHECK", "intervention": "Run a row-sum validator in code over the candidate cells from each printing and return which printing's value satisfies the identity.", "generality": "document_qa_general", "confidence": "high", "why": "The arm had the right rule as verified text and tried to apply it. The failure was purely the arithmetic it never executed at [38]; a code-run check returns the right printing unambiguously."},
+        {"level": "CONTROL", "intervention": "Require that any verification arithmetic (sums, identities, comparisons) be executed in a script. Reject a 'sum = X' claim that appears only in THINK with no RUN behind it.", "generality": "domain_general", "confidence": "high", "why": "Every other number in this run was computed in python; the one decisive number that was not computed was the one that was wrong."},
+        {"level": "TOOL", "intervention": "Add an all-printings cell lookup that returns the value in each printing and the majority.", "generality": "officeqa_specific", "confidence": "medium", "why": "It would have shown 8 printings against 1 without the actor having to adjudicate between two."}
+      ]
+    },
+    "cards": {
+      "correct": false,
+      "error_bin": ">25pct",
+      "first_divergence": {
+        "stage": "EXTRACTION",
+        "glm_step": "[136]-[144]",
+        "what_glm_did": "Started from the latest printings (1961_02/03), where the UI column looks blank because of an OCR column shift. After a long loop it found June 1960's populated March UI cell. At [138] and [142] it saw that the July 1960 and later printings carry a different March value under the 'Railroad retirement' header, concluded that later printings dropped UI and relabeled the columns, and kept June's value ([143]-[144]).",
+        "what_opus_did": "Read the same shift as an OCR artifact (the blank Old-age cell migrates to the end of the row), took the majority value, and confirmed it with the row-sum identity (review.md:14-16).",
+        "why_glm_went_that_way": "At [138] and [143] it reasoned from plausibility of magnitudes ('old-age $16m impossible') and a hypothesized change in the table's definition. It ran an additive check only for January, where both column readings sum identically so the check cannot tell them apart, and never ran it for March, where only one reading sums.",
+        "consequence": "Same wrong digit and the same submitted elasticity as the other arms."
+      },
+      "secondary_errors": [
+        {"stage": "OPERATIONAL", "glm_step": "[21]-[115]", "note": "Re-ran the identical sed of 1961_03 about 48 times with the same THINK until a context compaction at [116], then restarted from scratch at [117]."}
+      ],
+      "saw_correct_evidence": {"value": "yes", "where": "The [138] July 1960 printing and the later printings listed at [142] carry the correct March value, placed under the wrong header by the OCR."},
+      "glm_expressed_doubt": {"value": "yes", "where": "[138] 'This suggests June OCR shifted? Let's carefully understand'; [143] 'Need determine correct UI values'."},
+      "operational": {"timed_out": false, "no_answer": false, "loop_or_thrash": "severe", "tool_friction": "rg blocked [3]; heredoc temp-file failure [5]; apply_patch via heredoc/printf failed [7], [9], so it wrote scripts with printf redirection [11]; zsh 'set --' word-splitting failure [140]-[141]; /bin/sh blocked [142]", "notes": "71 requests, 7.3M input tokens and 415 s. The identical-command loop took about 95 of 147 steps and forced a compaction."},
+      "adapter_context": {"relevant_item": "C003 (arc elasticity = midpoint form; its 'latest issue printing' idea also steered the start toward 1961 printings at [15]); C019 (compute aggregations in a script; heredocs fail); C009 ('Monthly cells print unrevised and repeat identically in later issues', not triggered by this question's keywords)", "item_was_correct_guidance": "yes", "followed": "yes", "caused_or_contributed_to_error": "no", "notes": "The formula and script rules were right and followed. No card covers OCR disagreement between printings or column shifts. C009's 'monthly cells repeat identically' would, if surfaced, imply that a disagreement is an OCR error rather than a definition change."},
+      "remedies": [
+        {"level": "TOOL", "intervention": "Add a header-aware table extractor that re-aligns rows whose blank cell has migrated (tested against the row-sum identity with the printed subtotal) and returns each cell under its true header across printings.", "generality": "document_qa_general", "confidence": "medium", "why": "The arm's wrong turn was misreading which header the later printings' value belonged to. A re-aligned grid would present 8 agreeing printings under 'Unemployment insurance'."},
+        {"level": "CHECK", "intervention": "Run a row-sum identity check automatically on each row the actor uses, and report which candidate value closes the identity.", "generality": "document_qa_general", "confidence": "high", "why": "For March only one reading sums exactly. The arm did an additive check for January (which cannot discriminate) but not for March."},
+        {"level": "CONTROL", "intervention": "Add a repeated-command detector: when the same command runs 3 or more times with no new information, inject 'already run; summarize what you learned and choose a different action'.", "generality": "domain_general", "confidence": "high", "why": "The loop [21]-[115] consumed most of the budget and forced a compaction. It did not cause the wrong value, but it is the arm's dominant operational failure."}
+      ]
+    }
+  },
+  "right_arms_note": "No arm was right. All three submitted the identical value, derived from the same OCR-garbled March cell in the June 1960 first printing.",
+  "text_vs_mechanism": "Mechanism. The prompt arm had the exact verified lesson as text (take the majority, or the value consistent with the printed total), tried to apply it, and failed because it did the deciding sum in its head. The cards arm saw the correct value and explained it away via the column shift. An automatic, code-executed row-sum/majority check, or an all-printings tool that returns the majority value under re-aligned headers, would have fixed all three arms.",
+  "notes": "All three arms converge on the same garbled cell because 'first printing that contains the month' is the natural stopping point, and the correct digit appears only from the next printing onward. This table's row-sum identity is exact (no rounding), which makes it an ideal automatic check. A two-series elasticity is highly sensitive to one digit in the small P series. Data note for whoever owns error_bins.py: the index bin is '>25pct' although Opus's own sensitivity analysis puts the relative gap between the GLM answer and Opus's answer at roughly a tenth. The bin may reflect how the reference is expressed; this was not investigated (no reference access)."
+}
