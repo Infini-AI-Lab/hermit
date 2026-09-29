@@ -86,6 +86,23 @@ class PublicationTests(unittest.TestCase):
         self.assertIn('Pending', html)
         self.assertNotIn(CANARY, html)
 
+    def test_full_profile_export_is_profile_driven_and_accepts_skipped_last_round(self):
+        self.state['profile'] = 'full_prompt_only_unbounded'
+        self.state['learning'][-1] = {'block': 10, 'status': 'skipped_unused', 'activated': False}
+        self.write_state()
+        with contextlib.redirect_stdout(io.StringIO()):
+            export(self.root, self.output, COMMIT)
+        summary = json.loads((self.output / 'summary.json').read_text())
+        self.assertEqual((summary['profile'], summary['architecture']), ('full_prompt_only_unbounded', 'prompt_only'))
+        self.assertEqual(summary['protocol'], 'officeqa-pro50-full-prompt_only-postmortem-v2')
+        self.assertEqual(summary['learning'][-1]['reason'], 'skipped_unused')
+        self.assertFalse(summary['learning'][-1]['used_by_scored_future_questions'])
+        self.assertEqual(summary['adapter_lineage'][-1]['adapter_round'], 9)
+        html = (self.output / 'report.html').read_text()
+        self.assertIn('Round 10 is skipped', html)
+        self.assertIn('ADAPTER.md', html)
+        self.assertNotIn(CANARY, html)
+
     def test_html_escapes_provider_or_task_status_strings(self):
         self.state['status'] = '<script>alert(1)</script>'
         self.write_state()

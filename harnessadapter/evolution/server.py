@@ -124,7 +124,7 @@ def create_server(root):
                 result = reader.chat(messages, max_tokens=min(max(int(args.get('max_tokens', 1500)), 1), 4000), temperature=0.0)
             elif name == 'run_command':
                 result = sandbox.run(['/bin/sh', '-c', args['command']], cwd=args.get('cwd') or None,
-                                     timeout=min(max(args.get('timeout_seconds', 30), 1), 90))
+                                     timeout=min(max(args.get('timeout_seconds', 30), 1), 600))
             elif name == 'fetch_url':
                 if not policy.network:
                     raise ValueError('Network access is disabled by the execution policy')

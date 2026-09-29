@@ -1,31 +1,49 @@
 # OfficeQA Pro: GLM + Codex, with and without an evolved adapter
 
-## Full MWM with unbounded inference
+## Full profiles: unbounded inference with checked postmortems
 
-The new opt-in profile `full_mwm_unbounded` removes client-side actor/learner
-deadlines, cumulative token/call/cost budgets and per-response token/reasoning
-limits. Fireworks provider limits/defaults remain. It enables corpus investigation,
-calculations, all native MWM artifact layers, tested programs and native roles.
-Only the last five completed adapted questions receive reference answers.
-See [the full protocol](PROTOCOL-FULL-MWM.md); the historical results below are
-not results of this new profile.
+Two opt-in profiles remove client-side actor/learner deadlines, cumulative
+token/call/cost budgets and per-response token/reasoning limits. Fireworks
+provider limits/defaults remain. Nothing is cut: transport drops are retried
+and counted, the served `AGENTS.md` size is recorded against a 4 MiB limit, and
+a question is empty only when Codex produced no completed turn. Both arms
+advance in lockstep, one five-question block at a time.
 
-The macOS actor keeps its original Seatbelt boundary. A local Linux container
-executes native bubblewrap capability tests/tools; it has no network and mounts
-only the current read-only adapter. The actor never receives the Docker socket.
+- `full_mwm_unbounded`: the adapted arm uses the MWM architecture (memory,
+  briefing, examples, tested tools, roles, wm MCP tool). A local Linux
+  container executes native bubblewrap capability tests/tools; it has no
+  network and mounts only the current read-only adapter. The actor never
+  receives the Docker socket.
+- `full_prompt_only_unbounded`: the adapted arm uses the prompt-only
+  architecture. Its single learned document `ADAPTER.md` is served verbatim
+  inside the actor's `AGENTS.md`; no MCP server, roles, tools or Docker.
+
+After each sealed batch the controller releases that batch's reference answers
+and strict/1% grades to the learner, which runs a ladder postmortem (vintage,
+table, units, cells, convention, rounding, harness) using two controller-run
+checkers (`verify_cell`, `verify_answer`). The controller replays every lesson's
+recorded checks and writes its status; MWM serves verified lessons only, while
+prompt-only serves `ADAPTER.md` whole with each lesson's status line. The
+learning round after Q50 is skipped. See [the full
+protocol](PROTOCOL-FULL-MWM.md); the historical results below are not results
+of these profiles.
 
 ```sh
-docker build -t officeqa-mwm-exec:20260921 tasks/OfficeQA/execution
+docker build -t officeqa-mwm-exec:20260921 tasks/OfficeQA/execution   # MWM only
 python tasks/OfficeQA/launch.py check --native
 python tasks/OfficeQA/launch.py prepare --profile full_mwm_unbounded \
   --data-cache /absolute/path/to/authorized-officeqa-cache \
-  --run-dir /absolute/path/to/new-private-run
+  --run-dir /absolute/path/to/new-private-run \
+  --shelf /absolute/path/to/extracted-reference-text   # optional, learner only
 python tasks/OfficeQA/launch.py run --gold-feedback \
   --run-dir /absolute/path/to/new-private-run
 ```
 
-The selected container image is frozen by ID during preparation. Calls and costs
-are recorded. No new score is claimed until the campaign completes and is graded.
+`--shelf` copies every `*.txt`/`*.md` of a directory into `RUN_DIR/reference-shelf`
+for the learner alone; its hashes are recorded at preparation and frozen with the
+campaign. The container image (MWM) is frozen by ID during preparation. Calls
+and costs are recorded. No new score is claimed until the campaign completes
+and is graded.
 
 This task packages the most recent **50-question paired OfficeQA experiment**.
 Both arms use `accounts/fireworks/models/glm-5p3-flash` through native Codex.
@@ -94,11 +112,16 @@ OfficeQA/
     broker.py, client.py        # fixed Fireworks transports, usage and deadline accounting
     campaign.py                # paired arms, immutable submissions, batch answer release
     learning.py                # GLM-only file-tool learner and mechanical admission
+    experiment.py              # frozen profile switches (architecture, lockstep, limits)
+    full_learning.py, postmortem.py # full-profile learner: graded batch, ladder, checkers, replay
+    full_runtime.py, full_sandbox.py # MWM container bridge and sandbox wiring
     data.py, officeqa_prepare.py# deterministic split, private keys, sealed final scoring
     officeqa_tools.py           # local document search/read helper
-    audit.py, cost.py           # recorded-artifact checks and dated cost estimates
+    audit.py, full_audit.py, cost.py # recorded-artifact checks and dated cost estimates
     export_results.py, report.py# answer-free result tables and standalone HTML
   deployments/officeqa/         # venue-specific learner contract and environment
+  deployments/officeqa-full/    # full MWM profile texts
+  deployments/officeqa-prompt-only/ # full prompt-only profile texts
   tests/                       # synthetic data, fake model transport, native sandbox tests
   vendor/officeqa/              # pinned official reward.py + Apache license/notice
   results/2026-09-21-pro50/      # safe historical result export
@@ -117,11 +140,16 @@ Only the controller can release answers, after submission hashes are sealed.
 Baseline and adapted actors may run concurrently; the adapted arm waits for its
 learner between batches. There is no repair or resubmission of a scored question.
 
-The learner has file tools only. It cannot revisit the whole corpus or run
-calculations to verify a proposed correction. It must read all four evidence
-files for every completed question before writing feedback. This intentionally
-preserves the latest experiment's limitations; an evidence-verifying learner
-would be a separate experimental treatment.
+In the historical `memory_bounded` profile the learner has file tools only. It
+cannot revisit the whole corpus or run calculations to verify a proposed
+correction, and it must read all four evidence files for every completed
+question before writing feedback. The full profiles above are that separate,
+evidence-verifying treatment: the learner receives the sealed batch's grades
+and failure records, may investigate the corpus and shelf, and its lessons are
+replayed by the controller. A `memory_bounded` rerun today keeps its budgets but
+shares the retrying transport, the no-void rule and the per-episode failure
+records introduced with the full profiles; it no longer reproduces the historical
+v4 transport behaviour byte for byte.
 
 ## Install and check
 

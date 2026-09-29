@@ -7,4 +7,6 @@ editing an entry (its brief included) moves it up the catalog.
 Reached by topic: the briefing routes here, and file names are the index —
 kebab-case topic words a future reader would guess. Shared spine: first line
 routes; scope, last_confirmed_t, derived_from in the header. Underscore-prefixed
-files are not part of the model.
+files are not part of the model. Entries named L-<slug> are lessons: they
+carry status:, step: and check: lines too, are left out of the catalog, and
+reach hosts in the verified-lessons section while `status: verified`.

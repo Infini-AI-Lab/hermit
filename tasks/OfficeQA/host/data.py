@@ -3,8 +3,9 @@
 This module is controller code, never an actor or learner tool. Only the corpus
 directory and its SQLite index may be exposed to actors. The task list, private
 keys, prediction seal, and final grading outputs stay outside every model sandbox. A controller may release
-only the just-completed batch reference answers to its learner after sealing that
-batch; the private master answer key and source mappings are never mounted.
+only the just-completed batch reference answers (and, in full profiles, that
+batch's strict/1% grader verdicts) to its learner after sealing that batch; the
+private master answer key and source mappings are never mounted.
 """
 
 from __future__ import annotations
@@ -144,12 +145,17 @@ def _prepare_from_sources(root: Path, *, csv_path: Path, corpus: Path,
                 "hidden_from_agent": ["agent/tasks.jsonl", "answer", "source_docs", "source_files", "private/", "original CSV", "download cache", "other tasks and completed results", "private-evaluation/"],
                 "runtime_requirement": "Enforced filesystem isolation: corpus and index read-only plus current task workspace. Deny all other project files, task list, private keys, other workspaces, credentials, and general network. Inference transport may reach only the fixed Fireworks endpoint. A folder alone is not isolation.",
             })
-            from experiment import FULL
+            from experiment import FULL, ARCHITECTURE, ACTOR_SECONDS
             if FULL:
-                manifest.update(protocol='officeqa-pro50-full-mwm-unbounded-v1',
-                    track='Same ordered 50 tasks; native Codex; full MWM; unbounded inference; completed-batch GLM answer feedback',
-                    actor_budgets={'requests':None,'seconds':None,'completion_tokens':None,'per_response':None})
-                manifest['learner_policy']['learning_type']='Full native MWM artifacts, corpus investigation, calculations, tested programs and roles; model weights unchanged'
+                manifest.update(protocol=f'officeqa-pro50-full-{ARCHITECTURE}-postmortem-v2',
+                    track=f'Same ordered 50 tasks; native Codex; {ARCHITECTURE} architecture; unbounded inference; completed-batch GLM postmortem with released grades',
+                    actor_budgets={'requests':None,'seconds':ACTOR_SECONDS,'completion_tokens':None,'per_response':None})
+                policy=manifest['learner_policy']
+                policy['learning_type']={'mwm':'Full native MWM artifacts, corpus investigation, calculations, tested programs and roles; model weights unchanged',
+                    'prompt_only':'ADAPTER.md text (procedure, conventions, lessons with controller-replayed status lines) served verbatim inside AGENTS.md; corpus investigation and calculations; model weights unchanged'}[ARCHITECTURE]
+                policy['forbidden']=['grader scores for unreleased batches' if x=='grader scores and rationales' else x for x in policy['forbidden']]
+                policy.update(completed_batch_grades_released=True, reference_shelf='extracted reference text, learner only')
+                manifest['grading_policy']['send_results_to_learner']='completed_batch_only'
             (staging / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             for relative in ("agent/tasks.jsonl", "manifest.json", "index-metadata.json", "private/answers.jsonl", "private/provenance.jsonl", "private/reward.py"):
                 (staging / relative).chmod(0o400 if relative.startswith("private/") else 0o444)

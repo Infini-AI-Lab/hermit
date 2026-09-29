@@ -103,6 +103,27 @@ their performance is what this repository contains.
   exactly what a host chooses from, so a brief that does not let you
   decide whether to open an entry would not let a host decide either.
 
+- `memory/L-<slug>.md` — a LESSON: a memory entry (same four header
+  lines) that records one re-verified rung of a postmortem ladder, with
+  three more lines:
+
+      status: verified|candidate
+      scope: table:<family>|convention:<name>|harness
+      step: S1..S7
+      check: <JSON list of {"kind":"cell","file","line","contains"} or
+             {"kind":"answer","ordinal","candidate"}>
+      verified_by: postmortem:<nnn>
+
+  The controller replays every lesson's `check:` list at the end of each
+  block with the same two checkers you have (verify_cell, verify_answer)
+  and rewrites its `status:` line: a lesson is verified iff its list is
+  non-empty and every check passes; an answer check on an episode not
+  yet released fails. Hosts receive ONLY `status: verified` lessons, in
+  their own section right after the briefing (`[id] scope · step ·
+  brief`, newest first); lessons never appear in the catalog, and a
+  candidate stays readable by id. A lesson whose claim you cannot check
+  is a memory entry, not a lesson.
+
 - `examples/` — one file per graded episode you decided to keep: what was
   asked, the interpretation choices that decided it, the solution skeleton,
   and the verdict. A correct episode belongs here as much as a wrong one; a
@@ -124,10 +145,10 @@ their performance is what this repository contains.
   re-executed by a reader every time and gets it wrong sometimes; the same
   formula as a tested program is right every time.
 - `consumption/brief.md` — the opening block every host sees; how far past
-  it a host can reach is described in "This environment". Budget 30000
-  chars, ENFORCED: hosts receive the briefing truncated at that size (a
-  visible seam marks the cut), and the wrapper reports the file's size
-  with every session. It must help ANY competent agent, not one
+  it a host can reach is described in "This environment". Advisory size
+  30000 chars: hosts receive the file WHOLE, nothing is cut, and the
+  wrapper reports the file's size against that number with every
+  session — trimming is yours. It must help ANY competent agent, not one
   particular model. Updating it every session, what goes in, what is
   evicted and how to word it: /skills/curate-brief.
 <!-- HYP:BEGIN -->
@@ -227,9 +248,12 @@ describes the record, the per-episode files, and the address form used in
 ### How hosts reach the model
 
 Every host receives, above its task, one package: the briefing
-(consumption/brief.md), the open questions compiled from entries' `open:`
-lines, the memory catalog (one `[id] brief` line per entry, up to 100),
-and the description of the tool wm. Through wm(name, args) a host
+(consumption/brief.md), the verified lessons (memory/L-*.md with
+`status: verified`, one `[id] scope · step · brief` line each, under a
+two-line consult rule), the open questions compiled from entries'
+`open:` lines, the memory catalog (one `[id] brief` line per entry, up
+to 100, lessons excluded), and the description of the tool wm. Through
+wm(name, args) a host
 reaches: `memory` — a full entry, by the `[id]` in the catalog; `recall`
 — the worked example behind a record address, by the address a
 `derived_from:` line names (`q17` is examples/q17.md); `trace` — the raw

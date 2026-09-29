@@ -49,6 +49,11 @@ BRIEF_MAX_CHARS = 300
 # chars (banking kimi max 61,894). A 4,000-char cap would cripple exactly
 # the entries most worth reading, so the pull channel gets its own cap.
 MEMORY_OUT_CHARS = 24000
+# Lessons (v6) are memory entries whose id starts with L-: a postmortem
+# rung the controller re-verifies every block (status:, step:, check:
+# lines beside the usual header). Served in their own section while
+# `status: verified`; never in the catalog; readable by id like any entry.
+LESSON_PREFIX = "L-"
 
 
 def memory_dir(wrepo: str | Path) -> Path:
@@ -205,7 +210,8 @@ def catalog(wrepo: str | Path, cap: int = CATALOG_MAX_ENTRIES) -> str:
     edit first, at most `cap` entries. Returns "" when the memory is
     empty so callers can skip the section entirely."""
     w = Path(wrepo)
-    files = _entry_files(memory_dir(w))
+    files = [p for p in _entry_files(memory_dir(w))
+             if not p.stem.startswith(LESSON_PREFIX)]
     if not files:
         return ""
 
@@ -228,6 +234,35 @@ def catalog(wrepo: str | Path, cap: int = CATALOG_MAX_ENTRIES) -> str:
     out = "\n".join(lines)
     _catalog_cache[str(w)] = (fp, out)
     return out
+
+
+def _field(text: str, name: str) -> str:
+    m = re.search(rf"^{name}:\s*(.*?)\s*$", text, re.M)
+    return m.group(1) if m else ""
+
+
+def lessons(wrepo: str | Path) -> str:
+    """The lessons section (v6): one line per memory entry whose id starts
+    with L- and whose first `status:` line reads `verified` — `[id] scope ·
+    step · brief`, newest edit first. A candidate lesson (any other status)
+    is not served here; it stays readable by id. "" when none."""
+    w = Path(wrepo)
+    files = [p for p in _entry_files(memory_dir(w))
+             if p.stem.startswith(LESSON_PREFIX)]
+    files.sort(key=lambda p: _last_edit_ns(w, p), reverse=True)
+    lines = []
+    for p in files:
+        try:
+            text = p.read_text(errors="replace")
+        except OSError:
+            continue
+        # The first status line is the controller's; a later one in the body counts for nothing.
+        if _field(text, "status") != "verified":
+            continue
+        lines.append(f"[{p.stem}] {_field(text, 'scope') or '?'} · "
+                     f"{_field(text, 'step') or '?'} · "
+                     f"{_brief_of(p) or '(no brief)'}")
+    return "\n".join(lines)
 
 
 def read_memory(wrepo: str | Path, name: str) -> str:

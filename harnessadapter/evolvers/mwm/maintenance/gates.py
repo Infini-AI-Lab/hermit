@@ -8,8 +8,8 @@ Gates (v1):
      provenance were retired 2026-09-03 (memory holds facts; hypothesis
      bookkeeping lives in the ledger).
   (G2 was a brief-length gate. Removed: length is a QUOTA, not
-   contamination — the wrapper truncates at render and reports the
-   overrun, rather than throwing away a session's work.)
+   contamination — the wrapper reports the size against the advisory
+   number every session; nothing is cut, v6.)
   G3 host-conditioning lexicon: brief + memory must not name host models or
      task ids (kimi, gpt, oss, claude, deepseek, task_id patterns).
   G4 no imports/exec in memory entries (plain text layer).
@@ -216,9 +216,16 @@ def _check_derived_from(wrepo: str, errs: List[str]) -> None:
 
 # Citation forms in briefing prose. `[id]` / `[[id]]` name a memory entry
 # or an example; examples/q17.md is the path form; a bare address (q17) is
-# what core.md calls followable and is checked as a whole word.
-_BRACKET_CITE = re.compile(r"\[\[?([A-Za-z0-9_.-]{2,})\]\]?")
+# what core.md calls followable and is checked as a whole word. An id
+# starts with a letter, and backticked spans are code, not citations (v6:
+# a `[0-9]` regex in the briefing is not a citation of an entry "0-9").
+_BRACKET_CITE = re.compile(r"\[\[?([A-Za-z][A-Za-z0-9_.-]+)\]\]?")
+_CODE_SPAN = re.compile(r"```.*?```|`[^`\n]*`", re.S)
 _PATH_CITE = re.compile(r"(?:/world-model/)?examples/([A-Za-z0-9_.-]+)\.md")
+# A lesson (memory/L-*.md, v6) carries three lines beyond the four every
+# entry has: the controller replays `check:` every block and serves the
+# entry to hosts only while `status: verified`.
+LESSON_FIELDS = ["status", "step", "check"]
 
 
 def _check_recall_index(wrepo: str, errs: List[str]) -> None:
@@ -242,8 +249,9 @@ def _check_recall_index(wrepo: str, errs: List[str]) -> None:
     examples, entries = _stems("examples"), _stems("memory")
     if not examples:
         return
-    cited = sorted(set(_BRACKET_CITE.findall(brief))
-                   | {_normalize(wrepo, c) for c in _PATH_CITE.findall(brief)})
+    prose = _CODE_SPAN.sub(" ", brief)
+    cited = sorted(set(_BRACKET_CITE.findall(prose))
+                   | {_normalize(wrepo, c) for c in _PATH_CITE.findall(prose)})
     found = [f"brief: cites [{c}], and neither examples/{c}.md nor "
              f"memory/{c}.md exists."
              for c in cited if c not in examples and c not in entries]
@@ -343,6 +351,10 @@ def check(wrepo: str) -> List[str]:
         for f in REQUIRED_FIELDS:
             if not re.search(rf"^{f}:", body, re.M):
                 errs.append(f"{mname}/{fn}: missing required field '{f}:'. Every entry needs all four: last_confirmed_t, scope, derived_from, brief (a fresh one-line summary, 300 chars max — hosts pick entries to read by it).")
+        if fn.startswith("L-"):
+            for f in LESSON_FIELDS:
+                if not re.search(rf"^{f}:", body, re.M):
+                    errs.append(f"{mname}/{fn}: a lesson without a '{f}:' line. A lesson carries status: (verified|candidate), step: (S1..S7) and check: (a JSON list of cell/answer checks) — the controller replays check: every block and hosts see the lesson only while status: verified.")
         bm = re.search(r"^brief:\s*(.*)$", body, re.M)
         if bm and len(bm.group(1).strip()) > BRIEF_MAX_CHARS:
             errs.append(f"{mname}/{fn}: brief is {len(bm.group(1).strip())} chars; the catalog serves at most {BRIEF_MAX_CHARS}. Rewrite it as a summary, not a truncation.")
@@ -358,8 +370,8 @@ def check(wrepo: str) -> List[str]:
         # whole session of good edits because the brief ran 20 chars long is a
         # punishment wildly out of proportion to the defect, and the agent
         # cannot count characters precisely while writing markdown. The
-        # wrapper truncates at render time instead and reports the overrun to
-        # the next session, so the host still never sees more than the budget.
+        # wrapper reports the size against the advisory number to the next
+        # session; nothing is cut (v6), the hosts receive the file whole.
         if HOST_LEXICON.search(brief):
             errs.append("brief: names a host model")
     return errs

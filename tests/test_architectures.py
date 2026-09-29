@@ -27,7 +27,9 @@ class ArchitectureTests(unittest.TestCase):
                 self.assertIsNone(result['server_name'])
                 self.assertIsNone(result['audit_log'])
                 self.assertEqual(result['roles'], {})
-                self.assertIn('No learned instructions yet.', (output/context_file).read_text())
+                context = (output/context_file).read_text()
+                for heading in ('# Adapter context', '## Procedure', '## Conventions', '## Lessons', '## Open questions'):
+                    self.assertIn(heading, context)
                 for role in previous['roles'].values():
                     self.assertFalse(Path(role).exists())
                 if host == 'codex':

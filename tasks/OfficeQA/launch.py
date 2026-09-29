@@ -84,7 +84,19 @@ def check(native=False):
     print(json.dumps({k: data[k] for k in ('passed', 'native', 'tests', 'skipped')}, indent=2))
 
 
-def prepare(root, cache, codex, profile='memory_bounded'):
+def profile_layout(profile):
+    full = str(profile).startswith('full_')
+    return {'protocol': 'PROTOCOL-FULL-MWM.md' if full else 'PROTOCOL.md',
+            'deployment': {'full_mwm_unbounded': 'officeqa-full',
+                           'full_prompt_only_unbounded': 'officeqa-prompt-only'}.get(profile, 'officeqa'),
+            'docker': profile == 'full_mwm_unbounded'}
+
+
+def shelf_hashes(shelf):
+    return {p.name: sha(p) for p in sorted(shelf.iterdir()) if p.is_file()}
+
+
+def prepare(root, cache, codex, profile='memory_bounded', shelf=None):
     root, cache, codex = root.resolve(), cache.resolve(), codex.absolute()
     if root.exists():
         raise ValueError('Use a new run directory; existing trials are never overwritten')
@@ -94,15 +106,25 @@ def prepare(root, cache, codex, profile='memory_bounded'):
         raise ValueError('Codex CLI not found; supply --codex /absolute/path/to/codex')
     if root == cache or root.is_relative_to(cache) or cache.is_relative_to(root):
         raise ValueError('Run directory and private download cache must be separate')
+    if shelf is not None and not shelf.is_dir():
+        raise ValueError('--shelf must be a directory of extracted *.txt/*.md reference text')
+    layout = profile_layout(profile)
     root.mkdir(parents=True)
     for path in (TASK / 'host').glob('*.py'):
         shutil.copy2(path, root / path.name)
-    shutil.copy2(TASK / ('PROTOCOL-FULL-MWM.md' if profile=='full_mwm_unbounded' else 'PROTOCOL.md'), root / 'PROTOCOL.md')
+    shutil.copy2(TASK / layout['protocol'], root / 'PROTOCOL.md')
     shutil.copytree(TASK / 'vendor', root / 'vendor')
-    deployment='officeqa-full' if profile=='full_mwm_unbounded' else 'officeqa'
-    shutil.copytree(TASK / 'deployments' / deployment, root / 'deployment')
+    shutil.copytree(TASK / 'deployments' / layout['deployment'], root / 'deployment')
     config={'framework':str(FRAMEWORK),'data_cache':str(cache),'codex':str(codex),'profile':profile}
-    if profile=='full_mwm_unbounded':
+    if shelf is not None:
+        # Learner-only reference text; actors never receive this directory.
+        target = root / 'reference-shelf'
+        target.mkdir()
+        for path in sorted(shelf.iterdir()):
+            if path.is_file() and path.suffix in ('.txt', '.md'):
+                shutil.copy2(path, target / path.name)
+        config['reference_shelf'] = shelf_hashes(target)
+    if layout['docker']:
         config['docker_binary']=shutil.which('docker')
         config['docker_host']=subprocess.check_output(['docker','context','inspect','--format','{{.Endpoints.docker.Host}}'],text=True).strip()
         config['execution_image']=subprocess.check_output(['docker','image','inspect','officeqa-mwm-exec:20260921','--format','{{.Id}}'],text=True).strip()
@@ -111,6 +133,22 @@ def prepare(root, cache, codex, profile='memory_bounded'):
                                   'note': 'Relocated runtime; new runs use the current framework, not historical v4 scores.'})
     execute(root, 'data.py', 'prepare')
     execute(root, 'data.py', 'verify')
+    if shelf is not None:
+        check_shelf(root)
+
+
+def check_shelf(root):
+    """The learner-only shelf must not carry the benchmark: no task id or question text."""
+    tasks = [json.loads(line) for line in (root / 'prepared/agent/tasks.jsonl').read_text().splitlines() if line.strip()]
+    needles = [t['task_id'] for t in tasks] + [t['question'].strip() for t in tasks if t.get('question')]
+    for path in sorted((root / 'reference-shelf').iterdir()):
+        text = path.read_text(errors='replace')
+        hits = [n for n in needles if n and n in text]
+        if hits:
+            raise ValueError(f'Reference shelf file {path.name} contains benchmark material; remove it before preparing')
+    save(root / 'preflight/shelf-check.json', {'checked_utc': datetime.now(timezone.utc).isoformat(),
+                                              'files': sorted(p.name for p in (root / 'reference-shelf').iterdir()),
+                                              'needles': len(needles), 'passed': True})
 
 
 def paid_run(root, gold_feedback):
@@ -129,15 +167,17 @@ def paid_run(root, gold_feedback):
     for path in (TASK / 'host').glob('*.py'):
         if sha(root / path.name) != sha(path):
             raise ValueError('Prepared runtime was modified: ' + path.name)
-    full=json.loads((root/'.task-paths.json').read_text()).get('profile')=='full_mwm_unbounded'
-    if sha(root / 'PROTOCOL.md') != sha(TASK / ('PROTOCOL-FULL-MWM.md' if full else 'PROTOCOL.md')):
+    paths = json.loads((root / '.task-paths.json').read_text())
+    layout = profile_layout(paths.get('profile'))
+    if sha(root / 'PROTOCOL.md') != sha(TASK / layout['protocol']):
         raise ValueError('Prepared protocol changed')
-    if fingerprint(root / 'deployment') != fingerprint(TASK / 'deployments' / ('officeqa-full' if full else 'officeqa')):
+    if fingerprint(root / 'deployment') != fingerprint(TASK / 'deployments' / layout['deployment']):
         raise ValueError('Prepared deployment changed')
     if fingerprint(root / 'vendor') != fingerprint(TASK / 'vendor'):
         raise ValueError('Pinned evaluator changed')
+    if 'reference_shelf' in paths and shelf_hashes(root / 'reference-shelf') != paths['reference_shelf']:
+        raise ValueError('Prepared reference shelf changed')
     execute(root, 'data.py', 'verify')
-    paths = json.loads((root / '.task-paths.json').read_text())
     if Path(paths['framework']).resolve() != FRAMEWORK:
         raise ValueError('Runtime framework differs from the checked checkout')
     if sha(paths['codex']) != checked.get('codex_sha256'):
@@ -174,7 +214,8 @@ def main():
     c.add_argument('--run-dir', type=Path, required=True)
     c.add_argument('--data-cache', type=Path, required=True)
     c.add_argument('--codex', type=Path, default=codex_path())
-    c.add_argument('--profile', choices=('memory_bounded','full_mwm_unbounded'), default='memory_bounded')
+    c.add_argument('--profile', choices=('memory_bounded','full_mwm_unbounded','full_prompt_only_unbounded'), default='memory_bounded')
+    c.add_argument('--shelf', type=Path, help='Directory of extracted *.txt/*.md reference text copied for the learner only')
     for name in ('run', 'report', 'audit', 'cost'):
         c = commands.add_parser(name)
         c.add_argument('--run-dir', type=Path, required=True)
@@ -194,7 +235,7 @@ def main():
         return
     root = args.run_dir.resolve()
     if args.command == 'prepare':
-        return prepare(root, args.data_cache, args.codex, args.profile)
+        return prepare(root, args.data_cache, args.codex, args.profile, args.shelf and args.shelf.resolve())
     if args.command == 'run':
         return paid_run(root, args.gold_feedback)
     if args.command == 'export':
@@ -202,7 +243,7 @@ def main():
         from export_results import export
         return export(root, args.output.resolve(), args.framework_revision)
     name=args.command
-    if name=='audit' and json.loads((root/'.task-paths.json').read_text()).get('profile')=='full_mwm_unbounded':
+    if name=='audit' and str(json.loads((root/'.task-paths.json').read_text()).get('profile')).startswith('full_'):
         name='full_audit'
     execute(root, name + '.py', '--root', root)
 

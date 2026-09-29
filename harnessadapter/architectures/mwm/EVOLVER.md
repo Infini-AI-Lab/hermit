@@ -9,10 +9,11 @@ A world model of an external environment: scoped and dated knowledge, its ground
 ## Structure
 
 - memory/<topic>.md: prose knowledge with brief, scope, last_confirmed_t, derived_from, and optional open fields.
+- memory/L-<slug>.md: a lesson — the same header plus status:, step: and check: lines; served to hosts in their own section only while status: verified, which the controller decides by replaying check: every block.
 - examples/<record-address>.md: authored worked examples grounding those claims.
 - tools/<name>/{TOOL.md,run.py,test.py}: learned programs with literal SCHEMA and run(**kwargs), admitted only after sandboxed tests.
 - agents/<name>/SPEC.md: role trigger, scope, dates, provenance, and instructions. The framework converts these for the acting host.
-- consumption/brief.md: the current briefing; host delivery applies the original cap.
+- consumption/brief.md: the current briefing; delivered whole (30000 chars is advisory; the size is reported, nothing is cut).
 - meta/cases/: unresolved investigations that persist until settled.
 - meta/journal.md and its archive: session records with separate rolling behavior.
 - interface.py and mwm_core/: method-specific consumption and dispatch code.

@@ -7,9 +7,13 @@ from contextvars import ContextVar
 import hashlib
 import json
 from pathlib import Path
+import re
 
 RESOURCES = ContextVar('mwm_resources', default={})
 _CACHE = {}
+# A SCHEMA name is any identifier-shaped string (v6); it need not equal the
+# directory name, which every caller reads from the candidate's '_module'.
+_NAME = re.compile(r'[A-Za-z_][A-Za-z0-9_-]*')
 
 
 def _entries(wrepo):
@@ -28,7 +32,7 @@ def candidates(wrepo):
             for node in tree.body:
                 if isinstance(node,ast.Assign) and any(getattr(t,'id',None)=='SCHEMA' for t in node.targets):schema=ast.literal_eval(node.value)
                 if isinstance(node,(ast.FunctionDef,ast.AsyncFunctionDef)) and node.name=='run':has_run=True
-            if isinstance(schema,dict) and schema.get('name')==directory and has_run:
+            if isinstance(schema,dict) and isinstance(schema.get('name'),str) and _NAME.fullmatch(schema['name']) and has_run:
                 out.append({**schema,'_module':directory})
         except (OSError,SyntaxError,ValueError,TypeError):continue
     return out

@@ -22,8 +22,8 @@ import time
 import tomllib
 
 from paths import CODEX
-from experiment import FULL
-MODEL = 'accounts/fireworks/models/glm-5p3-flash'
+from experiment import FULL, MWM, PROJECT_DOC_MAX_BYTES
+MODEL ='accounts/fireworks/models/glm-5p3-flash'
 PROVIDER = 'officeqa_fireworks'
 EFFORT = 'high'
 PROFILE = 'officeqa_actor'
@@ -44,8 +44,7 @@ DISABLED_FEATURES = (
     'skill_search', 'skill_mcp_dependency_install', 'recommended_plugins',
     'network_proxy', 'chronicle', 'goals', 'code_mode', 'code_mode_host',
     'code_mode_only', 'tool_suggest', 'realtime_conversation', 'sleep_tool',
-    'guardian_approval', 'standalone_web_search', 'api_key_model_discovery',
-    'unbounded_connection_retries', 'runtime_metrics',
+    'guardian_approval', 'standalone_web_search', 'api_key_model_discovery', 'runtime_metrics',
 )
 
 
@@ -96,7 +95,7 @@ left behind. Candidate Python is trusted code: review it before this call.
         raise ValueError('Workspace must be empty before preparation')
     info = None
     if adapter is not None:
-        if FULL:
+        if FULL and MWM:
             from full_runtime import render_exports
             import harnessadapter.hosts.codex as native_connector
             original_render = native_connector.render_exports
@@ -106,7 +105,7 @@ left behind. Candidate Python is trusted code: review it before this call.
         try:
             info = prepare(adapter, workspace, str(Path(sys.executable).absolute()))
         finally:
-            if FULL: native_connector.render_exports = original_render
+            if FULL and MWM: native_connector.render_exports = original_render
         current = (workspace / 'AGENTS.md').read_text()
         if not current.startswith(PROJECT_CONTEXT):
             raise ValueError('Unexpected generated context framing')
@@ -119,12 +118,14 @@ left behind. Candidate Python is trusted code: review it before this call.
         (workspace / '.codex/config.toml').write_text('# Prepared baseline; runtime config is explicit.\n')
     for name in ('.actor-home', '.actor-tmp'):
         (workspace / name).mkdir()
-    if FULL:
+    if FULL and MWM:
         shutil.copy2(Path(__file__).parent/'full_runtime.py',workspace/'.codex/mwm-runtime.py')
     metadata = {
         'workspace': str(workspace), 'adapter': str(adapter) if adapter else None,
         'common_instructions_sha256': hashlib.sha256(common_instructions.rstrip().encode()).hexdigest(),
         'agents_sha256': _sha(workspace / 'AGENTS.md'),
+        'agents_md_bytes': (workspace / 'AGENTS.md').stat().st_size,
+        'project_doc_max_bytes': PROJECT_DOC_MAX_BYTES,
         'prepared_utc': _utc(), 'deployment': info,
     }
     _json(workspace / MARKER, metadata)
@@ -273,8 +274,10 @@ def build_settings(workspace, output, corpus, index, adapter=None, *, endpoint):
                     'name': 'GLM 5.3 Flash via local Fireworks-only broker',
                     'base_url': endpoint, 'wire_api': 'responses', 'requires_openai_auth': False,
                     'supports_websockets': False, 'supports_standalone_web_search': False,
-                    'request_max_retries': 0, 'stream_max_retries': 0,
-                    'stream_idle_timeout_ms': 1250000},
+                    # Codex clamps both at its hard maximum of 100 (MAX_*_MAX_RETRIES).
+                    'request_max_retries': 100, 'stream_max_retries': 100,
+                    'stream_idle_timeout_ms': 3600000},
+                'project_doc_max_bytes': PROJECT_DOC_MAX_BYTES,
                 'analytics.enabled': False, 'feedback.enabled': False,
                 'otel.exporter': 'none', 'otel.trace_exporter': 'none', 'otel.metrics_exporter': 'none',
                 'model_context_window': 196608, 'model_auto_compact_token_limit': 160000,
@@ -299,14 +302,14 @@ def build_settings(workspace, output, corpus, index, adapter=None, *, endpoint):
             server_args = ['-i', *[f'{k}={v}' for k, v in env.items()],
                            str(Path(sys.executable).absolute()), '-B', '-m',
                            'harnessadapter.runtime.mcp_server', '--adapter', str(Path(adapter).resolve())]
-            if FULL:
+            if FULL and MWM:
                 server_args = ['-i', *[f'{k}={v}' for k,v in env.items()],
                     str(Path(sys.executable).absolute()), '-B', str(workspace/'.codex/mwm-runtime.py'),
                     '--adapter',str(Path(adapter).resolve()),'--endpoint',endpoint]
             prefix = 'mcp_servers.' + info['server_name'] + '.'
             settings.update({prefix + 'command': '/usr/bin/env', prefix + 'args': server_args,
-                             prefix + 'required': True, prefix + 'startup_timeout_sec': 30,
-                             prefix + 'tool_timeout_sec': 30, prefix + 'default_tools_approval_mode': 'approve'})
+                             prefix + 'required': True, prefix + 'startup_timeout_sec': 60,
+                             prefix + 'tool_timeout_sec': 660, prefix + 'default_tools_approval_mode': 'approve'})
         if FULL:
             for role, path in info.get('roles', {}).items():
                 role_info = tomllib.loads(Path(path).read_text())
@@ -342,6 +345,12 @@ def parse_events(path):
     terminal = [(i, e) for i, e in enumerate(events) if e.get('type') in ('turn.completed', 'turn.failed')]
     completed = bool(terminal and terminal[-1][1]['type'] == 'turn.completed' and
                      not any(e.get('type') == 'error' for e in events[terminal[-1][0] + 1:]) and not malformed)
+    terminal_event = terminal[-1][1]['type'] if terminal else None
+    error_text = None
+    if terminal_event == 'turn.failed':
+        # Only the failed turn's own error; standalone 'error' events also occur on completed runs.
+        error = terminal[-1][1].get('error')
+        error_text = (error.get('message') if isinstance(error, dict) else None) or (str(error) if error is not None else None)
     usage = Counter()
     usage_events = 0
     for event in events:
@@ -356,7 +365,7 @@ def parse_events(path):
             if item.get('type') == 'agent_message' and isinstance(item.get('text'), str):
                 last_agent_message = item['text']
     return {'turn_completed': completed, 'event_count': len(events), 'malformed_event_lines': malformed,
-            'terminal_type': terminal[-1][1]['type'] if terminal else None,
+            'terminal_type': terminal_event, 'terminal_event': terminal_event, 'error_text': error_text,
             'usage': dict(usage) if usage_events else None, 'usage_events': usage_events,
             'completed_item_counts': dict(Counter(i.get('type', 'unknown') for i in items.values())),
             'error_notifications': sum(e.get('type') == 'error' for e in events),
@@ -489,6 +498,7 @@ def run_actor(workspace, output, prompt, corpus, index, adapter=None, timeout=18
             launch_error = f'{type(exc).__name__}: {exc}'
     parsed = parse_events(output / 'events.jsonl')
     final_validation = collect_final(workspace, output, parsed.pop('last_agent_message'))
+    marker = json.loads((workspace / MARKER).read_text())
     exit_code = process.returncode if process is not None else None
     status = ('launch_error' if launch_error else 'timeout' if timed_out else
               'invalid_final' if exit_code == 0 and parsed['turn_completed'] and not final_validation['valid'] else
@@ -497,6 +507,8 @@ def run_actor(workspace, output, prompt, corpus, index, adapter=None, timeout=18
               'elapsed_seconds': round(time.monotonic() - begin, 6), 'exit_code': exit_code,
               'timed_out': timed_out, 'launch_error': launch_error, **parsed,
               'final_validation': final_validation,
+              'agents_md_bytes': marker.get('agents_md_bytes'),
+              'project_doc_max_bytes': marker.get('project_doc_max_bytes'),
               'requested_model': MODEL, 'reasoning_effort': EFFORT,
               'final_message_present': (output / 'final.md').is_file(),
               'output_directory': str(output), 'grading': 'not performed by acting runner'}

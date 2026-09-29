@@ -51,7 +51,7 @@ GENERIC_SLOTS={
     'domain_what':'This standalone deployment learns from supplied evidence and any environment access granted by the framework policy. No venue facts are pre-seeded.',
     'domain_read_exception':', the supplied evidence, method, environment, and history areas',
     'domain_write_dirs':'memory/, examples/, tools/, agents/, consumption/, meta/, and other core files (all core files are editable)',
-    'env_consumption':'Hosts receive the original five-part MWM package and one wm(name,args) tool. Native roles are exported from SPEC.md.',
+    'env_consumption':'Hosts receive the MWM package (briefing, verified lessons, open questions, memory catalog, access description) and one wm(name,args) tool. Native roles are exported from SPEC.md.',
     'env_executable':'Learned tools use tools/<name>/{TOOL.md,run.py,test.py}. Verification uses the framework test_python capability; unavailable sandbox means no admission.',
     'env_verification':'The environment README declares readable directories, network policy, and available instruments. No benchmark-specific probe is implicitly provided.'}
 CAPTEST_CMD='captest'   # the broker serves captest(directory) as the native name of test_python
@@ -107,12 +107,24 @@ def _deployment(session: Path) -> dict:
     return out
 
 
+def _lessons(adapter: Path) -> str:
+    """The verified lessons as the hosts see them ('' on a candidate whose
+    mwm_core copy predates lessons)."""
+    try:return getattr(_adapter_module(adapter,'wm_tools'),'lessons',lambda w:'')(str(adapter))
+    except Exception:return ''  # noqa: BLE001
+
+
 def _wm_counts(adapter: Path) -> str:
+    """Honest counts: entries and lessons from memory/, verified lessons as
+    served, tool candidates (admission is decided at serve time, by the
+    sandbox test — nothing here has run one)."""
     mdir=adapter/'memory'
-    n_mem=sum(1 for f in mdir.glob('*.md') if not f.name.startswith('_') and f.name!='README.md') if mdir.is_dir() else 0
-    troot=adapter/'tools'
-    n_tools=sum(1 for d in troot.iterdir() if d.is_dir() and not d.name.startswith(('_','.')) and (d/'run.py').is_file()) if troot.is_dir() else 0
-    return f"world model: {n_mem} memory entries, {n_tools} admitted tools"
+    entries=[f for f in mdir.glob('*.md') if not f.name.startswith('_') and f.name!='README.md'] if mdir.is_dir() else []
+    n_les=sum(1 for f in entries if f.name.startswith('L-'))
+    n_ver=sum(1 for line in _lessons(adapter).splitlines() if line.strip())
+    try:n_tools=len(_adapter_module(adapter,'capabilities').candidates(str(adapter)))
+    except Exception:n_tools=0  # noqa: BLE001
+    return f"world model: {len(entries)-n_les} memory entries, {n_ver} verified lessons of {n_les}, {n_tools} tool candidates (admission decided at serve time)"
 
 
 def prepare_session(adapter, session, block=1, tick=0, method_root=None):
@@ -185,14 +197,17 @@ def _status_block(adapter: Path, state: dict) -> str:
     brief=adapter/'consumption/brief.md'
     if brief.exists():
         n=len(brief.read_text())
-        bline=f"consumption/brief.md: {n}/30000 chars"+(" OVER BUDGET — the hosts of the block just played received it TRUNCATED at 30000 (visible seam at the cut); trim it now" if n>30000 else "")
+        bline=f"consumption/brief.md: {n} chars (advisory 30000; nothing is cut)"+(" — over the advisory size: the hosts received it whole; trim it" if n>30000 else "")
     else:
         bline="consumption/brief.md: (missing)"
     index=state.get('index') or ''
     index_block=("[Memory index] one line per entry — [id] t=<its last_confirmed_t> · brief — newest edit first, the order and brief the hosts see:\n"+index) if index else ''
+    les=_lessons(adapter)
+    lessons_block=("[Lessons index] the lessons the hosts see (status: verified only) — [id] scope · step · brief — newest edit first; candidates appear in the memory index, not here:\n"+les) if les else ''
     cases=state.get('docket') or ''
     return ("\n\n[Wrapper-computed status]\n"+((cases+"\n") if cases else "")
             +(("\n\n"+index_block) if index_block else "")
+            +(("\n\n"+lessons_block) if lessons_block else "")
             +"\n"+state.get('wm_counts','')+"\n"+bline
             +(("\n"+state['roll_notice']) if state.get('roll_notice') else ""))
 

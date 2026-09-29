@@ -25,14 +25,16 @@ def smoke(key, name):
         base = root / arm
         workspace = base / 'workspace'
         adapter = c.W0 if arm == 'adapted' else None
+        # Only an MWM adapter serves an MCP tool; prompt-only adapters are text.
+        has_tools = bool(c.read(adapter / 'adapter.json').get('tools')) and c.MWM if adapter else False
         c.prepare_workspace(workspace, adapter, corpus=corpus, index=index)
         (workspace / 'note.txt').write_text(marker + '\n')
         prompt = ('This is a synthetic interface test. Use the native shell tool to read note.txt. '
                   'Return only the exact string inside note.txt as your final response.')
-        if adapter:
+        if has_tools:
             prompt += ' Also make one real wm MCP call to inspect the available memory before your final response.'
         sandbox = None
-        if c.FULL and adapter:
+        if c.FULL and has_tools:
             from full_runtime import DockerPythonSandbox
             sandbox = DockerPythonSandbox(adapter)
         with c.broker.Broker(key, base / 'api', local_sandbox=sandbox, **c.BROKER_OPTIONS) as relay:
@@ -43,9 +45,9 @@ def smoke(key, name):
         transport = c.read(base / 'api/summary.json')
         passed = (result['status'] == 'completed' and answer == marker and
                   native.get('command_execution', 0) >= 1 and not transport['failed'] and
-                  (not adapter or native.get('mcp_tool_call',0) >= 1))
+                  (not has_tools or native.get('mcp_tool_call',0) >= 1))
         return {'arm':arm,'passed':passed,'result':result,'transport':transport,
-                'exact_fixture_answer':answer == marker}
+                'exact_fixture_answer':answer == marker,'has_tools':has_tools}
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(one, ('baseline','adapted')))
     result = {'passed':all(r['passed'] for r in results),'results':results,

@@ -2,9 +2,10 @@
 
 Design: claude-doc/interface-system.md. Two halves, both venue-agnostic:
 
-  * the PUSH package — five sections in a fixed order, rendered by
-    ``package()`` for every venue; a venue supplies only the transport note
-    of the last section (how ``wm`` arrives for this kind of host);
+  * the PUSH package — six sections in a fixed order (v6 added the
+    verified lessons right after the briefing), rendered by ``package()``
+    for every venue; a venue supplies only the transport note of the last
+    section (how ``wm`` arrives for this kind of host);
   * the PULL tool — ``wm(name, args)``: six built-in names and the world
     model's own admitted tools in one namespace, dispatched by
     ``WorldModelInterface.call``.
@@ -63,10 +64,16 @@ TOOL_SPEC = {
 
 SECTION_TITLES = {
     "brief": "=== Environment briefing ===",
+    "lessons": "=== Verified lessons ===",
     "open": "=== Open questions ===",
     "catalog": "=== World-model memory (catalog) ===",
     "reach": "=== Reaching the world model ===",
 }
+
+# The two lines that head the lessons section (v6): what a host does with
+# a lesson, in the vocabulary the postmortem ladder uses (S1-S6).
+CONSULT_RULE = ("Before opening a table, match its family here; before committing a number, match the convention here.\n"
+                "State units, count cells, round last; commit once a candidate number exists; mention the [id] you apply.")
 
 FRAMEWORK_CALLS_SENTENCE = ("These calls reach the world model, not the environment. This standalone\n"
                             "deployment has no benchmark score or episode budget; the acting host owns\n"
@@ -98,11 +105,14 @@ in the catalog, `recall` for the summary behind an address, `trace` when
 you need the process itself. Following an address is your call: the
 briefing offers it, nothing requires it. Built-in names, input -> output:
 
-  memory   input {"id": "<an [id] from the catalog>"}
+  memory   input {"id": "<an [id] from the catalog, or an [L-id] from the
+    verified lessons section>"}
     output: that entry's file — last_confirmed_t (the tick it was last
     confirmed at), scope (when it applies and when not), derived_from
     (the record addresses it was built from), brief (its one-line
     summary), open (an unsettled reading, if any), then the entry itself.
+    A lesson also carries status, step and check (the cells or answers
+    its claim was re-verified against).
     e.g. {eg_memory}
 
   recall   input {"address": "<a record address — the form a briefing
@@ -389,9 +399,9 @@ class WorldModelInterface:
         return "\n\n".join(parts)
 
     def package(self, transport_note: str, with_delegate: bool = True) -> str:
-        """The five-section push package, identical in shape everywhere.
+        """The six-section push package, identical in shape everywhere.
         with_delegate=False: the same package for a sub-agent, whose
-        section 5 lists no delegate."""
+        last section lists no delegate."""
         w = str(self.wrepo)
         bp = self.wrepo / "consumption" / "brief.md"
         try:
@@ -401,11 +411,13 @@ class WorldModelInterface:
                      if wm_tools.inside(self.wrepo, bp) else "")
         except OSError:
             brief = ""
+        les = wm_tools.lessons(w)
         oq = wm_tools.open_questions(w)
         cat = wm_tools.catalog(w)
         return "\n\n".join([
             host_framing.TEXT,
             SECTION_TITLES["brief"] + "\n" + (brief or "(empty briefing — nothing learned yet)"),
+            SECTION_TITLES["lessons"] + "\n" + CONSULT_RULE + "\n" + (les or "(none verified yet)"),
             SECTION_TITLES["open"] + "\n" + (oq or "(none)"),
             SECTION_TITLES["catalog"] + "\n" + (cat or "(empty)"),
             SECTION_TITLES["reach"] + "\n\n" + self.reach_text(transport_note, with_delegate),
@@ -422,7 +434,9 @@ class WorldModelInterface:
             return sorted(f.name for f in p.iterdir()
                           if f.name.endswith(suffix) and f.name not in skip)
         mem = files("memory")
-        lines.append(f"  memory/       {len(mem)} entries (the catalog above lists them; memory/<id>.md)")
+        les = [m for m in mem if m.startswith(wm_tools.LESSON_PREFIX)]
+        lines.append(f"  memory/       {len(mem) - len(les)} entries (the catalog above lists them; memory/<id>.md)"
+                     f" + {len(les)} lessons (memory/L-*.md; the verified ones are the lessons section above)")
         def _key(name):
             m = re.search(r"(\d+)", name)
             return (name[:m.start()] if m else name, int(m.group(1)) if m else 0, name)
@@ -558,7 +572,10 @@ class WorldModelInterface:
         if "/" in name or name.startswith("."):
             return f"wm: not a tool name: {name!r}"
         tools = {t["name"]: t for t in self.admitted_tools()}
-        paths = dict(capabilities._entries(str(self.wrepo)))
+        entries = dict(capabilities._entries(str(self.wrepo)))
+        # SCHEMA names need not equal directory names (v6): paths and the
+        # sandbox are keyed by the candidate's '_module', the directory.
+        paths = {t["name"]: entries[t["_module"]] for t in tools.values() if t.get("_module") in entries}
         if name not in tools or name not in paths:
             if (self.wrepo / "agents" / name).exists():
                 return (f"{name!r} is a sub-agent spec: call "
@@ -578,7 +595,7 @@ class WorldModelInterface:
             refusal = self.tool_filter(Path(paths[name]))
             if refusal:
                 return refusal
-        return capabilities.invoke(str(self.wrepo), name, args)
+        return capabilities.invoke(str(self.wrepo), tools[name]["_module"], args)
 
 
 def parse_tool_call(arguments) -> tuple:

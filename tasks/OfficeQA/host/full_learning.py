@@ -1,4 +1,8 @@
-"""GLM-only full native MWM learning, with no inference/session budget."""
+"""GLM-only full native learning (MWM or prompt-only), with no inference/session budget.
+
+The controller grades the sealed block for the learner, drives one post-mortem
+phase per failed episode, then replays every lesson's checks before admission.
+"""
 import asyncio
 import importlib
 import json
@@ -7,74 +11,47 @@ import shutil
 import sys
 import time
 
+import experiment
 import learning as legacy
 from learning import MODEL, GENERIC_SOURCE, ROOT, save, utc, snapshot, revision, digest
-from paths import REPOSITORY, DEPLOYMENT
+from paths import REPOSITORY, DEPLOYMENT, VENDOR
+import postmortem
 
-GOAL = '''Evolve the MWM adapter from the five just-completed GLM acting episodes.
-Their original submissions are already sealed. ONLY those five reference answers
-are now released in evidence; no future question/answer, baseline trace, source
-mapping, grader rationale or human/Astra critique is supplied. Compare the actual
-attempts with those answers and use that feedback before later questions.
-
-All native MWM learning layers are available: memory, worked examples, briefing,
-investigations, tested Python tools and agent-role specifications. The usual MWM
-method and immutable serving contract apply. There is no task-specific Markdown
-allowlist, 6,000-character briefing cap or mandatory full-trajectory reading gate.
-You can search/read the same complete permitted corpus as actors and execute
-local calculations to investigate the completed attempts. The deployment and
-environment documents identify the corpus and helper. Native test_python/captest
-runs real Linux bubblewrap inside a networkless container. Native roles are
-delivered to the next Codex actors. small_model, when used, calls the exact same
-GLM model, never a different model.
-
-Record your own public feedback in scratch/feedback.json with label
-glm_reference_answer_feedback and an episodes array. For each completed episode
-include id, observations, reference_comparison, uncertainty and proposed_lesson.
-Describe what you actually verified and keep unverified causes distinguishable.
-This record is for inspection, not a human quality gate. Learn through the native
-MWM process; there is no human-authored case diagnosis or solution guidance.
-
-No elapsed-time, cumulative input/output-token, model-call, tool-call or dollar
-budget terminates this session. Fireworks token/reasoning limit parameters are
-omitted; provider defaults and intrinsic context/output limits still apply.
-If the conversation approaches its context window, GLM itself makes a checkpoint
-summary and continues with the same files and tools. This does not end learning.
-Finish when your work is complete, with a public summary of feedback and changes.
-The candidate is admitted by integrity/structure checks, not by its quality or
-benchmark score. Never alter sealed evidence, scoring, controller files, the
-fixed model/transport or other trials. Network tools cannot access the internet.
-'''
+FEEDBACK_PATHS = ('scratch/feedback.json', 'scratch/scratch/feedback.json', 'adapter/scratch/feedback.json')
 
 
 def validate_source(source, block):
     before = snapshot(source)
     if Path(source) == GENERIC_SOURCE.resolve():
-        return before, {'kind':'generic_mwm_architecture', 'revision':revision(before)}
+        return before, {'kind':'generic_'+experiment.ARCHITECTURE+'_architecture', 'revision':revision(before)}
     receipt = Path(source).parents[2] / 'result.json'
     prior = json.loads(receipt.read_text())
-    if (block <= 1 or prior.get('profile') != 'full_mwm_unbounded' or not prior.get('activated')
+    if (block <= 1 or prior.get('profile') != experiment.PROFILE or not prior.get('activated')
             or prior.get('candidate') != str(source) or prior.get('revision') != revision(before)
             or not 0 < prior.get('block',0) < block or prior.get('model') != MODEL):
         raise ValueError('Source must be this campaign\'s previous admitted GLM candidate')
     return before, {'kind':'previous_glm_candidate', 'receipt_sha256':digest(receipt.read_bytes())}
 
 
-async def conversation(key, connection, session, prompt, transport):
+async def conversation(key, connection, session, prompt, transport, *, phases=(), extras=None):
     from jsonschema import Draft202012Validator
     declarations = (await connection.list_tools()).tools
     tools = {t.name:t for t in declarations}
     schemas = {n:getattr(t,'input_schema',None) or getattr(t,'inputSchema') for n,t in tools.items()}
     functions = [{'type':'function','function':{'name':n,'description':t.description or '',
                   'parameters':schemas[n]}} for n,t in sorted(tools.items())]
+    if extras is not None:
+        # Controller checkers answered here, never by the sandbox broker.
+        schemas.update(postmortem.TOOLS); functions += postmortem.DECLARATIONS
     save(session/'control/fireworks-tools.json',functions)
     messages = [{'role':'user','content':prompt}]
+    queue, current = list(phases), None
     state = {'status':'running','model_calls':0,'requested_tools':0,'successful_tools':0,
              'usage':{'prompt_tokens':0,'completion_tokens':0,'cached_tokens':0},
              'usage_complete':True,'usage_unknown_calls':[],'wire_attempts':0,'rate_refusals':0,
              'scheduler_wait_seconds':0,'response_models':[],'compactions':0,
              'expected_candidate':snapshot(session/'adapter'), 'tool_provenance':[],
-             'last_prompt_tokens':0}
+             'last_prompt_tokens':0,'phases_completed':0,'phases_total':len(queue)}
     def checkpoint(): save(session/'control/fireworks-result.json',state)
     async def call(history, purpose, **options):
         state['model_calls'] += 1
@@ -115,8 +92,9 @@ async def conversation(key, connection, session, prompt, transport):
             text=summary.get('content') or ''
             state['compactions']+=1
             (session/f'control/glm-checkpoint-{state["compactions"]:02}.md').write_text(text)
-            messages=[{'role':'user','content':prompt}, {'role':'assistant','content':text},
-                      {'role':'user','content':'Continue the same learning session from your own checkpoint. Re-read files whenever needed.'}]
+            resume='Continue the same learning session from your own checkpoint. Re-read files whenever needed.'
+            if current is not None: resume+='\n\nCurrent phase:\n'+current
+            messages=[{'role':'user','content':prompt}, {'role':'assistant','content':text}, {'role':'user','content':resume}]
             state['last_prompt_tokens']=0
         message, finish=await call(messages,'learner',tools=functions)
         messages.append(legacy.continuing_message(message))
@@ -125,6 +103,11 @@ async def conversation(key, connection, session, prompt, transport):
             if finish == 'length':
                 messages.append({'role':'user','content':'The provider ended that response at its output limit. Continue the same session; files and tools are unchanged.'})
                 continue
+            if finish == 'stop' and queue:
+                state['phases_completed']+=1
+                (session/f'control/fireworks-report-{state["phases_completed"]:02}.md').write_text(message.get('content') or '')
+                current=queue.pop(0); messages.append({'role':'user','content':current})
+                checkpoint(); continue
             state['status']='completed' if finish=='stop' else 'provider_incomplete'
             (session/'control/fireworks-report.md').write_text(message.get('content') or '')
             break
@@ -135,10 +118,12 @@ async def conversation(key, connection, session, prompt, transport):
             if before != state['expected_candidate']: raise ValueError('Unattributed candidate change before GLM tool operation')
             record={'index':index,'request':state['model_calls'],'name':name,'tool_call_id':tool_call['id'],'started_utc':utc()}
             try:
-                if name not in tools: raise ValueError('Unknown native capability')
+                if name not in schemas: raise ValueError('Unknown native capability')
                 args=json.loads(function.get('arguments') or '{}')
                 Draft202012Validator(schemas[name]).validate(args)
-                if name=='small_model':
+                if name in postmortem.TOOLS:
+                    text, ok=postmortem.call(name,args,extras)
+                elif name=='small_model':
                     response, _=await call(args['messages'],'glm_requested_reader')
                     text=json.dumps(legacy.public_message(response)); ok=True
                 else:
@@ -171,7 +156,7 @@ async def conversation(key, connection, session, prompt, transport):
     checkpoint(); return state
 
 
-async def bridge(key, session, prompt, transport):
+async def bridge(key, session, prompt, transport, *, phases=(), extras=None):
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
     env=legacy.broker_environment(session)
@@ -185,7 +170,22 @@ async def bridge(key, session, prompt, transport):
         async with stdio_client(params,errlog=err) as (read,write):
             async with ClientSession(read,write,read_timeout_seconds=None) as connection:
                 await connection.initialize()
-                return await conversation(key,connection,session,prompt,transport)
+                return await conversation(key,connection,session,prompt,transport,phases=phases,extras=extras)
+
+
+def previous_replay(block):
+    prior=ROOT/'evolution'/f'{block-1:02}/result.json'
+    if block<=1 or not prior.is_file(): return None
+    path=Path(json.loads(prior.read_text()).get('session') or '/nonexistent')/'control/postmortem-replay.json'
+    return json.loads(path.read_text()) if path.is_file() else None
+
+
+def released_evidence(session, manifest, block):
+    dirs={e['ordinal']:session/'evidence'/e['directory'] for e in manifest['episodes']}
+    for bb in range(1,block):
+        for d in sorted((ROOT/'evidence'/f'{bb:02}').glob('[0-9][0-9][0-9]')):
+            if d.is_dir() and int(d.name)<=block*5: dirs[int(d.name)]=d
+    return dirs
 
 
 def run_learning(key, source, evidence, output, block):
@@ -193,7 +193,7 @@ def run_learning(key, source, evidence, output, block):
     if output.exists(): raise FileExistsError('Learning trial already exists')
     output.mkdir(parents=True); start=time.monotonic()
     result={'status':'rejected','activated':False,'block':block,'model':MODEL,'source':str(source),
-            'candidate':str(source),'started_utc':utc(),'profile':'full_mwm_unbounded',
+            'candidate':str(source),'started_utc':utc(),'profile':experiment.PROFILE,'architecture':experiment.ARCHITECTURE,
             'admission_mode':'automatic_mechanical_only','transport':'fireworks'}
     try:
         before,lineage=validate_source(source,block)
@@ -202,28 +202,39 @@ def run_learning(key, source, evidence, output, block):
         environment=output/'document-tools'; environment.mkdir()
         shutil.copy2(ROOT/'prepared/agent/corpus.sqlite',environment/'corpus.sqlite')
         shutil.copy2(ROOT/'officeqa_tools.py',environment/'officeqa.py')
-        corpus=ROOT/'prepared/agent/corpus'
-        extra=f'\nCorpus: {corpus}\nRead-only helper: {environment}/officeqa.py\nIndex: {environment}/corpus.sqlite\nUse OfficeQACorpus(Path(corpus),Path(index)) with search/read/list_files, or read the TXT files directly.\n'
-        goal=GOAL+extra
+        corpus=ROOT/'prepared/agent/corpus'; index=environment/'corpus.sqlite'
+        pm=output/'postmortem'
+        verdicts=postmortem.grade_block(evidence,pm,block,VENDOR/'reward.py')
+        shelf=experiment.SHELF
+        read_paths=[str(corpus),str(environment),str(pm)]+([str(shelf)] if shelf else [])
+        extra=(f'\nPaths (read_path/list_path or run_command):\nCorpus: {corpus}\nRead-only helper: {environment}/officeqa.py\n'
+               f'Index: {index}\nUse OfficeQACorpus(Path(corpus),Path(index)) with search/read/list_files, or read the TXT files directly.\n'
+               f'Block grades and failure records: {pm}\n'
+               +(f'Reference shelf: {shelf} (read {shelf}/INDEX.md first; run_command(\'grep -n -i "term" {shelf}/*.txt\'); information only, never a proof)\n' if shelf else 'Reference shelf: none this run.\n')
+               +f'Served context now: {json.dumps(postmortem.served_bytes(source,experiment.ARCHITECTURE))}\n')
+        goal=postmortem.panel(verdicts,previous_replay(block))+'\n'+postmortem.goal_text(experiment.ARCHITECTURE)+extra
+        phases=postmortem.phases(verdicts)+[postmortem.SERVE_PHASE]
         save(output/'request.json',{'goal':goal,'source_lineage':lineage,'episode_ids':[e['id'] for e in manifest['episodes']],
             'budgets':{'seconds':None,'completion_tokens':None,'per_response':None,'model_calls':None},'model':MODEL,
-            'controller_batch_seal':seal,'read_paths':[str(corpus),str(environment)]})
+            'controller_batch_seal':seal,'read_paths':read_paths,'grades_released':True,'phases':len(phases),
+            'architecture':experiment.ARCHITECTURE,'reference_shelf':str(shelf) if shelf else None})
         from harnessadapter.evolution.session import evolve
         from harnessadapter.evolution.definition import EvolverDefinition
         from harnessadapter.policy.execution import ExecutionPolicy
         from full_sandbox import install
         install()
-        definition=EvolverDefinition('mwm')
-        prepared=evolve(source,evidence,goal,timeout=None,prepare_only=True,block=block,tick=block*5,
-            policy=ExecutionPolicy(backend='codex',network=False,read_paths=(str(corpus),str(environment))),
+        definition=EvolverDefinition('mwm') if experiment.MWM else EvolverDefinition('basic',prompt_override=postmortem.PROMPT_ONLY_OPENER)
+        prepared=evolve(source,evidence,goal,timeout=None,prepare_only=True,block=block,tick=block,
+            policy=ExecutionPolicy(backend='codex',network=False,read_paths=tuple(read_paths)),
             definition=definition,output=output/'sessions',model=MODEL,deployment=DEPLOYMENT,
             source_kind='architecture' if source==GENERIC_SOURCE.resolve() else 'adapter')
         session=Path(prepared['session']); result['session']=str(session)
         prompt=(session/'control/prompt.md').read_text(); (output/'exact-prompt.md').write_text(prompt)
         result['native_prepare_result']=str(session/'control/result.json')
-        state=asyncio.run(bridge(key,session,prompt,importlib.import_module('client')))
+        extras={'evidence':session/'evidence','manifest':manifest,'corpus':corpus,'index':index,'reward':VENDOR/'reward.py'}
+        state=asyncio.run(bridge(key,session,prompt,importlib.import_module('client'),phases=phases,extras=extras))
         for name in ('model_calls','requested_tools','successful_tools','usage','usage_complete','usage_unknown_calls',
-                     'wire_attempts','rate_refusals','scheduler_wait_seconds','response_models','compactions'):
+                     'wire_attempts','rate_refusals','scheduler_wait_seconds','response_models','compactions','phases_completed','phases_total'):
             result[name]=state[name]
         result['learner_status']=state['status']
         from harnessadapter.evolution.workspace import Workspace, fingerprint
@@ -237,6 +248,16 @@ def run_learning(key, source, evidence, output, block):
         for area in ('evidence','method','environment','history'): protected[area]=fingerprint(session/area)==base[area]
         legacy.validate_batch_seal(session/'evidence',manifest,block)
         native_finalize=definition.finalize(candidate,session)
+        # Controller edits after the learner: replay rewrites lesson status lines
+        # and a feedback file left inside the candidate moves to scratch.
+        replay=postmortem.replay(candidate,experiment.ARCHITECTURE,block,released_evidence(session,manifest,block),corpus,index,VENDOR/'reward.py')
+        feedback=next((session/p for p in FEEDBACK_PATHS if (session/p).is_file()),None)
+        feedback_moved=None
+        if feedback is not None and feedback.is_relative_to(candidate):
+            feedback_moved=str(feedback); feedback=session/'scratch/feedback.json'
+            shutil.move(feedback_moved,feedback)
+            if not any((candidate/'scratch').iterdir()): (candidate/'scratch').rmdir()
+        controller_edits={'before':revision(state['expected_candidate']),'after':revision(snapshot(candidate))}
         validation=workspace.validate()
         failures=[]
         if state['status']!='completed': failures.append('Learner did not complete')
@@ -244,19 +265,21 @@ def run_learning(key, source, evidence, output, block):
         if not validation['passed']: failures.append('Native structural validation failed')
         if not provenance or state['response_models']!=[MODEL]: failures.append('Model/operation provenance failed')
         if not state['successful_tools']: failures.append('No successful native tools')
-        feedback=session/'scratch/feedback.json'
-        public_feedback={'path':str(feedback),'sha256':digest(feedback.read_bytes())} if feedback.is_file() else None
+        if not experiment.MWM and any((candidate/n).read_bytes()!=(GENERIC_SOURCE/n).read_bytes() for n in ('adapter.json','EVOLVER.md')):
+            failures.append('adapter.json or EVOLVER.md changed')
+        public_feedback={'path':str(feedback),'sha256':digest(feedback.read_bytes()),'moved_from':feedback_moved} if feedback else None
         admission={'admitted':not failures,'failures':failures,'protected_unchanged':protected,
-            'operation_provenance_matches':provenance,'validation':validation,'native_finalize':native_finalize,
-            'human_semantic_gate':False,'model':MODEL,'public_feedback':public_feedback,
-            'feedback_missing':public_feedback is None,'revision':revision(snapshot(candidate)),
-            'note':'Native gates and feedback format are reported, not a new semantic adoption filter.'}
+            'operation_provenance_matches':provenance,'controller_edits':controller_edits,'validation':validation,
+            'native_finalize':native_finalize,'postmortem':replay,'human_semantic_gate':False,'model':MODEL,
+            'public_feedback':public_feedback,'feedback_missing':public_feedback is None,'revision':revision(snapshot(candidate)),
+            'note':'Native gates, replayed lesson checks and feedback format are reported, not a new semantic adoption filter.'}
         save(session/'control/mechanical-admission.json',admission)
         result.update(admission=str(session/'control/mechanical-admission.json'),failures=failures,
-                      revision=admission['revision'],public_feedback=public_feedback)
+                      revision=admission['revision'],public_feedback=public_feedback,
+                      postmortem={k:replay[k] for k in ('verified','candidate','demoted','promoted','wrong','records')})
         if not failures:
             from harnessadapter.adapter.versioning import commit_all
-            commit=commit_all(candidate,f'OfficeQA full MWM: GLM block {block}')
+            commit=commit_all(candidate,f'OfficeQA full {experiment.ARCHITECTURE}: GLM block {block}')
             result.update(status='admitted',activated=True,candidate=str(candidate),candidate_commit=commit)
     except Exception as exc:
         result['error']=(type(exc).__name__+': '+str(exc)).replace(key,'[REDACTED]')

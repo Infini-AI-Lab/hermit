@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 import threading
+import time
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -19,7 +20,7 @@ class EvidenceTests(unittest.TestCase):
             base=root/'runs/adapted'/f'{i:03}';(base/'records').mkdir(parents=True)
             for name,value in [('task.json',{'ordinal':i,**task}),('prediction.json',{'task_id':str(i),'answer':'Model prediction'}),('summary.json',{'status':'completed'})]:
                 (base/name).write_text(json.dumps(value))
-            events=[{'type':'item.completed','item':{'type':'reasoning','text':'PRIVATE_REASONING'}},{'type':'item.completed','item':{'type':'command_execution','aggregated_output':'OBSERVED'}},{'type':'item.completed','item':{'type':'agent_message','text':'PUBLIC_MODEL'}}]
+            events=[{'type':'item.completed','item':{'type':'reasoning','text':'PRIVATE_REASONING'}},{'type':'item.completed','item':{'type':'command_execution','aggregated_output':'OBSERVED'}},{'type':'item.completed','item':{'type':'agent_message','text':'PUBLIC_MODEL'}},{'type':'turn.failed','error':{'message':'TERMINAL_ERROR'}},{'type':'turn.completed','usage':{}}]
             (base/'records/events.jsonl').write_text('\n'.join(json.dumps(x) for x in events))
             results.append({'ordinal':i,'task_id':str(i),'prediction_sha256':campaign.sha(base/'prediction.json')})
         (root/'prepared/private').mkdir(parents=True)
@@ -36,9 +37,16 @@ class EvidenceTests(unittest.TestCase):
                 with self.assertRaises(FileExistsError):campaign.assemble_evidence(1,results)
             text='\n'.join(p.read_text() for p in out.rglob('*') if p.is_file())
             for forbidden in ('OFFICIAL_6','SOURCE_HINTS_EXCLUDED','BASELINE_EXCLUDED','PRIVATE_REASONING'):self.assertNotIn(forbidden,text)
-            for required in ('OBSERVED','PUBLIC_MODEL','OFFICIAL_1','OFFICIAL_5'):self.assertIn(required,text)
+            for required in ('OBSERVED','PUBLIC_MODEL','OFFICIAL_1','OFFICIAL_5','TERMINAL_ERROR'):self.assertIn(required,text)
+            rows=[json.loads(l) for l in (out/'001/trajectory.jsonl').read_text().splitlines()]
+            self.assertEqual([r['type'] for r in rows],['item.completed','item.completed','turn.failed','turn.completed'])
+            failure=json.loads((out/'001/failure.json').read_text())
+            self.assertEqual(failure['status'],'completed');self.assertIsNone(failure['terminal_event'])
+            self.assertIn('call_failures',failure);self.assertIn('agents_md_bytes',failure)
             manifest=json.loads((out/'manifest.json').read_text())
+            self.assertIn('001/failure.json',[f['path'] for f in manifest['files']])
             self.assertTrue(manifest['includes_gold']);self.assertFalse(manifest['includes_future_questions'])
+            self.assertFalse(manifest['includes_grades'])
             self.assertEqual([x['ordinal'] for x in manifest['episodes']],list(range(1,6)))
             seal=root/'private-learning-seals/01.json';receipt=json.loads(seal.read_text())
             self.assertEqual(manifest['batch_seal']['sha256'],campaign.sha(seal))
@@ -123,7 +131,8 @@ class CancellationTests(unittest.TestCase):
                     # Replace only campaign's namespace, never threading.Event globally;
                     # the real thread pool and its synchronization remain intact.
                     stack.enter_context(patch.object(campaign,'threading',SimpleNamespace(
-                        RLock=threading.RLock,Event=lambda:stopped)))
+                        RLock=threading.RLock,Event=lambda:stopped,Barrier=threading.Barrier,
+                        BrokenBarrierError=threading.BrokenBarrierError)))
                     stack.enter_context(patch.object(campaign,'ROOT',root))
                     stack.enter_context(patch.object(campaign.data,'load_tasks',return_value=tasks))
                     stack.enter_context(patch.object(campaign.data,'verify_prepared',return_value={'verified':True}))
@@ -153,5 +162,68 @@ class CancellationTests(unittest.TestCase):
                 self.assertEqual(state['arms']['baseline']['completed'],1)
                 self.assertFalse((root/'baseline-predictions.jsonl').exists())
                 self.assertFalse((root/'adapted-predictions.jsonl').exists())
+
+
+class ActorSummaryTests(unittest.TestCase):
+    def test_minimal_native_result_and_transport_summary(self):
+        # Fields added by newer transports are optional: absent ones become null.
+        class Relay:
+            endpoint='http://127.0.0.1:1/v1'
+            def __init__(self,_key,api,**_kw):self.api=api
+            def __enter__(self):return self
+            def __exit__(self,*_):campaign.save(self.api/'summary.json',{'failed':False,'calls':2,'usage':{}})
+        def run_actor(workspace,records,prompt,corpus,index,**_kw):
+            records.mkdir(parents=True);(records/'final.md').write_text('42\n')
+            return {'status':'completed','elapsed_seconds':1.5,'completed_item_counts':{'agent_message':1}}
+        with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
+            root=Path(temporary).resolve()
+            stack.enter_context(patch.object(campaign,'ROOT',root))
+            stack.enter_context(patch.object(campaign,'prepare_workspace',lambda w,a,**_:w.mkdir(parents=True)))
+            stack.enter_context(patch.object(campaign.broker,'Broker',Relay))
+            stack.enter_context(patch.object(campaign.acting,'run_actor',run_actor))
+            summary=campaign.actor('fixture-secret','baseline',1,{'task_id':'1','question':'Synthetic question'})
+            self.assertEqual(json.loads((root/'runs/baseline/001/prediction.json').read_text()),{'task_id':'1','answer':'42'})
+        self.assertEqual((summary['status'],summary['answer'],summary['requests'],summary['call_failures']),('completed','42',2,0))
+        self.assertTrue(summary['answer_format_valid'])
+        for key in ('failure_kind','terminal_event','error_text','agents_md_bytes','project_doc_max_bytes','wire_attempts'):
+            self.assertIsNone(summary[key])
+
+
+class LockstepTests(unittest.TestCase):
+    def test_full_profile_arms_advance_one_block_at_a_time_and_skip_last_round(self):
+        import learning
+        import report
+        with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
+            root=Path(temporary).resolve()
+            tasks=[{'task_id':str(i),'question':'Synthetic question'} for i in range(1,11)]
+            seen=[];seen_lock=threading.Lock()
+            def actor(_key,arm,ordinal,task,_adapter):
+                with seen_lock:seen.append((arm,ordinal,[o for a,o,_ in seen if a!=arm]))
+                return {'ordinal':ordinal,'task_id':task['task_id'],'status':'completed',
+                        'answer':'synthetic answer','requests':1,'transport_failed':False}
+            def learn(_key,adapter,_evidence,output,_block):
+                time.sleep(0.2)
+                return {'candidate':str(output/'candidate'),'status':'admitted','activated':True}
+            stack.enter_context(patch.object(campaign,'LOCKSTEP',True))
+            stack.enter_context(patch.object(campaign,'ROOT',root))
+            stack.enter_context(patch.object(campaign.data,'load_tasks',return_value=tasks))
+            stack.enter_context(patch.object(campaign.data,'verify_prepared',return_value={'verified':True}))
+            stack.enter_context(patch.object(campaign,'freeze',return_value={}))
+            stack.enter_context(patch.object(campaign,'verify_freeze'))
+            stack.enter_context(patch.object(campaign,'verify_learning_seals'))
+            stack.enter_context(patch.object(campaign,'actor',side_effect=actor))
+            assemble=stack.enter_context(patch.object(campaign,'assemble_evidence',return_value=root/'synthetic-evidence'))
+            learner=stack.enter_context(patch.object(learning,'run_learning',side_effect=learn))
+            stack.enter_context(patch.object(campaign.data,'grade',return_value={'protocol':'synthetic'}))
+            stack.enter_context(patch.object(campaign.data,'seal_predictions'))
+            stack.enter_context(patch.object(report,'build'))
+            stack.enter_context(redirect_stdout(io.StringIO()))
+            state=campaign.run('fixture-secret')
+        self.assertEqual(state['status'],'completed')
+        # Block 2 starts in either arm only after the other arm finished block 1 (and its learning).
+        for arm,ordinal,other in seen:
+            if ordinal>5:self.assertEqual(sorted(other)[:5],[1,2,3,4,5],(arm,ordinal,other))
+        self.assertEqual(assemble.call_count,1);self.assertEqual(learner.call_count,1)
+        self.assertEqual([(r['block'],r['status']) for r in state['learning']],[(1,'admitted'),(2,'skipped_unused')])
 
 if __name__=='__main__':unittest.main()

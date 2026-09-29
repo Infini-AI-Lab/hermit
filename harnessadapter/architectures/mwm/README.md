@@ -7,7 +7,7 @@ memory/                    Scoped, dated prose entries and _template.md
 examples/                  Worked examples and _template.md
 tools/<name>/              TOOL.md + run.py (literal SCHEMA and run) + test.py
 agents/<name>/SPEC.md       Provenance-bearing role prompts
-consumption/brief.md        Host briefing, served under the original cap
+consumption/brief.md        Host briefing, served whole (30000 chars is advisory; the size is reported, never cut)
 meta/journal.md             Rolling session record
 meta/journal-archive.md     Created when old session entries are rolled
 meta/cases/                 Persistent unresolved investigations
@@ -18,7 +18,7 @@ adapter.json               Framework loading contract
 
 The seed contains templates, not learned claims, executable tools, or a pre-made researcher role. Native roles are discovered from SPEC.md and converted during deployment. There is no separate agents/index.json to keep synchronized.
 
-The host receives the original five-part package. Tools remain behind wm(name,args), including learned programs. Original record addresses and turn-index trace windows are retained. MCP wraps the original textual result as an object with a text field.
+The host receives the six-part package (framing, briefing, verified lessons, open questions, catalog, access). Lessons are memory/L-*.md entries; only those with `status: verified` are served, and the learner's controller replays their check: lines every block. Tools remain behind wm(name,args), including learned programs. Original record addresses and turn-index trace windows are retained. MCP wraps the original textual result as an object with a text field.
 
 Tool schemas are read by AST, never by importing learned run.py files. Admission and execution require the framework's Linux bubblewrap resource. When unavailable, learned tools are not served or executed; the host may read TOOL.md as a prose fallback. macOS sandbox-exec is not used as an unverified substitute. The adapter's own consumption code is still trusted Python loaded by the framework; this is not a claim that arbitrary core code is sandboxed.
 

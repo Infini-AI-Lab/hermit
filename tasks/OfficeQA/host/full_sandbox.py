@@ -1,4 +1,4 @@
-"""Full-MWM execution wiring, with the experiment's data isolation retained."""
+"""Full-profile execution wiring, with the experiment's data isolation retained."""
 from pathlib import Path
 import json
 
@@ -21,9 +21,12 @@ def install():
         return fs
     PolicySandbox.__init__, PolicySandbox.filesystem = initialize, filesystem
     PolicySandbox._officeqa_full_installed = True
-    from full_runtime import DockerPythonSandbox
-    import harnessadapter.runtime.python_sandbox as python_sandbox
-    python_sandbox.PythonSandbox = DockerPythonSandbox
+    import experiment
+    if experiment.MWM:
+        # Learned executable tools exist only in the MWM architecture.
+        from full_runtime import DockerPythonSandbox
+        import harnessadapter.runtime.python_sandbox as python_sandbox
+        python_sandbox.PythonSandbox = DockerPythonSandbox
 
 
 if __name__ == '__main__':

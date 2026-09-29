@@ -15,9 +15,13 @@ import broker
 import client
 import full_learning as F
 import learning as L
+import officeqa_tools
+import postmortem
 import rate_control
 from test_learner_client import Opener, body
 from test_learning import setup_session, feedback, toolcall, FakeBroker, FakeTransport
+
+REWARD = F.VENDOR / 'reward.py'
 
 
 class UnboundedTests(unittest.TestCase):
@@ -57,6 +61,48 @@ class UnboundedTests(unittest.TestCase):
             self.assertEqual(state['status'],'completed')
             self.assertTrue((session/'adapter/tools/toy/run.py').is_file())
             self.assertTrue(all(r['timeout'] is None and r['unbounded'] for r in transport.options))
+
+    def test_phases_and_controller_checkers_drive_the_conversation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base=Path(tmp).resolve(); session=setup_session(base/'session')
+            corpus=base/'corpus'; corpus.mkdir(); (corpus/'fixture.txt').write_text('Heading\nTotal ... 1,234.5\n')
+            officeqa_tools.build_index(corpus,base/'corpus.sqlite',expected_documents=1)
+            extras={'evidence':session/'evidence','manifest':json.loads((session/'evidence/manifest.json').read_text()),
+                    'corpus':corpus,'index':base/'corpus.sqlite','reward':REWARD}
+            transport=FakeTransport([
+                {'role':'assistant','tool_calls':[
+                    toolcall('verify_answer',{'ordinal':1,'candidate':'Synthetic reference response.'},1),
+                    toolcall('verify_answer',{'ordinal':9,'candidate':'Synthetic reference response.'},2),
+                    toolcall('verify_cell',{'file':'fixture.txt','line':2,'contains':'1234.5'},3),
+                    toolcall('verify_cell',{'file':'fixture.txt','line':2},4)]},
+                {'role':'assistant','content':'Opening done.'},
+                {'role':'assistant','content':'Phase one done.'},
+                {'role':'assistant','content':'Serving done.'}])
+            state=asyncio.run(F.conversation('synthetic-key',FakeBroker(session),session,'Synthetic only',transport,
+                phases=['PHASE ONE','SERVE'],extras=extras))
+            self.assertEqual((state['status'],state['model_calls'],state['phases_completed'],state['phases_total']),('completed',4,2,2))
+            self.assertEqual(state['successful_tools'],2)
+            records=[json.loads((session/f'control/fireworks-tool-results/{n:03}.json').read_text()) for n in (1,2,3,4)]
+            self.assertEqual(json.loads(records[0]['response'])['strict'],1)
+            self.assertFalse(records[1]['ok']); self.assertIn('not in this released block',records[1]['response'])
+            self.assertTrue(json.loads(records[2]['response'])['found'])
+            self.assertFalse(records[3]['ok'])
+            self.assertEqual((session/'control/fireworks-report-01.md').read_text(),'Opening done.')
+            self.assertEqual((session/'control/fireworks-report-02.md').read_text(),'Phase one done.')
+            self.assertEqual((session/'control/fireworks-report.md').read_text(),'Serving done.')
+            declared=[f['function']['name'] for f in json.loads((session/'control/fireworks-tools.json').read_text())]
+            self.assertTrue({'verify_answer','verify_cell'}<=set(declared))
+            self.assertEqual(json.loads((session/'control/fireworks-calls/003.json').read_text())['public_message_count'],8)
+
+    def test_checkers_absent_without_extras(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            session=setup_session(Path(tmp).resolve()/'session')
+            transport=FakeTransport([
+                {'role':'assistant','tool_calls':[toolcall('verify_answer',{'ordinal':1,'candidate':'x'})]},
+                {'role':'assistant','content':'Done.'}])
+            state=asyncio.run(F.conversation('synthetic-key',FakeBroker(session),session,'Synthetic only',transport))
+            self.assertEqual((state['status'],state['successful_tools']),('completed',0))
+            self.assertIn('Unknown native capability',(session/'control/fireworks-tool-results/001.json').read_text())
 
 
 @unittest.skipUnless(os.environ.get('OFFICEQA_RUN_NATIVE_LEARNER_TEST')=='1','Native synthetic checks opt-in')
@@ -120,12 +166,17 @@ print(json.dumps(out))
                     toolcall('run_command',{'command':sys.executable+' -c '+__import__('shlex').quote(check)},22),
                     toolcall('run_command',{'command':sys.executable+' -c '+__import__('shlex').quote(probe)},24),
                     toolcall('write_file',{'area':'scratch','path':'feedback.json','content':json.dumps(feedback())},23)]},
-                {'role':'assistant','content':'Synthetic completed.'}])
+                {'role':'assistant','content':'Synthetic completed.'},
+                # All five fixture submissions grade strict 0: one post-mortem phase each, then the serving phase.
+                *[{'role':'assistant','content':f'Synthetic phase {n} closed.'} for n in range(1,7)]])
             full_deployment=Path(F.__file__).parent.parent/'deployments/officeqa-full'
             with patch.object(F,'ROOT',base),patch.object(F,'DEPLOYMENT',full_deployment), \
                  patch.object(L,'SEAL_ROOT',base/'trusted-seals'),patch.object(client,'complete',transport.complete):
                 result=F.run_learning('synthetic-key',L.GENERIC_SOURCE,fixture/'evidence',base/'evolution/01',1)
             self.assertTrue(result['activated'],result)
+            self.assertEqual((result['phases_completed'],result['phases_total']),(6,6))
+            self.assertTrue((base/'evolution/01/postmortem/verdicts.json').is_file())
+            self.assertEqual(result['postmortem']['records'],0)
             records=[json.loads(p.read_text()) for p in (Path(result['session'])/'control/fireworks-tool-results').glob('*.json')]
             tested=next(r for r in records if r['name']=='captest')
             self.assertTrue(tested['ok'],tested)

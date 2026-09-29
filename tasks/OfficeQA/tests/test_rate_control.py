@@ -1,4 +1,5 @@
 """Offline scheduler and transport regression tests; no real API or credentials."""
+import http.client
 import io
 import json
 from pathlib import Path
@@ -71,6 +72,12 @@ def responses_refusal_with_configuration(**updates):
 def sse(body, *, prefix=()):
     events = list(prefix) + [{'type':'response.' + body['status'], 'response':body}]
     return b''.join(b'data: ' + json.dumps(e).encode() + b'\n\n' for e in events) + b'data: [DONE]\n\n'
+
+
+def sse_dropped(*, prefix=()):
+    """A stream that ends before any terminal response.* event."""
+    events = [{'type':'response.created','response':{'id':'fixture','status':'in_progress'}}, *prefix]
+    return b''.join(b'data: ' + json.dumps(e).encode() + b'\n\n' for e in events)
 
 
 class DummyServer:
@@ -185,6 +192,39 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(count,[1])
         self.assertFalse(ctx.exception.attempts[-1]['dispatched'])
 
+    def test_transport_drop_retries_locally_without_shared_cooldown(self):
+        scheduler=R.RateScheduler(min_interval=0,backoffs=(0,))
+        calls=[]
+        def drop_once(_timeout,number):
+            calls.append(number)
+            if number==1: raise R.AttemptFailure('drop',retryable=True,kind='transport',details={'usage_known':False})
+            return R.Outcome('ok',{'usage_known':True})
+        value,records=R.run(drop_once,timeout=2,request_sha256='same',scheduler=scheduler)
+        self.assertEqual((value,calls),('ok',[1,2]))
+        self.assertEqual(records[0]['status'],'transport_retry')
+        self.assertEqual(records[0]['backoff_seconds'],0)
+        self.assertNotIn('shared_cooldown_seconds',records[0])
+        self.assertEqual((scheduler.rate_streak,scheduler.cool_until),(0,0.0))
+        # The attempt ceiling still applies to transport retries.
+        calls.clear()
+        def always_drop(_timeout,number):
+            calls.append(number); raise R.AttemptFailure('drop',retryable=True,kind='transport')
+        with self.assertRaises(R.TransportFailure):
+            R.run(always_drop,timeout=2,request_sha256='same',scheduler=scheduler)
+        self.assertEqual(calls,[1,2,3,4,5])
+        # The local backoff honours stop and never dispatches a new wire afterwards.
+        stop=threading.Event();slow=R.RateScheduler(min_interval=0,backoffs=(10,))
+        calls.clear()
+        def drop_then_stop(_timeout,number):
+            calls.append(number); threading.Timer(.025,stop.set).start()
+            raise R.AttemptFailure('drop',retryable=True,kind='transport')
+        started=time.monotonic()
+        with self.assertRaises(R.TransportFailure) as ctx:
+            R.run(drop_then_stop,timeout=20,request_sha256='same',scheduler=slow,stop=stop)
+        self.assertLess(time.monotonic()-started,.5)
+        self.assertEqual(calls,[1])
+        self.assertFalse(ctx.exception.attempts[-1]['dispatched'])
+
     def test_wire_wall_clock_guard_stops_drip_and_late_response(self):
         response=Response(b'fixture')
         with self.assertRaises(TimeoutError):
@@ -211,6 +251,26 @@ class ClientTests(unittest.TestCase):
         self.assertTrue(meta['usage_is_lower_bound'])
         self.assertEqual(meta['usage']['total_tokens'],5)
         self.assertNotIn('fixture-secret',json.dumps(meta))
+
+    def test_chat_transport_drop_and_5xx_are_resent_but_timeout_is_not(self):
+        body={'id':'fixture','model':client.MODEL,'choices':[{'message':{'role':'assistant','content':'ok'}}],
+              'usage':{'prompt_tokens':2,'completion_tokens':3,'total_tokens':5}}
+        opener=Opener([http.client.IncompleteRead(b''),urllib.error.URLError('connection refused'),
+                       http_error(code=502,body={'error':{'message':'bad gateway'}}),Response(json.dumps(body).encode())])
+        with patch.object(client.urllib.request,'build_opener',return_value=opener), patch.object(R,'GLOBAL',R.RateScheduler(min_interval=0,backoffs=(0,))):
+            result,meta=client.complete('fixture-secret',[{'role':'user','content':'fixture'}],timeout=2)
+        self.assertEqual(result,body)
+        self.assertEqual(len(opener.requests),4)
+        self.assertEqual(len({data for _url,data,_timeout in opener.requests}),1)
+        self.assertEqual([a['status'] for a in meta['attempts']],['transport_retry']*3+['succeeded'])
+        self.assertEqual(meta['attempts'][2]['http_status'],502)
+        self.assertEqual(meta['wire_attempts'],4)
+        self.assertTrue(meta['usage_is_lower_bound'])
+        opener=Opener([TimeoutError('read timed out'),Response(json.dumps(body).encode())])
+        with patch.object(client.urllib.request,'build_opener',return_value=opener), patch.object(R,'GLOBAL',R.RateScheduler(min_interval=0,backoffs=(0,))):
+            result,meta=client.complete('fixture-secret',[],timeout=2)
+        self.assertIsNone(result)
+        self.assertEqual(len(opener.requests),1)
 
     def test_chat_partial_429_and_wrong_model_are_not_retried(self):
         entries=[http_error(body={'error':{'message':'rate limit'},'usage':{'prompt_tokens':1,'completion_tokens':0}}),
@@ -359,7 +419,12 @@ class BrokerTests(unittest.TestCase):
             self.assertEqual(len(relay.opener.requests), 2)
             self.assertEqual(json.loads(relay.opener.requests[1][1])['max_output_tokens'], 1)
             summary = json.loads((output/'summary.json').read_text())
-            self.assertEqual(summary['failure_kind'], 'provider_output_budget_exceeded')
+            # The overshoot is that call's failure; the third request then meets a depleted budget.
+            second = json.loads((output/'002/transport.json').read_text())
+            self.assertEqual(second['attempts'][-1]['failure_kind'], 'provider_output_budget_exceeded')
+            self.assertEqual(summary['failure_kind'], 'budget_exhausted')
+            self.assertEqual(summary['call_failures'], 1)
+            self.assertTrue(summary['failed'])
             self.assertEqual(summary['usage']['output_tokens'], 65537)
 
     def test_missing_or_malformed_usage_object_remains_unknown(self):
@@ -407,7 +472,86 @@ class BrokerTests(unittest.TestCase):
             self.assertEqual(handler.status,400)
             self.assertEqual(handler.wfile.getvalue(),b'')
             self.assertEqual(len(relay.opener.requests),1)
+            self.assertFalse(relay.failed)
+            self.assertEqual(relay.call_failures,1)
+
+    def test_dropped_stream_before_generation_is_resent_by_the_broker(self):
+        good=sse(completed())
+        cases=[Response(sse_dropped(),content_type='text/event-stream'),
+               http.client.IncompleteRead(b'partial headers'),
+               urllib.error.URLError('connection refused'),
+               ConnectionResetError('peer reset'),
+               http_error(code=503,body={'error':{'message':'upstream unavailable'}})]
+        for drop in cases:
+            with self.subTest(drop=type(drop).__name__):
+                relay,handler,out=self.run_relay([drop,Response(good,content_type='text/event-stream')])
+                self.assertEqual(handler.status,200)
+                self.assertEqual(handler.wfile.getvalue(),good)
+                self.assertEqual(len(relay.opener.requests),2)
+                self.assertEqual(relay.opener.requests[0][1],relay.opener.requests[1][1])
+                self.assertFalse(relay.failed)
+                self.assertEqual(relay.call_failures,0)
+                first=json.loads((out/'001/attempts/01/transport.json').read_text())
+                self.assertEqual(first['status'],'transport_retry')
+                self.assertEqual(first['failure_kind'],'transport_retry')
+                self.assertTrue(first['usage_unknown'])
+                self.assertNotIn('shared_cooldown_seconds',first)
+                self.assertEqual(relay.scheduler.rate_streak,0)
+                summary=json.loads((out/'summary.json').read_text())
+                self.assertEqual(summary['wire_attempts'],2)
+                self.assertEqual(summary['rate_refusals'],0)
+                self.assertEqual(summary['call_failures'],0)
+                self.assertFalse(summary['failed'])
+                self.assertTrue((out/'001/response.json').is_file())
+
+    def test_drop_after_generation_or_timeout_is_never_resent(self):
+        dropped=sse_dropped(prefix=[{'type':'response.output_text.delta','delta':'partial'}])
+        for entry in (Response(dropped,content_type='text/event-stream'),TimeoutError('read timed out')):
+            with self.subTest(entry=type(entry).__name__):
+                relay,handler,out=self.run_relay([entry,Response(sse(completed()),content_type='text/event-stream')])
+                self.assertEqual(handler.status,400)
+                self.assertEqual(handler.wfile.getvalue(),b'')
+                self.assertEqual(len(relay.opener.requests),1)
+                self.assertFalse(relay.failed)
+                self.assertEqual(relay.call_failures,1)
+                first=json.loads((out/'001/attempts/01/transport.json').read_text())
+                self.assertEqual(first['status'],'failed')
+                self.assertFalse(first['retryable'])
+
+    def test_failed_call_does_not_stop_the_next_call_but_budget_does(self):
+        good=sse(completed())
+        with tempfile.TemporaryDirectory() as temp:
+            output=Path(temp)
+            relay=broker.Broker('fixture-secret',output,scheduler=R.RateScheduler(min_interval=0,backoffs=(0,)),request_timeout=2)
+            relay.opener=Opener([Response(sse(completed()|{'model':'wrong-model'}),content_type='text/event-stream'),
+                                 Response(good,content_type='text/event-stream')])
+            with patch.object(broker,'ThreadingHTTPServer',DummyServer):
+                with relay:statuses=[relay_request(relay).status for _ in range(2)]
+            self.assertEqual(statuses,[400,200])
+            self.assertEqual(len(relay.opener.requests),2)
+            summary=json.loads((output/'summary.json').read_text())
+            self.assertEqual(summary['call_failures'],1)
+            self.assertFalse(summary['failed'])
+            self.assertFalse(summary['transport_failed'])
+            self.assertEqual(summary['failure_kind'],'transport_rejected')
+            self.assertTrue((output/'002/response.json').is_file())
+        exhausted=completed()
+        exhausted['usage']={'input_tokens':3,'output_tokens':65536,'total_tokens':65539}
+        with tempfile.TemporaryDirectory() as temp:
+            output=Path(temp)
+            relay=broker.Broker('fixture-secret',output,scheduler=R.RateScheduler(min_interval=0,backoffs=(0,)),request_timeout=2)
+            relay.opener=Opener([Response(sse(exhausted),content_type='text/event-stream'),
+                                 Response(good,content_type='text/event-stream')])
+            with patch.object(broker,'ThreadingHTTPServer',DummyServer):
+                with relay:statuses=[relay_request(relay).status for _ in range(3)]
+            self.assertEqual(statuses,[200,400,400])
+            self.assertEqual(len(relay.opener.requests),1)
             self.assertTrue(relay.failed)
+            self.assertEqual(relay.call_failures,0)
+            summary=json.loads((output/'summary.json').read_text())
+            self.assertEqual(summary['failure_kind'],'budget_exhausted')
+            self.assertTrue(summary['failed'])
+            self.assertFalse(summary['transport_failed'])
 
 
 if __name__=='__main__':unittest.main(verbosity=2)

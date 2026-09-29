@@ -1,4 +1,5 @@
 The environment is the permitted OfficeQA document corpus. Learning material
-contains five completed attempts and their post-submission reference answers.
-Only GLM interprets this feedback. No future answers or baseline traces exist in
-the learning material. This changes adapter artifacts, not model weights.
+contains five completed attempts, their post-submission reference answers,
+strict/1% verdicts and failure records. Only GLM interprets this feedback, in a
+controller-checked postmortem. No future answers or baseline traces exist in the
+learning material. This changes adapter artifacts, not model weights.

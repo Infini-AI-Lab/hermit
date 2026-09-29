@@ -80,6 +80,21 @@ class DataTests(unittest.TestCase):
         self.assertTrue(manifest["fixture_only"])
         self.assertFalse(manifest["official_headline_comparable"])
 
+    def test_full_profile_manifest_releases_completed_batch_grades_only(self):
+        import experiment
+        from unittest.mock import patch
+        with patch.object(experiment, "FULL", True), patch.object(experiment, "ARCHITECTURE", "prompt_only"), \
+                patch.object(experiment, "ACTOR_SECONDS", 3600):
+            manifest = self.prepare()
+        self.assertEqual(manifest["protocol"], "officeqa-pro50-full-prompt_only-postmortem-v2")
+        self.assertEqual(manifest["grading_policy"]["send_results_to_learner"], "completed_batch_only")
+        policy = manifest["learner_policy"]
+        self.assertTrue(policy["completed_batch_grades_released"])
+        self.assertIn("grader scores for unreleased batches", policy["forbidden"])
+        self.assertNotIn("grader scores and rationales", policy["forbidden"])
+        self.assertIn("ADAPTER.md", policy["learning_type"])
+        self.assertEqual(manifest["actor_budgets"]["seconds"], 3600)
+
     def test_prepare_refuses_overwrite(self):
         self.prepare()
         with self.assertRaisesRegex(ValueError, "overwrite"):

@@ -1,7 +1,27 @@
+import io
+import json
+import threading
 import unittest
-from broker import MODEL, normalized, public
+from broker import MODEL, NoTerminalEvent, normalized, public, read_wire
+
+
+class Stream(io.BytesIO):
+    def __init__(self, events):
+        super().__init__(b''.join(b'data: ' + json.dumps(e).encode() + b'\n\n' for e in events))
+        self.headers = {'Content-Type':'text/event-stream'}
+
 
 class TransportTests(unittest.TestCase):
+    def test_dropped_stream_reports_whether_generation_was_observed(self):
+        created = {'type':'response.created','response':{'id':'fixture','status':'in_progress'}}
+        with self.assertRaises(NoTerminalEvent) as ctx: read_wire(Stream([created]), threading.Event())
+        self.assertFalse(ctx.exception.generated)
+        self.assertIsInstance(ctx.exception, ValueError)
+        delta = {'type':'response.output_text.delta','delta':'partial'}
+        with self.assertRaises(NoTerminalEvent) as ctx: read_wire(Stream([created, delta]), threading.Event())
+        self.assertTrue(ctx.exception.generated)
+        stop = threading.Event(); stop.set()
+        with self.assertRaises(TimeoutError): read_wire(Stream([created]), stop)
     def test_exact_model_and_budgets(self):
         x = normalized({'model': MODEL, 'input': [], 'tools': [], 'reasoning': {'effort':'high'}}, 1000)
         self.assertEqual(x['max_output_tokens'], 1000)

@@ -4,6 +4,7 @@ This is an HTTP transport, not an agent loop. Native Codex owns tools/history.
 It changes only the predeclared model sampling/budget/storage settings.
 """
 from collections import Counter
+import http.client
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import hashlib
@@ -19,6 +20,11 @@ MODEL = 'accounts/fireworks/models/glm-5p3-flash'
 URL = 'https://api.fireworks.ai/inference/v1/responses'
 
 class BudgetExhausted(ValueError): pass
+class NoTerminalEvent(ValueError): pass
+# Exceptions leaving read_wire's SSE loop carry .generated so a drop after
+# generation is never re-sent by the broker (Codex's own stream retry does that).
+TRANSPORT_DROPS = (NoTerminalEvent, http.client.IncompleteRead, ConnectionError, urllib.error.URLError)
+HEADERS, edge_block = rate_control.HEADERS, rate_control.edge_block
 
 
 def token_count(value):
@@ -103,27 +109,31 @@ def read_wire(response, stop, deadline=None, *, unbounded=False):
     generated = False
     is_sse = 'text/event-stream' in content_type
     if is_sse:
-        for line in response:
-            if stop.is_set(): raise TimeoutError('Actor stopped')
-            if deadline is not None and time.monotonic() >= deadline:
-                raise TimeoutError('Wire wall-clock deadline exhausted')
-            wire.extend(line)
-            if not unbounded and len(wire) > 32_000_000: raise ValueError('Response transport size exceeded')
-            if line.startswith(b'data:'):
-                data_lines.append(line[5:].strip())
-            elif not line.strip() and data_lines:
-                data = b'\n'.join(data_lines); data_lines = []
-                if data == b'[DONE]': continue
-                event = json.loads(data)
-                kind = event.get('type', '')
-                if (kind.startswith(('response.output_', 'response.reasoning',
-                                     'response.function_call_arguments', 'response.custom_tool_call_input'))
-                        or event.get('delta') or event.get('item') or event.get('part')):
-                    generated = True
-                if kind in ('response.completed', 'response.incomplete', 'response.failed'):
-                    final = event.get('response', {})
-                if kind == 'error': errors.append(public(event))
-        if final is None: raise ValueError('No terminal Responses event')
+        try:
+            for line in response:
+                if stop.is_set(): raise TimeoutError('Actor stopped')
+                if deadline is not None and time.monotonic() >= deadline:
+                    raise TimeoutError('Wire wall-clock deadline exhausted')
+                wire.extend(line)
+                if not unbounded and len(wire) > 32_000_000: raise ValueError('Response transport size exceeded')
+                if line.startswith(b'data:'):
+                    data_lines.append(line[5:].strip())
+                elif not line.strip() and data_lines:
+                    data = b'\n'.join(data_lines); data_lines = []
+                    if data == b'[DONE]': continue
+                    event = json.loads(data)
+                    kind = event.get('type', '')
+                    if (kind.startswith(('response.output_', 'response.reasoning',
+                                         'response.function_call_arguments', 'response.custom_tool_call_input'))
+                            or event.get('delta') or event.get('item') or event.get('part')):
+                        generated = True
+                    if kind in ('response.completed', 'response.incomplete', 'response.failed'):
+                        final = event.get('response', {})
+                    if kind == 'error': errors.append(public(event))
+            if final is None: raise NoTerminalEvent('No terminal Responses event')
+        except Exception as exc:
+            exc.generated = generated
+            raise
     else:
         raw = response.read() if unbounded else response.read(32_000_001)
         if not unbounded and len(raw) > 32_000_000: raise ValueError('Response transport size exceeded')
@@ -146,6 +156,7 @@ class Broker:
         self.max_attempts = max_attempts
         self.local_sandbox = local_sandbox
         self.calls = 0
+        self.call_failures = 0
         self.usage = Counter()
         self.failed = False
         self.failure_kind = None
@@ -193,8 +204,8 @@ class Broker:
                 streaming_headers = False
                 begun = time.monotonic()
                 try:
-                    if broker.failed or broker.stop.is_set():
-                        raise ValueError('Task stopped after prior failure')
+                    if broker.stop.is_set():
+                        raise ValueError('Task stopped')
                     remaining = None if broker.max_completion is None else broker.max_completion - broker.usage['output_tokens']
                     if remaining is not None and remaining <= 0: raise BudgetExhausted('Task completion budget exhausted')
                     length = int(self.headers.get('Content-Length', '0'))
@@ -232,8 +243,7 @@ class Broker:
                     def attempt(wire_timeout, attempt_number):
                         wire_end = None if wire_timeout is None else time.monotonic() + wire_timeout
                         request = urllib.request.Request(URL, data=request_body,
-                            headers={'Authorization': 'Bearer ' + broker.key, 'Content-Type': 'application/json'},
-                            method='POST')
+                            headers={'Authorization': 'Bearer ' + broker.key, **HEADERS}, method='POST')
                         attempt_dir = directory / 'attempts' / f'{attempt_number:02}'
                         if broker.stop.is_set():
                             raise rate_control.AttemptFailure('Actor stopped before wire dispatch',
@@ -286,8 +296,19 @@ class Broker:
                             save(attempt_dir / 'error.json', public(details))
                             mismatch = isinstance(body,dict) and body.get('model') not in (None,MODEL)
                             refusal = len(raw) <= 3_000_000 and not mismatch and rate_control.retryable_refusal(exc.code, body)
+                            transport = not refusal and (500 <= exc.code < 600 or edge_block(exc.code, body))
+                            if transport: details['failure_kind'] = 'transport_retry'
                             raise rate_control.AttemptFailure('HTTP ' + str(exc.code), details=details,
-                                retryable=refusal, retry_after=rate_control.retry_after_seconds(exc.headers.get('Retry-After'))) from exc
+                                retryable=refusal or transport, kind='transport' if transport else 'rate',
+                                retry_after=rate_control.retry_after_seconds(exc.headers.get('Retry-After'))) from exc
+                        except TRANSPORT_DROPS as exc:
+                            if wire_end is not None and time.monotonic() >= wire_end:
+                                raise TimeoutError('Wire wall-clock deadline exhausted') from exc
+                            # Nothing generated: the broker re-sends the identical bytes itself.
+                            raise rate_control.AttemptFailure(type(exc).__name__ + ': ' + str(exc),
+                                details={'wire_dispatched':True, 'usage_known':False, 'failure_kind':'transport_retry',
+                                         'observed_generation':getattr(exc,'generated',False)},
+                                retryable=not getattr(exc,'generated',False), kind='transport') from exc
                         finally:
                             broker.active_response = None
 
@@ -333,9 +354,13 @@ class Broker:
                     self.wfile.write(wire)
                     self.wfile.flush()
                 except Exception as exc:
-                    broker.failed = True
-                    if broker.failure_kind is None:
-                        broker.failure_kind = 'budget_exhausted' if isinstance(exc,BudgetExhausted) else 'transport_rejected'
+                    # Only budget exhaustion latches the actor; any other failure is
+                    # this call's alone, counted and recorded, and the next call proceeds.
+                    if isinstance(exc, BudgetExhausted):
+                        broker.failed = True; broker.failure_kind = 'budget_exhausted'
+                    else:
+                        broker.call_failures += 1
+                        if broker.failure_kind is None: broker.failure_kind = 'transport_rejected'
                     error = str(exc)
                     if isinstance(exc, urllib.error.HTTPError):
                         record['http_status'] = exc.code
@@ -386,7 +411,7 @@ class Broker:
     def write_summary(self):
         with self.summary_lock:
             unknown = sorted(self.pending | self.unknown_usage)
-            value = {'calls': self.calls, 'usage': dict(self.usage),
+            value = {'calls': self.calls, 'call_failures': self.call_failures, 'usage': dict(self.usage),
             'failed': self.failed or bool(self.pending), 'model': MODEL, 'upstream': URL,
             'failure_kind':self.failure_kind,
             'transport_failed':(self.failed or bool(self.pending)) and self.failure_kind != 'budget_exhausted',

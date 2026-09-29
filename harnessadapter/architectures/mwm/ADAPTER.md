@@ -1,8 +1,8 @@
 # MetaWorld Model adapter
 
-This core preserves MWM's V2 default artifact structure. Its live Context is rendered by interface.py using the five-part MWM package: host framing, briefing, open questions, memory catalog, and access instructions. This file documents the adapter; it is not a replacement briefing.
+This core preserves MWM's V2 default artifact structure. Its live Context is rendered by interface.py using the six-part MWM package: host framing, briefing, verified lessons (memory/L-*.md with status: verified), open questions, memory catalog, and access instructions. This file documents the adapter; it is not a replacement briefing.
 
-All host access uses one wm(name, args) tool. Learned tools remain tools/<name>/{TOOL.md,run.py,test.py}; hosts call wm(name=<SCHEMA name>, args=...). Programs are discovered statically and admitted only after their tests pass in the framework sandbox. Without that sandbox they remain unavailable, with TOOL.md as the prose fallback. No learned program is imported into the wrapper process.
+All host access uses one wm(name, args) tool. Learned tools remain tools/<name>/{TOOL.md,run.py,test.py}; hosts call wm(name=<SCHEMA name>, args=...); the SCHEMA name is any identifier and the directory is the module the sandbox runs. Programs are discovered statically and admitted only after their tests pass in the framework sandbox. Without that sandbox they remain unavailable, with TOOL.md as the prose fallback. No learned program is imported into the wrapper process.
 
 Roles retain agents/<name>/SPEC.md. Only templates are seeded, not a pre-made researcher. The export bridge translates discovered specs into the framework's role contract for native Codex or Claude Code registration.
 

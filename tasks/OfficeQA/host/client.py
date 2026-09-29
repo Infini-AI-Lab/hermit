@@ -1,4 +1,5 @@
 """Fireworks transport. Credential stays in memory and is never logged."""
+import http.client
 import json
 import hashlib
 import time
@@ -9,6 +10,9 @@ import rate_control
 
 MODEL = 'accounts/fireworks/models/glm-5p3-flash'
 URL = 'https://api.fireworks.ai/inference/v1/chat/completions'
+# Connection drops before any body was parsed; re-sent with identical bytes. Never a TimeoutError.
+TRANSPORT_DROPS = (http.client.IncompleteRead, ConnectionError, urllib.error.URLError)
+HEADERS, edge_block = rate_control.HEADERS, rate_control.edge_block
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
@@ -50,7 +54,7 @@ def complete(key, messages, *, timeout=1200, unbounded=False, **options):
     def attempt(wire_timeout, number):
         deadline = None if wire_timeout is None else time.monotonic() + wire_timeout
         request = urllib.request.Request(URL, data=request_body,
-            headers={'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json'}, method='POST')
+            headers={'Authorization': 'Bearer ' + key, **HEADERS}, method='POST')
         try:
             with opener.open(request, timeout=wire_timeout) as response:
                 with rate_control.wire_deadline(response, deadline):
@@ -82,8 +86,17 @@ def complete(key, messages, *, timeout=1200, unbounded=False, **options):
                 'usage_known':rate_control.usage_is_reported(usage),
                 'provider_error':(json.dumps(public_error(body)) if body is not None else raw.decode(errors='replace')).replace(key,'[REDACTED]')[:3000]}
             refusal = len(raw) <= 3_000_000 and not mismatch and rate_control.retryable_refusal(exc.code,body)
-            raise rate_control.AttemptFailure('HTTP ' + str(exc.code), details=details, retryable=refusal,
+            transport = not refusal and (500 <= exc.code < 600 or edge_block(exc.code, body))
+            if transport: details['failure_kind'] = 'transport_retry'
+            raise rate_control.AttemptFailure('HTTP ' + str(exc.code), details=details, retryable=refusal or transport,
+                kind='transport' if transport else 'rate',
                 retry_after=rate_control.retry_after_seconds(exc.headers.get('Retry-After'))) from exc
+        except TRANSPORT_DROPS as exc:
+            if deadline is not None and time.monotonic() >= deadline:
+                raise TimeoutError('Wire wall-clock deadline exhausted') from exc
+            raise rate_control.AttemptFailure(type(exc).__name__ + ': ' + str(exc),
+                details={'wire_dispatched':True,'usage_known':False,'failure_kind':'transport_retry'},
+                retryable=True, kind='transport') from exc
     try:
         result, attempts = rate_control.run(attempt, timeout=timeout, request_sha256=request_sha,
             **({'max_attempts':None} if unbounded else {}))

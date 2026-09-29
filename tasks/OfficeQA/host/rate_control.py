@@ -1,8 +1,10 @@
-"""One process-wide inference scheduler and narrow pre-generation rate retries.
+"""One process-wide inference scheduler and narrow pre-generation retries.
 
 Never retries a timeout, unknown failure, or partly generated response. Callers
-classify explicit refusal evidence and keep the request bytes unchanged. This
-module has no network, credential, model-selection or agent-loop functionality.
+classify explicit refusal evidence (kind 'rate', shared cooldown) or a dropped
+connection before generation (kind 'transport', local backoff only) and keep
+the request bytes unchanged. This module has no network, credential,
+model-selection or agent-loop functionality.
 """
 from dataclasses import dataclass
 from contextlib import contextmanager
@@ -16,6 +18,13 @@ import itertools
 
 MAX_ATTEMPTS = 5
 BACKOFF_SECONDS = (15, 30, 60, 120)
+# A plain client signature: the provider's edge (Cloudflare) has blocked the bare urllib one (error 1010).
+HEADERS = {"Content-Type": "application/json", "Accept": "application/json", "User-Agent": "officeqa-harness/1.0"}
+
+
+def edge_block(code, body):
+    """An edge/WAF refusal (non-JSON 403 such as Cloudflare 'error code: 1010'): transient, re-sendable."""
+    return code == 403 and not isinstance(body, dict)
 
 
 def utc():
@@ -189,11 +198,12 @@ class Outcome:
 
 
 class AttemptFailure(Exception):
-    def __init__(self, message, *, details=None, retryable=False, retry_after=None):
+    def __init__(self, message, *, details=None, retryable=False, retry_after=None, kind='rate'):
         super().__init__(message)
         self.details = details or {}
         self.retryable = bool(retryable)
         self.retry_after = retry_after
+        self.kind = kind
 
 
 class TransportFailure(Exception):
@@ -204,10 +214,12 @@ class TransportFailure(Exception):
 
 def run(operation, *, timeout, request_sha256, scheduler=None, stop=None, on_attempt=None,
         max_attempts=MAX_ATTEMPTS):
-    """Return (operation value, records); at most five identical-body attempts.
+    """Return (operation value, records); identical-body attempts up to max_attempts.
 
     operation(wire_timeout, attempt_number) must return Outcome or raise
     AttemptFailure. Only explicitly classified AttemptFailure can be retried.
+    A rate refusal enters the shared scheduler cooldown; a transport drop only
+    sleeps a local backoff (it must not throttle other callers).
     A logical call's timeout includes global queue/cooldown waits and every wire.
     """
     scheduler = GLOBAL if scheduler is None else scheduler
@@ -246,9 +258,12 @@ def run(operation, *, timeout, request_sha256, scheduler=None, stop=None, on_att
             scheduler.succeeded()
         except AttemptFailure as exc:
             failure = exc
-            record.update(exc.details, status="rate_refused" if exc.retryable else "failed",
-                          error=str(exc), retryable=exc.retryable)
-            if exc.retryable:
+            transport = exc.retryable and exc.kind == "transport"
+            record.update(exc.details, error=str(exc), retryable=exc.retryable,
+                          status="transport_retry" if transport else "rate_refused" if exc.retryable else "failed")
+            if transport:
+                record["backoff_seconds"] = scheduler.backoffs[min(number - 1, len(scheduler.backoffs) - 1)]
+            elif exc.retryable:
                 record.update(scheduler.refused(number, exc.retry_after))
         except Exception as exc:
             failure = AttemptFailure(type(exc).__name__ + ": " + str(exc))
@@ -266,4 +281,11 @@ def run(operation, *, timeout, request_sha256, scheduler=None, stop=None, on_att
             return value, records
         if not failure.retryable or (max_attempts is not None and number >= max_attempts):
             raise TransportFailure(str(failure), records) from failure
+        if record["status"] == "transport_retry":
+            wait = record["backoff_seconds"]
+            if deadline is not None:
+                wait = min(wait, max(0, deadline - time.monotonic()))
+            # Local wait only; a set stop surfaces as not_dispatched on the next acquire.
+            if stop is not None: stop.wait(wait)
+            else: time.sleep(wait)
     raise AssertionError("Unreachable attempt loop")

@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parent
 MODEL = "accounts/fireworks/models/glm-5p3-flash"
 UPSTREAM = "https://api.fireworks.ai/inference/v1/responses"
 from paths import CODEX as CODEX_PATH, REPOSITORY, SOURCE, DATA_CACHE, TASK
+from experiment import ARCHITECTURE
 CODEX = str(CODEX_PATH)
 ARMS = ("baseline", "adapted")
 COUNT, LEARN_EVERY = 50, 5
@@ -177,7 +178,7 @@ class Audit:
     def __init__(self, root):
         self.root = Path(root).resolve()
         self.project = self.root.parent
-        self.w0 = REPOSITORY / "harnessadapter/architectures/mwm"
+        self.w0 = REPOSITORY / "harnessadapter/architectures" / ARCHITECTURE
         self.checks, self.pending = [], []
         self.observations = Counter()
         self.response_limit = None
@@ -412,12 +413,14 @@ class Audit:
             ordinal = int(Path(relative).parts[0])
             self.check(prefix + ": evidence hash/ordinal " + relative, sha(copied) == entry["sha256"] and (block-1)*5 < ordinal <= block*5)
             self.check(prefix + ": authorized evidence artifact " + relative, len(Path(relative).parts) == 2 and
-                       Path(relative).name in ("task.json", "prediction.json", "summary.json", "trajectory.jsonl", "reference_answer.json"))
+                       Path(relative).name in ("task.json", "prediction.json", "summary.json", "trajectory.jsonl", "reference_answer.json", "failure.json"))
             original = self.root / "runs/adapted" / f"{ordinal:03}"
             if Path(relative).name in ("task.json", "prediction.json", "summary.json"):
                 self.check(prefix + ": copied original " + relative, sha(copied) == sha(original / Path(relative).name))
             elif Path(relative).name == "trajectory.jsonl":
-                selected_events = [public(e) for e in lines(original / "records/events.jsonl") if e.get("type") == "item.completed" and isinstance(e.get("item"), dict) and e["item"].get("type") in ("agent_message", "command_execution", "mcp_tool_call", "file_change")]
+                # Public completed items plus the terminal turn events (v6 keeps the failure reason visible).
+                selected_events = [public(e) for e in lines(original / "records/events.jsonl") if e.get("type") in ("turn.completed", "turn.failed") or (
+                    e.get("type") == "item.completed" and isinstance(e.get("item"), dict) and e["item"].get("type") in ("agent_message", "command_execution", "mcp_tool_call", "file_change"))]
                 self.check(prefix + ": exact public extraction " + relative, lines(copied) == selected_events)
         self.check(prefix + ": no additional evidence files", {p.relative_to(evidence).as_posix() for p in evidence.rglob("*") if p.is_file()} == allowed)
         if (output / "request.json").exists():

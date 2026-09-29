@@ -21,7 +21,8 @@ import time
 
 ROOT = Path(__file__).resolve().parent
 from paths import REPOSITORY, DEPLOYMENT
-GENERIC_SOURCE = REPOSITORY / "harnessadapter/architectures/mwm"
+import experiment
+GENERIC_SOURCE = REPOSITORY / "harnessadapter/architectures" / experiment.ARCHITECTURE
 SEAL_ROOT = ROOT / "private-learning-seals"
 MODEL = "accounts/fireworks/models/glm-5p3-flash"
 MAX_SECONDS = 1800

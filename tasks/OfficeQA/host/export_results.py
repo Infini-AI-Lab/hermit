@@ -11,6 +11,12 @@ def read(path):
     return json.loads(path.read_text())
 
 
+def actor_seconds(root):
+    """The per-question wall clock the run actually recorded (None when uncapped)."""
+    invocation = Path(root) / 'runs/baseline/001/records/invocation.json'
+    return read(invocation).get('timeout_seconds') if invocation.is_file() else None
+
+
 def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -18,8 +24,12 @@ def sha(path):
 def summarize(root, framework_revision='unrecorded'):
     root = Path(root)
     state = read(root / 'state.json')
-    full = state.get('profile') == 'full_mwm_unbounded'
+    profile = state.get('profile')
+    full = str(profile).startswith('full_')
+    architecture = 'prompt_only' if 'prompt_only' in str(profile) else 'mwm'
     metrics = state.get('metrics', {})
+    prepared = root / 'prepared/manifest.json'
+    protocol = metrics.get('protocol') or (read(prepared).get('protocol') if prepared.is_file() else None)
     scores = {r['task_id']: r for r in metrics.get('results', [])}
     pairs = {}
     arms = {}
@@ -49,12 +59,12 @@ def summarize(root, framework_revision='unrecorded'):
                 # Inspect provider error metadata only; never export the request or response body.
                 attempts = read(record).get('meta', {}).get('attempts', [])
                 context_error |= any('prompt is too long' in str(a.get('provider_error', '')).lower() for a in attempts)
-        reason = ('completed' if row['activated'] else 'input_context_limit' if context_error
+        reason = ('completed' if row.get('activated') else 'input_context_limit' if context_error
                   else 'output_budget_exhausted' if status in ('budget_exhausted', 'response_truncated')
-                  and row.get('usage', {}).get('completion_tokens') == 65536 else status)
+                  and row.get('usage', {}).get('completion_tokens') == 65536 else row.get('status') or status)
         rounds.append({key: row.get(key) for key in ('block', 'activated', 'status', 'learner_status', 'model_calls', 'elapsed_seconds')} | {
             'completion_tokens': row.get('usage', {}).get('completion_tokens'),
-            'reason': reason, 'used_by_scored_future_questions': bool(row['activated'] and row['block'] < 10)})
+            'reason': reason, 'used_by_scored_future_questions': bool(row.get('activated') and row['block'] < 10)})
     lineage, active = [], 0
     for block in range(1, 11):
         lineage.append({'questions': [(block-1)*5+1, block*5], 'adapter_round': active})
@@ -64,7 +74,7 @@ def summarize(root, framework_revision='unrecorded'):
     result = {'schema_version': 1, 'benchmark': 'OfficeQA Pro', 'status': state['status'],
               'started_utc': state['started_utc'], 'finished_utc': state.get('finished_utc'),
               'model': state['model'], 'framework_revision': framework_revision,
-              'protocol': metrics.get('protocol', 'officeqa-pro-codex50-gold-online-v4'),
+              'protocol': protocol or 'officeqa-pro-codex50-gold-online-v4',
               'denominator_per_arm': 50, 'learn_every': 5,
               'budgets': {'seconds': 1800, 'completion_tokens': 65536, 'request_limit': None},
               'arms': arms, 'primary_tolerance': 0, 'secondary_tolerance': 0.01,
@@ -76,17 +86,22 @@ def summarize(root, framework_revision='unrecorded'):
                   'Adapted arm also receives extra learning compute and completed-batch answers.',
                   'Published tables omit questions, predictions, reference answers, raw traces and learned memory.']}
     if full:
-        result.update(profile='full_mwm_unbounded',protocol='officeqa-pro50-full-mwm-unbounded-v1',
-            active_learning_block=state.get('active_learning_block'),
-            budgets={'seconds':None,'completion_tokens':None,'request_limit':None,'per_response':None},
+        result.update(profile=profile, architecture=architecture,
+            protocol=protocol or f'officeqa-pro50-full-{architecture}-postmortem-v2',
+            active_learning_block=state.get('active_learning_block'), warnings=len(state.get('warnings', [])),
+            budgets={'seconds':actor_seconds(root),'completion_tokens':None,'request_limit':None,'per_response':None},
             limitations=[
                 'One sequential online run; the final results are pending until all original predictions are sealed and graded.',
-                'Same 50 questions and corpus; both arms have no client inference budgets. Fireworks limits still apply.',
-                'Full native MWM artifacts, corpus investigation, local calculations, tested programs and roles are enabled.',
-                'The adapted arm receives extra learning compute and answers only after each completed batch.',
-                'Linux executable bridge is new task infrastructure; actors retain macOS Seatbelt isolation.',
+                'Same 50 questions and corpus; both arms have no client inference budgets and advance in lockstep. Fireworks limits still apply.',
+                'Transport drops are retried and counted, never cut; a question is empty only when Codex produced no completed turn.',
+                ('Full native MWM artifacts, corpus investigation, local calculations, tested programs and roles are enabled.' if architecture == 'mwm' else
+                 'Prompt-only adapter: ADAPTER.md text served verbatim inside AGENTS.md; no MCP server, roles or executable tools.'),
+                'The adapted arm receives extra learning compute, and the answers plus strict/1% grades of each completed batch only.',
+                ('Linux executable bridge is new task infrastructure; actors retain macOS Seatbelt isolation.' if architecture == 'mwm' else
+                 'Actors retain macOS Seatbelt isolation; no container is involved.'),
                 'Only GLM supplies semantic feedback and continuation summaries. No human/Astra quality gate.',
-                'Native tool mechanics and immutable evaluation boundaries remain in force.',
+                ('Learned lessons are served only while their controller-replayed checks pass.' if architecture == 'mwm' else
+                 'ADAPTER.md is served whole; each lesson carries the status its controller replay produced.'),
                 'Offline parsed-TXT subset, not the official full PDF-and-web leaderboard condition.'])
     audit_path = root / 'preflight/final-audit.json'
     if audit_path.is_file():

@@ -31,7 +31,7 @@ class MwmFidelityTests(unittest.TestCase):
         self.assertEqual(adapter.agent_definitions(),[])
         self.assertEqual(set(adapter.tools),{'wm'})
         text=adapter.context()
-        sections=['Earlier episodes','=== Environment briefing ===','=== Open questions ===',
+        sections=['Earlier episodes','=== Environment briefing ===','=== Verified lessons ===','=== Open questions ===',
                   '=== World-model memory (catalog) ===','=== Reaching the world model ===']
         positions=[text.index(x) for x in sections]
         self.assertEqual(positions,sorted(positions))
@@ -109,6 +109,74 @@ class MwmAdmissionTests(unittest.IsolatedAsyncioTestCase):
             traced=(await a.call('wm',{'name':'trace','args':{'address':'q17','from':1}}))['text']
             self.assertIn('turn 1',traced);self.assertNotIn('turn 0',traced)
             self.assertIn('/evidence/block001/q017_case.json',traced)
+
+
+def method_module():
+    spec=importlib.util.spec_from_file_location('method_under_test_v6',EVOLVERS/'mwm/prompt.py')
+    method=importlib.util.module_from_spec(spec);spec.loader.exec_module(method)
+    return method
+
+
+LESSON='last_confirmed_t: 1\nscope: table:cpi\nderived_from: none (reasoning only)\nbrief: CPI rows are index points, not percent.\nstatus: %s\nstep: S3\ncheck: [{"kind":"cell","file":"a.txt","line":1,"contains":"1.0"}]\nverified_by: postmortem:001\n\nThe caption says index points.\n'
+
+
+class MwmV6Tests(unittest.IsolatedAsyncioTestCase):
+    def test_brief_served_whole(self):
+        spec=importlib.util.spec_from_file_location('brief_under_test',ARCH/'mwm/mwm_core/brief.py')
+        brief=importlib.util.module_from_spec(spec);spec.loader.exec_module(brief)
+        text='x'*(brief.CAP+5000)
+        self.assertEqual(brief.served(text),text);self.assertEqual(brief.CAP,30000)
+
+    async def test_schema_name_differs_from_directory_and_dispatch_by_module(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);core=copied(root);tool=core/'tools/linreg-slope';tool.mkdir()
+            (tool/'run.py').write_text('SCHEMA={"name":"linreg_slope","description":"Slope","parameters":{"type":"object","properties":{},"required":[]}}\ndef run(**kwargs):return {"slope":1}\n')
+            (tool/'test.py').write_text('import run\nassert run.run()["slope"]==1\n')
+            (tool/'TOOL.md').write_text('Slope.\nscope: test\nlast_confirmed_t: 0\nderived_from: none (test fixture)\nrepairs: 0\n')
+            spec=importlib.util.spec_from_file_location('caps_under_test',core/'mwm_core/capabilities.py')
+            # the package-relative copy is what Adapter loads; the bare module is enough for candidates()
+            caps=importlib.util.module_from_spec(spec);spec.loader.exec_module(caps)
+            found=[c for c in caps.candidates(str(core)) if c['name']=='linreg_slope']
+            self.assertEqual(len(found),1);self.assertEqual(found[0]['_module'],'linreg-slope')
+            class FakeSandbox:
+                def __init__(self):self.tested=[];self.invoked=[]
+                def status(self):return {'available':True}
+                def test(self,directory):self.tested.append(directory);return {'passed':True,'output':''}
+                def invoke(self,directory,args):self.invoked.append(directory);return {'passed':True,'stdout':'{"slope":1}'}
+            sandbox=FakeSandbox();a=Adapter(core,{'python_sandbox':sandbox})
+            self.assertEqual(json.loads((await a.call('wm',{'name':'linreg_slope','args':{}}))['text']),{'slope':1})
+            self.assertEqual(sandbox.invoked,['tools/linreg-slope']);self.assertIn('tools/linreg-slope',sandbox.tested)
+            self.assertIn('linreg_slope',(await a.call('wm',{'name':'list'}))['text'])
+
+    def test_lessons_section_catalog_and_status_block(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);core=copied(root);(root/'control').mkdir()
+            (core/'memory/L-cpi-units.md').write_text(LESSON%'verified')
+            (core/'memory/L-draft.md').write_text(LESSON%'candidate')
+            (core/'memory/L-sneaky.md').write_text(LESSON%'candidate'+'status: verified\n')
+            (core/'memory/plain-fact.md').write_text('last_confirmed_t: 1\nscope: all\nderived_from: none (reasoning only)\nbrief: A plain fact.\n\nBody.\n')
+            text=Adapter(core).context()
+            lessons=text[text.index('=== Verified lessons ==='):text.index('=== Open questions ===')]
+            self.assertIn('[L-cpi-units] table:cpi · S3 · CPI rows are index points, not percent.',lessons)
+            self.assertNotIn('L-draft',lessons);self.assertNotIn('L-sneaky',lessons);self.assertIn('match the convention here',lessons)
+            catalog=text[text.index('=== World-model memory (catalog) ==='):text.index('=== Reaching the world model ===')]
+            self.assertIn('[plain-fact]',catalog);self.assertNotIn('[L-',catalog)
+            method=method_module();state=method.prepare_session(core,root,block=2,tick=5)
+            self.assertIn('1 memory entries, 1 verified lessons of 3, 0 tool candidates (admission decided at serve time)',state['wm_counts'])
+            (root/'evidence').mkdir();prompt=method.build_prompt(core,root/'evidence','goal')
+            self.assertIn('[Lessons index]',prompt);self.assertIn('[L-cpi-units]',prompt)
+            self.assertIn('(advisory 30000; nothing is cut)',prompt);self.assertNotIn('TRUNCATED',prompt)
+
+    def test_gates_regex_span_and_lesson_fields(self):
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);core=copied(root)
+            (core/'examples/q1.md').write_text('input: x\noutcome: y\nderived_from: self\n\nDecisive: z.\n')
+            (core/'consumption/brief.md').write_text('# Briefing\n\nMatch `[0-9]+` digits; the [0-9] class; see q1 and [q1].\n')
+            (core/'memory/L-bare.md').write_text('last_confirmed_t: 1\nscope: all\nderived_from: none (reasoning only)\nbrief: A lesson without its lines.\n\nBody.\n')
+            advice=method_module()._gates().check(str(core))
+            self.assertFalse([a for a in advice if '0-9' in a],advice)
+            for field in ('status','step','check'):
+                self.assertTrue([a for a in advice if a.startswith('memory/L-bare.md') and f"'{field}:'" in a],(field,advice))
 
 
 if __name__=='__main__':unittest.main()

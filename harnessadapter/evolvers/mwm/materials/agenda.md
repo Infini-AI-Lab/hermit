@@ -76,6 +76,25 @@ Answer each in order; act, or give one line on why not:
    before rewriting the claim a failure implicates, confirm the
    interpretation against the environment where /environment gives you a
    way to; otherwise record the readings still in play.
+6. Postmortem ladder — where the controller releases this block's grades
+   and its two checkers (verify_cell, verify_answer): for each episode
+   graded wrong, find the rung it failed on and re-verify the chain now.
+   S1 locate the bulletin file / vintage (compare the same row across
+   later vintages; the latest 'final' vintage for annual rows, the first
+   printing for monthly rows unless the question says otherwise) -> S2
+   locate the table/section -> S3 row/column/units (millions vs
+   billions, fiscal vs calendar, percent vs percentage points) -> S4
+   extract the cells (count them) -> S5 formula/convention (write the
+   convention next to the number; enumerate the alternatives; match the
+   question wording) -> S6 format/round (round last; the strict grader
+   has tolerance 0). S7 is a harness/runtime cause (transport, output
+   limit, loop), not a data rung. Verify each rung as you pass it:
+   verify_cell for data rungs, your own python for the computation,
+   verify_answer for the final rung until strict is 1 — or leave the
+   chain open at the last passing rung. Then write one lesson per
+   re-verified rung, memory/L-<slug>.md, with its check: list copied in
+   (CONTRACT.md "Layout" gives the lines); the controller replays those
+   checks every block and hosts see a lesson only while it verifies.
 <!-- HYP:BEGIN -->
 Close the session in three moves. First, hypotheses: for each case of
 this block, one `match:` line in the journal entry naming the open

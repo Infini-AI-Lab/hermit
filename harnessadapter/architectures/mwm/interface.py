@@ -23,9 +23,10 @@ class Interface(WorldModelInterface):
         return super()._trace_pointer(address) if self.evidence_bound else ''
 
     def _run_tool(self, name, args):
-        if name in {s['name'] for s in capabilities.candidates(str(ROOT))}:
-            ok,reason = capabilities.run_test(str(ROOT),name)
-            if not ok:return f'{name}: not admitted — {reason}. Read tools/{name}/TOOL.md for the prose fallback.'
+        modules={s['name']:s['_module'] for s in capabilities.candidates(str(ROOT))}
+        if name in modules:
+            ok,reason = capabilities.run_test(str(ROOT),modules[name])
+            if not ok:return f'{name}: not admitted — {reason}. Read tools/{modules[name]}/TOOL.md for the prose fallback.'
         return super()._run_tool(name,args)
 
 

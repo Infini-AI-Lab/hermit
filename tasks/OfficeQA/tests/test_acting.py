@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import acting
+import experiment
 
 ENDPOINT = 'http://127.0.0.1:19999/v1'
 
@@ -59,6 +60,18 @@ class PreparationTests(Fixture):
         self.assertEqual(profile['filesystem'][str(self.workspace)], 'write')
         self.assertEqual(profile['filesystem'][str(self.workspace/'officeqa.py')], 'read')
 
+    def test_retries_with_accounting_and_project_doc_bytes(self):
+        metadata = acting.prepare_actor_workspace(self.workspace)
+        self.assertEqual(metadata['agents_md_bytes'], (self.workspace/'AGENTS.md').stat().st_size)
+        self.assertEqual(metadata['project_doc_max_bytes'], experiment.PROJECT_DOC_MAX_BYTES)
+        settings = self.settings()
+        provider = settings['model_providers.officeqa_fireworks']
+        self.assertEqual((provider['request_max_retries'], provider['stream_max_retries']), (100, 100))
+        self.assertEqual(provider['stream_idle_timeout_ms'], 3600000)
+        self.assertEqual(settings['project_doc_max_bytes'], experiment.PROJECT_DOC_MAX_BYTES)
+        self.assertNotIn('features.unbounded_connection_retries', settings)
+        self.assertNotIn('unbounded_connection_retries', acting.DISABLED_FEATURES)
+
     def test_endpoint_restricted_to_broker(self):
         acting.validate_endpoint(ENDPOINT)
         for endpoint in ('https://api.fireworks.ai/v1', 'http://evil:42/v1',
@@ -75,6 +88,8 @@ class PreparationTests(Fixture):
         settings = acting.build_settings(self.root/'adapted', self.output, self.corpus,
                                          self.index, adapter, endpoint=ENDPOINT)
         self.assertEqual(settings['mcp_servers.mwm.command'], '/usr/bin/env')
+        self.assertEqual(settings['mcp_servers.mwm.startup_timeout_sec'], 60)
+        self.assertEqual(settings['mcp_servers.mwm.tool_timeout_sec'], 660)
         self.assertNotIn('sandbox', settings['mcp_servers.mwm.args'])
         self.assertNotIn('--audit-log', settings['mcp_servers.mwm.args'])
         self.assertNotIn('--evidence', settings['mcp_servers.mwm.args'])
@@ -194,6 +209,35 @@ class FinalCollectionTests(Fixture):
                 {'type':'turn.completed'}]
         events.write_text('\n'.join(json.dumps(row) for row in rows))
         self.assertEqual(acting.parse_events(events)['last_agent_message'],'final answer')
+
+    def test_terminal_event_and_error_text_come_from_turn_failed_only(self):
+        events = self.output/'events.jsonl'
+        warning = {'type':'error','message':'stream disconnected before completion: stream closed before response.completed'}
+        events.write_text('\n'.join(json.dumps(row) for row in [warning,{'type':'turn.completed','usage':{'output_tokens':1}}]))
+        parsed = acting.parse_events(events)
+        self.assertEqual((parsed['terminal_event'],parsed['error_text']),('turn.completed',None))
+        self.assertTrue(parsed['turn_completed'])
+        failed = {'type':'turn.failed','error':{'message':'stream disconnected before completion: stream closed before response.completed'}}
+        events.write_text('\n'.join(json.dumps(row) for row in [warning,failed]))
+        parsed = acting.parse_events(events)
+        self.assertEqual(parsed['terminal_event'],'turn.failed')
+        self.assertEqual(parsed['error_text'],failed['error']['message'])
+        self.assertFalse(parsed['turn_completed'])
+        events.write_text(json.dumps({'type':'turn.failed','error':'plain text failure'}))
+        self.assertEqual(acting.parse_events(events)['error_text'],'plain text failure')
+        events.write_text('')
+        self.assertEqual(acting.parse_events(events)['terminal_event'],None)
+
+    def test_run_actor_result_carries_terminal_and_workspace_bytes(self):
+        acting.prepare_actor_workspace(self.workspace)
+        failed = {'type':'turn.failed','error':{'message':'stream disconnected before completion'}}
+        script = 'import json,sys; sys.stdin.read(); print(json.dumps(%r)); sys.exit(1)' % failed
+        with patch.object(acting, 'command_for', return_value=[sys.executable,'-B','-c',script]):
+            result = acting.run_actor(self.workspace,self.output,'Read the provided document.',self.corpus,self.index,endpoint=ENDPOINT)
+        self.assertEqual(result['status'],'failed')
+        self.assertEqual((result['terminal_event'],result['error_text']),('turn.failed',failed['error']['message']))
+        self.assertEqual(result['agents_md_bytes'],(self.workspace/'AGENTS.md').stat().st_size)
+        self.assertEqual(result['project_doc_max_bytes'],experiment.PROJECT_DOC_MAX_BYTES)
 
 
 @unittest.skipUnless(os.environ.get("OFFICEQA_RUN_NATIVE_ACTOR_TEST") == "1",

@@ -1,4 +1,5 @@
 """Synthetic-only completion budget checks for the GLM learner transport."""
+import http.client
 import io
 import json
 import unittest
@@ -15,11 +16,13 @@ class Response(io.BytesIO):
 
 
 class Opener:
-    def __init__(self, body):
+    def __init__(self, body, errors=()):
         self.body=body
+        self.errors=list(errors)
         self.requests=[]
     def open(self, request, timeout):
         self.requests.append(request)
+        if self.errors: raise self.errors.pop(0)
         return Response(self.body)
 
 
@@ -30,12 +33,48 @@ def body(usage):
 
 
 class LearnerClientBudgetTests(unittest.TestCase):
-    def complete(self,response,**options):
-        opener=Opener(response)
+    def complete(self,response,errors=(),**options):
+        opener=Opener(response,errors)
         with patch.object(client.urllib.request,"build_opener",return_value=opener), \
                 patch.object(rate_control,"GLOBAL",rate_control.RateScheduler(min_interval=0,backoffs=(0,))):
             result,meta=client.complete("synthetic-key",[{"role":"user","content":"Synthetic test."}],timeout=2,**options)
         return result,meta,opener
+
+    def test_transport_drop_is_resent_once_with_identical_bytes(self):
+        response=body({"prompt_tokens":3,"completion_tokens":2,"total_tokens":5})
+        result,meta,opener=self.complete(response,errors=[http.client.IncompleteRead(b"")])
+        self.assertEqual(result,response)
+        self.assertEqual(len(opener.requests),2)
+        self.assertEqual(opener.requests[0].data,opener.requests[1].data)
+        self.assertEqual([a["status"] for a in meta["attempts"]],["transport_retry","succeeded"])
+        self.assertEqual(meta["attempts"][0]["failure_kind"],"transport_retry")
+        self.assertEqual(meta["wire_attempts"],2)
+        self.assertTrue(meta["usage_is_lower_bound"])
+        self.assertTrue(meta["completion_usage_valid"])
+        self.assertNotIn("error",meta)
+        result,_meta,opener=self.complete(response,errors=[TimeoutError("read timed out")])
+        self.assertIsNone(result)
+        self.assertEqual(len(opener.requests),1)
+
+    def test_edge_block_403_is_resent_but_provider_403_is_not(self):
+        import urllib.error
+        def http_error(code, raw):
+            return urllib.error.HTTPError("https://api.fireworks.ai/inference/v1/chat/completions", code, "Forbidden", {}, io.BytesIO(raw))
+        response=body({"prompt_tokens":3,"completion_tokens":2,"total_tokens":5})
+        result,meta,opener=self.complete(response,errors=[http_error(403,b"error code: 1010")])
+        self.assertEqual(result,response)
+        self.assertEqual(len(opener.requests),2)
+        self.assertEqual([a["status"] for a in meta["attempts"]],["transport_retry","succeeded"])
+        self.assertEqual(meta["attempts"][0]["provider_error"],"error code: 1010")
+        self.assertEqual(opener.requests[0].get_header("User-agent"),"officeqa-harness/1.0")
+        self.assertEqual(opener.requests[0].get_header("Accept"),"application/json")
+        result,meta,opener=self.complete(response,errors=[http_error(403,json.dumps({"error":{"message":"forbidden"}}).encode())])
+        self.assertIsNone(result)
+        self.assertEqual(len(opener.requests),1)
+        self.assertEqual(meta["attempts"][0]["status"],"failed")
+        result,_meta,opener=self.complete(response,errors=[http_error(401,b"Unauthorized")])
+        self.assertIsNone(result)
+        self.assertEqual(len(opener.requests),1)
 
     def test_default_allows65536_and_smaller_remaining_is_preserved(self):
         response=body({"prompt_tokens":3,"completion_tokens":2,"total_tokens":5})
