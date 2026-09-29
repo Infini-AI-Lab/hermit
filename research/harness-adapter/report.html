@@ -1,0 +1,878 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>OfficeQA Harness Adapters</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600;8..60,700&display=swap">
+<style>
+:root {
+  --bg: #F3F5F4;
+  --surface: #FFFFFF;
+  --ink: #17232E;
+  --muted: #56636E;
+  --rule: #D3DBD8;
+  --accent: #1D5C73;
+  --accent-soft: #E0ECEF;
+  --good: #2F7A4A;
+  --good-soft: #E2F0E6;
+  --bad: #B04A3F;
+  --bad-soft: #F6E4E1;
+  --warn: #8F6212;
+  --warn-soft: #F4EAD5;
+  --code-bg: #EAEFED;
+  --cell-wrong: #DCD9D5;
+  --cell-none: transparent;
+  --font-display: "Source Serif 4", "Iowan Old Style", Georgia, serif;
+  --font-body: "IBM Plex Sans", -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #10181D; --surface: #162128; --ink: #E3E9EB; --muted: #98A6AE; --rule: #2A3841;
+    --accent: #72B6CE; --accent-soft: #1B3441; --good: #6CC08A; --good-soft: #193224;
+    --bad: #E3887A; --bad-soft: #3A2220; --warn: #D8A84E; --warn-soft: #33290F;
+    --code-bg: #0C1418; --cell-wrong: #34404A;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #10181D; --surface: #162128; --ink: #E3E9EB; --muted: #98A6AE; --rule: #2A3841;
+  --accent: #72B6CE; --accent-soft: #1B3441; --good: #6CC08A; --good-soft: #193224;
+  --bad: #E3887A; --bad-soft: #3A2220; --warn: #D8A84E; --warn-soft: #33290F;
+  --code-bg: #0C1418; --cell-wrong: #34404A;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: var(--font-body); font-size: 16px; line-height: 1.6;
+  padding-inline: 20px; padding-block: 0 64px;
+}
+a { color: var(--accent); text-underline-offset: 2px; }
+a:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+.shell { max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 48px; }
+nav.toc { position: sticky; top: env(safe-area-inset-top, 0px); align-self: start; padding-block: 36px 24px; max-height: 100vh; overflow-y: auto; }
+nav.toc .label { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
+nav.toc ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+nav.toc a { display: block; padding: 3px 8px; border-left: 2px solid transparent; color: var(--muted); text-decoration: none; font-size: 14px; line-height: 1.35; }
+nav.toc a:hover { color: var(--ink); border-left-color: var(--rule); }
+nav.toc a.sub { padding-left: 20px; font-size: 13px; }
+main { min-width: 0; padding-block: 36px 0; }
+.measure { max-width: 740px; }
+header.top { padding-bottom: 28px; border-bottom: 1px solid var(--rule); margin-bottom: 8px; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; color: var(--muted); letter-spacing: .02em; display: flex; flex-wrap: wrap; gap: 6px 14px; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; line-height: 1.2; color: var(--ink); }
+h1 { font-size: clamp(34px, 5vw, 48px); font-weight: 700; margin: 14px 0 12px; letter-spacing: -.01em; }
+h2 { font-size: 28px; font-weight: 600; margin: 56px 0 14px; padding-top: 12px; }
+h3 { font-size: 20px; font-weight: 600; margin: 34px 0 10px; }
+h4 { font-size: 13px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 22px 0 8px; }
+p { margin: 0 0 14px; }
+.lede { font-size: 19px; line-height: 1.55; color: var(--ink); max-width: 740px; }
+.muted { color: var(--muted); }
+small, .small { font-size: 13.5px; }
+ul, ol.plain { padding-left: 22px; margin: 0 0 14px; }
+li { margin-bottom: 6px; }
+code, kbd { font-family: var(--font-mono); font-size: .88em; background: var(--code-bg); padding: 1px 5px; border-radius: 3px; }
+pre { font-family: var(--font-mono); font-size: 12.5px; line-height: 1.5; background: var(--code-bg); border: 1px solid var(--rule); border-radius: 6px; padding: 14px 16px; overflow-x: auto; margin: 0; white-space: pre; }
+pre code { background: none; padding: 0; font-size: inherit; }
+figure { margin: 18px 0 22px; }
+figcaption { font-size: 13.5px; color: var(--muted); margin-top: 8px; max-width: 740px; }
+.ex { margin: 18px 0 24px; }
+.ex .src { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; font-size: 12.5px; color: var(--muted); margin-bottom: 6px; font-family: var(--font-mono); }
+.ex .src b { font-family: var(--font-body); font-weight: 600; color: var(--ink); font-size: 13.5px; }
+.note { border: 1px solid var(--rule); background: var(--surface); border-radius: 8px; padding: 14px 18px; margin: 18px 0; max-width: 740px; }
+.note.warn { background: var(--warn-soft); border-color: transparent; }
+.note.info { background: var(--accent-soft); border-color: transparent; }
+.note > :last-child { margin-bottom: 0; }
+.note .k { font-weight: 600; }
+.tablewrap { overflow-x: auto; margin: 16px 0 22px; border: 1px solid var(--rule); border-radius: 8px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); background: var(--surface); white-space: nowrap; }
+tr:last-child td { border-bottom: none; }
+td.num, th.num { text-align: right; white-space: nowrap; }
+td.mono { font-family: var(--font-mono); font-size: 12.5px; }
+tr.group td { background: var(--bg); font-weight: 600; font-size: 13px; color: var(--muted); }
+.bar { position: relative; height: 10px; min-width: 120px; background: var(--bg); border-radius: 2px; overflow: hidden; }
+.bar span { position: absolute; inset: 0 auto 0 0; background: var(--accent); border-radius: 2px; }
+.bar span.base { background: var(--muted); opacity: .55; }
+.bar span.best { background: var(--good); }
+.chip { display: inline-block; font-size: 11.5px; font-weight: 600; letter-spacing: .04em; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+.chip.done { background: var(--good-soft); color: var(--good); }
+.chip.stop { background: var(--bad-soft); color: var(--bad); }
+.chip.run { background: var(--warn-soft); color: var(--warn); }
+.chip.neutral { background: var(--accent-soft); color: var(--accent); }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin: 22px 0 6px; max-width: 900px; }
+.fact { border-top: 2px solid var(--ink); padding-top: 8px; }
+.fact .v { font-family: var(--font-display); font-size: 30px; font-weight: 600; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.fact .d { font-size: 13.5px; color: var(--muted); margin-top: 4px; }
+/* timeline */
+.tl { list-style: none; padding: 0; margin: 20px 0; display: grid; gap: 0; max-width: 820px; }
+.tl > li { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 18px; padding: 18px 0; border-top: 1px solid var(--rule); margin: 0; }
+.tl .when { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); padding-top: 4px; }
+.tl .when b { display: block; font-family: var(--font-display); font-size: 22px; color: var(--ink); font-weight: 600; }
+.tl h3 { margin: 0 0 6px; font-size: 18px; }
+.tl dl { display: grid; grid-template-columns: 78px minmax(0, 1fr); gap: 4px 12px; margin: 8px 0 0; font-size: 15px; }
+.tl dt { font-size: 11.5px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); padding-top: 3px; }
+.tl dd { margin: 0; }
+/* layer stack */
+.stack { display: grid; gap: 6px; margin: 18px 0; max-width: 820px; }
+.layer { display: grid; grid-template-columns: 54px 170px minmax(0, 1fr); gap: 12px; align-items: baseline; background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 10px 14px; }
+.layer .id { font-family: var(--font-mono); font-weight: 500; color: var(--accent); }
+.layer .nm { font-weight: 600; }
+.layer .ds { font-size: 14px; color: var(--muted); }
+.layer.all { background: var(--accent-soft); border-color: transparent; }
+.flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px; margin: 18px 0; max-width: 900px; }
+.flow .step { flex: 1 1 150px; background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 10px 12px; font-size: 13.5px; position: relative; }
+.flow .step b { display: block; font-size: 14px; margin-bottom: 3px; }
+.flow .step .n { font-family: var(--font-mono); font-size: 11px; color: var(--accent); letter-spacing: .06em; }
+.flow .step.end { background: var(--good-soft); border-color: transparent; }
+/* heatmap */
+.hm-wrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 8px; background: var(--surface); padding: 14px 14px 10px; margin: 16px 0 8px; }
+.hm { display: grid; grid-template-columns: 170px repeat(133, 6px); column-gap: 1px; row-gap: 3px; align-items: center; width: max-content; }
+.hm .rl { font-size: 12px; color: var(--muted); white-space: nowrap; padding-right: 10px; text-align: right; font-variant-numeric: tabular-nums; }
+.hm .rl.sep { margin-top: 6px; }
+.hm i { display: block; width: 6px; height: 12px; border-radius: 1px; background: var(--cell-none); }
+.hm i.r { background: var(--good); }
+.hm i.w { background: var(--cell-wrong); }
+.hm i.x { background: var(--warn); height: 6px; align-self: end; }
+.hm .tick { font-size: 10px; color: var(--muted); font-family: var(--font-mono); }
+.hm-controls { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; font-size: 13px; color: var(--muted); }
+.hm-controls button { font: inherit; font-size: 13px; padding: 4px 10px; border-radius: 5px; border: 1px solid var(--rule); background: var(--surface); color: var(--ink); cursor: pointer; }
+.hm-controls button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.legend { display: inline-flex; gap: 6px; align-items: center; }
+.legend i { width: 10px; height: 10px; display: inline-block; border-radius: 2px; }
+.two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.two > div { min-width: 0; }
+details.more { margin: 10px 0 18px; max-width: 820px; }
+details.more summary { cursor: pointer; color: var(--accent); font-weight: 500; }
+.kv { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 6px 16px; margin: 12px 0 18px; max-width: 780px; font-size: 15px; }
+.kv dt { font-weight: 600; }
+.kv dd { margin: 0; }
+footer { margin-top: 64px; padding-top: 18px; border-top: 1px solid var(--rule); font-size: 13.5px; color: var(--muted); max-width: 820px; }
+@media (max-width: 920px) {
+  .shell { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  nav.toc { position: static; max-height: none; padding-block: 20px 0; border-bottom: 1px solid var(--rule); }
+  nav.toc ol { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); }
+  nav.toc a.sub { display: none; }
+  .two { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 560px) {
+  body { padding-inline: 16px; font-size: 15.5px; }
+  .tl > li { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .tl dl, .kv { grid-template-columns: minmax(0, 1fr); }
+  .layer { grid-template-columns: 44px minmax(0, 1fr); }
+  .layer .ds { grid-column: 1 / -1; }
+  h2 { font-size: 24px; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+html { scroll-behavior: smooth; }
+</style>
+
+<div class="shell">
+<nav class="toc" aria-label="Contents">
+  <div class="label">Contents</div>
+  <ol>
+    <li><a href="#summary">Summary</a></li>
+    <li><a href="#setup">Setup and terms</a></li>
+    <li><a href="#results">Results at a glance</a></li>
+    <li><a href="#timeline">Timeline v1 to v10</a></li>
+    <li><a href="#mwm">MWM and prompt-only</a></li>
+    <li><a href="#cards">Cards</a></li>
+    <li><a href="#divergence">Opus reference and divergence</a></li>
+    <li><a href="#v9">v9 mechanism adapter</a></li>
+    <li><a class="sub" href="#v9-examples">Real traces</a></li>
+    <li><a class="sub" href="#v9-pilots">Pilots 1 and 2</a></li>
+    <li><a href="#v10">v10 tool evolution</a></li>
+    <li><a class="sub" href="#v10-w0">W0 tool changes</a></li>
+    <li><a class="sub" href="#v10-learner">Learner and admission</a></li>
+    <li><a href="#lessons">What we learned</a></li>
+    <li><a href="#next">Open questions</a></li>
+    <li><a href="#repo">Repository map</a></li>
+  </ol>
+</nav>
+
+<main>
+<header class="top">
+  <div class="eyebrow"><span>Research log</span><span>branch research/harness-adapter</span><span>2026-09-20 to 2026-09-29</span></div>
+  <h1>OfficeQA Harness Adapters</h1>
+  <p class="lede">Ten rounds of trying to make a small model answer Treasury Bulletin questions better by changing what surrounds it, not the model itself. This page records what each round changed, what it scored, what went wrong, and where the code and evidence live in this branch.</p>
+</header>
+
+<section id="summary" class="measure">
+<h2>Summary</h2>
+<p><b>The goal.</b> Show that <i>evolving a harness adapter</i> beats two alternatives. One is a plain agent harness: the Codex CLI with the model and nothing else. The other is prompt-level evolution, where only instruction text is optimized, as in GEPA or SkillOpt. The actor is GLM-5.3-flash inside Codex. The benchmark is OfficeQA Pro: 133 questions over 697 parsed U.S. Treasury Bulletin issues.</p>
+<p><b>Where it stands.</b> No evolving adapter has yet beaten its own baseline by more than run-to-run noise. The one large gain came from a <i>hand-built, static</i> harness in v9: environment repairs, four table tools and about 2.5 KB of advice text. It scored 31/50 against 21–23/50 for the earlier arms on the same questions. Submit-time rules on top of that lost ground (20/50). v10, now in calibration, moves evolution to where the v9 evidence points: the learner may change tool code and advice together, and every change must survive offline replay and paired re-runs before it is used.</p>
+<div class="facts">
+  <div class="fact"><div class="v">31 / 50</div><div class="d">Best GLM configuration: v9 text-static (tools + advice, T=0)</div></div>
+  <div class="fact"><div class="v">17–26</div><div class="d">Same no-adapter baseline on the same 50 questions across five runs</div></div>
+  <div class="fact"><div class="v">97 / 103</div><div class="d">GLM failures where the right evidence was already in its own output</div></div>
+  <div class="fact"><div class="v">87 / 133</div><div class="d">Opus 5.5 reference solve, versus 55–64 for the v8 GLM arms</div></div>
+</div>
+</section>
+
+<section id="setup" class="measure">
+<h2>Setup and terms</h2>
+<p>Every campaign uses the same actor, benchmark and scoring. What changes between rounds is the adapter, the learner and the operational plumbing around Codex.</p>
+<dl class="kv">
+  <dt>Actor</dt><dd><code>accounts/fireworks/models/glm-5p3-flash</code> inside the native Codex CLI (<code>0.155.0-alpha.9.2</code> from v8 on), one fresh conversation and folder per question.</dd>
+  <dt>Relay / broker</dt><dd>A local HTTP relay between Codex and Fireworks. It records every request, retries provider defects, and in v9/v10 hosts the controller (loop guard, ledger splice, submit gate).</dd>
+  <dt>Sandbox</dt><dd>macOS Seatbelt around the whole Codex client; network reaches only the relay.</dd>
+  <dt>Benchmark</dt><dd>OfficeQA Pro (databricks/officeqa, dataset revision <code>763a8366</code>): 133 questions, 697 parsed TXT bulletins plus an FTS5 search helper. Offline: no web, no PDFs.</dd>
+  <dt>Scoring</dt><dd>The official <code>reward.py</code>. <b>Strict</b> means 0% relative tolerance and is the primary metric; <b>1%</b> is the same grader at 1% tolerance. Predictions are sealed before any answer is opened.</dd>
+  <dt>Question order</dt><dd>SHA-256 of seed + id. v3 used the first 70; v4–v7 and the v9/v10 pilots use the same first 50; v8 and Opus use all 133.</dd>
+</dl>
+<h4>Terms used on this page</h4>
+<dl class="kv">
+  <dt>Harness</dt><dd>Everything around the model that decides what it sees and can do: the agent loop (Codex), the workspace, tools, instructions and runtime controls.</dd>
+  <dt>Adapter</dt><dd>The part of the harness we own and may evolve. In the MetaHarnessAdapter framework an adapter exports context (text), tools and agent definitions; v9 added controls.</dd>
+  <dt>Arm</dt><dd>One configuration being compared, for example "no adapter" or "cards".</dd>
+  <dt>W0</dt><dd>The starting adapter before any learning.</dd>
+  <dt>Learner / evolver</dt><dd>A model session that reads released evidence after each block and proposes adapter changes.</dd>
+  <dt>Block, prequential</dt><dd>Questions run in blocks of 5. Each question is answered before its reference is released, so learning can only help later questions.</dd>
+  <dt>Discordant pair</dt><dd>A question that exactly one of two arms got right. The sign test on these is the paired comparison.</dd>
+  <dt>Issue #47</dt><dd>An open GitHub issue on databricks/officeqa that disputes several reference answers. The 18 affected ids are scored but withheld from learners from v8 on.</dd>
+</dl>
+</section>
+
+<section id="results">
+<h2>Results at a glance</h2>
+<p class="measure">Strict correct answers per arm. Paired campaigns ran a baseline and an adapted arm side by side on the same questions. v8 ran three independent single-arm roots. The cost column is the known lower bound for the whole campaign root, at list price.</p>
+<div class="tablewrap">
+<table>
+<thead><tr><th>Round</th><th>Arm</th><th class="num">Strict</th><th style="min-width:140px">Share</th><th class="num">1%</th><th class="num">Discordant</th><th class="num">Cost</th></tr></thead>
+<tbody>
+<tr class="group"><td colspan="7">70 questions</td></tr>
+<tr><td>v3</td><td>baseline</td><td class="num">23/70</td><td><div class="bar"><span class="base" style="width:32.9%"></span></div></td><td class="num">30</td><td class="num" rowspan="2">MWM 10 · base 9</td><td class="num" rowspan="2">n/a</td></tr>
+<tr><td></td><td>MWM, self-feedback</td><td class="num">24/70</td><td><div class="bar"><span style="width:34.3%"></span></div></td><td class="num">35</td></tr>
+<tr class="group"><td colspan="7">Same 50 questions (first 50 of the fixed order)</td></tr>
+<tr><td>v4</td><td>baseline</td><td class="num">22/50</td><td><div class="bar"><span class="base" style="width:44%"></span></div></td><td class="num">30</td><td class="num" rowspan="2">MWM 5 · base 5</td><td class="num" rowspan="2">$16.1</td></tr>
+<tr><td></td><td>MWM + gold feedback</td><td class="num">22/50</td><td><div class="bar"><span style="width:44%"></span></div></td><td class="num">29</td></tr>
+<tr><td>v5</td><td>baseline</td><td class="num">17/50</td><td><div class="bar"><span class="base" style="width:34%"></span></div></td><td class="num">21</td><td class="num" rowspan="2">MWM 7 · base 4</td><td class="num" rowspan="2">$25.5</td></tr>
+<tr><td></td><td>full MWM, unbounded</td><td class="num">20/50</td><td><div class="bar"><span style="width:40%"></span></div></td><td class="num">24</td></tr>
+<tr><td>v6f</td><td>baseline</td><td class="num">26/50</td><td><div class="bar"><span class="base" style="width:52%"></span></div></td><td class="num">31</td><td class="num" rowspan="2">MWM 5 · base 7</td><td class="num" rowspan="2">$25.4</td></tr>
+<tr><td></td><td>full MWM + postmortems</td><td class="num">24/50</td><td><div class="bar"><span style="width:48%"></span></div></td><td class="num">29</td></tr>
+<tr><td>v6f</td><td>baseline</td><td class="num">19/50</td><td><div class="bar"><span class="base" style="width:38%"></span></div></td><td class="num">26</td><td class="num" rowspan="2">prompt 11 · base 5</td><td class="num" rowspan="2">$22.8</td></tr>
+<tr><td></td><td>prompt-only + postmortems</td><td class="num">25/50</td><td><div class="bar"><span style="width:50%"></span></div></td><td class="num">32</td></tr>
+<tr><td>v7</td><td>baseline</td><td class="num">22/50</td><td><div class="bar"><span class="base" style="width:44%"></span></div></td><td class="num">31</td><td class="num" rowspan="2">cards 9 · base 5</td><td class="num" rowspan="2">$42.0</td></tr>
+<tr><td></td><td>cards</td><td class="num">26/50</td><td><div class="bar"><span style="width:52%"></span></div></td><td class="num">33</td></tr>
+<tr><td>v9 p1</td><td>a · text-static, T=0</td><td class="num"><b>31/50</b></td><td><div class="bar"><span class="best" style="width:62%"></span></div></td><td class="num">37</td><td class="num">a 12 · b 1</td><td class="num">$12.0</td></tr>
+<tr><td></td><td>b · mech-static, T=0</td><td class="num">20/50</td><td><div class="bar"><span style="width:40%"></span></div></td><td class="num">26</td><td class="num">a 11 · c 4</td><td class="num">$5.0</td></tr>
+<tr><td></td><td>c · text-static, T=1.0</td><td class="num">24/50</td><td><div class="bar"><span style="width:48%"></span></div></td><td class="num">32</td><td class="num"></td><td class="num">$1.7</td></tr>
+<tr><td>v9 p2</td><td>b2 · mech + advice text</td><td class="num">13/25</td><td><div class="bar"><span style="width:52%"></span></div></td><td class="num">n/a</td><td class="num">a 15/25 on same</td><td class="num"></td></tr>
+<tr class="group"><td colspan="7">All 133 questions</td></tr>
+<tr><td>v8</td><td>none (no adapter)</td><td class="num">62/133</td><td><div class="bar"><span class="base" style="width:46.6%"></span></div></td><td class="num">79</td><td class="num"></td><td class="num">$25.1</td></tr>
+<tr><td></td><td>prompt-only (evolving)</td><td class="num">64/133</td><td><div class="bar"><span style="width:48.1%"></span></div></td><td class="num">78</td><td class="num">prompt 18 · none 16</td><td class="num">$40.1</td></tr>
+<tr><td></td><td>cards (evolving)</td><td class="num">55/133</td><td><div class="bar"><span style="width:41.4%"></span></div></td><td class="num">75</td><td class="num">cards 15 · none 22</td><td class="num">$49.9</td></tr>
+<tr><td>Opus</td><td>Opus 5.5 solver + reviewer</td><td class="num">87/133</td><td><div class="bar"><span class="best" style="width:65.4%"></span></div></td><td class="num">103</td><td class="num">Opus 31 · none 6</td><td class="num">n/a</td></tr>
+</tbody>
+</table>
+</div>
+<div class="note warn measure">
+<p><span class="k">How to read these numbers.</span> The same no-adapter baseline on the same 50 questions scored 22, 17, 26, 19 and 22 in five runs (v4, v5, v6f twice, v7). GLM on Fireworks is nondeterministic at temperature 0: about 27% of questions flip between identical runs, and the standard deviation of a difference of two counts is about 3.6 questions. None of the adapted-versus-baseline gaps in v3–v8 is significant (every sign test p ≥ 0.19). v9 a vs b (12 vs 1 discordant, p ≈ 0.003) is the only paired gap that clears the noise. v8 scores are not comparable with v4–v7, because v8 fixed two measurement bugs, and v9 used different plumbing again.</p>
+</div>
+
+<h3 id="heatmap">Every question, every run</h3>
+<p class="measure">One column per question in the fixed 133-question order; one row per arm. Green is strict-correct, grey is wrong, blank means the arm did not run that question. The amber marks on top flag the 18 issue-#47 questions. Sorting by difficulty groups questions by how many rows got them right.</p>
+<div class="hm-controls">
+  <span>Order:</span>
+  <button type="button" id="hm-order-q" aria-pressed="true">Question number</button>
+  <button type="button" id="hm-order-d" aria-pressed="false">Difficulty</button>
+  <span class="legend"><i style="background:var(--good)"></i>right</span>
+  <span class="legend"><i style="background:var(--cell-wrong)"></i>wrong</span>
+  <span class="legend"><i style="background:var(--warn)"></i>issue #47</span>
+</div>
+<div class="hm-wrap"><div class="hm" id="hm" role="img" aria-label="Per-question right and wrong grid for 19 arms over 133 questions"></div></div>
+<p class="small muted measure">Source: <code>research/harness-adapter/results/per_question_strict.csv</code> (answer-free export of the official grades). Hover a cell for the question number and id.</p>
+</section>
+
+<section id="timeline">
+<h2>Timeline v1 to v10</h2>
+<p class="measure">Each entry says what changed from the round before, what it scored and what we took from it. Code snapshots live under <code>research/harness-adapter/officeqa/</code>.</p>
+<ol class="tl">
+<li><div class="when"><b>v1</b>09-20</div><div>
+  <h3>70 questions, MWM vs baseline <span class="chip stop">stopped</span></h3>
+  <p>MWM (the framework's memory-and-briefing adapter) against no adapter, with a GLM learner that wrote its own feedback. Tight budgets: 24 requests and 600 s per question.</p>
+  <dl><dt>Result</dt><dd>Not graded. Fireworks rate-limit errors, and the first learner exhausted its 48-request budget before producing anything.</dd>
+  <dt>Code</dt><dd><code>v01-v02-codex70-stopped/v1/</code> (protocol and stop record)</dd></dl>
+</div></li>
+<li><div class="when"><b>v2</b>09-20</div><div>
+  <h3>Budgets raised, shared scheduler <span class="chip stop">stopped</span></h3>
+  <dl><dt>Result</dt><dd>Not graded. After two questions per arm we found that a Responses <code>text.format</code> field was misclassified as generated text, so rate refusals were not retried.</dd>
+  <dt>Code</dt><dd><code>v01-v02-codex70-stopped/v2/</code></dd></dl>
+</div></li>
+<li><div class="when"><b>v3</b>09-20</div><div>
+  <h3>First completed run <span class="chip done">completed</span></h3>
+  <p>Only the transport classification was fixed.</p>
+  <dl><dt>Result</dt><dd>Baseline 23/70, MWM 24/70. Of 14 learning rounds, 6 were rejected for budget exhaustion or truncated responses.</dd>
+  <dt>Lesson</dt><dd>A self-supervised flash learner under tight budgets had no measurable effect, and learner infrastructure failures dominated.</dd>
+  <dt>Code</dt><dd><code>v03-codex70-mwm/</code></dd></dl>
+</div></li>
+<li><div class="when"><b>v4</b>09-21</div><div>
+  <h3>Gold feedback, 50 questions <span class="chip done">completed</span></h3>
+  <p>No request or tool caps. After each sealed block the learner received the five official answers (gold-supervised online adaptation).</p>
+  <dl><dt>Result</dt><dd>22 vs 22. Only 3 of 10 learning rounds were admitted; the rest failed on budget, truncation or API errors.</dd>
+  <dt>Lesson</dt><dd>The answers never had a chance to act; the learner kept failing operationally.</dd>
+  <dt>Code</dt><dd><code>v04-gold-feedback-mwm/</code></dd></dl>
+</div></li>
+<li><div class="when"><b>v5</b>09-22</div><div>
+  <h3>Full MWM, unbounded inference <span class="chip done">completed</span></h3>
+  <p>No wall-clock, token or cost caps. The learner could evolve every MWM layer: memory, examples, briefing, executable tools (run in a networkless container) and role specs.</p>
+  <dl><dt>Result</dt><dd>Baseline 17, full MWM 20 (7 vs 4 discordant). The adapted arm's 30 misses were 13 transport failures, 6 runaways and only 11 substantive errors.</dd>
+  <dt>Lesson</dt><dd>Delivery and operations, not knowledge, were the bottleneck. No learned tool was ever called in 50 episodes. From question 36 on, Codex truncated AGENTS.md at 32,768 bytes.</dd>
+  <dt>Code</dt><dd><code>v05-full-mwm-unbounded/</code>, framework commit <code>c0c9b87</code></dd></dl>
+</div></li>
+<li><div class="when"><b>v6</b>09-24</div><div>
+  <h3>Checked postmortems, MWM and prompt-only <span class="chip done">completed</span></h3>
+  <p>Two profiles ran in parallel: full MWM, and prompt-only (a single learned <code>ADAPTER.md</code> served inside AGENTS.md). After each block the learner walked every failure down a ladder (S1 vintage, S2 table, S3 row/column/units, S4 cells, S5 formula, S6 format, S7 harness) with checkers <code>verify_cell</code> and <code>verify_answer</code>. Lessons were replayed every block. Attempts v6c–e were abandoned: a provider-edge 403 killed a learner round, and one question ran 98 minutes, which led to a 3,600 s wall clock.</p>
+  <dl><dt>Result</dt><dd>MWM 24 vs baseline 26. Prompt-only 25 vs baseline 19 (11 vs 5, p = 0.21). The two baselines differ by 7 on an identical setup.</dd>
+  <dt>Lesson</dt><dd>The replay only checked citations: an answer check compares against the reference string, so no lesson was ever demoted. AGENTS.md grew to 52 KB (MWM) and 97 KB (prompt-only).</dd>
+  <dt>Code</dt><dd><code>v06-full-mwm-and-prompt-only/</code>, framework snapshot commit <code>a9d0976</code></dd></dl>
+</div></li>
+<li><div class="when"><b>v7</b>09-26</div><div>
+  <h3>Cards verified by paired re-runs <span class="chip done">completed</span></h3>
+  <p>The adapter became a deck of cards: one rule each, with <code>scope</code>, <code>claim</code> (≤ 600 B) and <code>unless</code>. The learner may only propose; each card is admitted after the actor is re-run with it on its support questions and on 2 control questions, twice each.</p>
+  <dl><dt>Result</dt><dd>Cards 26 vs baseline 22 (9 vs 5, p ≈ 0.42). 6 of 16 verified proposals admitted; AGENTS.md grew only from 1.6 KB to 5.7 KB.</dd>
+  <dt>Lesson</dt><dd>The verification works but is thin: one support question, two runs, and controls that flip on their own.</dd>
+  <dt>Code</dt><dd><code>v07-cards/</code>, framework <code>harnessadapter/architectures/cards</code></dd></dl>
+</div></li>
+<li><div class="when"><b>v8</b>09-26</div><div>
+  <h3>All 133 questions, three arms <span class="chip done">completed</span></h3>
+  <p>Separate roots for none, prompt-only and cards, with five fixes found by a baseline-variance audit: provider defects are re-sent instead of graded, reasoning effort is actually forwarded, and the correct Codex binary is pinned.</p>
+  <dl><dt>Result</dt><dd>none 62, prompt 64, cards 55. Cards led through question 75, then fell behind: on questions 76–125 it scored 15 against 22 and 25.</dd>
+  <dt>Lesson</dt><dd>Showing the whole deck on every task turned one card ("take the latest issue printing") into a general habit. That phrase appears in 79 of 133 cards runs and in none of the others.</dd>
+  <dt>Code</dt><dd><code>v08-pro133-three-arms/</code></dd></dl>
+</div></li>
+<li><div class="when"><b>ref</b>09-28</div><div>
+  <h3>Opus reference and divergence analysis <span class="chip neutral">analysis</span></h3>
+  <p>Opus 5.5 solved all 133 in the same offline workspace (87 correct). Then, for every question Opus got right and a GLM arm got wrong, we located the step where GLM left the right path.</p>
+  <dl><dt>Result</dt><dd>GLM had the right evidence in its own output in 97 of 103 failures. Relevant text was in context in 32 of 33 prompt-arm failures but fully followed in 2. The smallest fix was a check, a tool or a control far more often than more text.</dd>
+  <dt>Code</dt><dd><code>opus-reference/</code>, <code>divergence-analysis/</code></dd></dl>
+</div></li>
+<li><div class="when"><b>v9</b>09-28</div><div>
+  <h3>Mechanism adapter <span class="chip done">pilots done</span></h3>
+  <p>Environment repairs for every arm, four table tools, a ledger re-injected after context compaction, a loop guard, and a submit gate running declarative rules. A 2×2 design {text, mechanism} × {static, evolve}.</p>
+  <dl><dt>Result</dt><dd>Pilot 1 on 50 questions: text-static 31, mech-static 20, text-static at T=1.0 24. Pre-registered verdict for the mechanism: NO-GO. Pilot 2 (mechanism with the advice text restored) stood at 13/25 vs 15/25 when stopped.</dd>
+  <dt>Lesson</dt><dd>The gain came from tools and text up front. Checks at submit time arrive too late, and a gate makes the model verify less.</dd>
+  <dt>Code</dt><dd><code>v09-mechanism-adapter/</code></dd></dl>
+</div></li>
+<li><div class="when"><b>v10</b>09-29</div><div>
+  <h3>Tools become evolvable adapter content <span class="chip run">in progress</span></h3>
+  <p>GLM + Codex stays clean. SEED text, tool code, tool usage text and controls all belong to the adapter. The harness learner may patch tool code; a revision must pass static screens, an offline replay of recorded tool calls and paired actor re-runs.</p>
+  <dl><dt>Status</dt><dd>Built and reviewed (503 tests). The paid calibration was running at snapshot time; five first-round roots are prepared and have not started.</dd>
+  <dt>Code</dt><dd><code>v10-tool-evolution/</code></dd></dl>
+</div></li>
+</ol>
+</section>
+
+<section id="mwm">
+<h2>MWM and prompt-only (v3–v6)</h2>
+<p class="measure">MWM stores learned knowledge as memory files, a briefing, examples, executable tools and role specs, and serves them to Codex through AGENTS.md and an MCP tool. Prompt-only serves one learned document. Both learners saw the released references and wrote lessons with checks attached. The example below is a lesson the v6f MWM learner wrote and the controller marked as verified. Its answer checks carry reference strings (redacted here as «N»), which is why the replay could never fail.</p>
+<div class="ex">
+  <div class="src"><b>Learned MWM lesson, v6f block 9 (excerpt, numbers redacted)</b><span>officeqa-codex50-full-mwm-v6f-work/evolution/09/…/memory/L-loop-then-submit.md</span></div>
+<pre><code>scope: harness — any episode that ends with a progress message or empty submission instead
+  of a final answer, or that re-issues an identical tool/command/wm call after getting the
+  same output, or that hunts unbounded for a phrase/table the corpus lacks until the budget dies
+derived_from: 003, 010, 035, 045
+status: verified
+step: S7
+check: [{"kind": "cell", "file": "treasury_bulletin_1946_04.txt", "line": 413,
+         "contains": "The Sterling Area"},
+        {"kind": "answer", "ordinal": 3, "candidate": "«N»"},
+        {"kind": "answer", "ordinal": 45, "candidate": "«N»"}]
+verified_by: postmortem:003
+…
+Rules (all instances):
+1. If a command, query, or wm call returns output identical to a previous call's,
+   that path is dead — change the query, the table family, or the section; never
+   re-issue. This includes wm search: "no matches" twice means stop calling it.</code></pre>
+</div>
+<p class="measure">A similar loop rule in the v9 seed text was later measured directly. In the episodes where it applied, GLM ignored it 13 times, and it helped 0 times. Text about behavior was read and then not executed.</p>
+<div class="ex">
+  <div class="src"><b>Learned prompt-only procedure, v6f block 9 (excerpt)</b><span>officeqa-codex50-full-prompt-only-v6f-work/evolution/09/…/ADAPTER.md</span></div>
+<pre><code>1. Name the vintage: which bulletin file the row comes from, and compare it
+   with the latest bulletin carrying the same row. […] Annual rows take the latest final vintage;
+   MONTHLY rows take the FIRST printing unless the question says otherwise -
+   do not use a later 'r'-revised monthly row [L-ifs1-monthly-first-printing].</code></pre>
+</div>
+<p class="measure">That "monthly rows take the first printing" rule came from a single question that issue #47 disputes, and it contradicts the paper's stated convention (use the most recent revision unless a date is pinned). One disputed example turned into a standing rule. Later designs therefore withhold the issue-#47 references from learners.</p>
+</section>
+
+<section id="cards">
+<h2>Cards (v7–v8)</h2>
+<p class="measure">The cards architecture (<code>harnessadapter/architectures/cards</code>, evolver in <code>harnessadapter/evolvers/cards/block.py</code>, design in <code>docs/design/2026-09-24-cards-evolver.md</code>) answers two MWM problems. Every served rule is a unit that can be attributed, and nothing is served until the actor itself has been re-run with it.</p>
+<div class="flow" aria-label="Cards admission">
+  <div class="step"><span class="n">1</span><b>Propose</b>Learner calls <code>propose_card</code>; at most 2 per block.</div>
+  <div class="step"><span class="n">2</span><b>Screen</b>No question ids, file names, answer numbers or 8-word copies; must fit 16,384 B.</div>
+  <div class="step"><span class="n">3</span><b>Re-run</b>Actor with deck + card on support questions and 2 controls, k = 2 each.</div>
+  <div class="step"><span class="n">4</span><b>Judge</b>Support mostly right, no control wrong in every run, output tokens ≤ 3×.</div>
+  <div class="step end"><span class="n">5</span><b>Admit</b>Card compiled into the deck for later questions.</div>
+</div>
+<div class="two">
+<div class="ex">
+  <div class="src"><b>v7 card C007 (admitted block 4)</b><span>v7-work/evolution/07/adapter/cards/C007.md</span></div>
+<pre><code>id: C007
+scope: growth rate, ols regression, fiscal year
+  index, slope, intercept
+claim: |
+  OLS on a 'fiscal year index' (or year index):
+  index the fiscal years 1, 2, 3, ... with 1 = the
+  first fiscal year of the requested range - an
+  N-year span uses 1 through N, not 0 through N-1
+  and not the calendar year numbers. Shifting the
+  index changes only the intercept (it drops by the
+  slope per +1 step); the slope and the mean YoY
+  growth are unchanged. Round only at the end, to
+  the places the question names.
+support: 16
+admitted: 4</code></pre>
+</div>
+<div class="ex">
+  <div class="src"><b>v8 card C003, no <code>unless</code> line</b><span>cards-v8-work/evolution/26/adapter/cards/C003.md</span></div>
+<pre><code>id: C003
+scope: cagr, total outlays, annual decay factor,
+  arc elasticity, midpoint percentage change
+claim: |
+  Department outlays across fiscal years, trust
+  funds included […]: a completed fiscal year's
+  figure first printed in the December issue just
+  after the year closed is often revised; the next
+  calendar year's December issue repeats that
+  fiscal year, revised, in its prior-fiscal-year
+  columns. Take each endpoint's Total funds figure
+  from the latest issue printing that fiscal year.
+  […]
+support: 1
+admitted: 2</code></pre>
+</div>
+</div>
+<p class="measure">C003 replaced an earlier card (C001) that carried an <code>unless</code> line: skip the revision step when the question names an exact issue or date. With that line gone and the whole deck shown on every task, "latest issue printing" became a general habit. C003 was cited in 57 cards runs, but its scope matched only 5 questions. A later per-question review attributed 4 losses firmly and 2 possibly to cards, and found 0–2 wins helped by cards.</p>
+<div class="ex">
+  <div class="src"><b>A ledger row: why thin verification admits a card</b><span>officeqa-pro133-cards-v8-work/cards-ledger.jsonl (trimmed)</span></div>
+<pre><code>{"t": 2, "id": "C003", "action": "add", "support": [1], "keep": [9, 8],
+ "tokens_ratio": 0.96, "admitted": true,
+ "reason": "support 2/2 (allowed misses 0), keep lost none of [8, 9], cost x0.96"}
+runs: q1 support k1 strict 1 | q1 support k2 strict 1 | q9 keep k1 1 | q9 keep k2 0 | q8 keep k1 1 | q8 keep k2 0</code></pre>
+</div>
+<p class="measure">Both control questions failed once with the card, yet the card was admitted, because the rule only rejects a control that is wrong in every run. With a 27% chance that a question flips between identical runs, one support question and two runs cannot separate a useful card from luck.</p>
+</section>
+
+<section id="divergence">
+<h2>Opus reference and divergence analysis</h2>
+<p class="measure">To learn what GLM does wrong, we needed a strong solver on the same material. Opus 5.5 solved each question in a clean copy of the workspace (same corpus, same search helper, no web), and a second Opus pass reviewed each answer. The predictions were sealed, then graded with the pinned <code>reward.py</code>: 87/133 strict and 103/133 at 1%. Opus had no time limit and a reviewer pass, so this is a ceiling reference, not a fair arm. Its solve logs contain reference-equal answers and are not in git.</p>
+<p class="measure">Then 22 analyst agents compared, for each of the 54 questions where Opus was right and some GLM arm was wrong (103 failed runs), the GLM trajectory with the Opus solution. Each recorded the first step where GLM diverged, whether GLM had seen the right evidence, whether the adapter text was relevant and followed, and the smallest mechanism that would have fixed it.</p>
+<div class="tablewrap measure">
+<table>
+<thead><tr><th>First divergence</th><th class="num">Runs</th><th>Smallest fix</th><th class="num">Runs</th></tr></thead>
+<tbody>
+<tr><td>Cell selection</td><td class="num">21</td><td>CHECK (verify a computed or selected value)</td><td class="num">41</td></tr>
+<tr><td>Interpretation</td><td class="num">20</td><td>TOOL (a better table / printing tool)</td><td class="num">31</td></tr>
+<tr><td>Source issue / vintage</td><td class="num">19</td><td>CONTROL (loop guard, budget, gating)</td><td class="num">23</td></tr>
+<tr><td>External knowledge (e.g. CPI)</td><td class="num">11</td><td>TEXT (more instructions)</td><td class="num">6</td></tr>
+<tr><td>Extraction</td><td class="num">11</td><td>STATE (memory across compaction)</td><td class="num">2</td></tr>
+<tr><td>Source table</td><td class="num">9</td><td></td><td></td></tr>
+</tbody>
+</table>
+</div>
+<p class="measure"><b>Environment defects surfaced by the analysis.</b> They affected every arm. zsh heredocs failed because the sandbox blocks <code>/tmp</code> and zsh uses <code>TMPPREFIX</code>, not <code>TMPDIR</code>; this was hit in 131 of 133 no-adapter runs. <code>rg</code> was denied, <code>python3</code> hit the Xcode stub, the actor Python had no numpy, and Codex silently cut long tool outputs to about 10 KB. A separate replay of the v8 records found that context compaction fired near 245K tokens, and only 12 of 72 compacted runs were right.</p>
+<div class="ex">
+  <div class="src"><b>One per-question analysis (cards arm, trimmed)</b><span>divergence-analysis/per-question/086.json</span></div>
+<pre><code>"task_id": "UID0018",
+"question_type": "Geometric mean of 39 monthly agency outlays stitched from quarterly issues,
+                  where some reprints carry OCR-garbled cells",
+"cards": {"correct": false, "error_bin": "within_0.1pct",
+  "first_divergence": {"stage": "SOURCE_ISSUE_VINTAGE", "glm_step": "[54]-[56]",
+    "why_glm_went_that_way": "[56]: 'Card C007 says for fiscal-year span take annual rows latest
+      issue printing it. For monthly, likely same principle.' It generalized an annual-row vintage
+      card to monthly rows and assumed disagreements are revisions.",
+    "consequence": "One month off by one unit -> GM ~0.02% high, wrong at the requested thousandth."},
+  "remedies": [{"level": "CHECK", "intervention": "Disagreement gate on multi-printing extraction:
+    when any extracted key has more than one distinct value across printings, block compute until
+    each is resolved …", "generality": "document_qa_general", "confidence": "high"}]}</code></pre>
+</div>
+</section>
+
+<section id="v9">
+<h2>v9 mechanism adapter</h2>
+<p class="measure">The divergence analysis said that GLM usually sees the evidence and then chooses wrongly, and that text alone rarely changes its behavior. v9 therefore moved the adapter's knowledge from instructions into machinery that runs. Its design is in <code>v09-mechanism-adapter/design/DESIGN.md</code>, and each layer was built and reviewed separately.</p>
+<div class="stack" aria-label="v9 layers">
+  <div class="layer all"><span class="id">L0</span><span class="nm">Environment kit</span><span class="ds">Frozen Python 3.12 with numpy/pandas, <code>rg</code>, zsh temp-dir repair, narrowed Seatbelt read roots, multi-agent off, explicit auto-compact at 244,800 tokens. Given to every arm, including plain.</span></div>
+  <div class="layer"><span class="id">L1</span><span class="nm">Pack tools</span><span class="ds"><code>find_tables</code>, <code>show_table</code>, <code>printings</code>, <code>calc</code> over a 147 MB tables index of the corpus. Pages ≤ 8 KB; cells tagged with repairs and identity checks.</span></div>
+  <div class="layer"><span class="id">L2</span><span class="nm">Broker ledger</span><span class="ds">The relay records commands, observed values and calc results from the tool outputs it forwards, and splices a summary back in after a context compaction.</span></div>
+  <div class="layer"><span class="id">L3</span><span class="nm">Loop guard</span><span class="ds">The third identical command gets a harness note. In an offline replay of v8 records, loop detection was the one checker signal that separated wrong runs from right ones (84% precision).</span></div>
+  <div class="layer"><span class="id">L4</span><span class="nm">Submit gate</span><span class="ds"><code>submit --answer</code> goes to the broker; declarative rules may return one finding with an offer. The model chooses Accept or Keep.</span></div>
+  <div class="layer"><span class="id">L5</span><span class="nm">Scoped notes</span><span class="ds">≤ 600 B each, keyword-triggered, ≤ 3 per question, 16 KB text budget.</span></div>
+</div>
+<p class="measure">The pre-registered design was a 2×2 factorial plus a plain arm. Text arms deliver the seed knowledge as advice in AGENTS.md; mechanism arms deliver the same knowledge as executed rules. Each arm comes in a static version and an evolving one, and learners on both sides get identical inputs. The static arms exist to separate the value of the starting adapter from the value of evolution: evolve vs static on the same side is what earns the word "evolving".</p>
+<div class="tablewrap measure">
+<table>
+<thead><tr><th>Arm</th><th>L0</th><th>Tools</th><th>Seed knowledge as</th><th>Controller</th><th>Learner</th></tr></thead>
+<tbody>
+<tr><td>plain</td><td>yes</td><td>no</td><td>none</td><td>no</td><td>none</td></tr>
+<tr><td>text-static</td><td>yes</td><td>yes</td><td>advice text</td><td>no</td><td>none</td></tr>
+<tr><td>text-evolve</td><td>yes</td><td>yes</td><td>advice text</td><td>no</td><td>notes, paired re-run verification</td></tr>
+<tr><td>mech-static</td><td>yes</td><td>yes</td><td>rules at submit</td><td>yes</td><td>none</td></tr>
+<tr><td>mech-evolve</td><td>yes</td><td>yes</td><td>rules at submit</td><td>yes</td><td>rules, policy, notes; offline-replay admission</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3 id="v9-examples">Real traces from the pilots</h3>
+<p class="measure">All excerpts are verbatim from the run records (not in git; paths are relative to the local project folder). Answer and candidate values are replaced by «A», «B», «c». Table cells that were only inputs are left as printed.</p>
+
+<div class="ex">
+  <div class="src"><b>What arm a saw in AGENTS.md (excerpt of the 2.5 KB seed)</b><span>v9-p1-a/runs/episodes/001/workspace/AGENTS.md</span></div>
+<pre><code># Working advice
+
+- Loops: a command repeated with the same output will not change. If a command already showed you its
+  output, do something different (another table, file, period or wording) or answer.
+- Compute every final number with `calc`, not in your head, and answer with the value it printed,
+  rounded as the question asks.
+- Provenance: use numbers you have seen printed by a tool. Before you rely on a value, print the line
+  it comes from, so the number in your calculation is the number in the source.
+…
+OfficeQA table notes:
+- Bulletins revise earlier numbers. Unless the question names a publication date or issue, use the
+  latest printing of each value: for every table cell you use, run `printings --table &lt;id&gt; --row
+  &lt;period&gt; --col &lt;column&gt;` and take the value printed by the latest issue listed.
+- Match the period exactly. FY (federal fiscal year: July-June through FY1976, October-September from
+  FY1977) and CY (calendar year) rows are different rows even with the same year number. […]</code></pre>
+</div>
+<div class="ex">
+  <div class="src"><b>What arm b saw instead (pilot 1: submit instructions only, 829 B)</b><span>v9-p1-b/runs/episodes/001/workspace/AGENTS.md</span></div>
+<pre><code># Finishing a question
+
+- When you have an answer, run `submit --answer "&lt;answer&gt;"` (add `--alt "&lt;other&gt;"` when you also
+  considered another value). The harness checks it and prints either `recorded` or one finding.
+- A finding names one possible problem with the submitted answer. When it shows `Offer: &lt;value&gt;`, the
+  harness computed that alternative itself, from your own calculation with one input replaced.
+  Accept: run the `submit --answer "&lt;value&gt;"` line it prints. Keep: run
+  `submit --answer "&lt;your answer&gt;" --keep "&lt;reason&gt;"`. Either is fine; the choice is yours.</code></pre>
+</div>
+<p class="measure">Both arms had the same tools and README. The only difference was where the knowledge sat, and this turned out to be the design's main flaw: the mechanism arm lost the proactive advice.</p>
+
+<div class="ex">
+  <div class="src"><b><code>printings</code> finds every printing of a cell and flags an OCR shift</b><span>v9-p1-a/runs/episodes/019/records/events.jsonl, command 7</span></div>
+<pre><code>$ printings --table "Components of Silver Monetary Stock" --row 1938-09 --col "Total silver at"
+printings(row='1938-09', table='Components of Silver Monetary Stock', period=None, col='Total silver at'): 36 table parts searched in issues 1938..1941
+  issue    file:line                          part period       label | col = value [flags]
+  1939_01  treasury_bulletin_1939_01.txt:1481   p1 1938-09      'Sept' | c7 'Total Silver at $1.29 per ounce' = 366.8
+  1939_05  treasury_bulletin_1939_05.txt:2055   p1 1938-09      'Sept' | c8 'Total Silver at $1.29 per ounce' = 3163.0
+  1939_06  treasury_bulletin_1939_06.txt:2181   p1 1938-09      'Sept' | c7 'Total Silver at $1.29 per ounce' = 366.8
+  …
+SUMMARY (per column &amp; period: value -&gt; issues; first and latest printing):
+  [1938-09] part1 totalsilverat129perounce (Total Silver at $1.29 per ounce): 8 printings, 2 distinct values - REVISED/DIFFERS across printings
+      366.8: 1939_01..1939_10 (5)
+      3163: 1939_05..1939_09 (3)
+      ISOLATED: 1939_05 (treasury_bulletin_1939_05.txt:2055) disagrees with the printings before and after it, which agree - likely OCR/row shift in that issue, not a revision
+      first printing 1939_01 (treasury_bulletin_1939_01.txt:1481), latest printing 1939_10 (treasury_bulletin_1939_10.txt:2168)</code></pre>
+</div>
+<div class="ex">
+  <div class="src"><b><code>show_table</code> prints column mapping and a failed total identity</b><span>v9-p1-a/runs/episodes/021/records/events.jsonl, command 30</span></div>
+<pre><code>$ show_table treasury_bulletin_1956_12.txt 1808 --long --grep CY1951
+TABLE Table 2. Sales and Redemptions by Periods, All Series Combined | treasury_bulletin_1956_12.txt:1794 | part 1 | page rows 1-1 of 1
+  units: (In millions of dollars)
+  section: UNITED STATES SAVINGS BONDS
+COLUMNS:
+  c0   Period [period] -&gt; shown as 'period' (filled) and 'label' (raw)
+  v1   = c1 Sales [num]
+  v2   = c2 Accrued discount [num]
+  v3   = c3 Sales plus accrued discount [num]
+  v4   = c4 Redemptions 3/ &gt; Total [num]
+  …
+NOTES:
+  - identity: c3 = sum c1+c2 on 24/25 rows (3 segment/panel(s)); FAILS at lines 1799 - OCR misread or shifted cell?
+  - identity: c4 = sum c5+c6 on 25/25 rows (3 segment/panel(s))
+CELLS (line panel period 'row label' | c&lt;part&gt;.&lt;col&gt; 'column label' &lt;column period&gt; = raw [parsed flags]):
+  1808 p1 CY1951 '1951' | c1.1 'Sales' = 3961.0
+  1808 p1 CY1951 '1951' | c1.2 'Accrued discount' = 1181.0</code></pre>
+</div>
+<div class="ex">
+  <div class="src"><b>A gate offer that was right: the only wrong-to-right flip</b><span>v9-p1-b/runs/episodes/032/api/checks/001.json (rule <code>scale</code>)</span></div>
+<pre><code>[harness:gate] Your answer «A» is 100 times the output «c» of calc 82bb1780399f; the question does not ask for a percent.
+Offer: «B» (calc 82bb1780399f printed «c»; your answer is 100x it)
+Accept: submit --answer "«B»"
+Keep: submit --answer "«A»" --keep "&lt;reason&gt;"</code></pre>
+</div>
+<div class="ex">
+  <div class="src"><b>A gate offer that turned a right answer wrong</b><span>v9-p1-b/runs/episodes/021/api/checks/001.json (rule <code>competing_candidates</code>)</span></div>
+<pre><code>payload: {"alt": "«B»", "answer": "«A»"}          ← «A» was correct
+[harness:gate] You also proposed «B» (--alt); submit the one the question asks for.
+Offer: «B» (your --alt)
+Accept: submit --answer "«B»"
+Keep: submit --answer "«A»" --keep "&lt;reason&gt;"
+
+actor's next note: "Harness says offer alt computed from own calculation with input replaced.
+It suggests maybe correct is «B»? "Offer" alternative. We can accept. Need submit."</code></pre>
+</div>
+<p class="measure">The seed text said offers were computed by the harness. This one was only the model's own <code>--alt</code>, and the model trusted it as an outside verdict. Offers from this rule were right 0 times out of 6.</p>
+<div class="two">
+<div class="ex">
+  <div class="src"><b>Loop note (third identical command)</b><span>v9-p1-b/…/004/api/026/controller.json</span></div>
+<pre><code>[harness:loop_guard] You have issued this exact
+command 3 times: rg -n -i 'nominal.*discount|
+discount.*nominal' …/prepared/agent/corpus | head -50
+Its output was identical each time.
+Current candidates: a1 "«A»"
+Options: submit --answer "&lt;A&gt;" for a candidate
+you trust, or run a command you have not run yet.</code></pre>
+</div>
+<div class="ex">
+  <div class="src"><b>A seed rule, declarative</b><span>adapters/mech-w0/rules/scale.json</span></div>
+<pre><code>{
+  "id": "scale",
+  "when": [{"pred": "scaled_100", "args": {}}],
+  "finding": "Your answer {value.text} is {relation}
+    the output {compute.value} of calc
+    {compute.sha}; {why}.",
+  "offer": {"op": "unscale", "args": {}},
+  "priority": 20, "scope": "core",
+  "origin": "seed", "enabled": true
+}</code></pre>
+</div>
+</div>
+<div class="ex">
+  <div class="src"><b>Ledger splice after a context compaction (first lines)</b><span>v9-p1-b/runs/episodes/026/api/077/controller.json</span></div>
+<pre><code>[harness:ledger] Ledger (recorded by the harness from tool outputs; authoritative where a summary disagrees). Commands run: 75; compactions: 1.
+Recent values (latest first):
+- c1266 x41:L128 | 2/ Includes transactions of international organisations such as UNTRA, International Monetary Fund,
+- c1265 x41:L126 | 1/ Beginning with January 1948, includes data for Pakistan, Burma, and Ceylon, previously included …
+- c1263 x41:L122 | | International 2/ | 92358 | 92358 | - | 92358 | - | - | - | - | - | - | - | - | - | - |
+…</code></pre>
+</div>
+
+<h3 id="v9-pilots">Pilots 1 and 2</h3>
+<p class="measure">Pilot 1 (2026-09-28) ran three cells on the same 50 questions before any learner was paid for: text-static and mech-static at temperature 0, and text-static at temperature 1.0 with top_p 0.95 (the model card's agentic setting). It had two pre-registered questions. Does the mechanism help or harm? Which temperature should the confirmatory run use?</p>
+<div class="tablewrap measure">
+<table>
+<thead><tr><th>Go / no-go criterion for the mechanism</th><th>Observed</th><th>Verdict</th></tr></thead>
+<tbody>
+<tr><td>Ledger coverage of answered episodes ≥ 60%</td><td>94%</td><td><span class="chip done">pass</span></td></tr>
+<tr><td>Findings fire on wrong ≥ 2× as often as on right</td><td>wrong 51.7% vs right 57.1%</td><td><span class="chip stop">fail</span></td></tr>
+<tr><td>Flips after a finding: wrong→right ≥ 3× right→wrong</td><td>1 vs 2</td><td><span class="chip stop">fail</span></td></tr>
+<tr><td>All rules together fire on ≤ 20% of right episodes</td><td>57.1%</td><td><span class="chip stop">fail</span></td></tr>
+<tr><td>Right→wrong after a finding ≤ 5%</td><td>16.7%</td><td><span class="chip stop">fail</span></td></tr>
+</tbody>
+</table>
+</div>
+<p class="measure"><b>Temperature.</b> T = 1.0 removed every loop run (10 → 0) but cost 7 questions, so the pre-registered rule chose T = 0.</p>
+<p class="measure"><b>Where the 11-point gap came from.</b> Mech-static's answers were already right on only 21 questions at first submission, so about 10 of the 11 points were lost before the gate spoke. The gate then moved one answer to right and two to wrong. Of the 12 questions only arm a got right, 6 trace to advice that b did not have up front. One is a gate flip. The other five are luck, ambiguity or tool gaps. Arm a cited AGENTS.md in 22 of 50 episodes against 3 for b, and ran <code>printings</code> in 42 episodes against 31.</p>
+<div class="tablewrap measure">
+<table>
+<thead><tr><th>Rule</th><th>Fired on right / wrong</th><th>What happened</th><th>Decision</th></tr></thead>
+<tbody>
+<tr><td class="mono">competing_candidates</td><td>2 / 5</td><td>6 offers, 0 right; 2 right→wrong</td><td>delete, hide <code>--alt</code></td></tr>
+<tr><td class="mono">later_printing</td><td>0 / 1</td><td>accepted offer moved further from the reference</td><td>disable offer</td></tr>
+<tr><td class="mono">grounded</td><td>4 / 6</td><td>caught one real error; a one-line Keep dismissed it</td><td>rewrite</td></tr>
+<tr><td class="mono">recompute_final</td><td>3 / 8</td><td>fixed one encoding slip</td><td>keep</td></tr>
+<tr><td class="mono">scale</td><td>0 / 2</td><td>one wrong→right</td><td>keep</td></tr>
+<tr><td class="mono">flagged_cells, table_alternatives, row_coverage</td><td>5 / 9</td><td>false positives, never helped</td><td>move into tool output or delete</td></tr>
+</tbody>
+</table>
+</div>
+<p class="measure"><b>Pilot 2</b> (2026-09-29) gave the mechanism arm the full advice text plus the submit section. It hid <code>--alt</code> and disabled five rules with a pre-registered lowest-precision procedure, leaving <code>answer_count</code>, <code>later_printing</code>, <code>period_match</code>, <code>recompute_final</code> and <code>scale</code>. It was stopped after 25 questions and never sealed. The unofficial score was 13/25, against 15/25 for text-static on the same questions and 9/25 for pilot-1 mech-static. The rules fired on none of the questions where the two arms differed, except one where the candidate was already wrong. And with a gate present, the model ran <code>printings</code> less: 29 calls versus 104 on 18 questions.</p>
+<div class="note info measure">
+<p><span class="k">What v9 taught.</span> The errors that decide OfficeQA happen early: interpretation, table choice, vintage. A check at submit time sees only the final number and arrives too late. The large gain came from what the model <i>saw</i>: repaired environment, better tools, advice up front. So v10 evolves those, and keeps the loop guard, which is free.</p>
+</div>
+</section>
+
+<section id="v10">
+<h2>v10 tool evolution <span class="chip run">in progress</span></h2>
+<p class="measure">Base harness: Codex CLI plus GLM-5.3-flash through the relay, T = 0, with only the L0 repairs that make Codex work on this machine. Everything else is adapter content, including the tools, and every adapter piece is open to evolution. Design: <code>v10-tool-evolution/design/DESIGN.md</code>. Pre-registration: <code>v10-tool-evolution/plumbing/PREREG-v10.md</code>.</p>
+<div class="tablewrap measure">
+<table>
+<thead><tr><th>Root</th><th>Arm</th><th>Adapter</th><th>Learner</th></tr></thead>
+<tbody>
+<tr><td class="mono">v10-r1-a</td><td>plain</td><td>none</td><td>none</td></tr>
+<tr><td class="mono">v10-r1-b</td><td>prompt-evolve</td><td>prompt W0: SEED.md only (4,092 B)</td><td>scoped notes</td></tr>
+<tr><td class="mono">v10-r1-c</td><td>harness-static</td><td>harness W0: SEED (4,053 B) + tools + controls</td><td>none</td></tr>
+<tr><td class="mono">v10-r1-d</td><td>harness-evolve</td><td>harness W0</td><td>notes + tool revisions</td></tr>
+<tr><td class="mono">v10-r1-e</td><td>harness-evolve-notes</td><td>harness W0</td><td>notes only</td></tr>
+</tbody>
+</table>
+</div>
+<p class="measure">Arms d and e differ in one thing only: whether the learner may change tools. Both see byte-identical evidence, and a test checks that the only difference is four learner functions. Decisions are descriptive with a pre-registered noise band: a paired difference within ±4 questions is noise, and ≥ 8 is more than noise. The go rule for a confirmatory study on unseen questions: d beats both e and c by at least 4, and at least one admitted tool revision reaches 3 or more later episodes. Since the W0 tools were designed from failures on these same 50 questions, any c-vs-a gap here is optimistic for the harness side.</p>
+<div class="ex">
+  <div class="src"><b>A harness adapter on disk</b><span>v10-tool-evolution/plumbing/adapters/harness-w0/</span></div>
+<pre><code>adapter.json        {"architecture": "harness", "contract": "v10.0", "pack": "officeqa", "revision": "w0"}
+SEED.md             always shown in AGENTS.md, ≤ 4,096 B
+notes/&lt;id&gt;.json     scoped notes, ≤ 3 shown per question, ≤ 600 B each (W0 has none)
+tools/manifest.json {"calc": {"script": "calc.py"}, "find_tables": {"script": "cli.py", "args": ["find_tables"]},
+                     "printings": {"script": "cli.py", "args": ["printings"]}, "show_table": {"script": "cli.py", "args": ["show_table"]}}
+tools/cli.py, tools/otables.py, tools/calc.py   (calc.py hash-pinned this round)
+tools/USAGE.md      becomes the README "# Tools" section, ≤ 3,072 B
+controls.json       {"loop_guard": true, "loop_threshold": 3, "loop_notes_max": 3, "splice": true,
+                     "ledger_splice_bytes": 8000, "gate": false, "enforce_requery_max": 0}</code></pre>
+</div>
+<div class="ex">
+  <div class="src"><b>USAGE.md, first lines (the model reads this as the tools section)</b><span>adapters/harness-w0/tools/USAGE.md</span></div>
+<pre><code>Table tools (read-only): find_tables, show_table and printings print pages of at most 8,000 bytes; one query per call.
+  find_tables "&lt;words or table id&gt;" [--years 2003-2004] [--limit 25] [--all] [--title-only]
+      find_tables matches every word (prefix for words of 4+ letters) in the title, header or row labels
+      (--rows is the default; --title-only searches title and header only); on no full match
+      find_tables lists the best partial matches; each group line says which words matched (match:...)
+  show_table &lt;file&gt; &lt;line&gt; [--stitch] [--match &lt;col words&gt;] [--cols 1-3] [--grep &lt;row&gt;] [--period FY2021] [--long] [--raw] [--from-row N]</code></pre>
+</div>
+
+<h3 id="v10-w0">W0 tool changes</h3>
+<p class="measure">Before any learning, a per-question analysis of the 175 v9 pilot trajectories found where the tools themselves got in the way. The smallest fix was a tool change for 17 of 50 questions, text for 8 and a control for 7. For the other 18 the analysts named no change, because every run was right or no fix was reachable. Tool friction was everywhere. In arm a's traces, 30 of 50 episodes hit an empty page and 41 hit cut output. Across all runs, a <code>--grep</code> that matched 0 rows hit 37 questions. Twelve additive tool changes became the harness W0.</p>
+<div class="tablewrap">
+<table>
+<thead><tr><th>Id</th><th>Tool</th><th>Change</th><th class="num">Questions with this failure</th></tr></thead>
+<tbody>
+<tr><td class="mono">W0-1</td><td>find_tables</td><td>Search title + header + row labels, prefix tokens, ranked partial matches with a <code>match:</code> field</td><td class="num">7</td></tr>
+<tr><td class="mono">W0-2</td><td>find_tables</td><td>Group lines first, latest 3 parts per group, top groups reserved on the page</td><td class="num">9</td></tr>
+<tr><td class="mono">W0-3</td><td>printings</td><td>SUMMARY keyed by part, panel, column, period, as-of; warns when the column index moves</td><td class="num">12</td></tr>
+<tr><td class="mono">W0-4</td><td>printings</td><td>Exact SUMMARY values instead of <code>%g</code> rounding</td><td class="num">3</td></tr>
+<tr><td class="mono">W0-5</td><td>printings</td><td>No-match diagnostics: printed span, column list, periods-as-columns hint</td><td class="num">10</td></tr>
+<tr><td class="mono">W0-6</td><td>show_table</td><td>Explains <code>--grep</code> on 0 rows; OR syntax, month names, <code>--period FY2021</code></td><td class="num">11</td></tr>
+<tr><td class="mono">W0-7</td><td>show_table</td><td>Messages for "no table starts at this line", part hints, figure captions</td><td class="num">7</td></tr>
+<tr><td class="mono">W0-8</td><td>show_table</td><td>Header-shift repair with a strict trigger, printing both mappings</td><td class="num">6</td></tr>
+<tr><td class="mono">W0-9</td><td>show_table</td><td>Repair NOTES also printed in <code>--raw</code></td><td class="num">–</td></tr>
+<tr><td class="mono">W0-10</td><td>show_table</td><td>Year anchoring for rows whose year is not printed</td><td class="num">4</td></tr>
+<tr><td class="mono">W0-11</td><td>printings</td><td>SUMMARY printed first; exact month keys</td><td class="num">9</td></tr>
+<tr><td class="mono">W0-12</td><td>find_tables</td><td>Narrative section index (27,889 sections) for sources that are not tables</td><td class="num">5</td></tr>
+</tbody>
+</table>
+</div>
+<p class="measure"><b>Checked before use.</b> The recorded v9 shell commands yielded 2,290 unique tool invocations, which were replayed through the old and new tools. The result: 0 regressions, 0 crashes, every page within 8,000 bytes, and the right table still ranked where the model could see it. Two proposed changes were dropped because the replay showed they would hurt: token-fraction ranking would have pushed one right table from rank 23 to 265.</p>
+
+<h3 id="v10-learner">Learner and admission</h3>
+<p class="measure">Both v10 learners are GLM-5.3-flash sessions with the same evidence tools: episodes, corpus search, <code>verify_cell</code>, <code>verify_answer</code>, <code>calc</code>, and reading the adapter. The harness learner adds four functions: <code>stage_tool_patch</code>, <code>stage_tool_file</code>, <code>try_tool</code> and <code>propose_revision</code>. A revision is a bundle of tool edits, USAGE text and optionally a note.</p>
+<div class="flow" aria-label="Revision admission pipeline">
+  <div class="step"><span class="n">1 · $0</span><b>Stage</b>Exact-substring patches (≤ 20) or new files ≤ 16 KB; <code>try_tool</code> to test.</div>
+  <div class="step"><span class="n">2 · $0</span><b>Screens</b>Paths and caps; Python compiles, no exec/eval/process/network; diff leak screen for question text and reference-like constants.</div>
+  <div class="step"><span class="n">3 · $0</span><b>Replay</b>Up to 80 recorded invocations; no exit-code regressions or broken first lines; must change an expected command.</div>
+  <div class="step"><span class="n">4 · paid</span><b>Paired re-runs</b>Support questions ×2 plus 2–4 controls ×2; controls changed by the replay must stay right in every run.</div>
+  <div class="step end"><span class="n">5</span><b>Admit</b>New adapter revision (sha12) served from the next block.</div>
+</div>
+<div class="ex">
+  <div class="src"><b>The admission judge for a tool revision</b><span>v10-tool-evolution/plumbing/learner_common.py</span></div>
+<pre><code>def judge_revision(runs, originals, strict_controls=(), k=K) -&gt; dict:
+    """The cards judge for a tool revision (DESIGN §5): same support / control rules, the output-token
+    ratio recorded but not gating, and a replay-changed control (`strict_controls`) that misses even one of
+    its K runs rejects."""
+    base = judge(runs, originals, k)
+    strict_missed = sorted({r['q'] for r in runs if r['role'] == 'keep' and r['q'] in strict_controls
+                            and not r.get('excluded') and not r['strict']})
+    strict_ok = not strict_missed
+    admitted = base['support_ok'] and base['keep_ok'] and strict_ok</code></pre>
+</div>
+<p class="measure"><b>Calibration.</b> Before the paid round, one harness-learner session runs on the finished v9-a evidence. It answers a single question: if d later admits nothing, was that the learner or the pipeline? The first paid attempt hit the learner's 2M-token budget and had two staged patches refused by an over-strict leak screen. The budget was raised and the screen now refuses only data-like strings. In the attempt running at snapshot time, a bundle (<code>printings_latest_value_line</code>) passed every screen and the replay: 80 of 80 jobs ran, 9 outputs changed, 0 regressed. It was the first tool revision to reach paired re-runs.</p>
+<p class="measure small muted">Remaining before the paid round: finish calibration, fill the last PREREG slot, copy the hashed PREREG and calibration record into each root, run a readiness smoke per root, then start all five roots behind a shared barrier.</p>
+</section>
+
+<section id="lessons" class="measure">
+<h2>What we learned</h2>
+<ol class="plain">
+  <li><b>Operations first.</b> Most early "results" were infrastructure: rate limits, envelope misclassification, runaways, compaction near 245K tokens, AGENTS.md truncated at 32 KB, reasoning effort silently stripped, zero-usage completions graded. Fix and audit the plumbing before judging any learner.</li>
+  <li><b>One run cannot measure an adapter.</b> The same baseline scored 17 to 26 on the same 50 questions. Comparisons need paired designs, repeats, and a noise band fixed in advance.</li>
+  <li><b>GLM sees the evidence and then chooses wrongly.</b> Right evidence was on screen in 97 of 103 failures. Relevant text was present but followed in 2 of 32 cases. Behavioral advice such as "don't loop" was ignored 13 times and helped 0 times.</li>
+  <li><b>Broad text overreaches.</b> A narrow card about fiscal-year outlays became "always take the latest printing" in 79 of 133 runs. A single disputed example became a standing rule about monthly rows.</li>
+  <li><b>Tools and environment carry the gain.</b> Repairs + four table tools + short advice lifted GLM to 31/50, from 21–23/50. This is the one effect well outside the noise, and it is still a development-set number.</li>
+  <li><b>Late checks don't help, and advisory gates can hurt.</b> Submit-time rules can't catch interpretation or table-choice errors, and the model verifies less when it expects a check. Offering the model's own alternative back as if it were an outside verdict flipped right answers.</li>
+  <li><b>Verification must be able to fail.</b> Citation replay never demoted a lesson. Paired re-runs with k = 2 and 2 controls are too thin against a 27% flip rate. Offline replay of recorded tool calls is cheap and deterministic, and it is now the first gate for code changes.</li>
+  <li><b>Temperature 1.0 trades loops for accuracy.</b> It ended every loop and cost 7 of 50 questions, mostly through less verification and interpretation coin-flips.</li>
+</ol>
+</section>
+
+<section id="next" class="measure">
+<h2>Open questions</h2>
+<ul>
+  <li><b>Does tool evolution add anything over notes?</b> This is the v10 d-vs-e contrast. It needs the calibration to show the pipeline can admit a revision at all.</li>
+  <li><b>Held-out confirmation.</b> Every positive number so far is on questions that informed the design. Candidates: non-Pro OfficeQA (answers are gated on Hugging Face, so a download exposes them to whoever runs it) or SpreadsheetBench. Plan for 3 repeats per arm and a mixed-effects model.</li>
+  <li><b>Learner strength.</b> Every learner so far has been GLM-5.3-flash. The cards design recommended a stronger learner, but it was never tried.</li>
+  <li><b>Transpilation control and advise-vs-decide.</b> Translate each admitted mechanism into text for the text arm. Separately, compare the harness advising the model against the harness deciding a pre-registered convention, such as latest printing unless a date is pinned.</li>
+  <li><b>External data.</b> Several questions need CPI or exchange-rate series that are not in the corpus. Supplying one table to every arm is an open decision.</li>
+  <li><b>Issue #47.</b> 18 references are disputed. They are scored but withheld from learners; results are reported with and without them.</li>
+</ul>
+<p class="small muted">Prompt-optimizer baselines (GEPA, SkillOpt) are tracked as a separate task and are not part of this branch.</p>
+</section>
+
+<section id="repo">
+<h2>Repository map</h2>
+<p class="measure">Branch <code>research/harness-adapter</code> is <code>main</code> plus the framework pieces the OfficeQA work ran on, plus a <code>research/harness-adapter/</code> folder of snapshots and analyses.</p>
+<div class="tablewrap">
+<table>
+<thead><tr><th>Path</th><th>What it is</th></tr></thead>
+<tbody>
+<tr><td class="mono">harnessadapter/architectures/cards/, harnessadapter/evolvers/cards/</td><td>Cards architecture and evolver (v7, v8), merged from a local branch</td></tr>
+<tr><td class="mono">docs/analysis/2026-09-24-mwm-agentic-coding-diagnosis.md</td><td>Why MWM underperformed: eight ranked causes (in Chinese)</td></tr>
+<tr><td class="mono">docs/design/2026-09-24-cards-evolver.md</td><td>Cards evolver design v1.2 (in Chinese)</td></tr>
+<tr><td class="mono">commit c0c9b87, commit a9d0976</td><td>v5 full-MWM framework and the v6 postmortem snapshot (also v8's prompt arm). Reachable in history; not in the branch tip.</td></tr>
+<tr><td class="mono">research/harness-adapter/results/</td><td>Per-question strict / 1% / status tables and campaign totals; <code>export_results.py</code> rebuilds them from local roots</td></tr>
+<tr><td class="mono">research/harness-adapter/officeqa/v01…v08/</td><td>Host harness code per campaign (acting, broker, campaign, learners, audit, tests, PROTOCOL.md)</td></tr>
+<tr><td class="mono">…/officeqa/opus-reference/, divergence-analysis/</td><td>Opus solve scripts; per-question divergence analyses and FINDINGS.md</td></tr>
+<tr><td class="mono">…/officeqa/v09-mechanism-adapter/</td><td>design/ (DESIGN, reviews, build waves, POSTMORTEM), plumbing/ (history: pilot 1, then pilot 2), pilot-results/</td></tr>
+<tr><td class="mono">…/officeqa/v10-tool-evolution/</td><td>design/, analysis/, w0-build/, plumbing/ (snapshot 2026-09-29 17:50 UTC), preflight-records/</td></tr>
+</tbody>
+</table>
+</div>
+<h3>Running a v10 root</h3>
+<p class="measure">The code expects local assets that are not in git: the prepared OfficeQA root (corpus, FTS index, answers under <code>prepared/private</code>), the Codex binary <code>0.155.0-alpha.9.2</code>, the frozen actor Python, and the tables index (<code>otables.build_index</code>). Paths are set in each root's <code>.task-paths.json</code>. The Fireworks key is read from the <code>FIREWORKS_API_KEY</code> environment variable; keep it out of the repository.</p>
+<pre><code>python run.py roots --prefix v10-r1                  # $0: create the five neutral-named roots
+python preflight.py --offline-only                   # $0: data hashes, adapters, seed parity, screens
+python calibrate.py --source-root ../v9-p1-a --actor-runs 20   # paid, one learner session
+python preflight.py                                  # paid smoke, cents; writes readiness.json
+python run.py run                                    # paid: the campaign, block by block
+python run.py audit ; python run.py cost ; python run.py report   # offline</code></pre>
+<div class="note warn measure">
+<p><span class="k">Data policy for this branch.</span> No reference answer is committed. Run records, learner outputs, cost ledgers and the Opus logs all contain values equal to reference answers, so they stay local. Every committed file was scanned against the 133 references before commit. A test fixture in the cards branch that had copied real reference values was rewritten with synthetic ones. Examples on this page replace answer values with «A», «B», «N».</p>
+</div>
+</section>
+
+<footer>
+  <p>Compiled 2026-09-29 from the local experiment roots, design documents and analysis records. Every number on this page comes from a file named in the text or from <code>results/campaigns.json</code>. Correct/incorrect flags come from the official grader, sealed before grading.</p>
+</footer>
+</main>
+</div>
+
+<script>
+(function () {
+  var ROWS = [{"label":"v3 baseline","sep":true,"cells":"0110111000010000010001000110111000011000100010010110000000000100101000..............................................................."},{"label":"v3 MWM","sep":false,"cells":"0100001000011001010000001110100000001010101000010100000011011100101010..............................................................."},{"label":"v4 baseline","sep":true,"cells":"01100011000101110100010011101010000010101110000101..................................................................................."},{"label":"v4 MWM + gold","sep":false,"cells":"01100011100100100101010011001110000010101000100111..................................................................................."},{"label":"v5 baseline","sep":true,"cells":"01101011000100100000011011001000000100000110000101..................................................................................."},{"label":"v5 full MWM","sep":false,"cells":"01101011101110110000111010000000000000101110000001..................................................................................."},{"label":"v6f baseline (MWM)","sep":true,"cells":"01101011100101110100011011101100000110011010100101..................................................................................."},{"label":"v6f MWM","sep":false,"cells":"01001011100110110101011011101010000010101100000101..................................................................................."},{"label":"v6f baseline (prompt)","sep":true,"cells":"01001010000101100100011010101000000000111110000101..................................................................................."},{"label":"v6f prompt-only","sep":false,"cells":"01111010101111100100110011000110000010011101000101..................................................................................."},{"label":"v7 baseline","sep":true,"cells":"01101011101100110000011011101100000010001100000101..................................................................................."},{"label":"v7 cards","sep":false,"cells":"01101111100111000101011011001100000010111101000110..................................................................................."},{"label":"v8 none","sep":true,"cells":"0110101010011011010001101000101000010001110000010110100110011000111111100011001101110100000011001010100100000100101110010110110001111"},{"label":"v8 prompt-only","sep":false,"cells":"0111101000010100010001101010111000001001110010010111100111001100101011000011001010111001000001101010010110001110101110010110100101110"},{"label":"v8 cards","sep":false,"cells":"0110101110011000000101101110111000000011111000010011100101010100111011001011010000100001000001001010001100100100100110000000110000110"},{"label":"v9 a text-static","sep":true,"cells":"01110010101111111101110011101110000010111101100110..................................................................................."},{"label":"v9 b mech-static","sep":false,"cells":"01110011000101110101010011100100000000001100100010..................................................................................."},{"label":"v9 c T=1.0","sep":false,"cells":"11110010100101110101011011101110000000001110000001..................................................................................."},{"label":"Opus 5.5 reference","sep":true,"cells":"0110101110111111111001101100110000000011111100011011100111011101111011110011101111010101101001101110110111111100111110010111110001111"}];
+  var ISSUE47 = "0000000000000000100000000100000000010000010100000000001010100000010010000000010000000000000010000000000000000010000000110001101000000";
+  var IDS = ["UID0101","UID0044","UID0228","UID0019","UID0215","UID0062","UID0094","UID0243","UID0117","UID0188","UID0027","UID0112","UID0133","UID0077","UID0225","UID0100","UID0007","UID0029","UID0096","UID0135","UID0220","UID0218","UID0180","UID0230","UID0057","UID0154","UID0204","UID0183","UID0109","UID0224","UID0148","UID0114","UID0165","UID0240","UID0037","UID0155","UID0182","UID0214","UID0122","UID0028","UID0170","UID0213","UID0149","UID0237","UID0130","UID0102","UID0030","UID0097","UID0245","UID0211","UID0031","UID0168","UID0205","UID0193","UID0004","UID0084","UID0190","UID0184","UID0056","UID0012","UID0177","UID0195","UID0110","UID0025","UID0212","UID0093","UID0022","UID0036","UID0194","UID0123","UID0013","UID0196","UID0147","UID0069","UID0134","UID0042","UID0173","UID0124","UID0009","UID0059","UID0039","UID0103","UID0226","UID0187","UID0161","UID0018","UID0223","UID0083","UID0172","UID0073","UID0221","UID0216","UID0175","UID0169","UID0058","UID0113","UID0015","UID0174","UID0068","UID0150","UID0053","UID0246","UID0201","UID0071","UID0219","UID0120","UID0121","UID0032","UID0227","UID0136","UID0179","UID0203","UID0086","UID0017","UID0111","UID0085","UID0055","UID0010","UID0238","UID0049","UID0244","UID0222","UID0050","UID0140","UID0065","UID0035","UID0001","UID0005","UID0118","UID0108","UID0003","UID0207","UID0233"];
+  var hm = document.getElementById('hm');
+  if (!hm || !ROWS.length) return;
+  var n = IDS.length;
+  function order(kind) {
+    var idx = [];
+    for (var i = 0; i < n; i++) idx.push(i);
+    if (kind === 'd') {
+      var score = idx.map(function (i) {
+        var r = 0, t = 0;
+        ROWS.forEach(function (row) { var c = row.cells[i]; if (c === '1' || c === '0') { t++; if (c === '1') r++; } });
+        return t ? r / t : -1;
+      });
+      idx.sort(function (a, b) { return score[b] - score[a] || a - b; });
+    }
+    return idx;
+  }
+  function render(kind) {
+    var idx = order(kind);
+    var frag = document.createDocumentFragment();
+    function label(text, cls) { var d = document.createElement('div'); d.className = 'rl' + (cls ? ' ' + cls : ''); d.textContent = text; frag.appendChild(d); }
+    label('issue #47');
+    idx.forEach(function (i) { var c = document.createElement('i'); if (ISSUE47[i] === '1') { c.className = 'x'; c.title = 'Q' + (i + 1) + ' ' + IDS[i] + ' · issue #47'; } frag.appendChild(c); });
+    ROWS.forEach(function (row) {
+      label(row.label, row.sep ? 'sep' : '');
+      idx.forEach(function (i) {
+        var c = document.createElement('i'), v = row.cells[i];
+        if (v === '1') c.className = 'r'; else if (v === '0') c.className = 'w';
+        c.title = 'Q' + (i + 1) + ' ' + IDS[i] + ' · ' + row.label + ': ' + (v === '1' ? 'right' : v === '0' ? 'wrong' : 'not run');
+        frag.appendChild(c);
+      });
+    });
+    label('');
+    idx.forEach(function (i, k) { var t = document.createElement('span'); t.className = 'tick'; t.textContent = (kind === 'q' && (i + 1) % 10 === 0) ? String(i + 1) : ''; t.style.width = '6px'; t.style.overflow = 'visible'; t.style.whiteSpace = 'nowrap'; frag.appendChild(t); });
+    hm.textContent = '';
+    hm.appendChild(frag);
+  }
+  var bq = document.getElementById('hm-order-q'), bd = document.getElementById('hm-order-d');
+  function set(kind) { bq.setAttribute('aria-pressed', kind === 'q'); bd.setAttribute('aria-pressed', kind === 'd'); render(kind); try { localStorage.setItem('hm-order', kind); } catch (e) {} }
+  bq.addEventListener('click', function () { set('q'); });
+  bd.addEventListener('click', function () { set('d'); });
+  var saved = 'q'; try { saved = localStorage.getItem('hm-order') || 'q'; } catch (e) {}
+  set(saved === 'd' ? 'd' : 'q');
+})();
+</script>
