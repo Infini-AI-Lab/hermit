@@ -1,6 +1,6 @@
-"""$0 fixtures for optimizer Evolvers: a deterministic environment and a local
-OpenAI-compatible model server. With them the real GEPA engine and the real
-SkillOpt trainer (and its OpenAI SDK client) run end to end without a model.
+"""$0 fixtures: a deterministic Environment and a local OpenAI-compatible
+model server. With them the real GEPA engine and the real SkillOpt trainer
+(and its OpenAI SDK client) run end to end without a model or a key.
 
 KeywordEnvironment: every task has a kind; a task passes when the adapter's
 context names the rule for its kind (RULE_<KIND>). Train feedback names the
@@ -11,8 +11,8 @@ FakeChatServer + scripted_optimizer: answer each optimizer prompt the way the
 optimizer asks (GEPA's fenced instruction block, SkillOpt's JSON stages) by
 adding the rules that train feedback said were missing.
 
-    harnessadapter optimize prompt-only --evolver gepa \\
-      --environment harnessadapter.optimize.testing:KeywordEnvironment --fake-optimizer
+    harnessadapter evolve prompt-only --evolver gepa --scripted-model \\
+      --environment harnessadapter.testing:KeywordEnvironment
 """
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ import re
 import threading
 
 from harnessadapter.adapter.loader import Adapter
-from harnessadapter.optimize.environment import Environment, Rollout, Task
+from harnessadapter.environment import Environment, Rollout, Task
 
 KINDS = ("ALPHA", "BETA", "GAMMA", "DELTA")
 

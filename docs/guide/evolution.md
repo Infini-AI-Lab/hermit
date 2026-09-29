@@ -17,7 +17,7 @@ The iteration contract is: Adapter + LearningMaterial + Configuration + optional
 
 Training State is optimizer-like information for the next update, such as candidate history or search progress. It stays separate from the reusable Evolver definition and the deployable Adapter. Acting hosts never need it just to use the Adapter.
 
-This contract is a design decision, not an available CLI flag. The current prototype returns a candidate and run records. Generic state input/output and resume support are planned; a successful run log is not automatically an optimizer checkpoint.
+Optimizer Evolvers (GEPA, SkillOpt, `kind = "optimizer"`) implement it: `--training-state DIR` resumes from a previous session's `training_state/`, and `harnessadapter evolve` runs them with an Environment instead of LearningMaterial. See [Optimizer Evolvers](optimizer-evolvers.md). Learner Evolvers return a candidate and run records only; a successful run log is not an optimizer checkpoint.
 
 ## LearningMaterial storage
 

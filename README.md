@@ -54,6 +54,8 @@ Three components divide the work:
 
 **Evolution** takes an adapter, a directory of recorded LearningMaterial, and an Evolver, and produces a new candidate directory. A learner session, with Codex or Claude Code as the model, edits the candidate through framework-owned file tools: list, read, write, move, delete, read image, validate. Every operation runs under the Codex OS sandbox with an explicit policy: the candidate is writable, LearningMaterial is read-only, additional environment reads are opt-in, and network can be disabled for tools without disabling model inference. Each session records input snapshots, the tool audit, a report, and a result. `candidate_ready` means the run completed and structural checks passed, not that performance improved. Nothing is promoted automatically; the source adapter is never modified.
 
+The same `harnessadapter evolve` also runs **optimizer Evolvers** such as GEPA and SkillOpt: search plugins that, instead of reading LearningMaterial, propose adapter texts and score them in an **Environment** (the acting harness plus a grader, with train, val and held-out test splits). `harnessadapter evaluate` scores any set of adapters on the held-out split with the same Environment, so every Evolver is judged alike. See [Optimizer Evolvers](docs/guide/optimizer-evolvers.md).
+
 The design borrows the vocabulary of model training, because the roles line up:
 
 | Model training | MetaHarnessAdapter |
@@ -63,6 +65,7 @@ The design borrows the vocabulary of model training, because the roles line up:
 | Trained adaptation module | **Adapter**: the learned prompt, knowledge, code, and roles |
 | Training algorithm | **Evolver**: instructions plus an update procedure |
 | Training data | **LearningMaterial**: histories, observations, feedback |
+| Validation / test set and metric | **Environment**: tasks by split, the acting harness, a grader |
 | Checkpoint / optimizer state | Adapter / optional **Training State** |
 | Inference | Deploying the Adapter to a host |
 
@@ -154,16 +157,16 @@ Then send: `Run the adapter integration task in PROMPT.md.`
 
 ```text
 harnessadapter/        the package (pip install -e .)
-  cli.py                 deploy | evolve | run
+  cli.py                 deploy | evolve | evaluate | run
   adapter/               manifest loading, in-process exports, LearningMaterial bindings
   runtime/               MCP wrapper, bubblewrap execution primitive
-  evolution/             sessions, Evolver definitions, learner backends, launch YAML
+  environment.py         the Environment contract (scoring an adapter) and `evaluate`
+  evolution/             sessions for learner and optimizer Evolvers, learner backends, launch YAML
   policy/                the sandboxed tool broker and its file operations
   hosts/                 Codex / Claude Code workspace conversion
   evolvers/              bundled Evolver presets: basic, mwm, animation-coach, physics-builder, gepa, skillopt
-  optimize/              optimizer Evolvers: Environment contract, sessions, GEPA and SkillOpt plugins
   architectures/         bundled starting structures: prompt_only, mwm
-examples/              minimal_shop demo and mwm_evidence fixture
+examples/              minimal_shop demo, mwm_evidence fixture, greedy_reflection optimizer plugin
 tasks/                 venue-specific evaluations (CLBench, OfficeQA)
 docs/                  guide/ plus design notes and contracts
 site/                  interactive design notebook (python3 -m http.server --directory site/dist)
@@ -176,7 +179,7 @@ This is a working local prototype, not a released package.
 
 **Implemented.** Prompt-only and MWM architectures. Context injection, MCP registration, and native role conversion for Codex and Claude Code. Prompt-driven evolution with either host as the learner, plus the MWM method preset. OS-enforced tool boundaries with audit records. Sandboxed image reads for visual LearningMaterial. CLI and YAML launch.
 
-**Optimizer Evolvers.** GEPA and SkillOpt run as Evolvers through `harnessadapter optimize`, each using its upstream library unchanged, against an Environment that deploys the candidate to the acting harness and scores it; `harnessadapter evaluate` compares adapters on a held-out split. See [Optimizer Evolvers](docs/guide/optimizer-evolvers.md).
+**Optimizer Evolvers.** GEPA and SkillOpt run through the same `harnessadapter evolve`, each using its upstream library unchanged, against an Environment that deploys the candidate to the acting harness and scores it; `harnessadapter evaluate` compares adapters on a held-out split. A new optimizer is a directory with `evolver.toml` and a `run(context)` function. See [Optimizer Evolvers](docs/guide/optimizer-evolvers.md).
 
 **Not yet.** A published package or SDK. Training State persistence for session Evolvers. Candidate promotion or rollback. Merging an Adapter into an existing project's settings rather than a generated workspace. Reef. Both learners currently require the Codex CLI as the sandbox executor; MWM learned-program admission additionally needs Linux bubblewrap.
 

@@ -1,17 +1,17 @@
-"""The optimizer-side language model: GEPA's reflection LM, and the model any
-text optimizer in this package calls to propose changes.
+"""The model an optimizer Evolver calls: GEPA's reflection model, SkillOpt's
+optimizer model, or whatever a plugin asks to propose changes.
 
 ChatLM speaks the OpenAI-compatible Chat Completions protocol with the
 standard library only (no SDK), keeps the key in memory, records every call
 (request, response text, usage, latency) under a ledger directory, and sums
-usage so a session can report what its optimizer cost. It is a plain callable
+usage so a session can report what its model cost. It is a plain callable
 str | messages -> str, which is exactly GEPA's LanguageModel protocol.
 
-An optimizer that drives its own client (SkillOpt's openai_compatible
+A plugin whose library drives its own client (SkillOpt's openai_compatible
 backend) is given ChatLM.serve(): a localhost endpoint that forwards to the
 same model with the same settings, key and ledger. Every optimizer in a
-comparison then calls the optimizer model identically, and the key never
-leaves this object.
+comparison then calls the model identically, and the key never leaves this
+object.
 """
 from __future__ import annotations
 

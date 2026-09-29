@@ -13,13 +13,12 @@
 
 ## Current limits
 
-- The agreed iteration protocol has Adapter and optional Training State outputs. Generic training-state input/output, persistence, and resume support are not yet implemented.
+- The agreed iteration protocol has Adapter and optional Training State outputs. Training State input/output and resume exist for optimizer Evolvers (`--training-state`); learner Evolvers still return none.
 
 - A repository-local prototype, not a published SDK or package.
 - One adapter per generated acting workspace; no general merge into existing project settings.
-- GEPA and SkillOpt are available as optimizer Evolvers (`harnessadapter optimize`), with external optimizer plugins through `evolver.toml` (`kind = "optimizer"`). Reef and marketplace integration are not implemented.
-- Training State input/output and resume exist for optimizer Evolvers (`--training-state`); session Evolvers still return no Training State.
-- No automated performance evaluator, candidate promotion, scheduled updates, or live process reload.
+- GEPA and SkillOpt run as optimizer Evolvers through `harnessadapter evolve`; any directory with `evolver.toml` (`kind = "optimizer"`) and a `run(context)` plugin is one too. Reef and marketplace integration are not implemented.
+- Automated evaluation exists through an Environment (`harnessadapter evaluate`, and inside optimizer Evolvers); learner Evolvers are not scored automatically. No candidate promotion, scheduled updates, or live process reload.
 - File snapshots and hashes are implemented; Git release workflows and complete external-state rollback are not.
 - Both learner backends currently need Codex CLI for the framework sandbox executor.
 - MWM learned-Python admission requires its separate Linux bubblewrap sandbox. On this Mac it fails closed; general evolution commands use a different sandbox path.

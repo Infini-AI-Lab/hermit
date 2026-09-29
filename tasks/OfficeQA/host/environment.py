@@ -1,10 +1,10 @@
-"""OfficeQA Pro as an optimizer Environment (harnessadapter.optimize).
+"""OfficeQA Pro as a harnessadapter Environment (harnessadapter.environment).
 
 The actor is the per-arm runner's, unchanged: GLM-5.3-Flash in native Codex,
 one fresh workspace per question, its own Fireworks broker, the OS sandbox,
 the adapter rendered into AGENTS.md (arm.actor). The grader is the vendored
-official reward.py at tolerance 0 (strict). Every optimizer in the framework
-(GEPA, SkillOpt, the session Evolvers) is scored by this same function.
+official reward.py at tolerance 0 (strict). Every Evolver's candidate (GEPA,
+SkillOpt, a learner session's) is scored by this same function.
 
 Splits follow the prepared 133-question order (prepare_full.py), which sorts
 every question by a seeded hash independent of answers:
@@ -13,7 +13,7 @@ every question by a seeded hash independent of answers:
     val   ordinals 51-70   selection / Pareto set (20)
     train ordinals 71-133  rollout evidence for reflection (63)
 
-What an optimizer may learn per outcome (see optimize.environment):
+What an optimizer may learn per outcome (see harnessadapter.environment):
 train feedback names the official answer after the prediction is recorded,
 as the gold-feedback learner protocol does; val feedback is the verdict only;
 test is never evaluated during optimization.
@@ -38,12 +38,12 @@ import arm  # noqa: E402  (puts the repository on sys.path, imports acting/campa
 import data  # noqa: E402
 import records  # noqa: E402
 
-from harnessadapter.optimize.environment import Environment, Rollout, Task  # noqa: E402
+from harnessadapter.environment import Environment, Rollout, Task  # noqa: E402
 
 DEFAULT_SPLITS = {"test": "1-50", "val": "51-70", "train": "71-133"}
 # Outcomes the infrastructure decided, not the agent: arm.actor has already
 # retried transport failures three times before reporting transport_lost.
-# The optimize session re-runs these episodes (harnessadapter.optimize.session).
+# The framework re-runs these episodes (harnessadapter.environment.run_tasks).
 INFRA_STATUSES = ("transport_lost", "launch_error")
 # Exceptions from the machinery (files, sockets, the provider); any other
 # exception (e.g. an adapter whose renderer raises) is the episode's failure.
@@ -219,9 +219,7 @@ class OfficeQAEnvironment(Environment):
             return Rollout(task_id=task.id, split=task.split, score=1.0 if correct else 0.0, output=answer,
                            status=status, infra=is_infra(status),
                            feedback=self._feedback(task, answer, correct, status),
-                           trace=trace, steps=steps, record=str(base),
-                           usage={"usage": summary.get("usage"), "requests": summary.get("requests"),
-                                  "elapsed_seconds": summary.get("elapsed_seconds")})
+                           trace=trace, steps=steps, record=str(base))
 
         with ThreadPoolExecutor(max_workers=min(self.concurrency, len(tasks)) or 1) as pool:
             rollouts = list(pool.map(episode, tasks, places))

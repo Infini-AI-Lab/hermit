@@ -190,11 +190,11 @@ To publish a completed run's answer-free summary:
   --framework-revision FULL_COMMIT_FROM_RUN_FREEZE_JSON
 ```
 
-## Optimizer Environment (GEPA, SkillOpt, and other optimizer Evolvers)
+## Environment (GEPA, SkillOpt, and other optimizer Evolvers)
 
-`host/optimize_env.py` exposes this venue as a `harnessadapter.optimize`
-Environment, so any optimizer Evolver is scored by the same acting harness and
-grader. The actor is the per-arm runner's (`arm.actor`, unchanged): GLM-5.3-Flash
+`host/environment.py` exposes this venue as a `harnessadapter.environment`
+Environment, so every Evolver's candidate is scored by the same acting harness
+and grader. The actor is the per-arm runner's (`arm.actor`, unchanged): GLM-5.3-Flash
 in native Codex with a fresh sandboxed workspace per question, the candidate
 adapter rendered into AGENTS.md. The grader is the vendored `reward.py`, strict.
 
@@ -217,12 +217,14 @@ splits: {test: "1-50", val: "51-70", train: "71-133"}
 ```
 
 ```sh
-harnessadapter optimize prompt-only --evolver gepa \
-  --environment tasks/OfficeQA/host/optimize_env.py:make_environment --environment-config env.yaml \
-  --optimizer-model accounts/fireworks/models/glm-5p3 --set max_metric_calls=300 --output runs/sessions
-harnessadapter evaluate --environment tasks/OfficeQA/host/optimize_env.py:make_environment \
+harnessadapter evolve prompt-only --evolver gepa \
+  --environment tasks/OfficeQA/host/environment.py:make_environment --environment-config env.yaml \
+  --model accounts/fireworks/models/glm-5p3 --reasoning-effort medium \
+  --provider-base-url https://api.fireworks.ai/inference/v1 --provider-env-key FIREWORKS_API_KEY \
+  --set max_metric_calls=300 --output runs/sessions
+harnessadapter evaluate --environment tasks/OfficeQA/host/environment.py:make_environment \
   --environment-config env.yaml --split test --adapter w0=prompt-only \
-  --adapter gepa=runs/sessions/optimize-gepa-XXXX/candidate --output runs/test
+  --adapter gepa=runs/sessions/evolve-gepa-XXXX/adapter --output runs/test
 ```
 
 Train feedback names the official answer after the prediction is recorded

@@ -18,7 +18,7 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest"]
-# Optimizer Evolvers (harnessadapter optimize). Pinned to the upstream commits
+# Optimizer Evolvers (harnessadapter evolve --evolver gepa|skillopt). Pinned to the upstream commits
 # they were integrated and tested against. SkillOpt's default recipe lives in
 # its source tree (configs/), so prefer an editable checkout of it:
 #   pip install -e /path/to/SkillOpt   (or set SKILLOPT_HOME)

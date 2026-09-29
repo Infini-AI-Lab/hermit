@@ -1,0 +1,7 @@
+kind = "optimizer"
+plugin = "plugin.py:run"
+description = "Example: greedy reflective rewriting of the adapter text, kept only when the val score improves"
+
+[settings]
+rounds = 4        # train minibatch -> rewrite -> val check, this many times
+minibatch = 3     # train tasks per round

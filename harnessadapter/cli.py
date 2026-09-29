@@ -1,9 +1,11 @@
 """The harnessadapter command: deploy an adapter to an acting host, run an
-evolution session, or drive either from launch YAML.
+evolution session (any Evolver), score adapters in an Environment, or drive
+deploy/evolve from launch YAML.
 
     harnessadapter deploy mwm --host codex
     harnessadapter evolve mwm --learning-material ./learning-material --backend codex
-    harnessadapter optimize prompt-only --evolver gepa --environment module:factory
+    harnessadapter evolve prompt-only --evolver gepa --environment module:factory --model MODEL
+    harnessadapter evaluate --environment module:factory --adapter w0=prompt-only --adapter gepa=PATH --output DIR
     harnessadapter run config/evolve.yaml --dry-run
 
 `harnessadapter <adapter> [--codex|--claude]` is the deploy form without
@@ -89,11 +91,8 @@ def main(argv=None):
         if argv[:1] == ["evolve"]:
             from harnessadapter.evolution.session import main as evolve_main
             return evolve_main(argv[1:])
-        if argv[:1] == ["optimize"]:
-            from harnessadapter.optimize.cli import main as optimize_main
-            return optimize_main(argv[1:])
         if argv[:1] == ["evaluate"]:
-            from harnessadapter.optimize.cli import evaluate_main
+            from harnessadapter.environment import main as evaluate_main
             return evaluate_main(argv[1:])
         if argv[:1] == ["run"]:
             from harnessadapter.evolution.launch import main as launch_main
@@ -102,7 +101,7 @@ def main(argv=None):
             argv = argv[1:]
         if argv[:1] in (["-h"], ["--help"], []):
             print(__doc__.strip())
-            print("\nSubcommands: deploy (default), evolve, optimize, evaluate, run. Add -h after one for its options.")
+            print("\nSubcommands: deploy (default), evolve, evaluate, run. Add -h after one for its options.")
             return 0
         return _deploy(argv)
     except KeyboardInterrupt:

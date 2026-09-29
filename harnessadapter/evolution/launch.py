@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Launch the same deploy/evolve CLI workflow from safe YAML configuration."""
+"""Launch the same deploy/evolve CLI workflow from safe YAML configuration.
+
+An evolve file names a learner Evolver with learning_material, or an optimizer
+Evolver (gepa, skillopt, ...) with environment, environment_config, settings,
+components and training_state. model, reasoning_effort, provider_base_url,
+provider_env_key and output apply to both; each kind refuses the other's fields."""
 import argparse
 import json
 from pathlib import Path
@@ -14,7 +19,9 @@ def compile_launch(path: Path, prepare_only=False):
     path=path.resolve();data=yaml.safe_load(path.read_text())
     if not isinstance(data,dict):raise ValueError('Launch YAML must contain a mapping')
     allowed={'action','adapter','adapters','architecture','template','learning_material','evidence','validation','prompt','prompt_file','evolver',
-             'backend','model','reasoning_effort','host','workdir','read_access','network','prepare_only','timeout','max_budget_usd'}
+             'backend','model','reasoning_effort','host','workdir','read_access','network','prepare_only','timeout','max_budget_usd',
+             'provider_name','provider_base_url','provider_env_key','output',
+             'environment','environment_config','settings','components','training_state'}
     if set(data)-allowed:raise ValueError('Unknown launch fields: '+', '.join(sorted(set(data)-allowed)))
     if 'learning_material' in data and 'evidence' in data:
         raise ValueError('Specify learning_material or legacy evidence, not both')
@@ -42,7 +49,9 @@ def compile_launch(path: Path, prepare_only=False):
     cmd=[action]
     if action=='deploy':
         if template:raise ValueError('Evolve an architecture into an adapter before deploying through launch YAML')
-        if any(k in data for k in ('validation','prompt','prompt_file','evolver','backend','model','reasoning_effort','read_access','network','timeout','max_budget_usd')):
+        if any(k in data for k in ('validation','prompt','prompt_file','evolver','backend','model','reasoning_effort','read_access','network','timeout','max_budget_usd',
+                                   'provider_name','provider_base_url','provider_env_key','output',
+                                   'environment','environment_config','settings','components','training_state')):
             raise ValueError('Evolution-only fields are not valid for deploy')
         cmd.append(location(adapter,True))
         host=string('host') or 'codex'
@@ -52,7 +61,26 @@ def compile_launch(path: Path, prepare_only=False):
         if 'host' in data or adapters is not None:raise ValueError('Evolution uses backend and a single adapter/architecture')
         cmd.extend(['--architecture',location(template,True)] if template else [location(adapter,True)])
         if string('validation'):cmd.extend(['--validation',location(data['validation'])])
-        if not string('evidence'):raise ValueError('Evolution requires LearningMaterial')
+        from harnessadapter.evolution.optimizer import is_optimizer
+        if string('evolver') and is_optimizer(location(data['evolver'],True)):
+            learner=[k for k in ('learning_material','evidence','validation','prompt','prompt_file','backend','network','read_access',
+                                 'timeout','max_budget_usd','workdir','prepare_only','provider_name') if k in data]
+            if learner or prepare_only:raise ValueError('Not valid for an optimizer Evolver: '+', '.join(learner or ['prepare_only']))
+            if not string('environment'):raise ValueError('An optimizer Evolver requires environment')
+            spec=data['environment']
+            target,_,attribute=spec.rpartition(':')
+            cmd.extend(['--environment',f'{location(target)}:{attribute}' if target.endswith('.py') else spec])
+            if string('environment_config'):cmd.extend(['--environment-config',location(data['environment_config'])])
+            if string('training_state'):cmd.extend(['--training-state',location(data['training_state'])])
+            settings=data.get('settings',{})
+            if not isinstance(settings,dict):raise ValueError('settings must be a mapping')
+            for key,value in settings.items():cmd.extend(['--set',f'{key}={json.dumps(value,ensure_ascii=False)}'])
+            components=data.get('components',[])
+            if not isinstance(components,list) or not all(isinstance(x,str) for x in components):raise ValueError('components must be a list of adapter paths')
+            for value in components:cmd.extend(['--component',value])
+        elif not string('evidence'):raise ValueError('Evolution requires LearningMaterial')
+        elif any(k in data for k in ('environment','environment_config','settings','components','training_state')):
+            raise ValueError('environment, settings, components and training_state are for optimizer Evolvers')
         if string('prompt') and string('prompt_file'):raise ValueError('Choose prompt or prompt_file')
         if string('prompt'):cmd.extend(['--prompt',data['prompt']])
         if string('prompt_file'):cmd.extend(['--prompt-file',location(data['prompt_file'])])
@@ -65,6 +93,9 @@ def compile_launch(path: Path, prepare_only=False):
         if backend:
             if backend not in ('codex','claude-code'):raise ValueError('Unsupported learner backend')
             cmd.extend(['--backend',backend])
+        for key in ('provider_name','provider_base_url','provider_env_key'):
+            if string(key):cmd.extend(['--'+key.replace('_','-'),data[key]])
+        if string('output'):cmd.extend(['--output',location(data['output'])])
         if 'network' in data:
             if not isinstance(data['network'],bool):raise ValueError('network must be true or false')
             cmd.append('--network' if data['network'] else '--no-network')

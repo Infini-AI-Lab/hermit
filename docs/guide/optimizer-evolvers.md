@@ -6,36 +6,142 @@ bundle together:
 | Choice | Examples | Where it lives |
 | --- | --- | --- |
 | Architecture: what the adapter can contain | `prompt-only`, `mwm`, `lemma-board` | `harnessadapter/architectures/` |
-| Evolver: how an adapter changes | session learners (`basic`, `mwm`); optimizers (`gepa`, `skillopt`) | `harnessadapter/evolvers/` |
-| Environment: how a candidate is scored | OfficeQA Pro with GLM in native Codex; your benchmark | `tasks/<venue>/`, or any `module:factory` |
+| Evolver: how an adapter changes | learners (`basic`, `mwm`); optimizers (`gepa`, `skillopt`) | `harnessadapter/evolvers/`, or any directory |
+| Environment: how an adapter is scored | OfficeQA Pro with GLM in native Codex; your benchmark | `tasks/<venue>/`, or any `module:factory` |
 
 Any Evolver can be paired with any architecture it supports and scored by any
-Environment. The deployment path is the same for every candidate (context
-block, optional MCP tools, optional native roles). The held-out evaluation is
-also the same, so a comparison between Evolvers changes only the Evolver.
+Environment. Every candidate deploys the same way (context block, optional MCP
+tools, optional native roles), and `harnessadapter evaluate` scores every
+candidate the same way, so a comparison between Evolvers changes only the
+Evolver.
 
-## Two kinds of Evolver
+## Two kinds of Evolver, one command
 
-- **Session Evolvers** (`harnessadapter evolve`) run a learner session, Codex
-  or Claude Code, that reads LearningMaterial and edits the candidate with
-  sandboxed file tools. See [Evolution](evolution.md).
-- **Optimizer Evolvers** (`harnessadapter optimize`) are search algorithms.
-  They propose adapter texts, roll them out in an Environment, and keep what
-  scores better. GEPA and SkillOpt are bundled. Each runs its upstream
-  library unchanged; the framework supplies the adapter object that library
-  asks a new system to provide.
+`harnessadapter evolve` runs both kinds. It reads `kind` in the Evolver's
+`evolver.toml` and refuses options that belong to the other kind.
+
+- **Learner Evolvers** (`basic`, `mwm`, ...) are prompts for a sandboxed Codex
+  or Claude Code session that reads LearningMaterial and edits the candidate.
+  See [Evolution](evolution.md).
+- **Optimizer Evolvers** (`kind = "optimizer"`) are search plugins. They propose
+  adapter texts, score them in an Environment, and keep what scores better.
+  GEPA and SkillOpt are bundled. Each runs its upstream library unchanged; its
+  `plugin.py` supplies only the object that library asks a new system for.
 
 | | GEPA ([gepa-ai/gepa](https://github.com/gepa-ai/gepa), ICLR 2026) | SkillOpt ([microsoft/SkillOpt](https://github.com/microsoft/SkillOpt), 2026) |
 | --- | --- | --- |
 | Upstream entry point | `gepa.optimize()` | `ReflACTTrainer(cfg, env_adapter).train()` |
-| What the framework supplies | a `GEPAAdapter` (`evaluate`, `make_reflective_dataset`) | an `EnvAdapter` (`rollout`, split loader) |
-| Candidate | `{relative path: text}` over the adapter's text surface | one document of the adapter (its context file) |
+| What `plugin.py` supplies | a `GEPAAdapter` (`evaluate`, `make_reflective_dataset`) | an `EnvAdapter` (`rollout`, split loader) |
+| Candidate | `{relative path: text}` over the adapter's text files | one document of the adapter (its context file) |
 | Search | reflective mutation, per-instance Pareto front over `val`, minibatch acceptance | bounded add/delete/replace edits, textual learning rate, strict `val` gate, rejected-edit buffer, slow update, meta skill |
 | Training State | GEPA's `run_dir` (`gepa_state.bin`) | SkillOpt's `out_root` (`runtime_state.json`, `history.json`) |
 
+## Running
+
+```sh
+pip install -e '.[gepa]'                       # GEPA core has no dependencies
+pip install -e /path/to/SkillOpt               # SkillOpt's recipe lives in its source tree
+export FIREWORKS_API_KEY=...                   # any OpenAI-compatible provider
+
+harnessadapter evolve prompt-only --evolver gepa \
+  --environment tasks/OfficeQA/host/environment.py:make_environment --environment-config env.yaml \
+  --model accounts/fireworks/models/glm-5p3 --reasoning-effort medium \
+  --provider-base-url https://api.fireworks.ai/inference/v1 --provider-env-key FIREWORKS_API_KEY \
+  --set max_metric_calls=300
+
+harnessadapter evaluate \
+  --environment tasks/OfficeQA/host/environment.py:make_environment --environment-config env.yaml \
+  --split test --adapter w0=prompt-only --adapter gepa=.demo/evolution/evolve-gepa-XXXX/adapter \
+  --output runs/test
+```
+
+The provider defaults are `$OPENAI_BASE_URL` (else OpenAI) and `OPENAI_API_KEY`.
+Settings are the keys of the Evolver's `evolver.toml` `[settings]`; override
+them with `--set key=value` or `--settings file.yaml`, and unknown keys are
+rejected. `--component FILE` chooses other adapter text files (default: the
+context file). `--training-state DIR` resumes from a previous session's
+`training_state/`. A launch YAML takes the same fields (`environment`,
+`environment_config`, `settings`, `components`, `training_state`, `model`,
+`provider_base_url`, `provider_env_key`, `output`) and runs with
+`harnessadapter run`.
+
+For a $0 end-to-end check, use the deterministic toy environment and a local
+scripted model:
+
+```sh
+harnessadapter evolve prompt-only --evolver gepa --scripted-model \
+  --environment harnessadapter.testing:KeywordEnvironment --set max_metric_calls=40
+```
+
+Set the reasoning effort explicitly for reasoning models. GLM-5.3 on Fireworks
+at the provider default spent its whole 32K-token budget reasoning on GEPA's
+reflection prompt and returned nothing; low, medium and high all finished.
+
+## Session outputs
+
+```text
+.demo/evolution/evolve-<evolver>-XXXX/
+  adapter/          the selected candidate, a git repository with one evolve commit; deploy it
+  source/           snapshot of the starting adapter (never modified)
+  training_state/   the optimizer's own state; pass it back to resume
+  work/candidates/  every evaluated candidate, by content hash
+  control/          result.json, evaluations.jsonl (every evaluate call), model-calls/ (every model call)
+```
+
+`candidate_ready` means the search finished and produced a loadable adapter.
+Only a held-out evaluation says whether it is better.
+
+## Writing an optimizer Evolver
+
+A directory with two files. [`examples/greedy_reflection`](../../examples/greedy_reflection)
+is a complete one in about 40 lines: each round it runs a train minibatch,
+shows the failures to the model, asks for a rewrite, and keeps it only if the
+val score improves.
+
+```toml
+# evolver.toml
+kind = "optimizer"
+plugin = "plugin.py:run"        # a file in this directory, or an importable module:function
+
+[settings]                      # defaults; --set / --settings override them
+rounds = 4
+minibatch = 3
+```
+
+```python
+# plugin.py
+from harnessadapter.evolution.optimizer import Outcome
+
+def run(context):
+    best = context.seed                                  # {"ADAPTER.md": text}
+    rollouts = context.evaluate(best, context.val)       # deploy, run, score
+    ...                                                  # propose with context.model(prompt)
+    return Outcome(best, {"seed_val_score": ..., "selected_val_score": ...})
+```
+
+```sh
+harnessadapter evolve prompt-only --evolver ./my-optimizer --environment ... --model ...
+```
+
+What `run(context)` gets:
+
+| | |
+| --- | --- |
+| `context.seed`, `context.components` | the adapter's optimizable texts `{path: text}` and their paths |
+| `context.train`, `context.val` | the tasks it may evaluate; test is never available |
+| `context.evaluate(candidate, tasks, label=...)` | deploys the texts as a complete adapter and returns one `Rollout` per task |
+| `context.model` | the Evolver model, `str \| messages -> str`, every call recorded; `.serve()` gives a library with its own OpenAI client a local endpoint to the same model |
+| `context.settings` | `[settings]` with this run's overrides |
+| `context.state_dir` | the Training State: write your state here to support `--training-state` |
+| `context.log` | progress messages |
+
+Everything else is the framework's: the source snapshot, materializing and
+caching candidates, re-running episodes the infrastructure lost, the call
+ledger, split checks on resume, the committed candidate, and `result.json`.
+
 ## The Environment contract
 
-`harnessadapter.optimize.environment`:
+`harnessadapter.environment`:
 
 ```python
 class Environment:
@@ -44,154 +150,62 @@ class Environment:
     def describe(self) -> dict                      # recorded next to every result; no secrets
 
 Task(id, split, prompt, kind)
-Rollout(task_id, split, score, output, status, feedback, trace, steps, usage, record)
+Rollout(task_id, split, score, output, status, feedback, trace, steps, record, infra)
 ```
 
 `evaluate` deploys the adapter directory to the acting harness, runs every
 task, and scores it. A failed episode is a Rollout with score 0 and its status,
 not an exception. The environment owns the answer key and decides what an
-optimizer may learn from each split:
+optimizer may learn from each split, from the task's registered split, never
+the caller's label:
 
 - **train**: the score, the agent's trajectory, and the grader's feedback,
-  which may name the reference answer. This matches the feedback functions of
-  both papers.
+  which may name the reference answer, as in both papers' feedback functions.
 - **val**: the score and the trajectory, never the reference.
-- **test**: never used by an optimizer. The session wraps the environment:
-  `tasks()` answers only for train and val, every task a plugin asks to
-  evaluate is resolved by id against those registered tasks (a test task is
-  refused, a relabeled one is evaluated as what it is), and rollouts come back
-  without record locations. Environments decide what feedback may reveal from
-  the registered split of the id, never from the caller's label. The OfficeQA
-  environment also keeps held-out episodes in a separate directory tree.
+- **test**: never used by an optimizer. `context.evaluate` resolves every task
+  by id against the registered train and val tasks (a test task is refused, a
+  relabeled one runs as what it is) and returns rollouts without record
+  locations.
 
-The wrapper keeps a well-behaved plugin away from held-out data; it is not a
-sandbox. An optimizer plugin is trusted code in the same process and could
-reach anything the process can. Review third-party plugins as you would any
-code.
+This keeps a well-behaved plugin away from held-out data. It is not a sandbox:
+a plugin is trusted code in the same process, so review third-party plugins as
+you would any code.
 
 A Rollout with `infra=True` was lost to the infrastructure (provider outage,
 transport failure, a failing file or socket operation), not decided by the
-agent. The session re-runs such episodes twice more after a pause, for
+agent. The framework re-runs such episodes twice more after a pause, for
 optimizers and for `evaluate` alike. These re-runs are outside an optimizer's
-own budget (GEPA's `max_metric_calls` counts one call per task); the session
-record's `rollouts` counts every episode run. What is still lost: GEPA scores
-it 0 and does not reflect on it; SkillOpt saves the finished episodes and stops
-with an error rather than let a 0 bias its gate or read as a regression, and a
-session resumed from its Training State runs only the missing episodes;
-`evaluate` leaves it out of the adapter's mean and reports `paired_mean` over
-the tasks every adapter scored. An exception caused by the adapter itself (a
-renderer that raises) is a scored failure, not an infrastructure loss.
+own budget; `result.json` `rollouts` counts every episode run. What is still
+lost:
 
-GEPA also skips a minibatch in which, once lost episodes are set aside, every
-remaining episode is already perfect: GEPA's own `skip_perfect_score` test
-would have skipped it had the lost episodes not counted as 0.
+- GEPA scores it 0 and does not reflect on it. It also skips a minibatch in
+  which every remaining episode is already perfect.
+- SkillOpt saves the finished episodes and stops with an error, rather than let
+  a 0 bias its gate or read as a regression. A session resumed from its
+  Training State runs only the missing episodes.
+- `evaluate` leaves it out of the adapter's mean and reports `paired_mean` over
+  the tasks every adapter scored.
+
+An exception caused by the adapter itself (a renderer that raises) is a scored
+failure, not an infrastructure loss.
 
 SkillOpt runs with `eval_test` on, as upstream does, because that switch also
-guards its final val pass that may promote the last (slow-updated) skill; its
-split has no test items, so its own test fields in `summary.json` are empty
-and meaningless. The framework's `evaluate` is the held-out comparison.
+guards its final val pass that may promote the last (slow-updated) skill. Its
+split has no test items, so its own test fields in `summary.json` are empty.
+SkillOpt's own `openai_compatible` client reaches the session's model through
+`context.model.serve()`, so both optimizers call an identically configured
+model (reasoning effort included) and the key stays out of SkillOpt's
+environment.
 
-Resuming (`--training-state`) is refused when the environment's train, val or
-test assignment differs from the one the state was built on. A state written
-before split fingerprints existed is accepted only when its session record
-shows the same split sizes and the same split specification.
-
-`harnessadapter evaluate` scores several adapters on one split with the same
-environment. It is the comparison every Evolver is judged by.
-
-## Running
-
-```sh
-pip install -e '.[gepa]'                       # GEPA core has no dependencies
-pip install -e /path/to/SkillOpt               # SkillOpt's recipe lives in its source tree
-export FIREWORKS_API_KEY=...                   # or any OpenAI-compatible provider
-
-harnessadapter optimize prompt-only --evolver gepa \
-  --environment tasks/OfficeQA/host/optimize_env.py:make_environment \
-  --environment-config env.yaml \
-  --optimizer-model accounts/fireworks/models/glm-5p3 \
-  --set max_metric_calls=300 --output runs/sessions
-
-harnessadapter optimize prompt-only --evolver skillopt \
-  --environment tasks/OfficeQA/host/optimize_env.py:make_environment \
-  --environment-config env.yaml \
-  --optimizer-model accounts/fireworks/models/glm-5p3 \
-  --settings skillopt.yaml --output runs/sessions
-
-harnessadapter evaluate --environment tasks/OfficeQA/host/optimize_env.py:make_environment \
-  --environment-config env.yaml --split test \
-  --adapter w0=prompt-only --adapter gepa=runs/sessions/optimize-gepa-XXXX/candidate \
-  --output runs/test
-```
-
-For a $0 end-to-end check of either optimizer, use the deterministic
-environment and a local scripted model server:
-
-```sh
-harnessadapter optimize prompt-only --evolver gepa --fake-optimizer \
-  --environment harnessadapter.optimize.testing:KeywordEnvironment --set max_metric_calls=40
-```
-
-Settings are the keys in each Evolver's `evolver.toml`. Unknown keys are
-rejected. `--training-state DIR` resumes from a previous session's
-`training_state/`.
-
-## Session outputs
-
-```text
-optimize-<evolver>-XXXX/
-  source/           snapshot of the starting adapter (never modified)
-  candidate/        the selected adapter, a git repository with one optimize commit; deploy it
-  training_state/   the optimizer's own state; pass it back to resume
-  work/candidates/  every materialized candidate, by content hash
-  control/          result.json, evaluations.jsonl (every rollout call), optimizer-calls/ (GEPA)
-  report.md
-```
-
-`candidate_ready` means the search finished and produced a loadable adapter.
-Only a held-out evaluation says whether it is better.
-
-## Writing an optimizer Evolver
-
-```text
-my-optimizer/
-  evolver.toml     kind = "optimizer"; plugin = "module:Class" or "file.py:Class"; [settings]
-  README.md
-```
-
-```python
-class MyOptimizer:
-    name = "my-optimizer"
-
-    def run(self, context):               # harnessadapter.optimize.plugin.OptimizeContext
-        seed = context.seed()             # {relative path: text}
-        adapter = context.store.path(seed)             # a deployable adapter directory
-        rollouts = context.environment.evaluate(adapter, context.environment.tasks("val"), label="seed")
-        ...
-        return Outcome(candidate=best_texts, summary={"seed_val_score": ..., "selected_val_score": ...})
-```
-
-The plugin writes only under `context.state_dir` and `context.work_dir`.
-`context.lm` is the session's optimizer model, a `str -> str` callable with a
-call ledger. Pass `--evolver /path/to/my-optimizer`.
+Resuming is refused when the environment's train, val or test assignment
+differs from the one the Training State was built on.
 
 ## Current limits
 
 - The text surface covers Markdown/text files. An optimizer that should also
-  change tools, code, or roles needs a surface for them; session Evolvers
+  change tools, code, or roles needs a surface for them; learner Evolvers
   already can.
 - SkillOpt's trainer keeps process-global backend state: run one SkillOpt
   session per process.
-- Optimizer-model cost for SkillOpt comes from its own token tracker; GEPA's
-  from the session ledger. Acting-harness cost comes from the environment's
-  records.
-- The session owns the optimizer-model transport. GEPA calls the session's
-  ChatLM directly; SkillOpt's own `openai_compatible` client is pointed at a
-  localhost endpoint (`ChatLM.serve()`) that forwards with the same model,
-  token cap, temperature and `--optimizer-reasoning-effort`, writes the same
-  ledger, and keeps the key out of SkillOpt's environment variables. Both
-  optimizers therefore call an identically configured model. Set the
-  reasoning effort explicitly for reasoning models: GLM-5.3 on Fireworks with
-  the provider default spent its whole 32K-token budget reasoning on GEPA's
-  reflection prompt and returned nothing, while low, medium and high all
-  finished.
+- Acting-harness cost comes from the environment's own records; `usage` in
+  `result.json` is the Evolver model's.

@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Run a candidate-only evolution session using the MWM method and Claude Code."""
+"""harnessadapter evolve: run one evolution session and return a candidate adapter.
+
+A learner Evolver (basic, mwm, ...) is a prompt for a sandboxed Codex or
+Claude Code session that edits the candidate from LearningMaterial. An
+optimizer Evolver (gepa, skillopt, any evolver.toml with kind = "optimizer")
+is a search plugin that scores candidates in an Environment; the same command
+runs it (harnessadapter.evolution.optimizer)."""
 import argparse
 import hashlib
 import importlib.util
@@ -251,8 +257,16 @@ def evolve(source: Path, evidence: Path | None = None, goal: str = "Improve the 
     return result
 
 
+# Options that belong to one kind of Evolver; the other kind refuses them.
+LEARNER_OPTIONS=('evidence','prompt','prompt_file','validation','goal','timeout','max_budget_usd','prepare_only','block','tick',
+                 'config','backend','workdir','deployment','notes','provider_name','provider_wire_api','bind','mount',
+                 'read_dir','read_all','network')
+OPTIMIZER_OPTIONS=('environment','environment_config','settings','set','component','training_state','max_tokens','temperature',
+                   'scripted_model')
+
+
 def main(argv=None):
-    parser=argparse.ArgumentParser(description=__doc__)
+    parser=argparse.ArgumentParser(prog='harnessadapter evolve',description=__doc__)
     parser.add_argument('reference',nargs='?',help='Adapter name (mwm/minimal-shop) or local adapter repo')
     parser.add_argument('--architecture', '--template', dest='architecture', help='Start from an architecture (prompt-only/mwm or local path); --template is a compatibility alias')
     parser.add_argument('--adapter',type=Path,help='Legacy form: positional reference is an Evolver; this selects the adapter')
@@ -260,15 +274,15 @@ def main(argv=None):
     prompts=parser.add_mutually_exclusive_group()
     prompts.add_argument('--prompt',help='Your update instructions; no Evolver files required')
     prompts.add_argument('--prompt-file',type=Path,help='Read your update instructions from Markdown')
-    material = parser.add_mutually_exclusive_group(required=True)
+    material = parser.add_mutually_exclusive_group()
     material.add_argument("--learning-material", dest="evidence", type=Path, help="Read-only LearningMaterial directory with README.md")
     material.add_argument("--evidence", dest="evidence", type=Path, help="Compatibility alias for --learning-material")
     parser.add_argument('--validation',type=Path,help='Optional read-only validation storage with README.md; no automatic evaluator')
     parser.add_argument('--goal',default='Improve the selected adapter using supplied LearningMaterial. Follow its evolution guide and report verified changes.')
     parser.add_argument('--timeout',type=int,default=240)
     parser.add_argument('--output',type=Path,help='Directory for evolution sessions (default: .demo/evolution inside this repo)')
-    parser.add_argument('--model',help='Learner model id, overriding the client configuration (codex: -c model=...; Claude Code: --model)')
-    parser.add_argument('--reasoning-effort',choices=['low','medium','high','xhigh'],help='Codex reasoning effort override')
+    parser.add_argument('--model',help='Learner model id, overriding the client configuration (codex: -c model=...; Claude Code: --model); for an optimizer Evolver, its model (required)')
+    parser.add_argument('--reasoning-effort',choices=['low','medium','high','xhigh'],help='Codex learner or optimizer-model reasoning effort; set it for reasoning models')
     parser.add_argument('--max-budget-usd',type=float,default=None,help='Claude Code only; default 3 USD there')
     parser.add_argument('--prepare-only',action='store_true')
     parser.add_argument('--block',type=int,default=1,help='Caller-supplied session number')
@@ -279,8 +293,8 @@ def main(argv=None):
     parser.add_argument('--deployment',type=Path,help='Deployment directory (venue texts for the method: contract/<slot>.md, delegation, host.json); copied read-only into the session')
     parser.add_argument('--notes',default='',help='Wrapper notes for this session (parked tools, brief overrun); rendered into the prompt by the method')
     parser.add_argument('--provider-name',help='Explicit OpenAI-compatible model provider for the Codex learner (with --provider-base-url and --provider-env-key)')
-    parser.add_argument('--provider-base-url')
-    parser.add_argument('--provider-env-key',help='Environment variable holding the provider API key')
+    parser.add_argument('--provider-base-url',help='OpenAI-compatible base URL (optimizer Evolvers default: $OPENAI_BASE_URL or OpenAI)')
+    parser.add_argument('--provider-env-key',help='Environment variable holding the provider API key (optimizer Evolvers default: OPENAI_API_KEY)')
     parser.add_argument('--provider-wire-api',choices=['chat','responses'],default='chat')
     parser.add_argument('--bind',action='append',default=None,metavar='NAME=SPEC',help='Resource binding for the candidate adapter (search=URL, documents=URL, small_model=URL|model); repeatable. Enables the try_tool and small_model session tools.')
     parser.add_argument('--mount',action='append',default=None,metavar='NAME=PATH',help='Environment mount: the host directory or file PATH is readable at /environment/NAME (sandbox and broker); repeatable')
@@ -290,6 +304,16 @@ def main(argv=None):
     net=parser.add_mutually_exclusive_group()
     net.add_argument('--network',dest='network',action='store_true',default=None)
     net.add_argument('--no-network',dest='network',action='store_false')
+    search=parser.add_argument_group('optimizer Evolvers (gepa, skillopt, any kind = "optimizer"); --model, --reasoning-effort, --provider-* and --output apply too')
+    search.add_argument('--environment',metavar='SPEC',help='module:factory or file.py:factory returning the Environment that scores candidates')
+    search.add_argument('--environment-config',type=Path,help='YAML/JSON mapping passed to the factory')
+    search.add_argument('--settings',type=Path,help='YAML/JSON mapping of Evolver settings (keys of its evolver.toml [settings])')
+    search.add_argument('--set',action='append',default=[],metavar='KEY=VALUE',help='One Evolver setting; repeatable')
+    search.add_argument('--component',action='append',default=None,help='Adapter text file to optimize; repeatable (default: the context file)')
+    search.add_argument('--training-state',type=Path,help="Resume from a previous session's training_state/")
+    search.add_argument('--max-tokens',type=int,default=32768,help='Output-token cap per model call')
+    search.add_argument('--temperature',type=float,help='Sampling temperature for every model call (default: the provider\'s)')
+    search.add_argument('--scripted-model',action='store_true',help='$0 toy run: a local scripted model instead of a provider')
     args=parser.parse_args(argv)
     if args.architecture and (args.reference or args.adapter):parser.error('Choose an architecture or an adapter, not both')
     if not args.architecture and not args.reference:parser.error('Provide an adapter or --architecture')
@@ -302,6 +326,17 @@ def main(argv=None):
         source=resolve_architecture(reference)
         # A user-supplied prompt selects the generic client, not a hidden MWM algorithm.
         preset=args.evolver or ('basic' if prompt_override is not None else 'mwm' if reference=='mwm' else 'basic')
+    from harnessadapter.evolution.optimizer import is_optimizer, run_from_cli
+    optimizer=is_optimizer(preset)
+    blank=vars(parser.parse_args([]))
+    other=[dest for dest in (OPTIMIZER_OPTIONS if not optimizer else LEARNER_OPTIONS) if getattr(args,dest)!=blank[dest]]
+    if other:
+        parser.error(f"{preset} is {'an optimizer' if optimizer else 'a learner'} Evolver; these options do not apply to it: "
+                     + ', '.join('--'+{'evidence':'learning-material'}.get(d,d).replace('_','-') for d in other))
+    if optimizer:
+        if not args.environment:parser.error('An optimizer Evolver needs --environment')
+        raise SystemExit(run_from_cli(parser,args,source,preset))
+    if args.evidence is None:parser.error('This Evolver needs --learning-material')
     definition=EvolverDefinition(preset,prompt_override=prompt_override)
     policy=load_policy(args.config,backend=args.backend,read_paths=args.read_dir,read_all=args.read_all,network=args.network,defaults=definition.policy.serialize(),working_directory=args.workdir)
     kind='architecture' if args.architecture or (args.reference in BUILTIN_ARCHITECTURES and not args.adapter) else 'adapter'

@@ -43,7 +43,7 @@ workdir: ../.demo/prompt-only/codex
 | --learning-material DIR | Required read-only storage with README.md |
 | --validation DIR | Optional visible read-only validation storage |
 | --prompt TEXT / --prompt-file FILE | User update instructions |
-| --evolver NAME | Reusable basic, mwm, animation-coach, or physics-builder preset, or local definition directory |
+| --evolver NAME | Reusable basic, mwm, animation-coach, physics-builder, gepa, or skillopt preset, or local definition directory |
 | --model ID | Explicit learner model |
 | --reasoning-effort LEVEL | Codex effort: low, medium, high, xhigh |
 | --backend | codex or claude-code |
@@ -55,8 +55,10 @@ workdir: ../.demo/prompt-only/codex
 | --max-budget-usd N | Claude-only model budget; rejected for Codex |
 | --prepare-only | Prepare candidate and run permission preflight, no learner model call |
 
+Optimizer Evolvers (`--evolver gepa`, `skillopt`, or a `kind = "optimizer"` directory) take `--environment SPEC` (required), `--environment-config FILE`, `--set KEY=VALUE` / `--settings FILE`, `--component FILE`, `--training-state DIR`, `--max-tokens N`, `--temperature T` and `--scripted-model`, plus `--model`, `--reasoning-effort`, `--provider-base-url`, `--provider-env-key` and `--output`. They take no LearningMaterial; each kind refuses the other kind's options. Launch YAML uses the same names (`environment`, `environment_config`, `settings` as a mapping, `components`, `training_state`). See [Optimizer Evolvers](optimizer-evolvers.md).
+
 Launch YAML uses backend for the learner and host for the acting agent. Unknown fields fail validation. A list of multiple adapters is explicitly rejected until multi-adapter deployment exists.
 
 ## Training State protocol
 
-Training State is an optional input/output for a stateful Evolver, separate from the Adapter and reusable algorithm definition. No generic training-state CLI or YAML field is implemented yet; do not treat run logs as resumable optimizer state. Stateless methods require no state artifact.
+Training State is an optional input/output for a stateful Evolver, separate from the Adapter and reusable algorithm definition. Optimizer Evolvers write it to the session's `training_state/` and resume from `--training-state DIR` (YAML `training_state`); resuming is refused when the environment's splits changed. Learner Evolvers have none; do not treat their run logs as resumable state.

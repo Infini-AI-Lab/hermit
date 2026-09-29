@@ -1,4 +1,4 @@
-"""The OfficeQA optimizer Environment with a synthetic prepared root and a fake
+"""The OfficeQA Environment with a synthetic prepared root and a fake
 actor: splits by ordinal, the official grader, the per-split feedback policy,
 and trajectory rendering. No model or network call."""
 import hashlib
@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-import optimize_env
+import environment as officeqa
 
 
 def _sha(path):
@@ -54,7 +54,7 @@ class OfficeQAEnvironmentTests(unittest.TestCase):
         self.root = Path(self.directory.name)
         fake_prepared(self.root / "prep")
         os.environ["OQA_TEST_KEY"] = "not-a-real-key"
-        self.env = optimize_env.OfficeQAEnvironment(str(self.root / "prep"), str(self.root / "runs"), key_env="OQA_TEST_KEY",
+        self.env = officeqa.OfficeQAEnvironment(str(self.root / "prep"), str(self.root / "runs"), key_env="OQA_TEST_KEY",
                                                     splits={"test": "1-2", "val": "3-4", "train": "5-8"}, concurrency=2)
 
     def tearDown(self):
@@ -69,7 +69,7 @@ class OfficeQAEnvironmentTests(unittest.TestCase):
 
     def test_grading_and_feedback_policy(self):
         actor = fake_actor({5: "105", 6: "999", 3: "103", 4: "0", 1: "101"})
-        with mock.patch.object(optimize_env.arm, "actor", actor):
+        with mock.patch.object(officeqa.arm, "actor", actor):
             train = self.env.evaluate(None, self.env.tasks("train")[:2], label="gepa/0001-minibatch")
             val = self.env.evaluate(None, self.env.tasks("val"), label="gepa/0002-val")
             test = self.env.evaluate(None, self.env.tasks("test")[:1], label="test/w0")
@@ -91,8 +91,8 @@ class OfficeQAEnvironmentTests(unittest.TestCase):
 
     def test_an_adapter_that_fails_to_render_is_a_scored_failure(self):
         actor = fake_actor({5: "105"})
-        with mock.patch.object(optimize_env.arm, "actor", actor), \
-                mock.patch.object(optimize_env.arm, "host_context", side_effect=FileNotFoundError("memory/x.md")):
+        with mock.patch.object(officeqa.arm, "actor", actor), \
+                mock.patch.object(officeqa.arm, "host_context", side_effect=FileNotFoundError("memory/x.md")):
             [rollout] = self.env.evaluate(self.root / "prep", self.env.tasks("train")[:1], label="x")
         self.assertEqual((rollout.infra, rollout.score), (False, 0.0))
         self.assertTrue(rollout.status.startswith("error: adapter render FileNotFoundError"))
@@ -104,7 +104,7 @@ class OfficeQAEnvironmentTests(unittest.TestCase):
         def broken(*args, **kwargs):
             calls.append(args[1])
             raise KeyError("renderer")
-        with mock.patch.object(optimize_env.arm, "actor", broken):
+        with mock.patch.object(officeqa.arm, "actor", broken):
             [rollout] = self.env.evaluate(None, self.env.tasks("train")[:1], label="x")
         self.assertEqual((rollout.score, rollout.status, rollout.infra), (0.0, "error: KeyError", False))
         self.assertEqual(len(calls), 1)
@@ -115,15 +115,14 @@ class OfficeQAEnvironmentTests(unittest.TestCase):
     def test_machinery_failures_are_infra_losses_without_the_answer(self):
         def broken(*args, **kwargs):
             raise ConnectionResetError("provider went away")
-        with mock.patch.object(optimize_env.arm, "actor", broken):
+        with mock.patch.object(officeqa.arm, "actor", broken):
             [rollout] = self.env.evaluate(None, self.env.tasks("train")[:1], label="x")
         self.assertEqual((rollout.status, rollout.infra), ("infra-error: ConnectionResetError", True))
         self.assertNotIn("106", rollout.feedback)
         self.assertIn("infrastructure", rollout.feedback)
 
     def test_transport_lost_is_flagged_and_the_session_rerun_recovers_it(self):
-        import tempfile as _tempfile
-        from harnessadapter.optimize.session import GuardedEnvironment
+        from harnessadapter.environment import run_tasks
         actor = fake_actor({5: "105"})
         outcomes = iter(["transport_lost", "completed"])
 
@@ -131,36 +130,32 @@ class OfficeQAEnvironmentTests(unittest.TestCase):
             summary = actor(*args, **kwargs)
             summary["status"] = next(outcomes)
             return summary
-        with _tempfile.TemporaryDirectory() as d, mock.patch.object(optimize_env.arm, "actor", flaky):
-            guarded = GuardedEnvironment(self.env, Path(d) / "log.jsonl", infra_pause=0)
-            [rollout] = guarded.evaluate(None, self.env.tasks("train")[:1], label="x")
-            log = json.loads((Path(d) / "log.jsonl").read_text())
+        with mock.patch.object(officeqa.arm, "actor", flaky):
+            [rollout], extra = run_tasks(self.env, None, self.env.tasks("train")[:1], "x", pause=0)
         self.assertEqual((rollout.status, rollout.infra, rollout.score), ("completed", False, 1.0))
-        self.assertIsNone(rollout.record)                             # plugins get no record locations
-        self.assertEqual(log["infra_reruns"], 1)
-        self.assertNotIn("prepared", guarded.describe())
+        self.assertEqual(extra, 1)
 
     def test_a_repeated_task_in_one_batch_gets_its_own_episode(self):
         actor = fake_actor({5: "105", 6: "106"})
         train = self.env.tasks("train")
-        with mock.patch.object(optimize_env.arm, "actor", actor):
+        with mock.patch.object(officeqa.arm, "actor", actor):
             rollouts = self.env.evaluate(None, [train[0], train[1], train[0]], label="gepa/0003-minibatch")
         self.assertEqual([r.score for r in rollouts], [1.0, 1.0, 1.0])
         self.assertFalse(any(r.infra for r in rollouts))
         self.assertNotEqual(rollouts[0].record, rollouts[2].record)
 
     def test_feedback_follows_the_registered_split(self):
-        from harnessadapter.optimize.environment import Task
+        from harnessadapter.environment import Task
         actor = fake_actor({3: "0"})
         val = self.env.tasks("val")[0]
         disguised = Task(id=val.id, split="train", prompt=val.prompt, kind=val.kind)
-        with mock.patch.object(optimize_env.arm, "actor", actor):
+        with mock.patch.object(officeqa.arm, "actor", actor):
             [rollout] = self.env.evaluate(None, [disguised], label="x")
         self.assertEqual(rollout.feedback, "INCORRECT.")
 
     def test_candidate_adapter_is_passed_to_the_actor(self):
         actor = fake_actor({5: "105"})
-        with mock.patch.object(optimize_env.arm, "actor", actor), mock.patch.object(optimize_env.arm, "host_context"):
+        with mock.patch.object(officeqa.arm, "actor", actor), mock.patch.object(officeqa.arm, "host_context"):
             self.env.evaluate(self.root / "prep", self.env.tasks("train")[:1], label="x")
         self.assertEqual(actor.adapters, [(self.root / "prep").resolve()])
 
