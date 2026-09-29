@@ -136,10 +136,22 @@ def split_fingerprint(environment: Environment) -> dict:
             "test_count": len(ids["test"])}
 
 
-def check_resume_splits(state: Path, current: dict) -> None:
+def check_resume_splits(state: Path, current: dict, environment: Environment | None = None) -> None:
     path = state / "harnessadapter-splits.json"
     if not path.is_file():
-        raise ValueError("This Training State records no split assignment; refusing to resume from it")
+        # A state from before split fingerprints: accept it only when its
+        # session record shows the same split sizes and the same split
+        # specification from the environment.
+        record = state.parent / "control/result.json"
+        if record.is_file() and environment is not None:
+            old = json.loads(record.read_text())
+            now = environment.describe()
+            sizes = {k: len(v) for k, v in current["ids"].items()} | {"test": current["test_count"]}
+            spec = now.get("splits")
+            if old.get("splits") == sizes and spec is not None and old.get("environment", {}).get("splits") == spec:
+                return
+        raise ValueError("This Training State records no split assignment that matches this environment; "
+                         "refusing to resume from it")
     stored = json.loads(path.read_text())
     if stored["ids"] != current["ids"]:
         raise ValueError("The train/val assignment differs from the one this Training State was built on")
@@ -156,6 +168,9 @@ def optimize(source: Path, environment: Environment, evolver: str, *, lm: Callab
     sizes = disjoint_splits(environment)
     if not sizes.get("train") or not sizes.get("val"):
         raise ValueError("An optimizer needs nonempty train and val splits")
+    fingerprint = split_fingerprint(environment)
+    if training_state is not None:
+        check_resume_splits(Path(training_state), fingerprint, environment)
     output = Path(output).resolve()
     output.mkdir(parents=True, exist_ok=True)
     session = Path(tempfile.mkdtemp(prefix=f"optimize-{definition.name}-", dir=output))
@@ -165,12 +180,11 @@ def optimize(source: Path, environment: Environment, evolver: str, *, lm: Callab
     # The history the candidate will carry is the source's at this moment.
     versioning.copy_history(source, session / "source")
     surface = TextSurface(session / "source", components)
-    fingerprint = split_fingerprint(environment)
     if training_state is not None:
         # Resume: the plugin continues from its own state format, built on
-        # the same split assignment.
-        check_resume_splits(Path(training_state), fingerprint)
+        # the same split assignment (checked above).
         shutil.copytree(Path(training_state), session / "training_state", dirs_exist_ok=True)
+        _save(session / "training_state/harnessadapter-splits.json", fingerprint)
     else:
         _save(session / "training_state/harnessadapter-splits.json", fingerprint)
     if getattr(lm, "ledger", False) is None:

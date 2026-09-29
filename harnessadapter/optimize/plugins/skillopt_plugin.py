@@ -71,8 +71,10 @@ def build_config(settings: dict, *, optimizer_model: str, seed_path: Path, out_r
                             slow_update_samples=int(settings["slow_update_samples"]),
                             use_meta_skill=bool(settings["use_meta_skill"]))
     # The held-out test split is the framework's, evaluated identically for
-    # every method; SkillOpt's own test pass is off.
-    cfg["evaluation"].update(use_gate=bool(settings["use_gate"]), eval_test=False, sel_env_num=0, test_env_num=0)
+    # every method: SkillOpt's split has no test items. eval_test stays on,
+    # as upstream: it also guards the final val pass that can promote the
+    # final (slow-updated) skill to best; its test rollouts are empty.
+    cfg["evaluation"].update(use_gate=bool(settings["use_gate"]), eval_test=True, sel_env_num=0, test_env_num=0)
     cfg["env"] = {"name": "harnessadapter", "skill_init": str(seed_path), "out_root": str(out_root),
                   "split_mode": "split_dir", "split_dir": str(split_dir), "split_seed": int(settings["seed"])}
     return flatten_config(cfg)
@@ -196,15 +198,9 @@ def make_env_adapter(context: OptimizeContext, settings: dict, component: str):
                 adapter = context.store.path({component: skill_content})
                 label = f"skillopt/{number:04d}-{where.parent.name}-{where.name}"
                 rollouts = context.environment.evaluate(adapter, pending, label=label)
-                lost = [r.task_id for r in rollouts if r.infra]
-                if lost:
-                    # Still lost after the session's re-runs. A 0 here would
-                    # bias the selection gate or read as a regression in the
-                    # slow update, so stop; the session resumes from its
-                    # Training State and re-runs only these episodes.
-                    raise RuntimeError(f"Episodes lost to the infrastructure after re-runs: {lost[:5]}; "
-                                       "resume the session from its training_state")
                 for task, rollout in zip(pending, rollouts):
+                    if rollout.infra:
+                        continue
                     hard = int(rollout.score >= 1.0 - 1e-9)
                     record = where / "predictions" / task.id
                     record.mkdir(parents=True, exist_ok=True)
@@ -214,11 +210,22 @@ def make_env_adapter(context: OptimizeContext, settings: dict, component: str):
                                       "fail_reason": "" if hard else (rollout.feedback or f"status {rollout.status}"),
                                       "task_description": task.prompt, "task_type": task.kind or "task",
                                       "n_turns": len(rollout.steps), "agent_ok": rollout.status == "completed",
-                                      "status": rollout.status, "infra": rollout.infra,
+                                      "status": rollout.status, "infra": False,
                                       "predicted_answer": rollout.output, "prediction": rollout.output,
                                       "skill_sha256": skill_sha}
+                # Every finished episode is saved before any stop, so a resume
+                # pays only for what is missing.
+                where.mkdir(parents=True, exist_ok=True)
                 with results_path.open("a") as out:
-                    out.writelines(json.dumps(fresh[t.id], ensure_ascii=False) + "\n" for t in pending)
+                    out.writelines(json.dumps(fresh[t.id], ensure_ascii=False) + "\n" for t in pending if t.id in fresh)
+                lost = [r.task_id for r in rollouts if r.infra]
+                if lost:
+                    # Still lost after the session's re-runs. A 0 here would
+                    # bias the selection gate or read as a regression in the
+                    # slow update, so stop; resumed from its Training State,
+                    # the session runs only these episodes again.
+                    raise RuntimeError(f"Episodes lost to the infrastructure after re-runs: {lost[:5]}; "
+                                       "resume the session from its training_state")
             return [done.get(str(item["id"])) or fresh[str(item["id"])] for item in items]
 
         def reflect(self, results, skill_content, out_dir, **kwargs):
@@ -295,6 +302,7 @@ class SkillOptPlugin:
                    "optimizer_reasoning_effort_sent": None,
                    "seed_val_score": trained.get("baseline_selection_hard"),
                    "selected_val_score": trained.get("best_selection_hard"),
+                   "final_val_score": trained.get("final_selection_hard"),
                    "best_step": trained.get("best_step"), "best_origin": trained.get("best_origin"),
                    "total_steps": trained.get("total_steps"), "total_accepts": trained.get("total_accepts"),
                    "total_rejects": trained.get("total_rejects"), "total_skips": trained.get("total_skips"),

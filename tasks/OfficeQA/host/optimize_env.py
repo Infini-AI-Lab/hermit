@@ -130,7 +130,7 @@ class OfficeQAEnvironment(Environment):
         self._evidence = self.run_root / "no-evidence"      # no README: nothing bound into the context
         self._evidence.mkdir(exist_ok=True)
         self._lock = threading.Lock()
-        self._calls = sum(len(list((self.run_root / d).glob("*"))) for d in ("evaluations", "heldout") if (self.run_root / d).is_dir())
+        self._calls = len(list((self.run_root / "episodes").glob("*"))) if (self.run_root / "episodes").is_dir() else 0
 
     def tasks(self, split):
         return list(self._tasks[split])
@@ -167,14 +167,14 @@ class OfficeQAEnvironment(Environment):
         with self._lock:
             self._calls += 1
             number = self._calls
-        # Held-out episodes live apart from the tree optimizer rollouts point
-        # into. Directory names are opaque (the actor sees its working
-        # directory); the label is recorded in call.json, outside every sandbox.
-        heldout = any(self._split_of[t.id] == "test" for t in tasks)
-        run = self.run_root / ("heldout" if heldout else "evaluations") / f"{number:05d}-{os.getpid()}-{uuid.uuid4().hex[:8]}"
+        # The actor can see its working directory, so episode paths carry no
+        # split or label: one neutral tree, opaque names. What a call was
+        # (label, splits) is recorded in call.json, outside every sandbox.
+        run = self.run_root / "episodes" / f"{number:05d}-{os.getpid()}-{uuid.uuid4().hex[:8]}"
         run.mkdir(parents=True)
         (run / "call.json").write_text(json.dumps({"label": label, "adapter": str(adapter) if adapter else None,
-                                                   "tasks": [t.id for t in tasks]}, indent=1) + "\n")
+                                                   "tasks": [t.id for t in tasks],
+                                                   "splits": sorted({self._split_of[t.id] for t in tasks})}, indent=1) + "\n")
         adapter = Path(adapter).resolve() if adapter else None
         # A task may appear more than once in one batch (GEPA pads its last
         # minibatch of an epoch): every occurrence is its own episode.
@@ -187,6 +187,17 @@ class OfficeQAEnvironment(Environment):
         def episode(task: Task, where: Path) -> Rollout:
             ordinal = self._ordinal[task.id]
             row = self._rows[ordinal]
+            if adapter is not None:
+                # Render the adapter first: a failure here is the adapter's
+                # (a scored failure), whatever the exception type.
+                try:
+                    arm.host_context(adapter, self._evidence)
+                except Exception as exc:
+                    where.mkdir(parents=True, exist_ok=True)
+                    (where / f"error-{ordinal:03d}.txt").write_text(f"adapter render: {type(exc).__name__}: {exc}\n")
+                    status = f"error: adapter render {type(exc).__name__}"
+                    return Rollout(task_id=task.id, split=task.split, score=0.0, status=status,
+                                   feedback=self._feedback(task, "", False, status))
             try:
                 summary = arm.actor(self._key, where, ordinal, {"task_id": row["task_id"], "question": row["question"]},
                                     adapter, self._evidence, self.corpus, self.index, self.actor_timeout, self.max_tool_ops)

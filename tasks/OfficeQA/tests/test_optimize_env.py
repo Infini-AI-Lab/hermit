@@ -81,12 +81,22 @@ class OfficeQAEnvironmentTests(unittest.TestCase):
         self.assertIn("[command] python officeqa.py search", train[0].trace)
         self.assertNotIn("hidden", train[0].trace)                    # model reasoning is not trajectory
         self.assertEqual(train[0].steps[0], {"type": "tool_call", "cmd": "python officeqa.py search", "obs": "table row 1990: 101"})
-        calls = sorted((self.root / "runs/evaluations").iterdir())
-        self.assertEqual(len(calls), 2)                               # train and val calls
-        self.assertEqual(json.loads((calls[0] / "call.json").read_text())["label"], "gepa/0001-minibatch")
-        self.assertNotIn("gepa", calls[0].name)                        # the actor's directory carries no label
-        heldout = list((self.root / "runs/heldout").iterdir())
-        self.assertEqual(len(heldout), 1)                             # test episodes live apart
+        calls = sorted((self.root / "runs/episodes").iterdir())
+        self.assertEqual(len(calls), 3)
+        first = json.loads((calls[0] / "call.json").read_text())
+        self.assertEqual((first["label"], first["splits"]), ("gepa/0001-minibatch", ["train"]))
+        self.assertEqual(json.loads((calls[2] / "call.json").read_text())["splits"], ["test"])
+        for call in calls:                                            # the actor's path carries no label or split
+            self.assertFalse(any(word in call.name for word in ("gepa", "val", "test", "train", "heldout")))
+
+    def test_an_adapter_that_fails_to_render_is_a_scored_failure(self):
+        actor = fake_actor({5: "105"})
+        with mock.patch.object(optimize_env.arm, "actor", actor), \
+                mock.patch.object(optimize_env.arm, "host_context", side_effect=FileNotFoundError("memory/x.md")):
+            [rollout] = self.env.evaluate(self.root / "prep", self.env.tasks("train")[:1], label="x")
+        self.assertEqual((rollout.infra, rollout.score), (False, 0.0))
+        self.assertTrue(rollout.status.startswith("error: adapter render FileNotFoundError"))
+        self.assertEqual(actor.adapters, [])                          # the actor never started
 
     def test_an_adapter_crash_is_a_scored_failure_not_an_infra_loss(self):
         calls = []
@@ -150,7 +160,7 @@ class OfficeQAEnvironmentTests(unittest.TestCase):
 
     def test_candidate_adapter_is_passed_to_the_actor(self):
         actor = fake_actor({5: "105"})
-        with mock.patch.object(optimize_env.arm, "actor", actor):
+        with mock.patch.object(optimize_env.arm, "actor", actor), mock.patch.object(optimize_env.arm, "host_context"):
             self.env.evaluate(self.root / "prep", self.env.tasks("train")[:1], label="x")
         self.assertEqual(actor.adapters, [(self.root / "prep").resolve()])
 

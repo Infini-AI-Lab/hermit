@@ -129,6 +129,25 @@ class ResumeTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "records no split"):
                 check_resume_splits(state, split_fingerprint(KeywordEnvironment()))
 
+    def test_a_state_from_before_fingerprints_resumes_when_its_record_matches(self):
+        from harnessadapter.optimize.session import check_resume_splits, split_fingerprint
+
+        class Specified(KeywordEnvironment):
+            def describe(self):
+                return {"name": self.name, "splits": {"train": "a", "val": "b", "test": "c"}}
+        env = Specified()
+        with tempfile.TemporaryDirectory() as d:
+            state = Path(d) / "training_state"
+            (Path(d) / "control").mkdir(parents=True)
+            state.mkdir()
+            record = {"splits": {"train": 8, "val": 4, "test": 4}, "environment": env.describe()}
+            (Path(d) / "control/result.json").write_text(json.dumps(record))
+            check_resume_splits(state, split_fingerprint(env), env)
+            record["environment"]["splits"]["val"] = "other"
+            (Path(d) / "control/result.json").write_text(json.dumps(record))
+            with self.assertRaises(ValueError):
+                check_resume_splits(state, split_fingerprint(env), env)
+
 
 class RegistryTests(unittest.TestCase):
     def test_bundled_optimizers_and_session_evolver_separation(self):
@@ -173,6 +192,12 @@ class ChatLMTests(unittest.TestCase):
         self.assertTrue(text.startswith("```"))
         self.assertEqual(lm.usage["calls"], 1)
         self.assertEqual(text.strip().finish_reason, "stop")        # GEPA's LMOutput contract
+
+    def test_a_truncated_completion_is_never_a_proposal(self):
+        with FakeChatServer(lambda prompt: "```\n# Rules\n```bash\nrg x\n```\n- cut") as server:
+            server.finish_reason = "length"
+            text = fake_lm(server)("anything")
+        self.assertEqual((str(text), text.finish_reason), ("", "length"))
 
 
 @unittest.skipUnless(HAS_GEPA, "gepa is not installed")
@@ -254,7 +279,8 @@ class SkillOptTests(unittest.TestCase):
             self.assertIn("cat AGENTS.md", conversations[0].read_text())
             self.assertGreater(result["optimizer_usage"]["calls"], 0)       # SkillOpt's own token tracker
             config = json.loads((session / "training_state/config.json").read_text())
-            self.assertFalse(config["eval_test"])
+            self.assertTrue(config["eval_test"])                         # upstream's final val promotion stays on
+            self.assertIsNotNone(result["plugin"]["final_val_score"])
             test_ids = {t.id for t in env.tasks("test")}
             self.assertFalse(any(set(c["tasks"]) & test_ids for c in env.calls))
             for request in server.requests:
@@ -284,6 +310,26 @@ class SkillOptPieceTests(unittest.TestCase):
             adapter.rollout(items, "RULE_BETA", str(Path(d) / "step/rollout"))          # another skill: all re-run
             self.assertEqual(len(env.calls[-1]["tasks"]), 4)
             self.assertIn("predicted_answer", again[0])
+
+    def test_a_stop_keeps_finished_episodes_and_the_resume_runs_only_the_lost(self):
+        class Partial(KeywordEnvironment):
+            down = True
+
+            def evaluate(self, adapter, tasks, *, label):
+                rollouts = super().evaluate(adapter, tasks, label=label)
+                if self.down:
+                    rollouts[0].infra, rollouts[0].status, rollouts[0].score = True, "transport_lost", 0.0
+                return rollouts
+        env = Partial()
+        items = [{"id": t.id} for t in env.tasks("val")[:3]]
+        with tempfile.TemporaryDirectory() as d:
+            adapter = self._env_adapter(env, d)
+            with self.assertRaises(RuntimeError):
+                adapter.rollout(items, "x", str(Path(d) / "sel"))
+            env.down = False
+            results = adapter.rollout(items, "x", str(Path(d) / "sel"))
+        self.assertEqual([r["id"] for r in results], [i["id"] for i in items])
+        self.assertEqual(env.calls[-1]["tasks"], [items[0]["id"]])          # only the lost episode ran again
 
     def test_persistent_infra_loss_stops_instead_of_scoring_zero(self):
         class Down(KeywordEnvironment):

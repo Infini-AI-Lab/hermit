@@ -49,8 +49,8 @@ class Rollout:
     ({"type": "tool_call", "cmd", "obs"} or {"role", "content"}) for
     optimizers that format it themselves. infra marks an episode lost to the
     infrastructure (provider outage, transport failure) rather than decided by
-    the agent: it scores 0 for an optimizer, which cannot re-run it, and
-    evaluate_adapters leaves it out of means and reports it separately.
+    the agent. The session re-runs such episodes; see
+    docs/guide/optimizer-evolvers.md for what happens to one still lost.
     """
     task_id: str
     split: str

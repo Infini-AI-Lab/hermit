@@ -121,6 +121,10 @@ class ChatLM:
                 ensure_ascii=False, indent=1) + "\n")
         if response is None:
             raise RuntimeError(f"Optimizer model call failed after {self.retries} attempts: {error}")
+        if finish in ("length", "max_tokens"):
+            # A truncated completion is never a proposal, even when the cut
+            # leaves a balanced code fence behind. The text is in the ledger.
+            return LMText("", finish_reason=finish)
         return LMText(text, finish_reason=finish)
 
     def _post(self, body: dict) -> dict:

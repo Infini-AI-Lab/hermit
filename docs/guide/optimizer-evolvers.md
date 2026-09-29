@@ -72,16 +72,29 @@ anything the process can. Review third-party plugins as you would any code.
 A Rollout with `infra=True` was lost to the infrastructure (provider outage,
 transport failure, a failing file or socket operation), not decided by the
 agent. The session re-runs such episodes twice more after a pause, for
-optimizers and for `evaluate` alike. What is still lost: GEPA scores it 0 and
-does not reflect on it (a minibatch with no evidence left is skipped); SkillOpt
-stops with an error rather than let a 0 bias its gate or read as a regression,
-and the session resumes from its Training State; `evaluate` leaves it out of
-the adapter's mean and reports `paired_mean` over the tasks every adapter
-scored. An exception caused by the adapter itself (a renderer that raises) is
-a scored failure, not an infrastructure loss.
+optimizers and for `evaluate` alike. These re-runs are outside an optimizer's
+own budget (GEPA's `max_metric_calls` counts one call per task); the session
+record's `rollouts` counts every episode run. What is still lost: GEPA scores
+it 0 and does not reflect on it; SkillOpt saves the finished episodes and stops
+with an error rather than let a 0 bias its gate or read as a regression, and a
+session resumed from its Training State runs only the missing episodes;
+`evaluate` leaves it out of the adapter's mean and reports `paired_mean` over
+the tasks every adapter scored. An exception caused by the adapter itself (a
+renderer that raises) is a scored failure, not an infrastructure loss.
+
+GEPA also skips a minibatch in which, once lost episodes are set aside, every
+remaining episode is already perfect: GEPA's own `skip_perfect_score` test
+would have skipped it had the lost episodes not counted as 0.
+
+SkillOpt runs with `eval_test` on, as upstream does, because that switch also
+guards its final val pass that may promote the last (slow-updated) skill; its
+split has no test items, so its own test fields in `summary.json` are empty
+and meaningless. The framework's `evaluate` is the held-out comparison.
 
 Resuming (`--training-state`) is refused when the environment's train, val or
-test assignment differs from the one the state was built on.
+test assignment differs from the one the state was built on. A state written
+before split fingerprints existed is accepted only when its session record
+shows the same split sizes and the same split specification.
 
 `harnessadapter evaluate` scores several adapters on one split with the same
 environment. It is the comparison every Evolver is judged by.

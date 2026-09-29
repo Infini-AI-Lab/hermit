@@ -102,6 +102,7 @@ class FakeChatServer:
 
     def __init__(self, respond=scripted_optimizer):
         self.respond = respond
+        self.finish_reason = "stop"
         self.requests: list[dict] = []
         server = self
 
@@ -115,7 +116,7 @@ class FakeChatServer:
                 prompt = "\n\n".join(str(m.get("content", "")) for m in body.get("messages", []))
                 text = server.respond(prompt)
                 reply = json.dumps({"id": "fake", "object": "chat.completion", "created": 0, "model": body.get("model"),
-                                    "choices": [{"index": 0, "finish_reason": "stop",
+                                    "choices": [{"index": 0, "finish_reason": server.finish_reason,
                                                  "message": {"role": "assistant", "content": text}}],
                                     "usage": {"prompt_tokens": len(prompt) // 4, "completion_tokens": len(text) // 4,
                                               "total_tokens": (len(prompt) + len(text)) // 4}}).encode()

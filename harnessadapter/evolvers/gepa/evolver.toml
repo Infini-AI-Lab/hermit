@@ -4,7 +4,8 @@ description = "GEPA reflective prompt evolution (gepa-ai/gepa), run unchanged ov
 
 # gepa.optimize() arguments. Defaults follow the library, except the budget,
 # which an experiment must always choose (one metric call = one rollout of the
-# acting harness on one task).
+# acting harness on one task; the session's re-runs of episodes lost to the
+# infrastructure are outside it and counted in result.json "rollouts").
 [settings]
 max_metric_calls = 150
 reflection_minibatch_size = 3
