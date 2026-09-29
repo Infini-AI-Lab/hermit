@@ -1,0 +1,130 @@
+{
+  "kind": "calibration",
+  "created_utc": "2026-09-29T16:42:06.439767+00:00",
+  "source_root": "/Users/albertzhao/.codex/.chatgpt-projects/g-p-6aa867f0012881918044d250b055e9dd/v9-p1-a",
+  "scratch": "/Users/albertzhao/.codex/.chatgpt-projects/g-p-6aa867f0012881918044d250b055e9dd/officeqa-pro133-v10-plumbing/preflight/calibration-20260929T163646233951Z",
+  "block": {
+    "scratch": "/Users/albertzhao/.codex/.chatgpt-projects/g-p-6aa867f0012881918044d250b055e9dd/officeqa-pro133-v10-plumbing/preflight/calibration-20260929T163646233951Z",
+    "source_root": "/Users/albertzhao/.codex/.chatgpt-projects/g-p-6aa867f0012881918044d250b055e9dd/v9-p1-a",
+    "episodes": 50,
+    "released": 45,
+    "withheld": 5,
+    "block": 1,
+    "tables_index": "/Users/albertzhao/.codex/.chatgpt-projects/g-p-6aa867f0012881918044d250b055e9dd/frameworks-v10/officeqa-tables-index/tables.sqlite",
+    "tables_index_version": "otables-index-v10"
+  },
+  "source_tools": "w0",
+  "source_revision": "02948081b850",
+  "arm": {
+    "name": "harness-evolve",
+    "pack": "officeqa",
+    "l1_tools": true,
+    "controller": true,
+    "seed": "harness",
+    "learner": "harness",
+    "notes": true,
+    "gate": false
+  },
+  "dry_run": false,
+  "model": "accounts/fireworks/models/glm-5p3-flash",
+  "status": "retained",
+  "learner_status": "budget_exhausted",
+  "error": null,
+  "proposals": {
+    "by_kind": {
+      "stage": 4
+    },
+    "accepted": [],
+    "screen_rejections": [
+      {
+        "kind": "stage",
+        "id": "tools/otables.py",
+        "reasons": [
+          "leak - otables.py line 2650: a new string literal longer than 64 characters"
+        ]
+      },
+      {
+        "kind": "stage",
+        "id": "tools/otables.py",
+        "reasons": [
+          "leak - otables.py line 2650: a new string literal longer than 64 characters"
+        ]
+      }
+    ],
+    "stage_calls": 4,
+    "staged_ok": 2
+  },
+  "replays": [],
+  "admission": {
+    "admitted": false,
+    "admitted_notes": [],
+    "admitted_revision": null,
+    "verification": {},
+    "replay_seconds": 0.0,
+    "try_tool_calls": 3,
+    "revision": null
+  },
+  "actor_runs": {
+    "cap": 20,
+    "used": 0,
+    "recorded": 0
+  },
+  "tokens": {
+    "learner": {
+      "prompt_tokens": 2099786,
+      "completion_tokens": 24902,
+      "cached_tokens": 1968128
+    }
+  },
+  "cost": {
+    "kind": "public_standard_price_estimate_not_invoice",
+    "verification": {
+      "logical_calls": 0,
+      "wire_attempts": 0,
+      "known_usage": {
+        "input_tokens": 0,
+        "cached_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "known_cost_lower_bound_usd": 0.0,
+      "estimate_usd": 0.0,
+      "usage_complete": true,
+      "unknown_usage_attempts": 0,
+      "unknown_usage_logical_calls": 0,
+      "unknown_records": []
+    },
+    "learners": {
+      "logical_calls": 32,
+      "wire_attempts": 32,
+      "known_usage": {
+        "input_tokens": 2099786,
+        "cached_input_tokens": 1968128,
+        "output_tokens": 24902
+      },
+      "known_cost_lower_bound_usd": 0.09124354,
+      "estimate_usd": 0.09124354,
+      "usage_complete": true,
+      "unknown_usage_attempts": 0,
+      "unknown_usage_logical_calls": 0,
+      "unknown_records": []
+    },
+    "replay_seconds": {
+      "replays": 0,
+      "jobs": 0,
+      "changed_outputs": 0,
+      "wall_seconds": 0.0,
+      "try_tool_calls": 3,
+      "records": [
+        {
+          "source": "evolution/01/sessions/learner/control/mechanical-admission.json",
+          "replays": 0,
+          "jobs": 0,
+          "wall_seconds": 0.0,
+          "try_tool_calls": 3
+        }
+      ]
+    },
+    "note": "verification actors + learner calls of this calibration only (the linked source episodes are excluded)"
+  },
+  "elapsed_seconds": 321.15
+}

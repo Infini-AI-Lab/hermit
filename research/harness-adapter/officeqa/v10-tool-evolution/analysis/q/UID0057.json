@@ -1,0 +1,119 @@
+{
+ "task_id": "UID0057",
+ "ordinal": 29,
+ "issue47": false,
+ "correct": {
+  "a": 1,
+  "b": 1,
+  "c": 1,
+  "opus": 1
+ },
+ "question_type": "12-value list; one month row (January) per year across 12 issues; issue vintage pinned by the question (January issues only); column choice (public debt + agency securities total)",
+ "decisive_step": "Two decisions: (1) use FD-1 'Summary of Federal Debt', first data column (Total = public debt securities + agency securities), not the public-debt-only column and not the 1969-era 'guaranteed securities' concept; (2) because a January-Y issue's FD-1 only runs through Nov/Dec of Y-1, the January-Y value must be read from the January Y+1 issue, as published there (no later revision), which is what 'exclusively from January bulletins' forces. Reference: worklog Step 3 (decision) and Step 5 table (treasury_bulletin_1970_01.txt:1317 ... 1981_01:1666); OCR handling of the merged row at 1978_01:1682 (first value in each cell = January) and the mislabelled row at 1979_01:1481.",
+ "cells": {
+  "a": {
+   "correct": 1,
+   "path_summary": "Four find_tables phrasings (a[5]-[14]) converged on FD-1; show_table of a 1970 issue (a[16]) established the column. A printings loop over 12 years (a[18]) worked for 1969-1974 but returned 'no matching row/column' for 1975-1980 because the column label changes from 'Total outstanding > Total' to 'Amount outstanding > Total 1/' (found at a[22]-[23], re-run at a[24]). printings' SUMMARY flagged REVISED/DIFFERS with a March-issue 'r' value as 'latest printing'; a recognised that the question pins January issues and read each Jan-Y value from the Jan Y+1 issue directly with show_table (a[29], a[31], a[35]; reasoning a[25], a[32], a[36]). calc joined the list (a[37]).",
+   "first_divergence": {
+    "stage": "NONE",
+    "where": "",
+    "what_it_did": "",
+    "what_a_right_cell_or_the_reference_did": ""
+   },
+   "saw_correct_evidence": "yes",
+   "tool_use": {
+    "find_tables": 6,
+    "show_table": 5,
+    "printings": 3,
+    "calc": 1,
+    "other_shell": 2,
+    "friction": "a[18]: 12-call printings loop output truncated and 6 silent no-matches because the FD-1 total column was renamed from 1975 on (cost a[19]-[24]); a[33]: sed on a cwd-relative corpus path failed silently and fell back to the absolute path. Counts are commands, not calls (a[18] issued 12 printings calls)."
+   },
+   "text_use": "Vintage sentence's exception clause ('unless the question names ... issue') -> chose latest January issue (a[32]); provenance -> printed each Jan row (a[29],[31],[35]); calc for the final list (a[37])",
+   "harness_use": "n/a"
+  },
+  "b": {
+   "correct": 1,
+   "path_summary": "find_tables (b[5],[7]) then show_table --stitch of the 1970_01 FD-1 (b[9]) gave the table; three printings attempts failed on row/column label guesses (b[11],[13],[15]: 'January' vs '1969-January', '(1)' vs 'Total'). b then decided on January issues only (b[16]) and, after two zsh failures (b[17] echo ===, b[25] set --) and a rg hit on narrative text (b[19]), used find_tables per year (b[21],[23]) and a show_table loop over the 12 January issues (b[27] --grep January matched nothing, b[29] --grep Jan worked but the middle was truncated, b[31] re-ran 1974-1978). It read the merged OCR row of 1978_01 raw (b[34]) and submitted; the gate flagged that repaired row and b kept with a reason (b[38]). No calc was used.",
+   "first_divergence": {
+    "stage": "NONE",
+    "where": "",
+    "what_it_did": "",
+    "what_a_right_cell_or_the_reference_did": ""
+   },
+   "saw_correct_evidence": "yes",
+   "tool_use": {
+    "find_tables": 4,
+    "show_table": 4,
+    "printings": 3,
+    "calc": 0,
+    "other_shell": 4,
+    "friction": "b[11]-[15]: three printings no-matches from row/col label guessing; b[17] exit 1 and b[25] exit 2 zsh quoting/word-splitting; b[19] rg found the title in narrative text, not the table; b[27] --grep January matched nothing (labels are 'Jan'); b[29] 12-issue output truncated in the middle (b[30])."
+   },
+   "text_use": "none (no advice text in this cell); the 829-byte submit note only",
+   "harness_use": "1 gate round: flagged_cells on the 1978_01:1682 repaired row (ROWSPLIT 1/11) asked to compare with another printing; b reasoned that no other January issue prints that month and kept with a reason (b[37]-[38]). No offer. Answer unchanged. The finding was legitimate (the row is a merged OCR row) but the model's reading of it matched the reference's."
+  },
+  "c": {
+   "correct": 1,
+   "path_summary": "Three find_tables phrasings (c[6]-[10]) found FD-1; show_table of 1970_01 (c[13],[15]) showed that a January issue ends at the previous November, so c decided on the Jan Y+1 issue for each year (c[16]). A shell loop combining find_tables and show_table failed (c[20], exit 2); the find_tables 'FD-1' --all listing was clipped before the 1980_01 and 1981_01 entries (c[26]-[27]) and c recovered them with a title search (c[28]). A 12-issue show_table batch (c[30]) was truncated in the middle; c re-ran 1974-1980 with --cols 1 --grep Jan (c[33]) and joined the list with calc (c[36]). No printings or vintage check.",
+   "first_divergence": {
+    "stage": "NONE",
+    "where": "",
+    "what_it_did": "",
+    "what_a_right_cell_or_the_reference_did": ""
+   },
+   "saw_correct_evidence": "yes",
+   "tool_use": {
+    "find_tables": 7,
+    "show_table": 5,
+    "printings": 0,
+    "calc": 1,
+    "other_shell": 2,
+    "friction": "c[20] exit 2 (rg on a cwd-relative corpus file inside a loop); c[26]-[27] find_tables --all listing of a 140-issue group clipped before the last two January issues; c[30]-[31] 12-issue show_table batch truncated in the middle. Counts are commands."
+   },
+   "text_use": "'Compute every final number with calc' -> c[36] (a join only); provenance -> printed each Jan row (c[30],[33]); the vintage/printings sentence was not acted on (c judged the January-issue restriction made it moot, c[16])",
+   "harness_use": "n/a"
+  }
+ },
+ "fix": {
+  "smallest_change": {
+   "level": "NONE",
+   "change": "All three cells and the reference agree; no change needed for correctness. The one behaviour worth protecting is a[32]'s override of the 'latest printing' rule when the question pins an issue (see alternatives).",
+   "would_have_fixed": [],
+   "could_hurt_right_cells": "no",
+   "generality": "officeqa_specific",
+   "confidence": "high"
+  },
+  "alternatives": [
+   {
+    "level": "TOOL",
+    "change": "printings: add `--issues <MM|MM,MM>` (issue-month filter) so a question that pins 'January bulletins' can ask for the latest printing among January issues only. The SUMMARY would gain one line per period: `latest printing among issues _01: 1975_01 (treasury_bulletin_1975_01.txt:1429)`. Today the SUMMARY's 'latest printing' line points at a March-issue revised value (a[18], a[24] show REVISED/DIFFERS with an 'r'-flagged later value), so a cell that follows the text's 'take the latest issue listed' literally would answer wrong on this question.",
+    "why_not_first": "no cell fell for it here; a applied the text's exception clause correctly (a[32]). Cheap and general enough for v10, but not needed for this question."
+   },
+   {
+    "level": "TOOL",
+    "change": "printings: when --col matches no column, print the column labels of the table's latest matching part, e.g. `no column matched 'Total outstanding Total'; columns in 1980_01 part1: c1 'Amount outstanding > Total 1/', c2 'Amount outstanding > Public debt securities', ...`. a[18] got six silent no-matches because the FD-1 total column was renamed in 1975 and needed a[20]-[23] to discover why.",
+    "why_not_first": "friction only; a recovered in 3 steps."
+   },
+   {
+    "level": "TOOL",
+    "change": "show_table --grep: match month names by 3-letter prefix and case-insensitively ('January' matches 'Jan'/'Jan.'), b[27]->b[29] cost one 12-issue round-trip; and find_tables --all: never clip a group's listing (or print `... N more; use --years` when it does) - c[26]-[27] lost 1980_01 and 1981_01 silently.",
+    "why_not_first": "friction only."
+   }
+  ],
+  "why_not_text": "n/a (no fix needed)",
+  "irreducible": "n/a: all cells right"
+ },
+ "text_verdict": [
+  "kept-and-helped: 'Bulletins revise earlier numbers. Unless the question names a publication date or issue...' - a applied the exception clause and took each January issue's own printing (a[25], a[32]) instead of the printings SUMMARY's later 'r' value",
+  "kept-and-helped: 'Provenance: use numbers you have seen printed by a tool...' - a printed every January row before listing it (a[29],[31],[35])",
+  "kept-and-helped: 'Answer count and format: give exactly as many values...' - 12 comma-separated integers in order (a[37]-[39])",
+  "kept-and-helped: 'Alternatives: when two candidate values fit...' - a weighed the revised March-issue value against the January-issue value and chose by the question's wording (a[25], a[36])",
+  "kept-and-helped: 'Several tables in one issue can look alike. Search with find_tables using the question's key nouns...' - a narrowed from agency-securities tables to FD-1 in four searches (a[5]-[14])",
+  "kept-and-helped: 'Compute every final number with calc...' - only a join (a[37]); harmless",
+  "ignored: 'show_table marks rows it repaired (SHIFT+1, SPLIT, ROWSPLIT)... compare it with another printing' - the 1978_01 January row is a ROWSPLIT merged row; a took the first value of each cell without comparing (a[29]-[30]); harmless here because the reading is right",
+  "irrelevant: 'Match the period exactly. FY ... and CY ...' (monthly rows)",
+  "irrelevant: 'Loops', 'Percent or fraction', 'For a sum over the columns of one row'"
+ ],
+ "notes": "Robustness trap for v10: on this question printings' SUMMARY promotes a non-January revised value as 'latest printing' for several years (a[18], a[24]; one year even shows an ISOLATED OCR outlier in an August issue), so the text's default vintage rule and the question's issue pin conflict; only the exception clause in the text saved a. The FD-1 January row in 1978_01 (line 1682) is an OCR-merged row (ROWSPLIT 1/11; months in one label, values space-separated in each cell); all three cells and the reference read the first value as January, and b's gate finding on it was a correct warning that was correctly kept. No cell used the FD-1 'total = public + agency' identity to check the merged row (the reference did). Column label rename in FD-1 (1975) breaks printings --col continuity (a[18]). Shell friction cost b four steps (zsh 'set --' and 'echo ===', --grep January vs Jan, rg on narrative text) and c two (relative corpus path in a loop, clipped --all listing); b never used calc, so the v9 recompute_final rule would have fired had this been a computed answer."
+}

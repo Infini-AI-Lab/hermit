@@ -1,0 +1,142 @@
+{
+  "task_id": "UID0101",
+  "ordinal": 15,
+  "issue47": false,
+  "correct": {
+    "a": 0,
+    "b": 0,
+    "b2": 0,
+    "c": 1,
+    "opus": 0
+  },
+  "question_type": "two-endpoint growth metrics (CAGR, decay factor, 'arc elasticity') from one agency column of an annual outlays table; the third metric's definition is the whole question",
+  "decisive_step": "FORMULA, not retrieval: every cell and the reference found the same table (FFO-3 'On-Budget and Off-Budget Outlays by Agency', Department of Labor column (13), FY2011 and FY2019 rows, latest revision of FY2011) and agreed on CAGR and decay factor (= 1 + CAGR). The split is what 'arc elasticity (using midpoint percentage change)' means when the question supplies only ONE series. The answer key accepts the midpoint percentage change of outlays by itself (what c computed at c[36] and chose at c[39]). a, b, b2 and the reference divided that by the midpoint percentage change of the fiscal-year number (a few tenths of a percent), producing a value hundreds of times larger in magnitude. The reference made this decision in worklog.md Step 4 / calc.py line `arc = pct_q_mid / pct_y_mid`, listed the 'midpoint %dQ alone' reading only as an alternative in Step 5, and was graded wrong (correct.opus = 0).",
+  "cells": {
+    "a": {
+      "correct": 0,
+      "path_summary": "find_tables with the full question phrase got 0 hits (a[4]); the --rows variant (a[6]) surfaced FFO-3 and FFO-4. show_table on the latest FFO-3 only had 2020+ rows (a[8]), so a used printings on FFO-3 FY2011 (a[10]) and FY2019 (a[22]) and took the latest revision. It explored FFO-4 'Total funds' via printings by row label (a[16]-[20]), worked out that the December issue's prior-FY column is the full year (a[19]) and confirmed FFO-3 equals FFO-4 total funds (a[23]). One calc (a[24]) computed all three metrics with the textbook two-variable elasticity (year number as the second variable); a[25] noticed the result was 'huge because time denominator small' but kept the standard definition.",
+      "first_divergence": {
+        "stage": "FORMULA",
+        "where": "a[23]",
+        "what_it_did": "Defined arc elasticity as (midpoint % change in outlays) / (midpoint % change in the fiscal-year number) and computed that at a[24]; at a[25] it explicitly considered that the question might mean something else, then kept the textbook ratio.",
+        "what_a_right_cell_or_the_reference_did": "c[36] printed the midpoint % change of outlays as its own named intermediate and at c[37]-[39] reasoned that the parenthetical names the quantity itself (no second variable is given), answering that value. The reference did the same as a and was wrong."
+      },
+      "saw_correct_evidence": "yes",
+      "tool_use": {
+        "find_tables": 2,
+        "show_table": 3,
+        "printings": 5,
+        "calc": 1,
+        "other_shell": 1,
+        "friction": "a[4]: 0 hits for the full phrase (tool hint suggested --rows, which worked at a[6]). a[16]: printings on FFO-4 by row label returned 80 cells (both the this-FY and prior-FY columns for every quarterly issue, period shown as '-') and clipped the list at 60; because FFO-4 is a fiscal-year-to-date table, printings cannot be asked for 'FY2011' and a had to narrow to --col '(4)' then '(8)' (a[18], a[20]) and infer by itself which issue holds the full year (a[19]). No errors, no loops."
+      },
+      "text_use": "yes: 'use the latest printing of each value: run printings' (a[10], a[22]); 'Compute every final number with calc' (a[24]); 'Several tables ... prefer the table whose title and column headers match' (a[7], a[11], a[13], a[23] compared FFO-3 and FFO-4). No sentence addressed the formula definition.",
+      "harness_use": "n/a"
+    },
+    "b": {
+      "correct": 0,
+      "path_summary": "b first used the python OfficeQACorpus.search API twice (b[6], b[9]); the printed results were only dict key names, no hits. It then used find_tables 'FFO-3' --years (b[12], b[21]) to pick issues, show_table --stitch on the 2021_12 FFO-3 (b[14] --grep 'Labor' matched nothing because Labor is a column; b[16] --cols 1,14 gave a part-2 column; b[18] --cols 1,13 gave the Labor column) for FY2019, and the 2016_09 issue (b[23]) for FY2011, which happens to be the latest revision even though b never ran printings. calc at b[26] used the two-variable (year-number) elasticity; b[27]-[28] looked for a definition in the corpus (nothing) and submitted at b[30]; the gate was silent.",
+      "first_divergence": {
+        "stage": "FORMULA",
+        "where": "b[24]",
+        "what_it_did": "After weighing 'arc elasticity of what?' it chose outlays vs. year number with midpoint changes on both, computed at b[26], and submitted that.",
+        "what_a_right_cell_or_the_reference_did": "c answered the midpoint % change of outlays alone (c[36], c[39])."
+      },
+      "saw_correct_evidence": "yes",
+      "tool_use": {
+        "find_tables": 2,
+        "show_table": 4,
+        "printings": 0,
+        "calc": 1,
+        "other_shell": 5,
+        "friction": "b[6], b[9]: OfficeQACorpus.search printed only the result object's field names (query, query_tokens, match_mode, results), unusable. b[14]: show_table --grep on a column name returned 0 rows (grep only matches row labels). b[16]: --cols 1,14 selected 'Department of State (14)' from the stitched part 2 instead of Labor (13) (column-number vs v-index confusion), fixed at b[18]. No printings run, so the latest-revision choice for FY2011 was luck of picking the last issue that still prints FY2011."
+      },
+      "text_use": "none (b's AGENTS.md was only the 829-byte submit note)",
+      "harness_use": "1 submit (b[30]), status accepted, findings [], no offers, 0 loop notes, 0 compactions; nothing changed the answer. None of the 10 rules can see a formula definition."
+    },
+    "b2": {
+      "correct": 0,
+      "path_summary": "find_tables full phrase 0 hits (b2[6]); --rows (b2[8]) found FFO-3. show_table on the 2025_09, 2020_03 and 2014_06 FFO-3 with --grep 2011 (b2[10], b2[13], b2[16]) until an issue with the FY2011 row appeared; raw sed of the 2014_06 table (b2[18], b2[24]) to read headers; an rg for 'budgetary and trust' (b2[26]) found nothing. printings on FFO-3 FY2011 and FY2019 (b2[29]-[30]) took the latest revision. calc at b2[32] used the two-variable (year-number) elasticity; b2[33] noticed the value was 'huge because ... denominator 0.004', searched the corpus for the metric names (b2[34], nothing) and at b2[35] re-affirmed the textbook ratio. b2[36]-[42] then spent 6 steps verifying that FFO-3 equals FFO-4 total funds (two wrong line numbers, then rg + sed). Submitted at b2[44]; gate silent.",
+      "first_divergence": {
+        "stage": "FORMULA",
+        "where": "b2[31]",
+        "what_it_did": "Chose (midpoint % change in outlays) / (midpoint % change in year number), computed at b2[32]; at b2[33] it saw the magnitude was implausible for a 'rate' but at b2[35] kept it.",
+        "what_a_right_cell_or_the_reference_did": "c answered the midpoint % change of outlays alone (c[36], c[39])."
+      },
+      "saw_correct_evidence": "yes",
+      "tool_use": {
+        "find_tables": 5,
+        "show_table": 6,
+        "printings": 2,
+        "calc": 1,
+        "other_shell": 7,
+        "friction": "b2[6]: 0 hits for the full phrase. b2[10], b2[13]: show_table --grep 2011 on recent issues returned no rows (row window is the last ~5 FYs), costing two steps before it turned to printings. b2[36], b2[38]: show_table with guessed line numbers landed on FFO-3 continuation parts (empty CELLS block), so it fell back to rg + sed (b2[40]-[41]) to read FFO-4. 23 requests and 527k input tokens, about 2.7x cell a, with no change in outcome."
+      },
+      "text_use": "yes: 'use the latest printing ... printings' (b2[27]-[30], explicitly 'per instructions'); 'Compute every final number with calc' (b2[32]); 'Several tables ... prefer the table whose title and column headers match' drove the FFO-3 vs FFO-4 verification (b2[35]-[42]). Nothing addressed the definition.",
+      "harness_use": "1 submit (b2[44]), status accepted, findings [] (all 5 remaining rules silent: answer_count, later_printing, period_match, recompute_final, scale), no offers, 0 loop notes, 0 compactions, 0 gate rounds. No effect on the answer."
+    },
+    "c": {
+      "correct": 1,
+      "path_summary": "find_tables full phrase 0 hits (c[6]); --rows (c[8]) found FFO-4 and FFO-3. c spent c[11]-[22] on FFO-4: show_table of the latest issue (YTD only), printings --row FY2011 on FFO-4 ('no matching row', c[16]), printings by row label on column (8) (c[20]), and got confused about which issue holds a full fiscal year (c[21]-[22]). It switched to FFO-3 (c[25]-[31]; --grep on the column name failed at c[27], --cols 1,14 gave the wrong column at c[29], raw sed at c[31]), then printings on both FY rows (c[33], latest revision). calc at c[36] printed the midpoint % change of outlays AND the year-number elasticity as separate named values; c[37]-[39] reasoned that the parenthetical 'using midpoint percentage change' names the quantity itself and answered the midpoint change.",
+      "first_divergence": {
+        "stage": "NONE",
+        "where": "c[36]",
+        "what_it_did": "Kept both candidate definitions visible in one calc output and picked the one the question's parenthetical describes, because no second variable is named.",
+        "what_a_right_cell_or_the_reference_did": "same"
+      },
+      "saw_correct_evidence": "yes",
+      "tool_use": {
+        "find_tables": 4,
+        "show_table": 6,
+        "printings": 4,
+        "calc": 1,
+        "other_shell": 3,
+        "friction": "c[16]: printings --row FY2011 on FFO-4 found nothing (FFO-4 rows are agencies, columns are YTD periods with no FY tag). c[22]: show_table on FFO-4 2011_12 printed a 'header probably shifted' NOTE for every column plus an 'OCR misread or shifted cell?' note, noisy but harmless. c[27]: --grep on a column name returned no rows. c[29]: --cols 1,14 gave part-2 'Department of State' instead of Labor (13). 17 requests, 97 s, about 2x cell a."
+      },
+      "text_use": "yes: 'use the latest printing ... printings' (c[16], c[20], c[33]); 'Compute every final number with calc' (c[36]); 'Alternatives: when two candidate values fit ... weigh them against the question's exact wording' is the closest match to what c did at c[37]-[39], though it was applied to two definitions rather than two table values.",
+      "harness_use": "n/a"
+    }
+  },
+  "fix": {
+    "smallest_change": {
+      "level": "TEXT",
+      "change": "Add to the working advice: 'Definitions: when the question names a measure and adds a parenthetical method (for example \"arc elasticity (using midpoint percentage change)\"), compute exactly the quantity the parenthetical describes from the series the question gives. Do not add a second variable the question does not name (such as the year number, or time) to make a textbook formula fit. If one value of a multi-value answer comes out hundreds of times larger than its siblings, that is a sign you introduced such a variable: recompute with the parenthetical's definition.'",
+      "would_have_fixed": [
+        "a",
+        "b2",
+        "b"
+      ],
+      "could_hurt_right_cells": "unlikely: it only fires when a parenthetical method is present and the question gives one series; c already behaves this way, and on ordinary two-variable elasticity questions the second variable is named so the sentence does not apply",
+      "generality": "document_qa_general",
+      "confidence": "medium"
+    },
+    "alternatives": [
+      {
+        "level": "CONTROL",
+        "change": "Submit-time plausibility finding 'magnitude_outlier': when the answer has 2+ numeric values, the question calls them rates/factors/elasticities, and one value's magnitude is >= 100x every other, print: 'Value 3 is ~250x the magnitude of values 1-2. If the question gives only one series, its parenthetical (\"using midpoint percentage change\") may define the quantity itself; recompute or keep.' Offer: keep.",
+        "why_not_first": "a[25] and b2[33] already noticed the magnitude themselves and kept the textbook ratio, so a finding that only points at the magnitude may not flip a greedy model; it also fires rarely and the text sentence gives the same hint before the calc is written."
+      },
+      {
+        "level": "TOOL",
+        "change": "Add a small formula library to calc (`from fin import cagr, growth_factor, midpoint_pct_change, arc_elasticity`) and a `calc --formulas` listing whose arc_elasticity line reads: 'arc_elasticity(q0,q1,x0,x1): needs a second variable x. If the question gives one series and says \"using midpoint percentage change\", it wants midpoint_pct_change(q0,q1).' Every cell searched the corpus for the metric names (b[28], b2[34], c[38]) and found nothing; a formula listing is where that search would have landed.",
+        "why_not_first": "The model has to choose to consult it; heavier to build and evolve than one sentence; carries the same words as the text fix."
+      }
+    ],
+    "why_not_text": "n/a (fix is TEXT). Note that a's text had no sentence about metric definitions at all; the relevant deliberation (a[25], b2[33], b2[35]) shows the model was uncertain and looking for a rule, which is exactly what a sentence can supply.",
+    "irreducible": "Partly. The question misuses 'arc elasticity' (an elasticity needs two variables) and the stronger reference solver, with full reasoning, chose the textbook definition and was graded wrong; the accepted reading is a question-writer convention ('the parenthetical is the definition'). That convention is learnable and general enough to state as text, but a well-reasoned model can still legitimately disagree, so confidence is medium, not high. issue47 is false, so the key is not formally disputed."
+  },
+  "text_verdict": [
+    "kept-and-helped: 'Compute every final number with calc' (a[24], b2[32], c[36])",
+    "kept-and-helped: 'Provenance: use numbers you have seen printed by a tool' (a[10]/[22], b2[29]-[30], c[33])",
+    "kept-and-helped: 'Answer count and format: give exactly as many values' (three bracketed values in every cell)",
+    "kept-and-helped: 'Percent or fraction ... do not multiply by 100' (all cells answered in decimal form)",
+    "irrelevant: 'Alternatives: when two candidate values fit' (about table values; c applied the spirit to two definitions at c[39], a did not)",
+    "kept-and-helped: 'Bulletins revise earlier numbers ... use the latest printing' (a[10]/[22], b2[29]-[30], c[33] all took the revised FY2011)",
+    "kept-and-helped: 'Match the period exactly' (FY rows used everywhere)",
+    "irrelevant: 'show_table marks rows it repaired'",
+    "kept-and-helped: 'Several tables in one issue can look alike' (a[23], b2[35]-[42] verified FFO-3 = FFO-4 total funds; cost b2 six steps)",
+    "irrelevant: 'For a sum over the columns of one row'",
+    "irrelevant: 'Loops'"
+  ],
+  "notes": "1) Retrieval was solved by every cell and every arm: same table, same rows, latest revision. The only lever on this question is the definition of the third metric, which sits outside every v9 submit rule (all silent in b and b2). 2) FFO-4 (Summary of Receipts by Source and Outlays by Agency) is a fiscal-year-to-date table: rows are agencies, columns are this-FY / prior-FY YTD by fund type, and printings shows period '-'. printings --row FY2011 finds nothing (c[16]) and printings by row label dumps 80 YTD cells (a[16]). A v10 tool improvement: tag FFO-4 columns with the fiscal year and completeness they cover (e.g. 'This fiscal year to date (FY2011, full year in the Sept-data issue)') so printings can be asked for --period FY2011 on such tables; a[19] and c[21] each had to infer by hand which issue holds the full year. 3) show_table --grep matches row labels only; three cells grepped a column name and got 0 rows (b[14], c[11], c[27]). Cheap tool fix: when --grep matches no row but matches a column header, print 'no row matched X; X is column c13 (Department of Labor (13)): use --cols 13'. 4) --cols numbering: b[16] and c[29] asked for column 14 expecting Labor (13) and got a stitched part-2 column; the header lists v13 = c13, and the confusion between the printed '(13)' suffix, c-index and v-index cost a step each time. 5) The OfficeQACorpus.search python API prints an object whose iteration yields field names (b[6], b[9]); if it stays in the environment its __iter__/__repr__ should print hits. 6) Cost: b2 used 23 requests / 527k input tokens versus a's 13 / 195k for the same wrong answer, mostly on FFO-3 vs FFO-4 verification (b2[35]-[42]) that a settled in one printings comparison (a[23]); the 'several tables look alike' advice can be expensive when the tool could state the identity itself (e.g. a printings/show_table note 'FFO-3 agency columns = FFO-4 Total funds (4)/(8) for the same FY')."
+}

@@ -1,0 +1,143 @@
+{
+  "task_id": "UID0100",
+  "ordinal": 6,
+  "issue47": false,
+  "correct": {
+    "a": 1,
+    "b": 1,
+    "b2": 1,
+    "c": 1,
+    "opus": 1
+  },
+  "question_type": "seven-year agency series stitched from multiple issues (latest vintage per year) -> mean YoY growth + log-linear OLS slope/intercept with an index-origin convention",
+  "decisive_step": "Three decisions: (i) table FFO-3 'On-Budget and Off-Budget Outlays by Agency', column 'Judicial branch (2)' (reference worklog Step 3-4, treasury_bulletin_2013_12.txt:736-746), rejecting the FFO-4 fund-group sum that differs by one unit in FY2013 (worklog Step 5 'dead end'); (ii) latest vintage per fiscal year, which requires several issues because each FFO-3 printing carries only ~5 actual years (FY2007 last printed in 2012_09:725, FY2008 in 2013_09:713; revisions to FY2007/2008/2009/2011 after first print; worklog Step 5); (iii) regressing ln(outlays) on a 1-based fiscal-year index (FY2007 = 1), which fixes the intercept while the slope is convention-free (worklog 'Decision on index'; review.md check 5). All four cells made all three the same way.",
+  "cells": {
+    "a": {
+      "correct": 1,
+      "path_summary": "find_tables 'Judicial Branch on-budget off-budget outlays' -> FFO-3 (a[4]); show_table on the latest issue showed the table starts in 2020 (a[10]); printings --table FFO-3 --row FY2007..FY2013 --col 'Judicial branch' (a[12],[14]) printed per-year vintage summaries ('2 distinct values - REVISED/DIFFERS ... latest printing 2012_09') from which it took the latest values; calc at a[16],[18],[20] computed the mean YoY and OLS for index 1..7, 0..6 and the calendar year, and it chose 1..7 (a[21]). Then it fell into a two-command loop (relative-path sed exit 1 / absolute-path sed exit 0) repeated 46 times (a[24]-[206]), was compacted, and answered from the summary (a[207]).",
+      "first_divergence": {
+        "stage": "NONE",
+        "where": "a[16]",
+        "what_it_did": "Right source, vintage and convention by a[21]; the remaining ~185 steps were a degenerate loop that did not change the answer.",
+        "what_a_right_cell_or_the_reference_did": "Same choices; b/b2/c answered in 24-29 steps."
+      },
+      "saw_correct_evidence": "yes",
+      "tool_use": {
+        "find_tables": 1,
+        "show_table": 3,
+        "printings": 2,
+        "calc": 3,
+        "other_shell": 94,
+        "friction": "show_table --grep 'Judicial' returned 0 rows because agencies are columns, not rows (a[6],[8]); sed with a relative corpus path failed (exit 1) and the model alternated it with the absolute path 46 times without reading the result (a[24]-[206]); one context compaction before a[207]; 583 s, 105 requests, 12.4 M input tokens for a 25-step task."
+      },
+      "text_use": "acted on 'use the latest printing ... printings' (a[12],[14]), 'Compute every final number with calc' (a[16]-[20]), 'Alternatives ... weigh against wording' (a[19]-[21] index conventions); ignored 'Loops' (a[24]-[206])",
+      "harness_use": "n/a"
+    },
+    "b": {
+      "correct": 1,
+      "path_summary": "find_tables -> FFO-3 (b[6]); printings --row 'Judicial Branch' failed (b[8]) because agencies are columns; show_table + sed of the raw 2010_12 table (b[11]-[15]) to learn the layout; printings per year with --col 'Judicial branch' (b[17],[19]) gave the latest vintages; one calc (b[22]) printed the growth rates and the OLS for the calendar-year, 1..7 and 0..6 conventions side by side; chose 1..7 and submitted (b[24]).",
+      "first_divergence": {
+        "stage": "NONE",
+        "where": "b[22]",
+        "what_it_did": "Computed all three index conventions in one calc and picked 1-based by reading 'fiscal year index' as a sequence index (b[20],[23]).",
+        "what_a_right_cell_or_the_reference_did": "Same (reference calc.py prints the three conventions; chose 1..7)."
+      },
+      "saw_correct_evidence": "yes",
+      "tool_use": {
+        "find_tables": 1,
+        "show_table": 2,
+        "printings": 3,
+        "calc": 1,
+        "other_shell": 3,
+        "friction": "printings --row 'Judicial Branch' found no row (b[8]); show_table --grep Judicial returned 0 rows (b[11]); printings output per year was long and it used tail -n 8 (b[19]) - the tail happened to keep the summary lines."
+      },
+      "text_use": "none (no advice text in b); its own reasoning followed the README convention 'use the most up-to-date revision'",
+      "harness_use": "Single submit (call 10) accepted, fired=[] ; no loop notes, no compaction. Harness did not affect the answer."
+    },
+    "b2": {
+      "correct": 1,
+      "path_summary": "find_tables -> FFO-3 (b2[6]); a mistaken show_table call with line 1 (b2[9]); find_tables --years 2024-2025 showed the latest printing only covers 2020+ (b2[11]); show_table 2014_12 to see the layout (b2[13]); printings per FY with --col 'Judicial branch' (b2[16],[18]) gave the latest vintages; calc (b2[21]) printed OLS for calendar-year and 1..7 conventions and the rounded triple; submitted (b2[23]).",
+      "first_divergence": {
+        "stage": "NONE",
+        "where": "b2[21]",
+        "what_it_did": "Chose the 1-based index after printing both it and the calendar-year convention.",
+        "what_a_right_cell_or_the_reference_did": "Same."
+      },
+      "saw_correct_evidence": "yes",
+      "tool_use": {
+        "find_tables": 2,
+        "show_table": 2,
+        "printings": 2,
+        "calc": 1,
+        "other_shell": 2,
+        "friction": "show_table called with an absolute file path and line 1 (b2[9]) - output cut; printings output 'truncated middle' so it re-ran with tail -n 8 (b2[17],[18])."
+      },
+      "text_use": "acted on 'use the latest printing ... run printings ... for every table cell' (b2[14]-[18]) and 'Compute every final number with calc' (b2[21]); 'Alternatives' (b2[19] computed both index conventions)",
+      "harness_use": "Single submit (call 9) accepted, fired=[]; no loop notes, no compaction, no offers. Harness did not affect the answer."
+    },
+    "c": {
+      "correct": 1,
+      "path_summary": "find_tables 'Judicial Branch outlays' --rows -> FFO-3 (c[5]); show_table --grep 'Judicial Branch' returned 0 rows (case and orientation, c[8]); printings per FY with --years 2007-2013 (c[10],[12]) then, noticing that AGENTS.md says to check every printing, re-ran without --years to confirm no later revision (c[24],[25]); calc heredoc (c[17]) printed mean YoY and OLS for 1..7 and calendar-year; c[27] also computed the CAGR to rule it out; c[28] argued 'fiscal year index' means a sequence index and answered.",
+      "first_divergence": {
+        "stage": "NONE",
+        "where": "c[17]",
+        "what_it_did": "Computed both index conventions and CAGR, chose arithmetic mean and the 1-based index by wording.",
+        "what_a_right_cell_or_the_reference_did": "Same."
+      },
+      "saw_correct_evidence": "yes",
+      "tool_use": {
+        "find_tables": 2,
+        "show_table": 3,
+        "printings": 3,
+        "calc": 3,
+        "other_shell": 1,
+        "friction": "calc -c with embedded newlines failed (exit 1, c[15]) - switched to a heredoc (c[17]); show_table --grep with the question's capitalisation matched nothing (c[8]); show_table --raw --cols 1-3 --grep FY2013 mismatched the period label (c[21],[22])."
+      },
+      "text_use": "acted on 'use the latest printing ... printings' (c[10],[24]-[25], explicitly re-running without --years because of the sentence), 'Compute every final number with calc' (c[17],[27]), 'Alternatives' (c[17],[27],[28])",
+      "harness_use": "n/a"
+    }
+  },
+  "fix": {
+    "smallest_change": {
+      "level": "NONE",
+      "change": "No adapter change needed for correctness: all four cells found FFO-3, took the latest vintage per year from the printings summary lines ('N printings, 2 distinct values - REVISED/DIFFERS ... latest printing <issue>'), computed with calc and chose the 1-based index. Keep: printings' per-row vintage summary (decisive at a[14], b[19], b2[18], c[10]) and calc printing several conventions in one run (b[22], c[17]).",
+      "would_have_fixed": [],
+      "could_hurt_right_cells": "no",
+      "generality": "domain_general",
+      "confidence": "high"
+    },
+    "alternatives": [
+      {
+        "level": "CONTROL",
+        "change": "Loop guard for a: when the same command (or the same alternating pair) has run 3 times with identical exit status/output, insert a note '[harness] the last 3 runs of `sed -n 603,679p treasury_bulletin_2025_09.txt` returned exit 1 (file not in the workspace; the corpus is at <abs path>) - you already have the values from printings at [14]; compute or answer' - a burned 46 cycles, one compaction, 12.4 M tokens on a right answer.",
+        "why_not_first": "Did not change the answer here; it is a cost/robustness fix (the v8 'prompt' arm lost this question after exactly such a loop plus compaction, per v8_analysis 016)."
+      },
+      {
+        "level": "TEXT",
+        "change": "One sentence for regressions on an index: 'When a question says to regress on a \"year index\" or \"time index\" without defining it, compute with the first year = 1 (also print 0-based and the calendar-year fit) and answer the 1-based intercept unless the question defines the index.'",
+        "why_not_first": "All four cells reached 1-based on their own (a[21], b[20], b2[19], c[28]), but each hesitated and v8's failure on this question was an intercept off by one slope unit after a 0-based awk; the sentence removes a coin-flip on other index questions. Risk: if a future question intends 0-based, the sentence could hurt - hence not first."
+      },
+      {
+        "level": "TOOL",
+        "change": "show_table --grep should also match column labels (or say 'no row matched; \"Judicial\" is column c2 - use --match') when the grep term matches a column header; four cells each lost 1-2 calls to '--grep Judicial' returning 0 rows (a[6],[8]; b[11]; c[8]).",
+        "why_not_first": "Cosmetic; every cell recovered within one step."
+      }
+    ],
+    "why_not_text": "",
+    "irreducible": "The only residual risk is the undefined index origin (1-based vs 0-based changes the intercept by one slope unit, ~0.3%); the reference flagged the same ambiguity. All cells resolved it the same way as the reference, so nothing to fix, but it is a known coin-flip for questions of this shape."
+  },
+  "text_verdict": [
+    "ignored - 'Loops: a command repeated with the same output will not change' (a[24]-[206]: the same failing sed / succeeding sed pair 46 times; b, b2, c did not loop)",
+    "kept-and-helped - 'Compute every final number with calc' (a[16]-[20], b[22], b2[21], c[17],[27]; calc printed every convention so the choice was explicit)",
+    "kept-and-helped - 'Provenance: use numbers you have seen printed' (values were read from printings' summary lines; c[21]-[23] also opened the raw FFO-3 rows)",
+    "kept-and-helped - 'Answer count and format ... bracketed list' (all four answered a 3-value bracketed list)",
+    "kept-and-helped - 'Percent or fraction: when the question asks for a percent, answer in percent' (YoY reported in percent by all)",
+    "kept-and-helped - 'Alternatives: when two candidate values fit ... weigh against wording; do not average' (index 1..7 vs 0..6 vs calendar year, and arithmetic mean vs CAGR, all printed and one chosen: b[22], c[17],[27])",
+    "kept-and-helped - 'Bulletins revise earlier numbers ... latest printing ... printings' (decisive: FY2007/2008/2009/2011 are revised after first print and FY2007-2008 vanish from later FFO-3 printings; the printings summary made the latest vintage obvious in one call; c[24]-[25] re-ran without --years because of this sentence)",
+    "irrelevant - 'Match the period exactly. FY ... CY' (printings separated 'FY2007' from 'FY2007 to date' and '2007 - Est' rows on its own)",
+    "irrelevant - 'show_table marks rows it repaired'",
+    "kept-and-helped - 'Several tables in one issue can look alike ... prefer the table whose title ... match' (FFO-3 chosen by title in every cell; c[19] searched for an on/off-budget split table and found none)",
+    "irrelevant - 'For a sum over the columns of one row'"
+  ],
+  "notes": "1) This question is the positive case for the printings tool: its per-row vintage summary ('2 distinct values - REVISED/DIFFERS across printings; <v1>: <issues>; <v2>: <issues>; latest printing <issue>') is exactly the multi-issue stitching the v8 arms had to do by hand, and it turned a 7-issue extraction into one loop of 7 calls. Keep that output format in v10. 2) Every cell hit 'show_table --grep Judicial -> 0 rows' because agencies are columns in FFO-3; a hint that the term matches a column label would save a call. 3) Cell a's loop is the same pathology as on question 005 and as v8-prompt on this question: a failing relative path alternated with the absolute path; the 'Loops' sentence in AGENTS.md has no effect on it, so the loop guard belongs in controls, not text. 4) b, b2 and c all trimmed printings output with tail -n 8; the summary lines happen to be at the end, which is why this worked - v10 should keep the summary last (or add --summary) so trimming keeps the decisive lines. 5) Ambiguities the cells resolved uniformly and correctly: arithmetic mean of 6 YoY rates (not CAGR), values in millions as printed, 1-based index."
+}

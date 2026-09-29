@@ -1,0 +1,121 @@
+{
+ "task_id": "UID0102",
+ "ordinal": 30,
+ "issue47": false,
+ "correct": {
+  "a": 0,
+  "b": 0,
+  "c": 0,
+  "opus": 0
+ },
+ "question_type": "statistic over the 12 monthly values of one fiscal year (Type-7 quartile spread) with a question-prescribed intermediate rounding; unit conversion millions->tenths of billions; FY month membership; rounding tie at the hundredths",
+ "decisive_step": "Unresolved: the reference and all seven arms (a, b, c, v8 none/prompt/cards, opus) are wrong. The data step is not in doubt: the 12 FY2021 month rows of FFO-2 'On-Budget and Off-Budget Receipts by Source', column 'Corporation > Net (7)', treasury_bulletin_2021_12.txt:524-535 (worklog Step 4; the Sep 2020 row at line 523 belongs to FY2020 and is excluded; calc.py asserts the 12 months sum to the FY-to-date line 536; Step 5 finds no revisions in any later issue). The decisive step is therefore the computation convention: the reference read 'intermediate values rounded to the tenths of billions' as rounding each monthly value before Type-7 quartiles (worklog Step 6-7) and logged three alternatives in calc.py (no rounding; raw data with the quartiles rounded to tenths; both rounded). Cells a and c submitted the two tie-rounding variants of the reference's primary reading (one hundredth apart) and both were graded wrong, so the key follows some other reading - most plausibly rounding the quartiles themselves, or a different H-spread/quartile convention - which cannot be identified without the key.",
+ "cells": {
+  "a": {
+   "correct": 0,
+   "path_summary": "Twelve find_tables calls (a[4]-[12], [16], [18], [24]-[25], [29], [31], [41]) hunted for a table titled with the question's words. It opened FFO-2 in 2022_12 at a[14] but rejected it (a[15]) because that issue's header is parser-shifted (a spurious extra label makes the corporation net column read as 'Net income taxes > Net (7)'). It toured the quarterly capsule tables (a[27], [33], [35], [37]) and the Dec-2021 narrative (a[47]-[48]), found no Q4 capsule (a[49]), then read FFO-2 in 2021_12 over three pages (a[50]-[53]), noted the tenths-rounded values match the capsules (a[54]), confirmed no revisions with 13 printings calls (a[55], [57]), and computed Type-7 quartiles with numpy in calc (a[59]), answering with calc's float round() output, which sits one hundredth below the reference (the exact result is a half; the binary float lies just under it).",
+   "first_divergence": {
+    "stage": "INTERPRETATION",
+    "where": "a[58]",
+    "what_it_did": "Adopted the reading 'round each monthly value to tenths, then Type-7 Q1/Q3, then H = Q3 - Q1, then round to hundredths' - the same reading as the reference - and at a[59] let Python's float round() decide the tie (one hundredth below the reference).",
+    "what_a_right_cell_or_the_reference_did": "No right cell exists. The reference (worklog Step 6-7) made the same reading with half-up tie rounding and was also graded wrong; calc.py ALT-A/B/C list the other readings, all unverified."
+   },
+   "saw_correct_evidence": "yes",
+   "tool_use": {
+    "find_tables": 12,
+    "show_table": 11,
+    "printings": 2,
+    "calc": 1,
+    "other_shell": 5,
+    "friction": "a[14]-[15]: shifted header labels in the 2022_12 FFO-2 made a discard the right table family for 35 steps; a[31],[33]: capsule tables are un-indexed continuation parts with narrative titles; a[39] wrong line; a[43] rg on a cwd-relative path; a[49] no Q4 capsule in 2021_12; a[50] --grep 2021 hid the Oct-Dec 2020 rows, so a[52]-[53] paged the whole table; a[57] 12 printings calls in a loop, output clipped. 936k input tokens, 61 steps. Counts are commands (a[57] = 12 calls)."
+   },
+   "text_use": "'Compute every final number with calc ... answer with the value it printed, rounded as the question asks' -> a[59]-[60] took calc's round() output verbatim; 'Bulletins revise ... printings' -> a[54]-[57]; 'Match the period exactly. FY ...' -> Oct-Sep 12 months (a[54])",
+   "harness_use": "n/a"
+  },
+  "b": {
+   "correct": 0,
+   "path_summary": "find_tables and corpus rg (b[6]-[12], [19], [23]) led to FFO-2; the 2022_12 printing (b[15]: --grep 'Corporate' matched nothing because the label is 'Corporation'; b[17]) starts too late, so b stitched the 2021_12 FFO-2 with --cols 1-8 (b[25]), which lists 4 annual FY rows, a 13-month window of month rows (the last month of FY2020 through Sep 2021) and the FY-to-date row. At b[26] it converted and rounded all 13 month rows in its head as 'FY 2021 monthly values' and ran numpy percentiles on 13 inputs (b[28]). Two gate findings followed, both spurious; b kept twice with reasons (b[35], b[39]) and submitted a value ~7% below the reference.",
+   "first_divergence": {
+    "stage": "CELL_SELECTION",
+    "where": "b[26]",
+    "what_it_did": "Included the row whose tool-printed period is 2020-09 (the last month of FY2020, printed first in the 13-month FFO-2 window) among the FY2021 months, giving 13 inputs to the quartiles.",
+    "what_a_right_cell_or_the_reference_did": "The reference (worklog Step 4) and cells a and c (a[54], c[60]) took exactly the 12 rows with periods 2020-10 .. 2021-09; the reference additionally asserted that their sum equals the 'Fiscal year 2021 to date' row (line 536). This would have moved b onto the reference's path, which is itself graded wrong."
+   },
+   "saw_correct_evidence": "yes",
+   "tool_use": {
+    "find_tables": 4,
+    "show_table": 5,
+    "printings": 1,
+    "calc": 1,
+    "other_shell": 3,
+    "friction": "b[15] --grep 'Corporate' vs label 'Corporation'; b[17] 2022_12 window starts after FY2021; gate findings mis-bound (see harness_use). 82 s, 40 steps: the fastest of the three cells."
+   },
+   "text_use": "none (no advice text in this cell)",
+   "harness_use": "2 gate rounds, both findings noise: (1) flagged_cells bound the April literal (tenths-rounded, in billions) to an unrelated FY2017 quarterly-capsule cell in 2017_03 whose printed text coincides, and asked to anchor its year (b[30]); (2) grounded flagged the November literal as 'a value no tool output showed' because the model had divided by 1000, rounded and dropped the sign in its head (b[35]). b kept both with correct reasons (b[35], b[39]); no offer; answer unchanged. The real error - 13 inputs for a 12-month fiscal year - was not caught: answer_count counts answer values, period_match needs bound cells, and the in-head conversion left no cell bound to the Sep-2020 row."
+  },
+  "c": {
+   "correct": 0,
+   "path_summary": "Six find_tables calls (c[5]-[18]) found the quarterly capsule 'Net Budget Receipts by Source' tables (already in billions to tenths) for Q1-Q3 (c[20], truncated) but no Q4 capsule in the Dec issue (c[22] exit 2, c[24]-[27]); printings cannot address those capsules (c[30], no table id). After FFO-4/FFO-1 detours (c[34]-[44]) it read FFO-2 in 2021_12 over several pages (c[47]-[59]; --grep 2021 hid the Oct-Dec 2020 rows, c[58]), did a vintage check in 2022_03 whose header labels are shifted (c[63]-[64]), and computed Type-7 quartiles with numpy (c[65]). It noticed that calc's float round() printed the lower neighbour of an exact half (c[66]) and re-rounded half-up with Decimal (c[67]), landing on the reference's value, which is graded wrong.",
+   "first_divergence": {
+    "stage": "INTERPRETATION",
+    "where": "c[64]",
+    "what_it_did": "Same reading as the reference (round monthly values to tenths, Type-7 Q1/Q3, difference, half-up to hundredths).",
+    "what_a_right_cell_or_the_reference_did": "No right cell; the reference made the identical choice and was graded wrong."
+   },
+   "saw_correct_evidence": "yes",
+   "tool_use": {
+    "find_tables": 12,
+    "show_table": 15,
+    "printings": 1,
+    "calc": 2,
+    "other_shell": 4,
+    "friction": "c[20] 4-table batch truncated; c[22] exit 2 (relative corpus path); c[30] printings has no id for capsule tables; c[47] and c[61] wrong start line; c[49] zsh glob exit 1; c[58] --grep 2021 excludes the FY2021 months dated 2020; c[63] shifted header labels in the 2022_03 FFO-2. 1.04M input tokens, 69 steps."
+   },
+   "text_use": "'Compute every final number with calc ... rounded as the question asks' -> c[66] deliberated over calc's printed rounding and overrode it with a second calc (c[67]); 'Bulletins revise ... printings' -> c[60]-[64] vintage check; 'Match the period exactly. FY ...' -> 12 months Oct-Sep (c[60])",
+   "harness_use": "n/a"
+  }
+ },
+ "fix": {
+  "smallest_change": {
+   "level": "TEXT",
+   "change": "Keep a's period sentence and make the month count explicit: 'Match the period exactly. FY (federal fiscal year: July-June through FY1976, October-September from FY1977) and CY rows are different rows even with the same year number. A fiscal year has exactly 12 month rows; FFO tables print a 13-month window that starts with the last month of the previous fiscal year - drop it.' This is the sentence b (no text) lacked and a and c (with it) followed; it changes b's divergence but no cell's grade.",
+   "would_have_fixed": [],
+   "could_hurt_right_cells": "no (a and c already behave this way; there are no right cells)",
+   "generality": "document_qa_general",
+   "confidence": "low"
+  },
+  "alternatives": [
+   {
+    "level": "TOOL",
+    "change": "show_table (and printings): add `--fy 2021` / `--period FY2021` which keeps the month rows whose fiscal year is 2021 and prints a banner `FY2021 = 2020-10 .. 2021-09: 12 month rows (excluded: 2020-09 belongs to FY2020)`. Today `--grep 2021` drops the Oct-Dec 2020 rows (a[50], c[58]) and the unfiltered stitch shows 13 month rows (b[25]).",
+    "why_not_first": "the text sentence already produced 12-month selections in a and c; the tool change is more robust but still only moves b onto a graded-wrong path."
+   },
+   {
+    "level": "TOOL",
+    "change": "calc: when the result of round(x, n) differs from Decimal(str(x)).quantize half-up, append a line `note: round() gave <lower>; half-up gives <upper> (tie)` - a[59] and c[65] both printed the lower neighbour; c spent two steps (c[66]-[67]) recovering. Or expose a documented `rhu(x, n)` helper in the calc README.",
+    "why_not_first": "both tie variants were graded wrong here, so it fixes nothing on this question; still a cheap general guard for hundredths questions."
+   },
+   {
+    "level": "CONTROL",
+    "change": "gate rule 'input_count': when the question names one fiscal or calendar year and the final calc's array literal has a length other than 12 (or 4 for quarters), print `calc <sha> takes N inputs; a fiscal year has 12 months - check the window`. Would have fired on b[28].",
+    "why_not_first": "the two existing provenance rules already produced two noise findings here (see b.harness_use); adding rules without fixing the ledger's unit-scaled matching adds more noise than signal."
+   },
+   {
+    "level": "TEXT",
+    "change": "'When the question prescribes a computation convention (e.g. Type 7 quartiles, intermediate rounding), compute the readings that differ - rounding the inputs, rounding the intermediate statistics, both - with one calc, pick the one that follows the wording most literally, and pass the others with --alt.'",
+    "why_not_first": "does not identify the key's reading either; it only records alternatives."
+   }
+  ],
+  "why_not_text": "n/a (fix is TEXT; and the text-bearing cells a and c already selected the right 12 rows)",
+  "irreducible": "Yes for correctness: the reference solution, the three pilot cells and the three v8 arms are all graded wrong, and the two tie-rounding variants of the reference's primary reading were both rejected, so the key uses a reading no arm produced (the reference's calc.py lists three untested alternatives). Treat as a disputed/ambiguous reference for v10 scoring; b's 13-month error is a genuine, fixable divergence but fixing it would not have earned the point."
+ },
+ "text_verdict": [
+  "kept-and-helped: 'Match the period exactly. FY (federal fiscal year ...)' - a and c took the 12 Oct-Sep rows (a[54], c[60]); b, without the text, took 13",
+  "misled: 'Compute every final number with calc ... answer with the value it printed, rounded as the question asks' - a took calc's float round() of an exact half (a[59]-[60]); c overrode it with Decimal half-up (c[66]-[67]); both graded wrong, so no net effect",
+  "misled: 'Several tables in one issue can look alike ... prefer the table whose title and column headers match the question's wording' - a (a[4]-[49]) and c (c[5]-[44]) spent most of their steps hunting a table titled with the question's words ('net budget receipts', 'Corporate income taxes') and rejected FFO-2 whose column is 'Corporation > Net'; the capsule tables that do match the wording are un-indexed continuation fragments",
+  "kept-and-helped: 'Bulletins revise earlier numbers ... printings' - a[55]-[57] and c[60]-[64] confirmed no revisions; harmless",
+  "kept-and-helped: 'Provenance: use numbers you have seen printed by a tool' - a[55]/[57]; c[59]",
+  "irrelevant: 'Alternatives ... do not average', 'Answer count and format', 'Percent or fraction', 'Loops', 'show_table marks rows it repaired', 'For a sum over the columns of one row'"
+ ],
+ "notes": "(1) Parser header shift on FFO-2 in 2022_12 (a[14]) and 2022_03 (c[63]): a spurious trailing label shifts the corporation columns' names ('Net income taxes > Net (7)', 'Employment and general retirement > Net (7)'); the identity note (c5 = c6 + c7) pins them, but a rejected the table on the label text alone (a[15]) and lost 35 steps; the 2021_12 printing has clean labels. Fixing the header parser or printing 'label unreliable, identity says Corporation' next to shifted columns would have shortened a and c drastically. (2) The quarterly capsule tables 'N-Quarter Net Budget Receipts by Source, Fiscal Year 2021' (values already in billions to tenths - the likely origin of the question's 'intermediate values rounded to the tenths of billions') are indexed as continuation parts of narrative 'tables' with titles like 'Estate and gift taxes-Net estate ...' (a[33], c[20]), have no table id for printings (c[30]), and the Dec issue has no Q4 capsule (a[49], c[27]). (3) show_table --grep with a year string excludes the FY months dated the previous calendar year (a[50], c[58]); an FY-aware filter is the natural tool change. (4) calc: numpy Type-7 on tenths-rounded inputs gave an exact half at the hundredths and float round() printed the lower neighbour (a[59], c[65]); the reference's review predicted exactly this split. (5) b's gate: the ledger links calc literals to tool output by text, so in-head unit conversion (millions -> tenths of billions) plus a dropped sign produced one false binding (a 2017 capsule cell) and one false 'ungrounded' finding, while the real 13-input error passed; the v10 gate needs scale-aware matching (x/1000 rounded to 1 dp) before more rules are added. (6) All three cells and the reference used numpy's 'linear' method; nobody tried Tukey hinges or rounding the quartiles, so the graded-correct reading is undetermined from these materials."
+}

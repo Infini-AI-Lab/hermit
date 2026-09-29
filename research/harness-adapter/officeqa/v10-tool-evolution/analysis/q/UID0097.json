@@ -1,0 +1,72 @@
+{
+  "task_id": "UID0097",
+  "ordinal": 8,
+  "issue47": false,
+  "correct": {"a": 1, "b": 0, "b2": 1, "c": 0, "opus": 1},
+  "question_type": "two-cell balance-sheet lookup plus absolute difference; ambiguous row modifier ('nominal')",
+  "decisive_step": "Reading 'total nominal capital' as the 'Total capital' row of Table ESF-1 (capital account plus cumulative net income) rather than the 'Capital account' row alone, in the Mar. 31, 1989 column. Every cell found the same table and the same column (1989_12.txt:5105-5139, first printed at 1989_09.txt:5130-5168); only this row reading separates right from wrong. The reference noted the ambiguity in worklog.md Step 1 and decided it in the 'Decision' paragraph after Step 6 (solution.structured.json key_decisions item 2 logs the capital-account reading as the rejected alternative).",
+  "cells": {
+    "a": {
+      "correct": 1,
+      "path_summary": "Two find_tables queries on the question's title phrase returned nothing useful (a[4], a[6]), so it fell back to rg over the 1989 issues (a[8]-a[11]) and read the raw ESF-1 table in the Dec 1989 issue with sed (a[13]). It mapped 'total nominal capital' straight onto the 'Total capital' row at a[14] without considering the capital-account row, then spent two printings calls on the wrong --row/--col orientation (a[15], a[17]) before the row-label/column-date form worked for both cells (a[23], a[25]; same value in both printings). One calc produced both outputs (a[27]).",
+      "first_divergence": {"stage": "NONE", "where": "", "what_it_did": "", "what_a_right_cell_or_the_reference_did": ""},
+      "saw_correct_evidence": "yes",
+      "tool_use": {"find_tables": 2, "show_table": 2, "printings": 4, "calc": 1, "other_shell": 5, "friction": "find_tables with the question's title phrase found no ESF group (a[4], a[6]); printings --row <period> --col <label> failed twice because ESF-1 has dates as columns and labels as rows (a[15], a[17]) - the AGENTS.md syntax hint '--row <period> --col <column>' is wrong for this table shape; show_table at line 5107 resolved nothing (a[19]) until 5105 (a[21])."},
+      "text_use": "yes: 'use the latest printing of each value: run printings' (a[14] 'Need use printings latest'); 'Compute every final number with calc' (a[26]-a[27])",
+      "harness_use": "n/a"
+    },
+    "b": {
+      "correct": 0,
+      "path_summary": "find_tables with --years 1988-1990 reached the ESF-1 group (b[7]); show_table --stitch and a sed of the raw table showed the capital section (b[9], b[12]). At b[10] it laid out both row readings, computed both pairs in one calc (b[14]), reasoned at b[15] that 'Total capital' is the row the question names ('if they wanted capital account they'd say so') and submitted that as --answer with the capital-account pair as --alt, as its submit note instructs (b[16]). The competing_candidates rule echoed the --alt back as an Offer with an Accept line; in one 108-second re-deliberation (b[17]) it reread 'nominal' as statutory capital and accepted the offer (b[18]).",
+      "first_divergence": {"stage": "INTERPRETATION", "where": "b[17]", "what_it_did": "After the gate showed 'Offer: <its own --alt> ... Accept: submit --answer <alt>' (checks/001.json, rule competing_candidates, derivation 'your --alt'), it re-decided the ambiguous word and flipped from the 'Total capital' row to the 'Capital account' row.", "what_a_right_cell_or_the_reference_did": "a (a[14]) and b2 (b2[17]) kept the 'Total capital' row; the reference (worklog Decision) kept it because the question says 'total ... capital' and the table has a row literally labelled 'Total capital'. b itself had this reading at b[15] before the gate."},
+      "saw_correct_evidence": "yes",
+      "tool_use": {"find_tables": 2, "show_table": 1, "printings": 0, "calc": 1, "other_shell": 2, "friction": "none in the tools; the cost was the gate round: the post-finding turn b[17] took about 108 of the episode's 157 seconds."},
+      "text_use": "none (no advice text in this cell); it acted on the submit note's 'add --alt when you also considered another value' (b[13], b[16])",
+      "harness_use": "1 gate round, 2 submits. Finding competing_candidates fired on the actor's own --alt (no independent evidence) with an Offer and an Accept command; b accepted (b[18]). This changed the answer from right to wrong. No loop notes, no compaction, no ledger splice."
+    },
+    "b2": {
+      "correct": 1,
+      "path_summary": "Same opening as a (find_tables misses at b2[4], b2[6]; rg at b2[8]), then show_table on the Dec 1989 ESF-1 (b2[10]-b2[14], one line-number mismatch). At b2[13] and b2[17] it briefly considered the capital-account reading, decided 'Total capital' is the row the question names, ran printings for both cells in one command (b2[16]), computed with calc (b2[18]) and submitted once (b2[20]); the submit was recorded with no finding (checks/001.json).",
+      "first_divergence": {"stage": "NONE", "where": "", "what_it_did": "", "what_a_right_cell_or_the_reference_did": ""},
+      "saw_correct_evidence": "yes",
+      "tool_use": {"find_tables": 2, "show_table": 3, "printings": 2, "calc": 1, "other_shell": 2, "friction": "find_tables title-phrase misses (b2[4], b2[6]); show_table line 5099 resolved to 5105 (b2[10]); otherwise clean, 40 s."},
+      "text_use": "yes: 'run printings ... latest issue listed' (b2[15] 'Need printings latest'); 'Alternatives: weigh them against the question's exact wording' (b2[17]); calc for the final numbers (b2[18])",
+      "harness_use": "1 submit, recorded, no findings, no offers (b2's submit note does not solicit --alt, so competing_candidates had nothing to fire on). Nothing changed the answer."
+    },
+    "c": {
+      "correct": 0,
+      "path_summary": "Same table and column as the others (find_tables with --years at c[6], show_table at c[8], c[10]). From its first reading of the capital section (c[11]) it leaned to the 'Capital account' row and made a mental subtraction slip that calc later corrected (c[16]-c[17]). It ran printings on all three rows (c[14]-c[15]), computed both pairs, searched the corpus for the phrase 'nominal capital' through four officeqa.py attempts (c[20]-c[29], nothing found), argued at c[26] and c[30] that 'nominal' excludes accumulated net income, and answered the capital-account pair.",
+      "first_divergence": {"stage": "INTERPRETATION", "where": "c[11]", "what_it_did": "Read 'total nominal capital' as the statutory 'Capital account' row (excluding cumulative net income) and, after a long deliberation, kept that reading (c[30]).", "what_a_right_cell_or_the_reference_did": "a (a[14]), b2 (b2[17]) and the reference (worklog Decision) took the 'Total capital' row because the question says 'total ... capital' and the table has that exact row label."},
+      "saw_correct_evidence": "yes",
+      "tool_use": {"find_tables": 3, "show_table": 2, "printings": 3, "calc": 2, "other_shell": 7, "friction": "c[12] exit 1: sed with a bare filename (corpus is not in the workspace cwd), which also aborted the chained printings; c[22]-c[29]: four python attempts to iterate officeqa.search() output (it returns a dict with a 'results' key), one with exit 1 (c[27]); c[20] find_tables 'nominal capital' no hits."},
+      "text_use": "yes: c[11] 'AGENTS says use latest issue listed for every cell, run printings --table' (then ran printings at c[14]-c[15]); calc caught its own subtraction slip (c[16]-c[17]). The 'Alternatives' item was followed literally (weighed both readings against the wording) but ended on the wrong reading.",
+      "harness_use": "n/a"
+    }
+  },
+  "fix": {
+    "smallest_change": {
+      "level": "CONTROL",
+      "change": "Keep what b2 already does and make it permanent: (1) delete 'add --alt \"<other>\" when you also considered another value' from the submit note; (2) in the gate, competing_candidates must never produce an Offer/Accept line when its only binding is the actor's own --alt (checks/001.json shows bindings.alt.source == '--alt' and derivation 'your --alt'); either drop the rule or downgrade it to a no-offer note 'You also proposed X; your recorded answer is Y' with no Accept command. Findings with an Offer should fire only on evidence the actor did not already hold (a later printing, a period mismatch, an unused cell).",
+      "would_have_fixed": ["b"],
+      "could_hurt_right_cells": "no: a and c never saw the gate; b2 ran with exactly this configuration and was right; the rule carries no information the actor did not already have.",
+      "generality": "domain_general",
+      "confidence": "high"
+    },
+    "alternatives": [
+      {"level": "TEXT", "change": "Extend the 'Alternatives' item with: 'A modifier in the question that names no row or column of the table (nominal, gross, current, recorded) describes the units, not a different row: take the row whose label matches the question's noun phrase (\"total ... capital\" -> the row labelled \"Total capital\").'", "why_not_first": "c already had the Alternatives text and still argued at c[26]/c[30] that 'nominal' excludes net income; at T=0 the cells with the text (a, b2) got it right without this sentence, so the sentence would mostly address a T=1 sampling flip, with low confidence and some risk on questions where a modifier does select a different row."},
+      {"level": "TOOL", "change": "printings: when --row parses as a period but the matched table prints periods as column headers (as ESF-1 does), match the period against the column headers and treat --col as the row label, printing '(note: this table has periods as columns; --row/--col swapped)'. a[15] and a[17] would then have returned the cells that a[23]/a[25] later returned.", "why_not_first": "Friction only: it cost a two steps and never changed an answer here."}
+    ],
+    "why_not_text": "The advice text was identical in a, b2 (right) and c (wrong), so text is not what separated the cells. b had no advice text by design, yet its own first reading at b[15] was right; what flipped it was the harness echoing its --alt back as an Offer with an Accept command. A sentence cannot undo a protocol that invites the model to second-guess itself; removing the protocol (as b2 did) does.",
+    "irreducible": "Partly. 'Nominal' is genuinely ambiguous (the reference also logged the capital-account reading as its alternative and called the ambiguity residual). At T=0 without an offer, GLM's first reading is the 'Total capital' row in all three cells that formed one (a, b, b2); at T=1 (c) the reading is a sampling outcome that no adapter change reliably fixes."
+  },
+  "text_verdict": [
+    "Compute every final number with `calc` - kept-and-helped (a[27], b2[18]; in c it caught a mental subtraction slip at c[16]-c[17])",
+    "Provenance: use numbers you have seen printed by a tool - kept-and-helped (every cell printed the ESF-1 rows before computing)",
+    "Answer count and format: give exactly as many values - kept-and-helped (all four cells answered a bracketed pair)",
+    "Alternatives: when two candidate values fit ... weigh them against the question's exact wording - kept-and-helped in b2 (b2[17]); in c the same weighing ended on the wrong reading (c[30]), so at T=1 it was not protective",
+    "Bulletins revise earlier numbers ... run `printings --table <id> --row <period> --col <column>` - kept (a[23]-a[25], b2[16], c[14]-c[15]) but did not decide the outcome (same value in both printings); its '--row <period>' syntax hint misled a twice on this dates-as-columns table (a[15], a[17])",
+    "Several tables in one issue can look alike. Search with find_tables using the question's key nouns - ignored in effect: find_tables on the question's phrase found nothing (a[4], a[6], b2[4], b2[6]) and a/b2 fell back to rg",
+    "Loops / Percent or fraction / Match the period exactly / show_table marks rows / sum over columns - irrelevant"
+  ],
+  "notes": "Every cell reached the same table, column and cells within a few steps; the whole spread is one word of interpretation plus, for b, the gate protocol. Two design points for v10: (1) ESF-1 is a dates-as-columns table; the AGENTS.md printings idiom '--row <period> --col <column>' fails on it (a[15], a[17]) and the tool's 'no matching row/column' message does not say why - either the tool should auto-swap or the text should say 'row = label, col = date when the table's columns are dates'. (2) find_tables did not surface ESF-1 from the question's own words ('Exchange Stabilization Fund Balance Sheet'); the table's title is 'Balances as of ...' under a section heading 'EXCHANGE STABILIZATION FUND', so indexing section headings in find_tables would have made the first query hit. (3) The 1989_09 first printing has an OCR header typo (first column labelled with the wrong year, per worklog Step 4); all cells happened to use the 1989_12 reprint so none was exposed to it, but a column-check like the reference's (prior value + change = current value) is the kind of identity show_table could verify for balance-sheet tables with a 'through' change column. (4) b's post-gate turn consumed about two thirds of its wall time."
+}

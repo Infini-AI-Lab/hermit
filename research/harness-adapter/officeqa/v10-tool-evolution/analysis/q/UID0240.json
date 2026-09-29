@@ -1,0 +1,56 @@
+{
+  "task_id": "UID0240",
+  "ordinal": 49,
+  "issue47": false,
+  "correct": {"a": 0, "b": 0, "c": 0, "opus": 0},
+  "question_type": "two-cell lookup (same column, two FY-end rows) + under-specified finance formula ('implied Macaulay style duration' from two prices)",
+  "decisive_step": "Not a data step: every cell and the reference retrieved the same two cells (Table 1 'Status of the Account of the Treasurer of the United States', column 'Total operating balance', FY1953 and FY1954 rows; first printed treasury_bulletin_1957_12.txt:1090-1091, unchanged through 1962_07; reference worklog Steps 5-6, review.md check 2-3). The decisive step is the FORMULA reading. The reference chose the reciprocal of the continuous log-yield (worklog Step 8, calc.py, confidence 'low') and was graded wrong. Cells a and b chose the trivial reading 'a zero maturing at the second observation has duration = one period' (a[20], b[25]); their value is within 0.1% of the key (error_bin within_0.1pct, which excludes numerically-equal) but not strict-equal. Cell c chose a two-cash-flow weighted-average-time reading (c[14]-[15]) and is >25% off. So the intended formula produces a value numerically almost identical to the trivial unit-period answer yet not string-equal under strict grading.",
+  "cells": {
+    "a": {
+      "correct": 0,
+      "path_summary": "find_tables on the question nouns returned the Status-of-the-Account table as the header match (a[5]); show_table --long --grep for each FY row printed both cells with the column identity check (a[7], a[9]); printings on both cells showed one value across every printing 1957_12..1962_07 with the 1959_06 OCR outlier flagged (a[11], a[12]). It then spent four long THINK blocks on the formula (a[13], a[16], a[18], a[20]), enumerated seven candidate expressions in one calc (a[17]), and settled on the trivial 'duration = the one elapsed period' reading, confirmed by a second calc (a[21]).",
+      "first_divergence": {"stage": "INTERPRETATION", "where": "a[20]", "what_it_did": "Chose the reading in which the two balances only fix the yield and the Macaulay duration of a zero observed one period apart is the elapsed period itself, independent of the data.", "what_a_right_cell_or_the_reference_did": "No cell or the reference got it right. The reference chose a non-trivial reading (reciprocal of the log-yield, worklog Step 8) and was also wrong; the key sits within 0.1% of a's value, so the intended reading is a near-trivial variant nobody produced."},
+      "saw_correct_evidence": "yes",
+      "tool_use": {"find_tables": 1, "show_table": 2, "printings": 2, "calc": 2, "other_shell": 3, "friction": "printings output cut at 8000 bytes in both calls (a[11], a[12]) because the same column is grouped under 3+ normalized ids ('Assets > Total operating balance' vs 'Treasury operating balance > Total operating balance' vs the 1958_12/1960_08 variants); the summary still fit before the cut, so harmless. rg for the finance terms found nothing (a[15])."},
+      "text_use": "acted on 'Bulletins revise earlier numbers ... run printings' (a[10]-[12]); 'Compute every final number with calc' (a[17], a[21]); 'Alternatives: weigh against the question's wording; do not average' (a[17]-[20] enumerated candidates and picked one).",
+      "harness_use": "n/a"
+    },
+    "b": {
+      "correct": 0,
+      "path_summary": "Used the officeqa.py search helper, twice misreading its return type (printed dict keys, b[6], b[9]) before getting excerpts (b[13]); the FY1953/FY1954 row appeared in an excerpt (b[14]) and it read the raw table lines with sed (b[16]). One calc computed a modified-duration-style ratio with a negative sign (b[19]), which it rejected; printings on the FY1954 cell confirmed no revisions (b[22]). After a long formula deliberation (b[20], b[23], b[25]) it submitted the trivial unit-period reading (b[26]); the gate recorded it without findings.",
+      "first_divergence": {"stage": "INTERPRETATION", "where": "b[25]", "what_it_did": "Same trivial reading as a: duration = the one elapsed period, chosen partly hoping a gate finding would flag it if wrong (b[25] 'submit check may print finding if wrong').", "what_a_right_cell_or_the_reference_did": "Nobody was right; see decisive_step."},
+      "saw_correct_evidence": "yes",
+      "tool_use": {"find_tables": 0, "show_table": 0, "printings": 1, "calc": 1, "other_shell": 7, "friction": "officeqa.py search API misused twice (b[6], b[9]); printings output cut at 8000 bytes (b[22]); FY1953 value never confirmed with printings (only FY1954), taken from a search excerpt instead."},
+      "text_use": "none (b's AGENTS.md is the 829-byte submit note only); it did run printings and calc on its own.",
+      "harness_use": "No loop notes. One submit, accepted at once (call 10). Note: the submitted value was not printed by any calc run (b[19] printed other quantities), yet recompute_final did not fire; a probable rule gap (substring match on a short numeral?). No offer, nothing changed the answer."
+    },
+    "c": {
+      "correct": 0,
+      "path_summary": "find_tables (c[4]) then show_table --stitch printed the whole table with the column identity check (c[6]); printings on both cells confirmed a single value across printings (c[8], c[9]). One calc enumerated six candidate expressions (c[11]); after a very long deliberation (c[14]) it reinterpreted the two balances as two cash flows at t=1 and t=2 and reported their value-weighted average time (c[15]).",
+      "first_divergence": {"stage": "INTERPRETATION", "where": "c[14]", "what_it_did": "Treated the two balances as two dated cash flows of one position and computed a value-weighted average maturity, a reading that ignores 'observed one period apart' and is >25% from the key.", "what_a_right_cell_or_the_reference_did": "Nobody was right; a/b's trivial reading was within 0.1%."},
+      "saw_correct_evidence": "yes",
+      "tool_use": {"find_tables": 1, "show_table": 1, "printings": 2, "calc": 2, "other_shell": 2, "friction": "printings output cut at 8000 bytes (c[9]); officeqa.py search misused once (c[13])."},
+      "text_use": "acted on 'use the latest printing ... run printings' (c[7]-[9]) and 'Compute every final number with calc' (c[11], c[15]).",
+      "harness_use": "n/a"
+    }
+  },
+  "fix": {
+    "smallest_change": {"level": "NONE", "change": "No adapter change is justified. All cells found and verified the right two cells with the tools in <=6 steps; the loss is the question's under-specified formula, on which the stronger reference solver also failed (confidence 'low', three readings listed in solution.json). The error bins show a and b's trivial reading is within 0.1% of the key but not equal, so the intended formula is a near-trivial variant that even a text sentence fixing the convention ('for a zero observed one period apart the Macaulay duration is the elapsed period') would reproduce as strict-wrong.", "would_have_fixed": [], "could_hurt_right_cells": "no", "generality": "officeqa_specific", "confidence": "medium"},
+    "alternatives": [
+      {"level": "TEXT", "change": "Add: 'When a question defines a finance/statistics formula in prose, write the formula out with the question's own terms before computing, and prefer the reading in which every retrieved number is used non-trivially.'", "why_not_first": "The reference did exactly this (worklog Step 8) and was wrong; c also picked a non-trivial reading and was >25% off. Nothing in the corpus or the text can pin the intended convention."},
+      {"level": "CONTROL", "change": "At submit, when the question contains modelling terms absent from the corpus (rg in a[15]/b[24] found none: 'Macaulay', 'continuous compounding', 'zero coupon position'), print 'formula reading is yours; record the alternative with --alt' so the ledger keeps the candidate list.", "why_not_first": "Strict EM grades one string; recording alternatives changes nothing on this metric."}
+    ],
+    "why_not_text": "n/a (fix is NONE). Cell a had the full text and used every relevant sentence correctly; the miss is not a behaviour the text addresses.",
+    "irreducible": "Yes. The data are unambiguous and were retrieved identically by all four solvers; the formula is under-specified and the key is within 0.1% of the most natural reading without being string-equal. Treat as an out-of-adapter-scope item (candidate for an issue47-style flag) so the learner is not rewarded or punished on it."
+  },
+  "text_verdict": [
+    "kept-and-helped: 'Bulletins revise earlier numbers ... run printings' (a[11]-[12], c[8]-[9]; confirmed no revisions, tool flagged the 1959_06 OCR outlier)",
+    "kept-and-helped: 'Compute every final number with calc' (a[17],[21]; c[11],[15])",
+    "kept-and-helped: 'Provenance: use numbers you have seen printed' (both cells printed the rows before calc)",
+    "kept-and-helped: 'Match the period exactly. FY ... and CY' (FY rows used, periods shown by show_table)",
+    "kept-and-helped: 'Answer count and format' (4 dp respected)",
+    "kept (no effect): 'Alternatives: when two candidate values fit ... do not average' (a enumerated formula candidates and chose one; the ambiguity was a formula, not a value)",
+    "irrelevant: 'Loops', 'Percent or fraction', 'show_table marks rows it repaired' (identity FAILS was on an unrelated row), 'Several tables in one issue can look alike', 'For a sum over the columns'"
+  ],
+  "notes": "Tool observation for v10: printings splits one column into several normalized ids because the header group label differs by issue ('Assets > ...' vs 'Treasury operating balance > ...' vs the truncated 1958_12/1960_08 variants), so each call prints 3+ per-id summaries and hits the 8000-byte cut (a[11], a[12], b[22], c[9]). Merging ids whose leaf label matches (or printing summaries before the per-issue list) would keep 'first/latest printing' visible. The tool's OCR-outlier note for 1959_06 matched the reference's own finding (worklog Step 6). In cell b the recompute_final rule did not fire on a value no calc had printed (b[19] vs b[26]); worth checking whether the rule matches short numerals as substrings. This question is a formula-ambiguity item: retrieval is solved, and the right adapter response is to exclude it from the learner's reward signal rather than to add advice."
+}

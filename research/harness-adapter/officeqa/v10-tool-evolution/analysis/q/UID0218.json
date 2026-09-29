@@ -1,0 +1,63 @@
+{
+  "task_id": "UID0218",
+  "ordinal": 46,
+  "issue47": false,
+  "correct": {"a": 1, "b": 1, "c": 1, "opus": 1},
+  "question_type": "Share of one month's savings-bond redemptions (all series) that is the 'Accrued discount' component, with the column named by an obfuscated paraphrase ('elapsed value buildup from the original price markdown'); one row, two cells, percent to 2 decimals",
+  "decisive_step": "Mapping the paraphrase to the 'Redemptions > Accrued discount' column (not the sales-side 'Accrued discount' column two columns to the left, and not the by-series Table 3 whose Dec 1961 OCR is misaligned) of Table 2 'Sales and Redemptions by Periods, All Series Combined', October 1961 row, and dividing by 'Redemptions > Total'. The reference made it at worklog Step 0 and Step 4 (treasury_bulletin_1961_12.txt:2913 header, :2942 row) and confirmed no vintage conflict across the 8 printings 1961_12..1962_07 (worklog Step 7). Vintage is irrelevant here: every printing agrees.",
+  "cells": {
+    "a": {
+      "correct": 1,
+      "path_summary": "Five find_tables/rg searches for the paraphrase found nothing (a[5]-[13]); it then browsed savings-bond tables of 1961-62 (a[15]), opened Table 4 (matured/unmatured, a[17]) and a 1943 table (a[21]) before an rg for 'accrued' (a[29]) led to Table 2 in the Dec 1961 issue (a[31]-[35] raw lines). It correctly identified the redemption-side accrued-discount column and the total (a[36]). Three printings calls failed on the column hint (a[38], a[42], a[54]) before 'Accrued discount' (a[52]) and 'Redemptions 1/ > Total' (a[56]) listed 8 identical printings; calc at a[58]; answered with the percent sign.",
+      "first_divergence": {"stage": "NONE", "where": "a[58]", "what_it_did": "Right cells, right ratio, right rounding.", "what_a_right_cell_or_the_reference_did": "Same as reference."},
+      "saw_correct_evidence": "yes",
+      "tool_use": {"find_tables": 9, "show_table": 6, "printings": 5, "calc": 1, "other_shell": 7, "friction": "Search: the paraphrase has no lexical overlap with the corpus (a[5]-[13] zero useful hits). printings: --col 'Redemptions > Total' and 'Redemptions > Accrued discount' returned 'no matching row/column' (a[38], a[54]) because the printed label carries a footnote mark inside it ('Redemptions 1/ > Total'); the table hint 'Table 2 in UNITED STATES SAVINGS BONDS' also failed (a[42]). show_table --grep '1961-October' on the Oct 1963 issue hit nothing (a[46], a[48], the row is no longer printed there) and 'page rows 0' puzzled it (a[49])."},
+      "text_use": "Acted on 'use the latest printing of each value: run printings' (five printings calls, took the latest of 8 agreeing printings), 'Compute every final number with calc' (a[58]), 'Percent or fraction' (answered in percent).",
+      "harness_use": "n/a"
+    },
+    "b": {
+      "correct": 1,
+      "path_summary": "Two find_tables calls (b[5], b[7]) then a printings call on the by-series table 'Series E through K' at b[10], whose Dec 1961 printing is the OCR-misaligned one the reference warned about (its accrued-discount cell is a single digit and the summary showed several 'REVISED/DIFFERS' lines that were really misalignment). It read the raw 1962_07 table (b[18]), searched for the paraphrase (b[20], nothing), then found Table 2 all-series via find_tables (b[22]) and ran printings on it at b[24], which listed identical values across printings; calc at b[26], submitted at b[28], recorded first time.",
+      "first_divergence": {"stage": "NONE", "where": "b[26]", "what_it_did": "Right cells from Table 2; did not fall for the misaligned by-series printing.", "what_a_right_cell_or_the_reference_did": "Same as reference (worklog Step 10 explains why the Dec 1961 Table 3 is unusable)."},
+      "saw_correct_evidence": "yes",
+      "tool_use": {"find_tables": 3, "show_table": 3, "printings": 2, "calc": 1, "other_shell": 4, "friction": "b[10] printings without --col on the by-series table: 241 cells, output cut at 8000 bytes, SUMMARY reported spurious 'REVISED/DIFFERS' because the Dec 1961 OCR of that table is column-shifted; b[24] printings without --col on Table 2: 64 cells, also cut at 8000 bytes but the needed cells were on the first screen. b[14] --grep October returned only 2 rows of a 59-row stitched table."},
+      "text_use": "none (no advice text in b); its own habit of running printings first happened to match the latest-printing rule",
+      "harness_use": "No loop notes, no compaction. One submit (b[28]) recorded without findings; nothing changed the answer."
+    },
+    "c": {
+      "correct": 1,
+      "path_summary": "Searches for the paraphrase (c[6]-[17]) found nothing; it browsed 1961-62 savings-bond tables (c[19]-[25]), read Table 4 and its footnotes (c[21], c[28]), reasoned from how savings bonds are priced that the phrase means accrued discount (c[26], c[31]), and opened Table 2 in the Nov 1962 issue (c[30]) to see the column layout. printings with --row 1961-10 --col 'Accrued discount' (c[33]) listed 8 agreeing printings of the redemption-side column; --col 'Redemptions > Total' failed, 'Total' worked (c[35]); calc at c[37]; answered in percent with the sign.",
+      "first_divergence": {"stage": "NONE", "where": "c[37]", "what_it_did": "Right cells, ratio and rounding.", "what_a_right_cell_or_the_reference_did": "Same as reference."},
+      "saw_correct_evidence": "yes",
+      "tool_use": {"find_tables": 6, "show_table": 2, "printings": 3, "calc": 1, "other_shell": 4, "friction": "c[6], c[8], c[11] find_tables zero/irrelevant hits for the paraphrase; c[13]-[15] officeqa.py search object printed unhelpfully (2 calls); c[33] second printings --col 'Redemptions > Total' no match (footnote mark in label); c[34] puzzled that printings stopped at 1962_07 (the row is simply no longer printed after that)."},
+      "text_use": "Acted on 'use the latest printing ... printings' (c[33], c[35]), 'Compute every final number with calc' (c[37]), 'Percent or fraction' and 'Answer count and format' (c[38] checked the percent-sign example).",
+      "harness_use": "n/a"
+    }
+  },
+  "fix": {
+    "smallest_change": {
+      "level": "TOOL",
+      "change": "printings --col matching: strip footnote marks (regex '\\s*\\d{1,2}/' anywhere in the label, not only trailing) from both the printed label and the hint before the substring test in otables.printings_data (line 'col_hint not in norm(lab)'), and when nothing matches print the table's column labels instead of the bare 'no matching row/column found', e.g.: 'no column contains \"redemptions > total\"; columns in treasury_bulletin_1962_07.txt:3065 are: c1 Sales 1/ | c2 Accrued discount | c3 Sales plus accrued discount | c4 Redemptions 1/ > Total | c5 Redemptions 1/ > Sales price 2/ | c6 Redemptions 1/ > Accrued discount 2/ | ...'. Same normalisation for the --table hint ('Table 2 in ...' should match a numbered table by its number and section).",
+      "would_have_fixed": ["none wrong; removes 3 wasted calls in a (a[38], a[42], a[54]) and 1 in c (c[33] second query)"],
+      "could_hurt_right_cells": "no - it only widens matching for labels that already match after footnote removal and prints more on failure",
+      "generality": "document_qa_general",
+      "confidence": "high"
+    },
+    "alternatives": [
+      {"level": "TOOL", "change": "find_tables fallback for paraphrased questions: when the AND query returns 0 parts, retry with OR over the tokens and show 'no table has all words; tables with most of them:' plus each table's column labels, so a query such as 'redemptions original price markdown' surfaces 'Sales and Redemptions by Periods' with its 'Sales price / Accrued discount' columns. Also index column labels (not only titles) for the --rows match.", "why_not_first": "All three cells got to Table 2 within ~15 steps by browsing the savings-bond section; the column-label listing on a hit is the part that matters and it is cheaper to add to the printings failure message first."},
+      {"level": "TEXT", "change": "Add one sentence to the table notes: 'When the question paraphrases a column (it rarely quotes the header), list the candidate table's column headers (show_table --cols) and pick the header whose meaning matches; savings-bond redemptions split into Sales price (original cost) and Accrued discount (value built up since purchase).'", "why_not_first": "The second half is question-specific; the first half is what all three cells already did."},
+      {"level": "CONTROL", "change": "None needed. A 'by-series vs all-series' check (if the question says 'all series combined' and the cited table title names specific series, warn) would have caught a b that stopped at b[10]; b did not, and the reference notes Table 3 sums match Table 2 anyway.", "why_not_first": "No cell needed it."}
+    ],
+    "why_not_text": "n/a for correctness (every cell right). For the friction: cell a had the text and still lost three printings calls to the footnote-mark mismatch; no sentence of advice can tell the model that the tool wants 'Redemptions 1/ > Total' - the tool should accept the label as the model reads it.",
+    "irreducible": "no - unambiguous once the column is identified; all cells and the reference agree, and every printing carries the same values"
+  },
+  "text_verdict": [
+    "kept-and-helped: 'Bulletins revise earlier numbers ... run printings' (a and c ran printings and saw 8 agreeing printings; harmless here since nothing was revised)",
+    "kept-and-helped: 'Compute every final number with calc' (all three cells)",
+    "kept-and-helped: 'Percent or fraction' (all cells answered in percent with the sign the example shows)",
+    "kept-and-helped: 'Answer count and format' (c[38] checked the '12.34%' example before answering)",
+    "ignored: 'Search with find_tables using the question's key nouns and prefer the table whose title and column headers match' (tried, but the paraphrase shares no words with the corpus; the cells found the table by browsing the section)",
+    "irrelevant: 'Match the period exactly', 'show_table marks rows it repaired', 'sum over the columns', 'Alternatives', 'Loops', 'Provenance'"
+  ],
+  "notes": "The trap on this question is the by-series table in the Dec 1961 issue, whose OCR shifts the accrued-discount cell (b[10] showed it: a one-digit accrued value and spurious 'REVISED/DIFFERS' summary lines). printings' SUMMARY flagged those as revisions rather than as a column shift; a per-row identity check (sales price + accrued discount = total, which Table 2's NOTES already report as 'identity ... on 27/27 rows' at a[44]) applied inside printings would label such printings 'IDENTITY FAILS - misaligned' instead of 'REVISED'. Also worth noting: printings reports 'latest printing 1962_07' because later issues drop the 1961 months; a[45]-[51] and c[34] both spent steps wondering whether later issues were missing - a one-line 'row not printed in 1962_08..1963_10 (table window moved on)' would settle that. No v8 per-question analysis exists for this question (all v8 arms were right; officeqa-divergence-analysis/per-question/022.json is absent)."
+}

@@ -1,0 +1,7288 @@
+{
+  "evidence_root": "/Users/albertzhao/.codex/.chatgpt-projects/g-p-6aa867f0012881918044d250b055e9dd/v9-p1-a",
+  "tools_dir": "/Users/albertzhao/.codex/.chatgpt-projects/g-p-6aa867f0012881918044d250b055e9dd/officeqa-pro133-v10-plumbing/adapters/harness-w0/tools",
+  "commands": 3235,
+  "tables_index": "/Users/albertzhao/.codex/.chatgpt-projects/g-p-6aa867f0012881918044d250b055e9dd/frameworks-v10/officeqa-tables-index/tables.sqlite",
+  "tables_index_version": "otables-index-v10",
+  "sources": [
+    "events"
+  ],
+  "rebuilt": 724,
+  "ok": 721,
+  "changed": 0,
+  "timed_out": 0,
+  "wall_seconds": 143.984,
+  "per_tool": {
+    "find_tables": {
+      "jobs": 285,
+      "ok": 285,
+      "changed": 0,
+      "timed_out": 0
+    },
+    "show_table": {
+      "jobs": 274,
+      "ok": 273,
+      "changed": 0,
+      "timed_out": 0
+    },
+    "printings": {
+      "jobs": 165,
+      "ok": 163,
+      "changed": 0,
+      "timed_out": 0
+    }
+  },
+  "min_jobs": 200,
+  "runner": "ToolRunner",
+  "read_roots": [
+    "/Users/albertzhao/.codex/.chatgpt-projects/g-p-6aa867f0012881918044d250b055e9dd/frameworks-v9/actor-python",
+    "/usr/lib",
+    "/System",
+    "/Users/albertzhao/.codex/.chatgpt-projects/g-p-6aa867f0012881918044d250b055e9dd/v9-p1-a/prepared/agent/corpus",
+    "/Users/albertzhao/.codex/.chatgpt-projects/g-p-6aa867f0012881918044d250b055e9dd/frameworks-v10/officeqa-tables-index"
+  ],
+  "passed": true,
+  "table": [
+    {
+      "tool": "find_tables",
+      "episode": "001",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7968
+    },
+    {
+      "tool": "find_tables",
+      "episode": "001",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7801
+    },
+    {
+      "tool": "show_table",
+      "episode": "001",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1382
+    },
+    {
+      "tool": "printings",
+      "episode": "001",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 3424
+    },
+    {
+      "tool": "find_tables",
+      "episode": "002",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7993
+    },
+    {
+      "tool": "printings",
+      "episode": "002",
+      "step": 3,
+      "exit_before": 2,
+      "exit_after": 2,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 0
+    },
+    {
+      "tool": "printings",
+      "episode": "002",
+      "step": 3,
+      "exit_before": 2,
+      "exit_after": 2,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 0
+    },
+    {
+      "tool": "printings",
+      "episode": "002",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 279
+    },
+    {
+      "tool": "printings",
+      "episode": "002",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 279
+    },
+    {
+      "tool": "find_tables",
+      "episode": "002",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 509
+    },
+    {
+      "tool": "find_tables",
+      "episode": "002",
+      "step": 6,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1173
+    },
+    {
+      "tool": "show_table",
+      "episode": "002",
+      "step": 7,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 5483
+    },
+    {
+      "tool": "show_table",
+      "episode": "002",
+      "step": 11,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 5583
+    },
+    {
+      "tool": "show_table",
+      "episode": "002",
+      "step": 11,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 5496
+    },
+    {
+      "tool": "show_table",
+      "episode": "002",
+      "step": 11,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 5497
+    },
+    {
+      "tool": "show_table",
+      "episode": "002",
+      "step": 11,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 5471
+    },
+    {
+      "tool": "show_table",
+      "episode": "002",
+      "step": 11,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 5458
+    },
+    {
+      "tool": "find_tables",
+      "episode": "002",
+      "step": 16,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7756
+    },
+    {
+      "tool": "printings",
+      "episode": "002",
+      "step": 29,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1568
+    },
+    {
+      "tool": "show_table",
+      "episode": "002",
+      "step": 29,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2131
+    },
+    {
+      "tool": "find_tables",
+      "episode": "003",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7894
+    },
+    {
+      "tool": "show_table",
+      "episode": "003",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1568
+    },
+    {
+      "tool": "show_table",
+      "episode": "003",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1568
+    },
+    {
+      "tool": "show_table",
+      "episode": "003",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1579
+    },
+    {
+      "tool": "show_table",
+      "episode": "003",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7778
+    },
+    {
+      "tool": "printings",
+      "episode": "003",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 5640
+    },
+    {
+      "tool": "printings",
+      "episode": "003",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 4157
+    },
+    {
+      "tool": "printings",
+      "episode": "003",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 4667
+    },
+    {
+      "tool": "find_tables",
+      "episode": "004",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7992
+    },
+    {
+      "tool": "find_tables",
+      "episode": "004",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7967
+    },
+    {
+      "tool": "show_table",
+      "episode": "004",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1414
+    },
+    {
+      "tool": "find_tables",
+      "episode": "004",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1258
+    },
+    {
+      "tool": "find_tables",
+      "episode": "004",
+      "step": 7,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7819
+    },
+    {
+      "tool": "show_table",
+      "episode": "004",
+      "step": 8,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7625
+    },
+    {
+      "tool": "show_table",
+      "episode": "004",
+      "step": 11,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2090
+    },
+    {
+      "tool": "show_table",
+      "episode": "004",
+      "step": 12,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7770
+    },
+    {
+      "tool": "show_table",
+      "episode": "004",
+      "step": 13,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7573
+    },
+    {
+      "tool": "printings",
+      "episode": "004",
+      "step": 14,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 442
+    },
+    {
+      "tool": "printings",
+      "episode": "004",
+      "step": 14,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 442
+    },
+    {
+      "tool": "find_tables",
+      "episode": "004",
+      "step": 15,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7774
+    },
+    {
+      "tool": "find_tables",
+      "episode": "004",
+      "step": 16,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7983
+    },
+    {
+      "tool": "find_tables",
+      "episode": "004",
+      "step": 17,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 6384
+    },
+    {
+      "tool": "printings",
+      "episode": "004",
+      "step": 28,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 316
+    },
+    {
+      "tool": "printings",
+      "episode": "004",
+      "step": 29,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 436
+    },
+    {
+      "tool": "find_tables",
+      "episode": "004",
+      "step": 31,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7686
+    },
+    {
+      "tool": "find_tables",
+      "episode": "005",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7785
+    },
+    {
+      "tool": "find_tables",
+      "episode": "005",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7941
+    },
+    {
+      "tool": "find_tables",
+      "episode": "005",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 998
+    },
+    {
+      "tool": "find_tables",
+      "episode": "005",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 3509
+    },
+    {
+      "tool": "show_table",
+      "episode": "005",
+      "step": 6,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1212
+    },
+    {
+      "tool": "show_table",
+      "episode": "005",
+      "step": 7,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1076
+    },
+    {
+      "tool": "show_table",
+      "episode": "005",
+      "step": 8,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 3255
+    },
+    {
+      "tool": "printings",
+      "episode": "005",
+      "step": 9,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 270
+    },
+    {
+      "tool": "find_tables",
+      "episode": "005",
+      "step": 10,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 920
+    },
+    {
+      "tool": "show_table",
+      "episode": "005",
+      "step": 11,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 495
+    },
+    {
+      "tool": "show_table",
+      "episode": "005",
+      "step": 12,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7961
+    },
+    {
+      "tool": "show_table",
+      "episode": "005",
+      "step": 13,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 705
+    },
+    {
+      "tool": "show_table",
+      "episode": "005",
+      "step": 14,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2354
+    },
+    {
+      "tool": "show_table",
+      "episode": "005",
+      "step": 15,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2091
+    },
+    {
+      "tool": "show_table",
+      "episode": "005",
+      "step": 16,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1940
+    },
+    {
+      "tool": "printings",
+      "episode": "005",
+      "step": 17,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 286
+    },
+    {
+      "tool": "printings",
+      "episode": "005",
+      "step": 18,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 286
+    },
+    {
+      "tool": "show_table",
+      "episode": "005",
+      "step": 19,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1202
+    },
+    {
+      "tool": "printings",
+      "episode": "005",
+      "step": 20,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1431
+    },
+    {
+      "tool": "show_table",
+      "episode": "005",
+      "step": 21,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1998
+    },
+    {
+      "tool": "show_table",
+      "episode": "005",
+      "step": 22,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7918
+    },
+    {
+      "tool": "show_table",
+      "episode": "005",
+      "step": 23,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1896
+    },
+    {
+      "tool": "show_table",
+      "episode": "005",
+      "step": 24,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 3088
+    },
+    {
+      "tool": "show_table",
+      "episode": "005",
+      "step": 25,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1977
+    },
+    {
+      "tool": "show_table",
+      "episode": "005",
+      "step": 26,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2952
+    },
+    {
+      "tool": "printings",
+      "episode": "005",
+      "step": 32,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 566
+    },
+    {
+      "tool": "find_tables",
+      "episode": "005",
+      "step": 33,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7641
+    },
+    {
+      "tool": "find_tables",
+      "episode": "005",
+      "step": 35,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7940
+    },
+    {
+      "tool": "show_table",
+      "episode": "005",
+      "step": 38,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1633
+    },
+    {
+      "tool": "show_table",
+      "episode": "005",
+      "step": 39,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 5188
+    },
+    {
+      "tool": "find_tables",
+      "episode": "005",
+      "step": 43,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1059
+    },
+    {
+      "tool": "find_tables",
+      "episode": "005",
+      "step": 43,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7737
+    },
+    {
+      "tool": "find_tables",
+      "episode": "005",
+      "step": 44,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1033
+    },
+    {
+      "tool": "show_table",
+      "episode": "005",
+      "step": 45,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7948
+    },
+    {
+      "tool": "find_tables",
+      "episode": "005",
+      "step": 132,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 5151
+    },
+    {
+      "tool": "show_table",
+      "episode": "005",
+      "step": 133,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1143
+    },
+    {
+      "tool": "show_table",
+      "episode": "005",
+      "step": 134,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1143
+    },
+    {
+      "tool": "show_table",
+      "episode": "005",
+      "step": 135,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1143
+    },
+    {
+      "tool": "printings",
+      "episode": "005",
+      "step": 137,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 284
+    },
+    {
+      "tool": "show_table",
+      "episode": "005",
+      "step": 138,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1225
+    },
+    {
+      "tool": "printings",
+      "episode": "005",
+      "step": 143,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 286
+    },
+    {
+      "tool": "printings",
+      "episode": "005",
+      "step": 148,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1396
+    },
+    {
+      "tool": "printings",
+      "episode": "005",
+      "step": 152,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1480
+    },
+    {
+      "tool": "printings",
+      "episode": "005",
+      "step": 152,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1512
+    },
+    {
+      "tool": "printings",
+      "episode": "005",
+      "step": 152,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1832
+    },
+    {
+      "tool": "find_tables",
+      "episode": "005",
+      "step": 330,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 6627
+    },
+    {
+      "tool": "find_tables",
+      "episode": "005",
+      "step": 331,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 6137
+    },
+    {
+      "tool": "find_tables",
+      "episode": "005",
+      "step": 334,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1488
+    },
+    {
+      "tool": "find_tables",
+      "episode": "005",
+      "step": 335,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2687
+    },
+    {
+      "tool": "show_table",
+      "episode": "005",
+      "step": 336,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1207
+    },
+    {
+      "tool": "show_table",
+      "episode": "005",
+      "step": 337,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7841
+    },
+    {
+      "tool": "find_tables",
+      "episode": "005",
+      "step": 339,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 789
+    },
+    {
+      "tool": "show_table",
+      "episode": "005",
+      "step": 340,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7757
+    },
+    {
+      "tool": "show_table",
+      "episode": "005",
+      "step": 341,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7843
+    },
+    {
+      "tool": "find_tables",
+      "episode": "005",
+      "step": 342,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 656
+    },
+    {
+      "tool": "show_table",
+      "episode": "005",
+      "step": 343,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7590
+    },
+    {
+      "tool": "find_tables",
+      "episode": "005",
+      "step": 344,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 656
+    },
+    {
+      "tool": "show_table",
+      "episode": "005",
+      "step": 345,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7999
+    },
+    {
+      "tool": "find_tables",
+      "episode": "005",
+      "step": 346,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 656
+    },
+    {
+      "tool": "show_table",
+      "episode": "005",
+      "step": 347,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7709
+    },
+    {
+      "tool": "show_table",
+      "episode": "005",
+      "step": 349,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7973
+    },
+    {
+      "tool": "printings",
+      "episode": "005",
+      "step": 440,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 283
+    },
+    {
+      "tool": "find_tables",
+      "episode": "005",
+      "step": 441,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 5905
+    },
+    {
+      "tool": "show_table",
+      "episode": "005",
+      "step": 444,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7583
+    },
+    {
+      "tool": "printings",
+      "episode": "005",
+      "step": 445,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 437
+    },
+    {
+      "tool": "show_table",
+      "episode": "005",
+      "step": 446,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7762
+    },
+    {
+      "tool": "show_table",
+      "episode": "005",
+      "step": 447,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1218
+    },
+    {
+      "tool": "show_table",
+      "episode": "005",
+      "step": 448,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1344
+    },
+    {
+      "tool": "show_table",
+      "episode": "005",
+      "step": 449,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7730
+    },
+    {
+      "tool": "printings",
+      "episode": "005",
+      "step": 450,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 284
+    },
+    {
+      "tool": "printings",
+      "episode": "005",
+      "step": 451,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 872
+    },
+    {
+      "tool": "printings",
+      "episode": "005",
+      "step": 452,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 441
+    },
+    {
+      "tool": "find_tables",
+      "episode": "006",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 3304
+    },
+    {
+      "tool": "show_table",
+      "episode": "006",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2415
+    },
+    {
+      "tool": "show_table",
+      "episode": "006",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 3409
+    },
+    {
+      "tool": "show_table",
+      "episode": "006",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7116
+    },
+    {
+      "tool": "printings",
+      "episode": "006",
+      "step": 6,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 4306
+    },
+    {
+      "tool": "find_tables",
+      "episode": "007",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7944
+    },
+    {
+      "tool": "find_tables",
+      "episode": "007",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7884
+    },
+    {
+      "tool": "show_table",
+      "episode": "007",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1380
+    },
+    {
+      "tool": "show_table",
+      "episode": "007",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7592
+    },
+    {
+      "tool": "show_table",
+      "episode": "007",
+      "step": 6,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1223
+    },
+    {
+      "tool": "printings",
+      "episode": "007",
+      "step": 7,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 830
+    },
+    {
+      "tool": "printings",
+      "episode": "007",
+      "step": 8,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 840
+    },
+    {
+      "tool": "find_tables",
+      "episode": "007",
+      "step": 9,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 6333
+    },
+    {
+      "tool": "show_table",
+      "episode": "007",
+      "step": 10,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 6020
+    },
+    {
+      "tool": "show_table",
+      "episode": "007",
+      "step": 11,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7701
+    },
+    {
+      "tool": "show_table",
+      "episode": "007",
+      "step": 12,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 3760
+    },
+    {
+      "tool": "printings",
+      "episode": "007",
+      "step": 13,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 887
+    },
+    {
+      "tool": "printings",
+      "episode": "007",
+      "step": 13,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 817
+    },
+    {
+      "tool": "printings",
+      "episode": "007",
+      "step": 14,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 6408
+    },
+    {
+      "tool": "printings",
+      "episode": "007",
+      "step": 15,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 5845
+    },
+    {
+      "tool": "find_tables",
+      "episode": "008",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7725
+    },
+    {
+      "tool": "find_tables",
+      "episode": "008",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 657
+    },
+    {
+      "tool": "printings",
+      "episode": "008",
+      "step": 8,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 547
+    },
+    {
+      "tool": "printings",
+      "episode": "008",
+      "step": 9,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 290
+    },
+    {
+      "tool": "show_table",
+      "episode": "008",
+      "step": 10,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1197
+    },
+    {
+      "tool": "show_table",
+      "episode": "008",
+      "step": 11,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1177
+    },
+    {
+      "tool": "printings",
+      "episode": "008",
+      "step": 12,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1787
+    },
+    {
+      "tool": "printings",
+      "episode": "008",
+      "step": 13,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1855
+    },
+    {
+      "tool": "find_tables",
+      "episode": "010",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7946
+    },
+    {
+      "tool": "find_tables",
+      "episode": "010",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7911
+    },
+    {
+      "tool": "printings",
+      "episode": "010",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 229
+    },
+    {
+      "tool": "printings",
+      "episode": "010",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 229
+    },
+    {
+      "tool": "find_tables",
+      "episode": "010",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1158
+    },
+    {
+      "tool": "show_table",
+      "episode": "010",
+      "step": 6,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7413
+    },
+    {
+      "tool": "show_table",
+      "episode": "010",
+      "step": 6,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7525
+    },
+    {
+      "tool": "show_table",
+      "episode": "010",
+      "step": 7,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1810
+    },
+    {
+      "tool": "show_table",
+      "episode": "010",
+      "step": 7,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1842
+    },
+    {
+      "tool": "show_table",
+      "episode": "010",
+      "step": 8,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2009
+    },
+    {
+      "tool": "show_table",
+      "episode": "010",
+      "step": 8,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2329
+    },
+    {
+      "tool": "printings",
+      "episode": "010",
+      "step": 9,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7993
+    },
+    {
+      "tool": "find_tables",
+      "episode": "011",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7983
+    },
+    {
+      "tool": "find_tables",
+      "episode": "011",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7871
+    },
+    {
+      "tool": "show_table",
+      "episode": "011",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2782
+    },
+    {
+      "tool": "show_table",
+      "episode": "011",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7121
+    },
+    {
+      "tool": "show_table",
+      "episode": "011",
+      "step": 6,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7019
+    },
+    {
+      "tool": "find_tables",
+      "episode": "011",
+      "step": 7,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 6961
+    },
+    {
+      "tool": "printings",
+      "episode": "011",
+      "step": 8,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 3114
+    },
+    {
+      "tool": "show_table",
+      "episode": "011",
+      "step": 9,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7103
+    },
+    {
+      "tool": "show_table",
+      "episode": "011",
+      "step": 10,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7131
+    },
+    {
+      "tool": "show_table",
+      "episode": "011",
+      "step": 12,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7955
+    },
+    {
+      "tool": "printings",
+      "episode": "011",
+      "step": 12,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2643
+    },
+    {
+      "tool": "printings",
+      "episode": "011",
+      "step": 13,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2437
+    },
+    {
+      "tool": "printings",
+      "episode": "011",
+      "step": 13,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2865
+    },
+    {
+      "tool": "find_tables",
+      "episode": "011",
+      "step": 17,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2282
+    },
+    {
+      "tool": "find_tables",
+      "episode": "011",
+      "step": 18,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7994
+    },
+    {
+      "tool": "find_tables",
+      "episode": "011",
+      "step": 19,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7537
+    },
+    {
+      "tool": "find_tables",
+      "episode": "011",
+      "step": 29,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7537
+    },
+    {
+      "tool": "find_tables",
+      "episode": "012",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7772
+    },
+    {
+      "tool": "find_tables",
+      "episode": "012",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 4358
+    },
+    {
+      "tool": "find_tables",
+      "episode": "012",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1890
+    },
+    {
+      "tool": "show_table",
+      "episode": "012",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 4738
+    },
+    {
+      "tool": "show_table",
+      "episode": "012",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 4513
+    },
+    {
+      "tool": "find_tables",
+      "episode": "013",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7842
+    },
+    {
+      "tool": "find_tables",
+      "episode": "013",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7878
+    },
+    {
+      "tool": "find_tables",
+      "episode": "013",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7959
+    },
+    {
+      "tool": "find_tables",
+      "episode": "013",
+      "step": 9,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7819
+    },
+    {
+      "tool": "find_tables",
+      "episode": "013",
+      "step": 10,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7253
+    },
+    {
+      "tool": "find_tables",
+      "episode": "013",
+      "step": 10,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7665
+    },
+    {
+      "tool": "find_tables",
+      "episode": "013",
+      "step": 10,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2465
+    },
+    {
+      "tool": "find_tables",
+      "episode": "013",
+      "step": 10,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 4669
+    },
+    {
+      "tool": "show_table",
+      "episode": "013",
+      "step": 11,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7873
+    },
+    {
+      "tool": "show_table",
+      "episode": "013",
+      "step": 12,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7873
+    },
+    {
+      "tool": "show_table",
+      "episode": "013",
+      "step": 13,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 6181
+    },
+    {
+      "tool": "printings",
+      "episode": "013",
+      "step": 14,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 928
+    },
+    {
+      "tool": "printings",
+      "episode": "013",
+      "step": 14,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2359
+    },
+    {
+      "tool": "find_tables",
+      "episode": "014",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7995
+    },
+    {
+      "tool": "show_table",
+      "episode": "014",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 3377
+    },
+    {
+      "tool": "show_table",
+      "episode": "014",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 6862
+    },
+    {
+      "tool": "printings",
+      "episode": "014",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7915
+    },
+    {
+      "tool": "printings",
+      "episode": "014",
+      "step": 6,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 391
+    },
+    {
+      "tool": "show_table",
+      "episode": "014",
+      "step": 8,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7608
+    },
+    {
+      "tool": "show_table",
+      "episode": "014",
+      "step": 9,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7922
+    },
+    {
+      "tool": "printings",
+      "episode": "014",
+      "step": 10,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7960
+    },
+    {
+      "tool": "printings",
+      "episode": "014",
+      "step": 14,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7902
+    },
+    {
+      "tool": "printings",
+      "episode": "014",
+      "step": 18,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7893
+    },
+    {
+      "tool": "printings",
+      "episode": "014",
+      "step": 18,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7905
+    },
+    {
+      "tool": "printings",
+      "episode": "014",
+      "step": 18,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7942
+    },
+    {
+      "tool": "printings",
+      "episode": "014",
+      "step": 19,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7891
+    },
+    {
+      "tool": "printings",
+      "episode": "014",
+      "step": 20,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7916
+    },
+    {
+      "tool": "show_table",
+      "episode": "014",
+      "step": 23,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1146
+    },
+    {
+      "tool": "show_table",
+      "episode": "014",
+      "step": 24,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 3387
+    },
+    {
+      "tool": "find_tables",
+      "episode": "015",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7817
+    },
+    {
+      "tool": "find_tables",
+      "episode": "015",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7845
+    },
+    {
+      "tool": "show_table",
+      "episode": "015",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1109
+    },
+    {
+      "tool": "printings",
+      "episode": "015",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 4417
+    },
+    {
+      "tool": "show_table",
+      "episode": "015",
+      "step": 6,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2373
+    },
+    {
+      "tool": "show_table",
+      "episode": "015",
+      "step": 7,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 3048
+    },
+    {
+      "tool": "printings",
+      "episode": "015",
+      "step": 8,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7994
+    },
+    {
+      "tool": "printings",
+      "episode": "015",
+      "step": 9,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7731
+    },
+    {
+      "tool": "printings",
+      "episode": "015",
+      "step": 10,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7959
+    },
+    {
+      "tool": "printings",
+      "episode": "015",
+      "step": 11,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 5265
+    },
+    {
+      "tool": "find_tables",
+      "episode": "016",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7977
+    },
+    {
+      "tool": "find_tables",
+      "episode": "016",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7994
+    },
+    {
+      "tool": "show_table",
+      "episode": "016",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2339
+    },
+    {
+      "tool": "show_table",
+      "episode": "016",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7744
+    },
+    {
+      "tool": "find_tables",
+      "episode": "016",
+      "step": 6,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1390
+    },
+    {
+      "tool": "printings",
+      "episode": "016",
+      "step": 7,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 4687
+    },
+    {
+      "tool": "printings",
+      "episode": "016",
+      "step": 8,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 4878
+    },
+    {
+      "tool": "find_tables",
+      "episode": "017",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7700
+    },
+    {
+      "tool": "show_table",
+      "episode": "017",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1352
+    },
+    {
+      "tool": "find_tables",
+      "episode": "018",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7602
+    },
+    {
+      "tool": "find_tables",
+      "episode": "018",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 3729
+    },
+    {
+      "tool": "find_tables",
+      "episode": "018",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1806
+    },
+    {
+      "tool": "find_tables",
+      "episode": "018",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7795
+    },
+    {
+      "tool": "find_tables",
+      "episode": "018",
+      "step": 7,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7969
+    },
+    {
+      "tool": "printings",
+      "episode": "018",
+      "step": 7,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 6336
+    },
+    {
+      "tool": "show_table",
+      "episode": "018",
+      "step": 8,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2284
+    },
+    {
+      "tool": "find_tables",
+      "episode": "018",
+      "step": 8,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2205
+    },
+    {
+      "tool": "show_table",
+      "episode": "018",
+      "step": 9,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2231
+    },
+    {
+      "tool": "find_tables",
+      "episode": "018",
+      "step": 12,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1793
+    },
+    {
+      "tool": "find_tables",
+      "episode": "018",
+      "step": 18,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7938
+    },
+    {
+      "tool": "printings",
+      "episode": "018",
+      "step": 19,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 319
+    },
+    {
+      "tool": "find_tables",
+      "episode": "019",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7950
+    },
+    {
+      "tool": "find_tables",
+      "episode": "019",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7663
+    },
+    {
+      "tool": "show_table",
+      "episode": "019",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 959
+    },
+    {
+      "tool": "find_tables",
+      "episode": "019",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 3095
+    },
+    {
+      "tool": "show_table",
+      "episode": "019",
+      "step": 6,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7947
+    },
+    {
+      "tool": "printings",
+      "episode": "019",
+      "step": 7,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2362
+    },
+    {
+      "tool": "printings",
+      "episode": "019",
+      "step": 8,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2389
+    },
+    {
+      "tool": "printings",
+      "episode": "019",
+      "step": 9,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2482
+    },
+    {
+      "tool": "find_tables",
+      "episode": "019",
+      "step": 13,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 3214
+    },
+    {
+      "tool": "find_tables",
+      "episode": "019",
+      "step": 14,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7967
+    },
+    {
+      "tool": "find_tables",
+      "episode": "019",
+      "step": 18,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 794
+    },
+    {
+      "tool": "find_tables",
+      "episode": "019",
+      "step": 20,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7912
+    },
+    {
+      "tool": "find_tables",
+      "episode": "019",
+      "step": 21,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 5720
+    },
+    {
+      "tool": "show_table",
+      "episode": "019",
+      "step": 22,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 5477
+    },
+    {
+      "tool": "show_table",
+      "episode": "019",
+      "step": 23,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7618
+    },
+    {
+      "tool": "find_tables",
+      "episode": "019",
+      "step": 27,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 5771
+    },
+    {
+      "tool": "find_tables",
+      "episode": "019",
+      "step": 28,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1806
+    },
+    {
+      "tool": "show_table",
+      "episode": "019",
+      "step": 34,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2094
+    },
+    {
+      "tool": "find_tables",
+      "episode": "019",
+      "step": 35,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 309
+    },
+    {
+      "tool": "find_tables",
+      "episode": "020",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7974
+    },
+    {
+      "tool": "show_table",
+      "episode": "020",
+      "step": 6,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2832
+    },
+    {
+      "tool": "show_table",
+      "episode": "020",
+      "step": 7,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 5250
+    },
+    {
+      "tool": "show_table",
+      "episode": "020",
+      "step": 8,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 5250
+    },
+    {
+      "tool": "find_tables",
+      "episode": "020",
+      "step": 9,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2929
+    },
+    {
+      "tool": "show_table",
+      "episode": "020",
+      "step": 10,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 3004
+    },
+    {
+      "tool": "show_table",
+      "episode": "020",
+      "step": 11,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7272
+    },
+    {
+      "tool": "show_table",
+      "episode": "020",
+      "step": 13,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 5639
+    },
+    {
+      "tool": "show_table",
+      "episode": "020",
+      "step": 13,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7779
+    },
+    {
+      "tool": "show_table",
+      "episode": "020",
+      "step": 13,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 5372
+    },
+    {
+      "tool": "show_table",
+      "episode": "020",
+      "step": 15,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7865
+    },
+    {
+      "tool": "show_table",
+      "episode": "020",
+      "step": 15,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 5151
+    },
+    {
+      "tool": "show_table",
+      "episode": "020",
+      "step": 15,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7033
+    },
+    {
+      "tool": "show_table",
+      "episode": "020",
+      "step": 16,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7852
+    },
+    {
+      "tool": "show_table",
+      "episode": "020",
+      "step": 17,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 5151
+    },
+    {
+      "tool": "show_table",
+      "episode": "020",
+      "step": 18,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7033
+    },
+    {
+      "tool": "find_tables",
+      "episode": "021",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2859
+    },
+    {
+      "tool": "find_tables",
+      "episode": "021",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7829
+    },
+    {
+      "tool": "find_tables",
+      "episode": "021",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7762
+    },
+    {
+      "tool": "find_tables",
+      "episode": "021",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7854
+    },
+    {
+      "tool": "find_tables",
+      "episode": "021",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7150
+    },
+    {
+      "tool": "find_tables",
+      "episode": "021",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7789
+    },
+    {
+      "tool": "show_table",
+      "episode": "021",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2225
+    },
+    {
+      "tool": "show_table",
+      "episode": "021",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2227
+    },
+    {
+      "tool": "show_table",
+      "episode": "021",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2228
+    },
+    {
+      "tool": "show_table",
+      "episode": "021",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2228
+    },
+    {
+      "tool": "show_table",
+      "episode": "021",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2227
+    },
+    {
+      "tool": "find_tables",
+      "episode": "021",
+      "step": 8,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7976
+    },
+    {
+      "tool": "printings",
+      "episode": "021",
+      "step": 13,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7980
+    },
+    {
+      "tool": "printings",
+      "episode": "021",
+      "step": 15,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 369
+    },
+    {
+      "tool": "printings",
+      "episode": "021",
+      "step": 16,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7910
+    },
+    {
+      "tool": "find_tables",
+      "episode": "021",
+      "step": 18,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7860
+    },
+    {
+      "tool": "show_table",
+      "episode": "021",
+      "step": 23,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1408
+    },
+    {
+      "tool": "show_table",
+      "episode": "021",
+      "step": 24,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1536
+    },
+    {
+      "tool": "show_table",
+      "episode": "021",
+      "step": 26,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2354
+    },
+    {
+      "tool": "show_table",
+      "episode": "021",
+      "step": 26,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2354
+    },
+    {
+      "tool": "show_table",
+      "episode": "021",
+      "step": 26,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2356
+    },
+    {
+      "tool": "show_table",
+      "episode": "021",
+      "step": 26,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2356
+    },
+    {
+      "tool": "show_table",
+      "episode": "021",
+      "step": 26,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2356
+    },
+    {
+      "tool": "show_table",
+      "episode": "021",
+      "step": 28,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1781
+    },
+    {
+      "tool": "show_table",
+      "episode": "021",
+      "step": 28,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1780
+    },
+    {
+      "tool": "show_table",
+      "episode": "021",
+      "step": 28,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1781
+    },
+    {
+      "tool": "show_table",
+      "episode": "021",
+      "step": 28,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1781
+    },
+    {
+      "tool": "show_table",
+      "episode": "021",
+      "step": 28,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1781
+    },
+    {
+      "tool": "show_table",
+      "episode": "021",
+      "step": 30,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2423
+    },
+    {
+      "tool": "find_tables",
+      "episode": "022",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7782
+    },
+    {
+      "tool": "find_tables",
+      "episode": "022",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7952
+    },
+    {
+      "tool": "find_tables",
+      "episode": "022",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 4513
+    },
+    {
+      "tool": "find_tables",
+      "episode": "022",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7859
+    },
+    {
+      "tool": "find_tables",
+      "episode": "022",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 4972
+    },
+    {
+      "tool": "find_tables",
+      "episode": "022",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1653
+    },
+    {
+      "tool": "find_tables",
+      "episode": "022",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 406
+    },
+    {
+      "tool": "find_tables",
+      "episode": "022",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 355
+    },
+    {
+      "tool": "show_table",
+      "episode": "022",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1061
+    },
+    {
+      "tool": "show_table",
+      "episode": "022",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1047
+    },
+    {
+      "tool": "find_tables",
+      "episode": "022",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7835
+    },
+    {
+      "tool": "show_table",
+      "episode": "022",
+      "step": 6,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2095
+    },
+    {
+      "tool": "show_table",
+      "episode": "022",
+      "step": 6,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2124
+    },
+    {
+      "tool": "show_table",
+      "episode": "022",
+      "step": 7,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 418
+    },
+    {
+      "tool": "show_table",
+      "episode": "022",
+      "step": 7,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 417
+    },
+    {
+      "tool": "show_table",
+      "episode": "022",
+      "step": 8,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 710
+    },
+    {
+      "tool": "show_table",
+      "episode": "022",
+      "step": 8,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 955
+    },
+    {
+      "tool": "printings",
+      "episode": "022",
+      "step": 8,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 226
+    },
+    {
+      "tool": "printings",
+      "episode": "022",
+      "step": 8,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 227
+    },
+    {
+      "tool": "printings",
+      "episode": "022",
+      "step": 9,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 226
+    },
+    {
+      "tool": "printings",
+      "episode": "022",
+      "step": 9,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 227
+    },
+    {
+      "tool": "printings",
+      "episode": "022",
+      "step": 9,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 218
+    },
+    {
+      "tool": "printings",
+      "episode": "022",
+      "step": 9,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 219
+    },
+    {
+      "tool": "printings",
+      "episode": "022",
+      "step": 10,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 809
+    },
+    {
+      "tool": "printings",
+      "episode": "022",
+      "step": 10,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 584
+    },
+    {
+      "tool": "printings",
+      "episode": "022",
+      "step": 10,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 838
+    },
+    {
+      "tool": "printings",
+      "episode": "022",
+      "step": 10,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 608
+    },
+    {
+      "tool": "find_tables",
+      "episode": "022",
+      "step": 11,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 3029
+    },
+    {
+      "tool": "show_table",
+      "episode": "022",
+      "step": 12,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 772
+    },
+    {
+      "tool": "printings",
+      "episode": "022",
+      "step": 12,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 802
+    },
+    {
+      "tool": "printings",
+      "episode": "022",
+      "step": 12,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 777
+    },
+    {
+      "tool": "find_tables",
+      "episode": "022",
+      "step": 13,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1653
+    },
+    {
+      "tool": "find_tables",
+      "episode": "022",
+      "step": 13,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1716
+    },
+    {
+      "tool": "find_tables",
+      "episode": "022",
+      "step": 13,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7802
+    },
+    {
+      "tool": "show_table",
+      "episode": "022",
+      "step": 15,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 745
+    },
+    {
+      "tool": "printings",
+      "episode": "022",
+      "step": 15,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 844
+    },
+    {
+      "tool": "printings",
+      "episode": "022",
+      "step": 15,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 883
+    },
+    {
+      "tool": "show_table",
+      "episode": "022",
+      "step": 16,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2060
+    },
+    {
+      "tool": "show_table",
+      "episode": "022",
+      "step": 16,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7996
+    },
+    {
+      "tool": "find_tables",
+      "episode": "023",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7939
+    },
+    {
+      "tool": "find_tables",
+      "episode": "023",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2013
+    },
+    {
+      "tool": "find_tables",
+      "episode": "023",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 535
+    },
+    {
+      "tool": "show_table",
+      "episode": "023",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7187
+    },
+    {
+      "tool": "find_tables",
+      "episode": "023",
+      "step": 6,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7882
+    },
+    {
+      "tool": "find_tables",
+      "episode": "023",
+      "step": 7,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1634
+    },
+    {
+      "tool": "find_tables",
+      "episode": "023",
+      "step": 8,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1565
+    },
+    {
+      "tool": "find_tables",
+      "episode": "023",
+      "step": 9,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 3317
+    },
+    {
+      "tool": "find_tables",
+      "episode": "023",
+      "step": 10,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7930
+    },
+    {
+      "tool": "show_table",
+      "episode": "023",
+      "step": 11,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1307
+    },
+    {
+      "tool": "show_table",
+      "episode": "023",
+      "step": 12,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2316
+    },
+    {
+      "tool": "printings",
+      "episode": "023",
+      "step": 214,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 3167
+    },
+    {
+      "tool": "printings",
+      "episode": "023",
+      "step": 214,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 3039
+    },
+    {
+      "tool": "printings",
+      "episode": "023",
+      "step": 214,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2942
+    },
+    {
+      "tool": "printings",
+      "episode": "023",
+      "step": 214,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 3029
+    },
+    {
+      "tool": "printings",
+      "episode": "023",
+      "step": 214,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2733
+    },
+    {
+      "tool": "printings",
+      "episode": "023",
+      "step": 217,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1083
+    },
+    {
+      "tool": "find_tables",
+      "episode": "023",
+      "step": 219,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1541
+    },
+    {
+      "tool": "find_tables",
+      "episode": "023",
+      "step": 220,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7829
+    },
+    {
+      "tool": "find_tables",
+      "episode": "023",
+      "step": 288,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7832
+    },
+    {
+      "tool": "show_table",
+      "episode": "023",
+      "step": 295,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1014
+    },
+    {
+      "tool": "printings",
+      "episode": "023",
+      "step": 297,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1091
+    },
+    {
+      "tool": "find_tables",
+      "episode": "024",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2809
+    },
+    {
+      "tool": "find_tables",
+      "episode": "024",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7937
+    },
+    {
+      "tool": "find_tables",
+      "episode": "024",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7743
+    },
+    {
+      "tool": "find_tables",
+      "episode": "024",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7882
+    },
+    {
+      "tool": "find_tables",
+      "episode": "024",
+      "step": 6,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 5373
+    },
+    {
+      "tool": "show_table",
+      "episode": "024",
+      "step": 7,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1285
+    },
+    {
+      "tool": "show_table",
+      "episode": "024",
+      "step": 8,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7444
+    },
+    {
+      "tool": "printings",
+      "episode": "024",
+      "step": 11,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1422
+    },
+    {
+      "tool": "printings",
+      "episode": "024",
+      "step": 12,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1453
+    },
+    {
+      "tool": "printings",
+      "episode": "024",
+      "step": 13,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1203
+    },
+    {
+      "tool": "printings",
+      "episode": "024",
+      "step": 13,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1261
+    },
+    {
+      "tool": "printings",
+      "episode": "024",
+      "step": 13,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1284
+    },
+    {
+      "tool": "printings",
+      "episode": "024",
+      "step": 13,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1362
+    },
+    {
+      "tool": "find_tables",
+      "episode": "025",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7814
+    },
+    {
+      "tool": "find_tables",
+      "episode": "025",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7764
+    },
+    {
+      "tool": "find_tables",
+      "episode": "025",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 6506
+    },
+    {
+      "tool": "find_tables",
+      "episode": "025",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7930
+    },
+    {
+      "tool": "find_tables",
+      "episode": "025",
+      "step": 6,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1231
+    },
+    {
+      "tool": "find_tables",
+      "episode": "025",
+      "step": 7,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2408
+    },
+    {
+      "tool": "show_table",
+      "episode": "025",
+      "step": 11,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 874
+    },
+    {
+      "tool": "show_table",
+      "episode": "025",
+      "step": 12,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1252
+    },
+    {
+      "tool": "show_table",
+      "episode": "025",
+      "step": 13,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 4114
+    },
+    {
+      "tool": "show_table",
+      "episode": "025",
+      "step": 14,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 858
+    },
+    {
+      "tool": "show_table",
+      "episode": "025",
+      "step": 15,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 4162
+    },
+    {
+      "tool": "show_table",
+      "episode": "025",
+      "step": 16,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 4083
+    },
+    {
+      "tool": "printings",
+      "episode": "025",
+      "step": 17,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 3524
+    },
+    {
+      "tool": "printings",
+      "episode": "025",
+      "step": 19,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 308
+    },
+    {
+      "tool": "find_tables",
+      "episode": "025",
+      "step": 21,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 680
+    },
+    {
+      "tool": "show_table",
+      "episode": "025",
+      "step": 28,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7449
+    },
+    {
+      "tool": "show_table",
+      "episode": "025",
+      "step": 29,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7450
+    },
+    {
+      "tool": "find_tables",
+      "episode": "025",
+      "step": 32,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 455
+    },
+    {
+      "tool": "find_tables",
+      "episode": "025",
+      "step": 160,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 455
+    },
+    {
+      "tool": "find_tables",
+      "episode": "025",
+      "step": 161,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7738
+    },
+    {
+      "tool": "find_tables",
+      "episode": "025",
+      "step": 161,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7877
+    },
+    {
+      "tool": "find_tables",
+      "episode": "025",
+      "step": 164,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7913
+    },
+    {
+      "tool": "show_table",
+      "episode": "025",
+      "step": 165,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1020
+    },
+    {
+      "tool": "find_tables",
+      "episode": "025",
+      "step": 173,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 3834
+    },
+    {
+      "tool": "printings",
+      "episode": "025",
+      "step": 178,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 311
+    },
+    {
+      "tool": "find_tables",
+      "episode": "025",
+      "step": 179,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2126
+    },
+    {
+      "tool": "find_tables",
+      "episode": "025",
+      "step": 421,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 459
+    },
+    {
+      "tool": "find_tables",
+      "episode": "025",
+      "step": 421,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 684
+    },
+    {
+      "tool": "find_tables",
+      "episode": "025",
+      "step": 422,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7855
+    },
+    {
+      "tool": "find_tables",
+      "episode": "025",
+      "step": 423,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 4100
+    },
+    {
+      "tool": "find_tables",
+      "episode": "026",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7933
+    },
+    {
+      "tool": "show_table",
+      "episode": "026",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7761
+    },
+    {
+      "tool": "find_tables",
+      "episode": "026",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7946
+    },
+    {
+      "tool": "find_tables",
+      "episode": "026",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7316
+    },
+    {
+      "tool": "find_tables",
+      "episode": "026",
+      "step": 7,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1153
+    },
+    {
+      "tool": "find_tables",
+      "episode": "026",
+      "step": 9,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7937
+    },
+    {
+      "tool": "find_tables",
+      "episode": "026",
+      "step": 13,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7871
+    },
+    {
+      "tool": "find_tables",
+      "episode": "026",
+      "step": 14,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2130
+    },
+    {
+      "tool": "find_tables",
+      "episode": "026",
+      "step": 17,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 5695
+    },
+    {
+      "tool": "find_tables",
+      "episode": "026",
+      "step": 18,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7235
+    },
+    {
+      "tool": "show_table",
+      "episode": "026",
+      "step": 66,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2102
+    },
+    {
+      "tool": "printings",
+      "episode": "026",
+      "step": 67,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 276
+    },
+    {
+      "tool": "printings",
+      "episode": "026",
+      "step": 68,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 509
+    },
+    {
+      "tool": "find_tables",
+      "episode": "026",
+      "step": 69,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7884
+    },
+    {
+      "tool": "find_tables",
+      "episode": "026",
+      "step": 73,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7736
+    },
+    {
+      "tool": "find_tables",
+      "episode": "026",
+      "step": 73,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1515
+    },
+    {
+      "tool": "show_table",
+      "episode": "026",
+      "step": 74,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7824
+    },
+    {
+      "tool": "find_tables",
+      "episode": "026",
+      "step": 80,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 3426
+    },
+    {
+      "tool": "find_tables",
+      "episode": "026",
+      "step": 80,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 243
+    },
+    {
+      "tool": "show_table",
+      "episode": "026",
+      "step": 81,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7926
+    },
+    {
+      "tool": "find_tables",
+      "episode": "026",
+      "step": 145,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7704
+    },
+    {
+      "tool": "find_tables",
+      "episode": "026",
+      "step": 145,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7957
+    },
+    {
+      "tool": "find_tables",
+      "episode": "026",
+      "step": 146,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7887
+    },
+    {
+      "tool": "find_tables",
+      "episode": "026",
+      "step": 147,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7931
+    },
+    {
+      "tool": "printings",
+      "episode": "026",
+      "step": 147,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 256
+    },
+    {
+      "tool": "printings",
+      "episode": "026",
+      "step": 148,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7934
+    },
+    {
+      "tool": "find_tables",
+      "episode": "027",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7811
+    },
+    {
+      "tool": "find_tables",
+      "episode": "027",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7918
+    },
+    {
+      "tool": "find_tables",
+      "episode": "027",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7377
+    },
+    {
+      "tool": "find_tables",
+      "episode": "027",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7985
+    },
+    {
+      "tool": "show_table",
+      "episode": "027",
+      "step": 12,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2425
+    },
+    {
+      "tool": "show_table",
+      "episode": "027",
+      "step": 13,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7852
+    },
+    {
+      "tool": "printings",
+      "episode": "027",
+      "step": 15,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2085
+    },
+    {
+      "tool": "find_tables",
+      "episode": "028",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 4644
+    },
+    {
+      "tool": "find_tables",
+      "episode": "028",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7994
+    },
+    {
+      "tool": "find_tables",
+      "episode": "028",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 4469
+    },
+    {
+      "tool": "show_table",
+      "episode": "028",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1898
+    },
+    {
+      "tool": "show_table",
+      "episode": "028",
+      "step": 6,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1890
+    },
+    {
+      "tool": "show_table",
+      "episode": "028",
+      "step": 7,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7630
+    },
+    {
+      "tool": "show_table",
+      "episode": "028",
+      "step": 8,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7358
+    },
+    {
+      "tool": "show_table",
+      "episode": "028",
+      "step": 9,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7345
+    },
+    {
+      "tool": "show_table",
+      "episode": "028",
+      "step": 10,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 4424
+    },
+    {
+      "tool": "printings",
+      "episode": "028",
+      "step": 13,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 307
+    },
+    {
+      "tool": "printings",
+      "episode": "028",
+      "step": 14,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 383
+    },
+    {
+      "tool": "find_tables",
+      "episode": "028",
+      "step": 15,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7021
+    },
+    {
+      "tool": "show_table",
+      "episode": "028",
+      "step": 16,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7832
+    },
+    {
+      "tool": "find_tables",
+      "episode": "028",
+      "step": 18,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7996
+    },
+    {
+      "tool": "printings",
+      "episode": "028",
+      "step": 24,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1027
+    },
+    {
+      "tool": "printings",
+      "episode": "028",
+      "step": 25,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 991
+    },
+    {
+      "tool": "find_tables",
+      "episode": "029",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 3815
+    },
+    {
+      "tool": "find_tables",
+      "episode": "029",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7902
+    },
+    {
+      "tool": "find_tables",
+      "episode": "029",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7997
+    },
+    {
+      "tool": "find_tables",
+      "episode": "029",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 6983
+    },
+    {
+      "tool": "find_tables",
+      "episode": "029",
+      "step": 6,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7891
+    },
+    {
+      "tool": "show_table",
+      "episode": "029",
+      "step": 7,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2982
+    },
+    {
+      "tool": "find_tables",
+      "episode": "029",
+      "step": 9,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1635
+    },
+    {
+      "tool": "show_table",
+      "episode": "029",
+      "step": 10,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2380
+    },
+    {
+      "tool": "printings",
+      "episode": "029",
+      "step": 12,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2572
+    },
+    {
+      "tool": "show_table",
+      "episode": "029",
+      "step": 13,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2760
+    },
+    {
+      "tool": "show_table",
+      "episode": "029",
+      "step": 14,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2009
+    },
+    {
+      "tool": "show_table",
+      "episode": "029",
+      "step": 16,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2396
+    },
+    {
+      "tool": "find_tables",
+      "episode": "030",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7969
+    },
+    {
+      "tool": "find_tables",
+      "episode": "030",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7864
+    },
+    {
+      "tool": "find_tables",
+      "episode": "030",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7254
+    },
+    {
+      "tool": "find_tables",
+      "episode": "030",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7831
+    },
+    {
+      "tool": "find_tables",
+      "episode": "030",
+      "step": 6,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 5265
+    },
+    {
+      "tool": "show_table",
+      "episode": "030",
+      "step": 7,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 6441
+    },
+    {
+      "tool": "find_tables",
+      "episode": "030",
+      "step": 8,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 3046
+    },
+    {
+      "tool": "find_tables",
+      "episode": "030",
+      "step": 9,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2296
+    },
+    {
+      "tool": "show_table",
+      "episode": "030",
+      "step": 10,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2830
+    },
+    {
+      "tool": "show_table",
+      "episode": "030",
+      "step": 11,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7530
+    },
+    {
+      "tool": "find_tables",
+      "episode": "030",
+      "step": 12,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7755
+    },
+    {
+      "tool": "find_tables",
+      "episode": "030",
+      "step": 13,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 3374
+    },
+    {
+      "tool": "show_table",
+      "episode": "030",
+      "step": 14,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 4831
+    },
+    {
+      "tool": "find_tables",
+      "episode": "030",
+      "step": 15,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2819
+    },
+    {
+      "tool": "find_tables",
+      "episode": "030",
+      "step": 16,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 3684
+    },
+    {
+      "tool": "show_table",
+      "episode": "030",
+      "step": 17,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 4850
+    },
+    {
+      "tool": "show_table",
+      "episode": "030",
+      "step": 18,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 3112
+    },
+    {
+      "tool": "show_table",
+      "episode": "030",
+      "step": 19,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 4855
+    },
+    {
+      "tool": "show_table",
+      "episode": "030",
+      "step": 20,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 4608
+    },
+    {
+      "tool": "find_tables",
+      "episode": "030",
+      "step": 21,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1381
+    },
+    {
+      "tool": "show_table",
+      "episode": "030",
+      "step": 26,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7818
+    },
+    {
+      "tool": "show_table",
+      "episode": "030",
+      "step": 27,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7444
+    },
+    {
+      "tool": "show_table",
+      "episode": "030",
+      "step": 28,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7441
+    },
+    {
+      "tool": "printings",
+      "episode": "030",
+      "step": 29,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1195
+    },
+    {
+      "tool": "find_tables",
+      "episode": "031",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 4285
+    },
+    {
+      "tool": "show_table",
+      "episode": "031",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7418
+    },
+    {
+      "tool": "show_table",
+      "episode": "031",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7106
+    },
+    {
+      "tool": "find_tables",
+      "episode": "031",
+      "step": 7,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 4386
+    },
+    {
+      "tool": "printings",
+      "episode": "031",
+      "step": 8,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 455
+    },
+    {
+      "tool": "show_table",
+      "episode": "031",
+      "step": 11,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1351
+    },
+    {
+      "tool": "show_table",
+      "episode": "031",
+      "step": 12,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2224
+    },
+    {
+      "tool": "find_tables",
+      "episode": "032",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7788
+    },
+    {
+      "tool": "find_tables",
+      "episode": "032",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7884
+    },
+    {
+      "tool": "find_tables",
+      "episode": "032",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2421
+    },
+    {
+      "tool": "show_table",
+      "episode": "032",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 795
+    },
+    {
+      "tool": "printings",
+      "episode": "032",
+      "step": 6,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 387
+    },
+    {
+      "tool": "show_table",
+      "episode": "032",
+      "step": 7,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7989
+    },
+    {
+      "tool": "find_tables",
+      "episode": "032",
+      "step": 8,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7816
+    },
+    {
+      "tool": "find_tables",
+      "episode": "032",
+      "step": 9,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2766
+    },
+    {
+      "tool": "show_table",
+      "episode": "032",
+      "step": 10,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 4567
+    },
+    {
+      "tool": "find_tables",
+      "episode": "032",
+      "step": 16,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7498
+    },
+    {
+      "tool": "find_tables",
+      "episode": "032",
+      "step": 17,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7111
+    },
+    {
+      "tool": "printings",
+      "episode": "032",
+      "step": 20,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1911
+    },
+    {
+      "tool": "printings",
+      "episode": "032",
+      "step": 20,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1126
+    },
+    {
+      "tool": "show_table",
+      "episode": "032",
+      "step": 21,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1739
+    },
+    {
+      "tool": "show_table",
+      "episode": "032",
+      "step": 22,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7812
+    },
+    {
+      "tool": "find_tables",
+      "episode": "032",
+      "step": 128,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 6684
+    },
+    {
+      "tool": "printings",
+      "episode": "032",
+      "step": 129,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 991
+    },
+    {
+      "tool": "printings",
+      "episode": "032",
+      "step": 129,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1775
+    },
+    {
+      "tool": "find_tables",
+      "episode": "032",
+      "step": 131,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 3372
+    },
+    {
+      "tool": "find_tables",
+      "episode": "032",
+      "step": 132,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7915
+    },
+    {
+      "tool": "find_tables",
+      "episode": "032",
+      "step": 132,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7872
+    },
+    {
+      "tool": "find_tables",
+      "episode": "033",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1331
+    },
+    {
+      "tool": "find_tables",
+      "episode": "033",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 4290
+    },
+    {
+      "tool": "show_table",
+      "episode": "033",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7807
+    },
+    {
+      "tool": "show_table",
+      "episode": "033",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7797
+    },
+    {
+      "tool": "show_table",
+      "episode": "033",
+      "step": 6,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7033
+    },
+    {
+      "tool": "find_tables",
+      "episode": "034",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 6368
+    },
+    {
+      "tool": "find_tables",
+      "episode": "034",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 4285
+    },
+    {
+      "tool": "show_table",
+      "episode": "034",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7829
+    },
+    {
+      "tool": "show_table",
+      "episode": "034",
+      "step": 6,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7825
+    },
+    {
+      "tool": "show_table",
+      "episode": "034",
+      "step": 8,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7878
+    },
+    {
+      "tool": "find_tables",
+      "episode": "034",
+      "step": 13,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 3892
+    },
+    {
+      "tool": "find_tables",
+      "episode": "034",
+      "step": 14,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7571
+    },
+    {
+      "tool": "find_tables",
+      "episode": "034",
+      "step": 19,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7980
+    },
+    {
+      "tool": "show_table",
+      "episode": "034",
+      "step": 20,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7510
+    },
+    {
+      "tool": "show_table",
+      "episode": "034",
+      "step": 21,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1554
+    },
+    {
+      "tool": "show_table",
+      "episode": "034",
+      "step": 22,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7566
+    },
+    {
+      "tool": "show_table",
+      "episode": "034",
+      "step": 23,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7339
+    },
+    {
+      "tool": "show_table",
+      "episode": "034",
+      "step": 24,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7411
+    },
+    {
+      "tool": "show_table",
+      "episode": "034",
+      "step": 28,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7960
+    },
+    {
+      "tool": "show_table",
+      "episode": "034",
+      "step": 29,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7236
+    },
+    {
+      "tool": "find_tables",
+      "episode": "034",
+      "step": 32,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7824
+    },
+    {
+      "tool": "show_table",
+      "episode": "034",
+      "step": 33,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7391
+    },
+    {
+      "tool": "show_table",
+      "episode": "034",
+      "step": 34,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7156
+    },
+    {
+      "tool": "show_table",
+      "episode": "034",
+      "step": 35,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7531
+    },
+    {
+      "tool": "show_table",
+      "episode": "034",
+      "step": 36,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7379
+    },
+    {
+      "tool": "show_table",
+      "episode": "034",
+      "step": 37,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7259
+    },
+    {
+      "tool": "find_tables",
+      "episode": "034",
+      "step": 38,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7523
+    },
+    {
+      "tool": "find_tables",
+      "episode": "034",
+      "step": 39,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7712
+    },
+    {
+      "tool": "show_table",
+      "episode": "034",
+      "step": 40,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7434
+    },
+    {
+      "tool": "show_table",
+      "episode": "034",
+      "step": 41,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7561
+    },
+    {
+      "tool": "show_table",
+      "episode": "034",
+      "step": 42,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7495
+    },
+    {
+      "tool": "printings",
+      "episode": "034",
+      "step": 43,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 4513
+    },
+    {
+      "tool": "show_table",
+      "episode": "034",
+      "step": 44,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7812
+    },
+    {
+      "tool": "printings",
+      "episode": "034",
+      "step": 50,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 3948
+    },
+    {
+      "tool": "show_table",
+      "episode": "034",
+      "step": 51,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7642
+    },
+    {
+      "tool": "find_tables",
+      "episode": "034",
+      "step": 55,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7123
+    },
+    {
+      "tool": "find_tables",
+      "episode": "035",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7904
+    },
+    {
+      "tool": "find_tables",
+      "episode": "035",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7967
+    },
+    {
+      "tool": "find_tables",
+      "episode": "035",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7982
+    },
+    {
+      "tool": "find_tables",
+      "episode": "035",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7775
+    },
+    {
+      "tool": "show_table",
+      "episode": "035",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7839
+    },
+    {
+      "tool": "show_table",
+      "episode": "035",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 6844
+    },
+    {
+      "tool": "show_table",
+      "episode": "035",
+      "step": 6,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2489
+    },
+    {
+      "tool": "show_table",
+      "episode": "035",
+      "step": 6,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2909
+    },
+    {
+      "tool": "printings",
+      "episode": "035",
+      "step": 7,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7977
+    },
+    {
+      "tool": "show_table",
+      "episode": "035",
+      "step": 8,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 5215
+    },
+    {
+      "tool": "show_table",
+      "episode": "035",
+      "step": 8,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 5118
+    },
+    {
+      "tool": "find_tables",
+      "episode": "036",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7797
+    },
+    {
+      "tool": "find_tables",
+      "episode": "036",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7984
+    },
+    {
+      "tool": "find_tables",
+      "episode": "036",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7999
+    },
+    {
+      "tool": "show_table",
+      "episode": "036",
+      "step": 5,
+      "exit_before": 2,
+      "exit_after": 2,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 0
+    },
+    {
+      "tool": "find_tables",
+      "episode": "036",
+      "step": 6,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 495
+    },
+    {
+      "tool": "show_table",
+      "episode": "036",
+      "step": 7,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 3809
+    },
+    {
+      "tool": "printings",
+      "episode": "036",
+      "step": 10,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 289
+    },
+    {
+      "tool": "printings",
+      "episode": "036",
+      "step": 10,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 4476
+    },
+    {
+      "tool": "find_tables",
+      "episode": "036",
+      "step": 11,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 788
+    },
+    {
+      "tool": "show_table",
+      "episode": "036",
+      "step": 12,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7428
+    },
+    {
+      "tool": "show_table",
+      "episode": "036",
+      "step": 13,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1819
+    },
+    {
+      "tool": "show_table",
+      "episode": "036",
+      "step": 14,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7096
+    },
+    {
+      "tool": "show_table",
+      "episode": "036",
+      "step": 15,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1719
+    },
+    {
+      "tool": "printings",
+      "episode": "036",
+      "step": 16,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1087
+    },
+    {
+      "tool": "find_tables",
+      "episode": "036",
+      "step": 22,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 3360
+    },
+    {
+      "tool": "show_table",
+      "episode": "036",
+      "step": 23,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1354
+    },
+    {
+      "tool": "printings",
+      "episode": "036",
+      "step": 25,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1439
+    },
+    {
+      "tool": "printings",
+      "episode": "036",
+      "step": 25,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 637
+    },
+    {
+      "tool": "find_tables",
+      "episode": "037",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7951
+    },
+    {
+      "tool": "show_table",
+      "episode": "037",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7334
+    },
+    {
+      "tool": "find_tables",
+      "episode": "037",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7072
+    },
+    {
+      "tool": "show_table",
+      "episode": "037",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7384
+    },
+    {
+      "tool": "find_tables",
+      "episode": "037",
+      "step": 6,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7831
+    },
+    {
+      "tool": "find_tables",
+      "episode": "037",
+      "step": 7,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7927
+    },
+    {
+      "tool": "find_tables",
+      "episode": "037",
+      "step": 8,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2076
+    },
+    {
+      "tool": "printings",
+      "episode": "037",
+      "step": 12,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2421
+    },
+    {
+      "tool": "printings",
+      "episode": "037",
+      "step": 12,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2660
+    },
+    {
+      "tool": "find_tables",
+      "episode": "038",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7916
+    },
+    {
+      "tool": "find_tables",
+      "episode": "038",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1619
+    },
+    {
+      "tool": "show_table",
+      "episode": "038",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7136
+    },
+    {
+      "tool": "show_table",
+      "episode": "038",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2038
+    },
+    {
+      "tool": "printings",
+      "episode": "038",
+      "step": 6,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1688
+    },
+    {
+      "tool": "printings",
+      "episode": "038",
+      "step": 7,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2136
+    },
+    {
+      "tool": "find_tables",
+      "episode": "039",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7883
+    },
+    {
+      "tool": "show_table",
+      "episode": "039",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2180
+    },
+    {
+      "tool": "printings",
+      "episode": "039",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1033
+    },
+    {
+      "tool": "printings",
+      "episode": "039",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2613
+    },
+    {
+      "tool": "printings",
+      "episode": "039",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 3747
+    },
+    {
+      "tool": "find_tables",
+      "episode": "039",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7955
+    },
+    {
+      "tool": "find_tables",
+      "episode": "039",
+      "step": 10,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7820
+    },
+    {
+      "tool": "find_tables",
+      "episode": "039",
+      "step": 11,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 339
+    },
+    {
+      "tool": "find_tables",
+      "episode": "039",
+      "step": 11,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7159
+    },
+    {
+      "tool": "find_tables",
+      "episode": "039",
+      "step": 15,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1651
+    },
+    {
+      "tool": "find_tables",
+      "episode": "040",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7966
+    },
+    {
+      "tool": "find_tables",
+      "episode": "040",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7313
+    },
+    {
+      "tool": "show_table",
+      "episode": "040",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7867
+    },
+    {
+      "tool": "show_table",
+      "episode": "040",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2599
+    },
+    {
+      "tool": "find_tables",
+      "episode": "040",
+      "step": 6,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7355
+    },
+    {
+      "tool": "printings",
+      "episode": "040",
+      "step": 8,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 646
+    },
+    {
+      "tool": "printings",
+      "episode": "040",
+      "step": 8,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 623
+    },
+    {
+      "tool": "printings",
+      "episode": "040",
+      "step": 8,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 851
+    },
+    {
+      "tool": "printings",
+      "episode": "040",
+      "step": 8,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 645
+    },
+    {
+      "tool": "show_table",
+      "episode": "040",
+      "step": 9,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2112
+    },
+    {
+      "tool": "find_tables",
+      "episode": "040",
+      "step": 11,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7996
+    },
+    {
+      "tool": "find_tables",
+      "episode": "040",
+      "step": 14,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7138
+    },
+    {
+      "tool": "show_table",
+      "episode": "040",
+      "step": 32,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1927
+    },
+    {
+      "tool": "printings",
+      "episode": "040",
+      "step": 35,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 922
+    },
+    {
+      "tool": "printings",
+      "episode": "040",
+      "step": 35,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 884
+    },
+    {
+      "tool": "find_tables",
+      "episode": "041",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7995
+    },
+    {
+      "tool": "find_tables",
+      "episode": "041",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1411
+    },
+    {
+      "tool": "find_tables",
+      "episode": "041",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1747
+    },
+    {
+      "tool": "find_tables",
+      "episode": "041",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7671
+    },
+    {
+      "tool": "show_table",
+      "episode": "041",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7250
+    },
+    {
+      "tool": "show_table",
+      "episode": "041",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7973
+    },
+    {
+      "tool": "show_table",
+      "episode": "041",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7973
+    },
+    {
+      "tool": "show_table",
+      "episode": "041",
+      "step": 6,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7917
+    },
+    {
+      "tool": "show_table",
+      "episode": "041",
+      "step": 7,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2579
+    },
+    {
+      "tool": "show_table",
+      "episode": "041",
+      "step": 7,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 4393
+    },
+    {
+      "tool": "printings",
+      "episode": "041",
+      "step": 12,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 450
+    },
+    {
+      "tool": "find_tables",
+      "episode": "042",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7825
+    },
+    {
+      "tool": "find_tables",
+      "episode": "042",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7530
+    },
+    {
+      "tool": "find_tables",
+      "episode": "042",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7957
+    },
+    {
+      "tool": "show_table",
+      "episode": "042",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 6037
+    },
+    {
+      "tool": "show_table",
+      "episode": "042",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7903
+    },
+    {
+      "tool": "printings",
+      "episode": "042",
+      "step": 6,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1681
+    },
+    {
+      "tool": "printings",
+      "episode": "042",
+      "step": 6,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7977
+    },
+    {
+      "tool": "find_tables",
+      "episode": "043",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7893
+    },
+    {
+      "tool": "find_tables",
+      "episode": "043",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7403
+    },
+    {
+      "tool": "find_tables",
+      "episode": "043",
+      "step": 6,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7998
+    },
+    {
+      "tool": "show_table",
+      "episode": "043",
+      "step": 8,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1803
+    },
+    {
+      "tool": "show_table",
+      "episode": "043",
+      "step": 9,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7473
+    },
+    {
+      "tool": "show_table",
+      "episode": "043",
+      "step": 10,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 5740
+    },
+    {
+      "tool": "find_tables",
+      "episode": "044",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7890
+    },
+    {
+      "tool": "show_table",
+      "episode": "044",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1426
+    },
+    {
+      "tool": "show_table",
+      "episode": "044",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7898
+    },
+    {
+      "tool": "show_table",
+      "episode": "044",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7541
+    },
+    {
+      "tool": "show_table",
+      "episode": "044",
+      "step": 6,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2498
+    },
+    {
+      "tool": "printings",
+      "episode": "044",
+      "step": 7,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7798
+    },
+    {
+      "tool": "printings",
+      "episode": "044",
+      "step": 8,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7963
+    },
+    {
+      "tool": "printings",
+      "episode": "044",
+      "step": 8,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2338
+    },
+    {
+      "tool": "printings",
+      "episode": "044",
+      "step": 8,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1582
+    },
+    {
+      "tool": "find_tables",
+      "episode": "045",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7851
+    },
+    {
+      "tool": "find_tables",
+      "episode": "045",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 5561
+    },
+    {
+      "tool": "find_tables",
+      "episode": "045",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 520
+    },
+    {
+      "tool": "find_tables",
+      "episode": "045",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1141
+    },
+    {
+      "tool": "show_table",
+      "episode": "045",
+      "step": 10,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7865
+    },
+    {
+      "tool": "find_tables",
+      "episode": "046",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2206
+    },
+    {
+      "tool": "find_tables",
+      "episode": "046",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7826
+    },
+    {
+      "tool": "find_tables",
+      "episode": "046",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7150
+    },
+    {
+      "tool": "find_tables",
+      "episode": "046",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7804
+    },
+    {
+      "tool": "find_tables",
+      "episode": "046",
+      "step": 7,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7785
+    },
+    {
+      "tool": "show_table",
+      "episode": "046",
+      "step": 8,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1627
+    },
+    {
+      "tool": "find_tables",
+      "episode": "046",
+      "step": 9,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7910
+    },
+    {
+      "tool": "show_table",
+      "episode": "046",
+      "step": 10,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7820
+    },
+    {
+      "tool": "find_tables",
+      "episode": "046",
+      "step": 11,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 3016
+    },
+    {
+      "tool": "find_tables",
+      "episode": "046",
+      "step": 12,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 3005
+    },
+    {
+      "tool": "show_table",
+      "episode": "046",
+      "step": 15,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1192
+    },
+    {
+      "tool": "printings",
+      "episode": "046",
+      "step": 18,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 616
+    },
+    {
+      "tool": "printings",
+      "episode": "046",
+      "step": 18,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 638
+    },
+    {
+      "tool": "find_tables",
+      "episode": "046",
+      "step": 19,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7205
+    },
+    {
+      "tool": "printings",
+      "episode": "046",
+      "step": 20,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 605
+    },
+    {
+      "tool": "show_table",
+      "episode": "046",
+      "step": 21,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1768
+    },
+    {
+      "tool": "show_table",
+      "episode": "046",
+      "step": 22,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1345
+    },
+    {
+      "tool": "show_table",
+      "episode": "046",
+      "step": 22,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1345
+    },
+    {
+      "tool": "show_table",
+      "episode": "046",
+      "step": 23,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1167
+    },
+    {
+      "tool": "printings",
+      "episode": "046",
+      "step": 25,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 4263
+    },
+    {
+      "tool": "printings",
+      "episode": "046",
+      "step": 26,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 612
+    },
+    {
+      "tool": "printings",
+      "episode": "046",
+      "step": 27,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1512
+    },
+    {
+      "tool": "find_tables",
+      "episode": "047",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7875
+    },
+    {
+      "tool": "find_tables",
+      "episode": "047",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7847
+    },
+    {
+      "tool": "find_tables",
+      "episode": "047",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 4015
+    },
+    {
+      "tool": "find_tables",
+      "episode": "047",
+      "step": 7,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7584
+    },
+    {
+      "tool": "find_tables",
+      "episode": "047",
+      "step": 8,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 4916
+    },
+    {
+      "tool": "find_tables",
+      "episode": "047",
+      "step": 11,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 4000
+    },
+    {
+      "tool": "show_table",
+      "episode": "047",
+      "step": 12,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7511
+    },
+    {
+      "tool": "show_table",
+      "episode": "047",
+      "step": 13,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7743
+    },
+    {
+      "tool": "show_table",
+      "episode": "047",
+      "step": 14,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 3667
+    },
+    {
+      "tool": "show_table",
+      "episode": "047",
+      "step": 15,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 3174
+    },
+    {
+      "tool": "show_table",
+      "episode": "047",
+      "step": 21,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2920
+    },
+    {
+      "tool": "printings",
+      "episode": "047",
+      "step": 28,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2955
+    },
+    {
+      "tool": "printings",
+      "episode": "047",
+      "step": 28,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2127
+    },
+    {
+      "tool": "printings",
+      "episode": "047",
+      "step": 28,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1202
+    },
+    {
+      "tool": "printings",
+      "episode": "047",
+      "step": 28,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1259
+    },
+    {
+      "tool": "printings",
+      "episode": "047",
+      "step": 34,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 457
+    },
+    {
+      "tool": "printings",
+      "episode": "047",
+      "step": 34,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 499
+    },
+    {
+      "tool": "printings",
+      "episode": "047",
+      "step": 35,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 5378
+    },
+    {
+      "tool": "find_tables",
+      "episode": "047",
+      "step": 36,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7314
+    },
+    {
+      "tool": "printings",
+      "episode": "047",
+      "step": 37,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2354
+    },
+    {
+      "tool": "printings",
+      "episode": "047",
+      "step": 37,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1054
+    },
+    {
+      "tool": "find_tables",
+      "episode": "048",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7872
+    },
+    {
+      "tool": "find_tables",
+      "episode": "048",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7928
+    },
+    {
+      "tool": "find_tables",
+      "episode": "048",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7843
+    },
+    {
+      "tool": "find_tables",
+      "episode": "048",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1339
+    },
+    {
+      "tool": "find_tables",
+      "episode": "048",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7981
+    },
+    {
+      "tool": "show_table",
+      "episode": "048",
+      "step": 8,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 1133
+    },
+    {
+      "tool": "find_tables",
+      "episode": "049",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7906
+    },
+    {
+      "tool": "show_table",
+      "episode": "049",
+      "step": 3,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2542
+    },
+    {
+      "tool": "show_table",
+      "episode": "049",
+      "step": 4,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 2542
+    },
+    {
+      "tool": "printings",
+      "episode": "049",
+      "step": 5,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7285
+    },
+    {
+      "tool": "printings",
+      "episode": "049",
+      "step": 6,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 7998
+    },
+    {
+      "tool": "find_tables",
+      "episode": "050",
+      "step": 2,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 3243
+    },
+    {
+      "tool": "find_tables",
+      "episode": "050",
+      "step": 7,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 635
+    },
+    {
+      "tool": "find_tables",
+      "episode": "050",
+      "step": 9,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 5125
+    },
+    {
+      "tool": "show_table",
+      "episode": "050",
+      "step": 13,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 4479
+    },
+    {
+      "tool": "find_tables",
+      "episode": "050",
+      "step": 87,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 635
+    },
+    {
+      "tool": "find_tables",
+      "episode": "050",
+      "step": 196,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 3238
+    },
+    {
+      "tool": "find_tables",
+      "episode": "050",
+      "step": 196,
+      "exit_before": 0,
+      "exit_after": 0,
+      "timed_out": false,
+      "changed": false,
+      "stdout_bytes": 3377
+    }
+  ],
+  "utc": "2026-09-29T11:06:56.947396+00:00"
+}

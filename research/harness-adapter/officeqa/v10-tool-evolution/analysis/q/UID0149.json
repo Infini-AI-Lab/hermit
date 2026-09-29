@@ -1,0 +1,74 @@
+{
+  "task_id": "UID0149",
+  "ordinal": 35,
+  "issue47": false,
+  "correct": {"a": 0, "b": 0, "c": 1, "opus": 1},
+  "question_type": "threshold count of investor categories holding a named security type (acronym 'TABs' = tax anticipation bills) on two Treasury Survey of Ownership dates, summed over two years",
+  "decisive_step": "Reading 'Treasury TABs' literally as tax anticipation bills and therefore using the 'Tax anticipation:' sub-block of Section I Table 3 (Interest-Bearing Public Marketable Securities by Issues) in the March 1962 and March 1963 bulletins (the Jan-31 surveys), summing the TAB issues per grouped category (life+fire insurance, general+pension state/local), instead of the all-bills 'Treasury bills' row of Table 2 (Summary). The reference made this call at worklog.md Step 1 (lines 7-13) and located the rows at Step 3 (treasury_bulletin_1962_03.txt:3450-3452) and Step 4 (treasury_bulletin_1963_03.txt:3762-3763). A secondary trap is the 1963 Table 3 column order (USG+FR next-to-last, 'all other' last) which the reference pinned by matching Table 3's 'Total Treasury bills' row to Table 2's 'Treasury bills' row (worklog Step 4; review.md check 3).",
+  "cells": {
+    "a": {
+      "correct": 0,
+      "path_summary": "Found the Jan-31 surveys in the March 1962/1963 issues with find_tables (a[10]) and opened Table 2 Summary (a[13], a[15], a[20]). From the first THINK (a[4]) it treated 'TABs' as a probable typo for 'Treasury bills', took the all-bills row of Table 2 for both years, grouped insurance and state/local sub-columns into the 7 categories, ran printings on one cell (a[18]) and counted with calc (a[25]). A corpus grep for the literal acronym limited to the 1962-63 files came back empty (a[23]) and it took that as confirmation of the typo reading (a[24]). It never opened Table 3 (by issues), where the 'Tax anticipation:' sub-block lives.",
+      "first_divergence": {
+        "stage": "INTERPRETATION",
+        "where": "a[4] (guess), sealed at a[23]-a[24]",
+        "what_it_did": "Guessed at a[4] that TABs meant Treasury bills (or bonds) before seeing any table; at a[21] listed other expansions but never 'tax anticipation'; at a[23] grepped only the bare acronym in the two target-year files, got nothing, and at a[24] concluded the question meant the all-bills row. Counted categories on the Table 2 'Treasury bills' row, which puts most categories over the threshold in both years, so the count is several times the reference (>25pct).",
+        "what_a_right_cell_or_the_reference_did": "c[10] expanded TABs = tax anticipation bills, opened Table 3 by issues, found the 'Tax anticipation:' rows under Treasury bills (c[21], c[23], c[25]) and summed those issues per category (c[47]); the reference did the same at worklog.md Step 1 and Steps 3-4."
+      },
+      "saw_correct_evidence": "no (it only opened Table 2 Summary in both years; the 'Tax anticipation:' rows of Table 3 never appeared in its outputs; it did see the Table 3 group listed by find_tables at a[10])",
+      "tool_use": {"find_tables": 4, "show_table": 6, "printings": 1, "calc": 1, "other_shell": 2, "friction": "a[6], a[8] find_tables OUTPUT CUT at 8000 bytes (broad queries); a[13] --long page ended after 4 of 22 rows for the 1963 table; a[20] --from-row 1 skipped row 0 (the very 'Treasury bills' row it wanted, a[21]); a[18] printings on a monthly survey table listed every month's survey grouped by column-label text and was CUT, useless because a Jan-31 survey is printed once; a[23] rg for the bare acronym restricted to 1962-63 files returned nothing. Also a[15]: show_table's 1963 Table 2 header has the last two column labels swapped (c10 labelled 'Held by all other investors', c11 labelled USG+FR) relative to 1962; a used c11 as USG+FR without noticing (harmless on the all-bills row)."},
+      "text_use": "yes: 'run printings ... take the value printed by the latest issue' (a[16]-a[18]); 'Compute every final number with calc' (a[25]); 'list the whole row (show_table ... --long --grep)' (a[15])",
+      "harness_use": "n/a"
+    },
+    "b": {
+      "correct": 0,
+      "path_summary": "Same greedy path as a: located the March 1962/1963 survey tables (b[11], b[13]), showed Table 2 Summary with --stitch (b[15]), decided TABs was a misreading of 'Treasury bills' (b[9], b[16]), grouped the sub-columns into 7 categories and counted the all-bills row in its head (b[16]) with no calc call. A sed on a relative corpus filename silently printed nothing and an rg for 'Treasury bills' (b[18]) returned narrative and index lines that added nothing. Submitted once (b[21]); the gate recorded it with no findings.",
+      "first_divergence": {
+        "stage": "INTERPRETATION",
+        "where": "b[9], sealed at b[16] and b[19]",
+        "what_it_did": "At b[9] it tried expansions ('Treasury adjustable bonds', 'tax and loss bonds') and settled on 'TABs = Treasury bills misread'; b[16] counted categories on the Table 2 'Treasury bills' row; b[19] noted Table 3 has a 'Total Treasury bills' row with the same values and took that as confirmation. Same count as a, several times the reference (>25pct).",
+        "what_a_right_cell_or_the_reference_did": "c expanded the acronym to tax anticipation bills (c[10]) and used the 'Tax anticipation:' sub-block of Table 3 (c[23]-c[26], c[47]); reference worklog.md Step 1 and Step 3."
+      },
+      "saw_correct_evidence": "no (Table 2 only; find_tables at b[13] listed the Table 3 group but it was never opened; the b[18] rg output shown in the digest included a narrative line about a 'tax anticipation series' bill offering, which it did not pick up)",
+      "tool_use": {"find_tables": 7, "show_table": 2, "printings": 0, "calc": 0, "other_shell": 2, "friction": "b[6], b[8] broad find_tables queries produced noisy output ('Output weird', b[9]); b[15] --stitch page was cut in the middle (8000-byte page) though the needed rows were visible; b[18] sed on a bare filename (not the corpus path) printed nothing, silently; no calc was run at all, the count was done mentally at b[16]."},
+      "text_use": "none (b's AGENTS.md had only the submit note)",
+      "harness_use": "one submit (b[21]), status accepted, findings [] (api/checks/001.json). No loop notes, no compaction. recompute_final did not fire although no calc produced the submitted count. Nothing changed the answer."
+    },
+    "c": {
+      "correct": 1,
+      "path_summary": "At c[10] it expanded TABs = tax anticipation bills before touching a table. find_tables (c[11]) surfaced only the continuation part of Table 3, so c[13]-c[17] paged the wrong part; it recovered by rg for 'Tax anticipation' in the corpus files (c[21]) and showed Table 3 --raw from its true start in both years (c[23], c[25]). It worked through the garbled Table 3 headers (c[24], c[28], c[30]) by cross-footing and by reading the clean continuation-part header (c[49]-c[51]), confirmed 'TAB' is used as a label in 1974-75 quotation tables (c[33]), computed both readings (all-bills vs tax-anticipation) with calc, caught its own zip bug (c[45]-c[47]), and chose the tax-anticipation reading, keeping the March issue despite the printings advice because the question names March (c[44], c[53]).",
+      "first_divergence": {"stage": "NONE", "where": "", "what_it_did": "", "what_a_right_cell_or_the_reference_did": ""},
+      "saw_correct_evidence": "yes (c[21] rg hit on 'Tax anticipation:' inside Table 3 of both March issues; c[23]/c[25] raw rows; c[49]-c[51] continuation header pinning USG+FR as next-to-last column)",
+      "tool_use": {"find_tables": 8, "show_table": 12, "printings": 1, "calc": 2, "other_shell": 6, "friction": "c[11] find_tables returned only the '(Continued)' part of Table 3, so c[13] opened a part without the TAB rows; c[15] show_table --grep TAB matched 'markeTABle' in 'Total public marketable securities' (plain case-insensitive substring), a misleading hit; c[19] rg on bare filenames failed (No such file) until the corpus path was spelled out at c[21]; c[23] --raw page cut at 8000 bytes; Table 3 header is garbled in 1962 (c[24]: 'State and local governments > 487 corporations') and has a spurious extra label in 1963 (c[28], c[30]); c[41] printings --row 'Mar. 1963' returned the April issue (a Feb-28 survey) because the row label is a security issue, not a period, which briefly suggested a 'later printing' (c[42]) until c[44] rejected it; c[45] own calc bug fixed at c[47]."},
+      "text_use": "yes: 'run printings ... latest issue' considered at c[34], c[41]-c[44], c[53] and deliberately overridden because the question names March; 'Compute every final number with calc' (c[45], c[47]); 'Alternatives: when two candidate values fit ... weigh them against the question's exact wording' (c[26], c[48])",
+      "harness_use": "n/a"
+    }
+  },
+  "fix": {
+    "smallest_change": {
+      "level": "TEXT",
+      "change": "Add to the OfficeQA table notes: 'Security acronyms in a question are literal names, not typos. TABs = tax anticipation bills, a series of Treasury bills that in the Survey of Ownership Table 3 (by issues) form their own \"Tax anticipation:\" sub-block under Treasury bills; sum that block's issues per holder. Before you decide that a term in the question is a typo, rg its expansion (e.g. \"Tax anticipation\") and the bare acronym across the whole corpus, not only the target years, and open the by-issues table, not just the summary.'",
+      "would_have_fixed": ["a", "b"],
+      "could_hurt_right_cells": "no: it only adds a glossary entry and a lookup order; c already did exactly this",
+      "generality": "officeqa_specific (the glossary line); the 'expand and grep corpus-wide before calling it a typo' clause is document_qa_general",
+      "confidence": "medium"
+    },
+    "alternatives": [
+      {"level": "TOOL", "change": "find_tables: when a query token matches no table title, header or row label (here 'TABs'), append a line 'unmatched token \"TABs\": corpus text hits: treasury_bulletin_1975_04.txt:4892 \"... TAB | 12/3/74 ...\" (quotation table, next to \"Tax anticipation bills\"); treasury_bulletin_1962_03.txt:3450 \"| Tax anticipation: |\" (Table 3 row)' i.e. a corpus-wide grep of the bare token plus the top row-label hits sharing its letters. This is what c obtained by hand at c[21]/c[33] and a never obtained because its grep was year-limited.", "why_not_first": "It surfaces the evidence but still relies on the model to connect 'TAB' to 'Tax anticipation'; a glossary line does that directly and is cheaper."},
+      {"level": "TOOL", "change": "show_table --grep should be word-anchored (or say 'substring, case-insensitive' in its output): c[15] --grep TAB matched 'marketable' and printed only the total row, which made c believe the part had no TAB rows.", "why_not_first": "Friction, not the cause of a/b's error."},
+      {"level": "TOOL", "change": "find_tables should list the first part of a multi-part table whenever any part matches (c[11] returned only the '(Continued)' part of Table 3, costing c[13]-c[19]).", "why_not_first": "Friction only; a and b never searched Table 3."},
+      {"level": "CONTROL", "change": "Submit-time lexical check: if a distinctive noun/acronym of the question (TABs) appears in no cited row or block label and the cited label is a broader category (Treasury bills), return the finding 'The question says \"Treasury TABs\"; your cited row is \"Treasury bills\". Is TABs a sub-type? rg the corpus for its expansion before keeping.' No offer computable.", "why_not_first": "b's submit carried no citation, so the rule would have needed a citation contract first; and it can only ask, not supply the meaning."}
+    ],
+    "why_not_text": "n/a (fix is TEXT). Note the limit of text here: the v8 prompt arm produced the right expansion itself and still chose the all-bills row, because its lesson stressed the 'Total Treasury Bills' row. The proposed sentence therefore names the sub-block explicitly and forbids the typo reading until the expansion has been grepped.",
+    "irreducible": "no; the question is unambiguous once the acronym is expanded, and the reference's alternative reading (March-31 surveys in the May issues) is ruled out by the question naming the January surveys"
+  },
+  "text_verdict": [
+    "kept-and-helped: 'Compute every final number with calc' (a[25]; c[45]/c[47]; b had no text and computed mentally)",
+    "kept (wasted): 'Bulletins revise earlier numbers ... run printings' (a[18] one CUT call; c[41] returned a different survey's issue and briefly misled c[42] before c[44] rejected it; the Jan-31 survey is printed once)",
+    "ignored: 'Alternatives: when two candidate values fit ... weigh them against the question's exact wording' (a[21] listed readings of TABs but dismissed them after one empty grep without opening Table 3; c applied it at c[26]/c[48])",
+    "misled (weakly): 'Several tables in one issue can look alike ... prefer the table whose title and column headers match the question's wording' (the question's 'interest-bearing marketable public debt securities' matches Table 2 Summary's title; the needed rows are in Table 3 by issues)",
+    "kept: 'For a sum over the columns of one row, list the whole row (show_table ... --long --grep)' (a[15])",
+    "irrelevant: 'Loops', 'Answer count and format', 'Percent or fraction', 'Match the period exactly', 'show_table marks rows it repaired' (the identity FAILS note at 1962_03:3411 was not on a used row)"
+  ],
+  "notes": "Two structural tool issues visible here. (1) TSO Table 3 headers are OCR-garbled in both years: 1962_03 show_table labels c7 as 'State and local governments > 487 corporations' (a[13], c[24]); 1963_03 Table 3 has one more header label than value columns (c[28]-c[30]) and 1963_03 Table 2 shows the USG+FR and 'all other' labels swapped (a[15]). show_table already emits a 'spurious extra label' note on other tables (seen in 038 c[26]); here it did not, and none of the cells got a label-independent anchor from the tool. A show_table note of the form 'header has 11 labels for 10 value columns; sibling table at :3717 has an identical row (Treasury bills = Total Treasury bills) with order ... ' would remove the trap that caught the v8 none arm. (2) printings keys rows by label, so for by-issue tables (row label = a security, e.g. 'Mar. 1963') it mixes surveys of different as-of dates (c[41]-c[44]); printings should print the as-of date per printing and let --as-of pin it. Also b's gate: recompute_final did not fire on a mentally computed count (no calc at all), the same gap pilot-1 noted."
+}

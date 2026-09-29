@@ -1,0 +1,144 @@
+{
+ "task_id": "UID0224",
+ "ordinal": 3,
+ "issue47": false,
+ "correct": {
+  "a": 1,
+  "b": 1,
+  "b2": 1,
+  "c": 1,
+  "opus": 1
+ },
+ "question_type": "mean of three monthly values from one column of a flattened 3-panel monthly-series table (Treasury/corporate bond yields), across three year blocks",
+ "decisive_step": "Read the Monthly-series 'High-grade corporate bonds' column of 'Average Yields of Long-Term Treasury and Corporate Bonds' for Dec 1942, Dec 1943 and Nov 1944 with each month anchored to the right year block (the table is three side-by-side year panels that OCR flattens), and keep the printed table value for Nov 1944 rather than the footnote's old-composition figure. Reference: worklog.md Step 3 (treasury_bulletin_1945_01.txt:4044, :4038, :4049) and Step 5 (1945_03.txt:3647, footnote :3689); vintage does not matter because the corporate column is identical in every printing (solution.json decisions[2]).",
+ "cells": {
+  "a": {
+   "correct": 1,
+   "path_summary": "find_tables on the question nouns surfaced the table group a[5]; a[8] tried show_table --grep with '1942-Dec' style keys (0 rows, the period key is '1942-12'), a[10] paged the 1948_02 printing, then a[12] ran printings for the three cells (per the AGENTS.md printings item, a[11]). The first printings output was cut at 8000 bytes before its SUMMARY, so a[14] re-ran the three calls piped through tail to read the 'latest printing' lines, then a[17] computed the mean with calc and answered.",
+   "first_divergence": {
+    "stage": "NONE",
+    "where": "",
+    "what_it_did": "",
+    "what_a_right_cell_or_the_reference_did": ""
+   },
+   "saw_correct_evidence": "yes",
+   "tool_use": {
+    "find_tables": 1,
+    "show_table": 4,
+    "printings": 6,
+    "calc": 1,
+    "other_shell": 1,
+    "friction": "a[8]: show_table --grep '1942-Dec' matched nothing (grep matches the filled period '1942-12' or the raw label 'Dec', not a month-name form). a[12]: printings --col 'High-grade corporate bonds' also matched the daily/weekly rows of the same table (72 cells, 60 listed), so the 8000-byte page was CUT before the SUMMARY of the first query; a[14] repeated all three calls with tail. a[13]: the header 'searched in issues 1942..1945' (printings' default period-year..+3 window) puzzled it briefly."
+   },
+   "text_use": "yes: a[11] 'Need use printings per instructions' (Bulletins revise earlier numbers... printings); a[15]-[17] 'Compute every final number with calc'",
+   "harness_use": "n/a"
+  },
+  "b": {
+   "correct": 1,
+   "path_summary": "find_tables --all b[5] (page cut at 8000 bytes, but the group was visible), then went straight to printings for each of the three months b[8],[10],[11] using tail on the last two, read the 'latest printing' SUMMARY lines, computed the mean in its head b[12] and submitted b[13]; recorded with no finding.",
+   "first_divergence": {
+    "stage": "NONE",
+    "where": "",
+    "what_it_did": "",
+    "what_a_right_cell_or_the_reference_did": ""
+   },
+   "saw_correct_evidence": "yes",
+   "tool_use": {
+    "find_tables": 1,
+    "show_table": 0,
+    "printings": 3,
+    "calc": 0,
+    "other_shell": 1,
+    "friction": "b[5] find_tables --all output CUT at 8000 bytes; b[8] printings listing cut before the SUMMARY (72 daily/weekly/monthly cells matched), so b[10],[11] piped through tail. b[9] noticed a stray cell in the 1943_10 printing under the same period label but a different column slot (the neighbouring year panel's row, mis-anchored by the parser); it was not in the SUMMARY's majority group so it caused no harm. No calc run: the mean was done mentally b[12]."
+   },
+   "text_use": "none (no advice text in b)",
+   "harness_use": "one submit, recorded at once (all 10 rules silent, including recompute_final although no calc was ever run - the rule does not fire when there is no calc output at all). No loop notes, no offers."
+  },
+  "b2": {
+   "correct": 1,
+   "path_summary": "find_tables b2[4], show_table --grep '1942-12' on the 1948_02 printing b2[6] (worked: 3 cells of the Dec 1942 row), then printings for the three months b2[8],[10],[11] and read the latest-printing SUMMARY lines; calc mean b2[13]; submit b2[15], recorded with no finding.",
+   "first_divergence": {
+    "stage": "NONE",
+    "where": "",
+    "what_it_did": "",
+    "what_a_right_cell_or_the_reference_did": ""
+   },
+   "saw_correct_evidence": "yes",
+   "tool_use": {
+    "find_tables": 1,
+    "show_table": 1,
+    "printings": 3,
+    "calc": 1,
+    "other_shell": 1,
+    "friction": "b2[8],[10]: printings output CUT at 8000 bytes before the full SUMMARY (daily rows flood the listing); b2[9] '108 parts searched 1942..1945, but summary only 8 printings?' - the default issue window and the flood of sub-monthly rows are confusing but did not mislead."
+   },
+   "text_use": "yes: b2[5] latest-printing item ('need printings across issues'); b2[12] 'Need calc' (Compute every final number with calc)",
+   "harness_use": "one submit, recorded (5 rules silent). No loop notes, no offers."
+  },
+  "c": {
+   "correct": 1,
+   "path_summary": "A long find_tables query returned 0 groups c[4]; c[6] with fewer words found the group. c[8] show_table --grep with a regex alternation ('1942-12\\|1943-12\\|1944-11') matched nothing, c[10] paged the table plainly, then c[12],[14] ran printings for the three months (tail on the last two), c[16] calc mean, answered c[18].",
+   "first_divergence": {
+    "stage": "NONE",
+    "where": "",
+    "what_it_did": "",
+    "what_a_right_cell_or_the_reference_did": ""
+   },
+   "saw_correct_evidence": "yes",
+   "tool_use": {
+    "find_tables": 3,
+    "show_table": 2,
+    "printings": 3,
+    "calc": 1,
+    "other_shell": 1,
+    "friction": "c[4]: 6-word find_tables query -> 0 groups (all-tokens match), one retry. c[8]: --grep is a substring, not a regex, so the '\\|' alternation matched 0 rows. c[12]: printings page cut before the SUMMARY; c[15] also noticed the mis-anchored stray cell in the 1943_10 printing ('isolated due row shift') and ignored it."
+   },
+   "text_use": "yes: c[11] 'Need latest printings of each cell. printings command'; c[16]-[17] calc then round as asked",
+   "harness_use": "n/a"
+  }
+ },
+ "fix": {
+  "smallest_change": {
+   "level": "NONE",
+   "change": "No correctness change needed: all four cells read the same three cells and the corporate column is identical in every printing (solution.json decisions[2]). The printings SUMMARY ('N printings, 1 distinct values - same in all printings', with first/latest issue) was the decisive tool output for every cell.",
+   "would_have_fixed": [],
+   "could_hurt_right_cells": "no",
+   "generality": "officeqa_specific",
+   "confidence": "high"
+  },
+  "alternatives": [
+   {
+    "level": "TOOL",
+    "change": "printings: print the SUMMARY block first (or reserve the last ~1500 bytes of the page for it) so a listing flooded by daily/weekly rows cannot cut it. Every cell here lost one round to '... OUTPUT CUT at 8000 bytes' before the SUMMARY (a[12]->[14], b[8]->[10], b2[8], c[12]->[14]). Extra line the model would have seen at the top: 'SUMMARY (per column & period ...)' followed by the '[1942-12] ... latest printing 1944_02 (treasury_bulletin_1944_02.txt:3370)' lines.",
+    "why_not_first": "efficiency only; no cell was wrong"
+   },
+   {
+    "level": "TOOL",
+    "change": "printings --row <YYYY-MM>: match only rows whose filled period is exactly that month unless --all-periods is given (today a month key also matches the daily rows '1942-12-05' etc. of the same table, 72 cells for one month here). The listing would have shown ~8 monthly cells and fitted in one page.",
+    "why_not_first": "same efficiency point as above; combine with the SUMMARY-first change"
+   },
+   {
+    "level": "TOOL",
+    "change": "show_table --grep: also accept a month-name form of the period ('1942-Dec', 'Dec 1942') and say in the 0-row message that grep is a plain substring over period/label/section (a[8], c[8] both got 'page rows 0-0 of 0' with no hint). Extra line: '0 rows: --grep is a substring of the filled period (1942-12), the raw label or the section; not a regex'.",
+    "why_not_first": "cost one round in a and c; no correctness effect"
+   },
+   {
+    "level": "TOOL",
+    "change": "printings header: state the default issue window explicitly, e.g. 'searched issues 1942..1945 (default: period year..+3; --years widens)'. a[13] and b2[9] both paused on '108 table parts searched in issues 1942..1945'. Here the 1948_02 printing (which b2[6] showed also carries the Dec 1942 row) was outside the window; harmless because the value is unchanged, but a later revision beyond +3 years would be missed silently.",
+    "why_not_first": "no effect on this question; latent risk only"
+   }
+  ],
+  "why_not_text": "n/a (no wrong cell)",
+  "irreducible": "n/a"
+ },
+ "text_verdict": [
+  "kept-and-helped: 'Bulletins revise earlier numbers ... printings ... latest issue' (a[11], b2[5], c[11] all ran printings and read the latest-printing lines)",
+  "kept-and-helped: 'Compute every final number with calc' (a[17], b2[13], c[16]; b, without the text, did the mean mentally and its gate did not object)",
+  "kept-and-helped: 'Several tables in one issue can look alike ... find_tables ... key nouns' (all cells started with find_tables; c[4] learned that too many words gives 0 groups)",
+  "irrelevant: 'Match the period exactly. FY ... CY' (monthly rows only)",
+  "irrelevant: 'show_table marks rows it repaired' (no flags on the rows used)",
+  "irrelevant: 'Alternatives: when two candidate values fit' (the Nov 1944 old-composition footnote value never surfaced in any cell's output; only the reference saw it)",
+  "irrelevant: 'Loops', 'Answer count and format', 'Percent or fraction', 'For a sum over the columns of one row'"
+ ],
+ "notes": "1) The printings SUMMARY is what makes this question easy for GLM: it collapses the flattened 3-panel table's year-anchoring problem (which sank v8_none by one row) into one line per (period, column) with first/latest issue. Keep printings and its SUMMARY in v10. 2) A latent parser defect is visible in b[9] and c[15]: one printing (1943_10) placed the neighbouring year panel's December value under the 1942-12 period in a different column slot; the SUMMARY grouped it separately so no cell was misled, but a checker that trusts a single printing could be. 3) b never ran calc and recompute_final stayed silent in api/checks/001.json (all 10 rules silent): the rule only compares against existing calc outputs, so it does not enforce 'compute with calc' when no calc exists - if that control is kept in v10, decide whether 'no calc at all' should be a finding. 4) The Nov 1944 composition-change footnote (reference pitfall) was never printed by printings or show_table for any cell; a --notes/footnote option on show_table would have surfaced it (not needed here, since the table value is the accepted one). 5) Every cell answered in 14-18 steps, 34-41 s, with no harness intervention: this question is a clean 'tools carry it' case."
+}

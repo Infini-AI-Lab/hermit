@@ -1,0 +1,9 @@
+{
+  "enforce_requery_max": 0,
+  "gate": false,
+  "ledger_splice_bytes": 8000,
+  "loop_guard": true,
+  "loop_notes_max": 3,
+  "loop_threshold": 3,
+  "splice": true
+}

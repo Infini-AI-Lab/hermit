@@ -1,0 +1,148 @@
+{
+  "task_id": "UID0215",
+  "ordinal": 5,
+  "issue47": false,
+  "correct": {
+    "a": 0,
+    "b": 0,
+    "b2": 0,
+    "c": 0,
+    "opus": 1
+  },
+  "question_type": "multi-issue narrative extraction (12 auction paragraphs across four March issues) -> quarterly averages -> OLS slope",
+  "decisive_step": "Recognising that 'Treasury Financing Operations reports' names the narrative section 'TREASURY FINANCING OPERATIONS, OCTOBER-DECEMBER <yr>' printed in the March issue of the following year (treasury_bulletin_1988_03.txt:1688 with 'Auction of 2-Year Notes' at :1692/:1738/:1762, and likewise 1989_03:1755, 1990_03:1677, 1991_03:1656), and that 'tenders accepted' is the 'of which $X million was accepted' figure of the auction paragraph, excluding the 'In addition to ... accepted from Federal Reserve banks / Government accounts' add-ons. The reference made this at worklog Step 1 (parse) and Step 3 (grep for 'financing operations' in 1988_03 -> line 1688), and explicitly rejected table PDO-3 'Amount issued' as a source because its basis includes the add-ons in some years (worklog Steps 9-13; solution.structured.json key_decisions). Every GLM cell instead took table PDO-3 (a/b/c: 'Amount issued', b2: 'Amount tendered'), so all four are >25% off.",
+  "cells": {
+    "a": {
+      "correct": 0,
+      "path_summary": "Searched find_tables for the question's nouns (a[6],[8],[10]) and 'Treasury Financing Operations' (a[8]) which returned only FFO-1 token matches and TOC entries; settled on PDO-3 (a[12]-[23]). Spent ~880 steps paging raw PDO-3 parts across 1987_12..2001_03, chasing 'latest printing' per auction-date row with printings (a[58]-[86], [302]-[321]) and hitting OCR-shifted rows (a[79]-[83], [307]-[311]). Looped an 8-command cycle ~22 times (a[88]-[264]), then restarted three times from compaction summaries (a[265], [664], [853]). At a[323]/[700]/[899] it computed slopes for both PDO-3 columns ('tendered' vs 'issued') with calc and answered the 'Amount issued' slope; ~39% high because PDO-3 'Amount issued' includes Fed/foreign add-ons in 1987, 1989 and 1990 but not in 1988.",
+      "first_divergence": {
+        "stage": "SOURCE_TABLE",
+        "where": "a[12]",
+        "what_it_did": "After find_tables 'Treasury Financing Operations' (a[8]) returned nothing relevant, it searched 'Public Offerings of Marketable Securities' and adopted PDO-3 as the source; from then on the only question it asked was which PDO-3 column ('Amount tendered' vs 'Amount issued') is meant (a[19],[89],[324],[706]).",
+        "what_a_right_cell_or_the_reference_did": "The reference grepped the corpus text for 'financing operations' / '2-year note' and read the narrative auction paragraphs in the four March issues (worklog Step 3-8), taking the 'was accepted' figure of each auction and cross-checking it against noncompetitive + competitive sub-totals."
+      },
+      "saw_correct_evidence": "partial",
+      "tool_use": {
+        "find_tables": 93,
+        "show_table": 114,
+        "printings": 54,
+        "calc": 12,
+        "other_shell": 186,
+        "friction": "show_table on PDO-3 parts returned 'page rows 0-0 of 0' with --long/--grep (a[14],[16],[41],[272]-[276],[282],[859]) because dates are m/d/yy labels and the parser misaligned columns (a[36],[43]); printings --row in ISO form (1987-10, 1987-10-27, 1987-11-18) found nothing (a[21],[37],[39],[280],[292],[861],[881],[885]) and only the raw '10/21/87' label form worked (a[43]); printings --row 11/28/89 matched a 5-year row (a[67]); a zsh '===' glob error (a[72]); rg output truncated (a[61]); OCR-corrupted 1991_09/1991_12/1992_12 rows made the 'latest printing' differ from earlier ones (a[63],[79],[307]); an 8-step loop repeated ~22 times a[88]-[264] and three compaction restarts (a[265],[664],[853]); 3342 s, 463 requests, 55 M input tokens."
+      },
+      "text_use": "acted on 'Search with find_tables using the question's key nouns' (a[6]-[12]) and 'use the latest printing ... printings' (a[58]-[86], [302]-[321]); ignored 'Loops' (a[88]-[264])",
+      "harness_use": "n/a"
+    },
+    "b": {
+      "correct": 0,
+      "path_summary": "find_tables with the question's words found nothing (b[4]) then everything (b[6], 3607 parts, page cut). b[8] ran rg for 'Treasury Financing Operations|tenders accepted|2-year notes' over 1987-1991 files and saw 100 narrative lines, including 18 from 1990_03 (one of them the exact Dec-1989 auction paragraph, 1990_03:1791) but none from 1988_03/1989_03/1991_03 because head -100 was filled by 1990_06 and 1990_03 hits. At b[9] it decided the source is 'likely a table', found PDO-3 (b[13]), read raw PDO-3 rows for the 2-year notes (b[17]-[29]) and at b[20] explicitly weighed 'narrative lines ... tenders accepted in auction process' against the table's 'Amount issued' and chose the table. calc slope at b[31]; submit accepted with no findings (b[33]).",
+      "first_divergence": {
+        "stage": "INTERPRETATION",
+        "where": "b[20]",
+        "what_it_did": "Reasoned that 'auction amount tenders accepted' means PDO-3 'Amount issued' because that column 'includes securities issued to Fed etc.', i.e. it chose the figure that includes the add-ons; the narrative 'tenders accepted in the auction process' sentence it had just seen was set aside.",
+        "what_a_right_cell_or_the_reference_did": "The reference read the question's phrase literally against the Bulletin's own wording ('tenders accepted in the auction process' vs 'In addition to ...') and excluded the add-ons (worklog Step 1; review.md check 5)."
+      },
+      "saw_correct_evidence": "partial",
+      "tool_use": {
+        "find_tables": 5,
+        "show_table": 2,
+        "printings": 0,
+        "calc": 1,
+        "other_shell": 9,
+        "friction": "find_tables '2-year notes' --all returned 185 groups and the page was cut at 8000 bytes (b[6]); show_table PDO-3 --stitch --long showed misaligned continuation columns (b[15]) and --grep '2y' returned 0 rows (b[21]) so it fell back to sed/rg on raw lines (b[17],[19],[23],[29]); rg head -100 hid the 1988_03/1989_03/1991_03 narrative hits (b[8]); zsh '===' glob error (b[27])."
+      },
+      "text_use": "none (b had no advice text; only the submit note)",
+      "harness_use": "Single submit (call 17) accepted with no findings and no offer; no loop notes (0 gate rounds, 0 compactions). Nothing in the harness touched the source choice."
+    },
+    "b2": {
+      "correct": 0,
+      "path_summary": "find_tables for the question's phrases (b2[6],[8],[10],[12]) returned nothing useful; picked PDO-3 (b2[14]-[26]) and paged raw parts across 1987_12..1991_12 (b2[22]-[68]). b2[44] rg 'tenders accepted' with head -100 showed only 1980-1982 narrative hits; b2[48] rg '2-year note' -m 10 showed only the 'announced that it would auction' sentences, so at b2[49] it concluded 'narrative gives announced amounts, not accepted' and stayed with the table. Read PDO-3 Q4-1990 rows from the OCR-shifted 1991_12 printing (b2[59]). b2[70] computed slopes for both 'Amount tendered' and 'Amount issued'; b2[71]-[82] oscillated between the two readings (repeated THINK/RUN pairs b2[72]/[78], [74]/[80], [76]/[82]), printings could not resolve the misparsed columns (b2[84],[86]), and it submitted the 'Amount tendered' slope with no --alt (b2[89]); accepted with no findings.",
+      "first_divergence": {
+        "stage": "SOURCE_TABLE",
+        "where": "b2[49]",
+        "what_it_did": "Rejected the narrative section after a grep limited to 10 matches per file showed only announcement sentences, and kept PDO-3; then at b2[87] picked the 'Amount tendered' column (total bids, not accepted) and used rows from an OCR-shifted printing.",
+        "what_a_right_cell_or_the_reference_did": "The reference located the 'TREASURY FINANCING OPERATIONS, OCTOBER-DECEMBER' heading and read the full auction paragraph, where the 'was accepted' figure follows the 'totaled' figure (worklog Step 3-4)."
+      },
+      "saw_correct_evidence": "no",
+      "tool_use": {
+        "find_tables": 8,
+        "show_table": 19,
+        "printings": 4,
+        "calc": 1,
+        "other_shell": 11,
+        "friction": "show_table --long/--grep on PDO-3 gave 0 rows (b2[16],[41]) and misaligned columns ('parser misaligned because header lacks one col', b2[43]); --grep with a regex alternation matched nothing (b2[64]); printings --row '10/13/87' --col 'Amount tendered' returned the wrong column (b2[40]) and --col '(6)' or a literal value found nothing (b2[84],[86]); latest printing 1991_12 rows for Q4-1990 were OCR-shifted and not flagged (b2[59]); rg -m 10 and head -100 hid the relevant narrative hits (b2[44],[48]); a 6-step think/run cycle repeated twice (b2[71]-[82])."
+      },
+      "text_use": "acted on 'Search with find_tables using the question's key nouns' (b2[6]-[14]) and 'use the latest printing' (b2[59],[83]); 'Alternatives: weigh them against the question's exact wording' was applied to the two table columns (b2[71]-[87])",
+      "harness_use": "Single submit (call 43) accepted; fired=[] (none of answer_count, later_printing, period_match, recompute_final, scale triggered). No loop notes despite the repeated b2[71]-[82] cycle (below loop_threshold per distinct command). No --alt was given, so competing_candidates could not fire even though b2[70] had printed two candidate slopes. Harness changed nothing."
+    },
+    "c": {
+      "correct": 0,
+      "path_summary": "find_tables for the question's phrase and 'Treasury Financing Operations auction' (c[6],[8]) found nothing; picked PDO-3 (c[10]-[13]). Read raw PDO-3 rows for the 2-year notes in 1988_03, 1990_12, 1991_03, 1991_06 (c[20]-[40]), ran printings per auction-date row (c[22],[25],[51],[52],[56]), detected that the 1991_09/1991_12 'latest' printings are OCR-shifted and correctly refused them (c[43]-[45],[53]-[55]). At c[47] read PDO-3 footnote 3 ('amount issued includes securities issued to government accounts and Federal Reserve') and still concluded 'amount issued is accepted'. calc at c[49]; a last find_tables 'financing operations tenders accepted 2-year' (c[59]) found no table, and it answered the PDO-3 'Amount issued' slope.",
+      "first_divergence": {
+        "stage": "SOURCE_TABLE",
+        "where": "c[14]",
+        "what_it_did": "Took PDO-3 'Amount issued' as 'tenders accepted' and never opened the narrative text; at c[47] the footnote saying the column includes non-auction allotments did not change the choice, and c[59] looked for a *table* named 'financing operations' rather than a section.",
+        "what_a_right_cell_or_the_reference_did": "The reference treated the report name as a text section, read the auction paragraphs, and rejected PDO-3 because its 'Amount issued' basis changes across years (worklog Steps 9-13)."
+      },
+      "saw_correct_evidence": "no",
+      "tool_use": {
+        "find_tables": 5,
+        "show_table": 4,
+        "printings": 5,
+        "calc": 1,
+        "other_shell": 12,
+        "friction": "show_table PDO-3 output 'garbled parsed dates' (c[14]) and misaligned columns (c[18]); printings --row with the date label matched a 5-year row of the same auction date because there is no maturity filter (c[53]-[55]); 'latest printing' rows in 1991_09/1991_12 were OCR-shifted and unmarked (c[34],[43],[45],[53]); a printings call reported 'still running' (c[23])."
+      },
+      "text_use": "acted on 'prefer the table whose title and column headers match' (c[10]-[14]), 'use the latest printing ... printings' (c[22],[51]-[56]) and 'compare it with another printing' (c[45],[53]); 'Alternatives' was applied only between PDO-3 columns (c[47])",
+      "harness_use": "n/a"
+    }
+  },
+  "fix": {
+    "smallest_change": {
+      "level": "TOOL",
+      "change": "Index narrative section headings (upper-case lines such as 'TREASURY FINANCING OPERATIONS, OCTOBER-DECEMBER 1987' and their sub-headings 'Auction of 2-Year Notes') alongside tables, and have find_tables print them as '[section]' hits when the query words match a heading. For find_tables \"Treasury Financing Operations\" --years 1987-1991 the model would then have seen, above the FFO-1 token matches, e.g.:\n  [section] TREASURY FINANCING OPERATIONS, OCTOBER-DECEMBER 1987 | treasury_bulletin_1988_03.txt:1688-1800 | match:title\n      sub-headings: Auction of 2-Year Notes (:1692), 52-Week Bills (:1700), ..., Auction of 2-Year Notes (:1738), Auction of 2-Year and 4-Year Notes (:1762)\n  [section] TREASURY FINANCING OPERATIONS, OCTOBER-DECEMBER 1988 | treasury_bulletin_1989_03.txt:1755-1900 | ...\n  (and the 1990_03 / 1991_03 sections)\nplus a hint line when a query returns 0 table parts: 'no table matched; N narrative sections match these words - see [section] lines or rg the phrase in upper case'. Optionally add `show_section <file> <line>` that prints the section text with line numbers (equivalent to sed -n, but discoverable). The heading exists in 51 issues of the corpus, so the index is a generic heading scan, not a per-question rule.",
+      "would_have_fixed": [
+        "a",
+        "b",
+        "c",
+        "b2"
+      ],
+      "could_hurt_right_cells": "unlikely - section hits appear only when the query words match a heading, and are printed as a separate '[section]' block above table groups; on questions that are table-based the block is empty. Slight page-budget cost when headings and table titles share words (e.g. 'Summary of Fiscal Operations').",
+      "generality": "document_qa_general",
+      "confidence": "medium"
+    },
+    "alternatives": [
+      {
+        "level": "TEXT",
+        "change": "Add to the OfficeQA notes: 'A question that names a *report* or *section* (\"Treasury Financing Operations\", \"Auction of ...\") may point to narrative text, not a table. Before picking a table, run rg -n -i \"<the phrase>\" on the corpus and read the section heading and paragraphs (sed -n) in the issue that covers the period; in auction paragraphs the value \"tenders accepted\" is the \"of which $X million was accepted\" figure, and the \"In addition to ... Federal Reserve\" amounts are excluded.'",
+        "why_not_first": "a already had text telling it to match the question's wording and still framed the search as table selection (a[8],[12]); b and b2 did grep the narrative and were defeated by head -100 / -m 10 truncation (b[8], b2[44],[48]) and by an interpretation that included the add-ons (b[20]). A visible section hit in the tool output is a stronger nudge than another sentence, and the second half of the sentence (excluding add-ons) is officeqa_specific."
+      },
+      {
+        "level": "TOOL",
+        "change": "Make show_table and printings work on PDO-3-style date-labelled tables: accept --row in m/d/yy, yyyy-mm-dd and yyyy-mm forms, filter by a 'Period to final maturity' value (--match '2y'), and flag rows whose numeric columns shifted relative to the sibling printing (the 1991_09/1991_12 OCR shifts that c[45] and b2[59] hit).",
+        "why_not_first": "This would have saved a hundreds of steps and stopped b2 from using shifted rows, but the answer would still have come from the wrong source (PDO-3); it does not address the decisive step."
+      },
+      {
+        "level": "CONTROL",
+        "change": "Loop guard for a: after the same 8-command cycle repeated 3 times (a[88]-[112]) insert a note listing the repeated commands and asking for a different table/section or an answer; and a submit-time finding when two candidate values were printed by calc in the same run (b2[70]: 'tendered' vs 'issued' slopes) but no --alt was given.",
+        "why_not_first": "Would have reduced cost (a: 3342 s) and forced b2 to name its alternative, but both alternatives b2 had were wrong, so it could not have produced the right answer."
+      }
+    ],
+    "why_not_text": "Cell a had the full advice text and followed the applicable sentences (search by key nouns, prefer matching title/headers, use latest printing) - they steered it *toward* PDO-3, because the text and the tools both assume the answer lives in a table. b2 also had the text. The blind spot is in what find_tables can show: all four cells searched the exact question phrase 'Treasury Financing Operations' with find_tables (a[8], b[10], b2[8], c[8]) and got only FFO-1 token matches and TOC rows, so no sentence about matching wording could have surfaced the section. b and b2 even grepped the narrative (b[8], b2[44],[48]) and were defeated by output truncation and by the 'includes Fed allotments' interpretation (b[20]) rather than by lack of instruction.",
+    "irreducible": "Not irreducible: the reference solved it with high confidence and its answer is robust to the two December typo conflicts (sensitivity in worklog Steps 15-18). The question wording ('auction amount tenders accepted') is awkward but the Bulletin's own phrase 'tenders accepted in the auction process' matches it."
+  },
+  "text_verdict": [
+    "ignored - 'Loops: a command repeated with the same output will not change' (a[88]-[264] repeated an 8-step cycle ~22 times; b2[71]-[82] repeated a 6-step cycle)",
+    "kept-and-helped - 'Compute every final number with calc' (a[323],[899]; b2[70]; c[49]) - not where the error was",
+    "kept-and-helped - 'Provenance: use numbers you have seen printed' (a[889]-[897], c[20]-[40] printed raw rows) - not where the error was",
+    "irrelevant - 'Answer count and format'",
+    "irrelevant - 'Percent or fraction'",
+    "misled - 'Alternatives: when two candidate values fit ... weigh them against the question's exact wording' (a[323]-[324], b2[70]-[87], c[47] weighed 'Amount tendered' vs 'Amount issued', both from PDO-3; the narrative candidate never entered the comparison)",
+    "misled - 'Bulletins revise earlier numbers ... use the latest printing ... printings' (a[58]-[86],[302]-[321] and c[51]-[56] chased latest printings of OCR-noisy PDO-3 rows; the latest printings of Q4-1990 rows were shifted, so the rule pointed at corrupted values and cost a most of its 900 steps)",
+    "irrelevant - 'Match the period exactly. FY ... CY'",
+    "kept-and-helped - 'show_table marks rows it repaired ... compare it with another printing' (c[45],[53] compared and rejected the shifted 1991_09/1991_12 rows even though show_table had NOT marked them; b2[59] did not and used them)",
+    "misled - 'Several tables in one issue can look alike. Search with find_tables using the question's key nouns and prefer the table whose title and column headers match' (every cell obeyed it - a[6]-[12], b[4]-[13], b2[6]-[14], c[6]-[13] - and it delivered PDO-3, the wrong kind of source; the phrase the question names is a section heading, which find_tables does not index)",
+    "irrelevant - 'For a sum over the columns of one row'"
+  ],
+  "notes": "1) find_tables is blind to narrative sections: the query 'Treasury Financing Operations' (the literal source named by the question) returned FFO-1 'Summary of Fiscal Operations' by token match plus TOC rows in all four cells; the corpus has 51 issues with a 'TREASURY FINANCING OPERATIONS' heading, and 'Auction of 2-Year Notes' sub-headings, so a heading index is cheap. 2) PDO-3 is a trap on three axes: its 'Amount issued' basis includes Fed/foreign add-ons in some years and not others (reference worklog Step 9-13), its date row labels defeat printings' period matching unless typed as '10/21/87', and its 1991_09/1991_12/1992_12 printings have OCR-shifted rows that show_table does not mark (c[45],[53]; a[79],[307]; b2[59]) - so the 'latest printing' rule actively selects corrupted cells there. 3) The two rg-based cells (b[8], b2[44],[48]) had the right text within reach and lost it to head -100 / -m 10 truncation; a section tool or a 'grep with --files-with-matches then read' habit would have avoided that. 4) a's three compaction restarts each began from a summary that already said 'PDO-3', so compaction locked in the wrong source; the post-compaction summaries also carried a copy error (a[701]: the Q4-1990 average in the handoff summary did not match its own components - 'summary ... likely typo'). 5) The 8000-byte page cut hit find_tables '2-year notes' --all (b[6]) - a query with a table-like phrase but no --years fills the page with 1940s tables."
+}

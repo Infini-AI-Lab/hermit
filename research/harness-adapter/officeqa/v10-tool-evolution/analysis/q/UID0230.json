@@ -1,0 +1,116 @@
+{
+  "task_id": "UID0230",
+  "ordinal": 48,
+  "issue47": false,
+  "correct": {
+    "a": 0,
+    "b": 0,
+    "c": 0,
+    "opus": 0
+  },
+  "question_type": "two-observation weekly log-return volatility from a pinned issue (10/1960): extract two 26-week bill discount rates one week apart from an OCR-garbled narrative table (dates merged, one row dropped), cross-check with the Public Debt Operations offerings table, then apply a stated but convention-sensitive formula (annualization factor)",
+  "decisive_step": "Two decisions. (i) Extraction: the narrative table at treasury_bulletin_1960_10.txt:244-249 merges 'Sept. 1' and '8' into one date cell and drops the Sept 15 row, so the date labels cannot be trusted; the reference anchored the two 26-week rates in Table 2 'Offerings of Treasury Bills (Continued)', column 'Equivalent average rate', second element of each '13-week 26-week' pair on the 'Sept. 1p.' and 'Sept. 8p.' rows (worklog Step 4; reference corpus lines 1943-1944, which are lines 1945-1946 in the v9 corpus copy). All three cells and the reference made this identically. (ii) Convention: one log return, realized variance = its square, annualized with 52 weekly periods (worklog Step 5; calc.py). The reference notes that 365/7 periods or a simple return each move the result by a few tenths of a percent relative. Every cell and the reference used log return x 52 and all were graded wrong with error_bin within_1pct, so the grader's key follows one of the other conventions; this convention choice is the step that separates right from wrong and nobody had evidence for it.",
+  "cells": {
+    "a": {
+      "correct": 0,
+      "path_summary": "find_tables on the question's nouns ([5]-[9]) did not surface the 1960_10 narrative table (it is untitled in that issue); rg on the issue ([13]) found the narrative line and the table at line 244; show_table --long --raw ([17]) printed the four garbled rows with no repair flag. It recognised the merged/missing dates ([16],[18]) and resolved them by grepping the rate values, which hit the Table 2 rows for Sept 1 and Sept 8 ([19]-[20]). Computed sqrt(52 * r^2) x 100 with calc ([22]) and answered as a percent ([24]).",
+      "first_divergence": {
+        "stage": "EXTERNAL_KNOWLEDGE",
+        "where": "a[20]",
+        "what_it_did": "Chose the annualization convention 'weekly -> 52 periods' with a log return, exactly as the reference did ('Annualized volatility = sqrt(52 * r^2)'); extraction, formula and rounding all match the reference, which was itself graded wrong.",
+        "what_a_right_cell_or_the_reference_did": "No cell or reference was right. The reference's sensitivity list (worklog Step 5) shows the key must use another convention within 1% (365/7 periods per year, or a simple rather than log change); none of the materials say which."
+      },
+      "saw_correct_evidence": "yes (both Sept 1 and Sept 8 26-week rates on screen at [17] (narrative, garbled dates) and [19] (Table 2 rows with explicit 'Sept. 1p.' / 'Sept. 8p.' labels))",
+      "tool_use": {
+        "find_tables": 3,
+        "show_table": 1,
+        "printings": 0,
+        "calc": 1,
+        "other_shell": 5,
+        "friction": "[11] rg with a relative corpus path returned nothing (redone with the absolute path at [13]); find_tables could not find the 1960_10 narrative table by title because show_table reports it as '(untitled)' ([17]) - the sentence 'Average rates of discount on the new bills were as follows:' is not attached to it in this issue; show_table --long --raw showed the garbled rows (merged 'Sept. 18', missing Sept 8/15 row) without any repair or Y? flag."
+      },
+      "text_use": "yes: [20] 'instruction says every final number with calc. We have source lines printed' (calc item + Provenance item); answered a single percent value per the question's 'percent value' cue",
+      "harness_use": "n/a"
+    },
+    "b": {
+      "correct": 0,
+      "path_summary": "officeqa helper search printed nothing usable ([5]-[7]); rg on 1960_10 ([10]) found the narrative table, show_table --raw --long ([15]) showed the four garbled rows; at [18]-[20] it inferred the true dates (Sept 1, 8, 15, 22, 29) and at [22] confirmed the two rates with rg across 1960-1961 issues (which printed the Table 2 rows and their 1961_01 reprints). Computed with calc ([24]) and submitted ([26]). Two gate findings followed: flagged_cells bound its literal to a ROWSPLIT-repaired row in 1961_01 (an issue it had not used) and table_alternatives pointed at part 1 of the same table; it spent [27]-[47] on printings (4 failed/misleading calls) and show_table on 1961_01 and 1960_10 Table 2, kept the answer at [35] (which produced the second finding instead of recording) and was recorded at [48] after gate_rounds_max.",
+      "first_divergence": {
+        "stage": "EXTERNAL_KNOWLEDGE",
+        "where": "b[20]",
+        "what_it_did": "Same convention as the reference (log return, 52 periods). Extraction and formula identical to the reference.",
+        "what_a_right_cell_or_the_reference_did": "Nobody was right; see decisive_step."
+      },
+      "saw_correct_evidence": "yes (narrative rows at [12],[15]; Table 2 rows with 'Sept. 1p.' / 'Sept. 8p.' labels at [22] and [43]; 1961_01 reprint at [33])",
+      "tool_use": {
+        "find_tables": 1,
+        "show_table": 4,
+        "printings": 4,
+        "calc": 1,
+        "other_shell": 8,
+        "friction": "officeqa helper printed empty results ([5]-[6]); printings --table 'Average rates of discount on the new bills' --row 'Sept. 8' found nothing ([29],[31]) because the 1960_10 instance is untitled and its date cells are merged; printings --table 'Offerings of Treasury Bills' --row 'Sept. 8' --col 'Equivalent average rate' ([39],[41]) returned only the FIRST number of the '13-week 26-week' pair cell, i.e. the 13-week series ([42] 'printings only picks first value'); submit --help detour ([46]). Gate rounds cost ~22 steps and ~100 s for no change."
+      },
+      "text_use": "none (no advice text); cited the README 'most up-to-date revision' idea at [18] ('Could use later bulletin revision?')",
+      "harness_use": "2 gate rounds, 3 submits, no loop notes. Finding 1 (flagged_cells, [26]): bound the literal for the Sept 8 rate to treasury_bulletin_1961_01.txt:1852, a ROWSPLIT-repaired row in an issue the model did not use (the question pins 10/1960; the model's source was 1960_10 Table 2 / the narrative), and asked for a cross-printing check. Finding 2 (table_alternatives, on the --keep submit at [35]): 'Table 2 ... (1961_01:1807) matches more question words: week, weekly' - the 'other' table is part 1 of the same Table 2 whose continuation the model read. Neither finding carried an offer; the model kept its answer both times; the third submit with --reading ([48]) was recorded. No finding changed the answer; both were noise."
+    },
+    "c": {
+      "correct": 0,
+      "path_summary": "Four find_tables calls ([5]-[9]); [5] listed the narrative-table group for other issues but not the 1960_10 instance, and the 'September' queries returned 0 groups ([7],[8]). rg on 1960_10 ([13]) found the narrative table; show_table --long and --raw ([15],[19]) printed the four garbled rows. It recognised the missing Sept 1/8 rows ([16],[18]), grepped the rate values ([21]) and read Table 2 lines 1900-1955 by sed ([23]), taking the second number of each pair as the 26-week rate ([24]). calc failed once for a missing import ([26]) and succeeded at [28]; answered as a percent ([30]).",
+      "first_divergence": {
+        "stage": "EXTERNAL_KNOWLEDGE",
+        "where": "c[24]",
+        "what_it_did": "Same log-return, 52-period convention as the reference.",
+        "what_a_right_cell_or_the_reference_did": "Nobody was right; see decisive_step."
+      },
+      "saw_correct_evidence": "yes (narrative rows at [15],[17],[19]; Table 2 rows with 'Sept. 1p.' / 'Sept. 8p.' labels at [21] and [23])",
+      "tool_use": {
+        "find_tables": 4,
+        "show_table": 2,
+        "printings": 0,
+        "calc": 2,
+        "other_shell": 6,
+        "friction": "find_tables: the 1960_10 narrative table is not in the 'Average rates of discount on the new bills' group ([5] lists 1959_11 and 1961_12 only) and queries containing month/day words return nothing ([7],[8]); [11] rg with a relative path returned nothing; calc -c without 'import math' failed ([26]); show_table printed the garbled table without any flag ([15],[19])."
+      },
+      "text_use": "yes: [28] calc for the final number; [29] single direct answer line",
+      "harness_use": "n/a"
+    }
+  },
+  "fix": {
+    "smallest_change": {
+      "level": "NONE",
+      "change": "No adapter change is supported by the evidence: all three cells reproduced the reference's extraction (two 26-week rates for Sept 1 and Sept 8, cross-anchored in Table 2) and the reference's formula (single log return, squared, x 52, square root, percent, 2 decimals), and the reference itself is graded wrong with every answer within 1% of the key. The key evidently follows a different annualization/return convention (the reference's Step 5 sensitivity list names 365/7 periods per year and simple-return as the two nearby alternatives); no document in the corpus and no line of text could tell a model which one the question writer used.",
+      "would_have_fixed": [],
+      "could_hurt_right_cells": "no (nothing changes)",
+      "generality": "officeqa_specific",
+      "confidence": "high"
+    },
+    "alternatives": [
+      {
+        "level": "TEXT",
+        "change": "Conventions line: 'Annualizing weekly data: if the question says \"weekly\" and gives no day count, use 52 periods per year; if it gives dates one week apart, 365/7.' (or the reverse) - a guess at the key's convention.",
+        "why_not_first": "Pure speculation about the grader; a wrong guess would flip other volatility questions that today pass with 52. Would need the answer key to calibrate, which is off limits."
+      },
+      {
+        "level": "CONTROL",
+        "change": "Harness hygiene (does not fix this question, removes ~22 wasted steps in b): (1) flagged_cells should bind a calc literal to the cell the model itself printed most recently, or to a cell in the issue the question pins, before falling back to any other issue - here it bound to treasury_bulletin_1961_01.txt:1852 although the model's evidence was 1960_10; (2) table_alternatives must not fire when the 'other' table is another part or '(Continued)' page of the table already used (same title stem in the same issue); (3) a --keep submit should be recorded rather than answered with a fresh finding of a different rule when the answer is unchanged.",
+        "why_not_first": "Would not change correctness here; listed for the v10 controls decision."
+      },
+      {
+        "level": "TOOL",
+        "change": "printings/show_table: split '13-week 26-week' paired cells (two numbers in one cell) into two sub-columns labelled by the header's series names, so printings --col 'Equivalent average rate' --series 26-week returns the second element; today printings returns only the first number of the pair (b[41]-[42]). And show_table should flag a narrative table whose stub cells contain two day numbers ('Sept. 18' where the text says five issues) as SUSPECT-DATES.",
+        "why_not_first": "Cells worked around both by reading Table 2 raw; useful friction reduction, not a fix."
+      }
+    ],
+    "why_not_text": "n/a",
+    "irreducible": "Yes. The reference solution (graded 0), all three v9 cells and all three v8 arms produced the same value with the same convention; error_bin is within_1pct everywhere. This is a convention-of-the-key question (annualization factor or return type), not an adapter failure; treat it as a disputed reference for learner scoring even though issue47 is false."
+  },
+  "text_verdict": [
+    "kept-and-helped: 'Compute every final number with calc' (a[22], c[28])",
+    "kept-and-helped: 'Provenance: use numbers you have seen printed' (a[20] 'We have source lines printed', both cells grepped the source rows before calc)",
+    "kept-and-helped: 'Percent or fraction' (question gives an explicit percent example; a and c answered in percent)",
+    "kept-and-helped: 'Answer count and format' (single value with 2 decimals)",
+    "irrelevant: 'Bulletins revise ... latest printing' (issue pinned by the question; b, without the text, still checked later issues at [18]-[19] and [33])",
+    "irrelevant: 'Match the period exactly', 'show_table marks rows it repaired', 'Several tables in one issue', 'For a sum over the columns', 'Loops', 'Alternatives'"
+  ],
+  "notes": "1) The narrative table in 1960_10 (line 244) is a trap the tools do not flag: OCR merged 'Sept. 1' and '8' into one stub cell and dropped a row, so its date labels are shifted by one row; all cells noticed it by reasoning ('five issues but four rows') and recovered via Table 2. show_table printed it as '(untitled)' with no repair flag, and find_tables cannot reach it by the sentence that introduces it. 2) Table 2's 'Equivalent average rate' cells hold two numbers ('13-week 26-week'); printings returns only the first, silently giving the wrong series (b[41]-[42]); show_table --raw is the only way to see both. 3) b's two gate findings were both false alarms (literal bound to a later issue's repaired row; 'alternative table' = part 1 of the same table) and consumed 2 of 2 gate rounds; a --keep did not record the answer but triggered a second, different finding. 4) For the learner: since the reference and every arm agree and are graded wrong, this question gives no signal about adapter quality; exclude it from fitness or mark it as disputed."
+}

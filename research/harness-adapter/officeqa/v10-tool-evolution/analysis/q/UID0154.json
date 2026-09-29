@@ -1,0 +1,73 @@
+{
+  "task_id": "UID0154",
+  "ordinal": 12,
+  "issue47": true,
+  "correct": {"a": 1, "b": 1, "b2": 1, "c": 1, "opus": 1},
+  "question_type": "count of maturity months above a threshold across two as-of-dated Treasury Survey of Ownership bill schedules (survey as-of date vs bulletin issue month)",
+  "decisive_step": "Map 'recorded on the end of month January 1977 / January 1978' to the survey AS-OF date, not the January bulletin issues: the Jan-31 surveys are printed in the March issues (treasury_bulletin_1977_03.txt TSO-3 at line 4795, bill rows 4798-4809; treasury_bulletin_1978_03.txt TSO-3 at line 4766, bill rows 4769-4780), and their 'Treasury Bills: Regular weekly and annual maturing' rows tile the requested Feb-1977..Jan-1979 window exactly, one maturity-month row per month, column 'Total amount outstanding'. The reference made this call at worklog.md Step 0 (lines 8-20) and confirmed the printing at Step 4 (worklog.md:43-46, grep of the dated section header across all issues). In v8 both wrong GLM arms took the January issues (whose TSO-3 is the Nov-30 survey) and failed here.",
+  "cells": {
+    "a": {
+      "correct": 1,
+      "path_summary": "Read README, then find_tables with the question's nouns (a[6]) put TSO-3 first with an 'as-of <date>' tag on every listed issue; a[8] (--all, cut at 8000 bytes) and a[10] (--years 1977-1978 --all) showed 1977_03 'as-of JANUARY 31, 1977' and 1978_03 'as-of JANUARY 31, 1978', which a[11] recognised as exactly the two sources. a[13] printed both tables with --long --raw, a[14] counted rows above the threshold in its head, then a[16] recomputed the count with calc. a[18]-[22] spent three steps hunting footnotes ('Footnotes at end of Table TSO-5') in the wrong line ranges, found nothing relevant and answered at a[24].",
+      "first_divergence": {"stage": "NONE", "where": "a[24]", "what_it_did": "answered the calc-printed count", "what_a_right_cell_or_the_reference_did": "same selection and count as the reference (worklog.md Step 7)"},
+      "saw_correct_evidence": "yes",
+      "tool_use": {"find_tables": 3, "show_table": 2, "printings": 0, "calc": 1, "other_shell": 5, "friction": "a[8] find_tables 'TSO-3' --all cut at 8000 bytes (needed --years, which a[10] then added); a[16] the sed lines on a bare filename produced nothing (corpus not in the workspace) and only the calc block appears in the output; a[18]-[22] three helper reads of wrong line ranges looking for footnotes; run flagged transport_retry (328 s for 11 requests)."},
+      "text_use": "'Compute every final number with calc' (a[14] quotes it, a[16] runs calc); 'Unless the question names a publication date or issue, use the latest printing' correctly judged inapplicable at a[14] because the question pins the two sources.",
+      "harness_use": "n/a"
+    },
+    "b": {
+      "correct": 1,
+      "path_summary": "Started from the wrong family: find_tables 'Ownership of Public Debt Securities' (b[6]) and a show_table of an OFS-type table in 1977_01 (b[8], b[14]) that has no monthly bill split. Three more find_tables (b[10], b[12], b[16]) reached TSO-3 at b[17], where the per-issue 'as-of' tags identified 1977_03 and 1978_03 as the Jan-31 surveys covering Feb-Jan each. b[19]/b[21] show_table --stitch both tables, b[24] printed the raw lines to confirm the segment header 'Regular weekly and annual maturing' and that rows are final-maturity months, counted in its head (no calc) and submitted at b[26].",
+      "first_divergence": {"stage": "NONE", "where": "b[26]", "what_it_did": "submitted the mentally counted value; gate recorded it with no finding", "what_a_right_cell_or_the_reference_did": "same selection; the reference and cells a/b2/c printed the count with a script"},
+      "saw_correct_evidence": "yes",
+      "tool_use": {"find_tables": 5, "show_table": 4, "printings": 0, "calc": 0, "other_shell": 2, "friction": "b[10]/b[12]/b[16] find_tables outputs cut at 8000 bytes (piped through head); b[8]/b[14] opened a look-alike ownership table (OFS) before TSO-3; b[19]/b[21] --stitch pages ended at row 20/26 and 26/30 (bill rows were inside the first page); no calc used; transport_retry, 385 s."},
+      "text_use": "none (cell b had no advice text)",
+      "harness_use": "One submit (b[26], call 12): status accepted, findings [], no offers; no loop notes, no compaction, gate_rounds 0. Nothing changed the answer."
+    },
+    "b2": {
+      "correct": 1,
+      "path_summary": "find_tables 'ownership survey public debt securities' --all (b2[6], cut at 8000) listed TSO-3 with as-of tags; b2[8] find_tables 'TSO-3' --years 1977-1978 --all showed the 1977_03 / 1978_03 Jan-31 surveys, which b2[9] mapped to the two sources. b2[11] show_table --long --grep Bills on both tables (the 1978 page was cut after row 7 of 13 but the bill rows were visible); b2[13] tried the compact --grep Bills --cols 1-2 view and got zero bytes back; b2[16] counted with calc from the values already seen and submitted at b2[18]. Fastest cell: 25 s, 8 requests.",
+      "first_divergence": {"stage": "NONE", "where": "b2[18]", "what_it_did": "submitted the calc-printed count; recorded with no finding", "what_a_right_cell_or_the_reference_did": "same"},
+      "saw_correct_evidence": "yes",
+      "tool_use": {"find_tables": 2, "show_table": 4, "printings": 0, "calc": 1, "other_shell": 1, "friction": "b2[6] output cut at 8000 bytes; b2[11] --long cell listing (11 cells per row) overflowed the 8000-byte page after 5-7 rows ('Output got mixed/truncated', b2[12]); b2[13] two show_table calls (--grep Bills --cols 1-2) returned 0 bytes with exit 0 - re-run offline, the same command prints a clean 13-row x 2-column page, so the harness dropped the output, not the tool."},
+      "text_use": "'Compute every final number with calc' (b2[14] 'must heed', b2[16]); 'use the latest printing ... unless the question names a publication date or issue' weighed at b2[14] and correctly set aside because the question pins the sources.",
+      "harness_use": "One submit (b2[18], call 7): accepted, findings [], no offers; 5 rules enabled (answer_count, later_printing, period_match, recompute_final, scale), none fired; no loop notes, no compaction. Nothing changed the answer."
+    },
+    "c": {
+      "correct": 1,
+      "path_summary": "Three find_tables searches (c[5], c[7], c[9]); the third, with the question's wording 'interest-bearing marketable Treasury bills par values', surfaced TSO-3 and the 'TREASURY SURVEY OF OWNERSHIP, JANUARY 31 ...' section names. c[11]/c[12] searched those section words with --years and got the four TSO tables of 1977_03 and 1978_03. c[14] opened TSO-2 (one bills total, not monthly), c[16] TSO-3 --long --cols 1-3 and c[19] the 1978 TSO-3 --cols 1-1, which listed the twelve maturity-month rows with line numbers; c[21] calc count; answered at c[23].",
+      "first_divergence": {"stage": "NONE", "where": "c[23]", "what_it_did": "answered the calc-printed count", "what_a_right_cell_or_the_reference_did": "same"},
+      "saw_correct_evidence": "yes",
+      "tool_use": {"find_tables": 5, "show_table": 3, "printings": 0, "calc": 1, "other_shell": 1, "friction": "c[5]/c[7]/c[9] find_tables --all outputs cut at 8000 bytes; c[14] opened the sibling TSO-2 first; c[16] page ended at row 22 of 26 (bill rows inside). Sampled run, no loops."},
+      "text_use": "'Compute every final number with calc' (c[20] 'Need calc to compute count'); 'Search with find_tables using the question's key nouns' (c[9] used the question's exact phrase after two misses).",
+      "harness_use": "n/a"
+    }
+  },
+  "fix": {
+    "smallest_change": {
+      "level": "NONE",
+      "change": "Nothing to fix: all four cells and the reference agree. KEEP the thing that solved it: find_tables prints 'as-of <DATE>' after every listed table part (e.g. 'treasury_bulletin_1977_03.txt:4795 part1 ... rows Feb. 1977..Jan. 1978 as-of JANUARY 31, 1977'). This is the v8 'as-of date index' remedy realised as tool output; every cell picked the March issues from that line (a[10]-[11], b[17], b2[8]-[9], c[11]-[12]) whereas both v8 wrong arms took the January issues and never enumerated other issues' survey dates.",
+      "would_have_fixed": [],
+      "could_hurt_right_cells": "no",
+      "generality": "document_qa_general",
+      "confidence": "high"
+    },
+    "alternatives": [
+      {"level": "TOOL", "change": "find_tables --asof <YYYY-MM|'January 31, 1977'>: filter the listing to parts whose as-of date matches, and print 'as-of JANUARY 31, 1977 -> printed in issue 1977_03' as the first line. Removes the 8000-byte cut that a[8], b[10]/[12]/[16], b2[6], c[5]/[7]/[9] hit before adding --years.", "why_not_first": "efficiency only; the as-of tag already carried every cell."},
+      {"level": "CONTROL", "change": "Empty-output guard: when a harness tool command exits 0 and returns 0 bytes, re-run it once and, if still empty, insert '[harness] <tool> printed nothing (exit 0); its output was lost, run it again' instead of a blank block. b2[13] here (and c[14] on ordinal 13) lost a correct, compact page this way.", "why_not_first": "no cell was hurt this time because the values had already been seen in a previous page; the risk is a model concluding 'no rows' from silence."},
+      {"level": "TOOL", "change": "Compact default for extraction: when --grep or --cols is given, show_table's compact ROWS grid (what b2[13] asked for: 13 rows x 2 columns in ~1.2 KB) fits one page, while --long spends 11 cell lines per row and overflows the page after 5-7 rows (b2[11]). Print a one-line hint after a cut --long page: 'these N rows fit one page without --long, or with --cols'.", "why_not_first": "paging cost only."}
+    ],
+    "why_not_text": "n/a (no fix needed). Note that cell b, with no advice text at all, was also right; the decisive information came from a tool line, not from text.",
+    "irreducible": "issue47=true (publicly disputed question), but all four cells, the reference and the grader agree; nothing for the adapter to change."
+  },
+  "text_verdict": [
+    "kept-and-helped: 'Compute every final number with calc' (a[16], b2[16], c[21]; b counted mentally and was still right)",
+    "kept-and-helped: 'Provenance: use numbers you have seen printed by a tool' (a[13] --raw lines, c[16]/[19] cells with line numbers, b[24] raw lines)",
+    "kept-and-helped: 'Several tables in one issue can look alike. Search with find_tables using the question's key nouns' (a[6], c[9]; b and c first opened the OFS/TSO-2 siblings)",
+    "irrelevant: 'Bulletins revise earlier numbers. Unless the question names a publication date or issue, use the latest printing' - a[14] and b2[14] correctly judged the question pins its two sources; nobody ran printings",
+    "irrelevant: 'Loops' (no repeated commands in any cell; the v8 ~120-step loops did not recur)",
+    "irrelevant: 'Answer count and format', 'Percent or fraction', 'Alternatives', 'Match the period exactly (FY/CY)', 'For a sum over the columns of one row'",
+    "irrelevant: 'show_table marks rows it repaired ... identity FAILS' - the note 'identity FAILS at lines 4820' (b2[11], c[16]) sits on a notes row, not a bill row; no cell reacted and none needed to"
+  ],
+  "notes": "v8 -> v9 contrast is the main lesson: v8 none/prompt failed at SOURCE_ISSUE_VINTAGE by reading the January issues (Nov-30 surveys) and then looped ~120 steps; in v9 all four cells resolved the as-of date in 2-4 find_tables calls because the listing itself says 'as-of JANUARY 31, 1977' next to 1977_03. Keep that annotation in any v10 tool rewrite. Two cells (a, b) carry failure_kind=transport_retry with 328 s and 385 s wall time for ~11-13 requests, against 25 s for b2; that is provider latency, not behaviour. Zero-byte tool output with exit 0 occurred at b2[13] (and c[14] on ordinal 13); both commands reproduce correctly offline with OFFICEQA_CORPUS/TABLES_INDEX set, so the loss is in the harness command capture - worth a guard. --grep matches label/period/section, so --grep Bills returns the whole 'Treasury Bills' segment (13 rows incl. the total, flagged PERIOD?), which here was exactly the wanted slice; document that semantics in README so models do not read '0 rows' or 'all rows' as a grep failure. Bare filenames work in show_table but a[16]'s sed on a bare filename printed nothing; the README's absolute corpus path is needed for sed/rg."
+}

@@ -1,0 +1,96 @@
+{
+  "task_id": "UID0211",
+  "ordinal": 21,
+  "issue47": false,
+  "correct": {"a": 0, "b": 0, "b2": 1, "c": 1, "opus": 0},
+  "question_type": "Arithmetic mean of five calendar-year 'Sales' cells from an 'All Series Combined' sales-and-redemptions table; two tables in every issue share that exact title",
+  "decisive_step": "Which of the two identically titled tables ('Table 2 - Sales and Redemptions by Periods, All Series Combined') to read: the first one in each issue, under section UNITED STATES SAVINGS BONDS (graded reading), or the second, under TREASURY SAVINGS NOTES. Column 'Sales' (not 'Sales plus accrued discount'), CY rows; both tables are vintage-stable so issue choice does not matter (worklog Step 5). The reference found both tables (worklog Step 2), then chose the NOTES table in its 'Decision' section because of the parenthetical '(U.S. Treasury)' and because CY1949-1953 are exactly the notes' individual sales years; it was graded wrong, and the graded reading is the alternative it recorded ('Alternative (U.S. savings bonds)', solution.structured.json key_decisions 1). The two right cells read '(U.S. Treasury)' as a source/publisher label and took the bonds table (b2[23], c[16], c[36]).",
+  "cells": {
+    "a": {
+      "correct": 0,
+      "path_summary": "Found the bonds 'All Series Combined' table quickly (a[9], a[12]) and the right column, but printings by title merged both same-title tables into one SUMMARY that reported 'REVISED/DIFFERS' (a[14], a[35]). a spent a[16]-a[33] guessing non-existent table ids (SB-2, USB-2...) to pin the table, then at a[54]-a[55] decided the wording 'points to the Treasury savings notes table', read the notes table's last printing (a[59]-a[60]) in which one year carries an isolated OCR variant, computed the notes mean with calc at a[65] (about 0.4% above the graded value), then repeated one identical show_table command 39 times (a[69]-a[145]) until Codex compacted the thread and answered from the compaction summary (a[146]-a[147]).",
+      "first_divergence": {
+        "stage": "SOURCE_TABLE",
+        "where": "a[54]-a[55] (decision), a[59]-a[65] (values and calc)",
+        "what_it_did": "Read '(U.S. Treasury)' as pointing to the TREASURY SAVINGS NOTES section and used that table's Sales column at its last printing (1956_08), including a last-issue value for CY1951 that differs from every earlier printing (a[60], a[62]).",
+        "what_a_right_cell_or_the_reference_did": "b2[23] and c[16]/c[36] treated '(U.S. Treasury)' as a generic source label and used the Sales column of the first table of that title in the issue (UNITED STATES SAVINGS BONDS). The reference made the same choice as a and was also graded wrong."
+      },
+      "saw_correct_evidence": "yes",
+      "tool_use": {"find_tables": 8, "show_table": 44, "printings": 7, "calc": 1, "other_shell": 13, "friction": "printings by title merged the two same-title tables, so every SUMMARY showed '2 distinct values - REVISED/DIFFERS' (a[14], a[35], a[61]) and a chased a non-existent table id for 8 steps (a[16]-a[33]); find_tables/printings pages cut at 8000 bytes (a[9], a[14], a[35]); show_table at line 2209 of 1956_08 resolved to the neighbouring Table 3 (Series E through K) rather than the table a wanted (a[56], a[69]); then 39 identical repeats of that 5-call command (a[69]-a[145], ~300 s, most of the 7.8M input tokens) until a Codex compaction warning (events.jsonl item_147); a[146] answers from the summary."},
+      "text_use": "acted on 'use the latest printing of each value' (a[60]-a[62] took the last-issue variant) and on 'Compute every final number with calc' (a[65]); ignored the Loops sentence (a[69]-a[145]).",
+      "harness_use": "n/a"
+    },
+    "b": {
+      "correct": 0,
+      "path_summary": "Broad find_tables queries missed (b[4]-b[9]); b fell back to rg over the raw corpus (b[11], b[15]), found the two same-title tables via sed (b[21]-b[25]), took a long detour through capital-movements tables (b[49]-b[57]), then computed the bonds mean with calc (b[63]) - the graded reading. It submitted that value with the notes-table mean as --alt (b[64]); the competing_candidates rule echoed the --alt back as an 'Offer' with a one-line Accept, b read the seed's description ('the harness computed that alternative itself') literally and accepted (b[65]-b[66]). The accepted value was a head-computed notes mean with an arithmetic slip (about 0.2% above the graded value, and not the notes mean either).",
+      "first_divergence": {
+        "stage": "OPERATIONAL",
+        "where": "b[64]-b[66]",
+        "what_it_did": "Had the right table, column, values and calc result (b[63]), then switched to its own unverified --alt because the gate presented it as an Offer (checks/001.json: rule competing_candidates, offer.derivation 'your --alt', compute_sha256 empty). Round 2 recompute_final fired on the accepted value but was suppressed and the answer was recorded (checks/002.json).",
+        "what_a_right_cell_or_the_reference_did": "b2 (same model, same advice text, competing_candidates rule removed) submitted its calc result once and it was recorded with no findings (b2[26]); c ended with the calc value (c[52]-c[53])."
+      },
+      "saw_correct_evidence": "yes",
+      "tool_use": {"find_tables": 6, "show_table": 4, "printings": 2, "calc": 1, "other_shell": 21, "friction": "find_tables with the question's nouns ('total sales', 'U.S. Treasury') returned nothing useful (b[4]-b[9], b[30]); printings by title merged both tables and the SUMMARY was cut (b[17], b[34]); b told the tables apart only by sed on raw corpus lines (b[21], b[24], b[37], b[40], b[42], b[46]); 9-step detour into capital-movements tables (b[49]-b[57]); 2 submits."},
+      "text_use": "none (pilot-1 cell: no advice text); it did follow the mech seed's 'Finishing a question' text on Offers, which is what hurt it (b[65]).",
+      "harness_use": "0 loop notes, 0 compactions. Gate round 1: competing_candidates fired with Offer = b's own --alt; b Accepted, changing a right answer to a wrong one. Round 2: recompute_final fired ('not an output of any calc run') but was suppressed because the value had been offered; recorded. The gate was decisive and harmful."
+    },
+    "b2": {
+      "correct": 1,
+      "path_summary": "Three find_tables queries (b2[4]-b2[8]), the third listing the bonds section's tables; show_table on the 1955_12 bonds table (b2[10]-b2[14], CY rows hidden by the 8000-byte page); printings per year with narrow --years windows (b2[16]-b2[20]) which merged the two same-title tables; b2[22] opened both tables side by side with --cols 1-3 and saw the section lines; b2[23] read '(U.S. Treasury)' as the source and took the bonds table; calc at b2[24]; one submit, recorded (b2[26]). 68 s, 14 requests.",
+      "first_divergence": {"stage": "NONE", "where": "", "what_it_did": "", "what_a_right_cell_or_the_reference_did": ""},
+      "saw_correct_evidence": "yes",
+      "tool_use": {"find_tables": 3, "show_table": 4, "printings": 3, "calc": 1, "other_shell": 1, "friction": "first two find_tables queries returned nothing relevant (b2[4], b2[6]); show_table --grep 195 page cut before the CY rows, two more calls to page (b2[10]-b2[14]); printings merged the two same-title tables so its SUMMARY said 'REVISED/DIFFERS' (b2[16], b2[20]) and its tail was cut (b2[18]-b2[19]); b2 resolved it by opening both tables (b2[22])."},
+      "text_use": "'use the latest printing of each value' (b2[19]-b2[20] ran printings per year with the latest window); 'Compute every final number with calc' (b2[24]).",
+      "harness_use": "0 loop notes, 0 gate rounds, 1 submit recorded at first try; nothing changed the answer. Note the 5-rule set had no competing_candidates rule, so the trap that caught b could not fire."
+    },
+    "c": {
+      "correct": 1,
+      "path_summary": "find_tables located the 'All Series Combined' tables (c[7]); show_table on the 1954_12 bonds table (c[10]) and on the notes table (c[15]) made the two sections explicit; c[16] and c[36] reasoned that 'U.S. Treasury' is a generic source and 'all series combined' means the savings-bond series; printings merged the tables (c[17], c[23]) so c wrote python/rg scans over the raw corpus to find the latest issue still printing CY1949 (c[40]-c[50]); calc at c[52].",
+      "first_divergence": {"stage": "NONE", "where": "", "what_it_did": "", "what_a_right_cell_or_the_reference_did": ""},
+      "saw_correct_evidence": "yes",
+      "tool_use": {"find_tables": 6, "show_table": 7, "printings": 3, "calc": 1, "other_shell": 9, "friction": "printings --row 'Calendar years:1949' matched nothing (c[21]); printings by title merged both tables and c noted 'Printings tool doesn't have section filter' (c[24]); show_table --grep 195 pages cut before the CY rows (c[27]-c[31]); c fell back to raw sed/python scans to pin the latest printing (c[40]-c[50]). 209 s, 27 requests."},
+      "text_use": "'Alternatives: weigh them against the question's exact wording' (c[36] weighed bonds vs notes); 'use the latest printing of each value' (c[37], c[47]-c[51]); 'Compute every final number with calc' (c[52]).",
+      "harness_use": "n/a"
+    }
+  },
+  "fix": {
+    "smallest_change": {
+      "level": "CONTROL",
+      "change": "Never attach an Offer to a value the harness did not itself compute: drop the competing_candidates rule's `use_alt` offer (or the rule entirely, as b2's 5-rule set already does), and make any Offer require a calc sha (compute_sha256 non-empty). Runtime behaviour on this question: b's first submit would have been recorded as-is (or, at most, shown a finding with no Accept line), and recompute_final must not be suppressed for a value that was offered. This is exactly the difference between b (wrong) and b2 (right) on this question.",
+      "would_have_fixed": ["b"],
+      "could_hurt_right_cells": "no - b2 and c never saw an offer; b2 already ran without this rule and was right.",
+      "generality": "domain_general",
+      "confidence": "high"
+    },
+    "alternatives": [
+      {
+        "level": "TEXT",
+        "change": "Add to the 'Several tables in one issue can look alike' item: \"If two tables in the same issue carry the same title, tell them apart by the `section:` line of show_table (or the `[Table N in SECTION]` tag of find_tables). A parenthetical such as '(U.S. Treasury)' names the publisher, not a section: pick the section whose own distinguishing word ('bonds', 'notes', 'marketable'...) appears in the question; if none does, take the first table of that title in the issue.\" Cell a weighed the two readings explicitly at a[64] and chose notes on the parenthetical alone; this sentence would have pointed it to the first (bonds) table.",
+        "why_not_first": "Would have fixed a with only medium-low confidence (the reference solver, with far more reasoning, made the same wrong reading); the CONTROL change fixes b with certainty. It is also the more OfficeQA-tuned of the two."
+      },
+      {
+        "level": "TOOL",
+        "change": "printings: carry the table's `section` (otables.py:444-455 already computes it per table) into each found record, print it on every listing line, group the SUMMARY by (section, part, column, period) and accept `--section <substring>`. Instead of one merged block '[CY1949] part1 sales (Sales): 15 printings, 2 distinct values - REVISED/DIFFERS across printings' (a[61], b2[20]) the model would have seen two blocks: '[CY1949] UNITED STATES SAVINGS BONDS | part1 sales (Sales): 8 printings, 1 distinct value - same in all printings' and '[CY1949] TREASURY SAVINGS NOTES | part1 sales (Sales): 7 printings, 1 distinct value - same in all printings'. About 10 lines in printings_data/printings_page.",
+        "why_not_first": "It removes the false REVISED signal that cost a (a[14]-a[35], ~20 steps), b (b[17], b[34]) and c (c[17]-c[24]) many steps and pushed a and b toward hunting 'revisions' in the notes table, but it would not have flipped a's wording-driven table choice; a already knew both tables and their sections at a[54]."
+      },
+      {
+        "level": "CONTROL",
+        "change": "Loop guard in the text arm: after 3 identical commands with identical output, insert a '[harness:loop] this command already printed the same output N times' note (as the b/b2 broker does). a repeated one command 39 times (a[69]-a[145]); the note would have saved ~300 s and ~5M input tokens and avoided answering from a compaction summary.",
+        "why_not_first": "a's answer was already computed at a[65]; the loop wasted budget but did not change the answer."
+      }
+    ],
+    "why_not_text": "For b, text is beside the point: b's own reasoning and calc were right; a harness Offer plus the seed sentence claiming 'the harness computed that alternative itself' overrode them. b2 had the same Offer sentence in its AGENTS.md but no competing_candidates rule and was right, so removing the rule (not rewording the text) is the demonstrated fix. For a, cell a had the generic 'Alternatives: weigh them against the question's exact wording' sentence and still chose the wrong table (a[64]); only a sentence with the specific tie-break (parenthetical = source; first table of the title) has a chance, and even that is uncertain.",
+    "irreducible": "Partly. The question is genuinely ambiguous between two same-title tables; the reference solver and its reviewer both chose the notes reading and were graded wrong, while the two right GLM cells reached the bonds table partly because it is the first and most prominent table of that title. A tie-break convention (parenthetical = source attribution; prefer the primary/first same-title table unless the question uses the section's distinguishing word) resolves it in the graded direction, but it is a convention, not a deduction. b's failure is not irreducible at all: it is a pure harness artifact."
+  },
+  "text_verdict": [
+    "'Loops: a command repeated with the same output...' - ignored (a[69]-a[145], 39 identical repeats); irrelevant for b2/c",
+    "'Compute every final number with calc...' - kept-and-helped (a[65], b[63], b2[24], c[52]); b then abandoned the calc value at the gate (b[66])",
+    "'Provenance: use numbers you have seen printed by a tool' - kept-and-helped in a, b2, c (rows printed before calc); b's accepted --alt was never printed by any tool",
+    "'Alternatives: when two candidate values fit... weigh them against the question's exact wording' - misled a (a[64]: weighed the wording and picked the notes table); kept-and-helped c (c[36]); ignored by b (submitted both via --alt instead of choosing)",
+    "'Bulletins revise earlier numbers... use the latest printing of each value' - misled a (a[60]-a[64] took an isolated last-issue OCR variant of CY1951 in the notes table as a revision; b[47] did the same in its alt); kept-and-helped, harmlessly, in b2 (b2[19]-b2[20]) and c (c[37]-c[51]) since the bonds values are stable",
+    "'Several tables in one issue can look alike... note its id so printings can follow it' - misled a (a[16]-a[33]: eight steps guessing ids SB-2/USB-2 that 1950s tables do not have; printings cannot be pinned to one of two same-title tables); the sentence lacks the tie-break that decided this question",
+    "'Match the period exactly. FY... and CY...' - kept-and-helped (all cells used CY rows; c[32] noticed an FY-row OCR error and correctly ignored it)",
+    "'Answer count and format' / 'Percent or fraction' / 'For a sum over the columns of one row' - irrelevant"
+  ],
+  "notes": "1) printings groups its SUMMARY by (part, column, period) only (otables.py printings_page, bycol key) although each table carries a `section`; with two same-title tables in every issue the tool reports a fake 'REVISED/DIFFERS' and lists two 'distinct values' that are really two tables (a[14], a[35], a[61], b[17], b2[16], b2[20], c[17], c[23]). All four cells hit this; c said outright 'Printings tool doesn't have section filter' (c[24]). 2) The 'ISOLATED' detector cannot flag a variant that sits in the LAST printing (a[60]-a[62], b[47]: the notes table's final 1956_08 printing shows a CY1951 value that differs from ~30 earlier printings; the reference reviewer settled it with the stock-flow identity, review.md check 3). A v10 SUMMARY line such as 'latest printing differs from all N earlier printings, which agree - suspect OCR, not a revision' would have kept a and b from promoting it under the 'latest printing wins' rule. 3) show_table pages cut at 8000 bytes before the CY rows on the 1954_12/1955_12 bonds tables (b2[10]-b2[14], c[27]-c[31]); the CY block starts around row 12, so --grep with a year plus --cols 1-3 is the working idiom (b2[22]). 4) a's show_table at 1956_08 line 2209 resolved to the adjacent 'Table 3 Series E through K' (a[56], a[69]); the harness then let the identical 5-call command run 39 times (text arm has no loop guard) until Codex compaction; the compaction summary carried the answer (a[146]). 5) The graded reading matches the v8 lesson: treat parentheticals like '(U.S. Treasury)' as source attribution and default to the first/primary table of a duplicated title; the reference's over-reading of the parenthetical is the same failure mode as its Q83 miss (v8 reverse/050.json notes). 6) b2's AGENTS.md still contains the 'the harness computed that alternative itself' Offer sentence; it did no harm only because no rule with an offer fired. Reword or delete it in v10."
+}

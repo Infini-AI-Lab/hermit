@@ -1,0 +1,68 @@
+{
+  "task_id": "UID0077",
+  "ordinal": 28,
+  "issue47": false,
+  "correct": {"a": 1, "b": 1, "c": 1, "opus": 1},
+  "question_type": "Change (percentage points) in a tax source's share of total receipts between two CALENDAR years, built by summing 12 monthly FFO rows per year from the right issues",
+  "decisive_step": "Refuse the fiscal-year annual rows (stub 'Fiscal year or month') and build each calendar year from 12 monthly rows: FFO-2 col (4) 'Income taxes > Net' (individual) and FFO-1 col (1) total receipts, taking CY2010 from the March 2011 issue and CY2011 from the March 2012 issue (a March issue's 13-month window Dec(Y-1)..Dec(Y) holds one full calendar year), and NOT from the FFO-2 continuation column labelled 'Total (44)', which the parser mislabels (it holds net miscellaneous receipts). Reference: worklog.md Step 3 (lines 17-21), Step 4 line 28 (mislabel), calc.py:13-41 (48 cells asserted against corpus lines), vintage_check.py (only negligible revisions).",
+  "cells": {
+    "a": {
+      "correct": 1,
+      "path_summary": "find_tables 'budget receipts' -> FFO-1/FFO-2 (a[4]-[8]); looked for CY rows with show_table --grep CY201 in 2013_12 (a[10]-[17]) and printings --row CY2010 (a[25]-[27]) - none exist; rg for 'calendar year' found nothing (a[33]-[35]); read the raw FFO-1 rows and recognised them as fiscal years (a[38]-[39]). At a[41] decided to sum monthly rows; printings --row '2010 - Jan' then '2010-01' (a[46]-[48]) returned the month with every printing and the latest value, so it looped printings over 24 months for FFO-2 'Income taxes > Net' (a[50]-[56]) and FFO-1 'Total receipts' (a[58]), took the latest printing of each, and computed the two shares and their difference with calc (a[60]). 223 s, 62 steps.",
+      "first_divergence": {"stage": "NONE", "where": "", "what_it_did": "", "what_a_right_cell_or_the_reference_did": ""},
+      "saw_correct_evidence": "yes - all 48 monthly cells printed by printings with issue:line (a[50]-[58]); the printings SUMMARY lines named the March 2011 / March 2012 issues as latest printings",
+      "tool_use": {"find_tables": 5, "show_table": 8, "printings": 9, "calc": 1, "other_shell": 8, "friction": "show_table at find_tables' reported line 430 returned a different (later) table (a[19]-[23], 'Tool maps nearest table?'); the 24-month printings loop in one command hit the 8,000-byte page cut (a[52]-[53]) so 3 months were re-run (a[54]-[56]); one shell-quoting exit 1 (a[54]); printings --row 'CY2010'/'Calendar year 2010' returned nothing because no such rows exist (a[25]-[27]) - correct but two wasted calls."},
+      "text_use": "'Match the period exactly ... FY and CY rows are different rows' - acted on at a[32] and a[39] ('Rows 2009 etc are fiscal years, not CY'); 'for every table cell you use, run printings ... latest issue' - acted on at a[41] and a[46]-[58] (it even said 'printings instruction says' at a[41]); 'Compute every final number with calc' - a[60]; 'Alternatives' - a[61] weighed FFO-1 total vs FFO-2 on+off total.",
+      "harness_use": "n/a"
+    },
+    "b": {
+      "correct": 1,
+      "path_summary": "find_tables -> FFO-2 (b[6]-[8]); show_table --stitch on 2012_12 FFO-1/FFO-2 showed only FY and monthly rows (b[15]-[17]); detoured to 'Internal Revenue Collections' (old issues only, b[19]-[24]) and FFO-5 IRS collections by state (b[29]-[33]) before settling on monthly FFO sums (b[33]-[35]). printings per month worked (b[35]); for the denominator it tried FFO-2 'Total receipts > Total' then 'Total (44)' and discovered from the raw lines that this column is net miscellaneous receipts (b[43]-[48]) - the reference's pitfall - so it used FFO-1 'Total receipts' (b[49]). b[51] ran a calc script calling printings 48 times and taking the latest issue; submit (b[56]) drew a 'grounded' finding on the literal 13 (the range bound); it printed all 48 values with a shell loop (b[59]), recomputed from explicit lists (b[61]) and resubmitted; accepted (b[63]). 240 s, 64 steps.",
+      "first_divergence": {"stage": "NONE", "where": "", "what_it_did": "", "what_a_right_cell_or_the_reference_did": ""},
+      "saw_correct_evidence": "yes - 48 monthly values listed with month keys at b[59]; raw FFO-2 header lines read at b[47] and b[54]",
+      "tool_use": {"find_tables": 6, "show_table": 5, "printings": 6, "calc": 2, "other_shell": 9, "friction": "show_table called with wrong syntax (exit 2, b[11]); show_table --grep 'Total|Individual' returned no rows (alternation unsupported, b[30]-[31]); printings --col 'Total receipts > Total' found nothing and --col 'Total (44)' bound to the mislabelled column (b[43]-[46]); the gate's 'grounded' rule flagged 13 from range(1,13) as an unshown input (b[56]-[57]), costing 3 steps; 2 submits."},
+      "text_use": "none (no advice text in this cell); it still decided on its own that CY needs monthly sums (b[25], b[27]) and checked the FY rows only as a magnitude cross-check (b[53]-[55])",
+      "harness_use": "Gate round 1: 'grounded' finding on literal 13 (a loop bound, false positive) - the model re-printed the 48 monthly values (b[59]) and recomputed from explicit lists (b[61]); round 2 accepted. The finding did not change the answer but did produce an explicit provenance listing. No loop notes, no compaction."
+    },
+    "c": {
+      "correct": 1,
+      "path_summary": "find_tables -> FFO-2/FFO-1 (c[5]-[8]); show_table --grep CY201 / 2011- on 2012_12 (c[12]-[26]) showed no CY rows; inspected FFO-4 (c[32]-[41]) and rejected it. At c[45] it worked out the issues' month windows and which issue prints each month; printings per month (c[46]-[51]) got cut by the page limit, so at c[55] it wrote a calc script calling printings 48 times and taking the max issue. It then read the raw FFO-2/FFO-1 headers to confirm col (4) is individual net and col (1) is total on+off-budget (c[57]-[59]), compared the CY sums with the FY rows and reasoned the difference is the Oct-Dec quarter (c[60]), noticed the 2012_06 header labels col 4 'Individual' explicitly (c[63]-[67]), and recomputed from explicit lists (c[73]). 221 s, 75 steps.",
+      "first_divergence": {"stage": "NONE", "where": "", "what_it_did": "", "what_a_right_cell_or_the_reference_did": ""},
+      "saw_correct_evidence": "yes - monthly rows with issue:line via printings (c[51], c[55]); raw header lines at c[57]-[59]",
+      "tool_use": {"find_tables": 9, "show_table": 10, "printings": 3, "calc": 2, "other_shell": 11, "friction": "show_table 'file:line' syntax exit 2 (c[10]); 24-month x 2-series printings loop cut by the 8,000-byte page (c[51]-[52]); sqlite has no table index to query instead (c[53]); FFO-4 header could not be read from show_table and needed --raw and sed (c[33]-[40])."},
+      "text_use": "'Match the period exactly ... FY and CY rows are different rows' - c[17], c[21], c[45], c[60]; 'run printings ... latest printing' - c[46]-[55], c[72] (it noted the Jan 2010 total revision across printings); 'Provenance: print the line it comes from' - c[57]-[59] raw header check; 'Compute every final number with calc' - c[73]; 'Alternatives' - c[74] considered the relative-change reading and rejected it.",
+      "harness_use": "n/a"
+    }
+  },
+  "fix": {
+    "smallest_change": {
+      "level": "NONE",
+      "change": "No change needed for correctness: all three cells made the decisive CY-from-months decision, chose the right issues via printings' latest-printing logic, and avoided the mislabelled FFO-2 total column. The remaining opportunities are cost and robustness (see alternatives).",
+      "would_have_fixed": [],
+      "could_hurt_right_cells": "no",
+      "generality": "domain_general",
+      "confidence": "high"
+    },
+    "alternatives": [
+      {"level": "TOOL", "change": "printings range mode: 'printings --table FFO-2 --rows 2010-01..2011-12 --col \"Income taxes > Net\" --latest' printing one line per period: '2010-01  <value>  latest 2011_03 treasury_bulletin_2011_03.txt:640 (4 printings, same)' ... plus a final 'SUM 2010-01..2010-12 = <value> (12 cells)' line; on revisions print 'REVISED: <first> -> <latest>'. Also list, once, which issues carry the whole window ('all 12 months of 2010 printed together in 2011_03').", "why_not_first": "All cells were right; this removes the 48-call loops (a[50]-[58], b[41]-[51], c[49]-[55]), the page cuts (a[52], c[51]) and the ad-hoc subprocess parsers inside calc (b[51], c[55]), roughly halving each run, and it prints the month->year assignment explicitly, which is what the v8 none/cards arms got wrong."},
+      {"level": "TOOL", "change": "show_table/printings header repair for FFO-2's continuation part: when the identity 'on-budget + off-budget = Total' fails for the column labelled 'Total (44)', relabel it 'Net miscellaneous receipts (43) [column shift; Total (44) missing]' under NOTES and refuse '--col \"Total (44)\"' with 'this column is not the total; use FFO-1 col (1) or on-budget(45)+off-budget(46)'.", "why_not_first": "b caught it by reading the raw line (b[47]-[48]) and a/c used FFO-1 directly, but a cell that trusted the label would compute a wildly wrong share; the reference recorded this as a pitfall (worklog line 28)."},
+      {"level": "CONTROL", "change": "'grounded' rule: ignore integer literals that appear as range()/slice/index bounds or as loop counters in the calc code (13 in range(1,13) at b[51]); only flag literals that flow into the arithmetic of the final expression.", "why_not_first": "False positive cost b 3 steps and 35 s; it did not change the answer."}
+    ],
+    "why_not_text": "n/a - no fix needed",
+    "irreducible": "n/a - all cells right"
+  },
+  "text_verdict": [
+    "kept-and-helped - 'Match the period exactly. FY ... and CY (calendar year) rows are different rows' (a[39], c[17]/[45]; the v8 none and cards arms failed exactly here)",
+    "kept-and-helped - 'Bulletins revise earlier numbers ... run printings ... latest issue' (a[41]-[58], c[46]-[55]; surfaced the Jan 2010 total and Jan 2011 individual revisions)",
+    "kept-and-helped - 'Compute every final number with calc' (a[60], c[73])",
+    "kept-and-helped - 'Several tables in one issue can look alike ... find_tables using the question's key nouns' (a[4]-[8], c[5]-[8] reached FFO-1/FFO-2 in two calls)",
+    "kept-and-helped - 'Provenance: use numbers you have seen printed by a tool' (c[57]-[59] read raw headers before trusting col (4))",
+    "kept-and-helped - 'Alternatives: when two candidate values fit' (a[61] FFO-1 total vs FFO-2 on+off; c[74] pp vs relative change)",
+    "kept-and-helped - 'Percent or fraction: when the question asks for a percent, answer in percent' (shares x100, difference in percentage points, a[60])",
+    "irrelevant - 'Loops'",
+    "irrelevant - 'Answer count and format'",
+    "irrelevant - 'show_table marks rows it repaired'",
+    "irrelevant - 'For a sum over the columns of one row'"
+  ],
+  "notes": "1) Compared with v8 (none and cards arms wrong on FY-vs-CY and on month rows inheriting the wrong year), all three v9 cells got it: the difference is that printings/show_table now key month rows as YYYY-MM with the year resolved ('2010-01', a[46]) and report the latest printing, so the year-label-inheritance error is gone; cell b had no advice text and was still right, which suggests the tool's explicit period keys matter more than the text sentence. 2) The 8,000-byte page limit is the main friction on 24-month questions: a[52] and c[51] were both cut, forcing re-runs or in-calc subprocess parsing; a range/batch mode for printings is the natural fix. 3) The FFO-2 'Total (44)' mislabel (b[45]-[48]) is a latent trap in every issue 2010-2013; a header identity check would catch it. 4) The 'grounded' gate mis-fired on a Python loop bound (b[56]-[57]); harmless here but it will annoy on every script-style calc. 5) All cells answered '<value> percentage points'; the unit suffix was accepted by the grader."
+}

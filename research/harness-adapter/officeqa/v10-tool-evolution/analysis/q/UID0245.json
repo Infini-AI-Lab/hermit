@@ -1,0 +1,66 @@
+{
+  "task_id": "UID0245",
+  "ordinal": 32,
+  "issue47": false,
+  "correct": {"a": 1, "b": 1, "c": 0, "opus": 1, "v8_none": 0, "v8_prompt": 0, "v8_cards": 0},
+  "question_type": "Midpoint ('Fisher Ideal symmetric') growth rate between two monthly yields from Table AY-1 (column 'Treasury bonds'), vintage pinned to FY1982-end issues; the answer is a unitless rate to 3 dp and the only knife-edge is output scale (bare fraction vs x100)",
+  "decisive_step": "Output scale: '(in percent)' qualifies the input yields, the answer clause ('single numeric value rounded to three decimal places') names no percent, so the symmetric growth rate is committed as a decimal fraction, not multiplied by 100. Reference: worklog.md Step 8 and solution key_decisions ('I report a decimal fraction'; the percent form is listed as a rejected alternative). Table, column ('Treasury bonds 1/', not the neighbouring 'New Aa corporate bonds') and vintage (Sep/Oct/Nov 1982 issues all print the same two cells; 1983 issues redefine the series) were handled correctly by all three cells.",
+  "cells": {
+    "a": {
+      "correct": 1,
+      "path_summary": "Located AY-1 with find_tables (a[8]) and read the Aug rows of the Sep 1982 issue with show_table --grep Aug (a[19]), which printed both monthly Treasury-bond cells with their period labels. Its first calc (a[36]) wrote the midpoint formula as a bare ratio and never raised the percent question. It then chased the word 'new': printings (a[38]) surfaced a misparsed 'New Aa Treasury bonds 1/' weekly header in the Dec 1981 issue, and a fell into 22 identical 5-command cycles (a[40]-[250]: show_table 1982_09 --from-row 12 --grep Aug -> 'page rows 0-0', show_table 1981_12, two python raw reads, same THINK) until context compaction reset it at a[251]. After compaction it cited the AGENTS.md calc/provenance advice, re-ran printings (a[257]), show_table (a[259]) and calc with round(rate,3) (a[266]) and answered the printed fraction.",
+      "first_divergence": {"stage": "NONE", "where": "n/a", "what_it_did": "n/a", "what_a_right_cell_or_the_reference_did": "n/a"},
+      "saw_correct_evidence": "yes",
+      "tool_use": {"find_tables": 11, "show_table": 47, "printings": 5, "calc": 2, "other_shell": 71, "friction": "severe loop: 22 identical cycles a[40]-[250] (~15.7M input tokens, 738 s) ending only by compaction; show_table --from-row 12 --grep Aug returned 'page rows 0-0 of 12' every time (a[40], a[50], ... a[250]) - the row filter plus page offset yields nothing although rows exist; printings listed a 1981_12 weekly column misparsed as 'New Aa Treasury bonds 1/' (a[38]) which triggered the chase; a stray 'Treasury bonds' cell = 7 on a 1982_02 weekly row in the same printings output; sed without corpus path (a[21] exit 1)"},
+      "text_use": "yes: 'Compute every final number with calc ... answer with the value it printed' and 'Provenance' cited after compaction (a[251], a[266]); the 'Loops: a command repeated with the same output will not change' sentence was NOT acted on across 22 repeats; the 'Percent or fraction' bullet was never cited (a never deliberated scale)",
+      "harness_use": "n/a"
+    },
+    "b": {
+      "correct": 1,
+      "path_summary": "find_tables gave no hit for its phrase (b[4]); b located AY-1 in the Oct 1982 issue with rg/sed (b[12]-[14]) and read both monthly Treasury-bond cells from the raw panel rows. It computed the bare midpoint fraction in calc (b[16]), confirmed both cells with printings by table title (b[26], b[28]), dismissed the misparsed 'New Aa Treasury bonds' weekly header in two steps (b[31]-[33]), then reasoned at submit time that '(in percent)' implies a percent answer and hand-typed the x100 form (b[36]). The gate's `scale` rule flagged it as 100x the calc output with an offer of the bare fraction; b accepted without further reasoning (b[37]-[38]).",
+      "first_divergence": {"stage": "NONE", "where": "n/a (pre-gate it diverged at b[35]-[36], ROUNDING_FORMAT, but the gate offer restored the fraction)", "what_it_did": "n/a", "what_a_right_cell_or_the_reference_did": "n/a"},
+      "saw_correct_evidence": "yes",
+      "tool_use": {"find_tables": 1, "show_table": 0, "printings": 2, "calc": 1, "other_shell": 13, "friction": "find_tables 0 hits for the question's phrase (b[4]); printings surfaced the misparsed weekly 'New Aa Treasury bonds' column (b[28]); rg for the formula name found nothing in the corpus (b[34])"},
+      "text_use": "none (b's AGENTS.md carried only the submit note)",
+      "harness_use": "2 submits, 1 gate round, 0 loop notes, no compaction. Round 1 (call 18) fired `scale` ('Your answer is 100 times the output of calc 82bb1780399f; the question does not ask for a percent', Offer: the calc fraction) and `recompute_final` (not shown, one finding per round). b accepted the offer in one step ('Harness says accept', b[37]) - changed the answer wrong-to-right. The acceptance was deference, not new reasoning."
+    },
+    "c": {
+      "correct": 0,
+      "path_summary": "Same table and cells as a: find_tables -> AY-1 (c[5]-[9]), show_table 1982_09 --grep Aug (c[12]) and a raw sed read (c[16]) gave both monthly Treasury-bond cells; printings confirmed them (c[21]) and c dismissed the misparsed weekly header (c[22]-[26]). Its first calc (c[29]) wrote every candidate formula already multiplied by 100 (simple, log, midpoint as 200*(b-a)/(a+b), Fisher-minus-100), so no bare fraction was ever printed. Its deliberation (c[36]-[40]) was only log vs midpoint; it never weighed fraction vs percent and answered the x100 midpoint value (error_bin scale_10^2).",
+      "first_divergence": {"stage": "ROUNDING_FORMAT", "where": "c[29]", "what_it_did": "Framed all candidate growth formulas with a x100 factor inside the calc expression and answered that printed value; the '(in percent)' qualifier on the inputs became the output unit by default.", "what_a_right_cell_or_the_reference_did": "a[36] wrote the midpoint as a bare ratio and answered it (a[266]); the reference computed the bare fraction and listed the percent form only as a rejected alternative (worklog Step 7-8)."},
+      "saw_correct_evidence": "yes",
+      "tool_use": {"find_tables": 5, "show_table": 4, "printings": 4, "calc": 1, "other_shell": 7, "friction": "printings --col with an unquoted two-word column name -> argparse error (c[19] exit 2); sed without the corpus path (c[14] exit 1); printings surfaced the misparsed 'New Aa Treasury bonds' weekly column (c[21]-[22]); show_table --grep '198[12]-08' with --cols matched nothing (c[37]-[38]); corpus searches for the formula name empty (c[27], c[35])"},
+      "text_use": "yes for 'Provenance' (c[16], c[39] raw reads) and 'latest printing ... printings' (c[21]); 'Compute every final number with calc' followed (c[29]); the 'Percent or fraction: ... when it asks for a ratio ... do not multiply by 100' bullet was never cited although it decided the question",
+      "harness_use": "n/a"
+    }
+  },
+  "fix": {
+    "smallest_change": {
+      "level": "CONTROL",
+      "change": "Keep the submit-time `scale` check that saved b and extend it so it also fires when the x100 lives inside the calc expression: parse the source of the calc whose output the answer equals; if the expression contains a literal factor 100 or 200 (e.g. `200*(b-a)/(a+b)`, `(...)*100`) and the question's answer clause (the sentence containing 'report'/'answer'/'rounded') contains neither 'percent' nor '%', print: '[harness:gate] Your answer equals calc a949461e0090, whose expression multiplies by 100 (`200*(b-a)/(a+b)`); the question's answer clause does not ask for a percent. Offer: <the same value divided by 100, rounded as asked>'. b's trace shows the offer path works for this actor (accepted in one step, wrong-to-right).",
+      "would_have_fixed": ["c"],
+      "could_hurt_right_cells": "unlikely - a and b's final answers were bare fractions so the rule stays silent; the risk is a question that wants a percent without saying so in its answer clause, which an offer (not a block) leaves to the model, and a's own 'Percent or fraction' text already states the same convention",
+      "generality": "document_qa_general",
+      "confidence": "medium"
+    },
+    "alternatives": [
+      {"level": "TOOL", "change": "Make `calc` print a one-line scale note whenever its source contains a literal 100/200 factor: '⟦note⟧ expression multiplies by 100: this is a percent form; the bare fraction is <value/100>'. c would have seen the bare fraction printed at c[29] and had to choose between the two forms explicitly (its deliberation never contained the alternative).", "why_not_first": "Weaker than the gate: it only surfaces the alternative, and the v8 prompt arm saw both forms and still chose x100 by prior; but it is cheap, runs where the decision is made, and needs no submit machinery."},
+      {"level": "TEXT", "change": "Rewrite a's 'Percent or fraction' bullet to name the trigger: 'A unit phrase on the inputs (\"yield (in percent)\") does not make a derived growth or change rate a percent; commit growth/change rates as decimal fractions unless the answer clause itself says percent or %.'", "why_not_first": "c had the existing bullet and never invoked it; a was right without reading it; the v8 prompt arm had an even more specific lesson and still chose x100. Text is evidenced weak on this exact decision."},
+      {"level": "CONTROL", "change": "Loop guard: after 3 identical commands with identical output, refuse the command and insert '[harness:loop] this command has printed the same output 3 times; decide with what you have or run something different'. a ran the same 5-command cycle 22 times (a[40]-[250]) until compaction; the AGENTS.md loop sentence did nothing.", "why_not_first": "Cost only (a was right); it does not touch c's error."}
+    ],
+    "why_not_text": "c ran with a's full AGENTS.md, including 'Percent or fraction: ... when it asks for a ratio, fraction or decimal, do not multiply by 100', and never cited it: its x100 framing was set in its first calc (c[29]) and its only deliberation was log vs midpoint (c[40]). a, with the same text, was right by an unexamined T=0 default (a[36]), not by the sentence. b's pre-gate reasoning (b[35]) and all three v8 arms chose x100 too. The decision is a strong actor prior triggered by the '(in percent)' token, and the only cell that flipped it was the one with a mechanical scale check (b).",
+    "irreducible": "partly: the formula name is non-standard and the percent-vs-fraction reading is a genuine ambiguity (the reference itself rated its confidence medium and its reviewer named scale as the residual risk); but the reference convention (answer clause silent -> fraction) is consistent and checkable"
+  },
+  "text_verdict": [
+    "ignored: 'Percent or fraction: when the question asks for a percent...' (c[29]-[41] never weighed fraction vs percent; a never cited it either)",
+    "kept-and-helped: 'Compute every final number with calc...' (a[266], c[29]; but c's calc carried the x100 inside)",
+    "kept-and-helped: 'Provenance: use numbers you have seen printed by a tool...' (a[19]/[259], c[16]/[39])",
+    "kept-and-helped: 'Bulletins revise earlier numbers ... printings' (a[38], a[257], c[21] confirmed both cells across Sep-Nov 1982 issues)",
+    "misled (partly): 'Bulletins revise ... printings' also listed a misparsed 'New Aa Treasury bonds' weekly column from the Dec 1981 issue (a[38], c[21]) that sent a into its 22-cycle chase of the word 'new'",
+    "ignored: 'Loops: a command repeated with the same output will not change' (a[40]-[250], 22 identical cycles)",
+    "kept-and-helped: 'Alternatives: weigh them against the question's exact wording' (c[36]-[40] chose midpoint over log by the wording; a[35], a[265])",
+    "kept-and-helped: 'Search with find_tables using the question's key nouns' (a[8], c[5]-[9] found AY-1)",
+    "irrelevant: 'Match the period exactly', 'show_table marks rows it repaired', 'Answer count and format', 'For a sum over the columns of one row'"
+  ],
+  "notes": "Two tool defects visible here: (1) show_table `--from-row 12 --grep Aug` on the 1982_09 AY-1 returned 'page rows 0-0 of 12' although rows exist (a[40] and 21 repeats) - the offset plus row filter produce an empty page and gave a nothing to break its loop; (2) the 1981_12 AY-1 weekly panel header is parsed as 'New Aa Treasury bonds 1/' (a[38], b[28], c[21]) - a column-label misparse that matches the question's word 'new' and cost a ~200 steps and b/c a few steps each. printings also lists a stray 'Treasury bonds' weekly cell of a single digit on a 1982_02 row. The Oct 1982 printing carries a '5/' footnote prefix on the Aug 1982 cell, which printings reports as a 'REVISED/DIFFERS' text value (a[38], a[258]); a footnote-stripping parse would remove that false revision flag. For v10 controls: b is the clean demonstration that a deterministic scale check with an offer flips this actor wrong-to-right, and the pilot-1 analysis is right that the current rule would have missed c because c's x100 lived inside the calc expression; the rule should inspect calc source for literal 100/200 factors. The formula name is not in the corpus (a[34], b[34], c[27], c[35]); searching for it is wasted budget in every cell."
+}

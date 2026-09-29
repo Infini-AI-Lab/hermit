@@ -1,0 +1,122 @@
+{
+ "task_id": "UID0094",
+ "ordinal": 44,
+ "issue47": false,
+ "correct": {
+  "a": 1,
+  "b": 1,
+  "c": 1,
+  "opus": 1
+ },
+ "question_type": "geometric (CAGR) annual rate of change of a ratio of two columns of one table between two month-end rows two years apart, decimal to thousandths",
+ "decisive_step": "Take the ratio as Balance > Working balance over Balance > Total (not over Current assets > Total) from the General Fund composition table, at the calendar month-end rows Dec 1938 and Dec 1940 (not the FY rows), and annualise over n=2 with a geometric (root) formula. Reference: worklog.md Step 0 (ambiguity resolved: 'total balance' = Balance > Total because working + seigniorage + increment sums to it), evidence treasury_bulletin_1939_01.txt:496 (Dec 1938 row) and treasury_bulletin_1941_01.txt:815 (Dec 1940 row), vintage check Step 4 (every reprint identical; no later revision of Dec 1938).",
+ "cells": {
+  "a": {
+   "correct": 1,
+   "path_summary": "find_tables on the question's nouns (a[4]) listed both table families ('Balance in the General Fund of the Treasury' 1941-45 and 'Composition of General Fund' 1939-40) though the 8000-byte cut hid the ids. It opened the 1941_03 table (a[6] grep miss, a[8] first page) and realised Dec 1938 is not in it, opened the 1939_05 Composition table and grepped the Dec 1938 row (a[12]), then used printings for all four cells (a[14] Dec 1940 working; a[16] Dec 1940 total, Dec 1938 working, Dec 1938 total), which showed every printing identical. calc at a[18] with the root formula.",
+   "first_divergence": {
+    "stage": "NONE",
+    "where": "a[18]",
+    "what_it_did": "Ratio of working to Balance > Total at both Decembers, (r2/r1)^(1/2)-1.",
+    "what_a_right_cell_or_the_reference_did": "Identical to the reference calc.py."
+   },
+   "saw_correct_evidence": "yes",
+   "tool_use": {
+    "find_tables": 1,
+    "show_table": 4,
+    "printings": 4,
+    "calc": 1,
+    "other_shell": 1,
+    "friction": "a[4] find_tables cut at 8000 bytes (per-part listing of 53 issues), no table id shown ('[-]'); a[6] --grep 1938-12 returned 0 rows (the 1941_03 table simply lacks that month; period-form grep vs label 'Dec' is ambiguous to the model); a[8] page 1 of 21 rows did not reach Dec 1940; a[14]/a[16] printings output long (5.8 KB and 10 KB omitted) because '--col Working balance' also matched a different 1941_10 sub-table's 'Working balance > Total working balance' column. No loops."
+   },
+   "text_use": "a[13] 'Need printings for table id?' then a[14]/a[16] printings for every cell ('for every table cell you use, run printings'); a[18] calc.",
+   "harness_use": "n/a"
+  },
+  "b": {
+   "correct": 1,
+   "path_summary": "find_tables (b[6]) listed the families. It then called show_table on treasury_bulletin_1940_12.txt at line 830, a line number copied from another issue's entry; show_table silently rendered the nearest table ('Total Cash Income and Outgo', line 835) instead of saying no table starts there (b[9]). It re-listed the Composition tables (b[11]), used --stitch on the 1941_01 and 1941_02 issues (b[13]) for the Dec 1940 row and on 1940_01 (b[16]) for the Dec 1938 row, choosing in each case the latest issue that reprints the row (b[12], b[14]) instead of running printings. calc b[18]; submit b[21] drew a row_coverage finding; kept with a reason b[23].",
+   "first_divergence": {
+    "stage": "NONE",
+    "where": "b[18]",
+    "what_it_did": "Same ratio and root formula as a.",
+    "what_a_right_cell_or_the_reference_did": "Same."
+   },
+   "saw_correct_evidence": "yes",
+   "tool_use": {
+    "find_tables": 2,
+    "show_table": 4,
+    "printings": 0,
+    "calc": 1,
+    "other_shell": 1,
+    "friction": "b[9] show_table given a non-table line (830 in 1940_12) rendered the neighbouring 'Total Cash Income and Outgo' table without warning; one wasted step. b[6] find_tables cut at 8000 bytes."
+   },
+   "text_use": "none (no advice text); it reasoned about 'most up-to-date revision' on its own at b[7], b[12], b[14].",
+   "harness_use": "One gate round: row_coverage fired at b[21] ('Your sum uses 2 cells of row treasury_bulletin_1940_01.txt:808 (1938-12); 7 other cells of that row are unused') on a ratio, not a sum: a false positive. The cell kept its answer with a reason (b[23]); no offer; the answer did not change. Cost 2 steps."
+  },
+  "c": {
+   "correct": 1,
+   "path_summary": "find_tables (c[5]); the same wrong-line show_table as b (c[8], line 830 in 1940_12 rendered 'Total Cash Income and Outgo'); an rg with bare filenames failed (c[10], exit 2, corpus path missing); re-listed the Composition tables (c[12]); paged the 1940_12 Composition table three times (c[13], c[15], c[16]) only to find it ends at Nov 1940; then printings for all four cells (c[19]), which found the Dec 1940 row in 1941_01/1941_02 and the Dec 1938 row in ten 1939-40 issues, all identical. calc c[21].",
+   "first_divergence": {
+    "stage": "NONE",
+    "where": "c[21]",
+    "what_it_did": "Same ratio and root formula.",
+    "what_a_right_cell_or_the_reference_did": "Same."
+   },
+   "saw_correct_evidence": "yes",
+   "tool_use": {
+    "find_tables": 2,
+    "show_table": 4,
+    "printings": 4,
+    "calc": 1,
+    "other_shell": 1,
+    "friction": "c[8] show_table on a non-table line rendered a neighbouring table silently; c[10] rg without the corpus path (exit 2); c[13]-c[16] three 8000-byte pages of one 21-row table (--long prints one line per cell, so 7 rows per page) before switching to --cols; none of it reached Dec 1940 because that issue ends at Nov 1940."
+   },
+   "text_use": "c[17] 'Need use printings per cell, as instructed' then c[19] four printings calls; c[21] calc.",
+   "harness_use": "n/a"
+  }
+ },
+ "fix": {
+  "smallest_change": {
+   "level": "NONE",
+   "change": "No change needed; all cells and the reference agree. The question is a clean two-cell ratio with no revisions across printings.",
+   "would_have_fixed": [],
+   "could_hurt_right_cells": "no",
+   "generality": "officeqa_specific",
+   "confidence": "high"
+  },
+  "alternatives": [
+   {
+    "level": "TOOL",
+    "change": "show_table: when the given line is not a table start, refuse instead of snapping to a neighbour. Print: `no table starts at treasury_bulletin_1940_12.txt:830; tables nearby: 835 Total Cash Income and Outgo, by Months (18r); 875 Composition of General Fund (21r)`. b[9] and c[8] each lost a step and a page of irrelevant cells to the silent snap.",
+    "why_not_first": "Operational only (one wasted step in two cells); no effect on correctness here."
+   },
+   {
+    "level": "CONTROL",
+    "change": "row_coverage should fire only when the compute op over the row's cells is a sum/aggregate (depth-1 op '+' or sum()), not a division or ratio. b[21]'s finding on a two-cell ratio was a false positive that cost a keep round.",
+    "why_not_first": "Harmless here (kept), but a false positive on a right answer is the kind of finding that could push a less confident run toward including unrelated cells."
+   },
+   {
+    "level": "TOOL",
+    "change": "find_tables: group output by table family with one line per family (title, id or '-', issue range, row range) and list per-issue parts only with --all or when fewer than ~10 parts; the 8000-byte cut hit every cell at its first call (a[4], b[6], c[5]) and hid the second family and the ids.",
+    "why_not_first": "All cells recovered by a second call; saves one step each."
+   },
+   {
+    "level": "TOOL",
+    "change": "show_table --long pages by cell lines (7 rows per 8000-byte page on an 11-column table); default to the compact ROWS layout (as --stitch does) unless --long is asked, and print 'row 1940-12 is not in this table (last row 1940-11)' when a --grep/--from-row target is beyond the last row. c[13]-c[16] spent three pages on a table that could not contain the needed month.",
+    "why_not_first": "Convenience; c reached the answer via printings anyway."
+   }
+  ],
+  "why_not_text": "n/a (no fix needed).",
+  "irreducible": "Not applicable; unambiguous once the column is chosen, and every printing agrees."
+ },
+ "text_verdict": [
+  "kept-and-helped: 'Bulletins revise earlier numbers ... run printings ... take the value printed by the latest issue' (a[14]/a[16], c[19]; b skipped printings but hand-picked the latest reprinting issue at b[12]/b[14], same result because no revision existed)",
+  "kept-and-helped: 'Compute every final number with calc' (a[18], b[18], c[21])",
+  "kept-and-helped: 'Match the period exactly. FY and CY rows are different rows' (all cells used the monthly December rows, not the FY rows that share the year number; b[14] noted the table mixes fiscal-year and monthly rows)",
+  "kept-and-helped: 'Percent or fraction ... when it asks for a ratio, fraction or decimal, do not multiply by 100' (all answered a decimal)",
+  "ignored (harmless): 'Several tables in one issue can look alike ... note its id' (these 1939-42 tables carry no id, find_tables prints '[-]'; cells followed the table by title words, which printings accepts)",
+  "irrelevant: 'show_table marks rows it repaired ... identity FAILS' (identity FAILS notes appeared at other lines of the 1940_01 and 1941_01 tables but not on the December rows used)",
+  "irrelevant: 'Loops', 'Provenance', 'Answer count and format', 'Alternatives', 'For a sum over the columns' (the latter is what row_coverage enforces; it misfired on a ratio at b[21])"
+ ],
+ "notes": "Useful for v10 tooling. (1) The same table is titled four different ways across issues ('Composition of Treasury General Fund' 1939_01-04, 'Composition of General Fund' 1939_05-1940_12, 'Composition of the General Fund' 1941_01-02, 'Balance in the General Fund of the Treasury' 1941_03 on, with columns reordered from 1941_03) and has no printed id; printings matched by title tokens across the renames (a[14] found the 1941_03+ family for Dec 1940; c[19] found 1941_01/02 under the older title) but find_tables shows them as separate groups, which sent b and c to the 1940_12 issue first even though Dec 1940 is only in 1941+ issues. A 'first issue printing period P' hint in find_tables ('rows 1933..Nov' already implies it, but the model did not use it) or a printings-first workflow for month-end rows would save the paging in c[13]-c[16]. (2) The 1939-40 Composition table's column labels are OCR-garbled ('Seign-lorage', 'Deposite in Fed. Reserve Banke') and the 1940_01 printing has 'Current assets > Inactive gold' and 'Current liabilities' mislabelled relative to other issues (b[16] header); the two columns used were labelled correctly in every printing, so no harm, but a column-order check across printings would catch a shift. (3) The row_coverage rule bound the Dec 1938 row's unused cells (seigniorage, increment on gold, current-asset components) as if the model had summed a partial row; the rule needs the compute op, not just the cell count."
+}

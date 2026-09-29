@@ -1,0 +1,118 @@
+{
+ "task_id": "UID0213",
+ "ordinal": 40,
+ "issue47": true,
+ "correct": {
+  "a": 1,
+  "b": 1,
+  "c": 1,
+  "opus": 1
+ },
+ "question_type": "two month-end balances from OCR-shifted tables, deflated with an external (not-in-corpus) CPI series",
+ "decisive_step": "Two decisions: (1) identify the 'Balance > Total' column of the Unemployment Trust Fund table although the OCR header labels are shifted in every 1947-48 printing (1948_02:822 labels it 'Total investments 8/', 1947_02:1917 labels it 'Expenditures > Total', 1947_04:1113 is shifted two columns) - the reference did it arithmetically at worklog Step 3-4 (receipts minus expenditures = balance; investments + unexpended + disbursing = balance) and by the clean 1947_03:1243 / 1948_04:616 printings; (2) accept that BLS CPI-U for 1946/1947 is not in the corpus (all CPI mentions are 1983+, worklog Step 6) and use the annual-average series from memory, converting the 1946 balance into 1947 dollars (calc.py). The December rows, not the FY (June) rows, are used.",
+ "cells": {
+  "a": {
+   "correct": 1,
+   "path_summary": "find_tables 'Unemployment Trust Fund' (a[8]) led to Table 3 in 1948_02; show_table --long (a[10], a[12]) mislabelled the balance columns, so a first summed investments + unexpended (a[13], a[24]), then reconciled the raw lines of 1948_02, 1947_04, 1948_06 and 1947_03 (a[16], a[23], a[65], a[71]-a[73]) and at a[66] worked out the true column order, confirming both December totals with printings on 'Balance > Total' (a[69]). It spent a[26]-a[67] (about 35 steps) searching the corpus for CPI-U before accepting the values from memory (a[74]) and computing with calc (a[76]).",
+   "first_divergence": {
+    "stage": "NONE",
+    "where": "",
+    "what_it_did": "",
+    "what_a_right_cell_or_the_reference_did": ""
+   },
+   "saw_correct_evidence": "yes",
+   "tool_use": {
+    "find_tables": 8,
+    "show_table": 4,
+    "printings": 2,
+    "calc": 1,
+    "other_shell": 23,
+    "friction": "show_table's column labels for 1948_02 Table 3 were off by one (the balance-total cell labelled 'Total investments', a[10]-a[13]); printings on 'Total investments' (a[19]) therefore returned the right number under the wrong name; 1947_04 table shifted two columns (a[21]-a[24], printings showed an implausible tiny 'Balance > Total'); a[14] sed on a relative path failed silently; a[40] zsh parse error; six find_tables and ~15 rg/sed calls (a[26]-a[67]) for a CPI table that does not exist; a[63] --grep December returned no rows for 1948_06 (rows labelled '1947-December')."
+   },
+   "text_use": "'Compute every final number with calc' (a[76]); 'Provenance: ... print the line it comes from' drove the long CPI hunt (a[47]: 'instruction says ... print source line'); 'use the latest printing ... printings' (a[19], a[69]); 'If a value you use sits on such a row, compare it with another printing' (a[65], a[71]).",
+   "harness_use": "n/a"
+  },
+  "b": {
+   "correct": 1,
+   "path_summary": "Same table via find_tables (b[8]); show_table --stitch on 1948_02 (b[10]) and 1947_02 (b[13]) mislabelled the columns, b first added the unexpended cell to the total (b[11]) and used a wrong CPI base from memory (b[25]), then corrected the column at b[28] after printings (b[27]) showed the Apr-1948 printing labelled 'Balance > Total', and confirmed Dec 1946 through printings + show_table of the shifted Apr-1947 table (b[40]-b[43]). Twenty steps of CPI searching (b[15]-b[45]) ended with the annual CPI-U values from memory, calc (b[47]) and submit (b[49]); the gate flagged the CPI literal as ungrounded, b searched 15 more steps (b[50]-b[64]) and re-submitted with --keep (b[66]).",
+   "first_divergence": {
+    "stage": "NONE",
+    "where": "",
+    "what_it_did": "",
+    "what_a_right_cell_or_the_reference_did": ""
+   },
+   "saw_correct_evidence": "yes",
+   "tool_use": {
+    "find_tables": 8,
+    "show_table": 3,
+    "printings": 2,
+    "calc": 1,
+    "other_shell": 15,
+    "friction": "b[19] python heredoc exit 1 then object reprs instead of results (b[20]-b[22]); mislabelled columns in 1948_02 and 1947_02 (b[10]-b[13]); printings on 'Balance' (b[40]) listed the shifted Apr-1947 cells with wrong labels; ~12 futile find_tables/rg calls for CPI; the grounded finding cost one gate round and 16 steps (b[50]-b[66]) with no possible source to print."
+   },
+   "text_use": "none (no advice text); the README submit note was followed (b[49], b[66]).",
+   "harness_use": "Submit 1 (b[49]): finding 'grounded' on the CPI literal, no offer. Submit 2 (b[66]): --keep with the CPI values and balances as reason, recorded. No loop notes, no compaction. The finding did not change the answer; it cost ~470 s of the 597 s run."
+  },
+  "c": {
+   "correct": 1,
+   "path_summary": "Same table (c[7]); show_table --long on 1948_02 (c[10]) plus raw lines (c[12], c[14]) left the column meaning unclear (c[11], c[15]); c[31]-c[37] compared the 1947_02, 1948_06 raw rows and worked out the column order, then printings on 'Balance > Total' for both Decembers (c[38], c[44]) with an explicit rejection of the shifted Apr-1947 printing (c[39]-c[43]). About 25 steps (c[17]-c[30], c[45]-c[67]) searched for CPI-U including direct SQLite queries; c used the annual CPI-U from memory, considered and rejected the 1946-dollar base (c[58]), and computed with calc (c[70]).",
+   "first_divergence": {
+    "stage": "NONE",
+    "where": "",
+    "what_it_did": "",
+    "what_a_right_cell_or_the_reference_did": ""
+   },
+   "saw_correct_evidence": "yes",
+   "tool_use": {
+    "find_tables": 7,
+    "show_table": 4,
+    "printings": 2,
+    "calc": 3,
+    "other_shell": 19,
+    "friction": "c[21]-c[25] officeqa.py search printed object reprs; c[34] --grep December returned nothing on 1948_06 (rows are '1947-December'); c[38] printings listed the shifted Apr-1947 cell as 'Balance > Total' with an implausible value; c[48]-c[50] the same rg repeated three times (loop); ~10 fruitless CPI searches."
+   },
+   "text_use": "'Match the period exactly ... FY and CY rows are different rows' (c[31]: distinguished fiscal-year rows from December rows); 'compare it with another printing' (c[39]-c[43]); 'Compute every final number with calc' (c[70]); 'Provenance' drove the CPI hunt (c[45]).",
+   "harness_use": "n/a"
+  }
+ },
+ "fix": {
+  "smallest_change": {
+   "level": "NONE",
+   "change": "No correctness change needed: all cells and the reference agree. Efficiency only (see alternatives): the three cells spent 25-35 steps each hunting for a CPI-U series that the corpus does not contain, and cell b paid an extra gate round for it.",
+   "would_have_fixed": [],
+   "could_hurt_right_cells": "no",
+   "generality": "officeqa_specific",
+   "confidence": "high"
+  },
+  "alternatives": [
+   {
+    "level": "TEXT",
+    "change": "Add: 'Some questions name a standard outside series (BLS CPI-U before the 1980s, population, exchange rates). The bulletins do not print it. After one find_tables and one rg over the corpus find nothing, use the well-known published value from memory, write it in the calc as a named variable with a comment naming the source, and go on; do not keep searching.'",
+    "why_not_first": "Correctness was not at stake; this saves ~25 steps per cell and removes the loop-like rg repeats (c[48]-c[50])."
+   },
+   {
+    "level": "CONTROL",
+    "change": "grounded rule: when the ungrounded literal sits in a calc variable whose name or comment marks it as external (cpi_, population_, '# external'), do not raise a finding (or raise it with the --keep line pre-filled and a note 'the corpus has no CPI table').",
+    "why_not_first": "Only b has the gate; the finding cost 16 steps and ~470 s and could not be satisfied, and the model's --keep already worked."
+   },
+   {
+    "level": "TOOL",
+    "change": "show_table: when the header row has fewer labels than the data row has cells (1948_02 Table 3, 1947_02, 1947_04), print a NOTE 'header has N labels for M data columns: labels right of column k may be shifted by one; verify with the column identity below or with printings on a later issue', and run the receipts-minus-expenditures / total = investments + unexpended identity so the balance column is named by arithmetic, as the reference did (worklog Step 3).",
+    "why_not_first": "All cells recovered by reading raw lines, at a cost of 10-20 steps each; the note would have shortened, not changed, the path."
+   }
+  ],
+  "why_not_text": "",
+  "irreducible": "Not applicable for the cells (all right). issue47 marks the official answer as disputed (annual-average vs December CPI-U and the deflation direction); every cell and the reference chose annual averages and 1947 dollars, and were graded right."
+ },
+ "text_verdict": [
+  "kept-and-helped: 'Compute every final number with calc' (a[76], c[70])",
+  "kept-and-helped: 'Bulletins revise earlier numbers ... use the latest printing' (a[19], a[69], c[38], c[44])",
+  "kept-and-helped: 'Match the period exactly. FY ... and CY rows are different rows' (c[31], December rows chosen)",
+  "kept-and-helped: 'show_table marks rows it repaired ... compare it with another printing' (a[65], a[71], c[39]-c[43])",
+  "kept-and-helped: 'Several tables in one issue can look alike ... find_tables' (a[8], c[7])",
+  "misled: 'Provenance: ... print the line it comes from' (cost only: a[47], c[45] kept searching for a CPI line that does not exist)",
+  "ignored: 'Loops: a command repeated with the same output will not change' (c[48]-c[50] repeated the same rg three times)",
+  "irrelevant: 'Answer count and format', 'Percent or fraction', 'Alternatives', 'For a sum over the columns'"
+ ],
+ "notes": "The Unemployment Trust Fund table's OCR header is mislabelled in every 1947-48 printing, and show_table/printings pass the wrong labels through: 1948_02:822's balance total is printed as 'Balance > Total investments > 8/', 1947_02:1917's as 'Expenditures > Total' / 'Balance' on the wrong cell, and 1947_04:1113 is shifted two columns so printings --col 'Balance > Total' returns a tiny transfer value under that name (a[69], b[40], c[38]). Only the 1947_03:1243 and 1948_04:616 printings are labelled right; the identity check ('c10 = sum c11..c13', b[13]) is the one tool signal that names the true total. All three cells eventually reasoned from raw lines; a v10 show_table note about label/data count mismatch plus a receipts-minus-expenditures identity would make that visible immediately. The external-series case (CPI-U absent from the corpus) is the second big time sink and the only thing the b gate objected to; the gate cannot be satisfied for such inputs, so the rule should recognise a declared external input rather than demand a source line."
+}

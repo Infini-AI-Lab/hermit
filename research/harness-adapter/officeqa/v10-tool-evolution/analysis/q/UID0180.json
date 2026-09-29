@@ -1,0 +1,82 @@
+{
+  "task_id": "UID0180",
+  "ordinal": 1,
+  "issue47": false,
+  "correct": {"a": 0, "b": 0, "b2": 1, "c": 1, "opus": 1},
+  "question_type": "sum of five fiscal-year-end cells of one table column (latest printing of each), single value",
+  "decisive_step": "Two decisions. (1) Table/column: the question's wording ('total Public debt securities ... held by US Government accounts') mirrors OFS-1 'Public debt securities Held by U.S. Government accounts > Total (3)'; the near-duplicate FD-1 column 'Government accounts > Public debt securities (5)' differs from it by a few units every year (FD-1 splits the government-account holdings into public-debt and agency parts). The reference chose OFS-1 by literal header match and logged FD-1 as the alternative (worklog Step 1 and Step 6; solution.structured key_decisions 1). (2) Extraction: each of the five annual cells must be copied as the exact integer printed in the table (reference calc.py CITED block, treasury_bulletin_2009_12.txt:2236-2240; worklog Step 4 confirms only FY2005 was ever revised and the latest printing carries the revised value).",
+  "cells": {
+    "a": {
+      "correct": 0,
+      "path_summary": "find_tables with the full question phrase returned nothing (a[5]); a second query with --rows listed FD-1 and OFS-1 among 382 groups before the 8000-byte cut (a[7]) and a picked OFS-1 by header wording (a[8]). show_table on the 2025_09 OFS-1 with --grep 2005 printed 0 rows because that issue starts at 2020 (a[10]). It then followed the printings advice: FY2005 in full (a[12], exact integer, latest printing) but FY2006-2009 in a shell loop piped through `tail -n 4` (a[14]), so for those four years it saw only the SUMMARY block, whose values are printed with '%g' (6 significant digits, e-notation). It zero-padded the four rounded mantissas and summed them in calc (a[16]). Result a few units low (within_0.1pct).",
+      "first_divergence": {
+        "stage": "EXTRACTION",
+        "where": "a[14]",
+        "what_it_did": "Read the four FY2006-2009 values from the printings SUMMARY line ('<6-digit mantissa>e+06: 2006_12..2011_09 (20)') and expanded them with trailing zeros in the calc at a[16]; the exact integers for those years never appeared in any of its outputs.",
+        "what_a_right_cell_or_the_reference_did": "c ran printings once per year without truncation and copied the exact integers from the per-issue lines (c[18]-[22]); b2 took the exact integers from the show_table page of the 2010_12 issue (b2[12]); the reference read the annual rows of one issue that prints all five years (worklog Step 3)."
+      },
+      "saw_correct_evidence": "partial (right table and column; the FY2005 exact cell was printed at a[12], but for FY2006-2009 only the 6-significant-digit summary ever reached it)",
+      "tool_use": {"find_tables": 2, "show_table": 1, "printings": 5, "calc": 1, "other_shell": 1, "friction": "a[5] find_tables with the full phrase: 0 results; a[7] output cut at 8000 bytes; a[10] show_table --grep 2005 on the 2025_09 part silently printed 'page rows 0-0 of 0' (the part only holds 2020+); a[14] loop `printings ... | tail -n 4` exposed only the %g-rounded SUMMARY"},
+      "text_use": "acted on 'for every table cell you use, run printings ... take the value printed by the latest issue' (a[11], a[13]); ignored 'Provenance: ... print the line it comes from' for the four tailed years",
+      "harness_use": "n/a"
+    },
+    "b": {
+      "correct": 0,
+      "path_summary": "find_tables with the full phrase returned nothing (b[6]); a two-argument call was rejected (b[8], exit 2); the third call with --all was filled entirely by FD-1's 314-issue listing and cut at 8000 bytes (b[10]), so OFS-1 never appeared. b committed to FD-1 'Summary of Federal Debt' (b[11]-[12]), stitched the 2010_12 FD-1 (b[14]) and read FY2006-2009 from the column 'Government accounts > Public debt securities', took FY2005 from printings (b[16], latest printing), summed exact integers in calc (b[18]) and submitted once (b[20]); accepted with no findings. Its value is a few units below the reference (within_0.1pct) because FD-1's public-debt-only column excludes the small agency-securities part that OFS-1's total includes.",
+      "first_divergence": {
+        "stage": "SOURCE_TABLE",
+        "where": "b[10]",
+        "what_it_did": "Chose FD-1 (the only table visible on its find_tables page) and its 'Government accounts > Public debt securities' column instead of OFS-1 'Public debt securities Held by U.S. Government accounts > Total'.",
+        "what_a_right_cell_or_the_reference_did": "b2 and c saw OFS-1 in a --rows listing (b2[7], c[6]-[8]) and picked it because its header repeats the question's words; the reference compared both tables and chose OFS-1 by literal header match (worklog Step 6)."
+      },
+      "saw_correct_evidence": "no (OFS-1 never appeared in any of b's outputs)",
+      "tool_use": {"find_tables": 4, "show_table": 1, "printings": 1, "calc": 1, "other_shell": 1, "friction": "b[8] exit 2: passed two quoted strings to find_tables (unrecognized arguments); b[10] --all listing of one group crowded every other group off the 8000-byte page"},
+      "text_use": "none (cell b had no advice text)",
+      "harness_use": "one submit, accepted, no findings (api/checks/001.json: fired=[]); 0 loop notes; nothing changed the answer"
+    },
+    "b2": {
+      "correct": 1,
+      "path_summary": "Same first two queries as a (b2[5] 0 results, b2[7] --rows listing with FD-1 and OFS-1); chose OFS-1 by header wording (b2[8]), narrowed with find_tables --years 2009-2010 (b2[10]) and paged the 2010_12 OFS-1 with show_table --long (b2[12]): rows 1-11 of 18 included the FY2006-2009 annual rows with exact integers. printings for FY2005 in full (b2[14], latest printing = revised value) and a tail -n 4 loop for 2006-2009 used only to confirm 'same in all printings' (b2[16]); calc with the exact integers from show_table (b2[18]); submit accepted (b2[20]).",
+      "first_divergence": {"stage": "NONE", "where": "", "what_it_did": "", "what_a_right_cell_or_the_reference_did": ""},
+      "saw_correct_evidence": "yes",
+      "tool_use": {"find_tables": 3, "show_table": 1, "printings": 5, "calc": 1, "other_shell": 1, "friction": "b2[7] output cut at 8000 bytes; b2[12] page ended after row 11 of 18 (happened to include the needed annual rows); b2[16] tailed loop showed only rounded SUMMARY values, but b2 did not use them"},
+      "text_use": "acted on 'prefer the table whose title and column headers match the question's wording' (b2[8]) and on the printings/latest-printing advice (b2[13], b2[15])",
+      "harness_use": "one submit, accepted, no findings (api/checks/001.json: fired=[]); 0 loop notes"
+    },
+    "c": {
+      "correct": 1,
+      "path_summary": "Full-phrase find_tables returned nothing (c[4]); three noun queries in one command (c[6]) were cut at 8000 bytes but c reasoned to OFS-1 (c[7]), listed all OFS-1 parts 2005-2012 (c[10]) and showed the 2010_03 part --raw (c[14]), which prints the five annual rows exactly. It then ran printings once per fiscal year without truncation (c[16], c[18], c[20]-[22]), copied the exact latest-printing integers into calc (c[24]) and answered.",
+      "first_divergence": {"stage": "NONE", "where": "", "what_it_did": "", "what_a_right_cell_or_the_reference_did": ""},
+      "saw_correct_evidence": "yes",
+      "tool_use": {"find_tables": 6, "show_table": 2, "printings": 5, "calc": 1, "other_shell": 1, "friction": "c[6] three queries in one command, cut at 8000 bytes; c[12] show_table --long --grep '2005-Sep' printed 0 rows (period strings are 'FY2005', not '2005-Sep'); c[16]-[22] five separate printings calls, each ~2 KB, most of it identical per-issue lines"},
+      "text_use": "acted on the printings/latest-printing advice for every cell (c[15]: 'We need run as instructed every cell'); provenance kept via the --raw listing (c[14])",
+      "harness_use": "n/a"
+    }
+  },
+  "fix": {
+    "smallest_change": {
+      "level": "TOOL",
+      "change": "printings: print SUMMARY values verbatim instead of '%g'. In otables.py the value keys of the SUMMARY block are built with `\"%g\" % val` (lines 2208 and 2213), which rounds every number to 6 significant digits and switches to e-notation above 1e6. Replace it with the exact cell text (raw with commas, r/p flags and footnote marks stripped; integers printed in full, decimals kept as printed), and group 'distinct values' on that exact text. The model would then have seen, in a's tailed output, `      <full integer exactly as the cell prints it>: 2006_12..2011_09 (20)` instead of `      <6-digit mantissa>e+06: 2006_12..2011_09 (20)`, and the four values it copied into calc would have been exact.",
+      "would_have_fixed": ["a"],
+      "could_hurt_right_cells": "no: b2, c and the reference used exact integers from other outputs; a longer integer on the summary line costs a few bytes per line",
+      "generality": "document_qa_general",
+      "confidence": "high"
+    },
+    "alternatives": [
+      {"level": "TOOL", "change": "find_tables: cap the per-group issue listing even under --all (e.g. at most 12 parts per group, then '... N more (use --all --table <id>)'), so that one 314-issue group (FD-1) cannot fill the 8000-byte page and hide the other candidate groups. b's --all page (b[10]) would then have shown OFS-1 next to FD-1, and b could have compared their headers with the question's wording.", "why_not_first": "It only makes the right table visible; b would still have had to choose between two near-identical series. It is the second change to make, since it is what kept b from ever seeing OFS-1."},
+      {"level": "TOOL", "change": "find_tables: when the full phrase matches 0 parts, automatically retry with the query's content tokens OR-ed and ranked, printing 'no exact match; showing best token matches' (all four cells lost their first call to a 0-result full-phrase query: a[5], b[6], b2[5], c[4]).", "why_not_first": "Costs one step per cell, did not decide correctness here."},
+      {"level": "CONTROL", "change": "Provenance check at submit: a calc input that matches no tool-printed literal exactly (a zero-padded expansion of an e-notation display does not match) raises a 'grounded' finding naming the input. Cell b's rule set already has `grounded`; cell a ran without it.", "why_not_first": "Catches the slip after the fact and depends on the model reacting to the finding; fixing the tool output removes the trap for everyone."},
+      {"level": "TEXT", "change": "Add to the OfficeQA table notes: 'The SUMMARY block of printings rounds values to 6 digits; copy a value only from a per-issue line or from show_table.'", "why_not_first": "A sentence about a tool defect is worse than fixing the defect; a already had 'print the line it comes from' and still trusted the summary."}
+    ],
+    "why_not_text": "Cell a had the provenance sentence ('Before you rely on a value, print the line it comes from') and still summed the rounded summary values, because the summary looked like a tool-printed source. The rounding is invisible to a model that trusts a tool's own summary line; only the tool can stop presenting rounded numbers as values.",
+    "irreducible": "No. The FD-1 vs OFS-1 choice is a genuine near-duplicate-series ambiguity (the reference records it as its main alternative), but the question wording and the OFS-1 header coincide, and a listing that shows both tables gives the model the same comparison the reference made."
+  },
+  "text_verdict": [
+    "kept-and-helped: 'Bulletins revise earlier numbers. Unless the question names a publication date ... run printings ... take the value printed by the latest issue' (a, b2, c all used it; it found the FY2005 revision; for a the way it executed the advice, a loop through tail, exposed the rounding trap)",
+    "ignored: 'Provenance: use numbers you have seen printed by a tool. Before you rely on a value, print the line it comes from' (a copied zero-padded summary mantissas; c kept it via --raw)",
+    "kept-and-helped: 'Several tables in one issue can look alike ... prefer the table whose title and column headers match the question's wording' (a, b2, c picked OFS-1 over FD-1 by header wording; b, without the text, took the only table it saw)",
+    "kept-and-helped: 'Compute every final number with calc' (all cells)",
+    "irrelevant: 'Loops', 'Answer count and format', 'Percent or fraction', 'Alternatives', 'Match the period exactly', 'show_table marks rows it repaired', 'For a sum over the columns of one row'"
+  ],
+  "notes": "The a/c split on this question is purely output formatting: same table, same column, same latest-printing rule, and a lost 4 of 5 values to the printings SUMMARY '%g' formatting because it tailed the output. Two more latent defects of the same lines: the 'distinct values' count is keyed on the %g string, so two printings that differ beyond 6 significant digits would be reported as 'same in all printings', and a value with more than 6 digits can never be checked against a calc input from the summary. Each per-year printings call prints ~20 near-identical per-issue lines (~2 KB); a compact per-issue listing (issue, value, flags only, one line each, or 'first..latest identical except: ...') would make tailing unnecessary. show_table --grep that matches no row should say why ('no row matches 2005; this part holds rows 2020..June; use --years or printings') instead of 'page rows 0-0 of 0' (a[10], c[12]). find_tables with the question's exact phrase returns 0 results for all four cells because the header says 'Held by U.S. Government accounts' while the question says 'outstanding held by US Government accounts'."
+}

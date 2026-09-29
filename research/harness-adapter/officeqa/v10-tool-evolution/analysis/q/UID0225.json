@@ -1,0 +1,150 @@
+{
+ "task_id": "UID0225",
+ "ordinal": 4,
+ "issue47": false,
+ "correct": {
+  "a": 1,
+  "b": 1,
+  "b2": 1,
+  "c": 1,
+  "opus": 1
+ },
+ "question_type": "average of two Treasury-bill bank-discount bid quotes selected by maturity week from a month-end market-quotation table (MQ-1), with an exact half at the rounding digit",
+ "decisive_step": "Use Table MQ-1 in the March 1982 issue (quotations as of Feb 26, 1982; the as-of date pins the issue, so no vintage choice) and select the two regular-weekly-panel rows whose maturity dates fall in the 2nd and 3rd weeks of June (6/10/82, 6/17/82) even though at Feb 26 those rows carry amounts only in the 26-week column; exclude the 52-week and special-issue rows with the same 6/17 date; round the exact half boundary half-up. Reference: worklog.md Step 2 (treasury_bulletin_1982_03.txt:4363-4369 header, :4389-4390 chosen rows, :4378 and :4399 excluded), solution.json decisions[2] (13-week label vs 26-week column settled via 1982_04.txt:4937-4938), review.md item 6 (rounding).",
+ "cells": {
+  "a": {
+   "correct": 1,
+   "path_summary": "find_tables found the MQ-1 group a[6] but the listing showed only three late-1982 issues and never the March 1982 part (it is indexed as '(untitled)', see notes); a[8] guessed a line and hit the wrong table, a[10]-[14] tried --all and --years listings, a[16] opened the April issue (as-of Mar 31, wrong date). Only rg on the raw text with the full corpus path a[20] located 'Table MQ-1' in the March issue; show_table --long a[24],[26] showed a header-shifted parse, a[36] sed printed the raw rows and a[27] had already identified the 6/10 and 6/17 rows by maturity date. It then spent a[28]-[60] on failed printings calls, corpus-wide searches for the question's own words, and 4 broken officeqa.py search calls, before calc a[52],[62]-[65] (caught a float half-boundary round-down and redid it with Decimal) and answered with a percent sign.",
+   "first_divergence": {
+    "stage": "NONE",
+    "where": "",
+    "what_it_did": "",
+    "what_a_right_cell_or_the_reference_did": ""
+   },
+   "saw_correct_evidence": "yes",
+   "tool_use": {
+    "find_tables": 9,
+    "show_table": 5,
+    "printings": 4,
+    "calc": 4,
+    "other_shell": 13,
+    "friction": "a[6]/[10]/[12]/[14]: the March 1982 MQ-1 never appears in find_tables output (no id attached: caption separated from the pipe table by two prose paragraphs), and 'find_tables MQ-1 --all | rg 1982' returned only the group line because --all was cut at 8000 bytes before the 1982 rows. a[8]: guessed line -> wrong table (IFS-1). a[16]: April issue parse shows OCR header 'Rank discount > Rid' and decimal-less values, unflagged. a[18]: rg on a bare filename fails (cwd is the workspace, not the corpus). a[22]: show_table --grep June -> 0 rows (dates are '6/10/82'; grep only sees label/period/section). a[24],[26]: 17-column table pages 8 rows per 8000 bytes; NOTES correctly warned of header shift. a[28],[54],[56]: printings 'no matching row/column' four times (row key c0 is an amount; maturity dates are not addressable). a[44]-[50]: officeqa.py search printed only dict keys (iterated over the result dict) 4 times. a[62]: calc round() on the float half boundary returned the lower value; a[63] noticed and used Decimal ROUND_HALF_UP a[64]-[65]. 67 steps, 143 s, 1.28M input tokens."
+   },
+   "text_use": "yes: a[27] 'need verify latest printing per instructions. printings --table MQ-1' (Bulletins revise ... printings) - three failed calls, irrelevant here because the as-of date pins the issue; a[36] Provenance ('print the line it comes from') via sed raw rows; a[52],[62] Compute every final number with calc; a[59],[61] Alternatives weighed against exact wording",
+   "harness_use": "n/a"
+  },
+  "b": {
+   "correct": 1,
+   "path_summary": "No advice text. officeqa.py search printed dict keys b[6], so it read officeqa.py b[8] and switched to rg over the corpus b[10]-[16]; b[19]-[20] rg 'Table MQ-1' plus sed of the raw March rows found the Feb 26 table and b[21] picked the 6/10 and 6/17 rows by maturity date, reasoning correctly that at Feb 26 they sit under the 26-week columns. b[27] show_table --raw confirmed, b[29]-[35] checked the June issue and the PDO narrative for the 13-week issue dates, b[38] decided and submitted b[40]. The gate returned a false table_alternatives finding; b spent b[41]-[55] trying to decode it (three identical rg commands tripped the loop guard), then kept its answer b[57]. Mean computed mentally b[28]; no calc run.",
+   "first_divergence": {
+    "stage": "NONE",
+    "where": "",
+    "what_it_did": "",
+    "what_a_right_cell_or_the_reference_did": ""
+   },
+   "saw_correct_evidence": "yes",
+   "tool_use": {
+    "find_tables": 1,
+    "show_table": 1,
+    "printings": 0,
+    "calc": 0,
+    "other_shell": 22,
+    "friction": "b[6]: search result iterated as dict -> keys only; b[14]: zsh quoting error (exit 1); b[25]: find_tables --all | head lost the useful part; b[44]-[54]: the same rg command run 3 times verbatim after the false finding (loop guard at call 26). 58 steps, 156 s."
+   },
+   "text_use": "none (no advice text in b)",
+   "harness_use": "Submit 1 (call 18): rule table_alternatives FIRED with a false attribution: 'Your answer reads treasury_bulletin_1982_06.txt:4658; MQ-1 (1982_06:4430) in this issue matches more question words' (api/checks/001.json bindings: used=AY-1 at 1982_06:4658, used_score 1 vs 6) although the answer came from 1982_03:4389-4390, which b had printed at b[20] and b[27]; the June issue was only a cross-check read at b[31]-[33]. No offer. The model could not make sense of it (b[41],[43],[45],[49],[53]), re-ran an identical search 3 times, got a loop_guard note at call 26 ('Current candidates: a1'), then submitted --keep at b[57] (checks/002.json: kept, all rules silent). Net effect: +17 steps, answer unchanged. recompute_final stayed silent both times although no calc was run."
+  },
+  "b2": {
+   "correct": 1,
+   "path_summary": "find_tables b2[5]-[11] found the MQ-1 group and, with --years 1982 --all, listed 7 issues but not 1982_03 (untitled), so b2[13] opened the April issue (as-of Mar 31) first and recognised the wrong date b2[14]; rg on the full corpus path b2[17] found the March table, show_table --grep 1982 gave 0 rows b2[18], --raw b2[20] and sed b2[22] gave the raw rows, and b2[23] reasoned out the panel layout and picked the 6/10 and 6/17 rows by maturity date. printings failed four times b2[25],[27]; b2[33] calc with Decimal; submit b2[35] recorded with no finding.",
+   "first_divergence": {
+    "stage": "NONE",
+    "where": "",
+    "what_it_did": "",
+    "what_a_right_cell_or_the_reference_did": ""
+   },
+   "saw_correct_evidence": "yes",
+   "tool_use": {
+    "find_tables": 4,
+    "show_table": 4,
+    "printings": 4,
+    "calc": 2,
+    "other_shell": 5,
+    "friction": "b2[11]: MQ-1 group lists 1982_02,04,05,06,07,10,11 but not 1982_03. b2[13]: wrong as-of issue opened first. b2[15]: rg on bare filename failed (cwd). b2[18]: --grep 1982 -> 0 rows. b2[25],[27]: printings --row with ISO and with '6/10/82' both 'no matching row/column'. b2[29]: --grep '6/' returned a garbled header-shifted parse ('Parser garbled. Raw is reliable', b2[30]). b2[25]: calc float shows the average one ulp below the half boundary; b2[32]-[33] switched to Decimal. 36 steps, 76 s."
+   },
+   "text_use": "yes: b2[23] 'instructions say for every table cell run printings ... Yet ... Question names quotations date' (latest-printing item, correctly overridden by the pin); b2[32]-[33] calc; b2[32] Alternatives ('decide include 3 vs 2') weighed against the exact wording",
+   "harness_use": "One submit, recorded (5 rules silent: answer_count, scale, period_match, later_printing, recompute_final). spec.pins_date=False although the question pins the quotation date - later_printing would have offered a later as-of value had printings resolved these rows. No loop notes, no offers."
+  },
+  "c": {
+   "correct": 1,
+   "path_summary": "Two long find_tables queries returned 0 groups c[6],[8]; officeqa.py search printed dict keys c[10],[13]; rg over the 1982 files c[15] and find_tables --years 1982 --all c[18] led to the March table; show_table --long c[20] gave the header-shifted parse, sed c[22] the raw rows, and c[23],[27],[31] reasoned through the 13-week-label vs 26-week-column conflict (also considering the PDO-3 auction rates c[35]-[36] and rejecting them because the question says 'quotations'). c[32] calc with Decimal, c[41]-[42] rg for the two maturity dates across all 1982 issues showed the Jan-29, Feb-26 and Mar-31 quotes and settled that the as-of date fixes the issue; answered with a percent sign c[55].",
+   "first_divergence": {
+    "stage": "NONE",
+    "where": "",
+    "what_it_did": "",
+    "what_a_right_cell_or_the_reference_did": ""
+   },
+   "saw_correct_evidence": "yes",
+   "tool_use": {
+    "find_tables": 5,
+    "show_table": 1,
+    "printings": 4,
+    "calc": 1,
+    "other_shell": 15,
+    "friction": "c[6],[8]: 6- and 4-word find_tables queries -> 0 groups. c[10],[13],[45]-[47]: officeqa.py search printed dict keys (three attempts, then read officeqa.py). c[35]: printings PDO-3 without --years: 'scan capped: first 400 of 631 parts, oldest issues first' - a 1982 row can never be reached that way. c[39]: printings MQ-1 by maturity date fails. c[49]: sqlite FTS5 syntax error on a numeric phrase. 55 steps, 125 s."
+   },
+   "text_use": "yes: c[34] 'verifying their latest printings before computing' (printings item; four failed calls); c[32] calc with Decimal; c[42] correctly reasoned that the as-of date pins the issue ('latest printing rule says ... use March issue only')",
+   "harness_use": "n/a"
+  }
+ },
+ "fix": {
+  "smallest_change": {
+   "level": "TOOL",
+   "change": "No cell was wrong, so this is the change that removes the friction that cost a/b/c 40+ steps each: attach the 'Table MQ-1. - Treasury Bills' caption to the pipe table at treasury_bulletin_1982_03.txt:4373 (otables title attachment should look back past prose paragraphs, within the same section, for a 'Table XX-n.' caption line up to ~12 lines above the header) so that find_tables lists it under [MQ-1] with its as-of date. Extra line the model would have seen in b2[11] / a[14]: '    treasury_bulletin_1982_03.txt:4373 part1 17c x 26r as-of FEBRUARY 26, 1982'. Additionally let find_tables take --asof <YYYY-MM> (match the as-of banner month) so 'find_tables MQ-1 --asof 1982-02' returns exactly this part.",
+   "would_have_fixed": [],
+   "could_hurt_right_cells": "no (adds a listing line; nothing else changes)",
+   "generality": "document_qa_general",
+   "confidence": "high"
+  },
+  "alternatives": [
+   {
+    "level": "TOOL",
+    "change": "calc: when a printed result is within 1e-9 of a rounding half boundary (x.xx5), append a note 'result is on a half boundary: Python round() works on binary floats and can land one ulp below the half; use round_half_up(x, 2)' and provide round_half_up in calc's namespace and README. a[62] got the lower value from round() and only its own doubt a[63] saved it; b2 and c pre-empted it with Decimal; b rounded mentally.",
+    "why_not_first": "latent correctness risk rather than an observed loss here; but it is the cheapest domain-general guard on this question"
+   },
+   {
+    "level": "CONTROL",
+    "change": "Drop or repair the table_alternatives rule: it attributed b's answer to a table b never used (AY-1 at 1982_06:4658) and produced a finding with no offer that cost 17 steps and a loop-guard note. If kept, bind 'used table' only to the observe records whose numeric cells equal the calc/answer inputs, and print the cell it thinks was used ('reads 12.xx at file:line') so a false attribution is recognisable at once.",
+    "why_not_first": "b still answered right; the cost was time and a near-loop"
+   },
+   {
+    "level": "TOOL",
+    "change": "printings/show_table for tables whose rows are keyed by a date cell rather than a period column (MQ-1, MQ-2): let --row match any date-typed cell in the row (or add --key 'Maturity date'). Extra line: '1982_03  treasury_bulletin_1982_03.txt:4389  p1 6/10/82 | c7 Bank discount > Bid = ...'. Ten printings calls across a, b2, c returned 'no matching row/column found'. Also scan newest issues first when the scan is capped (c[35] scanned the oldest 400 of 631 parts).",
+    "why_not_first": "the as-of date pins the issue, so printings was not needed for correctness"
+   },
+   {
+    "level": "TOOL",
+    "change": "README search snippet: the example 'docs.search(query=..., limit=8, ...)' should show the return shape, e.g. 'hits = docs.search(...)[\"results\"]; for h in hits: print(h[\"filename\"], h[\"start_line\"], h[\"snippet\"])'. a, b and c each lost 2-4 steps printing dict keys (a[44]-[50], b[6]-[8], c[10]-[13],[45]-[47]); the v8 analysis recorded the same failure.",
+    "why_not_first": "efficiency only"
+   },
+   {
+    "level": "TEXT",
+    "change": "Add to the latest-printing item: 'If the question names the quotation or as-of date (e.g. quotations in the last week of February 1982), the issue is fixed by that date: do not run printings or look for later printings.' b2[23] and c[42] worked this out themselves; a spent a[27]-[28],[53]-[56] on it.",
+    "why_not_first": "the text already exists in spirit ('Unless the question names a publication date'); a tool that reports the as-of banner does the same job without more text"
+   }
+  ],
+  "why_not_text": "n/a for correctness (no wrong cell). For the friction: cell a had the full text and still spent 67 steps, because the losses came from what the tools showed (no March MQ-1 in find_tables, garbled parse, printings unable to address maturity-date rows, dict-keys search output), not from missing advice.",
+  "irreducible": "n/a. The one genuine ambiguity (the question's '13-week' label vs the 26-week column) was resolved the same way by all four cells and the reference; the reviewer confirmed the week counting under three conventions."
+ },
+ "text_verdict": [
+  "kept-and-helped: 'Compute every final number with calc' (a[52],[62]-[65], b2[33], c[32]; the Decimal re-do in a is where it mattered)",
+  "kept-and-helped: 'Alternatives: when two candidate values fit ... weigh them against the question's exact wording' (a[59]-[61], b2[32], c[52] all decided the 2-row reading by wording; none averaged in the 52-week/special rows)",
+  "kept-and-helped: 'Provenance: ... print the line it comes from' (a[36], b2[22], c[22] sed the raw rows before computing)",
+  "misled (mildly): 'Bulletins revise earlier numbers ... for every table cell you use, run printings' - the as-of date pins the issue; a[27]-[28],[53]-[56], b2[25],[27], c[34]-[39] spent 10 failed printings calls on it; b2[23] and c[42] then reasoned the pin themselves",
+  "ignored: 'Loops: a command repeated with the same output will not change' (not applicable to a/b2/c; b, without the text, repeated one rg 3 times)",
+  "kept-and-helped: 'Several tables in one issue can look alike ... find_tables ... note its id' (all cells found the MQ-1 id; but the id lookup failed for the needed issue)",
+  "irrelevant: 'Match the period exactly. FY/CY', 'show_table marks rows it repaired', 'For a sum over the columns of one row'",
+  "irrelevant: 'Answer count and format', 'Percent or fraction' (a and c appended a percent sign, b2 did not; both graded right)"
+ ],
+ "notes": "1) Root friction: the March 1982 MQ-1 is '(untitled)' in the index because the caption 'Table MQ-1. - Treasury Bills' (1982_03.txt:4367) is separated from the pipe table (:4373) by two prose paragraphs; find_tables therefore never lists the one part every cell needed, and two cells opened the April issue first. This is a one-line-visible tool defect worth fixing before any evolution run. 2) MQ-1's flattened header has more labels than data columns; show_table's NOTES diagnosed this correctly ('labels right of it sit one column too far right', 'c6 labelled Maturity date holds num values') and every cell fell back to --raw or sed, which was the right move: keep --raw and the NOTES, but the parsed CELLS view of such tables is unusable and printings cannot address rows at all. 3) Latent rounding trap: the exact average sits on a half boundary; calc's float result prints one ulp below it and Python round() gives the lower value (a[52],[62]). Three of four cells handled it; a domain-general calc guard is cheap. 4) Controls: table_alternatives produced a false finding for b (17 wasted steps); recompute_final never fires when no calc exists (b computed mentally in both submits); spec.pins_date was False for a question that pins the quotation date. 5) The v8 losses on this question (prose in the final line; a 44-repeat loop plus compaction) did not recur: all cells ended with a bare value, and the pilot-1 loop guard fired correctly at the 3rd repeat in b. 6) The officeqa.py search helper's dict return shape cost three cells 2-4 steps each, as in v8; fix its README example or return a list."
+}

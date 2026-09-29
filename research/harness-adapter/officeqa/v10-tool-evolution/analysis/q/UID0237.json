@@ -1,0 +1,73 @@
+{
+  "task_id": "UID0237",
+  "ordinal": 38,
+  "issue47": true,
+  "correct": {"a": 1, "b": 0, "c": 0, "opus": 1},
+  "question_type": "midpoint-normalized difference of one monthly ownership series between two month-ends; answer form disputed because a trailing units phrase ('billions of nominal dollars') contradicts a unitless metric (issue47)",
+  "decisive_step": "Deciding the answer form: treat the metric noun phrase 'mid-point normalized difference' as fixing the quantity (difference divided by the mean of the two values, unscaled) and read 'reported in billions of nominal dollars' as describing the inputs, rather than dropping the normalization and reporting the raw dollar gap (or multiplying by 100). The reference made this call at worklog.md Step 1 (Ambiguity bullet) and Step 7 (Answer decision); review.md 'Findings' calls ratio-vs-percent the only residual ambiguity. Source selection is not load-bearing: OFS-1 column (7) and OFS-2 'Total privately held' give the same rounded ratio (worklog Step 6; calc.py cross-check), and neither June cell was ever revised (worklog Step 5).",
+  "cells": {
+    "a": {
+      "correct": 1,
+      "path_summary": "find_tables with the question's nouns surfaced the OFS section (a[5], a[8]); it opened OFS-2 (billions) in the Dec 2008 issue, paged to the June rows with --from-row/--cols (a[10], a[12]), ran printings on both cells (a[15], a[16]; stable), and computed the difference, the midpoint ratio and its percent form in one calc (a[18]). It then weighed ratio vs percent vs raw gap (a[17], a[19], a[22]), grepped the corpus for the phrase (a[21], empty), and chose the unscaled ratio, quoting the AGENTS.md 'Percent or fraction' bullet to rule out x100 and reading 'billions' as the input unit (a[22]).",
+      "first_divergence": {"stage": "NONE", "where": "", "what_it_did": "", "what_a_right_cell_or_the_reference_did": ""},
+      "saw_correct_evidence": "yes (OFS-2 June 2006 and June 2007 'Total privately held' cells at a[12]; both printings stable at a[15]-a[16]; the reference used OFS-1 but shows OFS-2 gives the same rounded result)",
+      "tool_use": {"find_tables": 2, "show_table": 2, "printings": 2, "calc": 1, "other_shell": 2, "friction": "a[10] --long --grep June page ended after 7 of 12 rows (the 2006/2007 rows were on the next page, needing a[12] with --from-row 7 --cols 1-3); a[21] rg for the metric phrase returned nothing (expected: it is the question's wording, not the bulletin's)."},
+      "text_use": "yes: 'when it asks for a ratio, fraction or decimal, do not multiply by 100' quoted at a[22] to pick the unscaled ratio over the percent; 'run printings ... latest issue' (a[13]-a[16]); 'Compute every final number with calc' (a[18]); 'Alternatives ... weigh them against the question's exact wording' (a[19]-a[22])",
+      "harness_use": "n/a"
+    },
+    "b": {
+      "correct": 0,
+      "path_summary": "Three find_tables calls (b[6], b[8] zero hits on a near-exact title with plural words, b[10]) located OFS-1; b[12] --stitch showed the private-investors columns (millions) with both June rows; printings on both cells (b[15]) stable. b[13]/b[16] correctly wrote down the midpoint formula and noted that it is dimensionless, then decided the 'billions' phrase named the output. b[21] calc printed the raw difference in billions and the ratio side by side; it submitted the raw difference (b[23]) without --alt; the gate recorded it with no finding.",
+      "first_divergence": {
+        "stage": "INTERPRETATION",
+        "where": "b[16], sealed at b[18] and b[22]",
+        "what_it_did": "Chose the raw dollar gap (converted to billions, two decimals) as the answer because the question says 'reported in billions of nominal dollars', treating 'mid-point normalized' as unexplained wording ('perhaps calendar month mid-point?', b[16]). The submitted value is a dollar amount, more than three orders of magnitude from the unitless ratio (>25pct).",
+        "what_a_right_cell_or_the_reference_did": "a[22]: the metric noun decides the form; the units phrase describes the inputs; no percent word so no x100. Reference worklog.md Step 1 (Ambiguity) and Step 7."
+      },
+      "saw_correct_evidence": "yes (OFS-1 June cells at b[12] and b[15]; the ratio itself was printed by its own calc at b[21])",
+      "tool_use": {"find_tables": 3, "show_table": 1, "printings": 2, "calc": 1, "other_shell": 3, "friction": "b[8] find_tables returned 0 groups for 'Distribution of Federal Securities by Classes of Investors and Types of Issues' (actual title uses singular 'Class'/'Type'), a plural mismatch that cost a call; b[12] --stitch output was cut in the middle (harmless, both rows visible); b[17], b[19] two rg calls for the metric phrase, both empty."},
+      "text_use": "none (b's AGENTS.md had only the submit note)",
+      "harness_use": "one submit (b[23]), status accepted, findings [] (api/checks/001.json); no --alt passed, no loop notes, no compaction. The ratio was in the same calc output (b[21]) as the submitted value but no rule harvested it (scale checks x100 only; competing_candidates needs --alt). Nothing changed the answer."
+    },
+    "c": {
+      "correct": 0,
+      "path_summary": "Located OFS-1 (c[4]-c[8]); three show_table --grep calls with '\\|' alternation returned zero rows (c[10], c[26], c[28]) and the Dec 2008 issue lacked the June 2007 monthly row (c[12]), so it got both cells from printings (c[14], c[16]; stable). c[22] calc printed the raw difference in millions, in billions, and the ratio. c[19], c[23] weighed the readings and judged that 'reported in billions' 'strongly' points to the raw gap. It then spent c[24]-c[32] comparing OFS-1 with OFS-2 (harmless for the ratio), settled on OFS-1 by the exact column title (c[33]) and answered the raw difference in billions.",
+      "first_divergence": {
+        "stage": "INTERPRETATION",
+        "where": "c[19], c[23], sealed at c[33]",
+        "what_it_did": "Same reading as b: kept the units phrase as the output specification and dropped the normalization the question names; listed the ratio and its percent form at c[23] and rejected both. Submitted the raw dollar gap in billions (>25pct from the ratio form).",
+        "what_a_right_cell_or_the_reference_did": "a[22] chose the unscaled ratio from the metric noun and the 'Percent or fraction' bullet; reference worklog.md Step 7."
+      },
+      "saw_correct_evidence": "yes (OFS-1 June cells via printings at c[14]/c[16]; the unscaled ratio printed by its own calc at c[22])",
+      "tool_use": {"find_tables": 4, "show_table": 7, "printings": 2, "calc": 1, "other_shell": 2, "friction": "c[10], c[26], c[28]: show_table --grep with a '\\|' regex alternation matched nothing ('page rows 0-0 of 0') because --grep is a plain substring, three wasted calls and a 'Grep not working' note at c[29]; c[10] pointed at part 1 of OFS-1, which lacks the private-investors columns (they sit in part 2 at line 2230, guessed at c[12]); c[12] the Dec 2008 issue's monthly block starts after June 2007, so the needed rows were absent; c[30], c[32] paged OFS-2 by --from-row to reach 2006/2007; c[18] rg for the phrase empty."},
+      "text_use": "yes: 'run printings ... latest issue' (c[13]-c[16]); 'Compute every final number with calc' (c[22]); 'prefer the table whose title and column headers match the question's wording' (c[33] chose OFS-1 by the exact column title); the 'Percent or fraction' bullet was not invoked; 'Alternatives ... weigh against the exact wording' was applied at c[23] but tipped toward the units phrase",
+      "harness_use": "n/a"
+    }
+  },
+  "fix": {
+    "smallest_change": {
+      "level": "TEXT",
+      "change": "Rewrite the 'Percent or fraction' bullet as: 'Answer form: the metric named in the question fixes what you report. If it names a normalized difference, ratio, share, rate or percent change, report that metric, computed from the cited values, and never the raw difference of the inputs; a trailing phrase such as \"in billions of nominal dollars\" gives the unit of the inputs, not permission to drop the metric. Multiply by 100 only when the question says percent, percentage or %; a ratio, fraction, normalized difference or decimal is reported unscaled. Do not infer the scale from the rounding precision asked for.'",
+      "would_have_fixed": ["b", "c"],
+      "could_hurt_right_cells": "unlikely: a question that wants a raw difference in billions does not name a normalizing metric; the x100 clause is the existing bullet a already used at a[22]",
+      "generality": "document_qa_general",
+      "confidence": "medium (c had the current bullet and still chose the raw gap at T=1, but the current bullet says nothing about dropping the operator; b had no text at all; the question is on the disputed list, so validate on undisputed ratio questions)"
+    },
+    "alternatives": [
+      {"level": "CONTROL", "change": "Submit-time named-operator check: when the question contains 'normalized|ratio|percent|share|rate|change' and the submitted value equals (x-y) or (x-y)/10^k of two values printed by the actor's calc, print the finding 'The question names \"mid-point normalized difference\"; your answer equals the raw difference of the two cited values converted to billions. Offer: <the ratio printed by the same calc, rounded as asked>'. Both b[21] and c[22] printed that ratio, so the offer is computable from the ledger without --alt.", "why_not_first": "Requires the gate to parse calc output for candidates (pilot-1 noted the gate never harvested it), and the actor can still Keep; the text rule reaches the decision before submit. Good as a backstop for the T=1 case."},
+      {"level": "TOOL", "change": "show_table --grep: accept '|' or repeated --grep as OR, and print 'grep is a plain case-insensitive substring; 0 rows matched \"2007 - June\\|2006 - June\"' when a pattern with regex metacharacters matches nothing (c[10], c[26], c[28]; also 035 c[15]).", "why_not_first": "Friction only; it cost c three calls but did not cause the error."},
+      {"level": "TOOL", "change": "find_tables: tolerate singular/plural on title words (b[8] 'Classes of Investors and Types of Issues' returned 0 groups for a table titled 'Class of Investors and Type of Issues'); and list every part of a multi-part table with its column range so the private-investors columns of OFS-1 part 2 are visible from the listing (c[10]-c[12]).", "why_not_first": "Friction only."}
+    ],
+    "why_not_text": "n/a (fix is TEXT); the CONTROL alternative is listed as a backstop because c shows that at T=1 the model can read the same text and still weight the units phrase more",
+    "irreducible": "partly: issue47 marks the wording as disputed (a unitless metric with a dollar unit phrase), and the reference reviewer also records ratio-vs-percent as a residual ambiguity. The proposed text encodes the reference's reading; if the official answer were ever changed to the dollar gap the same rule would turn a into a wrong cell."
+  },
+  "text_verdict": [
+    "kept-and-helped: 'Percent or fraction: ... when it asks for a ratio, fraction or decimal, do not multiply by 100' (a[22] quoted it to pick the unscaled ratio; c did not invoke it, c[23])",
+    "kept-and-helped: 'Alternatives: when two candidate values fit ... weigh them against the question's exact wording' (a[19]-a[22] weighed three forms and chose by the metric noun; c[23] weighed the same three and tipped the other way, so the bullet alone does not decide)",
+    "kept: 'Compute every final number with calc' (a[18], c[22]; b[21] also, though b had no text)",
+    "kept (wasted): 'Bulletins revise earlier numbers ... run printings' (a[15]-a[16], c[14]-c[16], b[15]; both June cells are never revised, two calls per cell, though for c printings was also the only way to get the June 2007 row after c[12])",
+    "kept: 'Several tables in one issue can look alike ... prefer the table whose title and column headers match' (c[33] chose OFS-1 by the exact column title; a used OFS-2; harmless either way)",
+    "irrelevant: 'Loops', 'Provenance', 'Answer count and format', 'Match the period exactly', 'show_table marks rows it repaired' (the OFS-1 identity FAILS note at 2007_09:1825 seen at b[12] was not on a used row)"
+  ],
+  "notes": "All three cells extracted the right two cells and printed the correct ratio in their own calc; the miss is purely the answer-form decision on a disputed question. Design points: (1) the current 'Percent or fraction' bullet covers x100 only; b and c failed on the other axis (dropping the operator), which the rewritten bullet names. (2) The OFS-1 vs OFS-2 detour (c[24]-c[33]) cannot change the rounded ratio; a sentence 'when two candidate series give the same rounded answer, stop comparing them' would save turns. (3) show_table's 'spurious extra label' NOTE fired correctly on OFS-2 in 2007_09 (c[26]), a good example of the label-independent anchor note that TSO Table 3 in 035 lacked. (4) show_table --grep is a plain substring: c wasted three calls on '\\|' alternation here and 035 c[15] got a false hit on 'marketable'; either document it in the page footer or support OR."
+}

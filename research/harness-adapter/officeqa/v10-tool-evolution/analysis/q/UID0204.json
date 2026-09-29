@@ -1,0 +1,116 @@
+{
+ "task_id": "UID0204",
+ "ordinal": 43,
+ "issue47": false,
+ "correct": {
+  "a": 1,
+  "b": 1,
+  "c": 1,
+  "opus": 0
+ },
+ "question_type": "absolute difference of two prose-reported figures pinned to two named issues (Sep 2010 MSR projection vs Sep 2011 actual FY2010 deficit), trillions, hundredths",
+ "decisive_step": "Which figure is the 'actual value' for FY2010 in the September 2011 issue: the one-decimal (trillions) sentence in Profile of the Economy > Federal Budget (treasury_bulletin_2011_09.txt:305), padded to hundredths, or the exact FFO-1 Summary of Fiscal Operations total-deficit cell in millions (treasury_bulletin_2011_09.txt:512) rounded to hundredths. The key follows the sentence as printed. The reference solution made the opposite choice at worklog.md Step 3 / solution.json decisions[1] ('question demands hundredths; the table value supports hundredths') and its review.md 'Residual risk' argued against the literal reading; it was graded wrong (about 6% relative, last digit). The projection side (treasury_bulletin_2010_09.txt:321, the Mid-Session Review sentence) was the same for everyone; a secondary trap is the FFO-1 '2010 - Est.' row in the Sep 2010 issue, which is the February FY2011 Budget estimate, not the MSR (note at treasury_bulletin_2010_09.txt:~571).",
+ "cells": {
+  "a": {
+   "correct": 1,
+   "path_summary": "find_tables on the question's nouns returned nothing useful (a[5] zero hits; a[7] 1276 parts, output cut), so it switched to rg over the two named issues (a[10]) and found both Federal Budget sentences at once. It then did the extra diligence the reference did: opened FFO-1 in 2011_09 (a[21]) and saw the exact FY2010 deficit in millions, opened FFO-1 in 2010_09 (a[23]) and noticed its estimate row differs from the MSR sentence, and read the table note (a[27]) to learn that row is the February budget estimate. It computed both candidate differences in calc (a[29]), re-grepped the two sentences (a[31]), and at a[32] chose the as-printed narrative reading because the question says 'reported in' the two named publications and 'for this calculation specifically'.",
+   "first_divergence": {
+    "stage": "NONE",
+    "where": "a[32]",
+    "what_it_did": "Weighed the two candidates (narrative one-decimal figure padded to hundredths vs FFO-1 exact cell rounded) against the wording and picked the narrative.",
+    "what_a_right_cell_or_the_reference_did": "Same as this cell; the reference picked the FFO-1 cell and was wrong."
+   },
+   "saw_correct_evidence": "yes",
+   "tool_use": {
+    "find_tables": 3,
+    "show_table": 3,
+    "printings": 0,
+    "calc": 1,
+    "other_shell": 7,
+    "friction": "a[5] find_tables 'MSR estimates deficit' zero hits (the source is prose, not a table); a[7] find_tables 'deficit' 1276 parts, cut at 8000 bytes; a[14] find_tables 'Federal Budget' 74 parts, cut; a[19] show_table --grep 'Fiscal year 2010' matched no row in 2011_09 FFO-1 (the row label there is the bare year), needed a second call a[21] which paged only rows 1-6 of 21 (8000-byte page). No loops."
+   },
+   "text_use": "a[32] reasons 'normally use latest revision, but here use ... those exact issues' (the 'Bulletins revise earlier numbers ... unless the question names a publication date or issue' item); a[28]-[32] weigh two candidates against exact wording ('Alternatives: when two candidate values fit'); a[29] computes with calc.",
+   "harness_use": "n/a"
+  },
+  "b": {
+   "correct": 1,
+   "path_summary": "No table tools at all. It used the officeqa.py FTS helper (b[6] printed only the dict keys, b[8] read the helper source, b[10] fixed the call) which surfaced MSR prose from other issues, then read the two named issues by line range (b[13], ~46 KB clipped) and rg -C 8 (b[15], ~47 KB clipped), then targeted sed/rg (b[17], b[19]) that found both Federal Budget sentences. It never opened FFO-1; it recalled a more precise table-level figure from memory at b[20] and rejected it because the question says 'reference ... reported in' the two publications. Submitted without calc (b[21]), the recompute_final gate sent it to calc (b[24]), resubmitted and recorded (b[26]).",
+   "first_divergence": {
+    "stage": "NONE",
+    "where": "b[20]",
+    "what_it_did": "Chose the as-printed narrative figures from the two named issues, padding the one-decimal actual to hundredths.",
+    "what_a_right_cell_or_the_reference_did": "Same as a and c; the reference went to the FFO-1 cell and was wrong."
+   },
+   "saw_correct_evidence": "yes",
+   "tool_use": {
+    "find_tables": 0,
+    "show_table": 0,
+    "printings": 0,
+    "calc": 1,
+    "other_shell": 10,
+    "friction": "b[6] officeqa.py search returned a dict and the cell printed its keys (one wasted step plus b[8] reading the helper source); b[13] docs.read of 150 lines per issue produced ~46 KB, clipped; b[15] rg -C 8 over both issues produced ~47 KB, clipped; three steps of runaway output before the targeted sed at b[17]."
+   },
+   "text_use": "none (b's AGENTS.md has no advice text); its b[20] reasoning about 'reported in ... publications' is its own.",
+   "harness_use": "One gate round: recompute_final fired at b[21] ('not an output of any calc run'); the cell ran calc (b[24]) and resubmitted the same value (b[26], recorded). No offers. The gate did not change the answer; it cost 2 steps and ~8 s."
+  },
+  "c": {
+   "correct": 1,
+   "path_summary": "find_tables with three prose phrasings returned zero or irrelevant tables (c[6]); the FTS helper hit the same dict-keys problem as b (c[8], c[10]); an rg with bare filenames failed for lack of the corpus path (c[12] listed the corpus instead). An rg over the two named issues (c[14]) found the MSR sentence and c[18] the Sep 2011 Federal Budget sentence. It never opened FFO-1 (it recalled an approximate precise figure from memory at c[19]) and chose the as-printed values, computing the difference with calc (c[21]).",
+   "first_divergence": {
+    "stage": "NONE",
+    "where": "c[19]",
+    "what_it_did": "Chose the narrative figures of the two named issues, actual padded to hundredths.",
+    "what_a_right_cell_or_the_reference_did": "Same choice as a and b."
+   },
+   "saw_correct_evidence": "yes",
+   "tool_use": {
+    "find_tables": 3,
+    "show_table": 0,
+    "printings": 0,
+    "calc": 1,
+    "other_shell": 7,
+    "friction": "c[6] three find_tables calls for prose phrases: two zero-hit, one irrelevant; c[8] FTS helper printed dict keys (wasted step, then c[10] read the helper source); c[14] rg over both issues ~31 KB clipped. No loops."
+   },
+   "text_use": "c[21] computes with calc ('Compute every final number with calc'); nothing else explicit.",
+   "harness_use": "n/a"
+  }
+ },
+ "fix": {
+  "smallest_change": {
+   "level": "NONE",
+   "change": "No change needed for these cells: all three chose the as-printed narrative figures. The risk on this question runs the other way (the reference and v8_none 'upgraded' to the more precise FFO-1 cell and were wrong), so any v10 change should be a guard that keeps the literal reading, not a push toward more precision.",
+   "would_have_fixed": [],
+   "could_hurt_right_cells": "no",
+   "generality": "document_qa_general",
+   "confidence": "high"
+  },
+  "alternatives": [
+   {
+    "level": "TEXT",
+    "change": "Add to AGENTS.md: 'When the question names the issues and says the figures are reported in them, use each figure as that issue prints it, in the unit the question quotes (a sentence in trillions beats a table cell in millions). A rounding clause describes the output format; it does not ask you to find more precision.' Would have prevented the reference's and v8_none's error; a[32] reached this reading on its own but only after weighing both for four steps.",
+    "why_not_first": "No cell in this pilot failed; it is a guard against the error mode shown by the reference and v8_none (reverse/027.json), not a fix. Cost: ~60 words of text."
+   },
+   {
+    "level": "TOOL",
+    "change": "A prose search tool, e.g. `find_text \"Mid-Session Review\" --years 2010-2011`, printing `treasury_bulletin_2010_09.txt:321  Profile of the Economy > Federal Budget: The Mid-Session Review of the fiscal year 2011 budget projects ...` (one line per hit, section path, sentence clipped at ~200 chars). find_tables returned zero hits for every prose phrasing (a[5], c[6]) and the officeqa.py helper cost b and c two steps each (b[6]/b[8], c[8]/c[10]) before they fell back to rg with runaway output (b[13], b[15], c[14]).",
+    "why_not_first": "Operational only: all cells got there via rg within 5-8 steps. It would have saved 2-4 steps per cell and ~90 KB of clipped output."
+   },
+   {
+    "level": "CONTROL",
+    "change": "A submit-time check: when the final value cites a table cell whose unit (millions) differs from the unit the question quotes (trillions) and a sentence in the same named issue states the quantity in the question's unit, print 'Your actual value comes from FFO-1 (millions); treasury_bulletin_2011_09.txt:305 reports the same quantity in trillions as the question words it. Keep or use the printed figure.'",
+    "why_not_first": "Would only have mattered for a solver that took the table path (none of a/b/c did); more machinery than the TEXT guard for the same effect."
+   }
+  ],
+  "why_not_text": "n/a (no fix needed).",
+  "irreducible": "Partly. The wording ('actual value rounded to the nearest hundredths place') genuinely invites the table reading, and the sentence in the Sep 2011 issue is printed to one decimal, so both readings are defensible; the key follows the literal one. a and b earned it by weighing the wording; c never saw the table alternative, so its correctness was partly luck. A learner should not read a/b/c's success as evidence that more table diligence is safe here."
+ },
+ "text_verdict": [
+  "kept-and-helped: 'Compute every final number with calc' (a[29], c[21]; b needed the gate to do it)",
+  "kept-and-helped: 'Provenance: use numbers you have seen printed' (a[31] re-grepped both sentences before answering)",
+  "kept-and-helped: 'Alternatives: when two candidate values fit ... weigh them against the question's exact wording' (a[28]-[32] weighed narrative vs FFO-1 and did not average)",
+  "kept-and-helped: 'Bulletins revise earlier numbers. Unless the question names a publication date or issue' (a[32] invoked the exception explicitly; no printings run, correctly)",
+  "irrelevant: 'Several tables in one issue can look alike' (the sources are prose sentences; find_tables could not reach them)",
+  "irrelevant: 'Loops', 'Answer count and format', 'Percent or fraction', 'Match the period exactly', 'show_table marks rows it repaired', 'For a sum over the columns'"
+ ],
+ "notes": "Three design points. (1) This is the 'more diligence hurts' case: the reference (worklog Step 3-5, cross-check from the Dec 2010 issue that the question did not name) and v8_none took the exact FFO-1 cell; v10 text or controls that push 'find the exact table value' would flip a/b/c to wrong. (2) find_tables cannot see prose; every cell had to leave the four tools (a[10], b[17], c[14]) and the FTS helper's return shape (a dict, not a list) cost b and c a wasted step each: at minimum the README example should show `docs.search(q)['results']` and the hit keys. (3) The Sep 2010 FFO-1 '2010 - Est.' row is a second trap (a[24] noticed the mismatch and a[27] read the note saying it is the February budget estimate); a show_table NOTES line that surfaces a table's 'Note.-These estimates are based on ...' footnote would make that check one step instead of two. The b gate (recompute_final) was harmless but added 2 steps for an answer that was already right."
+}

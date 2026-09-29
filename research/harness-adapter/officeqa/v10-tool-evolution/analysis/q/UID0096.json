@@ -1,0 +1,118 @@
+{
+  "task_id": "UID0096",
+  "ordinal": 47,
+  "issue47": false,
+  "correct": {
+    "a": 0,
+    "b": 0,
+    "c": 0,
+    "opus": 1
+  },
+  "question_type": "3-year centered moving average of a derived ratio (duties / value of dutiable imports) assembled from several issues, with a qualifier ('goods subject to duty') narrower than the table's printed total rows; decimal-vs-percent format ambiguity",
+  "decisive_step": "Mapping the qualifier 'goods subject to duty' onto the table 'Customs Duties and Taxes Collected, and Values of Dutiable and Taxable Imports, Estimated by Tariff Schedules': the 'Free list 3/' block is duty-free goods that only pay Revenue-Act taxes (footnote 3/), so it must be subtracted from BOTH the 'Total duties and taxes' row and the 'Total value of dutiable and taxable imports' row before dividing. The reference made this decision in worklog.md Step 3 (table structure, treasury_bulletin_1941_11.txt:2397-2462, footnote 3/) and encoded it in calc.py (rate = (total duties and taxes - total free list) / (total value - free list value)); vintage assembly (FY1939 from 1941_01, FY1940/41 from 1941_11, calendar-year issues 1941_02-08 skipped) is worklog Step 4 and was NOT the separating step: all three cells got the vintages right. Format: decimal fraction to 3 places (no percent cue in the question), solution.structured.json key_decisions 4.",
+  "cells": {
+    "a": {
+      "correct": 0,
+      "path_summary": "Searched find_tables/rg for a verbatim 'duty rate' phrase that does not exist ([4]-[19]), then found the customs-by-tariff-schedule table in 1941_12 ([23]-[29]) and the FY1939 table in 1939_09 ([41]-[44]). Spent [46]-[70] on vintages: noticed the OCR-corrupted FY1940 value in 1941_12 ([38],[53]), checked it against a monthly sum ([54]-[56]), took the revised FY1939 figures from 1940_12/1941_01 ([58]-[59],[70]-[71]). Computed the mean of the three annual ratios from the printed grand-total rows with calc ([60]) and answered in percent with a % sign ([73]-[74]).",
+      "first_divergence": {
+        "stage": "INTERPRETATION",
+        "where": "a[45]",
+        "what_it_did": "Formed each annual rate as 'Total duties and taxes' / 'Total value of dutiable and taxable imports' (grand totals that include the duty-free 'Free list' block); it wondered at [30], [34] and [45] whether 'goods subject to duty' meant dutiable-only and never computed that variant; at [71]-[73] it settled on '\"goods subject to duty\" = \"dutiable and taxable imports\"' and committed. Secondary: at [73] it chose to answer as a percent with a % sign although the question carries no percent cue, which is why its error_bin is >25pct rather than the 1-5pct of b and c.",
+        "what_a_right_cell_or_the_reference_did": "The reference read footnote 3/ ('Duty-free commodities taxed under the Revenue Act...'), subtracted the free-list rows from both numerator and denominator (worklog Step 3, calc.py), verified each derived dutiable total against the sum of the 16 schedule rows (Step 5), and answered as a decimal fraction."
+      },
+      "saw_correct_evidence": "yes (the 'Total free list' and 'Free list 3/' rows were in its show_table pages at [27]/[29]; the footnote 3/ text was printed by its own sed at [33] (1941_12) and [58] (1940_12))",
+      "tool_use": {
+        "find_tables": 7,
+        "show_table": 5,
+        "printings": 4,
+        "calc": 4,
+        "other_shell": 18,
+        "friction": "printings at [52] matched two rows by prefix ('Total duties and taxes' and 'Total duties and taxes as re[ported]...'), interleaving values from both, and the 8 KB page clipped the summary ([53] 'Printings summary weird'); printings at [64] found nothing for the earlier 'Estimated' table title with an FY1939 column, and at [66] --row Total --col Total matched a different customs table entirely; [31] sed on a relative corpus path failed (exit 1); the officeqa search helper printed a dict repr at [10]-[11]; show_table did not flag the OCR-corrupted FY1940 value in 1941_12 (its 'Total value' has a leading digit misread), which the model had to detect itself ([38],[53]) and resolve by summing monthly columns ([54]-[56]); ~15 steps ([4]-[19],[72]) hunting a verbatim phrase absent from the corpus."
+      },
+      "text_use": "yes: [38],[53] 'Latest printing instruction says use latest' (Bulletins revise... latest printing); [60] calc for the final number; [73] single value, chose percent because 'customs duty rate convention percent' (the Percent-or-fraction item did not cover 'rate')",
+      "harness_use": "n/a"
+    },
+    "b": {
+      "correct": 0,
+      "path_summary": "Found the tariff-schedule table via find_tables ([7]) and show_table --stitch on 1941_12 ([14]-[16]), then spent [24]-[38] confirming that no annual duty-rate column exists. At [37] it explicitly proposed 'goods subject to duty = dutiable imports (not taxable)' and went to read the footnotes; after seeing footnote 3/ at [38] it reverted at [39] to 'ratio of customs duties and taxes to value of dutiable and taxable imports'. It then spent [43]-[80] on vintages: caught the OCR-corrupted FY1940 total in 1941_12 ([43],[48]), briefly mistook the calendar-year issues 1941_02-08 for revisions of the fiscal years ([50],[66]), corrected that at [70]-[80], computed the grand-total ratio mean with calc ([83]) and submitted a decimal ([85]); the gate accepted without findings.",
+      "first_divergence": {
+        "stage": "INTERPRETATION",
+        "where": "b[39]",
+        "what_it_did": "Having raised the dutiable-only reading at [37] and having the footnote 3/ text on screen at [38], it concluded 'Could include taxes' and used the grand-total rows (free list included) for every fiscal year; never computed the exclusion variant.",
+        "what_a_right_cell_or_the_reference_did": "The reference used the footnote to exclude the free-list block from both operands (worklog Step 3; calc.py)."
+      },
+      "saw_correct_evidence": "yes ('Total free list' row in the stitched page at [16]; 'Free list 3/' value rows at [42], [47]; footnote 3/ text printed by its own sed at [38] and again at [77])",
+      "tool_use": {
+        "find_tables": 4,
+        "show_table": 6,
+        "printings": 1,
+        "calc": 1,
+        "other_shell": 30,
+        "friction": "printings at [12] (--row 'Fiscal year' on the earlier table title) found nothing; show_table --stitch misaligned part 2 because of an extra column ([46]); --from-row 20 landed on monthly rows ([21]) and the two-table page at [22] came out 'mixed/truncated' ([23]); zsh glob quoting error at [53]; the calendar-year vs fiscal-year detour ([50]-[80], ~25 steps) because issues 1941_02-08 print CY columns under the same table title and rg output does not show the column banner; the OCR-corrupted FY1940 total in 1941_12 ([43],[48]) not flagged by show_table."
+      },
+      "text_use": "none (no advice text); it cited the README task convention 'most up-to-date revision' at [48],[50],[66]",
+      "harness_use": "no loop notes, 0 gate rounds; one submit at [85] accepted with no findings (no rule covers a total-row-vs-qualifier mismatch; grounded/flagged_cells/later_printing all passed). Nothing changed the answer."
+    },
+    "c": {
+      "correct": 0,
+      "path_summary": "Same search pattern ([4]-[13]), then find_tables on the table title ([14]) and show_table --raw on both parts in 1941_12 ([18]-[19]) plus sed on 1939_09 and 1940_10 ([20]-[27]). At [21] it adopted 'total customs duties and taxes / total value dutiable and taxable' and never revisited it. Tried printings three times to follow the FY1939 cells across issues, all failed ([29]-[33]); found the revised FY1939/FY1940 figures in 1941_01 by sed and show_table --grep ([35]-[38]), took FY1941 from 1941_11 ([41]-[42]), computed the grand-total ratio mean with calc ([43]) and answered as a decimal ([44]-[45]).",
+      "first_divergence": {
+        "stage": "INTERPRETATION",
+        "where": "c[21]",
+        "what_it_did": "Read 'goods subject to duty' as 'dutiable and taxable imports' and used the grand-total rows for numerator and denominator; the free-list rows and footnote were on screen at [20] but were never discussed.",
+        "what_a_right_cell_or_the_reference_did": "Reference excluded the duty-free free-list block from both operands (worklog Step 3, calc.py)."
+      },
+      "saw_correct_evidence": "yes ('Total free list' and 'Free list 3/' rows at [18]-[19] and [27]; footnote 3/ text printed at [20], [23] and [35])",
+      "tool_use": {
+        "find_tables": 6,
+        "show_table": 7,
+        "printings": 3,
+        "calc": 1,
+        "other_shell": 7,
+        "friction": "show_table --grep FY194 matched nothing because row labels are schedule names and FY is a column ([16]-[17]); printings failed three times: --row FY1939 (period given as a row) [29], --col FY1939 (column word not in the header text 'Fiscal year > 1939') [31], and [33] printed nothing at all (empty output); the title-word match at [14] did not reveal the 1939_09 'Fiscal Year 1939' variant, found only by sed."
+      },
+      "text_use": "yes: [28] 'Need find latest printing... printings' (Bulletins revise... latest printing); [43] calc; [44] 'rounded nearest thousandths suggests 0.xxx decimal' (Percent-or-fraction item applied to pick the decimal)",
+      "harness_use": "n/a"
+    }
+  },
+  "fix": {
+    "smallest_change": {
+      "level": "TEXT",
+      "change": "Add to the Alternatives item of AGENTS.md: 'A question's qualifier can be narrower than a table's total row (\"goods subject to duty\" vs a total \"of dutiable and taxable imports\"; \"marketable\" vs \"total debt\"). When it is, find the component rows the total includes that the qualifier excludes (footnotes tell you: \"duty-free\", \"nonmarketable\", \"taxed under...\"), subtract them from every operand (numerator and denominator), and compute BOTH candidates with calc; answer the one that honours every word of the question. Do not assume the question merely paraphrased the total row.' Plus one line in Percent-or-fraction: 'A \"rate\" or \"ratio\" with no percent cue in the question is a decimal fraction.'",
+      "would_have_fixed": [
+        "b",
+        "c",
+        "a (interpretation; a also needed the decimal-format line)"
+      ],
+      "could_hurt_right_cells": "unlikely: it only triggers when a footnoted component sits inside a total the question narrows; the requirement to compute both candidates and choose by wording keeps the total-row reading available when the qualifier matches the total.",
+      "generality": "document_qa_general",
+      "confidence": "medium"
+    },
+    "alternatives": [
+      {
+        "level": "CONTROL",
+        "change": "Submit-time rule 'total_vs_qualifier': when a calc input is a cell on a row whose label starts with 'Total' and the same table part contains a component row whose label carries a footnote marker (e.g. 'Free list 3/'), and the question contains a restricting qualifier phrase not in the total's label ('subject to', 'only', 'excluding', 'marketable'), emit: 'Your answer uses row \"Total duties and taxes\" and \"Total value of dutiable and taxable imports\"; this table has a footnoted component \"Free list 3/\" (3/: Duty-free commodities taxed under the Revenue Act of 1932...). The question says \"subject to duty\". Offer: <your calc with that component subtracted from each operand>.' with Accept/Keep.",
+        "why_not_first": "Costlier to build (needs footnote parsing and operand-to-row binding for both numerator and denominator) and the offer must recompute a two-operand formula; the v8 arms rationalised even after computing the right variant, so an offer might also be 'kept'. Best second step if the text sentence does not move the needle."
+      },
+      {
+        "level": "TOOL",
+        "change": "show_table: print footnote text inline after any row label that carries a footnote marker, e.g. the row line becomes '  Free list 3/  [3/ Duty-free commodities taxed under the Revenue Act of 1932 and subsequent acts]', and under NOTES add the composition of each 'Total' row that passes the identity check: 'Total duties and taxes = 16 schedule rows + Miscellaneous 2/ + Total free list (IDENTITY OK)'.",
+        "why_not_first": "All three cells already had the footnote text on screen (a[33], b[38], c[20]) and still chose the total; making it more visible helps the model that never reads footnotes, not the one that reads and rationalises. Still cheap and worth doing for other questions."
+      }
+    ],
+    "why_not_text": "n/a (fix is TEXT). Caveat: cell a had the generic Alternatives sentence ('when two candidate values fit ... weigh them against the question's exact wording') and it did not fire because the model never generated the exclusion variant as a candidate; the proposed sentence names the trigger (qualifier narrower than a total row) and the action (subtract the footnoted component from every operand, compute both), which the generic sentence lacked.",
+    "irreducible": "Partly: the reference's own review flags that the grader might have expected the totals-based reading; index.json says the reference (exclusion reading, decimal) was graded correct, so the fix above is aimed at the right target. Residual ambiguity: 'rate' as decimal vs percent (cell a's format choice)."
+  },
+  "text_verdict": [
+    "kept-and-helped: 'Compute every final number with calc' (a[60], c[43])",
+    "kept-and-helped: 'Provenance: use numbers you have seen printed' (a and c printed source lines before calc)",
+    "kept-and-helped: 'Answer count and format: give exactly as many values' (a and c submitted one value; the v8 none arm had hedged with two)",
+    "ignored: 'Percent or fraction' (a[73] chose percent because 'customs duty rate convention percent'; the item does not say what to do for 'rate' with no percent cue; c[44] used the 'thousandths' cue and picked the decimal)",
+    "ignored: 'Alternatives: when two candidate values fit ... weigh them against the question's exact wording' (a[34],[45] voiced the dutiable-only reading but never computed it as a candidate; c never voiced it)",
+    "kept-and-helped: 'Bulletins revise earlier numbers ... use the latest printing ... run printings' (a[38],[52],[53],[70]; c[28]) - though printings misfired on this table for both cells",
+    "kept-and-helped: 'Match the period exactly. FY ... and CY rows are different rows' (a and c never took the calendar-year issues 1941_02-08; b, without this text, lost ~25 steps to them at [50]-[80])",
+    "kept-and-helped: 'show_table marks rows it repaired ... compare it with another printing' (a[53] compared the corrupted 1941_12 total with other printings and a monthly sum)",
+    "irrelevant: 'Loops', 'For a sum over the columns of one row'"
+  ],
+  "notes": "1) Same failure as all three v8 arms: the model treats the question as a loose paraphrase of the table's total row even with the footnote on screen; b[37]->[39] is the clearest instance (hypothesis raised, footnote read, hypothesis dropped without computing it). 2) show_table did not mark the 1941_12 'Total value' FY1940 cell whose leading digit is OCR-misread (the identity check apparently did not catch it because the free-list and schedule rows in that part sum to the corrupted total only loosely); every cell had to find it by eye. printings would have shown it as a distinct value among identical ones, so a 'lone outlier among printings' flag in printings/show_table would help. 3) printings friction on this table: --row prefix matching pulled in 'Total duties and taxes as reported in Daily Treasury Statement' (a[52]); --col 'Fiscal year 1939' / 'FY1939' did not match the header 'Fiscal year > 1939' (a[64], c[31]); c[33] printed empty output. A --col that accepts FY1939 the way show_table fills periods would remove three dead steps per cell. 4) The table's 1941_02-08 printings switch the annual columns to calendar years under the same title; find_tables/printings output should show the column period (CY/FY) per issue so a model does not mistake them for revisions (b[50],[66]). 5) Roughly 15-25 steps per cell were spent grepping for a verbatim 'duty rate' phrase that no issue contains; a find_tables note 'no table title contains these words; nearest: ...' would shorten that."
+}

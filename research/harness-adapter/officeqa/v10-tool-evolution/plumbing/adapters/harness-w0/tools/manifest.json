@@ -1,0 +1,26 @@
+{
+  "tools": {
+    "calc": {
+      "args": [],
+      "script": "calc.py"
+    },
+    "find_tables": {
+      "args": [
+        "find_tables"
+      ],
+      "script": "cli.py"
+    },
+    "printings": {
+      "args": [
+        "printings"
+      ],
+      "script": "cli.py"
+    },
+    "show_table": {
+      "args": [
+        "show_table"
+      ],
+      "script": "cli.py"
+    }
+  }
+}

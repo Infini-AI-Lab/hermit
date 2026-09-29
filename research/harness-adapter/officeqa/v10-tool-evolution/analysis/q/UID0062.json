@@ -1,0 +1,121 @@
+{
+ "task_id": "UID0062",
+ "ordinal": 42,
+ "issue47": false,
+ "correct": {
+  "a": 0,
+  "b": 0,
+  "c": 0,
+  "opus": 0
+ },
+ "question_type": "two-cell difference across a series that was renamed, restructured and revised (vintage choice)",
+ "decisive_step": "Whether the phrase 'using the reporting structure in which Air Force expenditures were still charged to Army appropriations' pins the ISSUE VINTAGE (the Aug-1947..Nov-1948 printings, FY1947 Army unrevised) or only identifies the COLUMN (the Army column that includes Air Force spending made from Army appropriations). Every later vintage footnotes the Army column the same way: 1948_08:324 (fn 10/), 1948_09:294-295 (fn 11/,12/), 1953_02:338-340 (fn 17/,18/) and the Feb-issue recap 'Table 6B - Detail of Expenditures by Months and Years' (1953_02:751 'Department of the Army 3/', fn 2/,3/ at 1953_02:1209-1211, which also says earlier years were 'reclassified and revised ... on a comparable basis'). So the phrase does not pin a date; the paper's convention (latest printing unless a date is pinned) then takes the FY1947 Army value revised in Dec 1948 (1948_12:224 'r', revision note 1948_12:326: 1947-appropriation items moved to 'International finance and aid', nothing to do with the Air Force) together with the FY1940 value that is identical in every printing (1948_08:227, 1953_02:754). The reference made the opposite choice at worklog Step 6 ('Chosen structure: the Jan-Aug 1948 ... tables ... Alternative rejected: [the Dec-1948 revision]') and was graded wrong; its rejected alternative sits ~7.6% below the submitted value, inside the 5-25pct error bin of every cell. The reference also claimed the later tables 'have no FY1940 Army value' (worklog Step 5), which Table 6B (1952_02:647, 1953_02:751) contradicts: one latest-vintage panel holds both FY1940 and the revised FY1947.",
+ "cells": {
+  "a": {
+   "correct": 0,
+   "path_summary": "find_tables on 'Air Force expenditures' (a[8]) surfaced the renamed Table 3 series; show_table 1948_08:225 (a[13]) gave the FY1940 Army cell (page cut before FY1947). printings on that title (a[15]) listed the FY1947 cell across 1948_03..1953 and a[16] explicitly noted that the latest printing is a revised, lower value. It then read the 1953_02 table and footnotes 17/18 (a[18], a[22]) — which say the Army column still 'includes certain expenditures on behalf of the Department of the Air Force' — but at a[23] decided the question phrase 'means' footnote 10 of the 1948_08 issue and subtracted the unrevised FY1947 value with calc (a[24]).",
+   "first_divergence": {
+    "stage": "SOURCE_ISSUE_VINTAGE",
+    "where": "a[16]",
+    "what_it_did": "Read the question's column-definition phrase as a vintage pin ('use the pre-revision value because the revised structure excludes Air Force?'), guessed that the Dec-1948 revision was the Air Force split, and kept the unrevised FY1947 printing even after a[22] showed the latest footnotes keep Air Force spending inside the Army column.",
+    "what_a_right_cell_or_the_reference_did": "No cell or the reference did it; the consistent path is: the phrase identifies the Army column (footnoted identically in every vintage), no issue is pinned, so take the latest printing of FY1947 Army (the 'r' value whose note at 1948_12:326 explains a reclassification to international aid) and the FY1940 value (same in all printings, also in Table 6B 1953_02:754)."
+   },
+   "saw_correct_evidence": "yes",
+   "tool_use": {
+    "find_tables": 2,
+    "show_table": 2,
+    "printings": 1,
+    "calc": 1,
+    "other_shell": 4,
+    "friction": "a[11] --grep '1940\\|1947' matched nothing (grep is a plain substring, not a regex) so the FY rows were not shown; a[13] page cut at row 11 of 22 before the FY1947 row; a[15] printings output CUT at 8000 bytes (62 cells) so the SUMMARY with 'REVISED/DIFFERS' and the latest-printing line was never printed - the model inferred the revision from the raw listing; a[18] first sed on a relative path failed silently; a[20] rg for '18/' returned dozens of unrelated bond lines."
+   },
+   "text_use": "Acted on 'use the latest printing ... run printings' (a[14]-a[15]) but overrode it via 'weigh them against the question's exact wording' (a[23]); 'Compute every final number with calc' followed (a[24]).",
+   "harness_use": "n/a"
+  },
+  "b": {
+   "correct": 0,
+   "path_summary": "find_tables (b[6], b[8]) gave little; b guessed the Jan-1948 'Analysis of Expenditures for National Defense' table, showed it (b[11], b[13]) and took FY1940 and FY1947 Army from it. printings with that title (b[16]) found only the two issues that carry the old title (1948_01, 1948_02) and reported 'same in all printings'; the footnote sed at b[18] printed nothing. It computed the difference with calc (b[18]) and submitted; the gate recorded it with no finding (b[20]).",
+   "first_divergence": {
+    "stage": "SOURCE_ISSUE_VINTAGE",
+    "where": "b[16]",
+    "what_it_did": "Ran the revision check with the old table title; printings matched only 2 issues (1 printing per column key) and said 'same in all printings', so b never saw that the series continues under 'Table 3. Expenditures for National Defense and Related Activities' from 1948_03 and that FY1947 Army is revised from 1948_12 on.",
+    "what_a_right_cell_or_the_reference_did": "Cell a's printings with the later title (a[15]) listed the revised printing; a consistent path follows the series across the title change and takes the latest FY1947 printing."
+   },
+   "saw_correct_evidence": "partial",
+   "tool_use": {
+    "find_tables": 2,
+    "show_table": 2,
+    "printings": 1,
+    "calc": 1,
+    "other_shell": 2,
+    "friction": "b[6] and the second call in b[8] returned 0 tables for question-worded queries; b[16] printings title-token match stopped at the 2 issues with the old title and printed a reassuring 'same in all printings' with a single printing per column; b[18] sed for the footnotes printed nothing (wrong line range) and b moved on without the footnote."
+   },
+   "text_use": "none (no advice text in this cell)",
+   "harness_use": "One submit (b[20]), status accepted, no findings. The later_printing rule did not fire: its lookup shares the tool's title-based series matching, so the renamed later table and its revised FY1947 cell were invisible to the control as well. Nothing changed the answer."
+  },
+  "c": {
+   "correct": 0,
+   "path_summary": "find_tables 'Army expenditures' --rows (c[7]) listed the renamed Table 3 series (69 issues 1948_03..1954_03) and, at the bottom, 'Table 6B - Detail of Expeditures by Months and Years' (1952_02, 1953_02, rows 1939..1947/1952), but c opened the Feb-1948 'Analysis' table instead (c[11], c[13]) and took both FY cells from it. printings with the old title (c[16]) found only 1948_01/1948_02 and said 'same in all printings'; c computed the difference with calc (c[18]).",
+   "first_divergence": {
+    "stage": "SOURCE_ISSUE_VINTAGE",
+    "where": "c[16]",
+    "what_it_did": "Same as b: the revision check ran against the two old-title issues only, so c believed the FY1947 Army value was never revised and never opened the later series or Table 6B that its own find_tables output had listed.",
+    "what_a_right_cell_or_the_reference_did": "Follow the series across the rename (printings on 'Expenditures for National Defense and Related Activities', as a[15] did) or open the Table 6B Army panel (1953_02:751) that holds both FY rows in the latest structure, and take the revised FY1947 value."
+   },
+   "saw_correct_evidence": "partial",
+   "tool_use": {
+    "find_tables": 2,
+    "show_table": 3,
+    "printings": 1,
+    "calc": 1,
+    "other_shell": 1,
+    "friction": "c[9] show_table 'file:line' form rejected (usage error); c[7] find_tables listed the right later series and Table 6B but under the OCR title 'Expeditures' with no section ('[-]'), easy to skip; c[16] printings 'same in all printings' with 1 printing per column key gave false completeness."
+   },
+   "text_use": "Acted on 'use the latest printing ... run printings' (c[14]-c[16]) and 'Compute every final number with calc' (c[18]); the printings result was misleading, not the text.",
+   "harness_use": "n/a"
+  }
+ },
+ "fix": {
+  "smallest_change": {
+   "level": "TOOL",
+   "change": "printings: (1) follow a series across a title change and (2) print the revision note next to a revised value. Concretely, after the SUMMARY, when the title match covers fewer than 3 issues or when the same column label + row period exists in a later issue under another title in the same section, print: 'SERIES CONTINUES under another title: \"Table 3. Expenditures for National Defense and Related Activities\" (69 issues 1948_03..1954_03) prints FY1947 | \"Department of the Army\" too; latest printing 1953_02 (treasury_bulletin_1953_02.txt:232) = <value> r  - run printings --table \"Expenditures for National Defense and Related Activities\" --row FY1947 --col \"Department of the Army\"'. And for any cell carrying an r/revised flag, append the issue's revision footnote (the '*'/'r' note nearest below the table) as one line: '      revision note (1948_12:326): \"Revised, in accordance with the Daily Treasury Statement of November 15, 1948, to include under International finance and aid expenditures from the 1947 appropriation which were formerly classified under military functions of the Department of the Army\"'. Also keep the SUMMARY block ahead of the per-cell listing when the 8000-byte cap would cut it (a[15] lost the summary to 60 listing lines).",
+   "would_have_fixed": [
+    "b",
+    "c",
+    "a (likely)"
+   ],
+   "could_hurt_right_cells": "unlikely - it adds lines; the only risk is a question that genuinely pins an early issue, and the line still names both values and issues so the text rule 'unless the question names a publication date or issue' still applies",
+   "generality": "document_qa_general",
+   "confidence": "medium"
+  },
+  "alternatives": [
+   {
+    "level": "TEXT",
+    "change": "Add to the OfficeQA table notes: 'A phrase that says what a column includes or excludes (for example \"Air Force expenditures still charged to Army appropriations\") identifies the column, not the issue: it does not pin the vintage. Only a named publication date or issue does. Take the latest printing of that column and check, in the revision footnote, what the revision actually changed.'",
+    "why_not_first": "Cell a had 'latest printing unless the question names a publication date or issue' and still read the phrase as a pin at a[16]-a[23]; b and c never saw a later printing at all, so text alone leaves them blind."
+   },
+   {
+    "level": "CONTROL",
+    "change": "later_printing rule: look up the submitted cell by column label + row period across every table in the same section (not only the title-matched table id), so the renamed series is found; the finding would then have offered the revised FY1947 value in b[20].",
+    "why_not_first": "Only cell b has the gate; and the offer would arrive after the model already reasoned itself into the old vintage - the tool change shows the revision earlier, to all cells."
+   },
+   {
+    "level": "TOOL",
+    "change": "find_tables: normalise OCR-damaged titles ('Expeditures' -> 'Expenditures') and show the panel subtitle ('Department of the Army 3/') for continuation parts of recap tables like Table 6B, whose columns are otherwise printed as bare '0..14' with the 'Fiscal year' label lost, so printings --col Army finds nothing in it.",
+    "why_not_first": "Table 6B is a second route to the same two values; the series-continuation line already exposes the revised FY1947 value."
+   }
+  ],
+  "why_not_text": "Cell a is the counter-example: it had the text, ran printings, saw at a[16] that the latest FY1947 printing is revised, and still chose the older vintage because it took the question's column-definition phrase as a date pin and guessed the revision was the Air Force split. What it lacked was the revision note (reclassification to international aid) and a clear statement that the later structure still includes Air Force spending in Army; both are tool outputs. Cells b and c never saw a later printing because the tool's title matching stopped at the renamed series, which no sentence can repair.",
+  "irreducible": "Partly. The wording 'using the reporting structure in which ...' invites the pre-revision reading; the strongest reference solver made the same choice with full reasoning and was graded wrong. The key's value is not visible here; the ~7.6%-low alternative (revised FY1947 minus FY1940) is inferred from the error bin and the paper's vintage convention, not verified."
+ },
+ "text_verdict": [
+  "ignored: 'Bulletins revise earlier numbers ... use the latest printing' (a ran printings, saw the revision, overrode it; c's printings hid it)",
+  "misled: 'Alternatives: when two candidate values fit ... weigh them against the question's exact wording' (a[23] used the wording to pick the older vintage)",
+  "kept-and-helped: 'Compute every final number with calc' (a[24], c[18])",
+  "kept-and-helped: 'Several tables in one issue can look alike ... find_tables using the question's key nouns' (a[8], c[7] found the series)",
+  "irrelevant: 'Match the period exactly' (FY rows only)",
+  "irrelevant: 'show_table marks rows it repaired'",
+  "irrelevant: 'Loops', 'Answer count and format', 'Percent or fraction', 'For a sum over the columns'"
+ ],
+ "notes": "All three v9 cells, all three v8 arms and the reference converged on the same computation (older-vintage FY1947 minus FY1940), all in the 5-25pct bin, so this is a systematic convention miss, not model noise. Tool facts worth carrying into v10: (1) printings' series identity is an FTS phrase on the title, so a renamed table (Table 4 'Analysis of ...' -> Table 3 'Expenditures for ...' in 1948_03) splits one series into two and the old-title half reports 'same in all printings' with 1 printing - exactly the false reassurance b[16]/c[16] got; (2) the 1948_12 revision is flagged 'r' with its note at 1948_12:326, but printings never prints notes; (3) the Feb-issue recap 'Table 6B' (1952_02:647, 1953_02:751) is a single comparable-basis panel with both FY1940 and revised FY1947 for the Army, yet show_table renders its continuation part with header '0..14' (header borrowed) so the 'Fiscal year 1/' column is unlabeled and printings --col Army finds nothing; find_tables shows it as '[-]' with the OCR title 'Expeditures'; (4) show_table --grep is a substring, so a[11]'s regex alternation silently matched nothing; (5) b's later_printing control inherits the tool's blind spot and did not fire."
+}
