@@ -273,9 +273,9 @@ class SkillOptPlugin:
         if len(context.surface.components) != 1:
             raise ValueError("SkillOpt optimizes one skill document; give the surface exactly one component")
         component = context.surface.components[0]
-        connection = context.lm.connection() if hasattr(context.lm, "connection") else None
-        if connection is None:
+        if not hasattr(context.lm, "serve"):
             raise ValueError("SkillOpt drives its own OpenAI-compatible client; pass a ChatLM optimizer model")
+        lm = context.lm
         state = context.state_dir
         seed_path = state / "seed_skill.md"
         if not seed_path.exists():
@@ -283,23 +283,26 @@ class SkillOptPlugin:
         relocate_runtime_state(state)
         split_dir = state / "splits"
         write_splits(split_dir, {"train": context.environment.tasks("train"), "val": context.environment.tasks("val")})
-        openai_compatible_backend.configure_openai_compatible(
-            optimizer_base_url=connection["base_url"], optimizer_api_key=connection["api_key"],
-            optimizer_model=connection["model"], max_tokens=connection["max_tokens"],
-            timeout_seconds=connection["timeout"],
-            temperature=connection["temperature"] if connection["temperature"] is not None else None)
-        cfg = build_config(s, optimizer_model=connection["model"], seed_path=seed_path, out_root=state, split_dir=split_dir)
+        cfg = build_config(s, optimizer_model=lm.model, seed_path=seed_path, out_root=state, split_dir=split_dir)
         env_adapter = make_env_adapter(context, s, component)
         context.log(f"[skillopt] train={len(context.environment.tasks('train'))} val={len(context.environment.tasks('val'))} "
                     f"epochs={cfg['num_epochs']} batch={cfg['batch_size']} lr={cfg['edit_budget']} component={component}")
-        ReflACTTrainer(cfg, env_adapter).train()
+        # SkillOpt's own openai_compatible client talks to the session's
+        # model through a local endpoint: the same model settings (reasoning
+        # effort included, which that backend would not send), the same
+        # ledger, and no key in SkillOpt's environment variables.
+        with lm.serve() as endpoint:
+            openai_compatible_backend.configure_openai_compatible(
+                optimizer_base_url=endpoint, optimizer_api_key="local-endpoint", optimizer_model=lm.model,
+                max_tokens=lm.max_tokens, timeout_seconds=lm.timeout * lm.retries + 900)
+            ReflACTTrainer(cfg, env_adapter).train()
         summary_path = state / "summary.json"
         trained = json.loads(summary_path.read_text()) if summary_path.is_file() else {}
         best = (state / "best_skill.md").read_text()
         history = json.loads((state / "history.json").read_text()) if (state / "history.json").is_file() else []
         summary = {"algorithm": "skillopt", "skillopt_version": version,
-                   # SkillOpt's openai_compatible backend accepts reasoning_effort but does not send it.
-                   "optimizer_reasoning_effort_sent": None,
+                   # Sent by the session's endpoint (SkillOpt's own backend would not).
+                   "optimizer_reasoning_effort_sent": getattr(lm, "reasoning_effort", None),
                    "seed_val_score": trained.get("baseline_selection_hard"),
                    "selected_val_score": trained.get("best_selection_hard"),
                    "final_val_score": trained.get("final_selection_hard"),

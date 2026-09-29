@@ -20,7 +20,7 @@ use_slow_update = true
 slow_update_samples = 20
 use_meta_skill = true
 use_gate = true
-reasoning_effort = "medium"      # recorded in SkillOpt's config; its openai_compatible backend does not send it
+reasoning_effort = "medium"      # recorded in SkillOpt's config; the effort actually sent is the session's --optimizer-reasoning-effort
 prompt_env = ""            # "officeqa": SkillOpt's OfficeQA analyst prompts; empty: its generic prompts
 trace_chars = 0            # per-trajectory character budget for reflection; 0 = full trajectories (SkillOpt's default)
 seed = 42

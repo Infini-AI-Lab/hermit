@@ -266,8 +266,16 @@ class SkillOptTests(unittest.TestCase):
         settings = {"num_epochs": 2, "batch_size": 4, "minibatch_size": 2, "merge_batch_size": 2,
                     "analyst_workers": 2, "slow_update_samples": 4}
         with tempfile.TemporaryDirectory() as d, FakeChatServer() as server, redirect_stdout(io.StringIO()):
-            result = optimize(PROMPT_ONLY, env, "skillopt", lm=fake_lm(server), output=Path(d), settings=settings,
+            lm = fake_lm(server)
+            lm.reasoning_effort = "medium"
+            result = optimize(PROMPT_ONLY, env, "skillopt", lm=lm, output=Path(d), settings=settings,
                               log=lambda m: None)
+            # SkillOpt's own client reached the model through the session's
+            # endpoint: same settings, same ledger, no key in its environment.
+            self.assertTrue(all(r.get("reasoning_effort") == "medium" for r in server.requests))
+            self.assertEqual(lm.usage["calls"], len(server.requests))
+            self.assertEqual(os.environ.get("OPTIMIZER_OPENAI_COMPATIBLE_API_KEY"), "local-endpoint")
+            self.assertTrue(list((Path(result["session"]) / "control/optimizer-calls").glob("*.json")))
             session = Path(result["session"])
             self.assertEqual(result["status"], "candidate_ready")
             self.assertEqual(result["plugin"]["seed_val_score"], 0.0)
@@ -277,7 +285,7 @@ class SkillOptTests(unittest.TestCase):
             conversations = list((session / "training_state/steps").rglob("conversation.json"))
             self.assertTrue(conversations)
             self.assertIn("cat AGENTS.md", conversations[0].read_text())
-            self.assertGreater(result["optimizer_usage"]["calls"], 0)       # SkillOpt's own token tracker
+            self.assertGreater(result["optimizer_usage"]["calls"], 0)
             config = json.loads((session / "training_state/config.json").read_text())
             self.assertTrue(config["eval_test"])                         # upstream's final val promotion stays on
             self.assertIsNotNone(result["plugin"]["final_val_score"])

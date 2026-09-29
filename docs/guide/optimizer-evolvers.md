@@ -65,9 +65,9 @@ optimizer may learn from each split:
   environment also keeps held-out episodes in a separate directory tree.
 
 The wrapper keeps a well-behaved plugin away from held-out data; it is not a
-sandbox. An optimizer plugin is trusted code in the same process: it holds the
-optimizer model's key (SkillOpt drives its own client) and could reach
-anything the process can. Review third-party plugins as you would any code.
+sandbox. An optimizer plugin is trusted code in the same process and could
+reach anything the process can. Review third-party plugins as you would any
+code.
 
 A Rollout with `infra=True` was lost to the infrastructure (provider outage,
 transport failure, a failing file or socket operation), not decided by the
@@ -185,6 +185,13 @@ call ledger. Pass `--evolver /path/to/my-optimizer`.
 - Optimizer-model cost for SkillOpt comes from its own token tracker; GEPA's
   from the session ledger. Acting-harness cost comes from the environment's
   records.
-- SkillOpt's `openai_compatible` backend does not send `reasoning_effort`; the
-  provider default applies to its optimizer calls.
-  `--optimizer-reasoning-effort` applies to ChatLM calls (GEPA's reflection).
+- The session owns the optimizer-model transport. GEPA calls the session's
+  ChatLM directly; SkillOpt's own `openai_compatible` client is pointed at a
+  localhost endpoint (`ChatLM.serve()`) that forwards with the same model,
+  token cap, temperature and `--optimizer-reasoning-effort`, writes the same
+  ledger, and keeps the key out of SkillOpt's environment variables. Both
+  optimizers therefore call an identically configured model. Set the
+  reasoning effort explicitly for reasoning models: GLM-5.3 on Fireworks with
+  the provider default spent its whole 32K-token budget reasoning on GEPA's
+  reflection prompt and returned nothing, while low, medium and high all
+  finished.
