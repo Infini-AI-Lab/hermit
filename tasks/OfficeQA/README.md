@@ -190,47 +190,6 @@ To publish a completed run's answer-free summary:
   --framework-revision FULL_COMMIT_FROM_RUN_FREEZE_JSON
 ```
 
-## Environment (GEPA, SkillOpt, and other optimizer Evolvers)
-
-`host/environment.py` exposes this venue as a `harnessadapter.environment`
-Environment, so every Evolver's candidate is scored by the same acting harness
-and grader. The actor is the per-arm runner's (`arm.actor`, unchanged): GLM-5.3-Flash
-in native Codex with a fresh sandboxed workspace per question, the candidate
-adapter rendered into AGENTS.md. The grader is the vendored `reward.py`, strict.
-
-Prepare all 133 questions once. The first 50 of this order are the published
-sample and form the held-out test split:
-
-```sh
-.venv/bin/python tasks/OfficeQA/host/prepare_full.py /private/officeqa133
-```
-
-```yaml
-# env.yaml
-prepared: /private/officeqa133
-run_root: /private/officeqa-evals
-key_env: FIREWORKS_API_KEY
-concurrency: 6
-actor_timeout: 1200
-max_tool_ops: 100
-splits: {test: "1-50", val: "51-70", train: "71-133"}
-```
-
-```sh
-harnessadapter evolve prompt-only --evolver gepa \
-  --environment tasks/OfficeQA/host/environment.py:make_environment --environment-config env.yaml \
-  --model accounts/fireworks/models/glm-5p3 --reasoning-effort medium \
-  --provider-base-url https://api.fireworks.ai/inference/v1 --provider-env-key FIREWORKS_API_KEY \
-  --set max_metric_calls=300 --output runs/sessions
-harnessadapter evaluate --environment tasks/OfficeQA/host/environment.py:make_environment \
-  --environment-config env.yaml --split test --adapter w0=prompt-only \
-  --adapter gepa=runs/sessions/evolve-gepa-XXXX/adapter --output runs/test
-```
-
-Train feedback names the official answer after the prediction is recorded
-(the gold-feedback protocol); val feedback is the verdict only; test is never
-visible to an optimizer. Both commands are paid.
-
 ## Migration from the local v4 experiment
 
 The original runner depended on sibling `baseline-work` and a fixed local

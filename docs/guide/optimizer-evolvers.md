@@ -7,7 +7,7 @@ bundle together:
 | --- | --- | --- |
 | Architecture: what the adapter can contain | `prompt-only`, `mwm`, `lemma-board` | `harnessadapter/architectures/` |
 | Evolver: how an adapter changes | learners (`basic`, `mwm`); optimizers (`gepa`, `skillopt`) | `harnessadapter/evolvers/`, or any directory |
-| Environment: how an adapter is scored | OfficeQA Pro with GLM in native Codex; your benchmark | `tasks/<venue>/`, or any `module:factory` |
+| Environment: how an adapter is scored | your benchmark's harness and grader (e.g. OfficeQA Pro with GLM in native Codex) | `tasks/<venue>/`, or any `module:factory` |
 
 Any Evolver can be paired with any architecture it supports and scored by any
 Environment. Every candidate deploys the same way (context block, optional MCP
@@ -44,17 +44,18 @@ pip install -e /path/to/SkillOpt               # SkillOpt's recipe lives in its 
 export FIREWORKS_API_KEY=...                   # any OpenAI-compatible provider
 
 harnessadapter evolve prompt-only --evolver gepa \
-  --environment tasks/OfficeQA/host/environment.py:make_environment --environment-config env.yaml \
+  --environment my_benchmark/env.py:make_environment --environment-config env.yaml \
   --model accounts/fireworks/models/glm-5p3 --reasoning-effort medium \
   --provider-base-url https://api.fireworks.ai/inference/v1 --provider-env-key FIREWORKS_API_KEY \
   --set max_metric_calls=300
 
 harnessadapter evaluate \
-  --environment tasks/OfficeQA/host/environment.py:make_environment --environment-config env.yaml \
+  --environment my_benchmark/env.py:make_environment --environment-config env.yaml \
   --split test --adapter w0=prompt-only --adapter gepa=.demo/evolution/evolve-gepa-XXXX/adapter \
   --output runs/test
 ```
 
+`my_benchmark/env.py:make_environment` is any factory that returns an Environment (see below); the OfficeQA Pro one lives in `tasks/OfficeQA/host/environment.py`.
 The provider defaults are `$OPENAI_BASE_URL` (else OpenAI) and `OPENAI_API_KEY`.
 Settings are the keys of the Evolver's `evolver.toml` `[settings]`; override
 them with `--set key=value` or `--settings file.yaml`, and unknown keys are
