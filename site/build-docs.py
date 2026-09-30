@@ -16,9 +16,12 @@ dest = ROOT/'site/dist/docs'
 dest.mkdir(exist_ok=True)
 for index, (slug, title) in enumerate(PAGES):
     text = (ROOT/f'docs/guide/{slug}.md').read_text()
+    if slug == 'index':
+        text = text.replace('# Overview', '# Harness Adapter documentation', 1)
     body = renderer.render(text)
     for other, _ in PAGES:
         body = body.replace(f'href="../{other}.html"', f'href="{other}.html"')
+        body = body.replace(f'href="../{other}.md"', f'href="{other}.html"')
     headings = []
     def heading(match):
         label = match[1]

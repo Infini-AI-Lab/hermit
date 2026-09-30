@@ -7,7 +7,7 @@
 
 **A Continual Learning Framework for the Deployment and Evolution of Harness Adapters**
 
-[What is a harness adapter?](#what-is-a-harness-adapter) · [Pipeline](#deployment-and-evolution-pipeline) · [Quickstart](#quickstart) · [Architectures](#architectures) · [Guide](docs/guide/index.md) · [Status](docs/guide/status.md)
+[What is a harness adapter?](#what-is-a-harness-adapter) · [Pipeline](#deployment-and-evolution-pipeline) · [Quickstart](#quickstart) · [Architectures](#architectures) · [Docs](docs/README.md) · [Guide](docs/guide/index.md) · [Status](docs/guide/status.md)
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-C6743C.svg)](LICENSE) [![Python](https://img.shields.io/badge/python-3.11%2B-1B1D22.svg)](pyproject.toml)
 

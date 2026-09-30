@@ -1,0 +1,36 @@
+/* Brand accent: the copper of the README badge (#C6743C). */
+html.light {
+  --sy-c-link: #b3632e;
+  --sy-c-link-hover: #8f4c20;
+}
+html.dark {
+  --sy-c-link: #e39a64;
+  --sy-c-link-hover: #f0b688;
+}
+
+.sy-head-brand img {
+  max-height: 26px;
+  width: auto;
+}
+
+/* Section captions on the landing page and in the left sidebar. */
+.yue .toctree-wrapper p.caption {
+  font-size: 1.15rem;
+  color: var(--sy-c-text);
+}
+.globaltoc p.caption {
+  font-size: 1.02rem;
+  color: var(--sy-c-text);
+}
+
+/* Landing-page toctree links: body color with an accent underline. */
+.toctree-wrapper a.reference {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--sy-c-link);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 3px;
+}
+.toctree-wrapper a.reference:hover {
+  color: var(--sy-c-link);
+}

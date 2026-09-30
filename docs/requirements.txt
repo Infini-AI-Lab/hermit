@@ -1,0 +1,6 @@
+sphinx>=8
+shibuya>=2025.1
+myst-parser>=4
+sphinx-copybutton
+sphinxcontrib-mermaid
+sphinx-autobuild

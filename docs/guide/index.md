@@ -1,4 +1,4 @@
-# Harness Adapter documentation
+# Overview
 
 Add an independently evolvable capability to an existing agent. Start with a prompt-only architecture or the MWM reference architecture, learn from LearningMaterial, and deploy a candidate to Codex or Claude Code.
 
@@ -6,13 +6,13 @@ This is a local prototype. Its CLI and execution boundary work; a public package
 
 ## Start here
 
-- [Quickstart](quickstart.html): prepare an acting host or generate a separate candidate.
-- [Components](components.html): architecture, adapter, acting harness, Evolver, and LearningMaterial.
-- [Architectures](architectures.html): choose Prompt-only or MWM.
-- [Deployment](deployment.html): context, optional MCP tools, and optional native roles.
-- [Evolution and LearningMaterial](evolution.html): prompt-driven updates, permissions, and optional validation.
-- [Configuration](configuration.html): CLI and YAML reference.
-- [Status and limits](status.html): what is implemented and what remains open.
+- [Quickstart](quickstart.md): prepare an acting host or generate a separate candidate.
+- [Components](components.md): architecture, adapter, acting harness, Evolver, and LearningMaterial.
+- [Architectures](architectures.md): choose Prompt-only or MWM.
+- [Deployment](deployment.md): context, optional MCP tools, and optional native roles.
+- [Evolution and LearningMaterial](evolution.md): prompt-driven updates, permissions, and optional validation.
+- [Configuration](configuration.md): CLI and YAML reference.
+- [Status and limits](status.md): what is implemented and what remains open.
 
 ## One lifecycle
 

@@ -62,7 +62,7 @@ minimal-shop remains a small, pre-populated integration demo. It is not a third 
 
 ## Animation Workshop (experimental)
 
-`animation-workshop` organizes methods, readable and modifiable implementations, and integration examples for web physics animation. It starts empty and uses its own Evolver, not the MWM lifecycle. See [Animation Workshop](animation-workshop.html) for source paging, trial previews, and evaluation limits.
+`animation-workshop` organizes methods, readable and modifiable implementations, and integration examples for web physics animation. It starts empty and uses its own Evolver, not the MWM lifecycle. See [Animation Workshop](animation-workshop.md) for source paging, trial previews, and evaluation limits.
 
 
 ## Lemma board (multi-agent, experimental)
