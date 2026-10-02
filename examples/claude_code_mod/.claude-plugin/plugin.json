@@ -1,0 +1,30 @@
+{
+  "name": "evolve-trigger",
+  "version": "0.1.0",
+  "description": "Run a harnessadapter evolution session from a Claude Code session, on demand.",
+  "author": { "name": "Changyi Yang", "email": "changyiyang2023@gmail.com" },
+  "userConfig": {
+    "adapter": {
+      "type": "string",
+      "title": "Adapter directory",
+      "description": "The adapter to evolve. A bundled name such as mwm, or an absolute path."
+    },
+    "learning_material": {
+      "type": "string",
+      "title": "LearningMaterial directory",
+      "description": "Recorded episodes, read-only. Must contain README.md."
+    },
+    "output": {
+      "type": "string",
+      "title": "Session output directory",
+      "description": "Where evolution sessions are written. Relative paths resolve against the session's working directory.",
+      "default": ".evolution"
+    },
+    "network": {
+      "type": "boolean",
+      "title": "Allow tool and command network access in the session",
+      "description": "Model API transport is unaffected either way.",
+      "default": false
+    }
+  }
+}
