@@ -25,11 +25,13 @@ FEEDBACK=${MW_FEEDBACK:-gold}
 CONCURRENCY=${MW_CONCURRENCY:-1}
 ACTOR=${MW_ACTOR:-flash}       # flash: GLM 5.3 Flash via Fireworks broker | sol: gpt-5.6-sol via the ChatGPT sign-in (no broker)
 EVOLVER=${MW_EVOLVER:-flash}   # flash: GLM 5.3 Flash via the metering relay | sol: gpt-5.6-sol via the ChatGPT sign-in (no relay)
-case "$ACTOR$EVOLVER" in flashflash|flashsol|solflash|solsol) ;; *) echo "REFUSING: MW_ACTOR/MW_EVOLVER must be flash or sol"; exit 1;; esac
+case "$ACTOR$EVOLVER" in flashflash|flashsol|solflash|solsol|dsflashflash|dsflashsol) ;; *) echo "REFUSING: MW_ACTOR must be flash, dsflash or sol; MW_EVOLVER flash or sol"; exit 1;; esac
 if [ "$EVOLVER" = sol ]; then EVOLVER_MODEL=${MW_EVOLVER_MODEL:-gpt-5.6-sol}; else EVOLVER_MODEL=${MW_EVOLVER_MODEL:-accounts/fireworks/models/glm-5p3-flash}; fi
-if [ "$ACTOR" = sol ]; then ACTOR_MODEL=gpt-5.6-sol; else ACTOR_MODEL=accounts/fireworks/models/glm-5p3-flash; fi
+if [ "$ACTOR" = sol ]; then ACTOR_MODEL=gpt-5.6-sol; elif [ "$ACTOR" = dsflash ]; then ACTOR_MODEL=accounts/fireworks/models/deepseek-v4p1-flash; else ACTOR_MODEL=accounts/fireworks/models/glm-5p3-flash; fi
+export OFFICEQA_ACTOR_MODEL=$ACTOR_MODEL
+export OFFICEQA_WIRE=${MW_WIRE:-responses}   # chat (2026-10-01): the relay translates to /chat/completions (no ~600 s stream cut)
 EVOLVER_TIMEOUT=${MW_EVOLVER_TIMEOUT:-1800}
-MAX_TOOL_OPS=${MW_MAX_TOOL_OPS:-100}       # tool operations per question (commands, wm calls, file changes; 0 = unlimited); the cap ends the question as tool_cap
+MAX_TOOL_OPS=${MW_MAX_TOOL_OPS:-200}       # tool operations per question (commands, wm calls, file changes; 0 = unlimited); the cap ends the question as tool_cap
 ACTOR_TIMEOUT=${MW_ACTOR_TIMEOUT:-1800}   # infrastructure guard per question (30 min, both arms; normal questions take 1-12 min); no output-token budget
 WS="$RUNS/officeqa_${TAG}"
 [ -e "$WS" ] && [ -z "${MW_RESUME:-}" ] && { echo "REFUSING: $WS exists (set MW_RESUME=1 to continue it)"; exit 1; }
@@ -40,7 +42,7 @@ command -v bwrap >/dev/null || { echo "REFUSING: bubblewrap not installed"; exit
 KEY=$(cat "$METAWORLD/.fireworks")
 export HA_FW_KEY=$KEY
 if [ "$EVOLVER" = flash ]; then export HA_PROVIDER_NAME=fireworks HA_PROVIDER_ENV_KEY=HA_FW_KEY HA_PROVIDER_WIRE_API=responses; fi
-if [ "$ACTOR$EVOLVER" != flashflash ]; then codex login status 2>&1 | grep -q "Logged in" || { echo "REFUSING: codex is not signed in"; exit 1; }; fi
+if [ "$ACTOR" = sol ] || [ "$EVOLVER" = sol ]; then codex login status 2>&1 | grep -q "Logged in" || { echo "REFUSING: codex is not signed in"; exit 1; }; fi
 export OFFICEQA_CODEX=$(readlink -f "$(command -v codex)") OFFICEQA_ACTOR=$ACTOR
 [ -d "$HERE/deployments/$DEPLOYMENT" ] || { echo "REFUSING: deployment $DEPLOYMENT missing"; exit 1; }
 export OFFICEQA_DEPLOYMENT=$DEPLOYMENT
@@ -53,7 +55,7 @@ fi
 if [ "$EVOLVER" = flash ]; then export HA_PROVIDER_BASE_URL="http://127.0.0.1:$WM_PORT/${TAG}_meta/inference/v1"; PROVIDER="fireworks-via-meter:$WM_PORT"; else PROVIDER=openai-chatgpt-login; fi
 HEAD=$(git -C "$FRAMEWORK" rev-parse --short HEAD)$([ -n "$(git -C "$FRAMEWORK" status --porcelain)" ] && echo -dirty || true)
 mkdir -p "$RUNS"
-echo "=== setting stamp: venue=officeqa arm=$ARM framework=$HEAD codex=$(codex --version 2>/dev/null | head -1) actor=$ACTOR model=$ACTOR_MODEL host_effort=high questions=$QUESTIONS learn_every=5 concurrency=$CONCURRENCY feedback=$FEEDBACK evolver=codex evolver_model=$EVOLVER_MODEL evolver_effort=high provider=$PROVIDER evolver_network=off evolver_timeout=$EVOLVER_TIMEOUT actor_timeout=$ACTOR_TIMEOUT max_tool_ops=$MAX_TOOL_OPS deployment=deployments/$DEPLOYMENT prepared=$PREPARED resume=${MW_RESUME:-0} ===" >> "$RUNS/officeqa_${TAG}.launch.log"
+echo "=== setting stamp: venue=officeqa arm=$ARM framework=$HEAD codex=$(codex --version 2>/dev/null | head -1) actor=$ACTOR model=$ACTOR_MODEL host_effort=high questions=$QUESTIONS learn_every=5 concurrency=$CONCURRENCY feedback=$FEEDBACK evolver=codex evolver_model=$EVOLVER_MODEL evolver_effort=high provider=$PROVIDER evolver_network=off evolver_timeout=$EVOLVER_TIMEOUT actor_timeout=$ACTOR_TIMEOUT wire=$OFFICEQA_WIRE max_tool_ops=$MAX_TOOL_OPS deployment=deployments/$DEPLOYMENT prepared=$PREPARED resume=${MW_RESUME:-0} ===" >> "$RUNS/officeqa_${TAG}.launch.log"
 setsid nohup "$FRAMEWORK/.venv/bin/python" -B "$HERE/host/arm.py" --arm "$ARM" --run-dir "$WS" --prepared "$PREPARED" \
   --questions "$QUESTIONS" --learn-every 5 --concurrency "$CONCURRENCY" --feedback "$FEEDBACK" --evolver-model "$EVOLVER_MODEL" \
   --evolver-timeout "$EVOLVER_TIMEOUT" --actor-timeout "$ACTOR_TIMEOUT" --max-tool-ops "$MAX_TOOL_OPS" --key-file "$METAWORLD/.fireworks" ${MW_RESUME:+--resume} \

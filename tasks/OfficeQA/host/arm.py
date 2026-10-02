@@ -107,7 +107,9 @@ def _attempt(key, run: Path, ordinal: int, task: dict, adapter: Path | None, evi
         # requests go straight out (no shared in-flight cap, no dispatch
         # interval), and one request may take as long as the question's own
         # guard allows. Only the 5xx retry rule remains.
-        with broker.Broker(key, base / "api", max_completion=None, max_response=None, request_timeout=timeout,
+        # Per-response output ceiling 262,144 (user decision 2026-09-28): without it the
+        # endpoint cut single responses at its default 65,536 ("incomplete: max_output_tokens").
+        with broker.Broker(key, base / "api", max_completion=None, max_response=262144, request_timeout=timeout,
                            scheduler=rate_control.RateScheduler(max_in_flight=1_000_000, min_interval=0.0)) as relay:
             # The guard excludes the transport's own failure time (insurance).
             result = acting.run_actor(workspace, out, campaign.prompt_for(task), corpus, index,
@@ -147,7 +149,7 @@ def main():
     parser.add_argument("--evolver-model", default="accounts/fireworks/models/glm-5p3-flash")
     parser.add_argument("--evolver-timeout", type=int, default=1800)
     parser.add_argument("--actor-timeout", type=int, default=1800, help="infrastructure guard per question, not a budget")
-    parser.add_argument("--max-tool-ops", type=int, default=100, help="tool operations per question (commands, wm calls, file changes; 0 = unlimited); reaching it ends the question as tool_cap")
+    parser.add_argument("--max-tool-ops", type=int, default=200, help="tool operations per question (commands, wm calls, file changes; 0 = unlimited); reaching it ends the question as tool_cap")
     parser.add_argument("--key-file", type=Path, required=True)
     parser.add_argument("--resume", action="store_true",
                         help="continue an existing run: keep finished questions and learned blocks, redo questions that were in flight or lost to transport")

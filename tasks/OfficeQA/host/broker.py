@@ -6,6 +6,7 @@ It changes only the predeclared model sampling/budget/storage settings.
 from collections import Counter
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import os
 import hashlib
 from pathlib import Path
 import threading
@@ -14,9 +15,12 @@ import urllib.error
 import urllib.request
 
 import rate_control
+import chat_bridge
 
-MODEL = 'accounts/fireworks/models/glm-5p3-flash'
+MODEL = os.environ.get('OFFICEQA_ACTOR_MODEL', 'accounts/fireworks/models/glm-5p3-flash')   # the one admitted actor model (dsflash: DeepSeek V4.1 Flash)
 URL = 'https://api.fireworks.ai/inference/v1/responses'
+WIRE = os.environ.get('OFFICEQA_WIRE', 'responses')   # 'chat' (2026-10-01): translate to /chat/completions — /responses cuts streams at ~600 s
+assert WIRE in ('responses', 'chat'), WIRE
 
 class BudgetExhausted(ValueError): pass
 
@@ -150,6 +154,7 @@ class Broker:
         self.pending = set()
         self.unknown_usage = set()
         self.attempts = []
+        self.live = {}   # attempts of the logical calls still in progress, keyed (call, attempt): the guard's infra time must see them as they happen (2026-09-28)
         self.active_response = None
         self.summary_lock = threading.Lock()
         self.lock = threading.Lock()
@@ -189,18 +194,19 @@ class Broker:
                     broker.pending.add(number)
                     directory = broker.output / f'{number:03}'
                     save(directory / 'request.json', public(outgoing))
-                    record = {'number': number, 'upstream': URL, 'model': MODEL,
+                    record = {'number': number, 'upstream': chat_bridge.CHAT_URL if WIRE == 'chat' else URL, 'wire': WIRE, 'model': MODEL,
                               'native_request_settings': {k: incoming.get(k) for k in
                               ('model', 'reasoning', 'temperature', 'max_output_tokens', 'stream')},
                               'changes': {'temperature': 0, 'store': False,
                               'max_output_tokens': outgoing.get('max_output_tokens')}}
                     request_body = json.dumps(outgoing).encode()
                     request_sha = hashlib.sha256(request_body).hexdigest()
+                    wire_body = json.dumps(chat_bridge.request_to_chat(outgoing)).encode() if WIRE == 'chat' else request_body
                     record['request_sha256'] = request_sha
 
                     def attempt(wire_timeout, attempt_number):
                         wire_end = time.monotonic() + wire_timeout
-                        request = urllib.request.Request(URL, data=request_body,
+                        request = urllib.request.Request(chat_bridge.CHAT_URL if WIRE == 'chat' else URL, data=wire_body,
                             headers={'Authorization': 'Bearer ' + broker.key, 'Content-Type': 'application/json'},
                             method='POST')
                         attempt_dir = directory / 'attempts' / f'{attempt_number:02}'
@@ -212,7 +218,8 @@ class Broker:
                                 broker.active_response = response
                                 with rate_control.wire_deadline(response, wire_end):
                                     try:
-                                        final, wire, content_type, sse, generated, errors = read_wire(response, broker.stop, wire_end)
+                                        native = chat_bridge.ResponsesFromChat(response, outgoing) if WIRE == 'chat' else response
+                                        final, wire, content_type, sse, generated, errors = read_wire(native, broker.stop, wire_end)
                                     except ValueError as exc:
                                         if 'No terminal Responses event' not in str(exc):
                                             raise
@@ -273,6 +280,8 @@ class Broker:
                             broker.active_response = None
 
                     def log_attempt(attempt_record):
+                        with broker.summary_lock:
+                            broker.live[(number, attempt_record['attempt'])] = dict(attempt_record)
                         save(directory / 'attempts' / f'{attempt_record["attempt"]:02}' / 'transport.json', redact(attempt_record,broker.key))
 
                     try:
@@ -289,6 +298,8 @@ class Broker:
                         attempt_records = redact(attempt_records,broker.key)
                         record['attempts'] = attempt_records
                         broker.attempts.extend({'call':number, **entry} for entry in attempt_records)
+                        with broker.summary_lock:
+                            for k in [k for k in broker.live if k[0] == number]: broker.live.pop(k)
                         for entry in attempt_records:
                             usage = entry.get('usage') or {}
                             for field in ('input_tokens', 'output_tokens', 'total_tokens'):
@@ -360,7 +371,7 @@ class Broker:
         not succeed (5xx, stream cuts). The question's guard excludes it
         (insurance, 2026-09-22)."""
         with self.summary_lock:
-            attempts = list(self.attempts)
+            attempts = list(self.attempts) + list(self.live.values())   # finished attempts of calls still in progress count too
         return round(sum(a.get('wait_seconds', 0) or 0 for a in attempts)
                      + sum(a.get('wire_seconds', 0) or 0 for a in attempts if a.get('status') != 'succeeded'), 3)
 

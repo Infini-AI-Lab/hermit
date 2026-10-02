@@ -207,3 +207,17 @@ interface; no task-specific solution suggestions were added.
 New runs freeze the runner, deployment, framework package and generic W0. The
 framework's updated prompt/maintenance behavior is not backdated into the stored
 v4 score. Changes to these files after preparation require a fresh run directory.
+
+Change 2026-09-28 (user decision, applies to runs started after this date; the 133-question results above
+keep their original setting): per-question tool-operation cap 100 → 200 (`MW_MAX_TOOL_OPS`); the actor's
+per-response output ceiling is now sent explicitly as max_output_tokens = 262,144 (the endpoint had cut
+single responses at its default 65,536, recorded as "incomplete: max_output_tokens" → question failed).
+
+Fix 2026-09-28 (guard accounting): the per-question guard was meant to exclude the transport's own
+failure time (stream cuts at Fireworks' ~600-s gateway limit, 5xx, backoff waits — `infra_seconds`,
+insurance of 2026-09-22), but the broker added an attempt's record to that total only when its whole
+logical call had finished, so a call that stalled through several cuts counted fully against the guard
+and a question was stopped at 3600 s of wall clock with 6–15 min of model time. The broker now records
+each attempt as it happens (`Broker.live`), so the guard's allowance grows with every cut. The DeepSeek
+stateless run's 16 questions stopped as `timeout` under the old accounting were removed from state.json
+and redone on resume (their directories archived as `.retryN`); nothing else was changed.

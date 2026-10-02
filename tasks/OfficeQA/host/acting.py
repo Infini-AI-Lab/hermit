@@ -29,9 +29,10 @@ from paths import CODEX
 # provider on the user's ChatGPT sign-in (no broker; a throwaway CODEX_HOME
 # holding a copy of auth.json, outside the actor's readable paths).
 ACTOR = os.environ.get('OFFICEQA_ACTOR', 'flash')
-if ACTOR not in ('flash', 'sol'):
-    raise ValueError('OFFICEQA_ACTOR must be flash or sol')
-MODEL = 'accounts/fireworks/models/glm-5p3-flash' if ACTOR == 'flash' else 'gpt-5.6-sol'
+if ACTOR not in ('flash', 'dsflash', 'sol'):
+    raise ValueError('OFFICEQA_ACTOR must be flash, dsflash or sol')
+MODEL = {'flash': 'accounts/fireworks/models/glm-5p3-flash', 'dsflash': 'accounts/fireworks/models/deepseek-v4p1-flash',
+         'sol': 'gpt-5.6-sol'}[ACTOR]   # dsflash: DeepSeek V4.1 Flash through the same Fireworks broker (2026-09-28)
 LOGIN = ACTOR == 'sol'
 PROVIDER = 'officeqa_fireworks'
 EFFORT = 'high'
