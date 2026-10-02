@@ -10,15 +10,16 @@ A Harness Adapter is an independent, versioned core repository. Every core file 
 
 MWM is a reference implementation. It may include evidence, knowledge, briefing, and executable structures. The common framework does not require other methods to adopt these directories, representations, or update algorithms.
 
-The framework delivers three kinds of content from the core to an Acting Harness: **Context documents, MCP tools, and optional Agent Definitions**.
+The framework delivers four kinds of content from the core to an Acting Harness: **Context documents, MCP tools, optional Agent Definitions, and optional Reactions** (Reactions added 2026-09-30, see section 7).
 
-## 2. Three public exports
+## 2. Public exports
 
 | Export | Contents | Integration responsibility |
 |---|---|---|
 | Context | A Markdown introduction, usage instructions, and an optional current briefing or knowledge summary | The host, user, or external framework uses a native context entry point; an optional Connector can help |
 | Tools | Ordinary callable implementations and capability declarations; the framework exposes them through MCP and binds resources | The host's MCP mechanism connects to tools implemented by the Adapter Runtime; integration helpers are optional |
 | Agent Definitions | An optional list of subagent roles and instructions; may be empty | Convert to native definitions before startup; the host loads them and manages actual subagent instances |
+| Reactions (2026-09-30) | Optional handlers the runtime calls on a clock tick and on events (agent status changes, files changed); they return commands addressed to agents: interrupt and resume with a text, or resume an ended session with a text | The run script executes the commands and reports agent status; it decides nothing itself |
 
 One MCP entry point can expose multiple tools. MWM's `wm(name, args)` is one implementation choice; v0 does not require every adapter to use a single dispatch tool.
 
@@ -78,7 +79,7 @@ This decision does not make all knowledge and tool state immutable. Other state-
 - **Meta Harness:** supplies the learner's execution environment for reading LearningMaterial, editing the adapter repo, and checking changes.
 - **Evolver:** the update algorithm, distinct from the Meta Harness execution environment.
 - **Connector / bootstrap helper (optional):** assists with conversion, configuration, and readiness checks. Native, manual, or external integrations can bypass it.
-- **Adapter Runtime:** runs adapter tools and their model calls, resources, and state. Its own model services are not presented as native host subagents.
+- **Adapter Runtime:** runs adapter tools and their model calls, resources, and state. Its own model services are not presented as native host subagents. Since 2026-09-30 it may run as a standalone service whose lifecycle is independent of the agents (section 7).
 
 ## 6. Implementation details still open
 
@@ -89,3 +90,18 @@ This decision does not make all knowledge and tool state immutable. Other state-
 - Candidate checks, revision activation, and state restoration protocols.
 
 These remain future design questions and do not expand the v0 subagent configuration scope.
+
+## 7. Amendment 2026-09-30: the adapter as a standalone service
+
+Decided by the user on 2026-09-30 for the async-collaboration adapter, and adopted into this contract:
+
+- **Lifecycle.** The Adapter Runtime may run as one standalone service per run, started before the agents and independent
+  of their sessions. Agents connect to it over MCP (streamable HTTP, one token per agent) and see the same tools, replies
+  and notices as with a per-agent stdio server.
+- **Reactions.** An adapter may export Reactions (section 2): handlers called on a clock tick and on events reported by the
+  run script. They hold every rule about what an agent is told and when, including whether an ended session is resumed.
+- **Run script.** What runs the agents is the simplest possible script: it starts the service, the judge and the agents,
+  reports agent status, and executes the adapter's `interrupt` / `resume` commands. It carries no collaboration rule.
+- **Judge.** Grading, timing and stopping stay outside the adapter, so that a change of adapter cannot change the score.
+
+Design: [async-collab-adapter-service-design-2026-09-30.md](async-collab-adapter-service-design-2026-09-30.md).
