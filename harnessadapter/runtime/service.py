@@ -65,6 +65,9 @@ class Service:
         self.adapter = Adapter(self.root, resources={})
         self.shared_env = {k: str(v) for k, v in (config.get("env") or {}).items()}
         self.agents = config["agents"]
+        # one lock per agent serializes its tool calls; an adapter that locks its own resources declares
+        # "concurrent_tool_calls": true and its calls then run concurrently (a long compile blocks nothing)
+        self.concurrent = bool(self.adapter.manifest.get("concurrent_tool_calls"))
         self.locks = {a: asyncio.Lock() for a in self.agents}
         self.react = load_reactions(self.root, self.adapter.manifest)
         self.status: dict = {}           # the run script's latest report
@@ -102,7 +105,7 @@ class Service:
                 annotations=ToolAnnotations(**t["annotations"]) if "annotations" in t else None) for t in adapter.tools.values()])
 
         async def call_tool(context, params):
-            async with self.locks[agent]:
+            async with (contextlib.nullcontext() if self.concurrent else self.locks[agent]):
                 arguments = params.arguments if params.arguments is not None else {}
                 record = {"time": datetime.now(timezone.utc).isoformat(), "pid": os.getpid(), "agent": agent,
                           "adapter": adapter.manifest["name"], "version": adapter.manifest["version"],
