@@ -32,7 +32,7 @@
     },
     {
       "name": "say",
-      "description": "Post a short message to the team channel. type is one of idea (a route worth trying), plan (what you are doing next), feedback (your assessment of a lemma, subgoal or message; ref required), request (what you need from others). At most 300 characters; refer to lemmas or files instead of pasting code.",
+      "description": "Post a short message to the team channel. type is one of idea (a route worth trying), plan (what you are doing next), feedback (your assessment of a lemma, subgoal or message; ref required), request (what you need from others). At most 5000 characters.",
       "entrypoint": "collab.py:say",
       "input_schema": {"type": "object", "properties": {"type": {"type": "string", "enum": ["idea", "plan", "feedback", "request"]}, "text": {"type": "string"}, "ref": {"type": "string", "description": "What the message is about: a lemma or subgoal name, or a message id"}}, "required": ["type", "text"], "additionalProperties": false},
       "output_schema": {"type": "object"},

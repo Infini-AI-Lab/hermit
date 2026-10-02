@@ -21,7 +21,10 @@ import time
 from pathlib import Path
 
 TYPES = ("idea", "plan", "feedback", "request")
-MAX_MESSAGE = 300
+MAX_MESSAGE = 5000      # 2026-09-27: was 300; half of the messages were rejected
+MAX_EVIDENCE = 5000
+MAX_ERRORS_CHARS = 20000   # the full error blocks of a compile, not just their first lines
+MAX_OUTPUT_CHARS = 20000
 DECL_RE = re.compile(r"^(?:@\[[^\]]*\]\s*)?(?:private\s+|protected\s+|noncomputable\s+)*(?:theorem|lemma|def|abbrev|instance)\s+([A-Za-z_][\w'.]*)", re.M)
 AUX_RE = re.compile(r"^(match_\d+|proof_\d+|eq_\d+|_.*|\d+)$")
 DUMP = """
@@ -151,10 +154,35 @@ def compile_with_dump(problem: Path, work: Path, repo: str = None, lake: str = N
     return p.returncode, out
 
 
+# ---------- compiler errors ----------
+DIAG_RE = re.compile(r"^\S+\.lean:\d+:\d+: (error|warning|info)")
+
+
+def error_blocks(out: str) -> list[str]:
+    """Every error of a Lean run with its whole message (the goal, the expected type), not just its first line;
+    the list is cut to MAX_ERRORS_CHARS in total, with a note."""
+    blocks, cur = [], None
+    for line in out.splitlines():
+        m = DIAG_RE.match(line)
+        if m:
+            if cur is not None: blocks.append("\n".join(cur))
+            cur = [line] if m.group(1) == "error" else None
+        elif cur is not None:
+            cur.append(line)
+    if cur is not None: blocks.append("\n".join(cur))
+    total, kept = 0, []
+    for b in blocks:
+        if total + len(b) > MAX_ERRORS_CHARS:
+            kept.append(f"… {len(blocks) - len(kept)} more errors not shown ({MAX_ERRORS_CHARS} characters of errors in total)"); break
+        kept.append(b); total += len(b)
+    return kept
+
+
 # ---------- the team delta ----------
-def _short(s: str, n: int = 80) -> str:
+def _short(s: str, n: int = 0) -> str:
+    """One line; not truncated since 2026-09-27 (n is kept for callers, 0 = no limit)."""
     s = re.sub(r"\s+", " ", s).strip()
-    return s if len(s) <= n else s[:n - 1] + "…"
+    return s if not n or len(s) <= n else s[:n - 1] + "…"
 
 
 def render_delta(st: "_State", who: str, mark_seen: bool = True) -> str:
@@ -162,26 +190,26 @@ def render_delta(st: "_State", who: str, mark_seen: bool = True) -> str:
     new = [e for e in st.data["events"] if e["seq"] > a["last_seen"] and e["by"] != who]
     lines = []
     verified = [e for e in new if e["kind"] == "verified" and e["by"] != who]
-    for e in verified[-6:]:
-        lines.append(f"new verified: {e['name']} ({e['by']}): {_short(e['statement'], 90)}    pull with: pull {e['name']}")
-    if len(verified) > 6:
-        lines.append(f"… and {len(verified) - 6} more verified lemmas, see index.md")
+    for e in verified[-10:]:
+        lines.append(f"new verified: {e['name']} ({e['by']}): {_short(e['statement'])}    pull with: pull {e['name']}")
+    if len(verified) > 10:
+        lines.append(f"… and {len(verified) - 10} more verified lemmas, see index.md")
     open_nobody = [s for s in st.data["subgoals"].values() if s["status"] == "open" and not s["on"]]
     open_nobody.sort(key=lambda s: (s.get("disputed", False), s["t_open"]))
     if open_nobody and (new or a["checks"] <= 1):
-        for s in open_nobody[:3]:
-            lines.append(f"open, nobody on it: {s['name']} (from {', '.join(s['files'])}): {_short(s['statement'], 90)}")
+        for s in open_nobody[:10]:
+            lines.append(f"open, nobody on it: {s['name']} (from {', '.join(s['files'])}): {_short(s['statement'])}")
     for e in [e for e in new if e["kind"] == "refuted"]:
-        lines.append(f"refuted: {e['name']} — {e['by']}, {_short(e['evidence'], 80)}")
+        lines.append(f"refuted: {e['name']} — {e['by']}, {_short(e['evidence'])}")
     if a.get("working_on"):
         others = [b for b, x in st.data["agents"].items() if b != who and x.get("working_on") == a["working_on"]]
         lines.append(f"you are on: {a['working_on']}" + (f" — {', '.join(others)} also on it" if others else ""))
     msgs = [e for e in new if e["kind"] == "message" and e["by"] != who]
     if msgs:
-        lines.append("channel: " + " · ".join(f"[{e['type']}] {e['by']}: {_short(e['text'], 80)}" for e in msgs[-6:]))
+        lines.append("channel:\n" + "\n".join(f"  [{e['type']}] {e['by']}: {_short(e['text'])}" for e in msgs[-10:]))
     pending = [m for m in st.data["messages"] if m["type"] == "request" and not m.get("answered") and m["by"] != who]
     if pending and not msgs:
-        lines.append("open requests: " + " · ".join(f"{m['by']}: {_short(m['text'], 60)}" for m in pending[-3:]))
+        lines.append("open requests:\n" + "\n".join(f"  #{m['id']} {m['by']}: {_short(m['text'])}" for m in pending[-10:]))
     if not new and not (open_nobody and a["checks"] <= 1):
         return ""
     n_open = sum(1 for s in st.data["subgoals"].values() if s["status"] == "open")
@@ -199,16 +227,16 @@ def write_updates(st: "_State"):
     d = st.d; t0 = st.data.setdefault("t0", time.time())
     def when(t): return f"{int((t - t0) // 60):3d} min"
     L = ["# Team updates (newest first)", ""]
-    for e in reversed(st.data["events"][-40:]):
+    for e in reversed(st.data["events"][-200:]):
         k = e["kind"]
         if k == "verified":
-            L.append(f"- {when(e['t'])}  verified: {e['name']} ({e['by']}): {_short(e['statement'], 100)}  → pull {e['name']}")
+            L.append(f"- {when(e['t'])}  verified: {e['name']} ({e['by']}): {_short(e['statement'])}  → pull {e['name']}")
         elif k == "open":
-            L.append(f"- {when(e['t'])}  new subgoal ({e['by']}): {e['name']}: {_short(e['statement'], 100)}")
+            L.append(f"- {when(e['t'])}  new subgoal ({e['by']}): {e['name']}: {_short(e['statement'])}")
         elif k == "refuted":
-            L.append(f"- {when(e['t'])}  refuted: {e['name']} — {e['by']}: {_short(e['evidence'], 100)}")
+            L.append(f"- {when(e['t'])}  refuted: {e['name']} — {e['by']}: {_short(e['evidence'])}")
         elif k == "message":
-            L.append(f"- {when(e['t'])}  [{e['type']}] {e['by']}: {_short(e['text'], 120)}" + (f" (re {e['ref']})" if e.get('ref') else ""))
+            L.append(f"- {when(e['t'])}  [{e['type']}] {e['by']}: {_short(e['text'])}" + (f" (re {e['ref']})" if e.get('ref') else ""))
         elif k == "pull":
             L.append(f"- {when(e['t'])}  {e['by']} pulled {e['name']}")
         elif k == "closed":
@@ -217,7 +245,7 @@ def write_updates(st: "_State"):
         L.append("- nothing yet")
     L += ["", "## Open subgoals nobody is on", ""]
     free = [g for g in st.data["subgoals"].values() if g["status"] == "open" and not g["on"]]
-    L += [f"- {g['name']} (from {', '.join(g['files'])}): {_short(g['statement'], 120)}" for g in free] or ["- none"]
+    L += [f"- {g['name']} (from {', '.join(g['files'])}): {_short(g['statement'])}" for g in free] or ["- none"]
     L += ["", "## Who is on what", ""]
     L += [f"- {who}: {a.get('working_on') or '?'}" + (f" — plan: {a['plan']}" if a.get('plan') else "") for who, a in st.data["agents"].items()] or ["- nobody yet"]
     L += ["", "## Open requests", ""]
@@ -261,11 +289,11 @@ def check(file: str = "Problem.lean") -> dict:
         raise ValueError("file must be a .lean file inside your workspace")
     p = subprocess.run([_env("COLLAB_LAKE"), "env", "lean", str(path)], cwd=_env("COLLAB_REPO"), capture_output=True, text=True, timeout=540)
     out = (p.stdout + p.stderr).replace(str(path), file)
-    errors = [l for l in out.splitlines() if ": error" in l]
+    errors = error_blocks(out)
     with _State(_dir()) as st:
         team = render_delta(st, _me())
-    return {"file": file, "compiled": p.returncode == 0 and not errors, "errors": errors[:8],
-            "output": out[-3000:] if not errors else "", "team": team}
+    return {"file": file, "compiled": p.returncode == 0 and not errors, "errors": errors,
+            "output": out[-MAX_OUTPUT_CHARS:] if not errors else "", "team": team}
 
 
 def run_check(d: Path, me: str, work: Path, target: str, repo: str, lake: str, deliver: bool) -> dict:
@@ -275,12 +303,12 @@ def run_check(d: Path, me: str, work: Path, target: str, repo: str, lake: str, d
     src = problem.read_text()
     orig_names = {n for n, _, _ in declarations((work / "Original.lean").read_text())} if (work / "Original.lean").exists() else set()
     rc, out = compile_with_dump(problem, work, repo, lake)
-    errors = [l for l in out.splitlines() if ": error" in l]
+    errors = error_blocks(out)
     info = parse_dump(out) if not errors else {}
     decls = declarations(src)
     helpers = [(n, t, s) for n, t, s in decls if n not in orig_names and n != target]
     tgt = info.get(target)
-    result = {"compiled": not errors, "errors": errors[:8], "target_axioms": sorted(tgt["axioms"]) if tgt else None}
+    result = {"compiled": not errors, "errors": errors, "target_axioms": sorted(tgt["axioms"]) if tgt else None}
     with _State(d) as st:
         a = st.agent(me); a["checks"] += 1
         # working on: the last changed/new declaration that still has a sorry, else the erroring one
@@ -389,7 +417,7 @@ def pull(name: str) -> dict:
     with _State(d) as st:
         e = st.data["lemmas"].get(name)
         if e is None:
-            names = ", ".join(list(st.data["lemmas"])[:20])
+            names = ", ".join(st.data["lemmas"])
             raise ValueError(f"no verified lemma named {name}; the library has: {names or 'nothing yet'}")
         needed, queue = [], [name]
         while queue:
@@ -410,8 +438,8 @@ def pull(name: str) -> dict:
 def refute(name: str, evidence: str) -> dict:
     """Record that a subgoal or a claim is false, with the evidence (a counterexample, a computation)."""
     d = _dir(); me = _me()
-    if not evidence or len(evidence) > 600:
-        raise ValueError("give the evidence in at most 600 characters")
+    if not evidence or len(evidence) > MAX_EVIDENCE:
+        raise ValueError(f"give the evidence in at most {MAX_EVIDENCE} characters")
     with _State(d) as st:
         hits = [s for s in st.data["subgoals"].values() if s["name"] == name.split(".")[-1]]
         for s in hits:
@@ -422,12 +450,12 @@ def refute(name: str, evidence: str) -> dict:
 
 
 def say(type: str, text: str, ref: str = "") -> dict:
-    """Post to the channel: idea, plan, feedback (needs a ref) or request. At most 300 characters."""
+    """Post to the channel: idea, plan, feedback (needs a ref) or request. At most MAX_MESSAGE characters."""
     d = _dir(); me = _me()
     if type not in TYPES:
         raise ValueError(f"type must be one of {', '.join(TYPES)}")
     if not text or len(text) > MAX_MESSAGE:
-        raise ValueError(f"the message must be 1–{MAX_MESSAGE} characters; reference files or lemmas instead of pasting code")
+        raise ValueError(f"the message must be 1–{MAX_MESSAGE} characters")
     if type == "feedback" and not ref:
         raise ValueError("feedback needs a ref: the lemma, subgoal or message it is about")
     with _State(d) as st:
@@ -465,6 +493,6 @@ def resume_text(collab_dir: str, who: str) -> str:
         lines.append(delta)
     if open_:
         lines.append("Open subgoals in the library (statements of helpers that still carry a sorry in some teammate's file); pick one nobody is on, or refute it:")
-        for s in open_[:5]:
-            lines.append(f"- {s['name']} (on it: {', '.join(s['on']) or 'nobody'}): {_short(s['statement'], 120)}")
+        for s in open_[:10]:
+            lines.append(f"- {s['name']} (on it: {', '.join(s['on']) or 'nobody'}): {_short(s['statement'])}")
     return "\n".join(lines)

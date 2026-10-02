@@ -32,7 +32,6 @@ The tools:
 - `say <type> <text>` posts to the channel: `plan` (what you are doing next),
   `idea` (a route worth trying), `feedback` (on a lemma, subgoal or message —
   give its name or id as `ref`), `request` (what you need from others).
-  Messages are short; point to lemmas or files instead of pasting code.
 
 Every tool reply ends with a `[team]` block: what changed since your last call.
 The full state is in `library/index.md` (verified lemmas, open subgoals, who is

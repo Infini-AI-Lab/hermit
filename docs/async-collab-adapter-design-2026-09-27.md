@@ -1,6 +1,6 @@
 # Async collaboration adapter — design (draft, 2026-09-27)
 
-Status: design under discussion; nothing implemented. Successor of the `lemma_board` architecture.
+Status: implemented (`harnessadapter/architectures/async_collab`, 2026-09-27); first five-problem run fc_ds2h_collab. Successor of the `lemma_board` architecture.
 Evidence base: the trajectory readings in
 `~/code/lean-results/fc_screen/notes/async-collab-trajectory-findings-2026-09-27.md`
 (14 shared-notes runs, 5 lemma-board runs, DeepSeek V4.1 Flash and gpt-6-sol on formal-conjectures).
@@ -69,11 +69,12 @@ be harmful (status reports, collective pessimism, dumps) has no place in it:
   lemma, subgoal or message — must carry a reference), **request** (what I need from others). There is no
   status type and no conclusion type: "this cannot be done" can only be said as feedback on a specific
   subgoal with evidence, which is the filter that keeps refutation and drops despair.
-- Limits: ≤ 300 characters per message; code is referenced (a library lemma, a file in the author's
-  scratch folder), never inlined; per-agent rate limit.
-- Delivery: every message's headline (type, author, first 80 characters) goes into everyone's `[team]`
-  delta — all messages, not only those addressed to the reader, so that each agent keeps a global sense of
-  what the others are doing; the full text is read from `library/channel.jsonl`.
+- Limits: ≤ 5000 characters per message (raised from 300 on 2026-09-27: with 300, about half of the
+  messages of the first five-problem run were rejected and the rest were compressed to the point of being
+  hard to read); per-agent rate limit of 6 messages per 10 minutes.
+- Delivery: every message (type, author, full text) goes into everyone's `[team]` delta, the last ten
+  since the reader's previous call — all messages, not only those addressed to the reader, so that each
+  agent keeps a global sense of what the others are doing; the whole channel is in `library/channel.jsonl`.
 - Harness use: a **plan** message updates the "working on" map immediately (earlier and more reliable than
   the diff); a **feedback** message that references a subgoal and carries evidence marks it *disputed*,
   which lowers its rank; **request** messages stay listed in the delta until answered by a message that
@@ -158,3 +159,109 @@ message precedes a change in the reader's file. The channel is switched on and o
 - Whether to also scan scratch .lean files in the workspace for "working on".
 - Whether a host-side active channel (codex app-server) is worth adding for the one interrupt that matters
   (target proved elsewhere → stop).
+
+## 11. Two phases: parallel search, then division of labour (added 2026-09-27, after the first run)
+
+Status: design under discussion; not implemented. Evidence: the five-problem run `fc_ds2h_collab` (20
+trajectories read in full) and the earlier readings of §1.
+
+### 11.1 What the first run showed
+
+The team's gain came from two sources, and only one of them was harvested:
+
+- **Sampling diversity** — several agents attacking the same thing, one of them getting through. This is
+  where best@5 beats avg@5 by a factor of two. The run did this by accident and did it badly: in every
+  problem the agents announced their routes, read each other's, declared the team "converged", and then
+  all formalised the same route from scratch. Diversity was lost to convergence, and the redundancy was
+  spent uniformly — five copies of the easy steps as well as of the hard ones.
+- **Division of labour** — different agents proving different parts, total time ≈ the longest part. Not
+  harvested at all: nobody decomposed (five sorry skeletons in four problems, one of them claimed by a
+  teammate and closed by its author 44 s later); every winner proved its file end to end; the library was
+  used to skip a step that a teammate happened to have done, never to take a part.
+
+So the goal is not to choose between the two modes but to **spend redundancy where the difficulty is**:
+easy parts one agent, hard parts several, and those several on different routes.
+
+### 11.2 The two phases
+
+The problems of this benchmark are usually hard in the reduction, not in the number of parts: until the
+right reduction is found there is no map to divide. Hence the modes are separated in time.
+
+**Phase 1 — parallel search for a reduction.** All agents work on the whole target. The harness's job is
+to keep the routes different, not to make them agree:
+
+- the channel shows each agent's declared route; the `[team]` block tells an agent when its route is
+  already taken ("A3 is on the p-adic route; take another, or take a part of it");
+- "converged" is treated as a warning, not a success: when three or more agents declare the same route,
+  the block says so and names the routes nobody is on;
+- the exit condition is a **verified reduction in the library**: a compiling skeleton whose target proof
+  is complete modulo sorry helpers (the target depends on the helpers, the helpers are the open subgoals).
+  Its author's `check` records it as the team's map.
+
+**Phase 2 — division of labour on the map, redundancy by difficulty.** Once a map exists the `[team]`
+block and the resume message switch to it: the open subgoals, who is on each, how long each has been open,
+how many failed checks it has seen. Allocation stays soft (§7), but the ranking changes:
+
+- an open subgoal with nobody on it ranks first; a subgoal with one agent on it is hidden from the others
+  while it is fresh;
+- a subgoal that stays open past a threshold (time since claim, or failed checks by its owner) is reopened
+  to a second and then a third agent — with the owner's attempted approach attached, so the newcomers try a
+  different one;
+- a refuted subgoal takes its skeleton off the map and the team returns to Phase 1 for that part.
+
+The merge point is the library as it is today: verified helpers enter it, and the map's author (or anyone
+holding the skeleton) pulls them into the target proof. This is the one part of the current adapter that
+already works.
+
+### 11.3 What this needs beyond the current adapter
+
+1. **Decomposition before allocation.** Agents do not write skeletons on their own. Either the first
+   Problem.lean `check` of an agent must carry a skeleton (a target proof with sorry helpers), or one role
+   ("mapper") writes the first skeleton while the others search.
+2. **A difficulty signal.** Per subgoal: time open, number of owners so far, failed checks, refutations of
+   neighbours. The harness already sees all of these through `check`.
+3. **A route register.** Phase 1 needs to know which routes are taken; today this is only in free-text
+   `plan` messages. A `plan` message with a route name (or a typed field) makes it countable.
+4. **A phase indicator** in the `[team]` block and in updates.md, so an agent knows whether it is expected
+   to search or to take a part.
+
+### 11.4 Open questions for this section
+
+- Who writes the map when several skeletons compete (rank by how much of the target they close? keep all?).
+- The reopening thresholds (minutes open, failed checks) — to be set from the subgoal histories of the runs.
+- Whether Phase 1 should cap the number of agents on one route (hard) or only warn (soft, consistent with §7).
+- How to keep an agent from abandoning a part it owns when the `[team]` block shows a more attractive one.
+
+## 12. Three design points from the activity view (user, 2026-09-28 23:29)
+
+After watching the per-agent activity timeline of r13 (what each agent does minute by minute), the user
+set three points for the coming versions. The harness is then a manager: it assigns, interrupts and
+resumes; an agent is never in a state where nobody can say what task it is on.
+
+**12.1 Every agent always has one explicit task.** An agent may not decide freely what to do. At every
+moment it is either building the map (phase 1) or solving one node of the map (phase 2), and the plan
+records which. Work outside the plan — helper lemmas that serve no node, exploration after the map
+exists — is not a state the harness allows. (r13 evidence: after a map at 13 min, four agents of 1000-4
+stayed 34–53 min away from the team; the fastest solves had every agent on a node within 14 min.)
+
+**12.2 Lean verification is never a bottleneck.** It uses only CPU and the machine has 128 cores, so
+every compile the harness runs — grades, ingest checks, final grades — runs in parallel without a pool
+limit; a proof must be recognised as soon as its compile ends. (r13 800-11: a proof saved at 22:31 was
+recognised at ~23:32 because grades queued behind each other and behind ingest checks. Fixed in two
+steps on 2026-09-28: a separate grade pool; final grades submitted at once in their own directory. Still
+to do: no pool limit at all, and grading from the agent's own `check` compile when the file hash
+matches, so a proof costs no second compile.)
+
+**12.3 Best-of-n with a signal.** Several agents may work on the same task on purpose: at the start all
+of them design the map (and gain understanding of the problem); later several may attack one statement.
+When one of them finishes, the others on that task are signalled within about a minute: their sessions
+are stopped and resumed with the news — when it was finished, by which agent, and what the solution is
+(the map, or the proof's name in the library) — so that they read it and move to the next task.
+(v14 / r14 does this for parts: a part proved by one agent interrupts the others on it, with the prover
+and the lemma to pull. The map-design phase — the first map interrupting everyone still searching — is
+the next step.)
+
+Sequencing agreed with the loop's one-hypothesis-per-round rule: r14 = interrupt on a proved part
+(12.3, parts); r15 = interrupt on the first map (12.3, map phase) with the map in the resume message;
+r16 = the hard rule of 12.1 (a `check` while on no node is refused; the plan is the only state).
+12.2 is infrastructure and is fixed as found, outside the hypothesis sequence.
