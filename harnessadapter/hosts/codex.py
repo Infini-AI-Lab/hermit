@@ -13,8 +13,14 @@ import tomllib
 
 from harnessadapter.adapter.loader import inside, load_manifest
 from harnessadapter.hosts.context import PROJECT_CONTEXT, append_context
-from harnessadapter.hosts.inputs import (MARKER, check_workspace, copy_skills, render_exports, retire_roles,
+from harnessadapter.hosts.inputs import (MARKER, PACKAGE_ROOT, check_workspace, copy_skills, render_exports, retire_roles,
                                          server_name, source_label)
+
+
+def _toml(value) -> str:
+    if isinstance(value, dict):
+        return "{ " + ", ".join(f"{k} = {_toml(v)}" for k, v in value.items()) + " }"
+    return json.dumps(value, ensure_ascii=False)
 
 
 def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path | None = None) -> dict:
@@ -46,11 +52,12 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
     if has_tools:
         server = {"command": python, "args": ["-m", "harnessadapter.runtime.mcp_server", "--adapter", str(adapter),
                                               "--audit-log", str(audit)],
+                  "env": {"PYTHONPATH": PACKAGE_ROOT},
                   "startup_timeout_sec": 20, "tool_timeout_sec": 120, "required": True}
         if learning_material is not None:
             server["args"].extend(["--learning-material", str(Path(learning_material).resolve())])
         config.append(f"[mcp_servers.{server_name(manifest)}]")
-        config.extend(f"{key} = {json.dumps(value, ensure_ascii=False)}" for key, value in server.items())
+        config.extend(f"{key} = {_toml(value)}" for key, value in server.items())
     role_paths = {}
     for role in roles:
         instructions = inside(adapter, role["instructions"]).read_text()

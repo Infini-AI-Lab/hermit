@@ -1,17 +1,29 @@
 """Inputs shared by the host deployers: rendered exports, names, stale-role retirement, skills."""
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
 import uuid
 
 MARKER = ".harnessadapter-deploy.json"
+# The directory holding this harnessadapter package: child processes must import this copy, not another installed one.
+PACKAGE_ROOT = str(Path(__file__).resolve().parents[2])
+
+
+def child_env() -> dict:
+    """Environment for framework subprocesses: this package first on PYTHONPATH."""
+    env = dict(os.environ)
+    env["PYTHONPATH"] = PACKAGE_ROOT + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+    return env
 
 
 def render_exports(adapter, python):
     """Render the context and the roles in a subprocess with the framework's interpreter."""
     result = subprocess.run([python, "-m", "harnessadapter.adapter.render_context", "--adapter", str(adapter)],
-                            capture_output=True, text=True, check=True)
+                            capture_output=True, text=True, env=child_env())
+    if result.returncode != 0:
+        raise RuntimeError(f"rendering the adapter's exports failed: {result.stderr.strip()[-1500:]}")
     return json.loads(result.stdout)
 
 
