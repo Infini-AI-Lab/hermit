@@ -39,6 +39,7 @@ html.dark {
 .ha-contract { --ha-contract-link-width: 150px; margin: 1.5rem 0; font-size: 14px; }
 .ha-contract-label { margin: 16px 0 8px; font-weight: 600; }
 .ha-contract-row { display: grid; grid-template-columns: minmax(0, 1fr) var(--ha-contract-link-width) minmax(0, 1fr); align-items: stretch; gap: 12px; margin: 12px 0; }
+.ha-contract .ha-contract-row + .ha-contract-row { margin-top: 16px; }
 .ha-contract-node { display: flex; flex-direction: column; justify-content: center; gap: 8px; box-sizing: border-box; min-width: 0; min-height: 84px; padding: 12px; border: 1px solid #bec8d4; border-radius: 8px; text-align: center; }
 .ha-contract-arrow { align-self: center; text-align: center; color: var(--sy-c-link); line-height: 1.8; }
 .ha-contract-inset { display: grid; align-content: center; box-sizing: border-box; min-height: 48px; padding: 5px 8px; border: 1px solid #bec8d4; border-radius: 4px; font-weight: 400; font-size: 12px; }
