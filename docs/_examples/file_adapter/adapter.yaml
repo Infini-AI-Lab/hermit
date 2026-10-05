@@ -1,0 +1,37 @@
+template:
+  id: file-example
+  version: "1.0"
+  contract: "1"
+exports:
+  context: ADAPTER.md
+  agents: roles.json
+  skills: skills
+  tools:
+    - name: count_words
+      description: Count whitespace-separated words in text.
+      entrypoint: tools.py:count_words
+      input_schema:
+        type: object
+        properties:
+          text: {type: string}
+        required: [text]
+        additionalProperties: false
+      output_schema:
+        type: object
+        properties:
+          count: {type: integer}
+        required: [count]
+        additionalProperties: false
+structure:
+  learnable:
+    - path: ADAPTER.md
+      format: {text: true, max_bytes: 4000}
+    - path: roles/*.md
+      format: {text: true, max_bytes: 4000}
+    - path: skills/**
+      format: {text: true, max_bytes: 4000, max_files: 8}
+  fixed:
+    - tools.py
+    - roles.json
+    - EVOLVER.md
+    - README.md

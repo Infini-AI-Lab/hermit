@@ -1,157 +1,266 @@
-# Adapter Template and Adapter
+# Adapter
 
-An **adapter template** and an **adapter** are different things. The template is a structure and its specification;
-an adapter is a concrete, deployable artifact built on that structure.
+An adapter is a directory of source files governed by `adapter.yaml`. The Trainer stores versions of those files
+in Git. The acting integration turns their exports into host instructions, skills, roles, and callable tools.
 
-## The tree
+There are two file paths to understand: **deployment creates files for the acting host; evolution edits a working
+copy of the adapter sources**.
 
-Templates and adapters form a tree:
-
-```text
-template (root)
- ├── adapter A1      evolved with Evolver P on task X
- │    ├── A1.1       continued from A1 on task X
- │    └── A1.2       started from A1, evolved on task Y
- ├── adapter B1      evolved with Evolver Q on task X
- └── adapter C1      evolved with Evolver R on task Z
+```{raw} html
+:file: ../_includes/adapter-contract.html
 ```
 
-| Tree element | Meaning |
-|---|---|
-| Root | The template. It fixes the structure of every node in its tree: what is learnable and what is fixed. |
-| Node | An adapter: every checkpoint and every final result. Each node is complete, downloadable and deployable. |
-| Edge | One training run from a parent node: the Evolver, the evolving task, the config and the run records. |
+## The adapter files
 
-Any node can be the starting point of a new training run (`start_from`, see [Configuration](configuration.md)).
-Templates do not derive from one another: each template is the root of its own tree, and a new structure is a new
-template.
-
-### The tree is a git repository
-
-One repository holds one tree. Only the Trainer runs git; the Evolver edits a working copy and reads earlier versions
-through a read-only history view.
-
-| Tree element | In git |
-|---|---|
-| Root (template) | The first commit |
-| Node (adapter) | A commit. Downloading an adapter is cloning the repository and checking out that commit. |
-| Node id, parent | The commit hash, the commit's parent |
-| One step of a run | A commit whose message records the Evolver, the task, the epoch and step, the summary, and where the run records are |
-| One training run | A branch named after the run, for example `lean-gepa-01` |
-| Checkpoint, final result | A tag prefixed with the run name: `lean-gepa-01/ckpt-epoch-2`, `lean-gepa-01/ckpt-step-15`, `lean-gepa-01/final` |
-
-When an adapter handed back by the Evolver fails the binding check, the Trainer commits it exactly as handed back, then
-commits a repair that restores specification conformance (see [Trainer](trainer.md#when-the-binding-check-fails)). Both commits
-stay on the run's branch, so nothing is lost. The unrepaired commit is marked invalid in its message; it is not an
-adapter, is never tagged, and cannot be used as `start_from`. Only valid commits are nodes of the tree.
-
-## Adapter template
-
-A template is an initial adapter together with a specification. It is written by the template provider and defines the adapter's deployment and editable structure. A template can target a task family, such as Lean
-collaboration; the run supplies its dataset and the Evolver supplies the learning method.
+The complete example in `docs/_examples/file_adapter/` contains:
 
 ```text
-my_template/
-  adapter.yaml   manifest: identity, exports, structure (the specification), check
-  ADAPTER.md     context for the acting agent (learnable or fixed, as the specification says)
-  EVOLVER.md     guide for the Evolver: the structure only
-  check.py       template-specific checks (optional)
-  README.md      for people: what it is for, which hosts it supports, how to deploy it
-  ...            fixed code and files; initial content of the learnable parts
+file_adapter/
+  adapter.yaml                 exports and specification
+  ADAPTER.md                   context for the acting agent
+  roles.json                   role declarations
+  roles/reviewer.md            instructions for one role
+  skills/verify-output/
+    SKILL.md                   one skill
+  tools.py                     declared tool implementations
+  EVOLVER.md                   editing guidance for the learner
+  README.md                    usage and dependencies
 ```
 
-| Content | Required | Purpose |
-|---|---|---|
-| `adapter.yaml` → `template` | yes | Template id, version, contract version |
-| `adapter.yaml` → `exports` | yes | What the adapter becomes in the acting harness after deployment: context, MCP tools, agent roles, reactions, resources it needs |
-| `adapter.yaml` → `structure` | yes | The **specification**. Learnable parts: the paths that may change and the format each must follow (for example `memory/*.md` with a scope field, `tools/*/` with a `test.py`). Fixed parts: the paths that must not change. |
-| `adapter.yaml` → `check` | no | Entry point of the template's own check function, for example `check: check.py:check`. Without it the framework default is used. |
-| Fixed files | as needed | Code and files shared by every adapter in the tree and never learned (a dispatcher, a context renderer, a collaboration service) |
-| Initial learnable content | yes | The learnable content of the root; usually empty, may hold defaults |
-| `EVOLVER.md` | yes | What each learnable part is, its format, what a valid change looks like. No learning method and no task content. |
-| `README.md` | yes | For people |
+The names `ADAPTER.md`, `roles.json`, and `tools.py` are conventions in this example. The manifest tells the
+framework where to find them. `EVOLVER.md` is learner guidance; it is not inserted into the acting agent's context.
 
-The specification is binding: the Trainer repairs any adapter that changes a fixed part or breaks a declared format.
-A template provider who wants a piece of code to evolve declares it as a learnable part and states its format and the
-checks it must pass.
+For example, these declarations connect the context, role index, and skill directory to the loader:
 
-```{literalinclude} ../../harnessadapter/templates/prompt_only/adapter.yaml
+```{literalinclude} ../_examples/file_adapter/adapter.yaml
 :language: yaml
-:caption: The built-in prompt-only manifest
+:start-at: exports:
+:end-before:   tools:
 ```
 
-## Adapter
+## Acting interface
 
-An adapter is self-contained: a complete copy of its template's fixed parts plus learned content, so it can be
-downloaded and deployed directly.
+### Which files are written into the host?
 
-| Content | Written by |
-|---|---|
-| All fixed parts of the template, unchanged (including the `template`, `exports` and `structure` sections of `adapter.yaml`) | Trainer (copied) |
-| Current content of the learnable parts | Evolver |
-| `adapter.yaml` → `origin`: the root template's id and version | Trainer |
-| `CARD.md` | Trainer (generated); the user may add to it |
+The connector reads the adapter manifest and renders or copies its exports into a **separate host workspace**:
 
-The adapter's id, parent and history are its git commit, the commit's parent and the git log; they are not repeated in
-files. Whether the fixed parts are unchanged is checked with git: the diff between the root commit and the adapter,
-restricted to the fixed paths, must be empty.
-
-`CARD.md` is the adapter's card, like a model card, written for whoever downloads it: the template and parent; how the
-adapter was evolved (Evolver, task, model, epochs and steps); its `eval` results and cost; a summary of what was
-learned; where it has and has not been tested; and the run's sandbox, network and data-exposure settings with any
-warnings they raised. It does not affect how the adapter runs.
-
-### What is not part of an adapter
-
-| Item | Where it lives |
-|---|---|
-| The Evolver's Training State (for example a GEPA candidate pool, an MWM journal) | The run directory |
-| Data produced while the adapter runs (for example a shared lemma library) | The run directory of each rollout or `eval` |
-| Trajectories and scores as run records | The run directory; commit messages point to them |
-| Task content (task-info, data) | The evolving task |
-
-Trajectories may still be part of an adapter as **learned content**. That is between the Evolver and the template:
-if the template's `structure` declares a learnable data path (for example `evidence/`), the Evolver may copy any
-material it can read into it, up to every complete trajectory, so the acting agent can read them at deploy time (as
-MWM does). The Trainer treats this as ordinary learnable content.
-
-## `check_spec`
-
-`check_spec` answers one question: does this adapter conform to its template's specification and deploy? It does not
-judge quality, run tasks, call models or check task rules.
-
-| # | Check | Rule from | Code by |
+| Adapter source | Deployment operation | Codex output | Claude Code output |
 |---|---|---|---|
-| 1 | Fixed parts unchanged (git diff against the root on the fixed paths is empty) | `structure.fixed` | framework library |
-| 2 | Every added or changed file lies in a learnable path | `structure.learnable` | framework library |
-| 3 | `adapter.yaml` parses; its `template`, `exports` and `structure` sections equal the root's | manifest | framework library |
-| 4 | Learnable parts follow their declared formats (fields, names, size limits) | `structure` | framework library |
-| 5 | Deploys: context renders, tool entry points import, roles convert (no acting agent started) | `exports` | framework library |
-| 6 | Template-specific requirements a declaration cannot express (for example: every new tool has a passing test) | template provider | template provider |
+| `ADAPTER.md`, through `exports.context` | Insert rendered text into a managed instruction block. | `AGENTS.md` | `CLAUDE.md` |
+| `skills/verify-output/` | Copy the skill directory. | `.codex/skills/verify-output/` | `.claude/skills/verify-output/` |
+| `roles.json`, through `exports.agents`, + `roles/reviewer.md` | Convert the role into native host files. | `.codex/agents/reviewer.toml`, registered in `.codex/config.toml` | `.claude/agents/reviewer.md` |
+| `tools.py`, through `exports.tools` | Configure a framework MCP server that loads the source adapter. | `.codex/config.toml` | `.mcp.json` |
 
-A template that declares no check function gets the framework default, which runs checks 1–5; a template that makes
-everything learnable and declares no formats is then only checked to load and deploy. The framework returns `CheckResult(passed, issues)`, with each issue naming the path, check, and problem. A custom
-template function receives the adapter path and returns a list of issues or a result dictionary; see the
-implementation notes below for its subprocess and network behavior. Because it travels with the template, a downloaded adapter can be checked
-on its own.
+This is how the adapter reaches the acting system. The host reads the generated instruction, skill, and role files;
+tool configuration makes the declared tools available through its tool interface. Merely placing the adapter
+directory next to a task does not make an agent use it.
 
-| Caller | When | Purpose |
+For the example above, the generated workspaces contain:
+
+```text
+codex-workspace/
+  AGENTS.md
+  .codex/
+    config.toml
+    agents/reviewer.toml
+    skills/verify-output/SKILL.md
+  .harnessadapter-deploy.json
+```
+
+```text
+claude-workspace/
+  CLAUDE.md
+  .mcp.json
+  .claude/
+    agents/reviewer.md
+    skills/verify-output/SKILL.md
+  .harnessadapter-deploy.json
+```
+
+Only declared exports produce corresponding content. A prompt-only adapter has no tool-server entry, skills, or
+roles to install. The generated deployment report identifies the actual paths and role names.
+
+### Context is inserted into project instructions
+
+`ADAPTER.md` is the source. `AGENTS.md` or `CLAUDE.md` is the host-facing result. The connector inserts the
+rendered context between markers like these:
+
+```html
+<!-- harnessadapter:file-example:start -->
+<!-- Rendered adapter instructions appear in this managed block. -->
+<!-- harnessadapter:file-example:end -->
+```
+
+The snippet shows the boundaries, not the complete generated contents. Redeployment replaces that adapter's block
+and preserves project text outside it. Existing adapter headings are nested under the generated section title.
+
+The deployment command prepares a workspace; it does not launch the agent. Its output must be empty or a workspace
+previously generated for the same host. The source adapter and output workspace cannot contain one another.
+The generated `.codex/config.toml` or `.mcp.json` is rewritten on deployment; it is not a general configuration
+merger. Global host configuration is not modified.
+
+### Tools run from the adapter source
+
+Tool code is not copied into `AGENTS.md`. The generated MCP configuration starts a framework wrapper with the
+adapter's absolute path:
+
+```text
+python -m harnessadapter.runtime.mcp_server --adapter /absolute/path/to/adapter ...
+```
+
+That wrapper exposes the declared tool schemas, loads the Python functions, and returns their results to the
+acting agent. The source adapter and its runtime dependencies must remain available.
+
+Each tool declaration names an `entrypoint` such as `tools.py:count_words` and object input/output JSON Schemas.
+The Python function may be synchronous or asynchronous. Context and role exports can also use Python renderers
+instead of static files; they return Markdown and a role list respectively.
+
+An independent service is another integration option. The framework service can host adapter tools, shared state,
+and reaction logic with its own lifecycle. The pipeline must start it and integrate any control channel with the
+acting host. Ordinary `deploy` does not start that service.
+
+### Custom acting pipelines
+
+A custom pipeline may consume exports directly instead of generating host files. For example:
+
+```python
+from pathlib import Path
+from harnessadapter.adapter.loader import Adapter
+
+adapter = Adapter(Path("docs/_examples/file_adapter"))
+instructions = adapter.context()
+roles = adapter.agent_definitions()
+```
+
+The pipeline places `instructions` in its agent context and integrates any other exports it needs.
+`await adapter.call(name, arguments)` invokes a declared tool with schema validation. Calls may bind framework
+resources through a reserved `_resources` parameter. The [task interface](task.md) leaves host integration to the
+pipeline; it does not automatically implement every export.
+
+## Evolution interface
+
+### What does the Evolver edit?
+
+At the start of each step, the Trainer exports the accepted Git version into ordinary working files. The acting
+batch and the learner receive separate copies:
+
+| Location in a run | Purpose | Who changes it? |
 |---|---|---|
-| `harnessadapter check` | Before training, on the starting adapter | The template itself must conform |
-| Evolver | Any time during a call (optional) | Feedback, so it can fix problems itself |
-| Trainer | After every call (binding) | Nothing that fails flows into the next step |
+| `root/` | Template reference for the specification. | Prepared by the Trainer. |
+| `rollout_adapter/` | Adapter supplied to the current acting batch. | Prepared by the Trainer; the pipeline treats it as input. |
+| `workspace/adapter/` | Candidate files being learned. | Evolver edits these files. |
+| `checkout/` | Git worktree holding the recorded adapter version. | Trainer updates and commits it. |
+| `workspace/state/` | Method-specific search or learning state. | Evolver; separate from the adapter. |
 
-## Implementation notes
+The learner's path is `ctx.workspace.adapter`. A scripted Evolver can use normal file operations; a learner agent
+can edit the same files through its file tools. For example, this method appends a predefined instruction:
 
-- `adapter.yaml` sections: `template`, `exports`, `structure`, `check`, `evolver_tools` (tools the template offers
-  to Evolvers, declared like adapter tools; their functions may take `_adapter` and `_root`), and `origin` (written
-  by the Trainer on every committed adapter).
-- `exports` keys: `context`, `agents`, `tools`, `reactions`, `concurrent_tool_calls`, `skills` (a directory of skill
-  folders, each with `SKILL.md`).
-- Format keys of a learnable path: `text` (UTF-8), `max_bytes` (per file), `max_files` (per pattern), `frontmatter`
-  (required YAML frontmatter keys). Patterns are globs; `**` crosses directories; a directory pattern covers its files.
-- `CARD.md` and `adapter.yaml` are framework files: neither learnable nor fixed; check 3 compares the manifest's fixed
-  sections, so `origin` may differ from the root's.
-- A template check function returns a list of `{path, problem}` or `{passed, issues}`; it runs in a subprocess,
-  without network when bubblewrap is available, with a 120-second limit.
-- Command line: `python -m harnessadapter.spec ADAPTER --root TEMPLATE`.
+```python
+from harnessadapter.evolver.base import StepContext, StepResult
+
+def step(self, ctx: StepContext) -> StepResult:
+    path = ctx.workspace.adapter / "ADAPTER.md"
+    path.write_text(path.read_text() + "\nCheck the result against the task requirements.\n")
+    return StepResult(status="done", summary="Added a result-checking instruction")
+```
+
+This demonstrates the file handoff, not a learning strategy. A real method chooses its edits from the available
+evidence. It leaves the selected candidate in the directory and returns status and usage through `StepResult`.
+
+The Evolver edits `ADAPTER.md` or other permitted source files. It does not edit the acting workspace's generated
+`AGENTS.md` as its learned artifact. After acceptance, a later pipeline execution loads or redeploys the new source
+version. An already-running host does not automatically receive a live update.
+
+### How does the specification limit edits?
+
+The template declares the writable content and fixed content. Here is the example's actual specification:
+
+```{literalinclude} ../_examples/file_adapter/adapter.yaml
+:language: yaml
+:start-at: structure:
+```
+
+For this template:
+
+| Proposed edit | Result |
+|---|---|
+| Rewrite `ADAPTER.md`. | Allowed, within its format and size limit. |
+| Edit `roles/reviewer.md`. | Allowed; the next deployment renders the new role instructions. |
+| Add or edit a skill under `skills/`. | Allowed, within the declared file and size limits. |
+| Edit `tools.py` or the role index `roles.json`. | Rejected: these files are fixed here. |
+| Add an undeclared file elsewhere in the adapter. | Rejected: it is outside the learnable paths. |
+| Change the tool declarations in `adapter.yaml`. | Rejected: the exports remain fixed against the template. |
+
+Another template can permit tool-code changes or other learnable files. The scope comes from that template;
+it is not a hard-coded restriction to prompts.
+
+The candidate directory is writable, but not every edit is acceptable. Fixed-file protection is enforced by the
+specification check after the learner returns, rather than by making each fixed file physically read-only inside
+the working copy. The template's `EVOLVER.md` explains the intended editing rules to the learner.
+
+### Who checks and records the candidate?
+
+The Trainer compares changed files with the template specification. It checks fixed paths, allowed paths, formats,
+manifest sections, and export loading. If a candidate violates the specification, it records the invalid version,
+restores affected files from the template or previous adapter, checks again, and records the repair.
+The next batch uses the accepted version. The learner sees any repair feedback in its next learning material.
+
+The manifest sections `template`, `exports`, `structure`, `check`, and `evolver_tools` stay fixed. `origin` and the
+final `CARD.md` are written by the Trainer. See [failure handling](trainer.md#when-the-binding-check-fails).
+
+## Specification check
+
+The callable interface is `check_spec(adapter, root) -> CheckResult`. The result contains `passed` and issues
+naming the affected path, check, and problem. It establishes conformance and loadability; it does not measure task
+performance.
+
+The built-in load check renders context, loads role declarations, and imports declared tools. It does not launch
+the acting host or service. Additional runtime requirements belong in the template's custom check or task setup.
+
+A template may add a checker for requirements not expressed by the manifest:
+
+```python
+from pathlib import Path
+
+def check(adapter_path: str) -> list[dict]:
+    if not (Path(adapter_path) / "ADAPTER.md").read_text().strip():
+        return [{"path": "ADAPTER.md", "problem": "instructions must not be empty"}]
+    return []
+```
+
+Declare it as `check: check.py:check`. The checker is loaded from the template root. Return a nonempty issue list
+to reject a candidate; a dictionary with an `issues` list is also accepted. It runs in a subprocess with a
+120-second limit and network isolation when bubblewrap is available.
+
+## Minimal example
+
+From the repository root after installation, use fresh output directories:
+
+```bash
+mkdir -p .demo
+cp -R docs/_examples/file_adapter .demo/file-adapter
+harnessadapter deploy --adapter .demo/file-adapter --output .demo/file-codex --host codex
+harnessadapter deploy --adapter .demo/file-adapter --output .demo/file-claude --host claude-code
+```
+
+Inspect `.demo/file-codex/AGENTS.md`, `.demo/file-claude/CLAUDE.md`, and the generated roles, skills, and tool
+configuration. No model is called by these deployment commands.
+
+After editing the source copy, check it against the template:
+
+```bash
+python -m harnessadapter.spec .demo/file-adapter --root docs/_examples/file_adapter
+```
+
+Then rerun the deployment command to refresh host files. This is the same source-edit → check → deploy boundary
+used during training, with the Trainer additionally managing candidate acceptance and Git versions.
+
+## Directory, Git version, and runtime state
+
+The portable artifact is the adapter directory. The Trainer keeps a Git tree of its versions, with run branches,
+checkpoint tags, and a final tag. The learner's exported working copy is not itself a Git worktree and does not
+need a `.git/` directory. The Trainer performs the version-control operations.
+
+Deployment consumes the adapter files. Learner state, execution logs, and a service's per-run state stay outside
+the package unless a template explicitly makes some evidence or memory part of its learned content.
+`CARD.md` records provenance and evaluations; it is not acting context.

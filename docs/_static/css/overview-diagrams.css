@@ -6,6 +6,13 @@
   --map-amber: #b96c35;
   --map-purple: #8563ab;
   --map-line: #b8c4d2;
+  --map-blue-border: #a8bfda;
+  --map-blue-surface: #f4f8fd;
+  --map-amber-border: #d5a980;
+  --map-amber-surface: #fff9f2;
+  --map-purple-border: #bba5d0;
+  --map-purple-surface: #f4eefb;
+  --map-neutral-surface: #f8fafc;
   margin: 1.5rem 0;
   color: var(--map-text);
   font-size: 14px;
@@ -18,11 +25,19 @@ html.dark .ha-live-map {
   --map-amber: #eaa970;
   --map-purple: #bd9adb;
   --map-line: #526173;
+  --map-blue-border: #567493;
+  --map-blue-surface: #202b39;
+  --map-amber-border: #94704e;
+  --map-amber-surface: #32281f;
+  --map-purple-border: #7d6598;
+  --map-purple-surface: #2a2235;
+  --map-neutral-surface: #202630;
 }
 .ha-live-map [hidden] { display: none !important; }
 .ha-map-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
 .ha-map-toolbar span { flex: 1 1 230px; color: var(--map-muted); }
 .ha-map-toolbar button {
+  flex: none; width: auto;
   color: inherit; background: transparent; border: 1px solid var(--map-line);
   border-radius: 6px; padding: 8px 12px; font: inherit; cursor: pointer;
 }
@@ -33,18 +48,19 @@ html.dark .ha-live-map {
 .ha-map-canvas { position: absolute; width: 1000px; transform-origin: top left; }
 .ha-map-region, .ha-map-node { position: absolute; box-sizing: border-box; border: 1.5px solid var(--map-line); border-radius: 12px; }
 .ha-map-region { z-index: 0; padding: 18px 22px; }
-.ha-map-region strong { font: 700 21px/1.3 Arial, Helvetica, sans-serif; }
-.ha-map-region span { display: inline; margin-left: 16px; color: var(--map-muted); font: 15px/1.4 Arial, Helvetica, sans-serif; }
-.ha-tone-blue { --tone: var(--map-blue); }
-.ha-tone-amber { --tone: var(--map-amber); }
-.ha-tone-purple { --tone: var(--map-purple); }
-.ha-tone-neutral { --tone: var(--map-line); }
-.ha-map-region { background: color-mix(in srgb, var(--tone) 6%, var(--map-bg)); border-color: color-mix(in srgb, var(--tone) 60%, var(--map-bg)); }
+.ha-map-region strong { display: block; font: 700 21px/1.3 Arial, Helvetica, sans-serif; }
+.ha-map-region span { display: block; margin-top: 5px; color: var(--map-muted); font: 15px/1.4 Arial, Helvetica, sans-serif; }
+.ha-tone-blue { --tone: var(--map-blue); --tone-border: var(--map-blue-border); --tone-surface: var(--map-blue-surface); }
+.ha-tone-amber { --tone: var(--map-amber); --tone-border: var(--map-amber-border); --tone-surface: var(--map-amber-surface); }
+.ha-tone-purple { --tone: var(--map-purple); --tone-border: var(--map-purple-border); --tone-surface: var(--map-purple-surface); }
+.ha-tone-neutral { --tone: var(--map-line); --tone-border: var(--map-line); --tone-surface: var(--map-neutral-surface); }
+.ha-map-region { background: var(--tone-surface); border-color: var(--tone-border); }
 .ha-map-node {
   display: flex; flex-direction: column; justify-content: center; align-items: center;
   gap: 4px; padding: 12px; text-align: center; color: var(--map-text); cursor: pointer;
-  background: var(--map-bg); border-color: color-mix(in srgb, var(--tone) 60%, var(--map-bg)); z-index: 2;
+  background: var(--map-bg); border-color: var(--tone-border); z-index: 2;
 }
+.ha-map-node strong, .ha-map-node span { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
 .ha-map-node strong { font: 700 20px/1.2 Arial, Helvetica, sans-serif; }
 .ha-map-node span { color: var(--map-muted); font: 14px/1.35 Arial, Helvetica, sans-serif; }
 .ha-map-node.ha-map-compact { padding: 6px 10px; gap: 2px; }
@@ -54,13 +70,13 @@ html.dark .ha-live-map {
 .ha-map-node.ha-map-minor strong { font-size: 14px; font-weight: 500; }
 .ha-map-node .ha-map-inset {
   align-self: stretch; box-sizing: border-box; padding: 6px 10px; border-radius: 5px;
-  border: 1px solid color-mix(in srgb, var(--tone) 55%, var(--map-bg));
-  background: color-mix(in srgb, var(--tone) 8%, var(--map-bg));
+  border: 1px solid var(--tone-border);
+  background: var(--tone-surface);
   color: var(--map-text); font-size: 14px;
 }
 .ha-map-optional { border-style: dashed; }
 .ha-map-node:hover { box-shadow: 0 0 0 2px var(--tone); }
-.ha-map-node[aria-pressed="true"] { box-shadow: 0 0 0 3px var(--tone); background: color-mix(in srgb, var(--tone) 12%, var(--map-bg)); }
+.ha-map-node[aria-pressed="true"] { box-shadow: 0 0 0 3px var(--tone); background: var(--tone-surface); }
 .ha-map-connectors { position: absolute; inset: 0; z-index: 1; pointer-events: none; max-width: none; }
 .ha-map-edge > path { fill: none; stroke-width: 2; }
 .ha-edge-blue > path { stroke: var(--map-blue); }

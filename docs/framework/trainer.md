@@ -1,166 +1,176 @@
 # Trainer
 
-The Trainer is the framework's outer loop. It handles everything around the Evolver: data, training rollouts,
-learning material, the workspace, the binding check, git, records, budgets, checkpoints and resume. It is started
-with `harnessadapter train --config run.yaml`.
+The Trainer connects task execution to adapter learning. It calls the task pipeline and Evolver, checks the returned
+files, and saves enough progress to continue the run. Read this page to understand what the framework controls and
+what it expects from the components you provide.
+
+## Responsibility and boundaries
+
+The Trainer owns batching, learning-material records, workspace preparation, specification checks, version history,
+budgets, and recovery. The pipeline owns how the acting agent runs. The Evolver owns how an adapter is improved and
+which candidate it returns.
+
+```{raw} html
+:file: ../_includes/trainer-contract.html
+```
+
+The Trainer uses those interfaces without needing to understand a task's answer format or an Evolver's search
+algorithm.
+
+## Interface
+
+Start a run with `harnessadapter train --config run.yaml`. The Python entry point is `Trainer(config).train()`.
+
+| Input | How the Trainer uses it |
+|---|---|
+| Task data and splits | Select the tasks for each batch. |
+| Pipeline and scoring function | Execute and score each task. |
+| Template and optional starting adapter | Initialize the version history and reference specification. |
+| Evolver definition and parameters | Create the learning method and call its lifecycle methods. |
+| Access, budgets, and checkpoint settings | Prepare resources and control the run. |
+
+The returned summary identifies the run, stop reason, final commit/tag, checkpoints, and recorded spending.
+The deployable output is the accepted adapter directory, also stored in Git. Detailed records remain in the run
+directory; they are not added to the deployed package.
 
 ## One step
 
-```text
-1. Data          take this step's tasks from the training split
-2. Rollout       run the current adapter on them through the pipeline; score them with the judge
-3. Material      write the results to learning_material/step_NNNN/ and point `current` at it
-4. Workspace     copy the current adapter into adapter/; mount task-info/, history/, state/; assemble the tools
-5. Evolver       call step(ctx) and receive a StepResult
-6. Check         run check_spec on the adapter handed back; repair it if it fails
-7. Commit        if the adapter differs from the previous commit, commit it as a new node
-8. Record        store usage, time, check results, StepResult, output/ and a snapshot of state/
-```
+| Handoff | Input | Output |
+|---|---|---|
+| Trainer → pipeline | One task and the current adapter path. | `RunOutput`: answer and available execution evidence. |
+| Trainer → scoring function | Task and `RunOutput`. | Score, feedback, and additional fields. |
+| Trainer → learning-material writer | Per-task records and any prior repair feedback. | Material for this batch. |
+| Trainer → Evolver | `StepContext`, including an editable copy of the same adapter. | Files left in `adapter/`, updated state, `StepResult`, and reports. |
+| Trainer → specification check | Changed candidate and the template reference. | Accepted files, or a repair followed by another check. |
+| Trainer → storage | Accepted files and step results. | Git changes, state snapshot, records, and any checkpoint tag. |
 
-`setup` is called once before the first step and `finalize` once after the last.
+The current implementation scores every rollout through the configured `judge.path`. In the component model,
+scoring feedback is one part of the Agent → Learning Material path.
 
-## Data and batching
-
-```yaml
-data:
-  tasks: tasks.jsonl
-  train: splits/train.txt
-  val: splits/val.txt        # optional; given to the Evolver only
-  test: splits/test.txt      # optional; used only by eval
-  step_size: 12              # tasks per step (verl: train_batch_size)
-  shuffle_seed: 0
-trainer:
-  epochs: 3
-```
-
-| Concept | Meaning |
-|---|---|
-| Epoch | One full pass over the training split |
-| Step | The next `step_size` training tasks; the order is reshuffled with `shuffle_seed` at the start of every epoch |
-| Last step of an epoch | Takes whatever remains when the split is not a multiple of `step_size` |
-| Validation split | Never used by the Trainer; given to the Evolver when set |
-| Test split | Used only by `eval` |
+A step's rollout scores describe its **input** adapter. The returned adapter first affects a later execution.
+Successive steps can use different tasks, so their scores alone are not a controlled comparison of adapter versions.
+Use [evaluation](commands.md#eval) for comparisons on a common test split.
 
 ## Learning material
 
+The material directory is the interface between execution and learning:
+
 ```text
 learning_material/
-  README.md        the format
-  index.jsonl      one line per step: step, epoch, number of tasks, mean score, cost, whether the adapter changed
+  README.md
+  index.jsonl
+  current -> step_0002
   step_0001/
   step_0002/
-  ...
-  current -> step_0007
+    summary.json
+    tasks/<id>.json
+    trajectories/<id>/       when a log was supplied
+    check_feedback.json      when the preceding update needed repair
 ```
 
-One directory per step, so an Evolver sees at a glance how many steps there have been; `index.jsonl` gives the trend,
-each step directory the detail.
-
-The Trainer produces one standard format, as complete as possible. For each task: its input; the full trajectory (the
-host's original log and a normalised message list); the final output; everything the judge returned (score and
-feedback, unchanged); cost, time and API speed. When the previous step's adapter was repaired, the step directory also
-holds `check_feedback.json`.
-
-An Evolver chooses which parts of these records to read and how to present them to its learner. The built-in
-prompt-only method extracts scored examples; a custom method can read the available full trajectories.
-
-## When the binding check fails
-
-The rule: **the adapter that goes into the next step is always valid.** The Trainer repairs, tells the Evolver what it
-repaired, and leaves every judgement about the repaired adapter to the Evolver.
-
-| Step | What the Trainer does |
+| Record | Contents |
 |---|---|
-| 1. Commit as handed back | The Evolver's version is committed unchanged, its message marking it invalid |
-| 2. Repair | Only the affected files: a changed fixed file returns to the root's version; a learnable file in a wrong format returns to the parent's version (a new file is removed); a file outside the learnable paths is removed; a part that fails to deploy returns to the parent's version |
-| 3. Check again | Repeat until the adapter passes (files depend on each other, for example `ADAPTER.md` naming a removed tool). The worst case is the parent unchanged. |
-| 4. Commit the repair | A second commit; its message lists the repaired files and the reasons |
-| 5. Feed back | `check_feedback.json` in the next step's material: each repaired file and why |
+| `summary.json` | Step, epoch, adapter commit used, task IDs, mean score, and timing/cost summaries. |
+| `tasks/<id>.json` | Input, output, status/errors, normalized judge result, usage, messages when supplied, and a relative trajectory path or null. |
+| `trajectories/<id>/` | Original pipeline log copied as a file or directory. |
+| `check_feedback.json` | Repaired paths, restoration source, and reason. |
+| `index.jsonl` | One summary row per step for scanning previous results. |
 
-The Trainer rechecks specification conformance after repair. It does not run a performance evaluation of the
-repaired adapter; candidate validation belongs to the Evolver.
+The Trainer can only preserve evidence the pipeline returns. It does not manufacture a missing transcript.
+The [task interface](task.md#execution-result) defines those fields; the Evolver chooses which evidence to read.
 
-## Checkpoints and the final adapter
+## Failure handling
 
-```yaml
-trainer:
-  save_freq: {steps: 5, epochs: 1}
-```
+Failures affect different boundaries:
 
-| Item | Rule |
+| Event | Behavior |
 |---|---|
-| Checkpoints | Set by the user (`trainer.save_freq`); the Trainer tags those commits `<run>/ckpt-step-N` or `<run>/ckpt-epoch-N` |
-| Final adapter | The Trainer always calls `finalize`. The default returns the current adapter (the last step's); an Evolver that overrides it may choose another, for example the best candidate in its pool |
-| Final tag | The final adapter passes the binding check, is committed if new, tagged `<run>/final`, and gets its `CARD.md` |
+| Pipeline raises or returns the wrong type | Record a pipeline error with score zero; the batch can still supply evidence. |
+| Scoring raises | Record a judge error with score zero. |
+| Evolver reports `failed` / `out_of_budget`, raises, or returns the wrong type | Keep the previous adapter and record the step. |
+| Returned files violate the specification | Repair as described below. |
+| `setup` fails | Stop before training steps begin. |
+| `finalize` fails or returns the wrong type | Use the current accepted adapter as final. |
+| Unhandled crash | Resume from the last completed step, subject to the saved records. |
+
+### When the binding check fails
+
+The Trainer records the invalid candidate in Git, restores offending files, checks again, and records the repair.
+Fixed files return to the template version; invalid learnable files return to the previous adapter's version.
+New disallowed files are removed. If a failure cannot be attributed to particular files, repair can revert all
+changes. The previous accepted adapter is the fallback.
+
+The learner receives the repair report in the next step's material. Invalid commits remain inspectable but cannot
+be selected as a starting adapter. Repair establishes specification conformance; it does not evaluate task quality.
+
+## Lifecycle and state
+
+On a fresh run the Trainer calls `setup`, then processes batches through `step`. At normal completion, allowed
+early stop, or a handled budget stop, it calls `finalize`. An unhandled process crash does not guarantee finalization.
+
+The default finalization returns the current adapter. A custom Evolver can select another candidate, which is
+collected and checked. `final` means this selection, not an automatically chosen highest-scoring checkpoint.
+Final evaluation is a separate command.
+
+An epoch is one pass over the training split. Each step takes up to `data.step_size` tasks; the order is reshuffled
+deterministically for each epoch. The last batch can be smaller. Validation tasks are offered to the Evolver rather
+than included in the Trainer's training batches. Test tasks are reserved for `eval`.
+
+### Resuming after a crash
+
+With `trainer.resume_mode: auto`, an unfinished run resumes from its last completed step. The Trainer restores the
+adapter commit and learner-state snapshot, drops later incomplete material, and recomputes the next batch from the
+seed and progress.
+
+Budget accounting also resumes from that step's saved record. Work done after it and before the crash may therefore
+be absent from restored spending. Resuming a learner's external host session additionally depends on that host and
+Evolver.
+
+Use `start_from` and a new run name to branch from an adapter without its old learner state. `resume_mode: disable`
+starts over, renaming the previous run directory and branch. Step/tag selection through `resume_mode` is not
+implemented.
 
 ## Budgets
 
-| Kind | Config | Enforcement |
-|---|---|---|
-| Hard budgets | `trainer.budget: {usd, tokens, hours}` | The run stops when one is reached |
-| Per-call limit | `trainer.call_timeout_min` | A call that exceeds it counts as `failed` |
-| Iteration budget | `trainer.epochs` and `data.step_size` | The run ends after the last step |
+The Trainer supports USD, token, and wall-time budgets plus a per-call timeout. Limits are observed after rollout
+tasks, through metered tools during learner calls, and from reported usage when a call returns.
 
-Hard budgets are checked whenever the Trainer can observe spending, not only between steps:
+A stop is cooperative at points the framework controls. It refuses further tool calls, signals cancellation, and
+stops programs launched through its runner. Arbitrary in-process code that ignores cancellation cannot be forcibly
+stopped by this mechanism. Calls already in flight can exceed a limit; agent-backed model usage may become visible
+only after the host session ends.
 
-| Check point | What is observed |
-|---|---|
-| After each training-rollout task | Rollout cost and time |
-| During an Evolver call | Wall time and usage through metered tools such as `llm`; built-in agent usage is collected when the call ends |
-| When a call returns | The `Usage` in `StepResult` (the only source besides wall time for a black box) |
+Recorded dollar cost depends on known usage and applicable prices. Separate `check` probes and `eval` commands are
+outside the training budget. See [Configuration](configuration.md#budgets-and-checkpoint-frequency).
 
-When a hard budget is reached the Trainer stops at the next point it controls (a tool call, a started program, the
-end of the call; spending may slightly exceed the budget): the step in progress is discarded, the adapter of the last
-completed step stays current, `finalize` is called, and the records state the reason.
+## Minimal example
 
-How long a run lasts is the user's decision. An Evolver that believes it has converged hands back the adapter
-unchanged for the remaining steps. If the user sets `trainer.allow_early_stop: true`, a `StepResult` with status
-`stop` ends the run instead.
+After installation, run the bundled offline interface example from the repository root:
 
-## Run records
-
-Records live in `<output_dir>/<run_name>/`, never in the adapter.
-
-| File | Contents |
-|---|---|
-| `config.yaml` | The full run config as resolved (defaults plus overrides), the template, Evolver and task versions, and any warnings raised at start |
-| `steps.jsonl` | One line per step: epoch and step, task list, rollout scores, cost, time, API speed, the Evolver's `Usage`, whether the adapter changed, check and repair results, commit hashes |
-| `step_NNNN/` | The Evolver's `output/` unchanged, its `StepResult`, and a snapshot of `state/` |
-| `learning_material/` | All the learning material (the training trajectories live here) |
-| `summary.json` | Written at the end: total cost and time (rollouts and Evolver separately), the stop reason, the final adapter, the checkpoints |
-| `eval/<adapter>/` | Results of `eval` runs (see [Commands](commands.md)) |
-
-## Resuming after a crash
-
-A crashed run resumes from its last completed step, not only from a checkpoint.
-
-| Needed to resume | Where it comes from |
-|---|---|
-| The adapter | That step's commit |
-| The Evolver's `state/` | The snapshot stored with that step |
-| Which tasks come next | Recomputed from the seed, the epoch and the step number |
-| Learning material and budget spent | `learning_material/` and `steps.jsonl` |
-
-The step that was in progress is discarded, including its finished rollouts. The budget is restored from the last
-completed step's record, so costs incurred during an interrupted step may be missing from restored accounting.
-Session resume depends on the selected Evolver and host; the framework does not guarantee recovery of a missing
-host session.
-
-```yaml
-trainer:
-  resume_mode: auto      # auto: continue an unfinished run with this name; disable: start over
+```bash
+harnessadapter check --config docs/_examples/interface_task/run.yaml
+harnessadapter train --config docs/_examples/interface_task/run.yaml
+harnessadapter eval --config docs/_examples/interface_task/run.yaml --adapter final
 ```
 
-`resume_mode` continues **the same** run. Starting **a new** run from an existing adapter is `start_from` (see
-[Configuration](configuration.md)): like loading pretrained weights, its Evolver state starts empty.
+The pipeline echoes input text and the Evolver records scores without changing the adapter. It exercises two
+training steps, state snapshots, finalization, and test evaluation without model calls. The config disables the
+learner sandbox for this trusted local example.
 
-## Implementation notes
+Outputs go under `.demo/interface-example/interface-demo/`. A completed run is not resumed; use a new
+`trainer.run_name` override for another experiment and the same override when evaluating it.
 
-- Run directory, besides the records above: `workspace/` (the Evolver's directories and the agent home), `root/` (the
-  template's files, the reference for `check_spec`), `checkout/` (the run's git worktree), `access/validation/`
-  (validation tasks given to the Evolver), `tools.jsonl` (every tool call).
-- The tree lives in `trainer.tree_dir` (default `<output_dir>/trees/<template id>`).
-- `resume_mode: disable` starts over: the old run directory and branch are renamed with a `.replaced-<time>` suffix.
-  A finished run is never resumed; choose another `run_name`.
-- Each step record holds the Evolver's reported usage and, separately, the usage of metered tool calls
-  (`metered_tool_usage`).
+## Records and versions
+
+| Location | Purpose |
+|---|---|
+| `checkout/` | Current adapter worktree, including the final card. |
+| `steps.jsonl` | Completed steps, adapter commit IDs, scores, statuses, usage, and check results. |
+| `step_NNNN/state/`, `step_NNNN/output/` | Saved learner state and reports. |
+| `learning_material/` | Evidence supplied to the learner. |
+| `config.yaml`, `summary.json` | Resolved settings and final run summary. |
+| `eval/<adapter>/` | Separate evaluation results. |
+
+The adapter tree defaults to `<output_dir>/trees/<template id>`. Runs use branches; checkpoints and finals use tags
+such as `<run>/ckpt-step-5`, `<run>/ckpt-epoch-1`, and `<run>/final`. Checkpoint frequency is controlled by
+`trainer.save_freq`. The final adapter receives a `CARD.md` describing the experiment.

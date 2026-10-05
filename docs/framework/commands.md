@@ -5,8 +5,9 @@
 | `harnessadapter check --config run.yaml` | Check the settings before training |
 | `harnessadapter train --config run.yaml` | Run the Trainer |
 | `harnessadapter eval --config run.yaml --adapter ...` | Evaluate one adapter on the test split |
+| `harnessadapter deploy --adapter DIR --output WORKSPACE --host codex` | Generate a host workspace from an adapter |
 
-All three accept `key=value` overrides after the config (see [Configuration](configuration.md)).
+The first three accept `key=value` overrides after the config (see [Configuration](configuration.md)).
 
 ## Typical workflow
 
@@ -36,8 +37,9 @@ free of problems or that the run will succeed.
 
 ## train
 
-Runs the loop described in [Trainer](trainer.md). At start it checks only that the Evolver's needs are given (see
-[Configuration](configuration.md#what-is-checked-at-startup)) and prints the warnings for risky settings. If a run with
+Runs the loop described in [Trainer](trainer.md). At start it loads and validates the configured components and
+checks the Evolver's declared needs (see [Configuration](configuration.md#what-is-checked-at-startup)). It does not run
+the full standalone `check` command. If a run with
 the same `run_name` is unfinished, `resume_mode: auto` continues it.
 
 ## eval
@@ -55,11 +57,22 @@ harnessadapter eval --config run.yaml --adapter none          # no harness adapt
 | Deployment and scoring | The same pipeline and judge as the training rollouts |
 | Repeats | `eval.repeats`; reports the mean and the share of tasks solved at least once |
 | Records | Per-task score, cost, time and API speed under `<run>/eval/<adapter>/` |
-| `CARD.md` | When the evaluated adapter is a run's final adapter, the results are written into its card |
+| `CARD.md` | With the literal `--adapter final` selector, the results are written into the run's final card |
 
 `eval` evaluates exactly what it is given and runs no baseline by itself. A baseline is one more `eval`, run when the
 user chooses: `--adapter none` runs the acting agent with no harness adapter at all (the pipeline receives
 `adapter=None`); `--adapter root` runs the template's initial content, which may already deploy tools or context.
+
+## deploy
+
+```bash
+harnessadapter deploy --adapter DIR --output WORKSPACE --host codex
+harnessadapter deploy --adapter DIR --output WORKSPACE --host claude-code
+```
+
+This generates host instruction files, role/skill files, and tool configuration. It does not launch the acting
+agent. The output must be an empty directory or a workspace previously generated for the same host, separate from
+the adapter directory. See the [file mapping](adapter.md#acting-interface) for exact paths and update behavior.
 
 ## Implementation notes
 

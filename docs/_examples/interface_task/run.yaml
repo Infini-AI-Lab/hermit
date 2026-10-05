@@ -1,0 +1,25 @@
+data:
+  tasks: tasks.jsonl
+  train: train.txt
+  test: test.txt
+  step_size: 1
+task_info: task-info
+pipeline:
+  run: pipeline.py:run
+  concurrency: 1
+judge:
+  path: judge.py
+  name: score
+template: prompt-only@1.0
+evolver:
+  name: ../record_only
+sandbox:
+  enabled: false
+  network: none
+  env: []
+trainer:
+  run_name: interface-demo
+  output_dir: ../../../.demo/interface-example
+  epochs: 1
+  budget: {tokens: 1000, hours: 0.02}
+  call_timeout_min: 1

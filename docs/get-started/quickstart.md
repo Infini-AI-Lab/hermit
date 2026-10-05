@@ -71,6 +71,10 @@ it to its model messages, as OfficeQA does. See [Using and training adapters](..
 
 ## 3. Train an adapter from feedback
 
+To exercise the full interface without model access or an external dataset, run the
+[offline interface example](../framework/trainer.md#minimal-example). It verifies the component handoffs and state
+storage; its recording-only Evolver does not learn new instructions.
+
 The [OfficeQA recipe](../recipes/officeqa.md) is the existing end-to-end training example. It needs a prepared
 OfficeQA dataset and model API access; complete its preparation steps before running:
 

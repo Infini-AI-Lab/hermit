@@ -1,190 +1,152 @@
-# Custom Evolver Integration
+# Custom Evolver integration
 
-The Evolver is a swappable component. The framework ships two ready implementations; anything else is a subclass of
-one abstract class. The Trainer calls only this interface: what happens inside is up to the implementation.
+Implement an Evolver when you want to change the learning method while reusing the task pipeline, adapter
+specification, and Trainer. Start with the [Evolver contract](evolver.md) for inputs, outputs, and lifecycle behavior.
 
-## Interface
+## Implement the method
 
-```python
-from __future__ import annotations
-from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, Literal, Protocol
+Subclass `Evolver` and implement `step`. The following complete example reads the current batch summary, appends
+an observation to persistent state, writes a report, and leaves the adapter unchanged:
 
-
-# ---------- What the Trainer gives the Evolver ----------
-
-@dataclass(frozen=True)
-class Workspace:
-    adapter: Path             # working copy of the current adapter (read/write)
-    learning_material: Path   # step_NNNN/ directories, current, index.jsonl, README.md (read-only)
-    task_info: Path           # task description (read-only)
-    history: Path             # read-only view of the adapter's git history
-    state: Path               # Training State (read/write, the Evolver's own format)
-    scratch: Path             # temporary files (read/write, not kept)
-    output: Path              # what the call hands back besides the adapter (write)
-
-
-@dataclass(frozen=True)
-class Access:
-    validation: Path | None = None        # set when data.val is given
-    environment: list[Path] = field(default_factory=list)   # from evolver_access.environment
-
-
-@dataclass(frozen=True)
-class Progress:
-    epoch: int
-    step: int
-    is_epoch_end: bool
-
-
-class Tool(Protocol):
-    name: str
-    description: str
-    input_schema: dict
-    output_schema: dict
-    source: Literal["template", "task", "run"]
-
-    def __call__(self, **arguments: Any) -> dict: ...
-
-
-@dataclass(frozen=True)
-class Context:
-    workspace: Workspace
-    access: Access
-    tools: dict[str, Tool]        # always includes "check_spec"; every call is logged and metered
-    params: dict[str, Any]        # evolver.params from the run config, over the manifest defaults
-
-
-@dataclass(frozen=True)
-class StepContext(Context):
-    progress: Progress
-    session: str | None = None    # previous call's session handle, set only when resuming
-
-
-# ---------- What the Evolver hands back ----------
-
-@dataclass
-class StepResult:
-    status: Literal["done", "failed", "out_of_budget", "stop"]
-    summary: str                           # one line: what changed, or that nothing did
-    rationale: str = ""                    # optional: why it changed the adapter this way, or why not
-    session: str | None = None             # handle for resuming next time, if any
-    usage: list[Usage] = field(default_factory=list)   # model usage of this call (Usage: see Evolver page)
-    extra: dict[str, Any] = field(default_factory=dict)  # recorded unchanged
-
-
-@dataclass
-class FinalResult:
-    adapter: Path                          # the adapter to hand back as the final result
-    summary: str
-    extra: dict[str, Any] = field(default_factory=dict)
-
-
-# ---------- The interface ----------
-
-class Evolver(ABC):
-    supports_resume: bool = False
-
-    def setup(self, ctx: Context) -> None:
-        """Optional: before the first step (for example, initialise Training State)."""
-
-    @abstractmethod
-    def step(self, ctx: StepContext) -> StepResult:
-        """Read the learning material and change the adapter in ctx.workspace.adapter (or leave it)."""
-
-    def finalize(self, ctx: Context) -> FinalResult:
-        """Optional: after training. Default: hand back the current adapter."""
-        return FinalResult(adapter=ctx.workspace.adapter, summary="current adapter")
+```{literalinclude} ../_examples/record_only/evolver.py
+:language: python
 ```
 
-Only `step` must be implemented.
+The unchanged adapter is the one this step selects. A method that proposes changes writes them into
+`ctx.workspace.adapter`; a method with a candidate pool copies its selected candidate there. `StepResult` reports
+the call's status and usage.
 
-| `status` | Meaning | What the Trainer does |
-|---|---|---|
-| `done` | The step finished | Check, commit if changed, continue |
-| `failed` | The step could not finish | Keep the previous adapter, record, continue |
-| `out_of_budget` | The Evolver ran out of the budget it was given | Same as `failed` |
-| `stop` | The Evolver considers training converged | Stop and call `finalize` if `trainer.allow_early_stop` is set; otherwise record it and treat it as `done` |
+This example exercises the contract without model calls or optimization. It uses the default `setup` and
+`finalize` methods. Put any state needed after a process restart in `workspace.state`, rather than only in instance
+attributes.
 
-## Manifest
+## Declare and select it
 
-An Evolver is declared by a small YAML manifest naming its class, the resources it cannot run without, and its default
-parameters:
+Place `evolver.yaml` beside `evolver.py`:
+
+```{literalinclude} ../_examples/record_only/evolver.yaml
+:language: yaml
+```
+
+The `class` value is either `file.py:ClassName`, relative to the manifest directory, or an importable
+`package.module:ClassName`. The loader constructs the class without arguments and merges manifest `params` with
+run-level `evolver.params`.
+
+Select its directory in the run config:
 
 ```yaml
-# evolver.yaml
-class: my_evolvers.gepa:GepaEvolver     # or harnessadapter:AgentEvolver
-needs: [validation_data]                # validation_data | environment | send_material_out
-params:
-  pool_size: 8
-  minibatch: 4
+evolver:
+  name: /path/to/record_only
+  params: {}
 ```
 
-`train` refuses to start if a need is not given by the run config. The task user selects an Evolver by name
-(`evolver.name`) and may leave `evolver.params` empty.
+Use `needs` to declare required resources: `validation_data`, `environment`, or `send_material_out`. The Trainer
+checks them against the run settings before starting. Set `supports_resume = True` if the method understands the
+previous session handle; this is independent of storing files in `state/`.
 
-## Built-in implementations
+## Run the interface example
 
-A provider who does not want to write code supplies prompts or a command:
+From the repository root, with the package installed:
 
-| Implementation | What it does inside | The provider supplies |
+```bash
+harnessadapter check --config docs/_examples/interface_task/run.yaml
+harnessadapter train --config docs/_examples/interface_task/run.yaml
+harnessadapter eval --config docs/_examples/interface_task/run.yaml --adapter final
+```
+
+The task is a local echo stub. The run has two training steps and one test task; no model is called.
+Inspect `.demo/interface-example/interface-demo/` for the learning material, per-step
+`state/observations.json` snapshots, final adapter card, and evaluation records.
+
+This example uses trusted in-process Python and disables the learner-program sandbox. For a fresh repeat, add
+`trainer.run_name=interface-demo-02` to the commands. See [Trainer](trainer.md) for resume behavior.
+
+## Agent and command implementations
+
+You can reuse a launcher instead of implementing a new Python learning loop:
+
+| Class | What you supply | How it hands back an adapter |
 |---|---|---|
-| `AgentEvolver` | Starts a built-in agent (Codex or Claude Code) on the workspace with the prompt | A start prompt, optionally a resume prompt, and a model |
-| `CommandEvolver` | Starts any external program and passes it the call's information and tool endpoints | A command |
+| `harnessadapter.evolver.agent:AgentEvolver` | Backend, prompt files, model selection, and host arguments. | The learner agent edits the working directory. |
+| `harnessadapter.evolver.agent:CommandEvolver` | An external command and optional environment values. | The program edits the working directory and may write a result file. |
 
-Anything else (a ReAct loop, a multi-agent system, GEPA, SkillOpt) is a subclass of `Evolver`.
+`AgentEvolver` supports `codex` and `claude`. Its parameters include `backend`, `prompt`, `resume_prompt`, `model`,
+`args`, and `home`. Prompt placeholders include the workspace paths, `message`, `epoch`, and `step`.
+The bundled definitions are under `harnessadapter/evolvers/`.
 
-## Example: a minimal custom Evolver
+`CommandEvolver` supplies `HA_CONTEXT`, a path to JSON describing the workspace, access, progress, session, and
+parameters, plus `HA_TOOL_URL` for the tool endpoint. A program may write `output/step_result.json` using the
+`StepResult` fields. Without that file, the process exit code determines success or failure.
+Return a failure status when the program cannot produce a usable result.
 
-```python
-class OneShotRewriter(Evolver):
-    """Rewrites ADAPTER.md once per step from the failures of the current step."""
+The same protocol can wrap an external service. Declare required data access, preserve the adapter's specification,
+and report known usage; the wrapper still owns translating the service's result into the working directory.
 
-    def step(self, ctx: StepContext) -> StepResult:
-        material = ctx.workspace.learning_material / "current"
-        failures = [t for t in load_tasks(material) if t["score"] < 1]
-        if not failures:
-            return StepResult(status="done", summary="no failures; adapter unchanged")
-        text, usage = rewrite_with_model(ctx.workspace.adapter / "ADAPTER.md", failures, ctx.params)
-        (ctx.workspace.adapter / "ADAPTER.md").write_text(text)
-        report = ctx.tools["check_spec"](path=str(ctx.workspace.adapter))
-        if not report["passed"]:
-            restore(ctx.workspace.adapter / "ADAPTER.md", ctx.workspace.history)
-            return StepResult(status="done", summary="rewrite failed check_spec; reverted", usage=[usage])
-        return StepResult(status="done", summary=f"rewrote ADAPTER.md from {len(failures)} failures",
-                          usage=[usage])
+## Execution and cancellation
+
+Custom classes run in the Trainer process. Their Python code is trusted; the sandbox object wraps programs launched
+through it, not the class itself. Framework tools are callable in-process and can also be exposed to programs through
+HTTP or MCP.
+
+During a step, long-running custom code should check `ctx.cancel` when present. A budget or timeout stops work at
+the next boundary the framework controls; it cannot forcibly interrupt arbitrary Python code. See
+[budgets](trainer.md#budgets) for accounting and cancellation limits.
+
+Report calls made outside metered framework tools through `StepResult.usage`. Leave cost null when unknown.
+Calls through the run's metered model tool must not be counted a second time.
+
+## Python types
+
+These excerpts come directly from the implementation. The [Evolver page](evolver.md#interface) explains their
+semantics and intended access boundaries.
+
+### Lifecycle
+
+```{literalinclude} ../../harnessadapter/evolver/base.py
+:language: python
+:pyobject: Evolver
 ```
 
-## Black-box Evolvers
+### Workspace and context
 
-An Evolver may be a complete black box (a third-party service or a closed binary) wrapped by a thin subclass that
-translates the call to and from it. The Trainer's guarantees do not depend on what is inside: test data is never
-given to it, the binding check runs after every call, and wall time and reported usage are recorded. What a black box
-cannot offer is stated, not assumed: its usage may be unknown (then only wall time and any price the provider reports
-are recorded), and it may not support resume. If it sends learning material to an outside service, it must declare
-`send_material_out` in `needs`, and the user must set `evolver_access.send_material_out: true`.
+```{literalinclude} ../../harnessadapter/evolver/base.py
+:language: python
+:pyobject: Workspace
+```
 
-## Trust
+```{literalinclude} ../../harnessadapter/evolver/base.py
+:language: python
+:pyobject: Access
+```
 
-A custom class runs inside the Trainer process, so its code is trusted. The agents and commands it starts run in the
-sandbox when the sandbox is enabled. Running untrusted third-party Evolver code would require running the class
-itself in a sandboxed subprocess.
+```{literalinclude} ../../harnessadapter/evolver/base.py
+:language: python
+:pyobject: Context
+```
 
-## Implementation notes
+```{literalinclude} ../../harnessadapter/evolver/base.py
+:language: python
+:pyobject: Progress
+```
 
-- `harnessadapter.evolver.base` holds the classes above; `AgentEvolver` and `CommandEvolver` are in
-  `harnessadapter.evolver.agent`.
-- `AgentEvolver` params: `backend` (codex | claude), `model`, `prompt`, `resume_prompt`, `args` (extra command-line
-  arguments) and `home` (login files copied from the user's agent home into the run's agent home; removed again by
-  `finalize`). Prompts may use `{message} {epoch} {step} {adapter} {learning_material} {task_info} {history} {state}
-  {scratch} {output}`.
-- `CommandEvolver` params: `command`, `env`. The program receives `HA_CONTEXT` (a JSON file) and `HA_TOOL_URL`, and
-  may write `output/step_result.json`.
-- An Evolver class named in `evolver.yaml` as `file.py:Class` is loaded from the Evolver's directory; `module:Class`
-  is imported. The Evolver's directory stays readable inside the sandbox.
-- A hard budget or a per-call timeout stops an Evolver at the next point the Trainer controls: its framework tools
-  refuse further calls, programs it started are killed, and the Trainer waits for the call to return. Work between two
-  such points finishes, so spending may slightly exceed the budget (official GEPA does the same: its stop conditions
-  are checked once per iteration). An Evolver that calls models outside the framework should check `ctx.cancel`.
+```{literalinclude} ../../harnessadapter/evolver/base.py
+:language: python
+:pyobject: StepContext
+```
+
+### Results and usage
+
+```{literalinclude} ../../harnessadapter/evolver/base.py
+:language: python
+:pyobject: StepResult
+```
+
+```{literalinclude} ../../harnessadapter/evolver/base.py
+:language: python
+:pyobject: FinalResult
+```
+
+```{literalinclude} ../../harnessadapter/evolver/base.py
+:language: python
+:pyobject: Usage
+```

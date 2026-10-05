@@ -35,6 +35,21 @@ html.dark {
   color: var(--sy-c-link);
 }
 
+/* Local interface diagrams on the component pages. */
+.ha-contract { --ha-contract-link-width: 150px; margin: 1.5rem 0; font-size: 14px; }
+.ha-contract-label { margin: 16px 0 8px; font-weight: 600; }
+.ha-contract-row { display: grid; grid-template-columns: minmax(0, 1fr) var(--ha-contract-link-width) minmax(0, 1fr); align-items: stretch; gap: 12px; margin: 12px 0; }
+.ha-contract-node { display: flex; flex-direction: column; justify-content: center; gap: 8px; box-sizing: border-box; min-width: 0; min-height: 84px; padding: 12px; border: 1px solid #bec8d4; border-radius: 8px; text-align: center; }
+.ha-contract-arrow { align-self: center; text-align: center; color: var(--sy-c-link); line-height: 1.8; }
+.ha-contract-inset { display: grid; align-content: center; box-sizing: border-box; min-height: 48px; padding: 5px 8px; border: 1px solid #bec8d4; border-radius: 4px; font-weight: 400; font-size: 12px; }
+.ha-contract figcaption { font-size: 13px; margin-top: 12px; }
+html.dark .ha-contract-node, html.dark .ha-contract-inset { border-color: #536174; }
+@media (max-width: 480px) {
+  .ha-contract { --ha-contract-link-width: 100px; }
+  .ha-contract-row { gap: 8px; font-size: 12px; }
+  .ha-contract-node { padding: 8px; min-height: 56px; overflow-wrap: anywhere; }
+}
+
 /* The component explorer inherits the documentation theme. */
 .ha-explorer {
   --ha-accent: #a65122;

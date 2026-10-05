@@ -1,0 +1,5 @@
+<figure class="ha-contract" aria-label="The Trainer supplies a task and adapter to the task pipeline, which returns execution output. A scoring function supplies feedback on that result.">
+  <div class="ha-contract-row"><strong class="ha-contract-node">Trainer</strong><span class="ha-contract-arrow">task + adapter →<br>← RunOutput</span><strong class="ha-contract-node">Pipeline<span class="ha-contract-inset">Acting system</span></strong></div>
+  <div class="ha-contract-row"><strong class="ha-contract-node">Trainer</strong><span class="ha-contract-arrow">task + output →<br>← feedback</span><strong class="ha-contract-node">Scoring function</strong></div>
+  <figcaption>The same task interface serves training, candidate experiments, and evaluation.</figcaption>
+</figure>

@@ -1,107 +1,141 @@
 # Task and acting pipeline
 
-The evolving task is everything the task user provides once a template and an Evolver have been chosen.
+A task integration connects the framework to the problems and acting system you want to improve. You supply data,
+a description, a pipeline, and feedback. Read this page to bring your own agent or benchmark.
 
-## Design principle: the user knows only their task
+## Responsibility and boundaries
 
-Design for the worst case: the user knows only that a template and an Evolver exist and were recommended to them, and
-nothing about how either works. They care about their task and the agent they want to improve. So everything here is
-about the task and the acting-agent pipeline, and nothing requires knowledge of a template's or an Evolver's
-internals. Choosing the template and the Evolver is naming them in the run config; their parameters have defaults.
+The pipeline owns the acting model or agents, their execution loop, environment access, and runtime state.
+It decides how to deploy the adapter. The Trainer chooses tasks and collects results; the Evolver consumes those
+results to improve the adapter.
 
-The task does not include anything whose purpose is to help an Evolver produce a better adapter, such as rule checks.
+```{raw} html
+:file: ../_includes/task-contract.html
+```
 
-## Parts
+This boundary allows a single agent, a group of agents, or a custom workflow to use the same training interface.
 
-| Part | What it is | Used by |
-|---|---|---|
-| `task-info/` | The task in words: what the tasks are, the goal, how answers are scored | Evolver |
-| Data | `tasks.jsonl` (one task per line) and the train / validation / test split | Trainer |
-| Judge | The scoring program | Trainer (rollouts, `eval`), acting-agent runner |
-| Pipeline | How the acting agent runs one task, designed by the user | Trainer (rollouts, `eval`), acting-agent runner |
-| Environment (optional) | The task's own resources that the acting agent operates on, if the Evolver may inspect them | Evolver |
-| Run config `run.yaml` | Connects the above with the template and the Evolver (see [Configuration](configuration.md)) | `check`, `train`, `eval` |
+## Interface
 
-## task-info
-
-What goes into `task-info/` is task-specific. The framework ships a basic template with the files it considers
-useful; the user fills it in and may add any other files. The only fixed point is `README.md`, the entry the Evolver
-reads first and that lists the other files.
-
-| File in the basic template | Content | Lean example |
-|---|---|---|
-| `README.md` | Entry: the task in one paragraph, the list of files | — |
-| `task.md` | What a task looks like; the acting agent's input and output | A Lean theorem; a proof without `sorry` |
-| `goal.md` | What to optimise; priorities when there are several aims | Solved > time > cost |
-| `judge.md` | How answers are scored and what the feedback looks like, in words | Correct only if it compiles and the target statement is unchanged |
-| `pipeline.md` (optional) | How the acting agent runs: host, agents, limits | Five agents in parallel, 3-hour cap, a Lean compiler |
-| `rules.md` (optional) | Constraints the user wants stated | No facts about individual problems in the adapter |
-
-Rules are stated in words only. Whether and how to check an adapter against them (a program, an LLM review) is the
-Evolver's business; the Trainer does not enforce task rules. The only binding check is `check_spec`.
-
-## Judge
-
-The judge belongs to the task, and the user defines it:
+The current implementation calls two functions:
 
 ```python
-def score(task: dict, output: RunOutput) -> JudgeResult:   # score, feedback, and anything else worth recording
-    ...
+run(task: dict, adapter: Path | None) -> RunOutput
+score(task: dict, output: RunOutput) -> JudgeResult
 ```
 
-The Trainer passes everything the judge returns into the learning material unchanged; there is no separate setting
-for how much feedback the Evolver sees. The richer the feedback, the more an Evolver can learn from it. Whether the
-feedback reveals the reference answer is the user's decision when writing the judge.
+`run` receives one task and an adapter directory. It must make the required exports available to the acting system
+before running the task. `adapter=None` means a run without adapter exports, used for baseline comparison.
+The pipeline should preserve its ordinary behavior in either case.
 
-## Pipeline
+`score` evaluates the returned output. It can instead return a dictionary containing `score` and `feedback`, or a
+numeric score. Additional dictionary fields are collected under the normalized result's `extra` field.
 
-The user designs the complete acting-agent pipeline: how one task is run (host, model, number of agents and how they
-work together, launcher, time cap, isolation). The framework is **acting-agent agnostic**: it never modifies the
-pipeline, and no template or Evolver is written for a particular one.
+Scoring is part of collecting learning material. Although the general architecture can use other feedback sources,
+the current `train` and `eval` commands require a configured scoring callable.
 
-To the framework the pipeline is a black box with one interface:
+### Execution result
 
-```python
-def run(task: dict, adapter: Path | None) -> RunOutput:
-    """Run one task with the adapter deployed; adapter=None runs the agent with no adapter at all."""
+Only `output` is required when constructing `RunOutput`:
 
-@dataclass
-class RunOutput:
-    output: Any                 # what the judge scores
-    log: Path                   # the host's original log (the trajectory)
-    cost_usd: float | None
-    wall_s: float
-    api_speed: dict | None      # for example tokens per second, request latency
+```{literalinclude} ../../harnessadapter/task.py
+:language: python
+:pyobject: RunOutput
 ```
 
-The adapter enters the pipeline only through its standard exports (context, MCP tools, roles, reactions), which the
-pipeline deploys into its host as the template's `README.md` describes. The pipeline must support the exports it
-uses; `check` does not verify host compatibility. The same `run` serves training rollouts, `eval` and the acting-agent runner. The Evolver learns about
-the pipeline only from `task-info/pipeline.md` and from the trajectories.
+| Field | Meaning for the integration |
+|---|---|
+| `output` | The value the scoring function receives. Choose a JSON-serializable task-specific representation. |
+| `log` | Optional file or directory containing the original execution log. The Trainer copies it into learning material. |
+| `messages` | Optional normalized trajectory for methods that use model messages. |
+| `cost_usd`, `tokens`, `wall_s` | Usage and timing. Unknown cost/tokens should remain null; zero means known zero. |
+| `api_speed`, `extra` | Optional measurements and task-specific metadata. |
 
-## Environment
+Concurrent tasks may run against the same adapter path. Treat that adapter as input and keep execution state and
+logs outside it. Give each execution its own working paths unless sharing is part of the task design. Keep returned
+log paths available until the Trainer has collected them.
 
-"Environment" means only the task's own resources the acting agent operates on: a code base for bug fixing, the
-document collection for document QA, Mathlib for Lean proofs. Listing them under `evolver_access.environment` lets the
-Evolver inspect them, for example to check whether a lemma exists before mentioning it in a skill. How the acting
-agent runs is the pipeline, not the environment.
+### Feedback result
 
-## Data
-
-```text
-tasks.jsonl          one task per line, with an id
-splits/train.txt     task ids, one per line
-splits/val.txt       optional
-splits/test.txt      optional
+```{literalinclude} ../../harnessadapter/task.py
+:language: python
+:pyobject: JudgeResult
 ```
 
-The splits must not overlap (`check` verifies it). A task without a test split can still train; `eval` then has
-nothing to run. The validation split, when given, goes to the Evolver with whatever it contains.
+The scoring function decides what feedback to reveal. Reference answers placed in feedback become visible to the
+learner. The numeric score can be task-specific; the current `eval` report counts a task as solved at least once
+when any repeated score is at least `1.0`.
 
-## Implementation notes
+## What the task owner provides
 
-- `RunOutput` fields: `output`, `log` (file or directory), `cost_usd` (None = unknown), `wall_s`, `api_speed`,
-  `messages` (optional normalised trajectory), `tokens`, `extra`.
-- A judge returns a `JudgeResult(score, feedback, extra)` or a dict with `score` and `feedback` (other keys kept).
-- `pipeline.run` and `judge.path` are `file.py:function` relative to the config's directory, or `module:function`.
-- Example: `examples/officeqa/` (GLM 5.3 Flash tool-calling agent, official strict scorer).
+| Input | Purpose | Used by |
+|---|---|---|
+| `tasks.jsonl` | Task dictionaries with unique IDs. | Pipeline and scoring function. |
+| Split files | One task ID per line for train, optional validation, and test. | Trainer and evaluation. |
+| `task-info/` | Description of the task, objective, feedback, and execution. | Evolver. |
+| Pipeline callable | Adapter integration and acting execution. | Training, evaluation, and candidate experiments. |
+| Scoring callable | Score and feedback for a result. | The same execution paths. |
+| Optional resources | Environment paths or task tools granted to the learner. | Evolver. |
+| Run configuration | Connect these inputs with a template and Evolver. | Framework commands. |
+
+A task dictionary needs a unique `id` (`task_id` is also accepted); its other fields belong to your integration.
+Split IDs must refer to existing tasks. `check` detects overlapping splits. A missing test split permits training,
+but `eval` needs test tasks.
+
+### task-info
+
+Provide a `README.md` as the learner's entry point. Explain what an input means, what a correct result looks like,
+the optimization objective, and how to interpret feedback. Larger tasks can split this into `task.md`, `goal.md`,
+`judge.md`, and `pipeline.md`; these are organizational conventions.
+
+Written task rules inform the learner. They are not automatically enforced by the Trainer's specification check.
+Requirements that must be enforced need an appropriate task judge or template check.
+
+## Interaction with other components
+
+The Trainer calls the pipeline on each training task, passes its result to the scoring function, and writes the
+combined record as [learning material](trainer.md#learning-material). The same functions serve test evaluation and
+candidate runs requested by the Evolver. They should not rely on one particular caller or call order.
+
+The adapter reaches the acting system through its [exports](adapter.md#acting-interface). A context-only integration
+may read text into its prompt. A tool or service adapter needs the corresponding host integration and resources.
+`check` does not prove that a host supports every export.
+
+The task environment and learner access are separate. A pipeline may use resources that the Evolver cannot inspect.
+`evolver_access.environment` grants the learner additional paths; `evolver_access.tools` declares capabilities.
+Neither setting configures the acting pipeline for you.
+
+These choices keep task execution reusable when the template or learning method changes, and keep the pipeline's
+original execution available as the `adapter=None` baseline.
+
+## Minimal example
+
+This complete offline stub loads adapter context and echoes the task input. Its messages demonstrate the exchange;
+it does not call a model. Replace the echo with your acting system when integrating a real task.
+
+```{literalinclude} ../_examples/interface_task/pipeline.py
+:language: python
+```
+
+Its scoring function compares the output with the expected string:
+
+```{literalinclude} ../_examples/interface_task/judge.py
+:language: python
+```
+
+The example config binds these functions as:
+
+```yaml
+pipeline:
+  run: pipeline.py:run
+judge:
+  path: judge.py
+  name: score
+```
+
+Paths are relative to the config file. `pipeline.run` includes the function name; `judge.path` names the file or module
+and `judge.name` names the function (default `score`). The current Trainer does not forward `pipeline.params`.
+Configure any additional acting behavior inside your pipeline.
+
+Run the [offline example](trainer.md#minimal-example) to exercise these interfaces. For a real model and document
+environment, see [OfficeQA](../recipes/officeqa.md).

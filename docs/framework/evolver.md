@@ -1,183 +1,141 @@
 # Evolver
 
-An Evolver is the learning method: given the results of running the current adapter, it changes the adapter. It is
-the harness of a learner agent (its model, prompts, tools, control flow and state) and is task-agnostic. Inside it may
-be any agent (Codex, Claude Code, a ReAct loop, a multi-agent system) or a scripted workflow that calls a model at
-fixed points (as GEPA and SkillOpt do).
+An Evolver implements the learning method. It receives evidence from task executions and returns the adapter to use
+next. Read this page to choose a method or implement one that works with the Trainer.
 
-## Design principle: uniform protocol, free inside
+## Responsibility and boundaries
 
-An Evolver may do anything inside as long as it meets four requirements; everything else (its method, control flow,
-whether and how it validates, its Training State) is its own.
+The Evolver decides how to analyze evidence, propose changes, test candidates, and select an adapter. Its state can
+hold experience, candidate records, or search progress. The Trainer supplies the execution loop, checks the returned
+adapter, and records the run.
 
-| Requirement | Section |
+```{raw} html
+:file: ../_includes/evolver-contract.html
+```
+
+The same interface supports a learner agent, a scripted procedure, or a search algorithm. A method still needs to
+understand the editable content of the selected template.
+
+## Interface
+
+The Trainer creates an Evolver instance and calls three methods:
+
+| Method | When called | Contract |
+|---|---|---|
+| `setup(ctx: Context) -> None` | Before the first step of a fresh run. | Optional initialization, such as creating learner state. Per-step material is not available yet. |
+| `step(ctx: StepContext) -> StepResult` | Once per training batch, after its execution results have been collected. | Read the evidence, leave one adapter in the working directory, and report status and usage. Required. |
+| `finalize(ctx: Context) -> FinalResult` | On normal completion or a controlled stop. | Optional final selection. The default returns the current working adapter. |
+
+`step` hands back the adapter **through the files it leaves in `ctx.workspace.adapter`**.
+Its return value describes the call; it does not contain the adapter files.
+`finalize` may return a different adapter directory for the Trainer to collect.
+
+### Inputs
+
+`ctx.workspace` supplies paths, rather than copies of all the data inside a Python object:
+
+| Path | Contents | Evolver's intended access |
+|---|---|---|
+| `adapter` | Editable copy of the accepted adapter. | Read/write. |
+| `learning_material` | Current and previous training results. | Read-only. |
+| `task_info` | Task description and objectives. | Read-only. |
+| `history` | Earlier adapter versions and diffs. | Read-only. |
+| `state` | Method-specific information kept across calls. | Read/write. |
+| `scratch` | Temporary work, cleared for each step. | Read/write. |
+| `output` | Reports and other call outputs, collected with the step. | Read/write. |
+
+See the [learning material format](trainer.md#learning-material) for its record fields.
+These are the interface's access boundaries; sandbox enforcement applies to programs launched through the sandbox,
+not arbitrary Python code in an in-process Evolver.
+
+The rest of the context supplies:
+
+| Field | Meaning |
 |---|---|
-| Input: what it receives | [Workspace](#workspace), [Information and tools](#information-and-tools) |
-| Output: what it hands back | [What a call hands back](#what-a-call-hands-back), [One adapter per step](#one-adapter-per-step) |
-| Protocol: how it is called | [Invocation](#invocation), the [interface](custom-evolver.md) |
-| Specification of the adapter it changes | [`check_spec`](adapter.md#check_spec) |
+| `params` | Evolver defaults merged with this run's parameters. |
+| `access` | Optional validation data and granted environment paths. |
+| `tools` | Run, task, and template capabilities available to the method. |
+| `message` | Human-readable description of the call and available resources. |
+| `sandbox`, `cancel`, `tool_url` | Program execution helper, cancellation signal, and tool endpoint. |
+| `progress` | On step calls: epoch, step, and whether the epoch ends here. |
+| `session` | Optional previous learner-session handle when session resume is enabled. |
 
-The framework also offers optional helpers (the run's tools, an acting-agent runner) that an Evolver may use or
-ignore.
+The learner interface does not supply test tasks. Whether files remain inaccessible also depends on the run's
+filesystem grants and execution isolation.
 
-Built-in Evolvers are `prompt_only`, `codex`, and `claude`. A custom method can use the same template if it can edit
-the permitted files. GEPA, SkillOpt, and MWM are not included as built-ins in this version.
+### Outputs
 
-## Invocation
-
-The Trainer calls the Evolver the way a trainer calls an optimizer: once per call (`setup`, each `step`, `finalize`).
-For each call it prepares a workspace and a task message, starts the Evolver, and waits for it to return. Between
-calls it measures cost and time and checks the adapter.
-
-The Trainer keeps the Evolver instance for the run. An agent-backed Evolver launches a host process for each call;
-its conversational context may start fresh or resume the previous call's session:
-
-| Setting | Decided by | Where |
+| Output | Where it goes | Consumer |
 |---|---|---|
-| Whether resume is supported | Evolver provider | Class attribute `supports_resume` |
-| Whether this run resumes | Task user, within what the Evolver supports | `evolver.resume` in the run config |
-| Prompt for a fresh session | Evolver provider | Evolver prompt file |
-| Prompt for a resumed session | Evolver provider | Evolver prompt file |
+| Selected adapter | `workspace.adapter` | Trainer checks it; the next acting batch uses the accepted version. |
+| Updated learner state | `workspace.state` | Later Evolver calls and crash recovery. |
+| Status and usage | Returned `StepResult` | Trainer control flow and accounting. |
+| Reports | `workspace.output` | Saved run records. |
 
-When resuming, the Trainer passes the previous call's session handle (for example a Codex session) and the resume
-prompt. Both prompts may contain placeholders the Trainer fills for each call: epoch, step, the learning-material
-directory, the remaining budget. A run config that asks for resume with an Evolver that does not support it is refused
-at start.
+```{literalinclude} ../../harnessadapter/evolver/base.py
+:language: python
+:pyobject: StepResult
+```
 
-## Workspace
+`Usage` reports model calls, token counts, and cost when known. Calls through the run's metered `llm` tool are already
+accounted for; do not report the same usage again in `StepResult`.
 
-Every call sees the same directories, so any Evolver knows where to find what it needs.
+### Status handling
 
-| Directory | Contents | Access |
-|---|---|---|
-| `adapter/` | The Trainer's working copy of the current adapter (the template's `EVOLVER.md` is inside) | read and write |
-| `learning_material/` | One directory per step, `current` pointing at the latest, `index.jsonl`, `README.md` (see [Trainer](trainer.md#learning-material)) | read-only |
-| `task-info/` | The task description (see [Evolving Task](task.md#task-info)) | read-only |
-| `history/` | A read-only view of the adapter's git history: earlier adapters and diffs | read-only |
-| `state/` | Training State: what the Evolver keeps across calls, in its own format | read and write |
-| `scratch/` | Temporary files, not kept | read and write |
-| `output/` | What the call hands back besides the adapter | write |
+| Status | What the Trainer does |
+|---|---|
+| `done` | Check changed files, repair if necessary, record the step, continue. |
+| `failed` | Keep the previous adapter and record the failed step. |
+| `out_of_budget` | Keep the previous adapter, as for `failed`; the run's own budget decides whether training stops. |
+| `stop` | Process the returned adapter, then stop if `trainer.allow_early_stop` is true; otherwise continue. |
 
-Earlier learning material is always readable. Test data is never given to the Evolver.
+An exception or wrong return type from `step` is recorded as a failure. Learner-state snapshots are saved with
+completed step records, including failed steps; keeping the previous adapter does not imply rolling back learner state.
 
-Outside the workspace, the run config may give the Evolver read access to more resources. They are not copied; the
-Evolver reads them where they are.
+## Interaction with the Trainer
 
-| Resource | Contents | Given when |
-|---|---|---|
-| Validation data | The validation split, with whatever the user put in it (answers included or not) | `data.val` is set |
-| Environment | The task's own resources the acting agent operates on: a code base, a document collection, a library such as Mathlib | `evolver_access.environment` lists them |
+The Trainer first runs tasks using the current adapter, writes their results, and prepares a fresh working copy.
+Only then does it call `step`. Scores in the current material therefore describe the adapter **before** this update.
 
-The task message tells the Evolver which resources it has and where they are.
+The Evolver can keep many candidates internally, but it selects one working adapter for the Trainer. An unchanged
+adapter is a valid result. The Trainer owns Git operations; the learner edits files and reads the supplied history.
 
-## Information and tools
-
-The framework gives an Evolver two things, information and tools; what it does with them is its own design.
-
-The information is the workspace, the resources above and the task message of each call.
-
-One tool is always present: **`check_spec`**, the template's conformance check (see
-[Adapter](adapter.md#check_spec)). All other tools are assembled for each run from three sources:
-
-| Source | Tools it contributes | Examples |
-|---|---|---|
-| Template | Tools about this kind of adapter | "Run a learned tool in the sandbox with its test" |
-| Task | Tools about the task's environment, as listed in `evolver_access.tools` | Read-only database queries, code-base search |
-| Run | Tools about this training run | Remaining budget; an optional metered model call (`llm`) |
-
-The framework provides the mechanism, not the list:
-
-1. **Declaration.** Templates and tasks declare tools in the same format as an adapter's tools: name, description,
-   input and output schemas, entry point.
-2. **Delivery.** Before each call the Trainer merges the sources into one toolset: MCP tools for an agent, functions or
-   HTTP endpoints for a program. The task message lists the tools and their sources.
-3. **Accounting.** Every tool call is logged and metered, and runs in the sandbox when one is enabled.
-
-Training rollouts and the binding check after each call are the Trainer's own work, not tools.
-
-### Model usage
-
-The framework does not prescribe how an Evolver reaches its models. A built-in agent may use its own login (for
-example a Codex or Claude Code subscription, where no API key exists); a custom Evolver may use its own API key or the
-optional `llm` tool. When the sandbox restricts the network, `sandbox.allow` lists the model endpoints it may reach.
-In every case the Evolver reports what it used:
+For candidate experiments, the run offers:
 
 ```python
-@dataclass
-class Usage:
-    model: str
-    input_tokens: int
-    cached_input_tokens: int
-    output_tokens: int
-    calls: int
-    cost_usd: float | None = None   # None when no price applies (for example a subscription)
+ctx.tools["run_agent"](task_ids=["task-1"], adapter=str(candidate_directory))
 ```
 
-For built-in agents the Trainer reads usage from the agent's session logs itself; usage through the `llm` tool is
-metered directly. Budgets may therefore be set in tokens as well as in dollars.
+Only training or validation IDs are accepted, and the candidate directory must be inside the run directory.
+Omitting `adapter` tests the current working copy. The response contains per-task status, output, judge results,
+cost, and time; this helper does not return full trajectories. Its usage counts toward the run's Evolver budget.
 
-## Validation
+The Evolver may also call `check_spec` before returning. The Trainer still makes the acceptance decision from the
+returned files. Passing specification checks does not establish better performance.
 
-Validation belongs to the Evolver: whether it validates, on which tasks, how often, and how it uses the results are
-its own decisions. Prompt-only and MWM do not run candidates; GEPA and SkillOpt do.
+## State and session lifetime
 
-An Evolver that runs candidates may bring its own means or use the framework's **acting-agent runner**: it runs an
-adapter through the user's pipeline and judge (the same as `eval`) on training or validation tasks, never test tasks,
-and returns trajectories and scores. Its cost counts toward the Evolver's usage. Validation scores are the Evolver's
-working numbers; the official result of a run is always `eval` on the test split.
+`state/` persists across calls and is snapshotted after completed steps. Its format belongs to the method.
+The framework restores those snapshots when resuming an unfinished run. Python instance attributes alone do not
+survive a process restart.
 
-An Evolver declares the resources it cannot run without in its manifest. `train` compares them with the run config at
-start and stops with an error if any is missing, because without them the Evolver should not run at all.
+A host session handle is separate from this state. Set `supports_resume = True` only when the method can use a
+previous session; the user enables it with `evolver.resume`. Agent-backed methods may start a new host process while
+resuming its conversation. A new run started from an adapter begins with fresh learner state.
 
-```yaml
-# evolver.yaml
-class: my_evolvers.gepa:GepaEvolver
-needs: [validation_data]          # validation_data | environment | send_material_out
-params: {}
+This separation lets a deployed adapter operate independently of the procedure that learned it.
+
+## Minimal example
+
+An Evolver can leave the adapter unchanged while updating its state. This method records observed scores without
+calling a model or performing optimization:
+
+```{literalinclude} ../_examples/record_only/evolver.py
+:language: python
+:pyobject: RecordOnlyEvolver
 ```
 
-## What a call hands back
+The [custom Evolver guide](custom-evolver.md) provides its imports, manifest, and an offline end-to-end command.
 
-A step hands back three things:
-
-1. **The adapter** in `adapter/` (mandatory, see below).
-2. **A `StepResult`**: status, a one-line summary, an optional rationale, the session handle, usage. It is the same for
-   every Evolver. Whether the adapter changed is not reported: the Trainer determines it by a git diff.
-3. **`output/`**: anything else, in any format the Evolver chooses (reports, analyses, candidate comparisons). The
-   Trainer stores it unchanged with the step's records. If `output/report.md` exists, it is referenced in the commit
-   message and in `CARD.md`.
-
-## One adapter per step
-
-Every step must hand back exactly one adapter: the one the next step's training rollout will use. Which one is the
-Evolver's choice: the candidate it just made, the previous adapter unchanged, or another it kept (for example a parent
-that GEPA selects from its pool).
-
-An Evolver whose method produces many candidates handles them itself: it keeps them in `state/` and may use them in
-later steps or hand one back from `finalize`. The Trainer never sees them; the git tree records only the adapters
-actually handed back.
-
-## Responsibilities and limits
-
-| The Evolver decides | Not allowed (enforced by) |
-|---|---|
-| How to change the adapter | Changing the template's fixed parts or breaking declared formats (binding check, repaired by the Trainer) |
-| Whether and how to use its tools, including `check_spec` | Handing back no adapter, or several |
-| Whether to validate, how, and with how much of its budget | Exceeding the hard budgets (the Trainer stops the run) |
-| Which adapter each step and `finalize` hand back | Reading test data, paths or network not given (sandbox, when enabled) |
-| What its Training State holds and in what format | Not reporting usage (if it cannot, it says so) |
-| How it reaches models, and which models | Ending the run early, unless `trainer.allow_early_stop` is set |
-| Whether to check task rules, and how | — |
-
-## Implementation notes
-
-- `Context` has four more fields than the table above: `message` (the task message of the call), `sandbox` (wraps
-  commands the Evolver starts), `cancel` (a `threading.Event` the Trainer sets to stop the call) and `tool_url` (the
-  HTTP endpoint serving the same tools).
-- The acting-agent runner is the run tool `run_agent(task_ids, adapter=None)`: training or validation tasks only, its
-  cost counted as the Evolver's.
-- Built-in agents' usage is read from the agent's event log when the session ends; while a session runs, the hard
-  budget sees its wall time and its metered tool calls only. A call may therefore overrun the budget by what one
-  session spends; `trainer.call_timeout_min` bounds it (decided 2026-10-05).
-- Built-in Evolvers: `prompt_only` (one model call per step through the `llm` tool), `codex` and `claude`
-  (`AgentEvolver` with a start and a resume prompt).
+Built-in selections are `prompt_only`, `codex`, and `claude`. For the exact context and result types, see
+[Python types](custom-evolver.md#python-types). Execution and budget limits are covered in [Trainer](trainer.md#budgets).

@@ -47,6 +47,9 @@ behavior when the pipeline makes the text available to the agent. The file has n
 rendered at deployment, so redeploy after changing them. Generated tool-server configuration can reference the
 original adapter directory, which must remain available.
 
+For the exact source-to-host paths, managed instruction blocks, and the learner's editable working copy, see the
+[Adapter file interface](adapter.md#acting-interface).
+
 In OfficeQA, `examples/officeqa/pipeline.py` loads the adapter's context for each execution and appends it to the
 system prompt. The search/read tools, model choice, and tool-calling loop remain defined in that pipeline. This
 particular integration consumes context only.
@@ -138,7 +141,7 @@ OfficeQA's smoke configuration runs four training questions in two batches. For 
    `learning_material/step_0001/`. Point `learning_material/current` at that directory.
 4. **Trainer → Evolver.** Call `step(ctx)`. The learner reads the material and edits `ctx.workspace.adapter`.
    It returns a `StepResult` describing status and usage. The adapter itself is the directory left on disk.
-5. **Trainer → template checks.** Run `check_spec`. For a specification violation, restore affected files from the
+5. **Trainer → specification check.** Run `check_spec`. For a specification violation, restore affected files from the
    template or previous adapter and check again. Repair can fall back to the previous version. An Evolver result
    marked failed or out of budget keeps the previous adapter.
 6. **Trainer → Git and run records.** Commit changes and save the learner's state, report, usage, and check results.

@@ -18,6 +18,12 @@ bash docs/serve.sh 8000     # live preview at http://127.0.0.1:8000
 Use Get Started for installation and the shortest walkthrough, Framework Components for relationships and contracts,
 Recipes for task-specific setup, Developer Guide for extensions, and Reference for configuration and commands.
 
+Component pages explain responsibility, inputs and outputs, ownership and lifecycle, interactions, and the reason
+for the interface boundaries before presenting implementation details. Each includes a small local interface
+diagram and a minimal example. Python type excerpts use `literalinclude` from the implementation.
+The offline examples under `docs/_examples/` exercise the pipeline, scoring, Evolver state, and Trainer without
+model calls. Run their `check`, `train`, and `eval` commands as documented on the Trainer page after changing them.
+
 The overview embeds `docs/_includes/adapter-use-interactive.html` and `adapter-evolve-interactive.html` through
 MyST's `raw html` directive. Components are native HTML buttons; only the connectors are inline SVG. Interactions
 live in `docs/_static/js/overview-diagrams.js`, with scoped styles in `docs/_static/css/overview-diagrams.css`.

@@ -1,0 +1,6 @@
+<figure class="ha-contract" aria-label="The Trainer calls task execution and scoring, the Evolver, and the specification checker through separate interfaces.">
+  <div class="ha-contract-row"><strong class="ha-contract-node">Trainer</strong><span class="ha-contract-arrow">run / score ↔</span><strong class="ha-contract-node">Task code</strong></div>
+  <div class="ha-contract-row"><strong class="ha-contract-node">Trainer</strong><span class="ha-contract-arrow">step ↔</span><strong class="ha-contract-node">Evolver</strong></div>
+  <div class="ha-contract-row"><strong class="ha-contract-node">Trainer</strong><span class="ha-contract-arrow">check ↔</span><strong class="ha-contract-node">Specification</strong></div>
+  <figcaption>Execution supplies evidence. Learning supplies a candidate. Checks precede acceptance.</figcaption>
+</figure>

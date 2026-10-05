@@ -1,0 +1,3 @@
+{"id":"train-1","prompt":"first input","expected":"first input"}
+{"id":"train-2","prompt":"second input","expected":"second input"}
+{"id":"test-1","prompt":"held-out input","expected":"held-out input"}
