@@ -33,6 +33,33 @@ The returned summary identifies the run, stop reason, final commit/tag, checkpoi
 The deployable output is the accepted adapter directory, also stored in Git. Detailed records remain in the run
 directory; they are not added to the deployed package.
 
+## The training loop
+
+A simple example of the loop, in pseudocode. It leaves out resuming, the sandbox, timeouts, and records; the
+sections below describe them.
+
+```python
+adapter = start_from or template
+evolver.setup()
+
+for epoch in range(epochs):
+    for tasks in batches(shuffle(train), step_size):
+        results  = [judge(t, pipeline(t, adapter)) for t in tasks]   # rollouts
+        material = learning_material(results)
+
+        new = evolver.step(adapter, material)                         # the Evolver edits a copy
+        if check_spec(new).passed:
+            adapter = commit(new)
+        else:
+            adapter = commit(repair(new, from_=adapter))              # broken files restored from the parent
+
+        checkpoint(adapter)                                           # per save_freq
+        if over_budget(): break
+
+adapter = evolver.finalize(adapter)
+tag(adapter, "final")
+```
+
 ## One step
 
 | Handoff | Input | Output |
