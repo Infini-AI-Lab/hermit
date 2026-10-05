@@ -1,7 +1,7 @@
 # Evolving Task
 
 :::{note}
-Design, agreed 2026-10-05; not implemented yet.
+Agreed 2026-10-05; implemented in 0.2.0. Implementation notes at the end of this page.
 :::
 
 The evolving task is everything the task user provides once a template and an Evolver have been chosen.
@@ -101,3 +101,11 @@ splits/test.txt      optional
 
 The splits must not overlap (`check` verifies it). A task without a test split can still train; `eval` then has
 nothing to run. The validation split, when given, goes to the Evolver with whatever it contains.
+
+## Implementation notes
+
+- `RunOutput` fields: `output`, `log` (file or directory), `cost_usd` (None = unknown), `wall_s`, `api_speed`,
+  `messages` (optional normalised trajectory), `tokens`, `extra`.
+- A judge returns a `JudgeResult(score, feedback, extra)` or a dict with `score` and `feedback` (other keys kept).
+- `pipeline.run` and `judge.path` are `file.py:function` relative to the config's directory, or `module:function`.
+- Example: `examples/officeqa/` (GLM 5.3 Flash tool-calling agent, official strict scorer).

@@ -1,7 +1,7 @@
 # Adapter Template and Adapter
 
 :::{note}
-Design, agreed 2026-10-05; not implemented yet.
+Agreed 2026-10-05; implemented in 0.2.0. Implementation notes at the end of this page.
 :::
 
 An **adapter template** and an **adapter** are different things. The template is a structure and its specification;
@@ -159,3 +159,18 @@ on its own.
 | `harnessadapter check` | Before training, on the starting adapter | The template itself must conform |
 | Evolver | Any time during a call (optional) | Feedback, so it can fix problems itself |
 | Trainer | After every call (binding) | Nothing that fails flows into the next step |
+
+## Implementation notes
+
+- `adapter.yaml` sections: `template`, `exports`, `structure`, `check`, `evolver_tools` (tools the template offers
+  to Evolvers, declared like adapter tools; their functions may take `_adapter` and `_root`), and `origin` (written
+  by the Trainer on every committed adapter).
+- `exports` keys: `context`, `agents`, `tools`, `reactions`, `concurrent_tool_calls`, `skills` (a directory of skill
+  folders, each with `SKILL.md`).
+- Format keys of a learnable path: `text` (UTF-8), `max_bytes` (per file), `max_files` (per pattern), `frontmatter`
+  (required YAML frontmatter keys). Patterns are globs; `**` crosses directories; a directory pattern covers its files.
+- `CARD.md` and `adapter.yaml` are framework files: neither learnable nor fixed; check 3 compares the manifest's fixed
+  sections, so `origin` may differ from the root's.
+- A template check function returns a list of `{path, problem}` or `{passed, issues}`; it runs in a subprocess,
+  without network when bubblewrap is available, with a 120-second limit.
+- Command line: `python -m harnessadapter.spec ADAPTER --root TEMPLATE`.

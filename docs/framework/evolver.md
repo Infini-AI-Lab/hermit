@@ -1,7 +1,7 @@
 # Evolver
 
 :::{note}
-Design, agreed 2026-10-05; not implemented yet.
+Agreed 2026-10-05; implemented in 0.2.0. Implementation notes at the end of this page.
 :::
 
 An Evolver is the learning method: given the results of running the current adapter, it changes the adapter. It is
@@ -172,3 +172,16 @@ actually handed back.
 | What its Training State holds and in what format | Not reporting usage (if it cannot, it says so) |
 | How it reaches models, and which models | Ending the run early, unless `trainer.allow_early_stop` is set |
 | Whether to check task rules, and how | — |
+
+## Implementation notes
+
+- `Context` has four more fields than the table above: `message` (the task message of the call), `sandbox` (wraps
+  commands the Evolver starts), `cancel` (a `threading.Event` the Trainer sets to stop the call) and `tool_url` (the
+  HTTP endpoint serving the same tools).
+- The acting-agent runner is the run tool `run_agent(task_ids, adapter=None)`: training or validation tasks only, its
+  cost counted as the Evolver's.
+- Built-in agents' usage is read from the agent's event log when the session ends; while a session runs, the hard
+  budget sees its wall time and its metered tool calls only. A call may therefore overrun the budget by what one
+  session spends; `trainer.call_timeout_min` bounds it (decided 2026-10-05).
+- Built-in Evolvers: `prompt_only` (one model call per step through the `llm` tool), `codex` and `claude`
+  (`AgentEvolver` with a start and a resume prompt).

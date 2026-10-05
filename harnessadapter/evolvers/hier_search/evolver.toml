@@ -1,8 +1,0 @@
-prompt = "PROMPT.md"
-
-[execution]
-backend = "codex"
-network = false
-
-[execution.read_access]
-paths = []

@@ -1,4 +1,4 @@
-"""Load the current Python-callable adapter contract without MCP dependencies.
+"""Load an adapter's exports (adapter.yaml) and its Python tools, without MCP dependencies.
 
 An adapter is trusted executable code. Path and schema validation here are not
 an OS sandbox. Evolution workspace isolation is enforced separately by the framework.
@@ -24,26 +24,18 @@ def inside(root: Path, relative: str) -> Path:
 
 
 def load_manifest(root: Path) -> dict:
+    """The adapter's exports with its identity (id, name, version), validated; read from adapter.yaml."""
+    from harnessadapter.adapter.manifest import flatten, read_manifest
     root = root.resolve()
-    manifest = json.loads(inside(root, "adapter.json").read_text())
-    if manifest.get("contract") != "harnessadapter.python.v1":
-        raise ValueError("Expected contract: harnessadapter.python.v1")
-    for field in ("name", "version"):
-        if not isinstance(manifest.get(field), str) or not manifest[field].strip():
-            raise ValueError(f"A nonempty {field} is required")
-    identity = manifest.get("id", manifest["name"].replace("_", "-"))
-    if not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", identity):
-        raise ValueError("Adapter id must be a lowercase slug")
-    if manifest.get('evolver_readme'):
-        inside(root, manifest['evolver_readme'])
-    context = manifest["context"]
+    manifest = flatten(read_manifest(root))
+    context = manifest.get("context")
     if isinstance(context, str):
         inside(root, context)
     elif isinstance(context, dict) and isinstance(context.get("entrypoint"), str):
         filename, separator, function = context["entrypoint"].partition(":")
         if not separator or not function.isidentifier() or inside(root, filename).suffix != ".py":
             raise ValueError("Invalid context renderer entrypoint")
-    else:
+    elif context is not None:
         raise ValueError("context must be a Markdown path or a Python renderer declaration")
     if manifest.get("agents"):
         agents = manifest["agents"]
@@ -56,6 +48,10 @@ def load_manifest(root: Path) -> dict:
             inside(root, filename)
         else:
             raise ValueError("agents must be a JSON path or a Python exporter")
+    if manifest.get("skills") is not None:
+        skills = (root / manifest["skills"]).resolve()
+        if not skills.is_relative_to(root):
+            raise ValueError("skills must be a directory inside the adapter")
     tools = manifest.get("tools", [])
     if not isinstance(tools, list):
         raise ValueError("tools must be a list")
@@ -88,13 +84,6 @@ class Adapter:
         self.tools = {t["name"]: t for t in self.manifest.get("tools", [])}
         self.functions = {}
         self.resources = dict(resources or {})
-        material = self.resources.get('learning_material')
-        legacy = self.resources.get('evidence')
-        if material is not None and legacy is not None and material is not legacy:
-            raise ValueError('Conflicting learning_material and legacy evidence resources')
-        material = material if material is not None else legacy
-        if material is not None:
-            self.resources['learning_material'] = self.resources['evidence'] = material
         from harnessadapter.runtime.python_sandbox import PythonSandbox
         self.resources.setdefault("python_sandbox", PythonSandbox(self.root))
         self.namespace = "_adapter_" + uuid.uuid4().hex
@@ -152,7 +141,9 @@ class Adapter:
             return fn(**kwargs)
 
     def context(self):
-        declaration = self.manifest["context"]
+        declaration = self.manifest.get("context")
+        if declaration is None:
+            return ""
         if isinstance(declaration, str):
             return inside(self.root, declaration).read_text()
         result = self._export(declaration)

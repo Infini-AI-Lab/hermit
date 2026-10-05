@@ -1,8 +1,8 @@
 # Evolution Framework Overview
 
 :::{note}
-This section describes the design of the evolution framework, agreed on 2026-10-05. It is not implemented yet; the
-[prototype differences](prototype-differences.md) page lists what changes relative to the current code.
+This section describes the evolution framework, agreed on 2026-10-05 and implemented in 0.2.0. The
+[prototype differences](prototype-differences.md) page lists what changed relative to the 0.1 prototype.
 :::
 
 The evolution framework trains **harness adapters** the way a training framework trains model weights. An adapter is
@@ -105,6 +105,10 @@ on the test split with `eval`.
 
 - **Acting-agent agnostic.** The user designs the acting-agent pipeline; the framework never modifies it, and no
   template or Evolver is written for a particular one.
+- **Adapters work with any agent.** Like a Claude Code plugin, an adapter is a package of exports (context, tools,
+  roles, skills) that any acting agent can install: Codex and Claude Code through `harnessadapter deploy`, a custom
+  agent loop through its own deployment (for example tools as function calls). Moving an adapter to another agent or
+  model may cost some effectiveness (a transfer tax); `CARD.md` states where it was trained and evaluated.
 - **Task-agnostic Evolvers.** An Evolver contains no task content. Everything task-specific reaches it through
   `task-info/`, the learning material and the tools of a run, so one Evolver applies to any task.
 - **Uniform protocol, free inside.** An Evolver may do anything inside as long as it meets the input, output and

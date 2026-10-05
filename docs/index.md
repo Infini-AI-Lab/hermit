@@ -1,50 +1,20 @@
 # MetaHarnessAdapter
 
-A continual learning framework for the deployment and evolution of **harness adapters**: small, portable harnesses that attach to an existing agent such as Codex or Claude Code from the outside, and that an Evolver improves from recorded LearningMaterial.
+A framework for training **harness adapters**: portable harnesses (context, tools, roles, skills) that attach to an
+existing agent such as Codex or Claude Code from the outside. An adapter is trained the way a model is: a template is
+the starting point, an Evolver is the learning algorithm, the Trainer runs the loop, and the user supplies the task,
+the data, a judge and the acting-agent pipeline.
 
 ```text
-Adapter or Architecture + LearningMaterial
-     + Config + Training State (optional)
-                     │
-                  Evolver
-                     │
-         ┌───────────┴────────────┐
- Candidate Adapter       Training State (optional)
-         │                        │
-  review → deploy          next iteration
+run.yaml ──► Trainer ──► rollouts (your pipeline + judge) ──► learning material ──► Evolver ──► adapter ──► git tree
 ```
 
-New here? Read the [overview](guide/index.md), then follow the [quickstart](guide/quickstart.md).
+New here? Read the [overview](framework/overview.md), then the [commands](framework/commands.md) and the
+[OfficeQA example](https://github.com/haizhongzheng/MetaHarnessAdapter/tree/main/examples/officeqa).
 
 ```{toctree}
 :maxdepth: 1
-:caption: Get Started
-
-guide/index
-guide/quickstart
-```
-
-```{toctree}
-:maxdepth: 1
-:caption: Concepts
-
-guide/components
-guide/architectures
-guide/animation-workshop
-```
-
-```{toctree}
-:maxdepth: 1
-:caption: User Guide
-
-guide/deployment
-guide/evolution
-guide/configuration
-```
-
-```{toctree}
-:maxdepth: 1
-:caption: Evolution Framework (design)
+:caption: Evolution Framework
 
 framework/overview
 framework/adapter
@@ -59,25 +29,20 @@ framework/prototype-differences
 
 ```{toctree}
 :maxdepth: 1
-:caption: Design
+:caption: Design records
 
+framework-implementation-audit-2026-10-05
+evolution-framework-design-2026-10-05
+async-collab-adapter-design-2026-09-27
 adapter-contract-v0
 core-and-evolution
 execution-policy
 mwm-fidelity-correction
-async-collab-adapter-design-2026-09-27
-```
-
-```{toctree}
-:maxdepth: 1
-:caption: Project
-
-guide/status
 ```
 
 ```{toctree}
 :hidden:
-:caption: Design notes
+:caption: Older design notes
 
 design-discussion-2026-09-18
 subagent-fields-2026-09-18

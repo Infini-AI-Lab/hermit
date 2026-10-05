@@ -1,0 +1,10 @@
+description: A scripted prompt optimizer. One model call per step rewrites the adapter's learnable Markdown files from
+  the step's failures and the judge's feedback. Uses the run's `llm` tool (configure `llm` in run.yaml).
+class: evolver.py:PromptOnlyEvolver
+needs: []
+params:
+  files: [ADAPTER.md]        # learnable Markdown files to rewrite
+  max_examples: 8            # tasks shown to the model per step (failures first)
+  max_chars: 3000            # per field of an example (input, output, feedback)
+  max_tokens: 32000            # reasoning models spend much of it thinking
+  temperature: 0.3

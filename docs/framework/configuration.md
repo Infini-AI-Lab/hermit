@@ -1,7 +1,7 @@
 # Configuration
 
 :::{note}
-Design, agreed 2026-10-05; not implemented yet.
+Agreed 2026-10-05; implemented in 0.2.0. Implementation notes at the end of this page.
 :::
 
 One YAML file, `run.yaml`, describes one training run. It is the counterpart of verl's training config and is used by
@@ -53,10 +53,12 @@ evolver_access:                # the user's resources handed to the Evolver; lis
   tools: [db_query]            # tools declared by the task
   send_material_out: false     # must be true for an Evolver that sends material to an outside service
 
-sandbox:
+sandbox:                       # every sandbox setting is the task user's
   enabled: true                # false: the Evolver runs unconfined
   network: restricted          # restricted | open | none
   allow: [https://api.fireworks.ai]   # reachable endpoints when restricted
+  read: []                     # more paths the Evolver may read (an allowlist: nothing else is visible)
+  env: [FIREWORKS_API_KEY]     # environment variables passed on (unset: all)
 
 trainer:                       # verl: trainer
   run_name: lean-gepa-01
@@ -105,3 +107,16 @@ Unaffected by any setting: the binding `check_spec`, budgets, and the run record
 `train` does not run the settings checks of `check`. It does one check, because it decides whether the Evolver can run
 at all: every entry in the Evolver's `needs` must be given by the run config, and `evolver.resume: true` requires an
 Evolver that supports resume. Otherwise `train` stops with an error naming what is missing.
+
+## Implementation notes
+
+- Extra keys: `llm` ({base_url, model, api_key_env, price: {input, cached_input, output} per million tokens}; enables
+  the `llm` tool), `sandbox.read`, `sandbox.env`, `trainer.tree_dir`.
+- Paths are relative to the config's directory; `${VAR}` is expanded.
+- The sandbox is an allowlist, and every sandbox setting is the task user's. Inside it the Evolver's programs see
+  only the system, the Python installation and the framework, their own installation, the workspace (read-write),
+  their granted accesses and Evolver directory, and the paths in `sandbox.read`. The task, the answers, the run
+  records and the home directory do not exist inside. `sandbox.env` lists the environment variables passed on
+  (besides `PATH`, `HOME`, the locale and the framework's own); unset, all pass and a warning says so.
+- `restricted` network is enforced through an allowlist proxy and proxy variables: a program that ignores those
+  variables is not stopped (a warning says so).

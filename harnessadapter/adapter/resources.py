@@ -1,4 +1,4 @@
-"""Read-only LearningMaterial bindings outside the evolvable core."""
+"""Read-only LearningMaterial binding: an adapter tool may read the material a deployment passes it."""
 from pathlib import Path
 
 
@@ -24,15 +24,3 @@ class LearningMaterial:
         end = min(offset + limit, len(text))
         return {"source": address, "text": text[offset:end], "total_chars": len(text),
                 "next_offset": end if end < len(text) else None}
-
-
-# Compatibility for existing adapters and clients.
-EvidenceStore = LearningMaterial
-
-
-def resolve_learning_material(learning_material=None, evidence=None):
-    """Resolve the public name or the legacy alias without silently overriding input."""
-    if learning_material is not None and evidence is not None:
-        raise ValueError('Specify learning_material or legacy evidence, not both')
-    value = learning_material if learning_material is not None else evidence
-    return Path(value) if value is not None else None

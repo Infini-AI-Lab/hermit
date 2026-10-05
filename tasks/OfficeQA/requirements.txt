@@ -1,3 +1,0 @@
-# Install the repository itself first: python -m pip install -e .
-# Only the explicit download command needs this optional dependency.
-huggingface_hub>=0.34,<2

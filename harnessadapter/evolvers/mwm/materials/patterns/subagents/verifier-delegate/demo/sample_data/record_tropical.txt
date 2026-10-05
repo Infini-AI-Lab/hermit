@@ -1,4 +1,0 @@
-seedling record — glasshouse 1
-tray: TR-77   grower: KESTREL GROWERS
-climate_class: tropical
-trays: 36   condition: good

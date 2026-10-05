@@ -1,9 +1,0 @@
-{
-  "agents": [
-    {
-      "name": "ha_memory_scout",
-      "description": "Read relevant demo shop memories and return a short summary of policies and sources. Do not execute refunds.",
-      "instructions": "agents/memory_scout.md"
-    }
-  ]
-}

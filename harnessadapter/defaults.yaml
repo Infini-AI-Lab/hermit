@@ -1,0 +1,45 @@
+# Framework defaults. A run.yaml and command-line overrides (key.sub=value) change only what they name.
+data:
+  tasks: null
+  train: null
+  val: null
+  test: null
+  step_size: 8
+  shuffle_seed: 0
+task_info: null
+pipeline:
+  run: null
+  concurrency: 4
+  params: {}
+judge:
+  path: null
+  name: score
+template: null
+start_from: null
+evolver:
+  name: null
+  resume: false
+  params: {}
+evolver_access:
+  environment: []
+  tools: []
+  send_material_out: false
+sandbox:
+  enabled: true
+  network: restricted
+  allow: []
+  read: []                     # more paths the Evolver may read (an allowlist; nothing else is visible)
+  env: null                    # environment variables passed to what the Evolver starts; null = all of them
+llm: null                      # optional: {base_url, model, api_key_env, price: {input, cached_input, output}}
+trainer:
+  run_name: null
+  output_dir: runs
+  tree_dir: null               # default: <output_dir>/trees/<template id>
+  epochs: 1
+  allow_early_stop: false
+  resume_mode: auto
+  save_freq: {steps: null, epochs: 1}
+  budget: {usd: null, tokens: null, hours: null}
+  call_timeout_min: 60
+eval:
+  repeats: 1

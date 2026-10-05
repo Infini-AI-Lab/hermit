@@ -12,14 +12,12 @@ from mcp.server.stdio import stdio_server
 from mcp.types import CallToolResult, ListToolsResult, TextContent, Tool, ToolAnnotations
 
 from harnessadapter.adapter.loader import Adapter
-from harnessadapter.adapter.resources import LearningMaterial, resolve_learning_material
+from harnessadapter.adapter.resources import LearningMaterial
 
 
-async def serve(root: Path, audit_log: Path | None, evidence: Path | None = None, *, learning_material: Path | None = None,
+async def serve(root: Path, audit_log: Path | None, learning_material: Path | None = None, *,
                 deployment: Path | None = None, python_sandbox: bool = False):
-    evidence = resolve_learning_material(learning_material, evidence)
-    store = LearningMaterial(evidence) if evidence is not None else None
-    resources = {"learning_material": store, "evidence": store} if store is not None else {}
+    resources = {"learning_material": LearningMaterial(learning_material)} if learning_material is not None else {}
     if deployment is not None:
         # The deployment's host texts (a host.json), the same resource the
         # in-process hosts bind.
@@ -70,10 +68,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--adapter", type=Path, required=True)
     parser.add_argument("--audit-log", type=Path)
-    material = parser.add_mutually_exclusive_group(required=False)
-    material.add_argument("--learning-material", dest="evidence", type=Path, help="Read-only LearningMaterial directory with README.md")
-    material.add_argument("--evidence", dest="evidence", type=Path, help="Compatibility alias for --learning-material")
+    parser.add_argument("--learning-material", type=Path, help="Read-only LearningMaterial directory bound to the tools")
     parser.add_argument("--deployment", type=Path, help="A host.json of deployment texts, bound as the `deployment` resource")
     parser.add_argument("--python-sandbox", action="store_true", help="Bind the bubblewrap Python sandbox so admitted learned tools can run")
     args = parser.parse_args()
-    asyncio.run(serve(args.adapter, args.audit_log, args.evidence, deployment=args.deployment, python_sandbox=args.python_sandbox))
+    asyncio.run(serve(args.adapter, args.audit_log, args.learning_material, deployment=args.deployment, python_sandbox=args.python_sandbox))

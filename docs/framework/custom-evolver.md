@@ -1,7 +1,7 @@
 # Custom Evolver Integration
 
 :::{note}
-Design, agreed 2026-10-05; not implemented yet.
+Agreed 2026-10-05; implemented in 0.2.0. Implementation notes at the end of this page.
 :::
 
 The Evolver is a swappable component. The framework ships two ready implementations; anything else is a subclass of
@@ -175,3 +175,20 @@ are recorded), and it may not support resume. If it sends learning material to a
 A custom class runs inside the Trainer process, so its code is trusted. The agents and commands it starts run in the
 sandbox when the sandbox is enabled. Running untrusted third-party Evolver code would require running the class
 itself in a sandboxed subprocess.
+
+## Implementation notes
+
+- `harnessadapter.evolver.base` holds the classes above; `AgentEvolver` and `CommandEvolver` are in
+  `harnessadapter.evolver.agent`.
+- `AgentEvolver` params: `backend` (codex | claude), `model`, `prompt`, `resume_prompt`, `args` (extra command-line
+  arguments) and `home` (login files copied from the user's agent home into the run's agent home; removed again by
+  `finalize`). Prompts may use `{message} {epoch} {step} {adapter} {learning_material} {task_info} {history} {state}
+  {scratch} {output}`.
+- `CommandEvolver` params: `command`, `env`. The program receives `HA_CONTEXT` (a JSON file) and `HA_TOOL_URL`, and
+  may write `output/step_result.json`.
+- An Evolver class named in `evolver.yaml` as `file.py:Class` is loaded from the Evolver's directory; `module:Class`
+  is imported. The Evolver's directory stays readable inside the sandbox.
+- A hard budget or a per-call timeout stops an Evolver at the next point the Trainer controls: its framework tools
+  refuse further calls, programs it started are killed, and the Trainer waits for the call to return. Work between two
+  such points finishes, so spending may slightly exceed the budget (official GEPA does the same: its stop conditions
+  are checked once per iteration). An Evolver that calls models outside the framework should check `ctx.cancel`.

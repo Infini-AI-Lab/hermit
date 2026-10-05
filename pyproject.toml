@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "harnessadapter"
-version = "0.1.0"
-description = "Evolvable Harness Adapters: cores an acting agent consumes as context, MCP tools and native roles, evolved by sandboxed learner sessions"
+version = "0.2.0"
+description = "Train harness adapters: templates, Evolvers, a Trainer and evolving tasks; deploy adapters into Codex and Claude Code"
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
@@ -26,7 +26,7 @@ harnessadapter = "harnessadapter.cli:main"
 include = ["harnessadapter*"]
 
 [tool.setuptools.package-data]
-harnessadapter = ["evolvers/**/*", "architectures/**/*"]
+harnessadapter = ["defaults.yaml", "evolvers/**/*", "templates/**/*"]
 
 [tool.setuptools]
 include-package-data = true

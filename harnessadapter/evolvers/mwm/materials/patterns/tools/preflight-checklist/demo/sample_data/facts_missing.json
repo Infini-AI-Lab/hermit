@@ -1,9 +1,0 @@
-{
-  "action": "transplant",
-  "facts": {
-    "batch": "TB-32",
-    "zone": "south",
-    "bed_prepared": true,
-    "hardening_off_done": false
-  }
-}

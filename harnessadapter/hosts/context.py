@@ -1,11 +1,10 @@
-"""Shared, visibly bounded context insertion for the minimal-shop demo."""
+"""Insert the adapter context into project instructions as one marked, replaceable block."""
 import re
 
-START = "<!-- harnessadapter:minimal-shop:start -->"
-END = "<!-- harnessadapter:minimal-shop:end -->"
+START = "<!-- harnessadapter:"   # every managed block begins with this
 PROJECT_CONTEXT = (
     "# Project instructions\n\n"
-    "This workspace is for the adapter integration demo.\n"
+    "This workspace has a harness adapter deployed.\n"
     "Project-specific instructions belong outside the managed adapter block below.\n"
 )
 
@@ -28,7 +27,7 @@ def nested_headings(markdown: str) -> str:
     return "\n".join(lines)
 
 
-def append_context(existing: str, context: str, *, source="ADAPTER.md", version="demo-v1", adapter_id="minimal-shop") -> str:
+def append_context(existing: str, context: str, *, source="ADAPTER.md", version="", adapter_id="adapter") -> str:
     """Update our marked block; preserve everything outside it exactly."""
     start, end_marker = f"<!-- harnessadapter:{adapter_id}:start -->", f"<!-- harnessadapter:{adapter_id}:end -->"
     block = (

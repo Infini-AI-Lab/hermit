@@ -1,3 +1,2 @@
-"""Harness Adapter: evolvable cores for acting agents, with framework-owned
-loading, MCP exposure, host conversion, and sandboxed evolution sessions."""
-__version__ = "0.1.0"
+"""MetaHarnessAdapter: train harness adapters (template, Evolver, Trainer, evolving task) and deploy them into hosts."""
+__version__ = "0.2.0"

@@ -1,7 +1,7 @@
 # Trainer
 
 :::{note}
-Design, agreed 2026-10-05; not implemented yet.
+Agreed 2026-10-05; implemented in 0.2.0. Implementation notes at the end of this page.
 :::
 
 The Trainer is the framework's outer loop. It handles everything around the Evolver: data, training rollouts,
@@ -114,7 +114,8 @@ Hard budgets are checked whenever the Trainer can observe spending, not only bet
 | During an Evolver call | Wall time; usage through metered tools and the `llm` helper; for built-in agents, the session log as it grows |
 | When a call returns | The `Usage` in `StepResult` (the only source besides wall time for a black box) |
 
-When a hard budget is reached the Trainer stops at once: the step in progress is discarded, the adapter of the last
+When a hard budget is reached the Trainer stops at the next point it controls (a tool call, a started program, the
+end of the call; spending may slightly exceed the budget): the step in progress is discarded, the adapter of the last
 completed step stays current, `finalize` is called, and the records state the reason.
 
 How long a run lasts is the user's decision. An Evolver that believes it has converged hands back the adapter
@@ -157,3 +158,14 @@ trainer:
 
 `resume_mode` continues **the same** run. Starting **a new** run from an existing adapter is `start_from` (see
 [Configuration](configuration.md)): like loading pretrained weights, its Evolver state starts empty.
+
+## Implementation notes
+
+- Run directory, besides the records above: `workspace/` (the Evolver's directories and the agent home), `root/` (the
+  template's files, the reference for `check_spec`), `checkout/` (the run's git worktree), `access/validation/`
+  (validation tasks given to the Evolver), `tools.jsonl` (every tool call).
+- The tree lives in `trainer.tree_dir` (default `<output_dir>/trees/<template id>`).
+- `resume_mode: disable` starts over: the old run directory and branch are renamed with a `.replaced-<time>` suffix.
+  A finished run is never resumed; choose another `run_name`.
+- Each step record holds the Evolver's reported usage and, separately, the usage of metered tool calls
+  (`metered_tool_usage`).

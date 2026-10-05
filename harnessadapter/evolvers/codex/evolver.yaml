@@ -1,0 +1,8 @@
+description: A Codex agent improves the adapter from the step's learning material.
+class: harnessadapter.evolver.agent:AgentEvolver
+needs: []
+params:
+  backend: codex
+  prompt: START.md
+  resume_prompt: RESUME.md
+  args: []

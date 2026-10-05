@@ -1,0 +1,11 @@
+runs/
+.logs/
+tasks.jsonl
+splits/
+data_root.txt
+smoke_*.log
+try_*.log
+agent_smoke.log
+*.done
+run_try.sh
+run_agent_smoke.sh

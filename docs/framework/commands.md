@@ -1,7 +1,7 @@
 # Commands
 
 :::{note}
-Design, agreed 2026-10-05; not implemented yet.
+Agreed 2026-10-05; implemented in 0.2.0. Implementation notes at the end of this page.
 :::
 
 | Command | Purpose |
@@ -65,3 +65,10 @@ harnessadapter eval --config run.yaml --adapter none          # no harness adapt
 `eval` evaluates exactly what it is given and runs no baseline by itself. A baseline is one more `eval`, run when the
 user chooses: `--adapter none` runs the acting agent with no harness adapter at all (the pipeline receives
 `adapter=None`); `--adapter root` runs the template's initial content, which may already deploy tools or context.
+
+## Implementation notes
+
+- `check` also verifies that every `sandbox.read` path exists. It does not check the pipeline's host: adapters are meant to
+  be usable by any acting agent, and each pipeline deploys the exports (context, tools, roles, skills) in its own way.
+- `harnessadapter deploy --adapter DIR --output WORKSPACE --host codex|claude-code` deploys an adapter's exports into
+  a host workspace (context block, MCP tools, native roles, skills).

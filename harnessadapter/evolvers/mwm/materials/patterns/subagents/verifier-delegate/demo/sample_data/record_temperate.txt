@@ -1,4 +1,0 @@
-seedling record — glasshouse 2
-tray: TR-80   grower: BRAMWELL NURSERIES
-climate_class: temperate
-trays: 60   condition: good

@@ -1,22 +1,22 @@
-"""Common inputs for host-specific delivery; no method-specific transport code."""
+"""Inputs shared by the host deployers: rendered exports, names, stale-role retirement, skills."""
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import uuid
 
+MARKER = ".harnessadapter-deploy.json"
 
-def render_exports(adapter, manifest, python):
+
+def render_exports(adapter, python):
+    """Render the context and the roles in a subprocess with the framework's interpreter."""
     result = subprocess.run([python, "-m", "harnessadapter.adapter.render_context", "--adapter", str(adapter)],
                             capture_output=True, text=True, check=True)
     return json.loads(result.stdout)
 
 
-def render_context(adapter, manifest, python):
-    return render_exports(adapter, manifest, python)["context"]
-
-
 def retire_roles(output, previous, current):
-    """Move stale generated roles out of host discovery; preserve their contents."""
+    """Move stale generated roles out of host discovery; keep their contents."""
     active = {Path(p).resolve() for p in current.values()}
     allowed = [(output / '.codex/agents').resolve(), (output / '.claude/agents').resolve()]
     for value in previous.get('roles', {}).values():
@@ -30,25 +30,35 @@ def retire_roles(output, previous, current):
         path.rename(archive / path.name)
 
 
-def adapter_id(manifest):
-    return manifest.get("id", manifest["name"].replace("_", "-"))
-
-
 def server_name(manifest):
-    return "ha_demo" if adapter_id(manifest) == "minimal-shop" else adapter_id(manifest).replace("-", "_")
+    return manifest["id"].replace("-", "_")
 
 
 def source_label(manifest):
-    return manifest["context"] if isinstance(manifest["context"], str) else manifest["context"]["entrypoint"]
+    context = manifest.get("context")
+    return context if isinstance(context, str) else (context or {}).get("entrypoint", "adapter")
 
 
-def generic_task(output, manifest):
-    if not manifest.get("tools"):
-        (output / "PROMPT.md").write_text(
-            "Read the adapter context included in the project instructions. Briefly report what it provides. "
-            "If it contains no learned instructions yet, say so. No adapter tools or roles are required.\n")
-    elif adapter_id(manifest) != "minimal-shop":
-        (output / "PROMPT.md").write_text(
-            "Use this adapter through its registered MCP tools. For MWM, call wm(name=\"list\"), "
-            "read a relevant memory if one exists, and report its scope, last-confirmed time, and source. "
-            "If memory is empty, report that honestly. Do not edit files or invent environment facts.\n")
+def copy_skills(adapter: Path, manifest: dict, target: Path) -> list[str]:
+    """Copy every skill directory (one containing SKILL.md) of the adapter's `skills` export into target."""
+    if not manifest.get("skills"):
+        return []
+    source = (adapter / manifest["skills"]).resolve()
+    names = []
+    if source.is_dir():
+        for child in sorted(source.iterdir()):
+            if (child / "SKILL.md").is_file():
+                shutil.copytree(child, target / child.name, dirs_exist_ok=True)
+                names.append(child.name)
+    return names
+
+
+def check_workspace(adapter: Path, output: Path, host: str) -> dict:
+    if output == adapter or adapter in output.parents or output in adapter.parents:
+        raise ValueError("The host workspace must be separate from the adapter")
+    if output.exists() and any(output.iterdir()) and not (output / MARKER).is_file():
+        raise ValueError("Refusing to deploy into a nonempty workspace this framework did not create")
+    previous = json.loads((output / MARKER).read_text()) if (output / MARKER).is_file() else {}
+    if previous and previous.get("host") != host:
+        raise ValueError("This workspace was generated for another host")
+    return previous
