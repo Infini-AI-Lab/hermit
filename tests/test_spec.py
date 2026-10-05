@@ -53,3 +53,22 @@ def test_manifest_section_change_is_restored(tmp_path):
     assert not result.passed and any(i.check == 3 for i in result.issues)
     final, _ = repair(adapter, root, root)
     assert final.passed
+
+
+def test_adapter_md_is_required(tmp_path):
+    root = TEMPLATES / "prompt_only"
+    adapter = copy(root, tmp_path / "adapter")
+    (adapter / "ADAPTER.md").unlink()
+    result = check_spec(adapter, root)
+    assert not result.passed and any(i.path == "ADAPTER.md" and i.check == 3 for i in result.issues)
+    final, _ = repair(adapter, root, root)
+    assert final.passed and (adapter / "ADAPTER.md").exists()
+
+
+def test_context_name_is_fixed(tmp_path):
+    import pytest
+    from harnessadapter.adapter.manifest import read_manifest
+    a = tmp_path / "a"; a.mkdir()
+    (a / "adapter.yaml").write_text("template: {id: x, version: '1'}\nexports: {context: OTHER.md}\nstructure: {}\n")
+    with pytest.raises(ValueError, match="always ADAPTER.md"):
+        read_manifest(a)

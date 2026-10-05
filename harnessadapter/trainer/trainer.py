@@ -52,6 +52,9 @@ class StopRun(Exception):
 def warnings_for(config: Config, val_given: bool) -> list[str]:
     """Risky settings: warned, never blocked."""
     d, out = config.data, []
+    if not d["sandbox"]["enabled"]:
+        out.append("sandbox.enabled is false: what the Evolver starts runs unconfined; it can read anything on this "
+                   "machine, including the test split, and reach the network.")
     if d["sandbox"].get("env") is None:
         out.append("sandbox.env is not set: what the Evolver starts inherits every environment variable of the Trainer, "
                    "including keys kept in variables. List the variables it may see in sandbox.env.")
@@ -464,9 +467,11 @@ class Trainer:
         if result.status in ("failed", "out_of_budget"):
             return [], [], {"skipped": f"status {result.status}: the previous adapter stays"}
         adapter = self.ws.adapter
-        _set_origin(adapter, self.template)
         parent_copy = self.tree.export(parent, self.run_dir / "parent_adapter")
         Tree.sync(adapter, self.checkout)
+        if self._dirty():               # the Evolver changed something: the committed adapter names its origin
+            _set_origin(adapter, self.template)
+            Tree.sync(adapter, self.checkout)
         message = (f"{label} [{self.spec.name}]: {result.summary}\n\n"
                    f"run: {self.run_name}\nevolver: {self.spec.name}\nrecords: {self.run_dir}/step_{progress.step:04d}\n")
         if (self.ws.output / "report.md").exists():

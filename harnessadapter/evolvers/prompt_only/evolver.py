@@ -15,6 +15,20 @@ SYSTEM = ("You improve the instructions an AI agent receives before it works on 
           "Never copy facts or answers of individual tasks into the instructions.")
 
 
+def extract(text: str) -> str | None:
+    """The file between <<<FILE and FILE>>>; tolerant of a missing or reworded closing marker (then up to SUMMARY:)."""
+    m = re.search(r"<<<FILE[ \t]*\n?(.*?)\n?[ \t]*(?:FILE>>>|>>>FILE|<<<END>>>|END FILE>>>)", text, re.S)
+    if m and m.group(1).strip():
+        return m.group(1).strip()
+    start = text.find("<<<FILE")
+    if start < 0:
+        return None
+    body = text[start + len("<<<FILE"):]
+    body = re.split(r"\n\s*SUMMARY:", body)[0]
+    body = re.sub(r"\n\s*(?:FILE)?>>>\s*$", "", body.rstrip())
+    return body.strip() or None
+
+
 def _clip(value, n):
     text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, default=str)
     return text if len(text) <= n else text[:n] + " …[truncated]"
@@ -56,8 +70,9 @@ class PromptOnlyEvolver(Evolver):
             reply = ctx.tools["llm"](messages=messages, max_tokens=int(p.get("max_tokens", 32000)),
                                      temperature=float(p.get("temperature", 0.3)))
             text = reply["content"]
-            match = re.search(r"<<<FILE\n?(.*?)\n?FILE>>>", text, re.S)
-            if not match:
+            replies = [text]
+            body = extract(text)
+            if body is None:
                 # A reasoning model may spend its budget thinking (empty content) or be cut off mid-file
                 # (finish_reason "length"): ask once more for the file alone.
                 messages += [{"role": "assistant", "content": text},
@@ -67,11 +82,16 @@ class PromptOnlyEvolver(Evolver):
                 reply = ctx.tools["llm"](messages=messages, max_tokens=int(p.get("max_tokens", 32000)),
                                          temperature=float(p.get("temperature", 0.3)))
                 text = reply["content"]
-                match = re.search(r"<<<FILE\n?(.*?)\n?FILE>>>", text, re.S)
+                replies.append(text)
+                body = extract(text)
+            log = ctx.workspace.output / "llm_replies"
+            log.mkdir(exist_ok=True)
+            for i, t in enumerate(replies):
+                (log / f"{name.replace('/', '_')}.{i}.txt").write_text(t)
             summary = (re.search(r"SUMMARY:\s*(.+)", text) or [None, "no summary"])[1].strip()
-            if not match or not match.group(1).strip():
+            if body is None:
                 continue
-            path.write_text(match.group(1).strip() + "\n")
+            path.write_text(body + "\n")
             changed.append((name, summary))
         check = ctx.tools["check_spec"]()
         if not check["passed"]:     # handed back as is: the Trainer repairs it and says so in the next step

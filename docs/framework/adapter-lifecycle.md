@@ -22,14 +22,14 @@ The simplest adapter uses the built-in `prompt-only@1.0` template:
 
 ```text
 adapter/
-  adapter.yaml    declares context: ADAPTER.md, and which files may change
+  adapter.yaml    declares the exports and which files may change
   ADAPTER.md      instructions given to the acting agent
   EVOLVER.md      explains the editable structure to the learner
   README.md      instructions for people
   CARD.md        provenance and evaluation results, added at the end of training
 ```
 
-Only `ADAPTER.md` is exported as agent context in this template. `EVOLVER.md` guides the learner; `CARD.md` records
+`ADAPTER.md` is every adapter's context for the acting agent (a fixed, required file). `EVOLVER.md` guides the learner; `CARD.md` records
 where the adapter came from. Neither is automatically included in the acting agent's prompt.
 
 For example, `ADAPTER.md` might say “check the unit and scale of each source figure before calculating.” This affects

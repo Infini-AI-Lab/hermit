@@ -3,8 +3,7 @@ template:
   version: "1.0"
   contract: "1"
 exports:
-  context: ADAPTER.md
-  agents: roles.json
+  agents: agents
   skills: skills
   tools:
     - name: count_words
@@ -26,12 +25,11 @@ structure:
   learnable:
     - path: ADAPTER.md
       format: {text: true, max_bytes: 4000}
-    - path: roles/*.md
-      format: {text: true, max_bytes: 4000}
+    - path: agents/*.md
+      format: {text: true, max_bytes: 4000, frontmatter: [name, description]}
     - path: skills/**
       format: {text: true, max_bytes: 4000, max_files: 8}
   fixed:
     - tools.py
-    - roles.json
     - EVOLVER.md
     - README.md

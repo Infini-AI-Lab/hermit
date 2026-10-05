@@ -28,26 +28,20 @@ def load_manifest(root: Path) -> dict:
     from harnessadapter.adapter.manifest import flatten, read_manifest
     root = root.resolve()
     manifest = flatten(read_manifest(root))
-    context = manifest.get("context")
-    if isinstance(context, str):
-        inside(root, context)
-    elif isinstance(context, dict) and isinstance(context.get("entrypoint"), str):
-        filename, separator, function = context["entrypoint"].partition(":")
-        if not separator or not function.isidentifier() or inside(root, filename).suffix != ".py":
-            raise ValueError("Invalid context renderer entrypoint")
-    elif context is not None:
-        raise ValueError("context must be a Markdown path or a Python renderer declaration")
+    inside(root, manifest["context"])     # ADAPTER.md must exist
     if manifest.get("agents"):
         agents = manifest["agents"]
         if isinstance(agents, str):
-            inside(root, agents)
+            directory = (root / agents).resolve()
+            if not directory.is_relative_to(root) or not directory.is_dir():
+                raise ValueError("agents must name a directory of subagent Markdown files inside the adapter")
         elif isinstance(agents, dict) and isinstance(agents.get("entrypoint"), str):
             filename, separator, function = agents["entrypoint"].partition(":")
             if not separator or not function.isidentifier():
                 raise ValueError("Invalid agent exporter entrypoint")
             inside(root, filename)
         else:
-            raise ValueError("agents must be a JSON path or a Python exporter")
+            raise ValueError("agents must be a directory of subagent files or a Python exporter")
     if manifest.get("skills") is not None:
         skills = (root / manifest["skills"]).resolve()
         if not skills.is_relative_to(root):
@@ -141,22 +135,13 @@ class Adapter:
             return fn(**kwargs)
 
     def context(self):
-        declaration = self.manifest.get("context")
-        if declaration is None:
-            return ""
-        if isinstance(declaration, str):
-            return inside(self.root, declaration).read_text()
-        result = self._export(declaration)
-        if not isinstance(result, str):
-            raise ValueError("Context renderer must return Markdown text")
-        return result
+        return inside(self.root, self.manifest["context"]).read_text()
 
     def agent_definitions(self):
         declaration = self.manifest.get("agents")
         if not declaration:
             return []
-        result = (json.loads(inside(self.root, declaration).read_text())["agents"]
-                  if isinstance(declaration, str) else self._export(declaration))
+        result = self._subagent_files(declaration) if isinstance(declaration, str) else self._export(declaration)
         if not isinstance(result, list):
             raise ValueError("Agent exporter must return a list")
         names = set()
@@ -164,8 +149,27 @@ class Adapter:
             if not isinstance(role.get("name"), str) or role["name"] in names or not role.get("description"):
                 raise ValueError("Invalid or duplicate exported role")
             names.add(role["name"])
-            inside(self.root, role["instructions"])
+            if "body" not in role:
+                role["body"] = inside(self.root, role["instructions"]).read_text()
         return result
+
+    def _subagent_files(self, directory: str) -> list:
+        """One Markdown file per subagent: YAML frontmatter with name and description, the body is its instructions
+        (the same format as Claude Code's subagent files)."""
+        import yaml
+        out = []
+        for path in sorted((self.root / directory).glob("*.md")):
+            text = path.read_text()
+            if not text.startswith("---\n") or "\n---" not in text[4:]:
+                raise ValueError(f"{path.relative_to(self.root)}: a subagent file starts with YAML frontmatter")
+            end = text.index("\n---", 4)
+            head = yaml.safe_load(text[4:end]) or {}
+            body = text[end + 4:].lstrip("-").lstrip("\n")
+            if not isinstance(head, dict) or not head.get("name") or not head.get("description"):
+                raise ValueError(f"{path.relative_to(self.root)}: frontmatter needs name and description")
+            out.append({"name": str(head["name"]), "description": str(head["description"]),
+                        "instructions": path.relative_to(self.root).as_posix(), "body": body})
+        return out
 
     async def call(self, name: str, arguments: dict):
         from jsonschema import Draft202012Validator

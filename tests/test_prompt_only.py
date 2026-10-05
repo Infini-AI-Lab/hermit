@@ -35,3 +35,12 @@ def test_retry_when_the_first_reply_has_no_file(tmp_path):
     assert len(calls) == 2 and "did not contain the complete file" in calls[1][-1]["content"]
     assert (ctx.workspace.adapter / "ADAPTER.md").read_text() == "Add carefully.\n"
     assert "added a rule" in result.summary
+
+
+def test_reply_without_closing_marker_is_used(tmp_path):
+    evolver, params = instantiate(find("prompt_only"), {})
+    ctx, calls = context(tmp_path, ["<<<FILE\nCheck units.\n\nSUMMARY: added a units rule"])
+    ctx = StepContext(**{**ctx.__dict__, "params": params})
+    evolver.step(ctx)
+    assert len(calls) == 1 and (ctx.workspace.adapter / "ADAPTER.md").read_text() == "Check units.\n"
+    assert (ctx.workspace.output / "llm_replies" / "ADAPTER.md.0.txt").exists()

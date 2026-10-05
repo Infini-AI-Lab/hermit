@@ -1,9 +1,0 @@
-{
-  "agents": [
-    {
-      "name": "reviewer",
-      "description": "Check a result against the task requirements.",
-      "instructions": "roles/reviewer.md"
-    }
-  ]
-}

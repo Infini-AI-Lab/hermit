@@ -60,7 +60,7 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
         config.extend(f"{key} = {_toml(value)}" for key, value in server.items())
     role_paths = {}
     for role in roles:
-        instructions = inside(adapter, role["instructions"]).read_text()
+        instructions = role.get("body") or inside(adapter, role["instructions"]).read_text()
         role_text = "\n".join(f"{key} = {json.dumps(value, ensure_ascii=False)}" for key, value in {
             "name": role["name"], "description": role["description"], "developer_instructions": instructions}.items()) + "\n"
         tomllib.loads(role_text)

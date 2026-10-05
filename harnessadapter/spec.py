@@ -18,7 +18,7 @@ import tempfile
 
 import yaml
 
-from harnessadapter.adapter.manifest import (FIXED_SECTIONS, FRAMEWORK_FILES, MANIFEST, files_of, read_manifest,
+from harnessadapter.adapter.manifest import (CONTEXT, FIXED_SECTIONS, FRAMEWORK_FILES, MANIFEST, files_of, read_manifest,
                                              structure_of)
 
 DEPLOY_TIMEOUT = 60
@@ -64,6 +64,8 @@ def library_checks(adapter: Path, root: Path, *, deploy: bool = True, python: st
         issues.append(Issue(MANIFEST, 3, f"adapter.yaml does not parse: {exc}"))
     have = set(files_of(adapter))
     root_files = set(files_of(root))
+    if CONTEXT not in have:
+        issues.append(Issue(CONTEXT, 3, f"{CONTEXT} is missing: every adapter has one, its context for the agent"))
     # 1. fixed parts unchanged.
     for rel in sorted(root_files):
         if rel in FRAMEWORK_FILES or not structure.is_fixed(rel):
@@ -209,7 +211,9 @@ def repair(adapter: Path, root: Path, parent: Path, *, python: str | None = None
         targets: dict[str, tuple[str, str]] = {}
         for issue in result.issues:
             rel = issue.path
-            if issue.check == 3 or rel == MANIFEST:
+            if rel == CONTEXT and not (adapter / CONTEXT).exists():
+                targets[rel] = ("parent", issue.problem)
+            elif issue.check == 3 or rel == MANIFEST:
                 targets[MANIFEST] = ("root", issue.problem)
             elif issue.check == 1:
                 targets[rel] = ("root", issue.problem)

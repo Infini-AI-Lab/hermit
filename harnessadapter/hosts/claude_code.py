@@ -24,7 +24,7 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
         native = role["name"].replace("_", "-")
         if not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", native):
             raise ValueError(f"Invalid native role name: {native}")
-        converted.append((role, native, inside(adapter, role["instructions"]).read_text()))
+        converted.append((role, native, role.get("body") or inside(adapter, role["instructions"]).read_text()))
     if len({name for _, name, _ in converted}) != len(converted):
         raise ValueError("Role names collide after native name conversion")
     context = exports["context"]

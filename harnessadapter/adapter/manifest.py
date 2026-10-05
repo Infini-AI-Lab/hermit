@@ -12,6 +12,7 @@ import re
 import yaml
 
 MANIFEST = "adapter.yaml"
+CONTEXT = "ADAPTER.md"     # every adapter's context for the acting agent: a fixed name, always exported
 CARD = "CARD.md"          # written by the Trainer; neither learnable nor fixed
 FRAMEWORK_FILES = (MANIFEST, CARD)
 SECTIONS = ("template", "exports", "structure", "check", "evolver_tools", "origin")
@@ -38,6 +39,8 @@ def read_manifest(root: Path) -> dict:
         raise ValueError("template.version must be a nonempty string")
     if not isinstance(data.get("exports"), dict):
         raise ValueError("adapter.yaml needs an exports section")
+    if data["exports"].get("context", CONTEXT) != CONTEXT:
+        raise ValueError(f"the context is always {CONTEXT}; exports.context may only name it")
     structure_of(data)
     if data.get("check") is not None and not re.fullmatch(r"[\w./-]+\.py:[A-Za-z_]\w*", str(data["check"])):
         raise ValueError("check must be 'file.py:function'")
@@ -48,6 +51,7 @@ def flatten(data: dict) -> dict:
     """The exports plus the identity fields the runtime and the hosts read (id, name, version)."""
     template = data["template"]
     out = dict(data["exports"])
+    out["context"] = CONTEXT
     out["id"] = template["id"]
     out["name"] = template.get("name", template["id"])
     out["version"] = template["version"]

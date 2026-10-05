@@ -46,6 +46,8 @@ class Toy(Evolver):
             (ctx.workspace.adapter / "EVOLVER.md").write_text("changed a fixed file\\n")
             (ctx.workspace.adapter / "stray.txt").write_text("outside every learnable path\\n")
             (ctx.workspace.adapter / "ADAPTER.md").write_text("Always add the numbers.\\n")
+        elif mode == "nothing":
+            pass
         elif mode == "stop":
             return StepResult("stop", "converged")
         (ctx.workspace.state / "seen.txt").write_text(str(ctx.progress.step))
@@ -217,3 +219,16 @@ def test_overrides_reject_unknown_keys(tmp_path):
     with pytest.raises(ValueError, match="Unknown config key"):
         load(path, "trainer.epoch=3")
     assert load(path, "evolver.params.mode=break")["evolver"]["params"]["mode"] == "break"
+
+
+def test_no_change_means_no_commit(tmp_path):
+    path = make_task(tmp_path, evolver={"name": "toy", "params": {"mode": "nothing"}})
+    summary = Trainer(load(path, "trainer.epochs=1"), log=lambda *_: None).train()
+    steps = [json.loads(l) for l in (tmp_path / "runs/toy-run/steps.jsonl").read_text().splitlines()]
+    assert not any(s["changed"] for s in steps)
+
+
+def test_warnings_name_risky_settings(tmp_path):
+    from harnessadapter.trainer.trainer import warnings_for
+    text = " ".join(warnings_for(load(make_task(tmp_path)), val_given=True))
+    assert "sandbox.enabled is false" in text and "sandbox.network is open" in text and "sandbox.env is not set" in text

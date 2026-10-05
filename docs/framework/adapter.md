@@ -16,21 +16,29 @@ The complete example in `docs/_examples/file_adapter/` contains:
 
 ```text
 file_adapter/
-  adapter.yaml                 exports and specification
-  ADAPTER.md                   context for the acting agent
-  roles.json                   role declarations
-  roles/reviewer.md            instructions for one role
+  adapter.yaml                 required: identity, exports and specification
+  ADAPTER.md                   required: context for the acting agent
+  agents/reviewer.md           optional: one file per subagent
   skills/verify-output/
-    SKILL.md                   one skill
-  tools.py                     declared tool implementations
-  EVOLVER.md                   editing guidance for the learner
+    SKILL.md                   optional: one skill
+  tools.py                     optional: tool implementations (the tool list is in adapter.yaml)
+  EVOLVER.md                   template guide for the learner
   README.md                    usage and dependencies
 ```
 
-The names `ADAPTER.md`, `roles.json`, and `tools.py` are conventions in this example. The manifest tells the
-framework where to find them. `EVOLVER.md` is learner guidance; it is not inserted into the acting agent's context.
+Every adapter has `adapter.yaml` and `ADAPTER.md`. `ADAPTER.md` is a fixed name and is always exported as the acting
+agent's context; `exports.context` may be omitted. Everything else is optional and declared in `adapter.yaml`.
+`EVOLVER.md` is learner guidance; it is not inserted into the acting agent's context. `tools.py` is a convention:
+each tool's `entrypoint` names its file and function.
 
-For example, these declarations connect the context, role index, and skill directory to the loader:
+A subagent is one Markdown file, in the same format as Claude Code's subagent files: YAML frontmatter with `name`
+and `description`, and the body as its instructions.
+
+```{literalinclude} ../_examples/file_adapter/agents/reviewer.md
+:language: markdown
+```
+
+These declarations connect the subagent and skill directories to the loader:
 
 ```{literalinclude} ../_examples/file_adapter/adapter.yaml
 :language: yaml
@@ -46,9 +54,9 @@ The connector reads the adapter manifest and renders or copies its exports into 
 
 | Adapter source | Deployment operation | Codex output | Claude Code output |
 |---|---|---|---|
-| `ADAPTER.md`, through `exports.context` | Insert rendered text into a managed instruction block. | `AGENTS.md` | `CLAUDE.md` |
+| `ADAPTER.md` (always exported) | Insert its text into a managed instruction block. | `AGENTS.md` | `CLAUDE.md` |
 | `skills/verify-output/` | Copy the skill directory. | `.codex/skills/verify-output/` | `.claude/skills/verify-output/` |
-| `roles.json`, through `exports.agents`, + `roles/reviewer.md` | Convert the role into native host files. | `.codex/agents/reviewer.toml`, registered in `.codex/config.toml` | `.claude/agents/reviewer.md` |
+| `agents/reviewer.md`, through `exports.agents` | Convert the subagent into native host files: frontmatter gives name and description, the body becomes its instructions. | `.codex/agents/reviewer.toml`, registered in `.codex/config.toml` | `.claude/agents/reviewer.md` |
 | `tools.py`, through `exports.tools` | Configure a framework MCP server that loads the source adapter. | `.codex/config.toml` | `.mcp.json` |
 
 This is how the adapter reaches the acting system. The host reads the generated instruction, skill, and role files;
@@ -112,8 +120,8 @@ That wrapper exposes the declared tool schemas, loads the Python functions, and 
 acting agent. The source adapter and its runtime dependencies must remain available.
 
 Each tool declaration names an `entrypoint` such as `tools.py:count_words` and object input/output JSON Schemas.
-The Python function may be synchronous or asynchronous. Context and role exports can also use Python renderers
-instead of static files; they return Markdown and a role list respectively.
+The Python function may be synchronous or asynchronous. Subagents can also come from a Python exporter that returns
+the list instead of a directory of files; the context is always the `ADAPTER.md` file.
 
 An independent service is another integration option. The framework service can host adapter tools, shared state,
 and reaction logic with its own lifecycle. The pipeline must start it and integrate any control channel with the
@@ -129,7 +137,7 @@ from harnessadapter.adapter.loader import Adapter
 
 adapter = Adapter(Path("docs/_examples/file_adapter"))
 instructions = adapter.context()
-roles = adapter.agent_definitions()
+subagents = adapter.agent_definitions()
 ```
 
 The pipeline places `instructions` in its agent context and integrates any other exports it needs.
@@ -185,9 +193,10 @@ For this template:
 | Proposed edit | Result |
 |---|---|
 | Rewrite `ADAPTER.md`. | Allowed, within its format and size limit. |
-| Edit `roles/reviewer.md`. | Allowed; the next deployment renders the new role instructions. |
+| Edit `agents/reviewer.md`. | Allowed if its frontmatter keeps `name` and `description`; the next deployment uses the new instructions. |
 | Add or edit a skill under `skills/`. | Allowed, within the declared file and size limits. |
-| Edit `tools.py` or the role index `roles.json`. | Rejected: these files are fixed here. |
+| Edit `tools.py`. | Rejected: it is fixed here. |
+| Delete `ADAPTER.md`. | Rejected: every adapter has one; repair restores it. |
 | Add an undeclared file elsewhere in the adapter. | Rejected: it is outside the learnable paths. |
 | Change the tool declarations in `adapter.yaml`. | Rejected: the exports remain fixed against the template. |
 
