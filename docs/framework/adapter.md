@@ -1,9 +1,5 @@
 # Adapter Template and Adapter
 
-:::{note}
-Agreed 2026-10-05; implemented in 0.2.0. Implementation notes at the end of this page.
-:::
-
 An **adapter template** and an **adapter** are different things. The template is a structure and its specification;
 an adapter is a concrete, deployable artifact built on that structure.
 
@@ -45,14 +41,14 @@ through a read-only history view.
 | Checkpoint, final result | A tag prefixed with the run name: `lean-gepa-01/ckpt-epoch-2`, `lean-gepa-01/ckpt-step-15`, `lean-gepa-01/final` |
 
 When an adapter handed back by the Evolver fails the binding check, the Trainer commits it exactly as handed back, then
-commits the smallest repair that makes it conform (see [Trainer](trainer.md#when-the-binding-check-fails)). Both commits
+commits a repair that restores specification conformance (see [Trainer](trainer.md#when-the-binding-check-fails)). Both commits
 stay on the run's branch, so nothing is lost. The unrepaired commit is marked invalid in its message; it is not an
 adapter, is never tagged, and cannot be used as `start_from`. Only valid commits are nodes of the tree.
 
 ## Adapter template
 
-A template is an initial adapter together with a specification. It is written by the template provider and contains
-no task content and no learning method.
+A template is an initial adapter together with a specification. It is written by the template provider and defines the adapter's deployment and editable structure. A template can target a task family, such as Lean
+collaboration; the run supplies its dataset and the Evolver supplies the learning method.
 
 ```text
 my_template/
@@ -79,24 +75,9 @@ The specification is binding: the Trainer repairs any adapter that changes a fix
 A template provider who wants a piece of code to evolve declares it as a learnable part and states its format and the
 checks it must pass.
 
-```yaml
-# adapter.yaml (template sections)
-template:
-  id: lean-collab
-  version: "1.0"
-  contract: "1"
-exports:
-  context: ADAPTER.md
-  tools: collab.py
-structure:
-  learnable:
-    - path: ADAPTER.md
-    - path: skills/*.md
-      format: {max_bytes: 20000}
-  fixed:
-    - collab.py
-    - adapter.yaml
-check: check.py:check
+```{literalinclude} ../../harnessadapter/templates/prompt_only/adapter.yaml
+:language: yaml
+:caption: The built-in prompt-only manifest
 ```
 
 ## Adapter
@@ -149,9 +130,9 @@ judge quality, run tasks, call models or check task rules.
 | 6 | Template-specific requirements a declaration cannot express (for example: every new tool has a passing test) | template provider | template provider |
 
 A template that declares no check function gets the framework default, which runs checks 1–5; a template that makes
-everything learnable and declares no formats is then only checked to load and deploy. The function receives the
-adapter's path, runs without network and with a time limit, and returns `CheckResult(passed, issues)`, each issue
-naming the path, the check and the problem. Because it travels with the template, a downloaded adapter can be checked
+everything learnable and declares no formats is then only checked to load and deploy. The framework returns `CheckResult(passed, issues)`, with each issue naming the path, check, and problem. A custom
+template function receives the adapter path and returns a list of issues or a result dictionary; see the
+implementation notes below for its subprocess and network behavior. Because it travels with the template, a downloaded adapter can be checked
 on its own.
 
 | Caller | When | Purpose |

@@ -1,52 +1,57 @@
 # MetaHarnessAdapter
 
-A framework for training **harness adapters**: portable harnesses (context, tools, roles, skills) that attach to an
-existing agent such as Codex or Claude Code from the outside. An adapter is trained the way a model is: a template is
-the starting point, an Evolver is the learning algorithm, the Trainer runs the loop, and the user supplies the task,
-the data, a judge and the acting-agent pipeline.
+MetaHarnessAdapter helps you improve the instructions, skills, and tools used by an existing AI agent, using
+feedback from tasks it has attempted. These additions are packaged in a directory the agent can load; this package
+is called a **harness adapter**. You provide tasks and a way to score the answers. The framework runs the agent,
+collects feedback, and manages a learning method that revises the package for future use.
 
-```text
-run.yaml ──► Trainer ──► rollouts (your pipeline + judge) ──► learning material ──► Evolver ──► adapter ──► git tree
-```
+These pages describe the 0.2.0 framework.
 
-New here? Read the [overview](framework/overview.md), then the [commands](framework/commands.md) and the
-[OfficeQA example](https://github.com/haizhongzheng/MetaHarnessAdapter/tree/main/examples/officeqa).
+- **Try it:** [Install the package](get-started/installation.md), then [deploy your first adapter](get-started/quickstart.md).
+- **Understand it:** [Overview](framework/overview.md) introduces the project's purpose, main components, and their relationships.
+- **Follow the workflow:** [Using and training adapters](framework/adapter-lifecycle.md) shows the files, deployment, and handoffs in an interactive diagram.
+- **Bring your task:** [Task integration](framework/task.md) explains the pipeline, judge, and data you supply.
+- **Build a learning method:** [Custom Evolver integration](framework/custom-evolver.md) describes the extension interface.
 
 ```{toctree}
 :maxdepth: 1
-:caption: Evolution Framework
+:caption: Get Started
+
+get-started/installation
+get-started/quickstart
+framework/adapter-lifecycle
+```
+
+```{toctree}
+:maxdepth: 1
+:caption: Framework Components
 
 framework/overview
 framework/adapter
 framework/evolver
-framework/custom-evolver
 framework/trainer
 framework/task
-framework/configuration
-framework/commands
-framework/prototype-differences
 ```
 
 ```{toctree}
 :maxdepth: 1
-:caption: Design records
+:caption: Recipes
 
-framework-implementation-audit-2026-10-05
-evolution-framework-design-2026-10-05
-async-collab-adapter-design-2026-09-27
-adapter-contract-v0
-core-and-evolution
-execution-policy
-mwm-fidelity-correction
+recipes/officeqa
+recipes/lean-collaboration
 ```
 
 ```{toctree}
-:hidden:
-:caption: Older design notes
+:maxdepth: 1
+:caption: Developer Guide
 
-design-discussion-2026-09-18
-subagent-fields-2026-09-18
-minimal-demo-findings-2026-09-18
-claude-demo-findings-2026-09-18
-mwm-integration-results-2026-09-18
+framework/custom-evolver
+```
+
+```{toctree}
+:maxdepth: 1
+:caption: Reference
+
+framework/configuration
+framework/commands
 ```

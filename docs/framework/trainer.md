@@ -1,9 +1,5 @@
 # Trainer
 
-:::{note}
-Agreed 2026-10-05; implemented in 0.2.0. Implementation notes at the end of this page.
-:::
-
 The Trainer is the framework's outer loop. It handles everything around the Evolver: data, training rollouts,
 learning material, the workspace, the binding check, git, records, budgets, checkpoints and resume. It is started
 with `harnessadapter train --config run.yaml`.
@@ -65,9 +61,8 @@ host's original log and a normalised message list); the final output; everything
 feedback, unchanged); cost, time and API speed. When the previous step's adapter was repaired, the step directory also
 holds `check_feedback.json`.
 
-Different Evolvers want different views of the same results (short per-task records for GEPA, full trajectories for
-SkillOpt, citable evidence for MWM). Conversion is the Evolver's own business; the framework offers a library of
-converters for common views, which an Evolver may use or replace.
+An Evolver chooses which parts of these records to read and how to present them to its learner. The built-in
+prompt-only method extracts scored examples; a custom method can read the available full trajectories.
 
 ## When the binding check fails
 
@@ -82,8 +77,8 @@ repaired, and leaves every judgement about the repaired adapter to the Evolver.
 | 4. Commit the repair | A second commit; its message lists the repaired files and the reasons |
 | 5. Feed back | `check_feedback.json` in the next step's material: each repaired file and why |
 
-The Trainer does not re-validate the repaired adapter; whether it is still good is for the Evolver to judge in the next
-step.
+The Trainer rechecks specification conformance after repair. It does not run a performance evaluation of the
+repaired adapter; candidate validation belongs to the Evolver.
 
 ## Checkpoints and the final adapter
 
@@ -111,7 +106,7 @@ Hard budgets are checked whenever the Trainer can observe spending, not only bet
 | Check point | What is observed |
 |---|---|
 | After each training-rollout task | Rollout cost and time |
-| During an Evolver call | Wall time; usage through metered tools and the `llm` helper; for built-in agents, the session log as it grows |
+| During an Evolver call | Wall time and usage through metered tools such as `llm`; built-in agent usage is collected when the call ends |
 | When a call returns | The `Usage` in `StepResult` (the only source besides wall time for a black box) |
 
 When a hard budget is reached the Trainer stops at the next point it controls (a tool call, a started program, the
@@ -146,14 +141,14 @@ A crashed run resumes from its last completed step, not only from a checkpoint.
 | Which tasks come next | Recomputed from the seed, the epoch and the step number |
 | Learning material and budget spent | `learning_material/` and `steps.jsonl` |
 
-The step that was in progress is discarded, including its finished rollouts; spending keeps counting from where it
-was. If the run asks for session resume but the Evolver's session cannot be found, the Evolver gets its fresh-start
-prompt and the records say so.
+The step that was in progress is discarded, including its finished rollouts. The budget is restored from the last
+completed step's record, so costs incurred during an interrupted step may be missing from restored accounting.
+Session resume depends on the selected Evolver and host; the framework does not guarantee recovery of a missing
+host session.
 
 ```yaml
 trainer:
-  resume_mode: auto      # auto: continue an unfinished run with this name; disable: start over;
-                         # or a step number / checkpoint tag
+  resume_mode: auto      # auto: continue an unfinished run with this name; disable: start over
 ```
 
 `resume_mode` continues **the same** run. Starting **a new** run from an existing adapter is `start_from` (see

@@ -1,122 +1,109 @@
 # Configuration
 
-:::{note}
-Agreed 2026-10-05; implemented in 0.2.0. Implementation notes at the end of this page.
-:::
+A YAML file connects a task, template, Evolver, and training budget. `check`, `train`, and `eval` read the same
+configuration. Paths are relative to that file's directory, and `${VAR}` in path values is expanded.
 
-One YAML file, `run.yaml`, describes one training run. It is the counterpart of verl's training config and is used by
-all three commands (`check`, `train`, `eval`). All manifests and configs are YAML (`adapter.yaml`, `evolver.yaml`,
-`run.yaml`); data and records stay JSON / JSONL.
+## Start from an existing recipe
+
+The [OfficeQA recipe](../recipes/officeqa.md) uses this config. Its dataset and model-access prerequisites are
+described in the recipe; this file alone does not supply them.
+
+```{literalinclude} ../../examples/officeqa/smoke.yaml
+:language: yaml
+:caption: examples/officeqa/smoke.yaml
+```
+
+`pipeline.run` names the function that executes the acting agent. `judge.path` names its scoring module.
+`template` chooses the adapter's files and editing rules. `evolver.name` chooses the learning method.
+The `llm` section configures the run's model tool, which the prompt-only learner uses.
+
+The acting pipeline owns its own model configuration. Changing `llm.model` does not automatically change the acting
+agent's model; OfficeQA configures that separately in `pipeline.py`.
 
 ## Defaults and overrides
 
-The framework ships a default config. The user's file and command-line overrides change only what they name:
+The framework merges `harnessadapter/defaults.yaml`, your YAML, and command-line overrides, in that order.
+Only write settings you want to override:
 
 ```bash
-harnessadapter train --config run.yaml trainer.epochs=5 evolver.name=gepa
+harnessadapter train --config examples/officeqa/smoke.yaml trainer.run_name=smoke-02 trainer.epochs=2
+harnessadapter eval --config examples/officeqa/smoke.yaml --adapter final trainer.run_name=smoke-02
 ```
 
-## Full example
+Use the same run name for training and evaluation. Unknown configuration keys are rejected. Fields inside
+`evolver.params` are defined by the selected Evolver.
+
+## What each section controls
+
+| Section | Meaning |
+|---|---|
+| `data` | Task JSONL file, split files, tasks per step, and shuffle seed. |
+| `task_info` | Directory explaining the task and objective to the learner. |
+| `pipeline.run` | `file.py:function` or `package.module:function`, called as `run(task, adapter)`. |
+| `pipeline.concurrency` | Maximum concurrent task executions during rollout and evaluation. |
+| `judge.path`, `judge.name` | Scoring module/file and function name; the default name is `score`. |
+| `template` | Built-in template such as `prompt-only@1.0`, or a directory with `adapter.yaml`. |
+| `start_from` | Optional tag, commit, or adapter directory from the same template; defaults to the root. |
+| `evolver.name` | Built-in name or a path to an Evolver definition. |
+| `evolver.params` | Parameters layered over that Evolver's defaults. |
+| `evolver.resume` | Request a continued learner session between steps; the Evolver must support it. |
+| `evolver_access` | Additional task resources and tools given to the learner. |
+| `llm` | Optional model endpoint, model ID, key environment variable, and prices for the run's `llm` tool. |
+| `trainer` | Run name and directories, epochs, budgets, checkpoint frequency, and recovery mode. |
+| `eval.repeats` | Repetitions per test task in the separate evaluation command. |
+
+Although `pipeline.params` exists in the default configuration, the current Trainer calls the pipeline with only
+`task` and `adapter`; it does not forward that mapping. Configure task-specific pipeline behavior in your pipeline.
+
+## Starting from an adapter versus resuming a run
+
+`start_from` initializes a new run from an existing adapter. It does not load the previous Evolver's state.
+`trainer.resume_mode: auto` resumes an unfinished run with the same name from its last completed step, including
+saved learner state. `disable` starts over and renames the previous run directory and branch.
+
+Use `auto` or `disable`; selecting a recovery step/tag through `resume_mode` is not implemented. To branch a new
+experiment from a checkpoint, use `start_from` and a new run name. See [Trainer](trainer.md#resuming-after-a-crash).
+
+## Budgets and checkpoint frequency
 
 ```yaml
-# run.yaml: only what differs from the framework defaults needs to be written
-
-data:                          # verl: data
-  tasks: tasks.jsonl
-  train: splits/train.txt
-  val: splits/val.txt          # optional; given = handed to the Evolver
-  test: splits/test.txt        # optional; used only by eval
-  step_size: 12                # tasks per step (verl: train_batch_size)
-  shuffle_seed: 0
-
-task_info: task-info/
-
-pipeline:                      # the user's acting-agent pipeline; verl: actor_rollout_ref
-  run: pipeline.py:run
-  concurrency: 8
-  params: {}                   # passed to the pipeline unchanged
-
-judge:                         # verl: custom_reward_function
-  path: judge.py
-  name: score
-
-template: lean-collab@1.0      # the template (the tree's root)
-start_from: null               # optional: a tag, commit or local adapter folder; default = the template root
-
-evolver:                       # verl: algorithm
-  name: gepa
-  resume: false                # continue the Evolver's session between steps
-  params: {}                   # empty = the Evolver's defaults
-
-evolver_access:                # the user's resources handed to the Evolver; listed = given
-  environment: [/data/mathlib]
-  tools: [db_query]            # tools declared by the task
-  send_material_out: false     # must be true for an Evolver that sends material to an outside service
-
-sandbox:                       # every sandbox setting is the task user's
-  enabled: true                # false: the Evolver runs unconfined
-  network: restricted          # restricted | open | none
-  allow: [https://api.fireworks.ai]   # reachable endpoints when restricted
-  read: []                     # more paths the Evolver may read (an allowlist: nothing else is visible)
-  env: [FIREWORKS_API_KEY]     # environment variables passed on (unset: all)
-
-trainer:                       # verl: trainer
-  run_name: lean-gepa-01
-  output_dir: runs/
+trainer:
   epochs: 3
+  save_freq: {steps: 5, epochs: 1}
+  budget: {usd: 20, tokens: null, hours: 2}
+  call_timeout_min: 15
   allow_early_stop: false
-  resume_mode: auto            # auto | disable | a step number or checkpoint tag
-  save_freq: {steps: null, epochs: 1}
-  budget: {usd: 200, tokens: null, hours: 24}
-  call_timeout_min: 60
-
-eval:
-  repeats: 5
 ```
 
-## Sections
-
-| Section | verl counterpart | Who needs to understand it |
-|---|---|---|
-| `data`, `task_info`, `pipeline`, `judge` | `data`, `actor_rollout_ref`, `custom_reward_function` | The task user: all of it is their own |
-| `template`, `start_from`, `evolver` | initial model, `algorithm` | Naming them is enough; parameters default |
-| `evolver_access`, `sandbox` | — | The task user: which of their resources the Evolver may use, and how it is confined |
-| `trainer`, `eval` | `trainer` | The task user: how long, how much money, how many repeats |
-
-There are no on/off switches for resources: a resource that is given (a path, a list entry) is available to the
-Evolver, and one that is not given is not. The one explicit permission is `send_material_out`, because a user who does
-not know an Evolver's internals cannot know that it sends data out.
+The Trainer accounts for rollouts and learner calls. It stops at the next point where it observes a limit, so
+in-flight work can overshoot it. Dollar accounting needs reported usage and applicable prices. The separate
+`check` probe and `eval` are outside this training budget. See [Trainer](trainer.md#budgets) for the observation points.
 
 ## Sandbox, network and warnings
 
-The framework does not force restrictions. Some users have no test set, or their own strategy for evolving; for them
-restrictions are unnecessary. Risky settings produce **warnings** at `check` and at the start of `train`, naming the
-guarantees that no longer hold. They are recorded in `config.yaml` and in the final adapter's `CARD.md`.
+The sandbox wraps learner programs started through the framework. It does not isolate the task pipeline or
+arbitrary code in an in-process custom Evolver. The current backend requires Linux and bubblewrap.
 
-| Setting | Warning |
+| Setting | Effect |
 |---|---|
-| `sandbox.enabled: false` | The Evolver can read anything on the machine, including the test split; paths and network are not confined |
-| `sandbox.network: open` | Learning material and other data can leave the machine |
-| Validation data containing answers | The Evolver may overfit to the validation split |
-| `evolver_access.send_material_out: true` | Learning material is sent to an outside service |
+| `sandbox.enabled` | Wrap launched learner programs in the sandbox; false runs them unconfined. |
+| `sandbox.read` | Additional filesystem paths those programs may read. |
+| `sandbox.env` | Environment variables passed on, in addition to required runtime variables; null inherits the environment. |
+| `sandbox.network: none` | Use a separate network namespace for sandboxed programs. |
+| `sandbox.network: restricted` | Use an allowlist proxy and proxy environment variables; a program can bypass this by ignoring the proxy. |
+| `sandbox.network: open` | Use the host network without that restriction. |
+| `sandbox.allow` | Endpoints allowed by the restricted-mode proxy. |
 
-Unaffected by any setting: the binding `check_spec`, budgets, and the run records.
+The sandbox exposes the required runtime, workspace, learner installation, and granted resources. Adapter, state,
+scratch, and output directories are writable; learning material and history are read-only. Giving more read paths
+or inheriting credentials changes what the learner can access. Warnings are recorded with the run.
 
-## Startup checks of `train`
+`evolver_access.send_material_out` declares that sending learning material to an outside service is allowed; it is
+checked when an Evolver declares that need. It is not a network filter. Likewise, the framework does not supply test
+tasks through the learner interface, but broad filesystem grants or disabled isolation can expose them.
 
-`train` does not run the settings checks of `check`. It does one check, because it decides whether the Evolver can run
-at all: every entry in the Evolver's `needs` must be given by the run config, and `evolver.resume: true` requires an
-Evolver that supports resume. Otherwise `train` stops with an error naming what is missing.
+## What is checked at startup?
 
-## Implementation notes
-
-- Extra keys: `llm` ({base_url, model, api_key_env, price: {input, cached_input, output} per million tokens}; enables
-  the `llm` tool), `sandbox.read`, `sandbox.env`, `trainer.tree_dir`.
-- Paths are relative to the config's directory; `${VAR}` is expanded.
-- The sandbox is an allowlist, and every sandbox setting is the task user's. Inside it the Evolver's programs see
-  only the system, the Python installation and the framework, their own installation, the workspace (read-write),
-  their granted accesses and Evolver directory, and the paths in `sandbox.read`. The task, the answers, the run
-  records and the home directory do not exist inside. `sandbox.env` lists the environment variables passed on
-  (besides `PATH`, `HOME`, the locale and the framework's own); unset, all pass and a warning says so.
-- `restricted` network is enforced through an allowlist proxy and proxy variables: a program that ignores those
-  variables is not stopped (a warning says so).
+Config parsing checks required fields and basic values. `train` also loads the template, data, pipeline, judge, and
+Evolver and checks the Evolver's declared needs and session-resume support. It does not run the full standalone
+`check` command for you. Use [Commands](commands.md) for preflight checks, the optional probe, and evaluation.

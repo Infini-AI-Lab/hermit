@@ -1,9 +1,5 @@
 # Evolver
 
-:::{note}
-Agreed 2026-10-05; implemented in 0.2.0. Implementation notes at the end of this page.
-:::
-
 An Evolver is the learning method: given the results of running the current adapter, it changes the adapter. It is
 the harness of a learner agent (its model, prompts, tools, control flow and state) and is task-agnostic. Inside it may
 be any agent (Codex, Claude Code, a ReAct loop, a multi-agent system) or a scripted workflow that calls a model at
@@ -24,8 +20,8 @@ whether and how it validates, its Training State) is its own.
 The framework also offers optional helpers (the run's tools, an acting-agent runner) that an Evolver may use or
 ignore.
 
-Planned Evolvers: prompt-only, GEPA, SkillOpt, MWM. They share templates: the same template can be evolved by any of
-them.
+Built-in Evolvers are `prompt_only`, `codex`, and `claude`. A custom method can use the same template if it can edit
+the permitted files. GEPA, SkillOpt, and MWM are not included as built-ins in this version.
 
 ## Invocation
 
@@ -33,8 +29,8 @@ The Trainer calls the Evolver the way a trainer calls an optimizer: once per cal
 For each call it prepares a workspace and a task message, starts the Evolver, and waits for it to return. Between
 calls it measures cost and time and checks the adapter.
 
-The process always starts fresh for each call. The agent's conversational context may start fresh or resume the
-previous call's session:
+The Trainer keeps the Evolver instance for the run. An agent-backed Evolver launches a host process for each call;
+its conversational context may start fresh or resume the previous call's session:
 
 | Setting | Decided by | Where |
 |---|---|---|

@@ -1,9 +1,5 @@
 # Custom Evolver Integration
 
-:::{note}
-Agreed 2026-10-05; implemented in 0.2.0. Implementation notes at the end of this page.
-:::
-
 The Evolver is a swappable component. The framework ships two ready implementations; anything else is a subclass of
 one abstract class. The Trainer calls only this interface: what happens inside is up to the implementation.
 

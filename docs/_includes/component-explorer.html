@@ -1,0 +1,51 @@
+<section class="ha-explorer" aria-label="Adapter component explorer">
+  <div class="ha-switch" hidden>
+    <button type="button" data-mode="use" aria-pressed="true">Use an adapter</button>
+    <button type="button" data-mode="train" aria-pressed="false">Train an adapter</button>
+  </div>
+  <div data-view="use">
+    <p class="ha-kicker">USE TIME · THE ADAPTER IS AN INPUT</p>
+    <div class="ha-use-flow">
+      <div class="ha-node">
+        <span class="ha-owner">Portable files</span>
+        <strong>Adapter directory</strong>
+        <code>adapter.yaml<br>ADAPTER.md<br>skills/ · tools · roles*</code>
+        <small>*As declared by the template.</small>
+      </div>
+      <span class="ha-arrow" aria-label="exported through">→</span>
+      <div class="ha-node">
+        <span class="ha-owner">Host connector / your pipeline</span>
+        <strong>Deployment</strong>
+        <span>Context → instructions<br>Tools → callable tools<br>Skills / roles → host files</span>
+      </div>
+      <span class="ha-arrow" aria-label="made available to">→</span>
+      <div class="ha-node">
+        <span class="ha-owner">Your acting pipeline</span>
+        <strong>Acting agent</strong>
+        <span>Receives a task<br>Uses the adapter's exports<br>Produces an answer</span>
+      </div>
+    </div>
+    <p class="ha-note"><strong>OfficeQA:</strong> the pipeline reads <code>ADAPTER.md</code> as context and adds it to the system prompt on each run. A host connector instead prepares workspace files before the agent starts.</p>
+    <p class="ha-boundary">The Trainer and Evolver are not needed to use an existing adapter. Runtime dependencies still apply.</p>
+  </div>
+  <div data-view="train">
+    <p class="ha-kicker">TRAIN TIME · FOLLOW ONE ITERATION</p>
+    <div class="ha-inputs"><span><strong>Task owner supplies</strong> data, pipeline, judge, task-info</span><span><strong>Template supplies</strong> starting files, exports, editable paths, checks</span></div>
+    <div class="ha-trainer">
+      <div class="ha-trainer-title"><strong>Trainer</strong><span>Orchestrates every handoff below · tracks budget and progress</span></div>
+      <div class="ha-train-flow">
+        <svg class="ha-connections" aria-hidden="true"><defs><marker id="ha-arrowhead" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z"></path></marker></defs><g></g></svg>
+        <button class="ha-node" type="button" data-step="0" aria-pressed="true"><span class="ha-owner">1 · Task code</span><strong>Pipeline / acting agent</strong><code>run(task, adapter)</code><span>Current adapter + task → output</span></button>
+        <button class="ha-node" type="button" data-step="1" aria-pressed="false"><span class="ha-owner">2 · Task code</span><strong>Judge</strong><code>score(task, output)</code><span>Output → score + feedback</span></button>
+        <button class="ha-node" type="button" data-step="2" aria-pressed="false"><span class="ha-owner">3 · Trainer writes</span><strong>Learning material</strong><code>learning_material/step_N/</code><span>Results + available trajectories</span></button>
+        <button class="ha-node" type="button" data-step="3" aria-pressed="false"><span class="ha-owner">4 · Learning method</span><strong>Evolver / learner</strong><code>step(ctx)</code><span>Evidence → edits in adapter/</span></button>
+        <button class="ha-node" type="button" data-step="4" aria-pressed="false"><span class="ha-owner">5 · Template rules</span><strong>Check and repair</strong><code>check_spec(adapter, root)</code><span>Check files; restore violations</span></button>
+        <button class="ha-node" type="button" data-step="5" aria-pressed="false"><span class="ha-owner">6 · Trainer writes</span><strong>Git + run records</strong><code>commit · state · steps.jsonl</code><span>Accepted adapter → next batch</span></button>
+      </div>
+      <p class="ha-loop">↻ The next batch starts at 1 with the accepted adapter. A failed Evolver step retains the previous version.</p>
+    </div>
+    <div class="ha-step-controls" hidden><button type="button" data-prev disabled>Previous</button><span data-progress>1 / 6</span><button type="button" data-next>Next</button></div>
+    <div class="ha-detail" aria-live="polite" aria-atomic="true"><strong data-detail-title>1. Run the current adapter</strong><p data-detail-body>The Trainer exports the current Git version and gives its path and one task to your pipeline. The acting agent consumes the exports. The pipeline returns RunOutput: an answer plus any logs and usage it records.</p><code data-detail-handoff>task + adapter path → RunOutput</code></div>
+    <p class="ha-boundary">A passing check means the adapter conforms to its template. Performance is measured by the pipeline and judge; candidate validation belongs to the Evolver.</p>
+  </div>
+</section>

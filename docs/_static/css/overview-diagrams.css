@@ -1,0 +1,82 @@
+.ha-live-map {
+  --map-bg: #fff;
+  --map-text: #202c3c;
+  --map-muted: #536174;
+  --map-blue: #426f9e;
+  --map-amber: #b96c35;
+  --map-purple: #8563ab;
+  --map-line: #b8c4d2;
+  margin: 1.5rem 0;
+  color: var(--map-text);
+  font-size: 14px;
+}
+html.dark .ha-live-map {
+  --map-bg: #171c24;
+  --map-text: #e5eaf1;
+  --map-muted: #bbc5d3;
+  --map-blue: #8ab6e4;
+  --map-amber: #eaa970;
+  --map-purple: #bd9adb;
+  --map-line: #526173;
+}
+.ha-live-map [hidden] { display: none !important; }
+.ha-map-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+.ha-map-toolbar span { flex: 1 1 230px; color: var(--map-muted); }
+.ha-map-toolbar button {
+  color: inherit; background: transparent; border: 1px solid var(--map-line);
+  border-radius: 6px; padding: 8px 12px; font: inherit; cursor: pointer;
+}
+.ha-map-toolbar button:disabled { opacity: .45; cursor: default; }
+.ha-live-map button:focus-visible { outline: 3px solid var(--map-amber); outline-offset: 3px; }
+.ha-map-viewport { max-width: 100%; overflow: auto; background: var(--map-bg); border-radius: 8px; }
+.ha-map-stage { position: relative; width: 1000px; }
+.ha-map-canvas { position: absolute; width: 1000px; transform-origin: top left; }
+.ha-map-region, .ha-map-node { position: absolute; box-sizing: border-box; border: 1.5px solid var(--map-line); border-radius: 12px; }
+.ha-map-region { z-index: 0; padding: 18px 22px; }
+.ha-map-region strong { font: 700 21px/1.3 Arial, Helvetica, sans-serif; }
+.ha-map-region span { display: inline; margin-left: 16px; color: var(--map-muted); font: 15px/1.4 Arial, Helvetica, sans-serif; }
+.ha-tone-blue { --tone: var(--map-blue); }
+.ha-tone-amber { --tone: var(--map-amber); }
+.ha-tone-purple { --tone: var(--map-purple); }
+.ha-tone-neutral { --tone: var(--map-line); }
+.ha-map-region { background: color-mix(in srgb, var(--tone) 6%, var(--map-bg)); border-color: color-mix(in srgb, var(--tone) 60%, var(--map-bg)); }
+.ha-map-node {
+  display: flex; flex-direction: column; justify-content: center; align-items: center;
+  gap: 4px; padding: 12px; text-align: center; color: var(--map-text); cursor: pointer;
+  background: var(--map-bg); border-color: color-mix(in srgb, var(--tone) 60%, var(--map-bg)); z-index: 2;
+}
+.ha-map-node strong { font: 700 20px/1.2 Arial, Helvetica, sans-serif; }
+.ha-map-node span { color: var(--map-muted); font: 14px/1.35 Arial, Helvetica, sans-serif; }
+.ha-map-node.ha-map-compact { padding: 6px 10px; gap: 2px; }
+.ha-map-node.ha-map-compact strong { font-size: 18px; }
+.ha-map-node.ha-map-compact span { line-height: 1.2; }
+.ha-map-node.ha-map-minor { border-radius: 6px; align-items: center; padding: 4px 8px; }
+.ha-map-node.ha-map-minor strong { font-size: 14px; font-weight: 500; }
+.ha-map-node .ha-map-inset {
+  align-self: stretch; box-sizing: border-box; padding: 6px 10px; border-radius: 5px;
+  border: 1px solid color-mix(in srgb, var(--tone) 55%, var(--map-bg));
+  background: color-mix(in srgb, var(--tone) 8%, var(--map-bg));
+  color: var(--map-text); font-size: 14px;
+}
+.ha-map-optional { border-style: dashed; }
+.ha-map-node:hover { box-shadow: 0 0 0 2px var(--tone); }
+.ha-map-node[aria-pressed="true"] { box-shadow: 0 0 0 3px var(--tone); background: color-mix(in srgb, var(--tone) 12%, var(--map-bg)); }
+.ha-map-connectors { position: absolute; inset: 0; z-index: 1; pointer-events: none; max-width: none; }
+.ha-map-edge > path { fill: none; stroke-width: 2; }
+.ha-edge-blue > path { stroke: var(--map-blue); }
+.ha-edge-amber > path { stroke: var(--map-amber); }
+.ha-edge-purple > path { stroke: var(--map-purple); }
+.ha-arrow-blue { fill: var(--map-blue); }
+.ha-arrow-amber { fill: var(--map-amber); }
+.ha-arrow-purple { fill: var(--map-purple); }
+.ha-edge-optional > path { stroke-dasharray: 6 5; }
+.ha-map-edge text {
+  font: 14px Arial, Helvetica, sans-serif; fill: var(--map-muted);
+  paint-order: stroke; stroke: var(--map-bg); stroke-width: 5px; stroke-linejoin: round;
+}
+.ha-map-highlight > path { stroke-width: 3.5; }
+.ha-map-muted { opacity: .3; }
+.ha-live-map figcaption { margin-top: 10px; color: var(--map-muted); font-size: 13px; }
+.ha-map-detail { margin-top: 14px; border-left: 3px solid var(--map-amber); padding: 2px 14px; }
+.ha-map-detail p { margin: 6px 0 10px; }
+.ha-map-detail ul { margin: 0; padding-left: 20px; font-size: 13px; }

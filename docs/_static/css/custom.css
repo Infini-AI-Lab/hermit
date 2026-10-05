@@ -34,3 +34,70 @@ html.dark {
 .toctree-wrapper a.reference:hover {
   color: var(--sy-c-link);
 }
+
+/* The component explorer inherits the documentation theme. */
+.ha-explorer {
+  --ha-accent: #a65122;
+  --ha-border: #d3d5d9;
+  --ha-surface: #f6f7f8;
+  --ha-selected: #fff0e3;
+  --ha-muted: #555e69;
+  margin: 1.5rem 0 2.5rem;
+  font-size: 14px;
+  line-height: 1.5;
+}
+html.dark .ha-explorer {
+  --ha-accent: #f3ac76;
+  --ha-border: #515964;
+  --ha-surface: #22272e;
+  --ha-selected: #3c2d24;
+  --ha-muted: #b4bdc8;
+}
+.ha-explorer [hidden] { display: none !important; }
+.ha-explorer button { font: inherit; color: inherit; cursor: pointer; }
+.ha-explorer button:focus-visible { outline: 3px solid var(--ha-accent); outline-offset: 3px; }
+.ha-explorer .ha-switch, .ha-explorer .ha-step-controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.ha-explorer .ha-switch button, .ha-explorer .ha-step-controls button {
+  padding: 9px 14px; border: 1px solid var(--ha-border); border-radius: 6px; background: transparent;
+}
+.ha-explorer button[aria-pressed="true"] { border-color: var(--ha-accent); background: var(--ha-selected); }
+.ha-explorer button:disabled { opacity: .45; cursor: default; }
+.ha-explorer .ha-kicker { color: var(--ha-muted); font-size: 11px; letter-spacing: .08em; margin: 22px 0 14px; font-weight: 700; }
+.ha-explorer .ha-use-flow { display: grid; grid-template-columns: 1fr 24px 1fr 24px 1fr; align-items: stretch; gap: 6px; }
+.ha-explorer .ha-arrow { align-self: center; text-align: center; font-size: 22px; color: var(--ha-accent); }
+.ha-explorer .ha-node {
+  display: flex; flex-direction: column; gap: 8px; text-align: left; min-width: 0;
+  padding: 15px; border: 1px solid var(--ha-border); border-radius: 8px; background: var(--ha-surface);
+  position: relative; z-index: 1; overflow-wrap: anywhere;
+}
+.ha-explorer .ha-node strong { font-size: 15px; line-height: 1.3; }
+.ha-explorer .ha-node code { font-size: 11px; white-space: normal; background: transparent; padding: 0; }
+.ha-explorer .ha-node span:not(.ha-owner), .ha-explorer .ha-node small { font-size: 12px; }
+.ha-explorer .ha-owner { font-size: 11px; color: var(--ha-muted); }
+.ha-explorer .ha-note { margin-top: 18px; }
+.ha-explorer .ha-boundary { border-left: 3px solid var(--ha-accent); padding-left: 12px; margin: 16px 0 0; }
+.ha-explorer .ha-inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 16px; font-size: 12px; }
+.ha-explorer .ha-inputs strong { display: block; }
+.ha-explorer .ha-trainer { border: 1px solid var(--ha-border); border-radius: 10px; padding: 16px; }
+.ha-explorer .ha-trainer-title { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; margin-bottom: 16px; }
+.ha-explorer .ha-trainer-title span { font-size: 11px; color: var(--ha-muted); }
+.ha-explorer .ha-train-flow { position: relative; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 30px 24px; }
+.ha-explorer [data-step="3"] { grid-column: 3; grid-row: 2; }
+.ha-explorer [data-step="4"] { grid-column: 2; grid-row: 2; }
+.ha-explorer [data-step="5"] { grid-column: 1; grid-row: 2; }
+.ha-explorer .ha-connections { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.ha-explorer .ha-connections g path { fill: none; stroke: var(--ha-border); stroke-width: 2; }
+.ha-explorer .ha-connections g path.is-active { stroke: var(--ha-accent); }
+.ha-explorer .ha-connections marker path { fill: var(--ha-muted); }
+.ha-explorer .ha-loop { margin: 14px 0 0; font-size: 12px; color: var(--ha-muted); }
+.ha-explorer .ha-step-controls { margin-top: 16px; }
+.ha-explorer .ha-step-controls span { font-variant-numeric: tabular-nums; color: var(--ha-muted); }
+.ha-explorer .ha-detail { margin-top: 16px; min-height: 155px; }
+.ha-explorer .ha-detail p { margin: 7px 0 10px; }
+.ha-explorer .ha-detail code { white-space: normal; overflow-wrap: anywhere; }
+@media (max-width: 700px) {
+  .ha-explorer .ha-use-flow, .ha-explorer .ha-train-flow, .ha-explorer .ha-inputs { grid-template-columns: 1fr; }
+  .ha-explorer .ha-arrow { transform: rotate(90deg); }
+  .ha-explorer [data-step] { grid-column: auto; grid-row: auto; }
+  .ha-explorer .ha-detail { min-height: 0; }
+}

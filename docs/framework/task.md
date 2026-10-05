@@ -1,8 +1,4 @@
-# Evolving Task
-
-:::{note}
-Agreed 2026-10-05; implemented in 0.2.0. Implementation notes at the end of this page.
-:::
+# Task and acting pipeline
 
 The evolving task is everything the task user provides once a template and an Evolver have been chosen.
 
@@ -79,8 +75,8 @@ class RunOutput:
 ```
 
 The adapter enters the pipeline only through its standard exports (context, MCP tools, roles, reactions), which the
-pipeline deploys into its host as the template's `README.md` describes; `check` verifies the template supports the
-pipeline's host. The same `run` serves training rollouts, `eval` and the acting-agent runner. The Evolver learns about
+pipeline deploys into its host as the template's `README.md` describes. The pipeline must support the exports it
+uses; `check` does not verify host compatibility. The same `run` serves training rollouts, `eval` and the acting-agent runner. The Evolver learns about
 the pipeline only from `task-info/pipeline.md` and from the trajectories.
 
 ## Environment

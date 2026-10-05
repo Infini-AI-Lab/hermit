@@ -1,9 +1,5 @@
 # Commands
 
-:::{note}
-Agreed 2026-10-05; implemented in 0.2.0. Implementation notes at the end of this page.
-:::
-
 | Command | Purpose |
 |---|---|
 | `harnessadapter check --config run.yaml` | Check the settings before training |
@@ -24,16 +20,15 @@ harnessadapter eval  --config run.yaml --adapter none       # optional: the agen
 ## check
 
 `check` is a separate command, outside the run. The user runs it when they want and starts training once satisfied;
-`train` does not run it for them. As with model training, a wrong setting can waste a lot of money, and making sure
-the settings are right is the user's responsibility.
+`train` does not run it for them. The probe calls the pipeline and can incur model costs. Pass `--no-probe` to skip it.
 
 | What `check` looks at | Example of a problem it finds |
 |---|---|
-| Template | The starting adapter fails `check_spec`; the template does not support the pipeline's host |
+| Template | The starting adapter fails `check_spec` |
 | Evolver | The class does not load; a need is not given; resume is requested but not supported |
 | Task | `task-info/README.md` missing; splits overlap; the judge cannot score a sample task |
 | Budgets | No hard budget or no iteration budget |
-| API speed | One short probe through the pipeline; the measured speed is reported |
+| Pipeline probe | One training task without an adapter; score, time, reported API speed, and cost are printed |
 | Risky settings | The warnings listed in [Configuration](configuration.md#sandbox-network-and-warnings) |
 
 `check` prints a disclaimer: it checks only these basic items. Passing `check` does not guarantee that the settings are
@@ -42,7 +37,7 @@ free of problems or that the run will succeed.
 ## train
 
 Runs the loop described in [Trainer](trainer.md). At start it checks only that the Evolver's needs are given (see
-[Configuration](configuration.md#startup-checks-of-train)) and prints the warnings for risky settings. If a run with
+[Configuration](configuration.md#what-is-checked-at-startup)) and prints the warnings for risky settings. If a run with
 the same `run_name` is unfinished, `resume_mode: auto` continues it.
 
 ## eval

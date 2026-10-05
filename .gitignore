@@ -7,4 +7,5 @@ __pycache__/
 /build/
 /dist/
 .venv-demo/
+.venv-docs/
 /docs/_build/

@@ -7,7 +7,7 @@
 
 **Train harness adapters for existing agents**
 
-[Overview](docs/framework/overview.md) · [Commands](docs/framework/commands.md) · [Configuration](docs/framework/configuration.md) · [Custom Evolvers](docs/framework/custom-evolver.md) · [OfficeQA example](examples/officeqa)
+[Installation](docs/get-started/installation.md) · [Quick Start](docs/get-started/quickstart.md) · [Overview](docs/framework/overview.md) · [Commands](docs/framework/commands.md) · [Configuration](docs/framework/configuration.md) · [Custom Evolvers](docs/framework/custom-evolver.md) · [OfficeQA recipe](docs/recipes/officeqa.md)
 
 </div>
 
