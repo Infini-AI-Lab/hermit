@@ -44,6 +44,21 @@ guide/configuration
 
 ```{toctree}
 :maxdepth: 1
+:caption: Evolution Framework (design)
+
+framework/overview
+framework/adapter
+framework/evolver
+framework/custom-evolver
+framework/trainer
+framework/task
+framework/configuration
+framework/commands
+framework/prototype-differences
+```
+
+```{toctree}
+:maxdepth: 1
 :caption: Design
 
 adapter-contract-v0
