@@ -34,6 +34,6 @@ harnessadapter deploy --adapter <dir> --output <workspace> --host codex
 
 Every adapter is a commit in a git tree rooted at its template; runs are branches, checkpoints and finals are tags,
 and each final adapter carries a `CARD.md`. Built-in templates: `prompt-only@1.0`, `lean-collab@1.0`. Built-in
-Evolvers: `prompt_only`, `codex`, `claude`.
+Evolvers: `prompt_only`, `codex`, `claude`, `gepa`, `skillopt`.
 
 Tests: `python -m pytest tests` (offline; the sandbox tests need bubblewrap).

@@ -1,0 +1,26 @@
+description: SkillOpt bounded, validation-gated skill optimization (microsoft/SkillOpt), one SkillOpt step per training
+  step, with its slow update and meta skill at the end of each epoch. Uses the run's `llm` tool and run_agent.
+class: evolver.py:SkillOptEvolver
+needs: [validation_data]
+params:
+  file: ADAPTER.md            # the skill document
+  minibatch_size: 8           # rollouts per reflection call
+  merge_batch_size: 8         # patches per merge call
+  analyst_workers: 16         # parallel model calls
+  failure_only: false         # reflect on failures only
+  learning_rate: 4            # most edits per step
+  min_learning_rate: 2
+  lr_scheduler: cosine        # constant, linear or cosine
+  total_steps: null           # steps in the run, for linear or cosine decay; null: constant learning rate
+  use_gate: true              # keep an update only if the validation score improves
+  gate_metric: hard           # hard, soft or mixed
+  gate_mixed_weight: 0.5
+  success_score: 1.0          # a run scoring at least this counts as solved
+  use_slow_update: true       # with the meta skill, at an epoch's last step: allow for it in trainer.call_timeout_min
+  slow_update_samples: 20     # training tasks run with both epochs' skills
+  use_meta_skill: true
+  prompt_env: ""              # officeqa: SkillOpt's OfficeQA analyst prompts; empty: its generic prompts
+  obs_chars: 0                # characters of each tool result shown to the analyst; 0: all, as in SkillOpt
+  max_tokens: null            # null: SkillOpt's own limit for each call
+  temperature: null           # null: the endpoint's default
+  seed: 42

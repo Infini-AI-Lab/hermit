@@ -12,6 +12,9 @@ harnessadapter eval  --config smoke.yaml --adapter final
 harnessadapter eval  --config smoke.yaml --adapter none        # the agent without an adapter
 ```
 
+The same commands train with GEPA or SkillOpt (`pip install -e '.[gepa]'` or `'.[skillopt]'` from the repository
+root): `gepa_smoke.yaml` and `skillopt_smoke.yaml` for a quick check, `gepa.yaml` and `skillopt.yaml` for a full run.
+
 The prepared directory holds the corpus (agent/) and the answers and scorer (private/). The judge reads the private
 part. A sandboxed Evolver sees only its workspace, its accesses and `sandbox.read` (empty here), so neither the
 answers nor the example directory are visible to it.

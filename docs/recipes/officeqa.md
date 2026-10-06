@@ -92,5 +92,21 @@ choose another name, for example `trainer.run_name=smoke-02`, and use the same o
 commands. The framework does not automatically choose the best checkpoint: `final` is the Evolver's final selection,
 which defaults to the last adapter.
 
+## Train with GEPA or SkillOpt
+
+The same task trains with the `gepa` or `skillopt` Evolver instead of `prompt_only`. Both score candidate
+adapters on validation questions, so their configs add a validation split (rerun `prepare.py` if `splits/` has no
+`smoke_val.txt`).
+
+```bash
+python -m pip install -e '.[gepa]'
+harnessadapter train --config examples/officeqa/gepa_smoke.yaml
+harnessadapter eval --config examples/officeqa/gepa_smoke.yaml --adapter final
+```
+
+For SkillOpt, install `'.[skillopt]'` and use `skillopt_smoke.yaml`. The smoke configs check the integration on a
+few questions; `gepa.yaml` and `skillopt.yaml` train on the 60 training questions and select on the 13 validation
+questions. Outputs are under `examples/officeqa/runs/`, as above; `state/` holds each method's candidates and records.
+
 For your own task, implement the pipeline and judge described in [Task integration](../framework/task.md). For how
 the components exchange data, continue to [Using and training adapters](../framework/adapter-lifecycle.md).
