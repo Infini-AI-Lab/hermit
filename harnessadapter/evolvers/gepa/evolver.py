@@ -39,10 +39,14 @@ def task_text(task: dict) -> str:
 
 
 def trajectory_text(record: dict, step_dir: Path) -> str:
-    """The run as text: the messages the pipeline returned, else its log files."""
-    lines = []
+    """The run as text: the messages the pipeline returned, else its log files. The system prompt (the instructions
+    under test) and the first user message (the task) are left out: the reflection prompt shows both already."""
+    lines, task_seen = [], False
     for m in record.get("messages") or []:
-        if m.get("role") == "system":       # the instructions under test; GEPA shows them separately
+        if m.get("role") == "system":
+            continue
+        if m.get("role") == "user" and not task_seen:
+            task_seen = True
             continue
         content = m.get("content")
         if isinstance(content, list):
@@ -64,6 +68,10 @@ class GEPAEvolver(Evolver):
         from gepa.strategies.instruction_proposal import InstructionProposalSignature, parse_proposal
 
         p = ctx.params
+        strategy = p.get("candidate_selection_strategy", "pareto")
+        criterion = p.get("acceptance_criterion", "strict_improvement")
+        if strategy not in ("pareto", "current_best") or criterion not in ("strict_improvement", "improvement_or_equal"):
+            raise ValueError(f"unknown candidate_selection_strategy {strategy!r} or acceptance_criterion {criterion!r}")
         if "llm" not in ctx.tools:
             return StepResult("failed", "gepa needs the run's llm tool: set `llm` in run.yaml")
         if ctx.access.validation is None:
@@ -91,7 +99,8 @@ class GEPAEvolver(Evolver):
         if p.get("skip_perfect_score", True) and all(s >= perfect for s in minibatch.values()):
             record["outcome"] = "skipped: the parent is perfect on this minibatch"
         else:
-            name = files[(n - 1) % len(files)]
+            name = files[pool[parent].get("next_file", 0) % len(files)]      # GEPA's round robin, per candidate
+            pool[parent]["next_file"] = pool[parent].get("next_file", 0) + 1
             dataset = [{"Inputs": {"Task given to the agent": task_text(r["input"])},
                         "Generated Outputs": {
                             "Final answer": str(r.get("output") or "(no final answer)"),
@@ -107,21 +116,30 @@ class GEPAEvolver(Evolver):
             sampling = {k: p[k] for k in ("max_tokens", "temperature") if p.get(k) is not None}
             replies = []
             new_text = None
+            error = None
             for _ in range(2):      # a reasoning model can spend its tokens thinking: ask once more
-                reply = ctx.tools["llm"](messages=messages, **sampling)
-                replies.append(reply["content"])
-                cut_off = reply.get("finish_reason") == "length"     # never take a truncated text as a proposal
-                new_text = None if cut_off or not reply["content"] else \
-                    parse_proposal(InstructionProposalSignature, reply["content"]).text
+                try:
+                    reply = ctx.tools["llm"](messages=messages, **sampling)
+                except Exception as exc:                    # noqa: BLE001 — as GEPA, the iteration is skipped
+                    error = f"{type(exc).__name__}: {exc}"
+                    break
+                content = reply["content"] or ""
+                replies.append(content)
+                # A reply cut off at max_tokens is used only if it already holds a complete ``` block (as GEPA).
+                complete = content.find("```") + 3 < content.rfind("```")
+                new_text = None if not content or (reply.get("finish_reason") == "length" and not complete) else \
+                    parse_proposal(InstructionProposalSignature, content).text
                 if new_text:
                     break
-                messages += [{"role": "assistant", "content": reply["content"]},
+                messages += [{"role": "assistant", "content": content},
                              {"role": "user", "content": "Reply now with only the new instructions within ``` blocks."}]
             for i, text in enumerate(replies):
                 (ctx.workspace.output / f"reflection.{i}.txt").write_text(text)
             (ctx.workspace.output / "reflection_prompt.md").write_text(prompt)
             record["file"] = name
-            if not new_text or new_text.strip() == texts[name].strip():
+            if error:
+                record["outcome"] = f"skipped: the reflection call failed ({error})"
+            elif not new_text or new_text.strip() == texts[name].strip():
                 record["outcome"] = "skipped: the model proposed no new text"
             else:
                 child = {**texts, name: new_text.strip() + "\n"}
@@ -133,7 +151,7 @@ class GEPAEvolver(Evolver):
                     scores = self._scores(ctx, list(minibatch), candidate)
                     record["child_minibatch"] = scores
                     better = sum(scores.values()) > sum(minibatch.values())
-                    if p.get("acceptance_criterion", "strict_improvement") == "improvement_or_equal":
+                    if criterion == "improvement_or_equal":
                         better = sum(scores.values()) >= sum(minibatch.values())
                     if not better:
                         record["outcome"] = (f"rejected: {sum(scores.values()):g} <= {sum(minibatch.values()):g} "
@@ -147,7 +165,7 @@ class GEPAEvolver(Evolver):
         # The next parent, handed back for the next step's rollouts.
         rng = random.Random(int(p.get("seed", 0)) * 100003 + n)
         means = [_mean(c["val"]) for c in pool]
-        if p.get("candidate_selection_strategy", "pareto") == "current_best":
+        if strategy == "current_best":
             nxt = max(range(len(pool)), key=lambda i: (means[i], -i))
         else:
             from gepa.gepa_utils import select_program_candidate_from_pareto_front

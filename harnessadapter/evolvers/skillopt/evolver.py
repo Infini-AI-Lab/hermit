@@ -33,18 +33,37 @@ def _clip(text: str, limit: int) -> str:
     return text if limit <= 0 or len(text) <= limit else text[:limit] + f" …[{len(text) - limit} characters left out]"
 
 
-def conversation(record: dict, step_dir: Path, obs_chars: int = 0) -> list[dict]:
-    """A material record in the shapes SkillOpt's reflection renders: tool calls with their results, messages, and
-    the run's outcome last."""
-    out, calls = [], {}
+def _text(content) -> str:
+    if isinstance(content, list):
+        return " ".join(part.get("text", "") for part in content if isinstance(part, dict))
+    return str(content or "")
+
+
+def conversation(record: dict, step_dir: Path, obs_chars: int = 0) -> tuple[list[dict], str, str]:
+    """A material record as SkillOpt's reflection reads it: the run's entries (tool calls with their results, and
+    messages), the agent's system prompt and its first user prompt. A pipeline that already writes SkillOpt's
+    prediction files (conversation.json, target_*_prompt.txt) in its log is passed through unchanged; otherwise the
+    entries come from the returned messages, with the run's outcome last."""
+    root = step_dir / record["trajectory"] if record.get("trajectory") else None
+    if root is not None and (root / "conversation.json").is_file():
+        entries = json.loads((root / "conversation.json").read_text())
+        prompts = [(root / f).read_text() if (root / f).is_file() else "" for f in ("target_system_prompt.txt",
+                                                                                  "target_user_prompt.txt")]
+        for e in entries:
+            if isinstance(e, dict) and e.get("type") == "tool_call":
+                e["obs"] = _clip(str(e.get("obs") or ""), obs_chars)
+        return entries, prompts[0], prompts[1]
+    out, calls, system, user = [], {}, "", ""
     for m in record.get("messages") or []:
-        role, content = m.get("role"), m.get("content")
-        if isinstance(content, list):
-            content = " ".join(part.get("text", "") for part in content if isinstance(part, dict))
-        if role == "system":            # the skill under test; the analyst sees it separately
+        role, content = m.get("role"), _text(m.get("content"))
+        if role == "system" and not system:
+            system = content
+            continue
+        if role == "user" and not user:
+            user = content
             continue
         if role == "tool" and m.get("tool_call_id") in calls:
-            out[calls[m["tool_call_id"]]]["obs"] = _clip(str(content or ""), obs_chars)
+            out[calls[m["tool_call_id"]]]["obs"] = _clip(content, obs_chars)
             continue
         if content:
             out.append({"role": role, "content": content})
@@ -52,24 +71,58 @@ def conversation(record: dict, step_dir: Path, obs_chars: int = 0) -> list[dict]
             fn = call.get("function") or {}
             calls[call.get("id")] = len(out)
             out.append({"type": "tool_call", "cmd": f"{fn.get('name')}({fn.get('arguments')})", "obs": ""})
-    if not out and record.get("trajectory"):
-        root = step_dir / record["trajectory"]
+    if not out and root is not None:
         text = "\n".join(f.read_text(errors="replace") for f in sorted(root.rglob("*")) if f.is_file())
         out.append({"role": "assistant", "content": text})
     score = float(record["judge"]["score"])
-    return out + [{"role": "assistant", "content": f"Final answer: {record.get('output') or '(none)'}"},
-                  {"role": "system", "content": f"Run status: {record.get('status')}; score: {score:g}"}]
+    out += [{"role": "assistant", "content": f"Final answer: {record.get('output') or '(none)'}"},
+            {"role": "system", "content": f"Run status: {record.get('status')}; score: {score:g}"}]
+    return out, system, user
+
+
+def paper_view(entries: list[dict], system: str, user: str) -> tuple[list[dict], str, str]:
+    """What SkillOpt's analyst saw when the paper was written (v0.1.0, 244e346): each field clipped (commands and
+    messages 500 characters, tool results 800, verification 2,000), the trajectory clipped to its first and last
+    6,000 characters, and the agent's prompts to 3,000 characters each."""
+    lines = []
+    for e in entries:
+        if not isinstance(e, dict):
+            lines.append(f"[agent] {str(e)[:500]}")
+        elif e.get("type") == "tool_call":
+            lines += [f"[action] {str(e.get('cmd') or '')[:500]}", f"[obs]    {str(e.get('obs') or '')[:800]}"]
+        elif e.get("role") == "system":
+            lines.append(f"[verification] {_text(e.get('content'))[:2000]}")
+        else:
+            lines.append(f"[{e.get('role', 'agent')}] {_text(e.get('content'))[:500]}")
+    text = "\n".join(lines)
+    if len(text) > 12000:
+        text = text[:6000] + "\n...[middle truncated]...\n" + text[-6000:]
+    # Rendered by the pinned SkillOpt as "[trajectory] <text>": the one difference from v0.1.0's output.
+    return [{"role": "trajectory", "content": text}], system[:3000], user[:3000]
+
+
+def write_prediction(where: Path, entries: list[dict], system: str, user: str) -> None:
+    where.mkdir(parents=True, exist_ok=True)
+    (where / "conversation.json").write_text(json.dumps(entries, ensure_ascii=False, indent=1))
+    for name, text in (("target_system_prompt.txt", system), ("target_user_prompt.txt", user)):
+        if text:
+            (where / name).write_text(text)
 
 
 def rollout_result(record: dict, task: dict, success: float) -> dict:
-    """SkillOpt's RolloutResult for one scored run."""
-    score = float(record["judge"]["score"])
+    """SkillOpt's RolloutResult for one scored run. The task's question (else all its fields) describes it; soft is
+    the judge's `f1` when it reports one (SkillOpt's soft score), else the score."""
+    judge = record["judge"]
+    score = float(judge["score"])
     hard = int(score >= success)
-    return {"id": str(record["id"]), "hard": hard, "soft": score,
-            "fail_reason": "" if hard else (record["judge"].get("feedback") or f"status {record.get('status')}"),
-            "task_description": task_text(task), "task_type": str(task.get("task_type") or "task"),
+    output = record.get("output")
+    answer = output.get("answer", "") if isinstance(output, dict) else output
+    return {"id": str(record["id"]), "hard": hard, "soft": float((judge.get("extra") or {}).get("f1", score)),
+            "fail_reason": "" if hard else (judge.get("feedback") or f"status {record.get('status')}"),
+            "task_description": str(task.get("question") or task_text(task)),
+            "task_type": str(task.get("task_type") or task.get("category") or "task"),
             "n_turns": sum(1 for m in record.get("messages") or [] if m.get("role") == "assistant"),
-            "agent_ok": record.get("status") == "ok", "predicted_answer": record.get("output")}
+            "agent_ok": record.get("status") == "ok", "predicted_answer": answer}
 
 
 @contextmanager
@@ -134,6 +187,11 @@ class SkillOptEvolver(Evolver):
             st["epoch"], st["buffer"] = epoch, []
         meta = st["meta"].get(str(epoch - 1), "") if p.get("use_meta_skill", True) else ""
         rec = {"step": n, "epoch": epoch}
+        if st["current_skill"] is not None and skill != st["current_skill"]:
+            # The Trainer did not keep the last skill handed back (a failed or stopped step): continue from its own.
+            rec["reconciled"] = True
+            st["current_skill"] = skill
+            st["current_score"] = self._gate_score(*self._validate(ctx, skill, st), skill, p)
 
         with skillopt_model(ctx.tools["llm"], p):
             if st["current_score"] is None:          # SkillOpt's baseline: the initial skill on validation
@@ -145,10 +203,9 @@ class SkillOptEvolver(Evolver):
             success = float(p.get("success_score", 1.0))
             results = [rollout_result(r, r["input"], success) for r in records]
             for r in records:
-                where = scratch / "predictions" / str(r["id"])
-                where.mkdir(parents=True, exist_ok=True)
-                (where / "conversation.json").write_text(json.dumps(
-                    conversation(r, current, int(p.get("obs_chars", 0))), ensure_ascii=False, indent=1))
+                view = conversation(r, current, int(p.get("obs_chars", 0)))
+                write_prediction(scratch / "predictions" / str(r["id"]),
+                                 *(paper_view(*view) if p.get("trajectory_view") == "paper" else view))
             rec["rollout_hard"], rec["rollout_soft"] = compute_score(results)
             # 2. reflect
             env = p.get("prompt_env") or None
@@ -217,6 +274,8 @@ class SkillOptEvolver(Evolver):
                 st["buffer"].append(entry)
             if ctx.progress.is_epoch_end:
                 skill = self._end_epoch(ctx, skill, st, rec)
+        if ctx.cancel is not None and ctx.cancel.is_set():
+            return StepResult("failed", "stopped by the Trainer")
         (ctx.workspace.adapter / name).write_text(skill)
         st["current_skill"] = skill
         rec.update(current_score=st["current_score"], best_score=st["best_score"], best_step=st["best_step"])
@@ -229,6 +288,7 @@ class SkillOptEvolver(Evolver):
 
     def _end_epoch(self, ctx, skill: str, st: dict, rec: dict) -> str:
         """SkillOpt's slow update and meta skill, from rollouts of the previous and this epoch's skill."""
+        from skillopt.evaluation.gate import evaluate_gate
         from skillopt.optimizer.meta_skill import run_meta_skill
         from skillopt.optimizer.slow_update import (extract_slow_update_field, inject_empty_slow_update_field,
                                                     replace_slow_update_field, run_slow_update)
@@ -236,6 +296,8 @@ class SkillOptEvolver(Evolver):
 
         p, epoch = ctx.params, ctx.progress.epoch
         prev = st["epoch_skills"].get(str(epoch - 1))
+        if epoch > 1 and prev is None:
+            rec["epoch_end"] = "no skill recorded for the previous epoch (its last step failed): no slow update or meta skill"
         epoch_last, pairs = skill, None
         if p.get("use_slow_update", True):
             if epoch == 1:
@@ -248,8 +310,22 @@ class SkillOptEvolver(Evolver):
                                        prev_rollout_dir=str(dirs[0]), curr_rollout_dir=str(dirs[1]),
                                        comparison_pairs=pairs)
                 (ctx.workspace.output / "slow_update.json").write_text(json.dumps(slow, ensure_ascii=False, indent=1))
-                if slow and slow.get("slow_update_content"):
-                    # SkillOpt's default: force-accepted into the current skill only; the best skill stays as gated.
+                if slow and slow.get("slow_update_content") and p.get("slow_update_gate", False):
+                    # The paper's protocol: the slow update passes the same validation gate as a step's edits.
+                    candidate = replace_slow_update_field(skill, slow["slow_update_content"])
+                    hard, soft = self._validate(ctx, candidate, st)
+                    gate = evaluate_gate(candidate_skill=candidate, cand_hard=hard, current_skill=skill,
+                                         current_score=st["current_score"], best_skill=st["best_skill"],
+                                         best_score=st["best_score"], best_step=st["best_step"],
+                                         global_step=ctx.progress.step, cand_soft=soft,
+                                         metric=p.get("gate_metric", "hard"),
+                                         mixed_weight=float(p.get("gate_mixed_weight", 0.5)))
+                    skill = gate.current_skill
+                    st.update(current_score=gate.current_score, best_skill=gate.best_skill,
+                              best_score=gate.best_score, best_step=gate.best_step)
+                    rec.update(slow_update=gate.action, slow_update_selection_hard=hard)
+                elif slow and slow.get("slow_update_content"):
+                    # SkillOpt's code default: force-accepted into the current skill only; the best skill stays.
                     skill = replace_slow_update_field(skill, slow["slow_update_content"])
                     st["cache"][skill_hash(skill)] = [st["current_score"], 0.0]
                     rec["slow_update"] = "force_accept"
@@ -284,9 +360,9 @@ class SkillOptEvolver(Evolver):
             adapter = self._write(where / "adapter", ctx, {p.get("file", "ADAPTER.md"): text})
             rows = ctx.tools["run_agent"](task_ids=ids, adapter=str(adapter))["results"]
             for row in rows:
-                d = where / "predictions" / str(row["id"])
-                d.mkdir(parents=True, exist_ok=True)
-                (d / "conversation.json").write_text(json.dumps(conversation(row, where), ensure_ascii=False))
+                view = conversation({**row, "trajectory": row.get("log")}, where, int(p.get("obs_chars", 0)))
+                write_prediction(where / "predictions" / str(row["id"]),
+                                 *(paper_view(*view) if p.get("trajectory_view") == "paper" else view))
             results.append([rollout_result(row, st["tasks"][row["id"]], success) for row in rows])
             dirs.append(where)
         pairs = build_comparison_pairs(results[0], results[1], items, prev_rollout_dir=str(dirs[0]),
@@ -294,7 +370,8 @@ class SkillOptEvolver(Evolver):
         return pairs, results[0], results[1], items, dirs
 
     def finalize(self, ctx) -> FinalResult:
-        """SkillOpt's final pass: score the final skill on validation and promote it if it beats the best."""
+        """The best skill. With promote_final (SkillOpt at 79124b37), the final skill is first scored on validation
+        and promoted if it beats the best; the paper-time code handed back the best skill as is."""
         from skillopt.utils import skill_hash
 
         st = self._load(ctx)
@@ -302,15 +379,18 @@ class SkillOptEvolver(Evolver):
         if st["current_score"] is None:
             return FinalResult(adapter=ctx.workspace.adapter, summary="no SkillOpt step ran; current adapter")
         best, note = st["best_skill"], f"best skill (step {st['best_step']}, validation {st['best_score']:.3f})"
-        if skill_hash(st["current_skill"]) != skill_hash(best):
+        if ctx.params.get("promote_final", True) and skill_hash(st["current_skill"]) != skill_hash(best):
             st["cache"].pop(skill_hash(st["current_skill"]), None)      # a real validation run, as SkillOpt does
-            with skillopt_model(ctx.tools["llm"], ctx.params):
+            try:
                 hard, soft = self._validate(ctx, st["current_skill"], st)
-            score = self._gate_score(hard, soft, st["current_skill"], ctx.params)
-            if score > st["best_score"]:
-                best, note = st["current_skill"], f"final skill, promoted (validation {score:.3f} > {st['best_score']:.3f})"
-                st.update(best_skill=best, best_score=score, best_step="final")
-            self._save(ctx, st)
+            except Exception as exc:                                    # noqa: BLE001 — keep the best skill
+                note += f"; the final skill's validation failed ({type(exc).__name__}: {exc})"
+            else:
+                score = self._gate_score(hard, soft, st["current_skill"], ctx.params)
+                if score > st["best_score"]:
+                    best, note = st["current_skill"], f"final skill, promoted (validation {score:.3f} > {st['best_score']:.3f})"
+                    st.update(best_skill=best, best_score=score, best_step="final")
+                self._save(ctx, st)
         (ctx.workspace.adapter / name).write_text(best)
         return FinalResult(adapter=ctx.workspace.adapter, summary=note)
 

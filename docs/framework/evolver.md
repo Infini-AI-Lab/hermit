@@ -122,7 +122,7 @@ ctx.tools["run_agent"](task_ids=["task-1"], adapter=str(candidate_directory))
 
 Only training or validation IDs are accepted, and the candidate directory must be inside the run directory.
 Omitting `adapter` tests the current working copy. The response contains per-task status, output, judge results,
-cost, and time; this helper does not return full trajectories. Its usage counts toward the run's Evolver budget.
+cost, and time, and for training tasks the path of the run's log; it does not return the trajectories themselves. Its usage counts toward the run's Evolver budget.
 
 The Evolver may also call `check_spec` before returning. The Trainer still makes the acceptance decision from the
 returned files. Passing specification checks does not establish better performance.

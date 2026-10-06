@@ -1,0 +1,56 @@
+# OfficeQA in the SkillOpt paper's setting (arXiv 2605.23904): its 50/24/172 split, oracle pages with file tools, exact
+# match, and its SkillOpt hyperparameters: 4 epochs of batches of 40 (2 steps each), minibatch 8, merge 8, learning
+# rate 4 decaying to 2, validation gate, gated slow update, meta skill. GLM 5.3 Flash acts.
+data:
+  tasks: tasks.jsonl
+  train: splits/train.txt
+  val: splits/val.txt
+  test: splits/test.txt
+  step_size: 40
+  shuffle_seed: 42
+task_info: task-info/
+pipeline:
+  run: pipeline.py:run
+  concurrency: 8
+judge:
+  path: judge.py
+template: prompt-only@1.0
+start_from: seed_adapter       # SkillOpt's initial OfficeQA skill (skillopt/envs/officeqa/skills/initial.md)
+evolver:
+  name: skillopt
+  params:
+    total_steps: 8
+    minibatch_size: 8
+    merge_batch_size: 8
+    analyst_workers: 16
+    learning_rate: 4
+    min_learning_rate: 2
+    lr_scheduler: cosine
+    slow_update_samples: 20
+    slow_update_gate: true        # the paper gates the slow update on validation
+    use_meta_skill: true
+    prompt_env: officeqa
+    trajectory_view: paper        # trajectories as the paper-time analyst saw them
+    promote_final: false          # the paper-time code hands back the best skill as is
+    seed: 42
+llm:                           # the optimizer: GLM 5.3 at medium effort (the paper: GPT-5.5, medium)
+  base_url: https://api.fireworks.ai/inference/v1
+  model: accounts/fireworks/models/glm-5p3
+  api_key_env: FIREWORKS_API_KEY
+  price: {input: 1.40, cached_input: 0.26, output: 4.40}
+  extra_body: {reasoning_effort: medium}
+sandbox:
+  enabled: true
+  network: restricted
+  allow: [https://api.fireworks.ai]
+  read: []
+  env: [FIREWORKS_API_KEY]
+trainer:
+  run_name: paper-skillopt
+  output_dir: runs
+  tree_dir: runs/trees/paper-skillopt       # one adapter tree per run: runs can train side by side
+  epochs: 4
+  budget: {usd: 40, hours: 30}
+  call_timeout_min: 180
+eval:
+  repeats: 3                 # the target samples: three passes over the test questions

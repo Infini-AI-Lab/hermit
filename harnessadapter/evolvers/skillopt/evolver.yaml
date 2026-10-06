@@ -18,9 +18,12 @@ params:
   success_score: 1.0          # a run scoring at least this counts as solved
   use_slow_update: true       # with the meta skill, at an epoch's last step: allow for it in trainer.call_timeout_min
   slow_update_samples: 20     # training tasks run with both epochs' skills
+  slow_update_gate: false     # true: the slow update passes the validation gate too (the paper's protocol)
   use_meta_skill: true
   prompt_env: ""              # officeqa: SkillOpt's OfficeQA analyst prompts; empty: its generic prompts
   obs_chars: 0                # characters of each tool result shown to the analyst; 0: all, as in SkillOpt
+  trajectory_view: full       # paper: clip trajectories and prompts as SkillOpt did for the paper (v0.1.0)
+  promote_final: true         # score the final skill on validation and keep it if it beats the best
   max_tokens: null            # null: SkillOpt's own limit for each call
   temperature: null           # null: the endpoint's default
   seed: 42

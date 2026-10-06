@@ -30,7 +30,7 @@ sandbox:
   allow: []
   read: []                     # more paths the Evolver may read (an allowlist; nothing else is visible)
   env: null                    # environment variables passed to what the Evolver starts; null = all of them
-llm: null                      # optional: {base_url, model, api_key_env, price: {input, cached_input, output}}
+llm: null                      # optional: {base_url, model, api_key_env, price: {input, cached_input, output}, extra_body}
 trainer:
   run_name: null
   output_dir: runs

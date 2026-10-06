@@ -48,12 +48,14 @@ def evaluate(config: Config, adapter: str, *, log=print) -> dict:
     budget = Budget()
     t0 = time.time()
     per_task: dict[str, list[float]] = {t["id"]: [] for t in tests}
+    errors = 0                       # runs the pipeline or judge failed on (scored 0)
     with open(out / "results.jsonl", "w") as f:
         for r in range(1, repeats + 1):
             log(f"eval {label}: repeat {r}/{repeats} on {len(tests)} test tasks")
             for rec in run_tasks(tests, target, pipeline, judge, concurrency=int(d["pipeline"]["concurrency"]),
                                  budget=budget, part="rollout"):
                 per_task[rec["id"]].append(rec["judge"]["score"])
+                errors += rec["status"] != "ok"
                 f.write(json.dumps({"repeat": r, **{k: rec[k] for k in ("id", "status", "error", "output", "judge",
                                     "cost_usd", "wall_s", "api_speed", "tokens", "log")}}, default=str) + "\n")
     scores = [s for v in per_task.values() for s in v]
@@ -62,7 +64,7 @@ def evaluate(config: Config, adapter: str, *, log=print) -> dict:
                "mean_score": sum(scores) / len(scores) if scores else 0.0,
                "solved_once": sum(1 for v in per_task.values() if any(s >= 1.0 for s in v)) / len(tests),
                "cost_usd": spent["usd"]["rollout"] if not spent["unknown_cost_calls"] else None,
-               "unknown_cost_tasks": spent["unknown_cost_calls"], "wall_s": round(time.time() - t0, 1)}
+               "unknown_cost_tasks": spent["unknown_cost_calls"], "errors": errors, "wall_s": round(time.time() - t0, 1)}
     (out / "summary.json").write_text(json.dumps(summary, indent=1))
     if adapter == "final":
         _update_card(Tree(tree_dir), run_name, run_dir, summary)

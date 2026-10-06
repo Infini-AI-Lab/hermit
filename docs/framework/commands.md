@@ -56,7 +56,7 @@ harnessadapter eval --config run.yaml --adapter none          # no harness adapt
 | Data | The test split only |
 | Deployment and scoring | The same pipeline and judge as the training rollouts |
 | Repeats | `eval.repeats`; reports the mean and the share of tasks solved at least once |
-| Records | Per-task score, cost, time and API speed under `<run>/eval/<adapter>/` |
+| Records | Per-task score, cost, time and API speed under `<run>/eval/<adapter>/`; the summary counts runs that errored |
 | `CARD.md` | With the literal `--adapter final` selector, the results are written into the run's final card |
 
 `eval` evaluates exactly what it is given and runs no baseline by itself. A baseline is one more `eval`, run when the

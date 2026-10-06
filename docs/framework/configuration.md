@@ -48,7 +48,7 @@ Use the same run name for training and evaluation. Unknown configuration keys ar
 | `evolver.params` | Parameters layered over that Evolver's defaults. |
 | `evolver.resume` | Request a continued learner session between steps; the Evolver must support it. |
 | `evolver_access` | Additional task resources and tools given to the learner. |
-| `llm` | Optional model endpoint, model ID, key environment variable, and prices for the run's `llm` tool. |
+| `llm` | Optional model endpoint, model ID, key environment variable, prices, and `extra_body` (fields added to every request, such as `reasoning_effort`) for the run's `llm` tool. |
 | `trainer` | Run name and directories, epochs, budgets, checkpoint frequency, and recovery mode. |
 | `eval.repeats` | Repetitions per test task in the separate evaluation command. |
 

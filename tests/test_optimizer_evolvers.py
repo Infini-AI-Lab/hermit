@@ -184,3 +184,37 @@ def test_skillopt_retries_a_cut_off_reply_with_more_room():
         from skillopt.model import chat_optimizer
         text, _ = chat_optimizer("system", "user", max_completion_tokens=100)
     assert text == '{"a": 1}' and asked == [100, 200]
+
+
+def test_run_agent_names_logs_of_training_tasks_only(tmp_path):
+    config = make_run(tmp_path, "gepa", {})
+    (tmp_path / "pipeline.py").write_text(PIPELINE.replace(
+        "return RunOutput(output=answer, messages=messages, cost_usd=0.0, tokens=0)",
+        "log = Path(__file__).parent / 'logs' / f\"{task['id']}.txt\"\n"
+        "    log.parent.mkdir(exist_ok=True)\n"
+        "    log.write_text(answer)\n"
+        "    return RunOutput(output=answer, messages=messages, log=log, cost_usd=0.0, tokens=0)"))
+    trainer = Trainer(config, log=lambda *_: None)
+    trainer._prepare()
+    rows = trainer._run_agent_tool()(task_ids=["t00", "t08"], adapter=str(trainer.run_dir / "root"))["results"]
+    assert rows[0]["log"].endswith("t00.txt") and "log" not in rows[1]          # t00 trains, t08 validates
+
+
+def test_skillopt_reads_skillopt_prediction_files_and_the_paper_view(tmp_path):
+    pytest.importorskip("skillopt")
+    from harnessadapter.evolver.loader import find, load_class
+    import sys
+    module = sys.modules[load_class(find("skillopt")).__module__]
+    log = tmp_path / "log"
+    log.mkdir()
+    entries = [{"role": "user", "content": "Q" * 5000}, {"type": "tool_call", "cmd": "read(x)", "obs": "o" * 3000},
+               {"type": "message", "content": "<answer>1</answer>"}]
+    (log / "conversation.json").write_text(json.dumps(entries))
+    (log / "target_system_prompt.txt").write_text("S" * 5000)
+    (log / "target_user_prompt.txt").write_text("U" * 5000)
+    record = {"trajectory": "log", "judge": {"score": 0.0}, "output": {"answer": "1"}, "status": "ok"}
+    got, system, user = module.conversation(record, tmp_path, obs_chars=1000)
+    assert got[0]["content"] == "Q" * 5000 and len(got[1]["obs"]) < 1100 and len(got) == 3   # passed through
+    view, system, user = module.paper_view(got, system, user)
+    assert len(view) == 1 and len(system) == len(user) == 3000
+    assert "[obs]    " + "o" * 800 + "\n" in view[0]["content"] and "Q" * 501 not in view[0]["content"]
