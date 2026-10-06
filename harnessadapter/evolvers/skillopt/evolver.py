@@ -158,6 +158,12 @@ def skillopt_model(llm, params: dict):
 
 
 class SkillOptEvolver(Evolver):
+    def setup(self, ctx) -> None:
+        try:
+            import skillopt  # noqa: F401
+        except ImportError:
+            raise RuntimeError("the skillopt Evolver needs SkillOpt: pip install -e '.[skillopt]'") from None
+
     def step(self, ctx: StepContext) -> StepResult:
         from skillopt.engine.trainer import _extract_failure_patterns, _format_step_buffer, _normalise_patches
         from skillopt.evaluation.gate import GateResult, evaluate_gate

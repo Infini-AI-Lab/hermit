@@ -64,6 +64,12 @@ def trajectory_text(record: dict, step_dir: Path) -> str:
 
 
 class GEPAEvolver(Evolver):
+    def setup(self, ctx) -> None:
+        try:
+            import gepa  # noqa: F401
+        except ImportError:
+            raise RuntimeError("the gepa Evolver needs the GEPA library: pip install -e '.[gepa]'") from None
+
     def step(self, ctx: StepContext) -> StepResult:
         from gepa.strategies.instruction_proposal import InstructionProposalSignature, parse_proposal
 
@@ -162,6 +168,8 @@ class GEPAEvolver(Evolver):
                         record["outcome"] = (f"accepted as candidate {len(pool) - 1}, validation mean "
                                              f"{_mean(pool[-1]['val']):.3f}")
 
+        if ctx.cancel is not None and ctx.cancel.is_set():
+            return StepResult("failed", "stopped by the Trainer")
         # The next parent, handed back for the next step's rollouts.
         rng = random.Random(int(p.get("seed", 0)) * 100003 + n)
         means = [_mean(c["val"]) for c in pool]
