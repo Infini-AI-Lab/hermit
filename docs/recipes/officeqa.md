@@ -108,5 +108,9 @@ For SkillOpt, install `'.[skillopt]'` and use `skillopt_smoke.yaml`. The smoke c
 few questions; `gepa.yaml` and `skillopt.yaml` train on the 60 training questions and select on the 13 validation
 questions. Outputs are under `examples/officeqa/runs/`, as above; `state/` holds each method's candidates and records.
 
+[`examples/officeqa_paper`](https://github.com/haizhongzheng/MetaHarnessAdapter/tree/main/examples/officeqa_paper)
+runs both in the SkillOpt paper's OfficeQA setting (its split, the questions' source pages, its scorer) and includes
+an adapter trained by each.
+
 For your own task, implement the pipeline and judge described in [Task integration](../framework/task.md). For how
 the components exchange data, continue to [Using and training adapters](../framework/adapter-lifecycle.md).
