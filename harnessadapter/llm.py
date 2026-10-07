@@ -16,9 +16,10 @@ from harnessadapter.evolver.base import Usage
 
 class ChatClient:
     def __init__(self, base_url: str, model: str, *, api_key_env: str | None = None, price: dict | None = None,
-                 timeout: float = 600, max_retries: int = 4):
+                 timeout: float = 600, max_retries: int = 4, extra_body: dict | None = None):
         self.base_url = base_url.rstrip("/")
         self.model = model
+        self.extra_body = dict(extra_body or {})     # sent with every request, e.g. {"reasoning_effort": "medium"}
         self.api_key_env = api_key_env
         self.price = price
         self.timeout = timeout
@@ -35,7 +36,7 @@ class ChatClient:
 
     def chat(self, messages: list[dict], **kwargs) -> tuple[dict, Usage]:
         """POST /chat/completions; returns the response message and this call's usage."""
-        body = {"model": self.model, "messages": messages, **kwargs}
+        body = {"model": self.model, "messages": messages, **self.extra_body, **kwargs}
         headers = {"Content-Type": "application/json"}
         if self.api_key_env:
             key = os.environ.get(self.api_key_env)

@@ -134,7 +134,7 @@ class Trainer:
         self.budget = Budget(**{k: d["trainer"]["budget"].get(k) for k in ("usd", "tokens", "hours")})
         llm = d.get("llm")
         self.llm = ChatClient(llm["base_url"], llm["model"], api_key_env=llm.get("api_key_env"),
-                              price=llm.get("price")) if llm else None
+                              price=llm.get("price"), extra_body=llm.get("extra_body")) if llm else None
         self.warnings = warnings_for(config, val_given=True)
 
     # ---------- setup ----------
@@ -325,11 +325,13 @@ class Trainer:
             results = run_tasks(tasks, target, self.pipeline, self.judge,
                                 concurrency=int(self.config["pipeline"]["concurrency"]), budget=self.budget,
                                 part="evolver")
+            # A training task's run also names its log (the trajectory, when the pipeline keeps one).
             return {"results": [{k: r[k] for k in ("id", "status", "output", "judge", "cost_usd", "wall_s")}
-                                for r in results]}
+                                | ({"log": r["log"]} if r["id"] in allowed["train"] else {}) for r in results]}
         return FunctionTool("run_agent", "Run an adapter (default: your working copy) on training or validation "
-                            "tasks through the task's pipeline and judge; returns outputs and scores. Its cost counts "
-                            "toward the run's budget.", run_agent, source="run",
+                            "tasks through the task's pipeline and judge; returns outputs and scores, and for "
+                            "training tasks the path of each run's log. Its cost counts toward the run's budget.",
+                            run_agent, source="run",
                             input_schema={"type": "object", "required": ["task_ids"], "additionalProperties": False,
                                           "properties": {"task_ids": {"type": "array", "items": {"type": "string"}},
                                                          "adapter": {"type": "string"}}})

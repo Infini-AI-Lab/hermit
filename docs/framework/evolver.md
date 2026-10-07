@@ -92,6 +92,20 @@ accounted for; do not report the same usage again in `StepResult`.
 An exception or wrong return type from `step` is recorded as a failure. Learner-state snapshots are saved with
 completed step records, including failed steps; keeping the previous adapter does not imply rolling back learner state.
 
+## Built-in Evolvers
+
+| `evolver.name` | Method | Needs |
+|---|---|---|
+| `prompt_only` | One model call per step rewrites `ADAPTER.md` from the step's results. | `llm` |
+| `codex`, `claude` | A Codex or Claude Code agent edits the adapter from the learning material. | The agent CLI |
+| `gepa` | [GEPA](https://github.com/gepa-ai/gepa): one iteration per step. It reflects on the step's trajectories, keeps a child that does better on the same tasks, scores it on validation, and hands back the next parent from its Pareto front. | `llm`, `data.val`, `pip install -e '.[gepa]'` |
+| `skillopt` | [SkillOpt](https://github.com/microsoft/SkillOpt): one SkillOpt step per training step. It turns the step's trajectories into a few bounded edits under its learning rate (decaying when `total_steps` is set) and keeps them only if the validation score improves; the slow update and meta skill run at each epoch's end. | `llm`, `data.val`, `pip install -e '.[skillopt]'` |
+
+Change a parameter with `evolver.params` in the run config; each Evolver's `evolver.yaml` under
+`harnessadapter/evolvers/` lists them with their defaults. For `gepa`, `data.step_size` is the reflection minibatch;
+for `skillopt`, it is the batch size and `trainer.epochs` the number of epochs. Both select from candidates they keep
+in `state/`, and `finalize` hands back the one with the best validation score.
+
 ## Interaction with the Trainer
 
 The Trainer first runs tasks using the current adapter, writes their results, and prepares a fresh working copy.
@@ -108,7 +122,7 @@ ctx.tools["run_agent"](task_ids=["task-1"], adapter=str(candidate_directory))
 
 Only training or validation IDs are accepted, and the candidate directory must be inside the run directory.
 Omitting `adapter` tests the current working copy. The response contains per-task status, output, judge results,
-cost, and time; this helper does not return full trajectories. Its usage counts toward the run's Evolver budget.
+cost, and time, and for training tasks the path of the run's log; it does not return the trajectories themselves. Its usage counts toward the run's Evolver budget.
 
 The Evolver may also call `check_spec` before returning. The Trainer still makes the acceptance decision from the
 returned files. Passing specification checks does not establish better performance.
@@ -137,5 +151,4 @@ calling a model or performing optimization:
 
 The [custom Evolver guide](custom-evolver.md) provides its imports, manifest, and an offline end-to-end command.
 
-Built-in selections are `prompt_only`, `codex`, and `claude`. For the exact context and result types, see
-[Python types](custom-evolver.md#python-types). Execution and budget limits are covered in [Trainer](trainer.md#budgets).
+For the exact context and result types, see [Python types](custom-evolver.md#python-types). Execution and budget limits are covered in [Trainer](trainer.md#budgets).

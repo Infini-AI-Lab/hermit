@@ -43,6 +43,7 @@ revision that contains `check`, `train`, and `eval` before following this guide.
 | Inspect an adapter or generate a host workspace | None beyond the package. `deploy` does not start an agent. |
 | Run an adapter in Codex or Claude Code | The chosen host installed and authenticated. |
 | Use `prompt_only` as the learner | A configured chat-completions endpoint, model, and API credentials in `run.yaml`. |
+| Use `gepa` or `skillopt` as the learner | `python -m pip install -e '.[gepa]'` or `'.[skillopt]'`, the same `llm` settings, and a validation split. |
 | Use the `codex` or `claude` Evolver | The corresponding agent CLI, its model access, and a supported execution environment. |
 | Run the OfficeQA example | Prepared OfficeQA corpus and scoring files, plus Fireworks model access; see [OfficeQA](../recipes/officeqa.md). |
 | Run Lean collaboration tools | A Lean/Mathlib environment and the per-agent environment variables described in the template's README. |

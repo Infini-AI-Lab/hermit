@@ -1,0 +1,15 @@
+description: GEPA reflective prompt evolution (gepa-ai/gepa), one GEPA iteration per training step. Reflects with the
+  run's `llm` tool and scores candidates with run_agent on the step's minibatch and the validation tasks.
+class: evolver.py:GEPAEvolver
+needs: [validation_data]
+params:
+  files: [ADAPTER.md]                         # learnable text files, updated in turn
+  candidate_selection_strategy: pareto        # pareto (GEPA's default) or current_best
+  skip_perfect_score: true                    # no reflection when the parent solved the whole minibatch
+  perfect_score: 1.0
+  acceptance_criterion: strict_improvement    # or improvement_or_equal
+  trace_chars: 12000                          # characters of each trajectory shown to the model
+  reflection_prompt_template: ""              # empty: GEPA's default (needs <curr_param> and <side_info>)
+  max_tokens: 32000
+  temperature: null                           # null: the endpoint's default
+  seed: 0
