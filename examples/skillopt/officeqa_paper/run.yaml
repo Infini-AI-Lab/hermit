@@ -2,20 +2,20 @@
 # match, and its SkillOpt hyperparameters: 4 epochs of batches of 40 (2 steps each), minibatch 8, merge 8, learning
 # rate 4 decaying to 2, validation gate, gated slow update, meta skill. GLM 5.3 Flash acts.
 data:
-  tasks: tasks.jsonl
-  train: splits/train.txt
-  val: splits/val.txt
-  test: splits/test.txt
+  tasks: ../../tasks/officeqa_paper/tasks.jsonl
+  train: ../../tasks/officeqa_paper/splits/train.txt
+  val: ../../tasks/officeqa_paper/splits/val.txt
+  test: ../../tasks/officeqa_paper/splits/test.txt
   step_size: 40
   shuffle_seed: 42
-task_info: task-info/
+task_info: ../../tasks/officeqa_paper/task-info/
 pipeline:
-  run: pipeline.py:run
+  run: ../../tasks/officeqa_paper/pipeline.py:run
   concurrency: 8
 judge:
-  path: judge.py
+  path: ../../tasks/officeqa_paper/judge.py
 template: prompt-only@1.0
-start_from: seed_adapter       # SkillOpt's initial OfficeQA skill (skillopt/envs/officeqa/skills/initial.md)
+start_from: ../../tasks/officeqa_paper/seed_adapter  # SkillOpt's initial OfficeQA skill
 evolver:
   name: skillopt
   params:

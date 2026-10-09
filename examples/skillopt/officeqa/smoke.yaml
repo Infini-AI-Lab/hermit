@@ -1,17 +1,17 @@
 # SkillOpt smoke: 4 training questions in 2 epochs of 2 steps (the second epoch runs the slow update and the meta
 # skill), 2 validation questions; eval on 2 test questions.
 data:
-  tasks: tasks.jsonl
-  train: splits/smoke_train.txt
-  val: splits/smoke_val.txt
-  test: splits/smoke_test.txt
+  tasks: ../../tasks/officeqa/tasks.jsonl
+  train: ../../tasks/officeqa/splits/smoke_train.txt
+  val: ../../tasks/officeqa/splits/smoke_val.txt
+  test: ../../tasks/officeqa/splits/smoke_test.txt
   step_size: 2
-task_info: task-info/
+task_info: ../../tasks/officeqa/task-info/
 pipeline:
-  run: pipeline.py:run
+  run: ../../tasks/officeqa/pipeline.py:run
   concurrency: 4
 judge:
-  path: judge.py
+  path: ../../tasks/officeqa/judge.py
 template: prompt-only@1.0
 evolver:
   name: skillopt

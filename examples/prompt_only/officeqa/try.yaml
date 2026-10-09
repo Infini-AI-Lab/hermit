@@ -1,19 +1,18 @@
-# Agent smoke: the Codex AgentEvolver with GLM 5.3 Flash; 4 training questions in 2 steps.
+# Trial: 12 training questions in 3 steps, 1 epoch; eval on 10 test questions.
 data:
-  tasks: tasks.jsonl
-  train: splits/smoke_train.txt
-  test: splits/smoke_test.txt
-  step_size: 2
-task_info: task-info/
+  tasks: ../../tasks/officeqa/tasks.jsonl
+  train: ../../tasks/officeqa/splits/try_train.txt
+  test: ../../tasks/officeqa/splits/try_test.txt
+  step_size: 4
+task_info: ../../tasks/officeqa/task-info/
 pipeline:
-  run: pipeline.py:run
-  concurrency: 4
+  run: ../../tasks/officeqa/pipeline.py:run
+  concurrency: 8
 judge:
-  path: judge.py
+  path: ../../tasks/officeqa/judge.py
 template: prompt-only@1.0
 evolver:
-  name: evolvers/codex_glm
-  resume: true
+  name: prompt_only
 llm:
   base_url: https://api.fireworks.ai/inference/v1
   model: accounts/fireworks/models/glm-5p3-flash
@@ -26,8 +25,8 @@ sandbox:
   read: []                   # an allowlist: the Evolver sees nothing of this machine beyond its workspace and accesses
   env: [FIREWORKS_API_KEY]   # the Codex Evolver reaches GLM with it; nothing else is passed
 trainer:
-  run_name: agent-smoke2
+  run_name: try12
   output_dir: runs
   epochs: 1
-  budget: {usd: 3, hours: 1}
+  budget: {usd: 6, hours: 3}
   call_timeout_min: 15

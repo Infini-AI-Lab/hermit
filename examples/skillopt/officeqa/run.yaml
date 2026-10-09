@@ -1,17 +1,17 @@
 # OfficeQA with the SkillOpt Evolver: 2 epochs of 3 steps of 20 training questions, each update gated on the 13
 # validation questions. GLM 5.3 Flash for acting and optimizing.
 data:
-  tasks: tasks.jsonl
-  train: splits/train.txt
-  val: splits/val.txt
-  test: splits/test.txt
+  tasks: ../../tasks/officeqa/tasks.jsonl
+  train: ../../tasks/officeqa/splits/train.txt
+  val: ../../tasks/officeqa/splits/val.txt
+  test: ../../tasks/officeqa/splits/test.txt
   step_size: 20              # SkillOpt's batch_size
-task_info: task-info/
+task_info: ../../tasks/officeqa/task-info/
 pipeline:
-  run: pipeline.py:run
+  run: ../../tasks/officeqa/pipeline.py:run
   concurrency: 10
 judge:
-  path: judge.py
+  path: ../../tasks/officeqa/judge.py
 template: prompt-only@1.0
 evolver:
   name: skillopt

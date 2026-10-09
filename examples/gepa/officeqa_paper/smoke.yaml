@@ -1,19 +1,19 @@
 # Smoke: 4 training questions in 2 steps, 2 validation questions, 4 test questions.
 data:
-  tasks: tasks.jsonl
-  train: splits/smoke_train.txt
-  val: splits/smoke_val.txt
-  test: splits/smoke_test.txt
+  tasks: ../../tasks/officeqa_paper/tasks.jsonl
+  train: ../../tasks/officeqa_paper/splits/smoke_train.txt
+  val: ../../tasks/officeqa_paper/splits/smoke_val.txt
+  test: ../../tasks/officeqa_paper/splits/smoke_test.txt
   step_size: 2
   shuffle_seed: 42
-task_info: task-info/
+task_info: ../../tasks/officeqa_paper/task-info/
 pipeline:
-  run: pipeline.py:run
+  run: ../../tasks/officeqa_paper/pipeline.py:run
   concurrency: 4
 judge:
-  path: judge.py
+  path: ../../tasks/officeqa_paper/judge.py
 template: prompt-only@1.0
-start_from: seed_adapter       # SkillOpt's initial OfficeQA skill (skillopt/envs/officeqa/skills/initial.md)
+start_from: ../../tasks/officeqa_paper/seed_adapter  # SkillOpt's initial OfficeQA skill
 evolver:
   name: gepa
 llm:                           # the optimizer: GLM 5.3 at medium effort (the paper: GPT-5.5, medium)
