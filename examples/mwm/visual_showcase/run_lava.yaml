@@ -1,0 +1,33 @@
+# Visual showcase, case lava: the GLM MWM learner trains one adapter on this case only. Steps 1-5 are the 5 learning
+# rounds (step k runs the adapter of round k-1: the root W0, which the pipeline runs as arm B, then W1..W4); step 6 is
+# a measurement round that runs W5 and leaves the adapter unchanged. Every round is tagged lava-r5/ckpt-step-N.
+# Arm A (one request, no tools): the same config with
+#   pipeline.run=../../tasks/visual_showcase/pipeline.py:run_direct trainer.run_name=lava-direct
+data:
+  tasks: ../../tasks/visual_showcase/tasks.jsonl
+  train: ../../tasks/visual_showcase/splits/lava.txt
+  test: ../../tasks/visual_showcase/splits/lava-eval.txt  # the alias row lava-eval: the same task under another id
+  step_size: 1
+task_info: ../../tasks/visual_showcase/task-info/lava/
+pipeline:
+  run: ../../tasks/visual_showcase/pipeline.py:run
+  concurrency: 1                      # one run at a time, eval repeats too: runs never share the machine
+judge:
+  path: ../../tasks/visual_showcase/judge.py
+template: template                    # W0, the generic MWM world model
+evolver:
+  name: glm_mwm                       # the Evolver in glm_mwm/
+  params: {rounds: 5}
+sandbox:
+  enabled: false                      # an in-process Evolver, which the sandbox would not confine
+  env: []                             # variables passed to started programs: none, so never the key
+trainer:
+  run_name: lava-r5
+  output_dir: runs
+  tree_dir: runs/trees/lava           # one tree per case: separate adapters, all from the same W0
+  epochs: 6
+  save_freq: {steps: 1, epochs: 1}
+  budget: {usd: 10, hours: 6}         # no token budget: token counts include cached prompt tokens
+  call_timeout_min: 30
+eval:
+  repeats: 3

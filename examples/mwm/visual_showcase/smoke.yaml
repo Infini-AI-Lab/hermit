@@ -1,0 +1,28 @@
+# Visual showcase smoke: case waves, 2 steps. Step 1 runs the root W0 (arm B) and one learner session writes W1;
+# step 2 runs W1 (arm C) as a measurement round (rounds: 1, so no learner call and no edits).
+data:
+  tasks: ../../tasks/visual_showcase/tasks.jsonl
+  train: ../../tasks/visual_showcase/splits/waves.txt
+  test: ../../tasks/visual_showcase/splits/waves-eval.txt
+  step_size: 1
+task_info: ../../tasks/visual_showcase/task-info/waves/
+pipeline:
+  run: ../../tasks/visual_showcase/pipeline.py:run
+  concurrency: 1
+judge:
+  path: ../../tasks/visual_showcase/judge.py
+template: template                    # W0, the generic MWM world model
+evolver:
+  name: glm_mwm                       # the Evolver in glm_mwm/
+  params: {rounds: 1}                 # one learning session; step 2 only measures W1
+sandbox:
+  enabled: false                      # an in-process Evolver, which the sandbox would not confine
+  env: []                             # variables passed to started programs: none, so never the key
+trainer:
+  run_name: visual-smoke
+  output_dir: runs
+  tree_dir: runs/trees/smoke
+  epochs: 2
+  save_freq: {steps: 1, epochs: 1}
+  budget: {usd: 2, hours: 2}
+  call_timeout_min: 30

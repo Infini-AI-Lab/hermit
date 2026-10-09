@@ -1,0 +1,186 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "list_files",
+      "description": "List adapter, evidence, history, scratch, method, environment, or bound validation files.",
+      "parameters": {
+        "properties": {
+          "area": {
+            "title": "Area",
+            "type": "string"
+          }
+        },
+        "required": [
+          "area"
+        ],
+        "type": "object",
+        "title": "list_filesArguments"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "read_file",
+      "description": "Read up to 30,000 characters from a relative file; follow next_offset.",
+      "parameters": {
+        "properties": {
+          "area": {
+            "title": "Area",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "offset": {
+            "default": 0,
+            "title": "Offset",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "area",
+          "path"
+        ],
+        "type": "object",
+        "title": "read_fileArguments"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "read_image",
+      "description": "Display one PNG/JPEG (up to 4 MiB) from an authorized workspace area. For Experience frames, use area=evidence and consult their timestamp manifest. Does not play videos.",
+      "parameters": {
+        "properties": {
+          "area": {
+            "title": "Area",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "area",
+          "path"
+        ],
+        "type": "object",
+        "title": "read_imageArguments"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "write_file",
+      "description": "Create or replace a UTF-8 file in adapter or scratch; evidence is read-only.",
+      "parameters": {
+        "properties": {
+          "area": {
+            "title": "Area",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "content": {
+            "title": "Content",
+            "type": "string"
+          }
+        },
+        "required": [
+          "area",
+          "path",
+          "content"
+        ],
+        "type": "object",
+        "title": "write_fileArguments"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "delete_path",
+      "description": "Delete a file or empty directory in adapter or scratch.",
+      "parameters": {
+        "properties": {
+          "area": {
+            "title": "Area",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "area",
+          "path"
+        ],
+        "type": "object",
+        "title": "delete_pathArguments"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "move_path",
+      "description": "Rename an adapter/scratch path to a destination that does not already exist.",
+      "parameters": {
+        "properties": {
+          "area": {
+            "title": "Area",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "destination": {
+            "title": "Destination",
+            "type": "string"
+          }
+        },
+        "required": [
+          "area",
+          "source",
+          "destination"
+        ],
+        "type": "object",
+        "title": "move_pathArguments"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "validate",
+      "description": "Check candidate declarations and syntax without executing candidate code.",
+      "parameters": {
+        "properties": {},
+        "type": "object",
+        "title": "validateArguments"
+      }
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "get_policy",
+      "description": "Show immutable grants: core read/write, evidence read-only, configured environment reads and network.",
+      "parameters": {
+        "properties": {},
+        "type": "object",
+        "title": "get_policyArguments"
+      }
+    }
+  }
+]

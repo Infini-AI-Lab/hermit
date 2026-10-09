@@ -1,0 +1,31 @@
+{
+  "arm": "harness",
+  "case": "waves",
+  "status": "budget_exhausted",
+  "stop_reason": "maximum requests reached",
+  "finished_utc": "2026-09-20T00:38:12.178403+00:00",
+  "elapsed_seconds": 232.540019,
+  "model_calls": 12,
+  "tool_calls": 12,
+  "within_budget_tool_requests": 12,
+  "over_budget_tool_requests": 0,
+  "inspection_calls": 2,
+  "wm_calls": 0,
+  "usage": {
+    "prompt_tokens": 364848,
+    "completion_tokens": 26542,
+    "cached_tokens": 286720,
+    "reasoning_tokens": 11431
+  },
+  "response_models": [
+    "accounts/fireworks/models/glm-5p3-flash"
+  ],
+  "adapter_context_sha256": null,
+  "submission_sha256": "b47564fe8a407ad55644fa7126c5e47807f91eedef2c1a9d7d0cfa278994b11e",
+  "final_inspected_sha256": "3aba4d12bcfbfa2ab85d7c40ca00ec015def464e5f029cf2691dc4a0575370b3",
+  "final_inspection_matches": false,
+  "valid_submission": true,
+  "extraction": null,
+  "reasoning_saved": false,
+  "last_capture_not_model_feedback": true
+}

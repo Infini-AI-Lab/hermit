@@ -1,0 +1,21 @@
+description: The MWM learner as an in-process Evolver. Each step is one MWM review session of GLM 5.3 Flash on Fireworks
+  (its own client, FIREWORKS_API_KEY) with eight file tools, reading the case's earlier runs (B, C1, ...) and their
+  screenshots as evidence; scores and judge records are never shown.
+class: evolver.py:GlmMwmEvolver
+needs: []
+params:
+  rounds: 5                    # learning sessions; a later step is a measurement round (no model call, no edits)
+  base_url: https://api.fireworks.ai/inference/v1
+  model: accounts/fireworks/models/glm-5p3-flash
+  api_key_env: FIREWORKS_API_KEY
+  price: {input: 0.15, cached_input: 0.03, output: 0.50}   # USD per million tokens
+  max_seconds: 900             # limits of one session, enforced by the Evolver itself
+  max_requests: 64
+  max_tools: 120
+  max_completion: 65536
+  max_response: 32768
+  reply_limit_bytes: 30000     # cap on one file-tool reply ({"result": ...} JSON); null = off
+  # Paths relative to this directory (null = off): the task's cases (the source of evidence/<run>/task.json) and its
+  # optional provider speed gate (speedgate.py: waits only when VISUAL_SPEED_MIN is set).
+  cases_file: ../../../tasks/visual_showcase/cases.json
+  speedgate: ../../../tasks/visual_showcase/speedgate.py

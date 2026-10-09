@@ -1,0 +1,79 @@
+template:
+  id: visual-mwm
+  version: '1.0'
+  contract: '1'
+  name: MWM world model (generic V2 structure, seed W0)
+exports:
+  context: ADAPTER.md
+  tools:
+  - name: wm
+    description: 'The MWM world model: memory, recall, trace, search, read, list,
+      and admitted learned tools through wm(name, args). run requires the framework
+      sandbox; delegate gives native-host guidance.'
+    entrypoint: interface.py:wm
+    input_schema:
+      type: object
+      properties:
+        name:
+          type: string
+        args:
+          type: object
+      required:
+      - name
+      additionalProperties: false
+    output_schema:
+      type: object
+    annotations:
+      readOnlyHint: true
+      destructiveHint: false
+      idempotentHint: true
+      openWorldHint: false
+  - name: context_package
+    description: The five-part MWM knowledge package (host framing, briefing, open
+      questions, memory catalog, how to reach the world model) as interface.context()
+      renders it, for a host that puts it into its system prompt.
+    entrypoint: export.py:context_package
+    input_schema:
+      type: object
+      properties: {}
+      additionalProperties: false
+    output_schema:
+      type: object
+      properties:
+        text:
+          type: string
+      required:
+      - text
+      additionalProperties: false
+structure:
+  learnable:
+  - path: memory/**/*.md
+    format:
+      text: true
+  - path: examples/**/*.md
+    format:
+      text: true
+  - path: consumption/brief.md
+    format:
+      text: true
+      max_bytes: 6000
+  - path: meta/journal.md
+    format:
+      text: true
+  - path: meta/journal-archive.md
+    format:
+      text: true
+  - path: meta/cases/**/*.md
+    format:
+      text: true
+  fixed:
+  - ADAPTER.md
+  - EVOLVER.md
+  - README.md
+  - interface.py
+  - export.py
+  - check.py
+  - mwm_core
+  - tools
+  - agents
+check: check.py:check

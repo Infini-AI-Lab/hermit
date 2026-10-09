@@ -9,3 +9,4 @@ configs in the method folders point here.
 |---|---|---|
 | [`officeqa/`](officeqa/) | OfficeQA: 133 questions about U.S. Treasury Bulletins; a GLM 5.3 Flash agent searches and reads the bulletins; the official strict scorer | `prompt_only`, `codex`, `gepa`, `skillopt` |
 | [`officeqa_paper/`](officeqa_paper/) | OfficeQA Full in the SkillOpt paper's setting: its 50 / 24 / 172 split, each question's source pages, exact match | `gepa`, `skillopt` |
+| [`visual_showcase/`](visual_showcase/) | Visual showcase: a GLM 5.3 Flash agent writes one animated web page (ocean waves, lava lamp or wind-driven silk) and checks it in a real browser; mechanical capture checks and a blind GLM vision rubric | `mwm` |

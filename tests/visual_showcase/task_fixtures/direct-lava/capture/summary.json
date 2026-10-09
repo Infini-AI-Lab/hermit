@@ -1,0 +1,376 @@
+{
+  "schema_version": 1,
+  "case": "lava",
+  "started_utc": "2026-09-20T00:32:39.598Z",
+  "status": "capture_complete",
+  "capture_ok": true,
+  "model_calls": 0,
+  "method": {
+    "desktop": {
+      "width": 1280,
+      "height": 800
+    },
+    "phone": {
+      "width": 390,
+      "height": 844
+    },
+    "device_scale_factor": 1,
+    "requested_desktop_seconds": [
+      0,
+      2,
+      5
+    ],
+    "time_origin": "after ready observation and two browser animation frames; actual elapsed times recorded, not deterministic simulation checkpoints",
+    "allowed_files": [
+      "index.html",
+      "vendor/three.module.min.js",
+      "vendor/three.core.min.js (both host frozen dependencies)"
+    ],
+    "external_requests": "blocked by route plus page CSP",
+    "reduced_motion": "no-preference to observe the requested animation",
+    "interaction": "pause, wait, reset, set intensity to 75% of declared range, run two seconds, capture, keyboard ArrowLeft, restore 75%, phone capture",
+    "no_score": true
+  },
+  "screenshots": [
+    {
+      "id": "desktop-t0",
+      "label": "Desktop, requested t≈0 seconds",
+      "file": "desktop-t0.png",
+      "sha256": "1b61c6ee69d6ed517534c48ebc279ddef646abfb471c8f1698e44ad1d3620324",
+      "bytes": 11702,
+      "elapsed_seconds": 0.004095250000000305,
+      "target_seconds": 0,
+      "viewport": {
+        "width": 1280,
+        "height": 800
+      },
+      "state": {
+        "available": false
+      }
+    },
+    {
+      "id": "desktop-t2",
+      "label": "Desktop, requested t≈2 seconds",
+      "file": "desktop-t2.png",
+      "sha256": "1b61c6ee69d6ed517534c48ebc279ddef646abfb471c8f1698e44ad1d3620324",
+      "bytes": 11702,
+      "elapsed_seconds": 2.0027169160000002,
+      "target_seconds": 2,
+      "viewport": {
+        "width": 1280,
+        "height": 800
+      },
+      "state": {
+        "available": false
+      }
+    },
+    {
+      "id": "desktop-t5",
+      "label": "Desktop, requested t≈5 seconds",
+      "file": "desktop-t5.png",
+      "sha256": "1b61c6ee69d6ed517534c48ebc279ddef646abfb471c8f1698e44ad1d3620324",
+      "bytes": 11702,
+      "elapsed_seconds": 5.002427916,
+      "target_seconds": 5,
+      "viewport": {
+        "width": 1280,
+        "height": 800
+      },
+      "state": {
+        "available": false
+      }
+    },
+    {
+      "id": "desktop-interaction",
+      "label": "About two seconds after reset, intensity set to 75% of its range",
+      "file": "desktop-interaction.png",
+      "sha256": "b67a2b9666b1cd185c994ca46d23c698d3359ab390067b5019d1c109f02a982b",
+      "bytes": 12533,
+      "elapsed_seconds": 8.042066958,
+      "target_seconds": null,
+      "viewport": {
+        "width": 1280,
+        "height": 800
+      },
+      "state": {
+        "available": false
+      }
+    },
+    {
+      "id": "phone",
+      "label": "Phone viewport after the same interaction",
+      "file": "phone.png",
+      "sha256": "e7a7699670b613d60f6ad9e659ee3435293a5c366fa9e1ce08cc199003b506e8",
+      "bytes": 8887,
+      "elapsed_seconds": 8.791736541,
+      "target_seconds": null,
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "state": {
+        "available": false
+      }
+    }
+  ],
+  "diagnostic_images": [
+    {
+      "file": "diagnostic-paused.png",
+      "label": "Actual scene after pause interval",
+      "sha256": "c7cc01229f6d9c93bbc6909a83003f04c962543222f19871822dfaa686df9f54"
+    }
+  ],
+  "observations": {
+    "ready_contract": false,
+    "animation_deltas": [
+      {
+        "from": "desktop-t0",
+        "to": "desktop-t2",
+        "scope": "scene",
+        "comparable": true,
+        "width": 1280,
+        "height": 800,
+        "changed_pixel_fraction": 0,
+        "mean_absolute_rgb_delta": 0,
+        "max_channel_delta": 0,
+        "rule": "fraction of scene pixels with at least one RGB channel changing by more than 2/255; not a quality score"
+      },
+      {
+        "from": "desktop-t2",
+        "to": "desktop-t5",
+        "scope": "scene",
+        "comparable": true,
+        "width": 1280,
+        "height": 800,
+        "changed_pixel_fraction": 0,
+        "mean_absolute_rgb_delta": 0,
+        "max_channel_delta": 0,
+        "rule": "fraction of scene pixels with at least one RGB channel changing by more than 2/255; not a quality score"
+      }
+    ],
+    "controls": {
+      "pause": {
+        "count": 1,
+        "tag": "BUTTON",
+        "type": null,
+        "aria_pressed": "false",
+        "min": null,
+        "max": null,
+        "step": null,
+        "value": ""
+      },
+      "reset": {
+        "count": 1,
+        "tag": "BUTTON",
+        "type": null,
+        "aria_pressed": null,
+        "min": null,
+        "max": null,
+        "step": null,
+        "value": ""
+      },
+      "intensity": {
+        "count": 1,
+        "tag": "INPUT",
+        "type": "range",
+        "aria_pressed": null,
+        "min": "0",
+        "max": "1",
+        "step": "0.01",
+        "value": "0.4"
+      },
+      "scene": {
+        "count": 1,
+        "tag": "CANVAS",
+        "type": null,
+        "aria_pressed": null,
+        "min": null,
+        "max": null,
+        "step": null,
+        "value": null
+      }
+    },
+    "pause": {
+      "before": {
+        "available": false
+      },
+      "after": {
+        "available": false
+      },
+      "aria_pressed": "false",
+      "wait_ms": 500,
+      "scope": "scene",
+      "comparable": true,
+      "width": 1280,
+      "height": 800,
+      "changed_pixel_fraction": 0.000009765625,
+      "mean_absolute_rgb_delta": 0.00003580729166666667,
+      "max_channel_delta": 7,
+      "rule": "fraction of scene pixels with at least one RGB channel changing by more than 2/255; not a quality score"
+    },
+    "reset": {
+      "before": {
+        "available": false
+      },
+      "after": {
+        "available": false
+      },
+      "pause_aria_pressed": "false"
+    },
+    "intensity": {
+      "before": "0.4",
+      "requested_value": 0.75,
+      "dom_value": "0.75",
+      "min": 0,
+      "max": 1,
+      "step": 0.01,
+      "state": {
+        "available": false
+      }
+    },
+    "keyboard": {
+      "key": "ArrowLeft",
+      "before": "0.75",
+      "after": "0.74",
+      "restored": "0.75"
+    },
+    "desktop_layout": {
+      "viewport": {
+        "width": 1280,
+        "height": 800
+      },
+      "document": {
+        "width": 1280,
+        "height": 800
+      },
+      "controls": [
+        {
+          "name": "pause",
+          "present": true,
+          "x": 451.671875,
+          "y": 745,
+          "width": 72.359375,
+          "height": 31,
+          "inside_viewport": true
+        },
+        {
+          "name": "reset",
+          "present": true,
+          "x": 534.03125,
+          "y": 745,
+          "width": 69.671875,
+          "height": 31,
+          "inside_viewport": true
+        },
+        {
+          "name": "intensity",
+          "present": true,
+          "x": 656.328125,
+          "y": 758.5,
+          "width": 170,
+          "height": 4,
+          "inside_viewport": true
+        }
+      ]
+    },
+    "phone_layout": {
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "document": {
+        "width": 390,
+        "height": 844
+      },
+      "controls": [
+        {
+          "name": "pause",
+          "present": true,
+          "x": 60.1796875,
+          "y": 793,
+          "width": 63.109375,
+          "height": 28,
+          "inside_viewport": true
+        },
+        {
+          "name": "reset",
+          "present": true,
+          "x": 130.2890625,
+          "y": 793,
+          "width": 60.625,
+          "height": 28,
+          "inside_viewport": true
+        },
+        {
+          "name": "intensity",
+          "present": true,
+          "x": 237.8203125,
+          "y": 805,
+          "width": 90,
+          "height": 4,
+          "inside_viewport": true
+        }
+      ]
+    },
+    "browser_frame_intervals": {
+      "desktop": {
+        "samples": 726,
+        "median_ms": 16.699999999999818,
+        "p95_ms": 16.700000000000728,
+        "max_ms": 16.80000000000109,
+        "intervals_over_50ms": 0,
+        "measurement": "host requestAnimationFrame cadence; includes screenshots/interactions and is not application FPS"
+      },
+      "whole_capture": {
+        "samples": 770,
+        "median_ms": 16.699999999999818,
+        "p95_ms": 16.700000000000728,
+        "max_ms": 16.80000000000109,
+        "intervals_over_50ms": 0,
+        "measurement": "host requestAnimationFrame cadence; includes screenshots/interactions and is not application FPS"
+      }
+    },
+    "final_state": {
+      "available": false
+    }
+  },
+  "console_errors": [],
+  "page_errors": [
+    "Error: ERROR: 0:11: '=' : dimension mismatch\nERROR: 0:11: '=' : cannot convert from 'const 2-component vector of float' to 'const highp float'\n"
+  ],
+  "blocked_requests": [],
+  "csp_violations": [],
+  "dialogs": [],
+  "capture_errors": [],
+  "limitations": [
+    "Frame differences indicate visible change, not physical correctness, beauty or semantic fidelity.",
+    "Browser requestAnimationFrame intervals are scheduling observations, not proof of application render FPS or GPU throughput.",
+    "getState and DOM control states are application self reports; independent screenshots are retained separately.",
+    "This is restricted browser serving and network routing, not a general-purpose hostile-code sandbox."
+  ],
+  "input": {
+    "index_sha256": "61e59826c3a0ced4e98baee3f2d606458b65e0bc5c500c5ae4031b85179d0c2e",
+    "index_bytes": 19769,
+    "vendor": {
+      "file": "/old-experiment/vendor/three.module.min.js",
+      "sha256": "e2b5ee6bccd38fd6d8a2428546b83c5f2426d84b152ef82be8055556e3b40eb6",
+      "bytes": 338908,
+      "dependencies": [
+        {
+          "file": "/old-experiment/vendor/three.core.min.js",
+          "sha256": "61ba0df005b05991361d040d8ff670e1aadfd0ce7aeebd1fdb0725957a8957de",
+          "bytes": 381124
+        }
+      ]
+    }
+  },
+  "http_audit": [
+    {
+      "path": "/index.html",
+      "status": 200
+    }
+  ],
+  "workspace_unchanged": true,
+  "finished_utc": "2026-09-20T00:32:53.183Z",
+  "elapsed_seconds": 13.584875833
+}

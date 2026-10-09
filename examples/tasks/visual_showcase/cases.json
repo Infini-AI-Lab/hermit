@@ -1,0 +1,166 @@
+{
+  "schema_version": 1,
+  "created_date": "2026-09-19",
+  "language": "English actor prompts; Chinese reader documentation",
+  "purpose": "Three original familiar-task visual development briefs; not GoldieBench reproduction, scientific accuracy, held-out transfer, or a human preference study.",
+  "prompt_is_complete": true,
+  "common_contract": {
+    "submission": "index.html",
+    "dependency_url": "/vendor/three.module.min.js",
+    "dependency_core_url": "/vendor/three.core.min.js",
+    "network": "No external requests",
+    "desktop": [
+      1280,
+      800
+    ],
+    "mobile": [
+      390,
+      844
+    ],
+    "scene_selector": "[data-testid=\"scene\"]",
+    "pause_selector": "button[data-testid=\"pause\"]",
+    "reset_selector": "button[data-testid=\"reset\"]",
+    "intensity_selector": "input[type=\"range\"][data-testid=\"intensity\"]",
+    "intensity": {
+      "min": 0,
+      "max": 1,
+      "step": 0.01,
+      "initial": 0.4,
+      "inspection": 0.75
+    },
+    "diagnostic_api": "window.__SHOWCASE__.getState()",
+    "diagnostic_fields": [
+      "ready",
+      "paused",
+      "simTime",
+      "intensity",
+      "resetCount"
+    ],
+    "reset_behavior": "Restore initial visual state, camera if applicable, simTime and intensity; resume playing; increment resetCount.",
+    "observation": "Actual screenshots near t=0,2,5 seconds, high intensity, mobile, plus pause/reset diagnostics. Self-reported state is not independent visual or physical evidence."
+  },
+  "review_policy": {
+    "kind": "Original qualitative observation rubric",
+    "dimensions_per_case": 5,
+    "automatic_checks": "Runtime, offline loading, visible controls, state diagnostics, scene screenshot changes, pause stability and mobile viewport.",
+    "visual_review": "Assistant judgments tied to actual captures and dimensions; describe strengths and defects with evidence and uncertainty. No forced winner.",
+    "aggregation": "No invented numerical aesthetic score or preference percentage. Keep functional checks separate from visual observations.",
+    "source_relation": "The playable HTML comparison format is inspired by GoldieBench Waves; all briefs and five-dimension rubrics here are original."
+  },
+  "cases": [
+    {
+      "id": "waves",
+      "title_zh": "海浪：可读的起伏与水面光影",
+      "title_en": "Ocean waves",
+      "prompt": "Ocean waves\n\nCreate an evocative animated ocean scene that makes the movement of water immediately understandable. A viewer should see a continuous water surface, overlapping or evolving swells, and highlights or shading that move coherently with that surface. Frame the ocean so depth, scale and the progression of waves are easy to read rather than hidden by an extreme camera angle. The intensity control represents wind or sea strength: increasing it should make the water visibly more energetic while preserving a believable, stable scene.\n\nYou decide whether the mood is calm, dramatic, stylized or realistic. There is no required sunset, vessel, foam technique, camera interaction or numerical solver. Decorative details may support the scene but must not substitute for animated water. Avoid presenting a static gradient with unrelated floating particles as the ocean. Aim for a scene people would enjoy watching for more than a single screenshot.\n\nDeliver exactly one authored file, index.html, that runs offline in the provided browser. Write HTML, CSS and JavaScript inside that file. You may import the supplied local ES module /vendor/three.module.min.js; its matching core module is supplied too. Plain Canvas or WebGL is equally acceptable. Do not request external URLs, fonts, images, libraries, services or other assets. Do not copy an existing demo. Create your own composition; the visual result matters more than any particular rendering technique. Do not claim validated physical accuracy.\n\nMake the animation start automatically and visibly change within the first five seconds. Put its main rendered content inside one element with data-testid=\"scene\", either a canvas or a container. Keep the scene substantial and readable at both 1280×800 and 390×844. Controls must stay visible, legible and usable without covering the main subject or requiring horizontal scrolling. Choose your own palette, lighting, framing and visual style. Extra features are optional; prioritize the core scene.\n\nProvide these visible, labeled controls:\n- A native button with data-testid=\"pause\". Toggle pause/resume; aria-pressed=\"true\" means paused and \"false\" means playing. Pause freezes all scene motion and simulation time.\n- A native button with data-testid=\"reset\". Restore the initial scene, camera if any, simulation time and intensity; resume playing.\n- A native input type=\"range\" with data-testid=\"intensity\", min=\"0\", max=\"1\", step=\"0.01\", and initial value \"0.4\". Increasing intensity must visibly strengthen the specified behavior, not merely change a number. Keep the scene usable across this range.\n\nExpose window.__SHOWCASE__.getState(), returning an object with ready (boolean), paused (boolean), simTime (finite seconds), intensity (number), and resetCount (integer starting at zero and increasing on each reset). Set ready only after the initial scene has rendered. Simulation time progresses while playing and freezes while paused. This API is diagnostic; screenshots and working controls are independently inspected.\n\nYou may use the common browser inspection tool within your allowed budget to inspect and improve your own actual output. The inspector records desktop views near 0, 2 and 5 seconds, a higher-intensity view at 0.75, and a mobile view; it also tests pause and reset. Do not implement special evaluator-only visuals.\n\nThe five visual review dimensions are:\n1. The ocean and its wave forms are immediately recognizable.\n2. Wave motion evolves coherently without distracting popping or flicker.\n3. Lighting or shading reveals surface shape and depth without obscuring it.\n4. Intensity visibly changes sea strength; pause and reset behave correctly.\n5. The composition and controls remain readable on desktop and mobile.",
+      "rubric": [
+        {
+          "id": "surface",
+          "title_zh": "水面与波形可辨",
+          "observation_zh": "主体清楚呈现连续水面；能看出起伏、波脊或波谷，而非只有背景、散点或平面色带。",
+          "observation_en": "The ocean and its wave forms are immediately recognizable."
+        },
+        {
+          "id": "motion",
+          "title_zh": "运动连贯",
+          "observation_zh": "水面起伏随时间连续演化；无明显跳变、闪烁或只靠整体平移伪装运动。",
+          "observation_en": "Wave motion evolves coherently without distracting popping or flicker."
+        },
+        {
+          "id": "light",
+          "title_zh": "光影塑造体积",
+          "observation_zh": "阴影、反射或高光帮助读出水的形状与深度；主体不过曝或暗到难以辨认。",
+          "observation_en": "Lighting or shading reveals surface shape and depth without obscuring it."
+        },
+        {
+          "id": "interaction",
+          "title_zh": "海况变化可见",
+          "observation_zh": "从0.4调到0.75后，波动或风感有清晰可见的增强；暂停和重置可用。",
+          "observation_en": "Intensity visibly changes sea strength; pause and reset behave correctly."
+        },
+        {
+          "id": "composition",
+          "title_zh": "构图与双尺寸可用",
+          "observation_zh": "海面在桌面和手机上均占据清楚可见的主画面；文字、控制和场景层次协调。",
+          "observation_en": "The composition and controls remain readable on desktop and mobile."
+        }
+      ]
+    },
+    {
+      "id": "lava",
+      "title_zh": "熔岩灯：融合、分裂与缓慢浮升",
+      "title_en": "Lava lamp",
+      "prompt": "Lava lamp\n\nCreate a mesmerizing animated lava lamp with a recognizable enclosing vessel and several luminous, soft-edged wax forms suspended inside it. The forms should rise, descend, deform and appear to approach or separate from each other, creating an organic cycle that is interesting to watch. Convey the impression of material moving through a volume rather than a collection of identical bouncing circles. At least some shape evolution should be visible within five seconds. The intensity control represents heating or circulation strength: increasing it should visibly enliven the internal motion while the contents remain inside the vessel.\n\nYou choose the lamp silhouette, palette, surroundings and degree of stylization. Convincing visual merging or separation is welcome, but a physically accurate multiphase solver is not required. Light, glow, transparency or reflections can establish the material without washing out its shapes. Keep the vessel and motion legible at phone size. Decorative labels should not dominate the actual lamp.\n\nDeliver exactly one authored file, index.html, that runs offline in the provided browser. Write HTML, CSS and JavaScript inside that file. You may import the supplied local ES module /vendor/three.module.min.js; its matching core module is supplied too. Plain Canvas or WebGL is equally acceptable. Do not request external URLs, fonts, images, libraries, services or other assets. Do not copy an existing demo. Create your own composition; the visual result matters more than any particular rendering technique. Do not claim validated physical accuracy.\n\nMake the animation start automatically and visibly change within the first five seconds. Put its main rendered content inside one element with data-testid=\"scene\", either a canvas or a container. Keep the scene substantial and readable at both 1280×800 and 390×844. Controls must stay visible, legible and usable without covering the main subject or requiring horizontal scrolling. Choose your own palette, lighting, framing and visual style. Extra features are optional; prioritize the core scene.\n\nProvide these visible, labeled controls:\n- A native button with data-testid=\"pause\". Toggle pause/resume; aria-pressed=\"true\" means paused and \"false\" means playing. Pause freezes all scene motion and simulation time.\n- A native button with data-testid=\"reset\". Restore the initial scene, camera if any, simulation time and intensity; resume playing.\n- A native input type=\"range\" with data-testid=\"intensity\", min=\"0\", max=\"1\", step=\"0.01\", and initial value \"0.4\". Increasing intensity must visibly strengthen the specified behavior, not merely change a number. Keep the scene usable across this range.\n\nExpose window.__SHOWCASE__.getState(), returning an object with ready (boolean), paused (boolean), simTime (finite seconds), intensity (number), and resetCount (integer starting at zero and increasing on each reset). Set ready only after the initial scene has rendered. Simulation time progresses while playing and freezes while paused. This API is diagnostic; screenshots and working controls are independently inspected.\n\nYou may use the common browser inspection tool within your allowed budget to inspect and improve your own actual output. The inspector records desktop views near 0, 2 and 5 seconds, a higher-intensity view at 0.75, and a mobile view; it also tests pause and reset. Do not implement special evaluator-only visuals.\n\nThe five visual review dimensions are:\n1. A readable vessel contains clearly recognizable wax-like forms.\n2. Soft forms visibly deform or interact rather than merely bounce as identical rigid dots.\n3. Rising, returning or circulating motion is continuous and stays inside the vessel.\n4. Intensity visibly changes circulation; pause and reset behave correctly.\n5. Material treatment and framing preserve readable forms and controls on both screen sizes.",
+      "rubric": [
+        {
+          "id": "identity",
+          "title_zh": "灯体与内容物可辨",
+          "observation_zh": "容器和内部蜡状物易于识别；移动物体看起来位于容器内，而不是漂浮在背景上。",
+          "observation_en": "A readable vessel contains clearly recognizable wax-like forms."
+        },
+        {
+          "id": "shape",
+          "title_zh": "有机形变",
+          "observation_zh": "形体不只是相同圆球刚性弹跳；可观察柔和拉伸、收缩、靠近或分离。",
+          "observation_en": "Soft forms visibly deform or interact rather than merely bounce as identical rigid dots."
+        },
+        {
+          "id": "motion",
+          "title_zh": "循环运动自然",
+          "observation_zh": "上升、回落或循环节奏连贯且可读；没有明显越界、瞬移、冻结或突兀闪烁。",
+          "observation_en": "Rising, returning or circulating motion is continuous and stays inside the vessel."
+        },
+        {
+          "id": "interaction",
+          "title_zh": "热度响应可见",
+          "observation_zh": "从0.4调到0.75后内部循环或形变活跃度明显增强；暂停和重置可用。",
+          "observation_en": "Intensity visibly changes circulation; pause and reset behave correctly."
+        },
+        {
+          "id": "presentation",
+          "title_zh": "材质与双尺寸呈现",
+          "observation_zh": "光泽、透明、辉光或配色帮助区分材料而不淹没轮廓；桌面和手机上主体、控件均可读。",
+          "observation_en": "Material treatment and framing preserve readable forms and controls on both screen sizes."
+        }
+      ]
+    },
+    {
+      "id": "silk",
+      "title_zh": "风吹丝绸：柔软褶皱与锚定",
+      "title_en": "Wind-driven silk",
+      "prompt": "Wind-driven silk\n\nCreate an animated piece of silk moving in wind, with a clearly visible support or anchored edge and a free region that billows and ripples. Make the fabric feel light and flexible: folds should travel or change over time, and shading or highlights should help the viewer understand the changing surface. The supported region should remain plausibly attached while the free part moves. The intensity control represents wind strength: increasing it should visibly increase the fabric's response without the sheet exploding, collapsing into a point or leaving the composition.\n\nChoose the fabric's color, weave impression, environment and presentation. A banner, hanging drape or sculptural suspended sheet is acceptable; no particular cloth solver, mesh density or camera interaction is required. Prioritize a coherent surface and appealing motion rather than explanatory overlays. A nonphysical deformation can be appropriate if it convincingly communicates silk responding to wind. Keep the fabric recognizable and the support relationship visible on mobile as well as desktop.\n\nDeliver exactly one authored file, index.html, that runs offline in the provided browser. Write HTML, CSS and JavaScript inside that file. You may import the supplied local ES module /vendor/three.module.min.js; its matching core module is supplied too. Plain Canvas or WebGL is equally acceptable. Do not request external URLs, fonts, images, libraries, services or other assets. Do not copy an existing demo. Create your own composition; the visual result matters more than any particular rendering technique. Do not claim validated physical accuracy.\n\nMake the animation start automatically and visibly change within the first five seconds. Put its main rendered content inside one element with data-testid=\"scene\", either a canvas or a container. Keep the scene substantial and readable at both 1280×800 and 390×844. Controls must stay visible, legible and usable without covering the main subject or requiring horizontal scrolling. Choose your own palette, lighting, framing and visual style. Extra features are optional; prioritize the core scene.\n\nProvide these visible, labeled controls:\n- A native button with data-testid=\"pause\". Toggle pause/resume; aria-pressed=\"true\" means paused and \"false\" means playing. Pause freezes all scene motion and simulation time.\n- A native button with data-testid=\"reset\". Restore the initial scene, camera if any, simulation time and intensity; resume playing.\n- A native input type=\"range\" with data-testid=\"intensity\", min=\"0\", max=\"1\", step=\"0.01\", and initial value \"0.4\". Increasing intensity must visibly strengthen the specified behavior, not merely change a number. Keep the scene usable across this range.\n\nExpose window.__SHOWCASE__.getState(), returning an object with ready (boolean), paused (boolean), simTime (finite seconds), intensity (number), and resetCount (integer starting at zero and increasing on each reset). Set ready only after the initial scene has rendered. Simulation time progresses while playing and freezes while paused. This API is diagnostic; screenshots and working controls are independently inspected.\n\nYou may use the common browser inspection tool within your allowed budget to inspect and improve your own actual output. The inspector records desktop views near 0, 2 and 5 seconds, a higher-intensity view at 0.75, and a mobile view; it also tests pause and reset. Do not implement special evaluator-only visuals.\n\nThe five visual review dimensions are:\n1. A coherent fabric surface and its support or anchored edge are recognizable.\n2. Changing folds, bends or ripples make the surface feel flexible.\n3. Free fabric moves continuously while its supported region stays attached.\n4. Intensity visibly changes the wind response; pause and reset behave correctly.\n5. Shading reveals folds and the complete composition remains usable on desktop and mobile.",
+      "rubric": [
+        {
+          "id": "fabric",
+          "title_zh": "布面与支撑可辨",
+          "observation_zh": "观众能辨认连贯的布面及其固定边或支撑关系；不只是条纹背景或孤立粒子。",
+          "observation_en": "A coherent fabric surface and its support or anchored edge are recognizable."
+        },
+        {
+          "id": "folds",
+          "title_zh": "柔软褶皱可读",
+          "observation_zh": "表面随时间形成可辨认的弯曲、褶皱或涟漪；视觉上具有柔软性。",
+          "observation_en": "Changing folds, bends or ripples make the surface feel flexible."
+        },
+        {
+          "id": "stability",
+          "title_zh": "运动稳定且锚定合理",
+          "observation_zh": "自由区域连续摆动，固定区域保持连接；无明显破碎、爆炸、闪烁或脱离画面。",
+          "observation_en": "Free fabric moves continuously while its supported region stays attached."
+        },
+        {
+          "id": "interaction",
+          "title_zh": "风力响应可见",
+          "observation_zh": "从0.4调到0.75后布面摆动或褶皱活跃度明显增强；暂停和重置可用。",
+          "observation_en": "Intensity visibly changes the wind response; pause and reset behave correctly."
+        },
+        {
+          "id": "presentation",
+          "title_zh": "材质与双尺寸构图",
+          "observation_zh": "明暗、色泽或高光帮助看清褶皱；桌面和手机上保留主要布面、固定关系及可用控件。",
+          "observation_en": "Shading reveals folds and the complete composition remains usable on desktop and mobile."
+        }
+      ]
+    }
+  ]
+}
