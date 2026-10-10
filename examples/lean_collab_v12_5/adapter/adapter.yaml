@@ -1,0 +1,184 @@
+template:
+  id: lean-collab
+  version: '1.0'
+  contract: '1'
+  name: Lean asynchronous collaboration (shared plan, lemma library, channel)
+exports:
+  context: ADAPTER.md
+  tools:
+  - name: check
+    description: 'Compile a Lean file of your workspace against Mathlib (default: Problem.lean) and report every error in
+      full; for Problem.lean also the axioms the target depends on. Use it for every compile instead of a shell command. Every
+      helper lemma that compiles without sorry and without extra axioms (no native_decide) is added to the team library automatically,
+      from Problem.lean and from scratch files alike; a helper of Problem.lean that still has a sorry becomes an open part
+      others can take; a helper that states what the library already has is reported as a duplicate. A Problem.lean whose
+      target proof compiles modulo sorry helpers is a map: it opens phase 2. A part whose proof compiles modulo further sorry
+      helpers is split: those helpers become its sub-parts, listed under it. The reply ends with the phase and what changed
+      in the team since your last call.'
+    entrypoint: collab.py:check
+    input_schema:
+      type: object
+      properties:
+        file:
+          type: string
+          description: A .lean file in your workspace; default Problem.lean
+      required: []
+      additionalProperties: false
+    output_schema:
+      type: object
+    annotations:
+      readOnlyHint: false
+      destructiveHint: false
+      idempotentHint: true
+      openWorldHint: false
+  - name: pull
+    description: Copy a verified library lemma (and the library lemmas it uses) into your Problem.lean, just before the target
+      theorem, so you can use it. Names are listed in the library's index.md and in the `new verified` lines of tool replies.
+    entrypoint: collab.py:pull
+    input_schema:
+      type: object
+      properties:
+        name:
+          type: string
+          description: The lemma's name as listed in the library
+      required:
+      - name
+      additionalProperties: false
+    output_schema:
+      type: object
+    annotations:
+      readOnlyHint: false
+      destructiveHint: false
+      idempotentHint: true
+      openWorldHint: false
+  - name: refute
+    description: Record that an open part or a claim is false, with the evidence (a counterexample, a computation, a reference).
+      The part is marked refuted for everyone.
+    entrypoint: collab.py:refute
+    input_schema:
+      type: object
+      properties:
+        name:
+          type: string
+          description: The subgoal or lemma name
+        evidence:
+          type: string
+          description: Why it is false, at most 600 characters
+      required:
+      - name
+      - evidence
+      additionalProperties: false
+    output_schema:
+      type: object
+    annotations:
+      readOnlyHint: false
+      destructiveHint: false
+      idempotentHint: false
+      openWorldHint: false
+  - name: say
+    description: 'Post a message to the team channel. type is one of idea (a route worth trying), plan (what you are doing
+      next: your route in phase 1, the part you take in phase 2), feedback (your assessment of a lemma, part or message; give
+      its name or id as ref when it is about one), request (what you need from others), note (an attempt report on a part,
+      ref = the part: the approach you tried, what you proved, the goal you could not close — it is shown to whoever takes
+      the part next). At most 5000 characters.'
+    entrypoint: collab.py:say
+    input_schema:
+      type: object
+      properties:
+        type:
+          type: string
+          enum:
+          - idea
+          - plan
+          - feedback
+          - request
+          - note
+        text:
+          type: string
+        ref:
+          type: string
+          description: 'What the message is about: a lemma or part name, or a message id. A plan with ref = the name of an
+            open part claims that part: the team sees you on it.'
+      required:
+      - type
+      - text
+      additionalProperties: false
+    output_schema:
+      type: object
+    annotations:
+      readOnlyHint: false
+      destructiveHint: false
+      idempotentHint: false
+      openWorldHint: false
+  - name: plan
+    description: 'Edit the team''s shared plan, a DAG of sub-problems shown in every reply. action: add (a node: name + statement,
+      in words or in Lean, optional parent), take (claim a node), drop (leave it, with text = what you tried, proved and where
+      it failed), split (children = ''name1: statement1; name2: statement2''), link (put name under parent), assign (agent
+      = who it suits), show. A sorry helper or a verified lemma in any file with a node''s name (or statement) is bound to
+      that node automatically.'
+    entrypoint: collab.py:plan
+    input_schema:
+      type: object
+      properties:
+        action:
+          type: string
+          enum:
+          - add
+          - take
+          - drop
+          - split
+          - link
+          - assign
+          - show
+        name:
+          type: string
+          description: The node
+        statement:
+          type: string
+          description: 'add: what the node claims, in words or as a Lean statement'
+        parent:
+          type: string
+          description: 'add/link: the node this one serves'
+        agent:
+          type: string
+          description: 'assign: A1..A5'
+        text:
+          type: string
+          description: 'drop: the attempt note; take on a hard node: your approach'
+        children:
+          type: string
+          description: 'split: ''name1: statement1; name2: statement2'''
+      required:
+      - action
+      additionalProperties: false
+    output_schema:
+      type: object
+    annotations:
+      readOnlyHint: false
+      destructiveHint: false
+      idempotentHint: false
+      openWorldHint: false
+  reactions:
+    entrypoint: reactions.py:react
+  concurrent_tool_calls: true
+  skills: skills
+structure:
+  learnable:
+  - path: ADAPTER.md
+    format:
+      text: true
+      max_bytes: 60000
+  - path: skills/**
+    format:
+      text: true
+      max_bytes: 40000
+      max_files: 40
+  fixed:
+  - collab.py
+  - assembly.py
+  - reactions.py
+  - EVOLVER.md
+  - README.md
+origin:
+  template: lean-collab
+  version: '1.0'
