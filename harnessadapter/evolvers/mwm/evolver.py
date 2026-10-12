@@ -6,7 +6,8 @@ the native wrapper ran after a block:
 
 1. maintenance on the adapter (journal roll, docket caps, gate advice, memory index; prompt.prepare_session);
 2. one Codex session with the native session prompt (prompt.build_prompt), started in the adapter directory with the
-   native mounts (/evidence, /environment, /skills, /patterns, /world-model), in its own network namespace (only the
+   native mounts (the world model at /w, read-only at /world-model; /evidence, /environment, /skills, /patterns), in
+   its own network namespace (only the
    model meter and a gate onto the venue's channels are forwarded; every session measures it first);
 3. executable admission (prompt.finalize: every tool's own test, failures parked in tools/_rejected/);
 4. the native retry: a session that produced nothing and did not time out is run once more.
@@ -68,6 +69,7 @@ def _load(name: str):
 
 _prompt = _load("prompt")
 
+WORK = "/w"                       # the learner's working directory: the world model, as natively mounted
 EDIT_TIMES = ".mwm/edit_times.json"
 # Contract rules 2 and 3: the wrapper's files and the code that serves the world model. A session that changes any
 # of them is not adopted (the rules say the session is discarded; natively and in the old port it was).
@@ -344,8 +346,10 @@ class MwmEvolver(Evolver):
         codex = shutil.which("codex") or "codex"
         if not shutil.which("bwrap"):
             raise RuntimeError("the mwm Evolver needs bubblewrap (bwrap): the learner runs under the native mount names")
+        # The session's working directory is /w, the native mount of the world model (mwm/cx_session.py), so that
+        # `../evidence` and the other native relative paths resolve; /world-model is the read-only alias, as natively.
         codex_cmd = [codex, "exec", "--json", "--skip-git-repo-check", "--ignore-user-config",
-                     "-s", "danger-full-access", "-C", str(adapter),
+                     "-s", "danger-full-access", "-C", WORK,
                      "-c", f"mcp_servers.evolver_tools.command={json.dumps(tools[0])}",
                      "-c", f"mcp_servers.evolver_tools.args={json.dumps(tools[1:])}",
                      "-c", "mcp_servers.evolver_tools.tool_timeout_sec=1800",
@@ -361,9 +365,9 @@ class MwmEvolver(Evolver):
                   "--ro", f"{evidence}:/evidence", "--ro", f"{environment}:/environment",
                   "--ro", f"{session / 'method' / 'skills'}:/skills",
                   "--ro", f"{session / 'method' / 'patterns'}:/patterns",
-                  "--bind", f"{adapter}:/world-model",
+                  "--bind", f"{adapter}:{WORK}", "--ro", f"{adapter}:/world-model",
                   *[a for path in self._hidden(ctx) for a in ("--hide", str(path))],
-                  "--chdir", str(adapter)]
+                  "--chdir", WORK]
         if net is not None:
             mounts += ["--netns", *[a for port in self._forward_ports(ctx, gate_url)
                                     for a in ("--forward", f"{port}={net / str(port)}")],

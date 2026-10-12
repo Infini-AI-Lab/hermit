@@ -51,7 +51,11 @@ def _call(name, body):
 seen["gate_tools"] = [t["name"] for t in json.loads(urllib.request.urlopen(gate + "/tools", timeout=10).read())]
 seen["echo"] = _call("echo", {"text": "hi"})
 seen["run_agent"] = _call("run_agent", {"task_ids": ["q1"]})
-areas = [cwd.parent / n for n in os.listdir(cwd.parent) if n not in (cwd.name, "agent_home")]
+seen["cwd"] = os.getcwd()
+seen["relative_evidence"] = os.path.exists("../evidence/README.md")
+seen["world_model_ro"] = not os.access("/world-model/memory", os.W_OK)
+ws = Path(os.environ["FAKE_WORKSPACE"])
+areas = [ws / n for n in os.listdir(ws) if n not in ("adapter", "agent_home")] + [ws.parent / "learning_material"]
 import harnessadapter
 repo = Path(harnessadapter.__file__).resolve().parents[1]
 areas += [repo / "examples", repo / "harnessadapter" / "evolvers" / "mwm" / "materials"]
@@ -110,6 +114,7 @@ def make(tmp: Path, monkeypatch, steps: int = 2) -> Path:
     evidence.mkdir(parents=True)
     (evidence / "README.md").write_text("# records\n")
     monkeypatch.setenv("MWM_TEST_EVIDENCE", str(evidence))
+    monkeypatch.setenv("FAKE_WORKSPACE", str((tmp / "runs" / "mwm-test" / "workspace").resolve()))
     rows = [{"id": f"q{i}", "n": i, "block": i} for i in range(1, steps + 1)]
     (tmp / "tasks.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
     (tmp / "train.txt").write_text("".join(f"q{i}\n" for i in range(1, steps + 1)))
@@ -163,6 +168,7 @@ def test_bootstrap_review_mounts_and_records(tmp_path, monkeypatch):
         assert all(seen[k] for k in ("/evidence/README.md", "/environment/README.md", "/skills", "/patterns",
                                      "/world-model/CONTRACT.md")), seen
         assert "block001" in seen["evidence_files"]                 # a review sees the block's records
+        assert seen["cwd"] == "/w" and seen["relative_evidence"] and seen["world_model_ro"]
         assert len(seen["hidden_listing"]) >= 7 and all(v == [] for v in seen["hidden_listing"].values()), seen
     assert "leftover.txt" not in seen["home_entries"]              # a throwaway CODEX_HOME per session
     assert seen["gate_tools"] == ["echo"]                           # only the venue's channels pass the gate
