@@ -1,0 +1,39 @@
+# Smoke: 4 training questions in 2 steps, 2 validation questions, 4 test questions.
+data:
+  tasks: ../../tasks/officeqa_paper/tasks.jsonl
+  train: ../../tasks/officeqa_paper/splits/smoke_train.txt
+  val: ../../tasks/officeqa_paper/splits/smoke_val.txt
+  test: ../../tasks/officeqa_paper/splits/smoke_test.txt
+  step_size: 2
+  shuffle_seed: 42
+task_info: ../../tasks/officeqa_paper/task-info/
+pipeline:
+  run: ../../tasks/officeqa_paper/pipeline.py:run
+  concurrency: 4
+judge:
+  path: ../../tasks/officeqa_paper/judge.py
+template: prompt-only@1.0
+start_from: ../../tasks/officeqa_paper/seed_adapter  # SkillOpt's initial OfficeQA skill
+evolver:
+  name: gepa
+llm:                           # the optimizer: GLM 5.3 at medium effort (the paper: GPT-5.5, medium)
+  base_url: https://api.fireworks.ai/inference/v1
+  model: accounts/fireworks/models/glm-5p3
+  api_key_env: FIREWORKS_API_KEY
+  price: {input: 1.40, cached_input: 0.26, output: 4.40}
+  extra_body: {reasoning_effort: medium}
+sandbox:
+  enabled: true
+  network: restricted
+  allow: [https://api.fireworks.ai]
+  read: []
+  env: [FIREWORKS_API_KEY]
+trainer:
+  run_name: smoke-gepa
+  output_dir: runs
+  tree_dir: runs/trees/smoke-gepa       # one adapter tree per run: runs can train side by side
+  epochs: 1
+  budget: {usd: 5, hours: 3}
+  call_timeout_min: 60
+eval:
+  repeats: 3                 # the target samples: three passes over the test questions

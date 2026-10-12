@@ -7,7 +7,7 @@
 
 **Train harness adapters for existing agents**
 
-[Installation](docs/get-started/installation.md) · [Quick Start](docs/get-started/quickstart.md) · [Overview](docs/framework/overview.md) · [Commands](docs/framework/commands.md) · [Configuration](docs/framework/configuration.md) · [Custom Evolvers](docs/framework/custom-evolver.md) · [OfficeQA recipe](docs/recipes/officeqa.md)
+[Installation](docs/get-started/installation.md) · [Quick Start](docs/get-started/quickstart.md) · [Overview](docs/framework/overview.md) · [Commands](docs/framework/commands.md) · [Configuration](docs/framework/configuration.md) · [Custom Evolvers](docs/framework/custom-evolver.md) · [OfficeQA recipe](docs/recipes/officeqa.md) · [Examples](examples/README.md)
 
 </div>
 
@@ -34,6 +34,7 @@ harnessadapter deploy --adapter <dir> --output <workspace> --host codex
 
 Every adapter is a commit in a git tree rooted at its template; runs are branches, checkpoints and finals are tags,
 and each final adapter carries a `CARD.md`. Built-in templates: `prompt-only@1.0`, `lean-collab@1.0`. Built-in
-Evolvers: `prompt_only`, `codex`, `claude`, `gepa`, `skillopt`.
+Evolvers: `prompt_only`, `codex`, `claude`, `gepa`, `skillopt`; [`examples/`](examples/README.md) has a folder per Evolver
+with its configs for each task.
 
 Tests: `python -m pytest tests` (offline; the sandbox tests need bubblewrap).

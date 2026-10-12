@@ -1,0 +1,34 @@
+# OfficeQA with the GEPA Evolver: one GEPA iteration per step of 3 training questions; candidates are scored on
+# the 13 validation questions. GLM 5.3 Flash for acting and reflecting.
+data:
+  tasks: ../../tasks/officeqa/tasks.jsonl
+  train: ../../tasks/officeqa/splits/train.txt
+  val: ../../tasks/officeqa/splits/val.txt
+  test: ../../tasks/officeqa/splits/test.txt
+  step_size: 3               # GEPA's reflection minibatch
+task_info: ../../tasks/officeqa/task-info/
+pipeline:
+  run: ../../tasks/officeqa/pipeline.py:run
+  concurrency: 10
+judge:
+  path: ../../tasks/officeqa/judge.py
+template: prompt-only@1.0
+evolver:
+  name: gepa
+llm:
+  base_url: https://api.fireworks.ai/inference/v1
+  model: accounts/fireworks/models/glm-5p3-flash
+  api_key_env: FIREWORKS_API_KEY
+  price: {input: 0.15, cached_input: 0.03, output: 0.50}
+sandbox:
+  enabled: true
+  network: restricted
+  allow: [https://api.fireworks.ai]
+  read: []
+  env: [FIREWORKS_API_KEY]
+trainer:
+  run_name: officeqa-gepa
+  output_dir: runs
+  epochs: 1
+  budget: {usd: 30, hours: 12}
+  call_timeout_min: 60

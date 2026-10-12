@@ -1,0 +1,33 @@
+# GEPA smoke: 4 training questions in 2 steps, 2 validation questions; eval on 2 test questions.
+data:
+  tasks: ../../tasks/officeqa/tasks.jsonl
+  train: ../../tasks/officeqa/splits/smoke_train.txt
+  val: ../../tasks/officeqa/splits/smoke_val.txt
+  test: ../../tasks/officeqa/splits/smoke_test.txt
+  step_size: 2
+task_info: ../../tasks/officeqa/task-info/
+pipeline:
+  run: ../../tasks/officeqa/pipeline.py:run
+  concurrency: 4
+judge:
+  path: ../../tasks/officeqa/judge.py
+template: prompt-only@1.0
+evolver:
+  name: gepa
+llm:
+  base_url: https://api.fireworks.ai/inference/v1
+  model: accounts/fireworks/models/glm-5p3-flash
+  api_key_env: FIREWORKS_API_KEY
+  price: {input: 0.15, cached_input: 0.03, output: 0.50}
+sandbox:
+  enabled: true
+  network: restricted
+  allow: [https://api.fireworks.ai]
+  read: []
+  env: [FIREWORKS_API_KEY]
+trainer:
+  run_name: gepa-smoke
+  output_dir: runs
+  epochs: 1
+  budget: {usd: 3, hours: 2}
+  call_timeout_min: 60
