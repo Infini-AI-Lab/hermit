@@ -1,5 +1,0 @@
-germination log — glasshouse 3
-tray batch: TB-2209   grower: HALVERSEN NURSERIES
-cultivar: CV-1188   trays_sown: 48   trays_lost: 2
-loss_noted_at: sowing bench (before the cold frame)
-inspector: R. Alvarez

@@ -1,18 +1,15 @@
 """Visual showcase judge: mechanical capture checks (free, deterministic) plus a GLM vision rubric (paid).
 
-- Mechanical: 12 pass/fail items read from the run's final capture (capture/summary.json) and result.json;
-  mechanical_score = passed / 12. The items are listed in MECHANICAL below.
-- Rubric: GLM 5.3 Flash (the actor's transport settings, its own client) sees the case title, the brief's two
-  description paragraphs, the case's five review dimensions, the five final-capture PNGs (named by capture condition
-  only) and one factual line per mechanical item; it is never told the arm, round or adapter. It returns strict JSON:
-  per dimension an integer 1-5 and one sentence grounded in a named screenshot. rubric_score = mean((s - 1) / 4).
-  One retry on an unusable reply; after that, or on a transport error, rubric_score = null.
+- Mechanical: 12 pass/fail items (see `mechanical`) read from the run's final capture (capture/summary.json) and
+  result.json; mechanical_score = passed / 12.
+- Rubric: GLM 5.3 Flash (the actor's transport settings) sees the case title, the brief's two description paragraphs,
+  the case's five review dimensions, the five final-capture PNGs and one line per mechanical item; it is never told the
+  arm, round or adapter. It returns strict JSON: per dimension an integer 1-5 and one sentence grounded in a named
+  screenshot. rubric_score = mean((s - 1) / 4). One retry on an unusable reply; after that, or on a transport error,
+  rubric_score = null.
 - score = rubric_score, or 0.0 when it is null. VISUAL_JUDGE=mechanical skips the rubric: score = mechanical_score.
-  A null rubric_score is a missing measurement, not a low one: `python judge.py <run log> ...` scores a run again
-  from its saved capture (paid; the previous judge/judge.json is kept beside the new one).
 - feedback is always empty, so nothing reaches the learner. Everything is also written to <run log>/judge/judge.json,
-  which the learner's evidence excludes. The judge's model cost is not metered by the Trainer: it is recorded in
-  extra and judge.json.
+  which the learner's evidence excludes; the rubric's model cost is recorded there, not metered by the Trainer.
 """
 from __future__ import annotations
 
@@ -21,8 +18,6 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
-import sys
-from types import SimpleNamespace
 
 from harnessadapter.llm import ChatClient
 
@@ -39,25 +34,6 @@ MOTION_MIN = 0.001          # changed scene-pixel fraction that counts as visibl
 PAUSE_MAX = 1e-4            # changed scene-pixel fraction over the 500 ms pause interval that still counts as frozen
 INTENSITY_TOLERANCE = 0.005  # half of the slider's 0.01 step
 
-# The mechanical items, in order: name -> what passes. Every item needs the field it reads; a missing field fails.
-MECHANICAL = {
-    "capture_ok": "the final capture took all 5 screenshots (summary.capture_ok)",
-    "valid_submission": "the agent submitted an index.html, not the host's placeholder (result.valid_submission)",
-    "no_page_errors": "the page loaded (observations.ready_contract recorded) and raised no uncaught error (page_errors)",
-    "no_console_errors": "the page loaded and logged no console error (console_errors)",
-    "ready": "getState().ready became true within 4 s of load (observations.ready_contract)",
-    "motion_t0_t2": f"scene changed-pixel fraction desktop-t0 -> desktop-t2 > {MOTION_MIN} (observations.animation_deltas[0])",
-    "motion_t2_t5": f"scene changed-pixel fraction desktop-t2 -> desktop-t5 > {MOTION_MIN} (observations.animation_deltas[1])",
-    "pause_holds": f"after clicking pause, the pause button reports aria-pressed=\"true\" and the scene changed-pixel "
-                   f"fraction over 500 ms <= {PAUSE_MAX} (observations.pause)",
-    "reset_increments": "clicking reset increased getState().resetCount (observations.reset before/after)",
-    "intensity_075": "getState().intensity reads 0.75 (within 0.005) at the desktop-interaction screenshot "
-                     "(screenshots[desktop-interaction].state)",
-    "controls_desktop": "pause, reset and intensity present, non-empty and inside the 1280x800 viewport "
-                        "(observations.desktop_layout)",
-    "controls_phone": "pause, reset and intensity present, non-empty and inside the 390x844 viewport "
-                      "(observations.phone_layout)",
-}
 SCREENSHOTS = {   # name -> capture condition (the only label the rubric model gets)
     "desktop-t0": "desktop 1280x800, about 0 s after the page reported ready, intensity 0.4",
     "desktop-t2": "desktop 1280x800, about 2 s after the first screenshot, intensity 0.4",
@@ -91,7 +67,8 @@ def _first(items: list, limit: int = 200) -> str:
 
 
 def mechanical(summary: dict, result: dict) -> list[dict]:
-    """The MECHANICAL items for one capture summary and result.json, each {item, passed, detail}."""
+    """The 12 pass/fail items of one final capture summary and result.json, in order, each {item, passed, detail}.
+    An item whose field is missing fails."""
     obs = summary.get("observations") or {}
     loaded = "ready_contract" in obs
     shots = {s.get("id"): s for s in summary.get("screenshots") or [] if isinstance(s, dict)}
@@ -155,11 +132,6 @@ def mechanical(summary: dict, result: dict) -> list[dict]:
 def make_client() -> ChatClient:
     """The rubric model's own client: the actor's transport settings (no retries, 420 s per request)."""
     return ChatClient(BASE_URL, MODEL, api_key_env=KEY_ENV, price=PRICE, timeout=REQUEST_TIMEOUT, max_retries=0)
-
-
-def _redact(text: str) -> str:
-    key = os.environ.get(KEY_ENV)
-    return text.replace(key, "[REDACTED]") if key else text
 
 
 def _rubric_like(value) -> bool:
@@ -241,11 +213,12 @@ def rubric(task: dict, capture: Path, items: list[dict], client: ChatClient) -> 
     if not any("base64_characters" in s for s in sent):
         record["errors"].append("no screenshot to judge")
         return record
-    for attempt in range(2):
+    for _ in range(2):
         try:
             message, _ = client.chat(messages, max_tokens=MAX_TOKENS, **SAMPLING)
         except Exception as exc:
-            record["errors"].append(_redact(f"{type(exc).__name__}: {exc}")[:2000])
+            error, key = f"{type(exc).__name__}: {exc}", os.environ.get(KEY_ENV)   # an error body may echo the key
+            record["errors"].append((error.replace(key, "[REDACTED]") if key else error)[:2000])
             return record
         reply = message.get("content") or ""
         record["replies"].append({"content": reply, "finish_reason": message.get("finish_reason")})
@@ -288,10 +261,7 @@ def score(task: dict, output) -> dict:
         rubric_record = rubric(task, log / "capture", items, client)
         rubric_score = rubric_record["rubric_score"]
         value = rubric_score if rubric_score is not None else 0.0
-        t = client.total
-        usage = {"input_tokens": t.input_tokens, "cached_input_tokens": t.cached_input_tokens,
-                 "output_tokens": t.output_tokens, "calls": t.calls}
-        cost = t.cost_usd
+        usage, cost = dict(vars(client.total)), client.total.cost_usd
     extra = {"mechanical": items, "mechanical_score": mechanical_score, "rubric": rubric_record,
              "rubric_score": rubric_score, "judge_usage": usage, "judge_cost_usd": cost, "judge_model": MODEL}
     if log.is_dir():
@@ -300,21 +270,3 @@ def score(task: dict, output) -> dict:
             {"task_id": task.get("id"), "case": task.get("case"), "mode": mode, "score": value,
              "judged_utc": datetime.now(timezone.utc).isoformat(), **extra}, ensure_ascii=False, indent=2) + "\n")
     return {"score": value, "feedback": "", **extra}
-
-
-def rescore(log: Path) -> dict:
-    """Score an existing run log again from its saved capture and result.json (for a run whose rubric failed); the
-    task is the run's case.json, and the previous judge/judge.json is kept as judge/judge-<UTC time>.json."""
-    log = Path(log)
-    task = json.loads((log / "case.json").read_text())
-    previous = log / "judge" / "judge.json"
-    if previous.is_file():
-        previous.rename(previous.with_name(f"judge-{datetime.now(timezone.utc):%Y%m%dT%H%M%S%fZ}.json"))
-    return score(task, SimpleNamespace(log=log, output={}))
-
-
-if __name__ == "__main__":
-    for path in sys.argv[1:]:
-        verdict = rescore(Path(path))
-        print(json.dumps({"log": path, "score": verdict["score"], "rubric_score": verdict["rubric_score"],
-                          "mechanical_score": verdict["mechanical_score"], "judge_cost_usd": verdict["judge_cost_usd"]}))

@@ -1,4 +1,4 @@
-# Visual showcase, case lava: the GLM MWM learner trains one adapter on this case only. Steps 1-5 are the 5 learning
+# Visual showcase, case lava: the MWM learner trains one adapter on this case only. Steps 1-5 are the 5 learning
 # rounds (step k runs the adapter of round k-1: the root W0, which the pipeline runs as arm B, then W1..W4); step 6 is
 # a measurement round that runs W5 and leaves the adapter unchanged. Every round is tagged lava-r5/ckpt-step-N.
 # Arm A (one request, no tools): the same config with
@@ -16,7 +16,7 @@ judge:
   path: ../../tasks/visual_showcase/judge.py
 template: template                    # W0, the generic MWM world model
 evolver:
-  name: glm_mwm                       # the Evolver in glm_mwm/
+  name: mwm                           # the Evolver in mwm/
   params: {rounds: 5}
 sandbox:
   enabled: false                      # an in-process Evolver, which the sandbox would not confine

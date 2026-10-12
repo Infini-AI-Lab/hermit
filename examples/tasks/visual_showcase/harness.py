@@ -1,11 +1,5 @@
-"""The acting agent's small fixed file/browser harness (arms B and C), ported from the 2026-09-19 experiment's
-harness.py; model code runs only in the browser.
-
-Tool schemas, descriptions, budgets, error texts and the image packing are the old ones, byte for byte (a test checks
-the schemas against the old freeze.json). The Three.js files in runtime/ are byte copies; the capturer is the old one
-with the same capture protocol, except that it finds Playwright, pngjs and Chrome on any machine. All are checked
-against their sha256 before use.
-"""
+"""The acting agent's small fixed harness (arms B and C): four file and browser tools, plus the adapter's read-only
+`wm` tool in arm C, and the browser capture. Model code runs only in the browser."""
 from __future__ import annotations
 
 import asyncio
@@ -16,9 +10,7 @@ import json
 import os
 from pathlib import Path
 import re
-import shutil
 import subprocess
-import sys
 import time
 
 from jsonschema import Draft202012Validator
@@ -26,21 +18,10 @@ from jsonschema import Draft202012Validator
 HERE = Path(__file__).resolve().parent
 RUNTIME = HERE / "runtime"
 CAPTURER = RUNTIME / "browser_capture.cjs"
-VENDOR = RUNTIME / "vendor" / "three.module.min.js"
-# node on PATH unless VISUAL_NODE names one. The capturer loads Playwright 1.62.1 and pngjs from runtime/node_modules
-# (npm ci) or from VISUAL_NODE_PATH, and drives the installed Google Chrome unless VISUAL_CHROME names an executable.
-# runtime/package.json pins the module versions and the lowest Node version; check_browser enforces both.
+# Three.js 0.180.0 from npm ci, served to the page as /vendor/three.module.min.js and /vendor/three.core.min.js.
+VENDOR = RUNTIME / "node_modules" / "three" / "build" / "three.module.min.js"
 NODE = os.environ.get("VISUAL_NODE") or "node"
-PACKAGE = RUNTIME / "package.json"
-# Where Playwright's "chrome" channel finds Google Chrome; checked before a run when VISUAL_CHROME is unset.
-CHROME = {"darwin": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-          "linux": "/opt/google/chrome/chrome"}
 CAPTURE_LOCK = Path(os.environ.get("VISUAL_CAPTURE_LOCK") or Path.home() / ".cache" / "visual_showcase" / "capture.lock")
-RUNTIME_SHA256 = {
-    "browser_capture.cjs": "57ef214b42582081f47bbc66fa8f2d788c9a64e9ac1dd0bb870a31f4a1c65bb5",
-    "vendor/three.module.min.js": "e2b5ee6bccd38fd6d8a2428546b83c5f2426d84b152ef82be8055556e3b40eb6",
-    "vendor/three.core.min.js": "61ba0df005b05991361d040d8ff670e1aadfd0ce7aeebd1fdb0725957a8957de",
-}
 MAX_TOOL_CALLS = 24
 MAX_INSPECTIONS = 3
 MAX_FILE_BYTES = 500000
@@ -56,91 +37,6 @@ def save(path, value) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n")
-
-
-def verify_runtime() -> None:
-    """The capturer and the vendor files must be the frozen bytes; raises before anything is run otherwise."""
-    for relative, expected in RUNTIME_SHA256.items():
-        path = RUNTIME / relative
-        if not path.is_file() or sha(path) != expected:
-            raise RuntimeError(f"runtime/{relative} is missing or differs from the frozen bytes")
-
-
-def node_env() -> dict:
-    """The capturer's environment: this one without the key, and NODE_PATH from VISUAL_NODE_PATH when that is set.
-    NODE_PATH entries are made absolute, so check_browser (run in runtime/) and the capture (run in the caller's
-    directory) resolve the same folders."""
-    env = dict(os.environ)
-    env.pop("FIREWORKS_API_KEY", None)
-    paths = os.environ.get("VISUAL_NODE_PATH") or os.environ.get("NODE_PATH")
-    if paths:
-        env["NODE_PATH"] = os.pathsep.join(os.path.abspath(p) for p in paths.split(os.pathsep) if p)
-    return env
-
-
-# Run by node in runtime/, where browser_capture.cjs resolves its modules: each module's version, then the module
-# itself loaded (Playwright checks the Node version only when it is loaded, so it is loaded only on a new enough Node).
-PROBE = """const out = {node: process.versions.node, versions: {}, errors: {}};
-const loadable = Number(process.versions.node.split('.')[0]) >= %d;
-for (const m of ['playwright', 'pngjs']) {
-  try { out.versions[m] = require(m + '/package.json').version; if (loadable) require(m); }
-  catch (e) { out.errors[m] = String((e && e.message) || e).split('\\n')[0].slice(0, 300); }
-}
-console.log(JSON.stringify(out));"""
-
-
-def check_browser() -> dict:
-    """The capture runtime outside this repository: node, the Playwright and pngjs modules as browser_capture.cjs
-    resolves them, and Chrome. Node must be at least, and the modules exactly, what runtime/package.json pins. Raises
-    RuntimeError when one is missing or differs, so a run fails before its first model call; returns the versions
-    found (Chrome's as `chrome --version` prints it, or None), which the pipeline records in request.json."""
-    pinned = json.loads(PACKAGE.read_text())
-    lowest = int(re.search(r"\d+", pinned["engines"]["node"]).group())
-    node = shutil.which(NODE)
-    if node is None:
-        raise RuntimeError(f"the browser capture runtime is missing: node ({NODE}; set VISUAL_NODE)")
-    try:
-        done = subprocess.run([node, "-e", PROBE % lowest], cwd=RUNTIME, env=node_env(), capture_output=True,
-                              text=True, timeout=60)
-        found = json.loads(done.stdout.strip().splitlines()[-1]) if done.returncode == 0 else None
-    except (OSError, subprocess.TimeoutExpired, ValueError, IndexError) as exc:
-        raise RuntimeError(f"the browser capture runtime does not work: node ({node}) failed to run "
-                           f"({type(exc).__name__}: {str(exc)[-300:]})") from None
-    if found is None:
-        raise RuntimeError(f"the browser capture runtime does not work: node ({node}) failed: "
-                           f"{done.stderr.strip()[-300:]}")
-    problems = []
-    if int(found["node"].split(".")[0]) < lowest:
-        problems.append(f"node {found['node']} ({node}); Playwright needs {pinned['engines']['node']}")
-    for module, version in pinned["dependencies"].items():
-        have = found["versions"].get(module)
-        if have is None:
-            problems.append(module)
-        elif have != version:
-            problems.append(f"{module} {have} instead of {version}")
-        elif module in found["errors"]:
-            problems.append(f"{module} {have} does not load: {found['errors'][module]}")
-    chrome = os.environ.get("VISUAL_CHROME") or CHROME.get(sys.platform)
-    if chrome and not Path(chrome).is_file():
-        problems.append(chrome)
-    if problems:
-        raise RuntimeError(f"the browser capture runtime is missing or differs: {problems} (npm ci in runtime/ "
-                           "installs the pinned playwright and pngjs; VISUAL_NODE names another node; VISUAL_CHROME "
-                           "names a Chrome executable)")
-    return {"node": found["node"], **found["versions"], "chrome": chrome_version(chrome)}
-
-
-def chrome_version(chrome) -> str | None:
-    """What `chrome --version` prints, for the run record; None when it cannot be asked."""
-    if not chrome:
-        return None
-    try:
-        done = subprocess.run([chrome, "--version"], capture_output=True, text=True, timeout=30)
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    if done.returncode != 0:
-        return None
-    return done.stdout.strip()[:200] or None
 
 
 def function(name, description, properties, required=()):
@@ -173,15 +69,22 @@ def extract_html(content: str) -> tuple[str, str]:
     raise ValueError("Expected raw HTML or exactly one HTML code fence; no automatic reconstruction")
 
 
+def check_vendor() -> None:
+    """Without Three.js the capturer serves no /vendor/ files and still reports a successful capture."""
+    if not VENDOR.is_file():
+        raise RuntimeError(f"{VENDOR} is missing: run npm ci --prefix examples/tasks/visual_showcase/runtime")
+
+
 def capture(workspace, output, case, timeout=90) -> dict:
     """Run the browser capturer on workspace/index.html into the new directory `output`; returns its summary."""
     workspace, output = Path(workspace), Path(output)
+    check_vendor()
     if output.exists():
         raise ValueError("Capture output must be new")
-    verify_runtime()
-    env = node_env()
-    # One capture at a time on this machine, so runs of different cases in parallel never share the browser and
-    # CPU during a capture (the old campaign ran strictly serially). Waiting counts against the caller's timeout.
+    env = dict(os.environ)
+    env.pop("FIREWORKS_API_KEY", None)       # the key never reaches the browser
+    # One capture at a time on this machine, so parallel runs never share the browser and CPU during a capture.
+    # Waiting counts against the caller's timeout.
     CAPTURE_LOCK.parent.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
     with open(CAPTURE_LOCK, "a") as lock:
@@ -191,7 +94,6 @@ def capture(workspace, output, case, timeout=90) -> dict:
                                  "--case", case, "--vendor", str(VENDOR)],
                                 capture_output=True, text=True, timeout=max(1.0, timeout - waited), env=env)
     output.mkdir(parents=True, exist_ok=True)
-    (output / "capture-lock.json").write_text(json.dumps({"waited_seconds": round(waited, 3)}))
     (output / "controller-stdout.log").write_text(result.stdout)
     (output / "controller-stderr.log").write_text(result.stderr)
     if not (output / "summary.json").exists():
@@ -233,12 +135,8 @@ class Harness:
     `adapter` (arm C only) is a loaded harnessadapter Adapter; its `wm` tool is offered read-only."""
 
     def __init__(self, workspace, run, case, adapter=None):
-        self.workspace, self.run = Path(workspace), Path(run)
-        self.case = case
-        self.adapter = adapter
-        self.inspections = 0
-        self.wm_calls = 0
-        self.calls = 0
+        self.workspace, self.run, self.case, self.adapter = Path(workspace), Path(run), case, adapter
+        self.inspections = self.wm_calls = self.calls = 0
         self.last_inspected_sha = None
         self.tools = list(TOOLS)
         if adapter:

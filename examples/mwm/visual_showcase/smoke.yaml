@@ -13,7 +13,7 @@ judge:
   path: ../../tasks/visual_showcase/judge.py
 template: template                    # W0, the generic MWM world model
 evolver:
-  name: glm_mwm                       # the Evolver in glm_mwm/
+  name: mwm                           # the Evolver in mwm/
   params: {rounds: 1}                 # one learning session; step 2 only measures W1
 sandbox:
   enabled: false                      # an in-process Evolver, which the sandbox would not confine

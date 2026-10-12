@@ -4,14 +4,14 @@
 const fs = require('node:fs'), fsp = fs.promises, path = require('node:path');
 const http = require('node:http'), crypto = require('node:crypto');
 const {performance} = require('node:perf_hooks');
-// Playwright and pngjs resolve from runtime/node_modules (npm ci) or NODE_PATH. The browser is the installed Google
-// Chrome (Playwright channel 'chrome') unless --chrome or VISUAL_CHROME names an executable.
+// Playwright, pngjs and Three.js come from runtime/node_modules (npm ci); Three.js is served as /vendor/. The browser is
+// the installed Google Chrome (Playwright channel 'chrome') unless --chrome or VISUAL_CHROME names an executable.
 const ROOT = __dirname;
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const inside = (root, child) => child === root || child.startsWith(root + path.sep);
 function args(argv) {
-  const out = {vendor:path.join(ROOT,'vendor/three.module.min.js'),chrome:process.env.VISUAL_CHROME||null};
+  const out = {vendor:path.join(ROOT,'node_modules/three/build/three.module.min.js'),chrome:process.env.VISUAL_CHROME||null};
   for(let i=0;i<argv.length;i++) {
     if(argv[i]==='--help'){out.help=true;continue;}
     if(argv[i]==='--record'){out.record=true;continue;}

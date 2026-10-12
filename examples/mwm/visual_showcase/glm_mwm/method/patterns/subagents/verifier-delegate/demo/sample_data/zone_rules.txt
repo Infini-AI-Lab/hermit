@@ -1,6 +1,0 @@
-bench zone rules — assignment by climate class
-temperate -> zone A
-tropical  -> zone C
-alpine    -> zone H
-open benches: A-6, C-4, H-2
-a tray must be benched in the zone its climate class maps to

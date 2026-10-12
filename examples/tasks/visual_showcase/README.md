@@ -22,22 +22,30 @@ completion tokens (32,768 per response).
 
 ## Requirements
 
-On macOS or Linux:
+On macOS or Linux, from the repository root:
 
-- Node 20 or newer, and the capturer's packages (Playwright 1.62.1, pngjs 7.0.0) in `runtime/node_modules`:
+- Node 20 or newer, and the capturer's packages, pinned in `runtime/package.json`: Playwright (drives Chrome), pngjs
+  (compares screenshots) and Three.js 0.180.0 (served to the page under `/vendor/`):
 
   ```bash
   npm ci --prefix examples/tasks/visual_showcase/runtime
   ```
 
-  `VISUAL_NODE` names another `node`, and `VISUAL_NODE_PATH` another folder with these packages.
-- Google Chrome in its standard place, or `VISUAL_CHROME` set to a Chrome executable.
+  `VISUAL_NODE` names another `node`.
+- Google Chrome in its standard place, or `VISUAL_CHROME` set to a Chrome executable. `npm ci` downloads no browser.
 - `FIREWORKS_API_KEY` for the agent and the judge. It is read from the environment only, and removed from the
   browser's environment.
 
-A run checks the browser side first: node's version, the packages' exact versions and Chrome, which it records in
-`request.json`. A failure that every later run would repeat (no key, HTTP 401 or 403, a missing or changed browser
-runtime) stops training; `train` continues from the last completed step once it is fixed.
+Without Three.js a run stops before its first model call. Without Playwright, pngjs or Chrome it still calls the
+model and then fails its captures. To check the browser side first (free, about 30 seconds): `ls` should list the
+Three.js file, and the capture of a blank page should print a line containing `"capture_ok":true`:
+
+```bash
+ls examples/tasks/visual_showcase/runtime/node_modules/three/build/three.module.min.js
+d=$(mktemp -d) && mkdir "$d/page" && echo '<!doctype html><title>check</title>' > "$d/page/index.html"
+node examples/tasks/visual_showcase/runtime/browser_capture.cjs --workspace "$d/page" --output "$d/out" --case waves
+rm -r "$d"
+```
 
 ## Prepare
 
@@ -45,10 +53,8 @@ runtime) stops training; `train` continues from the last completed step once it 
 python examples/tasks/visual_showcase/prepare.py
 ```
 
-This checks `cases.json` and `runtime/` against their frozen sha256, warns when the browser side is missing, and
-writes `tasks.jsonl`, `splits/` and `task-info/` here. Each case has a training split (`splits/waves.txt`) and a test
-split (`splits/waves-eval.txt`, the same brief under the id `waves-eval`). `--check` writes nothing and reports
-whether the files are up to date.
+This writes `tasks.jsonl`, `splits/` and `task-info/` here. Each case has a training split (`splits/waves.txt`) and a
+test split (`splits/waves-eval.txt`, the same brief under the id `waves-eval`).
 
 ## Runs and scores
 
@@ -59,14 +65,8 @@ whether the files are up to date.
   dimensions from its screenshots, without telling it the arm or the adapter (details in its docstring). The score is
   the rubric score, or 0 when it could not be obtained. The judge returns no feedback, the learner's evidence leaves
   out `judge/`, and the rubric's model cost is recorded there, outside the Trainer's budget. `VISUAL_JUDGE=mechanical`
-  scores the mechanical items only.
-- `python examples/tasks/visual_showcase/judge.py <run dir>` scores a saved run again. It calls the model (paid; needs
-  `FIREWORKS_API_KEY`).
-- `VISUAL_SPEED_MIN` (tokens per second) makes each run and learner session wait until the provider is that fast; the
-  waiting counts toward `trainer.budget.hours` and `call_timeout_min` (see `speedgate.py`).
-- `python -m pytest tests/visual_showcase` runs the tests offline with a scripted model; with
-  `VISUAL_REAL_CAPTURE=1`, two more launch Chrome (about 3 minutes).
+  scores the mechanical items only, without a model call.
 
 ## Configs
 
-[`mwm/visual_showcase`](../../mwm/)
+[`mwm/visual_showcase`](../../mwm/).

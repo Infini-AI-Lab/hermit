@@ -26,7 +26,7 @@ examples/
 | [`codex/`](codex/) | `codex` | A Codex agent edits the adapter from the step's learning material | `officeqa` |
 | [`gepa/`](gepa/) | `gepa` | GEPA: reflective text evolution with Pareto selection | `officeqa`, `officeqa_paper` |
 | [`skillopt/`](skillopt/) | `skillopt` | SkillOpt: a few validation-gated skill edits per step, under a learning rate | `officeqa`, `officeqa_paper` |
-| [`mwm/`](mwm/) | `glm_mwm` (in `mwm/visual_showcase/`) | MWM: a GLM learner keeps a world model of the task (briefing, memory, examples) from the screenshots and records of earlier runs | `visual_showcase` |
+| [`mwm/`](mwm/) | `mwm` (in `mwm/visual_showcase/`) | MWM: a learner model keeps a world model of the task (briefing, memory, examples) from the screenshots and records of earlier runs | `visual_showcase` |
 
 ## Other
 

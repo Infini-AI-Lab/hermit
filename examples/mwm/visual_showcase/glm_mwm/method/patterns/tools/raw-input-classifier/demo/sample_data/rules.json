@@ -1,5 +1,0 @@
-{
-  "bench_zones": {"Z1": "Cool", "Z2": "Warm", "Z3": "Misting"},
-  "zone_caps": {"Cool": 100, "Warm": 250, "Misting": 500},
-  "conditions": ["OK", "WILTED", "PARTIAL"]
-}
