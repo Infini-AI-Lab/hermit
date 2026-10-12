@@ -1,4 +1,4 @@
-"""harnessadapter check | train | eval | deploy"""
+"""harnessadapter check | train | eval | deploy | convert"""
 from __future__ import annotations
 
 import argparse
@@ -24,7 +24,26 @@ def main(argv=None) -> int:
     dep.add_argument("--output", type=Path, required=True)
     dep.add_argument("--host", choices=["codex", "claude-code"], default="codex")
     dep.add_argument("--python", default=sys.executable)
+    con = sub.add_parser("convert", help="convert an adapter into a host's installable form")
+    con.add_argument("--adapter", type=Path, required=True)
+    con.add_argument("--output", type=Path, required=True)
+    con.add_argument("--target", choices=["claude-code", "codex", "pi", "hermes"], required=True,
+                     help="claude-code and codex install the same artifact")
+    con.add_argument("--allow-lossy", action="store_true",
+                     help="emit the artifact even though the target cannot represent some exports")
+    con.add_argument("--python", default=sys.executable)
     args = parser.parse_args(argv)
+
+    if args.command == "convert":
+        from harnessadapter.plugins import Unsupported, build
+        try:
+            result = build(args.target, args.adapter, args.output, str(Path(args.python).absolute()),
+                           allow_lossy=args.allow_lossy)
+        except Unsupported as error:
+            print(f"error: {error}", file=sys.stderr)
+            return 2
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
 
     if args.command == "deploy":
         if args.host == "codex":

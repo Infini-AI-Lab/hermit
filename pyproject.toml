@@ -26,6 +26,8 @@ skillopt = ["skillopt @ git+https://github.com/microsoft/SkillOpt@79124b37e9a637
 
 [project.scripts]
 harnessadapter = "harnessadapter.cli:main"
+# A converted plugin names this script instead of an interpreter path, so the host resolves it on PATH.
+harnessadapter-mcp = "harnessadapter.runtime.mcp_server:main"
 
 [tool.setuptools.packages.find]
 include = ["harnessadapter*"]

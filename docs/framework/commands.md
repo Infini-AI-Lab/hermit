@@ -6,6 +6,7 @@
 | `harnessadapter train --config run.yaml` | Run the Trainer |
 | `harnessadapter eval --config run.yaml --adapter ...` | Evaluate one adapter on the test split |
 | `harnessadapter deploy --adapter DIR --output WORKSPACE --host codex` | Generate a host workspace from an adapter |
+| `harnessadapter convert --adapter DIR --output ART --target claude-code` | Emit the installable form of a host |
 
 The first three accept `key=value` overrides after the config (see [Configuration](configuration.md)).
 
@@ -75,9 +76,59 @@ agent. It is the per-project way to use an adapter; the per-agent way, `convert`
 [What is a harness adapter?](what-is-a-harness-adapter.md#two-ways-to-use-an-adapter). The output must be an empty directory or a workspace previously generated for the same host, separate from
 the adapter directory. See the [file mapping](adapter.md#acting-interface) for exact paths and update behavior.
 
+## convert
+
+```bash
+harnessadapter convert --adapter DIR --output ART --target claude-code   # same artifact installs in Codex
+harnessadapter convert --adapter DIR --output ART --target codex
+harnessadapter convert --adapter DIR --output ART --target pi
+harnessadapter convert --adapter DIR --output ART --target hermes
+```
+
+`deploy` prepares a workspace you work in; `convert` emits an artifact you install, so it is available in every
+project rather than one directory. The adapter is copied inside the artifact, and the MCP server is named as the
+`harnessadapter-mcp` console script rather than an interpreter path, so nothing points at the machine that
+produced it.
+
+### What each target gets
+
+| Target | Form | Install |
+|---|---|---|
+| Claude Code | `.claude-plugin/` marketplace + plugin | `claude plugin marketplace add ART` then `claude plugin install ID@ID-adapters` |
+| Codex | the same directory | `codex plugin marketplace add ART` then `codex plugin add ID@ID-adapters` |
+| Pi | `package.json` + conventional directories | `pi install ART` |
+| Hermes | a `.claude` tree for the importer | `hermes import-agent claude-code --source ART/.claude` |
+
+### What does not survive, and why
+
+- **The context is not a context.** A plugin's component types are skills, agents, hooks, MCP and LSP servers;
+  none of them add to `CLAUDE.md` or `AGENTS.md`. The adapter's context is therefore shipped as the skill
+  `<id>-context`, which is loaded when its description matches rather than being present in every turn. The
+  result reports this as `context_as`. Hermes is the exception: its importer turns `CLAUDE.md` into memory
+  entries, which are always present, so there `context_as` is `memory:CLAUDE.md`.
+- **Roles reach Claude Code only.** A Codex plugin carries skills and MCP servers; Pi's subagents are a
+  third-party extension; `hermes import-agent` ignores `agents/` without reporting it as skipped. Converting an
+  adapter that exports roles to those targets fails rather than shipping silently without them. `--allow-lossy`
+  emits the artifact anyway, and the result lists what was left out under `omitted`.
+- **Only the Claude Code entry is relocatable.** Claude Code expands `${CLAUDE_PLUGIN_ROOT}` in the MCP config
+  and exports it to the server it spawns. Codex expands nothing and resolves nothing -- a relative command,
+  `./cmd` and `${CODEX_PLUGIN_ROOT}` are all passed through literally, and the server is spawned with the user's
+  working directory -- so its entry holds an absolute path and moving the artifact requires converting again.
+  The result reports this under `relocatable`.
+- **Pi installs the tools separately.** Pi reads MCP servers from `~/.pi/agent/mcp.json` or a project's
+  `.pi/mcp.json`, never from a package. The entry is written to `mcp.json` in the artifact and the exact
+  `pi mcp add` command is in its README.
+
+### Checking the result
+
+`claude mcp list`, `codex mcp list` and `pi mcp list` each show whether the server starts; `pi mcp list` exits
+non-zero when it fails. `hermes import-agent --dry-run` prints what the import would write without writing it.
+
 ## Implementation notes
 
 - `check` also verifies that every `sandbox.read` path exists. It does not check the pipeline's host: adapters are meant to
   be usable by any acting agent, and each pipeline deploys the exports (context, tools, roles, skills) in its own way.
 - `harnessadapter deploy --adapter DIR --output WORKSPACE --host codex|claude-code` deploys an adapter's exports into
   a host workspace (context block, MCP tools, native roles, skills).
+- `harnessadapter convert --adapter DIR --output ART --target ...` emits the installable form instead, and exits 2
+  with the reason when the target cannot represent an export.
