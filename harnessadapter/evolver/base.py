@@ -98,6 +98,12 @@ class Evolver(ABC):
     def setup(self, ctx: Context) -> None:
         """Optional: before the first step (for example, initialise Training State)."""
 
+    def bootstrap(self, ctx: StepContext) -> StepResult | None:
+        """Optional: change the starting adapter once, before the first rollouts of a fresh run (for example, a
+        learner session that reads the task's public information). The Trainer checks and commits the result as
+        step 0. Not overridden (or returning None): no bootstrap."""
+        return None
+
     @abstractmethod
     def step(self, ctx: StepContext) -> StepResult:
         """Read the learning material and change the adapter in ctx.workspace.adapter (or leave it)."""

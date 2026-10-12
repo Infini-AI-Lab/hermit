@@ -41,6 +41,7 @@ sections below describe them.
 ```python
 adapter = start_from or template
 evolver.setup()
+adapter = commit(evolver.bootstrap(adapter))                          # optional: step 0, before any rollout
 
 for epoch in range(epochs):
     for tasks in batches(shuffle(train), step_size):
@@ -132,7 +133,8 @@ be selected as a starting adapter. Repair establishes specification conformance;
 
 ## Lifecycle and state
 
-On a fresh run the Trainer calls `setup`, then processes batches through `step`. At normal completion, allowed
+On a fresh run the Trainer calls `setup`, then `bootstrap` when the Evolver defines it (recorded as step 0 and
+tagged `<run>/bootstrap`; a resumed run does not repeat it), then processes batches through `step`. At normal completion, allowed
 early stop, or a handled budget stop, it calls `finalize`. An unhandled process crash does not guarantee finalization.
 
 The default finalization returns the current adapter. A custom Evolver can select another candidate, which is
@@ -140,7 +142,8 @@ collected and checked. `final` means this selection, not an automatically chosen
 Final evaluation is a separate command.
 
 An epoch is one pass over the training split. Each step takes up to `data.step_size` tasks; the order is reshuffled
-deterministically for each epoch. The last batch can be smaller. Validation tasks are offered to the Evolver rather
+deterministically for each epoch, or kept as the split file gives it when `data.shuffle` is false (an ordered
+stream, such as a continual-learning sequence). The last batch can be smaller. Validation tasks are offered to the Evolver rather
 than included in the Trainer's training batches. Test tasks are reserved for `eval`.
 
 ### Resuming after a crash

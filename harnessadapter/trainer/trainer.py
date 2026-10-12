@@ -27,7 +27,7 @@ import yaml
 
 from harnessadapter.adapter.manifest import MANIFEST, files_of, read_manifest
 from harnessadapter.config import Config
-from harnessadapter.evolver.base import (Access, Context, FinalResult, Progress, StepContext, StepResult, Usage,
+from harnessadapter.evolver.base import (Access, Context, Evolver, FinalResult, Progress, StepContext, StepResult, Usage,
                                          Workspace)
 from harnessadapter.evolver.loader import find, instantiate
 from harnessadapter.llm import ChatClient
@@ -236,23 +236,27 @@ class Trainer:
         else:
             self.material.truncate(0)     # leftovers of a step that never completed
         last_feedback = done[-1].get("check_feedback_next") if done else None
-        self._last_rollout_commit = done[-1]["parent"] if done else None
+        self._last_rollout_commit = done[-1]["parent"] if done and not done[-1].get("bootstrap") else None
         ctx = self._context()
         if not done:
             box, stopped, _ = self._call("setup", lambda: self.evolver.setup(ctx), progress=None,
                                          timeout_s=float(d["trainer"]["call_timeout_min"]) * 60)
             if "error" in box or stopped:
                 raise SystemExit(f"the Evolver's setup failed: {box.get('error') or stopped}")
+        step = done[-1]["step"] if done else 0
+        session = done[-1].get("session") if done else None
+        if not done and type(self.evolver).bootstrap is not Evolver.bootstrap:
+            record = self._bootstrap()
+            session = record.get("session") or session
         step_size = int(d["data"]["step_size"])
         train_ids = list(self.data.splits["train"])
         epochs = int(d["trainer"]["epochs"])
-        step = done[-1]["step"] if done else 0
-        session = done[-1].get("session") if done else None
         stop_reason = None
         try:
             for epoch in range(1, epochs + 1):
                 order = list(train_ids)
-                random.Random(int(d["data"]["shuffle_seed"]) + epoch).shuffle(order)
+                if d["data"]["shuffle"]:
+                    random.Random(int(d["data"]["shuffle_seed"]) + epoch).shuffle(order)
                 chunks = [order[i:i + step_size] for i in range(0, len(order), step_size)]
                 for index, chunk in enumerate(chunks):
                     number = (epoch - 1) * len(chunks) + index + 1
@@ -400,8 +404,24 @@ class Trainer:
         self._last_rollout_commit = parent
         # 3. material.
         self.material.write(n, progress.epoch, parent, changed_since_last, results, feedback)
-        # 4. workspace.
-        self.tree.export(parent, self.ws.adapter)
+        return self._evolve("step", progress, parent, chunk, results, rollout_s, session)
+
+    def _bootstrap(self) -> dict:
+        """Step 0 of a fresh run: the Evolver's bootstrap on the starting adapter, before any rollout."""
+        self.budget.check()
+        self.log("step 0: bootstrap (no rollouts)")
+        record = self._evolve("bootstrap", Progress(0, 0, False), Tree.head(self.checkout), [], [], 0.0, None)
+        if record["changed"]:
+            self.tree.tag(f"{self.run_name}/bootstrap", record["commit"], force=True)
+        return record
+
+    def _evolve(self, what: str, progress: Progress, parent: str, chunk: list[str], results: list[dict],
+                rollout_s: float, session: str | None) -> dict:
+        """One Evolver call (`step` or `bootstrap`) on a fresh workspace, then check, repair, commit and record."""
+        d = self.config.data
+        n = progress.step
+        # 4. workspace: the Evolver's copy carries the adapter's git history (the rollouts' copy does not).
+        self.tree.export(parent, self.ws.adapter, history=True)
         self.tree.history_view(parent, self.ws.history)
         _fresh(self.ws.scratch)
         _fresh(self.ws.output)
@@ -415,12 +435,13 @@ class Trainer:
                               message=self._message(progress, tools) + f"Tool endpoint (HTTP): {server.url}\n",
                               sandbox=self.sandbox, cancel=cancel, tool_url=server.url, progress=progress,
                               session=session if d["evolver"]["resume"] else None)
-            box, stopped, alive = self._call("step", lambda: self.evolver.step(ctx), progress=progress,
+            method = self.evolver.bootstrap if what == "bootstrap" else self.evolver.step
+            box, stopped, alive = self._call(what, lambda: method(ctx), progress=progress,
                                              timeout_s=float(d["trainer"]["call_timeout_min"]) * 60, cancel=cancel)
         evolver_s = time.time() - e0
         result: StepResult
         if "error" in box:
-            result = StepResult("failed", f"step raised {type(box['error']).__name__}: {box['error']}")
+            result = StepResult("failed", f"{what} raised {type(box['error']).__name__}: {box['error']}")
         elif stopped:
             result = box.get("value") or StepResult("failed", f"stopped by the Trainer ({stopped})")
             if stopped.startswith("budget"):
@@ -428,20 +449,23 @@ class Trainer:
             result = StepResult("failed", f"stopped by the Trainer ({stopped})", usage=result.usage)
         else:
             result = box.get("value")
-            if not isinstance(result, StepResult):
-                result = StepResult("failed", f"step returned {type(result).__name__}, not StepResult")
+            if result is None and what == "bootstrap":
+                result = StepResult("done", "no bootstrap")
+            elif not isinstance(result, StepResult):
+                result = StepResult("failed", f"{what} returned {type(result).__name__}, not StepResult")
         for usage in result.usage:
             if not isinstance(usage, Usage):
                 usage = Usage(**usage)
             self.budget.add("evolver", usage)
         # 6–7. check, repair, commit.
-        commits, repaired, check = self._commit_step(progress, result, parent)
+        commits, repaired, check = self._commit_step(progress, result, parent,
+                                                     label="bootstrap (step 0)" if what == "bootstrap" else None)
         # 8. record.
         step_dir = self.run_dir / f"step_{n:04d}"
         _copy_dir(self.ws.output, step_dir / "output")
         _copy_dir(self.ws.state, step_dir / "state")
         (step_dir / "step_result.json").write_text(json.dumps(asdict(result), indent=1, default=str))
-        record = {"step": n, "epoch": progress.epoch, "tasks": chunk,
+        record = {"step": n, "epoch": progress.epoch, "tasks": chunk, **({"bootstrap": True} if what == "bootstrap" else {}),
                   "rollout": {"mean_score": _mean([r["judge"]["score"] for r in results]),
                               "scores": {r["id"]: r["judge"]["score"] for r in results},
                               "cost_usd": _sum([r["cost_usd"] for r in results]),
@@ -518,7 +542,7 @@ class Trainer:
         d = self.config.data
         self.log(f"finishing: {reason}")
         head = Tree.head(self.checkout)
-        self.tree.export(head, self.ws.adapter)
+        self.tree.export(head, self.ws.adapter, history=True)
         ctx = self._context()
         box, stopped, _ = self._call("finalize", lambda: self.evolver.finalize(ctx), progress=None,
                                      timeout_s=float(d["trainer"]["call_timeout_min"]) * 60)
@@ -539,7 +563,8 @@ class Trainer:
         self.tree.export(Tree.head(self.checkout), self.ws.adapter)
         text = card.render(template=self.template, run_name=self.run_name, parent=self.start_commit,
                            evolver=self.spec.name, task=str(d["task_info"] or d["data"]["tasks"]),
-                           epochs_done=steps[-1]["epoch"] if steps else 0, steps_done=len(steps),
+                           epochs_done=steps[-1]["epoch"] if steps else 0,
+                           steps_done=sum(1 for s in steps if not s.get("bootstrap")),
                            budget=self.budget.snapshot(), settings={
                                "sandbox": d["sandbox"], "evolver_access": d["evolver_access"],
                                "validation_given": bool(d["data"].get("val"))},
@@ -551,7 +576,8 @@ class Trainer:
         self.tree.tag(f"{self.run_name}/final", final_commit, force=True)
         summary = {"run": self.run_name, "stop_reason": reason, "final_commit": final_commit,
                    "final_tag": f"{self.run_name}/final", "tree": str(self.tree.repo), "branch": self.branch,
-                   "steps": len(steps), "spending": self.budget.snapshot(),
+                   "steps": sum(1 for s in steps if not s.get("bootstrap")),
+                   "bootstrap": any(s.get("bootstrap") for s in steps), "spending": self.budget.snapshot(),
                    "checkpoints": self._tags(prefix=f"{self.run_name}/ckpt-"), "finalize": note,
                    "warnings": self.warnings}
         (self.run_dir / "summary.json").write_text(json.dumps(summary, indent=1))

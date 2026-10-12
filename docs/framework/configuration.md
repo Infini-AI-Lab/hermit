@@ -37,7 +37,7 @@ Use the same run name for training and evaluation. Unknown configuration keys ar
 
 | Section | Meaning |
 |---|---|
-| `data` | Task JSONL file, split files, tasks per step, and shuffle seed. |
+| `data` | Task JSONL file, split files, tasks per step, whether to shuffle the train split (`shuffle`, default true), and shuffle seed. |
 | `task_info` | Directory explaining the task and objective to the learner. |
 | `pipeline.run` | `file.py:function` or `package.module:function`, called as `run(task, adapter)`. |
 | `pipeline.concurrency` | Maximum concurrent task executions during rollout and evaluation. |

@@ -89,6 +89,8 @@ class Config:
             raise ValueError("evolver.name is required")
         if d["sandbox"]["network"] not in ("none", "open", "restricted"):
             raise ValueError("sandbox.network must be none, open or restricted")
+        if not isinstance(d["data"]["shuffle"], bool):
+            raise ValueError("data.shuffle must be true or false")
         if int(d["data"]["step_size"]) < 1 or int(d["trainer"]["epochs"]) < 1:
             raise ValueError("data.step_size and trainer.epochs must be positive")
         if d["trainer"]["run_name"] and not re.fullmatch(r"[A-Za-z0-9][\w.-]{0,80}", str(d["trainer"]["run_name"])):

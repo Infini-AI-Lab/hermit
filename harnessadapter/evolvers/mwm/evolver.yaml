@@ -1,0 +1,16 @@
+description: The MetaWorld Model learner (MWM V2 default, docket on, hypothesis off). One Codex session per block
+  with the native contract, agenda, skills, patterns and maintenance; reads the task's evidence store at /evidence.
+class: evolver.py:MwmEvolver
+needs: [environment]
+params:
+  model: null                 # the learner model; null: the Codex default
+  args: []                    # extra codex arguments: provider settings, -c model_reasoning_effort="high"
+  home: []                    # files of ~/.codex copied into the agent home; none: the provider key is an env var
+  price: null                 # USD per million tokens {input, cached_input, output}
+  evidence: null              # the task's evidence store (required), granted through evolver_access.environment
+  learner_tools: null         # task tools also offered as MCP tools; null: all. The gate serves every task tool
+  bootstrap: true             # the native bootstrap session in the first step
+  session_timeout_s: 1800     # per session, the native evolver timeout
+  retry_wait_s: 30            # before the one retry after an infrastructure failure
+  network_isolation: true     # own network namespace; only the tool endpoint and 127.0.0.1 ports in args
+  block_size: null            # = data.step_size: the shorter final block then gets no session, as natively

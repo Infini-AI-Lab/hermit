@@ -1,0 +1,68 @@
+# The MWM adapter: the world model a learner maintains and hosts reach through one wm tool.
+template:
+  id: mwm
+  version: '2.0'
+  contract: '1'
+  name: 'MetaWorld Model (MWM V2 default: docket on, hypothesis off)'
+exports:
+  context: ADAPTER.md
+  tools:
+  - name: wm
+    description: 'The world model — knowledge maintained between episodes from earlier graded episodes. name: one
+      of memory, recall, trace, search, read, run, delegate, list, or an admitted tool''s name; args: an object
+      per that name (see the ''Reaching the world model'' section). Calls are free. wm reaches the world model only,
+      never the environment.'
+    entrypoint: interface.py:wm
+    input_schema:
+      type: object
+      properties:
+        name:
+          type: string
+        args:
+          type: object
+      required:
+      - name
+      additionalProperties: false
+    output_schema:
+      type: object
+    annotations:
+      readOnlyHint: true
+      destructiveHint: false
+      idempotentHint: true
+      openWorldHint: false
+  agents:
+    entrypoint: interface.py:agent_definitions
+structure:
+  learnable:
+  - path: ADAPTER.md
+    format:
+      text: true
+  - path: CONTRACT.md
+    format:
+      text: true
+  - path: consumption/**
+    format:
+      text: true
+  - path: memory/**
+    format:
+      text: true
+  - path: examples/**
+    format:
+      text: true
+  - path: meta/**
+    format:
+      text: true
+  - path: tools/**
+  - path: agents/**
+    format:
+      text: true
+  - path: .mwm/**
+    format:
+      text: true
+  fixed:
+  - interface.py
+  - check.py
+  - mwm_core
+  - EVOLVER.md
+  - README.md
+check: check.py:check
