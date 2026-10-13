@@ -11,10 +11,10 @@ import subprocess
 import sys
 import tomllib
 
-from harnessadapter.adapter.loader import inside, load_manifest
+from harnessadapter.adapter.loader import load_manifest
 from harnessadapter.hosts.context import PROJECT_CONTEXT, append_context
 from harnessadapter.hosts.inputs import (MARKER, PACKAGE_ROOT, check_workspace, copy_skills, render_exports, retire_roles,
-                                         server_name, source_label)
+                                         role_body, server_name, source_label)
 
 
 def _toml(value) -> str:
@@ -60,7 +60,7 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
         config.extend(f"{key} = {_toml(value)}" for key, value in server.items())
     role_paths = {}
     for role in roles:
-        instructions = role.get("body") or inside(adapter, role["instructions"]).read_text()
+        instructions = role_body(adapter, role)
         role_text = "\n".join(f"{key} = {json.dumps(value, ensure_ascii=False)}" for key, value in {
             "name": role["name"], "description": role["description"], "developer_instructions": instructions}.items()) + "\n"
         tomllib.loads(role_text)

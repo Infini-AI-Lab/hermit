@@ -1,10 +1,14 @@
-"""Inputs shared by the host deployers: rendered exports, names, stale-role retirement, skills."""
+"""Inputs shared by the host deployers and by `convert`: rendered exports, names, roles, stale-role
+retirement, skills."""
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import uuid
+
+from harnessadapter.adapter.loader import inside
 
 MARKER = ".harnessadapter-deploy.json"
 # The directory holding this harnessadapter package: child processes must import this copy, not another installed one.
@@ -74,3 +78,21 @@ def check_workspace(adapter: Path, output: Path, host: str) -> dict:
     if previous and previous.get("host") != host:
         raise ValueError("This workspace was generated for another host")
     return previous
+
+
+def role_body(adapter: Path, role: dict) -> str:
+    """A role's instructions, inline or from the file it names."""
+    return role.get("body") or inside(adapter, role["instructions"]).read_text()
+
+
+def subagent_name(name: str) -> str:
+    """A role name as the hosts that use Claude Code's subagent format spell it."""
+    native = name.replace("_", "-")
+    if not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", native):
+        raise ValueError(f"Invalid native role name: {native}")
+    return native
+
+
+def subagent_markdown(native: str, description: str, instructions: str) -> str:
+    """One subagent file: YAML frontmatter with the name and description, the body is the instructions."""
+    return f"---\nname: {json.dumps(native)}\ndescription: {json.dumps(description)}\n---\n\n{instructions}"

@@ -3,14 +3,13 @@
 import argparse
 import json
 from pathlib import Path
-import re
 import subprocess
 import sys
 
-from harnessadapter.adapter.loader import inside, load_manifest
+from harnessadapter.adapter.loader import load_manifest
 from harnessadapter.hosts.context import PROJECT_CONTEXT, START, append_context
 from harnessadapter.hosts.inputs import (MARKER, PACKAGE_ROOT, check_workspace, copy_skills, render_exports, retire_roles,
-                                         server_name, source_label)
+                                         role_body, server_name, source_label, subagent_markdown, subagent_name)
 
 
 def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path | None = None) -> dict:
@@ -21,10 +20,7 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
     exports = render_exports(adapter, python)
     converted = []
     for role in exports["agents"]:
-        native = role["name"].replace("_", "-")
-        if not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", native):
-            raise ValueError(f"Invalid native role name: {native}")
-        converted.append((role, native, role.get("body") or inside(adapter, role["instructions"]).read_text()))
+        converted.append((role, subagent_name(role["name"]), role_body(adapter, role)))
     if len({name for _, name, _ in converted}) != len(converted):
         raise ValueError("Role names collide after native name conversion")
     context = exports["context"]
@@ -44,7 +40,7 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
     role_paths, name_map = {}, {}
     for role, native, instructions in converted:
         path = agents_dir / f"{native}.md"
-        path.write_text(f"---\nname: {json.dumps(native)}\ndescription: {json.dumps(role['description'])}\n---\n\n{instructions}")
+        path.write_text(subagent_markdown(native, role["description"], instructions))
         role_paths[native] = str(path)
         name_map[role["name"]] = native
     audit = output / "tool-calls.jsonl"

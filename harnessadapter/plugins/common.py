@@ -9,11 +9,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import json
-import re
 import shutil
 
-from harnessadapter.adapter.loader import inside, load_manifest
-from harnessadapter.hosts.inputs import render_exports, server_name
+from harnessadapter.adapter.loader import load_manifest
+from harnessadapter.hosts.inputs import (copy_skills as _copy_skills, render_exports, role_body, server_name,
+                                         subagent_markdown, subagent_name)
 
 # The adapter travels inside the artifact: a plugin that referenced an outside directory would break the moment
 # it was installed anywhere else.
@@ -91,33 +91,14 @@ def context_skill(bundle: Bundle) -> tuple[str, str]:
 
 
 def copy_skills(bundle: Bundle, target: Path) -> list[str]:
-    """Copy each skill directory (one holding SKILL.md) of the adapter's `skills` export."""
-    declared = bundle.manifest.get("skills")
-    if not declared:
-        return []
-    source = (bundle.adapter / declared).resolve()
-    if not source.is_dir():
-        return []
-    names = []
-    for child in sorted(source.iterdir()):
-        if (child / SKILL).is_file():
-            shutil.copytree(child, target / child.name, dirs_exist_ok=True)
-            names.append(child.name)
-    return names
-
-
-def role_body(bundle: Bundle, role: dict) -> str:
-    return role.get("body") or inside(bundle.adapter, role["instructions"]).read_text()
+    """The adapter's skill directories, copied by the same helper the host deployers use."""
+    return _copy_skills(bundle.adapter, bundle.manifest, target)
 
 
 def subagent_file(bundle: Bundle, role: dict) -> tuple[str, str]:
-    """A role as a Claude Code style subagent file: frontmatter plus instructions."""
-    native = role["name"].replace("_", "-")
-    if not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", native):
-        raise ValueError(f"Invalid native role name: {native}")
-    text = (f"---\nname: {json.dumps(native)}\ndescription: {json.dumps(role['description'])}\n---\n\n"
-            f"{role_body(bundle, role)}")
-    return native, text
+    """A role in Claude Code's subagent format, which is also what `deploy --host claude-code` writes."""
+    native = subagent_name(role["name"])
+    return native, subagent_markdown(native, role["description"], role_body(bundle.adapter, role))
 
 
 def mcp_entry(bundle: Bundle, adapter_path: str, audit_path: str | None) -> dict:
