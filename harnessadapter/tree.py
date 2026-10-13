@@ -64,15 +64,29 @@ class Tree:
     def resolve(self, ref: str) -> str:
         return git(self.repo, "rev-parse", "--verify", f"{ref}^{{commit}}")
 
-    def export(self, ref: str, target: Path) -> Path:
-        """Write the files of commit `ref` into `target` (a fresh directory)."""
+    def export(self, ref: str, target: Path, *, history: bool = False) -> Path:
+        """Write the files of commit `ref` into `target` (a fresh directory). With `history`, `target` is also a git
+        repository whose branch holds the ancestry of `ref` and nothing else (no other run's branches, no tags), with
+        a clean index; changes to it never flow back (Tree.sync copies files only)."""
         target = Path(target)
         if target.exists():
             shutil.rmtree(target)
         target.mkdir(parents=True)
-        archive = subprocess.run(["git", "-C", str(self.repo), "archive", "--format=tar", self.resolve(ref)],
+        sha = self.resolve(ref)
+        archive = subprocess.run(["git", "-C", str(self.repo), "archive", "--format=tar", sha],
                                  capture_output=True, check=True).stdout
         subprocess.run(["tar", "-x", "-C", str(target)], input=archive, check=True)
+        if history:
+            temp = f"refs/harnessadapter/export-{os.getpid()}-{abs(hash(str(target)))}"
+            git(self.repo, "update-ref", temp, sha)
+            try:
+                git(target, "init", "-q", "-b", "adapter")
+                git(target, "config", "core.autocrlf", "false")
+                git(target, "fetch", "-q", "--no-tags", str(self.repo), temp)
+                git(target, "update-ref", "refs/heads/adapter", "FETCH_HEAD")
+                git(target, "reset", "-q")
+            finally:
+                git(self.repo, "update-ref", "-d", temp)
         return target
 
     def is_valid(self, ref: str) -> bool:

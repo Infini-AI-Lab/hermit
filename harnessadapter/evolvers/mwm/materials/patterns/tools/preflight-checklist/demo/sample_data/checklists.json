@@ -1,0 +1,4 @@
+{
+  "transplant": ["bed_prepared", "hardening_off_done", "pest_check_passed"],
+  "compost_discard": ["pest_report_closed", "head_grower_ack"]
+}

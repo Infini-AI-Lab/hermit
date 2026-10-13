@@ -8,7 +8,7 @@ collects feedback, and manages a learning method that revises the package for fu
 These pages describe the 0.2.0 framework.
 
 - **Try it:** [Install the package](get-started/installation.md), then [deploy your first adapter](get-started/quickstart.md).
-- **Understand it:** [Overview](framework/overview.md) introduces the project's purpose, main components, and their relationships.
+- **Understand it:** [What is a harness adapter?](framework/what-is-a-harness-adapter.md) defines the package from both ends; [Overview](framework/overview.md) introduces the project's purpose, main components, and their relationships.
 - **Follow the workflow:** [Using and training adapters](framework/adapter-lifecycle.md) shows the files, deployment, and handoffs in an interactive diagram.
 - **Bring your task:** [Task integration](framework/task.md) explains the pipeline, judge, and data you supply.
 - **Build a learning method:** [Custom Evolver integration](framework/custom-evolver.md) describes the extension interface.
@@ -17,6 +17,7 @@ These pages describe the 0.2.0 framework.
 :maxdepth: 1
 :caption: Get Started
 
+framework/what-is-a-harness-adapter
 get-started/installation
 get-started/quickstart
 framework/adapter-lifecycle
@@ -54,4 +55,5 @@ framework/custom-evolver
 
 framework/configuration
 framework/commands
+framework/adapter-manifest
 ```

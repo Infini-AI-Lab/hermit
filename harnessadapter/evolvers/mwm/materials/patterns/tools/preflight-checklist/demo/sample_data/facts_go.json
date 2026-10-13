@@ -1,0 +1,10 @@
+{
+  "action": "transplant",
+  "facts": {
+    "batch": "TB-31",
+    "zone": "north",
+    "bed_prepared": true,
+    "hardening_off_done": true,
+    "pest_check_passed": true
+  }
+}

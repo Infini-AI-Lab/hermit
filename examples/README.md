@@ -24,12 +24,13 @@ examples/
 | [`codex/`](codex/) | `codex` | A Codex agent edits the adapter from the step's learning material | `officeqa` |
 | [`gepa/`](gepa/) | `gepa` | GEPA: reflective text evolution with Pareto selection | `officeqa`, `officeqa_paper` |
 | [`skillopt/`](skillopt/) | `skillopt` | SkillOpt: a few validation-gated skill edits per step, under a learning rate | `officeqa`, `officeqa_paper` |
+| [`mwm/`](mwm/) | `mwm` | MetaWorld Model: a Codex learner maintains a world model of the environment after every block, under the native MWM contract | `clbench` (database, poker) |
 
 ## Other
 
 | Folder | Contents |
 |---|---|
-| [`tasks/`](tasks/) | `officeqa`: 133 OfficeQA questions, answered by searching the Treasury Bulletins<br>`officeqa_paper`: OfficeQA in the SkillOpt paper's setting |
+| [`tasks/`](tasks/) | `officeqa`: 133 OfficeQA questions, answered by searching the Treasury Bulletins<br>`officeqa_paper`: OfficeQA in the SkillOpt paper's setting<br>`clbench`: the CL-Bench database and poker streams, played by metaworld's host seat |
 | [`deploy/`](deploy/) | `lean_collab`: a finished adapter for five Codex agents proving Lean theorems together |
 
 ## Run an example

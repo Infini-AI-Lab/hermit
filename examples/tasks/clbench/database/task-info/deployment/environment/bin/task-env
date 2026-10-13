@@ -1,0 +1,18 @@
+#!/bin/sh
+# The one client into this environment. What exists in this run is listed in
+# /environment/README.md; a channel not listed there answers "not available".
+#   /environment/bin/task-env query '<one SELECT statement>'
+#   /environment/bin/task-env docs   (prints where the documents are)
+CH="$1"; shift
+case "$CH" in
+  docs) echo 'documents, when granted, are files under /environment/docs'; exit 0 ;;
+  query)
+    if [ -z "$1" ]; then echo "usage: /environment/bin/task-env query '<one SELECT statement>'"; exit 1; fi
+    Q=$(printf '%s' "$1" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))' 2>/dev/null)
+    [ -z "$Q" ] && { echo 'cannot encode statement'; exit 1; }
+    curl -s --max-time 30 -X POST "$MW_TOOLSRV/call/sql" \
+      -H 'Content-Type: application/json' \
+      -d "{\"query\": $Q}" \
+      | python3 -c 'import json,sys; r=json.load(sys.stdin); print(json.dumps(r["result"] if "result" in r else r))' ;;
+  *) echo "usage: /environment/bin/task-env <channel> [argument]; channels in this run are listed in /environment/README.md"; exit 1 ;;
+esac

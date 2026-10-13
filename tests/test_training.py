@@ -232,3 +232,82 @@ def test_warnings_name_risky_settings(tmp_path):
     from harnessadapter.trainer.trainer import warnings_for
     text = " ".join(warnings_for(load(make_task(tmp_path)), val_given=True))
     assert "sandbox.enabled is false" in text and "sandbox.network is open" in text and "sandbox.env is not set" in text
+
+
+def test_shuffle_false_keeps_the_split_order(tmp_path):
+    cfg = load(make_task(tmp_path), "data.shuffle=false", "trainer.epochs=1")
+    Trainer(cfg, log=lambda *_: None).train()
+    material = tmp_path / "runs" / "toy-run" / "learning_material"
+    order = [t for step in ("step_0001", "step_0002")
+             for t in json.loads((material / step / "summary.json").read_text())["tasks"]]
+    assert order == [f"t{i}" for i in range(6)]
+
+
+def test_shuffle_must_be_boolean(tmp_path):
+    with pytest.raises(ValueError, match="data.shuffle"):
+        load(make_task(tmp_path), "data.shuffle=sometimes").validate()
+
+
+BOOT_EVOLVER = '''
+import subprocess
+from harnessadapter.evolver.base import Evolver, StepResult
+
+class Boot(Evolver):
+    def bootstrap(self, ctx):
+        assert not list(ctx.workspace.learning_material.glob("step_*")), "no rollouts before the bootstrap"
+        (ctx.workspace.adapter / "ADAPTER.md").write_text("Always add the numbers.\\n")
+        return StepResult("done", "bootstrapped")
+
+    def step(self, ctx):
+        log = subprocess.run(["git", "-C", str(ctx.workspace.adapter), "log", "--format=%s"],
+                             capture_output=True, text=True).stdout
+        (ctx.workspace.state / f"git_{ctx.progress.step}.txt").write_text(log)
+        branches = subprocess.run(["git", "-C", str(ctx.workspace.adapter), "branch", "-a"],
+                                  capture_output=True, text=True).stdout
+        (ctx.workspace.state / f"branches_{ctx.progress.step}.txt").write_text(branches)
+        return StepResult("done", "nothing")
+'''
+
+
+def _boot_task(tmp):
+    path = make_task(tmp)
+    (tmp / "boot").mkdir()
+    (tmp / "boot" / "evolver.py").write_text(BOOT_EVOLVER)
+    (tmp / "boot" / "evolver.yaml").write_text("class: evolver.py:Boot\nneeds: []\n")
+    return path
+
+
+def test_bootstrap_is_step_zero_before_any_rollout(tmp_path):
+    cfg = load(_boot_task(tmp_path), "evolver.name=boot", "trainer.epochs=1")
+    Trainer(cfg, log=lambda *_: None).train()
+    run = tmp_path / "runs" / "toy-run"
+    steps = [json.loads(l) for l in (run / "steps.jsonl").read_text().splitlines()]
+    assert [s["step"] for s in steps] == [0, 1, 2] and steps[0]["bootstrap"] and steps[0]["changed"]
+    assert steps[1]["parent"] == steps[0]["commit"]
+    assert steps[1]["rollout"]["mean_score"] == 1.0              # the first rollouts already use the bootstrap
+    tags = subprocess.run(["git", "-C", str(tmp_path / "runs" / "trees" / "prompt-only"), "tag"],
+                          capture_output=True, text=True).stdout.split()
+    assert "toy-run/bootstrap" in tags
+
+
+def test_evolver_workspace_carries_git_history_rollouts_do_not(tmp_path):
+    cfg = load(_boot_task(tmp_path), "evolver.name=boot", "trainer.epochs=1")
+    Trainer(cfg, log=lambda *_: None).train()
+    run = tmp_path / "runs" / "toy-run"
+    log = (run / "workspace" / "state" / "git_2.txt").read_text().splitlines()
+    assert any(line.startswith("bootstrap (step 0)") for line in log) and log[-1].startswith("root:")
+    assert not (run / "rollout_adapter" / ".git").exists()
+    branches = (run / "workspace" / "state" / "branches_2.txt").read_text().split()
+    assert branches == ["*", "adapter"]                             # this run's ancestry only
+
+
+def test_resume_does_not_repeat_the_bootstrap(tmp_path):
+    cfg = load(_boot_task(tmp_path), "evolver.name=boot", "trainer.epochs=1")
+    Trainer(cfg, log=lambda *_: None).train()
+    run = tmp_path / "runs" / "toy-run"
+    lines = (run / "steps.jsonl").read_text().splitlines()
+    (run / "steps.jsonl").write_text(lines[0] + "\n")             # as if the run died after step 0
+    (run / "summary.json").unlink()
+    Trainer(load(tmp_path / "run.yaml", "evolver.name=boot", "trainer.epochs=1"), log=lambda *_: None).train()
+    steps = [json.loads(l) for l in (run / "steps.jsonl").read_text().splitlines()]
+    assert [s["step"] for s in steps] == [0, 1, 2]

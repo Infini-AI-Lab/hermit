@@ -26,7 +26,7 @@ file_adapter/
   README.md                    usage and dependencies
 ```
 
-Every adapter has `adapter.yaml` and `ADAPTER.md`. `ADAPTER.md` is a fixed name and is always exported as the acting
+Every adapter has `adapter.yaml` and `ADAPTER.md` (the manifest's sections and rules: [adapter.yaml reference](adapter-manifest.md)). `ADAPTER.md` is a fixed name and is always exported as the acting
 agent's context; `exports.context` may be omitted. Everything else is optional and declared in `adapter.yaml`.
 `EVOLVER.md` is learner guidance; it is not inserted into the acting agent's context. `tools.py` is a convention:
 each tool's `entrypoint` names its file and function.

@@ -5,6 +5,7 @@ data:
   val: null
   test: null
   step_size: 8
+  shuffle: true               # false: every epoch takes the train split in file order (an ordered stream)
   shuffle_seed: 0
 task_info: null
 pipeline:

@@ -1,58 +1,124 @@
 # Lean collaboration
 
-The `lean-collab@1.0` template equips acting agents to work on Lean proofs together. It exports instructions, five
-skills, and tools for compiling proofs, sharing verified helpers, tracking open subgoals, and communicating.
+The `lean-collab@1.0` template equips a team of acting agents to prove one Lean theorem together. It is the
+framework's example of an adapter that **needs a standalone service**: its tools keep state that several agents
+share, its calls run for minutes and must not block one another, and it can decide to interrupt or resume an
+agent. This page shows what the adapter contains, how it is used today, and how that use maps onto the
+consumption-end design in [What is a harness adapter?](../framework/what-is-a-harness-adapter.md) and the
+`serve` section of the [adapter.yaml reference](../framework/adapter-manifest.md#serve-design-not-implemented).
 
-The template and host deployment are available in this branch. The multi-agent launcher and grading pipeline have
-not been migrated into an end-to-end training recipe. Use [OfficeQA](officeqa.md) for a complete training example.
+A finished adapter of this template, v12.5, is in `examples/lean_collab_v12_5/`; its `CARD.md` records how it
+was obtained and how it performs. The template and the host deployment are in this branch; the multi-agent
+launcher and the grader are not yet a pipeline of this framework, so there is no end-to-end training recipe here.
+Use [OfficeQA](officeqa.md) for one.
 
 ## What the adapter contains
 
 ```text
 harnessadapter/templates/lean_collab/
-  adapter.yaml
-  ADAPTER.md       learnable instructions
-  skills/          learnable skills
-  collab.py        fixed collaboration tools
-  assembly.py      fixed proof assembly code
-  reactions.py    fixed reaction handler
-  EVOLVER.md
-  README.md
+  adapter.yaml     template, exports (context, five tools, reactions, concurrent_tool_calls, skills), structure
+  ADAPTER.md       learnable instructions every agent reads
+  skills/          learnable skills (good-map, good-leaf, kernel-check, lean-workflow, solving-together)
+  collab.py        fixed: the five tools — check, pull, refute, say, plan
+  assembly.py      fixed: proof assembly
+  reactions.py     fixed: the reaction handler
+  EVOLVER.md, README.md
 ```
 
-Its tools include `check`, `pull`, `refute`, `say`, and `plan`. These declarations are in `adapter.yaml`.
-Shared runtime data such as verified lemmas and the team channel lives under `COLLAB_DIR`, outside the adapter.
+The exports are the plugin-shaped part: context, skills and tools, usable by any host that reads an instruction
+file and starts an MCP server. Two declarations go beyond what a plugin can carry and are why this adapter has a
+service:
 
-## Prepare a workspace
-
-After [installation](../get-started/installation.md), run from the repository root:
-
-```bash
-harnessadapter deploy \
-  --adapter harnessadapter/templates/lean_collab \
-  --output .demo/lean-workspace \
-  --host codex
-```
-
-This generates the host workspace. It does not start a team, install Mathlib, or provide a proof task. The tool
-processes need a working Lean/Mathlib setup and the environment variables below:
-
-| Variable | Purpose |
+| Declaration | What it means |
 |---|---|
-| `COLLAB_DIR` | Shared collaboration state for this run. |
-| `COLLAB_AGENT` | Identity of the calling agent. |
-| `COLLAB_WORKSPACE` | That agent's working directory. |
-| `COLLAB_TARGET` | Target theorem name. |
-| `COLLAB_REPO` | Lean project used by the tools. |
-| `COLLAB_LAKE` | Path to the Lake executable. |
+| `concurrent_tool_calls: true` | one agent's calls run one at a time, different agents' calls run in parallel: a `check` compiles against Mathlib for minutes while others keep working |
+| `reactions: reactions.py:react` | every few seconds the service hands the agents' status to this function; it returns commands (interrupt or resume an agent with a text) that the launcher carries out |
 
-The launcher must also arrange the Lean toolchain environment (`ELAN_HOME`, `PATH`, and `HOME` as needed). See
-`harnessadapter/templates/lean_collab/README.md` for the current tool behavior. Each agent needs its own identity
-and workspace while sharing the intended run's collaboration directory.
+Shared state lives in `COLLAB_DIR`, outside the adapter: `state.json` (lemmas, subgoals, agents, events,
+messages), `verified/*.lean`, `channel.jsonl`, and `index.md` as the rendered view. Every tool reply carries the
+team's delta since the caller's last call.
+
+## Why it needs a standalone service
+
+A per-session MCP server, the one `deploy` configures for ordinary adapters, is started by the host and dies with
+the session, and holds nothing in common with any other session. Here five agents must see one plan, one lemma
+library and one channel; a lemma verified by one must be pullable by the others a second later; and the adapter
+must be able to act on an agent that is stuck. So the service is one process per run, started before the agents,
+serving each of them over its own socket, alive until the run ends. The socket is the agent's identity: a jail
+binds only its own agent's socket, so no token is needed.
+
+## How it is used today
+
+Everything below is done by the Lean run script (`lean-results/fc_multi/run_collab.py`, outside this
+repository), not by `deploy`:
+
+1. **Start the service**, one per run, from a JSON config:
+
+   ```bash
+   python -m harnessadapter.runtime.service --config run.json
+   ```
+
+   ```json
+   {"adapter": "examples/lean_collab_v12_5/adapter", "control_socket": "/run/collab/control.sock", "tick": 5,
+    "env": {"COLLAB_DIR": "...", "COLLAB_TARGET": "...", "COLLAB_REPO": "...", "COLLAB_LAKE": "..."},
+    "agents": {"A1": {"socket": "/run/collab/A1.sock", "audit_log": "...", "env": {"COLLAB_AGENT": "A1", "COLLAB_WORKSPACE": "..."}},
+               "A2": {"socket": "/run/collab/A2.sock", "...": "..."}}}
+   ```
+
+   The service exposes one MCP endpoint (streamable HTTP over a unix socket) per agent and a control socket.
+
+2. **Deploy a workspace per agent** with the adapter's context, skills and roles:
+
+   ```bash
+   harnessadapter deploy --adapter examples/lean_collab_v12_5/adapter --output /work/A1 --host codex
+   ```
+
+   and point the agent at its own endpoint instead of the per-session wrapper `deploy` wrote: the run script
+   passes it to Codex on the command line (`-c mcp_servers.team.url=…`). Supported host today: Codex.
+
+3. **Start the agents**, each in its workspace and jail, with the Lean toolchain on its path (`ELAN_HOME`, `PATH`,
+   `HOME`) and the `COLLAB_*` variables above.
+
+4. **Carry the reactions**: the run script polls the control socket for the commands the adapter's `react` decided
+   and interrupts or resumes the agents accordingly. The run script decides nothing itself.
+
+The tools need a working Lean/Mathlib checkout (`COLLAB_REPO`, `COLLAB_LAKE`); nothing in the framework installs
+it.
+
+## How this maps onto the consumption design
+
+In the design, the adapter's manifest would declare the service and the two launch kinds, and the run script's
+jobs 1 and 2 would disappear into `serve` and `deploy`:
+
+```yaml
+serve:
+  transport: http
+  command: harnessadapter serve .
+  lifecycle: standalone
+  host_launch: false          # see below
+  instructions: SERVICE.md
+```
+
+- **`host_launch: false`** is the right setting for this adapter: the service needs a Lean toolchain and Mathlib
+  on its machine, should be warm before the first agent connects, and holds state that no single agent's session
+  should be the one to create. So the host-run relay only attaches; it never starts the service.
+- **The user launches it by hand**, once per run: `harnessadapter serve DIR --standalone`, which prints the
+  endpoint and writes it where every later session's relay finds it (`DIR/.serve/endpoint`), or `--serve-url`
+  when the service is on another machine. `SERVICE.md` carries the prerequisites and this command.
+- **Each agent's `deploy`** then needs no rewriting: the MCP entry is the same `harnessadapter serve DIR` line
+  as for any adapter, and at session start it finds the running service and attaches as that agent.
+- **If the user starts an agent before the service**, the relay exits with one line naming the fix and
+  `SERVICE.md`; the host reports a failed MCP server and continues with context and skills but no tools, and the
+  session is restarted once the service is up.
+- **Reactions remain the one part outside the model**: the service decides them, but only a host with a control
+  channel can deliver them, and today that is the run script's job 4. No plugin format and neither `deploy` nor
+  `convert` provide such a channel.
+
+Nothing in this section exists yet; it is the target the current run script approximates by hand.
 
 ## What is needed to train it
 
 Provide a pipeline that launches the agents with the adapter and collects a proof, a judge that checks the result,
-and task data and splits. The framework calls those through the same [task interface](../framework/task.md) used by
-OfficeQA. Select `lean-collab@1.0` as the template and a compatible Evolver. Its permitted edits cover instructions
-and skills; the collaboration implementation remains fixed.
+and task data and splits. The framework calls those through the same [task interface](../framework/task.md) used
+by OfficeQA. Select `lean-collab@1.0` as the template and a compatible Evolver. Its permitted edits cover
+instructions and skills; the collaboration implementation (`collab.py`, `assembly.py`, `reactions.py`) is fixed.

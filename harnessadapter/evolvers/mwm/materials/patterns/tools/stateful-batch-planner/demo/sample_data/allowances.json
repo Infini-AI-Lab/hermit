@@ -1,0 +1,5 @@
+{
+  "month": "2026-08",
+  "propagation_allowance": {"SB-ALPHA": 5, "SB-BETA": 1, "SB-GAMMA": 3},
+  "already_used": {"SB-ALPHA": 3, "SB-GAMMA": 2}
+}
