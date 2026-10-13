@@ -71,7 +71,8 @@ harnessadapter deploy --adapter DIR --output WORKSPACE --host claude-code
 ```
 
 This generates host instruction files, role/skill files, and tool configuration. It does not launch the acting
-agent. The output must be an empty directory or a workspace previously generated for the same host, separate from
+agent. It is the per-project way to use an adapter; the per-agent way, `convert`, and how the two compare are in
+[What is a harness adapter?](what-is-a-harness-adapter.md#two-ways-to-use-an-adapter). The output must be an empty directory or a workspace previously generated for the same host, separate from
 the adapter directory. See the [file mapping](adapter.md#acting-interface) for exact paths and update behavior.
 
 ## Implementation notes
