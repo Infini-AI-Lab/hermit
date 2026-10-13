@@ -24,13 +24,12 @@ def main(argv=None) -> int:
     dep.add_argument("--output", type=Path, required=True)
     dep.add_argument("--host", choices=["codex", "claude-code"], default="codex")
     dep.add_argument("--python", default=sys.executable)
-    con = sub.add_parser("convert", help="convert an adapter into a host's installable form")
+    con = sub.add_parser("convert", help="convert an adapter into a plugin in a host's native format")
     con.add_argument("--adapter", type=Path, required=True)
     con.add_argument("--output", type=Path, required=True)
-    con.add_argument("--target", choices=["claude-code", "codex", "pi", "hermes"], required=True,
-                     help="claude-code and codex install the same artifact")
+    con.add_argument("--target", choices=["claude-code", "codex", "pi", "hermes"], required=True)
     con.add_argument("--allow-lossy", action="store_true",
-                     help="emit the artifact even though the target cannot represent some exports")
+                     help="leave out the parts the target cannot carry instead of failing; listed under `omitted`")
     con.add_argument("--python", default=sys.executable)
     args = parser.parse_args(argv)
 

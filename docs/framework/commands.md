@@ -6,7 +6,7 @@
 | `harnessadapter train --config run.yaml` | Run the Trainer |
 | `harnessadapter eval --config run.yaml --adapter ...` | Evaluate one adapter on the test split |
 | `harnessadapter deploy --adapter DIR --output WORKSPACE --host codex` | Generate a host workspace from an adapter |
-| `harnessadapter convert --adapter DIR --output ART --target claude-code` | Emit the installable form of a host |
+| `harnessadapter convert --adapter DIR --output OUT --target claude-code` | Emit a plugin in a host's native format |
 
 The first three accept `key=value` overrides after the config (see [Configuration](configuration.md)).
 
@@ -79,50 +79,58 @@ the adapter directory. See the [file mapping](adapter.md#acting-interface) for e
 ## convert
 
 ```bash
-harnessadapter convert --adapter DIR --output ART --target claude-code   # same artifact installs in Codex
-harnessadapter convert --adapter DIR --output ART --target codex
-harnessadapter convert --adapter DIR --output ART --target pi
-harnessadapter convert --adapter DIR --output ART --target hermes
+harnessadapter convert --adapter DIR --output OUT --target claude-code
+harnessadapter convert --adapter DIR --output OUT --target codex
+harnessadapter convert --adapter DIR --output OUT --target pi
+harnessadapter convert --adapter DIR --output OUT --target hermes
 ```
 
-`deploy` prepares a workspace you work in; `convert` emits an artifact you install, so it is available in every
-project rather than one directory. The adapter is copied inside the artifact, and the MCP server is named as the
-`harnessadapter-mcp` console script rather than an interpreter path, so nothing points at the machine that
-produced it.
+`deploy` prepares a workspace you work in; `convert` emits a plugin in the host's native format, installed once and
+available in every project. The adapter is copied into the plugin, and its tools run as the `harnessadapter-mcp`
+console script, so `harnessadapter` must be installed and on PATH wherever the plugin is used. Nothing in the plugin
+names the machine that produced it.
 
-### What each target gets
+### What each host's plugin carries
 
-| Target | Form | Install |
+| Adapter part | Claude Code | Codex | Pi | Hermes |
+|---|---|---|---|---|
+| Context (`ADAPTER.md`) | output style, forced while enabled | refused | refused | system prompt section, up to 4,000 characters |
+| Skills | `skills/` | `skills/` | `skills/` | `ctx.register_skill` |
+| Tools | `.mcp.json` | `mcp.json` | generated extension, `pi.registerMcpServer` | `ctx.register_tool`, forwarding to `harnessadapter-mcp` |
+| Roles | `agents/` | refused | refused | refused |
+
+A part the target's plugin format cannot carry is refused: `convert` exits 2 and names every such part before writing
+anything. Since every adapter has an `ADAPTER.md`, a non-empty context makes Codex and Pi refuse, and a context over
+4,000 characters makes Hermes refuse. `--allow-lossy` emits the plugin without those parts and lists them under
+`omitted` in the result.
+
+Why the refusals:
+
+- **Codex** reads no instruction file and no subagent from a plugin. Its plugin format is Agent Plugins v1: root
+  `plugin.json`, `skills/`, `mcp.json`. (The `.codex-plugin/plugin.json` layout is a compatibility fallback that does
+  not expand `${PLUGIN_ROOT}`.) `deploy --host codex` does register roles, in a workspace.
+- **Pi** builds its system prompt from context files in the agent and working directories, never from a package, and
+  has no built-in subagents.
+- **Hermes** drops a plugin's system prompt section over 4,000 characters with only a log warning, and has no
+  file-defined subagents. It also drops a section that would take all plugins' sections past 8,000 characters
+  together, which depends on the user's other plugins and is not checked here.
+
+### Install
+
+| Target | Output | Install |
 |---|---|---|
-| Claude Code | `.claude-plugin/` marketplace + plugin | `claude plugin marketplace add ART` then `claude plugin install ID@ID-adapters` |
-| Codex | the same directory | `codex plugin marketplace add ART` then `codex plugin add ID@ID-adapters` |
-| Pi | `package.json` + conventional directories | `pi install ART` |
-| Hermes | a `.claude` tree for the importer | `hermes import-agent claude-code --source ART/.claude` |
+| Claude Code | a marketplace with one plugin | `claude plugin marketplace add OUT`, then `claude plugin install ID@ID-adapters` |
+| Codex | a marketplace (`.agents/plugins/marketplace.json`) with one plugin | `codex plugin marketplace add OUT`, then `codex plugin add ID@ID-adapters` |
+| Pi | a package | `pi install OUT` |
+| Hermes | a plugin directory | copy OUT to `~/.hermes/plugins/ID`, then `hermes plugins enable ID` |
 
-### What does not survive, and why
-
-- **The context is not a context.** A plugin's component types are skills, agents, hooks, MCP and LSP servers;
-  none of them add to `CLAUDE.md` or `AGENTS.md`. The adapter's context is therefore shipped as the skill
-  `<id>-context`, which is loaded when its description matches rather than being present in every turn. The
-  result reports this as `context_as`. Hermes is the exception: its importer turns `CLAUDE.md` into memory
-  entries, which are always present, so there `context_as` is `memory:CLAUDE.md`.
-- **Roles reach Claude Code only.** A Codex plugin carries skills and MCP servers; Pi's subagents are a
-  third-party extension; `hermes import-agent` ignores `agents/` without reporting it as skipped. Converting an
-  adapter that exports roles to those targets fails rather than shipping silently without them. `--allow-lossy`
-  emits the artifact anyway, and the result lists what was left out under `omitted`.
-- **Only the Claude Code entry is relocatable.** Claude Code expands `${CLAUDE_PLUGIN_ROOT}` in the MCP config
-  and exports it to the server it spawns. Codex expands nothing and resolves nothing -- a relative command,
-  `./cmd` and `${CODEX_PLUGIN_ROOT}` are all passed through literally, and the server is spawned with the user's
-  working directory -- so its entry holds an absolute path and moving the artifact requires converting again.
-  The result reports this under `relocatable`.
-- **Pi installs the tools separately.** Pi reads MCP servers from `~/.pi/agent/mcp.json` or a project's
-  `.pi/mcp.json`, never from a package. The entry is written to `mcp.json` in the artifact and the exact
-  `pi mcp add` command is in its README.
+The tool-call audit log goes to each host's per-plugin data directory (`${CLAUDE_PLUGIN_DATA}`, `${PLUGIN_DATA}`, the
+Hermes plugin data directory); Pi has none, so it goes to the package directory.
 
 ### Checking the result
 
-`claude mcp list`, `codex mcp list` and `pi mcp list` each show whether the server starts; `pi mcp list` exits
-non-zero when it fails. `hermes import-agent --dry-run` prints what the import would write without writing it.
+`claude mcp list` and `codex mcp list` show whether the tool server starts. `hermes plugins doctor OUT` runs Hermes'
+discovery, manifest parsing and `register(ctx)` without installing.
 
 ## Implementation notes
 
@@ -130,5 +138,5 @@ non-zero when it fails. `hermes import-agent --dry-run` prints what the import w
   be usable by any acting agent, and each pipeline deploys the exports (context, tools, roles, skills) in its own way.
 - `harnessadapter deploy --adapter DIR --output WORKSPACE --host codex|claude-code` deploys an adapter's exports into
   a host workspace (context block, MCP tools, native roles, skills).
-- `harnessadapter convert --adapter DIR --output ART --target ...` emits the installable form instead, and exits 2
-  with the reason when the target cannot represent an export.
+- `harnessadapter convert --adapter DIR --output OUT --target ...` emits a plugin in the host's native format instead,
+  and exits 2 naming every part the target's plugin cannot carry.

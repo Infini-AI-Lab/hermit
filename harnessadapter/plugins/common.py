@@ -1,8 +1,11 @@
-"""Inputs shared by the plugin emitters: the embedded adapter, the context skill, roles, the MCP entry.
+"""Inputs shared by the plugin emitters: the embedded adapter, refusals, roles, the MCP command.
 
-`deploy` prepares a workspace you work in; `convert` emits an artifact you install. The difference drives
-everything here: an installed plugin is read from a path the emitter does not choose, so nothing it writes may
-assume the interpreter, the package location or the working directory of the machine that produced it.
+`deploy` prepares a workspace you work in; `convert` emits a plugin in a host's native format, which the host
+installs and reads from a directory the emitter does not choose. Nothing an emitter writes may therefore assume
+the interpreter, the package location or the working directory of the machine that produced it.
+
+A part of the adapter that a host's plugin format cannot carry is refused, not approximated: the user learns
+that the plugin would be incomplete before installing it.
 """
 from __future__ import annotations
 
@@ -15,17 +18,16 @@ from harnessadapter.adapter.loader import load_manifest
 from harnessadapter.hosts.inputs import (copy_skills as _copy_skills, render_exports, role_body, server_name,
                                          subagent_markdown, subagent_name)
 
-# The adapter travels inside the artifact: a plugin that referenced an outside directory would break the moment
-# it was installed anywhere else.
+# The adapter travels inside the plugin: a plugin that referenced an outside directory would break the moment it
+# was installed anywhere else.
 ADAPTER_DIR = "adapter"
 # A console script, not an interpreter path: the host resolves it on PATH wherever harnessadapter is installed.
 SERVER_COMMAND = "harnessadapter-mcp"
 AUDIT_LOG = "tool-calls.jsonl"
-SKILL = "SKILL.md"
 
 
 class Unsupported(ValueError):
-    """An export the target cannot represent. Raised rather than silently dropped."""
+    """Parts of the adapter the target's plugin format cannot carry."""
 
 
 @dataclass(frozen=True)
@@ -40,16 +42,24 @@ class Bundle:
         return self.manifest["id"]
 
     @property
+    def name(self) -> str:
+        return self.manifest.get("name", self.id)
+
+    @property
     def version(self) -> str:
         return self.manifest["version"]
 
     @property
-    def has_tools(self) -> bool:
-        return bool(self.manifest.get("tools"))
+    def tools(self) -> list:
+        return list(self.manifest.get("tools") or [])
 
     @property
     def server(self) -> str:
         return server_name(self.manifest)
+
+    @property
+    def has_context(self) -> bool:
+        return bool(self.context.strip())
 
 
 def load(adapter: Path, python: str) -> Bundle:
@@ -59,35 +69,35 @@ def load(adapter: Path, python: str) -> Bundle:
     return Bundle(adapter, manifest, exports["context"], list(exports["agents"]))
 
 
-def check_output(output: Path, adapter: Path) -> None:
+def refuse(bundle: Bundle, target: str, reasons: dict[str, str], *, allow_lossy: bool) -> list[str]:
+    """Fail on every part in `reasons` (part -> why the target cannot carry it), or with --allow-lossy return them
+    as the parts the plugin leaves out."""
+    if reasons and not allow_lossy:
+        lines = "\n".join(f"- {part}: {why}" for part, why in reasons.items())
+        raise Unsupported(f"A {target} plugin cannot carry these parts of the {bundle.id} adapter:\n{lines}\n"
+                          "Convert with --target claude-code, whose plugins carry every part, or pass --allow-lossy "
+                          "to emit the plugin without them.")
+    return sorted(reasons)
+
+
+def prepare_output(output: Path, adapter: Path, own_file: str) -> Path:
+    """The output directory: outside the adapter, and empty unless an earlier conversion wrote `own_file` there."""
+    output = output.resolve()
     if output == adapter or adapter in output.parents or output in adapter.parents:
-        raise ValueError("The artifact must be written outside the adapter")
+        raise ValueError("The plugin must be written outside the adapter")
+    if output.exists() and any(output.iterdir()) and not (output / own_file).is_file():
+        raise ValueError("Refusing to write into a nonempty directory this framework did not create")
+    output.mkdir(parents=True, exist_ok=True)
+    return output
 
 
 def embed_adapter(bundle: Bundle, plugin_root: Path) -> Path:
-    """Copy the adapter into the artifact so the installed plugin is self-contained."""
+    """Copy the adapter into the plugin so the installed plugin is self-contained."""
     target = plugin_root / ADAPTER_DIR
     if target.exists():
         shutil.rmtree(target)
-    shutil.copytree(bundle.adapter, target,
-                    ignore=shutil.ignore_patterns("__pycache__", ".git", "*.pyc"))
+    shutil.copytree(bundle.adapter, target, ignore=shutil.ignore_patterns("__pycache__", ".git", "*.pyc"))
     return target
-
-
-def context_skill(bundle: Bundle) -> tuple[str, str]:
-    """The adapter's context as a skill.
-
-    A plugin has no way to add to CLAUDE.md or AGENTS.md -- its component types are skills, agents, hooks, MCP
-    and LSP servers. The context therefore becomes a skill, which every one of the four hosts understands. This
-    is not equivalent: a workspace context is always in the model's context, a skill's body is loaded when its
-    description matches. The description below is written to make that match reliable, and `convert` reports
-    `context_as` so the difference stays visible.
-    """
-    name = f"{bundle.id}-context"
-    description = (f"The {bundle.manifest.get('name', bundle.id)} harness adapter's working context. "
-                   f"Read this before acting on any task this adapter covers.")
-    body = f"---\nname: {json.dumps(name)}\ndescription: {json.dumps(description)}\n---\n\n{bundle.context.strip()}\n"
-    return name, body
 
 
 def copy_skills(bundle: Bundle, target: Path) -> list[str]:
@@ -101,12 +111,8 @@ def subagent_file(bundle: Bundle, role: dict) -> tuple[str, str]:
     return native, subagent_markdown(native, role["description"], role_body(bundle.adapter, role))
 
 
-def mcp_entry(bundle: Bundle, adapter_path: str, audit_path: str | None) -> dict:
-    """One stdio MCP server entry. `adapter_path` is whatever the target host can actually resolve."""
-    args = ["--adapter", adapter_path]
-    if audit_path:
-        args += ["--audit-log", audit_path]
-    return {"type": "stdio", "command": SERVER_COMMAND, "args": args}
+def server_args(adapter_path: str, audit_path: str) -> list[str]:
+    return ["--adapter", adapter_path, "--audit-log", audit_path]
 
 
 def write_json(path: Path, data: dict) -> None:
