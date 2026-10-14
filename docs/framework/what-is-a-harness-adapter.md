@@ -155,4 +155,5 @@ behind, which is exactly the difference between an adapter and the plugin made f
 - How an adapter whose context is rendered per call is consumed outside a custom pipeline is not decided.
 
 Next: [Using and training adapters](adapter-lifecycle.md) for the files and handoffs, [Adapter](adapter.md) for the
-acting and evolution interfaces, [adapter.yaml reference](adapter-manifest.md) for the manifest.
+acting and evolution interfaces, [adapter.yaml reference](adapter-manifest.md) for the manifest (start with its
+[Customizing an adapter](adapter-manifest.md#customizing-an-adapter) section).

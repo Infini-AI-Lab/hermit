@@ -1,0 +1,4 @@
+description: Appends the judge's feedback on failed tasks to ADAPTER.md as notes; no model call.
+class: evolver.py:NotesEvolver
+needs: []
+params: {}
