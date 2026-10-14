@@ -45,12 +45,13 @@ One training step is one MWM block (`data.step_size` episodes, `data.shuffle: fa
 |---|---|---|
 | `clbench/database.yaml` | CL-Bench database: 40 questions per order, one block per question | accuracy scoring, unlimited host queries, `sql` channel for the learner |
 | `clbench/poker.yaml` | CL-Bench poker: 120 hands per order (104 reach the host), one block per 5 host hands | bb/hand from `outcomes.jsonl` |
+| `servelearnbench/retail_l3.yaml` | ServeLearnBench retail_l3: 624 serving cases in 8 windows, one block per 12 cases, the benchmark's own agent loop | per-window tests by `windows.py`; scored with `slb score` ([README](servelearnbench/README.md)) |
 
 ## Run
 
 The hosts run in clbench's own environment with metaworld's host seat, so a CL-Bench run needs the clbench and
 metaworld checkouts (`MWM_CLBENCH`, `MWM_METAWORLD`; default `~/code/...`) and a Fireworks key at
-`<metaworld>/.fireworks`. `launch.sh` starts the two wire meters and one `harnessadapter train` per order:
+`<metaworld>/.fireworks`. `launch.sh` starts the two wire meters (`harnessadapter/runtime/wire_meter.py`) and one `harnessadapter train` per order:
 
 ```bash
 python examples/tasks/clbench/database/prepare.py

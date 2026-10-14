@@ -46,7 +46,7 @@ start_meter() {  # port ledger log [extra env...]
   local port=$1 ledger=$2 log=$3; shift 3
   if ! curl -s -m 2 "http://127.0.0.1:$port/health" >/dev/null 2>&1; then
     env "$@" PORT=$port LEDGER="$ledger" UPSTREAM=https://api.fireworks.ai \
-      setsid nohup python3 "$METAWORLD/mwm/wire_meter.py" > "$log" 2>&1 < /dev/null &
+      setsid nohup python3 "$FRAMEWORK/harnessadapter/runtime/wire_meter.py" > "$log" 2>&1 < /dev/null &
     echo "wire meter pid $! port $port"; sleep 2
   fi
 }

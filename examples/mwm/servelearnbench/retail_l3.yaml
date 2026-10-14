@@ -1,0 +1,39 @@
+# MWM on ServeLearnBench retail_l3: the scenario's serving stream (624 cases in 8 windows), one MWM block per 12
+# cases, the benchmark's own agent loop and verifier. Started by `launch.sh retail_l3`, which sets the run's paths.
+# The per-window test sets are played afterwards by examples/tasks/servelearnbench/windows.py.
+data:
+  tasks: ../../tasks/servelearnbench/tasks.jsonl
+  train: ../../tasks/servelearnbench/splits/serving.txt      # launch.sh: splits/smoke_serving.txt for a smoke
+  test: ../../tasks/servelearnbench/splits/test_w0.txt       # windows.py: test_w<w>.txt per window
+  step_size: 12                                              # = prepare.py --block (the benchmark's update cadence)
+  shuffle: false                                             # the stream's own order
+task_info: ../../tasks/servelearnbench/task-info
+pipeline:
+  run: ../../tasks/servelearnbench/pipeline.py:run
+  concurrency: 12                                            # the cases of one block, in parallel
+judge:
+  path: ../../tasks/servelearnbench/judge.py
+template: mwm
+evolver:
+  name: mwm
+  params:
+    model: accounts/fireworks/models/glm-5p3-flash
+    args: []                       # launch.sh: the provider through the learner's meter, reasoning effort high
+    evidence: null                 # launch.sh: <task workdir>/evidence
+    block_size: null               # every block gets a session, the stream's last one included
+    learner_tools: []
+evolver_access:
+  environment: []                  # launch.sh: [<task workdir>/evidence]
+  tools: []                        # the venue has no channel: the learner reads /evidence and /environment only
+sandbox:
+  enabled: true
+  network: none                    # the learner's own namespace forwards only its meter and the tool gate
+  allow: []
+  env: [HA_FW_KEY, MW_TOOLSRV]
+trainer:
+  run_name: null                   # launch.sh: <tag>
+  output_dir: runs
+  epochs: 1
+  call_timeout_min: 130            # first step worst case: bootstrap + its retry + review + its retry, 30 min each
+  save_freq: {steps: 5, epochs: 1}
+  budget: {usd: null, tokens: null, hours: 72}   # a ceiling only
