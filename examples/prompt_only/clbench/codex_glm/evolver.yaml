@@ -1,0 +1,13 @@
+description: The built-in Codex AgentEvolver (its START.md / RESUME.md unchanged) with GLM 5.3 Flash as its model,
+  reached through the run's learner meter (launch.sh passes the provider arguments per order); the learner's tools
+  gated to check_spec (no run_agent, llm or budget), as the MWM learner of the same venue has no such tools.
+class: evolver.py:GatedCodexEvolver
+needs: []
+params:
+  backend: codex
+  model: accounts/fireworks/models/glm-5p3-flash
+  prompt: START.md
+  resume_prompt: RESUME.md
+  home: []                         # no login files: the provider key comes from HA_FW_KEY
+  price: {input: 0.15, cached_input: 0.03, output: 0.50}   # GLM 5.3 Flash, USD per million tokens
+  args: []                         # launch.sh: -c model_provider=... through the meter, model_reasoning_effort=high
