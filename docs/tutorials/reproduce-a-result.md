@@ -6,7 +6,7 @@ run produces.
 
 | Run | Task | Method | Model | Time | Recipe |
 |---|---|---|---|---|---|
-| ServeLearnBench retail_l3 | the benchmark's serving stream and per-window tests | mwm | GLM 5.3 flash (host and learner) | 1–2 days | [ServeLearnBench with MWM](../recipes/servelearnbench.md) |
+| ServeLearnBench retail_l3 | the benchmark's serving stream and per-window tests | mwm | GLM 5.3 flash (host and learner) | ~6 hours | [ServeLearnBench with MWM](../recipes/servelearnbench.md) |
 | CL-Bench database | 40-question streams, 5 orders | mwm | GLM 5.3 flash | ~1 day per order, orders in parallel | `examples/mwm/README.md` |
 | CL-Bench poker | 120-hand streams, 5 orders | mwm | GLM 5.3 flash | ~1 day per order | `examples/mwm/README.md` |
 | OfficeQA | 133 questions over Treasury Bulletins | prompt_only, codex, gepa, skillopt | GLM 5.3 flash | hours | [OfficeQA](../recipes/officeqa.md) |

@@ -393,8 +393,20 @@ class MwmEvolver(Evolver):
         Evolver's maintenance code and raw materials (the native learner never saw the wrapper)."""
         ws = ctx.workspace
         repo = Path(__file__).resolve().parents[3]
-        return [ws.learning_material, ws.task_info, ws.history, ws.state, ws.scratch, ws.output,
-                repo / "examples", repo / "tests", repo / "docs", HERE / "maintenance", HERE / "materials"]
+        hidden = [ws.learning_material, ws.task_info, ws.history, ws.state, ws.scratch, ws.output,
+                  repo / "examples", repo / "tests", repo / "docs", HERE / "maintenance", HERE / "materials"]
+        # The task's own additions (`hide`): a benchmark package installed beside the framework holds its evaluator
+        # and its test tasks, and the sandbox shows the whole Python installation. "module:<name>" names one.
+        for item in ctx.params.get("hide") or []:
+            item = str(item)
+            if item.startswith("module:"):
+                spec = importlib.util.find_spec(item[len("module:"):])
+                if spec is None or not spec.submodule_search_locations:
+                    raise RuntimeError(f"hide: no installed package named {item[len('module:'):]!r}")
+                hidden += [Path(loc) for loc in spec.submodule_search_locations]
+            else:
+                hidden.append(Path(item).expanduser())
+        return hidden
 
     def _run(self, command: list[str], env: dict, ctx: StepContext, log: Path, cwd: Path, timeout: float) -> dict:
         start = time.time()

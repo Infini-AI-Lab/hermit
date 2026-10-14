@@ -2,7 +2,7 @@
 
 Train MWM on a scenario of [ServeLearnBench](https://github.com/Infini-AI-Lab/ServeLearnBench) and score it the
 benchmark's way. Host and learner are GLM 5.3 flash on Fireworks at reasoning effort high. Real model calls:
-retail_l3 takes one to two days.
+retail_l3 takes about six hours.
 
 ## Run
 

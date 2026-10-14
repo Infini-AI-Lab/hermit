@@ -22,6 +22,7 @@ evolver:
     evidence: null                 # launch.sh: <task workdir>/evidence
     block_size: null               # every block gets a session, the stream's last one included
     learner_tools: []
+    hide: ["module:servelearnbench"]   # the benchmark's evaluator and test generator live in the installed package
 evolver_access:
   environment: []                  # launch.sh: [<task workdir>/evidence]
   tools: []                        # the venue has no channel: the learner reads /evidence and /environment only

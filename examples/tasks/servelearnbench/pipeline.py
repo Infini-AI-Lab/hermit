@@ -7,6 +7,8 @@ list, served outside the environment's 50-call budget and capped at WM_CALL_CAP 
 
 Settings come from the environment (the launcher sets them; the Trainer does not forward pipeline.params):
   SLB_WORKDIR            the run's task directory: evidence/ (the learner's store), rows/, episodes/
+  SLB_EVIDENCE           the evidence store the adapter's tools read (default <SLB_WORKDIR>/evidence); a replayed
+                         test binds a snapshot of what the adapter had been trained on (windows.py)
   SLB_MODEL              the host model, as the endpoint names it (default GLM 5.3 flash on Fireworks)
   SLB_BASE_URL           the endpoint (default Fireworks; a wire meter in the examples)
   SLB_API_KEY            the key (ServeLearnBench's own variable)
@@ -80,7 +82,7 @@ def run(task: dict, adapter: Path | None) -> RunOutput:
     bundle, meta = st["bundle"], st["bundle"]["meta"]
     domain = meta["domain"]
     workdir = Path(os.environ["SLB_WORKDIR"])
-    evidence_dir = workdir / "evidence"
+    evidence_dir = Path(os.environ.get("SLB_EVIDENCE") or workdir / "evidence")
     t = st["tasks"][task["id"]]
     t.instruction = task["instruction"]          # the stamped instruction, as prepare.py exported it
 

@@ -18,12 +18,17 @@ serving tasks of that block go unlearned for the test (the benchmark's own runne
 
 Windows can be evaluated while the run is still training: a commit never changes. `--windows` selects a subset;
 a window whose step has not been trained yet is skipped and said so.
+
+The adapter's tools read the run's evidence store (its `trace` follows an address to the raw record). A replay runs
+after later serving tasks were learned from, so each window's test gets a snapshot, `<workdir>/evidence_w<w>/`,
+holding only the records up to the last serving task of the chosen step: what the adapter could reach at the time.
 """
 from __future__ import annotations
 
 import argparse
 import json
 from pathlib import Path
+import shutil
 import sys
 
 HERE = Path(__file__).resolve().parent
@@ -51,6 +56,26 @@ def commit_for_window(steps: list[dict], windows: dict, w: int, stream_pos: dict
         elif positions and min(positions) > end:
             break
     return chosen, number
+
+
+def evidence_snapshot(workdir: Path, w: int, upto: int) -> Path:
+    """`<workdir>/evidence_w<w>/`: the evidence store's README and every record whose stream position is at or
+    before `upto`, in their block directories; rebuilt on every call."""
+    src, dst = workdir / "evidence", workdir / f"evidence_w{w}"
+    if dst.exists():
+        shutil.rmtree(dst)
+    dst.mkdir(parents=True)
+    if (src / "README.md").is_file():
+        shutil.copy2(src / "README.md", dst / "README.md")
+    n = 0
+    for p in sorted(src.glob("block*/e*.json")):
+        digits = p.stem[1:].split("_", 1)[0]
+        if digits.isdigit() and int(digits) <= upto:
+            (dst / p.parent.name).mkdir(exist_ok=True)
+            shutil.copy2(p, dst / p.parent.name / p.name)
+            n += 1
+    print(f"W{w}: evidence snapshot of {n} records (stream positions <= {upto}) at {dst}")
+    return dst
 
 
 def main() -> None:
@@ -102,6 +127,9 @@ def main() -> None:
             commit, number = ROOT_TAG, 0           # nothing learned before this window: the template itself
         split = HERE / "splits" / f"test_w{w}.txt"
         cfg = Config.load(a.config, [f"trainer.run_name={a.run}", f"data.test={split}", *a.overrides])
+        upto = max((stream_pos[t] for s in steps if s["step"] <= number for t in s["tasks"] if t in stream_pos),
+                   default=0)
+        os.environ["SLB_EVIDENCE"] = str(evidence_snapshot(workdir, w, upto))
         print(f"W{w}: eval on commit {commit[:12]} (after step {number}) with {split.name}")
         summary = evaluate(cfg, commit, log=print)
         report.append({"window": w, "commit": commit, "step": number, **summary})

@@ -10,7 +10,7 @@ Install the benchmark, then run one scenario from the repo root:
 FIREWORKS_API_KEY=... examples/mwm/servelearnbench/launch.sh retail_l3
 ```
 
-The launcher exports the scenario, trains in the background (one to two days for retail_l3), then plays the
+The launcher exports the scenario, trains in the background (about six hours for retail_l3), then plays the
 per-window tests and prints the benchmark's scores to `~/code/metaworld-runs/slb_retail_l3/test.log`.
 
 Complete guidance: [`docs/recipes/servelearnbench.md`](../../../docs/recipes/servelearnbench.md).
