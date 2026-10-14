@@ -1,4 +1,4 @@
-"""harnessadapter check | train | eval | deploy | convert"""
+"""harnessadapter check | train | eval | deploy | convert | serve"""
 from __future__ import annotations
 
 import argparse
@@ -31,7 +31,18 @@ def main(argv=None) -> int:
     con.add_argument("--allow-lossy", action="store_true",
                      help="leave out the parts the target cannot carry instead of failing; listed under `omitted`")
     con.add_argument("--python", default=sys.executable)
+    # The line `convert` writes into a host's configuration; a person does not type it. This is the stdio half of the
+    # `serve` design in docs/framework/adapter-manifest.md: one server per host session, started and stopped by the
+    # host. The standalone service and its relay are not implemented yet.
+    srv = sub.add_parser("serve", help="run the adapter's MCP tool server on stdio, for a host session")
+    srv.add_argument("adapter", type=Path)
+    srv.add_argument("--audit-log", type=Path, help="append every tool call to this JSONL file")
     args = parser.parse_args(argv)
+
+    if args.command == "serve":
+        from harnessadapter.runtime.mcp_server import main as run_server
+        run_server(["--adapter", str(args.adapter)] + (["--audit-log", str(args.audit_log)] if args.audit_log else []))
+        return 0
 
     if args.command == "convert":
         from harnessadapter.plugins import Unsupported, build

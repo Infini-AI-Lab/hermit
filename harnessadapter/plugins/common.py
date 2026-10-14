@@ -21,8 +21,8 @@ from harnessadapter.hosts.inputs import (copy_skills as _copy_skills, render_exp
 # The adapter travels inside the plugin: a plugin that referenced an outside directory would break the moment it
 # was installed anywhere else.
 ADAPTER_DIR = "adapter"
-# A console script, not an interpreter path: the host resolves it on PATH wherever harnessadapter is installed.
-SERVER_COMMAND = "harnessadapter-mcp"
+# `harnessadapter serve`, not an interpreter path: the host resolves it on PATH wherever harnessadapter is installed.
+SERVER_COMMAND = "harnessadapter"
 AUDIT_LOG = "tool-calls.jsonl"
 
 
@@ -112,7 +112,8 @@ def subagent_file(bundle: Bundle, role: dict) -> tuple[str, str]:
 
 
 def server_args(adapter_path: str, audit_path: str) -> list[str]:
-    return ["--adapter", adapter_path, "--audit-log", audit_path]
+    """The arguments of the `harnessadapter serve` line a host runs to start the adapter's tools."""
+    return ["serve", adapter_path, "--audit-log", audit_path]
 
 
 def write_json(path: Path, data: dict) -> None:

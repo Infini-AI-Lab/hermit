@@ -65,11 +65,7 @@ async def serve(root: Path, audit_log: Path | None, learning_material: Path | No
 
 
 def main(argv=None) -> None:
-    """Entry point of the `harnessadapter-mcp` console script.
-
-    A converted plugin names this script rather than an interpreter path: the host that installs the plugin
-    resolves it on PATH, so the artifact carries no path from the machine that produced it.
-    """
+    """Run the server; `harnessadapter serve` calls this."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--adapter", type=Path, required=True)
     parser.add_argument("--audit-log", type=Path)

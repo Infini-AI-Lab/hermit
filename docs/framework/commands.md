@@ -86,8 +86,8 @@ harnessadapter convert --adapter DIR --output OUT --target hermes
 ```
 
 `deploy` prepares a workspace you work in; `convert` emits a plugin in the host's native format, installed once and
-available in every project. The adapter is copied into the plugin, and its tools run as the `harnessadapter-mcp`
-console script, so `harnessadapter` must be installed and on PATH wherever the plugin is used. Nothing in the plugin
+available in every project. The adapter is copied into the plugin, and its MCP entry runs `harnessadapter serve` on
+that copy, so `harnessadapter` must be installed and on PATH wherever the plugin is used. Nothing in the plugin
 names the machine that produced it.
 
 ### What each host's plugin carries
@@ -96,7 +96,7 @@ names the machine that produced it.
 |---|---|---|---|---|
 | Context (`ADAPTER.md`) | output style, forced while enabled | refused | refused | system prompt section, up to 4,000 characters |
 | Skills | `skills/` | `skills/` | `skills/` | `ctx.register_skill` |
-| Tools | `.mcp.json` | `mcp.json` | generated extension, `pi.registerMcpServer` | `ctx.register_tool`, forwarding to `harnessadapter-mcp` |
+| Tools | `.mcp.json` | `mcp.json` | generated extension, `pi.registerMcpServer` | `ctx.register_tool`, forwarding to `harnessadapter serve` |
 | Roles | `agents/` | refused | refused | refused |
 
 A part the target's plugin format cannot carry is refused: `convert` exits 2 and names every such part before writing

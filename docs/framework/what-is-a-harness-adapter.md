@@ -98,7 +98,7 @@ harnessadapter convert --adapter DIR --output OUT --target claude-code   # or co
 ```
 
 - Output: a plugin package in the host's native format, self-contained (a copy of the adapter inside), with no
-  machine-specific paths; its MCP entry names `harnessadapter-mcp` on the PATH.
+  machine-specific paths; its MCP entry runs `harnessadapter serve` on the embedded copy, found on the PATH.
 - Scope: installed once, active in every project the agent opens.
 - Carries only what the host's plugin format has a slot for. Otherwise it refuses (exit 2, naming the parts) or,
   with `--allow-lossy`, drops them and lists them as `omitted`. Claude Code takes everything; Codex and Pi refuse

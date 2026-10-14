@@ -45,8 +45,8 @@ def test_claude_code_carries_every_part(tmp_path):
     assert "force-for-plugin: true" in style and style.rstrip().endswith("Check the result before returning it.")
     assert (plugin / "agents" / "reviewer.md").is_file() and (plugin / "skills" / "verify-output" / "SKILL.md").is_file()
     server = json.loads((plugin / ".mcp.json").read_text())["mcpServers"]["file_example"]
-    assert server["command"] == "harnessadapter-mcp"
-    assert server["args"] == ["--adapter", "${CLAUDE_PLUGIN_ROOT}/adapter",
+    assert server["command"] == "harnessadapter"
+    assert server["args"] == ["serve", "${CLAUDE_PLUGIN_ROOT}/adapter",
                               "--audit-log", "${CLAUDE_PLUGIN_DATA}/tool-calls.jsonl"]
     assert (plugin / "adapter" / "adapter.yaml").is_file()
     assert result["roles"] == {"reviewer": "reviewer"} and result["omitted"] == []
@@ -67,7 +67,7 @@ def test_codex_native_layout(tmp_path):
     assert json.loads((plugin / "plugin.json").read_text())["$schema"].endswith("/1.0.0/plugin.schema.json")
     assert not (plugin / ".codex-plugin").exists()
     mcp = json.loads((plugin / "mcp.json").read_text())
-    assert mcp["mcpServers"]["file_example"]["args"] == ["--adapter", "${PLUGIN_ROOT}/adapter",
+    assert mcp["mcpServers"]["file_example"]["args"] == ["serve", "${PLUGIN_ROOT}/adapter",
                                                          "--audit-log", "${PLUGIN_DATA}/tool-calls.jsonl"]
     assert (plugin / "skills" / "verify-output" / "SKILL.md").is_file()
 
@@ -90,7 +90,8 @@ def test_pi_package(tmp_path):
     assert (out / "skills" / "verify-output" / "SKILL.md").is_file()
     # Pi reads no MCP server from package files; the extension registers it when Pi loads the package.
     extension = (out / "extensions" / "file-example.ts").read_text()
-    assert 'pi.registerMcpServer("file_example"' in extension and '"harnessadapter-mcp"' in extension
+    assert 'pi.registerMcpServer("file_example"' in extension and 'command: "harnessadapter"' in extension
+    assert 'args: ["serve", join(root, "adapter")' in extension
     assert "import.meta.url" in extension
 
 
@@ -144,8 +145,8 @@ def test_hermes_refuses_a_context_it_would_drop_and_roles(tmp_path):
 
 
 def test_hermes_bridge_runs_the_tool(tmp_path, monkeypatch):
-    if not (Path(sys.executable).parent / "harnessadapter-mcp").exists():
-        pytest.skip("the harnessadapter-mcp console script is not installed next to this interpreter")
+    if not (Path(sys.executable).parent / "harnessadapter").exists():
+        pytest.skip("the harnessadapter console script is not installed next to this interpreter")
     monkeypatch.setenv("PATH", str(Path(sys.executable).parent) + os.pathsep + os.environ.get("PATH", ""))
     out = tmp_path / "hermes"
     build("hermes", variant(tmp_path, roles=False), out, sys.executable)
@@ -162,3 +163,31 @@ def test_refuses_a_foreign_nonempty_directory(tmp_path):
     (out / "someone-elses-file").write_text("x")
     with pytest.raises(ValueError, match="did not create"):
         build("claude-code", EXAMPLE, out, sys.executable)
+
+
+def test_serve_runs_the_tool_server(tmp_path):
+    """`harnessadapter serve DIR` is the line the plugins carry: an MCP server on stdio for one host session."""
+    import subprocess
+    audit = tmp_path / "calls.jsonl"
+    proc = subprocess.Popen([sys.executable, "-m", "harnessadapter.cli", "serve", str(EXAMPLE), "--audit-log", str(audit)],
+                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
+
+    def request(id, method, params):
+        proc.stdin.write(json.dumps({"jsonrpc": "2.0", "id": id, "method": method, "params": params}) + "\n")
+        proc.stdin.flush()
+        while True:
+            message = json.loads(proc.stdout.readline())
+            if message.get("id") == id:
+                return message["result"]
+
+    try:
+        request(1, "initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
+                                  "clientInfo": {"name": "test", "version": "0"}})
+        proc.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n")
+        proc.stdin.flush()
+        assert [t["name"] for t in request(2, "tools/list", {})["tools"]] == ["count_words"]
+        result = request(3, "tools/call", {"name": "count_words", "arguments": {"text": "a b c d"}})
+        assert result["structuredContent"] == {"count": 4}
+    finally:
+        proc.kill()
+    assert json.loads(audit.read_text().splitlines()[-1])["result"] == {"count": 4}
