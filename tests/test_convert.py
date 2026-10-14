@@ -126,6 +126,9 @@ def test_hermes_plugin_registers_context_skills_and_tools(tmp_path):
     out = tmp_path / "hermes"
     result = build("hermes", variant(tmp_path, roles=False), out, sys.executable)
     assert "provides_tools: [file_example_count_words]" in (out / "plugin.yaml").read_text()
+    # The plugin's module is the shipped file, copied unchanged; only the data next to it is per adapter.
+    assert (out / "__init__.py").read_bytes() == (ROOT / "harnessadapter" / "plugins" / "hermes" /
+                                                  "plugin_init.py").read_bytes()
     ctx = StubContext()
     load_hermes_module(out).register(ctx)
     assert ctx.sections["file-example"].startswith("Review the task requirements")
