@@ -64,12 +64,17 @@ async def serve(root: Path, audit_log: Path | None, learning_material: Path | No
         await server.run(reader, writer, server.create_initialization_options())
 
 
-if __name__ == "__main__":
+def main(argv=None) -> None:
+    """Run the server; `harnessadapter serve` calls this."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--adapter", type=Path, required=True)
     parser.add_argument("--audit-log", type=Path)
     parser.add_argument("--learning-material", type=Path, help="Read-only LearningMaterial directory bound to the tools")
     parser.add_argument("--deployment", type=Path, help="A host.json of deployment texts, bound as the `deployment` resource")
     parser.add_argument("--python-sandbox", action="store_true", help="Bind the bubblewrap Python sandbox so admitted learned tools can run")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     asyncio.run(serve(args.adapter, args.audit_log, args.learning_material, deployment=args.deployment, python_sandbox=args.python_sandbox))
+
+
+if __name__ == "__main__":
+    main()

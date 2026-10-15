@@ -1,4 +1,4 @@
-"""harnessadapter check | train | eval | deploy"""
+"""harnessadapter check | train | eval | deploy | convert | serve"""
 from __future__ import annotations
 
 import argparse
@@ -24,7 +24,47 @@ def main(argv=None) -> int:
     dep.add_argument("--output", type=Path, required=True)
     dep.add_argument("--host", choices=["codex", "claude-code"], default="codex")
     dep.add_argument("--python", default=sys.executable)
+    con = sub.add_parser("convert", help="convert an adapter into a plugin in a host's native format")
+    con.add_argument("--adapter", type=Path, required=True)
+    con.add_argument("--output", type=Path, required=True)
+    con.add_argument("--target", choices=["claude-code", "codex", "pi", "hermes"], required=True)
+    con.add_argument("--allow-lossy", action="store_true",
+                     help="leave out the parts the target cannot carry instead of failing; listed under `omitted`")
+    con.add_argument("--python", default=sys.executable)
+    # The line `convert` writes into a host's configuration; a person does not type it. This is the stdio half of the
+    # `serve` design in docs/framework/adapter-manifest.md: one server per host session, started and stopped by the
+    # host. The standalone service and its relay are not implemented yet.
+    srv = sub.add_parser("serve", help="run the adapter's MCP tool server on stdio, for a host session")
+    srv.add_argument("adapter", type=Path)
+    srv.add_argument("--audit-log", type=Path, help="append every tool call to this JSONL file")
     args = parser.parse_args(argv)
+
+    if args.command == "serve":
+        from harnessadapter import __version__
+        from harnessadapter.plugins.common import RECORD
+        from harnessadapter.runtime.mcp_server import main as run_server
+        # A plugin's embedded adapter has `convert`'s record next to it; the harnessadapter on PATH here may be
+        # another version than the one that made the plugin. Say so on stderr (the host's log), then serve anyway.
+        try:
+            made_by = json.loads((args.adapter.resolve().parent / RECORD).read_text()).get("framework")
+        except (OSError, ValueError):
+            made_by = None
+        if made_by and made_by != __version__:
+            print(f"harnessadapter serve: this plugin was made by harnessadapter {made_by}; this is {__version__}",
+                  file=sys.stderr)
+        run_server(["--adapter", str(args.adapter)] + (["--audit-log", str(args.audit_log)] if args.audit_log else []))
+        return 0
+
+    if args.command == "convert":
+        from harnessadapter.plugins import Unsupported, build
+        try:
+            result = build(args.target, args.adapter, args.output, str(Path(args.python).absolute()),
+                           allow_lossy=args.allow_lossy)
+        except Unsupported as error:
+            print(f"error: {error}", file=sys.stderr)
+            return 2
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
 
     if args.command == "deploy":
         if args.host == "codex":

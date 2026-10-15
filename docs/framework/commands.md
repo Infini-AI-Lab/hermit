@@ -6,6 +6,7 @@
 | `harnessadapter train --config run.yaml` | Run the Trainer |
 | `harnessadapter eval --config run.yaml --adapter ...` | Evaluate one adapter on the test split |
 | `harnessadapter deploy --adapter DIR --output WORKSPACE --host codex` | Generate a host workspace from an adapter |
+| `harnessadapter convert --adapter DIR --output OUT --target claude-code` | Emit a plugin in a host's native format |
 
 The first three accept `key=value` overrides after the config (see [Configuration](configuration.md)).
 
@@ -75,9 +76,72 @@ agent. It is the per-project way to use an adapter; the per-agent way, `convert`
 [What is a harness adapter?](what-is-a-harness-adapter.md#two-ways-to-use-an-adapter). The output must be an empty directory or a workspace previously generated for the same host, separate from
 the adapter directory. See the [file mapping](adapter.md#acting-interface) for exact paths and update behavior.
 
+## convert
+
+```bash
+harnessadapter convert --adapter DIR --output OUT --target claude-code
+harnessadapter convert --adapter DIR --output OUT --target codex
+harnessadapter convert --adapter DIR --output OUT --target pi
+harnessadapter convert --adapter DIR --output OUT --target hermes
+```
+
+`deploy` prepares a workspace you work in; `convert` emits a plugin in the host's native format, installed once and
+available in every project. The adapter is copied into the plugin, and its MCP entry runs `harnessadapter serve` on
+that copy, so `harnessadapter` must be installed and on PATH wherever the plugin is used. Nothing in the plugin
+names the machine that produced it.
+
+### What each host's plugin carries
+
+| Adapter part | Claude Code | Codex | Pi | Hermes |
+|---|---|---|---|---|
+| Context (`ADAPTER.md`) | output style, forced while enabled | refused | refused | system prompt section, up to 4,000 characters |
+| Skills | `skills/` | `skills/` | `skills/` | `ctx.register_skill` |
+| Tools | `.mcp.json` | `mcp.json` | generated extension, `pi.registerMcpServer` | `ctx.register_tool`, forwarding to `harnessadapter serve` |
+| Roles | `agents/` | refused | refused | refused |
+
+A part the target's plugin format cannot carry is refused: `convert` exits 2 and names every such part before writing
+anything. Since every adapter has an `ADAPTER.md`, a non-empty context makes Codex and Pi refuse, and a context over
+4,000 characters makes Hermes refuse. `--allow-lossy` emits the plugin without those parts and lists them under
+`omitted` in the result.
+
+Why the refusals:
+
+- **Codex** reads no instruction file and no subagent from a plugin. Its plugin format is Agent Plugins v1: root
+  `plugin.json`, `skills/`, `mcp.json`. (The `.codex-plugin/plugin.json` layout is a compatibility fallback that does
+  not expand `${PLUGIN_ROOT}`.) `deploy --host codex` does register roles, in a workspace.
+- **Pi** builds its system prompt from context files in the agent and working directories, never from a package, and
+  has no built-in subagents.
+- **Hermes** drops a plugin's system prompt section over 4,000 characters with only a log warning, and has no
+  file-defined subagents. It also drops a section that would take all plugins' sections past 8,000 characters
+  together, which depends on the user's other plugins and is not checked here.
+
+### Install
+
+| Target | Output | Install |
+|---|---|---|
+| Claude Code | a marketplace with one plugin | `claude plugin marketplace add OUT`, then `claude plugin install ID@ID-adapters` |
+| Codex | a marketplace (`.agents/plugins/marketplace.json`) with one plugin | `codex plugin marketplace add OUT`, then `codex plugin add ID@ID-adapters` |
+| Pi | a package | `pi install OUT` |
+| Hermes | a plugin directory | copy OUT to `~/.hermes/plugins/ID`, then `hermes plugins enable ID` |
+
+The tool-call audit log goes to each host's per-plugin data directory (`${CLAUDE_PLUGIN_DATA}`, `${PLUGIN_DATA}`, the
+Hermes plugin data directory); Pi has none, so it goes to the package directory.
+
+### Checking the result
+
+`claude mcp list` and `codex mcp list` show whether the tool server starts. `hermes plugins doctor OUT` runs Hermes'
+discovery, manifest parsing and `register(ctx)` without installing.
+
+`harnessadapter.json` next to the embedded adapter records the adapter's id and version and the framework version
+that made the plugin; `harnessadapter serve` warns on stderr when the installed framework is another version.
+Converting again into the same output replaces the generated parts, so a skill, a role or a context the adapter no
+longer has does not survive from the earlier plugin; the host's audit log there is kept.
+
 ## Implementation notes
 
 - `check` also verifies that every `sandbox.read` path exists. It does not check the pipeline's host: adapters are meant to
   be usable by any acting agent, and each pipeline deploys the exports (context, tools, roles, skills) in its own way.
 - `harnessadapter deploy --adapter DIR --output WORKSPACE --host codex|claude-code` deploys an adapter's exports into
   a host workspace (context block, MCP tools, native roles, skills).
+- `harnessadapter convert --adapter DIR --output OUT --target ...` emits a plugin in the host's native format instead,
+  and exits 2 naming every part the target's plugin cannot carry.
