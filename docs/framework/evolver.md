@@ -104,7 +104,7 @@ completed step records, including failed steps; keeping the previous adapter doe
 | `mwm` | MetaWorld Model, with `template: mwm`: one native MWM learner session per block (the step), under the MWM contract, with the task's evidence store mounted at `/evidence`, in its own network namespace. See `examples/mwm/README.md`. | The Codex CLI, a task that keeps an MWM evidence store (`evolver_access.environment`), `task-info/deployment/`, `data.shuffle: false` |
 
 Change a parameter with `evolver.params` in the run config; each Evolver's `evolver.yaml` under
-`harnessadapter/evolvers/` lists them with their defaults. For `gepa`, `data.step_size` is the reflection minibatch;
+`harnessadapter/algorithms/evolvers/` lists them with their defaults. For `gepa`, `data.step_size` is the reflection minibatch;
 for `skillopt`, it is the batch size and `trainer.epochs` the number of epochs. Both select from candidates they keep
 in `state/`, and `finalize` hands back the one with the best validation score.
 

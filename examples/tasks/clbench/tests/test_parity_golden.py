@@ -1,4 +1,4 @@
-"""Golden parity: the framework's mwm (templates/mwm + evolvers/mwm) renders the same texts as native metaworld.
+"""Golden parity: the framework's mwm (algorithms/templates/mwm + algorithms/evolvers/mwm) renders the same texts as native metaworld.
 
 Ported from the old port's tasks/CLBench/tests/test_parity_golden.py to the 0.2.0 layout. Skipped when the native
 checkout (MW_METAWORLD, default ~/code/metaworld) is absent. Surfaces compared:
@@ -29,8 +29,8 @@ import yaml
 
 TASKS = Path(__file__).resolve().parents[1]                 # examples/tasks/clbench
 FRAMEWORK = TASKS.parents[2]
-TEMPLATE = FRAMEWORK / "harnessadapter/templates/mwm"
-EVOLVER = FRAMEWORK / "harnessadapter/evolvers/mwm"
+TEMPLATE = FRAMEWORK / "harnessadapter/algorithms/templates/mwm"
+EVOLVER = FRAMEWORK / "harnessadapter/algorithms/evolvers/mwm"
 METAWORLD = Path(os.environ.get("MW_METAWORLD", str(Path.home() / "code/metaworld")))
 VENUES = {"clbench": "database", "poker": "poker"}
 sys.path.insert(0, str(FRAMEWORK))

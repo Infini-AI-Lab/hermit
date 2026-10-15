@@ -5,7 +5,7 @@ import shutil
 from harnessadapter.adapter.manifest import matches
 from harnessadapter.spec import check_spec, repair
 
-TEMPLATES = Path(__file__).resolve().parents[1] / "harnessadapter" / "templates"
+TEMPLATES = Path(__file__).resolve().parents[1] / "harnessadapter" / "algorithms" / "templates"
 
 
 def copy(src, dst):

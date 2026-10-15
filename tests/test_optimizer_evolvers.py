@@ -16,7 +16,7 @@ from harnessadapter.evaluate import evaluate
 from harnessadapter.evolver.base import Usage
 from harnessadapter.trainer.trainer import Trainer
 
-TEMPLATE = Path(__file__).resolve().parents[1] / "harnessadapter" / "templates" / "prompt_only"
+TEMPLATE = Path(__file__).resolve().parents[1] / "harnessadapter" / "algorithms" / "templates" / "prompt_only"
 KINDS = ("ALPHA", "BETA", "GAMMA", "DELTA")
 
 PIPELINE = '''

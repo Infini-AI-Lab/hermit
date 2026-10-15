@@ -13,7 +13,7 @@ from harnessadapter.settings_check import run_check
 from harnessadapter.trainer.trainer import Trainer
 from harnessadapter.tree import INVALID_MARK, git
 
-TEMPLATE = Path(__file__).resolve().parents[1] / "harnessadapter" / "templates" / "prompt_only"
+TEMPLATE = Path(__file__).resolve().parents[1] / "harnessadapter" / "algorithms" / "templates" / "prompt_only"
 
 PIPELINE = '''
 from pathlib import Path

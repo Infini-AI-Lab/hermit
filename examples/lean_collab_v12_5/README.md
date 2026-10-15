@@ -16,7 +16,7 @@ adapter/
 Check and deploy it:
 
 ```bash
-python -m harnessadapter.spec examples/lean_collab_v12_5/adapter --root harnessadapter/templates/lean_collab
+python -m harnessadapter.spec examples/lean_collab_v12_5/adapter --root harnessadapter/algorithms/templates/lean_collab
 harnessadapter deploy --adapter examples/lean_collab_v12_5/adapter --workspace /tmp/agent-A1 --host codex
 ```
 

@@ -32,7 +32,7 @@ At the end, `finalize` hands back the candidate with the best validation mean.
 | `evolver.params.trace_chars` | Characters of each trajectory shown to the model (12000) |
 | `evolver.params.reflection_prompt_template` | Empty: GEPA's default prompt |
 
-All parameters and defaults: [`harnessadapter/evolvers/gepa/evolver.yaml`](../../harnessadapter/evolvers/gepa/evolver.yaml).
+All parameters and defaults: [`harnessadapter/algorithms/evolvers/gepa/evolver.yaml`](../../harnessadapter/algorithms/evolvers/gepa/evolver.yaml).
 
 ## Examples
 

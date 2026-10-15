@@ -58,7 +58,7 @@ ws = Path(os.environ["FAKE_WORKSPACE"])
 areas = [ws / n for n in os.listdir(ws) if n not in ("adapter", "agent_home")] + [ws.parent / "learning_material"]
 import harnessadapter
 repo = Path(harnessadapter.__file__).resolve().parents[1]
-areas += [repo / "examples", repo / "harnessadapter" / "evolvers" / "mwm" / "materials"]
+areas += [repo / "examples", repo / "harnessadapter" / "algorithms" / "evolvers" / "mwm" / "materials"]
 seen["home_entries"] = sorted(os.listdir(os.environ["CODEX_HOME"]))
 (Path(os.environ["CODEX_HOME"]) / "leftover.txt").write_text("from a previous session")
 areas.append(cwd.parent.parent / "learning_material")

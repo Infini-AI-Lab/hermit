@@ -72,7 +72,7 @@ You can reuse a launcher instead of implementing a new Python learning loop:
 
 `AgentEvolver` supports `codex` and `claude`. Its parameters include `backend`, `prompt`, `resume_prompt`, `model`,
 `args`, and `home`. Prompt placeholders include the workspace paths, `message`, `epoch`, and `step`.
-The bundled definitions are under `harnessadapter/evolvers/`.
+The bundled definitions are under `harnessadapter/algorithms/evolvers/`.
 
 `CommandEvolver` supplies `HA_CONTEXT`, a path to JSON describing the workspace, access, progress, session, and
 parameters, plus `HA_TOOL_URL` for the tool endpoint. A program may write `output/step_result.json` using the

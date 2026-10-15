@@ -9,7 +9,7 @@ import re
 import yaml
 
 DEFAULTS = Path(__file__).with_name("defaults.yaml")
-TEMPLATES = Path(__file__).resolve().parent / "templates"
+TEMPLATES = Path(__file__).resolve().parent / "algorithms" / "templates"
 
 
 def _merge(base: dict, extra: dict, prefix: str = "") -> dict:

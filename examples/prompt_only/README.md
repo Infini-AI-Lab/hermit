@@ -22,7 +22,7 @@ agent and no validation split; the run's `llm` is the optimizer.
 | `evolver.params.max_examples`, `max_chars` | Tasks shown per step (8) and characters per field (3000) |
 | `evolver.params.max_tokens`, `temperature` | The model call (32000, 0.3) |
 
-All parameters and defaults: [`harnessadapter/evolvers/prompt_only/evolver.yaml`](../../harnessadapter/evolvers/prompt_only/evolver.yaml).
+All parameters and defaults: [`harnessadapter/algorithms/evolvers/prompt_only/evolver.yaml`](../../harnessadapter/algorithms/evolvers/prompt_only/evolver.yaml).
 
 ## Examples
 

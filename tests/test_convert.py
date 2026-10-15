@@ -13,7 +13,7 @@ from harnessadapter.plugins import Unsupported, build
 
 ROOT = Path(__file__).resolve().parents[1]
 EXAMPLE = ROOT / "docs" / "_examples" / "file_adapter"        # a short context, a skill, a role and a tool
-LEAN = ROOT / "harnessadapter" / "templates" / "lean_collab"  # a context of about 6,000 characters
+LEAN = ROOT / "harnessadapter" / "algorithms" / "templates" / "lean_collab"  # a context of about 6,000 characters
 
 
 def variant(tmp_path, *, roles=True, context=True):

@@ -11,7 +11,7 @@ import yaml
 
 from harnessadapter.evolver.base import Evolver
 
-BUILTIN = Path(__file__).resolve().parents[1] / "evolvers"
+BUILTIN = Path(__file__).resolve().parents[1] / "algorithms" / "evolvers"
 NEEDS = {"validation_data", "environment", "send_material_out"}
 
 

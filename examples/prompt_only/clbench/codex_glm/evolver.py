@@ -15,7 +15,7 @@ import re
 
 from harnessadapter.evolver.agent import AgentEvolver
 from harnessadapter.evolver.base import StepContext, StepResult
-from harnessadapter.evolvers.mwm.evolver import _ToolGate
+from harnessadapter.algorithms.evolvers.mwm.evolver import _ToolGate
 
 ALLOWED = ("check_spec",)
 

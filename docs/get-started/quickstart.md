@@ -15,7 +15,7 @@ Copy the prompt-only template into a working directory:
 
 ```bash
 mkdir -p .demo
-cp -R harnessadapter/templates/prompt_only .demo/adapter
+cp -R harnessadapter/algorithms/templates/prompt_only .demo/adapter
 ```
 
 Use a fresh `.demo/adapter` directory for this walkthrough. It contains:

@@ -6,7 +6,7 @@ import tomllib
 from harnessadapter.hosts.claude_code import prepare as claude_prepare
 from harnessadapter.hosts.codex import prepare as codex_prepare
 
-LEAN = Path(__file__).resolve().parents[1] / "harnessadapter" / "templates" / "lean_collab"
+LEAN = Path(__file__).resolve().parents[1] / "harnessadapter" / "algorithms" / "templates" / "lean_collab"
 
 
 def test_codex(tmp_path):

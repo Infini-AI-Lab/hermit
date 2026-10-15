@@ -15,7 +15,7 @@ Use [OfficeQA](officeqa.md) for one.
 ## What the adapter contains
 
 ```text
-harnessadapter/templates/lean_collab/
+harnessadapter/algorithms/templates/lean_collab/
   adapter.yaml     template, exports (context, five tools, reactions, concurrent_tool_calls, skills), structure
   ADAPTER.md       learnable instructions every agent reads
   skills/          learnable skills (good-map, good-leaf, kernel-check, lean-workflow, solving-together)

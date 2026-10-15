@@ -83,7 +83,7 @@ import skillopt
 seed = HERE / "seed_adapter"
 if seed.exists():
     shutil.rmtree(seed)
-shutil.copytree(Path(harnessadapter.__file__).parent / "templates" / "prompt_only", seed)
+shutil.copytree(Path(harnessadapter.__file__).parent / "algorithms" / "templates" / "prompt_only", seed)
 (seed / "ADAPTER.md").write_text((Path(skillopt.__file__).parent / "envs" / "officeqa" / "skills" / "initial.md")
                                  .read_text())
 print({name: len(ids) for name, ids in splits.items()}, "sources differing from the split:", drifted)

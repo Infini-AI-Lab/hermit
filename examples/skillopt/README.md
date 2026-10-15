@@ -35,7 +35,7 @@ State is kept in `state/skillopt.json`. At the end, `finalize` hands back the sk
 | `evolver.params.slow_update_samples`, `slow_update_gate` | Tasks the slow update compares on; whether the gate checks it too |
 | `evolver.params.prompt_env` | `officeqa`: SkillOpt's OfficeQA analyst prompts; empty: its generic prompts |
 
-All parameters and defaults: [`harnessadapter/evolvers/skillopt/evolver.yaml`](../../harnessadapter/evolvers/skillopt/evolver.yaml).
+All parameters and defaults: [`harnessadapter/algorithms/evolvers/skillopt/evolver.yaml`](../../harnessadapter/algorithms/evolvers/skillopt/evolver.yaml).
 
 ## Examples
 

@@ -356,7 +356,7 @@ class MwmEvolver(Evolver):
                      *(["-m", params["model"]] if params.get("model") else []), *params.get("args", []), prompt_text]
         env = dict(os.environ)
         env["CODEX_HOME"] = str(home)
-        env["PYTHONPATH"] = str(Path(__file__).resolve().parents[3]) + os.pathsep + env.get("PYTHONPATH", "")
+        env["PYTHONPATH"] = str(Path(__file__).resolve().parents[4]) + os.pathsep + env.get("PYTHONPATH", "")
         env["PATH"] = str(HERE / "bin") + os.pathsep + env.get("PATH", "")
         environment = session / "deployment" / "environment"
         if not environment.is_dir():
@@ -392,7 +392,7 @@ class MwmEvolver(Evolver):
         only through the mounts), the framework checkout's examples, tests and docs (task code and data), and this
         Evolver's maintenance code and raw materials (the native learner never saw the wrapper)."""
         ws = ctx.workspace
-        repo = Path(__file__).resolve().parents[3]
+        repo = Path(__file__).resolve().parents[4]
         hidden = [ws.learning_material, ws.task_info, ws.history, ws.state, ws.scratch, ws.output,
                   repo / "examples", repo / "tests", repo / "docs", HERE / "maintenance", HERE / "materials"]
         # The task's own additions (`hide`): a benchmark package installed beside the framework holds its evaluator

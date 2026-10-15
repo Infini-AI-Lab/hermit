@@ -8,13 +8,13 @@ dataset: `deploy` writes the files a host reads.
 | Adapter | What it carries |
 |---|---|
 | `examples/deploy/lean_collab/adapter` | instructions, five skills and five tools for Codex agents proving Lean theorems together |
-| `harnessadapter/templates/prompt_only` | the smallest adapter: instructions only (`ADAPTER.md`) |
+| `harnessadapter/algorithms/templates/prompt_only` | the smallest adapter: instructions only (`ADAPTER.md`) |
 | `<run>/checkout/` | the adapter a training run ended with |
 
 Check an adapter against its template first; it must pass before it is deployed:
 
 ```bash
-python -m harnessadapter.spec examples/deploy/lean_collab/adapter --root harnessadapter/templates/lean_collab
+python -m harnessadapter.spec examples/deploy/lean_collab/adapter --root harnessadapter/algorithms/templates/lean_collab
 ```
 
 ## Into a project

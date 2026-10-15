@@ -6,7 +6,7 @@ import shutil
 from harnessadapter.evolver.base import Access, Progress, StepContext, Workspace
 from harnessadapter.evolver.loader import find, instantiate
 
-TEMPLATE = Path(__file__).resolve().parents[1] / "harnessadapter" / "templates" / "prompt_only"
+TEMPLATE = Path(__file__).resolve().parents[1] / "harnessadapter" / "algorithms" / "templates" / "prompt_only"
 
 
 def context(tmp: Path, replies: list[str]) -> tuple[StepContext, list]:

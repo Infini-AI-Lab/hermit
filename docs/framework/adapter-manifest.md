@@ -29,7 +29,7 @@ the template's root does (check 3 of the specification check). An acting integra
 Most people never write a manifest from scratch: they take a template and change one thing. A run names a template
 either by its built-in id (`template: prompt-only@1.0`) or by a directory holding an `adapter.yaml`
 (`template: ./my_template`), so the way to customize is to copy a template directory, edit it, and point the run
-at the copy. The built-in templates are under `harnessadapter/templates/`; finished adapters with their cards are
+at the copy. The built-in templates are under `harnessadapter/algorithms/templates/`; finished adapters with their cards are
 under `examples/`. What you want to change decides which part you touch:
 
 | You want to | Change | Where |

@@ -9,7 +9,7 @@ offline with the echo task of tutorial 3.
 
 ```bash
 mkdir -p .demo
-cp -R harnessadapter/templates/prompt_only .demo/my_template
+cp -R harnessadapter/algorithms/templates/prompt_only .demo/my_template
 ```
 
 `.demo/my_template/` holds `adapter.yaml` (the manifest), `ADAPTER.md` (the instructions), `EVOLVER.md` (how a
