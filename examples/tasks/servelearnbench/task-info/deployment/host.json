@@ -1,0 +1,7 @@
+{
+ "wm_calls_sentence": "Calls are free: none of them touches the environment or counts toward this\nepisode's score; at most 100 calls per episode. wm reaches the world\nmodel only, never the environment.",
+ "run_libraries": "collections, heapq, itertools, functools, json,\n    re, math, random, statistics, numpy.",
+ "delegation": "none",
+ "transport_note": "Here wm is on the desk beside the desk's own tools.",
+ "read_paging": false
+}

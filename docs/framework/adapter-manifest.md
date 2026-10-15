@@ -23,6 +23,34 @@ The first five are **fixed across a tree**: every adapter committed under a temp
 the template's root does (check 3 of the specification check). An acting integration needs only `template` and
 `exports`; `flatten()` returns exactly those, with `context` filled in.
 
+## Customizing an adapter
+
+Most people never write a manifest from scratch: they take a template and change one thing. A run names a template
+either by its built-in id (`template: prompt-only@1.0`) or by a directory holding an `adapter.yaml`
+(`template: ./my_template`), so the way to customize is to copy a template directory, edit it, and point the run
+at the copy. The built-in templates are under `harnessadapter/templates/`; finished adapters with their cards are
+under `examples/`. What you want to change decides which part you touch:
+
+| You want to | Change | Where |
+|---|---|---|
+| Different starting instructions, skills or roles | the learnable files themselves: `ADAPTER.md`, `skills/`, `agents/` | no manifest change; the learner starts from your text |
+| A new tool for the acting agent | add its Python to the directory and declare it | [`exports.tools`](#tool-declaration); the file goes under `fixed` |
+| Let the learner edit more, or less | the list of learnable paths and their limits (size, file count, frontmatter) | [`structure`](#structure) |
+| Keep a file exactly as shipped | list it under `fixed` | [`structure`](#structure) |
+| Reject candidates by a rule of your own (a lint, a test, a forbidden word) | a checker function run after the built-in checks | [`check`](#check) |
+| Give the learner a helper during training (a renderer, a validator) that the agent never sees | a tool declaration under `evolver_tools` | [`evolver_tools`](#evolver_tools) |
+| Change how a learner should edit, not what it may edit | `EVOLVER.md` | no manifest change |
+
+Two rules hold throughout. Every file in the adapter must be either learnable or fixed, so adding a file means
+listing it. And the first five sections are the template's identity: edit them in the template root before
+training starts, not in a trained adapter, because every commit of a tree must carry them unchanged. If the
+change is an edit to the acting-side texts only, keep the template's `id` and `version`; if it changes the
+manifest, give the copy its own `template.id` (or a new `version`) so its tree is not mistaken for the original's.
+Run `harnessadapter check --config run.yaml` afterwards: it loads the template, the task and the Evolver and
+reports what does not fit.
+
+The sections below are the reference for each field.
+
 A minimal manifest:
 
 ```yaml

@@ -14,3 +14,5 @@ params:
   retry_wait_s: 30            # before the one retry after an infrastructure failure
   network_isolation: true     # own network namespace; only the tool endpoint and 127.0.0.1 ports in args
   block_size: null            # = data.step_size: the shorter final block then gets no session, as natively
+  hide: []                    # paths hidden from the learner's sandbox besides the defaults; "module:<name>" hides
+                              # an installed Python package (a benchmark whose evaluator sits beside the framework)

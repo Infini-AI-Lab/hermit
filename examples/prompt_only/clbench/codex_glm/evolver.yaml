@@ -11,3 +11,4 @@ params:
   home: []                         # no login files: the provider key comes from HA_FW_KEY
   price: {input: 0.15, cached_input: 0.03, output: 0.50}   # GLM 5.3 Flash, USD per million tokens
   args: []                         # launch.sh: -c model_provider=... through the meter, model_reasoning_effort=high
+  hide: []                         # directories hidden from the learner's sandbox; "module:<name>" an installed package
