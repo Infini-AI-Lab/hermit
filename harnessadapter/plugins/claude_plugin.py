@@ -15,8 +15,9 @@ from __future__ import annotations
 from pathlib import Path
 import json
 
-from harnessadapter.plugins.common import (ADAPTER_DIR, AUDIT_LOG, SERVER_COMMAND, copy_skills, embed_adapter, load,
-                                           prepare_output, server_args, subagent_file, write_json)
+from harnessadapter.plugins.common import (ADAPTER_DIR, AUDIT_LOG, FRAMEWORK_VERSION, SERVER_COMMAND, clear, copy_skills,
+                                           embed_adapter, load, prepare_output, record, server_args, subagent_file,
+                                           write_json)
 
 SCHEMA = "https://anthropic.com/claude-code/plugin.schema.json"
 MARKETPLACE = ".claude-plugin/marketplace.json"
@@ -32,6 +33,7 @@ def build(adapter: Path, output: Path, python: str, *, allow_lossy: bool = False
     output = prepare_output(output, bundle.adapter, MARKETPLACE)
     plugin = output / "plugins" / bundle.id
     plugin.mkdir(parents=True, exist_ok=True)
+    clear(plugin, "agents", "output-styles", "skills", ".mcp.json")
 
     write_json(output / MARKETPLACE, {
         "name": f"{bundle.id}-adapters", "owner": {"name": "harnessadapter"},
@@ -56,12 +58,14 @@ def build(adapter: Path, output: Path, python: str, *, allow_lossy: bool = False
 
     skills = copy_skills(bundle, plugin / "skills")
     embed_adapter(bundle, plugin)
+    record(bundle, plugin)
     if bundle.tools:
         write_json(plugin / ".mcp.json", {"mcpServers": {bundle.server: {
             "type": "stdio", "command": SERVER_COMMAND,
             "args": server_args(f"${{CLAUDE_PLUGIN_ROOT}}/{ADAPTER_DIR}", f"${{CLAUDE_PLUGIN_DATA}}/{AUDIT_LOG}")}}})
     (plugin / "README.md").write_text(_readme(bundle, output, skills, roles))
-    return {"target": "claude-code", "adapter_id": bundle.id, "version": bundle.version, "output": str(output),
+    return {"target": "claude-code", "adapter_id": bundle.id, "version": bundle.version,
+            "framework": FRAMEWORK_VERSION, "output": str(output),
             "plugin": str(plugin), "install": [f"claude plugin marketplace add {output}",
                                                f"claude plugin install {bundle.id}@{bundle.id}-adapters"],
             "context": f"output-styles/{bundle.id}.md" if bundle.has_context else None,

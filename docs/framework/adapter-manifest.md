@@ -17,7 +17,8 @@ The file has six sections and no others:
 | [`evolver_tools`](#evolver_tools) | the template author | the Evolver's tool endpoint |
 | [`origin`](#origin) | the Trainer | people and the tree |
 
-A seventh, [`serve`](#serve-design-not-implemented), is proposed and not yet read by anything.
+A seventh, [`serve`](#serve-design-not-implemented), is proposed and not yet read by anything; its stdio command,
+`harnessadapter serve DIR`, exists and is what `convert` writes into a plugin.
 
 The first five are **fixed across a tree**: every adapter committed under a template carries them byte-for-byte as
 the template's root does (check 3 of the specification check). An acting integration needs only `template` and
@@ -198,7 +199,7 @@ serve:
 
 | Key | Meaning |
 |---|---|
-| `transport` | `stdio` for stateless tools (the per-session wrapper, today `harnessadapter.runtime.mcp_server`); `http` for an adapter that needs state shared across sessions or agents, or reactions (today `harnessadapter.runtime.service`) |
+| `transport` | `stdio` for stateless tools (the per-session wrapper, today `harnessadapter serve DIR`); `http` for an adapter that needs state shared across sessions or agents, or reactions (today `harnessadapter.runtime.service`) |
 | `command` | the one way to start the server; fixed, so a host configuration only points at the adapter directory |
 | `health` | the readiness rule: the MCP handshake succeeds and `list_tools` matches `exports.tools` |
 | `lifecycle` | `session`: the host starts and stops the server with its session. `standalone`: the process the host starts is only a stdio relay to a shared service that outlives sessions; see [How the standalone service starts](#how-the-standalone-service-starts) |

@@ -132,6 +132,11 @@ Hermes plugin data directory); Pi has none, so it goes to the package directory.
 `claude mcp list` and `codex mcp list` show whether the tool server starts. `hermes plugins doctor OUT` runs Hermes'
 discovery, manifest parsing and `register(ctx)` without installing.
 
+`harnessadapter.json` next to the embedded adapter records the adapter's id and version and the framework version
+that made the plugin; `harnessadapter serve` warns on stderr when the installed framework is another version.
+Converting again into the same output replaces the generated parts, so a skill, a role or a context the adapter no
+longer has does not survive from the earlier plugin; the host's audit log there is kept.
+
 ## Implementation notes
 
 - `check` also verifies that every `sandbox.read` path exists. It does not check the pipeline's host: adapters are meant to

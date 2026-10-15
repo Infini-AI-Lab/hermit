@@ -40,7 +40,18 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "serve":
+        from harnessadapter import __version__
+        from harnessadapter.plugins.common import RECORD
         from harnessadapter.runtime.mcp_server import main as run_server
+        # A plugin's embedded adapter has `convert`'s record next to it; the harnessadapter on PATH here may be
+        # another version than the one that made the plugin. Say so on stderr (the host's log), then serve anyway.
+        try:
+            made_by = json.loads((args.adapter.resolve().parent / RECORD).read_text()).get("framework")
+        except (OSError, ValueError):
+            made_by = None
+        if made_by and made_by != __version__:
+            print(f"harnessadapter serve: this plugin was made by harnessadapter {made_by}; this is {__version__}",
+                  file=sys.stderr)
         run_server(["--adapter", str(args.adapter)] + (["--audit-log", str(args.audit_log)] if args.audit_log else []))
         return 0
 

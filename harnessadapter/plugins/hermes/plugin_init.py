@@ -27,6 +27,7 @@ class _Server:
     def __init__(self):
         self._proc = None
         self._log = None
+        self._err = None
         self._id = 0
         self._lock = threading.Lock()
 
@@ -54,9 +55,12 @@ class _Server:
         data = Path(_data_dir())
         data.mkdir(parents=True, exist_ok=True)
         self._log = data / "mcp-server.log"
+        if self._err is not None:
+            self._err.close()
+        self._err = open(self._log, "a")
         self._proc = subprocess.Popen(
             [command, "serve", str(ROOT / "adapter"), "--audit-log", str(data / "tool-calls.jsonl")],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=open(self._log, "a"), text=True, bufsize=1)
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self._err, text=True, bufsize=1)
         self._request("initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
                                      "clientInfo": {"name": "hermes-" + META["plugin"], "version": META["version"]}})
         self._send({"jsonrpc": "2.0", "method": "notifications/initialized"})

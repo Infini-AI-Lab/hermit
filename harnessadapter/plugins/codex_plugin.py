@@ -12,8 +12,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from harnessadapter.plugins.common import (ADAPTER_DIR, AUDIT_LOG, SERVER_COMMAND, copy_skills, embed_adapter, load,
-                                           prepare_output, refuse, server_args, write_json)
+from harnessadapter.plugins.common import (ADAPTER_DIR, AUDIT_LOG, FRAMEWORK_VERSION, SERVER_COMMAND, clear, copy_skills,
+                                           embed_adapter, load, prepare_output, record, refuse, server_args, write_json)
 
 PLUGIN_SCHEMA = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"
 MCP_SCHEMA = "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json"
@@ -32,6 +32,7 @@ def build(adapter: Path, output: Path, python: str, *, allow_lossy: bool = False
     output = prepare_output(output, bundle.adapter, MARKETPLACE)
     plugin = output / "plugins" / bundle.id
     plugin.mkdir(parents=True, exist_ok=True)
+    clear(plugin, "skills", "mcp.json")
 
     write_json(output / MARKETPLACE, {
         "name": f"{bundle.id}-adapters", "interface": {"displayName": bundle.name},
@@ -40,6 +41,7 @@ def build(adapter: Path, output: Path, python: str, *, allow_lossy: bool = False
         "$schema": PLUGIN_SCHEMA, "name": bundle.id, "version": bundle.version, "description": bundle.name})
     skills = copy_skills(bundle, plugin / "skills")
     embed_adapter(bundle, plugin)
+    record(bundle, plugin)
     if bundle.tools:
         write_json(plugin / "mcp.json", {"$schema": MCP_SCHEMA, "mcpServers": {bundle.server: {
             "type": "stdio", "command": SERVER_COMMAND,
@@ -52,7 +54,8 @@ def build(adapter: Path, output: Path, python: str, *, allow_lossy: bool = False
         "The tools run as `harnessadapter serve`, so `harnessadapter` must be installed and on PATH.", "",
         f"- Skills: {', '.join(skills) or 'none'}", f"- Tools: {', '.join(t['name'] for t in bundle.tools) or 'none'}",
         f"- Left out (--allow-lossy): {', '.join(omitted)}" if omitted else "- Left out: nothing", ""]))
-    return {"target": "codex", "adapter_id": bundle.id, "version": bundle.version, "output": str(output),
+    return {"target": "codex", "adapter_id": bundle.id, "version": bundle.version, "framework": FRAMEWORK_VERSION,
+            "output": str(output),
             "plugin": str(plugin), "install": [f"codex plugin marketplace add {output}",
                                                f"codex plugin add {bundle.id}@{bundle.id}-adapters"],
             "skills": skills, "server_name": bundle.server if bundle.tools else None, "omitted": omitted}

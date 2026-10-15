@@ -194,3 +194,60 @@ def test_serve_runs_the_tool_server(tmp_path):
     finally:
         proc.kill()
     assert json.loads(audit.read_text().splitlines()[-1])["result"] == {"count": 4}
+
+
+def test_reconversion_drops_the_parts_the_adapter_lost(tmp_path):
+    """Converting again into the same output replaces the generated parts: a skill, a role or the context the
+    adapter no longer has does not survive from the earlier plugin."""
+    out = tmp_path / "cc"
+    adapter = variant(tmp_path)
+    build("claude-code", adapter, out, sys.executable)
+    plugin = out / "plugins" / "file-example"
+    assert (plugin / "skills" / "verify-output").is_dir() and (plugin / "agents" / "reviewer.md").is_file()
+    shutil.rmtree(adapter)
+    adapter = variant(tmp_path, roles=False, context=False)
+    shutil.rmtree(adapter / "skills" / "verify-output")
+    result = build("claude-code", adapter, out, sys.executable)
+    assert result["skills"] == [] and result["roles"] == {} and result["context"] is None
+    assert not (plugin / "skills" / "verify-output").exists()
+    assert not (plugin / "agents").exists() and not (plugin / "output-styles").exists()
+    assert (plugin / "adapter" / "adapter.yaml").is_file() and (plugin / ".mcp.json").is_file()
+
+
+@pytest.mark.parametrize("target", ["claude-code", "codex", "pi", "hermes"])
+def test_plugin_records_the_framework_version(tmp_path, target):
+    from harnessadapter import __version__
+    result = build(target, variant(tmp_path, roles=False, context=False), tmp_path / target, sys.executable)
+    root = Path(result.get("plugin") or result["output"])
+    record = json.loads((root / "harnessadapter.json").read_text())
+    assert record["plugin"] == "file-example" and record["version"] == "1.0"
+    assert record["framework"] == __version__ == result["framework"]
+    if target == "hermes":
+        assert record["toolset"] == "file_example" and record["tools"][0]["hermes_name"] == "file_example_count_words"
+
+
+def test_serve_warns_when_the_framework_version_differs(tmp_path):
+    import subprocess
+    result = build("claude-code", variant(tmp_path, roles=False, context=False), tmp_path / "cc", sys.executable)
+    plugin = Path(result["plugin"])
+    record = json.loads((plugin / "harnessadapter.json").read_text())
+    (plugin / "harnessadapter.json").write_text(json.dumps({**record, "framework": "0.0.0"}))
+    proc = subprocess.run([sys.executable, "-m", "harnessadapter.cli", "serve", str(plugin / "adapter")],
+                          input="", capture_output=True, text=True, timeout=60)
+    assert "made by harnessadapter 0.0.0" in proc.stderr
+    proc = subprocess.run([sys.executable, "-m", "harnessadapter.cli", "serve", str(EXAMPLE)],
+                          input="", capture_output=True, text=True, timeout=60)
+    assert "made by harnessadapter" not in proc.stderr
+
+
+@pytest.mark.parametrize("target,marker", [("pi", "package.json"), ("hermes", "plugin.yaml")])
+def test_refuses_a_foreign_package_with_the_hosts_own_marker(tmp_path, target, marker):
+    """A Pi package or a Hermes plugin this framework did not make has that marker too; only the record
+    `convert` writes makes a directory ours, so a foreign one is never cleared."""
+    out = tmp_path / target
+    out.mkdir()
+    (out / marker).write_text("{}")
+    (out / "skills").mkdir()
+    with pytest.raises(ValueError, match="did not create"):
+        build(target, variant(tmp_path, roles=False, context=False), out, sys.executable)
+    assert (out / "skills").is_dir()

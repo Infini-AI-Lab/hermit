@@ -18,7 +18,8 @@ from pathlib import Path
 import json
 import shutil
 
-from harnessadapter.plugins.common import copy_skills, embed_adapter, load, prepare_output, refuse, write_json
+from harnessadapter.plugins.common import (FRAMEWORK_VERSION, RECORD, clear, copy_skills, embed_adapter, load,
+                                           prepare_output, record, refuse)
 
 SECTION_MAX_CHARS = 4_000
 SECTION_MARKERS = ("<!-- hermes-plugin-sections:start -->", "<!-- hermes-plugin-sections:end -->")
@@ -39,7 +40,8 @@ def build(adapter: Path, output: Path, python: str, *, allow_lossy: bool = False
     if bundle.roles:
         reasons["roles"] = f"Hermes has no file-defined subagents ({', '.join(r['name'] for r in bundle.roles)})"
     omitted = refuse(bundle, "Hermes", reasons, allow_lossy=allow_lossy)
-    output = prepare_output(output, bundle.adapter, "plugin.yaml")
+    output = prepare_output(output, bundle.adapter, RECORD)
+    clear(output, "skills", "context.md")
 
     tools = [{"name": t["name"], "hermes_name": f"{bundle.server}_{t['name']}", "description": t["description"],
               "input_schema": t["input_schema"]} for t in bundle.tools]
@@ -47,13 +49,10 @@ def build(adapter: Path, output: Path, python: str, *, allow_lossy: bool = False
         f"name: {bundle.id}\nversion: {json.dumps(bundle.version)}\ndescription: {json.dumps(bundle.name)}\n"
         + (f"provides_tools: [{', '.join(t['hermes_name'] for t in tools)}]\n" if tools else ""))
     shutil.copyfile(PLUGIN_INIT, output / "__init__.py")
-    write_json(output / "harnessadapter.json", {"plugin": bundle.id, "version": bundle.version,
-                                                "toolset": bundle.server, "tools": tools})
+    record(bundle, output, toolset=bundle.server, tools=tools)
     context_file = output / "context.md"
     if bundle.has_context and "context" not in omitted:
         context_file.write_text(context + "\n")
-    elif context_file.exists():
-        context_file.unlink()
     skills = copy_skills(bundle, output / "skills")
     embed_adapter(bundle, output)
     (output / "README.md").write_text("\n".join([
@@ -68,7 +67,8 @@ def build(adapter: Path, output: Path, python: str, *, allow_lossy: bool = False
         f"- Skills: {', '.join(skills) or 'none'}",
         f"- Tools: {', '.join(t['hermes_name'] for t in tools) or 'none'}",
         f"- Left out (--allow-lossy): {', '.join(omitted)}" if omitted else "- Left out: nothing", ""]))
-    return {"target": "hermes", "adapter_id": bundle.id, "version": bundle.version, "output": str(output),
+    return {"target": "hermes", "adapter_id": bundle.id, "version": bundle.version, "framework": FRAMEWORK_VERSION,
+            "output": str(output),
             "install": [f"cp -r {output} ~/.hermes/plugins/{bundle.id}", f"hermes plugins enable {bundle.id}"],
             "context_chars": len(context) if context_file.exists() else 0, "skills": skills,
             "tools": [t["hermes_name"] for t in tools], "omitted": omitted}
