@@ -1,6 +1,6 @@
 # Evolution guide: MetaWorld Model
 
-This document is for the Evolver, not the acting host. ADAPTER.md is the host package rendered from this world model after every adopted session (hosts served by the task's own pipeline get the same package rendered live). This guide does not grant permissions.
+This document is for the Evolver, not the acting host. ADAPTER.md is the host package rendered from this world model after every adopted session; every host reads that file as it is. This guide does not grant permissions.
 
 ## What this adapter maintains
 
