@@ -2,7 +2,7 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/wordmark-dark.svg">
-  <img src="assets/wordmark-light.svg" alt="MetaHarnessAdapter" width="540">
+  <img src="assets/wordmark-light-card.svg" alt="MetaHarnessAdapter" width="572">
 </picture>
 
 **Train harness adapters for existing agents**
