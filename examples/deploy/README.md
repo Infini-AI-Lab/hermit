@@ -9,5 +9,5 @@ Finished adapters, ready to check against their template and to install into an 
 
 ```bash
 python -m harnessadapter.spec examples/deploy/lean_collab/adapter --root harnessadapter/templates/lean_collab
-harnessadapter deploy --adapter examples/deploy/lean_collab/adapter --output /tmp/agent-A1 --host codex
+harnessadapter deploy --adapter examples/deploy/lean_collab/adapter --workspace /tmp/agent-A1 --host codex
 ```

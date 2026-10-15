@@ -17,7 +17,7 @@ Check and deploy it:
 
 ```bash
 python -m harnessadapter.spec examples/deploy/lean_collab/adapter --root harnessadapter/templates/lean_collab
-harnessadapter deploy --adapter examples/deploy/lean_collab/adapter --output /tmp/agent-A1 --host codex
+harnessadapter deploy --adapter examples/deploy/lean_collab/adapter --workspace /tmp/agent-A1 --host codex
 ```
 
 Running it on problems needs the multi-agent launcher (one team service per run, five sandboxed Codex agents, the

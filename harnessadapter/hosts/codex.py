@@ -87,8 +87,8 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--adapter", type=Path, required=True)
-    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--workspace", "--output", dest="workspace", type=Path, required=True)
     parser.add_argument("--python", default=sys.executable)
     args = parser.parse_args()
     # Keep a venv interpreter's path; resolve() would follow its symlink out of the venv.
-    print(json.dumps(prepare(args.adapter, args.output, str(Path(args.python).absolute())), ensure_ascii=False, indent=2))
+    print(json.dumps(prepare(args.adapter, args.workspace, str(Path(args.python).absolute())), ensure_ascii=False, indent=2))

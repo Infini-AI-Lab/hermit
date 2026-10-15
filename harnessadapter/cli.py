@@ -21,7 +21,8 @@ def main(argv=None) -> int:
             p.add_argument("--no-probe", action="store_true", help="skip running one task through the pipeline")
     dep = sub.add_parser("deploy", help="deploy an adapter's exports into a Codex or Claude Code workspace")
     dep.add_argument("--adapter", type=Path, required=True)
-    dep.add_argument("--output", type=Path, required=True)
+    dep.add_argument("--workspace", "--output", dest="workspace", type=Path, required=True,
+                     help="the project directory the agent will work in (--output is the older spelling)")
     dep.add_argument("--host", choices=["codex", "claude-code"], default="codex")
     dep.add_argument("--python", default=sys.executable)
     con = sub.add_parser("convert", help="convert an adapter into a plugin in a host's native format")
@@ -71,7 +72,7 @@ def main(argv=None) -> int:
             from harnessadapter.hosts.codex import prepare
         else:
             from harnessadapter.hosts.claude_code import prepare
-        print(json.dumps(prepare(args.adapter, args.output, str(Path(args.python).absolute())), indent=2))
+        print(json.dumps(prepare(args.adapter, args.workspace, str(Path(args.python).absolute())), indent=2))
         return 0
     from harnessadapter.config import Config
     config = Config.load(args.config, args.overrides)

@@ -248,8 +248,8 @@ From the repository root after installation, use fresh output directories:
 ```bash
 mkdir -p .demo
 cp -R docs/_examples/file_adapter .demo/file-adapter
-harnessadapter deploy --adapter .demo/file-adapter --output .demo/file-codex --host codex
-harnessadapter deploy --adapter .demo/file-adapter --output .demo/file-claude --host claude-code
+harnessadapter deploy --adapter .demo/file-adapter --workspace .demo/file-codex --host codex
+harnessadapter deploy --adapter .demo/file-adapter --workspace .demo/file-claude --host claude-code
 ```
 
 Inspect `.demo/file-codex/AGENTS.md`, `.demo/file-claude/CLAUDE.md`, and the generated roles, skills, and tool

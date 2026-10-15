@@ -20,11 +20,11 @@ python -m harnessadapter.spec examples/deploy/lean_collab/adapter --root harness
 ## Into a project
 
 ```bash
-harnessadapter deploy --adapter examples/deploy/lean_collab/adapter --output /tmp/ws --host codex       # or claude-code
+harnessadapter deploy --adapter examples/deploy/lean_collab/adapter --workspace /tmp/ws --host codex       # or claude-code
 cd /tmp/ws && codex                                                                                     # or claude
 ```
 
-The output directory is a project workspace: the adapter's instructions go into `AGENTS.md` (Codex) or `CLAUDE.md`
+`--workspace` is the project directory you will start the agent in: the adapter's instructions go into `AGENTS.md` (Codex) or `CLAUDE.md`
 (Claude Code) inside a managed block, skills and roles under `.codex/` or `.claude/`, and the tools become an MCP
 server entry that starts the framework's wrapper with this machine's absolute paths. The adapter is active only
 when the agent runs in that directory. Re-running `deploy` on the same directory replaces the managed block and the

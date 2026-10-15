@@ -79,7 +79,7 @@ An adapter reaches an agent either **through a project** or **through the agent 
 **Into a project: `deploy`**
 
 ```bash
-harnessadapter deploy --adapter DIR --output WS --host codex      # or claude-code
+harnessadapter deploy --adapter DIR --workspace WS --host codex      # or claude-code
 cd WS && codex                                                     # or claude
 ```
 

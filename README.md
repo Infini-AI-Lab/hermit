@@ -29,7 +29,7 @@ pip install -e .
 harnessadapter check --config run.yaml       # basic checks of the settings
 harnessadapter train --config run.yaml       # train; resumes after a crash
 harnessadapter eval  --config run.yaml --adapter final
-harnessadapter deploy --adapter <dir> --output <workspace> --host codex
+harnessadapter deploy --adapter <dir> --workspace <workspace> --host codex
 ```
 
 Every adapter is a commit in a git tree rooted at its template; runs are branches, checkpoints and finals are tags,

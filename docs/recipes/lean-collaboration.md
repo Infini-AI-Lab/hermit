@@ -70,7 +70,7 @@ repository), not by `deploy`:
 2. **Deploy a workspace per agent** with the adapter's context, skills and roles:
 
    ```bash
-   harnessadapter deploy --adapter examples/lean_collab_v12_5/adapter --output /work/A1 --host codex
+   harnessadapter deploy --adapter examples/lean_collab_v12_5/adapter --workspace /work/A1 --host codex
    ```
 
    and point the agent at its own endpoint instead of the per-session wrapper `deploy` wrote: the run script

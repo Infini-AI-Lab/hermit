@@ -47,7 +47,7 @@ This is a manually written adapter. Training will automate edits to the same fil
 ```bash
 harnessadapter deploy \
   --adapter .demo/adapter \
-  --output .demo/codex-workspace \
+  --workspace .demo/codex-workspace \
   --host codex
 cat .demo/codex-workspace/AGENTS.md
 ```
@@ -60,7 +60,7 @@ For Claude Code, generate a separate workspace:
 ```bash
 harnessadapter deploy \
   --adapter .demo/adapter \
-  --output .demo/claude-workspace \
+  --workspace .demo/claude-workspace \
   --host claude-code
 cat .demo/claude-workspace/CLAUDE.md
 ```

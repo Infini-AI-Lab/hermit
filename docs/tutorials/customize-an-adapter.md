@@ -119,7 +119,7 @@ Point a run at the directory. With the offline echo task and its recording Evolv
 ```bash
 harnessadapter check --config docs/_examples/interface_task/run.yaml template=../../../.demo/my_template trainer.run_name=my-template
 harnessadapter train --config docs/_examples/interface_task/run.yaml template=../../../.demo/my_template trainer.run_name=my-template
-harnessadapter deploy --adapter .demo/my_template --output .demo/ws --host codex && cat .demo/ws/AGENTS.md
+harnessadapter deploy --adapter .demo/my_template --workspace .demo/ws --host codex && cat .demo/ws/AGENTS.md
 ```
 
 Paths in overrides are relative to the config file. `check` loads your template and reports what does not fit
