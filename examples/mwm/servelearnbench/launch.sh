@@ -15,6 +15,8 @@
 #   FIREWORKS_API_KEY, or MW_KEY_FILE (default ~/code/metaworld/.fireworks)
 #   MW_WIRE_METER    the wire meter script (default: the framework's harnessadapter/runtime/wire_meter.py)
 #   MW_MODEL_ID, MW_EVOLVER_MODEL   the host and learner models (Fireworks ids)
+#   MW_METHOD        another method's config, examples/<method>/servelearnbench/<scenario>.yaml (default mwm);
+#                    examples/prompt_only/servelearnbench/launch.sh sets it
 set -eu
 SCENARIO=${1:?usage: launch.sh <scenario> [train|test]}
 MODE=${2:-train}
@@ -22,6 +24,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 FRAMEWORK=$(cd "$HERE/../../.." && pwd)
 CODE=${MW_CODE:-$HOME/code}
 RUNS=${MW_RUNS:-$CODE/metaworld-runs}
+METHOD=${MW_METHOD:-mwm}
 TAG=${MW_TAG:-slb_$SCENARIO}
 WM_PORT=${WM_PORT:-3451}
 PY=${MW_FRAMEWORK_PYTHON:-$FRAMEWORK/.venv/bin/python}
@@ -31,7 +34,7 @@ METER=${MW_WIRE_METER:-$FRAMEWORK/harnessadapter/runtime/wire_meter.py}
 KEY_FILE=${MW_KEY_FILE:-$CODE/metaworld/.fireworks}
 META_PORT=$((WM_PORT+1))
 TASKDIR=$FRAMEWORK/examples/tasks/servelearnbench
-CONFIG=$HERE/$SCENARIO.yaml
+CONFIG=$FRAMEWORK/examples/$METHOD/servelearnbench/$SCENARIO.yaml
 WD="$RUNS/$TAG/task"
 
 [ -f "$CONFIG" ] || { echo "REFUSING: no config $CONFIG"; exit 1; }
@@ -47,7 +50,7 @@ if [ -n "${FIREWORKS_API_KEY:-}" ]; then KEY=$FIREWORKS_API_KEY
 elif [ -f "$KEY_FILE" ]; then KEY=$(cat "$KEY_FILE")
 else echo "REFUSING: set FIREWORKS_API_KEY or put the key in $KEY_FILE (MW_KEY_FILE)"; exit 1; fi
 export HA_FW_KEY=$KEY SLB_API_KEY=$KEY
-export SLB_MODEL=$MODEL SLB_REASONING_EFFORT=high SLB_METHOD=mwm SLB_WORKDIR=$WD
+export SLB_MODEL=$MODEL SLB_REASONING_EFFORT=high SLB_METHOD=$METHOD SLB_WORKDIR=$WD
 export PYTHONPATH=$FRAMEWORK${PYTHONPATH:+:$PYTHONPATH}
 
 start_meter() {  # port ledger log [extra env...]
@@ -64,9 +67,10 @@ start_meter $WM_PORT "$RUNS/$TAG/wire_ledger.json" "$RUNS/$TAG/wire_meter.log"
 if [ "$MODE" = test ]; then
   [ -d "$RUNS/$TAG/$TAG" ] || { echo "REFUSING: no training run at $RUNS/$TAG/$TAG"; exit 1; }
   export SLB_BASE_URL="http://127.0.0.1:$WM_PORT/${TAG}_test/inference/v1"
-  "$PY" "$TASKDIR/windows.py" --config "$CONFIG" --run "$TAG" ${MW_SMOKE:+--smoke} "trainer.output_dir=$RUNS/$TAG"
-  "$FRAMEWORK/.venv/bin/slb" score "$WD/results/${SCENARIO}_mwm.jsonl" 2>/dev/null \
-    || "$PY" -m servelearnbench.cli score "$WD/results/${SCENARIO}_mwm.jsonl"
+  "$PY" "$TASKDIR/windows.py" --config "$CONFIG" --run "$TAG" --method "$METHOD" ${MW_SMOKE:+--smoke} \
+      "trainer.output_dir=$RUNS/$TAG"
+  "$FRAMEWORK/.venv/bin/slb" score "$WD/results/${SCENARIO}_${METHOD}.jsonl" 2>/dev/null \
+    || "$PY" -m servelearnbench.cli score "$WD/results/${SCENARIO}_${METHOD}.jsonl"
   exit 0
 fi
 [ "$MODE" = train ] || { echo "usage: launch.sh <scenario> [train|test]"; exit 1; }
@@ -88,19 +92,20 @@ mkdir -p "$WD/evidence"
 export SLB_BASE_URL="http://127.0.0.1:$WM_PORT/${TAG}/inference/v1"
 ARGS="[-c, model_provider=\"fireworks\", -c, model_providers.fireworks.name=\"fireworks\", -c, model_providers.fireworks.base_url=\"http://127.0.0.1:$META_PORT/${TAG}_meta/inference/v1\", -c, model_providers.fireworks.env_key=\"HA_FW_KEY\", -c, model_providers.fireworks.wire_api=\"responses\", -c, model_reasoning_effort=\"high\"]"
 LOG="$RUNS/$TAG/run.log"
-echo "=== setting stamp: scenario=$SCENARIO method=mwm framework=$HEAD servelearnbench=$SLB_VERSION" \
-     "host_model=$MODEL host_effort=high evolver=mwm evolver_model=$EVOLVER_MODEL evolver_effort=high" \
+EVOLVER=$(sed -n '/^evolver:/,/^[a-z]/p' "$CONFIG" | grep -E '^\s+name:' | head -1 | sed -E 's/.*name:\s*([^ #]+).*/\1/')
+[ "$METHOD" = mwm ] && MWM_ARGS=("evolver.params.evidence=$WD/evidence" "evolver_access.environment=[$WD/evidence]") || MWM_ARGS=()
+echo "=== setting stamp: scenario=$SCENARIO method=$METHOD framework=$HEAD servelearnbench=$SLB_VERSION" \
+     "host_model=$MODEL host_effort=high evolver=$EVOLVER evolver_model=$EVOLVER_MODEL evolver_effort=high" \
      "meter=$WM_PORT/$META_PORT shuffle=false train=${MW_TRAIN_SPLIT:-splits/serving.txt} ===" > "$LOG"
 setsid nohup "$PY" -m harnessadapter.cli train --config "$CONFIG" \
     "trainer.run_name=$TAG" "trainer.output_dir=$RUNS/$TAG" \
     ${MW_TRAIN_SPLIT:+"data.train=$MW_TRAIN_SPLIT"} \
-    "evolver.params.model=$EVOLVER_MODEL" "evolver.params.evidence=$WD/evidence" "evolver.params.args=$ARGS" \
-    "evolver_access.environment=[$WD/evidence]" \
+    "evolver.params.model=$EVOLVER_MODEL" "evolver.params.args=$ARGS" "${MWM_ARGS[@]}" \
     >> "$LOG" 2>&1 < /dev/null &
 TRAIN_PID=$!
 echo "train -> pid $TRAIN_PID log $LOG"
 # The tests follow the training on their own: this waiter runs `test` when the Trainer exits.
 setsid nohup bash -c "while kill -0 $TRAIN_PID 2>/dev/null; do sleep 60; done; \
-  MW_TAG=$TAG WM_PORT=$WM_PORT MW_RUNS=$RUNS MW_SMOKE=${MW_TRAIN_SPLIT:+1} exec \"$0\" \"$SCENARIO\" test" > "$RUNS/$TAG/test.log" 2>&1 < /dev/null &
+  MW_TAG=$TAG WM_PORT=$WM_PORT MW_RUNS=$RUNS MW_METHOD=$METHOD MW_SMOKE=${MW_TRAIN_SPLIT:+1} exec \"$0\" \"$SCENARIO\" test" > "$RUNS/$TAG/test.log" 2>&1 < /dev/null &
 echo "tests -> after training, log $RUNS/$TAG/test.log"
 echo "run directory: $RUNS/$TAG   (progress: $RUNS/$TAG/$TAG/steps.jsonl; scores: $RUNS/$TAG/test.log)"
