@@ -67,9 +67,7 @@ class AdapterIface:
         return json.dumps(result, ensure_ascii=False)
 
     def package(self, transport_note: str = "", with_delegate: bool = True) -> str:
-        interface = self.adapter.root / "interface.py"
-        if interface.is_file():
-            module = self.adapter._module("interface.py")
-            if callable(getattr(module, "context", None)):
-                return module.context(_resources=self.adapter.resources)
+        """The adapter's context exactly as the Evolver wrote it after the last adopted step (ADAPTER.md, rendered
+        with this venue's host.json). It is not rendered again here: once a step is adopted, the file is the
+        context, the same for this pipeline, `deploy` and `convert`."""
         return self.adapter.context()

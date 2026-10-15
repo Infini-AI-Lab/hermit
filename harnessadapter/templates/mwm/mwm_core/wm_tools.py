@@ -77,9 +77,12 @@ def _entry_files(mdir: Path) -> list[Path]:
     root = mdir.parent
     if not mdir.is_dir() or not inside(root, mdir):
         return []
-    return [p for p in mdir.iterdir()
-            if p.suffix == ".md" and not p.name.startswith("_")
-            and p.name != "README.md" and inside(root, p)]
+    # Sorted by name: the callers order entries by edit time with a stable sort, so entries edited in the same
+    # session (equal times) keep this order instead of the directory's listing order, which differs between
+    # copies of the adapter (2026-10-15).
+    return sorted((p for p in mdir.iterdir()
+                   if p.suffix == ".md" and not p.name.startswith("_")
+                   and p.name != "README.md" and inside(root, p)), key=lambda p: p.name)
 
 
 def _brief_of(path: Path) -> str:

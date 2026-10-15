@@ -112,6 +112,12 @@ class PackageParity(unittest.TestCase):
                              f"i=wm_iface.WorldModelInterface({str(wrepo)!r}, {str(evidence)!r}, delegation='none', "
                              "code_channel=True); print(i.package(wm_iface.transport_note()), end='')")
             host = json.loads((TASKS / "database/task-info/deployment/host.json").read_text())
+            # The pipeline reads ADAPTER.md as the Evolver wrote it after an adopted step; write it the same way
+            # first (interface.context with the venue's host.json), since no step has run on this copy.
+            from harnessadapter.adapter.loader import Adapter
+            loaded = Adapter(wrepo, {"evidence": AdapterIface(wrepo, evidence, host).adapter.resources["evidence"],
+                                     "deployment": host})
+            (wrepo / "ADAPTER.md").write_text(loaded._module("interface.py").context(_resources=loaded.resources))
             ours = AdapterIface(wrepo, evidence, host).package()
         self.assertEqual(native, ours, "push package differs from native:\n" + _diff(native, ours, 60))
 
