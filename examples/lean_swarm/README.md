@@ -39,7 +39,7 @@ pipeline of this framework, so there is no `harnessadapter train` for this task.
 (reasoning effort high) per problem in every method, one proof attempt per problem with a two-hour budget; a problem counts as
 solved when a proof compiles without `sorry` or extra axioms.
 
-![problems solved against time](solved_vs_time.png)
+<img src="solved_vs_time.png" alt="problems solved against time" width="717">
 
 Problems solved against time, normalised to an API speed of 75 output tokens/s. avg@5 and best@5 are five
 independent single agents; the shared-notes team shares one notes file.
