@@ -1,20 +1,47 @@
-# Example: OfficeQA
+# OfficeQA
 
-Questions about U.S. Treasury Bulletins, answered by a GLM 5.3 Flash tool-calling agent (`pipeline.py`) and scored
-by the official strict scorer (`judge.py`).
+Questions about U.S. Treasury Bulletins (1939–2025), 133 of them, answered by a tool-calling agent that searches and
+reads the bulletins' text, scored by the official strict scorer (tolerance 0). The agent is the framework's built-in
+`react` agent: this task has no agent code, only a prompt and two tools.
 
-```bash
-python prepare.py /path/to/officeqa_official_133/prepared     # tasks.jsonl, splits/, data_root.txt
-export FIREWORKS_API_KEY=...
-harnessadapter check --config smoke.yaml
-harnessadapter train --config smoke.yaml
-harnessadapter eval  --config smoke.yaml --adapter final
-harnessadapter eval  --config smoke.yaml --adapter none        # the agent without an adapter
+## Layout
+
+```text
+utils/agent/prompt.md           the system prompt (the adapter's context is appended to it)
+utils/tools.py      the task's tools, search and read, over the corpus index (corpus.py)
+utils/judge.py      the official strict scorer; feedback names the reference answer unless OFFICEQA_FEEDBACK=score
+utils/prepare.py    writes tasks.jsonl, splits/ and data_root.txt beside itself
+utils/task-info/                the task as the learner reads it
+prompt_only/ codex/ gepa/ skillopt/   one folder per method: smoke.yaml, run.yaml (try.yaml for prompt_only)
 ```
 
-The same commands train with GEPA or SkillOpt (`pip install -e '.[gepa]'` or `'.[skillopt]'` from the repository
-root): `gepa_smoke.yaml` and `skillopt_smoke.yaml` for a quick check, `gepa.yaml` and `skillopt.yaml` for a full run.
+## Prepare
 
-The prepared directory holds the corpus (agent/) and the answers and scorer (private/). The judge reads the private
-part. A sandboxed Evolver sees only its workspace, its accesses and `sandbox.read` (empty here), so neither the
-answers nor the example directory are visible to it.
+You need a prepared OfficeQA directory: `agent/` with the questions, the bulletin texts and their search index, and
+`private/` with the answers and the official scorer (layout in the [OfficeQA recipe](../../docs/recipes/officeqa.md)).
+
+```bash
+python examples/officeqa/utils/prepare.py /path/to/officeqa_official_133/prepared
+```
+
+The splits (seed 0) are 60 training, 13 validation and 60 test questions, plus `smoke_*` (4 / 2 / 2) and `try_*`
+(12 training, 10 test). The judge reads the answers from the prepared directory's `private/`; a sandboxed Evolver
+sees only its workspace, so neither the answers nor this folder are visible to it.
+
+## Run
+
+```bash
+export FIREWORKS_API_KEY=...
+harnessadapter check --config examples/officeqa/gepa/smoke.yaml
+harnessadapter train --config examples/officeqa/gepa/smoke.yaml
+harnessadapter eval  --config examples/officeqa/gepa/smoke.yaml --adapter final
+```
+
+## Methods
+
+| Folder | Evolver | Configs |
+|---|---|---|
+| [`prompt_only/`](prompt_only/) | one model call per step rewrites ADAPTER.md | smoke, try, run |
+| [`codex/`](codex/) | a Codex agent edits the adapter (`codex_glm/`: configured for GLM 5.3 Flash) | smoke |
+| [`gepa/`](gepa/) | GEPA | smoke, run |
+| [`skillopt/`](skillopt/) | SkillOpt | smoke, run |

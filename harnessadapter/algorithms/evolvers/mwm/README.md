@@ -6,7 +6,7 @@ The native MetaWorld Model learner (V2 default: docket on, hypothesis off) on th
 - One training step is one block (`data.step_size` episodes, `data.shuffle: false`). The first step also runs the
   native bootstrap session; with `block_size` set, a shorter final block gets no session.
 - Before the session: maintenance (`maintenance/`: journal roll, docket caps, gate advice) and the contract
-  (`materials/core.md` + `agenda.md` + the venue's slots from `task-info/deployment/`), by `prompt.py`.
+  (`materials/core.md` + `agenda.md` + the venue's slots from the `deployment` directory (`params.deployment`, default `task-info/mwm/`; the method's own slots are in `deployment.py`)), by `prompt.py`.
 - The session: one Codex run with the native prompt, in the adapter directory, with `/evidence`, `/environment`,
   `/skills`, `/patterns` and `/world-model` mounted (`mounts.py`), the Trainer's other areas hidden, in its own network
   namespace. Only the model meter and a gate onto the venue's channels are forwarded (`_ToolGate`); every session

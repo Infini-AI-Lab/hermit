@@ -177,3 +177,50 @@ class AllowlistProxy:
     def close(self):
         self.server.shutdown()
         self.server.server_close()
+
+
+def hidden_paths(hide: list | None) -> list[Path]:
+    """What a learner must not read although the sandbox shows the directories holding it: the framework checkout's
+    examples (task code and data), tests, docs and git objects, plus `hide`: more paths, or "module:<name>" for an
+    installed Python package (a benchmark whose evaluator sits beside the framework)."""
+    import importlib.util
+    out = [FRAMEWORK / "examples", FRAMEWORK / "tests", FRAMEWORK / "docs", FRAMEWORK / ".git"]
+    for item in hide or []:
+        item = str(item)
+        if item.startswith("module:"):
+            spec = importlib.util.find_spec(item[len("module:"):])
+            if spec is None or not spec.submodule_search_locations:
+                raise RuntimeError(f"hide: no installed package named {item[len('module:'):]!r}")
+            out += [Path(loc) for loc in spec.submodule_search_locations]
+        else:
+            out.append(Path(item).expanduser())
+    return out
+
+
+class HidingSandbox:
+    """A sandbox with paths covered: a directory by an empty tmpfs, a file by /dev/null, and `keep` bound back on
+    top (the task description lives under a hidden tree). Subtractive, until the sandbox is a positive allowlist."""
+
+    def __init__(self, inner, hidden: list[Path], keep: list[Path] = ()):
+        self.inner, self.hidden, self.keep = inner, list(hidden), list(keep)
+
+    def __getattr__(self, name):
+        return getattr(self.inner, name)
+
+    def wrap(self, command, **kw):
+        args, env = self.inner.wrap(command, **kw)
+        if args and args[0] == "bwrap" and "--" in args:
+            cut = args.index("--")
+            cover = []
+            for p in self.hidden:
+                p = p.resolve()
+                if p.is_dir():
+                    cover += ["--tmpfs", str(p)]
+                elif p.is_file():
+                    cover += ["--ro-bind", "/dev/null", str(p)]
+            for p in self.keep:
+                p = p.resolve()
+                if p.exists():
+                    cover += ["--ro-bind", str(p), str(p)]
+            args = args[:cut] + cover + args[cut:]
+        return args, env

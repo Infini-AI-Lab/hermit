@@ -4,8 +4,8 @@ data:
   test: test.txt
   step_size: 1
 task_info: task-info
-pipeline:
-  run: pipeline.py:run
+agent:
+  name: pipeline.py:run
   concurrency: 1
 judge:
   path: judge.py

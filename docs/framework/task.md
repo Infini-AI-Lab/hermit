@@ -66,6 +66,57 @@ The scoring function decides what feedback to reveal. Reference answers placed i
 learner. The numeric score can be task-specific; the current `eval` report counts a task as solved at least once
 when any repeated score is at least `1.0`.
 
+## Built-in agents
+
+A task whose acting agent is a tool-calling model, or a coding-agent CLI, names a built-in agent as its pipeline
+and writes no loop:
+
+```yaml
+agent:
+  name: react
+  params:
+    model: {base_url: https://api.fireworks.ai/inference/v1, model: accounts/fireworks/models/glm-5p3-flash,
+            api_key_env: FIREWORKS_API_KEY, price: {input: 0.15, cached_input: 0.03, output: 0.5}}
+    prompt: utils/agent/prompt.md      # system prompt; `{context}` marks where ADAPTER.md goes (else appended)
+    tools: utils/tools.py              # the task's tools: functions marked with @harnessadapter.agents.tool
+    user: "{question}"                 # the first user message from the task's fields
+    max_turns: 24
+    answer_tag: FINAL_ANSWER           # optional: one more call without tools when the tag is missing
+```
+
+| `agent.name` | Agent | Settings |
+|---|---|---|
+| `react` | a chat-completions tool-calling loop over the task's tools and the adapter's tools | `model`, `prompt`, `tools`, `user`, `max_turns`, `max_output_tokens`, `max_tokens`, `temperature`, `answer_tag`, `tool_result_chars`, `logs` |
+| `codex`, `claude-code` | Codex or Claude Code run in a fresh workspace the adapter is deployed into, as `deploy` does | `model`, `prompt`, `files`, `args`, `price`, `timeout_s`, `workspaces` |
+
+Every agent has the same interface, the task's own included:
+
+```python
+from harnessadapter.agents import Agent
+
+class MyAgent(Agent):                     # agent.name: agent/agent.py:MyAgent
+    def run(self, task, adapter):         # self.params, self.base (the config's directory), self.session(adapter)
+        ...
+        return RunOutput(output=...)
+```
+
+A plain `run(task, adapter)` function is accepted too (`agent.name: agent/pipeline.py:run`); it receives
+`params` and `base` when its signature names them. A task tool is a plain function:
+
+```python
+from harnessadapter.agents import tool
+
+@tool("Read lines of one bulletin file.", {"type": "object", "properties": {
+      "filename": {"type": "string"}, "start_line": {"type": "integer"}}, "required": ["filename"]})
+def read(filename: str, start_line: int = 1) -> dict:
+    ...
+```
+
+A function that declares `_task` receives the task row. The result is JSON; an exception becomes an error
+message the model reads. The adapter's own tools are offered beside these and answered through
+[`Session`](adapter.md#custom-acting-pipelines). A benchmark that owns its agent loop is an `Agent` subclass
+that runs that loop with `Session` plugged in; `examples/clbench_poker/utils/agent/agent.py` is one.
+
 ## What the task owner provides
 
 | Input | Purpose | Used by |
@@ -127,15 +178,14 @@ The example config binds these functions as:
 
 ```yaml
 pipeline:
-  run: pipeline.py:run
+  name: pipeline.py:run
 judge:
   path: judge.py
   name: score
 ```
 
-Paths are relative to the config file. `pipeline.run` includes the function name; `judge.path` names the file or module
-and `judge.name` names the function (default `score`). The current Trainer does not forward `pipeline.params`.
-Configure any additional acting behavior inside your pipeline.
+Paths are relative to the config file. `agent.name` includes the class or function name; `judge.path` names the file
+or module and `judge.name` names the function (default `score`). `agent.params` is the agent's to read.
 
 Run the [offline example](trainer.md#minimal-example) to exercise these interfaces. For a real model and document
 environment, see [OfficeQA](../recipes/officeqa.md).

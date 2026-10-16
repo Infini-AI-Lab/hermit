@@ -70,7 +70,7 @@ with `llm:` configured in the run config. Calls made another way are reported th
 |---|---|
 | `AgentEvolver` (`harnessadapter.evolver.agent`) | the learner is a coding agent (Codex or Claude Code) editing the adapter directory under a prompt of yours; `harnessadapter/algorithms/evolvers/codex/` is one |
 | `CommandEvolver` | the learner is an external program; it gets the workspace as JSON (`HA_CONTEXT`) and edits the directory |
-| a subclass of a built-in Evolver | one behaviour changes, the rest stays: `examples/prompt_only/clbench/codex_glm/evolver.py` gates the Codex learner's tools to `check_spec` in thirty lines |
+| a subclass of a built-in Evolver | one behaviour changes, the rest stays: override `step`, adjust the context, call the parent |
 
 The contract in full, resume, bootstrap, cancellation and the Python types are in
 [Custom Evolver integration](../framework/custom-evolver.md) and [Evolver](../framework/evolver.md).

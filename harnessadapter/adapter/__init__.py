@@ -1,5 +1,6 @@
-"""Adapter loading: the manifest, in-process exports, the LearningMaterial binding."""
+"""Adapter loading: the manifest, in-process exports, the resource bindings, and Session for programs that use an adapter."""
 from .loader import Adapter, load_manifest, inside
-from .resources import LearningMaterial
+from .resources import EvidenceStore, LearningMaterial
+from .session import Session
 
-__all__ = ["Adapter", "load_manifest", "inside", "LearningMaterial"]
+__all__ = ["Adapter", "Session", "load_manifest", "inside", "EvidenceStore", "LearningMaterial"]

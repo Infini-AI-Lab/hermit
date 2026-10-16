@@ -95,10 +95,10 @@ cat .demo/codex-workspace/AGENTS.md     # the adapter's context, as Codex will r
 **Train one** from task feedback:
 
 ```bash
-python examples/tasks/officeqa/prepare.py /path/to/officeqa/prepared
-harnessadapter check --config examples/gepa/officeqa/smoke.yaml    # catch setting mistakes before spending
-harnessadapter train --config examples/gepa/officeqa/smoke.yaml    # resumes after a crash
-harnessadapter eval  --config examples/gepa/officeqa/smoke.yaml --adapter final
+python examples/officeqa/utils/prepare.py /path/to/officeqa/prepared
+harnessadapter check --config examples/officeqa/gepa/smoke.yaml    # catch setting mistakes before spending
+harnessadapter train --config examples/officeqa/gepa/smoke.yaml    # resumes after a crash
+harnessadapter eval  --config examples/officeqa/gepa/smoke.yaml --adapter final
 ```
 
 **Ship it** into a project, or as a plugin:
@@ -145,7 +145,7 @@ for agents proving Lean theorems together), `mwm` (memory, briefing and callable
 | [OfficeQA, SkillOpt paper setting](examples/officeqa_paper/README.md) | The paper's 50 / 24 / 172 split, exact-match scorer | `skillopt`, `gepa` | test mean score 0.576 (`skillopt`), 0.564 (`gepa`); 172 questions × 3 repeats |
 | [Lean collaboration](docs/recipes/lean-collaboration.md) | Five Codex agents proving Lean theorems with one shared team service | (finished adapter) | 8/8 on the development set; 12/24 held-out problems so far |
 | [ServeLearnBench](docs/recipes/servelearnbench.md) | retail_l3: 624 serving cases in 8 windows | `mwm`, `prompt_only` | per-window tests with `slb score` |
-| [CL-Bench](examples/mwm/README.md) | database and poker streams | `mwm`, `prompt_only` | accuracy per stream |
+| [CL-Bench](docs/methods/mwm.md) | database and poker streams | `mwm`, `prompt_only` | accuracy per stream |
 
 Every trained adapter in [`examples/`](examples/README.md) comes with its `CARD.md`: how it was trained, how it
 scored, and where it has not been tested.

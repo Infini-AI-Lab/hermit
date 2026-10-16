@@ -1,0 +1,54 @@
+# OfficeQA with the SkillOpt Evolver: 2 epochs of 3 steps of 20 training questions, each update gated on the 13
+# validation questions. GLM 5.3 Flash for acting and optimizing.
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/train.txt
+  val: ../utils/splits/val.txt
+  test: ../utils/splits/test.txt
+  step_size: 20              # SkillOpt's batch_size
+task_info: ../utils/task-info/
+agent:
+  name: react     # the built-in tool-calling agent: no pipeline code for this task
+  concurrency: 10
+  params:
+    model: {base_url: https://api.fireworks.ai/inference/v1, model: accounts/fireworks/models/glm-5p3-flash,
+            api_key_env: FIREWORKS_API_KEY, price: {input: 0.15, cached_input: 0.03, output: 0.50}}
+    prompt: ../utils/agent/prompt.md
+    tools: ../utils/tools.py
+    user: "{question}"
+    max_turns: 24
+    max_tokens: 16384
+    max_output_tokens: 65536
+    temperature: 0.6
+    answer_tag: FINAL_ANSWER
+    logs: .logs
+judge:
+  path: ../utils/judge.py
+template: prompt-only@1.0
+evolver:
+  name: skillopt
+  params:
+    total_steps: 6           # epochs x steps per epoch, for the learning-rate decay
+    minibatch_size: 4
+    merge_batch_size: 4
+    analyst_workers: 8
+    slow_update_samples: 10
+    prompt_env: officeqa     # SkillOpt's OfficeQA analyst prompts
+    obs_chars: 4000          # each search or read result shown to the analyst, clipped
+llm:
+  base_url: https://api.fireworks.ai/inference/v1
+  model: accounts/fireworks/models/glm-5p3-flash
+  api_key_env: FIREWORKS_API_KEY
+  price: {input: 0.15, cached_input: 0.03, output: 0.50}
+sandbox:
+  enabled: true
+  network: restricted
+  allow: [https://api.fireworks.ai]
+  read: []
+  env: [FIREWORKS_API_KEY]
+trainer:
+  run_name: officeqa-skillopt
+  output_dir: runs
+  epochs: 2
+  budget: {usd: 30, hours: 12}
+  call_timeout_min: 60

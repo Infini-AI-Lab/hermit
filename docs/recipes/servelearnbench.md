@@ -10,7 +10,7 @@ Install the benchmark, then run one scenario from the repository root:
 
 ```bash
 .venv/bin/pip install "git+https://github.com/Infini-AI-Lab/ServeLearnBench"
-FIREWORKS_API_KEY=... examples/mwm/servelearnbench/launch.sh retail_l3
+FIREWORKS_API_KEY=... examples/servelearnbench/mwm/launch.sh retail_l3
 ```
 
 The launcher exports the scenario as a task (once), starts the training in the background, and when the training
@@ -22,7 +22,7 @@ ends plays the per-window tests and prints the benchmark's scores:
 | `~/code/metaworld-runs/slb_retail_l3/test.log` | the Hidden and Fully Specified scores per window, and `slb score`'s table |
 | `~/code/metaworld-runs/slb_retail_l3/task/results/retail_l3_mwm.jsonl` | the benchmark's result file, readable by `slb score` |
 
-`examples/mwm/servelearnbench/launch.sh retail_l3 test` replays the tests alone, also while the training is still
+`examples/servelearnbench/mwm/launch.sh retail_l3 test` replays the tests alone, also while the training is still
 going (windows not trained yet are skipped).
 
 Requirements: the framework in `.venv/` (Python 3.12+); the `codex` CLI and bubblewrap (`bwrap`) on the PATH. Both
@@ -46,5 +46,5 @@ tree), which gives the same scores as the benchmark's inline tests, since test t
 of 12 does not divide every window's serving count (74 to 84 in retail_l3), so up to 11 cases of a window are
 learned only after that window's test.
 
-The task integration (`examples/tasks/servelearnbench/`: what is exported, how an episode is played, how the
+The task integration (`examples/servelearnbench/`: what is exported, how an episode is played, how the
 windows are scored) is described in its README.

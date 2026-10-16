@@ -1,0 +1,46 @@
+# OfficeQA with the GEPA Evolver: one GEPA iteration per step of 3 training questions; candidates are scored on
+# the 13 validation questions. GLM 5.3 Flash for acting and reflecting.
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/train.txt
+  val: ../utils/splits/val.txt
+  test: ../utils/splits/test.txt
+  step_size: 3               # GEPA's reflection minibatch
+task_info: ../utils/task-info/
+agent:
+  name: react     # the built-in tool-calling agent: no pipeline code for this task
+  concurrency: 10
+  params:
+    model: {base_url: https://api.fireworks.ai/inference/v1, model: accounts/fireworks/models/glm-5p3-flash,
+            api_key_env: FIREWORKS_API_KEY, price: {input: 0.15, cached_input: 0.03, output: 0.50}}
+    prompt: ../utils/agent/prompt.md
+    tools: ../utils/tools.py
+    user: "{question}"
+    max_turns: 24
+    max_tokens: 16384
+    max_output_tokens: 65536
+    temperature: 0.6
+    answer_tag: FINAL_ANSWER
+    logs: .logs
+judge:
+  path: ../utils/judge.py
+template: prompt-only@1.0
+evolver:
+  name: gepa
+llm:
+  base_url: https://api.fireworks.ai/inference/v1
+  model: accounts/fireworks/models/glm-5p3-flash
+  api_key_env: FIREWORKS_API_KEY
+  price: {input: 0.15, cached_input: 0.03, output: 0.50}
+sandbox:
+  enabled: true
+  network: restricted
+  allow: [https://api.fireworks.ai]
+  read: []
+  env: [FIREWORKS_API_KEY]
+trainer:
+  run_name: officeqa-gepa
+  output_dir: runs
+  epochs: 1
+  budget: {usd: 30, hours: 12}
+  call_timeout_min: 60

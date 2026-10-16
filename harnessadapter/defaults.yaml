@@ -8,9 +8,13 @@ data:
   shuffle: true               # false: every epoch takes the train split in file order (an ordered stream)
   shuffle_seed: 0
 task_info: null
-pipeline:
-  run: null
+agent:
+  name: null                  # react | codex | claude-code, or file.py:Class / file.py:function of the task's own
   concurrency: 4
+  params: {}
+pipeline:                     # the older spelling of `agent`: run -> name
+  run: null
+  concurrency: null
   params: {}
 judge:
   path: null

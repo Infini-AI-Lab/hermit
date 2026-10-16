@@ -1,12 +1,12 @@
 """Offline pipeline stub for exercising the interface; no model is called."""
 from pathlib import Path
 
-from harnessadapter.adapter.loader import Adapter
+from harnessadapter import Session
 from harnessadapter.task import RunOutput
 
 
 def run(task: dict, adapter: Path | None) -> RunOutput:
-    context = Adapter(adapter).context() if adapter is not None else ""
+    context = Session(adapter).context() if adapter is not None else ""
     # Replace this echo with the acting system that consumes context and the task.
     answer = task["prompt"]
     return RunOutput(

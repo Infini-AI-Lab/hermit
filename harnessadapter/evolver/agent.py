@@ -9,13 +9,19 @@ AgentEvolver params:
   args: extra command-line arguments for the agent (for example codex `-c key=value` pairs)
   home: copy these files of the user's agent home into the run's agent home (default: auth.json / .credentials.json)
   price: USD per million tokens {input, cached_input, output}; without it an agent's cost is unknown (counted as such)
+  tools: the only Trainer tools the agent may use (for example [check_spec]); null: all of them. The agent gets a
+         gate's URL, never the endpoint's, in its MCP server and in the task message alike
+  hide: paths the agent must not read although the sandbox shows their parents, besides the framework's examples,
+        tests, docs and .git; "module:<name>" hides an installed package. null: nothing is hidden
 The Trainer's tools reach the agent as one MCP server (`evolver_tools`) that forwards to the tool endpoint.
 """
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
 import subprocess
@@ -23,6 +29,7 @@ import sys
 import time
 
 from harnessadapter.evolver.base import Context, Evolver, StepContext, StepResult, Usage
+from harnessadapter.evolver.gate import ToolGate
 
 
 def _fill(text: str, ctx: StepContext) -> str:
@@ -74,6 +81,25 @@ class AgentEvolver(Evolver):
         return super().finalize(ctx)
 
     def step(self, ctx: StepContext) -> StepResult:
+        params = ctx.params
+        if params.get("hide") is not None and ctx.sandbox is not None:
+            from harnessadapter.sandbox import HidingSandbox, hidden_paths
+            ctx = dataclasses.replace(ctx, sandbox=HidingSandbox(ctx.sandbox, hidden_paths(params["hide"]),
+                                                                 keep=[ctx.workspace.task_info]))
+        allowed = params.get("tools")
+        if allowed is None or not ctx.tool_url:
+            return self._step(ctx)
+        gate = ToolGate(ctx.tool_url, list(allowed))
+        # The Trainer's message names every tool and the endpoint's URL; the agent gets the gate's URL and the
+        # allowed tools instead, so a shell cannot reach the endpoint past the MCP-side filter.
+        message = ctx.message.replace(ctx.tool_url, gate.url)
+        message = re.sub(r"^Tools: .*$", "Tools: " + ", ".join(f"{n} (template)" for n in allowed), message, flags=re.M)
+        try:
+            return self._step(dataclasses.replace(ctx, tool_url=gate.url, message=message))
+        finally:
+            gate.close()
+
+    def _step(self, ctx: StepContext) -> StepResult:
         params = ctx.params
         backend = params.get("backend", "codex")
         directory = Path(getattr(self, "directory", "."))

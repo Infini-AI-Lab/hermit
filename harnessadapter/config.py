@@ -60,6 +60,12 @@ class Config:
         data = _merge(defaults, user)
         for item in overrides:
             _override(data, item)
+        if data["pipeline"].get("run") and not data["agent"].get("name"):     # the older spelling
+            data["agent"]["name"] = data["pipeline"]["run"]
+            if data["pipeline"].get("params"):
+                data["agent"]["params"] = {**data["agent"].get("params", {}), **data["pipeline"]["params"]}
+            if data["pipeline"].get("concurrency") is not None:
+                data["agent"]["concurrency"] = data["pipeline"]["concurrency"]
         config = cls(data, Path(path).parent)
         config.validate()
         return config
@@ -78,9 +84,8 @@ class Config:
         for key in ("tasks", "train"):
             if not d["data"][key]:
                 raise ValueError(f"data.{key} is required")
-        for key in ("run",):
-            if not d["pipeline"][key]:
-                raise ValueError("pipeline.run is required")
+        if not d["agent"]["name"]:
+            raise ValueError("agent.name is required")
         if not d["judge"]["path"]:
             raise ValueError("judge.path is required")
         if not d["template"]:

@@ -1,0 +1,40 @@
+# The prompt-only baseline on the CL-Bench poker venue: the same host, stream, cadence and scoring as
+# ../mwm/run.yaml (one step per block of 5 host hands, bb/hand), with the prompt-only template (one
+# learned ADAPTER.md, served to the host as its context, no tools) and the built-in Codex Evolver (one fresh Codex
+# session per step, GLM 5.3 Flash through the learner's meter, reasoning effort high).
+# Started per order by `launch.sh`, which sets the per-order paths and the learner's provider arguments.
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/order0.txt         # launch.sh: order<i>.txt
+  step_size: 5                                               # one step per block of 5 host hands
+  shuffle: false                                             # the stream's own order
+task_info: ../utils/task-info
+agent:
+  name: ../utils/agent/agent.py:CLBenchPokerAgent
+  concurrency: 1
+judge:
+  path: ../utils/judge.py
+template: prompt-only@1.0
+evolver:
+  name: codex                      # the built-in Codex AgentEvolver, with GLM 5.3 Flash through the learner's meter
+  resume: false                    # a fresh session every step, as the MWM learner has
+  params:
+    args: []                       # launch.sh: the provider through the learner's meter, reasoning effort high
+    model: accounts/fireworks/models/glm-5p3-flash
+    price: {input: 0.15, cached_input: 0.03, output: 0.50}
+    home: []                       # no login files: the provider key comes from HA_FW_KEY
+    tools: [check_spec]            # no run_agent, llm or budget: the MWM learner of this venue has none either
+    hide: []                       # the framework's examples, tests, docs and .git
+sandbox:
+  enabled: true
+  network: restricted              # the learner's meter is on the loopback; the allowlist proxy refuses everything else
+  allow: []
+  read: []
+  env: [HA_FW_KEY]                 # the provider key for codex; nothing else is passed
+trainer:
+  run_name: null                   # launch.sh: <tag>-o<i>
+  output_dir: runs
+  epochs: 1
+  call_timeout_min: 35
+  save_freq: {steps: 5, epochs: 1}
+  budget: {usd: null, tokens: null, hours: 48}   # a ceiling only

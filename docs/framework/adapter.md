@@ -138,20 +138,26 @@ acting host. Ordinary `deploy` does not start that service.
 
 ### Custom acting pipelines
 
-A custom pipeline may consume exports directly instead of generating host files. For example:
+A program that runs its own agent uses an adapter through `Session`, the Python counterpart of `deploy` and
+`convert`:
 
 ```python
-from pathlib import Path
-from harnessadapter.adapter.loader import Adapter
+from harnessadapter import Session
 
-adapter = Adapter(Path("docs/_examples/file_adapter"))
-instructions = adapter.context()
-subagents = adapter.agent_definitions()
+session = Session("docs/_examples/file_adapter")
+system_prompt = base_prompt + session.context()          # ADAPTER.md as the Evolver last wrote it
+tools = task_tools + session.tool_specs("openai")        # or "anthropic"; the adapter's tools beside the task's
+...
+for call in message["tool_calls"]:                       # a chat-completions turn
+    if session.has_tool(call["function"]["name"]):
+        messages.append(session.respond(call))            # the tool message; errors come back as text
 ```
 
-The pipeline places `instructions` in its agent context and integrates any other exports it needs.
-`await adapter.call(name, arguments)` invokes a declared tool with schema validation. Calls may bind framework
-resources through a reserved `_resources` parameter. The [task interface](task.md) leaves host integration to the
+`session.call(name, arguments)` runs one tool synchronously (also inside a running event loop), `acall` is the
+coroutine, `agents()` and `skills()` give the other exports. Resources a tool may receive through its reserved
+`_resources` parameter are bound at construction: `deployment=` (a host.json or its dict), `learning_material=`,
+`evidence=` (a record directory), or any mapping under `resources=`. `audit_log=` writes one JSON line per call,
+the same record `harnessadapter serve` writes. The [task interface](task.md) leaves host integration to the
 pipeline; it does not automatically implement every export.
 
 ## Evolution interface

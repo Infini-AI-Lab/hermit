@@ -40,9 +40,15 @@ judge scores. For a context-only adapter, that is reading `ADAPTER.md` into the 
 :language: python
 ```
 
-An adapter with tools needs your agent to offer them: `Adapter(adapter).manifest["tools"]` lists their schemas and
-`Adapter(adapter).call(name, args)` runs one. `examples/tasks/servelearnbench/pipeline.py` does exactly this
-inside a benchmark's own agent loop (the context into the system prompt, the `wm` tool into the tool list).
+If your acting agent is a tool-calling model or Codex / Claude Code, you need no pipeline at all: name a
+[built-in agent](../framework/task.md#built-in-agents) as `agent.name` and give it the prompt and the task's
+tools in `agent.params`.
+
+An adapter with tools needs your agent to offer them: `Session(adapter).tool_specs("openai")` gives them in the
+model's format and `Session(adapter).respond(tool_call)` answers one call with the tool message to append
+(see [Custom acting pipelines](../framework/adapter.md#custom-acting-pipelines)).
+`examples/servelearnbench/utils/agent/agent.py` does exactly this inside a benchmark's own agent loop (the context
+into the system prompt, the `wm` tool into the tool list).
 Concurrent tasks run against the same adapter directory: treat it as input, keep logs and state elsewhere, and
 return the log's path in `RunOutput.log` so it lands in the learning material.
 
@@ -50,7 +56,7 @@ return the log's path in `RunOutput.log` so it lands in the learning material.
 
 `score` receives the task and the pipeline's output and returns a score and a feedback string. What the feedback
 says is what the learner learns from: a benchmark that discloses only a number gives only the number
-(`examples/tasks/servelearnbench/judge.py` returns `Score: n/100.` and nothing else); a benchmark whose agent is
+(`examples/servelearnbench/utils/judge.py` returns `Score: n/100.` and nothing else); a benchmark whose agent is
 shown the correct answer may return it.
 
 ```{literalinclude} ../_examples/interface_task/judge.py
@@ -61,8 +67,8 @@ shown the correct answer may return it.
 
 `task-info/README.md` is the learner's entry point: what an input is, what a correct output looks like, how to read
 the feedback. Written for the learner, never shown to the acting agent, and containing nothing the agent could not
-know. The MWM Evolver reads a more structured description, `task-info/deployment/` (the venue's contract slots,
-host settings and environment mirror); `examples/tasks/servelearnbench/task-info/` is the retail example.
+know. The MWM Evolver reads a more structured description, its `deployment` directory (`params.deployment`, default `task-info/mwm/`: the venue's contract slots,
+host settings and environment mirror); `examples/servelearnbench/utils/task-info/` is the retail example.
 
 ## The run config
 
@@ -88,6 +94,6 @@ harnessadapter eval  --config run.yaml --adapter none
 ```
 
 A complete real integration, with a benchmark's own agent loop, per-window tests and a launcher, is
-`examples/tasks/servelearnbench/` ([recipe](../recipes/servelearnbench.md)).
+`examples/servelearnbench/` ([recipe](../recipes/servelearnbench.md)).
 
 Next: [Customize an adapter](customize-an-adapter.md).

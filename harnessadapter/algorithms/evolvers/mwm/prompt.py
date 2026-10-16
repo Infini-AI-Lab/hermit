@@ -49,8 +49,8 @@ def _blocks(text):
 SLOT_NAMES=('domain_what','domain_read_exception','domain_write_dirs','env_consumption','env_executable','env_verification')
 GENERIC_SLOTS={
     'domain_what':'This standalone deployment learns from supplied evidence and any environment access granted by the framework policy. No venue facts are pre-seeded.',
-    'domain_read_exception':', the supplied evidence, method, environment, and history areas',
-    'domain_write_dirs':'memory/, examples/, tools/, agents/, consumption/ and meta/',
+    'domain_read_exception':', EXCEPT the read-only\n       mounts the harness gives you: /patterns (the pattern\n       library), /skills (your skill library), /evidence (the raw\n       record store, when present) and /environment (what you can\n       reach of the environment — read its README.md first)',   # the method's own (deployment.METHOD_SLOTS)
+    'domain_write_dirs':'memory/, examples/, consumption/, meta/,\n       tools/, agents/, bin/',
     'env_consumption':'Hosts receive the original five-part MWM package and one wm(name,args) tool. Native roles are exported from SPEC.md.',
     'env_executable':'Learned tools use tools/<name>/{TOOL.md,run.py,test.py}; `captest --wrepo . --name <name>` runs a tool\'s test in the admission sandbox; an unavailable sandbox means no admission.',
     'env_verification':'The environment README declares readable directories, network policy, and available instruments. No benchmark-specific probe is implicitly provided.'}
@@ -89,22 +89,12 @@ def _adapter_module(adapter: Path, name: str):
 
 
 def _deployment(session: Path) -> dict:
-    """The deployment directory's contents, when the session carries one."""
+    """The deployment directory's contents, when the session carries one (the method's defaults fill what the
+    venue leaves out; see deployment.py)."""
     root=session/'deployment'
     if not root.is_dir():return {}
-    out={'slots':{},'delegation':'native','host':{}}
-    for name in SLOT_NAMES+('env_evidence',):
-        f=root/'contract'/(name+'.md')
-        if f.is_file():out['slots'][name]=f.read_text()
-    d=root/'delegation'
-    if d.is_file():
-        mode=d.read_text().strip()
-        if mode in ('managed','native','none'):out['delegation']=mode
-    h=root/'host.json'
-    if h.is_file():
-        try:out['host']=json.loads(h.read_text())
-        except ValueError:pass
-    return out
+    from harnessadapter.algorithms.evolvers.mwm import deployment as _dep
+    return _dep.load(root)
 
 
 def _wm_counts(adapter: Path) -> str:

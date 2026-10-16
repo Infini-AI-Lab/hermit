@@ -10,6 +10,7 @@ from harnessadapter.adapter.manifest import read_manifest
 from harnessadapter.config import Config
 from harnessadapter.evolver.loader import find, load_class
 from harnessadapter.spec import check_spec
+from harnessadapter.agents.base import load_agent
 from harnessadapter.task import TaskData, load_callable
 from harnessadapter.trainer.rollout import run_one
 from harnessadapter.trainer.trainer import needs_errors, warnings_for
@@ -62,10 +63,10 @@ def run_check(config: Config, *, probe: bool = True, log=print) -> bool:
     except Exception as exc:
         problems.append(f"data: {exc}")
     try:
-        pipeline = load_callable(d["pipeline"]["run"], config.base)
+        pipeline = load_agent(d["agent"]["name"], d["agent"].get("params"), config.base).run
         judge = load_callable(f"{d['judge']['path']}:{d['judge']['name']}", config.base)
     except Exception as exc:
-        problems.append(f"pipeline/judge: {exc}")
+        problems.append(f"agent/judge: {exc}")
         pipeline = judge = None
     report("task", problems)
     # Sandbox: paths the task makes readable must exist (an unset variable leaves a path that names nothing).
@@ -76,13 +77,13 @@ def run_check(config: Config, *, probe: bool = True, log=print) -> bool:
     b = d["trainer"]["budget"]
     report("budgets", [] if any(b.get(k) for k in ("usd", "tokens", "hours")) else ["no hard budget is set"],
            f"hard {b}, {d['trainer']['epochs']} epoch(s)")
-    # Probe: one training task through the pipeline and the judge, without an adapter.
+    # Probe: one training task through the agent and the judge, without an adapter.
     if probe and data is not None and pipeline is not None and data.splits["train"]:
         task = data.tasks[data.splits["train"][0]]
         t0 = time.time()
         record = run_one(task, None, pipeline, judge)
         problems = [record["error"]] if record["status"] != "ok" else []
-        report("pipeline probe", problems, f"task {task['id']}: score {record['judge']['score']}, "
+        report("agent probe", problems, f"task {task['id']}: score {record['judge']['score']}, "
                f"{time.time() - t0:.0f} s, api speed {json.dumps(record.get('api_speed'))}, cost {record['cost_usd']}")
     for w in warnings_for(config, val_given=True):
         log(f"[warning] {w}")

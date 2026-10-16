@@ -48,6 +48,17 @@ framework/task
 
 ```{toctree}
 :maxdepth: 1
+:caption: Methods
+
+methods/prompt_only
+methods/codex
+methods/gepa
+methods/skillopt
+methods/mwm
+```
+
+```{toctree}
+:maxdepth: 1
 :caption: Recipes
 
 recipes/officeqa

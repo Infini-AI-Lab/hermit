@@ -8,6 +8,8 @@ params:
   home: []                    # files of ~/.codex copied into the agent home; none: the provider key is an env var
   price: null                 # USD per million tokens {input, cached_input, output}
   evidence: null              # the task's evidence store (required), granted through evolver_access.environment
+  deployment: null            # the venue's texts for MWM (contract/, delegation, host.json, environment/),
+                              # relative to the run config; null: task-info/mwm
   learner_tools: null         # task tools also offered as MCP tools; null: all. The gate serves every task tool
   bootstrap: true             # the native bootstrap session in the first step
   session_timeout_s: 1800     # per session, the native evolver timeout

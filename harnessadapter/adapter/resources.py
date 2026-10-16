@@ -24,3 +24,12 @@ class LearningMaterial:
         end = min(offset + limit, len(text))
         return {"source": address, "text": text[offset:end], "total_chars": len(text),
                 "next_offset": end if end < len(text) else None}
+
+
+class EvidenceStore:
+    """The `evidence` resource: a directory of records the run keeps for the adapter's tools to read (mwm's trace
+    and recall read it). Created if absent."""
+
+    def __init__(self, root: Path):
+        self.root = Path(root).resolve()
+        self.root.mkdir(parents=True, exist_ok=True)

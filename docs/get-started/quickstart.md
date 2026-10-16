@@ -79,13 +79,13 @@ The [OfficeQA recipe](../recipes/officeqa.md) is the existing end-to-end trainin
 OfficeQA dataset and model API access; complete its preparation steps before running:
 
 ```bash
-harnessadapter check --config examples/prompt_only/officeqa/smoke.yaml
-harnessadapter train --config examples/prompt_only/officeqa/smoke.yaml
-harnessadapter eval --config examples/prompt_only/officeqa/smoke.yaml --adapter final
+harnessadapter check --config examples/officeqa/prompt_only/smoke.yaml
+harnessadapter train --config examples/officeqa/prompt_only/smoke.yaml
+harnessadapter eval --config examples/officeqa/prompt_only/smoke.yaml --adapter final
 ```
 
 Training replaces manual edits with learner edits to `ADAPTER.md`. The final adapter is under
-`examples/prompt_only/officeqa/runs/smoke/checkout/`; it can be deployed with the same command used above.
+`examples/officeqa/prompt_only/runs/smoke/checkout/`; it can be deployed with the same command used above.
 
 To understand what happens between those commands, read [Using and training adapters](../framework/adapter-lifecycle.md).
 To supply your own problems and agent, read [Task integration](../framework/task.md).
