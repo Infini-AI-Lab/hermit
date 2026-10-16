@@ -1,10 +1,14 @@
-"""Deploying the Lean template into Codex and Claude Code workspaces."""
+"""Deploying the Lean template into Codex, Claude Code and Pi workspaces."""
+import json
 from pathlib import Path
 import sys
 import tomllib
 
+import pytest
+
 from harnessadapter.hosts.claude_code import prepare as claude_prepare
 from harnessadapter.hosts.codex import prepare as codex_prepare
+from harnessadapter.hosts.pi import prepare as pi_prepare
 
 LEAN = Path(__file__).resolve().parents[1] / "harnessadapter" / "algorithms" / "templates" / "lean_collab"
 
@@ -25,6 +29,19 @@ def test_claude(tmp_path):
     assert result["context_injected_via"] == "CLAUDE.md"
 
 
+def test_pi(tmp_path):
+    result = pi_prepare(LEAN, tmp_path / "p", sys.executable)
+    mcp = json.loads((tmp_path / "p" / ".pi" / "mcp.json").read_text())
+    assert mcp["mcpServers"]["lean_collab"]["args"][:3] == ["-m", "harnessadapter.runtime.mcp_server", "--adapter"]
+    assert "harnessadapter:lean-collab:start" in (tmp_path / "p" / "AGENTS.md").read_text()
+    assert (tmp_path / "p" / ".pi" / "skills" / "good-map" / "SKILL.md").exists()
+    assert result["context_injected_via"] == "AGENTS.md" and result["roles"] == {}
+    pi_prepare(LEAN, tmp_path / "p", sys.executable)
+    assert (tmp_path / "p" / "AGENTS.md").read_text().count("harnessadapter:lean-collab:start") == 1
+    with pytest.raises(ValueError, match="generated for another host"):
+        codex_prepare(LEAN, tmp_path / "p", sys.executable)
+
+
 def subagent_adapter(tmp_path):
     a = tmp_path / "adapter"
     (a / "agents").mkdir(parents=True)
@@ -36,6 +53,13 @@ def subagent_adapter(tmp_path):
     (a / "agents" / "reviewer.md").write_text(
         "---\nname: reviewer\ndescription: Check a result against the task requirements.\n---\n\nRead the task, then the result.\n")
     return a
+
+
+def test_pi_refuses_roles(tmp_path):
+    a = subagent_adapter(tmp_path)
+    with pytest.raises(ValueError, match="reviewer"):
+        pi_prepare(a, tmp_path / "p", sys.executable)
+    assert not (tmp_path / "p").exists()
 
 
 def test_one_file_subagent(tmp_path):

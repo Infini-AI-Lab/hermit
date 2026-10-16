@@ -52,12 +52,12 @@ These declarations connect the subagent and skill directories to the loader:
 
 The connector reads the adapter manifest and renders or copies its exports into a **separate host workspace**:
 
-| Adapter source | Deployment operation | Codex output | Claude Code output |
-|---|---|---|---|
-| `ADAPTER.md` (always exported) | Insert its text into a managed instruction block. | `AGENTS.md` | `CLAUDE.md` |
-| `skills/verify-output/` | Copy the skill directory. | `.codex/skills/verify-output/` | `.claude/skills/verify-output/` |
-| `agents/reviewer.md`, through `exports.agents` | Convert the subagent into native host files: frontmatter gives name and description, the body becomes its instructions. | `.codex/agents/reviewer.toml`, registered in `.codex/config.toml` | `.claude/agents/reviewer.md` |
-| `tools.py`, through `exports.tools` | Configure a framework MCP server that loads the source adapter. | `.codex/config.toml` | `.mcp.json` |
+| Adapter source | Deployment operation | Codex output | Claude Code output | Pi output |
+|---|---|---|---|---|
+| `ADAPTER.md` (always exported) | Insert its text into a managed instruction block. | `AGENTS.md` | `CLAUDE.md` | `AGENTS.md` |
+| `skills/verify-output/` | Copy the skill directory. | `.codex/skills/verify-output/` | `.claude/skills/verify-output/` | `.pi/skills/verify-output/` |
+| `agents/reviewer.md`, through `exports.agents` | Convert the subagent into native host files: frontmatter gives name and description, the body becomes its instructions. | `.codex/agents/reviewer.toml`, registered in `.codex/config.toml` | `.claude/agents/reviewer.md` | refused: Pi has no subagents |
+| `tools.py`, through `exports.tools` | Configure a framework MCP server that loads the source adapter. | `.codex/config.toml` | `.mcp.json` | `.pi/mcp.json` |
 
 This is how the adapter reaches the acting system. The host reads the generated instruction, skill, and role files;
 tool configuration makes the declared tools available through its tool interface. Merely placing the adapter
@@ -85,6 +85,15 @@ claude-workspace/
   .harnessadapter-deploy.json
 ```
 
+```text
+pi-workspace/            # only for an adapter without roles
+  AGENTS.md
+  .pi/
+    mcp.json
+    skills/verify-output/SKILL.md
+  .harnessadapter-deploy.json
+```
+
 Only declared exports produce corresponding content. A prompt-only adapter has no tool-server entry, skills, or
 roles to install. The generated deployment report identifies the actual paths and role names.
 
@@ -104,7 +113,7 @@ and preserves project text outside it. Existing adapter headings are nested unde
 
 The deployment command prepares a workspace; it does not launch the agent. Its output must be empty or a workspace
 previously generated for the same host. The source adapter and output workspace cannot contain one another.
-The generated `.codex/config.toml` or `.mcp.json` is rewritten on deployment; it is not a general configuration
+The generated `.codex/config.toml`, `.mcp.json` or `.pi/mcp.json` is rewritten on deployment; it is not a general configuration
 merger. Global host configuration is not modified.
 
 ### Tools run from the adapter source

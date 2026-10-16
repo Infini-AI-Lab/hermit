@@ -69,10 +69,12 @@ user chooses: `--adapter none` runs the acting agent with no harness adapter at 
 ```bash
 harnessadapter deploy --adapter DIR --workspace WORKSPACE --host codex
 harnessadapter deploy --adapter DIR --workspace WORKSPACE --host claude-code
+harnessadapter deploy --adapter DIR --workspace WORKSPACE --host pi
 ```
 
 This generates host instruction files, role/skill files, and tool configuration. It does not launch the acting
-agent. It is the per-project way to use an adapter; the per-agent way, `convert`, and how the two compare are in
+agent. Pi has no subagents, so `--host pi` refuses an adapter that exports roles; its `.pi/` files (tools, skills)
+load once the user trusts the project in Pi, while `AGENTS.md` needs no trust. It is the per-project way to use an adapter; the per-agent way, `convert`, and how the two compare are in
 [What is a harness adapter?](what-is-a-harness-adapter.md#two-ways-to-use-an-adapter). The workspace must be an empty directory or one previously generated for the same host, separate from
 the adapter directory. See the [file mapping](adapter.md#acting-interface) for exact paths and update behavior.
 
@@ -141,7 +143,7 @@ longer has does not survive from the earlier plugin; the host's audit log there 
 
 - `check` also verifies that every `sandbox.read` path exists. It does not check the pipeline's host: adapters are meant to
   be usable by any acting agent, and each pipeline deploys the exports (context, tools, roles, skills) in its own way.
-- `harnessadapter deploy --adapter DIR --workspace WORKSPACE --host codex|claude-code` deploys an adapter's exports into
+- `harnessadapter deploy --adapter DIR --workspace WORKSPACE --host codex|claude-code|pi` deploys an adapter's exports into
   a host workspace (context block, MCP tools, native roles, skills).
 - `harnessadapter convert --adapter DIR --output OUT --target ...` emits a plugin in the host's native format instead,
   and exits 2 naming every part the target's plugin cannot carry.

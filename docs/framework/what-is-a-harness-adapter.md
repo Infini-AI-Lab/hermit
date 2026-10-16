@@ -28,12 +28,12 @@ adapter/                      one directory, one manifest
 Everything an adapter exports has a counterpart in the plugin formats of today's agents, and the mapping is
 mechanical:
 
-| Adapter export | Plugin concept | Codex / Claude Code (`deploy`) |
+| Adapter export | Plugin concept | Codex / Claude Code / Pi (`deploy`) |
 |---|---|---|
-| `ADAPTER.md` | instructions | managed block in `AGENTS.md` / `CLAUDE.md` |
-| `skills/<name>/SKILL.md` | skills | copied under `.codex/skills/` / `.claude/skills/` |
-| `agents/<role>.md` | subagents | `.codex/agents/*.toml` / `.claude/agents/*.md` |
-| `tools` in `adapter.yaml` | an MCP server entry | `.codex/config.toml` / `.mcp.json`, pointing at the framework's wrapper |
+| `ADAPTER.md` | instructions | managed block in `AGENTS.md` / `CLAUDE.md` / `AGENTS.md` |
+| `skills/<name>/SKILL.md` | skills | copied under `.codex/skills/` / `.claude/skills/` / `.pi/skills/` |
+| `agents/<role>.md` | subagents | `.codex/agents/*.toml` / `.claude/agents/*.md` / none (Pi has no subagents) |
+| `tools` in `adapter.yaml` | an MCP server entry | `.codex/config.toml` / `.mcp.json` / `.pi/mcp.json`, pointing at the framework's wrapper |
 
 A host that can read an instruction file and start an MCP server can use an adapter; it does not need the
 framework's Trainer, Evolver, or Git tree. What a given host *cannot* carry (Codex and Pi take no instructions
@@ -79,15 +79,16 @@ An adapter reaches an agent either **through a project** or **through the agent 
 **Into a project: `deploy`**
 
 ```bash
-harnessadapter deploy --adapter DIR --workspace WS --host codex      # or claude-code
-cd WS && codex                                                     # or claude
+harnessadapter deploy --adapter DIR --workspace WS --host codex      # or claude-code | pi
+cd WS && codex                                                     # or claude | pi
 ```
 
 - Output: a project folder. The context goes into `AGENTS.md` / `CLAUDE.md` inside a managed block, skills and
-  roles under `.codex/` or `.claude/`, and an MCP entry that starts the wrapper
+  roles under `.codex/`, `.claude/` or `.pi/`, and an MCP entry that starts the wrapper
   (`python -m harnessadapter.runtime.mcp_server --adapter DIR`) with this machine's absolute paths.
 - Scope: the adapter is active only when the agent runs in that folder; nothing global changes.
-- Carries everything the adapter exports, for both supported hosts.
+- Carries everything the adapter exports under Codex and Claude Code. Pi has no subagents, so an adapter with
+  roles is refused there.
 - Re-running it on the same folder replaces the managed block and the config; the project's own files are kept.
 
 **Into the agent: `convert`** (in review)
@@ -145,7 +146,7 @@ behind, which is exactly the difference between an adapter and the plugin made f
 
 ## Where this stands
 
-- `deploy` (project workspace) is implemented for Codex and Claude Code; `convert` (native plugin package for
+- `deploy` (project workspace) is implemented for Codex, Claude Code and Pi; `convert` (native plugin package for
   Claude Code, Codex, Pi, Hermes) is in review.
 - The standalone service exists and serves the Lean collaboration recipe; a general `serve` command that starts it
   for any adapter and points the plugin's tool entries at it does not exist yet. The direction is settled and
