@@ -1,51 +1,64 @@
 # CL-Bench database exploration
 
-A CL-Bench venue: one question of an order's stream against a database whose schema may drift; the host answers with SQL through the task's QUERY channel. The score is accuracy over the stream. CL-Bench owns the loop; the agent is a port of metaworld's host
-seat that plugs the adapter in through `harnessadapter.Session`. The benchmark runs from a clbench checkout
-(`MWM_CLBENCH`, default `~/code/clbench`) in its own virtualenv; nothing is imported from a metaworld checkout.
+The `database_exploration` venue of [CL-Bench](https://github.com/pgasawa/continual-learning-bench) ([site](https://continual-learning-bench.com/), [paper](https://arxiv.org/abs/2606.05661)): a stream of 40 questions about an undocumented SQLite database whose
+schema drifts partway through; the host explores with SQL and answers, and the stream's score is accuracy.
+This example trains an adapter on the stream with the mwm and prompt-only methods and compares them with the
+benchmark's own baselines.
 
-## Layout
+## Setup
 
-```text
-utils/agent/agent.py            CLBenchDatabaseAgent: the framework's entry; starts the runner and reads its result
-utils/agent/clbench_host.py     starts the runner in clbench's virtualenv (one retry), collects its logs
-utils/agent/database_runner.py    plays one question of an order's stream through CL-Bench's own runner
-utils/agent/host.py             AdapterHost: the model call per turn with the adapter's context and tools, the turn records
-utils/prepare.py    writes tasks.jsonl and one ordered split per order beside itself
-utils/judge.py      the venue's score and feedback line
-utils/task-info/                the task as the learner reads it; task-info/mwm/ holds the venue texts MWM needs (docs/methods/mwm.md)
-utils/tests/                    parity of the framework's mwm texts with native metaworld (both venues), and the host test
-mwm/                            run.yaml and launch.sh (meters, relays, one run per order), sql_tool.py (the learner's SQL channel)
-prompt_only/                    the prompt-only baseline: the same host, a Codex learner with GLM 5.3 Flash
-```
-
-`clbench_host.py` and `host.py` are the same files in both CL-Bench tasks.
-
-## Prepare
+The benchmark runs from a clbench checkout in its own virtualenv: our fork
+[clbench-mwm](https://github.com/haizhongzheng/clbench-mwm) of
+[continual-learning-bench](https://github.com/pgasawa/continual-learning-bench) (it adds the host-side query channel
+the runs use). Also needed: the Codex CLI on PATH, bubblewrap, and a Fireworks key in `FIREWORKS_API_KEY` or
+`~/code/metaworld/.fireworks`.
 
 ```bash
-python examples/clbench_database/utils/prepare.py --clbench ~/code/clbench
+git clone git@github.com:haizhongzheng/clbench-mwm.git ~/code/clbench && (cd ~/code/clbench && uv sync)
+python examples/clbench_database/utils/prepare.py --clbench ~/code/clbench      # the five ordered streams
 ```
 
 ## Run
 
-```bash
-MW_TAG=<tag> WM_PORT=<port> MW_ORDERS="0" examples/clbench_database/mwm/launch.sh           # MWM
-MW_TAG=<tag> WM_PORT=<port> MW_ORDERS="0" examples/clbench_database/prompt_only/launch.sh   # the baseline
-```
-
-The launcher starts the wire meters and the learner relay, prepares one task directory per order, and runs
-`harnessadapter train` with the config beside it. `MW_TRAIN_SPLIT` names another split (a prefix of an order's
-stream) for a smoke run.
+One `harnessadapter train` per order, in the background, with the host's and the learner's wire meters; logs and
+results under `~/code/metaworld-runs/<tag>/`.
 
 ```bash
-PYTHONPATH=$PWD ~/code/clbench/.venv/bin/python -m unittest examples/clbench_database/utils/tests/test_host.py
-python -m pytest examples/clbench_database/utils/tests/test_parity_golden.py
+MW_TAG=db_mwm WM_PORT=3401 MW_ORDERS="0 1 2 3 4" examples/clbench_database/mwm/launch.sh            # MWM
+MW_TAG=db_prompt_only WM_PORT=3441 MW_ORDERS="0 1 2 3 4" examples/clbench_database/prompt_only/launch.sh   # prompt-only
 ```
 
-## Methods
+An order's accuracy is the mean of `rollout.scores` in `<runs>/<tag>/<tag>-o<i>/steps.jsonl`. A smoke on the first N
+questions of one order: `MW_TRAIN_SPLIT=<file with those ids> MW_ORDERS=0 ... launch.sh`. The stateless and ICL
+baselines are clbench's own systems, launched from the metaworld repository:
 
-| Folder | Evolver | Host |
+```bash
+MW_MODEL_ID=fireworks_ai/accounts/fireworks/models/glm-5p3-flash MW_TAG=flash_nq WM_PORT=3139 ~/code/metaworld/run_clbench_baselines_nq.sh
+```
+
+## Results
+
+Host: GLM 5.3 Flash (reasoning effort high), unlimited queries, five orders of the stream, one run per order.
+Learner: the mwm Evolver (Codex with GLM 5.3 Flash, one session per question) or the built-in Codex Evolver with
+GLM 5.3 Flash and its tools gated to `check_spec`.
+
+| Method | accuracy (mean) | runs |
 |---|---|---|
-| [`mwm/`](mwm/) | the MWM learner, one session per block, over the venue's evidence store | GLM 5.3 Flash over the mwm adapter |
-| [`prompt_only/`](prompt_only/) | the built-in Codex Evolver with GLM 5.3 Flash, tools gated to `check_spec` | the same host over a prompt-only adapter |
+| stateless: no memory, clbench's own baseline | 0.400 | one run, `clbench_flash_nq_1013_stateless` |
+| ICL: clbench's in-context baseline | 0.580 | five orders, `clbench_flash_nq_1013_icl` |
+| **prompt-only** (`prompt_only/`) | 0.470 | five orders, `po_db_flash` |
+| **MWM** (`mwm/`) | 0.795 | five orders, `fw6_mwm_flash` |
+
+The five orders of one method differ by up to 0.175, so smaller differences between methods are noise. The
+framework runs date from commit `0b6745d` (2026-10-12/13); native metaworld scored 0.835 on the same setting.
+
+## Code
+
+```text
+utils/agent/        CLBenchDatabaseAgent (agent.py) starts database_runner.py in clbench's virtualenv through
+                    clbench_host.py; host.py is the acting host, a port of metaworld's seat over harnessadapter.Session
+utils/prepare.py    tasks.jsonl and one ordered split per order      utils/judge.py   the venue's score and feedback
+utils/task-info/    the task for the learner; task-info/mwm/ is what MWM needs to know about the venue
+utils/tests/        parity with native metaworld (both venues) and the host test
+mwm/ prompt_only/   run.yaml and launch.sh per method; mwm/sql_tool.py is the learner's SQL channel
+```
