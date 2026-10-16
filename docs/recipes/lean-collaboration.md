@@ -7,7 +7,7 @@ agent. This page shows what the adapter contains, how it is used today, and how 
 consumption-end design in [What is a harness adapter?](../framework/what-is-a-harness-adapter.md) and the
 `serve` section of the [adapter.yaml reference](../framework/adapter-manifest.md#serve-design-not-implemented).
 
-A finished adapter of this template, v12.5, is in `examples/lean_collab/`; its `CARD.md` records how it
+A finished adapter of this template, v12.5, is in `examples/lean_swarm/`; its `CARD.md` records how it
 was obtained and how it performs. The template and the host deployment are in this branch; the multi-agent
 launcher and the grader are not yet a pipeline of this framework, so there is no end-to-end training recipe here.
 Use [OfficeQA](officeqa.md) for one.
@@ -59,7 +59,7 @@ repository), not by `deploy`:
    ```
 
    ```json
-   {"adapter": "examples/lean_collab/adapter", "control_socket": "/run/collab/control.sock", "tick": 5,
+   {"adapter": "examples/lean_swarm/adapter", "control_socket": "/run/collab/control.sock", "tick": 5,
     "env": {"COLLAB_DIR": "...", "COLLAB_TARGET": "...", "COLLAB_REPO": "...", "COLLAB_LAKE": "..."},
     "agents": {"A1": {"socket": "/run/collab/A1.sock", "audit_log": "...", "env": {"COLLAB_AGENT": "A1", "COLLAB_WORKSPACE": "..."}},
                "A2": {"socket": "/run/collab/A2.sock", "...": "..."}}}
@@ -70,7 +70,7 @@ repository), not by `deploy`:
 2. **Deploy a workspace per agent** with the adapter's context, skills and roles:
 
    ```bash
-   harnessadapter deploy --adapter examples/lean_collab/adapter --workspace /work/A1 --host codex
+   harnessadapter deploy --adapter examples/lean_swarm/adapter --workspace /work/A1 --host codex
    ```
 
    and point the agent at its own endpoint instead of the per-session wrapper `deploy` wrote: the run script

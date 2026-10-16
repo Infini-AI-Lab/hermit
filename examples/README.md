@@ -25,7 +25,7 @@ examples/<task>/
 | [`clbench_database/`](clbench_database/) | The CL-Bench database exploration stream (accuracy) | `CLBenchDatabaseAgent`: metaworld's host seat in CL-Bench's loop | [`prompt_only`](clbench_database/prompt_only/), [`mwm`](clbench_database/mwm/) |
 | [`clbench_poker/`](clbench_poker/) | The CL-Bench exploitable-poker stream (bb/hand) | `CLBenchPokerAgent` | [`prompt_only`](clbench_poker/prompt_only/), [`mwm`](clbench_poker/mwm/) |
 | [`servelearnbench/`](servelearnbench/) | A ServeLearnBench scenario: serving stream, per-window tests | `ServeLearnBenchAgent`: the benchmark's own loop | [`prompt_only`](servelearnbench/prompt_only/), [`mwm`](servelearnbench/mwm/) |
-| [`lean_collab/`](lean_collab/) | A finished adapter for five Codex agents proving Lean theorems together; check and deploy only | Codex | — |
+| [`lean_swarm/`](lean_swarm/) | Lean swarm: five Codex agents prove one formal-conjectures theorem together; a finished adapter, check and deploy only | Codex | — |
 
 The methods themselves are described in [`docs/methods/`](../docs/methods/).
 
