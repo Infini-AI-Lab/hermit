@@ -27,4 +27,4 @@ programs are discovered by reading their SCHEMA statically and run only in the f
 own test passes; without it, TOOL.md is the prose fallback. Record addresses (`q17`, `h005`) reach worked examples
 (`recall`) and the raw record (`trace`, when the task binds an `evidence` resource).
 
-Train it with `template: mwm` and `evolver.name: mwm`; see `examples/mwm/` for the CL-Bench venues.
+Train it with `template: mwm` and `evolver.name: mwm`; see `examples/clbench_database/methods/mwm/`, `docs/methods/mwm.md` for the CL-Bench venues.

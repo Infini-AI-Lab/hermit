@@ -33,6 +33,7 @@ from harnessadapter.evolver.loader import find, instantiate
 from harnessadapter.llm import ChatClient
 from harnessadapter.sandbox import AllowlistProxy, Sandbox
 from harnessadapter.spec import check_spec, repair
+from harnessadapter.agents.base import load_agent
 from harnessadapter.task import TaskData, load_callable
 from harnessadapter.tools import FunctionTool, ToolServer, assemble
 from harnessadapter.trainer import card
@@ -127,7 +128,7 @@ class Trainer:
         self.branch = self.run_name
         self.data = TaskData(config.path(d["data"]["tasks"]), config.path(d["data"]["train"]),
                              config.path(d["data"]["val"]), config.path(d["data"]["test"]))
-        self.pipeline = load_callable(d["pipeline"]["run"], config.base)
+        self.pipeline = load_agent(d["agent"]["name"], d["agent"].get("params"), config.base).run
         self.judge = load_callable(f"{d['judge']['path']}:{d['judge']['name']}", config.base)
         self.spec = find(d["evolver"]["name"], config.base)
         self.evolver, self.params = instantiate(self.spec, d["evolver"]["params"])
@@ -300,7 +301,7 @@ class Trainer:
 
     def _context(self) -> Context:
         tools = self._tools(None)
-        return Context(workspace=self.ws, access=self.access, tools=tools, params=self.params,
+        return Context(workspace=self.ws, access=self.access, tools=tools, params=self.params, base=self.config.base,
                        message=self._message(None, tools), sandbox=self.sandbox)
 
     def _tools(self, cancel: threading.Event | None, metered: list | None = None) -> dict:
@@ -327,7 +328,7 @@ class Trainer:
                 raise ValueError("the adapter must be inside the workspace")
             tasks = [self.data.tasks[t] for t in task_ids]
             results = run_tasks(tasks, target, self.pipeline, self.judge,
-                                concurrency=int(self.config["pipeline"]["concurrency"]), budget=self.budget,
+                                concurrency=int(self.config["agent"]["concurrency"]), budget=self.budget,
                                 part="evolver")
             # A training task's run also names its log (the trajectory, when the pipeline keeps one).
             return {"results": [{k: r[k] for k in ("id", "status", "output", "judge", "cost_usd", "wall_s")}
@@ -398,7 +399,7 @@ class Trainer:
         # 1–2. rollouts with the current adapter (exported fresh from the commit).
         rollout_adapter = self.tree.export(parent, self.run_dir / "rollout_adapter")
         results = run_tasks([self.data.tasks[t] for t in chunk], rollout_adapter, self.pipeline, self.judge,
-                            concurrency=int(d["pipeline"]["concurrency"]), budget=self.budget)
+                            concurrency=int(d["agent"]["concurrency"]), budget=self.budget)
         rollout_s = time.time() - t0
         changed_since_last = self._last_rollout_commit is not None and parent != self._last_rollout_commit
         self._last_rollout_commit = parent
@@ -431,7 +432,7 @@ class Trainer:
         # 5. the Evolver.
         e0 = time.time()
         with ToolServer(tools) as server:
-            ctx = StepContext(workspace=self.ws, access=self.access, tools=tools, params=self.params,
+            ctx = StepContext(workspace=self.ws, access=self.access, tools=tools, params=self.params, base=self.config.base,
                               message=self._message(progress, tools) + f"Tool endpoint (HTTP): {server.url}\n",
                               sandbox=self.sandbox, cancel=cancel, tool_url=server.url, progress=progress,
                               session=session if d["evolver"]["resume"] else None)

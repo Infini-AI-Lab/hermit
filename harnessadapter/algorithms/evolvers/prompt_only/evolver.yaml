@@ -1,4 +1,4 @@
-description: A scripted prompt optimizer. Each step normally makes one generation request per configured Markdown file (one more if no usable file is returned), from
+description: A scripted prompt optimizer. One model call per step rewrites the adapter's learnable Markdown files from
   the step's failures and the judge's feedback. Uses the run's `llm` tool (configure `llm` in run.yaml).
 class: evolver.py:PromptOnlyEvolver
 needs: []

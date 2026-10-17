@@ -50,7 +50,7 @@ original adapter directory, which must remain available.
 For the exact source-to-host paths, managed instruction blocks, and the learner's editable working copy, see the
 [Adapter file interface](adapter.md#acting-interface).
 
-In OfficeQA, `examples/tasks/officeqa/pipeline.py` loads the adapter's context for each execution and appends it to the
+In OfficeQA, `examples/officeqa/utils/tools.py` loads the adapter's context for each execution and appends it to the
 system prompt. The search/read tools, model choice, and tool-calling loop remain defined in that pipeline. This
 particular integration consumes context only.
 

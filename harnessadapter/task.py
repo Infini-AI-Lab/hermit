@@ -55,6 +55,21 @@ def load_callable(spec: str, base: Path) -> Callable:
     return fn
 
 
+def load_pipeline(spec: str, base: Path, params: dict | None = None) -> Callable:
+    """A `run(task, adapter)` callable with `agent.params` and the config directory bound when its signature asks
+    for them (keyword parameters named `params` and `base`); `harnessadapter.agents.FunctionAgent` is the Agent form."""
+    import functools
+    import inspect
+    fn = load_callable(spec, base)
+    wanted = inspect.signature(fn).parameters
+    extra = {}
+    if "params" in wanted:
+        extra["params"] = dict(params or {})
+    if "base" in wanted:
+        extra["base"] = Path(base)
+    return functools.partial(fn, **extra) if extra else fn
+
+
 def read_ids(path: Path | None) -> list[str]:
     if path is None:
         return []

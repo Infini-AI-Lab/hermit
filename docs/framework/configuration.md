@@ -8,17 +8,18 @@ configuration. Paths are relative to that file's directory, and `${VAR}` in path
 The [OfficeQA recipe](../recipes/officeqa.md) uses this config. Its dataset and model-access prerequisites are
 described in the recipe; this file alone does not supply them.
 
-```{literalinclude} ../../examples/prompt_only/officeqa/smoke.yaml
+```{literalinclude} ../../examples/officeqa/prompt_only/smoke.yaml
 :language: yaml
-:caption: examples/prompt_only/officeqa/smoke.yaml
+:caption: examples/officeqa/prompt_only/smoke.yaml
 ```
 
-`pipeline.run` names the function that executes the acting agent. `judge.path` names its scoring module.
+`agent.name` names the acting agent: a built-in one (`react`, `codex`, `claude-code`) or the task's own class or
+function. `judge.path` names its scoring module.
 `template` chooses the adapter's files and editing rules. `evolver.name` chooses the learning method.
 The `llm` section configures the run's model tool, which the prompt-only learner uses.
 
-The acting pipeline owns its own model configuration. Changing `llm.model` does not automatically change the acting
-agent's model; OfficeQA configures that separately in `pipeline.py`.
+The acting agent owns its own model configuration. Changing `llm.model` does not change the acting agent's model;
+OfficeQA configures that in `agent.params.model`.
 
 For every field, its default, type, and path rules, use the [complete field reference](../reference/config-fields.md). Method defaults are included in the [method guides](../methods/index.md).
 
@@ -28,8 +29,8 @@ The framework merges `harnessadapter/defaults.yaml`, your YAML, and command-line
 Only write settings you want to override:
 
 ```bash
-harnessadapter train --config examples/prompt_only/officeqa/smoke.yaml trainer.run_name=smoke-02 trainer.epochs=2
-harnessadapter eval --config examples/prompt_only/officeqa/smoke.yaml --adapter final trainer.run_name=smoke-02
+harnessadapter train --config examples/officeqa/prompt_only/smoke.yaml trainer.run_name=smoke-02 trainer.epochs=2
+harnessadapter eval --config examples/officeqa/prompt_only/smoke.yaml --adapter final trainer.run_name=smoke-02
 ```
 
 Use the same run name for training and evaluation. Unknown configuration keys are rejected. Fields inside
@@ -41,8 +42,9 @@ Use the same run name for training and evaluation. Unknown configuration keys ar
 |---|---|
 | `data` | Task JSONL file, split files, tasks per step, whether to shuffle the train split (`shuffle`, default true), and shuffle seed. |
 | `task_info` | Directory explaining the task and objective to the learner. |
-| `pipeline.run` | `file.py:function` or `package.module:function`, called as `run(task, adapter)`. |
-| `pipeline.concurrency` | Maximum concurrent task executions during rollout and evaluation. |
+| `agent.name` | A built-in agent (`react`, `codex`, `claude-code`), `file.py:Class` for the task's own `Agent` subclass, or `file.py:function` for a plain `run(task, adapter)`. `pipeline.run` is the older spelling. |
+| `agent.concurrency` | Maximum concurrent task executions during rollout and evaluation. |
+| `agent.params` | The agent's settings: for a built-in agent its model, prompt and tools; for the task's own agent whatever it reads. |
 | `judge.path`, `judge.name` | Scoring module/file and function name; the default name is `score`. |
 | `template` | Built-in template such as `prompt-only@1.0`, or a directory with `adapter.yaml`. |
 | `start_from` | Optional tag, commit, or adapter directory from the same template; defaults to the root. |
@@ -53,9 +55,6 @@ Use the same run name for training and evaluation. Unknown configuration keys ar
 | `llm` | Optional model endpoint, model ID, key environment variable, prices, and `extra_body` (fields added to every request, such as `reasoning_effort`) for the run's `llm` tool. |
 | `trainer` | Run name and directories, epochs, budgets, checkpoint frequency, and recovery mode. |
 | `eval.repeats` | Repetitions per test task in the separate evaluation command. |
-
-Although `pipeline.params` exists in the default configuration, the current Trainer calls the pipeline with only
-`task` and `adapter`; it does not forward that mapping. Configure task-specific pipeline behavior in your pipeline.
 
 ## Starting from an adapter versus resuming a run
 

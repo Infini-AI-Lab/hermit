@@ -25,34 +25,34 @@ Place or reference the downloaded inputs when running preparation:
 
 ```bash
 cd examples/officeqa_paper
-python prepare.py --csv /absolute/path/to/officeqa_full.csv --docs /absolute/path/to/treasury_bulletins_parsed
-harnessadapter check --config skillopt_smoke.yaml
-harnessadapter train --config skillopt_smoke.yaml
-harnessadapter eval --config skillopt_smoke.yaml --adapter final
+python utils/prepare.py --csv /absolute/path/to/officeqa_full.csv --docs /absolute/path/to/treasury_bulletins_parsed
+harnessadapter check --config skillopt/smoke.yaml
+harnessadapter train --config skillopt/smoke.yaml
+harnessadapter eval --config skillopt/smoke.yaml --adapter final
 ```
 
 Once the smoke integration works:
 
 ```bash
-harnessadapter train --config skillopt.yaml
-harnessadapter eval --config skillopt.yaml --adapter final
-harnessadapter eval --config skillopt.yaml --adapter none
-harnessadapter eval --config skillopt.yaml --adapter seed_adapter
+harnessadapter train --config skillopt/run.yaml
+harnessadapter eval --config skillopt/run.yaml --adapter final
+harnessadapter eval --config skillopt/run.yaml --adapter none
+harnessadapter eval --config skillopt/run.yaml --adapter ../utils/seed_adapter
 ```
 
-Use `gepa_smoke.yaml` and `gepa.yaml` for GEPA. Preserve each config's run-name and tree-directory settings.
+Use `gepa/smoke.yaml` and `gepa/run.yaml` for GEPA. Preserve each config's run-name and tree-directory settings.
 
 ## Outputs and included adapters
 
-Outputs are in `examples/officeqa_paper/runs/<configured-run-name>/`, including `checkout/CARD.md`,
+Outputs are in `examples/officeqa_paper/<method>/runs/<configured-run-name>/`, including `checkout/CARD.md`,
 `steps.jsonl`, and `eval/`. Paths in commands above are relative to that recipe directory.
 
-Two included adapters are under `examples/officeqa_paper/adapters/skillopt/` and `adapters/gepa/`.
+Two included adapters are under `examples/officeqa_paper/skillopt/adapter/` and `gepa/adapter/`.
 Evaluate them using a directory selector:
 
 ```bash
-harnessadapter eval --config skillopt.yaml --adapter adapters/skillopt
-harnessadapter eval --config gepa.yaml --adapter adapters/gepa
+harnessadapter eval --config skillopt/run.yaml --adapter adapter
+harnessadapter eval --config gepa/run.yaml --adapter adapter
 ```
 
 Read their `CARD.md` files for measured results and training provenance rather than treating a smoke run as a

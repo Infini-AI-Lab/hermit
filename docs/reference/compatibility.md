@@ -12,7 +12,7 @@ numbers alone may not distinguish unreleased changes.
 | Context-only workspace generation | macOS and Linux |
 | Sandboxed learner programs | Linux with bubblewrap and permitted namespaces |
 | Built-in methods | Prompt-only, Codex, Claude, GEPA, SkillOpt, MWM |
-| Workspace deployment | Codex and Claude Code |
+| Workspace deployment | Codex, Claude Code, and Pi |
 | Native plugin conversion | Claude Code, Codex, Pi, Hermes, with export restrictions |
 | Stdio tool server | `harnessadapter serve DIR`; normally started by the host |
 | Generic manifest-driven standalone service lifecycle | Proposed; not implemented |
@@ -31,7 +31,7 @@ framework's stdio server. Neither command guarantees that arbitrary tool depende
 
 ## Known limitations
 
-- `pipeline.params` exists in defaults but is not forwarded to `run(task, adapter)`.
+- `agent.name` is the current acting-agent selector. Legacy `pipeline.run` settings remain supported when no agent is named; function-based agents receive `params` and `base` when their signatures declare those keywords.
 - Trainer acceptance checks structure; performance selection belongs to the Evolver or your experiment protocol.
 - The sandbox covers launched learner programs, not the whole Python process or the acting pipeline.
 - Restricted network mode uses a proxy that a program can bypass by ignoring proxy settings.

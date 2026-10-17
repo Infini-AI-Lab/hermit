@@ -2,32 +2,26 @@
 """Framework-owned MCP wrapper for declared Python callables in an adapter repo."""
 import argparse
 import asyncio
-from datetime import datetime, timezone
 import json
-import os
 from pathlib import Path
 
 from mcp.server.lowlevel import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import CallToolResult, ListToolsResult, TextContent, Tool, ToolAnnotations
 
-from harnessadapter.adapter.loader import Adapter
-from harnessadapter.adapter.resources import LearningMaterial
+from harnessadapter.adapter.session import Session
 
 
 async def serve(root: Path, audit_log: Path | None, learning_material: Path | None = None, *,
                 deployment: Path | None = None, python_sandbox: bool = False):
-    resources = {"learning_material": LearningMaterial(learning_material)} if learning_material is not None else {}
-    if deployment is not None:
-        # The deployment's host texts (a host.json), the same resource the
-        # in-process hosts bind.
-        resources["deployment"] = json.loads(Path(deployment).read_text())
+    resources = {}
     if python_sandbox:
         from harnessadapter.runtime.python_sandbox import PythonSandbox
         resources["python_sandbox"] = PythonSandbox(root)
-    adapter = Adapter(root, resources=resources)
-    if audit_log is not None and audit_log.resolve().is_relative_to(adapter.root):
-        raise ValueError("Framework audit logs must live outside the adapter core")
+    # The same Session a Python program uses; the audit record is its record.
+    session = Session(root, resources=resources, deployment=deployment, learning_material=learning_material,
+                      audit_log=audit_log)
+    adapter = session.adapter
     lock = asyncio.Lock()
 
     async def list_tools(context, params):
@@ -35,28 +29,17 @@ async def serve(root: Path, audit_log: Path | None, learning_material: Path | No
             name=tool["name"], description=tool["description"],
             inputSchema=tool["input_schema"], outputSchema=tool["output_schema"],
             annotations=ToolAnnotations(**tool["annotations"]) if "annotations" in tool else None,
-        ) for tool in adapter.tools.values()])
+        ) for tool in session.tools])
 
     async def call_tool(context, params):
         async with lock:
             arguments = params.arguments if params.arguments is not None else {}
-            record = {"time": datetime.now(timezone.utc).isoformat(), "pid": os.getpid(),
-                      "adapter": adapter.manifest["name"], "version": adapter.manifest["version"],
-                      "tool": params.name, "arguments": arguments}
             try:
-                result = await adapter.call(params.name, arguments)
-                record.update(status="ok", result=result)
+                result = await session.acall(params.name, arguments)
                 return CallToolResult(content=[TextContent(text=json.dumps(result, ensure_ascii=False))],
                                       structuredContent=result)
             except Exception as exc:
-                message = f"{type(exc).__name__}: {exc}"
-                record.update(status="error", error=message)
-                return CallToolResult(content=[TextContent(text=message)], isError=True)
-            finally:
-                if audit_log is not None:
-                    audit_log.parent.mkdir(parents=True, exist_ok=True)
-                    with audit_log.open("a", encoding="utf-8") as stream:
-                        stream.write(json.dumps(record, ensure_ascii=False) + "\n")
+                return CallToolResult(content=[TextContent(text=f"{type(exc).__name__}: {exc}")], isError=True)
 
     server = Server(adapter.manifest["name"], version=adapter.manifest["version"],
                     on_list_tools=list_tools, on_call_tool=call_tool)

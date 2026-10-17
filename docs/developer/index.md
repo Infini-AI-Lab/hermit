@@ -15,6 +15,7 @@ Start with the extension boundary you need. A task integration normally requires
 | Location | Responsibility |
 |---|---|
 | `harnessadapter/cli.py`, `config.py` | Command parsing and config resolution |
+| `harnessadapter/agents/` | Built-in acting agents and the Agent/function interface |
 | `harnessadapter/task.py` | Task records, callable loading, pipeline/judge types |
 | `harnessadapter/adapter/` | Manifest loading and acting consumption |
 | `harnessadapter/algorithms/templates/` | Built-in adapter seeds and specifications |
@@ -22,7 +23,7 @@ Start with the extension boundary you need. A task integration normally requires
 | `harnessadapter/evolver/` | Shared learner contracts and program/agent execution |
 | `harnessadapter/trainer/` | Training loop, rollouts, material, budgets, recovery |
 | `harnessadapter/runtime/` | Tool serving, sandboxing, and runtime support |
-| `examples/tasks/` | Task integrations and benchmark-owned acting/scoring logic |
+| `examples/<task>/utils/` | Task integrations and benchmark-owned acting/scoring logic |
 | `tests/` | Framework regression tests |
 | `docs/_examples/` | Small offline examples included in documentation |
 

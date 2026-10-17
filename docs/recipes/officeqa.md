@@ -24,33 +24,33 @@ prepared/
 ```
 
 `reward.py` must expose `extract_final_answer` and `score_answer`. The index must use the schema expected by
-`examples/tasks/officeqa/corpus.py`. The prepared dataset used by this example has 133 tasks; the smoke test uses four
+`examples/officeqa/utils/corpus.py`. The prepared dataset used by this example has 133 tasks; the smoke test uses four
 training tasks and two held-out tasks. If you do not have these assets, start with the [included-data model walkthrough](../get-started/first-model.md).
 Training this benchmark example requires obtaining the prepared data first.
 
 Point the example at your prepared directory:
 
 ```bash
-python examples/tasks/officeqa/prepare.py /absolute/path/to/prepared
+python examples/officeqa/utils/prepare.py /absolute/path/to/prepared
 ```
 
-This writes `tasks.jsonl`, split files, and `data_root.txt` inside `examples/tasks/officeqa/`. It does not build the corpus
-index. Set `FIREWORKS_API_KEY` in your shell before continuing. Both the acting pipeline and the learner in
+This writes `tasks.jsonl`, split files, and `data_root.txt` inside `examples/officeqa/utils/`. It does not build the corpus
+index. Set `FIREWORKS_API_KEY` in your shell before continuing. Both the built-in acting `react` agent and the learner in
 `smoke.yaml` use Fireworks; the model configured in that file must be available to your account.
 
 ## Check, train, evaluate
 
-Inspect `examples/prompt_only/officeqa/smoke.yaml`. It selects `prompt-only@1.0`, the `prompt_only` Evolver, batches of two tasks,
+Inspect `examples/officeqa/prompt_only/smoke.yaml`. It selects `prompt-only@1.0`, the `prompt_only` Evolver, batches of two tasks,
 one epoch, and a training budget of USD 3 / one hour. Dollar accounting uses the prices stored in the example;
 verify them for your endpoint. Usage becomes visible at call boundaries, so the budget is not a provider-side
 spending cap. The separate `check` probe and `eval` calls are outside the training budget.
 
 ```bash
-harnessadapter check --config examples/prompt_only/officeqa/smoke.yaml
-harnessadapter train --config examples/prompt_only/officeqa/smoke.yaml
-harnessadapter eval --config examples/prompt_only/officeqa/smoke.yaml --adapter final
-harnessadapter eval --config examples/prompt_only/officeqa/smoke.yaml --adapter root
-harnessadapter eval --config examples/prompt_only/officeqa/smoke.yaml --adapter none
+harnessadapter check --config examples/officeqa/prompt_only/smoke.yaml
+harnessadapter train --config examples/officeqa/prompt_only/smoke.yaml
+harnessadapter eval --config examples/officeqa/prompt_only/smoke.yaml --adapter final
+harnessadapter eval --config examples/officeqa/prompt_only/smoke.yaml --adapter root
+harnessadapter eval --config examples/officeqa/prompt_only/smoke.yaml --adapter none
 ```
 
 `check` runs one training task without an adapter to probe the pipeline and judge; use `--no-probe` to skip that model
@@ -65,7 +65,7 @@ model tool directly; enabling the sandbox does not turn the whole Python process
 
 ## Inspect the result
 
-Paths in `smoke.yaml` are relative to that file, so the outputs are under `examples/prompt_only/officeqa/runs/`:
+Paths in `smoke.yaml` are relative to that file, so the outputs are under `examples/officeqa/prompt_only/runs/`:
 
 ```text
 runs/
@@ -80,14 +80,14 @@ runs/
 ```
 
 ```bash
-cat examples/prompt_only/officeqa/runs/smoke/checkout/ADAPTER.md
-cat examples/prompt_only/officeqa/runs/smoke/checkout/CARD.md
+cat examples/officeqa/prompt_only/runs/smoke/checkout/ADAPTER.md
+cat examples/officeqa/prompt_only/runs/smoke/checkout/CARD.md
 ```
 
 Deploy the selected adapter into a separate generated workspace:
 
 ```bash
-harnessadapter deploy --adapter examples/prompt_only/officeqa/runs/smoke/checkout --workspace .demo/officeqa-codex --host codex
+harnessadapter deploy --adapter examples/officeqa/prompt_only/runs/smoke/checkout --workspace .demo/officeqa-codex --host codex
 ```
 
 Inspect its `AGENTS.md` before starting the host. This checks host integration; effectiveness in another host needs
@@ -106,11 +106,11 @@ adapters on validation questions, so their configs add a validation split (rerun
 
 ```bash
 python -m pip install -e '.[gepa]'
-harnessadapter train --config examples/gepa/officeqa/smoke.yaml
-harnessadapter eval --config examples/gepa/officeqa/smoke.yaml --adapter final
+harnessadapter train --config examples/officeqa/gepa/smoke.yaml
+harnessadapter eval --config examples/officeqa/gepa/smoke.yaml --adapter final
 ```
 
-For SkillOpt, install `'.[skillopt]'` and use `examples/skillopt/officeqa/smoke.yaml`. The smoke configs check the
+For SkillOpt, install `'.[skillopt]'` and use `examples/officeqa/skillopt/smoke.yaml`. The smoke configs check the
 integration on a few questions; `run.yaml` next to each trains on the 60 training questions and selects on the 13
 validation questions. Outputs are under each config's folder, in `runs/`; `state/` holds each method's candidates and
 records. Each method's README in [`examples/`](https://github.com/haizhongzheng/MetaHarnessAdapter/tree/main/examples)
@@ -118,9 +118,8 @@ explains how it works and which settings matter.
 
 For the 50/24/172 split and paper-style rollout/scoring, use the separate
 [OfficeQA paper-setting recipe](officeqa-paper.md). Its canonical self-contained experiment directory is
-`examples/officeqa_paper/`, with `skillopt.yaml`, `gepa.yaml`, preparation, seed, and included adapters.
-Other method-specific `officeqa_paper/` folders remain in the repository; do not mix their configs or outputs
-with this canonical walkthrough.
+`examples/officeqa_paper/`, with `skillopt/run.yaml`, `gepa/run.yaml`, preparation, seed, and included adapters.
+Each method has its own config and output directory; do not mix their run-name or tree settings.
 
 For your own task, implement the pipeline and judge described in [Task integration](../framework/task.md). For how
 the components exchange data, continue to [Using and training adapters](../framework/adapter-lifecycle.md).

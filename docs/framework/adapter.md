@@ -52,12 +52,12 @@ These declarations connect the subagent and skill directories to the loader:
 
 The connector reads the adapter manifest and renders or copies its exports into a **separate host workspace**:
 
-| Adapter source | Deployment operation | Codex output | Claude Code output |
-|---|---|---|---|
-| `ADAPTER.md` (always exported) | Insert its text into a managed instruction block. | `AGENTS.md` | `CLAUDE.md` |
-| `skills/verify-output/` | Copy the skill directory. | `.codex/skills/verify-output/` | `.claude/skills/verify-output/` |
-| `agents/reviewer.md`, through `exports.agents` | Convert the subagent into native host files: frontmatter gives name and description, the body becomes its instructions. | `.codex/agents/reviewer.toml`, registered in `.codex/config.toml` | `.claude/agents/reviewer.md` |
-| `tools.py`, through `exports.tools` | Configure a framework MCP server that loads the source adapter. | `.codex/config.toml` | `.mcp.json` |
+| Adapter source | Deployment operation | Codex output | Claude Code output | Pi output |
+|---|---|---|---|---|
+| `ADAPTER.md` (always exported) | Insert its text into a managed instruction block. | `AGENTS.md` | `CLAUDE.md` | `AGENTS.md` |
+| `skills/verify-output/` | Copy the skill directory. | `.codex/skills/verify-output/` | `.claude/skills/verify-output/` | `.pi/skills/verify-output/` |
+| `agents/reviewer.md`, through `exports.agents` | Convert the subagent into native host files: frontmatter gives name and description, the body becomes its instructions. | `.codex/agents/reviewer.toml`, registered in `.codex/config.toml` | `.claude/agents/reviewer.md` | refused: Pi has no subagents |
+| `tools.py`, through `exports.tools` | Configure a framework MCP server that loads the source adapter. | `.codex/config.toml` | `.mcp.json` | `.pi/mcp.json` |
 
 This is how the adapter reaches the acting system. The host reads the generated instruction, skill, and role files;
 tool configuration makes the declared tools available through its tool interface. Merely placing the adapter
@@ -85,6 +85,15 @@ claude-workspace/
   .harnessadapter-deploy.json
 ```
 
+```text
+pi-workspace/            # only for an adapter without roles
+  AGENTS.md
+  .pi/
+    mcp.json
+    skills/verify-output/SKILL.md
+  .harnessadapter-deploy.json
+```
+
 Only declared exports produce corresponding content. A prompt-only adapter has no tool-server entry, skills, or
 roles to install. The generated deployment report identifies the actual paths and role names.
 
@@ -104,7 +113,7 @@ and preserves project text outside it. Existing adapter headings are nested unde
 
 The deployment command prepares a workspace; it does not launch the agent. Its output must be empty or a workspace
 previously generated for the same host. The source adapter and output workspace cannot contain one another.
-The generated `.codex/config.toml` or `.mcp.json` is rewritten on deployment; it is not a general configuration
+The generated `.codex/config.toml`, `.mcp.json` or `.pi/mcp.json` is rewritten on deployment; it is not a general configuration
 merger. Global host configuration is not modified.
 
 ### Tools run from the adapter source
@@ -129,20 +138,26 @@ acting host. Ordinary `deploy` does not start that service.
 
 ### Custom acting pipelines
 
-A custom pipeline may consume exports directly instead of generating host files. For example:
+A program that runs its own agent uses an adapter through `Session`, the Python counterpart of `deploy` and
+`convert`:
 
 ```python
-from pathlib import Path
-from harnessadapter.adapter.loader import Adapter
+from harnessadapter import Session
 
-adapter = Adapter(Path("docs/_examples/file_adapter"))
-instructions = adapter.context()
-subagents = adapter.agent_definitions()
+session = Session("docs/_examples/file_adapter")
+system_prompt = base_prompt + session.context()          # ADAPTER.md as the Evolver last wrote it
+tools = task_tools + session.tool_specs("openai")        # or "anthropic"; the adapter's tools beside the task's
+...
+for call in message["tool_calls"]:                       # a chat-completions turn
+    if session.has_tool(call["function"]["name"]):
+        messages.append(session.respond(call))            # the tool message; errors come back as text
 ```
 
-The pipeline places `instructions` in its agent context and integrates any other exports it needs.
-`await adapter.call(name, arguments)` invokes a declared tool with schema validation. Calls may bind framework
-resources through a reserved `_resources` parameter. The [task interface](task.md) leaves host integration to the
+`session.call(name, arguments)` runs one tool synchronously (also inside a running event loop), `acall` is the
+coroutine, `agents()` and `skills()` give the other exports. Resources a tool may receive through its reserved
+`_resources` parameter are bound at construction: `deployment=` (a host.json or its dict), `learning_material=`,
+`evidence=` (a record directory), or any mapping under `resources=`. `audit_log=` writes one JSON line per call,
+the same record `harnessadapter serve` writes. The [task interface](task.md) leaves host integration to the
 pipeline; it does not automatically implement every export.
 
 ## Evolution interface

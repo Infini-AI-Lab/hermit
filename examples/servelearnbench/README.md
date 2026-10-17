@@ -1,0 +1,69 @@
+# ServeLearnBench
+
+A scenario of [ServeLearnBench](https://github.com/Infini-AI-Lab/ServeLearnBench): a chronological stream of
+customer requests at an online retailer's support desk, governed by a hidden policy that changes between windows;
+the agent is told only a score after each request, and held-out tests at the end of every window measure what it
+learned. This example trains an adapter on the serving stream with the mwm and prompt-only methods, scores it the
+benchmark's way, and compares it with the benchmark's leaderboard. The benchmark's own agent loop plays every
+episode; the adapter enters through its context (on the system prompt) and its tools (MWM's `wm`).
+
+## Setup
+
+```bash
+pip install -e .                                                        # this framework, Python 3.12+
+pip install "git+https://github.com/Infini-AI-Lab/ServeLearnBench"      # the benchmark
+python examples/servelearnbench/utils/prepare.py --scenario retail_l3 --block 12   # tasks.jsonl, splits/, windows.json, the documents
+```
+
+Also needed for training: the Codex CLI on PATH, bubblewrap, and a Fireworks key in `FIREWORKS_API_KEY` or
+`~/code/metaworld/.fireworks`.
+
+## Run
+
+```bash
+examples/servelearnbench/mwm/launch.sh retail_l3            # MWM: train on the serving stream, then the per-window tests
+examples/servelearnbench/prompt_only/launch.sh retail_l3    # prompt-only, same stream and host
+```
+
+Each launcher starts the wire meters and one `harnessadapter train` in the background (`~/code/metaworld-runs/<tag>/run.log`),
+then replays every window's held-out tests on the adapter the run had after that window and scores the result file
+with `slb score` (`<runs>/<tag>/test.log`, `task/results/retail_l3_<method>.jsonl`). The tests can be rerun with
+`launch.sh retail_l3 test`. A smoke on the first 12 serving tasks: `MW_TRAIN_SPLIT=examples/servelearnbench/utils/splits/smoke_serving.txt`.
+
+## Results
+
+retail_l3: 624 serving requests in 8 windows, 537 held-out tests. Host: GLM 5.3 Flash (reasoning effort high),
+the benchmark's own loop and budgets. Learner: the mwm Evolver (Codex with GLM 5.3 Flash, one session per block
+of 12 requests) or the built-in Codex Evolver with GLM 5.3 Flash and its tools gated to `check_spec`. H is the
+benchmark's score on the tests that need the hidden policy, F on the fully specified ones; one run each.
+
+| Method | H | F | run |
+|---|---|---|---|
+| Blind (leaderboard: no learning) | 4.5 | 94.3 | |
+| RAG (leaderboard) | 14.3 | 95.2 | |
+| Mem0 (leaderboard) | 13.5 | 92.7 | |
+| SkillOpt (leaderboard) | 22.0 | 93.3 | |
+| Prime (leaderboard) | 26.9 | 97.5 | |
+| CH (leaderboard) | 28.7 | 92.0 | |
+| **prompt-only** (`prompt_only/`) | 18.8 | 97.1 | `slb_po_retail_l3` |
+| **MWM** (`mwm/`) | 45.3 | 98.4 | `slb_retail_l3` |
+| Oracle (leaderboard: the policy given) | 89.2 | 95.5 | |
+
+Leaderboard rows are the benchmark's published numbers for GLM 5.3 Flash on retail L3. Caveat shared by both of
+our runs: blocks of 12 straddle window boundaries, so up to 11 requests per window are learned only after that
+window's test (the benchmark's own runner updates at window end). The runs date from framework commit `479f70d`
+(2026-10-14).
+
+## Code
+
+```text
+utils/agent/agent.py   ServeLearnBenchAgent: one episode through the benchmark's loop, the adapter plugged in through Session
+utils/prepare.py       exports one scenario: tasks.jsonl, splits/ (serving, test_w<w>, smoke), windows.json, the documents
+utils/judge.py         the benchmark's reward; the feedback is the one line its methods see ("Score: n/100.")
+utils/windows.py       the per-window test replay and the `slb score` result file
+utils/task-info/       the task for the learner; task-info/mwm/ is what MWM needs to know about the venue (see docs/methods/mwm.md)
+mwm/ prompt_only/      retail_l3.yaml and launch.sh per method
+```
+
+The agent reads its settings from the environment the launcher sets: `SLB_WORKDIR` (the run's task directory),
+`SLB_MODEL`, `SLB_BASE_URL`, `SLB_API_KEY`, `SLB_REASONING_EFFORT`.

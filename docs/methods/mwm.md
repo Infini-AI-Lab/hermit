@@ -15,12 +15,15 @@ than a context-only optimizer; it is not a drop-in switch for an arbitrary promp
 | Episode order | `data.shuffle: false`; `data.step_size` is the learning block |
 | Evidence | The pipeline writes the native evidence layout and returns `RunOutput.extra["mwm"]` |
 | Access | Evidence path in `evolver.params.evidence` and `evolver_access.environment` |
-| Deployment description | `task-info/deployment/` describing the venue, host, and environment |
+| Deployment description | `task-info/mwm/` (or `evolver.params.deployment`) describing the venue, host, and environment |
 | Learner environment | Codex CLI and Linux namespace/sandbox support; model endpoint configured for the session |
 | Channels | Task tools declared through `evolver_access.tools`, as required by the venue |
 
 Use [ServeLearnBench](../recipes/servelearnbench.md) or [CL-Bench](../recipes/clbench.md) as a complete integration
 reference. The task pipeline, rather than the Trainer, owns the benchmark's acting loop and evidence writing.
+
+The framework renders native runtime instructions from the venue texts; keep task-specific deployment text in
+the task directory rather than patching the MWM template.
 
 ## Block lifecycle
 

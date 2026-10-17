@@ -33,6 +33,7 @@ a structurally valid update can reduce task performance. The default final selec
 
 ```{literalinclude} ../../harnessadapter/algorithms/evolvers/prompt_only/evolver.yaml
 :language: yaml
+:start-at: params:
 ```
 
 Set overrides under `evolver.params`. `files` must refer to text paths that the template permits the learner to

@@ -25,11 +25,13 @@ Task protocol. A task opts in by returning, from its pipeline, RunOutput.extra["
 "hands" | ..., "number": <the episode's number in the stream>, "entry": <its evidence entry, with the record
 address>}. The step's goal is then the native per-block listing. The task's evidence store (native layout, README.md
 at its root) is named by the `evidence` parameter and granted through evolver_access.environment; the venue's
-deployment texts (contract/<slot>.md, delegation, host.json, environment/) are task-info/deployment/.
+venue texts (contract/<slot>.md, delegation, host.json, environment/) are the `deployment` directory
+(default task-info/mwm/; see deployment.py for what the method fixes itself).
 
 Parameters (evolver.params):
   model, args, home, price     as for the built-in codex Evolver (args carries the provider and reasoning settings)
   evidence                     the run's evidence store (required; must be among evolver_access.environment)
+  deployment                   the venue's texts for MWM, relative to the run config (default: task-info/mwm)
   learner_tools                task tools the learner also gets as MCP tools (default: all); every task tool is served
                                through the gate either way (MW_TOOLSRV, for a venue's shell client)
   bootstrap                    run the bootstrap session in the first step (default true)
@@ -177,60 +179,7 @@ class _Relay:
                 pass
 
 
-class _ToolGate:
-    """The learner's view of the Trainer's tool endpoint: only the venue's channels pass.
-
-    The Trainer's endpoint also serves run_agent, llm, budget and check_spec. The native learner had the venue's
-    channels only (the database query line), so the learner gets this gate's URL, never the endpoint's: GET /tools
-    lists the allowed tools, POST /call/<name> forwards an allowed call and refuses any other."""
-
-    def __init__(self, upstream: str, allowed: list[str]):
-        import http.server
-        import threading
-        import urllib.request
-        allowed = set(allowed)
-
-        class Handler(http.server.BaseHTTPRequestHandler):
-            def log_message(self, *args):
-                pass
-
-            def _send(self, code, body: bytes):
-                self.send_response(code)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-
-            def do_GET(self):
-                if self.path.rstrip("/") != "/tools":
-                    return self._send(404, b'{"error": "not found"}')
-                try:
-                    with urllib.request.urlopen(upstream + "/tools", timeout=30) as r:
-                        tools = [t for t in json.loads(r.read()) if t["name"] in allowed]
-                except Exception as exc:                        # noqa: BLE001
-                    return self._send(502, json.dumps({"error": f"tool endpoint: {type(exc).__name__}: {exc}"}).encode())
-                self._send(200, json.dumps(tools).encode())
-
-            def do_POST(self):
-                name = self.path[len("/call/"):] if self.path.startswith("/call/") else None
-                if name not in allowed:
-                    return self._send(404, json.dumps({"error": f"unknown tool {name}"}).encode())
-                data = self.rfile.read(int(self.headers.get("Content-Length", 0)))
-                request = urllib.request.Request(f"{upstream}/call/{name}", data=data,
-                                                 headers={"Content-Type": "application/json"})
-                try:
-                    with urllib.request.urlopen(request, timeout=1800) as r:
-                        self._send(200, r.read())
-                except Exception as exc:                        # noqa: BLE001
-                    self._send(502, json.dumps({"error": f"tool endpoint: {type(exc).__name__}: {exc}"}).encode())
-
-        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
-        threading.Thread(target=self.server.serve_forever, daemon=True).start()
-
-    def close(self) -> None:
-        self.server.shutdown()
-        self.server.server_close()
+from harnessadapter.evolver.gate import ToolGate as _ToolGate   # the venue's channels are the learner's only tools
 
 
 class MwmEvolver(Evolver):
@@ -295,7 +244,7 @@ class MwmEvolver(Evolver):
         if session.exists():
             shutil.rmtree(session)
         (session / "control").mkdir(parents=True)
-        deployment = ctx.workspace.task_info / "deployment"
+        deployment = self._deployment_dir(ctx)
         if deployment.is_dir():
             _copy(deployment, session / "deployment")
         return session
@@ -548,15 +497,24 @@ class MwmEvolver(Evolver):
         path.write_text(json.dumps(times, indent=1, sort_keys=True) + "\n")
 
     @staticmethod
-    def _render_context(ctx: Context) -> None:
+    def _deployment_dir(ctx: Context) -> Path:
+        """The venue's texts for MWM: `deployment` (relative to the run config), else task-info/mwm (or the older
+        task-info/deployment)."""
+        from harnessadapter.algorithms.evolvers.mwm import deployment as _dep
+        value = ctx.params.get("deployment")
+        if not value:
+            return _dep.find(ctx.workspace.task_info) or ctx.workspace.task_info / "mwm"
+        path = Path(value)
+        if not path.is_absolute():
+            path = (ctx.base or Path.cwd()) / path
+        return path.resolve()
+
+    def _render_context(self, ctx: Context) -> None:
         """ADAPTER.md: the host package rendered with this deployment, for hosts that read the context file."""
         adapter = ctx.workspace.adapter
-        deployment = {}
-        host = ctx.workspace.task_info / "deployment" / "host.json"
-        if host.is_file():
-            deployment = json.loads(host.read_text())
+        from harnessadapter.algorithms.evolvers.mwm import deployment as _dep
         from harnessadapter.adapter.loader import Adapter
-        loaded = Adapter(adapter, {"deployment": deployment} if deployment else {})
+        loaded = Adapter(adapter, {"deployment": _dep.host_settings(self._deployment_dir(ctx))})
         text = loaded._module("interface.py").context(_resources=loaded.resources)
         (adapter / "ADAPTER.md").write_text(text.rstrip("\n") + "\n")
 
@@ -577,8 +535,8 @@ class MwmEvolver(Evolver):
         granted = [Path(p).resolve() for p in ctx.access.environment]
         if not any(evidence == g or evidence.is_relative_to(g) for g in granted):
             raise ValueError(f"params.evidence ({evidence}) must be granted through evolver_access.environment")
-        if not (ctx.workspace.task_info / "deployment").is_dir():
-            raise ValueError("the mwm Evolver needs the venue's deployment texts at task-info/deployment/")
+        if not self._deployment_dir(ctx).is_dir():
+            raise ValueError("the mwm Evolver needs the venue's texts: params.deployment, or task-info/mwm/")
         self._save(ctx, {"notes": "", "sessions": []})
 
     def step(self, ctx: StepContext) -> StepResult:

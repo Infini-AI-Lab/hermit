@@ -1,57 +1,54 @@
 # Examples
 
-Each top-level folder is one Evolver, the method that trains the adapter. Its subfolders are the tasks it runs on,
-each with its configs. The tasks themselves (data preparation, acting-agent pipeline, judge, task description) are
-shared by every method and live in [`tasks/`](tasks/).
+Each folder is one task. Inside it the three things a task owner provides are kept apart, and the configs of every
+method that has been run on the task sit beside them:
 
 ```text
-examples/
-  <method>/
-    README.md        how the method works, its knobs, its examples
-    <task>/
-      smoke.yaml     a few questions, to check the setup end to end
-      run.yaml       the full run
-      adapter/       an adapter trained with run.yaml, with its CARD.md (where included)
-  tasks/<task>/      prepare.py, pipeline.py, judge.py, task-info/
-  deploy/<use>/      finished adapters to check and deploy
+examples/<task>/
+  README.md          the task, how to prepare it, which methods run on it
+  utils/             everything the task itself needs: the agent, the data preparation, the judge, the texts
+    agent/           the acting agent: a prompt for a built-in agent, or agent.py with the task's own Agent
+                     class when a benchmark owns the loop; the config names it in agent.name
+    prepare.py       writes tasks.jsonl and splits/ beside itself, from the task's data (which stays where it is)
+    judge.py         scores one output and writes the feedback
+    tools.py         the task's tools for a built-in agent, where it has any
+    task-info/       what the learner is told: README.md, and mwm/ with what MWM needs to know about the task
+    tests/           the task's own tests, where it has any
+  <method>/          one folder per method run on the task: smoke.yaml, run.yaml, a launcher where a run needs
+                     one, a trained adapter/ where included
 ```
 
-## Evolvers
-
-| Folder | `evolver.name` | Method | Tasks |
+| Folder | Task | Agent | Methods |
 |---|---|---|---|
-| [`prompt_only/`](prompt_only/) | `prompt_only` | One model call per step rewrites `ADAPTER.md` from the step's results | `officeqa` |
-| [`codex/`](codex/) | `codex` | A Codex agent edits the adapter from the step's learning material | `officeqa` |
-| [`gepa/`](gepa/) | `gepa` | GEPA: reflective text evolution with Pareto selection | `officeqa`, `officeqa_paper` |
-| [`skillopt/`](skillopt/) | `skillopt` | SkillOpt: a few validation-gated skill edits per step, under a learning rate | `officeqa`, `officeqa_paper` |
-| [`mwm/`](mwm/) | `mwm` | MetaWorld Model: a Codex learner maintains a world model of the environment after every block, under the native MWM contract | `clbench` (database, poker), `servelearnbench` (retail_l3) |
+| [`officeqa/`](officeqa/) | OfficeQA: 133 questions about U.S. Treasury Bulletins, the official strict scorer | built-in `react` over search/read tools, GLM 5.3 Flash | [`prompt_only`](officeqa/prompt_only/), [`codex`](officeqa/codex/), [`gepa`](officeqa/gepa/), [`skillopt`](officeqa/skillopt/) |
+| [`officeqa_paper/`](officeqa_paper/) | OfficeQA Full in the SkillOpt paper's setting: its 50 / 24 / 172 split, exact match | `OfficeQAPaperAgent`: SkillOpt's own rollout | [`gepa`](officeqa_paper/gepa/), [`skillopt`](officeqa_paper/skillopt/) |
+| [`clbench_database/`](clbench_database/) | The CL-Bench database exploration stream (accuracy) | `CLBenchDatabaseAgent`: metaworld's host seat in CL-Bench's loop | [`prompt_only`](clbench_database/prompt_only/), [`mwm`](clbench_database/mwm/) |
+| [`clbench_poker/`](clbench_poker/) | The CL-Bench exploitable-poker stream (bb/hand) | `CLBenchPokerAgent` | [`prompt_only`](clbench_poker/prompt_only/), [`mwm`](clbench_poker/mwm/) |
+| [`servelearnbench/`](servelearnbench/) | A ServeLearnBench scenario: serving stream, per-window tests | `ServeLearnBenchAgent`: the benchmark's own loop | [`prompt_only`](servelearnbench/prompt_only/), [`mwm`](servelearnbench/mwm/) |
+| [`lean_swarm/`](lean_swarm/) | Lean swarm: five Codex agents prove one formal-conjectures theorem together; a finished adapter, check and deploy only | Codex | — |
 
-## Other
-
-| Folder | Contents |
-|---|---|
-| [`tasks/`](tasks/) | `officeqa`: 133 OfficeQA questions, answered by searching the Treasury Bulletins<br>`officeqa_paper`: OfficeQA in the SkillOpt paper's setting<br>`clbench`: the CL-Bench database and poker streams, played by metaworld's host seat<br>`servelearnbench`: a ServeLearnBench scenario (serving stream, per-window tests), played by the benchmark's own agent loop |
-| [`deploy/`](deploy/) | `lean_collab`: a finished adapter for five Codex agents proving Lean theorems together |
+The methods themselves are described in [`docs/methods/`](../docs/methods/).
 
 ## Run an example
 
 Run from the repository root. Prepare the task once, then check, train and evaluate with a method's config:
 
 ```bash
-python examples/tasks/officeqa/prepare.py /path/to/officeqa/prepared
+python examples/officeqa/utils/prepare.py /path/to/officeqa/prepared
 export FIREWORKS_API_KEY=...
-harnessadapter check --config examples/gepa/officeqa/smoke.yaml
-harnessadapter train --config examples/gepa/officeqa/smoke.yaml
-harnessadapter eval  --config examples/gepa/officeqa/smoke.yaml --adapter final
+harnessadapter check --config examples/officeqa/gepa/smoke.yaml
+harnessadapter train --config examples/officeqa/gepa/smoke.yaml
+harnessadapter eval  --config examples/officeqa/gepa/smoke.yaml --adapter final
 ```
 
-Paths inside a config, and a path given to `--adapter`, are relative to the config's folder; a run writes to
-`<method>/<task>/runs/`. Run `smoke.yaml` before `run.yaml`: it checks the data, pipeline, judge and Evolver together
-on a few questions.
+Paths inside a config, and a path given to `--adapter`, are relative to the config's folder: a config reaches its
+task as `../utils/...` and `../utils/agent/...`. A run writes to `<task>/<method>/runs/`. Run
+`smoke.yaml` before `run.yaml`: it checks the data, pipeline, judge and Evolver together on a few questions.
 
 ## Add an example
 
-- A task: `tasks/<task>/` with `pipeline.py`, `judge.py`, `task-info/README.md` and a `prepare.py` that writes
-  `tasks.jsonl` and the splits (see [Task integration](../docs/framework/task.md)).
-- A method on an existing task: `<method>/<task>/smoke.yaml` and `run.yaml`, and a row in `<method>/README.md`.
-- A method: `<method>/README.md` in the shape of the others: what it does, one step, knobs, examples, commands.
+- A task: `utils/prepare.py`, the task's tools or an `utils/agent/agent.py` with an `Agent` subclass, `utils/judge.py`,
+  `utils/task-info/README.md` (see [Task integration](../docs/framework/task.md) and the
+  [built-in agents](../docs/framework/task.md#built-in-agents)), and a row in the table above.
+- A method on an existing task: `<method>/smoke.yaml` and `run.yaml`, and a row in `docs/methods/<method>.md`.
+- A method: `docs/methods/<method>.md` in the shape of the others: what it does, one step, knobs, configs, commands.

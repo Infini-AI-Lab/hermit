@@ -71,7 +71,7 @@ def make_task(tmp: Path, **overrides) -> Path:
     (tmp / "toy" / "evolver.yaml").write_text("class: evolver.py:Toy\nneeds: []\nparams: {mode: learn}\n")
     config = {"data": {"tasks": "tasks.jsonl", "train": "train.txt", "val": "val.txt", "test": "test.txt",
                        "step_size": 4},
-              "task_info": "task-info", "pipeline": {"run": "pipeline.py:run", "concurrency": 2},
+              "task_info": "task-info", "agent": {"name": "pipeline.py:run", "concurrency": 2},
               "judge": {"path": "judge.py"}, "template": str(TEMPLATE), "evolver": {"name": "toy"},
               "sandbox": {"enabled": False, "network": "open"},
               "trainer": {"run_name": "toy-run", "output_dir": "runs", "epochs": 2,
@@ -207,7 +207,7 @@ def test_check_command(tmp_path, capsys):
     lines = []
     assert run_check(cfg, log=lines.append)
     text = "\n".join(lines)
-    assert "[ok] template" in text and "[ok] pipeline probe" in text and "does not guarantee" in text
+    assert "[ok] template" in text and "[ok] agent probe" in text and "does not guarantee" in text
     (tmp_path / "test.txt").write_text("t0\n")
     lines = []
     assert not run_check(load(tmp_path / "run.yaml"), log=lines.append)

@@ -30,7 +30,7 @@ each new terminal. Editable installation uses this checkout's Python code.
 |---|---|
 | [Offline first training](quickstart.md) | None beyond the core install |
 | [First real-model training](first-model.md) | A compatible chat-completions endpoint, model id, and credential; data is included |
-| Generate a Codex / Claude Code workspace | No host CLI is needed until you start the host |
+| Generate a Codex / Claude Code / Pi workspace | No host CLI is needed until you start the host |
 | Run an acting host | Installed and authenticated host, plus adapter tool dependencies |
 | Prompt-only learner | Configured learner chat-completions endpoint and credential |
 | GEPA | `python -m pip install -e '.[gepa]'`, learner endpoint, validation split |

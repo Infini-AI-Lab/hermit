@@ -57,7 +57,7 @@ Increase dataset coverage and repetitions before interpreting small score differ
 evaluation protocol. Compare methods with their full call and cost records, since a validation-search method
 performs more work per step than a single rewrite.
 
-`pipeline.concurrency` controls concurrent task executions. It does not set every learner's internal parallelism.
+`agent.concurrency` controls concurrent task executions. It does not set every learner's internal parallelism.
 For endpoint throttling, also inspect method-specific controls such as SkillOpt's `analyst_workers`.
 
 Budget limits are observed at framework boundaries and can overshoot during in-flight work. Unknown usage cannot

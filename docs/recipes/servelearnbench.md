@@ -17,7 +17,7 @@ credential in `FIREWORKS_API_KEY`. Install the benchmark into the interpreter us
 ```
 
 The launcher uses Bash, `setsid`, `curl`, and local wire-meter processes. It is not the macOS offline walkthrough.
-Inspect `examples/mwm/servelearnbench/retail_l3.yaml` before making model calls.
+Inspect `examples/servelearnbench/mwm/retail_l3.yaml` before making model calls.
 
 ## Set paths and launch
 
@@ -28,7 +28,7 @@ export MW_FRAMEWORK_PYTHON="$PWD/.venv/bin/python"
 export MW_RUNS="$PWD/.demo/slb-runs"
 export MW_TAG=slb-retail-demo
 export WM_PORT=3451
-examples/mwm/servelearnbench/launch.sh retail_l3
+examples/servelearnbench/mwm/launch.sh retail_l3
 ```
 
 The launcher prepares the scenario's task export if needed, starts training in the background, and launches
@@ -59,7 +59,7 @@ the configured endpoint. Keep the meter settings and ledger with the run when co
 With the same environment variables as the launch:
 
 ```bash
-examples/mwm/servelearnbench/launch.sh retail_l3 test
+examples/servelearnbench/mwm/launch.sh retail_l3 test
 .venv/bin/slb score "$MW_RUNS/$MW_TAG/task/results/retail_l3_mwm.jsonl"
 ```
 
@@ -80,5 +80,5 @@ test episodes do not update the learning method. Since window serving counts do 
 11 cases of a window can remain unlearned at that window's test. Preserve this timing when comparing runs.
 
 `MW_TRAIN_SPLIT` can select a prepared prefix for smoke testing; prefix results do not reproduce the full stream.
-The task contract is implemented under `examples/tasks/servelearnbench/`. For the world-model requirements see
+The task contract is implemented under `examples/servelearnbench/utils/`. For the world-model requirements see
 [MWM](../methods/mwm.md), and for experiment reporting see [Evaluation](../guides/evaluation.md).

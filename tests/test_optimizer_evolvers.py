@@ -84,7 +84,7 @@ def make_run(tmp: Path, evolver: str, params: dict) -> Config:
     (tmp / "judge.py").write_text(JUDGE)
     config = {"data": {"tasks": "tasks.jsonl", "train": "train.txt", "val": "val.txt", "test": "test.txt",
                        "step_size": 4},
-              "task_info": "task-info", "pipeline": {"run": "pipeline.py:run", "concurrency": 4},
+              "task_info": "task-info", "agent": {"name": "pipeline.py:run", "concurrency": 4},
               "judge": {"path": "judge.py"}, "template": str(TEMPLATE),
               "evolver": {"name": evolver, "params": params},
               "sandbox": {"enabled": False, "network": "none", "env": []},

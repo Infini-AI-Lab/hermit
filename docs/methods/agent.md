@@ -51,3 +51,14 @@ definition before replacing prompts. For a custom learner harness, use
 
 Report usage outside the framework's metered tools so budget records remain meaningful. A learner's direct
 external calls are not automatically accounted for merely because the Trainer launched it.
+
+## Learner tool access
+
+Agent-backed learners can set `evolver.params.tools` to an allowlist such as `[check_spec]`; null exposes all
+Trainer endpoint tools. The gate refuses calls outside that list. Inspect the selected method's defaults and
+`harnessadapter/evolver/gate.py`. This controls the learner's Trainer-tool endpoint, separately from the acting
+agent's task/adapter tools. It does not make arbitrary shell commands safe or impose a mandatory check order.
+
+For a complete task-specific Codex configuration, see `examples/officeqa/codex/smoke.yaml` and its
+`codex_glm/` learner definition. Acting agents are configured under `agent`; `evolver.name: codex` selects the
+learner, not the acting host.

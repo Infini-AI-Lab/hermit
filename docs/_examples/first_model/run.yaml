@@ -5,8 +5,8 @@ data:
   step_size: 3
   shuffle: false
 task_info: task-info
-pipeline: {run: pipeline.py:run, concurrency: 1}
-judge: {path: judge.py}
+judge:
+  path: judge.py
 template: prompt-only@1.0
 evolver:
   name: prompt_only
@@ -17,10 +17,18 @@ llm:
   base_url: https://your-endpoint.example/v1
   model: your-model-id
   api_key_env: MODEL_API_KEY
-sandbox: {enabled: false, network: none, env: []}
+sandbox:
+  enabled: false
+  network: none
+  env: []
 trainer:
   run_name: first-model
   output_dir: runs
   epochs: 1
-  budget: {tokens: 30000, hours: 0.25}
+  budget:
+    tokens: 30000
+    hours: 0.25
   call_timeout_min: 5
+agent:
+  concurrency: 1
+  name: pipeline.py:run

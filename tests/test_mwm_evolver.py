@@ -104,7 +104,7 @@ PIPELINE = textwrap.dedent('''
 ''')
 
 
-def make(tmp: Path, monkeypatch, steps: int = 2) -> Path:
+def make(tmp: Path, monkeypatch, steps: int = 2, deployment_param: bool = False) -> Path:
     bin_dir = tmp / "fakebin"
     bin_dir.mkdir()
     (bin_dir / "codex").write_text(FAKE_CODEX)
@@ -121,14 +121,18 @@ def make(tmp: Path, monkeypatch, steps: int = 2) -> Path:
     (tmp / "pipeline.py").write_text(PIPELINE)
     (tmp / "judge.py").write_text("def score(task, output):\n    return 1.0\n")
     (tmp / "echo.py").write_text("def echo(text):\n    return {'text': text}\n")
-    deployment = Path(__file__).resolve().parents[1] / "examples/tasks/clbench/database/task-info/deployment"
+    deployment = Path(__file__).resolve().parents[1] / "examples/clbench_database/utils/task-info/mwm"
     (tmp / "task-info").mkdir()
-    shutil.copytree(deployment, tmp / "task-info" / "deployment")
+    params = {"evidence": str(evidence), "retry_wait_s": 0, "session_timeout_s": 120}
+    if deployment_param:          # the venue texts beside the config, named by params.deployment
+        shutil.copytree(deployment, tmp / "mwm" / "deployment")
+        params["deployment"] = "mwm/deployment"
+    else:
+        shutil.copytree(deployment, tmp / "task-info" / "mwm")
     config = {"data": {"tasks": "tasks.jsonl", "train": "train.txt", "step_size": 1, "shuffle": False},
-              "task_info": "task-info", "pipeline": {"run": "pipeline.py:run", "concurrency": 1},
+              "task_info": "task-info", "agent": {"name": "pipeline.py:run", "concurrency": 1},
               "judge": {"path": "judge.py"}, "template": "mwm",
-              "evolver": {"name": "mwm", "params": {"evidence": str(evidence), "retry_wait_s": 0,
-                                                    "session_timeout_s": 120}},
+              "evolver": {"name": "mwm", "params": params},
               "evolver_access": {"environment": [str(evidence)],
                                  "tools": [{"name": "echo", "description": "Echo a text.", "entrypoint": "echo.py:echo",
                                             "input_schema": {"type": "object", "properties": {"text": {"type": "string"}}},
@@ -248,3 +252,13 @@ def test_shell_channel_without_mcp_still_passes_the_gate(tmp_path, monkeypatch):
     Trainer(cfg, log=lambda *_: None).train()
     seen = json.loads((tmp_path / "runs" / "mwm-test" / "checkout" / "meta" / "seen.json").read_text())
     assert seen["gate_tools"] == ["echo"] and seen["echo"] == {"result": {"text": "hi"}}
+
+
+def test_deployment_parameter_names_the_venue_texts(tmp_path, monkeypatch):
+    cfg = Config.load(make(tmp_path, monkeypatch, steps=1, deployment_param=True), [])
+    Trainer(cfg, log=lambda *_: None).train()
+    run = tmp_path / "runs" / "mwm-test"
+    steps = [json.loads(l) for l in (run / "steps.jsonl").read_text().splitlines()]
+    assert [s["evolver"]["status"] for s in steps] == ["done", "done"]
+    assert not (tmp_path / "task-info" / "mwm").exists()
+    assert (run / "checkout" / "ADAPTER.md").read_text().strip()        # rendered with the venue's host.json

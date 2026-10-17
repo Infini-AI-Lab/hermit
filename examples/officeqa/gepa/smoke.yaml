@@ -1,0 +1,45 @@
+# GEPA smoke: 4 training questions in 2 steps, 2 validation questions; eval on 2 test questions.
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/smoke_train.txt
+  val: ../utils/splits/smoke_val.txt
+  test: ../utils/splits/smoke_test.txt
+  step_size: 2
+task_info: ../utils/task-info/
+agent:
+  name: react     # the built-in tool-calling agent: no pipeline code for this task
+  concurrency: 4
+  params:
+    model: {base_url: https://api.fireworks.ai/inference/v1, model: accounts/fireworks/models/glm-5p3-flash,
+            api_key_env: FIREWORKS_API_KEY, price: {input: 0.15, cached_input: 0.03, output: 0.50}}
+    prompt: ../utils/agent/prompt.md
+    tools: ../utils/tools.py
+    user: "{question}"
+    max_turns: 24
+    max_tokens: 16384
+    max_output_tokens: 65536
+    temperature: 0.6
+    answer_tag: FINAL_ANSWER
+    logs: .logs
+judge:
+  path: ../utils/judge.py
+template: prompt-only@1.0
+evolver:
+  name: gepa
+llm:
+  base_url: https://api.fireworks.ai/inference/v1
+  model: accounts/fireworks/models/glm-5p3-flash
+  api_key_env: FIREWORKS_API_KEY
+  price: {input: 0.15, cached_input: 0.03, output: 0.50}
+sandbox:
+  enabled: true
+  network: restricted
+  allow: [https://api.fireworks.ai]
+  read: []
+  env: [FIREWORKS_API_KEY]
+trainer:
+  run_name: gepa-smoke
+  output_dir: runs
+  epochs: 1
+  budget: {usd: 3, hours: 2}
+  call_timeout_min: 60

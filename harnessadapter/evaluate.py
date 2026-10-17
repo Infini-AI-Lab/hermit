@@ -8,6 +8,7 @@ import time
 
 from harnessadapter.adapter.manifest import MANIFEST
 from harnessadapter.config import Config
+from harnessadapter.agents.base import load_agent
 from harnessadapter.task import TaskData, load_callable
 from harnessadapter.trainer.budget import Budget
 from harnessadapter.trainer.rollout import run_tasks
@@ -21,7 +22,7 @@ def evaluate(config: Config, adapter: str, *, log=print) -> dict:
     tests = data.rows("test")
     if not tests:
         raise SystemExit("eval needs data.test")
-    pipeline = load_callable(d["pipeline"]["run"], config.base)
+    pipeline = load_agent(d["agent"]["name"], d["agent"].get("params"), config.base).run
     judge = load_callable(f"{d['judge']['path']}:{d['judge']['name']}", config.base)
     run_name = config.run_name()
     run_dir = config.run_dir()
@@ -52,7 +53,7 @@ def evaluate(config: Config, adapter: str, *, log=print) -> dict:
     with open(out / "results.jsonl", "w") as f:
         for r in range(1, repeats + 1):
             log(f"eval {label}: repeat {r}/{repeats} on {len(tests)} test tasks")
-            for rec in run_tasks(tests, target, pipeline, judge, concurrency=int(d["pipeline"]["concurrency"]),
+            for rec in run_tasks(tests, target, pipeline, judge, concurrency=int(d["agent"]["concurrency"]),
                                  budget=budget, part="rollout"):
                 per_task[rec["id"]].append(rec["judge"]["score"])
                 errors += rec["status"] != "ok"

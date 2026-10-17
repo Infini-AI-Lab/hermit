@@ -36,7 +36,7 @@ A slow update can make the last step of an epoch substantially more expensive th
 | `file` | One learnable document path | The optimized skill; defaults to `ADAPTER.md` |
 | `learning_rate`, `min_learning_rate` | Edit-count bounds / 4 and 2 | Bound selected patches, not model optimizer step size |
 | `total_steps`, `lr_scheduler` | Positive step count and `constant`, `linear`, or `cosine` | Null/zero total uses a constant schedule; the update counter advances when patches reach merge/selection |
-| `analyst_workers`, `minibatch_size` | Positive parallel-worker and reflection-batch sizes | Control reflection concurrency and grouping independently of `pipeline.concurrency` |
+| `analyst_workers`, `minibatch_size` | Positive parallel-worker and reflection-batch sizes | Control reflection concurrency and grouping independently of `agent.concurrency` |
 | `use_gate` | Boolean / true | A candidate must strictly beat the current metric; false still evaluates validation and force-accepts a valid candidate |
 | `gate_metric`, `gate_mixed_weight` | `hard`, `soft`, or `mixed`; weight in [0, 1] | Select the metric for validation comparison; see below |
 | `use_slow_update`, `slow_update_gate` | Booleans / true and false | Enable epoch-end work and separately choose whether its slow-update candidate must pass validation |

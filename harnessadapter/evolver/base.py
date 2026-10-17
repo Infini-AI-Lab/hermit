@@ -63,6 +63,7 @@ class Context:
     sandbox: Any = None           # the run's sandbox: wraps commands an Evolver starts (see harnessadapter.sandbox)
     cancel: Any = None            # threading.Event set by the Trainer when the call must stop (budget, timeout)
     tool_url: str | None = None   # HTTP endpoint serving the same tools (for agents and external programs)
+    base: Path | None = None      # the run config's directory: relative paths in params resolve against it
 
 
 @dataclass(frozen=True)

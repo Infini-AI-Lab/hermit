@@ -21,7 +21,7 @@ export MW_RUNS="$PWD/.demo/clbench-runs"
 
 The CL-Bench host environment also uses the benchmark checkout's `.venv/bin/python`. For database, the launcher
 checks that the benchmark prompt contains the accuracy-scoring contract (`SCORING_UNLIMITED`). Inspect
-`examples/tasks/clbench/database/task-info/` and the task runners before starting; a vanilla checkout missing that
+`examples/clbench_database/utils/task-info/` and the task runners before starting; a vanilla checkout missing that
 contract is insufficient.
 
 ## Prepare and launch
@@ -29,15 +29,15 @@ contract is insufficient.
 From the framework repository root:
 
 ```bash
-python examples/tasks/clbench/database/prepare.py --clbench "$MWM_CLBENCH"
-MW_TAG=mwm-db WM_PORT=3401 MW_ORDERS="0" examples/mwm/clbench/launch.sh database
+python examples/clbench_database/utils/prepare.py --clbench "$MWM_CLBENCH"
+MW_TAG=mwm-db WM_PORT=3401 MW_ORDERS="0" examples/clbench_database/mwm/launch.sh
 ```
 
 For poker, use its own run tag and free port pair:
 
 ```bash
-python examples/tasks/clbench/poker/prepare.py --clbench "$MWM_CLBENCH"
-MW_TAG=mwm-poker WM_PORT=3411 MW_ORDERS="0" examples/mwm/clbench/launch.sh poker
+python examples/clbench_poker/utils/prepare.py --clbench "$MWM_CLBENCH"
+MW_TAG=mwm-poker WM_PORT=3411 MW_ORDERS="0" examples/clbench_poker/mwm/launch.sh
 ```
 
 These commands make real model calls. Begin with one order. `MW_ORDERS="0 1 2 3 4"` selects all five.
@@ -66,6 +66,6 @@ estimate; verify with a prefix run. No fresh benchmark measurements are implied 
 Record stream order, model settings, benchmark and MetaWorld revisions, learner block size, and environment reset
 behavior. Do not shuffle a stream or replace the benchmark protocol with a single final-adapter test.
 
-The full native integration and block lifecycle are described in `examples/mwm/README.md` and the
-[MWM guide](../methods/mwm.md). Read the produced cards and ledgers for the actual run, including failures and
+The native integrations are described in `examples/clbench_database/README.md` and
+`examples/clbench_poker/README.md`; the [MWM guide](../methods/mwm.md) covers the learner contract. Read the produced cards and ledgers for the actual run, including failures and
 unknown usage.
