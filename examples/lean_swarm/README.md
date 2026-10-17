@@ -4,34 +4,54 @@ Five Codex agents prove one Lean theorem together. The adapter gives them a shar
 channel through five tools (`check`, `pull`, `refute`, `say`, `plan`), plus the instructions and skills that tell
 them how to split a proof and work on its parts; the first complete proof wins. The problems are open statements
 from [formal-conjectures](https://github.com/google-deepmind/formal-conjectures) with a known proof, binned by the
-size of that proof. This example holds the finished adapter, v12.5 of the `lean-collab@1.0` template (the fixed
-team service plus the skills learned over the research rounds), and compares it with single agents and with a
-team that shares only free-text notes.
+size of that proof. This is a deploy example: it holds the finished adapter of the `lean-collab@1.0` template (the fixed team
+service plus the learned instructions and skills), shows how five agents run on it, and compares it with single
+agents and with a team that shares only free-text notes.
 
 ## Setup
 
+Install the framework first ([Installation](../../docs/get-started/installation.md)). Check the adapter against its template:
+
 ```bash
-pip install -e .                                                        # this framework, Python 3.12+
 python -m harnessadapter.spec examples/lean_swarm/adapter --root harnessadapter/algorithms/templates/lean_collab
 ```
 
-Also needed: the Codex CLI on PATH, bubblewrap, a Lean toolchain with a Mathlib checkout the tools can compile
-against (`COLLAB_REPO`, `COLLAB_LAKE`; nothing here installs it), and a Fireworks key in `FIREWORKS_API_KEY`.
+Also needed: the Codex CLI, bubblewrap and socat on PATH, a Fireworks key in `FIREWORKS_API_KEY`, and a Lean
+toolchain with a [formal-conjectures](https://github.com/google-deepmind/formal-conjectures) checkout whose Mathlib is
+built (`COLLAB_REPO`, default `~/code/formal-conjectures`; `COLLAB_LAKE`, default `~/.elan/bin/lake`; nothing here
+installs them).
 
 ## Run
 
-One team service per run, then one deployed workspace per agent:
+One command runs one problem with five agents:
 
 ```bash
-python -m harnessadapter.runtime.service --config run.json                                       # the team service
-harnessadapter deploy --adapter examples/lean_swarm/adapter --workspace /work/A1 --host codex      # per agent A1..A5
+export FIREWORKS_API_KEY=...
+examples/lean_swarm/launch.sh ErdosProblems/494.lean erdos_494.variants.k_eq_card      # a file under FormalConjectures/, the target theorem
+examples/lean_swarm/launch.sh my/Problem.lean my_theorem --agents 3 --cap 3600 --model accounts/fireworks/models/glm-5p3-flash
 ```
 
-`run.json` names the adapter, a control socket, one socket per agent and the `COLLAB_*` variables
-(see [docs/recipes/lean-collaboration.md](../../docs/recipes/lean-collaboration.md) for a full one). The launcher
-that does this for a batch of problems, sandboxes the agents, carries the service's interrupt and resume commands
-and grades the proof lives outside this repository (`lean-results/fc_multi/run_collab.py`); it is not yet a
-pipeline of this framework, so there is no `harnessadapter train` for this task.
+The run goes to `$LEAN_SWARM_RUNS/<problem>__<theorem>/` (default `~/code/lean-swarm-runs`): `launch.log`, one
+workspace per agent with its `Problem.lean` and `events.jsonl`, the team's `library/`, and `result.json` at the
+end (who solved it, when, tokens and cost per agent). `--dry-run` prepares everything and starts the service
+without starting an agent. The launcher does, in order:
+
+1. **Service.** Starts the team service with a config naming the adapter, one endpoint per agent and the
+   `COLLAB_*` variables: the shared library directory, the target theorem and the Lean checkout.
+2. **Workspaces.** `harnessadapter deploy` of the adapter into one workspace per agent (its instructions into
+   `AGENTS.md`, its skills under `.codex/skills/`), plus the problem as `Problem.lean` with the target left as
+   `sorry`.
+3. **Agents.** `codex exec` in each workspace with the task and the agent's own endpoint as the `team` MCP server,
+   so the five tools reach the service as that agent. Each agent runs in a bubblewrap jail with no network: its
+   workspace is writable, the Lean checkout is read-only with the problem sources hidden, and only two sockets are
+   bridged in, the model relay and the agent's team endpoint.
+4. **Reactions and the judge.** Every 5 s the launcher posts the agents' status to the service and carries out
+   what the adapter decided (interrupt a running agent, resume an ended one, each with a text), and grades every
+   changed `Problem.lean` in a Lean jail. The first proof that compiles without `sorry` or extra axioms ends the run,
+   so does the time cap.
+
+To run the pieces by hand instead, [docs/recipes/lean-collaboration.md](../../docs/recipes/lean-collaboration.md)
+has the service config and the per-agent `deploy` command.
 
 ## Results
 
@@ -55,6 +75,7 @@ adapter/
   assembly.py         assembling the proof from the verified parts (fixed)
   reactions.py        the service's interrupt and resume decisions (fixed)
   CARD.md             how the adapter was obtained and evaluated; EVOLVER.md, README.md
+launch.sh, launch.py  the all-in-one run: service, workspaces, jailed agents, reactions, judge
 ```
 
 The tools read `COLLAB_DIR`, `COLLAB_AGENT`, `COLLAB_WORKSPACE`, `COLLAB_TARGET`, `COLLAB_REPO` and `COLLAB_LAKE`
