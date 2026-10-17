@@ -7,8 +7,9 @@ import tempfile
 import time
 
 from harnessadapter.adapter.manifest import read_manifest
+from harnessadapter.backends import bindings_of, list_models, probe as probe_model, problems_of, registry, warnings_of
 from harnessadapter.config import Config
-from harnessadapter.evolver.loader import find, load_class
+from harnessadapter.evolver.loader import find, instantiate, load_class
 from harnessadapter.spec import check_spec
 from harnessadapter.agents.base import load_agent
 from harnessadapter.task import TaskData, load_callable
@@ -42,12 +43,35 @@ def run_check(config: Config, *, probe: bool = True, log=print) -> bool:
     except Exception as exc:
         report("template", [str(exc)])
     # Evolver.
+    evolver_params = None
     try:
         spec = find(d["evolver"]["name"], config.base)
         cls = load_class(spec)
+        _, evolver_params = instantiate(spec, d["evolver"]["params"], backends=registry(d.get("backends")),
+                                        default_model=d.get("model"))
         report("evolver", needs_errors(config, spec.needs, cls.supports_resume), f"{spec.name} ({spec.class_path})")
     except Exception as exc:
         report("evolver", [str(exc)])
+    # Models: every model the run calls, the backend each is bound to, and whether that backend speaks the caller's
+    # dialect and has its key. With the probe: GET /models, then one short request in the dialect.
+    for who, binding, api in bindings_of(d, evolver_params):
+        problems = problems_of(binding, api)
+        note = f"{binding.ref} at {binding.base_url} ({api})"
+        for w in warnings_of(binding, api):
+            log(f"[warning] {who}: {w}")
+        if not problems and probe:
+            models = list_models(binding)
+            if isinstance(models, list) and binding.model not in models:
+                log(f"[warning] {who}: GET {binding.base_url}/models does not list {binding.model!r} (it lists "
+                    f"{len(models)} models); the backend may still serve it")
+            elif isinstance(models, str):
+                log(f"[warning] {who}: GET {binding.base_url}/models: {models}")
+            result = probe_model(binding, api)
+            if not result["ok"]:
+                problems.append(f"{api} request to {result['url']} failed: HTTP {result['status']} {result['detail']}")
+            else:
+                note += f", {api} request answered"
+        report(f"model: {who}", problems, note)
     # Task.
     problems = []
     info = config.path(d["task_info"])

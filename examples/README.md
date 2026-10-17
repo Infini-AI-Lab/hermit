@@ -35,7 +35,7 @@ Run from the repository root. Prepare the task once, then check, train and evalu
 
 ```bash
 python examples/officeqa/utils/prepare.py /path/to/officeqa/prepared
-export FIREWORKS_API_KEY=...
+export FIREWORKS_API_KEY=...                   # the configs name GLM 5.3 Flash on Fireworks
 harnessadapter check --config examples/officeqa/gepa/smoke.yaml
 harnessadapter train --config examples/officeqa/gepa/smoke.yaml
 harnessadapter eval  --config examples/officeqa/gepa/smoke.yaml --adapter final
@@ -44,6 +44,10 @@ harnessadapter eval  --config examples/officeqa/gepa/smoke.yaml --adapter final
 Paths inside a config, and a path given to `--adapter`, are relative to the config's folder: a config reaches its
 task as `../utils/...` and `../utils/agent/...`. A run writes to `<task>/<method>/runs/`. Run
 `smoke.yaml` before `run.yaml`: it checks the data, pipeline, judge and Evolver together on a few questions.
+
+Models are `<backend>/<model id>` references; the same config runs against another provider or a local vLLM or
+SGLang server with one override, `model=vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8` (the launchers take
+`MW_MODEL=...`). See [Model backends](../docs/guides/model-backends.md).
 
 ## Add an example
 

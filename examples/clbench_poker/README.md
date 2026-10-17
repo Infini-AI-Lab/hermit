@@ -10,8 +10,12 @@ benchmark's own baselines.
 Install the framework first ([Installation](../../docs/get-started/installation.md)). The benchmark runs from a clbench checkout in its own virtualenv: our fork
 [clbench-mwm](https://github.com/haizhongzheng/clbench-mwm) of
 [continual-learning-bench](https://github.com/pgasawa/continual-learning-bench) (it adds the host-side query channel
-the runs use). Also needed: the Codex CLI on PATH, bubblewrap, and a Fireworks key in `FIREWORKS_API_KEY` or
-`~/code/metaworld/.fireworks`.
+the runs use). Also needed: the Codex CLI on PATH, bubblewrap, and the key of the models' backend: for the default
+(GLM 5.3 Flash on Fireworks) `FIREWORKS_API_KEY` or the key file `~/code/metaworld/.fireworks`. Host and learner
+take any backend reference, `MW_MODEL=<backend>/<model id>` (or `MW_HOST_MODEL` / `MW_EVOLVER_MODEL`); the
+learner's backend must serve the Responses API, which Codex speaks. A local server:
+`MW_MODEL=vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8 VLLM_BASE_URL=http://127.0.0.1:8000/v1`
+([Model backends](../../docs/guides/model-backends.md)).
 
 ```bash
 git clone git@github.com:haizhongzheng/clbench-mwm.git ~/code/clbench && (cd ~/code/clbench && uv sync)

@@ -15,6 +15,20 @@ from harnessadapter.evolver.base import Usage
 
 
 class ChatClient:
+    @classmethod
+    def from_spec(cls, spec: dict, **kwargs) -> "ChatClient":
+        """A client from a model spec: a resolved backend reference (see harnessadapter.backends) or the older
+        {base_url, model, api_key_env, price, extra_body, timeout} mapping. A key that is optional for the backend
+        and not set sends no Authorization header."""
+        if not isinstance(spec, dict) or not spec.get("base_url") or not spec.get("model"):
+            raise ValueError("a model spec needs base_url and model (a `<backend>/<model>` reference resolves to one)")
+        key_env = spec.get("api_key_env")
+        if key_env and not spec.get("key_required", True) and not os.environ.get(key_env):
+            key_env = None
+        kwargs.setdefault("timeout", float(spec.get("timeout", 600)))
+        return cls(spec["base_url"], spec["model"], api_key_env=key_env, price=spec.get("price"),
+                   extra_body=spec.get("extra_body"), **kwargs)
+
     def __init__(self, base_url: str, model: str, *, api_key_env: str | None = None, price: dict | None = None,
                  timeout: float = 600, max_retries: int = 4, extra_body: dict | None = None):
         self.base_url = base_url.rstrip("/")

@@ -7,8 +7,10 @@ a seed skill, and exact-match scoring. It is a separate protocol from the 133-qu
 ## Requirements
 
 Obtain authorized access to the gated `databricks/officeqa` dataset: `officeqa_full.csv` and
-`treasury_bulletins_parsed/` with its `transformed/` and `jsons/` directories. Supply a Fireworks credential through
-`FIREWORKS_API_KEY`. Both methods use SkillOpt's acting rollout, so GEPA also needs the SkillOpt extra.
+`treasury_bulletins_parsed/` with its `transformed/` and `jsons/` directories. The configs name GLM 5.3 on Fireworks:
+supply the credential through `FIREWORKS_API_KEY`, or bind another backend
+([Model backends](../guides/model-backends.md)). Both methods use SkillOpt's acting rollout, so GEPA also needs
+the SkillOpt extra.
 
 From the repository root:
 

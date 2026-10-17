@@ -5,12 +5,11 @@ data:
   test: ../utils/splits/smoke_test.txt
   step_size: 2
 task_info: ../utils/task-info/
+model: fireworks/accounts/fireworks/models/glm-5p3-flash   # the run's model: the react agent and the `llm` tool; <backend>/<model id>
 agent:
   name: react     # the built-in tool-calling agent: no pipeline code for this task
   concurrency: 4
   params:
-    model: {base_url: https://api.fireworks.ai/inference/v1, model: accounts/fireworks/models/glm-5p3-flash,
-            api_key_env: FIREWORKS_API_KEY, price: {input: 0.15, cached_input: 0.03, output: 0.50}}
     prompt: ../utils/agent/prompt.md
     tools: ../utils/tools.py
     user: "{question}"
@@ -25,17 +24,12 @@ judge:
 template: prompt-only@1.0
 evolver:
   name: prompt_only
-llm:
-  base_url: https://api.fireworks.ai/inference/v1
-  model: accounts/fireworks/models/glm-5p3-flash
-  api_key_env: FIREWORKS_API_KEY
-  price: {input: 0.15, cached_input: 0.03, output: 0.50}
 sandbox:
   enabled: true
   network: restricted
-  allow: [https://api.fireworks.ai]
+  allow: []                  # the Evolver's own model endpoint is always reachable
   read: []                   # an allowlist: the Evolver sees nothing of this machine beyond its workspace and accesses
-  env: [FIREWORKS_API_KEY]   # the Codex Evolver reaches GLM with it; nothing else is passed
+  env: []                    # the Evolver's model key variable is always passed; nothing else is
 trainer:
   run_name: smoke
   output_dir: runs

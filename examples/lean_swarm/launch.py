@@ -17,10 +17,11 @@ What it does, in order:
   5. grades every changed Problem.lean in a Lean jail; the first proof ends the run, so does the time cap;
      result.json holds the outcome, times, tokens and cost per agent.
 
-Environment: FIREWORKS_API_KEY (required); COLLAB_REPO (default ~/code/formal-conjectures) and COLLAB_LAKE
-(default ~/.elan/bin/lake) for the Lean checkout and toolchain; LEAN_SWARM_RUNS (default ~/code/lean-swarm-runs)
-for where runs go. Needs codex, bwrap and socat on PATH. `--dry-run` prepares everything and starts the service,
-but no agent.
+Environment: the key variable of the model's backend (FIREWORKS_API_KEY for the default model; `--model` is a
+`<backend>/<model id>` reference, see harnessadapter.backends, and the backend must serve the Responses API, which
+Codex speaks); COLLAB_REPO (default ~/code/formal-conjectures) and COLLAB_LAKE (default ~/.elan/bin/lake) for the
+Lean checkout and toolchain; LEAN_SWARM_RUNS (default ~/code/lean-swarm-runs) for where runs go. Needs codex, bwrap
+and socat on PATH. `--dry-run` prepares everything and starts the service, but no agent.
 """
 from __future__ import annotations
 
@@ -47,12 +48,9 @@ REPO = Path(os.environ.get("COLLAB_REPO", HOME / "code" / "formal-conjectures"))
 LAKE = os.environ.get("COLLAB_LAKE", str(HOME / ".elan" / "bin" / "lake"))
 RUNS = Path(os.environ.get("LEAN_SWARM_RUNS", HOME / "code" / "lean-swarm-runs"))
 RELAY_PORT = 3129      # inside the jail: the model relay
+DEFAULT_MODEL = "fireworks/accounts/fireworks/models/deepseek-v4p1-flash"
 TEAM_PORT = 3130       # inside the jail: the agent's own team endpoint
 POLL = 5
-PRICE = {  # USD per million tokens (input, cached input, output); other models get no cost figure
-    "accounts/fireworks/models/deepseek-v4p1-flash": (0.30, 0.006, 1.20),
-    "accounts/fireworks/models/glm-5p3-flash": (0.15, 0.03, 0.50),
-}
 
 # ---------------------------------------------------------------- the task prompt (the same text the results used)
 PROMPT = """You are proving one theorem in Lean 4 with Mathlib, offline.
@@ -280,13 +278,11 @@ CODEX_FLAGS = [  # the model's own commands may not write /tmp outside the works
 ]
 
 
-def codex_cmd(work: Path, model: str, agent: str, prompt: str) -> list[str]:
-    return ["codex", "exec", "--skip-git-repo-check", "--ignore-user-config", "--json", "-m", model,
-            "-c", "model_reasoning_effort=high",
-            "-c", "model_provider=fw", "-c", 'model_providers.fw.name="fw"',
-            "-c", f'model_providers.fw.base_url="http://127.0.0.1:{RELAY_PORT}/{agent}/inference/v1"',
-            "-c", 'model_providers.fw.env_key="HA_FW_KEY"', "-c", 'model_providers.fw.wire_api="responses"',
-            "-c", "model_context_window=1048576",
+def codex_cmd(work: Path, binding, agent: str, prompt: str) -> list[str]:
+    """The agent's session: its model on its backend, reached through the relay (bucket = the agent's name)."""
+    relay = f"http://127.0.0.1:{RELAY_PORT}/{agent}{binding.backend.path}"
+    return ["codex", "exec", "--skip-git-repo-check", "--ignore-user-config", "--json", "-m", binding.model,
+            "-c", "model_reasoning_effort=high", *binding.codex_args(base_url=relay),
             "-s", "workspace-write", "-C", str(work), *CODEX_FLAGS,
             "-c", f'mcp_servers.team.url="http://127.0.0.1:{TEAM_PORT}/mcp/"',
             "-c", "mcp_servers.team.startup_timeout_sec=60", "-c", "mcp_servers.team.tool_timeout_sec=1800",
@@ -380,12 +376,13 @@ def killpg(proc: subprocess.Popen | None):
             pass
 
 
-def cost(ledger: dict, model: str):
-    pr = PRICE.get(model)
-    if not pr or not ledger:
+def cost(ledger: dict, price: dict | None):
+    """USD from the relay's ledger at the backend's price for the model; None without a price."""
+    if not price or not ledger:
         return None
     c = ledger.get("cacheRead", 0)
-    return round(((ledger.get("input", 0) - c) * pr[0] + c * pr[1] + ledger.get("output", 0) * pr[2]) / 1e6, 4)
+    return round(((ledger.get("input", 0) - c) * price.get("input", 0) + c * price.get("cached_input", price.get("input", 0))
+                  + ledger.get("output", 0) * price.get("output", 0)) / 1e6, 4)
 
 
 # ---------------------------------------------------------------- the run
@@ -395,17 +392,24 @@ def main() -> None:
     ap.add_argument("theorem", help="the target theorem's name (its proof is `sorry` in the file)")
     ap.add_argument("--agents", type=int, default=5)
     ap.add_argument("--cap", type=int, default=7200, help="wall-clock cap in seconds")
-    ap.add_argument("--model", default="accounts/fireworks/models/deepseek-v4p1-flash")
+    ap.add_argument("--model", default=DEFAULT_MODEL, help="<backend>/<model id> (harnessadapter backends list)")
     ap.add_argument("--out", type=Path, help="the run directory (default: <LEAN_SWARM_RUNS>/<problem>__<theorem>)")
     ap.add_argument("--dry-run", action="store_true", help="prepare the run and start the service, but no agent")
     a = ap.parse_args()
 
-    key = os.environ.get("FIREWORKS_API_KEY")
+    sys.path.insert(0, str(FRAMEWORK))
+    from harnessadapter.backends import problems_of, registry, resolve
+    try:
+        binding = resolve(a.model, registry())
+    except ValueError as exc:
+        sys.exit(f"REFUSING: {exc}")
+    key = binding.key()
     for tool in ("codex", "bwrap", "socat"):
         if not shutil.which(tool):
             sys.exit(f"REFUSING: {tool} is not on PATH")
-    if not key and not a.dry_run:
-        sys.exit("REFUSING: FIREWORKS_API_KEY is not set")
+    problems = problems_of(binding, "responses")
+    if problems and not a.dry_run:
+        sys.exit("REFUSING: " + "; ".join(problems))
     if not (REPO / "FormalConjectures").is_dir() or not Path(LAKE).exists():
         sys.exit(f"REFUSING: no Lean checkout at {REPO} or no lake at {LAKE} (COLLAB_REPO, COLLAB_LAKE)")
 
@@ -444,7 +448,7 @@ def main() -> None:
     meter_port = free_port()
     meter = subprocess.Popen(
         [sys.executable, str(FRAMEWORK / "harnessadapter" / "runtime" / "wire_meter.py")],
-        env=dict(os.environ, PORT=str(meter_port), LEDGER=str(base / "wire_ledger.json"), UPSTREAM="https://api.fireworks.ai",
+        env=dict(os.environ, PORT=str(meter_port), LEDGER=str(base / "wire_ledger.json"), UPSTREAM=binding.backend.origin,
                  REWRITE_DEVELOPER_ROLE="1", REWRITE_STRIP_SERVER_TOOLS="1", REWRITE_REPAIR_TOOL_ARGS="1"),
         stdout=open(base / "wire_meter.log", "a"), stderr=subprocess.STDOUT, start_new_session=True)
     relay_sock = svc / "relay.sock"
@@ -463,7 +467,6 @@ def main() -> None:
     wait_for(lambda: meter_up() and relay_sock.exists(), 30, "the model relay")
 
     # ---- workspaces and the service config
-    sys.path.insert(0, str(FRAMEWORK))
     from harnessadapter.hosts.codex import prepare as codex_prepare
 
     ids = [f"A{i + 1}" for i in range(a.agents)]
@@ -482,9 +485,10 @@ def main() -> None:
                                others=", ".join(i for i in ids if i != me), lib=lib)
         (work / ".task_prompt.md").write_text(prompt)
         sock = svc / f"{me}.sock"
+        key_env = binding.key_env_if_set()           # the backend's key variable, as codex reads it (none: no key)
         jail = agent_jail(work, home, ro=[lib], bridges=[(relay_sock, RELAY_PORT), (sock, TEAM_PORT)],
-                          env={"HA_FW_KEY": key or ""})
-        agents[me] = dict(work=work, home=home, cmd=jail + codex_cmd(work, a.model, me, prompt), proc=None, launches=0,
+                          env={key_env: key or ""} if key_env else {})
+        agents[me] = dict(work=work, home=home, cmd=jail + codex_cmd(work, binding, me, prompt), proc=None, launches=0,
                           status="running", last_graded=0.0, verdict=None, t_start=None, t_end=None, resumes=0,
                           exited_at=None, interruptions=0, t_interrupted=0.0, ev=None, er=None)
         svc_agents[me] = dict(socket=str(sock), audit_log=str(work / "tool-calls.jsonl"),
@@ -700,7 +704,7 @@ def main() -> None:
         tokens = ledger.get(me, {})
         res["agents"][me] = dict(status=ag["status"], launches=ag["launches"], resumes=ag["resumes"], interruptions=ag["interruptions"],
                                  wall=round((ag["t_end"] or time.time()) - (ag["t_start"] or t0)), verdict=ag["verdict"],
-                                 solve_s=ag.get("solve_s"), tokens=tokens, cost_usd=cost(tokens, a.model))
+                                 solve_s=ag.get("solve_s"), tokens=tokens, cost_usd=cost(tokens, binding.price))
     res["n_proved"] = sum(1 for x in res["agents"].values() if x["verdict"] == "PROVED")
     costs = [x["cost_usd"] for x in res["agents"].values() if x["cost_usd"] is not None]
     res["cost_usd"] = round(sum(costs), 3) if costs else None

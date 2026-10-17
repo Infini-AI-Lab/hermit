@@ -19,10 +19,9 @@ evolver:
   name: codex                      # the built-in Codex AgentEvolver, with GLM 5.3 Flash through the learner's meter
   resume: false                    # a fresh session every step
   params:
-    args: []                       # launch.sh: the provider through the learner's meter, reasoning effort high
-    model: accounts/fireworks/models/glm-5p3-flash
-    price: {input: 0.15, cached_input: 0.03, output: 0.50}
-    home: []                       # no login files: the provider key comes from HA_FW_KEY
+    args: []                       # launch.sh: reasoning effort high (the provider settings come from the model's backend)
+    model: fireworks/accounts/fireworks/models/glm-5p3-flash   # launch.sh: the learner's backend through its meter
+    home: []                       # no login files: the provider key is the backend's variable
     tools: [check_spec]            # no run_agent, llm or budget: the MWM learner of this venue has none either
     hide: ["module:servelearnbench"]   # the benchmark's evaluator and test generator live in the installed package
 sandbox:
@@ -30,7 +29,7 @@ sandbox:
   network: restricted              # the learner's meter is on the loopback; the allowlist proxy refuses everything else
   allow: []
   read: []
-  env: [HA_FW_KEY]                 # the provider key for codex; nothing else is passed
+  env: []                          # the learner's model key variable is always passed; nothing else is
 trainer:
   run_name: null                   # launch.sh: <tag>
   output_dir: runs

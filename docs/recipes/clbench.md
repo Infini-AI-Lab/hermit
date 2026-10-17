@@ -8,7 +8,11 @@ standalone JSONL benchmarks that can be reproduced by installing the framework a
 
 Use a Linux machine with the configured Codex learner, bubblewrap/namespace support, and the framework's
 dependencies. Provide CL-Bench and MetaWorld checkouts with their venue-specific dependencies installed.
-The launcher reads the Fireworks credential from `<MWM_METAWORLD>/.fireworks`.
+The models are backend references (default GLM 5.3 Flash on Fireworks); the launcher needs the backend's key
+variable (`FIREWORKS_API_KEY`, else the key file `<MWM_METAWORLD>/.fireworks`). `MW_MODEL=<backend>/<model id>`
+binds host and learner to another backend, `MW_HOST_MODEL` and `MW_EVOLVER_MODEL` either alone: for a local
+server, `MW_MODEL=vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8 VLLM_BASE_URL=http://127.0.0.1:8000/v1`
+([Model backends](../guides/model-backends.md)).
 
 Set paths explicitly rather than relying on the launcher's workstation defaults:
 

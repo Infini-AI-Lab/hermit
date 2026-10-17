@@ -2,7 +2,11 @@
 
 AgentEvolver params:
   backend: codex | claude
-  model: the model name passed to the agent (optional: the agent's default)
+  model: the model passed to the agent (optional: the agent's default). A `<backend>/<model>` reference (see
+         harnessadapter.backends) binds it to that backend: the provider settings go into `args` (Codex) or `env`
+         (Claude Code) and `price` is taken from the backend
+  env: environment variables set for the agent; a `$NAME` value is expanded from the environment at launch (Claude
+       Code's ANTHROPIC_BASE_URL and token come from the binding this way, so the run's records hold no key)
   prompt: start prompt file, relative to the Evolver's directory (placeholders: {message} {epoch} {step} {adapter}
           {learning_material} {task_info} {history} {state} {scratch} {output})
   resume_prompt: prompt file for a resumed session (optional; default: the start prompt)
@@ -109,6 +113,8 @@ class AgentEvolver(Evolver):
         log = ctx.workspace.output / f"agent-{backend}.jsonl"
         tools = [sys.executable, "-m", "harnessadapter.tools_mcp", "--url", ctx.tool_url or ""]
         env = dict(os.environ)
+        own = {k: os.path.expandvars(str(v)) for k, v in (params.get("env") or {}).items()}   # $KEY_VAR -> the key
+        env.update(own)
         env["PYTHONPATH"] = str(Path(__file__).resolve().parents[2]) + os.pathsep + env.get("PYTHONPATH", "")
         root = ctx.workspace.adapter.parent
         if backend == "codex":
@@ -130,7 +136,7 @@ class AgentEvolver(Evolver):
         else:
             return StepResult("failed", f"unknown backend {backend!r}")
         if ctx.sandbox is not None:
-            command, env = ctx.sandbox.wrap(command, writable=[home], env=env, home=home)
+            command, env = ctx.sandbox.wrap(command, writable=[home], env=env, home=home, keep=own)
         code = _run(command, env, ctx, log, root)
         session, usage = parse_log(log, backend, params.get("model") or backend)
         price = params.get("price")       # USD per million tokens: {input, cached_input, output}

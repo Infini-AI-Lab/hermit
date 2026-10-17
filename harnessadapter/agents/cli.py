@@ -3,10 +3,13 @@
     agent:
       name: codex                            # or claude-code; `cli` with params.backend is the same
       params:
-        model: gpt-5.4                       # optional: the CLI's default otherwise
+        model: gpt-5.4                       # optional: the CLI's default otherwise. A `<backend>/<model>` reference
+                                             # (harnessadapter.backends) binds the CLI to that backend: its provider
+                                             # settings go into args (Codex) or env (Claude Code), its price is used
         prompt: environment/prompt.md        # the task prompt; `{field}` placeholders take the task's fields
         files: [environment/fixtures]        # optional: copied into every workspace before the run
         args: []                             # extra CLI arguments
+        env: {}                              # extra environment variables for the CLI (a `$NAME` value is expanded)
         price: {input: 1.25, cached_input: 0.125, output: 10}   # USD per million tokens; without it cost is unknown
         timeout_s: 3600
         workspaces: .logs/workspaces         # one fresh directory per task, beside the config
@@ -113,7 +116,7 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path) -> RunOutpu
         shutil.copytree(source, target) if source.is_dir() else shutil.copy2(source, target)
     prompt = _prompt(params, base, task)
     log, last = workspace / f"agent-{backend}.jsonl", workspace / ".last-message.txt"
-    env = {**os.environ, **{k: str(v) for k, v in (params.get("env") or {}).items()}}
+    env = {**os.environ, **{k: os.path.expandvars(str(v)) for k, v in (params.get("env") or {}).items()}}
     started = time.time()
     with open(log, "w") as out:
         try:

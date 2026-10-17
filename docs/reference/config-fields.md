@@ -17,8 +17,8 @@ harnessadapter eval --config path/to/run.yaml --adapter final trainer.run_name=t
 ```
 
 Overrides are YAML values; quote shell-sensitive lists and dictionaries. Unknown framework keys are rejected.
-`evolver.params`, `agent.params`, `pipeline.params`, and `llm` are free-form mappings at merge time; this is not a guarantee that
-their consumer supports arbitrary fields.
+`evolver.params`, `agent.params`, `pipeline.params`, `llm` and `backends` are free-form mappings at merge time; this is not a
+guarantee that their consumer supports arbitrary fields.
 
 ## Data and task
 
@@ -60,22 +60,37 @@ Task row fields become training material, so private labels require judge-owned 
 The template defines what is editable. Method selection does not change those rules. See
 [adapter.yaml](../framework/adapter-manifest.md) for exports, learnable files, and checkers.
 
-## Learner model tool
+## Models and backends
+
+A model is named by a reference, `<backend>/<model id>`; a backend is an endpoint (base URL, key variable, the
+dialects it serves, prices). See [Model backends](../guides/model-backends.md).
+
+| Field | Type / default | Meaning and constraints |
+|---|---|---|
+| `model` | string / null | The run's default model, a `<backend>/<model id>` reference; used by `llm`, `agent.params.model` and the `codex`, `claude` and `mwm` Evolvers' `evolver.params.model` when they name none |
+| `backends` | mapping / {} | Backends declared for this run by name, over `~/.config/harnessadapter/backends.yaml` and the built-ins. Fields: `base_url`, `api_key_env`, `key_required`, `apis`, `messages_url`, `litellm`, `prices`, `extra_body`, `context_window`, `models`, or `from: <other>` to copy one |
+| `llm` | reference, mapping / null | The run's chat-completions `llm` tool: a reference, `{model: <reference>, price, extra_body}`, or the endpoint itself (below) |
+
+`agent.params.model` takes the same forms. For a Codex or Claude Code acting agent or Evolver a reference becomes
+the CLI's provider settings (`args` for Codex, `env` for Claude Code) and the model's id; a plain id without a
+backend goes to the CLI's own provider as before.
+
+### Learner model tool
 
 `llm` defaults to null. When configured, it creates the run's chat-completions tool. It does not configure the acting
-model in your pipeline or automatically configure an external learner CLI.
+model in your pipeline or automatically configure an external learner CLI. The endpoint form:
 
 | Field inside `llm` | Type / default | Meaning |
 |---|---|---|
 | `base_url` | string; required when configured | Endpoint prefix; the client appends `/chat/completions` |
-| `model` | string; required when configured | Learner model identifier |
+| `model` | string; required when configured | Learner model identifier (or a `<backend>/<model id>` reference, with no `base_url`) |
 | `api_key_env` | string / null | Environment-variable name containing the bearer credential |
 | `price` | mapping / null | USD per million tokens: `input`, `cached_input`, `output` |
 | `extra_body` | mapping / {} | Fields added to requests, such as endpoint-specific reasoning settings |
 
 Without prices, cost is unknown. With a price mapping, omitted input/output prices default to zero, and omitted
 cached-input price falls back to the input price. Supply all applicable prices rather than relying on those defaults.
-Per-call arguments override matching `extra_body` fields. The underlying client defaults to a 600-second HTTP timeout and four retries; the Trainer does not forward `llm.timeout` or `llm.max_retries`.
+Per-call arguments override matching `extra_body` fields. The underlying client defaults to a 600-second HTTP timeout and four retries; `llm.timeout` (seconds) is forwarded, `llm.max_retries` is not.
 
 ## Trainer and evaluation
 
@@ -105,9 +120,9 @@ Checkpoint frequency controls tags; completed steps still have records and accep
 |---|---|---|
 | `sandbox.enabled` | boolean / true | Sandbox learner programs launched through the framework |
 | `sandbox.network` | string / `restricted` | `none`, `restricted`, or `open` |
-| `sandbox.allow` | list / [] | Allowed endpoints for the restricted-mode proxy |
+| `sandbox.allow` | list / [] | Allowed endpoints for the restricted-mode proxy; the Evolver's own model endpoint is always among them |
 | `sandbox.read` | list / [] | Additional readable filesystem paths |
-| `sandbox.env` | list or null / null | Passed environment variables; null inherits the environment, [] requests none beyond required runtime settings |
+| `sandbox.env` | list or null / null | Passed environment variables; null inherits the environment, [] requests none beyond required runtime settings; the Evolver's model key variable is always passed |
 
 The backend is Linux/bubblewrap. The restricted proxy is not a mandatory network firewall. The sandbox does
 not isolate user pipelines or arbitrary in-process Python Evolvers. Read

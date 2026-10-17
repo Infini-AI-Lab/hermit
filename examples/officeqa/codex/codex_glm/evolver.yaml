@@ -3,11 +3,8 @@ class: harnessadapter.evolver.agent:AgentEvolver
 needs: []
 params:
   backend: codex
-  model: accounts/fireworks/models/glm-5p3-flash
+  model: fireworks/accounts/fireworks/models/glm-5p3-flash   # a backend reference: the provider settings, the key
+                                                             # variable and the price come from the backend
   prompt: START.md
   resume_prompt: RESUME.md
   home: []
-  price: {input: 0.15, cached_input: 0.03, output: 0.50}   # GLM 5.3 Flash, USD per million tokens
-  args: ["-c", "model_provider=fw", "-c", "model_providers.fw.name=\"fw\"",
-         "-c", "model_providers.fw.base_url=\"https://api.fireworks.ai/inference/v1\"",
-         "-c", "model_providers.fw.env_key=\"FIREWORKS_API_KEY\"", "-c", "model_context_window=1048576"]

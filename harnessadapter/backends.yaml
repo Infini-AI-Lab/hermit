@@ -1,0 +1,66 @@
+# The built-in model backends. A user's ~/.config/harnessadapter/backends.yaml and a run config's `backends:`
+# section add to and override these by name; <NAME>_BASE_URL in the environment moves one. Fields are documented
+# in backends.py. Prices are USD per million tokens as published in 2026-10; a price that is not listed leaves
+# the cost unknown (never zero), so list the model's price here or in your own file when you need a bill.
+#
+# `apis` is what the endpoint speaks: chat (chat completions: the framework's own client, the react agent and the
+# examples' task agents), responses (the OpenAI Responses API: Codex), messages (the Anthropic Messages API:
+# Claude Code). A local server's dialects depend on its version; `harnessadapter backends check <ref>` tries each.
+
+fireworks:
+  description: Fireworks AI serverless (chat completions, the Responses API, the Messages API under /inference)
+  base_url: https://api.fireworks.ai/inference/v1
+  api_key_env: FIREWORKS_API_KEY
+  apis: [chat, responses, messages]
+  litellm: fireworks_ai
+  prices:
+    accounts/fireworks/models/glm-5p3-flash: {input: 0.15, cached_input: 0.03, output: 0.50}
+    accounts/fireworks/models/glm-5p3: {input: 1.40, cached_input: 0.26, output: 4.40}
+    accounts/fireworks/models/deepseek-v4p1-flash: {input: 0.30, cached_input: 0.006, output: 1.20}
+  context_window: 1048576
+
+openai:
+  description: OpenAI
+  base_url: https://api.openai.com/v1
+  api_key_env: OPENAI_API_KEY
+  apis: [chat, responses]
+  litellm: openai
+
+anthropic:
+  description: Anthropic (the Messages API only)
+  base_url: https://api.anthropic.com/v1
+  api_key_env: ANTHROPIC_API_KEY
+  apis: [messages]
+  litellm: anthropic
+
+deepseek:
+  description: DeepSeek (chat completions and the Responses API at the root, the Messages API under /anthropic)
+  base_url: https://api.deepseek.com
+  messages_url: https://api.deepseek.com/anthropic
+  api_key_env: DEEPSEEK_API_KEY
+  apis: [chat, responses, messages]
+  litellm: deepseek
+
+vllm:
+  description: a local vLLM server (vllm serve ...), no key unless started with --api-key
+  base_url: http://127.0.0.1:8000/v1
+  api_key_env: VLLM_API_KEY
+  key_required: false
+  apis: [chat, responses, messages]
+  litellm: hosted_vllm
+
+sglang:
+  description: a local SGLang server (python -m sglang.launch_server ...), no key unless started with --api-key
+  base_url: http://127.0.0.1:30000/v1
+  api_key_env: SGLANG_API_KEY
+  key_required: false
+  apis: [chat, responses, messages]
+  litellm: openai
+
+ollama:
+  description: a local Ollama server (the Responses API since 0.13.3, the Messages API since 0.14)
+  base_url: http://127.0.0.1:11434/v1
+  api_key_env: OLLAMA_API_KEY
+  key_required: false
+  apis: [chat, responses, messages]
+  litellm: openai
