@@ -1,18 +1,16 @@
 # Installation
 
-Install the Python package first. The agent host, model access, and task data depend on what you want to run.
-The framework itself does not require a GPU.
+The core framework needs **Python 3.11+ and Git**. It does not require a GPU. External tasks, model endpoints,
+learner CLIs, and sandbox support depend on the workflow you choose.
 
-## Requirements
+## Install the checkout
 
-- Python **3.11 or newer**.
-- Git, used by the Trainer to store adapter versions and checkpoints.
-- Linux with `bubblewrap` (`bwrap`) for sandboxed agent or command Evolvers. The current sandbox backend is Linux-specific.
+If you do not have a checkout:
 
-The package and the context-only deployment walkthrough work on macOS as well. Running a learner program with
-`sandbox.enabled: true` requires `bwrap`; installation of the Python package alone does not provide it.
-
-## Install from your checkout
+```bash
+git clone https://github.com/haizhongzheng/MetaHarnessAdapter.git
+cd MetaHarnessAdapter
+```
 
 From the repository root:
 
@@ -23,51 +21,55 @@ python -m pip install -e .
 harnessadapter --help
 ```
 
-The help output should list `check`, `train`, `eval`, and `deploy`. Editable installation makes this checkout the
-source of the imported code. On a new terminal, activate the same virtual environment before using the commands.
+Help should list `check`, `train`, `eval`, `deploy`, `convert`, and `serve`. Activate the environment again in
+each new terminal. Editable installation uses this checkout's Python code.
 
-If you do not have a checkout yet:
+## Choose the additional requirements
 
-```bash
-git clone https://github.com/haizhongzheng/MetaHarnessAdapter.git
-cd MetaHarnessAdapter
-```
-
-These pages describe the 0.2.0 framework. If your checkout has the earlier `evolve` / `run` interface, switch to a
-revision that contains `check`, `train`, and `eval` before following this guide.
-
-## Install only the integrations you use
-
-| Use case | Additional requirements |
+| Workflow | Additional requirements |
 |---|---|
-| Inspect an adapter or generate a host workspace | None beyond the package. `deploy` does not start an agent. |
-| Run an adapter in Codex or Claude Code | The chosen host installed and authenticated. |
-| Use `prompt_only` as the learner | A configured chat-completions endpoint, model, and API credentials in `run.yaml`. |
-| Use `gepa` or `skillopt` as the learner | `python -m pip install -e '.[gepa]'` or `'.[skillopt]'`, the same `llm` settings, and a validation split. |
-| Use the `codex` or `claude` Evolver | The corresponding agent CLI, its model access, and a supported execution environment. |
-| Run the OfficeQA example | Prepared OfficeQA corpus and scoring files, plus Fireworks model access; see [OfficeQA](../recipes/officeqa.md). |
-| Run Lean collaboration tools | A Lean/Mathlib environment and the per-agent environment variables described in the template's README. |
+| [Offline first training](quickstart.md) | None beyond the core install |
+| [First real-model training](first-model.md) | A compatible chat-completions endpoint, model id, and credential; data is included |
+| Generate a Codex / Claude Code workspace | No host CLI is needed until you start the host |
+| Run an acting host | Installed and authenticated host, plus adapter tool dependencies |
+| Prompt-only learner | Configured learner chat-completions endpoint and credential |
+| GEPA | `python -m pip install -e '.[gepa]'`, learner endpoint, validation split |
+| SkillOpt | `python -m pip install -e '.[skillopt]'`, learner endpoint, validation split |
+| Codex / Claude learner | Selected authenticated CLI and supported program-execution environment |
+| MWM | Linux learner environment, Codex, evidence store, task deployment contract, model access |
+| Benchmark recipe | Its dataset, scorer, model settings, and environment; see [catalog](../recipes/index.md) |
 
-For sandboxed learner programs on Ubuntu/Debian:
+Core installation and the deterministic tutorial work on macOS. Sandboxed learner **programs** use a
+Linux-specific bubblewrap backend. For Ubuntu/Debian:
 
 ```bash
 sudo apt-get install bubblewrap
 bwrap --version
 ```
 
-The machine must also permit the namespaces bubblewrap uses. The sandbox wraps learner programs launched through
-the framework; it does not isolate the user-supplied rollout pipeline or arbitrary in-process Evolver code.
-Disabling it with `sandbox.enabled=false` runs those learner programs with the launching user's access. See
-[Configuration](../framework/configuration.md#sandbox-network-and-warnings) for the boundary and network settings.
+The environment must permit the required namespaces. Installing the binary alone may not satisfy a container or
+cluster's namespace policy. The sandbox does not isolate your acting pipeline or arbitrary in-process Python.
+See [sandbox boundaries](../framework/configuration.md#sandbox-network-and-warnings).
 
-## Optional: build these docs
+A recipe can require Python 3.12+ even though the core supports 3.11. Check external dependencies separately.
+For exact experiment reproduction, record the framework commit and dependency revisions.
+
+## Verify the local installation
+
+```bash
+harnessadapter check --config docs/_examples/first_training/run.yaml
+```
+
+The probe should score the first toy task zero without execution errors. Its sandbox-disabled warning is expected
+for the included in-process, offline teaching learner. Continue to [Quick Start](quickstart.md) to train and evaluate it.
+
+## Optional: build documentation
 
 ```bash
 python -m pip install -r docs/requirements.txt
 bash docs/build.sh
-bash docs/serve.sh 8001
+bash docs/serve.sh 8000
 ```
 
-Open <http://127.0.0.1:8001>. The preview rebuilds when source files change.
-
-Continue to [Quick Start](quickstart.md) to inspect and deploy your first adapter.
+Open <http://127.0.0.1:8000>. The preview rebuilds on source changes. The strict build treats warnings as errors.
+For earlier `evolve` / `run` interfaces and current limitations, see [Compatibility](../reference/compatibility.md).

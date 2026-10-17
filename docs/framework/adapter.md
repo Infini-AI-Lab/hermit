@@ -10,7 +10,7 @@ copy of the adapter sources**.
 :file: ../_includes/adapter-contract.html
 ```
 
-## The adapter files
+## The adapter structure
 
 The complete example in `docs/_examples/file_adapter/` contains:
 

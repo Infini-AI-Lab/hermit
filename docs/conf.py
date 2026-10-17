@@ -42,7 +42,9 @@ html_theme_options = {
     "github_url": "https://github.com/haizhongzheng/MetaHarnessAdapter",
     "nav_links": [
         {"title": "Quick Start", "url": "get-started/quickstart"},
-        {"title": "How It Works", "url": "framework/overview"},
+        {"title": "Methods", "url": "methods/index"},
+        {"title": "Recipes", "url": "recipes/index"},
+        {"title": "Reference", "url": "reference/config-fields"},
     ],
 }
 html_context = {

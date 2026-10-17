@@ -1,93 +1,105 @@
-# 3. Your own task
+# Bring your own task
 
-You have an agent and problems with a way to score the answers, and want an existing method (a template and an
-Evolver) to improve the agent's instructions, skills or tools on them. You supply four things; everything else is
-the framework's.
+Connect an existing acting agent to the training loop by supplying tasks, a pipeline, a judge, and a learner-facing
+task description. The Trainer owns batching, learning material, checks, versioning, and recovery.
 
-| You supply | File | Who reads it |
+| You provide | File | Consumer |
 |---|---|---|
-| the tasks and splits | `tasks.jsonl`, `train.txt`, `test.txt` | the Trainer |
-| how one task is run with an adapter | `pipeline.py: run(task, adapter) -> RunOutput` | rollouts, eval |
-| how an output is scored | `judge.py: score(task, output) -> {score, feedback}` | rollouts, eval |
-| what the task is, for the learner | `task-info/README.md` | the Evolver |
+| Inputs and split ids | `tasks.jsonl`, `train.txt`, optional `val.txt`, `test.txt` | Trainer and evaluator |
+| One acting attempt | `pipeline.py:run` | Rollouts and evaluation |
+| Scoring and permitted feedback | `judge.py:score` | Trainer and evaluator |
+| Task objective and feedback contract | `task-info/README.md` | Learner |
+| Experiment settings | `run.yaml` | Framework |
 
-The offline example `docs/_examples/interface_task/` is the smallest complete integration (an echo agent, no model
-call). Run it first, then replace its parts with yours:
+## Start from a working integration
+
+Copy the self-contained [Quick Start](../get-started/quickstart.md) task into a disposable directory:
 
 ```bash
-harnessadapter check --config docs/_examples/interface_task/run.yaml
-harnessadapter train --config docs/_examples/interface_task/run.yaml
-harnessadapter eval  --config docs/_examples/interface_task/run.yaml --adapter final
+mkdir -p .demo
+cp -R docs/_examples/first_training .demo/my-task
 ```
 
-## The tasks
+Its config's output path was written for its original directory. Change `trainer.output_dir` to `runs` and
+`trainer.run_name` to `my-task` in the copied `run.yaml`. Then run:
 
-One JSON object per line with a unique `id`; the other fields are yours (the pipeline and the judge read them).
-Splits are one id per line. The learner sees a task's row as the `input` of its learning material, so keep the
-answer out of it unless the learner may know it; put answers in the judge's data or in fields the judge alone reads.
+```bash
+harnessadapter check --config .demo/my-task/run.yaml
+harnessadapter train --config .demo/my-task/run.yaml
+harnessadapter eval --config .demo/my-task/run.yaml --adapter final
+```
+
+Outputs now live under `.demo/my-task/runs/my-task/`. Replace the teaching components one at a time.
+
+## Supply task inputs and splits
+
+Use one JSON object per line, with a unique id and whatever public input fields your pipeline needs:
 
 ```json
-{"id": "train-1", "prompt": "first input", "expected": "first input"}
+{"id": "train-1", "prompt": "hello reef"}
+{"id": "test-1", "prompt": "a new task"}
 ```
 
-## The pipeline
+A split file lists one id per line. Keep training, validation, and test disjoint; `check` reports overlaps.
+Train task rows become learner-visible material. Keep private labels in judge-owned storage, not in fields you
+merely intend the pipeline to ignore. Restrict learner filesystem grants consistently with that separation.
 
-`run` receives one task and an adapter directory (or `None` for a run without adapter, the baseline). It must make
-the adapter's exports available to your agent, run the task, and return a `RunOutput` whose `output` is what the
-judge scores. For a context-only adapter, that is reading `ADAPTER.md` into the system prompt:
+## Implement the acting pipeline
 
-```{literalinclude} ../_examples/interface_task/pipeline.py
+The pipeline receives a task and an adapter path, or `None` for the no-adapter baseline. It must actually supply
+the adapter's exports to the acting agent. Reading a config's template name alone does not do this.
+
+The teaching pipeline shows the boundary without a model dependency:
+
+```{literalinclude} ../_examples/first_training/pipeline.py
 :language: python
 ```
 
-An adapter with tools needs your agent to offer them: `Adapter(adapter).manifest["tools"]` lists their schemas and
-`Adapter(adapter).call(name, args)` runs one. `examples/tasks/servelearnbench/pipeline.py` does exactly this
-inside a benchmark's own agent loop (the context into the system prompt, the `wm` tool into the tool list).
-Concurrent tasks run against the same adapter directory: treat it as input, keep logs and state elsewhere, and
-return the log's path in `RunOutput.log` so it lands in the learning material.
+Replace its interpreter with your agent call. Read `Adapter(adapter).context()` into the acting context.
+For tools, `Adapter(adapter).manifest["tools"]` provides declarations and `Adapter(adapter).call(name, args)`
+executes them. Your loop owns routing model tool requests and returning results.
 
-## The judge
+Return `RunOutput` with the judge's output, usage when known, and messages or a log path for trajectories.
+Treat the shared adapter directory as input; keep per-task logs and mutable state elsewhere when tasks run
+concurrently. See the [task contract](../framework/task.md) for exact fields.
 
-`score` receives the task and the pipeline's output and returns a score and a feedback string. What the feedback
-says is what the learner learns from: a benchmark that discloses only a number gives only the number
-(`examples/tasks/servelearnbench/judge.py` returns `Score: n/100.` and nothing else); a benchmark whose agent is
-shown the correct answer may return it.
+## Implement the judge
 
-```{literalinclude} ../_examples/interface_task/judge.py
+The judge accepts `(task, RunOutput)` and returns a numeric score plus feedback. The learner receives that feedback,
+so it is part of the learning protocol, not just logging.
+
+```{literalinclude} ../_examples/first_training/judge.py
 :language: python
 ```
 
-## The task description
+This toy judge computes its target privately. For a real dataset, load labels from judge-owned storage.
+Choose the score scale deliberately; the generic evaluator's `solved_once` uses a fixed threshold of 1.0.
+Do not reveal a reference solution through feedback unless your protocol permits it.
 
-`task-info/README.md` is the learner's entry point: what an input is, what a correct output looks like, how to read
-the feedback. Written for the learner, never shown to the acting agent, and containing nothing the agent could not
-know. The MWM Evolver reads a more structured description, `task-info/deployment/` (the venue's contract slots,
-host settings and environment mirror); `examples/tasks/servelearnbench/task-info/` is the retail example.
+## Describe the task for the learner
 
-## The run config
+Write `task-info/README.md`: input format, objective, allowed feedback, interpretation of trajectories, and available
+resources. It is learner-facing and does not automatically become acting-agent context. Include only information
+permitted to that learner. MWM additionally requires a structured deployment description and evidence store;
+follow the [MWM contract](../methods/mwm.md) rather than switching names alone.
+
+## Select a real learning method
+
+The copied config uses a one-rule teaching learner. Choose a [built-in method](../methods/index.md) for a real
+experiment. A context optimizer might use:
 
 ```yaml
-data: {tasks: tasks.jsonl, train: train.txt, test: test.txt, step_size: 8, shuffle: true}
-task_info: task-info
-pipeline: {run: pipeline.py:run, concurrency: 4}
-judge: {path: judge.py}
-template: prompt-only@1.0          # or mwm, or a template directory
-evolver: {name: prompt_only}        # or codex, mwm, gepa, skillopt
-llm: {base_url: ..., model: ..., api_key_env: FIREWORKS_API_KEY}
-trainer: {run_name: my-task, output_dir: runs, budget: {usd: 20, hours: 4}}
+template: prompt-only@1.0
+evolver: {name: prompt_only}
+llm:
+  base_url: https://your-endpoint.example/v1
+  model: your-learner-model
+  api_key_env: LEARNER_API_KEY
 ```
 
-`step_size` is how many tasks the learner sees per step; `shuffle: false` keeps a stream's order. Every field is in
-[Configuration](../framework/configuration.md). Then:
+Configure the acting model in your pipeline independently. Add a validation split for GEPA or SkillOpt.
+Keep a finite budget and start with a small batch.
 
-```bash
-harnessadapter check --config run.yaml       # runs one task through your pipeline and judge
-harnessadapter train --config run.yaml
-harnessadapter eval  --config run.yaml --adapter final
-harnessadapter eval  --config run.yaml --adapter none
-```
-
-A complete real integration, with a benchmark's own agent loop, per-window tests and a launcher, is
-`examples/tasks/servelearnbench/` ([recipe](../recipes/servelearnbench.md)).
-
-Next: [Customize an adapter](customize-an-adapter.md).
+Run `check`, baseline `eval --adapter none`, `train`, then `eval --adapter root` and `eval --adapter final`.
+For a complete benchmark-owned acting loop, use the [ServeLearnBench recipe](../recipes/servelearnbench.md)
+as a larger reference. Continue with [Evaluation](../guides/evaluation.md).

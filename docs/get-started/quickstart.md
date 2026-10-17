@@ -1,91 +1,95 @@
-# Quick Start
+# Quick Start: train, evaluate, and deploy
 
-First, deploy a small instruction adapter and inspect what the agent will receive. This takes no model calls or
-dataset. Then, if you have the OfficeQA data and model access, run the existing training example to produce an
-adapter from task feedback.
+Run a complete training cycle locally with Python and Git. No model account, dataset download, GPU, or agent CLI
+is needed. The example is deterministic: a teaching agent recognizes one formatting rule, and a scripted Evolver
+learns that rule from judge feedback. It demonstrates the training contract, not real-model learning performance.
 
-## Prerequisites
+## 1. Install and verify
 
-- Complete [Installation](installation.md) and activate the virtual environment.
-- Run the commands below from the repository root.
-
-## 1. Make an adapter you can inspect
-
-Copy the prompt-only template into a working directory:
+Follow [Installation](installation.md), activate the environment, and run everything below from the repository root:
 
 ```bash
-mkdir -p .demo
-cp -R harnessadapter/algorithms/templates/prompt_only .demo/adapter
+harnessadapter --help
+harnessadapter check --config docs/_examples/first_training/run.yaml
 ```
 
-Use a fresh `.demo/adapter` directory for this walkthrough. It contains:
+The probe runs one training task without an adapter. Its score should be **0**, because the agent echoes lowercase
+text while the judge requires uppercase output. That task score does not mean the integration check failed.
 
-```text
-.demo/adapter/
-  adapter.yaml    declares exports and allowed changes
-  ADAPTER.md      instructions given to the acting agent
-  EVOLVER.md      describes the editable files to a learner
-  README.md      explains the template to people
-```
-
-The template starts with a placeholder in `ADAPTER.md`. Replace it with a short instruction so its effect on
-deployment is visible:
+## 2. Measure the baseline
 
 ```bash
-cat > .demo/adapter/ADAPTER.md <<'EOF'
-# Working with numerical documents
-
-Before calculating, check the date, unit, and scale of each source figure.
-Show the calculation and identify the source used for each input.
-EOF
+harnessadapter eval --config docs/_examples/first_training/run.yaml --adapter none
 ```
 
-This is a manually written adapter. Training will automate edits to the same file.
+The JSON summary should report `tasks: 2`, `mean_score: 0.0`, and `errors: 0`. The held-out inputs differ
+from the training inputs. Answers are computed by the judge rather than stored in task rows.
 
-## 2. Deploy it into a host workspace
+## 3. Train from feedback
 
 ```bash
+harnessadapter train --config docs/_examples/first_training/run.yaml
+```
+
+There are two steps of one task each. After the first failure, the learner reads the judge's feedback and writes
+`Output format: uppercase.` into `ADAPTER.md`. The next rollout uses that changed adapter.
+
+All inputs and code are under `docs/_examples/first_training/`:
+
+```{literalinclude} ../_examples/first_training/run.yaml
+:language: yaml
+```
+
+The sandbox is disabled for this local scripted demonstration. It launches no external learner program;
+[sandbox boundaries](../framework/configuration.md#sandbox-network-and-warnings) matter when using other learners.
+
+## 4. Evaluate the result
+
+```bash
+harnessadapter eval --config docs/_examples/first_training/run.yaml --adapter root
+harnessadapter eval --config docs/_examples/first_training/run.yaml --adapter final
+```
+
+Expected `mean_score`: **none = 0.0, root = 0.0, final = 1.0**, all with zero execution errors.
+`root` is the initial template; `final` is the run's selected adapter. This gain is constructed by the toy task
+and its one-rule interpreter. It verifies that feedback, editing, versioning, and evaluation connect correctly.
+
+For a real agent, the pipeline passes adapter context and tools to a model. See
+[First training with a real model](first-model.md) for an API-only walkthrough with included data, then
+[OfficeQA](../recipes/officeqa.md) for a benchmark integration. See the [evaluation guide](../guides/evaluation.md).
+
+## 5. Inspect and deploy
+
+```bash
+cat .demo/first-training/first-training/checkout/ADAPTER.md
+cat .demo/first-training/first-training/checkout/CARD.md
+cat .demo/first-training/first-training/eval/final/summary.json
 harnessadapter deploy \
-  --adapter .demo/adapter \
-  --workspace .demo/codex-workspace \
+  --adapter .demo/first-training/first-training/checkout \
+  --workspace .demo/first-training/workspace \
   --host codex
-cat .demo/codex-workspace/AGENTS.md
+cat .demo/first-training/workspace/AGENTS.md
 ```
 
-The command prints a JSON deployment report. `AGENTS.md` should contain the instructions you just wrote. Open this
-workspace in your acting host to use them on a task. Generating the workspace does not launch Codex or call a model.
+The generated `AGENTS.md` contains the rule. `deploy` writes a workspace; starting a host is a separate action.
+For Claude Code, use `--host claude-code` and a different workspace directory.
 
-For Claude Code, generate a separate workspace:
+## Run it again
+
+An unfinished run resumes automatically. For an independent experiment, choose a new name on every command:
 
 ```bash
-harnessadapter deploy \
-  --adapter .demo/adapter \
-  --workspace .demo/claude-workspace \
-  --host claude-code
-cat .demo/claude-workspace/CLAUDE.md
+harnessadapter train --config docs/_examples/first_training/run.yaml trainer.run_name=first-training-02
+harnessadapter eval --config docs/_examples/first_training/run.yaml --adapter final trainer.run_name=first-training-02
 ```
 
-The prompt-only template exports just text. A template with tools can also generate an MCP server configuration;
-roles and skills produce additional host files. A custom agent loop can instead read the adapter's context and add
-it to its model messages, as OfficeQA does. See [Using and training adapters](../framework/adapter-lifecycle.md).
+That experiment's outputs are under `.demo/first-training/first-training-02/`.
+See [Run records and recovery](../guides/runs.md) for completed runs and branching.
 
-## 3. Train an adapter from feedback
+## Choose your next step
 
-To exercise the full interface without model access or an external dataset, run the
-[offline interface example](../framework/trainer.md#minimal-example). It verifies the component handoffs and state
-storage; its recording-only Evolver does not learn new instructions.
-
-The [OfficeQA recipe](../recipes/officeqa.md) is the existing end-to-end training example. It needs a prepared
-OfficeQA dataset and model API access; complete its preparation steps before running:
-
-```bash
-harnessadapter check --config examples/prompt_only/officeqa/smoke.yaml
-harnessadapter train --config examples/prompt_only/officeqa/smoke.yaml
-harnessadapter eval --config examples/prompt_only/officeqa/smoke.yaml --adapter final
-```
-
-Training replaces manual edits with learner edits to `ADAPTER.md`. The final adapter is under
-`examples/prompt_only/officeqa/runs/smoke/checkout/`; it can be deployed with the same command used above.
-
-To understand what happens between those commands, read [Using and training adapters](../framework/adapter-lifecycle.md).
-To supply your own problems and agent, read [Task integration](../framework/task.md).
+- [Choose a method](../methods/index.md) for your task and editable adapter content.
+- [Train with a real model](first-model.md) using only an API endpoint and the included small dataset.
+- [Run a benchmark recipe](../recipes/index.md) once you have its required assets.
+- [Bring your task](../tutorials/your-own-task.md) to connect your acting agent and judge.
+- [Deploy an existing adapter](../tutorials/deploy-an-adapter.md) if you only need the learned package.

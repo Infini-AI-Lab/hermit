@@ -1,0 +1,4 @@
+description: Deterministic teaching learner; learns one output rule from training feedback.
+class: evolver.py:FormatEvolver
+needs: []
+params: {}

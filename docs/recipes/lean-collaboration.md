@@ -87,34 +87,7 @@ it.
 
 ## How this maps onto the consumption design
 
-In the design, the adapter's manifest would declare the service and the two launch kinds, and the run script's
-jobs 1 and 2 would disappear into `serve` and `deploy`:
-
-```yaml
-serve:
-  transport: http
-  command: harnessadapter serve .
-  lifecycle: standalone
-  host_launch: false          # see below
-  instructions: SERVICE.md
-```
-
-- **`host_launch: false`** is the right setting for this adapter: the service needs a Lean toolchain and Mathlib
-  on its machine, should be warm before the first agent connects, and holds state that no single agent's session
-  should be the one to create. So the host-run relay only attaches; it never starts the service.
-- **The user launches it by hand**, once per run: `harnessadapter serve DIR --standalone`, which prints the
-  endpoint and writes it where every later session's relay finds it (`DIR/.serve/endpoint`), or `--serve-url`
-  when the service is on another machine. `SERVICE.md` carries the prerequisites and this command.
-- **Each agent's `deploy`** then needs no rewriting: the MCP entry is the same `harnessadapter serve DIR` line
-  as for any adapter, and at session start it finds the running service and attaches as that agent.
-- **If the user starts an agent before the service**, the relay exits with one line naming the fix and
-  `SERVICE.md`; the host reports a failed MCP server and continues with context and skills but no tools, and the
-  session is restarted once the service is up.
-- **Reactions remain the one part outside the model**: the service decides them, but only a host with a control
-  channel can deliver them, and today that is the run script's job 4. No plugin format and neither `deploy` nor
-  `convert` provide such a channel.
-
-Nothing in this section exists yet; it is the target the current run script approximates by hand.
+The current integration uses the explicit service and run-script steps above. Generic manifest-driven startup, relay discovery, health checking, and host reactions remain a [design proposal](../developer/service-design.md). Do not use proposed `--standalone` or `--serve-url` flags with the current CLI. The implemented `serve DIR` command provides a per-session stdio tool server.
 
 ## What is needed to train it
 

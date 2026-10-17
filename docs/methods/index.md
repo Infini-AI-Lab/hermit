@@ -1,0 +1,52 @@
+# Choose a learning method
+
+Choose the editable adapter content first, then a method that understands it. A template defines the files,
+exports, and checks; an Evolver defines how evidence becomes an update. Sharing the interface does not make all
+template–method combinations meaningful.
+
+| Goal | Starting method | Template | Additional inputs |
+|---|---|---|---|
+| Improve a short instruction document with few moving parts | [Prompt-only](prompt-only.md) | `prompt-only@1.0` | Learner model endpoint |
+| Let a coding agent edit several files, skills, or code | [Codex / Claude](agent.md) | A template with the intended learnable paths | Authenticated learner CLI |
+| Search text candidates with validation-based selection | [GEPA](gepa.md) | Start with prompt-only | Validation split and GEPA extra |
+| Make bounded skill edits with a validation gate | [SkillOpt](skillopt.md) | Start with prompt-only or the paper seed | Validation split and SkillOpt extra |
+| Build a persistent world model from an ordered environment stream | [MWM](mwm.md) | `mwm` | Evidence store, deployment description, tools, Linux learner environment |
+| Learn the framework contract offline | [Quick Start](../get-started/quickstart.md) | Prompt-only with a teaching learner | Included toy tasks |
+
+## Compare the work behind each step
+
+All methods share the main acting batch. The table describes additional work, excluding retries and any
+task-specific service overhead. Call counts vary with evidence, candidates, and settings.
+
+| Method | Additional model / acting work | Persistent learner state | Final selection |
+|---|---|---|---|
+| Prompt-only | Normally one learner request per configured file, with one format retry if necessary; no built-in candidate rollout gate | Short change notes | Current adapter |
+| Codex / Claude | A multi-action learner session; candidate tests depend on what the learner does | Saved files and optional supported session handle | Current adapter unless the method customizes finalization |
+| GEPA | Initial-parent validation, reflection, child minibatch tests, and validation for a child that passes the minibatch criterion | Candidate pool, validation scores, per-candidate next file | Highest retained validation mean |
+| SkillOpt | Reflection/merge/ranking calls, validation (cached by skill content), optional epoch-end and final validation work | Current/best skills, validation cache, update history and meta skill | Retained best, with optional final promotion |
+| MWM | Maintenance and a learner session per eligible block, plus native bootstrap/retry behavior | World-model adapter plus method/session records | Current world-model adapter |
+
+`use_gate: false` in SkillOpt removes the ordinary improvement requirement, **not** the validation calls.
+GEPA's minibatch criterion is separate from its validation-based parent/final selection.
+Use [run records](../guides/runs.md) to compare actual calls and costs rather than treating every step as equal work.
+
+## Decide what the learner may change
+
+For context-only experiments, start with `ADAPTER.md`. To learn skills or tool implementations, declare those
+paths as learnable in a custom template. Changing `evolver.name` does not expand those permissions. The
+[customization tutorial](../tutorials/customize-an-adapter.md) shows how to create a separate template identity.
+
+A text optimizer writes selected text files. A coding-agent Evolver can make more general edits, within the
+template's rules. MWM has its own memory, programs, evidence protocol, and learner contract; choosing it requires
+a task integration that supplies those resources.
+
+## Plan the data and comparison
+
+- Keep test tasks for evaluation. GEPA and SkillOpt additionally require validation tasks for candidate selection.
+- For an ordered stream, set `data.shuffle: false`; choose batch boundaries according to the environment's timeline.
+- Hold acting model, tools, judge, and evaluation protocol fixed when comparing methods.
+- Compare against both no adapter and the starting adapter. Their difference measures the template's initial contribution.
+- Record learning calls, candidate evaluations, and acting calls. Equal training steps do not imply equal cost.
+
+The framework checks declared needs and file validity. It does not automatically establish learning effectiveness
+or choose a method for you. Continue with [Train an experiment](../guides/training.md).

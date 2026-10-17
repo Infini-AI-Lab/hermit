@@ -20,6 +20,8 @@ The `llm` section configures the run's model tool, which the prompt-only learner
 The acting pipeline owns its own model configuration. Changing `llm.model` does not automatically change the acting
 agent's model; OfficeQA configures that separately in `pipeline.py`.
 
+For every field, its default, type, and path rules, use the [complete field reference](../reference/config-fields.md). Method defaults are included in the [method guides](../methods/index.md).
+
 ## Defaults and overrides
 
 The framework merges `harnessadapter/defaults.yaml`, your YAML, and command-line overrides, in that order.

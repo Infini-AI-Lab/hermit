@@ -1,66 +1,38 @@
-# 2. Reproduce a result
+# Reproduce a result
 
-You want to run one of our experiments as we ran it: an existing task, an existing template and Evolver, our
-settings. Every run below is one launcher or a few commands; the recipe page of each has the details and what the
-run produces.
+Start from a specific experiment and artifact, then match its data, model, and evaluation protocol.
+An existing launcher saves setup work; it does not by itself guarantee the same measurements.
 
-| Run | Task | Method | Model | Time | Recipe |
-|---|---|---|---|---|---|
-| ServeLearnBench retail_l3 | the benchmark's serving stream and per-window tests | mwm | GLM 5.3 flash (host and learner) | ~6 hours | [ServeLearnBench with MWM](../recipes/servelearnbench.md) |
-| CL-Bench database | 40-question streams, 5 orders | mwm | GLM 5.3 flash | ~1 day per order, orders in parallel | `examples/mwm/README.md` |
-| CL-Bench poker | 120-hand streams, 5 orders | mwm | GLM 5.3 flash | ~1 day per order | `examples/mwm/README.md` |
-| OfficeQA | 133 questions over Treasury Bulletins | prompt_only, codex, gepa, skillopt | GLM 5.3 flash | hours | [OfficeQA](../recipes/officeqa.md) |
+## Choose the protocol
 
-Common to all: the framework installed in `.venv/` (Python 3.12+), a Fireworks key in `FIREWORKS_API_KEY`, and
-for the `mwm` and `codex` Evolvers the `codex` CLI and bubblewrap (`bwrap`) on the PATH. The host and the learner
-reach the provider through the framework's wire meter (`harnessadapter/runtime/wire_meter.py`), started by the
-launchers, which records the tokens of every run.
+| Experiment | Starting page | Evidence to preserve |
+|---|---|---|
+| OfficeQA, 133-question integration | [OfficeQA](../recipes/officeqa.md) | Prepared corpus/index/scorer, split files, acting and learner settings |
+| OfficeQA, paper-style split | [Paper setting](../recipes/officeqa-paper.md) | Dataset revision, seed skill, 50/24/172 split, source-file tools and scorer |
+| ServeLearnBench retail_l3 | [ServeLearnBench](../recipes/servelearnbench.md) | Scenario revision, ordered serving stream, block size, per-window adapter selection |
+| CL-Bench database/poker | [CL-Bench](../recipes/clbench.md) | Venue checkout, order, environment reset behavior, model settings, outcome ledger |
+| Lean collaboration | [Lean recipe](../recipes/lean-collaboration.md) | Adapter version, theorem set, Lean/Mathlib, host/team-service configuration |
 
-## ServeLearnBench
+## Before spending on a full run
 
-```bash
-.venv/bin/pip install "git+https://github.com/Infini-AI-Lab/ServeLearnBench"
-FIREWORKS_API_KEY=... examples/mwm/servelearnbench/launch.sh retail_l3
-```
+1. Read the included adapter's `CARD.md` and the recipe's limitations.
+2. Record framework and dependency revisions, dataset preparation, split ids, and seed adapter.
+3. Verify the acting model and learner model separately, including reasoning settings, tool budgets, and endpoint prices.
+4. Run the recipe's smoke configuration or prepared prefix. Inspect task outputs, judge feedback, and usage.
+5. Preserve the original config and choose a new run name/output location for your reproduction.
 
-The launcher exports the scenario, trains in the background, then plays the per-window tests and writes the
-benchmark's scores to `~/code/metaworld-runs/slb_retail_l3/test.log`.
+A smoke run verifies wiring. It does not reproduce a full result. The deterministic
+[Quick Start](../get-started/quickstart.md) is a separate contract demonstration.
 
-## CL-Bench
+## Compare like with like
 
-The host plays in clbench's own environment with metaworld's host seat, so these runs need the clbench and
-metaworld checkouts beside the framework (`MWM_CLBENCH`, `MWM_METAWORLD`):
+Evaluate no adapter, the seed, and the learned adapter using the same acting pipeline and held-out protocol.
+Validation selection is part of training; test data must not become a checkpoint-selection set.
+For streams, use the benchmark's time/window semantics rather than replacing them with one final-adapter test.
 
-```bash
-python examples/tasks/clbench/database/prepare.py
-MW_TAG=mwm_db WM_PORT=3401 MW_ORDERS="0 1 2 3 4" examples/mwm/clbench/launch.sh database
-python examples/tasks/clbench/poker/prepare.py
-MW_TAG=mwm_poker WM_PORT=3411 MW_ORDERS="0 1 2 3 4" examples/mwm/clbench/launch.sh poker
-```
+Preserve `steps.jsonl`, evaluation summaries and per-task records, adapter commit, `CARD.md`, and model-usage
+ledgers. Report errors and unknown cost. A changed hosted model or external dataset revision can prevent an exact
+reproduction even with the same framework commit.
 
-Each order is one `harnessadapter train`; `steps.jsonl` under `<runs>/<tag>/<tag>-o<i>/` has the per-question
-scores (database: accuracy; poker: the bb/hand ledger is in `<runs>/<tag>/order<i>/task/outcomes.jsonl`).
-
-## OfficeQA
-
-```bash
-python examples/tasks/officeqa/prepare.py /absolute/path/to/prepared     # the dataset is an external input
-harnessadapter train --config examples/prompt_only/officeqa/run.yaml
-harnessadapter eval  --config examples/prompt_only/officeqa/run.yaml --adapter final
-harnessadapter eval  --config examples/prompt_only/officeqa/run.yaml --adapter none     # the agent without an adapter
-```
-
-Swap the config for `examples/codex/officeqa/`, `examples/gepa/officeqa/` or `examples/skillopt/officeqa/` for the
-other methods.
-
-## Reading a run
-
-| File | What it tells you |
-|---|---|
-| `<run>/steps.jsonl` | one line per step: the rollouts' scores, the Evolver's status and summary, the commit |
-| `<run>/step_NNNN/output/report.md` | what the learner says it changed |
-| `<run>/learning_material/step_NNNN/` | what the learner saw: every task's input, output, judge and trajectory |
-| `<run>/checkout/CARD.md` | the final adapter's card: provenance and evaluation results |
-| `<run>/eval/<adapter>/results.jsonl` | per-task scores of an `eval` |
-
-Next: [Your own task](your-own-task.md).
+See [Evaluation](../guides/evaluation.md) for selectors and metrics, [Run records](../guides/runs.md) for artifact
+locations, and the [recipe catalog](../recipes/index.md) for prerequisites.

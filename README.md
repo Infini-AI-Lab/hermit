@@ -60,7 +60,7 @@ The four parts map onto the parts of ordinary model training:
 | Part | Role | Like |
 |---|---|---|
 | **Adapter template** | The structure and its specification: which files are learnable, which are fixed, and a checker | the initial model |
-| **Evolver** | The learning algorithm: a learner's harness (one model call, a Codex or Claude agent, GEPA, SkillOpt, MWM) | the optimizer |
+| **Evolver** | The learning algorithm: a learner's harness (a text rewrite, a Codex or Claude agent, GEPA, SkillOpt, MWM) | the optimizer |
 | **Trainer** | The outer loop: data, rollouts, learning material, checks, Git, budgets and records | the trainer |
 | **Evolving task** | Your task description, data, judge and acting-agent pipeline | data + reward + rollout |
 
@@ -84,31 +84,33 @@ adapters works on macOS too. Per-integration requirements are in [Installation](
 
 ## Quick start
 
-**Deploy an adapter** (no model calls, no dataset):
+**Train, evaluate, and deploy locally** (no model calls or dataset download):
 
 ```bash
-mkdir -p .demo && cp -R harnessadapter/algorithms/templates/prompt_only .demo/adapter
-harnessadapter deploy --adapter .demo/adapter --workspace .demo/codex-workspace --host codex
-cat .demo/codex-workspace/AGENTS.md     # the adapter's context, as Codex will read it
+harnessadapter check --config docs/_examples/first_training/run.yaml
+harnessadapter eval  --config docs/_examples/first_training/run.yaml --adapter none
+harnessadapter train --config docs/_examples/first_training/run.yaml
+harnessadapter eval  --config docs/_examples/first_training/run.yaml --adapter final
+harnessadapter deploy --adapter .demo/first-training/first-training/checkout --workspace .demo/first-training/workspace --host codex
 ```
 
-**Train one** from task feedback:
+This deterministic teaching example learns one output-format rule from feedback. Expected held-out mean scores:
+**0.0 without an adapter, 1.0 after training**. It demonstrates the framework contract, not real-model learning performance.
+The [full walkthrough](docs/get-started/quickstart.md) explains every artifact and how to repeat an experiment.
+
+For an API-only real-model walkthrough with included data, use [First model training](docs/get-started/first-model.md).
+For larger experiments, [choose a method](docs/methods/index.md) and follow a [recipe](docs/recipes/index.md).
+OfficeQA requires prepared corpus/scoring assets and model access; MWM benchmark recipes require their environment integrations.
+
+**Use an existing adapter**:
 
 ```bash
-python examples/tasks/officeqa/prepare.py /path/to/officeqa/prepared
-harnessadapter check --config examples/gepa/officeqa/smoke.yaml    # catch setting mistakes before spending
-harnessadapter train --config examples/gepa/officeqa/smoke.yaml    # resumes after a crash
-harnessadapter eval  --config examples/gepa/officeqa/smoke.yaml --adapter final
+harnessadapter deploy --adapter DIR --workspace WORKSPACE --host claude-code
+harnessadapter convert --adapter DIR --output OUT --target claude-code
 ```
 
-**Ship it** into a project, or as a plugin:
-
-```bash
-harnessadapter deploy  --adapter DIR --workspace WORKSPACE --host claude-code
-harnessadapter convert --adapter DIR --output OUT --target codex   # or claude-code, pi, hermes
-```
-
-The full walkthrough is in the [Quick Start](docs/get-started/quickstart.md).
+Conversion also supports Codex, Pi, and Hermes, with target-specific export limits; see the
+[capability matrix](docs/framework/commands.md#what-each-hosts-plugin-carries).
 
 ## What's included
 
@@ -116,7 +118,7 @@ The full walkthrough is in the [Quick Start](docs/get-started/quickstart.md).
 
 | `evolver.name` | Method |
 |---|---|
-| `prompt_only` | One model call per step rewrites `ADAPTER.md` from the step's results |
+| `prompt_only` | Normally one generation per configured text file per step, with a format retry if needed |
 | `codex` / `claude` | A Codex or Claude Code agent edits the adapter from the step's learning material |
 | `gepa` | [GEPA](https://github.com/gepa-ai/gepa): reflective text evolution with Pareto selection |
 | `skillopt` | [SkillOpt](https://github.com/microsoft/SkillOpt): a few validation-gated skill edits per step, under a learning rate |
@@ -152,17 +154,15 @@ scored, and where it has not been tested.
 
 ## Documentation
 
-1. [What is a harness adapter?](docs/framework/what-is-a-harness-adapter.md): the package from both ends
-2. [Installation](docs/get-started/installation.md) and [Quick Start](docs/get-started/quickstart.md)
-3. [Using and training adapters](docs/framework/adapter-lifecycle.md): files, deployment and handoffs
-4. [Tutorials](docs/tutorials/deploy-an-adapter.md): deploy an adapter, reproduce a result, bring your own task,
-   customize an adapter, write your own Evolver
-5. [Overview](docs/framework/overview.md) and the components: [Adapter](docs/framework/adapter.md),
-   [Evolver](docs/framework/evolver.md), [Trainer](docs/framework/trainer.md), [Task](docs/framework/task.md)
-6. Reference: [Configuration](docs/framework/configuration.md), [Commands](docs/framework/commands.md),
-   [Adapter manifest](docs/framework/adapter-manifest.md)
+- [Installation](docs/get-started/installation.md) and [Quick Start](docs/get-started/quickstart.md)
+- [Choose a method](docs/methods/index.md) and [recipe catalog](docs/recipes/index.md)
+- [Train an experiment](docs/guides/training.md), [evaluate](docs/guides/evaluation.md), and [inspect or recover a run](docs/guides/runs.md)
+- [Bring your task](docs/tutorials/your-own-task.md), [customize an adapter](docs/tutorials/customize-an-adapter.md), or [write an Evolver](docs/tutorials/custom-evolver.md)
+- [Troubleshooting](docs/guides/troubleshooting.md), [configuration fields](docs/reference/config-fields.md), [commands](docs/framework/commands.md), and [compatibility](docs/reference/compatibility.md)
+- [Developer guide](docs/developer/index.md) and [interactive framework overview](docs/framework/overview.md)
 
-Build the docs site locally with `docs/build.sh`, and serve it with `docs/serve.sh`.
+Build locally with `bash docs/build.sh`, then preview with `bash docs/serve.sh 8000`.
+Install `docs/requirements.txt` into your active environment first.
 
 ## License
 

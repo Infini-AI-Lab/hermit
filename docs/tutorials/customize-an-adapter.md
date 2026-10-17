@@ -1,4 +1,4 @@
-# 4. Customize an adapter
+# Customize an adapter
 
 You want the agent to start from your own instructions, skills or tools, or to let the learner change more (or
 less) than a built-in template allows. An adapter's shape is its template; customizing means copying a template,

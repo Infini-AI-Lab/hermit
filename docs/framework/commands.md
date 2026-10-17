@@ -7,6 +7,7 @@
 | `harnessadapter eval --config run.yaml --adapter ...` | Evaluate one adapter on the test split |
 | `harnessadapter deploy --adapter DIR --workspace WORKSPACE --host codex` | Generate a host workspace from an adapter |
 | `harnessadapter convert --adapter DIR --output OUT --target claude-code` | Emit a plugin in a host's native format |
+| `harnessadapter serve DIR` | Serve adapter tools over stdio, normally started by a host |
 
 The first three accept `key=value` overrides after the config (see [Configuration](configuration.md)).
 
@@ -15,7 +16,7 @@ The first three accept `key=value` overrides after the config (see [Configuratio
 ```bash
 harnessadapter check --config run.yaml                      # optional: catch setting mistakes before spending
 harnessadapter train --config run.yaml                      # train; resumes automatically after a crash
-harnessadapter eval  --config run.yaml --adapter final      # the official result
+harnessadapter eval  --config run.yaml --adapter final      # evaluate the final selection
 harnessadapter eval  --config run.yaml --adapter none       # optional: the agent without any adapter
 ```
 
@@ -136,6 +137,22 @@ discovery, manifest parsing and `register(ctx)` without installing.
 that made the plugin; `harnessadapter serve` warns on stderr when the installed framework is another version.
 Converting again into the same output replaces the generated parts, so a skill, a role or a context the adapter no
 longer has does not survive from the earlier plugin; the host's audit log there is kept.
+
+## serve
+
+```bash
+harnessadapter serve DIR
+harnessadapter serve DIR --audit-log tool-calls.jsonl
+```
+
+Starts the implemented per-session MCP tool server on stdio. Generated plugin entries normally run it for the host.
+It is not an HTTP preview server or the proposed standalone-service launcher. `--standalone` and `--serve-url` are not supported.
+
+## Other command options
+
+`deploy` and `convert` accept `--python` to choose the Python executable used for tools; it defaults to the running interpreter.
+`deploy --output` is an alias for `--workspace`. `convert --allow-lossy` allows explicitly reported omitted exports.
+`check --no-probe` skips only the acting-task probe. Use `harnessadapter COMMAND --help` for argument syntax.
 
 ## Implementation notes
 

@@ -95,9 +95,11 @@ completed step records, including failed steps; keeping the previous adapter doe
 
 ## Built-in Evolvers
 
+For selection guidance, setup, and the complete parameter defaults, use [Choose a learning method](../methods/index.md).
+
 | `evolver.name` | Method | Needs |
 |---|---|---|
-| `prompt_only` | One model call per step rewrites `ADAPTER.md` from the step's results. | `llm` |
+| `prompt_only` | Normally one generation per configured text file per step, with one additional request if the reply has no usable file. | `llm` |
 | `codex`, `claude` | A Codex or Claude Code agent edits the adapter from the learning material. | The agent CLI |
 | `gepa` | [GEPA](https://github.com/gepa-ai/gepa): one iteration per step. It reflects on the step's trajectories, keeps a child that does better on the same tasks, scores it on validation, and hands back the next parent from its Pareto front. | `llm`, `data.val`, `pip install -e '.[gepa]'` |
 | `skillopt` | [SkillOpt](https://github.com/microsoft/SkillOpt): one SkillOpt step per training step. It turns the step's trajectories into a few bounded edits under its learning rate (decaying when `total_steps` is set) and keeps them only if the validation score improves; the slow update and meta skill run at each epoch's end. | `llm`, `data.val`, `pip install -e '.[skillopt]'` |

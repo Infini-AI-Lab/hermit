@@ -4,7 +4,8 @@ This recipe makes real model calls. It uses a GLM tool-calling agent to answer q
 Bulletins, and the `prompt_only` Evolver to revise `ADAPTER.md` from the scored answers.
 
 Complete [Installation](../get-started/installation.md), activate the virtual environment, and run the commands from
-the repository root. For a deployment-only walkthrough without data or model access, use [Quick Start](../get-started/quickstart.md).
+the repository root. For an API-only walkthrough without external dataset assets, use [First real-model training](../get-started/first-model.md).
+For local training without model access, use [Quick Start](../get-started/quickstart.md).
 
 ## Prepare the data and model access
 
@@ -24,8 +25,8 @@ prepared/
 
 `reward.py` must expose `extract_final_answer` and `score_answer`. The index must use the schema expected by
 `examples/tasks/officeqa/corpus.py`. The prepared dataset used by this example has 133 tasks; the smoke test uses four
-training tasks and two held-out tasks. If you do not have these assets, the [deployment walkthrough](../get-started/quickstart.md) is still
-usable; training this example requires obtaining the prepared data first.
+training tasks and two held-out tasks. If you do not have these assets, start with the [included-data model walkthrough](../get-started/first-model.md).
+Training this benchmark example requires obtaining the prepared data first.
 
 Point the example at your prepared directory:
 
@@ -83,9 +84,14 @@ cat examples/prompt_only/officeqa/runs/smoke/checkout/ADAPTER.md
 cat examples/prompt_only/officeqa/runs/smoke/checkout/CARD.md
 ```
 
-You can pass the `checkout/` adapter directory to `deploy`, just as you passed `.demo/adapter` earlier. That checks
-host integration; effectiveness in another host needs its own evaluation. Keep the directory available if exported
-tools refer to its files.
+Deploy the selected adapter into a separate generated workspace:
+
+```bash
+harnessadapter deploy --adapter examples/prompt_only/officeqa/runs/smoke/checkout --workspace .demo/officeqa-codex --host codex
+```
+
+Inspect its `AGENTS.md` before starting the host. This checks host integration; effectiveness in another host needs
+its own evaluation. Keep the adapter directory available if exported tools refer to its files.
 
 Rerunning `train` resumes an unfinished run at its last completed step. For another experiment after this one finishes,
 choose another name, for example `trainer.run_name=smoke-02`, and use the same override on the corresponding `eval`
@@ -110,10 +116,11 @@ validation questions. Outputs are under each config's folder, in `runs/`; `state
 records. Each method's README in [`examples/`](https://github.com/haizhongzheng/MetaHarnessAdapter/tree/main/examples)
 explains how it works and which settings matter.
 
-[`examples/tasks/officeqa_paper`](https://github.com/haizhongzheng/MetaHarnessAdapter/tree/main/examples/tasks/officeqa_paper)
-is OfficeQA in the SkillOpt paper's setting (its split, the questions' source pages, its scorer). The configs in
-`examples/gepa/officeqa_paper/` and `examples/skillopt/officeqa_paper/` train both methods on it, and each folder
-includes an adapter trained by its `run.yaml`.
+For the 50/24/172 split and paper-style rollout/scoring, use the separate
+[OfficeQA paper-setting recipe](officeqa-paper.md). Its canonical self-contained experiment directory is
+`examples/officeqa_paper/`, with `skillopt.yaml`, `gepa.yaml`, preparation, seed, and included adapters.
+Other method-specific `officeqa_paper/` folders remain in the repository; do not mix their configs or outputs
+with this canonical walkthrough.
 
 For your own task, implement the pipeline and judge described in [Task integration](../framework/task.md). For how
 the components exchange data, continue to [Using and training adapters](../framework/adapter-lifecycle.md).

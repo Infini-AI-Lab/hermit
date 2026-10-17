@@ -1,0 +1,18 @@
+data:
+  tasks: tasks.jsonl
+  train: train.txt
+  test: test.txt
+  step_size: 1
+  shuffle: false
+task_info: task-info
+pipeline: {run: pipeline.py:run, concurrency: 1}
+judge: {path: judge.py}
+template: prompt-only@1.0
+evolver: {name: learner}
+sandbox: {enabled: false, network: none, env: []}
+trainer:
+  run_name: first-training
+  output_dir: ../../../.demo/first-training
+  epochs: 1
+  budget: {tokens: 1000, hours: 0.02}
+  call_timeout_min: 1

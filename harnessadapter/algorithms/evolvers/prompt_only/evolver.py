@@ -1,4 +1,4 @@
-"""PromptOnlyEvolver: one model call per step rewrites learnable Markdown files from the step's results.
+"""PromptOnlyEvolver: each step rewrites configured Markdown files, normally one generation each, with one format retry.
 
 Training State (state/notes.jsonl): one line per step with what was changed, shown to the model at the next step.
 """

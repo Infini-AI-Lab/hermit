@@ -1,45 +1,91 @@
 # MetaHarnessAdapter
 
-MetaHarnessAdapter helps you improve the instructions, skills, and tools used by an existing AI agent, using
-feedback from tasks it has attempted. These additions are packaged in a directory the agent can load; this package
-is called a **harness adapter**. You provide tasks and a way to score the answers. The framework runs the agent,
-collects feedback, and manages a learning method that revises the package for future use.
+Train the instructions, skills, roles, and tools used by an existing agent, using feedback from its task attempts.
+The learned files form a **harness adapter**: a versioned directory your agent consumes. Model weights stay
+unchanged. You bring an acting pipeline, tasks, and a judge; the framework manages training, checks, and records.
 
-These pages describe the 0.2.0 framework.
+These docs describe the **0.2.0** code in this checkout.
 
-- **Try it:** [Install the package](get-started/installation.md), then [deploy your first adapter](get-started/quickstart.md).
-- **Understand it:** [What is a harness adapter?](framework/what-is-a-harness-adapter.md) defines the package from both ends; [Overview](framework/overview.md) introduces the project's purpose, main components, and their relationships.
-- **Follow the workflow:** [Using and training adapters](framework/adapter-lifecycle.md) shows the files, deployment, and handoffs in an interactive diagram.
-- **Do one thing:** the [tutorials](tutorials/deploy-an-adapter.md), one per situation: deploy an adapter, reproduce a result, bring your own task, customize an adapter, write your own Evolver.
-- **Bring your task:** [Task integration](framework/task.md) explains the pipeline, judge, and data you supply.
-- **Build a learning method:** [Custom Evolver integration](framework/custom-evolver.md) describes the extension interface.
+| Your goal | Start here | What you will produce |
+|---|---|---|
+| Run a complete training cycle without model access | [Quick Start](get-started/quickstart.md) | A changed adapter, held-out scores, and a host workspace |
+| Run with your model API | [First real-model training](get-started/first-model.md) | Acting calls, learner edits, and held-out evaluation on included data |
+| Reproduce a benchmark experiment | [Recipe catalog](recipes/index.md) | A run using the recipe's data and model setup |
+| Choose a learning method | [Choose a method](methods/index.md) | A suitable template, Evolver, and split plan |
+| Improve your own agent | [Bring your task](tutorials/your-own-task.md) | A pipeline, judge, task description, and run config |
+| Use an existing adapter | [Deploy an adapter](tutorials/deploy-an-adapter.md) | A host workspace or a native plugin |
+| Investigate a run | [Run records](guides/runs.md), [Troubleshooting](guides/troubleshooting.md) | Evidence for what ran, changed, failed, or resumed |
+
+## The training loop
+
+1. The **pipeline** runs your acting agent with the current adapter on a batch of tasks.
+2. The **judge** scores its outputs. The Trainer collects scores and available trajectories as learning material.
+3. The **Evolver** uses this evidence to revise the adapter's learnable files.
+4. The **Trainer** checks the candidate, records the accepted version, and starts the next batch.
+5. You evaluate a selected adapter on held-out tasks and deploy it to an agent.
+
+Passing file checks establishes structural validity. Performance improvement requires evaluation. The
+[concept guide](framework/what-is-a-harness-adapter.md) defines the package, and the
+[interactive overview](framework/overview.md) shows its relationships.
 
 ```{toctree}
 :maxdepth: 1
 :caption: Get Started
 
-framework/what-is-a-harness-adapter
 get-started/installation
 get-started/quickstart
-framework/adapter-lifecycle
+get-started/first-model
+framework/what-is-a-harness-adapter
 ```
 
 ```{toctree}
 :maxdepth: 1
-:caption: Tutorials
-
-tutorials/deploy-an-adapter
-tutorials/reproduce-a-result
-tutorials/your-own-task
-tutorials/customize-an-adapter
-tutorials/custom-evolver
-```
-
-```{toctree}
-:maxdepth: 1
-:caption: Framework Components
+:caption: User Guide
 
 framework/overview
+framework/adapter-lifecycle
+methods/index
+guides/training
+guides/evaluation
+guides/runs
+guides/troubleshooting
+tutorials/your-own-task
+tutorials/customize-an-adapter
+tutorials/deploy-an-adapter
+```
+
+```{toctree}
+:maxdepth: 1
+:caption: Learning Methods
+
+methods/prompt-only
+methods/agent
+methods/gepa
+methods/skillopt
+methods/mwm
+```
+
+```{toctree}
+:maxdepth: 1
+:caption: Recipes and Reproduction
+
+recipes/index
+tutorials/reproduce-a-result
+recipes/officeqa
+recipes/officeqa-paper
+recipes/servelearnbench
+recipes/clbench
+recipes/lean-collaboration
+```
+
+```{toctree}
+:maxdepth: 1
+:caption: Developer Guide
+
+developer/index
+developer/service-design
+tutorials/custom-evolver
+framework/custom-evolver
 framework/adapter
 framework/evolver
 framework/trainer
@@ -48,25 +94,12 @@ framework/task
 
 ```{toctree}
 :maxdepth: 1
-:caption: Recipes
-
-recipes/officeqa
-recipes/lean-collaboration
-recipes/servelearnbench
-```
-
-```{toctree}
-:maxdepth: 1
-:caption: Developer Guide
-
-framework/custom-evolver
-```
-
-```{toctree}
-:maxdepth: 1
 :caption: Reference
 
 framework/configuration
+reference/config-fields
 framework/commands
 framework/adapter-manifest
+reference/glossary
+reference/compatibility
 ```

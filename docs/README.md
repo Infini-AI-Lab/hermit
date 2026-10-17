@@ -8,21 +8,39 @@ bash docs/build.sh          # -> docs/_build/html
 bash docs/serve.sh 8000     # live preview at http://127.0.0.1:8000
 ```
 
-`build.sh` treats warnings as errors, so a broken link or a page missing from the navigation fails the build.
+`build.sh` treats warnings as errors, so unresolved Sphinx references and pages missing from navigation fail the build. Raw HTML links and Markdown URL anchors also need verification; the strict build is not an external-link checker.
 
 ## Adding a page
 
 1. Write the Markdown file, for example `docs/guide/my-topic.md`. Its first `#` heading is the page title.
 2. List it in a `toctree` in `docs/index.md` under the right section. Link to other pages by their `.md` path.
 
-Use Get Started for installation and the shortest walkthrough, Framework Components for relationships and contracts,
-Recipes for task-specific setup, Developer Guide for extensions, and Reference for configuration and commands.
+Use Get Started for installation and the complete first learning cycle; User Guide for task-oriented operations;
+Learning Methods for selection, setup, and method defaults; Recipes for benchmark-specific protocols;
+Developer Guide for extensions and component contracts; Reference for fields, commands, glossary, and limits.
+Keep proposed behavior in the separate service design record and label it as unavailable.
+
+The first-training example is a deterministic contract demonstration, not a model-learning benchmark. It keeps
+answers out of task rows, learns one rule from scored feedback, and has expected none/root/final means of 0/0/1.
+Run its check, train, three eval selectors, and deployment when changing the example or walkthrough.
+Use a fresh run name after completion. Copy-based tutorials should write only under their disposable directories.
+
+Method parameter tables use literalinclude from their evolver.yaml files. The full field reference also includes
+the framework defaults directly. Verify descriptions against the consumer code: a free-form merge section does
+not imply that every client constructor argument is forwarded by the Trainer.
+
+Every recipe must state requirements, data preparation, model setup, launch command, output locations,
+evaluation/scoring protocol, runtime/cost evidence or uncertainty, and reproduction limits. Link measured results
+to included cards; keep smoke-test evidence distinct from full experiments.
 
 Component pages explain responsibility, inputs and outputs, ownership and lifecycle, interactions, and the reason
 for the interface boundaries before presenting implementation details. Each includes a small local interface
 diagram and a minimal example. Python type excerpts use `literalinclude` from the implementation.
 The offline examples under `docs/_examples/` exercise the pipeline, scoring, Evolver state, and Trainer without
 model calls. Run their `check`, `train`, and `eval` commands as documented on the Trainer page after changing them.
+The separate `first_model/` example makes real model calls when executed normally; validate it with a simulated
+provider during documentation checks unless a real-model run is explicitly intended. Keep opaque task ids so
+labels do not leak through naming, and test both shared and separate actor/learner settings.
 
 The overview embeds `docs/_includes/adapter-use-interactive.html` and `adapter-evolve-interactive.html` through
 MyST's `raw html` directive. Components are native HTML buttons; only the connectors are inline SVG. Interactions
