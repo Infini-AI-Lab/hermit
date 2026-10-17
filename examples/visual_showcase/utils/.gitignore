@@ -1,0 +1,6 @@
+.logs/
+tasks.jsonl
+splits/
+runtime/node_modules/
+__pycache__/
+task-info-generic/

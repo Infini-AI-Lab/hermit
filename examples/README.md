@@ -30,6 +30,7 @@ a `CARD.md`.
 | [`clbench_database/`](clbench_database/) | The CL-Bench database exploration stream (accuracy) | `CLBenchDatabaseAgent`: metaworld's host seat in CL-Bench's loop | [`prompt_only`](clbench_database/prompt_only/), [`mwm`](clbench_database/mwm/) |
 | [`clbench_poker/`](clbench_poker/) | The CL-Bench exploitable-poker stream (bb/hand) | `CLBenchPokerAgent` | [`prompt_only`](clbench_poker/prompt_only/), [`mwm`](clbench_poker/mwm/) |
 | [`servelearnbench/`](servelearnbench/) | A ServeLearnBench scenario: serving stream, per-window tests | `ServeLearnBenchAgent`: the benchmark's own loop | [`prompt_only`](servelearnbench/prompt_only/), [`mwm`](servelearnbench/mwm/) |
+| [`visual_showcase/`](visual_showcase/) | Visual showcase: one animated, interactive web page per brief, judged from browser screenshots | `pipeline.py:run`: the task's own tool loop over file and browser tools, GLM 5.3 Flash | [`mwm_visual`](visual_showcase/mwm_visual/), [`prompt_only`](visual_showcase/prompt_only/) |
 
 ## Demos
 

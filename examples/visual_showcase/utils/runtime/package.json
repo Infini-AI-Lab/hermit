@@ -1,0 +1,14 @@
+{
+  "name": "visual-showcase-capture",
+  "private": true,
+  "description": "The visual showcase browser capturer's dependencies (npm ci)",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "playwright": "1.62.1",
+    "pngjs": "7.0.0",
+    "three": "0.180.0"
+  }
+}
