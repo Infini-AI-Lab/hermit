@@ -87,22 +87,42 @@ in-flight work can overshoot it. Dollar accounting needs reported usage and appl
 
 ## Sandbox, network and warnings
 
-The sandbox wraps learner programs started through the framework. It does not isolate the task pipeline or
-arbitrary code in an in-process custom Evolver. The current backend requires Linux and bubblewrap.
+The sandbox wraps learner programs started through the framework. It does not yet isolate the task pipeline or
+arbitrary code in an in-process custom Evolver (issue #11 tracks those). It requires Linux and bubblewrap.
+
+It is a positive allowlist: inside, only what is granted exists. Read-only: the system's `/usr` and a few `/etc`
+files, the Python interpreter, the Python distributions the framework depends on (not every package installed beside
+it), the `harnessadapter` package (not the checkout around it), the learner program's installation, the Evolver's
+directory, the granted accesses and `sandbox.read`. Read-write: the adapter, state, scratch and output directories.
+The task's data, other runs and the user's home are not there at all.
 
 | Setting | Effect |
 |---|---|
 | `sandbox.enabled` | Wrap launched learner programs in the sandbox; false runs them unconfined. |
+| `sandbox.enforce: required` | Default. Refuse to run when bubblewrap is missing. |
+| `sandbox.enforce: best_effort` | Run unconfined when bubblewrap is missing, and record that the sandbox was not applied. |
+| `sandbox.network: isolated` | Default. A separate network namespace with loopback only; see below. |
+| `sandbox.network: open` | Use the host network, unrestricted. |
+| `sandbox.allow` | Hosts reachable through the allowlist proxy when the network is isolated; empty means no proxy. |
 | `sandbox.read` | Additional filesystem paths those programs may read. |
+| `sandbox.packages` | Additional Python distributions to show, by name, beside the framework's own dependencies. |
 | `sandbox.env` | Environment variables passed on, in addition to required runtime variables; null inherits the environment. |
-| `sandbox.network: none` | Use a separate network namespace for sandboxed programs. |
-| `sandbox.network: restricted` | Use an allowlist proxy and proxy environment variables; a program can bypass this by ignoring the proxy. |
-| `sandbox.network: open` | Use the host network without that restriction. |
-| `sandbox.allow` | Endpoints allowed by the restricted-mode proxy. |
 
-The sandbox exposes the required runtime, workspace, learner installation, and granted resources. Adapter, state,
-scratch, and output directories are writable; learning material and history are read-only. Giving more read paths
-or inheriting credentials changes what the learner can access. Warnings are recorded with the run.
+The older values still work: `network: restricted` means `isolated`, and `network: none` means `isolated` without the
+proxy.
+
+With an isolated network the only ways out are forwarded ports: every `127.0.0.1` URL in the learner's command or
+environment (the run's tool endpoint, a tool gate, a model meter) and the allowlist proxy. Each is re-created inside
+and relayed over a Unix socket, so a program that ignores the proxy variables has no route out. Before the learner
+starts, a check inside the sandbox confirms that an outside connection fails, that every forwarded port answers, and
+that the task's data file and the home's `.ssh` and `.bashrc` are absent; the learner does not start unless it passes.
+
+Every wrapped program leaves a record in the run's `sandbox/` directory: what was bound read-only and read-write,
+which ports were forwarded, which environment variables passed, and the result of that check. The proxy writes one
+line per request, allowed or refused, to `sandbox/network.jsonl`.
+
+Giving more read paths or inheriting credentials changes what the learner can access. Warnings are recorded with the
+run.
 
 `evolver_access.send_material_out` declares that sending learning material to an outside service is allowed; it is
 checked when an Evolver declares that need. It is not a network filter. Likewise, the framework does not supply test
