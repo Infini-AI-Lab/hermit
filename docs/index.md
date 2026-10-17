@@ -72,7 +72,6 @@ methods/mwm
 recipes/index
 tutorials/reproduce-a-result
 recipes/officeqa
-recipes/officeqa-paper
 recipes/servelearnbench
 recipes/clbench
 recipes/lean-collaboration

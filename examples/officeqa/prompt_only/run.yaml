@@ -1,50 +1,41 @@
-# OfficeQA with the prompt-only template and the prompt-only Evolver, GLM 5.3 Flash for acting and learning.
+# OfficeQA in the SkillOpt paper's setting with the prompt_only Evolver: one model call per step of 10 training
+# questions rewrites the skill from the failures and the judge's feedback; 4 epochs over the 50 training questions,
+# no validation gate (the final adapter is the last one). GLM 5.3 Flash acts.
 data:
   tasks: ../utils/tasks.jsonl
   train: ../utils/splits/train.txt
-  val: ../utils/splits/val.txt
   test: ../utils/splits/test.txt
   step_size: 10
-  shuffle_seed: 0
+  shuffle_seed: 42
 task_info: ../utils/task-info/
 agent:
-  name: react     # the built-in tool-calling agent: no pipeline code for this task
-  concurrency: 10
-  params:
-    model: {base_url: https://api.fireworks.ai/inference/v1, model: accounts/fireworks/models/glm-5p3-flash,
-            api_key_env: FIREWORKS_API_KEY, price: {input: 0.15, cached_input: 0.03, output: 0.50}}
-    prompt: ../utils/agent/prompt.md
-    tools: ../utils/tools.py
-    user: "{question}"
-    max_turns: 24
-    max_tokens: 16384
-    max_output_tokens: 65536
-    temperature: 0.6
-    answer_tag: FINAL_ANSWER
-    logs: .logs
+  name: ../utils/agent/agent.py:OfficeQAAgent
+  concurrency: 8
 judge:
   path: ../utils/judge.py
-  name: score
 template: prompt-only@1.0
+start_from: ../utils/seed_adapter  # SkillOpt's initial OfficeQA skill
 evolver:
   name: prompt_only
-llm:
+llm:                           # the learner: GLM 5.3 at medium effort, as for GEPA and SkillOpt
   base_url: https://api.fireworks.ai/inference/v1
-  model: accounts/fireworks/models/glm-5p3-flash
+  model: accounts/fireworks/models/glm-5p3
   api_key_env: FIREWORKS_API_KEY
-  price: {input: 0.15, cached_input: 0.03, output: 0.50}
+  price: {input: 1.40, cached_input: 0.26, output: 4.40}
+  extra_body: {reasoning_effort: medium}
 sandbox:
   enabled: true
   network: restricted
   allow: [https://api.fireworks.ai]
-  read: []                   # an allowlist: the Evolver sees nothing of this machine beyond its workspace and accesses
-  env: [FIREWORKS_API_KEY]   # the Codex Evolver reaches GLM with it; nothing else is passed
+  read: []
+  env: [FIREWORKS_API_KEY]
 trainer:
-  run_name: officeqa-prompt-only
+  run_name: paper-prompt-only
   output_dir: runs
-  epochs: 2
+  tree_dir: runs/trees/paper-prompt-only       # one adapter tree per run: runs can train side by side
+  epochs: 4
   save_freq: {steps: null, epochs: 1}
-  budget: {usd: 30, hours: 12}
-  call_timeout_min: 30
+  budget: {usd: 40, hours: 30}
+  call_timeout_min: 60
 eval:
-  repeats: 1
+  repeats: 3                 # the target samples: three passes over the test questions

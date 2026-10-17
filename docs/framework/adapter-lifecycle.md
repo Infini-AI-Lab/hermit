@@ -50,9 +50,9 @@ original adapter directory, which must remain available.
 For the exact source-to-host paths, managed instruction blocks, and the learner's editable working copy, see the
 [Adapter file interface](adapter.md#acting-interface).
 
-In OfficeQA, `examples/officeqa/utils/tools.py` loads the adapter's context for each execution and appends it to the
-system prompt. The search/read tools, model choice, and tool-calling loop remain defined in that pipeline. This
-particular integration consumes context only.
+In OfficeQA, `examples/officeqa/utils/agent/agent.py` loads the adapter's context for each execution and passes it
+to SkillOpt's rollout as the skill in the system prompt. The file tools, model choice, and tool-calling loop remain
+defined in that agent. This particular integration consumes context only.
 
 The Lean collaboration template has more exports: instructions, skills, and tools for sharing proof work. Its tools
 also need Lean/Mathlib and per-run shared state. Packaging files as an adapter does not install these dependencies
@@ -162,8 +162,9 @@ The Evolver may validate candidates itself. The built-in prompt-only method does
 returning it.
 
 Step 1 and step 2 use different task batches. A higher score on step 2 alone does not show improvement: the questions
-also changed. Run separate evaluations on the same held-out test split to compare `final`, `root`, and `none`; see
-[OfficeQA evaluation](../recipes/officeqa.md#check-train-evaluate).
+also changed. Run separate evaluations on the same held-out test split to compare `final`, the adapter the run started
+from (`root`, or the `start_from` adapter when the config sets one, such as OfficeQA's `../utils/seed_adapter`), and
+`none`; see [OfficeQA evaluation](../recipes/officeqa.md#check-train-evaluate).
 
 `final` means the adapter selected by `finalize`, which defaults to the current adapter. It does not mean “the
 highest-scoring checkpoint.” The framework does not automatically evaluate the final adapter or run baselines.

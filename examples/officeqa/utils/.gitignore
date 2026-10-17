@@ -1,3 +1,5 @@
+.private/
 tasks.jsonl
 splits/
-data_root.txt
+data.json
+seed_adapter/

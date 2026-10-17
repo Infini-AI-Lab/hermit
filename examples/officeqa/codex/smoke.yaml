@@ -1,31 +1,25 @@
-# Agent smoke: the Codex AgentEvolver with GLM 5.3 Flash; 4 training questions in 2 steps.
+# Agent smoke: the Codex AgentEvolver with GLM 5.3 Flash (codex_glm/); 4 training questions in 2 steps, 1 epoch;
+# eval on 4 test questions. The learner is an agent with a shell, so it must not see examples/ (the answers in
+# ../utils/.private/, the other methods' runs and adapters): `hide` covers it, and the run sits outside the checkout.
 data:
   tasks: ../utils/tasks.jsonl
   train: ../utils/splits/smoke_train.txt
   test: ../utils/splits/smoke_test.txt
   step_size: 2
+  shuffle_seed: 42
 task_info: ../utils/task-info/
 agent:
-  name: react     # the built-in tool-calling agent: no pipeline code for this task
+  name: ../utils/agent/agent.py:OfficeQAAgent
   concurrency: 4
-  params:
-    model: {base_url: https://api.fireworks.ai/inference/v1, model: accounts/fireworks/models/glm-5p3-flash,
-            api_key_env: FIREWORKS_API_KEY, price: {input: 0.15, cached_input: 0.03, output: 0.50}}
-    prompt: ../utils/agent/prompt.md
-    tools: ../utils/tools.py
-    user: "{question}"
-    max_turns: 24
-    max_tokens: 16384
-    max_output_tokens: 65536
-    temperature: 0.6
-    answer_tag: FINAL_ANSWER
-    logs: .logs
 judge:
   path: ../utils/judge.py
 template: prompt-only@1.0
+start_from: ../utils/seed_adapter  # SkillOpt's initial OfficeQA skill
 evolver:
   name: codex_glm
   resume: true
+  params:
+    hide: []                 # examples/, tests/, docs/ and .git of the framework checkout
 llm:
   base_url: https://api.fireworks.ai/inference/v1
   model: accounts/fireworks/models/glm-5p3-flash
@@ -35,11 +29,14 @@ sandbox:
   enabled: true
   network: restricted
   allow: [https://api.fireworks.ai]
-  read: []                   # an allowlist: the Evolver sees nothing of this machine beyond its workspace and accesses
+  read: []                   # an allowlist: beyond its workspace and accesses, the Evolver sees the framework read-only
   env: [FIREWORKS_API_KEY]   # the Codex Evolver reaches GLM with it; nothing else is passed
 trainer:
   run_name: codex-smoke
-  output_dir: runs
+  output_dir: ${HOME}/.cache/harnessadapter/officeqa-codex      # outside the checkout, which `hide` covers
+  tree_dir: ${HOME}/.cache/harnessadapter/officeqa-codex/trees/codex-smoke
   epochs: 1
   budget: {usd: 3, hours: 1}
-  call_timeout_min: 15
+  call_timeout_min: 30
+eval:
+  repeats: 3                 # the target samples: three passes over the test questions

@@ -20,8 +20,7 @@ examples/<task>/
 
 | Folder | Task | Agent | Methods |
 |---|---|---|---|
-| [`officeqa/`](officeqa/) | OfficeQA: 133 questions about U.S. Treasury Bulletins, the official strict scorer | built-in `react` over search/read tools, GLM 5.3 Flash | [`prompt_only`](officeqa/prompt_only/), [`codex`](officeqa/codex/), [`gepa`](officeqa/gepa/), [`skillopt`](officeqa/skillopt/) |
-| [`officeqa_paper/`](officeqa_paper/) | OfficeQA Full in the SkillOpt paper's setting: its 50 / 24 / 172 split, exact match | `OfficeQAPaperAgent`: SkillOpt's own rollout | [`gepa`](officeqa_paper/gepa/), [`skillopt`](officeqa_paper/skillopt/) |
+| [`officeqa/`](officeqa/) | OfficeQA Full in the SkillOpt paper's setting: questions about U.S. Treasury Bulletins, its 50 / 24 / 172 split, exact match | `OfficeQAAgent`: SkillOpt's own rollout, GLM 5.3 Flash | [`prompt_only`](officeqa/prompt_only/), [`codex`](officeqa/codex/), [`gepa`](officeqa/gepa/), [`skillopt`](officeqa/skillopt/) |
 | [`clbench_database/`](clbench_database/) | The CL-Bench database exploration stream (accuracy) | `CLBenchDatabaseAgent`: metaworld's host seat in CL-Bench's loop | [`prompt_only`](clbench_database/prompt_only/), [`mwm`](clbench_database/mwm/) |
 | [`clbench_poker/`](clbench_poker/) | The CL-Bench exploitable-poker stream (bb/hand) | `CLBenchPokerAgent` | [`prompt_only`](clbench_poker/prompt_only/), [`mwm`](clbench_poker/mwm/) |
 | [`servelearnbench/`](servelearnbench/) | A ServeLearnBench scenario: serving stream, per-window tests | `ServeLearnBenchAgent`: the benchmark's own loop | [`prompt_only`](servelearnbench/prompt_only/), [`mwm`](servelearnbench/mwm/) |
@@ -34,7 +33,8 @@ The methods themselves are described in [`docs/methods/`](../docs/methods/).
 Run from the repository root. Prepare the task once, then check, train and evaluate with a method's config:
 
 ```bash
-python examples/officeqa/utils/prepare.py /path/to/officeqa/prepared
+pip install -e '.[skillopt,gepa]'
+python examples/officeqa/utils/prepare.py --csv /path/to/officeqa_full.csv --docs /path/to/treasury_bulletins_parsed
 export FIREWORKS_API_KEY=...
 harnessadapter check --config examples/officeqa/gepa/smoke.yaml
 harnessadapter train --config examples/officeqa/gepa/smoke.yaml

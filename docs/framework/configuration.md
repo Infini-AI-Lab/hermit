@@ -19,7 +19,7 @@ function. `judge.path` names its scoring module.
 The `llm` section configures the run's model tool, which the prompt-only learner uses.
 
 The acting agent owns its own model configuration. Changing `llm.model` does not change the acting agent's model;
-OfficeQA configures that in `agent.params.model`.
+a built-in agent takes it from `agent.params.model`, and OfficeQA's own agent sets it in `utils/agent/agent.py`.
 
 For every field, its default, type, and path rules, use the [complete field reference](../reference/config-fields.md). Method defaults are included in the [method guides](../methods/index.md).
 

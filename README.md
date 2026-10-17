@@ -95,7 +95,8 @@ cat .demo/codex-workspace/AGENTS.md     # the adapter's context, as Codex will r
 **Train one** from task feedback:
 
 ```bash
-python examples/officeqa/utils/prepare.py /path/to/officeqa/prepared
+pip install -e '.[skillopt,gepa]'
+python examples/officeqa/utils/prepare.py --csv /path/to/officeqa_full.csv --docs /path/to/treasury_bulletins_parsed
 harnessadapter check --config examples/officeqa/gepa/smoke.yaml    # catch setting mistakes before spending
 harnessadapter train --config examples/officeqa/gepa/smoke.yaml    # resumes after a crash
 harnessadapter eval  --config examples/officeqa/gepa/smoke.yaml --adapter final
@@ -141,8 +142,7 @@ for agents proving Lean theorems together), `mwm` (memory, briefing and callable
 
 | Recipe | Task | Evolvers | Result |
 |---|---|---|---|
-| [OfficeQA](docs/recipes/officeqa.md) | 133 questions on U.S. Treasury Bulletins; a GLM 5.3 Flash agent searches the bulletins | `prompt_only`, `codex`, `gepa`, `skillopt` | in each adapter's `CARD.md` |
-| [OfficeQA, SkillOpt paper setting](examples/officeqa_paper/README.md) | The paper's 50 / 24 / 172 split, exact-match scorer | `skillopt`, `gepa` | test mean score 0.576 (`skillopt`), 0.564 (`gepa`); 172 questions × 3 repeats |
+| [OfficeQA](examples/officeqa/README.md) | U.S. Treasury Bulletins in the SkillOpt paper's setting: 50 / 24 / 172 split, source pages, exact match | `prompt_only`, `codex`, `gepa`, `skillopt` | test accuracy 0.576 (`skillopt`), 0.564 (`gepa`) vs 0.415 without a skill; 172 questions × 3 |
 | [Lean collaboration](docs/recipes/lean-collaboration.md) | Five Codex agents proving Lean theorems with one shared team service | (finished adapter) | 8/8 on the development set; 12/24 held-out problems so far |
 | [ServeLearnBench](docs/recipes/servelearnbench.md) | retail_l3: 624 serving cases in 8 windows | `mwm`, `prompt_only` | per-window tests with `slb score` |
 | [CL-Bench](docs/methods/mwm.md) | database and poker streams | `mwm`, `prompt_only` | accuracy per stream |

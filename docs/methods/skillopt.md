@@ -11,8 +11,8 @@ python -m pip install -e '.[skillopt]'
 ```
 
 In a complete task config, select `evolver.name: skillopt`, provide `data.val`, and configure the learner's
-`llm`. Start with [OfficeQA](../recipes/officeqa.md) or the
-[paper-setting recipe](../recipes/officeqa-paper.md); the latter also uses SkillOpt on the acting side.
+`llm`. Start with [OfficeQA](../recipes/officeqa.md), the SkillOpt paper's setting, which also uses SkillOpt on the
+acting side.
 
 ## Update and selection
 
@@ -59,11 +59,11 @@ Validation is cached by skill content, while final promotion deliberately refres
 With the corresponding features enabled, the end of an epoch performs slow-update and meta-skill work after the
 ordinary step update. `slow_update_samples` controls additional training comparisons. The default
 `slow_update_gate: false` means the ordinary gate setting does not automatically protect a slow update.
-The paper-setting configs explicitly choose their protocol.
+The OfficeQA configs explicitly choose their protocol.
 
 Allow enough `trainer.call_timeout_min` for the entire call, not just a single reflection. Inspect saved
 `state/` and `output/report.md` to distinguish no patches, invalid edits, gate rejection, and final promotion.
 
 Do not describe a run as a paper reproduction solely because it uses SkillOpt. Data revision, models, tools,
 gating, and trajectory truncation must match the claimed protocol. The
-[paper-setting recipe](../recipes/officeqa-paper.md) records the current differences.
+[OfficeQA recipe](../recipes/officeqa.md#reproduction-limits) records the current differences.

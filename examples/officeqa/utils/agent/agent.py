@@ -97,8 +97,8 @@ def _messages(pred_dir: Path) -> list[dict]:
     return messages
 
 
-class OfficeQAPaperAgent(Agent):
-    """SkillOpt's own rollout with the adapter's context as the skill. `agent.name: ../utils/agent/agent.py:OfficeQAPaperAgent`."""
+class OfficeQAAgent(Agent):
+    """SkillOpt's own rollout with the adapter's context as the skill. `agent.name: ../utils/agent/agent.py:OfficeQAAgent`."""
 
     def run(self, task: dict, adapter: Path | None) -> RunOutput:
         _setup()
