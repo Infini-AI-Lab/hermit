@@ -449,7 +449,8 @@ def main() -> None:
     meter = subprocess.Popen(
         [sys.executable, str(FRAMEWORK / "harnessadapter" / "runtime" / "wire_meter.py")],
         env=dict(os.environ, PORT=str(meter_port), LEDGER=str(base / "wire_ledger.json"), UPSTREAM=binding.backend.origin,
-                 REWRITE_DEVELOPER_ROLE="1", REWRITE_STRIP_SERVER_TOOLS="1", REWRITE_REPAIR_TOOL_ARGS="1"),
+                 REWRITE_DEVELOPER_ROLE="1" if binding.backend.developer_role == "system" else "0",
+                 REWRITE_STRIP_SERVER_TOOLS="1", REWRITE_REPAIR_TOOL_ARGS="1"),
         stdout=open(base / "wire_meter.log", "a"), stderr=subprocess.STDOUT, start_new_session=True)
     relay_sock = svc / "relay.sock"
     if relay_sock.exists():

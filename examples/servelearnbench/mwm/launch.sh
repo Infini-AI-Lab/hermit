@@ -115,7 +115,8 @@ case " $EVOLVER_APIS " in *" responses "*) ;; *) echo "REFUSING: backend $EVOLVE
 [ -e "$RUNS/$TAG/$TAG" ] && { echo "REFUSING: $RUNS/$TAG/$TAG exists (choose another MW_TAG)"; exit 1; }
 [ -e "$WD" ] && { echo "REFUSING: $WD exists"; exit 1; }
 start_meter $META_PORT "$EVOLVER_ORIGIN" "$RUNS/$TAG/meta_wire_ledger.json" "$RUNS/$TAG/meta_wire_meter.log" \
-  REWRITE_DEVELOPER_ROLE=1 REWRITE_STRIP_SERVER_TOOLS=1 REWRITE_REPAIR_TOOL_ARGS=1 DUMP_REJECTED="$RUNS/$TAG/rejected"
+  REWRITE_DEVELOPER_ROLE=$EVOLVER_REWRITE_DEVELOPER_ROLE REWRITE_STRIP_SERVER_TOOLS=1 REWRITE_REPAIR_TOOL_ARGS=1 \
+  DUMP_REJECTED="$RUNS/$TAG/rejected"
 
 stamp() { echo "$(git -C "$1" rev-parse --short HEAD)$([ -n "$(git -C "$1" status --porcelain)" ] && echo -dirty || true)"; }
 HEAD=$(stamp "$FRAMEWORK")

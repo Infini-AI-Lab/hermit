@@ -26,6 +26,8 @@ Backend fields:
     prices          per model id: {input, cached_input, output}, USD per million tokens
     extra_body      fields added to every chat request (for example reasoning_effort)
     context_window  tokens; Codex is told it (model_context_window)
+    developer_role  what a relay in front of the backend does with the `developer` role Codex uses: keep (default),
+                    or system for an endpoint that refuses the role (the examples' wire meter renames it)
     models          aliases: short names for model ids (`vllm/qwen` for a long id)
 
 A reference resolves to a Binding; `Binding.spec()` is its plain-dictionary form, which the run config carries after
@@ -56,7 +58,8 @@ def user_file() -> Path:
     return Path(os.environ.get("HA_BACKENDS") or Path.home() / ".config" / "harnessadapter" / "backends.yaml")
 APIS = ("chat", "responses", "messages")
 FIELDS = {"from", "base_url", "api_key_env", "key_required", "apis", "messages_url", "litellm", "prices", "extra_body",
-          "context_window", "models", "description"}
+          "context_window", "developer_role", "models", "description"}
+DEVELOPER_ROLES = ("keep", "system")
 # What each consumer speaks: the dialect a backend must serve for it.
 NEEDS = {"chat": "chat", "react": "chat", "llm": "chat", "codex": "responses", "claude": "messages"}
 # The variable litellm reads the key from, per route prefix (the examples' CL-Bench host calls through litellm).
@@ -77,6 +80,7 @@ class Backend:
     prices: dict = field(default_factory=dict)
     extra_body: dict = field(default_factory=dict)
     context_window: int | None = None
+    developer_role: str = "keep"
     models: dict = field(default_factory=dict)
     description: str = ""
 
@@ -95,19 +99,23 @@ class Backend:
         bad = [a for a in apis if a not in APIS]
         if bad:
             raise ValueError(f"backend {name!r}: unknown apis {bad}; known: {list(APIS)}")
+        role = str(data.get("developer_role") or "keep")
+        if role not in DEVELOPER_ROLES:
+            raise ValueError(f"backend {name!r}: developer_role must be one of {list(DEVELOPER_ROLES)}, not {role!r}")
         key_env = data.get("api_key_env", f"{_env_name(name)}_API_KEY")
         return cls(name=name, base_url=str(data["base_url"]).rstrip("/"), api_key_env=key_env or None,
                    key_required=bool(data.get("key_required", True)), apis=tuple(apis),
                    messages_url=(str(data["messages_url"]).rstrip("/") if data.get("messages_url") else None),
                    litellm=data.get("litellm"), prices=dict(data.get("prices") or {}),
                    extra_body=dict(data.get("extra_body") or {}), context_window=data.get("context_window"),
-                   models=dict(data.get("models") or {}), description=str(data.get("description") or ""))
+                   developer_role=role, models=dict(data.get("models") or {}),
+                   description=str(data.get("description") or ""))
 
     def to_dict(self) -> dict:
         return {"base_url": self.base_url, "api_key_env": self.api_key_env, "key_required": self.key_required,
                 "apis": list(self.apis), "messages_url": self.messages_url, "litellm": self.litellm,
                 "prices": self.prices, "extra_body": self.extra_body, "context_window": self.context_window,
-                "models": self.models, "description": self.description}
+                "developer_role": self.developer_role, "models": self.models, "description": self.description}
 
     @property
     def messages_root(self) -> str:
@@ -456,18 +464,35 @@ def problems_of(binding: Binding, api: str) -> list[str]:
 def warnings_of(binding: Binding, api: str) -> list[str]:
     """What may go wrong but did not stop a run here: nothing blocks, the caller is told."""
     out = []
-    if api == "messages" and "/" in binding.model:
-        out.append(f"the model id {binding.model!r} has a '/' in it; Claude Code 2.1.302 took it in print mode, but if "
-                   "yours rejects it, serve the model under another name (vllm serve --served-model-name NAME) and "
-                   "bind that name")
     if not binding.price and binding.backend.key_required:
         out.append(f"no price for {binding.model!r} on backend {binding.backend.name!r}: its cost is recorded as unknown "
                    "(set `prices` on the backend or `price` on the model)")
     return out
 
 
+# Codex (0.162 and later) groups its sub-agent tools and every MCP server's tools as `namespace` tools in each
+# Responses request; a server that rejects the type fails every Codex session (vLLM 0.31's gpt-oss path does).
+CODEX_NAMESPACE_TOOL = {"type": "namespace", "name": "mcp__probe", "description": "Tools of the probe's MCP server.",
+                        "tools": [{"type": "function", "name": "noop", "description": "Does nothing.", "strict": False,
+                                   "parameters": {"type": "object", "properties": {}, "additionalProperties": False}}]}
+
+
 def probe(binding: Binding, api: str, *, timeout: float = 60) -> dict:
-    """One request in the dialect: {ok, status, detail}. GET /models first (free), then a one-token call."""
+    """One request in the dialect: {ok, status, detail}. The Responses request is shaped as Codex sends one: streamed,
+    unstored, with a `namespace` tool; when only the namespace tool is refused, the detail says so."""
+    result = _probe(binding, api, timeout=timeout)
+    if api == "responses" and not result["ok"] and 400 <= int(result["status"] or 0) < 500:
+        plain = _probe(binding, api, timeout=timeout, tools=False)
+        if plain["ok"]:
+            result["detail"] = ("the server answers the Responses API but refuses a `namespace` tool, which Codex sends "
+                                "for its sub-agent and MCP tools in every session (vLLM 0.31 does so for gpt-oss models), "
+                                "so Codex cannot run on it: bind a model the server handles on its standard path (on vLLM "
+                                "0.31, any but gpt-oss; see docs/guides/model-backends.md). Server said: "
+                                + result["detail"][:200])
+    return result
+
+
+def _probe(binding: Binding, api: str, *, timeout: float = 60, tools: bool = True) -> dict:
     import urllib.error
     import urllib.request
     key = binding.key()
@@ -482,7 +507,8 @@ def probe(binding: Binding, api: str, *, timeout: float = 60) -> dict:
             headers["x-api-key"] = key
     elif api == "responses":       # as Codex calls it: streamed, unstored; the stream must end with a terminal event
         url = binding.base_url + "/responses"
-        body = {"model": binding.model, "input": "ping", "max_output_tokens": 32, "store": False, "stream": True}
+        body = {"model": binding.model, "input": "ping", "max_output_tokens": 32, "store": False, "stream": True,
+                **({"tools": [CODEX_NAMESPACE_TOOL], "tool_choice": "auto"} if tools else {})}
     else:
         url = binding.base_url + "/chat/completions"
         body = {"model": binding.model, "messages": [{"role": "user", "content": "ping"}], "max_tokens": 1}
@@ -525,7 +551,8 @@ def list_models(binding: Binding, *, timeout: float = 20) -> list[str] | str:
 
 def shell_lines(binding: Binding) -> list[str]:
     """`NAME=value` lines a shell launcher evals: the endpoint split for a wire meter in front of it (HA_ORIGIN is
-    the meter's UPSTREAM, HA_PATH follows the bucket), the key variable, the litellm id and the prices."""
+    the meter's UPSTREAM, HA_PATH follows the bucket, HA_REWRITE_DEVELOPER_ROLE its REWRITE_DEVELOPER_ROLE), the key
+    variable, the litellm id and the prices."""
     b = binding.backend
     price = binding.price or {}
     values = [("HA_BACKEND", b.name), ("HA_MODEL_ID", binding.model), ("HA_REF", binding.ref),
@@ -535,7 +562,8 @@ def shell_lines(binding: Binding) -> list[str]:
               ("HA_LITELLM_MODEL", binding.litellm_model), ("HA_LITELLM_KEY_ENV", binding.litellm_key_env),
               ("HA_PRICE_INPUT", str(price.get("input", ""))), ("HA_PRICE_CACHED_INPUT", str(price.get("cached_input", ""))),
               ("HA_PRICE_OUTPUT", str(price.get("output", ""))),
-              ("HA_CONTEXT_WINDOW", str(b.context_window or ""))]
+              ("HA_CONTEXT_WINDOW", str(b.context_window or "")),
+              ("HA_REWRITE_DEVELOPER_ROLE", "1" if b.developer_role == "system" else "0")]
     return [f"{k}={shlex.quote(v)}" for k, v in values]
 
 

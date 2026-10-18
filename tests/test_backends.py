@@ -27,7 +27,7 @@ def reg(declared=None, user=None, environ=None):
 class FakeServer:
     """One server speaking the three dialects: /v1/models, /v1/chat/completions, /v1/responses, /v1/messages."""
 
-    def __init__(self, model="m", key=None):
+    def __init__(self, model="m", key=None, reject_namespace=False):
         self.requests, outer = [], self
 
         class Handler(BaseHTTPRequestHandler):
@@ -55,6 +55,8 @@ class FakeServer:
                                                          "finish_reason": "stop"}],
                                             "usage": {"prompt_tokens": 3, "completion_tokens": 1}})
                 if self.path == "/v1/responses":
+                    if reject_namespace and any(t.get("type") == "namespace" for t in body.get("tools") or []):
+                        return self._send(400, {"error": {"message": "tool type 'namespace' is not supported."}})
                     if not body.get("stream"):
                         return self._send(200, {"id": "r", "output": [], "usage": {"input_tokens": 3, "output_tokens": 1}})
                     data = (b'event: response.created\ndata: {"type":"response.created"}\n\n'
@@ -233,8 +235,8 @@ def test_problems_dialect_and_key(monkeypatch):
     monkeypatch.delenv("FIREWORKS_API_KEY", raising=False)
     fw = resolve(f"fireworks/{GLM}", r)
     assert [p for p in problems_of(fw, "chat") if "FIREWORKS_API_KEY is not set" in p]
-    assert any("has a '/' in it" in w for w in backends.warnings_of(fw, "messages"))   # a warning, not a stop
-    assert not any("'/'" in w for w in backends.warnings_of(resolve("vllm/served-name", r), "messages"))
+    assert backends.warnings_of(fw, "messages") == []                         # priced: nothing to warn about
+    assert any("no price" in w for w in backends.warnings_of(resolve("openai/gpt-x", r), "chat"))
     assert problems_of(fw, "messages") == [p for p in problems_of(fw, "messages") if "FIREWORKS_API_KEY" in p]
     monkeypatch.setenv("FIREWORKS_API_KEY", "k")
     assert problems_of(fw, "responses") == []
@@ -256,6 +258,10 @@ def test_probe_each_dialect_and_chat_client(monkeypatch):
     assert paths == ["/v1/chat/completions", "/v1/responses", "/v1/messages"]
     assert server.requests[2][1].get("x-api-key") == "sk" and server.requests[2][1].get("anthropic-version")
     assert not probe(resolve("local/other", r), "chat")["ok"]                 # a model the server does not have
+    assert any(t.get("type") == "namespace" for t in server.requests[1][2]["tools"])   # shaped as Codex sends it
+    strict = FakeServer(model="m", reject_namespace=True)                      # vLLM 0.31's gpt-oss path
+    refused = probe(resolve("s/m", reg({"s": {"base_url": strict.url, "key_required": False}})), "responses")
+    assert not refused["ok"] and "refuses a `namespace` tool" in refused["detail"]
     client = ChatClient.from_spec(b.spec())
     message, usage = client.chat([{"role": "user", "content": "hi"}])
     assert message["content"] == "pong" and usage.input_tokens == 3 and client.api_key_env == "LOCAL_KEY"
@@ -273,6 +279,10 @@ def test_shell_lines_and_cli(capsys, monkeypatch):
     lines = shell_lines(resolve(f"fireworks/{GLM}", reg()))
     assert "HA_ORIGIN=https://api.fireworks.ai" in lines and "HA_PATH=/inference/v1" in lines
     assert f"HA_LITELLM_MODEL=fireworks_ai/{GLM}" in lines and "HA_PRICE_INPUT=0.15" in lines
+    assert "HA_REWRITE_DEVELOPER_ROLE=1" in lines                              # Fireworks: renamed, as before
+    assert "HA_REWRITE_DEVELOPER_ROLE=0" in shell_lines(resolve("vllm/q", reg()))   # a local server keeps the role
+    with pytest.raises(ValueError, match="developer_role must be one of"):
+        reg({"x": {"base_url": "http://x/v1", "developer_role": "user"}})
     assert backends.main(["list"]) == 0 and "vllm" in capsys.readouterr().out
     assert backends.main(["shell", "--backends", "{m: {from: vllm, base_url: 'http://127.0.0.1:1/b/v1'}}", "m/q"]) == 0
     out = capsys.readouterr().out

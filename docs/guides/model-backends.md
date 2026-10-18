@@ -83,6 +83,7 @@ lab-sglang:                             # a new one, like the built-in sglang at
 | `prices` | per model id, `{input, cached_input, output}` in USD per million tokens; a model without one has an unknown cost (never zero) |
 | `extra_body` | fields added to every chat request, such as `reasoning_effort` |
 | `context_window` | tokens; Codex is told it as `model_context_window` |
+| `developer_role` | `keep` (default), or `system`: a relay in front of the backend renames the `developer` role Codex uses, for an endpoint that refuses it (the built-in `fireworks` sets it, as the examples always did; Qwen3.6's chat template refuses a `system` message after the first, so a local server keeps the role) |
 | `models` | aliases: short names for model ids |
 | `from` | start from a copy of another backend (the examples put a metering relay in front of one this way) |
 
@@ -109,6 +110,24 @@ A backend that serves chat completions only can still run the framework's own ca
 but not a Codex or Claude Code acting agent or Evolver; put a translating proxy (LiteLLM serves `/v1/responses` and
 `/v1/messages` in front of any chat endpoint) between them, declared as its own backend.
 
+Serving the Responses API is not quite enough for Codex. Codex (0.162) sends its sub-agent tools and every MCP
+server's tools as `namespace` tools in each request, and the framework's learners always have an MCP server. The
+`responses` probe of `check` sends one, so a server that refuses it is reported before a run. What was observed
+on this framework's test machine (2026-10):
+
+| Server and model | Codex learner |
+|---|---|
+| vLLM 0.31, Qwen3 / Qwen3.6 (its standard Responses path flattens namespaces) | works |
+| vLLM 0.31, gpt-oss (its Harmony path) | every request refused: `tool type 'namespace' is not supported` |
+| SGLang 0.5.22, gpt-oss | accepted, but the tools inside a namespace are dropped (the model cannot call MCP tools) and usage is reported as zero |
+
+Pick a model the standard path serves for a Codex learner on a local server. On that path vLLM shows a namespaced
+tool to the model as `<namespace>__<name>` (`mcp__evolver_tools__check_spec`) and maps only that name back; a call
+by the bare name (`check_spec`) reaches Codex without its namespace and fails as `unsupported call`. Qwen3-30B used
+the flat names; Qwen3.6 used a bare name when the prompt named the tool. A model must also be able to carry a long
+agent session: Qwen3-30B-A3B-Instruct-2507 completed the prompt-only learner's sessions but looped through a MWM
+bootstrap session without writing anything.
+
 What the binding gives each CLI:
 
 - **Codex**: `-c model_provider=<backend> -c model_providers.<backend>.base_url=... .wire_api="responses"` and
@@ -119,8 +138,9 @@ What the binding gives each CLI:
   token, which is what vLLM and SGLang check; a placeholder for a keyless server, since Claude Code asks for a login
   without one), `ANTHROPIC_MODEL` and every model alias (`ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU,FABLE}_MODEL`,
   `CLAUDE_CODE_SUBAGENT_MODEL`) set to the model, and `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` off Anthropic.
-  Claude Code 2.1.302 took a model id with `/` in it (`vllm/Qwen/Qwen3-4B-Instruct-2507`) in print mode; vLLM's own
-  guide recommends a plain served name (`vllm serve ... --served-model-name qwen3`), and `check` says so.
+  Claude Code 2.1.302 took model ids with `/` in them (`Qwen/Qwen3-4B-Instruct-2507` on vLLM,
+  `accounts/fireworks/models/...` on Fireworks) in print mode; vLLM's own guide still recommends a plain served
+  name (`vllm serve ... --served-model-name qwen3`).
 
 The Evolver's own endpoint and key variable always reach the sandbox: the Trainer adds the binding's URLs to
 `sandbox.allow` and its `api_key_env` to `sandbox.env`, so a config lists neither. Claude Code's token is written

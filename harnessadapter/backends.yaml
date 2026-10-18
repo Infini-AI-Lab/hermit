@@ -13,6 +13,7 @@ fireworks:
   api_key_env: FIREWORKS_API_KEY
   apis: [chat, responses, messages]
   litellm: fireworks_ai
+  developer_role: system       # some deployments (kimi-k3) refuse the role; a relay renames it, as the examples always did
   prices:
     accounts/fireworks/models/glm-5p3-flash: {input: 0.15, cached_input: 0.03, output: 0.50}
     accounts/fireworks/models/glm-5p3: {input: 1.40, cached_input: 0.26, output: 4.40}
