@@ -124,9 +124,11 @@ on this framework's test machine (2026-10):
 Pick a model the standard path serves for a Codex learner on a local server. On that path vLLM shows a namespaced
 tool to the model as `<namespace>__<name>` (`mcp__evolver_tools__check_spec`) and maps only that name back; a call
 by the bare name (`check_spec`) reaches Codex without its namespace and fails as `unsupported call`. Qwen3-30B used
-the flat names; Qwen3.6 used a bare name when the prompt named the tool. A model must also be able to carry a long
-agent session: Qwen3-30B-A3B-Instruct-2507 completed the prompt-only learner's sessions but looped through a MWM
-bootstrap session without writing anything.
+the flat names. Qwen3.6 used the bare name that the Codex Evolver's prompt gives (`Call the check_spec tool`): in a
+full CL-Bench run its learner sessions all completed, since the Trainer checks every step's adapter itself, but none
+of its `check_spec` calls went through. A model must also be able to carry a long agent session:
+Qwen3-30B-A3B-Instruct-2507 completed the prompt-only learner's sessions but looped through a MWM bootstrap session
+without writing anything.
 
 What the binding gives each CLI:
 
