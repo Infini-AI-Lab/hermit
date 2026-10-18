@@ -233,13 +233,18 @@ class Sandbox:
     packages: list[str] = field(default_factory=list)    # Python distributions to show beside the framework's
     record_dir: Path | None = None                       # where each wrapped command leaves its record
     probe_absent: list[Path] = field(default_factory=list)   # paths the isolation check must find missing
+    masked: list[Path] = field(default_factory=list)     # paths inside a bound directory to cover (a run's secrets)
+    audit: str | None = None                             # files: strace every file access from outside, beside the record
     role: str = "learner"
 
     def __post_init__(self):
         self.network, _ = network_mode(self.network)
         if self.enforce not in ("required", "best_effort"):
             raise ValueError("sandbox.enforce must be required or best_effort")
+        if self.audit not in (None, "files"):
+            raise ValueError("sandbox.audit must be null or files")
         self._bridges: _Bridges | None = None
+        self._empty: str | None = None
         # Number records after the ones already there: a resumed run builds a new Sandbox in the same run directory.
         taken = [int(m.group(1)) for f in (self.record_dir.glob(f"{self.role}-*.json") if self.record_dir else [])
                  if (m := re.fullmatch(rf"{re.escape(self.role)}-(\d+)\.json", f.name))]
@@ -267,10 +272,15 @@ class Sandbox:
         return sorted(p for p in ports if p)
 
     def wrap(self, command: list[str], *, writable: list[Path] = (), env: dict | None = None,
-             home: Path | None = None, keep=(), forward: list[int] = ()) -> tuple[list[str], dict]:
+             home: Path | None = None, keep=(), forward: list[int] = (),
+             readable: list[Path] = ()) -> tuple[list[str], dict]:
         """The command to run and its environment. `home` becomes HOME (it must be among the writable paths).
         `keep` names variables the caller set for this command itself (an agent's provider settings): they pass
-        whatever sandbox.env lists. `forward` names more ports to re-create inside an isolated network."""
+        whatever sandbox.env lists. `forward` names more ports to re-create inside an isolated network.
+        `readable` adds read-only paths for this command only (the adapter a rollout runs with).
+
+        Order inside: the visible paths, then the masks over them (the run's secrets in a bound directory), then
+        `readable` and the writable paths, which may lie under a mask and are bound back on top of it."""
         env = dict(env if env is not None else os.environ)
         if self.env_allow is not None:
             allowed = set(self.env_allow) | ALWAYS | set(keep)
@@ -303,37 +313,72 @@ class Sandbox:
                 args += ["--ro-bind", path, path]
         if self.network == "isolated":
             args.append("--unshare-net")
-        seen, ro, rw = set(), [], []
-        for path in self.visible(command):
-            for name in _names(path):
-                if os.path.exists(name) and name not in seen and not name.startswith("/usr"):
-                    seen.add(name)
-                    ro.append(name)
-                    args += ["--ro-bind", name, name]
-        for path in [*self.writable, *writable]:
-            Path(path).mkdir(parents=True, exist_ok=True)
-            for name in _names(path):
-                if name not in seen:
-                    seen.add(name)
-                    rw.append(name)
-                    args += ["--bind", name, name]
+        # Order: what is shown read-only, the role's own writable paths, the masks over both (read-only, so a
+        # writable directory cannot uncover a secret inside it), then this call's readable and writable paths, which
+        # may lie under a mask and are bound back on top of it.
+        seen, ro, rw, masked, own = set(), [], [], [], []
+
+        def bind(paths, flag, out, fresh=False):
+            for path in paths:
+                if flag == "--bind":
+                    Path(path).mkdir(parents=True, exist_ok=True)
+                for name in _names(path):
+                    if not os.path.exists(name) or name.startswith("/usr"):
+                        continue
+                    key = (flag, name)
+                    if key in seen and not fresh:          # a call's own paths go on top of the masks, always
+                        continue
+                    seen.add(key)
+                    out.append(name)
+                    args.extend([flag, name, name])
+        bind(self.visible(command), "--ro-bind", ro)
+        bind(self.writable, "--bind", rw)
+        shown = ro + rw
+        # Shortest first, so a covered directory comes before anything beneath it; a path under one is already
+        # hidden, and covering it again would leave a mount point behind in the empty directory.
+        for name in sorted((n for path in self.masked for n in _names(path)), key=len):
+            if not os.path.exists(name) or not any(name == b or name.startswith(b + "/") for b in shown) or any(
+                    name == m or name.startswith(m + "/") for m in masked):
+                continue                                  # nothing there, not shown anyway, or covered already
+            masked.append(name)
+            # A file is covered by an empty regular file: /dev/null cannot be opened on a mount without devices.
+            args.extend(["--tmpfs", name] if os.path.isdir(name) else ["--ro-bind", self._empty_file(), name])
+        n_ro, n_rw = len(ro), len(rw)
+        bind(readable, "--ro-bind", ro, fresh=True)
+        bind(writable, "--bind", rw, fresh=True)
+        own = ro[n_ro:] + rw[n_rw:]                       # this call's paths, which may lie under a mask
+        # A covered directory becomes read-only last: a call's own paths beneath it needed their mount points made
+        # first, and the remount leaves what is mounted inside it as it is.
+        for name in masked:
+            if os.path.isdir(name):
+                args.extend(["--remount-ro", name])
+        ro = [p for p in ro if p not in rw]               # a path bound both ways is writable: the later bind wins
         env["HOME"] = _names(home)[0] if home else _names(self.writable[0])[0] if self.writable else "/tmp"
-        policy = {"enforced": True, "network": self.network, "read_only": ro, "read_write": rw,
+        policy = {"enforced": True, "network": self.network, "read_only": ro, "read_write": rw, "masked": masked,
                   "proxy": self.proxy_url, "allow": list(self.allow)}
+        name = f"{self.role}-{next(self._count)}"
+        if self.audit == "files":
+            # strace runs outside, as bwrap's parent: what the sandbox does cannot reach the trace it leaves.
+            if self.record_dir is None or not shutil.which("strace"):
+                raise RuntimeError("sandbox.audit: files needs strace installed and a directory for the records")
+            self.record_dir.mkdir(parents=True, exist_ok=True)
+            trace = self.record_dir / f"{name}.strace"
+            args = ["strace", "-f", "-qq", "-e", "trace=%file", "-o", str(trace), *args]
+            policy["audit"] = str(trace)
         if self.network == "isolated":
             if self._bridges is None:
                 self._bridges = _Bridges()
             ports = self.forwarded_ports(command, env, forward)
-            name = f"{self.role}-{next(self._count)}"
             record = self._record(command, {**policy, "forwarded": ports, "probe": None}, env, name=name)
             report = self._bridges.report_listener(name, lambda result: self._probe_result(record, result))
             args += ["--bind", str(self._bridges.dir), str(self._bridges.dir)]
             command = [sys.executable, str(RELAY),
                        *[a for p in ports for a in ("--forward", f"{p}={self._bridges.socket_for(p)}")],
-                       *[a for p in self._absent(ro + rw) for a in ("--deny", p)],
+                       *[a for p in [*self._absent(ro + rw), *masked] for a in ("--deny", p)],
+                       *[a for p in own for a in ("--keep", p)],
                        "--report", str(report), "--", *command]
         else:
-            self._record(command, policy, env)
+            self._record(command, policy, env, name=name)
         return args + ["--", *command], env
 
     def _absent(self, bound: list[str]) -> list[str]:
@@ -368,10 +413,21 @@ class Sandbox:
         data["probe"] = result
         record.write_text(json.dumps(data, indent=1))
 
+    def _empty_file(self) -> str:
+        if self._empty is None:
+            fd, name = tempfile.mkstemp(prefix="ha-sbx-empty-")
+            os.close(fd)
+            os.chmod(name, 0o444)
+            self._empty = name
+        return self._empty
+
     def close(self):
         if self._bridges is not None:
             self._bridges.close()
             self._bridges = None
+        if self._empty is not None:
+            Path(self._empty).unlink(missing_ok=True)
+            self._empty = None
 
 
 class AllowlistProxy:

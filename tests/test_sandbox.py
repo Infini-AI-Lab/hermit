@@ -216,3 +216,31 @@ def test_records_continue_after_a_resume(tmp_path, monkeypatch):
     Sandbox(network="open", record_dir=tmp_path).wrap(["true"])
     Sandbox(network="open", record_dir=tmp_path).wrap(["true"])    # a resumed run: a new Sandbox, same directory
     assert sorted(p.name for p in tmp_path.glob("learner-*.json")) == ["learner-1.json", "learner-2.json"]
+
+
+def test_file_audit_wraps_bubblewrap_in_strace(tmp_path, monkeypatch):
+    monkeypatch.setattr(sandbox_module.shutil, "which",
+                        lambda name, *a, **k: f"/usr/bin/{name}" if name in ("bwrap", "strace")
+                        else REAL_WHICH(name, *a, **k))
+    args, _ = Sandbox(network="open", record_dir=tmp_path, audit="files").wrap(["true"])
+    trace = str(tmp_path / "learner-1.strace")
+    assert args[:7] == ["strace", "-f", "-qq", "-e", "trace=%file", "-o", trace] and args[7] == "bwrap"
+    assert json.loads((tmp_path / "learner-1.json").read_text())["audit"] == trace
+    with pytest.raises(RuntimeError, match="strace"):
+        Sandbox(network="open", audit="files").wrap(["true"])             # nowhere to leave the trace
+    with pytest.raises(ValueError):
+        Sandbox(audit="everything")
+
+
+@pytest.mark.skipif(not _bwrap_works() or not REAL_WHICH("strace"), reason="needs bubblewrap and strace")
+def test_file_audit_sees_what_the_sandbox_opens(tmp_path):
+    granted = tmp_path / "granted"
+    granted.mkdir()
+    (granted / "a.txt").write_text("a")
+    box = Sandbox(readable=[granted], record_dir=tmp_path / "records", audit="files")
+    try:
+        args, env = box.wrap([sys.executable, "-c", f"open({str(granted / 'a.txt')!r}).read()"])
+        assert subprocess.run(args, env=env, capture_output=True, timeout=120).returncode == 0
+    finally:
+        box.close()
+    assert str(granted / "a.txt") in (tmp_path / "records" / "learner-1.strace").read_text()

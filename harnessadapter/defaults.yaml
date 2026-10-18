@@ -37,6 +37,9 @@ sandbox:
   read: []                     # more paths the Evolver may read (an allowlist; nothing else is visible)
   packages: []                 # more Python distributions to show, beside the framework's own dependencies
   env: null                    # environment variables passed to what the Evolver starts; null = all of them
+  audit: null                  # files: strace each sandboxed process's file accesses (from outside) beside its record
+  profiles: {}                 # per role (learner, rollout, eval, check, tool): {enabled, inherit, read, write, allow,
+                               # packages}; e.g. profiles: {rollout: {read: [../env]}}, {eval: {enabled: false}}
 model: null                    # the run's default model, a `<backend>/<model id>` reference (see backends): what `llm`,
                                # agent.params.model and evolver.params.model use when they name none
 backends: {}                   # this run's model backends by name: {base_url, api_key_env, apis, prices, ...} or

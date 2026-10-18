@@ -79,9 +79,16 @@ def _load_entry(entrypoint: str, base: Path) -> Callable:
     return fn
 
 
-def declared(decl: dict, base: Path, source: str, bound: dict) -> FunctionTool:
+def declared(decl: dict, base: Path, source: str, bound: dict, runner=None) -> FunctionTool:
     """A tool declared like an adapter tool: name, description, entrypoint, input_schema, output_schema.
-    Keyword arguments the function declares among `bound` (for example `_adapter`) are filled by the framework."""
+    Keyword arguments the function declares among `bound` (for example `_adapter`) are filled by the framework.
+    With a `runner` (the `tool` role's sandbox, isolate.ToolRunner) the code is never imported here: every call runs
+    in a sandboxed worker."""
+    if runner is not None:
+        def call(**arguments):
+            return runner(decl["entrypoint"], base, arguments, bound)
+        return FunctionTool(decl["name"], decl["description"], call, source=source,
+                            input_schema=decl.get("input_schema"), output_schema=decl.get("output_schema"))
     fn = _load_entry(decl["entrypoint"], base)
     params = inspect.signature(fn).parameters
     extra = {k: v for k, v in bound.items() if k in params}
@@ -94,7 +101,7 @@ def declared(decl: dict, base: Path, source: str, bound: dict) -> FunctionTool:
 
 def assemble(*, adapter: Path, root: Path, template_decls: list, task_decls: list, task_base: Path,
              budget, llm_client=None, python: str | None = None,
-             metered: list | None = None) -> dict[str, FunctionTool]:
+             metered: list | None = None, runner=None) -> dict[str, FunctionTool]:
     """One toolset for one call. `adapter` is the workspace copy the tools act on; `root` the template's files."""
     from harnessadapter.spec import check_spec
     tools: dict[str, FunctionTool] = {}
@@ -108,9 +115,9 @@ def assemble(*, adapter: Path, root: Path, template_decls: list, task_decls: lis
         input_schema={"type": "object", "properties": {"path": {"type": "string"}}, "additionalProperties": False})
     bound = {"_adapter": adapter, "_root": root}
     for decl in template_decls or []:
-        tools[decl["name"]] = declared(decl, root, "template", bound)
+        tools[decl["name"]] = declared(decl, root, "template", bound, runner)
     for decl in task_decls or []:
-        tools[decl["name"]] = declared(decl, task_base, "task", bound)
+        tools[decl["name"]] = declared(decl, task_base, "task", bound, runner)
 
     def remaining() -> dict:
         return {"remaining": budget.remaining(), "spent": budget.snapshot()}

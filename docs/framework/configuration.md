@@ -87,14 +87,35 @@ in-flight work can overshoot it. Dollar accounting needs reported usage and appl
 
 ## Sandbox, network and warnings
 
-The sandbox wraps learner programs started through the framework. It does not yet isolate the task pipeline or
-arbitrary code in an in-process custom Evolver (issue #11 tracks those). It requires Linux and bubblewrap.
+Every process the framework starts runs in a sandbox, in one of five roles. Only the Trainer itself and the judge
+(which scores in the Trainer, on the task's answer) stay outside. It requires Linux and bubblewrap.
+
+| Role | What runs in it |
+|---|---|
+| `learner` | The Evolver's learner program (a coding agent or a script). |
+| `rollout` | The task pipeline during training: each task's agent runs in its own worker process. |
+| `eval` | The same worker, for `harnessadapter eval`. |
+| `check` | The same worker, for the probe of `harnessadapter check`. |
+| `tool` | A tool the template or task declares for the Evolver; its code is never imported in the Trainer. |
+
+A custom Evolver's own Python code runs in the Trainer, as before; what it starts goes through the learner sandbox.
 
 It is a positive allowlist: inside, only what is granted exists. Read-only: the system's `/usr` and a few `/etc`
 files, the Python interpreter, the Python distributions the framework depends on (not every package installed beside
 it), the `harnessadapter` package (not the checkout around it), the learner program's installation, the Evolver's
 directory, the granted accesses and `sandbox.read`. Read-write: the adapter, state, scratch and output directories.
 The task's data, other runs and the user's home are not there at all.
+
+A rollout worker sees the run's directory read-only, the adapter under test, and a work directory of its own (its
+HOME, logs and workspaces). The agent's own code directory is writable, because real agents keep logs beside their
+code. The run's secrets inside the visible directory are covered: the task, split and judge files read as empty, and
+the runs output directory, the tree directory and the agent's other logs are empty directories. The agent reaches its
+model at the bound `base_url` (a `127.0.0.1` endpoint is forwarded, any other host goes through the allowlist proxy),
+with the key variable passed on; a CLI agent's login is copied into its own `CODEX_HOME` or `CLAUDE_CONFIG_DIR`. The
+result comes back on a pipe that only the worker can write, so nothing the agent starts can report a result.
+
+A pipeline that needs what the worker does not give it (a GPU, a docker socket, a path elsewhere) gets it through
+`sandbox.profiles.<role>.read` or `.write`, or runs unconfined with `profiles.<role>.enabled: false`.
 
 | Setting | Effect |
 |---|---|
@@ -107,6 +128,8 @@ The task's data, other runs and the user's home are not there at all.
 | `sandbox.read` | Additional filesystem paths those programs may read. |
 | `sandbox.packages` | Additional Python distributions to show, by name, beside the framework's own dependencies. |
 | `sandbox.env` | Environment variables passed on, in addition to required runtime variables; null inherits the environment. |
+| `sandbox.profiles.<role>` | Per role: `enabled`, `read`, `write`, `allow`, `packages`; `inherit: false` drops the shared lists. |
+| `sandbox.audit: files` | Trace every file a sandboxed process opens, with strace running outside, beside its record. |
 
 The older values still work: `network: restricted` means `isolated`, and `network: none` means `isolated` without the
 proxy.
@@ -117,9 +140,11 @@ and relayed over a Unix socket, so a program that ignores the proxy variables ha
 starts, a check inside the sandbox confirms that an outside connection fails, that every forwarded port answers, and
 that the task's data file and the home's `.ssh` and `.bashrc` are absent; the learner does not start unless it passes.
 
-Every wrapped program leaves a record in the run's `sandbox/` directory: what was bound read-only and read-write,
-which ports were forwarded, which environment variables passed, and the result of that check. The proxy writes one
-line per request, allowed or refused, to `sandbox/network.jsonl`.
+Every wrapped program leaves a record, `sandbox/<role>-<n>.json` in the run's directory (`eval` writes its own beside
+its results): what was bound read-only and read-write, what was covered, which ports were forwarded, which
+environment variables passed, and the result of that check, which for a worker also proves the covered paths empty.
+Each role's proxy writes one line per request, allowed or refused, to `sandbox/network*.jsonl`. With `audit: files`,
+`<role>-<n>.strace` lists the file accesses; strace is bubblewrap's parent, out of the sandbox's reach.
 
 Giving more read paths or inheriting credentials changes what the learner can access. Warnings are recorded with the
 run.

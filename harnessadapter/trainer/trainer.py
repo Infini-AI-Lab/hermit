@@ -14,6 +14,8 @@ Run directory (<output_dir>/<run_name>/):
 """
 from __future__ import annotations
 
+import atexit
+
 from dataclasses import asdict
 import json
 import random
@@ -32,6 +34,7 @@ from harnessadapter.evolver.base import (Access, Context, Evolver, FinalResult, 
                                          Workspace)
 from harnessadapter.evolver.loader import find, instantiate
 from harnessadapter.llm import ChatClient
+from harnessadapter.isolate import ToolRunner, agent_pipeline, profile
 from harnessadapter.sandbox import AllowlistProxy, Sandbox, network_mode
 from harnessadapter.spec import check_spec, repair
 from harnessadapter.agents.base import load_agent
@@ -187,7 +190,8 @@ class Trainer:
         self.access = Access(validation=val, environment=env)
         # The Evolver's own model endpoint is reachable and its key variable passes: they come with the model the
         # Evolver was given (its binding), whatever sandbox.allow and sandbox.env list.
-        allow, env_allow, binding = list(d["sandbox"]["allow"]), d["sandbox"].get("env"), self.params.get("binding")
+        learner = profile(d["sandbox"], "learner")
+        allow, env_allow, binding = list(learner["allow"]), d["sandbox"].get("env"), self.params.get("binding")
         if isinstance(binding, dict) and binding.get("base_url"):
             allow += [u for u in (binding["base_url"], binding.get("messages_url")) if u]
             if env_allow is not None and binding.get("api_key_env") and binding["api_key_env"] not in env_allow:
@@ -200,12 +204,18 @@ class Trainer:
         # the task lists in sandbox.read. The task, the answers and the run records are not among them.
         readable = [self.ws.learning_material, self.ws.task_info, self.ws.history, *([val] if val else []), *env,
                     self.run_dir / "root", self.spec.directory]
-        self.sandbox = Sandbox(enabled=bool(d["sandbox"]["enabled"]), network=d["sandbox"]["network"], allow=allow,
-                               read=[self.config.path(p) for p in d["sandbox"]["read"] or []], readable=readable,
-                               writable=[self.ws.adapter, self.ws.state, self.ws.scratch, self.ws.output],
+        # What else the run starts has a sandbox of its own (#11): the agent that does the tasks (rollouts, and
+        # run_agent for the Evolver) and the tools a template or task declares.
+        self.pipeline, self._close_pipeline = agent_pipeline(self.config, "rollout", records=records)
+        self.tool_runner = ToolRunner(self.config, records=records, work_root=self.run_dir / "tool_calls")
+        atexit.register(self._close_sandboxes)
+        self.sandbox = Sandbox(enabled=learner["enabled"], network=d["sandbox"]["network"], allow=allow,
+                               read=[self.config.path(p) for p in learner["read"]], readable=readable,
+                               writable=[self.ws.adapter, self.ws.state, self.ws.scratch, self.ws.output,
+                                         *[self.config.path(p) for p in learner["write"]]],
                                proxy_url=self.proxy.url if self.proxy else None,
                                env_allow=env_allow, enforce=d["sandbox"].get("enforce", "required"),
-                               packages=list(d["sandbox"].get("packages") or []), record_dir=records,
+                               packages=learner["packages"], record_dir=records, audit=d["sandbox"].get("audit"),
                                # The isolation check inside proves these absent: the task's data and the home.
                                probe_absent=[self.config.path(d["data"]["tasks"]), Path.home() / ".ssh",
                                              Path.home() / ".bashrc"])
@@ -323,7 +333,8 @@ class Trainer:
         tools = assemble(adapter=self.ws.adapter, root=self.run_dir / "root",
                          template_decls=read_manifest(self.run_dir / "root").get("evolver_tools") or [],
                          task_decls=_task_tool_decls(self.config), task_base=self.config.base,
-                         budget=self.budget, llm_client=self.llm, python=self.python, metered=metered)
+                         budget=self.budget, llm_client=self.llm, python=self.python, metered=metered,
+                         runner=self.tool_runner if self.tool_runner.enabled else None)
         tools["run_agent"] = self._run_agent_tool()
         for tool in tools.values():
             tool.log_path = self.run_dir / "tools.jsonl"
@@ -597,10 +608,18 @@ class Trainer:
                    "checkpoints": self._tags(prefix=f"{self.run_name}/ckpt-"), "finalize": note,
                    "warnings": self.warnings}
         (self.run_dir / "summary.json").write_text(json.dumps(summary, indent=1))
-        if self.proxy:
-            self.proxy.close()
-        self.sandbox.close()
+        self._close_sandboxes()
         return summary
+
+    def _close_sandboxes(self) -> None:
+        for close in (getattr(self, "_close_pipeline", None), getattr(getattr(self, "tool_runner", None), "close", None),
+                      getattr(getattr(self, "proxy", None), "close", None), getattr(getattr(self, "sandbox", None), "close", None)):
+            if close is not None:
+                try:
+                    close()
+                except Exception:
+                    pass
+        self._close_pipeline = None
 
     def _tags(self, prefix: str) -> list[str]:
         from harnessadapter.tree import git

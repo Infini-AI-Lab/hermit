@@ -26,7 +26,7 @@ def _merge(base: dict, extra: dict, prefix: str = "") -> dict:
     return out
 
 
-FREE = ("params", "llm", "backends")   # sections whose keys the framework does not know in advance
+FREE = ("params", "llm", "backends", "profiles")   # sections whose keys the framework does not know in advance
 
 
 def _override(config: dict, item: str) -> None:
@@ -99,6 +99,10 @@ class Config:
         network_mode(d["sandbox"]["network"])
         if d["sandbox"].get("enforce", "required") not in ("required", "best_effort"):
             raise ValueError("sandbox.enforce must be required or best_effort")
+        if d["sandbox"].get("audit") not in (None, "files"):
+            raise ValueError("sandbox.audit must be null or files")
+        from harnessadapter.isolate import validate as validate_profiles
+        validate_profiles(d["sandbox"])
         if not isinstance(d["data"]["shuffle"], bool):
             raise ValueError("data.shuffle must be true or false")
         if int(d["data"]["step_size"]) < 1 or int(d["trainer"]["epochs"]) < 1:
