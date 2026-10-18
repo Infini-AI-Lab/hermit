@@ -3,10 +3,14 @@
     agent:
       name: codex                            # or claude-code; `cli` with params.backend is the same
       params:
-        model: gpt-5.4                       # optional: the CLI's default otherwise
+        model: gpt-5.4                       # optional: the CLI's default otherwise. A `<backend>/<model>` reference
+                                             # (harnessadapter.backends) binds the CLI to that backend: its provider
+                                             # settings go into args (Codex) or env (Claude Code), its price is used
+                                             # (Claude Code's own cost figure only for Anthropic's backend)
         prompt: environment/prompt.md        # the task prompt; `{field}` placeholders take the task's fields
         files: [environment/fixtures]        # optional: copied into every workspace before the run
         args: []                             # extra CLI arguments
+        env: {}                              # extra environment variables for the CLI (a `$NAME` value is expanded)
         price: {input: 1.25, cached_input: 0.125, output: 10}   # USD per million tokens; without it cost is unknown
         timeout_s: 3600
         workspaces: .logs/workspaces         # one fresh directory per task, beside the config
@@ -28,7 +32,7 @@ import time
 import uuid
 
 from harnessadapter.agents.base import Agent
-from harnessadapter.evolver.agent import parse_log
+from harnessadapter.evolver.agent import parse_log, price_usage
 from harnessadapter.task import RunOutput
 
 BACKENDS = ("codex", "claude")
@@ -113,7 +117,7 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path) -> RunOutpu
         shutil.copytree(source, target) if source.is_dir() else shutil.copy2(source, target)
     prompt = _prompt(params, base, task)
     log, last = workspace / f"agent-{backend}.jsonl", workspace / ".last-message.txt"
-    env = {**os.environ, **{k: str(v) for k, v in (params.get("env") or {}).items()}}
+    env = {**os.environ, **{k: os.path.expandvars(str(v)) for k, v in (params.get("env") or {}).items()}}
     started = time.time()
     with open(log, "w") as out:
         try:
@@ -124,17 +128,10 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path) -> RunOutpu
             code = -1
     wall = round(time.time() - started, 1)
     _, usage = parse_log(log, backend, params.get("model") or backend)
-    price = params.get("price")
+    price_usage(usage, params)
     cost = tokens = None
     if usage:
-        u = usage[0]
-        tokens = u.input_tokens + u.output_tokens
-        if u.cost_usd is not None:
-            cost = u.cost_usd
-        elif price:
-            cost = ((u.input_tokens - u.cached_input_tokens) * price.get("input", 0)
-                    + u.cached_input_tokens * price.get("cached_input", price.get("input", 0))
-                    + u.output_tokens * price.get("output", 0)) / 1e6
+        cost, tokens = usage[0].cost_usd, usage[0].input_tokens + usage[0].output_tokens
     return RunOutput(output=last_message(backend, log, last), log=workspace, cost_usd=cost, wall_s=wall, tokens=tokens,
                      api_speed={"model_calls": usage[0].calls} if usage else None,
                      extra={"backend": backend, "exit_code": code, "timed_out": code == -1, "workspace": str(workspace)})

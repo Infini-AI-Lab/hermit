@@ -16,17 +16,14 @@ start_from: ../utils/seed_adapter  # SkillOpt's initial OfficeQA skill
 evolver:
   name: prompt_only
 llm:                           # the learner: GLM 5.3 at medium effort, as for GEPA and SkillOpt
-  base_url: https://api.fireworks.ai/inference/v1
-  model: accounts/fireworks/models/glm-5p3
-  api_key_env: FIREWORKS_API_KEY
-  price: {input: 1.40, cached_input: 0.26, output: 4.40}
+  model: fireworks/accounts/fireworks/models/glm-5p3     # <backend>/<model id>; the price is the backend's
   extra_body: {reasoning_effort: medium}
 sandbox:
   enabled: true
   network: restricted
-  allow: [https://api.fireworks.ai]
+  allow: []                  # the Evolver's own model endpoint is always reachable
   read: []                   # an allowlist: the Evolver sees nothing of this machine beyond its workspace and accesses
-  env: [FIREWORKS_API_KEY]
+  env: []                    # the Evolver's model key variable is always passed; nothing else is
 trainer:
   run_name: smoke-prompt-only
   output_dir: runs

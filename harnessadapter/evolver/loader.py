@@ -65,9 +65,16 @@ def load_class(spec: EvolverSpec) -> type[Evolver]:
     return cls
 
 
-def instantiate(spec: EvolverSpec, params: dict) -> tuple[Evolver, dict]:
-    """The Evolver instance and its effective params (manifest defaults overridden by the run config)."""
+def instantiate(spec: EvolverSpec, params: dict, *, backends: dict | None = None,
+                default_model=None) -> tuple[Evolver, dict]:
+    """The Evolver instance and its effective params (manifest defaults overridden by the run config). An Evolver
+    that is a Codex or Claude Code agent (`backend` in its params) gets its model bound: a `<backend>/<model>`
+    reference in `model` (or the run's default) becomes the provider settings in `args` or `env`."""
     merged = {**spec.params, **(params or {})}
+    if merged.get("backend") in ("codex", "claude") and (merged.get("model") or default_model) is not None:
+        from harnessadapter.backends import bind_agent_params, registry
+        merged = bind_agent_params(merged, merged["backend"], backends if backends is not None else registry(),
+                                   default_model)
     cls = load_class(spec)
     evolver = cls()
     evolver.directory = spec.directory      # lets built-ins find their prompt files

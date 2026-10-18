@@ -8,6 +8,8 @@ import re
 
 import yaml
 
+from harnessadapter.backends import normalize_config
+
 DEFAULTS = Path(__file__).with_name("defaults.yaml")
 TEMPLATES = Path(__file__).resolve().parent / "algorithms" / "templates"
 
@@ -17,14 +19,14 @@ def _merge(base: dict, extra: dict, prefix: str = "") -> dict:
     for key, value in (extra or {}).items():
         if key not in out:
             raise ValueError(f"Unknown config key: {prefix}{key}")
-        if isinstance(out[key], dict) and isinstance(value, dict) and key not in ("params", "llm"):
+        if isinstance(out[key], dict) and isinstance(value, dict) and key not in FREE:
             out[key] = _merge(out[key], value, f"{prefix}{key}.")
         else:
             out[key] = value
     return out
 
 
-FREE = ("params", "llm")   # sections whose keys the framework does not know in advance
+FREE = ("params", "llm", "backends")   # sections whose keys the framework does not know in advance
 
 
 def _override(config: dict, item: str) -> None:
@@ -66,6 +68,7 @@ class Config:
                 data["agent"]["params"] = {**data["agent"].get("params", {}), **data["pipeline"]["params"]}
             if data["pipeline"].get("concurrency") is not None:
                 data["agent"]["concurrency"] = data["pipeline"]["concurrency"]
+        normalize_config(data)      # model references -> the endpoints they name
         config = cls(data, Path(path).parent)
         config.validate()
         return config

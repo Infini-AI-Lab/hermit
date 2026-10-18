@@ -26,6 +26,7 @@ from pathlib import Path
 import yaml
 
 from harnessadapter.adapter.manifest import MANIFEST, files_of, read_manifest
+from harnessadapter.backends import bindings_of, problems_of, registry
 from harnessadapter.config import Config
 from harnessadapter.evolver.base import (Access, Context, Evolver, FinalResult, Progress, StepContext, StepResult, Usage,
                                          Workspace)
@@ -131,17 +132,18 @@ class Trainer:
         self.pipeline = load_agent(d["agent"]["name"], d["agent"].get("params"), config.base).run
         self.judge = load_callable(f"{d['judge']['path']}:{d['judge']['name']}", config.base)
         self.spec = find(d["evolver"]["name"], config.base)
-        self.evolver, self.params = instantiate(self.spec, d["evolver"]["params"])
+        self.evolver, self.params = instantiate(self.spec, d["evolver"]["params"],
+                                                backends=registry(d.get("backends")), default_model=d.get("model"))
         self.budget = Budget(**{k: d["trainer"]["budget"].get(k) for k in ("usd", "tokens", "hours")})
-        llm = d.get("llm")
-        self.llm = ChatClient(llm["base_url"], llm["model"], api_key_env=llm.get("api_key_env"),
-                              price=llm.get("price"), extra_body=llm.get("extra_body")) if llm else None
+        self.llm = ChatClient.from_spec(d["llm"]) if d.get("llm") else None
         self.warnings = warnings_for(config, val_given=True)
 
     # ---------- setup ----------
     def _prepare(self) -> None:
         d = self.config.data
         errors = needs_errors(self.config, self.spec.needs, self.evolver.supports_resume)
+        for who, binding, api in bindings_of(d, self.params):
+            errors += [f"{who}: {p}" for p in problems_of(binding, api)]
         if errors:
             raise SystemExit("train refuses to start: " + "; ".join(errors))
         for w in self.warnings:
@@ -183,17 +185,22 @@ class Trainer:
                     f.write(json.dumps(row, ensure_ascii=False) + "\n")
         env = tuple(self.config.path(p) for p in d["evolver_access"]["environment"] or [])
         self.access = Access(validation=val, environment=env)
-        self.proxy = AllowlistProxy(d["sandbox"]["allow"]) if (d["sandbox"]["network"] == "restricted") else None
+        # The Evolver's own model endpoint is reachable and its key variable passes: they come with the model the
+        # Evolver was given (its binding), whatever sandbox.allow and sandbox.env list.
+        allow, env_allow, binding = list(d["sandbox"]["allow"]), d["sandbox"].get("env"), self.params.get("binding")
+        if isinstance(binding, dict) and binding.get("base_url"):
+            allow += [u for u in (binding["base_url"], binding.get("messages_url")) if u]
+            if env_allow is not None and binding.get("api_key_env") and binding["api_key_env"] not in env_allow:
+                env_allow = [*env_allow, binding["api_key_env"]]
+        self.proxy = AllowlistProxy(allow) if (d["sandbox"]["network"] == "restricted") else None
         # The Evolver sees only what it is given: the workspace (read-write), its accesses, its own code, and what
         # the task lists in sandbox.read. The task, the answers and the run records are not among them.
         readable = [self.ws.learning_material, self.ws.task_info, self.ws.history, *([val] if val else []), *env,
                     self.run_dir / "root", self.spec.directory]
-        self.sandbox = Sandbox(enabled=bool(d["sandbox"]["enabled"]), network=d["sandbox"]["network"],
-                               allow=list(d["sandbox"]["allow"]),
+        self.sandbox = Sandbox(enabled=bool(d["sandbox"]["enabled"]), network=d["sandbox"]["network"], allow=allow,
                                read=[self.config.path(p) for p in d["sandbox"]["read"] or []], readable=readable,
                                writable=[self.ws.adapter, self.ws.state, self.ws.scratch, self.ws.output],
-                               proxy_url=self.proxy.url if self.proxy else None,
-                               env_allow=d["sandbox"].get("env"))
+                               proxy_url=self.proxy.url if self.proxy else None, env_allow=env_allow)
         resolved = {"config": d, "template": self.template, "tree": str(self.tree.repo), "branch": self.branch,
                     "start": start, "evolver": {"name": self.spec.name, "directory": str(self.spec.directory),
                                                 "class": self.spec.class_path, "needs": self.spec.needs,

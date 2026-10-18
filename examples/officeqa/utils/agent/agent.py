@@ -5,7 +5,8 @@ source files, at most 24 turns of up to 16,384 tokens, the answer inside <answer
 ADAPTER.md is the skill; adapter=None runs without one. The run's SkillOpt prediction files (conversation.json,
 target_*_prompt.txt) are its log.
 
-The target model's calls (SkillOpt's chat_target_messages) go to GLM 5.3 Flash on Fireworks (FIREWORKS_API_KEY) at
+The target model's calls (SkillOpt's chat_target_messages) go to the model `agent.params.model` names (a
+`<backend>/<model>` reference, see harnessadapter.backends; default GLM 5.3 Flash on Fireworks, FIREWORKS_API_KEY) at
 medium reasoning effort, as the paper runs its student. A rollout the API could not serve raises, so it is recorded
 as an error rather than a wrong answer.
 """
@@ -23,8 +24,7 @@ from harnessadapter.task import RunOutput
 
 HERE = Path(__file__).resolve().parent
 DATA = json.loads((HERE.parent / "data.json").read_text())
-MODEL = "accounts/fireworks/models/glm-5p3-flash"
-PRICE = {"input": 0.15, "cached_input": 0.03, "output": 0.50}     # USD per million tokens
+DEFAULT_MODEL = "fireworks/accounts/fireworks/models/glm-5p3-flash"
 EFFORT = "medium"                                                 # paper p.8: teacher and student at medium
 MAX_TURNS, MAX_TOKENS = 24, 16384                                 # configs/officeqa/default.yaml; issue #13
 UNAVAILABLE = "target API unavailable"
@@ -32,19 +32,31 @@ UNAVAILABLE = "target API unavailable"
 _usage = threading.local()
 _lock = threading.Lock()
 _client = None
+_binding = None
+
+
+def _bind(params: dict | None):
+    """The target model: agent.params.model (resolved by the framework into a binding), else the default."""
+    global _binding
+    from harnessadapter.backends import Binding, registry, resolve
+    model = (params or {}).get("model")
+    _binding = Binding.from_spec(model) if isinstance(model, dict) else resolve(model or DEFAULT_MODEL, registry())
 
 
 def _chat(messages, max_completion_tokens=MAX_TOKENS, retries=5, stage="rollout", reasoning_effort=None, *,
           tools=None, tool_choice=None, return_message=False, timeout=None):
-    """SkillOpt's chat_target_messages, sent to Fireworks with the target's reasoning effort. Counts tokens and
-    replies cut off at max_tokens for the current rollout."""
+    """SkillOpt's chat_target_messages, sent to the target's endpoint with the target's reasoning effort. Counts
+    tokens and replies cut off at max_tokens for the current rollout."""
     import openai
     global _client
     with _lock:
         if _client is None:
-            _client = openai.OpenAI(base_url="https://api.fireworks.ai/inference/v1",
-                                    api_key=os.environ["FIREWORKS_API_KEY"], timeout=600, max_retries=0)
-    kwargs = {"model": MODEL, "messages": messages, "max_tokens": min(max_completion_tokens, MAX_TOKENS),
+            key_env = _binding.key_env_if_set()
+            if key_env and not os.environ.get(key_env):
+                raise RuntimeError(f"{key_env} is not set (the key of backend {_binding.backend.name!r})")
+            _client = openai.OpenAI(base_url=_binding.base_url, api_key=os.environ.get(key_env) if key_env else "local",
+                                    timeout=600, max_retries=0)
+    kwargs = {"model": _binding.model, "messages": messages, "max_tokens": min(max_completion_tokens, MAX_TOKENS),
               "extra_body": {"reasoning_effort": EFFORT}}
     if tools:
         kwargs["tools"] = tools
@@ -76,8 +88,10 @@ def _chat(messages, max_completion_tokens=MAX_TOKENS, retries=5, stage="rollout"
     return (choice.message if return_message else (choice.message.content or "")), usage_out
 
 
-def _setup() -> None:
+def _setup(params: dict | None = None) -> None:
     from skillopt.envs.officeqa import rollout
+    if _binding is None:
+        _bind(params)
     rollout.chat_target_messages = _chat
 
 
@@ -101,7 +115,7 @@ class OfficeQAAgent(Agent):
     """SkillOpt's own rollout with the adapter's context as the skill. `agent.name: ../utils/agent/agent.py:OfficeQAAgent`."""
 
     def run(self, task: dict, adapter: Path | None) -> RunOutput:
-        _setup()
+        _setup(self.params)
         from skillopt.envs.officeqa.rollout import process_one
 
         session = self.session(adapter)
@@ -127,12 +141,14 @@ class OfficeQAAgent(Agent):
             time.sleep(120)
         pred_dir = out_root / "predictions" / task["id"]
         fresh = totals["prompt_tokens"] - totals["cached_tokens"]
-        cost = (fresh * PRICE["input"] + totals["cached_tokens"] * PRICE["cached_input"]
-                + totals["completion_tokens"] * PRICE["output"]) / 1e6
+        price = _binding.price
+        cost = None if not price else round((fresh * price.get("input", 0)
+                                             + totals["cached_tokens"] * price.get("cached_input", price.get("input", 0))
+                                             + totals["completion_tokens"] * price.get("output", 0)) / 1e6, 6)
         answer = result["predicted_answer"] if result["agent_ok"] else ""
         return RunOutput(output={"answer": answer, "fail_reason": "" if result["agent_ok"] else result["fail_reason"]},
-                         log=pred_dir, messages=_messages(pred_dir), cost_usd=round(cost, 6),
+                         log=pred_dir, messages=_messages(pred_dir), cost_usd=cost,
                          tokens=totals["prompt_tokens"] + totals["completion_tokens"], wall_s=round(time.time() - started, 1),
                          api_speed={"model_calls": totals["calls"]},
-                         extra={"model": MODEL, "reasoning_effort": EFFORT, "cut_off_replies": totals["cut_off"],
+                         extra={"model": _binding.ref, "reasoning_effort": EFFORT, "cut_off_replies": totals["cut_off"],
                                 "oracle_pages_chars": result["oracle_parsed_pages_chars"], "turns": result["n_turns"]})

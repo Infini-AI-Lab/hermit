@@ -1,0 +1,73 @@
+:root {
+  color-scheme: light dark;
+  --paper: #faf9f6;
+  --ink: #293137;
+  --quiet: #6d7479;
+  --hairline: #d9ddda;
+  --adapter: #b26b3b;
+  --adapter-surface: #f0decd;
+  --scenario: #758a88;
+  --scenario-fill: #e8eeea;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #171c20;
+    --ink: #e7e9e4;
+    --quiet: #a4adae;
+    --hairline: #3c474b;
+    --adapter: #e5a16e;
+    --adapter-surface: #473325;
+    --scenario: #9db9b0;
+    --scenario-fill: #273631;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  min-height: 100svh;
+  display: grid;
+  place-items: center;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+main { width: min(900px, calc(100% - 64px)); padding: 40px 0; }
+figure { margin: 0; }
+.analogy-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px minmax(0, 1fr) minmax(60px, .65fr) minmax(0, 1fr);
+  align-items: center;
+  padding: 25px 0 34px;
+}
+.harness-row { border-top: 1px solid var(--hairline); }
+.component { display: flex; flex-direction: column; align-items: center; gap: 15px; text-align: center; min-width: 0; }
+.component svg { width: 120px; height: 112px; max-width: 100%; overflow: visible; }
+.component svg.lora { width: 140px; }
+.component svg.picked-icon { width: 88px; }
+.component span { font-size: 16px; line-height: 1.5; }
+.adapter-component span { color: var(--adapter); }
+.plus { font-size: 24px; color: var(--quiet); align-self: start; margin-top: 39px; text-align: center; }
+.connection { display: flex; align-items: center; align-self: start; height: 112px; padding: 0 12px; }
+.connection span { flex: 1; height: 1px; background: var(--hairline); }
+.connection b { font-size: 24px; font-weight: 400; line-height: 1; color: var(--quiet); margin-left: -4px; }
+.base { fill: var(--ink); }
+.base-line { fill: none; stroke: var(--ink); stroke-width: 1.5; opacity: .65; }
+.adapter-line { fill: none; stroke: var(--adapter); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.matrix { fill: var(--adapter-surface); stroke: var(--adapter); stroke-width: 1.5; }
+.matrix-grid { fill: none; stroke: var(--adapter); stroke-width: .8; opacity: .65; }
+.icon-note { fill: var(--adapter); font-family: inherit; font-size: 14px; text-anchor: middle; }
+.target { fill: var(--scenario-fill); stroke: var(--scenario); stroke-width: 1.5; }
+.adapter-fill { fill: var(--adapter); }
+figcaption { padding: 9px 4px 0; color: var(--quiet); text-align: center; font-size: 14px; }
+@media (max-width: 600px) {
+  main { width: calc(100% - 32px); padding: 28px 0; }
+  .analogy-row { grid-template-columns: minmax(0, 1fr) 16px minmax(0, 1fr) 26px minmax(0, 1fr); padding: 28px 0; }
+  .component { gap: 10px; }
+  .component svg { height: 84px; }
+  .component span { font-size: 14px; }
+  .plus { font-size: 20px; margin-top: 29px; }
+  .connection { height: 84px; padding: 0; }
+  .connection b { font-size: 21px; }
+  figcaption { font-size: 13px; }
+}

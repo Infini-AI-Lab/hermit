@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 13.5L9.682 10.318" stroke-linecap="butt"/>
+<polygon points="12.722,7.278 11.096,11.874 8.126,8.904" class="flow-arrow" fill="currentColor" stroke="none"/>
+<path d="M6.5 18.5L9.682 21.682" stroke-linecap="butt"/>
+<polygon points="12.722,24.722 8.126,23.096 11.096,20.126" class="flow-arrow" fill="currentColor" stroke="none"/>
+<path d="M18.5 6.5L21.682 9.682" stroke-linecap="butt"/>
+<polygon points="24.722,12.722 20.126,11.096 23.096,8.126" class="flow-arrow" fill="currentColor" stroke="none"/>
+<path d="M18.5 25.5L21.682 22.318" stroke-linecap="butt"/>
+<polygon points="24.722,19.278 23.096,23.874 20.126,20.904" class="flow-arrow" fill="currentColor" stroke="none"/>
+<rect x="1.5" y="13.5" width="5" height="5" rx="1.6"/>
+<rect x="13.5" y="1.5" width="5" height="5" rx="1.6"/>
+<rect x="25.5" y="13.5" width="5" height="5" rx="1.6"/>
+<rect x="13.5" y="25.5" width="5" height="5" rx="1.6"/></svg>

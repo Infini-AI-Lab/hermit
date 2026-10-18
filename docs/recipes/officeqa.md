@@ -27,8 +27,11 @@ OfficeQA skill as a `prompt-only@1.0` adapter) inside `examples/officeqa/utils/`
 `--split-dir` names a local copy. The smoke splits are the first four training, two validation, and four test
 questions.
 
-Set `FIREWORKS_API_KEY` in your shell before continuing. The acting agent (GLM 5.3 Flash, set in
-`utils/agent/agent.py`) and the learner in each config use Fireworks; the models must be available to your account.
+The acting agent answers with GLM 5.3 Flash on Fireworks (`fireworks/accounts/fireworks/models/glm-5p3-flash`,
+the default of `utils/agent/agent.py`), and the configs' learners are GLM 5.3 or GLM 5.3 Flash on Fireworks: set
+`FIREWORKS_API_KEY` in your shell before continuing, or bind the run to another backend (see
+[Model backends](../guides/model-backends.md)). `model=vllm/...` on the command line moves the acting agent;
+the configs that set `llm` keep their learner unless `llm=vllm/...` is given too.
 
 ## Check, train, evaluate
 

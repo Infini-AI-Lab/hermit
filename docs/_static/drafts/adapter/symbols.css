@@ -1,0 +1,37 @@
+#icon-picker { max-width: 1000px; }
+.fixed-choices { margin: 22px 0 30px; }
+.direction-control { display: flex; align-items: center; gap: 7px; width: fit-content; margin: -8px 0 18px; color: var(--quiet); font-size: 13px; cursor: pointer; }
+.direction-control input { accent-color: var(--adapter); width: 15px; height: 15px; }
+#icon-picker[data-arrows="off"] .flow-arrow { display: none; }
+.symbol-options { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+.symbol-choice { position: relative; display: flex; flex-direction: column; align-items: center; padding: 25px 12px 20px; border: 1px solid var(--hairline); border-radius: 10px; cursor: pointer; }
+.symbol-choice input { position: absolute; right: 12px; top: 12px; accent-color: var(--adapter); }
+.symbol-choice:has(input:checked) { background: var(--adapter-surface); border-color: var(--adapter); }
+.symbol-choice:has(input:focus-visible) { outline: 2px solid var(--adapter); outline-offset: 3px; }
+.symbol-large { display: grid; place-items: center; height: 70px; }
+.symbol-large svg { width: 56px; height: 56px; }
+.symbol-choice strong { margin-top: 13px; font-size: 14px; font-weight: 500; text-align: center; }
+.size-study { display: flex; align-items: center; gap: 9px; margin-top: 19px; color: var(--quiet); font-size: 11px; }
+.symbol-small { display: block; height: 24px; width: 24px; color: var(--ink); }
+.symbol-small svg { display: block; height: 24px; width: 24px; }
+#combined-preview { margin-top: 20px; }
+.scenario-picker .option > .symbol-choice { flex: 1; }
+.scenario-picker .source { min-height: 32px; }
+.scenario-picker .meaning { margin-top: 13px; text-align: center; }
+.scenario-picker .preview-icon[data-preview="scenario"] { color: var(--ink); }
+#clear-choices { display: none !important; }
+@media (max-width: 650px) {
+  .symbol-options { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 400px) {
+  .symbol-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 500px) {
+  .scenario-picker .picker-header { flex-direction: column; gap: 8px; }
+  .scenario-picker .picker-header h1 { font-size: 22px; }
+  .symbol-options { gap: 9px; }
+  .symbol-choice { padding: 28px 5px 14px; }
+  .symbol-choice strong { font-size: 12px; }
+  .symbol-large svg { width: 44px; height: 44px; }
+  .size-study { gap: 6px; }
+}

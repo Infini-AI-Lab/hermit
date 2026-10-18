@@ -5,13 +5,15 @@ and `.engine`). The adapter enters at the two places the benchmark leaves open t
 to the system prompt (the benchmark's `extra_system`), and the tools it declares (MWM's `wm`) are added to the tool
 list, served outside the environment's 50-call budget and capped at WM_CALL_CAP per episode, as in every MWM venue.
 
-Settings come from the environment (the launcher sets them; agent.params is not used here):
+Settings come from the environment (the launcher sets them) or, for the model, from `agent.params.model` (a
+`<backend>/<model>` reference, resolved by the framework; SLB_MODEL, SLB_BASE_URL and SLB_API_KEY override it):
   SLB_WORKDIR            the run's task directory: evidence/ (the learner's store), rows/, episodes/
   SLB_EVIDENCE           the evidence store the adapter's tools read (default <SLB_WORKDIR>/evidence); a replayed
                          test binds a snapshot of what the adapter had been trained on (windows.py)
   SLB_MODEL              the host model, as the endpoint names it (default GLM 5.3 flash on Fireworks)
-  SLB_BASE_URL           the endpoint (default Fireworks; a wire meter in the examples)
-  SLB_API_KEY            the key (ServeLearnBench's own variable)
+  SLB_BASE_URL           the endpoint (default Fireworks; a wire meter in the examples). The launcher sets both
+                         from a backend reference (MW_MODEL, harnessadapter.backends)
+  SLB_API_KEY            the key (ServeLearnBench's own variable; the launcher takes it from the backend's)
   SLB_REASONING_EFFORT   default high (the paper's setting)
 
 Per episode this writes: the benchmark's result row (rows/<id>.json: phase, window, category, reward, verifier
@@ -40,17 +42,31 @@ from harnessadapter.algorithms.evolvers.mwm.evidence import servelearnbench as e
 
 WM_CALL_CAP = 100
 CAP_NOTICE = f"wm call limit reached for this episode ({WM_CALL_CAP}); act on the environment."
-DEFAULT_MODEL = "accounts/fireworks/models/glm-5p3-flash"
+DEFAULT_MODEL = "fireworks/accounts/fireworks/models/glm-5p3-flash"      # a backend reference
+
+
+def _default_endpoint() -> tuple[str, str]:
+    from harnessadapter.backends import registry, resolve
+    binding = resolve(DEFAULT_MODEL, registry())
+    return binding.model, binding.base_url
 
 _lock = threading.Lock()
 _state: dict = {}
 
 
-def _setup(scenario: str) -> dict:
+def _setup(scenario: str, params: dict | None = None) -> dict:
     """The bundle, its tasks by id, the window map and the model client, once per process."""
     with _lock:
         if _state.get("scenario") == scenario:
             return _state
+        model, base_url = _default_endpoint()
+        spec = (params or {}).get("model")
+        if isinstance(spec, dict) and spec.get("base_url") and spec.get("model"):     # agent.params.model, resolved
+            from harnessadapter.backends import Binding
+            binding = Binding.from_spec(spec)
+            model, base_url = binding.model, binding.base_url
+            if binding.key() and not os.environ.get("SLB_API_KEY"):
+                os.environ["SLB_API_KEY"] = binding.key()           # the benchmark's client reads its own variable
         from servelearnbench import llm
         from servelearnbench.scenarios import get_bundle, n_windows
         bundle = get_bundle(scenario, fresh=True)
@@ -65,8 +81,7 @@ def _setup(scenario: str) -> dict:
         for w in windows["windows"]:
             for tid in w["serving"] + w["test"]:
                 window_of[tid] = w["window"]
-        cfg = llm.ModelConfig(model=os.environ.get("SLB_MODEL", DEFAULT_MODEL),
-                              base_url=os.environ.get("SLB_BASE_URL", "https://api.fireworks.ai/inference/v1"),
+        cfg = llm.ModelConfig(model=os.environ.get("SLB_MODEL", model), base_url=os.environ.get("SLB_BASE_URL", base_url),
                               reasoning_effort=os.environ.get("SLB_REASONING_EFFORT", "high") or None)
         _state.update({"scenario": scenario, "bundle": bundle, "tasks": tasks, "window_of": window_of,
                        "model": llm.LLM(cfg), "model_name": cfg.model})
@@ -98,7 +113,7 @@ class ServeLearnBenchAgent(Agent):
         from servelearnbench import agent, llm, scoring
         from servelearnbench.engine.types import FINISH_ACTION_NAME, Action
 
-        st = _setup(task["scenario"])
+        st = _setup(task["scenario"], self.params)
         bundle, meta = st["bundle"], st["bundle"]["meta"]
         domain = meta["domain"]
         workdir = Path(os.environ["SLB_WORKDIR"])

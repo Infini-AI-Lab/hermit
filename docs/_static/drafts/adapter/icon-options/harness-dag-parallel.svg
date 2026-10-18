@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+<path d="M7.95 28.87L19.05 17.13M18.01 20.55L19.05 17.13L15.69 18.35" stroke-width="1.4"/>
+<path d="M7.95 35.13L19.05 46.87M15.69 45.65L19.05 46.87L18.01 43.45" stroke-width="1.4"/>
+<path d="M26.30 14.00L37.70 14.00M34.50 15.60L37.70 14.00L34.50 12.40" stroke-width="1.4"/>
+<path d="M26.30 50.00L37.70 50.00M34.50 51.60L37.70 50.00L34.50 48.40" stroke-width="1.4"/>
+<path d="M44.95 17.13L56.05 28.87M52.69 27.65L56.05 28.87L55.01 25.45" stroke-width="1.4"/>
+<path d="M44.95 46.87L56.05 35.13M55.01 38.55L56.05 35.13L52.69 36.35" stroke-width="1.4"/>
+<circle cx="5" cy="32" r="3.5"/>
+<circle cx="22" cy="14" r="3.5"/>
+<circle cx="22" cy="50" r="3.5"/>
+<circle cx="42" cy="14" r="3.5"/>
+<circle cx="42" cy="50" r="3.5"/>
+<circle cx="59" cy="32" r="3.5"/>
+</svg>

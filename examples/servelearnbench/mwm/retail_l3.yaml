@@ -17,8 +17,8 @@ template: mwm
 evolver:
   name: mwm
   params:
-    model: accounts/fireworks/models/glm-5p3-flash
-    args: []                       # launch.sh: the provider through the learner's meter, reasoning effort high
+    model: fireworks/accounts/fireworks/models/glm-5p3-flash   # launch.sh: the learner's backend through its meter
+    args: []                       # launch.sh: reasoning effort high (the provider settings come from the model's backend)
     evidence: null                 # launch.sh: <task workdir>/evidence
     block_size: null               # every block gets a session, the stream's last one included
     learner_tools: []
@@ -30,7 +30,8 @@ sandbox:
   enabled: true
   network: none                    # the learner's own namespace forwards only its meter and the tool gate
   allow: []
-  env: [HA_FW_KEY, MW_TOOLSRV]
+  env: [MW_TOOLSRV]                # the channel client's URL (the Evolver's tool gate); the learner's model key
+                                   # variable is always passed
 trainer:
   run_name: null                   # launch.sh: <tag>
   output_dir: runs

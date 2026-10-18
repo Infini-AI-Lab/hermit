@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M16 6.5L16.000 12.500"/>
+<path d="M13 17.5L8.602 23.273"/>
+<polygon points="8.602,23.273 8.602,20.633 11.147,22.572" class="flow-arrow" fill="currentColor" stroke="none"/>
+<path d="M19 17.5L23.398 23.273"/>
+<polygon points="23.398,23.273 20.853,22.572 23.398,20.633" class="flow-arrow" fill="currentColor" stroke="none"/>
+<circle cx="16" cy="4" r="2.5"/>
+<rect x="13" y="12.5" width="6" height="5" rx="1.6"/>
+<circle cx="5" cy="28" r="2.5"/>
+<circle cx="27" cy="28" r="2.5"/></svg>

@@ -18,8 +18,14 @@ function. `judge.path` names its scoring module.
 `template` chooses the adapter's files and editing rules. `evolver.name` chooses the learning method.
 The `llm` section configures the run's model tool, which the prompt-only learner uses.
 
+Models are named by reference, `<backend>/<model id>` (`fireworks/accounts/fireworks/models/glm-5p3-flash`,
+`vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8`); the backend decides the endpoint, the key variable and the price,
+so the same config runs against another provider or a local vLLM or SGLang server with one override:
+`harnessadapter train --config run.yaml model=vllm/...`. See [Model backends](../guides/model-backends.md).
+
 The acting agent owns its own model configuration. Changing `llm.model` does not change the acting agent's model;
-a built-in agent takes it from `agent.params.model`, and OfficeQA's own agent sets it in `utils/agent/agent.py`.
+a built-in agent takes it from `agent.params.model`, and so does OfficeQA's own agent (GLM 5.3 Flash when unset).
+The top-level `model` is the default for both.
 
 For every field, its default, type, and path rules, use the [complete field reference](../reference/config-fields.md). Method defaults are included in the [method guides](../methods/index.md).
 

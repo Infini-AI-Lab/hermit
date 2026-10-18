@@ -1,7 +1,8 @@
 # MWM on ServeLearnBench
 
 MWM learns a [ServeLearnBench](https://github.com/Infini-AI-Lab/ServeLearnBench) scenario from its serving stream
-and is scored by the benchmark's own per-window tests. Host and learner are GLM 5.3 flash on Fireworks.
+and is scored by the benchmark's own per-window tests. Host and learner are GLM 5.3 flash on Fireworks by default
+(`MW_MODEL=<backend>/<model id>` binds another backend).
 
 Install the benchmark, then run one scenario from the repo root:
 
@@ -19,14 +20,14 @@ Complete guidance: [`docs/recipes/servelearnbench.md`](../../../docs/recipes/ser
 **Requirements**
 
 The framework in `.venv/` (Python 3.12+); the `codex` CLI and bubblewrap (`bwrap`) on the PATH (the learner is a
-Codex session in its own namespace). Both sides reach Fireworks through the framework's wire meter
+Codex session in its own namespace). Both sides reach their backend through the framework's wire meter
 (`harnessadapter/runtime/wire_meter.py`), a local proxy the launcher starts: it records the tokens per run and
-rewrites the learner's requests the way Fireworks needs.
+rewrites the learner's requests the way Codex's provider needs.
 
 ---
 **Settings**
 
 `MW_TAG` (the run's name, default `slb_<scenario>`), `WM_PORT` (the host meter's port, 3451), `MW_RUNS` (where
-runs go, `~/code/metaworld-runs`), `MW_MODEL_ID` / `MW_EVOLVER_MODEL` (the host and learner models),
+runs go, `~/code/metaworld-runs`), `MW_MODEL` (the host's and learner's model, a backend reference), `MW_HOST_MODEL` / `MW_EVOLVER_MODEL` (either alone),
 `MW_TRAIN_SPLIT` (another train split, e.g. `splits/smoke_serving.txt` for a 12-case smoke).
 `launch.sh retail_l3 test` replays the tests alone, at any time.

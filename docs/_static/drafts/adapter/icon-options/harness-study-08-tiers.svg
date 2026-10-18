@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M16 7L16.000 11.200"/>
+<polygon points="16.000,11.200 14.400,9.100 17.600,9.100" class="flow-arrow" fill="currentColor" stroke="none"/>
+<path d="M16 19L16.000 23.200"/>
+<polygon points="16.000,23.200 14.400,21.100 17.600,21.100" class="flow-arrow" fill="currentColor" stroke="none"/>
+<rect x="5" y="2" width="22" height="5" rx="1.8"/>
+<rect x="9" y="14" width="14" height="5" rx="1.8"/>
+<rect x="13" y="26" width="6" height="4" rx="1.5"/></svg>
