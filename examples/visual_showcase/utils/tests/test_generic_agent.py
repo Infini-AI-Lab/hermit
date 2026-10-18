@@ -5,6 +5,7 @@ capture writes capture/summary.json. One bwrap-marked test runs the real confine
 from __future__ import annotations
 
 import copy
+import hashlib
 import importlib.util
 import json
 import os
@@ -199,7 +200,7 @@ def toolsmith_adapter(scratch: Path, *, origin: bool = True, card: bool = True, 
         (adapter / "CARD.md").write_text("spending: 1.23 USD\n")
     if origin:
         data = yaml.safe_load((adapter / "adapter.yaml").read_text())
-        data["origin"] = {"template": "toolsmith", "version": "1.0"}
+        data["origin"] = {"template": "toolsmith", "version": "1.1"}
         (adapter / "adapter.yaml").write_text(yaml.safe_dump(data, sort_keys=False))
     return adapter
 
@@ -302,7 +303,8 @@ def test_harness_arm_writes_the_page_runs_a_command_and_packs_its_images(scratch
     assert out.output["final_message"].startswith("I wrote the page") and out.output["status"] == "completed"
     assert set(out.output) == {"case", "arm", "status", "stop_reason", "model_calls", "tool_calls", "run_commands",
                                "adapter_tool_calls", "image_bearing_calls", "looked_calls", "first_image_call",
-                               "tools_exported", "tools_called", "tool_errors", "final_message"}
+                               "tools_exported", "tools_called", "tool_errors", "seen_final", "finalize",
+                               "final_message"}
     assert out.extra["calls"] == [{"call": 1, "name": "write_file", "exit_code": None, "images": 0, "looked": False},
                                   {"call": 2, "name": "run_command", "exit_code": 0, "images": 1, "looked": True}]
     assert out.cost_usd == pytest.approx(0.003) and out.tokens == 3150 and out.log == base
@@ -420,6 +422,66 @@ def test_toolsmith_adapter_exposes_its_catalog_and_packs_tool_images(scratch, mo
     assert tool_message["images"][0]["file"] == "tool.png"
     assert client.requests[2]["messages"][-1]["content"][0]["text"] == texts.IMAGES_INTRO
     assert not (base / "cmd-02" / "tmp").exists() and (base / "cmd-02" / "index.html").is_file()
+
+
+PAGE2 = PAGE.replace("<body>", "<body><p>edited after the last look</p>")
+
+
+def test_toolsmith_finalize_submits_the_last_version_the_model_saw(scratch, monkeypatch, runner):
+    adapter = toolsmith_adapter(scratch)
+    scripted(monkeypatch, [
+        {"tool_calls": [tc("write_file", {"path": "index.html", "content": PAGE})]},
+        {"tool_calls": [tc("wordcount", {}, "c2")]},                                   # seen: request 3 carries it
+        {"tool_calls": [tc("write_file", {"path": "index.html", "content": PAGE2}, "c3")]},
+        {"content": "done"}])
+    out = new_agent(scratch).run(task(), adapter)
+    base = Path(out.log)
+    result = json.loads((base / "result.json").read_text())
+    assert result["seen_pages"] == [{"call": 2, "sha": hashlib.sha256(PAGE.encode()).hexdigest()}]
+    assert result["finalize"]["replaced"] is True and result["finalize"]["submitted_call"] == 2
+    assert result["finalize"]["final_sha"] == hashlib.sha256(PAGE2.encode()).hexdigest()
+    assert (base / "submission" / "index.html").read_text() == PAGE and result["seen_final"] is True
+    assert (base / "unseen_final" / "index.html").read_text() == PAGE2
+    assert (base / "workspace" / "index.html").read_text() == PAGE2      # the agent's workspace is left as it was
+
+
+def test_toolsmith_finalize_counts_only_images_a_later_request_carried(scratch, monkeypatch, runner):
+    adapter = toolsmith_adapter(scratch)
+    scripted(monkeypatch, [
+        {"tool_calls": [tc("write_file", {"path": "index.html", "content": PAGE})]},
+        {"tool_calls": [tc("wordcount", {}, "c2")]},
+        {"tool_calls": [tc("write_file", {"path": "index.html", "content": PAGE2}, "c3"), tc("wordcount", {}, "c4")]}])
+    out = new_agent(scratch).run(task(), adapter)      # the 4th request fails: call 4's images never reach the model
+    result = json.loads((Path(out.log) / "result.json").read_text())
+    assert result["status"] == "api_error" and result["looked_calls"] == 2
+    assert [s["call"] for s in result["seen_pages"]] == [2] and result["finalize"]["submitted_call"] == 2
+    assert (Path(out.log) / "submission" / "index.html").read_text() == PAGE
+
+
+def test_toolsmith_finalize_keeps_a_final_version_the_model_saw(scratch, monkeypatch, runner):
+    adapter = toolsmith_adapter(scratch)
+    scripted(monkeypatch, [
+        {"tool_calls": [tc("write_file", {"path": "index.html", "content": PAGE})]},
+        {"tool_calls": [tc("wordcount", {}, "c2")]},
+        {"tool_calls": [tc("write_file", {"path": "index.html", "content": PAGE2}, "c3"), tc("wordcount", {}, "c4")]},
+        {"content": "done"}])
+    out = new_agent(scratch).run(task(), adapter)
+    result = json.loads((Path(out.log) / "result.json").read_text())
+    assert [s["call"] for s in result["seen_pages"]] == [2, 4] and result["finalize"]["replaced"] is False
+    assert (Path(out.log) / "submission" / "index.html").read_text() == PAGE2 and result["seen_final"] is True
+    assert not (Path(out.log) / "unseen_final").exists()
+
+
+def test_without_a_finalize_export_the_final_version_is_submitted(scratch, monkeypatch, runner):
+    scripted(monkeypatch, [
+        {"tool_calls": [tc("write_file", {"path": "index.html", "content": PAGE})]},
+        {"tool_calls": [tc("run_command", {"command": "png shot.png", "timeout_s": 30}, "c2")]},
+        {"tool_calls": [tc("write_file", {"path": "index.html", "content": PAGE2}, "c3")]},
+        {"content": "done"}])
+    out = new_agent(scratch).run(task(), None)
+    result = json.loads((Path(out.log) / "result.json").read_text())
+    assert result["finalize"] is None and result["seen_final"] is False and [s["call"] for s in result["seen_pages"]] == [2]
+    assert (Path(out.log) / "submission" / "index.html").read_text() == PAGE2
 
 
 def test_toolsmith_tool_listing_an_outside_path_or_symlink_gets_nothing_packed(scratch, monkeypatch, runner):
@@ -664,7 +726,8 @@ def test_hermit_check_loads_the_agent(scratch):
     path = scratch / "check.yaml"
     path.write_text(yaml.safe_dump(config, sort_keys=False))
     exe = Path(sys.executable).parent / "hermit"
+    env = {**os.environ, pipeline.KEY_ENV: os.environ.get(pipeline.KEY_ENV) or "placeholder"}   # check wants a key; --no-probe never uses it
     proc = subprocess.run([str(exe), "check", "--config", str(path), "--no-probe"], capture_output=True, text=True,
-                          cwd=str(scratch), timeout=120)
+                          cwd=str(scratch), timeout=120, env=env)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "[ok] task" in proc.stdout and "PROBLEM" not in proc.stdout

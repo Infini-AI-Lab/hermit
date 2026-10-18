@@ -1,6 +1,6 @@
 """prepare.py: the default output stays byte-identical to the committed task-info/ (experiment 1), and
 `--toolset generic` writes the learner texts of the generic toolset: a README that quotes the acting system prompt
-verbatim and embeds the environment facts, a judge.md without inspect_page, environment.md with F1-F13 and the paths
+verbatim and embeds the environment facts, a judge.md without inspect_page, environment.md with F1-F15 and the paths
 confine.py resolves, environment-mwm.md with its preamble; plus the mwm evolver's new environment_file param."""
 from __future__ import annotations
 
@@ -70,15 +70,23 @@ def test_generic_toolset_texts(tmp_path):
     root = tmp_path / "task-info-generic"
     assert not (tmp_path / "task-info").exists()
     assert sorted(p.name for p in root.iterdir()) == ["environment-mwm.md", "lava", "silk", "waves"]
+    probes = json.loads((root / "waves" / "probes" / "probes.json").read_text())
+    assert [x["page"] for x in probes] == ["webgl_probe.html"] and probes[0]["expect_rgb"] == [30, 120, 200]
+    assert (root / "waves" / "probes" / "webgl_probe.html").read_text() == (UTILS / "reference" / "webgl_probe.html").read_text()
     env = (root / "waves" / "environment.md").read_text()
     readme = (root / "waves" / "README.md").read_text()
     judge = (root / "waves" / "judge.md").read_text()
     mwm = (root / "environment-mwm.md").read_text()
     fenced = f"```text\n{texts.ACTING_SYSTEM_PROMPT}\n```"
 
-    # environment.md: the thirteen facts with the resolved paths, and no inspection words outside the quoted prompt
-    for n in range(1, 14):
+    # environment.md: the fifteen facts with the resolved paths, and no inspection words outside the quoted prompt
+    for n in range(1, 16):
         assert f"- F{n}." in env, n
+    flat_env = " ".join(env.split())
+    assert "counts against the 24 tool calls, the request once against the 12 requests" in flat_env
+    assert "images returned during the agent's last request never reach it" in flat_env
+    assert "10-second load timeout" in flat_env and "at most 4 seconds for `getState().ready`" in flat_env
+    assert "ends after 40 seconds" in flat_env
     for value in (confine.NODE, confine.NODE_MODULES, confine.CHROME_BIN, confine.WRAPPER, confine.PYTHON,
                   confine.PREFIX, confine.BASE_PREFIX, confine.NODE_DIR, confine.PLAYWRIGHT_DIR):
         assert value in env, value

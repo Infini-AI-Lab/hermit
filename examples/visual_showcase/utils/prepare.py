@@ -12,8 +12,8 @@ learner trained on one case sees only that case's text. tasks.jsonl and splits/ 
 `--toolset generic` writes the same rows and splits (the brief is byte-identical across toolsets) plus
 task-info-generic/<case>/{README.md, judge.md, environment.md} and task-info-generic/environment-mwm.md (gitignored):
 the learner-facing texts for the acting agent that has only write_file/read_file/replace_text/run_command. README.md
-quotes the acting system prompt verbatim from agent/texts.py and embeds environment.md, the machine facts F1-F13 with
-the absolute paths confine.py resolves. `--out DIR` writes everywhere under DIR instead of next to this file (tests).
+quotes the acting system prompt verbatim from agent/texts.py and embeds environment.md, the machine facts F1-F15 with
+the absolute paths confine.py resolves; probes/ holds the toolsmith self-tests' probe pages (probes.json lists them). `--out DIR` writes everywhere under DIR instead of next to this file (tests).
 """
 from __future__ import annotations
 
@@ -179,6 +179,14 @@ exports execute there, in the same sandbox). Paths are absolute and resolved. Th
   ready true only after the initial scene has been drawn; viewports {desktop} (desktop) and {mobile} (mobile); the host
   observes the page near 0, 2 and 5 seconds after ready, then after pause, reset and intensity {inspection}, then at the
   mobile viewport.
+- F14. One model request of the agent may hold several tool calls: each call counts against the {tool_calls} tool calls,
+  the request once against the {requests} requests. Images that calls return are attached to the agent's next request
+  only, and only those of the request's last image-bearing call; images returned during the agent's last request never
+  reach it.
+- F15. After the run, the host opens `index.html` from its loopback server with a {load_s}-second load timeout, then
+  waits at most {ready_s} seconds for `getState().ready` to become true (a page that is not ready by then fails that
+  check and is observed as it is); its whole observation ends after {observe_s} seconds. It records whether the pause,
+  reset and intensity controls lie entirely inside the viewport at {desktop} and at {mobile}.
 """
 
 MWM_PREAMBLE = """# The acting agent's machine
@@ -194,7 +202,14 @@ limits are unchanged: the adapter is the only writable area, the default command
 # The acting harness's limits (agent/agent.py, pinned by the experiment contract); repeated here as facts.
 LIMITS = {"command_s": 90, "tool_s": 90, "run_s": 600,   # why: inspect_page's capture timeout; experiment 1's run length
           "images_per_call": 5, "images_per_run": 40,     # why: five is one capture's worth; forty bounds a run's bytes
-          "image_mb": 2, "image_mpx": 2.1}               # why: pngstats decodes up to 2.2 Mpx; 1280x800 is 1.0 Mpx
+          "image_mb": 2, "image_mpx": 2.1,               # why: pngstats decodes up to 2.2 Mpx; 1280x800 is 1.0 Mpx
+          "requests": 12, "tool_calls": 24}              # agent.MAX_REQUESTS, generic_harness.MAX_TOOL_CALLS
+# The host's observation deadlines (runtime/browser_capture.cjs: goto timeout, ready wait, the whole body).
+HOST = {"load_s": 10, "ready_s": 4, "observe_s": 40}
+# Probe pages for the toolsmith self-tests (task-info-generic/<case>/probes/): pages whose correct picture is known.
+PROBES = [{"page": "webgl_probe.html", "label": "webgl-solid-colour", "expect_rgb": [30, 120, 200], "tolerance": 10,
+           "note": "a page with the contract's controls whose WebGL scene canvas is cleared to rgb(30,120,200) every "
+                   "frame; a true picture of it is dominated by that colour"}]
 
 
 def load_by_path(name: str, path: Path):
@@ -238,7 +253,7 @@ def _python_facts(python: str) -> tuple[str, str]:
 
 
 def environment_facts(confine, texts, contract: dict) -> str:
-    """The environment.md text: F1-F13 with the paths confine resolved and the acting prompt from texts."""
+    """The environment.md text: F1-F15 with the paths confine resolved and the acting prompt from texts."""
     build, version = _chromium(confine.CHROME_BIN, confine.NODE_MODULES)
     python_version, python_extras = _python_facts(confine.PYTHON)
     values = {
@@ -254,7 +269,7 @@ def environment_facts(confine, texts, contract: dict) -> str:
         "python_version": python_version, "python_extras": python_extras,
         "tools": ", ".join(texts.PRIMITIVES), "system_prompt": texts.ACTING_SYSTEM_PROMPT,
         "desktop": "×".join(str(v) for v in contract["desktop"]), "mobile": "×".join(str(v) for v in contract["mobile"]),
-        "inspection": contract["intensity"]["inspection"], **LIMITS,
+        "inspection": contract["intensity"]["inspection"], **LIMITS, **HOST,
     }
     return ENVIRONMENT.format(**values)
 
@@ -280,6 +295,9 @@ def generic_files(data: dict, contract: dict) -> dict[str, str]:
             contract=json.dumps(contract, ensure_ascii=False, indent=2), environment=environment)
         files[f"task-info-generic/{c['id']}/judge.md"] = judge_generic()
         files[f"task-info-generic/{c['id']}/environment.md"] = environment
+        for probe in PROBES:
+            files[f"task-info-generic/{c['id']}/probes/{probe['page']}"] = (HERE / "reference" / probe["page"]).read_text()
+        files[f"task-info-generic/{c['id']}/probes/probes.json"] = json.dumps(PROBES, indent=1) + "\n"
     return files
 
 

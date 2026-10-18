@@ -403,6 +403,7 @@ class Harness:
         self.image_bearing_calls = self.looked_calls = self.looked_blank_calls = 0
         self.first_image_call = self.first_look_call = None
         self.last_look_index_sha = None
+        self.last_dispatch_look: dict | None = None      # the latest call's look ({call, sha, snapshot}) or None
         self.tools_called: dict[str, int] = {}
         self.summaries: list[dict] = []
 
@@ -449,11 +450,15 @@ class Harness:
         exit_code = result.get("exit_code") if isinstance(result, dict) else None
         nonblank = any(r.get("nonblank") for r in record["image_records"])
         looked = bool(parts) and bool(record["browser_launched"]) and nonblank
+        self.last_dispatch_look = None
         if parts and record["browser_launched"]:       # a look: the browser ran and its pictures reached the model
             if looked:
                 self.looked_calls += 1
                 self.first_look_call = self.first_look_call or n
                 self.last_look_index_sha = record["index_sha_at_call"]
+                if record["index_sha_at_call"]:
+                    self.last_dispatch_look = {"call": n, "sha": record["index_sha_at_call"],
+                                               "snapshot": str(self.run / f"cmd-{n:02d}" / "index.html")}
             else:
                 self.looked_blank_calls += 1
         self.summaries.append({"call": n, "name": name, "exit_code": exit_code, "images": sum(

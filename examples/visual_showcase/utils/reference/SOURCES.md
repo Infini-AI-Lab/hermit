@@ -1,7 +1,9 @@
 # Reference pages
 
-Fixed pages for the offline checkers (`utils/tool_works.py`, `utils/confine.py selftest`). None of them is ever shown
-to an acting agent or a learner; they live outside every sandbox bind (confine.py binds only the paths its facts name).
+Fixed pages for the offline checkers (`utils/tool_works.py`, `utils/confine.py selftest`) and, for `webgl_probe.html`,
+the toolsmith learner's self-tests (`prepare.py` copies it to `task-info-generic/<case>/probes/`; the learner reads only
+its label and note, and its learned tools are called on it). None of them is ever shown to an acting agent; they live
+outside every sandbox bind (confine.py binds only the paths its facts name).
 
 | file | what it is | source (read-only) | judge score | sha256 |
 |---|---|---|---|---|
@@ -28,7 +30,7 @@ to the sources (sha256 above); the source directories are read-only and were not
 
 | file | hits | where | why it is there |
 |---|---|---|---|
-| `environment.md` | 2 | inside the fenced verbatim acting system prompt (F12): "not screenshots of a scene" (COMMON, experiment 1 text) and "the host's final capture" (LOOP_GENERIC) | the prompt is quoted verbatim so the learner knows exactly what the agent is told; the facts F1-F13 themselves contain none of the three words |
+| `environment.md` | 2 | inside the fenced verbatim acting system prompt (F12): "not screenshots of a scene" (COMMON, experiment 1 text) and "the host's final capture" (LOOP_GENERIC) | the prompt is quoted verbatim so the learner knows exactly what the agent is told; the facts F1-F15 themselves contain none of the three words |
 | `README.md` | 10 | the same two prompt lines twice (section "How the agent runs" and F12 of the embedded facts); the brief: "a single screenshot", "rendering technique", "rendered content", "screenshots and working controls are independently inspected"; the contract JSON: `"observation": "Actual screenshots near t=0,2,5 seconds ..."` | the brief and contract are byte-identical to experiment 1 by design (arms A and B ran with them); the brief's inspection paragraph is neutralised by the prompt's last-but-one sentence |
 | `judge.md` | 5 | "browser capturer", "capture is never shown", `capture/` directory, "1280×800 screenshots", "timed screenshots" | judge.md describes the host's final observation for people; the built-in prompt_only learner reads README.md only, and the toolsmith learner reads README.md and environment.md |
 

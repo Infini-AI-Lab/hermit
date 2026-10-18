@@ -15,6 +15,7 @@ Limits, model, prices, the request loop's shape, the records and the host's fina
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
 import importlib.util
 import json
 import os
@@ -61,9 +62,11 @@ RESULT_KEYS = ("arm", "case", "status", "stop_reason", "finished_utc", "elapsed_
                "final_inspection_matches", "valid_submission", "extraction", "cost_usd", "run_commands",
                "adapter_tool_calls", "image_bearing_calls", "looked_calls", "looked_blank_calls", "looked_final",
                "first_image_call", "first_look_call", "tools_exported", "tools_called", "tool_errors",
-               "context_exhausted", "images_total", "tool_text_chars", "confined")
+               "context_exhausted", "images_total", "tool_text_chars", "confined", "seen_final", "seen_pages",
+               "finalize")
 OUTPUT_KEYS = ("case", "arm", "status", "stop_reason", "model_calls", "tool_calls", "run_commands", "adapter_tool_calls",
-               "image_bearing_calls", "looked_calls", "first_image_call", "tools_exported", "tools_called", "tool_errors")
+               "image_bearing_calls", "looked_calls", "first_image_call", "tools_exported", "tools_called", "tool_errors",
+               "seen_final", "finalize")
 
 
 def _log_dir(root: Path, case: str, arm: str) -> Path:
@@ -137,6 +140,29 @@ class VisualAgent(Agent):
                 "name": "wm", "description": tool["description"] + texts.WM_SUFFIX, "parameters": tool["input_schema"]}}
         return sys_text, contributed
 
+    @staticmethod
+    def _finalize(session, base: Path, final: bytes, seen_pages: list[dict]) -> dict | None:
+        """Ask the adapter's `finalize` export (toolsmith) which version to submit; None when it has none. A replaced
+        final version is kept under unseen_final/ so that it can be judged later."""
+        if session is None or not session.has_tool("finalize"):
+            return None
+        final_sha = hashlib.sha256(final).hexdigest()
+        try:
+            decision = session.call("finalize", {"final_sha": final_sha,
+                                                 "seen": [{"sha": s["sha"], "call": s["call"]} for s in seen_pages]})
+        except Exception as exc:  # noqa: BLE001 - a broken export costs the choice, not the run
+            decision = {"submit": final_sha, "replaced": False, "reason": f"finalize failed: {type(exc).__name__}: {exc}"}
+        record = {"replaced": False, "reason": str(decision.get("reason") or "")[:500], "final_sha": final_sha,
+                  "submitted_call": None}
+        chosen = next((s for s in reversed(seen_pages) if s["sha"] == decision.get("submit")), None)
+        if decision.get("replaced") and decision.get("submit") != final_sha and chosen is not None:
+            (base / "unseen_final").mkdir(exist_ok=True)
+            (base / "unseen_final" / "index.html").write_bytes(final)
+            record.update(replaced=True, submitted_call=chosen["call"])
+        elif decision.get("replaced"):
+            record["reason"] += " (no snapshot of the chosen version: the final version is submitted)"
+        return record
+
     def _actor(self, task: dict, arm: str, adapter_dir: Path | None, view: Path | None) -> RunOutput:
         harness.check_vendor()      # before any model call: the final capture of this run would need it
         case = task["case"]
@@ -169,6 +195,8 @@ class VisualAgent(Agent):
         usage = {"prompt_tokens": 0, "completion_tokens": 0, "cached_tokens": 0}
         status, reason = "budget_exhausted", "maximum requests reached"
         image_message_indices: list[int] = []
+        pending_seen: dict | None = None    # the look whose images are attached to the next request
+        seen_pages: list[dict] = []         # looks whose images an accepted request carried to the model
         last_prompt_tokens, context_exhausted = 0, False
         for _ in range(MAX_REQUESTS):
             remaining = pipeline.COMPLETION_BUDGET - usage["completion_tokens"]
@@ -199,6 +227,9 @@ class VisualAgent(Agent):
                 gh.save(base / "calls" / f"{calls:02d}.json", {**record, "request_accepted": False})
                 status, reason = "api_error", record["error"]
                 break
+            if pending_seen is not None:     # this accepted request carried the look's images: the model saw them
+                seen_pages.append(pending_seen)
+                pending_seen = None
             usage["prompt_tokens"] += call_usage.input_tokens
             usage["completion_tokens"] += call_usage.output_tokens
             usage["cached_tokens"] += call_usage.cached_input_tokens
@@ -216,6 +247,7 @@ class VisualAgent(Agent):
                 reason = "model ended its tool loop"
                 break
             new_images: list = []
+            new_seen: dict | None = None
             for tool_call in tool_calls:
                 name = tool_call.get("function", {}).get("name", "")
                 try:
@@ -230,17 +262,24 @@ class VisualAgent(Agent):
                 messages.append({"role": "tool", "tool_call_id": tool_call.get("id"), "content": tool_text})
                 if images:
                     new_images = images  # Deterministic: the most recent image-bearing call only, as experiment 1.
+                    new_seen = host.last_dispatch_look
             if new_images:
                 for j in image_message_indices:
                     messages[j] = {"role": "user", "content": pipeline.IMAGES_REMOVED}
                 image_message_indices = [len(messages)]
                 messages.append({"role": "user", "content": [{"type": "text", "text": texts.IMAGES_INTRO}, *new_images]})
+                pending_seen = new_seen
             if host.calls >= gh.MAX_TOOL_CALLS:
                 reason = "tool-call budget exhausted"
                 break
         final = workspace / "index.html"
         placeholder = pipeline.PLACEHOLDER.encode()
         submitted = final.read_bytes() if final.is_file() and not final.is_symlink() else placeholder
+        seen_pages = [s for s in seen_pages if Path(s["snapshot"]).is_file()
+                      and Path(s["snapshot"]).read_bytes() != placeholder]
+        finalize = self._finalize(session, base, submitted, seen_pages)
+        if finalize and finalize["replaced"]:
+            submitted = Path(next(s["snapshot"] for s in seen_pages if s["call"] == finalize["submitted_call"])).read_bytes()
         valid = submitted != placeholder
         if not valid and status == "completed":
             status, reason = "no_artifact", "No index.html was authored with the file tools"
@@ -260,6 +299,8 @@ class VisualAgent(Agent):
             "image_bearing_calls": host.image_bearing_calls, "looked_calls": host.looked_calls,
             "looked_blank_calls": host.looked_blank_calls,
             "looked_final": valid and host.last_look_index_sha == submission_sha,
+            "seen_final": valid and any(s["sha"] == submission_sha for s in seen_pages),
+            "seen_pages": [{"call": s["call"], "sha": s["sha"]} for s in seen_pages], "finalize": finalize,
             "first_image_call": host.first_image_call, "first_look_call": host.first_look_call,
             "tools_exported": tools_exported, "tools_called": host.tools_called, "tool_errors": host.tool_errors,
             "context_exhausted": context_exhausted, "images_total": host.images_total,
