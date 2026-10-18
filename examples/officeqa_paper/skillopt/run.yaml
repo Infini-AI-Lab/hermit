@@ -34,17 +34,14 @@ evolver:
     promote_final: false          # the paper-time code hands back the best skill as is
     seed: 42
 llm:                           # the optimizer: GLM 5.3 at medium effort (the paper: GPT-5.5, medium)
-  base_url: https://api.fireworks.ai/inference/v1
-  model: accounts/fireworks/models/glm-5p3
-  api_key_env: FIREWORKS_API_KEY
-  price: {input: 1.40, cached_input: 0.26, output: 4.40}
+  model: fireworks/accounts/fireworks/models/glm-5p3     # <backend>/<model id>; the price is the backend's
   extra_body: {reasoning_effort: medium}
 sandbox:
   enabled: true
   network: restricted
-  allow: [https://api.fireworks.ai]
+  allow: []                  # the Evolver's own model endpoint is always reachable
   read: []
-  env: [FIREWORKS_API_KEY]
+  env: []                    # the Evolver's model key variable is always passed; nothing else is
 trainer:
   run_name: paper-skillopt
   output_dir: runs

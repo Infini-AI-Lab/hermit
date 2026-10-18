@@ -7,12 +7,11 @@ data:
   test: ../utils/splits/test.txt
   step_size: 20              # SkillOpt's batch_size
 task_info: ../utils/task-info/
+model: fireworks/accounts/fireworks/models/glm-5p3-flash   # the run's model: the react agent and the `llm` tool; <backend>/<model id>
 agent:
   name: react     # the built-in tool-calling agent: no pipeline code for this task
   concurrency: 10
   params:
-    model: {base_url: https://api.fireworks.ai/inference/v1, model: accounts/fireworks/models/glm-5p3-flash,
-            api_key_env: FIREWORKS_API_KEY, price: {input: 0.15, cached_input: 0.03, output: 0.50}}
     prompt: ../utils/agent/prompt.md
     tools: ../utils/tools.py
     user: "{question}"
@@ -35,17 +34,12 @@ evolver:
     slow_update_samples: 10
     prompt_env: officeqa     # SkillOpt's OfficeQA analyst prompts
     obs_chars: 4000          # each search or read result shown to the analyst, clipped
-llm:
-  base_url: https://api.fireworks.ai/inference/v1
-  model: accounts/fireworks/models/glm-5p3-flash
-  api_key_env: FIREWORKS_API_KEY
-  price: {input: 0.15, cached_input: 0.03, output: 0.50}
 sandbox:
   enabled: true
   network: restricted
-  allow: [https://api.fireworks.ai]
+  allow: []                  # the Evolver's own model endpoint is always reachable
   read: []
-  env: [FIREWORKS_API_KEY]
+  env: []                    # the Evolver's model key variable is always passed; nothing else is
 trainer:
   run_name: officeqa-skillopt
   output_dir: runs

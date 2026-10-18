@@ -15,6 +15,7 @@ These docs describe the **0.2.0** code in this checkout.
 | Improve your own agent | [Bring your task](tutorials/your-own-task.md) | A pipeline, judge, task description, and run config |
 | Use an existing adapter | [Deploy an adapter](tutorials/deploy-an-adapter.md) | A host workspace or a native plugin |
 | Investigate a run | [Run records](guides/runs.md), [Troubleshooting](guides/troubleshooting.md) | Evidence for what ran, changed, failed, or resumed |
+| Point a run at another model | [Model backends](guides/model-backends.md) | One place binds a model to Fireworks, OpenAI, DeepSeek, or a local vLLM or SGLang server |
 
 ## The training loop
 
@@ -47,6 +48,7 @@ framework/adapter-lifecycle
 methods/index
 guides/training
 guides/evaluation
+guides/model-backends
 guides/runs
 guides/troubleshooting
 tutorials/your-own-task

@@ -31,7 +31,7 @@ harnessadapter = "harnessadapter.cli:main"
 include = ["harnessadapter*"]
 
 [tool.setuptools.package-data]
-harnessadapter = ["defaults.yaml", "algorithms/evolvers/**/*", "algorithms/templates/**/*"]
+harnessadapter = ["defaults.yaml", "backends.yaml", "algorithms/evolvers/**/*", "algorithms/templates/**/*"]
 
 [tool.setuptools]
 include-package-data = true

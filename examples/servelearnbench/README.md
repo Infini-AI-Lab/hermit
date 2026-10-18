@@ -16,7 +16,10 @@ pip install "git+https://github.com/Infini-AI-Lab/ServeLearnBench"      # the be
 python examples/servelearnbench/utils/prepare.py --scenario retail_l3 --block 12   # tasks.jsonl, splits/, windows.json, the documents
 ```
 
-Also needed for training: the Codex CLI on PATH, bubblewrap, and a Fireworks key in `FIREWORKS_API_KEY`.
+Also needed for training: the Codex CLI on PATH, bubblewrap, and the key of the models' backend (`FIREWORKS_API_KEY`
+for the default, GLM 5.3 Flash on Fireworks; `MW_MODEL=<backend>/<model id>` binds another, for a local server
+`MW_MODEL=vllm/... VLLM_BASE_URL=http://127.0.0.1:8000/v1`; see
+[Model backends](../../docs/guides/model-backends.md)).
 
 ## Run
 
@@ -71,4 +74,4 @@ mwm/ prompt_only/      retail_l3.yaml and launch.sh per method
 ```
 
 The agent reads its settings from the environment the launcher sets: `SLB_WORKDIR` (the run's task directory),
-`SLB_MODEL`, `SLB_BASE_URL`, `SLB_API_KEY`, `SLB_REASONING_EFFORT`.
+`SLB_MODEL`, `SLB_BASE_URL`, `SLB_API_KEY`, `SLB_REASONING_EFFORT` (the launcher derives them from `MW_MODEL`'s backend).

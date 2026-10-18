@@ -35,7 +35,12 @@ sandbox:
   allow: []
   read: []                     # more paths the Evolver may read (an allowlist; nothing else is visible)
   env: null                    # environment variables passed to what the Evolver starts; null = all of them
-llm: null                      # optional: {base_url, model, api_key_env, price: {input, cached_input, output}, extra_body}
+model: null                    # the run's default model, a `<backend>/<model id>` reference (see backends): what `llm`,
+                               # agent.params.model and evolver.params.model use when they name none
+backends: {}                   # this run's model backends by name: {base_url, api_key_env, apis, prices, ...} or
+                               # {from: <other>, base_url: ...}; over ~/.config/harnessadapter/backends.yaml and the built-ins
+llm: null                      # the run's `llm` tool: `<backend>/<model>`, {model: <ref>, extra_body}, or
+                               # {base_url, model, api_key_env, price: {input, cached_input, output}, extra_body}
 trainer:
   run_name: null
   output_dir: runs

@@ -103,6 +103,15 @@ harnessadapter train --config examples/officeqa/gepa/smoke.yaml    # resumes aft
 harnessadapter eval  --config examples/officeqa/gepa/smoke.yaml --adapter final
 ```
 
+**Run it on your own server** instead of a hosted model (models are `<backend>/<model id>` references; a backend
+is an endpoint, see [Model backends](docs/guides/model-backends.md)):
+
+```bash
+vllm serve Qwen/Qwen3-30B-A3B-Instruct-2507-FP8 --enable-auto-tool-choice --tool-call-parser hermes   # http://127.0.0.1:8000/v1
+harnessadapter backends check vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8      # chat, Responses and Messages APIs answer?
+harnessadapter train --config examples/officeqa/gepa/smoke.yaml model=vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8
+```
+
 **Ship it** into a project, or as a plugin:
 
 ```bash

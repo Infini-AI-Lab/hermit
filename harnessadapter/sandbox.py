@@ -61,12 +61,14 @@ class Sandbox:
         return out
 
     def wrap(self, command: list[str], *, writable: list[Path] = (), env: dict | None = None,
-             home: Path | None = None) -> tuple[list[str], dict]:
-        """The command to run and its environment. `home` becomes HOME (it must be among the writable paths)."""
+             home: Path | None = None, keep=()) -> tuple[list[str], dict]:
+        """The command to run and its environment. `home` becomes HOME (it must be among the writable paths).
+        `keep` names variables the caller set for this command itself (an agent's provider settings): they pass
+        whatever sandbox.env lists."""
         env = dict(env if env is not None else os.environ)
         if self.env_allow is not None:
-            keep = set(self.env_allow) | ALWAYS
-            env = {k: v for k, v in env.items() if k in keep}
+            allowed = set(self.env_allow) | ALWAYS | set(keep)
+            env = {k: v for k, v in env.items() if k in allowed}
         if self.network == "restricted" and self.proxy_url:
             for key in ("HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy"):
                 env[key] = self.proxy_url

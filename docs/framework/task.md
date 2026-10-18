@@ -75,8 +75,7 @@ and writes no loop:
 agent:
   name: react
   params:
-    model: {base_url: https://api.fireworks.ai/inference/v1, model: accounts/fireworks/models/glm-5p3-flash,
-            api_key_env: FIREWORKS_API_KEY, price: {input: 0.15, cached_input: 0.03, output: 0.5}}
+    model: fireworks/accounts/fireworks/models/glm-5p3-flash   # <backend>/<model id>; or {base_url, model, api_key_env, price}
     prompt: utils/agent/prompt.md      # system prompt; `{context}` marks where ADAPTER.md goes (else appended)
     tools: utils/tools.py              # the task's tools: functions marked with @harnessadapter.agents.tool
     user: "{question}"                 # the first user message from the task's fields

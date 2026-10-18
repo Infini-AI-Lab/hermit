@@ -5,8 +5,9 @@ A task names it as its agent and writes no loop:
     agent:
       name: react
       params:
-        model: {base_url: https://api.fireworks.ai/inference/v1, model: accounts/fireworks/models/glm-5p3-flash,
-                api_key_env: FIREWORKS_API_KEY, price: {input: 0.15, cached_input: 0.03, output: 0.5}}
+        model: fireworks/accounts/fireworks/models/glm-5p3-flash   # <backend>/<model id>, see harnessadapter.backends;
+                                             # or {model: vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8, extra_body: {...}},
+                                             # or the endpoint itself: {base_url, model, api_key_env, price}
         prompt: environment/prompt.md        # the system prompt; `{context}` marks where the adapter's context goes
         tools: environment/tools.py          # @tool functions (optional)
         user: "{question}"                   # the first user message, from the task's fields (default: see below)
@@ -90,9 +91,9 @@ def run(task: dict, adapter: Path | None, *, params: dict, base: Path) -> RunOut
 def _run(task: dict, adapter: Path | None, params: dict, base: Path) -> RunOutput:
     model = params.get("model")
     if not isinstance(model, dict) or not model.get("base_url") or not model.get("model"):
-        raise ValueError("agent.params.model needs base_url and model (and usually api_key_env, price)")
-    client = ChatClient(model["base_url"], model["model"], api_key_env=model.get("api_key_env"), price=model.get("price"),
-                        extra_body=model.get("extra_body"), timeout=float(model.get("timeout", 600)))
+        raise ValueError("agent.params.model is required: a `<backend>/<model>` reference, or {base_url, model, "
+                         "api_key_env, price} (the run's `model` is the default)")
+    client = ChatClient.from_spec(model)
     session = Session(adapter) if adapter is not None else None
     task_tools = _tools(params.get("tools"), base)
     functions = {spec["name"]: fn for spec, fn in task_tools}

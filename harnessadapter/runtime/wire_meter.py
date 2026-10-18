@@ -5,6 +5,11 @@ for a Codex learner, rewrites what the provider needs rewritten (REWRITE_* below
 
     PORT=3451 LEDGER=ledger.json UPSTREAM=https://api.fireworks.ai python -m harnessadapter.runtime.wire_meter
 
+UPSTREAM is the backend's origin (scheme://host[:port]; http for a local vLLM or SGLang server); clients use
+http://127.0.0.1:<PORT>/<bucket><path of the backend's base URL> (/inference/v1 for Fireworks, /v1 for a local
+server, nothing for a backend served at its origin): `python -m harnessadapter.backends shell <ref>` prints both
+as HA_ORIGIN and HA_PATH. The first path segment is the bucket unless it is an API root (v1, inference, ...).
+
 Copied from metaworld's mwm/wire_meter.py (2026-10-14); the notes below are its own.
 
 Wire-level token meter: one instrument for every arm's model bill.
@@ -335,6 +340,21 @@ def rewrite_request(body: bytes) -> bytes:
         return body
 
 
+# The first segments an API path may start with (OpenAI-style roots, Fireworks' /inference, DeepSeek's
+# /anthropic, and the endpoints themselves at a base URL with no path at all): a request whose path starts
+# with one of these carries no bucket.
+API_ROOTS = {"v1", "inference", "anthropic", "openai", "api", "chat", "completions", "responses", "messages",
+             "models", "embeddings"}
+
+
+def split_bucket(request_path: str) -> tuple[str, str]:
+    """(bucket, upstream path): the first segment is the bucket unless the path is an API path itself."""
+    parts = request_path.lstrip("/").split("/", 1)
+    if len(parts) == 2 and parts[0] not in API_ROOTS:
+        return parts[0], "/" + parts[1]
+    return "unattributed", request_path
+
+
 def _upstream_conn():
     if PROXY:
         p = urlsplit(PROXY)
@@ -377,9 +397,9 @@ class Handler(BaseHTTPRequestHandler):
             self.close_connection = True
 
     def do_GET(self):
-        if self.path == "/health":
+        if self.path == "/health":          # the upstream too: a launcher refuses a port whose meter faces elsewhere
             with _lock:
-                body = json.dumps(_health).encode()
+                body = json.dumps({**_health, "upstream": UPSTREAM}).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
@@ -396,17 +416,34 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
-        self.send_error(404)
+        # Any other GET (/<bucket>/v1/models, the preflight of `harnessadapter check`) is relayed as is, unmetered.
+        _, path = split_bucket(self.path)
+        hdrs = {k: v for k, v in self.headers.items() if k.lower() not in _DROP_REQ}
+        hdrs["Accept-Encoding"] = "identity"
+        try:
+            conn = _upstream_conn()
+            conn.request("GET", path, headers=hdrs)
+            r = conn.getresponse()
+            data = r.read()
+            self.send_response(r.status)
+            for k, v in r.getheaders():
+                if k.lower() not in _DROP_RESP:
+                    self.send_header(k, v)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            conn.close()
+        except Exception as exc:  # noqa: BLE001
+            with _lock:
+                _health["errors"] += 1
+                _health["last_error"] = f"{type(exc).__name__}: {exc}"[:200]
+            self.send_error(502)
 
     def do_POST(self):
         # /<bucket>/<upstream path>. No bucket segment -> "unattributed",
         # counted rather than refused: a mis-configured client's calls must
         # still reach the model AND still land on the bill.
-        parts = self.path.lstrip("/").split("/", 1)
-        if len(parts) == 2 and parts[1].split("/", 1)[0] in ("inference", "v1"):
-            bucket, path = parts[0], "/" + parts[1]
-        else:
-            bucket, path = "unattributed", self.path
+        bucket, path = split_bucket(self.path)
 
         n = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(n)

@@ -3,8 +3,10 @@ description: The MetaWorld Model learner (MWM V2 default, docket on, hypothesis 
 class: evolver.py:MwmEvolver
 needs: [environment]
 params:
+  backend: codex              # the learner is a Codex session (a model reference binds it, as for the codex Evolver)
   model: null                 # the learner model; null: the Codex default
-  args: []                    # extra codex arguments: provider settings, -c model_reasoning_effort="high"
+  args: []                    # extra codex arguments, e.g. -c model_reasoning_effort="high" (provider settings come
+                              # from the model's backend; a plain model id needs them here)
   home: []                    # files of ~/.codex copied into the agent home; none: the provider key is an env var
   price: null                 # USD per million tokens {input, cached_input, output}
   evidence: null              # the task's evidence store (required), granted through evolver_access.environment

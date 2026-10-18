@@ -9,8 +9,9 @@ not a guaranteed runtime or cost.
 
 ## Requirements
 
-Use Linux with the framework installed, Codex on PATH, bubblewrap and permitted namespaces, and a Fireworks
-credential in `FIREWORKS_API_KEY`. Install the benchmark into the interpreter used by the launcher:
+Use Linux with the framework installed, Codex on PATH, bubblewrap and permitted namespaces, and the key of the
+models' backend (`FIREWORKS_API_KEY` for the default, GLM 5.3 Flash on Fireworks). Install the benchmark into the
+interpreter used by the launcher:
 
 ```bash
 .venv/bin/python -m pip install "git+https://github.com/Infini-AI-Lab/ServeLearnBench"
@@ -36,7 +37,9 @@ a waiter that runs the per-window tests after training exits. Inspect logs for s
 does not itself establish successful training.
 
 Use an unused tag and a free port pair (`WM_PORT` and `WM_PORT+1`). Existing run/task directories are refused.
-The default model identifiers can be overridden using `MW_MODEL_ID` and `MW_EVOLVER_MODEL`. The default output
+The models are backend references: `MW_MODEL=<backend>/<model id>` for host and learner, `MW_HOST_MODEL` and
+`MW_EVOLVER_MODEL` for either alone (a local server: `MW_MODEL=vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8
+VLLM_BASE_URL=http://127.0.0.1:8000/v1`; see [Model backends](../guides/model-backends.md)). The default output
 root is `~/code/metaworld-runs`; setting `MW_RUNS` above makes it explicit.
 
 ## Inspect outputs

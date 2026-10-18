@@ -35,8 +35,10 @@ python examples/officeqa/utils/prepare.py /absolute/path/to/prepared
 ```
 
 This writes `tasks.jsonl`, split files, and `data_root.txt` inside `examples/officeqa/utils/`. It does not build the corpus
-index. Set `FIREWORKS_API_KEY` in your shell before continuing. Both the built-in acting `react` agent and the learner in
-`smoke.yaml` use Fireworks; the model configured in that file must be available to your account.
+index. Both the built-in acting `react` agent and the learner in `smoke.yaml` name GLM 5.3 Flash on Fireworks
+(`fireworks/accounts/fireworks/models/glm-5p3-flash`): set `FIREWORKS_API_KEY` in your shell before continuing, or
+bind the run to another backend (`model=vllm/...` on the command line; see
+[Model backends](../guides/model-backends.md)).
 
 ## Check, train, evaluate
 

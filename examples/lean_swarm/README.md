@@ -22,7 +22,9 @@ Install the framework first ([Installation](../../docs/get-started/installation.
 python -m harnessadapter.spec examples/lean_swarm/adapter --root harnessadapter/algorithms/templates/lean_collab
 ```
 
-Also needed: the Codex CLI, bubblewrap and socat on PATH, a Fireworks key in `FIREWORKS_API_KEY`, and a Lean
+Also needed: the Codex CLI, bubblewrap and socat on PATH, the key of the model's backend (`FIREWORKS_API_KEY` for
+the default; `--model <backend>/<model id>` binds another that serves the Responses API, see
+[Model backends](../../docs/guides/model-backends.md)), and a Lean
 toolchain with a [formal-conjectures](https://github.com/google-deepmind/formal-conjectures) checkout whose Mathlib is
 built (`COLLAB_REPO`, default `~/code/formal-conjectures`; `COLLAB_LAKE`, default `~/.elan/bin/lake`; nothing here
 installs them).
@@ -34,7 +36,7 @@ One command runs one problem with five agents:
 ```bash
 export FIREWORKS_API_KEY=...
 examples/lean_swarm/launch.sh ErdosProblems/494.lean erdos_494.variants.k_eq_card      # a file under FormalConjectures/, the target theorem
-examples/lean_swarm/launch.sh my/Problem.lean my_theorem --agents 3 --cap 3600 --model accounts/fireworks/models/glm-5p3-flash
+examples/lean_swarm/launch.sh my/Problem.lean my_theorem --agents 3 --cap 3600 --model fireworks/accounts/fireworks/models/glm-5p3-flash
 ```
 
 The run goes to `$LEAN_SWARM_RUNS/<problem>__<theorem>/` (default `~/code/lean-swarm-runs`): `launch.log`, one
