@@ -398,3 +398,14 @@ def test_tools_run_confined_in_every_language(scratch):
     run = bwrap_runner(["python3", "-I", "-B", "/tool/test.py"], str(ws), 30,
                        ro=[[str(adapter / "tools" / "wordcount"), "/tool"]])
     assert run["exit_code"] == 0, run["stderr"]
+
+
+def test_finalize_submits_the_last_version_the_agent_saw():
+    session = Session(ROOT)
+    assert session.has_tool("finalize")
+    assert session.call("finalize", {"final_sha": "f", "seen": []}) == {
+        "submit": "f", "replaced": False, "reason": "no render of the work reached the agent"}
+    kept = session.call("finalize", {"final_sha": "a", "seen": [{"sha": "a", "call": 3}, {"sha": "b", "call": 7}]})
+    assert kept["submit"] == "a" and kept["replaced"] is False       # an earlier version it saw: the agent went back
+    replaced = session.call("finalize", {"final_sha": "x", "seen": [{"sha": "a", "call": 3}, {"sha": "b", "call": 7}]})
+    assert replaced["submit"] == "b" and replaced["replaced"] is True and "last version it saw" in replaced["reason"]

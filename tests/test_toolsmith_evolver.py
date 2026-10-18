@@ -331,3 +331,119 @@ def test_digest_keeps_header_footer_adapter_calls_and_errors_when_truncating(tmp
     assert "calls omitted for length" in short and "01 write_file" not in short
     assert "38 write_file" in short      # the last calls come before the rest
     assert digest.build(tmp_path / "missing", limit=1000).startswith("Run: (no result.json)")
+
+
+# --- version 1.1: grammar, separate workspaces, probes, the tools-vs-host section, whole files, exact snapshots -------
+def test_markers_after_a_sentence_and_content_before_the_end_marker():
+    reply = load("evolver").parse_reply("Here is the file: <<<FILE ADAPTER.md>>>\nline one\nlast line<<<END FILE>>>\n"
+                                        "SUMMARY: s\n")
+    assert reply.files == [("ADAPTER.md", "line one\nlast line")] and not reply.problems and reply.summary == "s"
+
+
+class ProbeRunner(FakeRunner):
+    """The bundle's test writes a fixture index.html; the entry draws the probe colour when the page is the probe."""
+
+    def __init__(self, sees_probe: bool = True):
+        super().__init__()
+        self.sees_probe = sees_probe
+
+    def __call__(self, *, argv, cwd, timeout_s, ro=(), lock=None, **_):
+        self.calls.append({"argv": argv, "cwd": cwd, "timeout_s": timeout_s, "ro": ro, "lock": lock,
+                           "page": (Path(cwd) / "index.html").read_text()})
+        base = {"exit_code": 0, "stdout": "", "stderr": "", "seconds": 0.2, "timed_out": False, "lock_wait_s": 0.0,
+                "error": None, "browser_launched": True}
+        if argv[-2].endswith("test.py"):
+            (Path(cwd) / "index.html").write_text("FIXTURE")
+            return base
+        probe = "PROBE" in (Path(cwd) / "index.html").read_text()
+        (Path(cwd) / "shot.png").write_bytes(png(blank=probe and self.sees_probe))   # blank = solid rgb(30,120,200)
+        return {**base, "stdout": json.dumps({"text": "rendered", "images": ["shot.png"]}) + "\n"}
+
+
+def probe_context(tmp_path, replies, runner):
+    ctx, calls = context(tmp_path, replies, runner)
+    probes = ctx.workspace.task_info / "probes"
+    probes.mkdir()
+    (probes / "probe.html").write_text("<p>PROBE</p>")
+    (probes / "probes.json").write_text(json.dumps([{"page": "probe.html", "label": "solid", "expect_rgb": [30, 120, 200],
+                                                     "tolerance": 10, "note": "a solid page"}]))
+    return ctx, calls
+
+
+def test_own_test_has_its_own_workspace_and_every_tool_is_called_on_the_probe_pages(tmp_path):
+    runner = ProbeRunner()
+    reply = block("tools/shot/TOOL.json", json.dumps(SHOT)) + block("tools/shot/run.py", RUN_V1) \
+        + block("tools/shot/test.py", TEST_PY) + "SUMMARY: new tool\n"
+    ctx, calls = probe_context(tmp_path, [reply], runner)
+    evolver, _ = instantiate(find("toolsmith"), {})
+    evolver.step(ctx)
+    scratch = ctx.workspace.scratch / "ws"
+    assert [(Path(c["cwd"]), c["argv"][-2]) for c in runner.calls] == [
+        (scratch / "shot.test", "/tool/test.py"), (scratch / "shot", "/tool/run.py"), (scratch / "shot.probe0", "/tool/run.py")]
+    assert "data-testid='scene'" in runner.calls[1]["page"] and runner.calls[2]["page"] == "<p>PROBE</p>"
+    assert (scratch / "shot.test" / "index.html").read_text() == "FIXTURE"        # the fixture stayed in its own place
+    state = saved_tests(ctx)["shot"]
+    assert state["working"] is True and state["probes"][0]["ok"] is True and state["probes"][0]["dominant_rgb"] == [[30, 120, 200]]
+    assert len(calls) == 1      # everything passed: no repair turn
+
+
+def test_a_failed_probe_gets_a_repair_turn_with_the_colours(tmp_path):
+    runner = ProbeRunner(sees_probe=False)
+    reply = block("tools/shot/TOOL.json", json.dumps({**SHOT, "test": None})) + block("tools/shot/run.py", RUN_V1) \
+        + "SUMMARY: new tool\n"
+    ctx, calls = probe_context(tmp_path, [reply, "SUMMARY: cannot fix it\n"], runner)
+    evolver, _ = instantiate(find("toolsmith"), {})
+    evolver.step(ctx)
+    assert len(calls) == 2
+    repair = calls[1][-1]["content"]
+    assert "probe 'solid' (a solid page): FAILED" in repair and "expected [30, 120, 200]" in repair
+    state = saved_tests(ctx)["shot"]
+    assert state["working"] is True and state["probes"][0]["ok"] is False      # the agent's page still worked
+
+
+def test_material_puts_the_tools_last_report_next_to_the_hosts_checks(tmp_path):
+    ctx, calls = context(tmp_path, ["SUMMARY: nothing\n"])
+    material = ctx.workspace.learning_material / "step_0001"
+    d = material / "trajectories" / "waves"
+    record = json.loads((d / "tools" / "05.json").read_text())
+    (d / "tools" / "05.json").write_text(json.dumps({**record, "index_sha_at_call": "abc"}))
+    (d / "result.json").write_text(json.dumps({**RESULT, "submission_sha256": "abc", "finalize": {
+        "replaced": True, "reason": "the final version was changed after the agent last saw it", "submitted_call": 5}}))
+    (d / "capture").mkdir()
+    (d / "capture" / "summary.json").write_text(json.dumps({"screenshots": [{"id": "desktop-t0"}, {"id": "phone"}]}))
+    task = json.loads((material / "tasks" / "waves.json").read_text())
+    task["judge"]["extra"] = {"mechanical": [
+        {"item": "ready", "passed": False, "detail": "getState().ready did not become true within 4 s"},
+        {"item": "capture_ok", "passed": True, "detail": "5 of 5"}]}
+    (material / "tasks" / "waves.json").write_text(json.dumps(task))
+    evolver, _ = instantiate(find("toolsmith"), {})
+    evolver.step(ctx)
+    prompt = calls[0][-1]["content"]
+    for text in ("#### Your tools vs the host in this run", "Last call: 05 shot", "it showed the submitted version",
+                 "Image sizes your tools returned in this run: 320x240.", "(the version from call 5)",
+                 "Host views of the submitted version: desktop-t0, phone.",
+                 "Host checks that failed: ready (getState().ready did not become true within 4 s).",
+                 "Your tool's last report, verbatim:\n<<<\nrendered\n>>>"):
+        assert text in prompt, text
+
+
+def test_tool_files_are_shown_whole(tmp_path):
+    ctx, calls = context(tmp_path, ["SUMMARY: nothing\n"])
+    bundle(ctx.workspace.adapter, {**SHOT, "test": None}, {"run.py": "".join(f"x{i} = {i}  # line\n" for i in range(1, 801))})
+    evolver, _ = instantiate(find("toolsmith"), {})
+    evolver.step(ctx)
+    assert " 800| x800 = 800" in calls[0][-1]["content"] and "[clipped" not in calls[0][-1]["content"]
+
+
+def test_only_the_exact_version_that_passed_is_restored(tmp_path):
+    runner = FakeRunner(fail=True)
+    ctx, calls = context(tmp_path, [block("tools/shot/run.py", RUN_V2) + "SUMMARY: a\n",
+                                    block("tools/shot/run.py", RUN_V3) + "SUMMARY: b\n"], runner)
+    adapter = ctx.workspace.adapter
+    bundle(adapter, SHOT, {"run.py": RUN_V1, "test.py": TEST_PY})
+    (ctx.workspace.state / "tests.json").write_text(json.dumps(       # passed once, then changed untested (stale)
+        {"shot": {"sha256": "0" * 64, "working": True, "stale": True, "test": None, "contract": {"ok": True}}}))
+    evolver, _ = instantiate(find("toolsmith"), {})
+    evolver.step(ctx)
+    assert (adapter / "tools" / "shot" / "run.py").read_text() == RUN_V3
+    assert saved_tests(ctx)["shot"]["restored_from_last_passing"] is False

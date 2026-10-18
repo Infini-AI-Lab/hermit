@@ -14,10 +14,10 @@ from typing import NamedTuple
 
 FILE_OPS = ("write_file", "read_file", "replace_text")
 HEADER_KEYS = ("case", "status", "stop_reason", "model_calls", "tool_calls", "run_commands", "adapter_tool_calls",
-               "image_bearing_calls", "looked_calls", "first_image_call", "tools_exported")
+               "image_bearing_calls", "looked_calls", "first_image_call", "tools_exported", "seen_final")
 COMMAND_CHARS = ARGS_CHARS = 300
 STDOUT_CHARS, STDERR_CHARS = 300, 800     # why: a command's first lines say what ran, its last lines why it failed
-TEXT_CHARS, TAIL_CHARS = 600, 1500        # why: a tool's text is what the agent read; its stderr is for the learner
+TEXT_CHARS, TAIL_CHARS = 1500, 1500       # why: a tool's text is what the agent read; its stderr is for the learner
 ERROR_CHARS = 1500
 FOOTER_CHARS = 1500
 LAST_CALLS = 8

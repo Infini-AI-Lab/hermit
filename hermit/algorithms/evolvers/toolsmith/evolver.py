@@ -4,8 +4,10 @@ confined runner (their own test, then one call through the same path the agent's
 repair turn with the exact failures. A tool that worked before and fails after the repair turn is restored.
 
 Training State (state/): notes.jsonl — one line per step (summary, notices), shown at the next step; tests.json — the
-last self-test of every tool (sha256, test, contract, working, restored_from_last_passing, notices); seed/ — the last
-valid page the agent produced, the self-tests' workspace seed; images/ — the last self-test images when `images` > 0.
+last self-test of every tool (sha256, test, contract, probes, working, restored_from_last_passing, notices); seed/ — the
+last valid page the agent produced, the self-tests' workspace seed; images/ — the last self-test images when `images` > 0.
+Probe pages come from the task: `task-info/probes/probes.json` lists pages whose correct render is known (a dominant
+colour); every tested tool is called once per probe.
 """
 from __future__ import annotations
 
@@ -31,14 +33,17 @@ RESERVED = frozenset({"write_file", "read_file", "replace_text", "run_command", 
                       "tool_call", "context_package"})
 PRIMITIVES = frozenset({"write_file", "read_file", "replace_text", "run_command", "tool_catalog", "tool_call"})
 FILE_EXT = (".py", ".md", ".json", ".txt", ".js", ".cjs", ".mjs", ".sh")   # the template's bundle file kinds
-FILE_VIEW_CHARS = 6000          # why: a tool file is shown whole with line numbers; beyond this only its head matters
+FILE_VIEW_CHARS = 70_000        # why: a tool file (<= 60,000 bytes) is shown whole with line numbers; the learner must
+                                # see all of a program it may change (6,000 hid the second half of every grown tool)
 MIN_IMAGE_BYTES = 1024          # why: a real capture is far larger; a 1 kB PNG is a stub or an empty canvas
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 TAIL = 2000
 NOTES_SHOWN = 5
+REPORT_CHARS = 3000             # the learned tool's last report shown next to the host's checks
+PROBES = "probes"               # task-info/probes/probes.json: [{page, label, expect_rgb, tolerance, note}]
 
-_START = re.compile(r"^<<<FILE[ \t]+(.+?)[ \t]*>>>[ \t]*$")
-_END = re.compile(r"^<<<END(?:[ \t]+FILE)?>>>[ \t]*$")
+_START = re.compile(r"^.*?<<<FILE[ \t]+(.+?)[ \t]*>>>[ \t]*$")    # why: models put the marker after a sentence
+_END = re.compile(r"^(.*?)<<<END(?:[ \t]+FILE)?>>>[ \t]*$")       # text before the marker is the file's last line
 _DELETE = re.compile(r"^<<<DELETE[ \t]+(.+?)[ \t]*>>>[ \t]*$")
 _SUMMARY = re.compile(r"^[ \t*_#>-]*SUMMARY:[ \t]*(.*)$")      # tolerant of a bold or quoted summary line
 _BACKTICKED = re.compile(r"`([a-z][a-z0-9_]{0,63})(\(\))?`")
@@ -65,7 +70,10 @@ def parse_reply(text: str) -> Reply:
         return "\n".join(lines)
     for line in text.splitlines():
         if current is not None:
-            if _END.match(line):
+            end = _END.match(line)
+            if end:
+                if end.group(1).strip():
+                    current[1].append(end.group(1))
                 files.append((current[0], close(current[1])))
                 current = None
                 continue
@@ -323,6 +331,7 @@ class ToolsmithEvolver(Evolver):
             if trajectory and (current / trajectory).is_dir():
                 limit = int(p.get("trajectory_chars", 20000))
                 block += "#### Trajectory\n" + digest.build(current / trajectory, limit) + "\n"
+                block += self._tool_vs_host(current / trajectory, r)
             examples.append(block)
         scores = [(r.get("judge") or {}).get("score") or 0.0 for r in records]
         mean = sum(scores) / max(len(scores), 1)
@@ -349,6 +358,53 @@ class ToolsmithEvolver(Evolver):
                      "you change (<<<FILE path>>> ... <<<END FILE>>>), <<<DELETE path>>> lines for what you remove, "
                      "then one line starting with SUMMARY: that says what you changed and why.")
         return "\n".join(parts)
+
+    @staticmethod
+    def _tool_vs_host(d: Path, record: dict) -> str:
+        """The learned tools' last report in a run next to the host's checks of the version that run submitted."""
+        result = _read_json(d / "result.json", {})
+        result = result if isinstance(result, dict) else {}
+        calls = []
+        for path in sorted((d / "tools").glob("*.json")) if (d / "tools").is_dir() else []:
+            t = _read_json(path, None)
+            if isinstance(t, dict) and t.get("name") not in PRIMITIVES and t.get("name") != "wm":
+                calls.append((path.stem, t))
+        mechanical = ((record.get("judge") or {}).get("extra") or {}).get("mechanical") or []
+        failed = [f"{m.get('item')} ({m.get('detail')})" for m in mechanical
+                  if isinstance(m, dict) and not m.get("passed")]
+        summary = _read_json(d / "capture" / "summary.json", {})
+        views = [str(s.get("id")) for s in (summary.get("screenshots") or []) if isinstance(s, dict) and s.get("id")] \
+            if isinstance(summary, dict) else []
+        lines = ["#### Your tools vs the host in this run"]
+        if not calls:
+            lines.append("- The agent called none of your tools.")
+        else:
+            number, last = calls[-1]
+            reply = last.get("result")
+            if isinstance(reply, str):       # an older record keeps the result as JSON text
+                try:
+                    reply = json.loads(reply)
+                except ValueError:
+                    reply = {"text": reply}
+            reply = reply if isinstance(reply, dict) else {}
+            sizes = sorted({f"{i.get('width')}x{i.get('height')}" for _, t in calls
+                            for i in t.get("image_records") or [] if isinstance(i, dict)})
+            rendered = last.get("index_sha_at_call")
+            submitted = result.get("submission_sha256")
+            same = ("the submitted version" if rendered and rendered == submitted
+                    else "a version other than the submitted one" if rendered else "no image of the page")
+            lines += [f"- Last call: {number} {last.get('name')} {_clip(last.get('arguments'), 200)}; it showed {same}.",
+                      f"- Image sizes your tools returned in this run: {', '.join(sizes) or 'none'}."]
+        finalize = result.get("finalize")
+        if isinstance(finalize, dict):
+            lines.append(f"- Submission: {finalize.get('reason')}" + (f" (the version from call "
+                         f"{finalize.get('submitted_call')})" if finalize.get("replaced") else "") + ".")
+        lines.append(f"- Host views of the submitted version: {', '.join(views) or 'none recorded'}.")
+        lines.append("- Host checks that failed: " + ("; ".join(failed) if failed else "none") + ".")
+        if calls:
+            text = str(reply.get("text") or reply.get("error") or "")
+            lines.append(f"- Your tool's last report, verbatim:\n<<<\n{_clip(text, REPORT_CHARS)}\n>>>")
+        return "\n".join(lines) + "\n"
 
     @staticmethod
     def _adapter_view(adapter: Path, iface, notices: list[str]) -> str:
@@ -489,11 +545,12 @@ class ToolsmithEvolver(Evolver):
         admitted, rejected = iface.catalog(ws.adapter)
         bundles = {t["name"]: t for t in admitted}
         problems = {r["name"]: r["problem"] for r in rejected}
+        probes = self._probes(ws, notices)
         step = ctx.progress.step if ctx.progress else None
         for name in names[: int(p.get("max_tests_per_round", 4))]:
             directory = ws.adapter / TOOLS / name
-            record = {"sha256": bundle_sha(directory), "step": step, "test": None, "contract": None, "working": False,
-                      "failed": True, "restored_from_last_passing": False, "notices": []}
+            record = {"sha256": bundle_sha(directory), "step": step, "test": None, "contract": None, "probes": [],
+                      "working": False, "failed": True, "restored_from_last_passing": False, "notices": []}
             results[name] = record
             if name in problems:
                 record["contract"] = {"ok": False, "problem": f"rejected by the catalog: {problems[name]}"}
@@ -506,19 +563,15 @@ class ToolsmithEvolver(Evolver):
                 record["notices"].append("not tested: the self-test time budget of this round is spent")
                 continue
             bundle = bundles[name]
-            workspace = ws.scratch / "ws" / name
-            if workspace.exists():
-                shutil.rmtree(workspace)
-            workspace.mkdir(parents=True)
-            for file, text in seed.items():
-                (workspace / file).write_text(text)
 
             def delegate(**kw):
                 kw["timeout_s"] = min(float(kw.get("timeout_s") or per_test), per_test)
                 out = runner(**kw)
                 return out if isinstance(out, dict) else {}
-            if bundle.get("test"):
-                record["test"] = self._run_test(iface, delegate, directory, bundle["test"], str(workspace))
+            if bundle.get("test"):     # its own scratch workspace: a test that writes a fixture cannot replace the seed
+                record["test"] = self._run_test(iface, delegate, directory, bundle["test"],
+                                                str(self._workspace(ws, f"{name}.test", seed)))
+            workspace = self._workspace(ws, name, seed)
             if time.time() <= deadline:
                 record["contract"] = self._contract_check(ws.adapter, delegate, workspace, name, bundle)
             else:
@@ -527,12 +580,72 @@ class ToolsmithEvolver(Evolver):
             contract = record["contract"]
             images = contract.get("images") or []
             nonblank = any(not i.get("blank", True) for i in images)
-            record["working"] = bool(contract.get("ok")) and nonblank
+            require_image = bool(p.get("require_image", True))
+            record["working"] = bool(contract.get("ok")) and (nonblank if (images or require_image) else True)
             test_failed = record["test"] is not None and not record["test"]["passed"]
             record["failed"] = test_failed or not contract.get("ok") or (bool(images) and not nonblank)
             if images and not nonblank and contract.get("ok"):
                 record["notices"].append("every image is blank (uniform or too small): nothing to look at")
+            record["probes"] = []
+            for i, probe in enumerate(probes):
+                if time.time() > deadline or (ctx.cancel is not None and ctx.cancel.is_set()):
+                    record["notices"].append(f"probe {probe['label']!r} not run: the self-test time budget is spent")
+                    continue
+                pseed = {**seed, "index.html": probe["html"]}
+                result = self._probe_check(ws.adapter, delegate, self._workspace(ws, f"{name}.probe{i}", pseed),
+                                           name, bundle, probe)
+                record["probes"].append(result)
+                if not result["ok"]:
+                    record["failed"] = True
         return results
+
+    @staticmethod
+    def _workspace(ws, label: str, files: dict[str, str]) -> Path:
+        workspace = ws.scratch / "ws" / label
+        if workspace.exists():
+            shutil.rmtree(workspace)
+        workspace.mkdir(parents=True)
+        for file, text in files.items():
+            (workspace / file).write_text(text)
+        return workspace
+
+    @staticmethod
+    def _probes(ws, notices: list[str]) -> list[dict]:
+        """The task's probe pages (task-info/probes/probes.json): [{label, html, expect_rgb, tolerance, note}]."""
+        index = ws.task_info / PROBES / "probes.json"
+        if not index.is_file():
+            return []
+        out = []
+        for entry in _read_json(index, []) or []:
+            try:
+                page = ws.task_info / PROBES / str(entry["page"])
+                out.append({"label": str(entry.get("label") or entry["page"]), "html": page.read_text("utf-8"),
+                             "expect_rgb": [int(v) for v in entry["expect_rgb"]][:3],
+                             "tolerance": int(entry.get("tolerance", 10)), "note": str(entry.get("note") or "")})
+            except (KeyError, OSError, TypeError, ValueError) as exc:
+                notices.append(f"probe entry skipped ({type(exc).__name__}: {exc})")
+        return out
+
+    def _probe_check(self, adapter: Path, delegate, workspace: Path, name: str, bundle: dict, probe: dict) -> dict:
+        """One call of the tool on a probe page; ok when one returned image's dominant colour is the expected one."""
+        call = self._contract_check(adapter, delegate, workspace, name, bundle)
+        seen = []
+        for info in call.get("images") or []:
+            path = workspace / info["file"]
+            rgb = pngstats.stats(path).get("dominant_rgb") if path.is_file() else None   # a solid probe frame is tiny
+            seen.append(list(rgb) if rgb else None)
+        want, tol = probe["expect_rgb"], probe["tolerance"]
+        hit = any(rgb and all(abs(int(a) - b) <= tol for a, b in zip(rgb, want)) for rgb in seen)
+        problem = None
+        if call.get("problem") and not call.get("images"):
+            problem = call["problem"]
+        elif not seen:
+            problem = "no image returned"
+        elif not hit:
+            problem = f"dominant colours {seen}; expected {want} (±{tol})"
+        return {"label": probe["label"], "ok": problem is None, "problem": problem, "expect_rgb": want,
+                "dominant_rgb": seen, "note": probe["note"], "text": call.get("text", ""),
+                "stderr_tail": call.get("stderr_tail", "")}
 
     @staticmethod
     def _run_test(iface, delegate, directory: Path, test: str, cwd: str) -> dict:
@@ -642,6 +755,12 @@ class ToolsmithEvolver(Evolver):
                                   if c.get("diff_first_last") is not None else ""))
                 else:
                     out.append("images: none")
+            for probe in r.get("probes") or []:
+                state = "ok" if probe.get("ok") else f"FAILED — {probe.get('problem')}"
+                out.append(f"probe {probe.get('label')!r} ({probe.get('note')}): {state}; text: "
+                           f"{_clip(probe.get('text', ''), 300)!r}")
+                if not probe.get("ok") and probe.get("stderr_tail"):
+                    out.append("  stderr tail:\n    " + _tail(str(probe["stderr_tail"]), 800).replace("\n", "\n    "))
             for note in r.get("notices") or []:
                 out.append(f"note: {note}")
             out.append("")
@@ -653,7 +772,8 @@ class ToolsmithEvolver(Evolver):
         snapshots = {}
         for name, record in previous.items():
             source = ws.adapter / TOOLS / name
-            if isinstance(record, dict) and record.get("working") and source.is_dir():
+            if isinstance(record, dict) and record.get("working") and not record.get("stale") and source.is_dir() \
+                    and record.get("sha256") == bundle_sha(source):     # why: only the exact version that passed
                 target = ws.scratch / "snapshots" / name
                 if target.exists():
                     shutil.rmtree(target)

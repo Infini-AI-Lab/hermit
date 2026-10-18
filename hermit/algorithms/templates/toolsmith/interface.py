@@ -1,6 +1,7 @@
-"""Toolsmith adapter: learned instructions (ADAPTER.md) and learned tools (tools/<name>/ bundles) behind two fixed
+"""Toolsmith adapter: learned instructions (ADAPTER.md) and learned tools (tools/<name>/ bundles) behind three fixed
 exports. `tool_catalog` lists the admitted bundles; `tool_call` runs one through the confined runner the host binds as a
-resource (`_resources["tool_runner"]`, confine.run's keyword signature) in the bound workspace — never on the bare host.
+resource (`_resources["tool_runner"]`, confine.run's keyword signature) in the bound workspace — never on the bare host;
+`finalize` tells the host which version of the agent's work to submit (the last one the agent saw).
 check.py imports `validate_bundle` and `html_marker` from this file by path, so the bundle rules live here once.
 
 Nothing here touches tools/ at import time (the deploy check constructs the adapter in a subprocess); discovery happens
@@ -339,6 +340,19 @@ def tool_catalog(_resources=None) -> dict:
     admitted, rejected = catalog(ROOT)
     return {"tools": [{"name": t["name"], "description": t["description"], "parameters": t["parameters"]}
                       for t in admitted], "rejected": rejected}
+
+
+def finalize(final_sha: str, seen: list | None = None, _resources=None) -> dict:
+    """{submit, replaced, reason}: the sha256 of the version the run submits. A final version the agent never saw (its
+    render did not reach the agent in a later request) is replaced by the last version it saw; a final version equal
+    to any seen one stays; with nothing seen there is nothing better to offer, so the final one stays."""
+    shas = [str(s["sha"]) for s in (seen or []) if isinstance(s, dict) and s.get("sha")]
+    if not shas:
+        return {"submit": final_sha, "replaced": False, "reason": "no render of the work reached the agent"}
+    if final_sha in shas:
+        return {"submit": final_sha, "replaced": False, "reason": "the agent saw the final version"}
+    return {"submit": shas[-1], "replaced": True,
+            "reason": "the final version was changed after the agent last saw it; the last version it saw is submitted"}
 
 
 def tool_call(name: str, args: dict | None = None, _resources=None) -> dict:

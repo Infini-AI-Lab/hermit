@@ -82,6 +82,16 @@ The same protocol serves the agent's calls and the self-tests:
 - Each call of a tool is independent: no state is kept between calls except the files the tool writes in the working
   directory.
 
+## How the agent's run ends
+
+- The agent sees a tool's images only in its next model request. Images returned during the agent's last request never
+  reach it. One model request may hold several tool calls; the task's budgets (requests, tool calls, time) are counted
+  separately, as the task states them.
+- When the run ends, the harness calls the adapter's fixed `finalize` export: if the agent changed its work after the
+  last render of it that reached the agent, the last version the agent saw is submitted instead of the final one.
+  Changes made after the agent's last look are discarded, so a run should end on a look of the version it wants
+  submitted.
+
 ## A complete example (non-visual)
 
 `tools/wordcount/TOOL.json`:
@@ -163,8 +173,11 @@ A tool that produces an image writes the file under the working directory and li
 - Every tool must work with no arguments.
 - Images listed in the result are shown to the agent (at most 5 per call). Images are the only way the agent sees what a
   page looks like; text alone cannot carry that.
-- Only include the files you change. Do not rewrite a tool whose tests and calls succeed; improve ADAPTER.md's
-  instructions for using it instead.
+- Only include the files you change; a file block replaces the whole file.
+- Keep what works, and extend a tool when the evidence shows a gap: the host's checks found a problem that the tool's
+  report on the same version did not show; the host observes a view, size or moment that the tool never renders; or a
+  probe page fails. A tool that worked before and fails its self-test after a change is restored from its last
+  passing version, so a failed improvement costs nothing.
 - Never copy per-task answers or pages into a tool. A file under `tools/` that contains the start of an HTML document
   (`<!doctype html`, `<html`), the attribute `data-testid="scene"` outside a `[data-testid="scene"]` selector, or
   `__SHOWCASE__.getState` outside a quoted string is rejected. A tool may read the agent's `index.html`, serve it,
@@ -196,6 +209,9 @@ SUMMARY: one line saying what changed and why
   whole bundle.
 - `SUMMARY:` ends the reply. A block with an invalid path or an oversize file is skipped and reported; a reply with no
   block and no summary is asked for once more.
-- After the reply: the template check runs (a bad bundle is reported, then removed by repair), the self-tests run when a
-  sandbox runner is configured (each tool's `test`, then one call with `example_args`; a tool that produced a usable
-  image counts as working), and the catalog is rebuilt. You see all of it in the next step's material.
+- After the reply: the template check runs (a bad bundle is reported, then the Trainer's repair reverts its TOOL.json),
+  the self-tests run when a sandbox runner is configured, and the catalog is rebuilt. A self-test runs the tool's own
+  `test` in a scratch workspace of its own, then calls the tool with `example_args` in a fresh workspace holding the
+  agent's best recent work, then once per probe page the task supplies (a page whose correct render is known, such as
+  a single colour). A tool counts as working when the call on the agent's work succeeds and returns a usable image; a
+  failed test or probe gets you one repair turn. You see all of it in the next step's material.

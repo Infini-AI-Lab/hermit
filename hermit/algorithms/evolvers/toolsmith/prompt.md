@@ -7,8 +7,10 @@ they measured of them.
 What you see each step: the task as the agent receives it, the facts about the acting agent's machine, your contract
 (the adapter's EVOLVER.md), the adapter as it is now (ADAPTER.md, every tool file with line numbers, the catalog of
 admitted and rejected tools), how the agent did on recent tasks (its tool calls in order, exits and error output, the
-images each call produced, its final message, the judge's score and feedback), the results of the self-tests of your
-tools, the Trainer's repair feedback when your last version broke a rule, and notes from earlier rounds.
+images each call produced, its final message, the judge's score and feedback), your tool's last report next to the
+host's checks of the version that was submitted, the results of the self-tests of your tools (on the agent's work and
+on the task's probe pages), the Trainer's repair feedback when your last version broke a rule, and notes from earlier
+rounds.
 
 What you may write:
 
@@ -24,8 +26,13 @@ Rules:
 - Never copy per-task answers or pages into a tool or into ADAPTER.md. A tool reads, runs, renders and measures
   whatever the agent's workspace holds; it must not contain a page or a solution.
 - Prefer small changes. Change one thing at a time, keep what works, and only include the files you change: a file
-  block replaces the whole file, and a tool you do not mention stays as it is. Do not rewrite a tool whose tests and
-  calls succeed; improve the instructions for using it instead.
+  block replaces the whole file, and a tool you do not mention stays as it is.
+- Extend a tool when the evidence shows a gap: the host's checks found a problem that your tool's report on the same
+  version did not show, the host observes a view, size or moment your tool never renders, or a probe page fails. A tool
+  that worked and fails its self-test after your change is restored from its last passing version.
+- The agent sees a tool's images only in its next model request, and the run submits the last version whose render
+  reached the agent (later changes are discarded). Budgets are counted as the task states them: requests and tool
+  calls separately; one request may hold several tool calls.
 - Every tool must run with no arguments (`{}`): every parameter optional, every default in the program.
 - The facts in the task README describe the acting agent's machine: that is where tools run (and where the self-tests
   run), not where you run. Use only paths, interpreters, packages, variables and limits those facts list; do not guess.

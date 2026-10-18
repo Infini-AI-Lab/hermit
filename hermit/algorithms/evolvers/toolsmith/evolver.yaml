@@ -17,3 +17,4 @@ params:
   repair_rounds: 1           # extra model turns with the failures of the self-tests
   images: 0                  # self-test images attached to the model's prompt (0 = text only; the learner stays blind)
   exposed_tools_max: 8       # tools the agent's harness exposes (the template admits at most 8, alphabetically)
+  require_image: true        # a tool counts as working only when it returns a non-blank PNG (false: text tools too)
