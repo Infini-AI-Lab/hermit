@@ -100,6 +100,9 @@ DEVICES = ("/dev/dri", "/dev/nvidiactl", "/dev/nvidia-uvm", "/dev/nvidia-uvm-too
 # sandbox only when the resolved Chromium lies elsewhere, so the agent's environment names no browser on this machine.
 WRAPPER_DEFAULT_BROWSERS = "/scratch/haizhonz/.cache/ms-playwright"
 SYSTEM_LINKS = ("/bin", "/sbin", "/lib", "/lib64")
+# The venv's base prefix is a whole conda installation: its envs/ (other environments, some with Python Playwright and
+# their own browsers) and pkgs/ (the package cache) are not part of the venv and are hidden under an empty tmpfs.
+HIDDEN_UNDER_BASE = ("envs", "pkgs")
 INNER_TMP = "/tmp"
 INNER_TRACE = "/tmp/trace"
 HEAD_BYTES, TAIL_BYTES = 12_000, 4_000        # of stdout and of stderr each; the rest is counted as dropped
@@ -158,6 +161,10 @@ def bwrap_argv(cwd: str, ro=(), tmp_dir: str | None = None, extra_env: dict | No
             continue
         seen.add(path)
         args += ["--ro-bind", path, path]
+    for name in HIDDEN_UNDER_BASE:                         # after the base prefix's bind, which they cover
+        hidden = os.path.join(BASE_PREFIX, name)
+        if os.path.isdir(hidden) and not (PREFIX + "/").startswith(hidden + "/"):
+            args += ["--tmpfs", hidden]
     args += ["--bind", tmp_dir, INNER_TMP]
     if trace is not None:
         args += ["--bind", _realpath(trace), INNER_TRACE]

@@ -88,6 +88,10 @@ def test_bwrap_argv_is_the_pinned_allowlist_and_the_env_is_explicit(scratch, mon
     gpus = [i for i in range(16) if f"--dev-bind /dev/nvidia{i} /dev/nvidia{i}" in joined]
     assert gpus == ([confine.GPU_INDEX] if os.path.exists(f"/dev/nvidia{confine.GPU_INDEX}") else [])   # one GPU only
     assert "--ro-bind / /" not in joined and "/etc/resolv.conf" not in joined and "/etc/ssl" not in joined
+    for name in confine.HIDDEN_UNDER_BASE:                 # other conda environments and the package cache are hidden
+        if os.path.isdir(os.path.join(confine.BASE_PREFIX, name)):
+            assert f"--tmpfs {os.path.join(confine.BASE_PREFIX, name)}" in joined
+            assert joined.index(f"--ro-bind {confine.BASE_PREFIX} ") < joined.index(f"--tmpfs {os.path.join(confine.BASE_PREFIX, name)}")
     assert env == {"PATH": f"{confine.PREFIX}/bin:/usr/bin:/bin", "HOME": "/tmp/home", "TMPDIR": "/tmp",
                    "XDG_CACHE_HOME": "/tmp/cache", "XDG_CONFIG_HOME": "/tmp/config", "LANG": "C.UTF-8", "TERM": "dumb",
                    "VISUAL_TRACE": "/tmp/trace", "NODE_PATH": "/x"}
