@@ -5,6 +5,7 @@ params:
   backend: codex
   model: fireworks/accounts/fireworks/models/glm-5p3-flash   # a backend reference: the provider settings, the key
                                                              # variable and the price come from the backend
+  args: ["-c", "model_context_window=1048576"]                # the model's window on Fireworks (1M tokens)
   prompt: START.md
   resume_prompt: RESUME.md
   home: []

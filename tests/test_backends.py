@@ -115,6 +115,13 @@ def test_layers_from_and_environment(tmp_path):
     assert r["openai"].base_url == "http://proxy:4000/v1"                             # <NAME>_BASE_URL moves it
     with pytest.raises(ValueError, match="from 'nothing' names no backend"):
         reg({"x": {"from": "nothing", "base_url": "http://x/v1"}})
+    # A copy keeps its source's key variable (the default is taken by the source's name, once), copies may chain in
+    # any order within a layer, and a copy at another base URL does not inherit the source's Messages root.
+    r = reg({"b": {"from": "a", "base_url": "http://b/v1"}, "a": {"from": "mybox", "base_url": "http://a/v1"},
+             "mybox": {"base_url": "http://x/v1"}, "relay": {"from": "deepseek", "base_url": "http://127.0.0.1:1/t"}})
+    assert r["mybox"].api_key_env == "MYBOX_API_KEY" and r["a"].api_key_env == "MYBOX_API_KEY"
+    assert r["b"].api_key_env == "MYBOX_API_KEY" and r["b"].base_url == "http://b/v1"
+    assert r["relay"].messages_root == "http://127.0.0.1:1/t" and r["deepseek"].messages_root == "https://api.deepseek.com/anthropic"
     with pytest.raises(ValueError, match="unknown fields"):
         reg({"x": {"base_url": "http://x/v1", "url": "http://x"}})
     with pytest.raises(ValueError, match="unknown apis"):
@@ -147,8 +154,10 @@ def test_codex_args_and_claude_env(monkeypatch):
     assert args == ["-c", 'model_provider="fireworks"', "-c", 'model_providers.fireworks.name="fireworks"',
                     "-c", 'model_providers.fireworks.base_url="http://127.0.0.1:3452/b/inference/v1"',
                     "-c", 'model_providers.fireworks.wire_api="responses"',
-                    "-c", 'model_providers.fireworks.env_key="FIREWORKS_API_KEY"', "-c", "model_context_window=1048576",
-                    "-c", 'web_search="disabled"']
+                    "-c", 'model_providers.fireworks.env_key="FIREWORKS_API_KEY"', "-c", 'web_search="disabled"']
+    assert "model_context_window" not in " ".join(args)                    # no window built in: the CLI's own default
+    sized = resolve("lab/m", reg({"lab": {"from": "fireworks", "context_window": 131072}}))
+    assert "model_context_window=131072" in sized.codex_args()               # a declared window is passed on
     v = resolve("vllm/q", r)
     assert 'model_providers.vllm.env_key' not in " ".join(v.codex_args())      # no key: Codex is given none to read
     monkeypatch.setenv("VLLM_API_KEY", "k")
@@ -159,7 +168,7 @@ def test_codex_args_and_claude_env(monkeypatch):
     assert env["ANTHROPIC_MODEL"] == "q" and env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] == "q" and env["ANTHROPIC_API_KEY"] == ""
     assert env["CLAUDE_CODE_SUBAGENT_MODEL"] == "q" and env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] == "1"
     assert "CLAUDE_CODE_MAX_CONTEXT_TOKENS" not in env                     # no window declared: Claude Code's own
-    assert fw.claude_env()["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] == "1048576"  # a declared window is passed on
+    assert sized.claude_env()["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] == "131072"  # a declared window is passed on
     monkeypatch.delenv("VLLM_API_KEY")
     assert v.claude_env()["ANTHROPIC_AUTH_TOKEN"] == backends.PLACEHOLDER_KEY
     assert resolve("deepseek/deepseek-chat", r).claude_env()["ANTHROPIC_BASE_URL"] == "https://api.deepseek.com/anthropic"
@@ -226,6 +235,10 @@ def test_normalize_config_resolves_llm_agent_and_default(monkeypatch, tmp_path):
     assert data["agent"]["params"]["model"] == "accounts/fireworks/models/x"
     with pytest.raises(ValueError, match="names no backend"):
         normalize_config({"model": "nope/x", "backends": {}, "llm": None, "agent": {"name": "react", "params": {}}})
+    data = {"model": "anthropic/claude-x", "backends": {}, "llm": None, "agent": {"name": "claude-code", "params": {}}}
+    normalize_config(data)                                                   # a Messages-only default makes no llm tool
+    assert data["llm"] is None and data["agent"]["params"]["binding"]["ref"] == "anthropic/claude-x"
+    assert [api for _, _, api in bindings_of(data)] == ["messages"]
 
 
 def test_config_load_with_references(tmp_path, monkeypatch):

@@ -164,16 +164,27 @@ def registry(declared: dict | None = None, *, user_file=USER_FILE, builtins: Pat
         for name, fields in layer.items():
             if not isinstance(fields, dict):
                 raise ValueError(f"backend {name!r}: fields must be a mapping, got {type(fields).__name__}")
-        # A backend's own fields first, then the copies: `from` sees the layer's other backends whatever the order.
-        for name, fields in sorted(layer.items(), key=lambda item: "from" in item[1]):
-            fields = dict(fields)
-            source = fields.pop("from", None)
-            base = dict(raw.get(name) or {})
-            if source is not None:
-                if source not in raw:
-                    raise ValueError(f"backend {name!r}: from {source!r} names no backend; known: {sorted(raw)}")
-                base = dict(raw[source])
-            raw[name] = {**base, **fields}
+        # A backend's own fields first, then the copies in dependency order: `from` sees the layer's other backends
+        # (and the copies among them) whatever the order they are written in.
+        pending = {name: dict(fields) for name, fields in layer.items()}
+        while pending:
+            ready = [n for n, f in pending.items() if f.get("from") is None or (f["from"] in raw and f["from"] not in pending)]
+            if not ready:
+                name, fields = next(iter(pending.items()))
+                raise ValueError(f"backend {name!r}: from {fields['from']!r} names no backend; known: {sorted(raw)}")
+            for name in ready:
+                fields = pending.pop(name)
+                source = fields.pop("from", None)
+                base = dict(raw.get(name) or {})
+                if source is not None:
+                    base = dict(raw[source])
+                    # A copy at another base URL: the source's Messages root belonged to the old URL.
+                    if "base_url" in fields and "messages_url" not in fields:
+                        base.pop("messages_url", None)
+                merged = {**base, **fields}
+                # The key variable defaults to <NAME>_API_KEY once, by the backend's own name: a copy keeps its source's.
+                merged.setdefault("api_key_env", f"{_env_name(name)}_API_KEY")
+                raw[name] = merged
     out = {}
     for name, fields in raw.items():
         if not re.fullmatch(r"[A-Za-z][\w.-]*", name):
@@ -393,8 +404,8 @@ def normalize_config(data: dict) -> None:
     if default is not None and not is_ref(default, backends):
         raise ValueError(f"model {default!r}: the first segment names no backend; known backends: {sorted(backends)}")
     llm = data.get("llm")
-    if llm is None and default is not None:
-        llm = default
+    if llm is None and default is not None and resolve(default, backends).serves("chat"):
+        llm = default           # a backend that cannot speak chat completions (Anthropic) makes no `llm` tool
     binding = as_binding(llm, backends) if llm is not None else None
     if binding is not None:
         data["llm"] = _spec_of(llm, binding)

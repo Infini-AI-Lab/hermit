@@ -36,6 +36,8 @@ MODEL=${MW_MODEL:-fireworks/accounts/fireworks/models/glm-5p3-flash}
 HOST_MODEL=${MW_HOST_MODEL:-$MODEL}
 EVOLVER_MODEL=${MW_EVOLVER_MODEL:-$MODEL}
 EFFORT=${MW_EFFORT:-high}
+# The learner model's context window, told to codex: MW_CONTEXT_WINDOW, else what the backend declares, else 1M
+# for Fireworks (the runs in the README used it); empty leaves codex's own default.
 META_PORT=$((WM_PORT+1))
 TASKDIR=$FRAMEWORK/examples/clbench_poker/utils
 export PYTHONPATH=$FRAMEWORK${PYTHONPATH:+:$PYTHONPATH}
@@ -45,6 +47,8 @@ resolve() { "$PY" -m harnessadapter.backends shell "$2" | sed "s/^HA_/$1_/"; }
 # HOST_MODEL stays the reference; HOST_MODEL_ID is the model's id on its backend (same for EVOLVER_*).
 eval "$(resolve HOST "$HOST_MODEL")"; [ -n "${HOST_MODEL_ID:-}" ] || { echo "REFUSING: cannot resolve $HOST_MODEL"; exit 1; }
 eval "$(resolve EVOLVER "$EVOLVER_MODEL")"; [ -n "${EVOLVER_MODEL_ID:-}" ] || { echo "REFUSING: cannot resolve $EVOLVER_MODEL"; exit 1; }
+CTX=${MW_CONTEXT_WINDOW:-$EVOLVER_CONTEXT_WINDOW}; [ -n "$CTX" ] || [ "$EVOLVER_BACKEND" != fireworks ] || CTX=1048576
+EVOLVER_ARGS="[-c, model_reasoning_effort=\"$EFFORT\"${CTX:+, -c, model_context_window=$CTX}]"
 need_key() {  # the backend's key variable: from the environment, else MW_KEY_FILE (the key of MW_KEY_BACKEND, default
   # fireworks); required unless the backend says not
   local var=$1 required=$2 backend=$3 file=${MW_KEY_FILE:-$METAWORLD/.fireworks}
@@ -110,7 +114,7 @@ for i in ${MW_ORDERS:-0}; do
       "trainer.run_name=$TAG-o$i" "trainer.output_dir=$RUNS/$TAG" \
       "data.train=${MW_TRAIN_SPLIT:-$TASKDIR/splits/order$i.txt}" \
       "backends.learner=$LEARNER" "evolver.params.model=learner/$EVOLVER_MODEL_ID" \
-      "evolver.params.args=[-c, model_reasoning_effort=\"$EFFORT\"]" \
+      "evolver.params.args=$EVOLVER_ARGS" \
       >> "$LOG" 2>&1 < /dev/null &
   echo "order $i -> pid $! log $LOG"
   sleep 3

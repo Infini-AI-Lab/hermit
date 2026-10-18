@@ -282,7 +282,8 @@ def codex_cmd(work: Path, binding, agent: str, prompt: str) -> list[str]:
     """The agent's session: its model on its backend, reached through the relay (bucket = the agent's name)."""
     relay = f"http://127.0.0.1:{RELAY_PORT}/{agent}{binding.backend.path}"
     return ["codex", "exec", "--skip-git-repo-check", "--ignore-user-config", "--json", "-m", binding.model,
-            "-c", "model_reasoning_effort=high", *binding.codex_args(base_url=relay),
+            "-c", "model_reasoning_effort=high", "-c", "model_context_window=1048576",   # the experiment's own setting
+            *binding.codex_args(base_url=relay),
             "-s", "workspace-write", "-C", str(work), *CODEX_FLAGS,
             "-c", f'mcp_servers.team.url="http://127.0.0.1:{TEAM_PORT}/mcp/"',
             "-c", "mcp_servers.team.startup_timeout_sec=60", "-c", "mcp_servers.team.tool_timeout_sec=1800",

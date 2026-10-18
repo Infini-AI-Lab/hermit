@@ -85,7 +85,7 @@ lab-sglang:                             # a new one, like the built-in sglang at
 | `context_window` | tokens; Codex is told it as `model_context_window`, Claude Code as `CLAUDE_CODE_MAX_CONTEXT_TOKENS` |
 | `developer_role` | `keep` (default), or `system`: a relay in front of the backend renames the `developer` role Codex uses, for an endpoint that refuses it (the built-in `fireworks` sets it, as the examples always did; Qwen3.6's chat template refuses a `system` message after the first, so a local server keeps the role) |
 | `models` | aliases: short names for model ids |
-| `from` | start from a copy of another backend (the examples put a metering relay in front of one this way) |
+| `from` | start from a copy of another backend (the examples put a metering relay in front of one this way); the copy keeps the source's key variable, and a copy at another `base_url` drops the source's `messages_url` |
 
 ## Dialects: what Codex and Claude Code need
 
