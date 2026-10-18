@@ -114,6 +114,15 @@ def distribution_paths(dists) -> list[Path]:
     return sorted(out)
 
 
+def _names(path) -> list[str]:
+    """The names a path is bound under inside: as given (absolute, symlinks kept) and resolved, when they differ.
+    A program that was told the given name finds it (a venv under a linked ~/.cache looks for its site-packages by
+    the venv's own path), and one that resolved it first finds it too."""
+    given = os.path.abspath(os.path.expanduser(str(path)))
+    real = os.path.realpath(given)
+    return [given] if real == given else [given, real]
+
+
 def _venv_paths() -> list[Path]:
     """The virtual environment's interpreter links and pyvenv.cfg. They are bound at their own path, unresolved: a
     Python started as the link finds pyvenv.cfg beside it and so its environment; started as the file the link leads
@@ -295,20 +304,20 @@ class Sandbox:
         if self.network == "isolated":
             args.append("--unshare-net")
         seen, ro, rw = set(), [], []
-        literal = {str(p) for p in _venv_paths()}
         for path in self.visible(command):
-            path = Path(path).expanduser()
-            path = path if str(path) in literal else path.resolve()
-            if path.exists() and str(path) not in seen and not str(path).startswith("/usr"):
-                seen.add(str(path))
-                ro.append(str(path))
-                args += ["--ro-bind", str(path), str(path)]
+            for name in _names(path):
+                if os.path.exists(name) and name not in seen and not name.startswith("/usr"):
+                    seen.add(name)
+                    ro.append(name)
+                    args += ["--ro-bind", name, name]
         for path in [*self.writable, *writable]:
             Path(path).mkdir(parents=True, exist_ok=True)
-            rw.append(str(Path(path).resolve()))
-            args += ["--bind", rw[-1], rw[-1]]
-        env["HOME"] = str(Path(home).resolve()) if home else str(Path(self.writable[0]).resolve()) \
-            if self.writable else "/tmp"
+            for name in _names(path):
+                if name not in seen:
+                    seen.add(name)
+                    rw.append(name)
+                    args += ["--bind", name, name]
+        env["HOME"] = _names(home)[0] if home else _names(self.writable[0])[0] if self.writable else "/tmp"
         policy = {"enforced": True, "network": self.network, "read_only": ro, "read_write": rw,
                   "proxy": self.proxy_url, "allow": list(self.allow)}
         if self.network == "isolated":

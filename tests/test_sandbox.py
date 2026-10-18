@@ -107,6 +107,23 @@ def test_proxy_logs_every_decision(tmp_path):
     assert line["host"] == "denied.example" and line["allowed"] is False
 
 
+def test_paths_are_bound_under_their_given_and_resolved_names(tmp_path, monkeypatch):
+    """A path reached through a symbolic link (a venv under a linked ~/.cache) exists inside under both names: a
+    program told the given name finds it, and one that resolved it first finds it too."""
+    fake_bwrap(monkeypatch)
+    real = tmp_path / "real"
+    (real / "granted").mkdir(parents=True)
+    (tmp_path / "link").symlink_to(real)
+    given, work = tmp_path / "link" / "granted", tmp_path / "link" / "work"
+    box = Sandbox(readable=[given], writable=[work])
+    args, env = box.wrap([sys.executable, "-c", "pass"], home=work)
+    ro, rw = binds(args, "--ro-bind"), binds(args, "--bind")
+    assert str(given) in ro and str(real / "granted") in ro
+    assert str(work) in rw and str(real / "work") in rw
+    assert env["HOME"] == str(work)                                # the name the caller uses
+    box.close()
+
+
 def _bwrap_works() -> bool:
     if not REAL_WHICH("bwrap"):
         return False
@@ -116,7 +133,7 @@ def _bwrap_works() -> bool:
 
 PROBE = r'''
 import json, os, socket, sys, urllib.request
-granted, secret, work, tool, out = sys.argv[1:6]
+granted, secret, work, tool, out, linked = sys.argv[1:7]
 res = {}
 def t(name, f):
     try:
@@ -132,6 +149,7 @@ t("import_pytest", lambda: __import__("pytest").__name__)
 t("tool_endpoint", lambda: urllib.request.urlopen(tool, timeout=5).read().decode())
 t("proxy_denied_host", lambda: urllib.request.urlopen("http://denied.example/", timeout=5).status)
 t("direct_outside", lambda: socket.create_connection(("1.1.1.1", 443), timeout=3) and "connected")
+t("linked_names", lambda: "both" if all(os.path.exists(os.path.join(p, "a.txt")) for p in (granted, linked)) else "one")
 open(out, "w").write(json.dumps(res))
 '''
 
@@ -146,6 +164,8 @@ def test_inside_the_sandbox(tmp_path):
     secret.write_text("secret")
     script = granted / "probe.py"
     script.write_text(PROBE)
+    (tmp_path / "link").symlink_to(tmp_path)
+    linked = tmp_path / "link" / "granted"                        # the grant is given through a symbolic link
 
     class Tool(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
@@ -159,11 +179,12 @@ def test_inside_the_sandbox(tmp_path):
     threading.Thread(target=server.serve_forever, daemon=True).start()
     tool = f"http://127.0.0.1:{server.server_address[1]}/"
     proxy = AllowlistProxy(["allowed.example"], log=tmp_path / "records" / "network.jsonl")
-    box = Sandbox(readable=[granted], writable=[work], proxy_url=proxy.url, record_dir=tmp_path / "records",
+    box = Sandbox(readable=[linked], writable=[work], proxy_url=proxy.url, record_dir=tmp_path / "records",
                   probe_absent=[secret])
     out = work / "result.json"
     try:
-        args, env = box.wrap([sys.executable, str(script), str(granted), str(secret), str(work), tool, str(out)])
+        args, env = box.wrap([sys.executable, str(script), str(granted), str(secret), str(work), tool, str(out),
+                              str(linked)])
         proc = subprocess.run(args, env=env, capture_output=True, text=True, timeout=120)
         assert proc.returncode == 0, proc.stderr[-2000:]
         res = json.loads(out.read_text())
@@ -175,6 +196,7 @@ def test_inside_the_sandbox(tmp_path):
         assert res["tool_endpoint"] == ["ok", "tool-ok"]           # forwarded from the command's URL
         assert res["proxy_denied_host"][0] == "error"              # the proxy answers 403
         assert res["direct_outside"][0] == "error"                 # no route out of the namespace
+        assert res["linked_names"] == ["ok", "both"]               # bound under the given and the resolved name
         for _ in range(50):                                        # the report arrives on its own thread
             record = json.loads((tmp_path / "records" / "learner-1.json").read_text())
             if record["probe"] is not None:
