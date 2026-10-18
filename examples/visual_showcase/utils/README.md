@@ -115,8 +115,14 @@ A generic run's record adds to the layout above: `cmd-NN/` per `run_command` (it
 produced images, the `index.html` of that moment), `tools/NN.json` with the image records (file, sha256, size,
 non-blank, packed for the model) and whether a browser was launched, and in `result.json` the counters `run_commands`,
 `adapter_tool_calls`, `image_bearing_calls`, `looked_calls` (an image-bearing call that launched a browser and
-returned a non-blank image), `first_look_call`, `looked_final`, `tools_exported`, `tools_called`, `tool_errors` and
-`context_exhausted`. `emergence.py` sums them over run records (and re-renders each snapshot to check that the image
+returned a non-blank image), `first_look_call`, `looked_final`, `tools_exported`, `tools_called`, `tool_errors`,
+`context_exhausted`, `seen_pages` (the looks at `index.html` whose images a later accepted request carried to the
+model: call and sha256), `seen_final` (the submitted version is one of them) and `finalize`. A look is keyed by
+`index.html` at the time of the call; a learned-tool call whose arguments name another `.html` file does not count.
+When the adapter exports `finalize` (toolsmith 1.1), the harness submits the version it names: a final version the
+model never saw is replaced by the last one it saw, recorded as `finalize: {replaced, reason, final_sha,
+submitted_call}`, and the replaced version is kept in `unseen_final/index.html`. Other arms submit the final version
+(`finalize: null`). `emergence.py` sums them over run records (and re-renders each snapshot to check that the image
 the agent saw matches the page); `tool_works.py` exports a toolsmith checkpoint and checks offline that its tool
 renders `reference/webgl_probe.html` with the GPU and `reference/best_<case>.html` like the host capturer does.
 

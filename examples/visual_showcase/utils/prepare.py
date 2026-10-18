@@ -180,13 +180,15 @@ exports execute there, in the same sandbox). Paths are absolute and resolved. Th
   observes the page near 0, 2 and 5 seconds after ready, then after pause, reset and intensity {inspection}, then at the
   mobile viewport.
 - F14. One model request of the agent may hold several tool calls: each call counts against the {tool_calls} tool calls,
-  the request once against the {requests} requests. Images that calls return are attached to the agent's next request
-  only, and only those of the request's last image-bearing call; images returned during the agent's last request never
-  reach it.
-- F15. After the run, the host opens `index.html` from its loopback server with a {load_s}-second load timeout, then
-  waits at most {ready_s} seconds for `getState().ready` to become true (a page that is not ready by then fails that
-  check and is observed as it is); its whole observation ends after {observe_s} seconds. It records whether the pause,
-  reset and intensity controls lie entirely inside the viewport at {desktop} and at {mobile}.
+  the request once against the {requests} requests; at most {adapter_calls} of the calls may be calls of adapter tools (a
+  further one returns an error and no image). Only the images of a request's last image-bearing call are attached:
+  first to the agent's next request, and to its later requests until a later image-bearing call replaces them. Images
+  returned during the agent's last request never reach it.
+- F15. After the run, the host opens `index.html` from its loopback server with a {load_s}-second load timeout (a page
+  that has not loaded by then is not observed at all), then waits at most {ready_s} seconds for `getState().ready` to
+  become true (a page that is not ready by then fails that check and is observed as it is); its whole observation ends
+  after {observe_s} seconds. It records whether the pause, reset and intensity controls lie entirely inside the
+  viewport at {desktop} and at {mobile}.
 """
 
 MWM_PREAMBLE = """# The acting agent's machine
@@ -203,7 +205,8 @@ limits are unchanged: the adapter is the only writable area, the default command
 LIMITS = {"command_s": 90, "tool_s": 90, "run_s": 600,   # why: inspect_page's capture timeout; experiment 1's run length
           "images_per_call": 5, "images_per_run": 40,     # why: five is one capture's worth; forty bounds a run's bytes
           "image_mb": 2, "image_mpx": 2.1,               # why: pngstats decodes up to 2.2 Mpx; 1280x800 is 1.0 Mpx
-          "requests": 12, "tool_calls": 24}              # agent.MAX_REQUESTS, generic_harness.MAX_TOOL_CALLS
+          "requests": 12, "tool_calls": 24,              # agent.MAX_REQUESTS, generic_harness.MAX_TOOL_CALLS
+          "adapter_calls": 6}                            # generic_harness.MAX_ADAPTER_CALLS
 # The host's observation deadlines (runtime/browser_capture.cjs: goto timeout, ready wait, the whole body).
 HOST = {"load_s": 10, "ready_s": 4, "observe_s": 40}
 # Probe pages for the toolsmith self-tests (task-info-generic/<case>/probes/): pages whose correct picture is known.

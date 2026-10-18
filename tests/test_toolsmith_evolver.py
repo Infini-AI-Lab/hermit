@@ -398,7 +398,7 @@ def test_a_failed_probe_gets_a_repair_turn_with_the_colours(tmp_path):
     repair = calls[1][-1]["content"]
     assert "probe 'solid' (a solid page): FAILED" in repair and "expected [30, 120, 200]" in repair
     state = saved_tests(ctx)["shot"]
-    assert state["working"] is True and state["probes"][0]["ok"] is False      # the agent's page still worked
+    assert state["working"] is False and state["probes"][0]["ok"] is False   # a missed probe: not working
 
 
 def test_material_puts_the_tools_last_report_next_to_the_hosts_checks(tmp_path):
@@ -447,3 +447,59 @@ def test_only_the_exact_version_that_passed_is_restored(tmp_path):
     evolver.step(ctx)
     assert (adapter / "tools" / "shot" / "run.py").read_text() == RUN_V3
     assert saved_tests(ctx)["shot"]["restored_from_last_passing"] is False
+
+
+def test_a_text_tool_is_not_probed(tmp_path):
+    class TextRunner(ProbeRunner):
+        def __call__(self, *, argv, cwd, timeout_s, ro=(), lock=None, **_):
+            self.calls.append({"argv": argv, "cwd": cwd})
+            return {"exit_code": 0, "stdout": json.dumps({"text": "ready: true"}) + "\n", "stderr": "", "seconds": 0.1,
+                    "timed_out": False, "lock_wait_s": 0.0, "error": None, "browser_launched": False}
+    runner = TextRunner()
+    reply = block("tools/shot/TOOL.json", json.dumps({**SHOT, "test": None})) + block("tools/shot/run.py", RUN_V1) \
+        + "SUMMARY: a text tool\n"
+    ctx, calls = probe_context(tmp_path, [reply], runner)
+    ctx.params["require_image"] = False
+    evolver, _ = instantiate(find("toolsmith"), {})
+    evolver.step(ctx)
+    state = saved_tests(ctx)["shot"]
+    assert len(runner.calls) == 1 and state["probes"] == [] and state["working"] is True and len(calls) == 1
+    assert "probes not run: the call returned no image" in state["notices"]
+
+
+def test_a_version_that_loses_a_probe_is_restored(tmp_path):
+    class Regressed(ProbeRunner):        # the agent's page renders; the probe page comes out patterned (wrong colour)
+        def __init__(self):
+            super().__init__(sees_probe=False)
+    runner = Regressed()
+    ctx, calls = probe_context(tmp_path, [block("tools/shot/run.py", RUN_V2) + "SUMMARY: a\n",
+                                          block("tools/shot/run.py", RUN_V3) + "SUMMARY: b\n"], runner)
+    adapter = ctx.workspace.adapter
+    directory = bundle(adapter, {**SHOT, "test": None}, {"run.py": RUN_V1})
+    sha = load("evolver").bundle_sha(directory)
+    (ctx.workspace.state / "tests.json").write_text(json.dumps({"shot": {
+        "sha256": sha, "working": True, "test": None, "contract": {"ok": True, "images": []},
+        "probes": [{"label": "solid", "ok": True}], "restored_from_last_passing": False, "notices": []}}))
+    evolver, _ = instantiate(find("toolsmith"), {})
+    evolver.step(ctx)
+    assert (adapter / "tools" / "shot" / "run.py").read_text() == RUN_V1
+    assert saved_tests(ctx)["shot"]["restored_from_last_passing"] is True
+
+
+def test_the_seed_is_the_submitted_version_and_only_exported_tools_are_reported(tmp_path):
+    runner = FakeRunner()
+    reply = block("tools/shot/TOOL.json", json.dumps({**SHOT, "test": None})) + block("tools/shot/run.py", RUN_V1) \
+        + "SUMMARY: new tool\n"
+    ctx, calls = context(tmp_path, [reply], runner)
+    d = ctx.workspace.learning_material / "step_0001" / "trajectories" / "waves"
+    (d / "submission").mkdir()
+    (d / "submission" / "index.html").write_text("<p>SUBMITTED</p>")
+    (d / "workspace" / "index.html").write_text("<p>UNSEEN FINAL</p>")
+    (d / "tools" / "06.json").write_text(json.dumps({"name": "inspect_page", "arguments": {},
+                                                    "result": {"ok": False, "error": "ValueError: Unknown tool"}}))
+    evolver, _ = instantiate(find("toolsmith"), {})
+    evolver.step(ctx)
+    assert (Path(runner.calls[0]["cwd"]) / "index.html").read_text() == "<p>SUBMITTED</p>"
+    assert (ctx.workspace.state / "seed" / "index.html").read_text() == "<p>SUBMITTED</p>"
+    prompt = calls[0][-1]["content"]
+    assert "Last call: 05 shot" in prompt and "Last call: 06" not in prompt

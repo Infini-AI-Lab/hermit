@@ -83,9 +83,11 @@ The [visual showcase recipe](../recipes/visual-showcase.md) is a complete integr
    `test` program in a scratch workspace of its own, then a contract check that calls the tool exactly as the harness
    does (`Session.call("tool_call", {name, args: example_args})`) in a fresh workspace holding the best trajectory's
    `index.html`, then one call per probe page the task supplies (`task-info/probes/probes.json`: pages whose true
-   picture has a known dominant colour). A tool is *working* when the call on the agent's page is well formed and at
-   least one listed image is a decodable, non-blank PNG inside the workspace (`require_image: false` also accepts text
-   tools). A failed test or probe, or a call that does not work, earns one more learner turn with the exact failures
+   picture has a known dominant colour; only for tools whose call returned images). A tool is *working* when the call
+   on the agent's page is well formed, at least one listed image is a decodable, non-blank PNG inside the workspace
+   (`require_image: false` also accepts text tools) and every probe shows its expected colour. The seed page is the
+   version the trajectory submitted. A failed test or probe, or a call that does not work, earns one more learner turn
+   with the exact failures
    (`repair_rounds`), then a retest. A bundle whose exact passing version worked before the step and fails after it is
    restored (keep-last-passing).
 6. **Check and record.** `check_spec` (the template's `check.py` validates every bundle without running it), the test

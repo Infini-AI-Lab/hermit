@@ -33,8 +33,9 @@ RESERVED = frozenset({"write_file", "read_file", "replace_text", "run_command", 
                       "tool_call", "context_package"})
 PRIMITIVES = frozenset({"write_file", "read_file", "replace_text", "run_command", "tool_catalog", "tool_call"})
 FILE_EXT = (".py", ".md", ".json", ".txt", ".js", ".cjs", ".mjs", ".sh")   # the template's bundle file kinds
-FILE_VIEW_CHARS = 70_000        # why: a tool file (<= 60,000 bytes) is shown whole with line numbers; the learner must
+FILE_VIEW_CHARS = 75_000        # why: a tool file (<= 60,000 bytes) is shown whole with line numbers; the learner must
                                 # see all of a program it may change (6,000 hid the second half of every grown tool)
+TOOLS_VIEW_CHARS = 200_000      # why: all of tools/ together stays well inside the learner model's context window
 MIN_IMAGE_BYTES = 1024          # why: a real capture is far larger; a 1 kB PNG is a stub or an empty canvas
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 TAIL = 2000
@@ -364,10 +365,15 @@ class ToolsmithEvolver(Evolver):
         """The learned tools' last report in a run next to the host's checks of the version that run submitted."""
         result = _read_json(d / "result.json", {})
         result = result if isinstance(result, dict) else {}
+        exported = result.get("tools_exported")
         calls = []
         for path in sorted((d / "tools").glob("*.json")) if (d / "tools").is_dir() else []:
             t = _read_json(path, None)
-            if isinstance(t, dict) and t.get("name") not in PRIMITIVES and t.get("name") != "wm":
+            if not isinstance(t, dict):
+                continue
+            ours = t.get("name") in exported if isinstance(exported, list) else \
+                t.get("name") not in PRIMITIVES and t.get("name") != "wm"      # older records: no tools_exported
+            if ours:
                 calls.append((path.stem, t))
         mechanical = ((record.get("judge") or {}).get("extra") or {}).get("mechanical") or []
         failed = [f"{m.get('item')} ({m.get('detail')})" for m in mechanical
@@ -421,12 +427,16 @@ class ToolsmithEvolver(Evolver):
                 catalog = f"(catalog error: {type(exc).__name__}: {exc})"
         files = [rel for rel in files_of(adapter) if rel.startswith(TOOLS + "/") and rel != f"{TOOLS}/README.md"]
         out.append(f"### tools/ — {len(files)} files; {catalog}\n")
+        left = TOOLS_VIEW_CHARS
         for rel in files:
             text = (adapter / rel).read_text("utf-8", errors="replace")
             numbered = "\n".join(f"{i:4d}| {line}" for i, line in enumerate(text.splitlines(), 1))
-            if len(numbered) > FILE_VIEW_CHARS:
-                more = len(numbered) - FILE_VIEW_CHARS
-                numbered = numbered[:FILE_VIEW_CHARS] + f"\n…[clipped: {more} more characters]"
+            limit = max(0, min(FILE_VIEW_CHARS, left))
+            if len(numbered) > limit:
+                more = len(numbered) - limit
+                numbered = numbered[:limit] + f"\n…[clipped: {more} more characters]"
+                notices.append(f"{rel} was shown clipped ({more} characters not shown): the tools/ view is bounded")
+            left -= len(numbered)
             out.append(f"#### {rel}\n{numbered}\n")
         return "\n".join(out)
 
@@ -514,7 +524,9 @@ class ToolsmithEvolver(Evolver):
             if not trajectory:
                 continue
             d = current / trajectory
-            index = d / "workspace" / "index.html"
+            index = d / "submission" / "index.html"     # the judged version (finalize may have replaced the final one)
+            if not index.is_file():
+                index = d / "workspace" / "index.html"
             if not index.is_file():
                 continue
             result = _read_json(d / "result.json", {})
@@ -587,7 +599,9 @@ class ToolsmithEvolver(Evolver):
             if images and not nonblank and contract.get("ok"):
                 record["notices"].append("every image is blank (uniform or too small): nothing to look at")
             record["probes"] = []
-            for i, probe in enumerate(probes):
+            if probes and not images:
+                record["notices"].append("probes not run: the call returned no image")
+            for i, probe in enumerate(probes if images else []):
                 if time.time() > deadline or (ctx.cancel is not None and ctx.cancel.is_set()):
                     record["notices"].append(f"probe {probe['label']!r} not run: the self-test time budget is spent")
                     continue
@@ -595,8 +609,9 @@ class ToolsmithEvolver(Evolver):
                 result = self._probe_check(ws.adapter, delegate, self._workspace(ws, f"{name}.probe{i}", pseed),
                                            name, bundle, probe)
                 record["probes"].append(result)
-                if not result["ok"]:
+                if not result["ok"]:      # a tool that misses a probe's known picture is not working: keep-last-passing
                     record["failed"] = True
+                    record["working"] = False
         return results
 
     @staticmethod

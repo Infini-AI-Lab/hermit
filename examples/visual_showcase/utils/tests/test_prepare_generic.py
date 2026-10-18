@@ -84,8 +84,12 @@ def test_generic_toolset_texts(tmp_path):
         assert f"- F{n}." in env, n
     flat_env = " ".join(env.split())
     assert "counts against the 24 tool calls, the request once against the 12 requests" in flat_env
-    assert "images returned during the agent's last request never reach it" in flat_env
-    assert "10-second load timeout" in flat_env and "at most 4 seconds for `getState().ready`" in flat_env
+    assert "Images returned during the agent's last request never reach it" in flat_env
+    assert "at most 6 of the calls may be calls of adapter tools" in flat_env
+    assert "until a later image-bearing call replaces them" in flat_env
+    assert prepare.LIMITS["adapter_calls"] == 6 and prepare.LIMITS["tool_calls"] == 24 and prepare.LIMITS["requests"] == 12
+    assert "10-second load timeout (a page that has not loaded by then is not observed at all)" in flat_env
+    assert "at most 4 seconds for `getState().ready`" in flat_env
     assert "ends after 40 seconds" in flat_env
     for value in (confine.NODE, confine.NODE_MODULES, confine.CHROME_BIN, confine.WRAPPER, confine.PYTHON,
                   confine.PREFIX, confine.BASE_PREFIX, confine.NODE_DIR, confine.PLAYWRIGHT_DIR):

@@ -84,13 +84,14 @@ The same protocol serves the agent's calls and the self-tests:
 
 ## How the agent's run ends
 
-- The agent sees a tool's images only in its next model request. Images returned during the agent's last request never
-  reach it. One model request may hold several tool calls; the task's budgets (requests, tool calls, time) are counted
-  separately, as the task states them.
+- A tool's images reach the agent from its next model request on (they stay until a later image-bearing call replaces
+  them). Images returned during the agent's last request never reach it. One model request may hold several tool calls;
+  the task's budgets (requests, tool calls, adapter-tool calls, time) are counted separately, as the task states them.
 - When the run ends, the harness calls the adapter's fixed `finalize` export: if the agent changed its work after the
   last render of it that reached the agent, the last version the agent saw is submitted instead of the final one.
-  Changes made after the agent's last look are discarded, so a run should end on a look of the version it wants
-  submitted.
+  A render counts as seen when at least one of its images is non-blank and it showed the work itself (for this task:
+  the workspace's `index.html` at the time of the call, not another file named in the arguments). Changes made after
+  the agent's last look are discarded, so a run should end on a look of the version it wants submitted.
 
 ## A complete example (non-visual)
 
@@ -212,6 +213,7 @@ SUMMARY: one line saying what changed and why
 - After the reply: the template check runs (a bad bundle is reported, then the Trainer's repair reverts its TOOL.json),
   the self-tests run when a sandbox runner is configured, and the catalog is rebuilt. A self-test runs the tool's own
   `test` in a scratch workspace of its own, then calls the tool with `example_args` in a fresh workspace holding the
-  agent's best recent work, then once per probe page the task supplies (a page whose correct render is known, such as
-  a single colour). A tool counts as working when the call on the agent's work succeeds and returns a usable image; a
-  failed test or probe gets you one repair turn. You see all of it in the next step's material.
+  agent's best recent work (the version that was submitted), then, when that call returned images, once per probe
+  page the task supplies (a page whose correct picture is known, such as a single colour). A tool counts as working
+  when the call on the agent's work succeeds with a usable image and every probe shows its expected picture; a failed
+  test or probe gets you one repair turn. You see all of it in the next step's material.

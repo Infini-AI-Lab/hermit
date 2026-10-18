@@ -472,6 +472,18 @@ def test_toolsmith_finalize_keeps_a_final_version_the_model_saw(scratch, monkeyp
     assert not (Path(out.log) / "unseen_final").exists()
 
 
+def test_a_learned_tool_shown_another_page_is_not_a_look_at_index(scratch, monkeypatch, runner):
+    adapter = toolsmith_adapter(scratch)
+    scripted(monkeypatch, [
+        {"tool_calls": [tc("write_file", {"path": "index.html", "content": PAGE})]},
+        {"tool_calls": [tc("wordcount", {}, "c2")]},
+        {"tool_calls": [tc("wordcount", {"file": "draft.html"}, "c3")]},
+        {"content": "done"}])
+    out = new_agent(scratch).run(task(), adapter)
+    result = json.loads((Path(out.log) / "result.json").read_text())
+    assert result["looked_calls"] == 2 and [s["call"] for s in result["seen_pages"]] == [2]
+
+
 def test_without_a_finalize_export_the_final_version_is_submitted(scratch, monkeypatch, runner):
     scripted(monkeypatch, [
         {"tool_calls": [tc("write_file", {"path": "index.html", "content": PAGE})]},

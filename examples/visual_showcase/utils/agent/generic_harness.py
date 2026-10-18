@@ -383,6 +383,15 @@ class ConfinedRunner:
         return self.last
 
 
+def _names_other_page(name: str, args) -> bool:
+    """True when a learned tool's arguments name an .html file other than index.html: its pictures then show that
+    file, so the call is not a look at index.html (a seen version is keyed by index.html at the time of the call)."""
+    if name in PRIMITIVES or not isinstance(args, dict):
+        return False
+    return any(isinstance(v, str) and v.lower().endswith((".html", ".htm")) and Path(v).name != "index.html"
+               for v in args.values())
+
+
 # --- the harness ----------------------------------------------------------------------------------------------------------
 class Harness:
     """One run's tools over `workspace`; records go under `run` (tools/NN.json, cmd-NN/).
@@ -456,7 +465,7 @@ class Harness:
                 self.looked_calls += 1
                 self.first_look_call = self.first_look_call or n
                 self.last_look_index_sha = record["index_sha_at_call"]
-                if record["index_sha_at_call"]:
+                if record["index_sha_at_call"] and not _names_other_page(name, args):
                     self.last_dispatch_look = {"call": n, "sha": record["index_sha_at_call"],
                                                "snapshot": str(self.run / f"cmd-{n:02d}" / "index.html")}
             else:

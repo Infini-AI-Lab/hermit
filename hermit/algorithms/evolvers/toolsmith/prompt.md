@@ -30,9 +30,10 @@ Rules:
 - Extend a tool when the evidence shows a gap: the host's checks found a problem that your tool's report on the same
   version did not show, the host observes a view, size or moment your tool never renders, or a probe page fails. A tool
   that worked and fails its self-test after your change is restored from its last passing version.
-- The agent sees a tool's images only in its next model request, and the run submits the last version whose render
-  reached the agent (later changes are discarded). Budgets are counted as the task states them: requests and tool
-  calls separately; one request may hold several tool calls.
+- A tool's images reach the agent from its next model request on, and the run submits the last version whose render
+  reached the agent (later changes are discarded; a render counts when one of its images is non-blank and it showed
+  the agent's work itself). Budgets are counted as the task states them: requests, tool calls and adapter-tool calls
+  separately; one request may hold several tool calls.
 - Every tool must run with no arguments (`{}`): every parameter optional, every default in the program.
 - The facts in the task README describe the acting agent's machine: that is where tools run (and where the self-tests
   run), not where you run. Use only paths, interpreters, packages, variables and limits those facts list; do not guess.

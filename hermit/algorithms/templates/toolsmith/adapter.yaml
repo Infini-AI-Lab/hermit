@@ -35,7 +35,8 @@ exports:
       annotations: {readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true}
     - name: finalize
       description: Choose which version of the agent's work the run submits. Given the sha256 of the final version and
-        the versions whose renders actually reached the agent (oldest first), return the sha256 to submit. Fixed rule
+        the versions whose non-blank renders actually reached the agent (oldest first; the host decides what counts
+        as a render of the work), return the sha256 to submit. Fixed rule
         - a final version the agent never saw is replaced by the last version it saw; with nothing seen, the final one
         stays. The harness calls it once, after the agent's last request; it is not offered to the agent.
       entrypoint: interface.py:finalize
