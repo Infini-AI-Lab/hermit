@@ -41,7 +41,12 @@ jobs:
           harnessadapter --help
           harnessadapter backends list
       - name: Can bubblewrap make namespaces here?
-        run: bwrap --unshare-user --unshare-net --ro-bind / / true && echo "bwrap works" || echo "bwrap cannot unshare on this runner: its tests will be skipped"
+        run: |
+          if bwrap --unshare-user --unshare-net --ro-bind / / true; then
+            echo "bwrap works"
+          else
+            echo "bwrap cannot unshare on this runner; its tests will be skipped"
+          fi
       - name: Test suite
         run: python -m pytest tests -q -rs --durations=10
 
