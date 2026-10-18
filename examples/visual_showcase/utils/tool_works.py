@@ -150,7 +150,7 @@ def probe_phase(adapter: Path, workspace: Path, runner, name: str) -> dict:
     elif not any(_near(s.get("dominant_rgb")) for s in stats):
         seen = [s.get("dominant_rgb") for s in stats]
         record["reasons"].append(f"dominant colour {seen} is not within {PROBE_TOLERANCE} of {list(PROBE_RGB)} "
-                                 "(a white frame means Chromium ran without the GPU flags)")
+                                 "(a white frame: the page did not load in the tool, or Chromium ran without the GPU flags)")
     record["pass"] = not record["reasons"]
     return record
 
