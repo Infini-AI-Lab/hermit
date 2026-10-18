@@ -50,14 +50,12 @@ each update.
 
 ## How it works
 
-```text
-             ┌──────────── Trainer: data, rollouts, checks, budgets, Git ────────────┐
-             │                                                                       │
- tasks ──▶  acting agent + adapter  ──▶  answers  ──▶  judge  ──▶  learning material
-             ▲                                                          │
-             │                                                          ▼
-             └──────── checked, committed new adapter version  ◀──  Evolver (learner)
-```
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/training-loop-dark.svg">
+  <img src="assets/training-loop-light.svg" alt="The acting agent runs tasks with its original harness and the harness adapter; its outputs and feedback become learning material for the Evolver, whose update is accepted by the specification check as the next adapter version" width="100%">
+</picture>
+</p>
 
 The four parts map onto the parts of ordinary model training:
 
