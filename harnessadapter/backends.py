@@ -25,7 +25,7 @@ Backend fields:
     litellm         the litellm route prefix, for task agents that call through litellm (fireworks_ai, hosted_vllm)
     prices          per model id: {input, cached_input, output}, USD per million tokens
     extra_body      fields added to every chat request (for example reasoning_effort)
-    context_window  tokens; Codex is told it (model_context_window)
+    context_window  tokens; Codex is told it (model_context_window), Claude Code too (CLAUDE_CODE_MAX_CONTEXT_TOKENS)
     developer_role  what a relay in front of the backend does with the `developer` role Codex uses: keep (default),
                     or system for an endpoint that refuses the role (the examples' wire meter renames it)
     models          aliases: short names for model ids (`vllm/qwen` for a long id)
@@ -283,12 +283,15 @@ class Binding:
             env[alias] = self.model
         if self.backend.name != "anthropic":
             env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"      # no telemetry or update calls elsewhere
+        if self.backend.context_window:       # else Claude Code assumes 200k for a model it does not know
+            env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = str(int(self.backend.context_window))
         return env
 
 
 CLAUDE_ENV = ("ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL",
               "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL",
-              "ANTHROPIC_DEFAULT_FABLE_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC")
+              "ANTHROPIC_DEFAULT_FABLE_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+              "CLAUDE_CODE_MAX_CONTEXT_TOKENS")
 
 
 def parse_ref(ref: str, backends: dict[str, Backend]) -> tuple[Backend, str] | None:

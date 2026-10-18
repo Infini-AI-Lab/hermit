@@ -82,7 +82,7 @@ lab-sglang:                             # a new one, like the built-in sglang at
 | `litellm` | the litellm route prefix, for task agents that call through litellm (`fireworks_ai`, `hosted_vllm`) |
 | `prices` | per model id, `{input, cached_input, output}` in USD per million tokens; a model without one has an unknown cost (never zero) |
 | `extra_body` | fields added to every chat request, such as `reasoning_effort` |
-| `context_window` | tokens; Codex is told it as `model_context_window` |
+| `context_window` | tokens; Codex is told it as `model_context_window`, Claude Code as `CLAUDE_CODE_MAX_CONTEXT_TOKENS` |
 | `developer_role` | `keep` (default), or `system`: a relay in front of the backend renames the `developer` role Codex uses, for an endpoint that refuses it (the built-in `fireworks` sets it, as the examples always did; Qwen3.6's chat template refuses a `system` message after the first, so a local server keeps the role) |
 | `models` | aliases: short names for model ids |
 | `from` | start from a copy of another backend (the examples put a metering relay in front of one this way) |
@@ -139,7 +139,10 @@ What the binding gives each CLI:
 - **Claude Code**: `ANTHROPIC_BASE_URL` (the backend's Messages root), `ANTHROPIC_AUTH_TOKEN` (the key as a bearer
   token, which is what vLLM and SGLang check; a placeholder for a keyless server, since Claude Code asks for a login
   without one), `ANTHROPIC_MODEL` and every model alias (`ANTHROPIC_DEFAULT_{OPUS,SONNET,HAIKU,FABLE}_MODEL`,
-  `CLAUDE_CODE_SUBAGENT_MODEL`) set to the model, and `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` off Anthropic.
+  `CLAUDE_CODE_SUBAGENT_MODEL`) set to the model, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` off Anthropic, and
+  `CLAUDE_CODE_MAX_CONTEXT_TOKENS` when the backend declares a `context_window`: for a model it does not know, Claude
+  Code assumes 200k tokens and compacts too late for a smaller server (a resumed Evolver session on a 131,072-token
+  vLLM server asked for 99k prompt plus 32k output tokens and failed).
   Claude Code 2.1.302 took model ids with `/` in them (`Qwen/Qwen3-4B-Instruct-2507` on vLLM,
   `accounts/fireworks/models/...` on Fireworks) in print mode; vLLM's own guide still recommends a plain served
   name (`vllm serve ... --served-model-name qwen3`).
@@ -176,4 +179,12 @@ and a `backends.learner={from: <backend>, base_url: <the meter's URL>}` override
 
 Prices: a hosted backend's models have prices in the built-in table; a local model has none, so its cost is
 recorded as unknown. Give it a price of zero in your backends file when a bill of zero is what you mean. The
-wire-level token counts are recorded regardless.
+wire-level token counts are recorded regardless. Claude Code reports a cost of its own, at Anthropic's prices; for a
+model on another backend that figure is replaced by the backend's price (unknown without one).
+
+Context length: a local server is often started with a shorter context than the hosted model has, and a request
+whose prompt plus `max_tokens` exceeds it fails (vLLM: HTTP 400, "maximum context length"). The built-in `react`
+agent keeps its whole history, so a task whose tool results pile up fails on it: on OfficeQA, one question's history
+on Qwen3.6-35B-A3B reached 114,689 tokens, and with `max_tokens: 16384` the request exceeded a 131,072-token server
+by one token. Serve the model with its full context (vLLM `--max-model-len`, SGLang `--context-length`), or lower
+`agent.params.max_tokens` and `tool_result_chars`.

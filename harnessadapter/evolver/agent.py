@@ -12,7 +12,8 @@ AgentEvolver params:
   resume_prompt: prompt file for a resumed session (optional; default: the start prompt)
   args: extra command-line arguments for the agent (for example codex `-c key=value` pairs)
   home: copy these files of the user's agent home into the run's agent home (default: auth.json / .credentials.json)
-  price: USD per million tokens {input, cached_input, output}; without it an agent's cost is unknown (counted as such)
+  price: USD per million tokens {input, cached_input, output}; without it an agent's cost is unknown (counted as such).
+         Claude Code's own cost figure (Anthropic's prices) counts only for a model on Anthropic's backend
   tools: the only Trainer tools the agent may use (for example [check_spec]); null: all of them. The agent gets a
          gate's URL, never the endpoint's, in its MCP server and in the task message alike
   hide: paths the agent must not read although the sandbox shows their parents, besides the framework's examples,
@@ -139,12 +140,7 @@ class AgentEvolver(Evolver):
             command, env = ctx.sandbox.wrap(command, writable=[home], env=env, home=home, keep=own)
         code = _run(command, env, ctx, log, root)
         session, usage = parse_log(log, backend, params.get("model") or backend)
-        price = params.get("price")       # USD per million tokens: {input, cached_input, output}
-        for u in usage:
-            if price and u.cost_usd is None:
-                u.cost_usd = ((u.input_tokens - u.cached_input_tokens) * price.get("input", 0)
-                              + u.cached_input_tokens * price.get("cached_input", price.get("input", 0))
-                              + u.output_tokens * price.get("output", 0)) / 1e6
+        price_usage(usage, params)
         if ctx.cancel is not None and ctx.cancel.is_set():
             return StepResult("failed", "stopped by the Trainer", session=session, usage=usage)
         report = ctx.workspace.output / "report.md"
@@ -153,6 +149,22 @@ class AgentEvolver(Evolver):
         status = "done" if code == 0 else "failed"
         return StepResult(status, summary if code == 0 else f"{backend} exited with {code}", session=session,
                           usage=usage)
+
+
+def price_usage(usage: list[Usage], params: dict) -> None:
+    """Fill in each usage's cost from `price` (USD per million tokens: {input, cached_input, output}) where the agent
+    reported none. Claude Code reports a cost at Anthropic's prices; for a model bound to another backend that is not
+    the bill, so the backend's price replaces it (no price: the cost is unknown)."""
+    price = params.get("price")
+    binding = params.get("binding") or {}
+    foreign = bool(binding) and not str(binding.get("litellm") or "").startswith("anthropic/")
+    for u in usage:
+        if foreign:
+            u.cost_usd = None
+        if price and u.cost_usd is None:
+            u.cost_usd = ((u.input_tokens - u.cached_input_tokens) * price.get("input", 0)
+                          + u.cached_input_tokens * price.get("cached_input", price.get("input", 0))
+                          + u.output_tokens * price.get("output", 0)) / 1e6
 
 
 def parse_log(log: Path, backend: str, model: str) -> tuple[str | None, list[Usage]]:

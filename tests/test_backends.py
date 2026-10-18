@@ -158,6 +158,8 @@ def test_codex_args_and_claude_env(monkeypatch):
     assert v.claude_env(expand=True)["ANTHROPIC_AUTH_TOKEN"] == "k"          # the value only on request
     assert env["ANTHROPIC_MODEL"] == "q" and env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] == "q" and env["ANTHROPIC_API_KEY"] == ""
     assert env["CLAUDE_CODE_SUBAGENT_MODEL"] == "q" and env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] == "1"
+    assert "CLAUDE_CODE_MAX_CONTEXT_TOKENS" not in env                     # no window declared: Claude Code's own
+    assert fw.claude_env()["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] == "1048576"  # a declared window is passed on
     monkeypatch.delenv("VLLM_API_KEY")
     assert v.claude_env()["ANTHROPIC_AUTH_TOKEN"] == backends.PLACEHOLDER_KEY
     assert resolve("deepseek/deepseek-chat", r).claude_env()["ANTHROPIC_BASE_URL"] == "https://api.deepseek.com/anthropic"
@@ -181,6 +183,23 @@ def test_bind_agent_params(monkeypatch):
     assert bind_agent_params({"backend": "codex"}, "codex", r) == {"backend": "codex"}
     kept = bind_agent_params({"backend": "codex", "model": "vllm/q", "price": {"input": 9}}, "codex", r)
     assert kept["price"] == {"input": 9}                                     # a price given stays
+
+
+def test_claude_cost_counts_only_on_anthropic():
+    from harnessadapter.evolver.agent import price_usage
+    from harnessadapter.evolver.base import Usage
+    r = reg()
+    reported = lambda: [Usage(model="q", input_tokens=2_000_000, output_tokens=1_000_000, calls=3, cost_usd=3.6)]
+    local = bind_agent_params({"backend": "claude", "model": {"model": "vllm/q", "price": {"input": 0, "output": 0}}},
+                              "claude", r)
+    usage = reported(); price_usage(usage, local)
+    assert usage[0].cost_usd == 0                       # the backend's price, not Claude Code's figure
+    usage = reported(); price_usage(usage, bind_agent_params({"backend": "claude", "model": "vllm/q"}, "claude", r))
+    assert usage[0].cost_usd is None                    # no price on that backend: unknown
+    usage = reported(); price_usage(usage, bind_agent_params({"backend": "claude", "model": "anthropic/claude-x"}, "claude", r))
+    assert usage[0].cost_usd == 3.6                     # Anthropic's own models: Claude Code's figure
+    usage = reported(); price_usage(usage, {"backend": "claude", "model": "sonnet", "price": {"input": 1}})
+    assert usage[0].cost_usd == 3.6                     # no binding: as before
 
 
 # ---- the run config ------------------------------------------------------------------------------------------------
