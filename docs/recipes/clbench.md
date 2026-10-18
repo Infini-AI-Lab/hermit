@@ -48,6 +48,46 @@ These commands make real model calls. Begin with one order. `MW_ORDERS="0 1 2 3 
 `MW_TRAIN_SPLIT` can select a prepared prefix split for a smoke run; a prefix is not the full experiment.
 The launcher uses `WM_PORT` and `WM_PORT+1` for host and learner wire meters.
 
+## On local GPUs
+
+Any server the backends layer knows can stand in for Fireworks. On a machine of L40s (vLLM 0.31), the poker stream
+ran with two instances of Qwen3.6-35B-A3B-FP8 (two GPUs each), one for the host and one for the learner, declared
+once in a backends file:
+
+```yaml
+# lab-backends.yaml (HA_BACKENDS points here)
+lab-host:    {from: vllm, base_url: http://127.0.0.1:8105/v1, api_key_env: LAB_HOST_KEY, context_window: 131072}
+lab-learner: {from: vllm, base_url: http://127.0.0.1:8104/v1, api_key_env: LAB_LEARNER_KEY, context_window: 131072}
+```
+
+```bash
+vllm serve Qwen/Qwen3.6-35B-A3B-FP8 --tensor-parallel-size 2 --language-model-only --max-model-len 131072 \
+    --reasoning-parser qwen3 --enable-auto-tool-choice --tool-call-parser qwen3_coder \
+    --served-model-name qwen3.6-35b --port 8104            # and again on two other GPUs, --port 8105
+HA_BACKENDS=lab-backends.yaml MW_HOST_MODEL=lab-host/qwen3.6-35b MW_EVOLVER_MODEL=lab-learner/qwen3.6-35b \
+    MW_TAG=mwm-poker-local WM_PORT=3551 MW_ORDERS=0 examples/clbench_poker/mwm/launch.sh
+```
+
+What was observed on order 0 (2026-10-17), one run per method:
+
+| Method | Hands | bb/hand | Note |
+|---|---|---|---|
+| MWM | 120 | +0.79 | all 22 learner sessions completed; 100 minutes |
+| prompt-only | 20 | +1.65 | stopped at hand 21, see below |
+| MWM, the same first 20 hands | 20 | +3.20 | |
+
+These are one order with one local model, not a comparison with the results in the example's README.
+
+- The host model matters more than the server. Qwen3-30B-A3B-Instruct-2507 looped as a host: it alternated two
+  `wm` calls up to the 100-call cap of a hand (3 million input tokens for one hand), and as the database host it
+  wrote its answer as text instead of calling the tool. Qwen3.6 did neither.
+- A hand whose host takes no action fails twice and is never settled, and the stream cannot go past it: every later
+  hand fails with `stream mismatch` and is scored 0 (`runner_logs/` shows it). The prompt-only run stopped this way
+  at hand 21, after its learner's instructions told the host to reply with text such as `FOLD`.
+- A reasoning model can run one answer past clbench's request timeout (`CLB_REQUEST_TIMEOUT`, 600 s); clbench
+  retries it. The prompt-only host's first block took 27 minutes, most of it in two such answers, before its learner
+  had written any instructions.
+
 ## Outputs and scoring
 
 | Path under `$MW_RUNS/$MW_TAG/` | Meaning |
