@@ -187,9 +187,10 @@ Recording a trajectory during training alone does not make it part of the deploy
 
 ## Available in this version
 
-Version 0.2.0 includes the `prompt-only`, `lean-collab` and `mwm` templates and the `codex`, `claude`, `gepa`,
-`skillopt` and `mwm` Evolvers. OfficeQA and CL-Bench (database, poker) provide end-to-end task integrations;
-the Lean template can be deployed, but its complete training pipeline has not been migrated.
+Version 0.2.0 includes the `prompt-only`, `lean-collab`, `mwm` and `toolsmith` templates and the `codex`, `claude`,
+`gepa`, `skillopt`, `mwm` and `toolsmith` Evolvers. OfficeQA, CL-Bench (database, poker) and the visual showcase
+provide end-to-end task integrations; the Lean template can be deployed, but its complete training pipeline has not
+been migrated.
 
 For detailed contracts, continue to [Adapter](adapter.md), [Evolver](evolver.md), [Trainer](trainer.md), or
 [Task integration](task.md). To implement a method, see [Custom Evolver integration](custom-evolver.md).

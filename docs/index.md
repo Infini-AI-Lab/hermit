@@ -66,6 +66,7 @@ methods/agent
 methods/gepa
 methods/skillopt
 methods/mwm
+methods/toolsmith
 ```
 
 ```{toctree}
@@ -78,6 +79,7 @@ recipes/officeqa
 recipes/servelearnbench
 recipes/clbench
 recipes/lean-collaboration
+recipes/visual-showcase
 ```
 
 ```{toctree}

@@ -11,6 +11,7 @@ template–method combinations meaningful.
 | Search text candidates with validation-based selection | [GEPA](gepa.md) | Start with prompt-only | Validation split and GEPA extra |
 | Make bounded skill edits with a validation gate | [SkillOpt](skillopt.md) | Start with prompt-only or the paper seed | Validation split and SkillOpt extra |
 | Build a persistent world model from an ordered environment stream | [MWM](mwm.md) | `mwm` | Evidence store, deployment description, tools, Linux learner environment |
+| Learn instructions and callable tools (programs) together, self-tested in the task's sandbox | [Toolsmith](toolsmith.md) | `toolsmith@1.0` | Learner model endpoint, a confined runner declared as a task tool, a harness that exposes `tool_catalog` / `tool_call` |
 | Learn the framework contract offline | [Quick Start](../get-started/quickstart.md) | Prompt-only with a teaching learner | Included toy tasks |
 
 ## Compare the work behind each step
@@ -25,6 +26,7 @@ task-specific service overhead. Call counts vary with evidence, candidates, and 
 | GEPA | Initial-parent validation, reflection, child minibatch tests, and validation for a child that passes the minibatch criterion | Candidate pool, validation scores, per-candidate next file | Highest retained validation mean |
 | SkillOpt | Reflection/merge/ranking calls, validation (cached by skill content), optional epoch-end and final validation work | Current/best skills, validation cache, update history and meta skill | Retained best, with optional final promotion |
 | MWM | Maintenance and a learner session per eligible block, plus native bootstrap/retry behavior | World-model adapter plus method/session records | Current world-model adapter |
+| Toolsmith | One learner request per step (one retry without a usable reply), then the changed bundles' self-tests in the confined runner and at most `repair_rounds` further requests with their failures; no candidate rollout gate | Self-test results per bundle, short change notes | Current adapter |
 
 `use_gate: false` in SkillOpt removes the ordinary improvement requirement, **not** the validation calls.
 GEPA's minibatch criterion is separate from its validation-based parent/final selection.
