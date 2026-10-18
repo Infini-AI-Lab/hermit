@@ -8,6 +8,12 @@ size of that proof. This is a deploy example: it holds the finished adapter of t
 service plus the learned instructions and skills), shows how five agents run on it, and compares it with single
 agents and with a team that shares only free-text notes.
 
+<p align="center">
+  <img src="swarm.png" alt="Five frozen Codex agents, each connected to one harness adapter that holds the team's plan, lemma library and channel" width="720">
+</p>
+
+Each agent talks only to the adapter: the plan, the proved lemmas and the messages all pass through it.
+
 ## Setup
 
 Install the framework first ([Installation](../../docs/get-started/installation.md)). Check the adapter against its template:
