@@ -1,0 +1,48 @@
+# The toolsmith adapter: learned instructions (ADAPTER.md) and learned tools (tools/<name>/ bundles) that the acting
+# agent's harness exposes as callable tools through the two fixed exports below.
+template:
+  id: toolsmith
+  version: "1.0"
+  contract: "1"
+  name: Toolsmith (learned instructions and learned tools)
+exports:
+  context: ADAPTER.md
+  tools:
+    - name: tool_catalog
+      description: List the learned tools this adapter offers now (name, description, parameters as a JSON Schema) and
+        the bundles it rejected with the reason. Call it once before tool_call.
+      entrypoint: interface.py:tool_catalog
+      input_schema: {type: object, properties: {}, additionalProperties: false}
+      output_schema:
+        type: object
+        properties: {tools: {type: array}, rejected: {type: array}}
+        required: [tools, rejected]
+      annotations: {readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false}
+    - name: tool_call
+      description: Run one learned tool by name with a JSON object of arguments, inside the task's confined sandbox
+        with the agent's workspace as the working directory. The reply carries the tool's text and the images it wrote
+        (paths relative to the workspace), plus exit code, timing and any error as text.
+      entrypoint: interface.py:tool_call
+      input_schema:
+        type: object
+        properties: {name: {type: string}, args: {type: object}}
+        required: [name]
+        additionalProperties: false
+      output_schema:
+        type: object
+        properties: {text: {type: string}, images: {type: array, items: {type: string}}}
+        required: [text, images]
+      annotations: {readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true}
+structure:
+  learnable:
+    - path: ADAPTER.md
+      format: {text: true, max_bytes: 40000}
+    - path: tools/**
+      format: {text: true, max_bytes: 60000, max_files: 40}
+  fixed:
+    - interface.py
+    - check.py
+    - EVOLVER.md
+    - README.md
+    - tools/README.md
+check: check.py:check
