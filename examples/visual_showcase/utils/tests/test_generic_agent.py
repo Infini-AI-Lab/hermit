@@ -345,6 +345,25 @@ def test_context_guard_stops_after_a_large_prompt(scratch, monkeypatch, runner):
     assert "95000" in out.extra["stop_reason"]
 
 
+def test_a_cut_off_tool_call_does_not_poison_the_conversation(scratch, monkeypatch, runner):
+    """A response cut off at the token limit mid-call leaves invalid JSON arguments; the provider refuses a conversation
+    that holds them (HTTP 400), so the replayed message carries "{}" and the model is told what happened."""
+    cut = {"id": "c1", "type": "function", "function": {"name": "write_file",
+                                                          "arguments": '{"path": "index.html", "content": "<html'}}
+    client = scripted(monkeypatch, [
+        {"tool_calls": [cut], "finish_reason": "length"},
+        {"tool_calls": [tc("write_file", {"path": "index.html", "content": PAGE}, "c2")]},
+        {"content": "Wrote a shorter page."}])
+    out = new_agent(scratch).run(task(), None)
+    assert out.output["status"] == "completed" and out.output["model_calls"] == 3
+    replayed = client.requests[1]["messages"][2]
+    assert replayed["role"] == "assistant" and replayed["tool_calls"][0]["function"]["arguments"] == "{}"
+    tool_message = client.requests[1]["messages"][3]
+    assert "cut off at the output token limit" in tool_message["content"]
+    calls = Path(out.log) / "calls" / "01.json"
+    assert json.loads(calls.read_text())["assistant"]["tool_calls"][0]["function"]["arguments"].startswith('{"path"')
+
+
 def test_api_error_is_recorded_with_the_key_redacted(scratch, monkeypatch, runner):
     monkeypatch.setenv(pipeline.KEY_ENV, "sk-secret")
     scripted(monkeypatch, [])

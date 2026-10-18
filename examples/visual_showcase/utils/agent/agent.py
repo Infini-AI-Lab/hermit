@@ -73,6 +73,26 @@ def _log_dir(root: Path, case: str, arm: str) -> Path:
     return base
 
 
+def _replayable(message: dict) -> dict:
+    """The assistant message as it is sent back in later requests. A tool call whose arguments are not a JSON object
+    (a response cut off at the token limit mid-call) makes the provider refuse the whole conversation (HTTP 400), so
+    such arguments are replaced by "{}" in the replayed copy; the original stays in calls/NN.json."""
+    calls = message.get("tool_calls")
+    if not calls:
+        return message
+    fixed = []
+    for call in calls:
+        function = dict(call.get("function") or {})
+        try:
+            valid = isinstance(json.loads(function.get("arguments") or ""), dict)
+        except (TypeError, ValueError):
+            valid = False
+        if not valid:
+            function["arguments"] = "{}"
+        fixed.append({**call, "function": function})
+    return {**message, "tool_calls": fixed}
+
+
 class VisualAgent(Agent):
     """`agent.name: ../utils/agent/agent.py:VisualAgent`; params: facts_file (text appended to the system prompt),
     logs (run records; default $VISUAL_LOG_ROOT, else utils/.logs)."""
@@ -188,7 +208,7 @@ class VisualAgent(Agent):
                 **record, "usage": {"prompt_tokens": call_usage.input_tokens, "completion_tokens": call_usage.output_tokens,
                                     "cached_tokens": call_usage.cached_input_tokens},
                 "request_accepted": True, "assistant": pipeline.public_message(message), "finish_reason": finish})
-            messages.append(pipeline.continuing_message(message))
+            messages.append(_replayable(pipeline.continuing_message(message)))
             tool_calls = message.get("tool_calls") or []
             if not tool_calls:
                 (base / "final.md").write_text(message.get("content") or "")
@@ -203,6 +223,10 @@ class VisualAgent(Agent):
                 except (ValueError, KeyError, TypeError):
                     args = None
                 tool_text, images = host.dispatch(name, args, deadline)
+                if not isinstance(args, dict):     # tell the model why, in words it can act on
+                    tool_text = json.dumps({"ok": False, "error": "The arguments of this call were not a valid JSON object, so "
+                                            "nothing was done." + (" Your response was cut off at the output token limit: "
+                                            "write less per call." if finish == "length" else "")})
                 messages.append({"role": "tool", "tool_call_id": tool_call.get("id"), "content": tool_text})
                 if images:
                     new_images = images  # Deterministic: the most recent image-bearing call only, as experiment 1.
