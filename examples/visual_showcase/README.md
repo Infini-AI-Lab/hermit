@@ -56,8 +56,8 @@ costs are in the run records. The whole experiment cost about 8 USD.
 Experiment 1 handed the agent a ready-made browser tool. Experiment 2 takes it away. The agent (`utils/agent/agent.py`,
 the same model, limits, records and final capture) gets four generic primitives: `write_file`, `read_file`,
 `replace_text` and `run_command`, one `bash -c` command inside a bubblewrap sandbox (`utils/confine.py`: no network,
-the workspace the only writable place, a private `/tmp`, the GPU visible) whose only picture channel is that PNG or
-JPEG files a command writes into the workspace are shown to the model. The agent is told nothing about node,
+the workspace the only writable place, a private `/tmp`, the GPU visible) whose only picture channel is that PNG
+files a command writes into the workspace are shown to the model. The agent is told nothing about node,
 Playwright, Chromium or the GPU. The learners are told the machine's facts
 (`utils/task-info-generic/<case>/environment.md`, written by `prepare.py --toolset generic`: interpreters, packages,
 the Chromium build and its GPU flags, the sandbox's paths and limits) and must grow a render-and-look procedure or

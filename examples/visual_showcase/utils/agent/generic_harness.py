@@ -1,7 +1,8 @@
 """The generic acting agent's harness (experiment 2): four primitives over the run's workspace — write_file, read_file,
 replace_text and run_command — plus the adapter's learned tools (toolsmith `tool_catalog`/`tool_call`) and the read-only
-`wm` tool of an MWM adapter. Nothing here knows how a page is rendered: the only channel back to the model is that PNG or
-JPEG files a command or a learned tool writes inside the workspace are packed as image parts.
+`wm` tool of an MWM adapter. Nothing here knows how a page is rendered: the only channel back to the model is that PNG
+files a command or a learned tool writes inside the workspace are packed as image parts. Only PNG: the host capture, the
+judge and the blank measurement (hermit.runtime.pngstats) all work on PNG; a JPEG is reported, not shown.
 
 Commands and learned tools run through the confined runner (confine.run) the agent binds; the harness owns the per-call
 directory `<run>/cmd-NN/` (its `tmp` is the sandbox's /tmp, deleted after the image scan; `trace` is kept; `index.html`
@@ -88,8 +89,8 @@ TOOLS = [
               "new": {"type": "string"}}, ["path", "old", "new"]),
     function("run_command", "Run one shell command (bash -c) with your workspace as the working directory, no network, "
              "a private /tmp that is discarded afterwards, and a timeout of timeout_s seconds (default 60, maximum 90). "
-             "Returns exit code, stdout and stderr. PNG or JPEG files the command creates or modifies inside the "
-             "workspace are shown to you as images in the next message (at most five per command, forty per run).",
+             "Returns exit code, stdout and stderr. PNG files the command creates or modifies inside the workspace "
+             "are shown to you as images in the next message (at most five per command, forty per run).",
              {"command": {"type": "string", "minLength": 1}, "timeout_s": {"type": "integer", "minimum": 1,
                                                                             "maximum": MAX_TIMEOUT_S}}, ["command"]),
 ]
@@ -249,9 +250,9 @@ def changed_images(before: dict, after: dict) -> list[str]:
 
 
 def describe_image(workspace: Path, rel: str) -> tuple[dict | None, str | None]:
-    """(record, None) for an admissible image at workspace/rel — PNG/JPEG magic, a regular file reached without a
-    symlink, <= MAX_IMAGE_BYTES, <= MAX_IMAGE_PIXELS — else (None, problem). `nonblank` comes from pngstats for a PNG
-    (None for a JPEG, which it does not decode)."""
+    """(record, None) for an admissible image at workspace/rel — PNG magic, a regular file reached without a symlink,
+    <= MAX_IMAGE_BYTES, <= MAX_IMAGE_PIXELS — else (None, problem); a JPEG is found by the scan and rejected with a
+    reason, so the model learns why it saw nothing. `nonblank` comes from pngstats."""
     try:
         path, rel = inside(workspace, rel)
     except ValueError as exc:
@@ -266,7 +267,9 @@ def describe_image(workspace: Path, rel: str) -> tuple[dict | None, str | None]:
         return None, f"{info.st_size} bytes, more than {MAX_IMAGE_BYTES}"
     kind = image_kind(path)
     if kind is None:
-        return None, "not a PNG or JPEG file"
+        return None, "not a PNG file"
+    if kind != "png":
+        return None, "a JPEG file: only PNG images are shown"
     dims = image_dimensions(path, kind)
     if dims is None:
         return None, "image header unreadable"

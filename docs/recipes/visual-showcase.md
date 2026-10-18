@@ -58,7 +58,7 @@ MWM learner.
 
 | | Experiment 1 (`utils/task-info/`) | Experiment 2 (`utils/task-info-generic/`) |
 |---|---|---|
-| The agent's tools | `write_file`, `read_file`, `replace_text`, `inspect_page` (runs the page in the browser and returns its screenshots) | `write_file`, `read_file`, `replace_text`, `run_command` (one `bash -c` command in the sandbox: no network, the workspace the only writable place, a private `/tmp`; PNG or JPEG files the command writes into the workspace are shown to the model) |
+| The agent's tools | `write_file`, `read_file`, `replace_text`, `inspect_page` (runs the page in the browser and returns its screenshots) | `write_file`, `read_file`, `replace_text`, `run_command` (one `bash -c` command in the sandbox: no network, the workspace the only writable place, a private `/tmp`; PNG files the command writes into the workspace are shown to the model) |
 | What the agent is told | The inspection tool and its budget | Nothing about node, Playwright, Chromium or the GPU ("blind") |
 | What the learner is told | The brief, the contract, how a run is observed | The same, plus the machine facts |
 | Untrained arms | A (one request, no tools), B (the tool loop) | B'-blind (the four primitives), B'-hinted (B' with the facts in its system prompt) |

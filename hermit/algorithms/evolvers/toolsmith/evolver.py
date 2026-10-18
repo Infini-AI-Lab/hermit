@@ -126,14 +126,22 @@ def check_path(rel: str, structure, body: str | None = None) -> str | None:
     return None
 
 
+# Program words an instruction text names in backticks without meaning a tool (JS, Python, shell built-ins).
+NOT_TOOLS = frozenset({"require", "import", "print", "fetch", "open", "spawn", "exec", "eval", "main", "len", "str",
+                       "int", "float", "range", "json", "node", "python", "python3", "bash", "sh", "ls", "cat", "find",
+                       "which", "echo", "env", "export", "sleep", "kill", "timeout", "click", "goto", "screenshot",
+                       "launch", "close", "evaluate", "setcontent", "newpage", "readfilesync", "writefilesync"})
+
+
 def lint_context(text: str, available: set[str]) -> list[str]:
     """Backticked identifiers that look like tool calls (`name()`, an underscore, or a line that speaks of a tool or a
-    call) and are neither admitted tools nor primitives. A heuristic: the notice says which name does not exist."""
+    call) and are neither admitted tools nor primitives nor common program words (NOT_TOOLS). A heuristic: the notice
+    says which name does not exist."""
     unknown: list[str] = []
     for line in text.splitlines():
         speaks = re.search(r"\b(tools?|calls?|calling|invokes?|invoking)\b", line, re.IGNORECASE) is not None
         for name, parens in _BACKTICKED.findall(line):
-            if name in available or name in unknown:
+            if name in available or name in unknown or name.lower() in NOT_TOOLS:
                 continue
             if parens or "_" in name or speaks:
                 unknown.append(name)

@@ -264,9 +264,10 @@ def test_tool_call_protocol_and_image_validation(scratch):
     assert argv[0] == "python3" and argv[1:3] == ["-I", "-B"] and argv[-2] == "/tool/run.py"
     assert json.loads(argv[-1]) == {"file": "index.html"}
     assert result["text"] == "wordcount ran" and result["error"] is None and result["exit_code"] == 0
-    assert result["images"] == ["shot.png", "sub/photo.jpg"]
+    assert result["images"] == ["shot.png"]                      # PNG only: the JPEG is reported, not shown
     rejected = {r["path"]: r["problem"] for r in result["images_rejected"]}
-    assert rejected["link.png"] == "a symbolic link" and rejected["text.png"] == "not a PNG or JPEG file"
+    assert rejected[str(ws / "sub" / "photo.jpg")] == "not a PNG file (only PNG images are shown)"
+    assert rejected["link.png"] == "a symbolic link" and rejected["text.png"] == "not a PNG file (only PNG images are shown)"
     assert "more than" in rejected["big.png"] and rejected["missing.png"] == "does not exist"
     assert rejected[str(outside)] == "outside the workspace" and rejected["../outside.png"] == "outside the workspace"
     assert rejected["outdir/outside.png"] == "a symbolic link" and rejected[""] == "not a path"

@@ -91,8 +91,8 @@ below. This is the only case this adapter is trained on.
 The agent works in a tool loop with four generic tools: `write_file` (a file in its workspace; `index.html` is the
 only file submitted), `read_file` (numbered lines of a workspace file; `README.md` holds the brief), `replace_text`
 (one exact replacement) and `run_command` (one `bash -c` command inside a sandbox whose working directory is the
-workspace; no network; at most 90 seconds; PNG or JPEG files the command creates or modifies in the workspace are
-returned to the agent as images, at most five per command and forty per run). There is no browser tool.
+workspace; no network; at most 90 seconds; PNG files the command creates or modifies in the workspace are returned
+to the agent as images, at most five per command and forty per run; a JPEG is reported, not shown). There is no browser tool.
 With a learned adapter, the adapter's context is appended to the system prompt and the tools the adapter exports, if
 any, are offered next to the four above; an MWM adapter offers its read-only `wm` tool (`list`, `memory`, `recall`,
 `search`, `read`, `trace`). Limits per run: 600 seconds, 12 model requests, 24 tool calls and 65,536 completion
@@ -162,8 +162,9 @@ exports execute there, in the same sandbox). Paths are absolute and resolved. Th
   outputs must go under the working directory. HOME=/tmp/home.
 - F9. Limits: a `run_command` takes at most {command_s} seconds, a tool at most {tool_s} seconds, a run {run_s} seconds;
   a host lock may delay a command (the wait is not charged to its timeout).
-- F10. PNG or JPEG files that a command or tool writes or modifies under the workspace are returned to the agent as
-  images (at most {images_per_call} per call, {images_per_run} per run, {image_mb} MB and {image_mpx} megapixels each).
+- F10. PNG files that a command or tool writes or modifies under the workspace are returned to the agent as images
+  (at most {images_per_call} per call, {images_per_run} per run, {image_mb} MB and {image_mpx} megapixels each); a JPEG is
+  reported as rejected, never shown, and the self-tests count only non-blank PNGs.
 - F11. Inside the sandbox only `/usr`, a few `/etc` files, `/sys`, the venv `{prefix}`, its base Python
   `{base_prefix}`, node `{node_dir}`, `{node_modules}`, the browsers directory `{playwright_dir}` and the wrapper exist;
   no other host path. The agent's PATH is `{prefix}/bin:/usr/bin:/bin`; its environment holds only PATH, HOME, TMPDIR,

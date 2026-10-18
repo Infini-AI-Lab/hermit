@@ -21,7 +21,7 @@ runner's keyword signature `argv, cwd, timeout_s, ro, lock`) and `workspace` (th
 `tool_catalog` once and expose each admitted tool to the model, then dispatch its calls to
 `tool_call(name, args)`. `tool_call` binds the bundle read-only at `/tool`, runs the entry with the workspace as the
 working directory and the arguments on stdin, reads the last JSON line of stdout and validates the images it names
-(inside the workspace, PNG or JPEG, ≤ 2 MB, no symlinks). Without a bound runner it raises instead of running.
+(inside the workspace, PNG, ≤ 2 MB, no symlinks). Without a bound runner it raises instead of running.
 
 The check (`check.py`) admits a bundle only when its name matches the directory and the slug rule, is not a primitive's
 name, every parameter is optional, the entry exists, the files are text of the allowed kinds, and no file carries an

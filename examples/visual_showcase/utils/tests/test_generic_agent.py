@@ -496,13 +496,12 @@ def test_run_command_image_caps_symlinks_and_rejections(scratch):
     text, parts = host.dispatch("run_command", {"command": "png late.png; jpeg late.jpg"}, far())
     rejected = {r["file"]: r["problem"] for r in json.loads(text)["images_rejected"]}
     assert rejected == {"late.png": "image budget exhausted", "late.jpg": "image budget exhausted"} and parts == []
-    # A JPEG is packed with its mime type; nonblank is unknown for it.
+    # A JPEG is reported, never shown: only PNG images reach the model (the judge and the blank measure are PNG).
     host.images_total = 0
     text, parts = host.dispatch("run_command", {"command": "jpeg only.jpg"}, far())
-    record = json.loads((scratch / "run" / "tools" / "03.json").read_text())
-    assert record["image_records"][0]["nonblank"] is None and record["image_records"][0]["width"] == 400
-    assert parts[1]["image_url"]["url"].startswith("data:image/jpeg;base64,")
-    assert host.image_bearing_calls == 2 and host.looked_calls == 1 and host.looked_blank_calls == 1
+    rejected = {r["file"]: r["problem"] for r in json.loads(text)["images_rejected"]}
+    assert rejected == {"only.jpg": "a JPEG file: only PNG images are shown"} and parts == []
+    assert host.image_bearing_calls == 1 and host.looked_calls == 1 and host.looked_blank_calls == 0
 
 
 def test_blank_images_and_no_browser_are_not_looks(scratch):
@@ -610,7 +609,7 @@ def test_scan_and_describe(scratch):
     assert gh.changed_images(after, gh.scan_images(ws)) == ["one.png"]
     record, problem = gh.describe_image(ws, "one.png")
     assert problem is None and record["width"] == 321 and record["nonblank"] is True
-    assert gh.describe_image(ws, "note.txt") == (None, "not a PNG or JPEG file")
+    assert gh.describe_image(ws, "note.txt") == (None, "not a PNG file")
     assert gh.describe_image(ws, "../tmp.png")[1] == "'../tmp.png' lies outside the workspace"
     assert gh.describe_image(ws, str(ws / "one.png"))[0]["file"] == "one.png"
 

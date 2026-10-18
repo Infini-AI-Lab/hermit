@@ -90,7 +90,7 @@ the same limits, records and final capture as `pipeline.py`, but with four gener
 | `write_file(path, content)` | Writes a file in the workspace (at most 500,000 bytes; `index.html` is the only file submitted) |
 | `read_file(path, start_line, max_lines)` | Numbered lines of a workspace file; `README.md` holds the brief |
 | `replace_text(path, old, new)` | Exactly one occurrence |
-| `run_command(command, timeout_s)` | `bash -c command` inside the sandbox of `confine.py` (bubblewrap: an allowlist of read-only paths, the workspace read-write, a private `/tmp` discarded after the command, no network, the GPU device nodes visible, an environment without any key); at most 90 seconds. PNG or JPEG files the command creates or modifies in the workspace are shown to the model in the next message (at most 5 per call, 40 per run, 2 MB and 2.1 megapixels each). |
+| `run_command(command, timeout_s)` | `bash -c command` inside the sandbox of `confine.py` (bubblewrap: an allowlist of read-only paths, the workspace read-write, a private `/tmp` discarded after the command, no network, the GPU device nodes visible, an environment without any key); at most 90 seconds. PNG files the command creates or modifies in the workspace are shown to the model in the next message (at most 5 per call, 40 per run, 2 MB and 2.1 megapixels each). |
 
 The system prompt (`agent/texts.py`) says that and nothing about how a page could be rendered: no node, Playwright,
 Chromium, GPU or screenshot procedure. Arms: `harness` (B') without an adapter or with the untouched root, else

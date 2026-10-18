@@ -72,7 +72,7 @@ The same protocol serves the agent's calls and the self-tests:
   stdin as `{}`.
 - The result is the LAST line of stdout that parses as a JSON object: `{"text": "<what the agent reads>",
   "images": ["<path>", ...]}`. `text` is required (keep it under 12,000 characters; it is clipped beyond that).
-  `images` is optional: PNG or JPEG files the tool wrote inside the working directory, absolute or relative to it,
+  `images` is optional: PNG files (only PNG) the tool wrote inside the working directory, absolute or relative to it,
   regular files reached without symbolic links, at most 2 MB each. The first 5 are shown to the agent as images in
   the message that follows the call; the rest are dropped. A missing file, a symlink or a file outside the working
   directory is reported, not shown.

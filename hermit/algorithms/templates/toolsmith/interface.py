@@ -30,7 +30,7 @@ DEFAULT_TIMEOUT_S, MAX_TIMEOUT_S = 60, 90
 TEXT_CHARS, STDERR_CHARS, TAIL_CHARS = 12_000, 2_000, 2_000
 MAX_IMAGES, MAX_IMAGE_BYTES = 5, 2_000_000      # why: the agent shows at most five images per call, each ≤ 2 MB
 MAX_ARGS_CHARS = 60_000                 # why: the arguments travel as one argv string; Linux caps one at 128 KiB
-IMAGE_MAGIC = (b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff")
+IMAGE_MAGIC = (b"\x89PNG\r\n\x1a\n",)         # PNG only: blank detection (pngstats) and every capture are PNG
 MOUNT = "/tool"                                 # where the runner binds the bundle directory, read-only
 
 # A tool must never carry a page: the start of an HTML document anywhere, the brief's scene attribute outside a
@@ -262,7 +262,7 @@ def last_json_object(stdout: str) -> dict | None:
 
 
 def _image_check(item: str, workspace: Path) -> tuple[str | None, str | None]:
-    """(relative path, None) when `item` is a PNG/JPEG regular file inside the workspace reached without a symlink;
+    """(relative path, None) when `item` is a PNG regular file inside the workspace reached without a symlink;
     (None, problem) otherwise."""
     real_ws = Path(os.path.realpath(workspace))
     given = Path(os.path.normpath(item))
@@ -295,7 +295,7 @@ def _image_check(item: str, workspace: Path) -> tuple[str | None, str | None]:
     with node.open("rb") as stream:
         head = stream.read(8)
     if not head.startswith(IMAGE_MAGIC):
-        return None, "not a PNG or JPEG file"
+        return None, "not a PNG file (only PNG images are shown)"
     return rel.as_posix(), None
 
 

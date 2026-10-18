@@ -27,7 +27,7 @@ How a program runs: the interpreter follows the extension (`.py` → the venv `p
 `.sh` → `bash`); the bundle is mounted read-only at `/tool` and the program starts as `/tool/<entry>`; the working
 directory is the agent's workspace (read-write; it holds `index.html`); the arguments arrive on stdin as one JSON
 object (`{}` when none); the result is the last stdout line that is a JSON object, `{"text": "...", "images": [...]}`
-— `text` required, `images` optional PNG/JPEG paths inside the working directory (the first 5 are shown to the agent);
+— `text` required, `images` optional PNG paths inside the working directory (the first 5 are shown to the agent);
 exit code 0 means success. No network; `/tmp` is discarded after the call; Python sibling imports are unavailable.
 
 ## Example: `wordcount`

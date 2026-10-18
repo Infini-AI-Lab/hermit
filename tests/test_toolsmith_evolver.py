@@ -295,6 +295,7 @@ def test_retry_when_the_first_reply_holds_nothing(tmp_path):
 
 def test_lint_notices_name_tools_that_do_not_exist(tmp_path):
     lint = load("evolver").lint_context
+    assert lint("Run `require()` with NODE_PATH; then call the tool `render_page`.", {"render_page"}) == []
     text = ("Call `inspect_page` after writing index.html, then `shot()`.\n"
             "Use `run_command` to list files; the `pause` button and the `intensity` slider must stay visible.\n"
             "`three_js` is loaded from /vendor.\n")
