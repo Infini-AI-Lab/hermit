@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark"><title>Trainable harness adapter · Draft</title>
+<link rel="stylesheet" href="animation.css?v=11"><script src="arrow-styles.js?v=2" defer></script><link rel="stylesheet" href="trainable-animation.css?v=4"><script src="trainable-animation.js?v=6" defer></script>
+</head><body><main>
+<figure aria-label="Model adapters and harness adapters: the same adaptation idea, at different levels.">
+<svg id="scene" viewBox="0 0 900 314" role="img" aria-labelledby="scene-title scene-description">
+<title id="scene-title">Adapt to a new scenario while keeping the original core frozen</title>
+<desc id="scene-description">An adapter is present before training. Task feedback updates it from V0 through V3. Only then does its fit to the scenario improve. The base model and host harness remain frozen. The upper model-adapter example finishes before the lower harness-adapter example begins.</desc>
+<defs>
+<symbol id="brain" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" />
+  <path d="M9 13a4.5 4.5 0 0 0 3-4" />
+  <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5" />
+  <path d="M3.477 10.896a4 4 0 0 1 .585-.396" />
+  <path d="M6 18a4 4 0 0 1-1.967-.516" />
+  <path d="M12 13h4" />
+  <path d="M12 18h6a2 2 0 0 1 2 2v1" />
+  <path d="M12 8h8" />
+  <path d="M16 8V5a2 2 0 0 1 2-2" />
+  <circle cx="16" cy="13" r=".5" />
+  <circle cx="18" cy="3" r=".5" />
+  <circle cx="20" cy="21" r=".5" />
+  <circle cx="20" cy="8" r=".5" />
+</g></symbol>
+<symbol id="harness" viewBox="0 0 32 32"><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 13.5L9.682 10.318" stroke-linecap="butt"/>
+<polygon points="12.722,7.278 11.096,11.874 8.126,8.904" class="flow-arrow" fill="currentColor" stroke="none"/>
+<path d="M6.5 18.5L9.682 21.682" stroke-linecap="butt"/>
+<polygon points="12.722,24.722 8.126,23.096 11.096,20.126" class="flow-arrow" fill="currentColor" stroke="none"/>
+<path d="M18.5 6.5L21.682 9.682" stroke-linecap="butt"/>
+<polygon points="24.722,12.722 20.126,11.096 23.096,8.126" class="flow-arrow" fill="currentColor" stroke="none"/>
+<path d="M18.5 25.5L21.682 22.318" stroke-linecap="butt"/>
+<polygon points="24.722,19.278 23.096,23.874 20.126,20.904" class="flow-arrow" fill="currentColor" stroke="none"/>
+<rect x="1.5" y="13.5" width="5" height="5" rx="1.6"/>
+<rect x="13.5" y="1.5" width="5" height="5" rx="1.6"/>
+<rect x="25.5" y="13.5" width="5" height="5" rx="1.6"/>
+<rect x="13.5" y="25.5" width="5" height="5" rx="1.6"/></g></symbol>
+<symbol id="flask" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M14 2v6a2 2 0 0 0 .245.96l5.51 10.08A2 2 0 0 1 18 22H6a2 2 0 0 1-1.755-2.96l5.51-10.08A2 2 0 0 0 10 8V2" />
+  <path d="M6.453 15h11.094" />
+  <path d="M8.5 2h7" />
+</g></symbol>
+<symbol id="snowflake" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M3.34 7l17.32 10M3.34 17 20.66 7M9 4l3 3 3-3M9 20l3-3 3 3M3.6 10.5l4.1-1.1-1.1-4.1M20.4 13.5l-4.1 1.1 1.1 4.1M6.6 18.7l1.1-4.1-4.1-1.1M17.4 5.3l-1.1 4.1 4.1 1.1"/></g></symbol>
+<symbol id="adapter-icon-01" viewBox="0 0 60 48"><g class="adapter-glyph"><path d="M7 5H53L37 20H23Z"/><path d="M23 28H37L53 43H7Z"/></g></symbol>
+<symbol id="adapter-icon-02" viewBox="0 0 60 48"><g class="adapter-glyph"><rect x="5" y="6" width="50" height="8" rx="2"/><rect x="19" y="20" width="22" height="8" rx="2"/><rect x="5" y="34" width="50" height="8" rx="2"/></g></symbol>
+<symbol id="adapter-icon-03" viewBox="0 0 60 48"><g class="adapter-glyph"><rect x="8" y="5" width="12" height="38" rx="2"/><rect x="29" y="18" width="25" height="12" rx="2"/></g></symbol>
+<symbol id="adapter-icon-04" viewBox="0 0 60 48"><g class="adapter-glyph"><path d="M5 7 27 19V29L5 41Z"/><path d="M55 7 33 19V29L55 41Z"/></g></symbol>
+<symbol id="adapter-icon-05" viewBox="0 0 60 48"><g class="adapter-glyph"><path d="M8 10H24V5H36V10H52V38H36V43H24V38H8Z"/><path class="icon-detail" d="M20 24H40"/></g></symbol>
+<symbol id="adapter-icon-06" viewBox="0 0 60 48"><g class="adapter-glyph"><rect x="10" y="7" width="40" height="10" rx="2"/><rect x="20" y="22" width="20" height="19" rx="2"/></g></symbol>
+<symbol id="harness-adapter-h13" viewBox="0 0 256 256"><g fill="currentColor"><path d="M237.66,18.34a8,8,0,0,0-11.32,0l-52.4,52.41-5.37-5.38a32.05,32.05,0,0,0-45.26,0L100,88.69l-6.34-6.35A8,8,0,0,0,82.34,93.66L88.69,100,65.37,123.31a32,32,0,0,0,0,45.26l5.38,5.37-52.41,52.4a8,8,0,0,0,11.32,11.32l52.4-52.41,5.37,5.38a32,32,0,0,0,45.26,0L156,167.31l6.34,6.35a8,8,0,0,0,11.32-11.32L167.31,156l23.32-23.31a32,32,0,0,0,0-45.26l-5.38-5.37,52.41-52.4A8,8,0,0,0,237.66,18.34Zm-116.29,161a16,16,0,0,1-22.62,0L76.69,157.25a16,16,0,0,1,0-22.62L100,111.31,144.69,156Zm57.94-57.94L156,144.69,111.31,100l23.32-23.31a16,16,0,0,1,22.62,0l22.06,22A16,16,0,0,1,179.31,121.37ZM88.57,35A8,8,0,0,1,103.43,29l8,20A8,8,0,0,1,96.57,55ZM24.57,93A8,8,0,0,1,35,88.57l20,8A8,8,0,0,1,49,111.43l-20-8A8,8,0,0,1,24.57,93ZM231.43,163a8,8,0,0,1-10.4,4.46l-20-8A8,8,0,1,1,207,144.57l20,8A8,8,0,0,1,231.43,163Zm-64,58.06A8,8,0,0,1,152.57,227l-8-20A8,8,0,0,1,159.43,201Z"/></g></symbol>
+</defs>
+<g id="model-row"><g class="base-core"><rect class="core-box" x="64" y="24" width="360" height="116"/><g id="model-heading" data-center-x="244"><use href="#brain" x="180" y="49" width="28" height="28"/><text class="entity-label" x="220" y="71">Model</text></g><g class="frozen-badge"><use href="#snowflake" x="80" y="28" width="18" height="18"/><text x="106" y="42">Frozen</text></g></g>
+ <g id="model-adapter" class="adapter" opacity="1"><rect class="adapter-box" x="110" y="86" width="268" height="38"/><g id="model-adapter-heading" data-center-x="244"><use id="model-adapter-glyph" href="#adapter-icon-04" x="123" y="91" width="30" height="28"/><text class="adapter-label" x="165" y="112">Model adapter</text><rect id="model-version-tag" class="version-tag" x="340" y="93" width="32" height="25"/><text id="model-v0" class="adapter-version" x="366" y="112" text-anchor="end" opacity="1">V0</text><text id="model-v1" class="adapter-version" x="366" y="112" text-anchor="end" opacity="0">V1</text><text id="model-v2" class="adapter-version" x="366" y="112" text-anchor="end" opacity="0">V2</text><text id="model-v3" class="adapter-version" x="366" y="112" text-anchor="end" opacity="0">V3</text></g></g>
+ <g id="model-flow" aria-hidden="true"><path d="M436 82H600.5" fill="none" stroke="#2C4A6B" stroke-width="3" stroke-linecap="round"/><path d="M593 77L602 82L593 87" fill="none" stroke="#2C4A6B" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></g>
+ <g id="model-feedback" class="feedback" opacity="0" aria-label="Task feedback trains the adapter"><path class="feedback-line" d="M614 118H450V105H390"/><path class="feedback-head" d="m399 100-9 5 9 5"/><text class="feedback-label" x="520" y="140" text-anchor="middle">Train from feedback</text></g><g class="scenario"><rect class="scenario-box" x="614" y="24" width="224" height="116"/><g id="model-scenario-heading" data-center-x="726"><use href="#flask" x="638" y="41" width="32" height="32"/><text class="entity-label scenario-label" x="680" y="65">New scenario</text></g><text id="model-limited" class="fit-label limited" x="726" y="112" text-anchor="middle" opacity="1">Poor fit</text><text id="model-better" class="fit-label better" x="726" y="112" text-anchor="middle" opacity="0">Better fit</text></g></g>
+<g id="harness-row" opacity="0"><g transform="translate(0 150)"><g class="base-core"><rect class="core-box" x="64" y="24" width="360" height="116"/><g class="frozen-badge"><use href="#snowflake" x="80" y="28" width="18" height="18"/><text x="106" y="42">Frozen</text></g><g id="agent-heading" data-center-x="244"><text class="entity-label" x="126" y="71">Agent</text><g class="core-components" aria-label="Model and harness"><text class="group-bracket" x="196" y="71">(</text><use href="#brain" x="208" y="52" width="22" height="22"/><text x="236" y="71">Model</text><use href="#harness" x="292" y="52" width="22" height="22"/><text x="320" y="71">Harness</text><text class="group-bracket" x="391" y="71">)</text></g></g></g>
+ <g id="harness-adapter" class="adapter" opacity="1"><rect class="adapter-box" x="110" y="86" width="268" height="38"/><g id="harness-adapter-heading" data-center-x="244"><use data-icon-selection="H13" href="#harness-adapter-h13" x="123" y="91" width="30" height="28"/><text class="adapter-label" x="165" y="112">Harness adapter</text><rect id="harness-version-tag" class="version-tag" x="340" y="93" width="32" height="25"/><text id="harness-v0" class="adapter-version" x="366" y="112" text-anchor="end" opacity="1">V0</text><text id="harness-v1" class="adapter-version" x="366" y="112" text-anchor="end" opacity="0">V1</text><text id="harness-v2" class="adapter-version" x="366" y="112" text-anchor="end" opacity="0">V2</text><text id="harness-v3" class="adapter-version" x="366" y="112" text-anchor="end" opacity="0">V3</text></g></g>
+ <g id="harness-flow" aria-hidden="true"><path d="M436 82H600.5" fill="none" stroke="#2C4A6B" stroke-width="3" stroke-linecap="round"/><path d="M593 77L602 82L593 87" fill="none" stroke="#2C4A6B" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></g>
+ <g id="harness-feedback" class="feedback" opacity="0" aria-label="Task feedback trains the adapter"><path class="feedback-line" d="M614 118H450V105H390"/><path class="feedback-head" d="m399 100-9 5 9 5"/><text class="feedback-label" x="520" y="140" text-anchor="middle">Train from feedback</text></g><g class="scenario"><rect class="scenario-box" x="614" y="24" width="224" height="116"/><g id="harness-scenario-heading" data-center-x="726"><use href="#flask" x="638" y="41" width="32" height="32"/><text class="entity-label scenario-label" x="680" y="65">New scenario</text></g><text id="harness-limited" class="fit-label limited" x="726" y="112" text-anchor="middle" opacity="1">Poor fit</text><text id="harness-better" class="fit-label better" x="726" y="112" text-anchor="middle" opacity="0">Better fit</text></g></g></g>
+</svg>
+<figcaption class="subtitles">
+<p class="subtitle-line" id="subtitle-1">Train the adapter from task feedback. Keep the model frozen.</p>
+<p class="subtitle-line" id="subtitle-2">A harness adapter is a trainable plugin for an agent.</p>
+<p class="subtitle-line" id="subtitle-3">Learn from feedback. Keep the model and harness unchanged.</p>
+</figcaption>
+</figure>
+<div class="controls" aria-label="Animation controls">
+<button id="play-pause" type="button" aria-label="Pause animation"><svg id="pause-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M7 5v10M13 5v10"/></svg><svg id="play-icon" viewBox="0 0 20 20" aria-hidden="true" hidden><path d="m7 4 9 6-9 6Z"/></svg></button>
+<button id="replay" type="button" aria-label="Replay animation"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 8a6.5 6.5 0 1 1 .8 6.3M4 3v5h5"/></svg><span>Replay</span></button>
+<input id="timeline" type="range" min="0" max="6" value="0" step="0.01" aria-label="Animation position in seconds">
+<output id="time" for="timeline">0.0 / 6s</output>
+</div>
+<p class="icon-study-link"><a href="model-adapter-icons.html">Model adapter icons ↗</a><span aria-hidden="true"> · </span><a href="harness-adapter-icons.html">Harness adapter icons ↗</a><span aria-hidden="true"> · </span><a href="arrow-options.html">Arrow options ↗</a></p>
+<p class="draft-note">Concept draft · V0 → V1 → V2 → V3 · trained from feedback</p>
+<div id="animation-status" class="sr-only" role="status" aria-live="polite"></div>
+</main></body></html>

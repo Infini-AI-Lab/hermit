@@ -1,0 +1,4 @@
+Visual reference: https://infini-ai-lab.github.io/astraflow/raas-animation.html
+Reference source file: docs/web/raas-animation.html in the AstraFlow repository
+Space Grotesk, medium 500; flat blocks; 3px square borders.
+Background #FBFAF7; ink #2D2A26; blue #E3E7F0 / #2E3F66; neutral #ECEAE4 / #3A342B; adapter #EFE2CE / #4A2E13.

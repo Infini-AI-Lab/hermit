@@ -2,10 +2,10 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/wordmark-dark.svg">
-  <img src="assets/wordmark-light-card.svg" alt="MetaHarnessAdapter" width="572">
+  <img src="assets/wordmark-light-card.svg" alt="Hermit" width="360">
 </picture>
 
-### Train harness adapters for existing agents
+### Train/Evolve your harness adapter for continual learning and RSI
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB.svg?logo=python&logoColor=white)](pyproject.toml)
@@ -18,11 +18,15 @@
 
 ---
 
-MetaHarnessAdapter improves the instructions, skills, roles and tools an existing AI agent works with, using
-feedback from tasks the agent has attempted. The agent is not retrained. What it learns is kept in a directory it
-loads from the outside, a **harness adapter**, and the framework trains that directory the way a training framework
-trains weights: you bring tasks and a way to score the answers; the framework runs the agent, collects feedback, and
-lets a learning method revise the adapter, one checked and versioned step at a time.
+MetaHarnessAdapter is a framework for training and evolving AI agent harnesses from task feedback. A **harness
+adapter** is a deployable package of instructions, skills, roles, and tools that extends an existing agent without
+changing its model weights. You provide tasks, an acting agent, and an evaluator; the framework runs the agent,
+collects feedback, and applies a configurable learning method to improve the adapter, checking and versioning
+each update.
+
+<p align="center">
+  <img src="assets/harness-adapter.gif" alt="Model and harness adapters train from task feedback, progressing from V0 to V3 while the base agent stays frozen" width="720">
+</p>
 
 ## News
 

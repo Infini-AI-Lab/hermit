@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3H3V29H7M25 3H29V29H25"/>
+<circle cx="10" cy="10" r="1.6" fill="currentColor" stroke="none"/>
+<circle cx="10" cy="22" r="1.6" fill="currentColor" stroke="none"/>
+<path d="M11.6 10H17Q22 10 22 15V18Q22 22 18 22H14.4"/>
+<polygon points="14.400,22.000 16.500,20.400 16.500,23.600" class="flow-arrow" fill="currentColor" stroke="none"/></svg>
