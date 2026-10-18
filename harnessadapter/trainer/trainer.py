@@ -32,7 +32,7 @@ from harnessadapter.evolver.base import (Access, Context, Evolver, FinalResult, 
                                          Workspace)
 from harnessadapter.evolver.loader import find, instantiate
 from harnessadapter.llm import ChatClient
-from harnessadapter.sandbox import AllowlistProxy, Sandbox
+from harnessadapter.sandbox import AllowlistProxy, Sandbox, network_mode
 from harnessadapter.spec import check_spec, repair
 from harnessadapter.agents.base import load_agent
 from harnessadapter.task import TaskData, load_callable
@@ -192,7 +192,10 @@ class Trainer:
             allow += [u for u in (binding["base_url"], binding.get("messages_url")) if u]
             if env_allow is not None and binding.get("api_key_env") and binding["api_key_env"] not in env_allow:
                 env_allow = [*env_allow, binding["api_key_env"]]
-        self.proxy = AllowlistProxy(allow) if (d["sandbox"]["network"] == "restricted") else None
+        network, wants_proxy = network_mode(d["sandbox"]["network"])
+        records = self.run_dir / "sandbox"
+        self.proxy = AllowlistProxy(allow, log=records / "network.jsonl") \
+            if (network == "isolated" and wants_proxy and allow) else None
         # The Evolver sees only what it is given: the workspace (read-write), its accesses, its own code, and what
         # the task lists in sandbox.read. The task, the answers and the run records are not among them.
         readable = [self.ws.learning_material, self.ws.task_info, self.ws.history, *([val] if val else []), *env,
@@ -200,7 +203,12 @@ class Trainer:
         self.sandbox = Sandbox(enabled=bool(d["sandbox"]["enabled"]), network=d["sandbox"]["network"], allow=allow,
                                read=[self.config.path(p) for p in d["sandbox"]["read"] or []], readable=readable,
                                writable=[self.ws.adapter, self.ws.state, self.ws.scratch, self.ws.output],
-                               proxy_url=self.proxy.url if self.proxy else None, env_allow=env_allow)
+                               proxy_url=self.proxy.url if self.proxy else None,
+                               env_allow=env_allow, enforce=d["sandbox"].get("enforce", "required"),
+                               packages=list(d["sandbox"].get("packages") or []), record_dir=records,
+                               # The isolation check inside proves these absent: the task's data and the home.
+                               probe_absent=[self.config.path(d["data"]["tasks"]), Path.home() / ".ssh",
+                                             Path.home() / ".bashrc"])
         resolved = {"config": d, "template": self.template, "tree": str(self.tree.repo), "branch": self.branch,
                     "start": start, "evolver": {"name": self.spec.name, "directory": str(self.spec.directory),
                                                 "class": self.spec.class_path, "needs": self.spec.needs,
@@ -591,6 +599,7 @@ class Trainer:
         (self.run_dir / "summary.json").write_text(json.dumps(summary, indent=1))
         if self.proxy:
             self.proxy.close()
+        self.sandbox.close()
         return summary
 
     def _tags(self, prefix: str) -> list[str]:

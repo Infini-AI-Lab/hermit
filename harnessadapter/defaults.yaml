@@ -31,9 +31,11 @@ evolver_access:
   send_material_out: false
 sandbox:
   enabled: true
-  network: restricted
-  allow: []
+  enforce: required            # required: refuse to run without bubblewrap | best_effort: run unconfined, recorded
+  network: isolated            # isolated: own network namespace, only the forwarded ports | open: the host network
+  allow: []                    # hosts reachable through the allowlist proxy when the network is isolated
   read: []                     # more paths the Evolver may read (an allowlist; nothing else is visible)
+  packages: []                 # more Python distributions to show, beside the framework's own dependencies
   env: null                    # environment variables passed to what the Evolver starts; null = all of them
 model: null                    # the run's default model, a `<backend>/<model id>` reference (see backends): what `llm`,
                                # agent.params.model and evolver.params.model use when they name none

@@ -62,7 +62,8 @@ areas += [repo / "examples", repo / "harnessadapter" / "algorithms" / "evolvers"
 seen["home_entries"] = sorted(os.listdir(os.environ["CODEX_HOME"]))
 (Path(os.environ["CODEX_HOME"]) / "leftover.txt").write_text("from a previous session")
 areas.append(cwd.parent.parent / "learning_material")
-seen["hidden_listing"] = {str(p): sorted(os.listdir(p)) for p in areas if p.is_dir()}
+# None: the area does not exist inside at all (the sandbox shows only the framework package, not the checkout)
+seen["hidden_listing"] = {str(p): sorted(os.listdir(p)) if p.is_dir() else None for p in areas}
 n = len(list((cwd / "memory").glob("note*.md")))
 kind = "bootstrap" if prompt.split("\n\n", 1)[1].startswith("BOOTSTRAP SESSION") else "review"
 (cwd / "memory" / f"note{n}.md").write_text(
@@ -173,7 +174,7 @@ def test_bootstrap_review_mounts_and_records(tmp_path, monkeypatch):
                                      "/world-model/CONTRACT.md")), seen
         assert "block001" in seen["evidence_files"]                 # a review sees the block's records
         assert seen["cwd"] == "/w" and seen["relative_evidence"] and seen["world_model_ro"]
-        assert len(seen["hidden_listing"]) >= 7 and all(v == [] for v in seen["hidden_listing"].values()), seen
+        assert len(seen["hidden_listing"]) >= 7 and all(v in ([], None) for v in seen["hidden_listing"].values()), seen
     assert "leftover.txt" not in seen["home_entries"]              # a throwaway CODEX_HOME per session
     assert seen["gate_tools"] == ["echo"]                           # only the venue's channels pass the gate
     assert seen["echo"] == {"result": {"text": "hi"}}

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import shutil
 import tempfile
 import time
 
@@ -95,8 +96,12 @@ def run_check(config: Config, *, probe: bool = True, log=print) -> bool:
     report("task", problems)
     # Sandbox: paths the task makes readable must exist (an unset variable leaves a path that names nothing).
     missing = [str(config.path(h)) for h in d["sandbox"]["read"] or [] if not config.path(h).exists()]
-    report("sandbox", [f"sandbox.read path does not exist: {m}" for m in missing],
-           f"enabled={d['sandbox']['enabled']}, network={d['sandbox']['network']}, env={d['sandbox']['env']}")
+    sandbox_problems = [f"sandbox.read path does not exist: {m}" for m in missing]
+    if d["sandbox"]["enabled"] and d["sandbox"].get("enforce", "required") == "required" and not shutil.which("bwrap"):
+        sandbox_problems.append("sandbox.enforce is required but bubblewrap (bwrap) is not installed")
+    report("sandbox", sandbox_problems,
+           f"enabled={d['sandbox']['enabled']}, enforce={d['sandbox'].get('enforce', 'required')}, "
+           f"network={d['sandbox']['network']}, env={d['sandbox']['env']}")
     # Budgets.
     b = d["trainer"]["budget"]
     report("budgets", [] if any(b.get(k) for k in ("usd", "tokens", "hours")) else ["no hard budget is set"],

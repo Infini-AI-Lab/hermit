@@ -95,8 +95,10 @@ class Config:
             raise ValueError("template is required")
         if not d["evolver"]["name"]:
             raise ValueError("evolver.name is required")
-        if d["sandbox"]["network"] not in ("none", "open", "restricted"):
-            raise ValueError("sandbox.network must be none, open or restricted")
+        from harnessadapter.sandbox import network_mode
+        network_mode(d["sandbox"]["network"])
+        if d["sandbox"].get("enforce", "required") not in ("required", "best_effort"):
+            raise ValueError("sandbox.enforce must be required or best_effort")
         if not isinstance(d["data"]["shuffle"], bool):
             raise ValueError("data.shuffle must be true or false")
         if int(d["data"]["step_size"]) < 1 or int(d["trainer"]["epochs"]) < 1:
