@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Wind-Driven Silk</title>
+<style>
+  :root{
+    --ink:#e8e4da;
+    --dim:#9aa0ad;
+    --panel:rgba(16,18,26,.72);
+    --line:rgba(232,228,218,.16);
+    --accent:#e0a458;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;
+    background:#0d0f15;
+    color:var(--ink);
+    font-family:Georgia,'Times New Roman',serif;
+    overflow:hidden;
+  }
+  #stage{position:fixed;inset:0}
+  #scene{position:absolute;inset:0}
+  #scene canvas{display:block;width:100%;height:100%}
+  /* soft vignette so the composition reads as a lit stage */
+  .vignette{
+    position:absolute;inset:0;pointer-events:none;
+    background:
+      radial-gradient(120% 90% at 50% 38%, rgba(0,0,0,0) 55%, rgba(0,0,0,.55) 100%);
+    mix-blend-mode:multiply;
+  }
+  header{
+    position:absolute;top:0;left:0;right:0;
+    padding:18px 22px 0;
+    pointer-events:none;
+    text-align:center;
+  }
+  header h1{
+    margin:0;
+    font-size:clamp(15px,2.4vw,21px);
+    font-weight:400;
+    letter-spacing:.34em;
+    text-transform:uppercase;
+    color:var(--ink);
+    text-shadow:0 2px 14px rgba(0,0,0,.7);
+  }
+  header p{
+    margin:6px 0 0;
+    font-size:clamp(10px,1.6vw,12px);
+    letter-spacing:.22em;
+    text-transform:uppercase;
+    color:var(--dim);
+    text-shadow:0 2px 10px rgba(0,0,0,.7);
+  }
+  /* ---------- controls ---------- */
+  .controls{
+    position:absolute;left:50%;bottom:0;
+    transform:translateX(-50%);
+    width:min(680px,calc(100% - 20px));
+    margin-bottom:calc(14px + env(safe-area-inset-bottom));
+    display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+    justify-content:center;
+    padding:10px 14px;
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:14px;
+    backdrop-filter:blur(10px);
+    -webkit-backdrop-filter:blur(10px);
+    box-shadow:0 12px 34px rgba(0,0,0,.5);
+    z-index:5;
+  }
+  button{
+    font-family:inherit;
+    font-size:13px;
+    letter-spacing:.14em;
+    text-transform:uppercase;
+    color:var(--ink);
+    background:rgba(232,228,218,.07);
+    border:1px solid var(--line);
+    border-radius:9px;
+    padding:9px 14px;
+    cursor:pointer;
+    transition:background .18s,border-color .18s,color .18s;
+    white-space:nowrap;
+  }
+  button:hover{background:rgba(232,228,218,.15)}
+  button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  button[aria-pressed="true"]{
+    background:rgba(224,164,88,.18);
+    border-color:rgba(224,164,88,.6);
+    color:#f4e3c6;
+  }
+  .wind{
+    display:flex;align-items:center;gap:10px;
+    flex:1 1 220px;
+    min-width:190px;
+    padding:0 4px;
+  }
+  .wind label{
+    font-size:11px;letter-spacing:.2em;text-transform:uppercase;
+    color:var(--dim);white-space:nowrap;
+  }
+  .wind output{
+    font-size:12px;color:var(--accent);
+    min-width:3.2em;text-align:right;
+    font-variant-numeric:tabular-nums;
+  }
+  input[type=range]{
+    -webkit-appearance:none;appearance:none;
+    flex:1 1 auto;
+    height:22px;
+    background:transparent;
+    cursor:pointer;
+    min-width:0;
+  }
+  input[type=range]::-webkit-slider-runnable-track{
+    height:4px;border-radius:2px;
+    background:linear-gradient(90deg,#3d4657,#e0a458);
+  }
+  input[type=range]::-moz-range-track{
+    height:4px;border-radius:2px;
+    background:linear-gradient(90deg,#3d4657,#e0a458);
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;appearance:none;
+    width:17px;height:17px;border-radius:50%;
+    background:#f0e7d6;
+    border:1px solid rgba(0,0,0,.4);
+    margin-top:-6.5px;
+    box-shadow:0 2px 8px rgba(0,0,0,.6);
+  }
+  input[type=range]::-moz-range-thumb{
+    width:17px;height:17px;border-radius:50%;
+    background:#f0e7d6;border:1px solid rgba(0,0,0,.4);
+    box-shadow:0 2px 8px rgba(0,0,0,.6);
+  }
+  input[type=range]:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:4px}
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="scene" data-testid="scene"></div>
+  <div class="vignette"></div>
+  <header>
+    <h1>Wind&#8209;Driven Silk</h1>
+    <p>a crimson banner on a brass rail</p>
+  </header>
+  <div class="controls">
+    <button type="button" data-testid="pause" id="pauseBtn" aria-pressed="false">Pause</button>
+    <button type="button" data-testid="reset" id="resetBtn">Reset</button>
+    <div class="wind">
+      <label for="intensity">Wind</label>
+      <input type="range" data-testid="intensity" id="intensity" min="0" max="1" step="0.01" value="0.4" aria-label="Wind strength">
+      <output id="windOut" for="intensity">0.40</output>
+    </div>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "/vendor/three.module.min.js" } }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+/* ============================================================
+   Wind-Driven Silk — a pinned Verlet cloth banner in the wind
+   ============================================================ */
+
+const sceneHost = document.getElementById('scene');
+const pauseBtn  = document.getElementById('pauseBtn');
+const resetBtn  = document.getElementById('resetBtn');
+const intensityEl = document.getElementById('intensity');
+const windOut   = document.getElementById('windOut');
+
+/* ---------------- state ---------------- */
+const INITIAL_INTENSITY = 0.4;
+let intensity = INITIAL_INTENSITY;
+let paused = false;
+let simTime = 0;
+let resetCount = 0;
+let ready = false;
+
+/* ---------------- renderer / scene ---------------- */
+const renderer = new THREE.WebGLRenderer({ antialias:true, powerPreference:'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.12;
+sceneHost.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#101319');
+scene.fog = new THREE.Fog('#101319', 9, 22);
+
+const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 60);
+const CAM_BASE = new THREE.Vector3(0.35, 0.55, 5.4);
+const CAM_TARGET = new THREE.Vector3(0, 0.28, 0);
+
+/* ---------------- environment (procedural softbox studio) ---------------- */
+function makeEnvironment(){
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 256;
+  const g = c.getContext('2d');
+  const grad = g.createLinearGradient(0,0,0,256);
+  grad.addColorStop(0.00,'#2a3140');
+  grad.addColorStop(0.45,'#151a24');
+  grad.addColorStop(1.00,'#0a0c11');
+  g.fillStyle = grad; g.fillRect(0,0,512,256);
+  // warm key softbox
+  const key = g.createRadialGradient(150,70,4,150,70,120);
+  key.addColorStop(0,'rgba(255,226,180,0.95)');
+  key.addColorStop(1,'rgba(255,226,180,0)');
+  g.fillStyle = key; g.fillRect(0,0,512,256);
+  // cool rim strip
+  const rim = g.createLinearGradient(330,0,470,0);
+  rim.addColorStop(0,'rgba(120,170,255,0)');
+  rim.addColorStop(0.5,'rgba(140,185,255,0.55)');
+  rim.addColorStop(1,'rgba(140,185,255,0)');
+  g.fillStyle = rim; g.fillRect(330,40,140,90);
+  // faint floor bounce
+  const bounce = g.createRadialGradient(256,250,10,256,250,200);
+  bounce.addColorStop(0,'rgba(200,150,110,0.28)');
+  bounce.addColorStop(1,'rgba(200,150,110,0)');
+  g.fillStyle = bounce; g.fillRect(0,150,512,106);
+  const tex = new THREE.CanvasTexture(c);
+  tex.mapping = THREE.EquirectangularReflectionMapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const env = pmrem.fromEquirectangular(tex).texture;
+  pmrem.dispose();
+  tex.dispose();
+  return env;
+}
+scene.environment = makeEnvironment();
+
+/* ---------------- lights ---------------- */
+const hemi = new THREE.HemisphereLight('#5a6a86', '#1a1410', 0.55);
+scene.add(hemi);
+
+const key = new THREE.DirectionalLight('#ffe6c4', 2.6);
+key.position.set(-3.4, 4.6, 3.6);
+key.castShadow = true;
+key.shadow.mapSize.set(1024,1024);
+key.shadow.camera.left = -6.5; key.shadow.camera.right = 6.5;
+key.shadow.camera.top = 6;     key.shadow.camera.bottom = -6;
+key.shadow.camera.near = 1;    key.shadow.camera.far = 24;
+key.shadow.bias = -0.0012;
+key.shadow.radius = 4;
+scene.add(key);
+
+const rim = new THREE.DirectionalLight('#8fb4ff', 1.15);
+rim.position.set(3.6, 2.2, -3.4);
+scene.add(rim);
+
+const fill = new THREE.DirectionalLight('#c8b39a', 0.35);
+fill.position.set(2.2, -1.2, 3.0);
+scene.add(fill);
+
+/* ---------------- floor ---------------- */
+const floor = new THREE.Mesh(
+  new THREE.PlaneGeometry(40, 40),
+  new THREE.MeshStandardMaterial({ color:'#161a23', roughness:0.95, metalness:0.0 })
+);
+floor.rotation.x = -Math.PI/2;
+floor.position.y = -1.42;
+scene.add(floor);
+
+// separate shadow catcher keeps the cast shadow soft instead of pitch black
+const shadowCatcher = new THREE.Mesh(
+  new THREE.PlaneGeometry(30, 30),
+  new THREE.ShadowMaterial({ color:'#000000', opacity:0.32 })
+);
+shadowCatcher.rotation.x = -Math.PI/2;
+shadowCatcher.position.y = -1.415;
+shadowCatcher.receiveShadow = true;
+scene.add(shadowCatcher);
+
+/* ---------------- brass rail + hanging cords ---------------- */
+const RAIL_Y = 1.56, RAIL_HALF = 2.55, RAIL_R = 0.045;
+const brass = new THREE.MeshStandardMaterial({
+  color:'#c9974b', metalness:0.95, roughness:0.28,
+  envMapIntensity:1.25
+});
+const darkBrass = new THREE.MeshStandardMaterial({
+  color:'#6d5426', metalness:0.9, roughness:0.42
+});
+
+const rail = new THREE.Mesh(new THREE.CylinderGeometry(RAIL_R, RAIL_R, RAIL_HALF*2, 28), brass);
+rail.rotation.z = Math.PI/2;
+rail.position.set(0, RAIL_Y, 0);
+rail.castShadow = true;
+scene.add(rail);
+
+for (const s of [-1, 1]){
+  const finial = new THREE.Mesh(new THREE.SphereGeometry(0.085, 24, 18), brass);
+  finial.position.set(s*RAIL_HALF, RAIL_Y, 0);
+  finial.castShadow = true;
+  scene.add(finial);
+  const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.03,0.09,20), darkBrass);
+  cap.rotation.z = Math.PI/2;
+  cap.position.set(s*(RAIL_HALF-0.1), RAIL_Y, 0);
+  scene.add(cap);
+  // cord going up out of frame
+  const cord = new THREE.Mesh(new THREE.CylinderGeometry(0.014,0.014,3.4,10),
+    new THREE.MeshStandardMaterial({ color:'#8a7a5c', roughness:0.85 }));
+  cord.position.set(s*(RAIL_HALF-0.35), RAIL_Y + 1.7, 0);
+  scene.add(cord);
+}
+
+/* small brass rings that tie the sleeve of the banner to the rail */
+const ringGeo = new THREE.TorusGeometry(0.055, 0.011, 10, 26);
+const rings = [];
+for (let i = 0; i <= 6; i++){
+  const ring = new THREE.Mesh(ringGeo, brass);
+  const x = -1.8 + (3.6 / 6) * i;
+  ring.position.set(x, RAIL_Y, 0.02);
+  ring.castShadow = true;
+  scene.add(ring);
+  rings.push(ring);
+}
+
+/* ---------------- procedural silk weave texture ---------------- */
+function makeWeave(){
+  const s = 256;
+  const mk = () => { const c = document.createElement('canvas'); c.width = c.height = s; return c; };
+  // colour map: faint weave plus hand-loomed slubs
+  const cMap = mk(); const gm = cMap.getContext('2d');
+  gm.fillStyle = '#ffffff'; gm.fillRect(0,0,s,s);
+  for (let i = 0; i < s; i += 3){
+    gm.fillStyle = 'rgba(0,0,0,0.07)'; gm.fillRect(i, 0, 1, s);       // warp
+    gm.fillStyle = 'rgba(255,255,255,0.07)'; gm.fillRect(i+1, 0, 1, s);
+  }
+  for (let j = 0; j < s; j += 3){
+    gm.fillStyle = 'rgba(0,0,0,0.05)'; gm.fillRect(0, j, s, 1);       // weft
+  }
+  for (let n = 0; n < 2200; n++){
+    const x = Math.random()*s, y = Math.random()*s;
+    gm.fillStyle = Math.random() < 0.5 ? 'rgba(0,0,0,0.045)' : 'rgba(255,255,255,0.045)';
+    gm.fillRect(x, y, Math.random()*7+1, 1);
+  }
+  // bump map: strictly regular weave — no random slubs, so the sheen stays smooth
+  const cBump = mk(); const gb = cBump.getContext('2d');
+  gb.fillStyle = '#808080'; gb.fillRect(0,0,s,s);
+  for (let i = 0; i < s; i += 4){
+    gb.fillStyle = 'rgba(255,255,255,0.5)'; gb.fillRect(i, 0, 1, s);
+    gb.fillStyle = 'rgba(0,0,0,0.35)';      gb.fillRect(i+2, 0, 1, s);
+  }
+  for (let j = 0; j < s; j += 4){
+    gb.fillStyle = 'rgba(255,255,255,0.28)'; gb.fillRect(0, j, s, 1);
+    gb.fillStyle = 'rgba(0,0,0,0.2)';        gb.fillRect(0, j+2, s, 1);
+  }
+  const aniso = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  const tMap = new THREE.CanvasTexture(cMap);
+  tMap.wrapS = tMap.wrapT = THREE.RepeatWrapping;
+  tMap.repeat.set(4, 3);
+  tMap.colorSpace = THREE.SRGBColorSpace;
+  tMap.anisotropy = aniso;
+  const tBump = new THREE.CanvasTexture(cBump);
+  tBump.wrapS = tBump.wrapT = THREE.RepeatWrapping;
+  tBump.repeat.set(4, 3);
+  tBump.anisotropy = aniso;
+  return { map: tMap, bump: tBump };
+}
+const weave = makeWeave();
+
+/* ---------------- the silk cloth (Verlet mass-spring) ---------------- */
+const NX = 42, NY = 30;                 // segments
+const PX = NX + 1, PY = NY + 1;         // particles per row/col
+const CLOTH_W = 3.6, CLOTH_H = 2.34;
+const DX = CLOTH_W / NX, DY = CLOTH_H / NY;
+const TOP_Y = RAIL_Y - 0.058;           // sleeve hangs just under the rail
+const N = PX * PY;
+
+const particles = new Float32Array(N * 3);   // current
+const prev       = new Float32Array(N * 3);  // previous (Verlet)
+const pinned     = new Uint8Array(N);
+
+function initialPosition(i, ix, iy, out){
+  const x = -CLOTH_W/2 + ix * DX;
+  const y = TOP_Y - iy * DY;
+  // gentle resting curve so the first frame already reads as fabric
+  const z = 0.16 * Math.sin(ix * 0.42 + 0.6) * (iy / NY) + 0.05 * Math.sin(iy * 0.5);
+  out[0] = x; out[1] = y; out[2] = z;
+}
+
+function resetCloth(){
+  const p = [0,0,0];
+  for (let iy = 0; iy < PY; iy++){
+    for (let ix = 0; ix < PX; ix++){
+      const i = iy * PX + ix;
+      initialPosition(i, ix, iy, p);
+      particles[i*3] = p[0]; particles[i*3+1] = p[1]; particles[i*3+2] = p[2];
+      prev[i*3] = p[0]; prev[i*3+1] = p[1]; prev[i*3+2] = p[2];
+      pinned[i] = (iy === 0) ? 1 : 0;
+    }
+  }
+}
+
+/* constraints: [a, b, restLength, stiffness] */
+const consA = [], consB = [], consR = [], consK = [];
+function addConstraint(a, b, k){
+  const dx = particles[b*3]-particles[a*3];
+  const dy = particles[b*3+1]-particles[a*3+1];
+  const dz = particles[b*3+2]-particles[a*3+2];
+  consA.push(a); consB.push(b);
+  consR.push(Math.hypot(dx,dy,dz)); consK.push(k);
+}
+function buildConstraints(){
+  consA.length = consB.length = consR.length = consK.length = 0;
+  for (let iy = 0; iy < PY; iy++){
+    for (let ix = 0; ix < PX; ix++){
+      const i = iy * PX + ix;
+      if (ix < NX) addConstraint(i, i+1, 1.0);            // structural
+      if (iy < NY) addConstraint(i, i+PX, 1.0);
+      if (ix < NX && iy < NY){
+        addConstraint(i, i+PX+1, 0.42);                   // shear
+        addConstraint(i+1, i+PX, 0.42);
+      }
+      if (ix < NX-1) addConstraint(i, i+2, 0.30);         // bend
+      if (iy < NY-1) addConstraint(i, 2*PX+i, 0.30);
+    }
+  }
+}
+resetCloth();
+buildConstraints();
+const C_COUNT = consA.length;
+const consA32 = Int32Array.from(consA), consB32 = Int32Array.from(consB);
+const consR32 = Float32Array.from(consR), consK32 = Float32Array.from(consK);
+
+/* geometry */
+const geo = new THREE.BufferGeometry();
+const posAttr = new THREE.BufferAttribute(new Float32Array(particles), 3);
+posAttr.setUsage(THREE.DynamicDrawUsage);
+geo.setAttribute('position', posAttr);
+const idx = [];
+for (let iy = 0; iy < NY; iy++){
+  for (let ix = 0; ix < NX; ix++){
+    const a = iy*PX+ix, b = a+1, c = a+PX, d = c+1;
+    idx.push(a,c,b, b,c,d);
+  }
+}
+geo.setIndex(idx);
+geo.computeVertexNormals();
+const normAttr = geo.getAttribute('normal');
+
+const silk = new THREE.MeshPhysicalMaterial({
+  color: new THREE.Color('#a4123a'),
+  map: weave.map,
+  sheen: 1.0,
+  sheenColor: new THREE.Color('#ffab77'),
+  sheenRoughness: 0.4,
+  roughness: 0.5,
+  metalness: 0.0,
+  clearcoat: 0.15,
+  clearcoatRoughness: 0.6,
+  envMapIntensity: 0.85,
+  side: THREE.DoubleSide,
+  shadowSide: THREE.DoubleSide
+});
+const cloth = new THREE.Mesh(geo, silk);
+cloth.castShadow = true;          // the banner throws a soft shadow on the floor
+cloth.receiveShadow = false;      // no self-shadowing: keeps the sheen clean
+cloth.frustumCulled = false;
+scene.add(cloth);
+
+/* ---------------- drifting dust motes (make the air visible) ---------------- */
+function makeDot(){
+  const c = document.createElement('canvas'); c.width = c.height = 32;
+  const g = c.getContext('2d');
+  const rg = g.createRadialGradient(16,16,0,16,16,16);
+  rg.addColorStop(0,'rgba(255,240,215,1)');
+  rg.addColorStop(0.4,'rgba(255,235,205,0.45)');
+  rg.addColorStop(1,'rgba(255,235,205,0)');
+  g.fillStyle = rg; g.fillRect(0,0,32,32);
+  return new THREE.CanvasTexture(c);
+}
+const DUST = 150;
+const dustPos = new Float32Array(DUST*3);
+const dustSeed = new Float32Array(DUST);
+for (let i = 0; i < DUST; i++){
+  dustPos[i*3]   = (Math.random()-0.5)*9;
+  dustPos[i*3+1] = (Math.random()-0.5)*4.4 - 0.2;
+  dustPos[i*3+2] = (Math.random()-0.5)*3.4 - 0.4;
+  dustSeed[i] = Math.random()*100;
+}
+const dustGeo = new THREE.BufferGeometry();
+const dustAttr = new THREE.BufferAttribute(dustPos, 3);
+dustAttr.setUsage(THREE.DynamicDrawUsage);
+dustGeo.setAttribute('position', dustAttr);
+const dust = new THREE.Points(dustGeo, new THREE.PointsMaterial({
+  map: makeDot(), size: 0.055, transparent: true, opacity: 0.5,
+  depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true
+}));
+dust.frustumCulled = false;
+scene.add(dust);
+
+/* ---------------- simulation ---------------- */
+const windDir = new THREE.Vector3(1,0,0);
+const tmp = new THREE.Vector3();
+const GRAVITY = -3.1;
+const MAX_STEP_DISP = 0.045;
+
+function windAt(i, ix, iy, t, strength, out){
+  // large gust envelope
+  const gust = 0.62
+    + 0.38 * Math.sin(t*0.9  + 1.7) * Math.sin(t*0.47 + 0.3)
+    + 0.22 * Math.sin(t*2.3 + ix*0.35);
+  // direction wanders between +X and a diagonal, with a Z (toward camera) component
+  const a = Math.sin(t*0.21)*0.55 + Math.sin(t*0.073+2.0)*0.3;
+  windDir.set(Math.cos(a), 0.12*Math.sin(t*0.6+iy*0.2), 0.42 + 0.3*Math.sin(t*0.16));
+  windDir.normalize();
+
+  const px = particles[i*3], py = particles[i*3+1], pz = particles[i*3+2];
+  // travelling ripple along the sheet
+  const ripple = Math.sin(px*3.1 - t*(3.4 + strength*0.5) + iy*0.55)
+               + 0.55*Math.sin(px*6.3 - t*5.1 + iy*1.1 + 1.3);
+  // how much of the panel the wind actually catches
+  const nx = normAttr.array[i*3], ny = normAttr.array[i*3+1], nz = normAttr.array[i*3+2];
+  let facing = nx*windDir.x + ny*windDir.y + nz*windDir.z;
+  facing = 0.28 + 0.72*Math.min(1, Math.abs(facing));
+
+  const s = strength * gust * facing;
+  out[0] = windDir.x * s + ripple * s * 0.34 * windDir.z;
+  out[1] = windDir.y * s + ripple * s * 0.16 + Math.sin(t*1.7 + px*2.0) * s * 0.10;
+  out[2] = windDir.z * s * 0.55 + ripple * s * 0.42;
+}
+
+const f = [0,0,0];
+function substep(dt, t){
+  const strength = 1.2 + intensity * 12.5;   // wind acceleration scale
+  const damp = 0.988;
+  const dt2 = dt*dt;
+
+  for (let iy = 0; iy < PY; iy++){
+    for (let ix = 0; ix < PX; ix++){
+      const i = iy*PX + ix;
+      const i3 = i*3;
+      if (pinned[i]){
+        // sleeve stays tied just beneath the rail
+        particles[i3]   = -CLOTH_W/2 + ix*DX;
+        particles[i3+1] = TOP_Y;
+        particles[i3+2] = 0.02;
+        prev[i3] = particles[i3]; prev[i3+1] = particles[i3+1]; prev[i3+2] = particles[i3+2];
+        continue;
+      }
+      windAt(i, ix, iy, t, strength, f);
+
+      const x = particles[i3], y = particles[i3+1], z = particles[i3+2];
+      let vx = (x - prev[i3]) * damp;
+      let vy = (y - prev[i3+1]) * damp;
+      let vz = (z - prev[i3+2]) * damp;
+
+      // clamp velocity so the sheet can never blow apart
+      const sp = Math.hypot(vx,vy,vz);
+      if (sp > MAX_STEP_DISP){
+        const k = MAX_STEP_DISP / sp;
+        vx *= k; vy *= k; vz *= k;
+      }
+
+      let nx2 = x + vx + f[0]*dt2;
+      let ny2 = y + vy + (f[1] + GRAVITY)*dt2;
+      let nz2 = z + vz + f[2]*dt2;
+
+      prev[i3] = x; prev[i3+1] = y; prev[i3+2] = z;
+      particles[i3] = nx2; particles[i3+1] = ny2; particles[i3+2] = nz2;
+    }
+  }
+
+  // constraint relaxation
+  for (let it = 0; it < 4; it++){
+    for (let c = 0; c < C_COUNT; c++){
+      const a = consA32[c]*3, b = consB32[c]*3;
+      const dx = particles[b] - particles[a];
+      const dy = particles[b+1] - particles[a+1];
+      const dz = particles[b+2] - particles[a+2];
+      const d = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1e-6;
+      const diff = (d - consR32[c]) / d * consK32[c] * 0.5;
+      const cx = dx*diff, cy = dy*diff, cz = dz*diff;
+      const pa = consA32[c], pb = consB32[c];
+      if (!pinned[pb]){ particles[b] -= cx; particles[b+1] -= cy; particles[b+2] -= cz; }
+      if (!pinned[pa]){ particles[a] += cx; particles[a+1] += cy; particles[a+2] += cz; }
+    }
+    // hard safety net: keep the sheet inside the composition.  The ceiling
+    // clamp at the rail line stops the banner folding up over the rail, so the
+    // supported edge (and the rail itself) always stays in view.
+    const CEIL = TOP_Y + 0.03;
+    for (let i = 0; i < N; i++){
+      const i3 = i*3;
+      if (pinned[i]) continue;
+      if (particles[i3+1] > CEIL){
+        particles[i3+1] = CEIL;
+        prev[i3+1] = CEIL + (CEIL - prev[i3+1]) * 0.5;   // kill upward velocity
+      }
+      if (particles[i3+1] < -2.6) particles[i3+1] = -2.6;
+      if (particles[i3]   >  5.2) particles[i3]   =  5.2;
+      if (particles[i3]   < -5.2) particles[i3]   = -5.2;
+      if (particles[i3+2] >  4.0) particles[i3+2] =  4.0;
+      if (particles[i3+2] < -4.0) particles[i3+2] = -4.0;
+    }
+  }
+}
+
+function updateDust(dt, t){
+  const drift = 0.25 + intensity * 1.5;
+  for (let i = 0; i < DUST; i++){
+    const s = dustSeed[i];
+    dustPos[i*3]   += drift * dt * (0.6 + 0.4*Math.sin(s));
+    dustPos[i*3+1] += Math.sin(t*0.7 + s) * 0.06 * dt;
+    dustPos[i*3+2] += Math.sin(t*0.5 + s*1.7) * 0.05 * dt;
+    if (dustPos[i*3] > 5.0) dustPos[i*3] = -5.0;
+  }
+  dustAttr.needsUpdate = true;
+}
+
+/* ---------------- responsive framing ---------------- */
+function resize(){
+  const w = sceneHost.clientWidth || window.innerWidth;
+  const h = sceneHost.clientHeight || window.innerHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+
+  // portrait screens frame tighter on the cloth (the rail may bleed off the
+  // edges) so the fabric stays large and readable instead of floating in space
+  const portrait = h > w * 1.05;
+  camera.fov = portrait ? 50 : 42;
+  const vFov = THREE.MathUtils.degToRad(camera.fov);
+  const halfW = portrait ? 2.15 : 2.75;   // world extents to protect
+  const halfH = portrait ? 3.05 : 2.35;
+  const distV = halfH / Math.tan(vFov/2);
+  const distH = halfW / (Math.tan(vFov/2) * camera.aspect);
+  const dist = Math.max(CAM_BASE.z, distV, distH);
+  const ty = portrait ? 0.62 : CAM_TARGET.y;
+  camera.position.set(CAM_BASE.x * (dist/CAM_BASE.z), ty + 0.27 + (dist-CAM_BASE.z)*0.05, dist);
+  camera.lookAt(0, ty, 0);
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+resize();
+
+/* ---------------- controls ---------------- */
+function setIntensity(v){
+  intensity = Math.min(1, Math.max(0, v));
+  intensityEl.value = intensity.toFixed(2);
+  windOut.textContent = intensity.toFixed(2);
+}
+intensityEl.addEventListener('input', () => setIntensity(parseFloat(intensityEl.value)));
+
+pauseBtn.addEventListener('click', () => {
+  paused = !paused;
+  pauseBtn.setAttribute('aria-pressed', paused ? 'true' : 'false');
+  pauseBtn.textContent = paused ? 'Resume' : 'Pause';
+});
+
+resetBtn.addEventListener('click', () => {
+  resetCloth();
+  simTime = 0;
+  setIntensity(INITIAL_INTENSITY);
+  paused = false;
+  pauseBtn.setAttribute('aria-pressed', 'false');
+  pauseBtn.textContent = 'Pause';
+  for (let i = 0; i < DUST; i++){
+    dustPos[i*3]   = (Math.random()-0.5)*9;
+    dustPos[i*3+1] = (Math.random()-0.5)*4.4 - 0.2;
+    dustPos[i*3+2] = (Math.random()-0.5)*3.4 - 0.4;
+  }
+  resetCount++;
+});
+
+/* ---------------- diagnostic API ---------------- */
+window.__SHOWCASE__ = {
+  getState(){
+    return {
+      ready,
+      paused,
+      simTime: Number.isFinite(simTime) ? simTime : 0,
+      intensity,
+      resetCount
+    };
+  }
+};
+
+/* ---------------- main loop ---------------- */
+const FIXED = 1/120;
+let accumulator = 0;
+let last = performance.now();
+
+function frame(now){
+  requestAnimationFrame(frame);
+  let elapsed = (now - last) / 1000;
+  last = now;
+  if (elapsed > 0.1) elapsed = 0.1;   // tab-switch guard
+
+  if (!paused){
+    accumulator += elapsed;
+    let steps = 0;
+    while (accumulator >= FIXED && steps < 8){
+      substep(FIXED, simTime);
+      simTime += FIXED;
+      accumulator -= FIXED;
+      steps++;
+    }
+    if (steps === 8) accumulator = 0;
+
+    posAttr.array.set(particles);
+    posAttr.needsUpdate = true;
+    geo.computeVertexNormals();
+
+    // rail sways almost imperceptibly — the whole rig feels alive
+    rail.rotation.y = Math.sin(simTime*0.4)*0.006;
+    for (const r of rings) r.rotation.x = Math.sin(simTime*0.8 + r.position.x*3)*0.15;
+
+    updateDust(elapsed, simTime);
+  }
+
+  renderer.render(scene, camera);
+  if (!ready) ready = true;
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

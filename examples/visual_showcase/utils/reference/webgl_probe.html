@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WebGL probe</title>
+<!-- A minimal page with the brief's contract: every frame WebGL clears the scene canvas to rgb(30,120,200) and draws a
+     full-screen triangle of the same colour through a shader program. On this machine it shows that colour only when
+     Chromium runs WebGL on the GPU (ANGLE over EGL); under the default SwiftShader path a clear alone still renders
+     but the first shader draw leaves the canvas blank white with no error (verified), which is what the negative
+     control in confine.selftest relies on. tool_works.py uses the page as the first fixture. -->
+<style>
+  html, body { margin: 0; height: 100%; background: #ffffff; overflow: hidden; }
+  canvas[data-testid="scene"] { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  #controls { position: fixed; left: 8px; bottom: 8px; display: flex; gap: 8px; align-items: center;
+              padding: 6px 8px; background: rgba(255, 255, 255, 0.85); font: 14px sans-serif; border-radius: 4px; }
+</style>
+</head>
+<body>
+<canvas data-testid="scene"></canvas>
+<div id="controls">
+  <button data-testid="pause" aria-pressed="false">Pause</button>
+  <button data-testid="reset">Reset</button>
+  <label>Intensity <input type="range" data-testid="intensity" min="0" max="1" step="0.01" value="0.4"></label>
+</div>
+<script>
+(function () {
+  var canvas = document.querySelector('[data-testid="scene"]');
+  var pauseButton = document.querySelector('[data-testid="pause"]');
+  var resetButton = document.querySelector('[data-testid="reset"]');
+  var slider = document.querySelector('[data-testid="intensity"]');
+  var gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+  var state = { ready: false, paused: false, simTime: 0, intensity: 0.4, resetCount: 0 };
+  var frames = 0, last = null, renderer = null;
+  var program = null;
+  if (gl) {
+    var dbg = gl.getExtension('WEBGL_debug_renderer_info');
+    renderer = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+    var vs = gl.createShader(gl.VERTEX_SHADER);
+    gl.shaderSource(vs, 'attribute vec2 p; void main() { gl_Position = vec4(p, 0.0, 1.0); }');
+    gl.compileShader(vs);
+    var fs = gl.createShader(gl.FRAGMENT_SHADER);
+    gl.shaderSource(fs, 'precision mediump float; void main() { gl_FragColor = vec4(30.0 / 255.0, 120.0 / 255.0, 200.0 / 255.0, 1.0); }');
+    gl.compileShader(fs);
+    program = gl.createProgram();
+    gl.attachShader(program, vs); gl.attachShader(program, fs); gl.linkProgram(program);
+    var buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);   // one triangle covers the clip square
+    var location = gl.getAttribLocation(program, 'p');
+    gl.enableVertexAttribArray(location);
+    gl.vertexAttribPointer(location, 2, gl.FLOAT, false, 0, 0);
+  }
+  function resize() {
+    var w = canvas.clientWidth, h = canvas.clientHeight;
+    if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; if (gl) gl.viewport(0, 0, w, h); }
+  }
+  function frame(t) {
+    resize();
+    if (last !== null && !state.paused) state.simTime += (t - last) / 1000;
+    last = t;
+    if (gl) {
+      gl.clearColor(30 / 255, 120 / 255, 200 / 255, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.useProgram(program);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
+    frames += 1;
+    if (frames >= 2) state.ready = true;   // the first clear has been presented once the second frame starts
+    requestAnimationFrame(frame);
+  }
+  pauseButton.addEventListener('click', function () {
+    state.paused = !state.paused;
+    pauseButton.setAttribute('aria-pressed', state.paused ? 'true' : 'false');
+    pauseButton.textContent = state.paused ? 'Resume' : 'Pause';
+  });
+  resetButton.addEventListener('click', function () {
+    state.simTime = 0; state.intensity = 0.4; slider.value = '0.4'; state.paused = false; state.resetCount += 1;
+    pauseButton.setAttribute('aria-pressed', 'false'); pauseButton.textContent = 'Pause';
+  });
+  slider.addEventListener('input', function () { state.intensity = Number(slider.value); });
+  window.__SHOWCASE__ = {
+    getState: function () { return { ready: state.ready, paused: state.paused, simTime: state.simTime,
+                                     intensity: state.intensity, resetCount: state.resetCount }; },
+    renderer: renderer,
+    webgl: Boolean(gl)
+  };
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

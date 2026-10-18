@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Open Sea — Animated Ocean</title>
+<style>
+  :root{
+    --ui-bg: rgba(8, 20, 32, 0.55);
+    --ui-border: rgba(255, 255, 255, 0.22);
+    --ui-text: #f2f7fa;
+  }
+  *{ box-sizing: border-box; }
+  html, body{
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    overflow: hidden; background: #0a1420;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  #scene{
+    position: fixed; inset: 0; width: 100%; height: 100%;
+    display: block; touch-action: none;
+  }
+  #scene canvas{ display: block; width: 100%; height: 100%; }
+
+  /* ---------- control bar ---------- */
+  #controls{
+    position: fixed; left: 50%; bottom: max(14px, env(safe-area-inset-bottom));
+    transform: translateX(-50%);
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px;
+    background: var(--ui-bg);
+    border: 1px solid var(--ui-border);
+    border-radius: 999px;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    box-shadow: 0 6px 24px rgba(0,0,0,0.35);
+    max-width: calc(100vw - 20px);
+    z-index: 10;
+  }
+  #controls button{
+    appearance: none; border: 1px solid var(--ui-border);
+    background: rgba(255,255,255,0.10);
+    color: var(--ui-text);
+    font: 600 13px/1 system-ui, sans-serif;
+    letter-spacing: 0.02em;
+    padding: 9px 14px; border-radius: 999px;
+    cursor: pointer; white-space: nowrap;
+    transition: background 0.15s ease, transform 0.05s ease;
+  }
+  #controls button:hover{ background: rgba(255,255,255,0.20); }
+  #controls button:active{ transform: scale(0.96); }
+  #controls button[aria-pressed="true"]{ background: rgba(255,255,255,0.30); }
+  .ctl-group{
+    display: flex; align-items: center; gap: 8px;
+    color: var(--ui-text);
+  }
+  .ctl-group label{
+    font: 600 12px/1 system-ui, sans-serif;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    opacity: 0.9; white-space: nowrap;
+  }
+  #intensity{
+    -webkit-appearance: none; appearance: none;
+    width: clamp(110px, 22vw, 220px); height: 22px;
+    background: transparent; cursor: pointer;
+  }
+  #intensity::-webkit-slider-runnable-track{
+    height: 6px; border-radius: 3px;
+    background: linear-gradient(90deg, #7fd8e8, #e8f6ff);
+  }
+  #intensity::-webkit-slider-thumb{
+    -webkit-appearance: none; appearance: none;
+    width: 18px; height: 18px; margin-top: -6px;
+    border-radius: 50%; background: #ffffff;
+    border: 2px solid #0a1420;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.5);
+  }
+  #intensity::-moz-range-track{
+    height: 6px; border-radius: 3px;
+    background: linear-gradient(90deg, #7fd8e8, #e8f6ff);
+  }
+  #intensity::-moz-range-thumb{
+    width: 18px; height: 18px; border-radius: 50%;
+    background: #ffffff; border: 2px solid #0a1420;
+  }
+  #windTag{
+    font: 600 11px/1 system-ui, sans-serif;
+    color: var(--ui-text); opacity: 0.85;
+    min-width: 52px; text-align: left; white-space: nowrap;
+  }
+  @media (max-width: 560px){
+    #controls{ gap: 8px; padding: 8px 10px; border-radius: 22px; }
+    #controls button{ padding: 8px 11px; font-size: 12px; }
+    .ctl-group label{ display: none; }
+    #windTag{ min-width: 46px; font-size: 10px; }
+  }
+  #topScrim{
+    position: fixed; top: 0; left: 0; right: 0; height: 120px;
+    background: linear-gradient(to bottom, rgba(6,18,30,0.42), rgba(6,18,30,0));
+    pointer-events: none; z-index: 4;
+  }
+  #title{
+    position: fixed; top: 18px; left: 22px; z-index: 5;
+    color: #ffffff; text-shadow: 0 1px 3px rgba(4,16,28,0.85), 0 2px 12px rgba(4,16,28,0.6);
+    pointer-events: none; user-select: none;
+  }
+  #title h1{ margin: 0; font-size: 17px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; }
+  #title p{ margin: 3px 0 0; font-size: 12px; opacity: 0.8; letter-spacing: 0.04em; }
+  @media (max-width: 560px){
+    #title{ top: 12px; left: 14px; }
+    #title h1{ font-size: 14px; }
+    #title p{ font-size: 10px; }
+  }
+</style>
+</head>
+<body>
+  <div id="scene" data-testid="scene"></div>
+
+  <div id="topScrim"></div>
+  <div id="title">
+    <h1>Open Sea</h1>
+    <p>Gerstner swell &middot; sun glint &middot; crest foam</p>
+  </div>
+
+  <div id="controls">
+    <button id="pauseBtn" data-testid="pause" aria-pressed="false">Pause</button>
+    <button id="resetBtn" data-testid="reset">Reset</button>
+    <div class="ctl-group">
+      <label for="intensity">Wind</label>
+      <input id="intensity" data-testid="intensity" type="range"
+             min="0" max="1" step="0.01" value="0.4" aria-label="Wind intensity">
+      <span id="windTag">0.40</span>
+    </div>
+  </div>
+
+<script type="module">
+import * as THREE from '/vendor/three.module.min.js';
+
+/* ============================================================
+   Open Sea — a Gerstner-wave ocean with per-pixel normals,
+   sun glint, fresnel sky reflection and crest foam.
+   ============================================================ */
+
+const sceneHost = document.getElementById('scene');
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+sceneHost.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+
+const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.5, 9000);
+const CAM_POS   = new THREE.Vector3(0, 21, 84);
+const CAM_TGT   = new THREE.Vector3(0, 1, -70);
+camera.position.copy(CAM_POS);
+camera.lookAt(CAM_TGT);
+
+/* ---------------- shared GLSL ---------------- */
+
+// Height field: sum of Gerstner waves. Returns displaced position.
+// p = world xz, t = time. Wave params come as uniforms arrays.
+const WAVE_COUNT = 8;
+
+const glslCommon = /* glsl */`
+  uniform float uTime;
+  uniform float uAmp;        // amplitude multiplier from intensity
+  uniform float uSteep;      // steepness multiplier
+  uniform float uSpeed;      // phase speed multiplier
+  uniform float uChop;       // horizontal choppy displacement amount
+  uniform vec2  uWind;       // wind direction (unit)
+  uniform vec4  uWaveA[8];   // dir.x, dir.y, wavelength, amplitude
+  uniform vec4  uWaveB[8];   // speed, phase, steepness, unused
+
+  vec3 gerstner(vec2 p, float t){
+    vec3 disp = vec3(p.x, 0.0, p.y);
+    for (int i = 0; i < 8; i++){
+      vec2  D   = uWaveA[i].xy;
+      float L   = uWaveA[i].z;
+      float A   = uWaveA[i].w * uAmp;
+      float S   = uWaveB[i].x * uSpeed;
+      float ph  = uWaveB[i].y;
+      float Q   = uWaveB[i].z * uSteep;
+      float k   = 6.2831853 / L;
+      float c   = S * sqrt(9.81 / k);
+      float f   = k * dot(D, p) - c * t + ph;
+      float sf  = sin(f);
+      float cf  = cos(f);
+      disp.x   += Q * A * D.x * cf;
+      disp.z   += Q * A * D.y * cf;
+      disp.y   += A * sf;
+    }
+    return disp;
+  }
+
+  vec3 seaNormal(vec2 p, float t, float eps){
+    vec3 c = gerstner(p, t);
+    vec3 x = gerstner(p + vec2(eps, 0.0), t);
+    vec3 z = gerstner(p + vec2(0.0, eps), t);
+    vec3 dx = x - c;
+    vec3 dz = z - c;
+    vec3 n = normalize(cross(dz, dx));
+    if (n.y < 0.0) n = -n;
+    return n;
+  }
+
+  float hash21(vec2 p){
+    p = fract(p * vec2(234.34, 435.345));
+    p += dot(p, p + 34.23);
+    return fract(p.x * p.y);
+  }
+  float vnoise(vec2 p){
+    vec2 i = floor(p), f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash21(i), hash21(i + vec2(1,0)), u.x),
+               mix(hash21(i + vec2(0,1)), hash21(i + vec2(1,1)), u.x), u.y);
+  }
+  float fbm(vec2 p){
+    float v = 0.0, a = 0.5;
+    for (int i = 0; i < 4; i++){
+      v += a * vnoise(p);
+      p = p * 2.03 + vec2(17.7, 9.2);
+      a *= 0.5;
+    }
+    return v;
+  }
+`;
+
+/* ---------------- sky dome ---------------- */
+
+const skyMat = new THREE.ShaderMaterial({
+  side: THREE.BackSide,
+  depthWrite: false,
+  fog: false,
+  uniforms: {
+    uTime:   { value: 0 },
+    uSunDir: { value: new THREE.Vector3() },
+  },
+  vertexShader: /* glsl */`
+    varying vec3 vDir;
+    void main(){
+      vDir = normalize(position);
+      vec4 mv = modelViewMatrix * vec4(position, 1.0);
+      gl_Position = projectionMatrix * mv;
+      gl_Position.z = gl_Position.w; // push to far plane
+    }
+  `,
+  fragmentShader: /* glsl */`
+    varying vec3 vDir;
+    uniform float uTime;
+    uniform vec3 uSunDir;
+
+    float hash21(vec2 p){
+      p = fract(p * vec2(234.34, 435.345));
+      p += dot(p, p + 34.23);
+      return fract(p.x * p.y);
+    }
+    float vnoise(vec2 p){
+      vec2 i = floor(p), f = fract(p);
+      vec2 u = f * f * (3.0 - 2.0 * f);
+      return mix(mix(hash21(i), hash21(i + vec2(1,0)), u.x),
+                 mix(hash21(i + vec2(0,1)), hash21(i + vec2(1,1)), u.x), u.y);
+    }
+    float fbm(vec2 p){
+      float v = 0.0, a = 0.5;
+      for (int i = 0; i < 5; i++){
+        v += a * vnoise(p);
+        p = p * 2.02 + vec2(11.3, 7.9);
+        a *= 0.5;
+      }
+      return v;
+    }
+
+    void main(){
+      vec3 d = normalize(vDir);
+      float h = clamp(d.y, -0.05, 1.0);
+
+      vec3 zenith  = vec3(0.09, 0.25, 0.55);
+      vec3 mid     = vec3(0.40, 0.60, 0.83);
+      vec3 horizon = vec3(0.98, 0.86, 0.72);
+
+      vec3 col = mix(horizon, mid, smoothstep(0.0, 0.16, h));
+      col = mix(col, zenith, smoothstep(0.12, 0.62, h));
+
+      // sun disc + glow
+      float sd = max(dot(d, uSunDir), 0.0);
+      col += vec3(1.0, 0.85, 0.62) * pow(sd, 900.0) * 3.0;
+      col += vec3(1.0, 0.72, 0.42) * pow(sd, 22.0) * 0.55;
+      col += vec3(1.0, 0.80, 0.55) * pow(sd, 4.0) * 0.16;
+
+      // drifting clouds (projected onto upper dome)
+      if (d.y > 0.015){
+        vec2 cp = d.xz / (d.y + 0.12);
+        float t = uTime * 0.006;
+        float cl = fbm(cp * 1.15 + vec2(t, t * 0.35));
+        cl = smoothstep(0.52, 0.86, cl);
+        float fade = smoothstep(0.015, 0.14, d.y) * (1.0 - smoothstep(0.55, 1.0, d.y) * 0.55);
+        float sunLit = 0.55 + 0.45 * pow(max(dot(d, uSunDir), 0.0), 2.0);
+        vec3 cloudCol = mix(vec3(0.62, 0.66, 0.74), vec3(1.05, 0.98, 0.92), sunLit);
+        col = mix(col, cloudCol, cl * fade * 0.85);
+      }
+
+      // below-horizon: match sea fog colour so the seam is invisible
+      col = mix(col, vec3(0.98, 0.86, 0.72), smoothstep(0.0, -0.05, d.y));
+
+      gl_FragColor = vec4(col, 1.0);
+      #include <tonemapping_fragment>
+      #include <colorspace_fragment>
+    }
+  `,
+});
+const sky = new THREE.Mesh(new THREE.SphereGeometry(4200, 40, 24), skyMat);
+sky.frustumCulled = false;
+scene.add(sky);
+
+/* ---------------- ocean mesh (non-uniform grid, dense near camera) ---------------- */
+
+const GRID_N = 200;
+const EXTENT = 1500;
+const CENTER_Z = 30;
+
+function buildSeaGeometry(){
+  const verts = [];
+  const idx = [];
+  // power-distributed coordinates: dense near 0, sparse at edges
+  const coord = new Float32Array(GRID_N + 1);
+  for (let i = 0; i <= GRID_N; i++){
+    const u = (i / GRID_N) * 2 - 1;
+    coord[i] = Math.sign(u) * Math.pow(Math.abs(u), 2.35) * EXTENT;
+  }
+  for (let j = 0; j <= GRID_N; j++){
+    for (let i = 0; i <= GRID_N; i++){
+      verts.push(coord[i], 0, coord[j] + CENTER_Z);
+    }
+  }
+  const row = GRID_N + 1;
+  for (let j = 0; j < GRID_N; j++){
+    for (let i = 0; i < GRID_N; i++){
+      const a = j * row + i, b = a + 1, c = a + row, d = c + 1;
+      idx.push(a, c, b, b, c, d);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  g.setIndex(idx);
+  return g;
+}
+
+const seaUniforms = {
+  uTime:   { value: 0 },
+  uAmp:    { value: 1 },
+  uSteep:  { value: 1 },
+  uSpeed:  { value: 1 },
+  uChop:   { value: 1 },
+  uWind:   { value: new THREE.Vector2(0.34, 0.94) },
+  uSunDir: { value: new THREE.Vector3() },
+  uCamPos: { value: new THREE.Vector3() },
+  uWaveA:  { value: [] },
+  uWaveB:  { value: [] },
+};
+for (let i = 0; i < WAVE_COUNT; i++){
+  seaUniforms.uWaveA.value.push(new THREE.Vector4());
+  seaUniforms.uWaveB.value.push(new THREE.Vector4());
+}
+
+const seaMat = new THREE.ShaderMaterial({
+  uniforms: seaUniforms,
+  vertexShader: /* glsl */`
+    ${glslCommon}
+    varying vec3 vWorld;
+    varying float vDist;
+    void main(){
+      vec3 disp = gerstner(position.xz, uTime);
+      vec4 wp = vec4(disp.x, disp.y, disp.z, 1.0);
+      vWorld = wp.xyz;
+      vec4 mv = viewMatrix * wp;
+      vDist = -mv.z;
+      gl_Position = projectionMatrix * mv;
+    }
+  `,
+  fragmentShader: /* glsl */`
+    ${glslCommon}
+    varying vec3 vWorld;
+    varying float vDist;
+    uniform vec3 uSunDir;
+    uniform vec3 uCamPos;
+
+    void main(){
+      float eps = clamp(vDist * 0.006, 0.12, 3.0);
+      vec3 n = seaNormal(vWorld.xz, uTime, eps);
+
+      // small ripple detail, fades with distance
+      float detailFade = exp(-vDist * 0.012);
+      if (detailFade > 0.01){
+        vec2 rp = vWorld.xz * 0.55;
+        float t = uTime * 0.9;
+        float n1 = vnoise(rp + vec2(t * 0.7, -t * 0.4));
+        float n2 = vnoise(rp * 1.9 - vec2(t * 0.5, t * 0.8));
+        vec2 grad = vec2(n1 - n2, n2 - n1) * 0.35 * detailFade;
+        n = normalize(n + vec3(grad.x, 0.0, grad.y) * 0.6);
+      }
+
+      vec3 V = normalize(uCamPos - vWorld);
+      if (dot(n, V) < 0.0) n = reflect(n, V);
+
+      vec3 L = normalize(uSunDir);
+
+      // base water colour: deep scatter + subsurface lift on crests
+      float depthMix = smoothstep(-2.5, 6.0, vWorld.y);
+      vec3 deepCol   = vec3(0.010, 0.062, 0.100);
+      vec3 shallowCol= vec3(0.045, 0.30, 0.35);
+      vec3 base = mix(deepCol, shallowCol, depthMix * 0.7);
+
+      // fresnel sky reflection
+      float fres = pow(1.0 - max(dot(n, V), 0.0), 5.0);
+      fres = mix(0.035, 1.0, fres);
+      vec3 skyRef = mix(vec3(0.42, 0.56, 0.70), vec3(0.95, 0.88, 0.78),
+                        pow(max(dot(reflect(-V, n), L), 0.0), 3.0) * 0.5 + 0.12);
+      vec3 col = base + skyRef * fres * 0.85;
+
+      // sun specular: tight glint + broad path
+      vec3 H = normalize(L + V);
+      float spec = pow(max(dot(n, H), 0.0), 900.0) * 4.0
+                 + pow(max(dot(n, H), 0.0), 90.0) * 0.45
+                 + pow(max(dot(n, H), 0.0), 14.0) * 0.10;
+      col += vec3(1.0, 0.86, 0.62) * spec;
+
+      // crest foam: high + steep + noisy
+      float steep = 1.0 - clamp(n.y, 0.0, 1.0);
+      float crest = smoothstep(0.62, 0.95, vWorld.y * 0.14 + 0.5) * smoothstep(0.18, 0.42, steep);
+      float fn = fbm(vWorld.xz * 0.35 + vec2(uTime * 0.25, -uTime * 0.18));
+      float foam = clamp(crest * (0.55 + fn * 0.9), 0.0, 1.0);
+      foam *= mix(1.0, 0.55, smoothstep(120.0, 700.0, vDist));
+      col = mix(col, vec3(0.96, 0.97, 0.98), foam * 0.85);
+
+      // distance fog to horizon colour
+      float fog = 1.0 - exp(-pow(vDist * 0.0013, 2.2));
+      vec3 fogCol = vec3(0.98, 0.86, 0.72);
+      col = mix(col, fogCol, clamp(fog, 0.0, 1.0));
+
+      gl_FragColor = vec4(col, 1.0);
+      #include <tonemapping_fragment>
+      #include <colorspace_fragment>
+    }
+  `,
+});
+
+const sea = new THREE.Mesh(buildSeaGeometry(), seaMat);
+sea.frustumCulled = false;
+scene.add(sea);
+
+/* ---------------- wave field (intensity-driven) ---------------- */
+
+// base wave set: dir angle spread, wavelength, amplitude, speed, steepness, phase
+const BASE_WAVES = [
+  // dirDeg, wavelength, amp, speed, steep, phase
+  [ 8,  62, 1.00, 1.00, 0.62, 0.0],
+  [-14, 41, 0.62, 1.06, 0.55, 1.7],
+  [ 24, 27, 0.40, 1.12, 0.50, 3.1],
+  [-32, 18, 0.26, 1.20, 0.45, 4.4],
+  [ 47, 12, 0.15, 1.30, 0.40, 0.8],
+  [-58,  8, 0.09, 1.42, 0.35, 2.6],
+  [ 71,  5, 0.05, 1.55, 0.30, 5.2],
+  [-84,  3, 0.03, 1.70, 0.25, 1.2],
+];
+
+function setWaveField(intensity){
+  // amplitude grows, crests sharpen, wind pushes faster
+  const amp   = 0.35 + intensity * 3.1;   // 0.35 .. 3.45
+  const steep = 0.50 + intensity * 0.55;  // 0.50 .. 1.05, kept below fold-over
+  const speed = 0.75 + intensity * 0.85;  // 0.75 .. 1.60
+  const windAng = 1.22 - intensity * 0.25; // wind blows toward the viewer
+  const wind = new THREE.Vector2(Math.cos(windAng), Math.sin(windAng));
+
+  for (let i = 0; i < WAVE_COUNT; i++){
+    const [deg, L, a, s, q, ph] = BASE_WAVES[i];
+    // directions tighten toward the wind as sea strengthens
+    const base = deg * Math.PI / 180;
+    const ang = base * (1.0 - intensity * 0.45) + windAng;
+    const D = new THREE.Vector2(Math.cos(ang), Math.sin(ang));
+    seaUniforms.uWaveA.value[i].set(D.x, D.y, L, a);
+    seaUniforms.uWaveB.value[i].set(s, ph, q, 0);
+  }
+  seaUniforms.uAmp.value   = amp;
+  seaUniforms.uSteep.value = steep;
+  seaUniforms.uSpeed.value = speed;
+  seaUniforms.uWind.value.copy(wind);
+}
+
+/* ---------------- sun ---------------- */
+
+const SUN_ELEV = 0.22;   // radians above horizon
+const SUN_AZ   = Math.PI + 0.55; // sun ahead of the camera, left of centre
+const sunDir = new THREE.Vector3(
+  Math.cos(SUN_ELEV) * Math.sin(SUN_AZ),
+  Math.sin(SUN_ELEV),
+  Math.cos(SUN_ELEV) * Math.cos(SUN_AZ)
+).normalize();
+skyMat.uniforms.uSunDir.value.copy(sunDir);
+seaUniforms.uSunDir.value.copy(sunDir);
+
+/* ---------------- state & controls ---------------- */
+
+const state = {
+  ready: false,
+  paused: false,
+  simTime: 0,
+  intensity: 0.4,
+  resetCount: 0,
+};
+
+const pauseBtn = document.getElementById('pauseBtn');
+const resetBtn = document.getElementById('resetBtn');
+const intensityInput = document.getElementById('intensity');
+const windTag = document.getElementById('windTag');
+
+function applyIntensity(v){
+  state.intensity = v;
+  setWaveField(v);
+  windTag.textContent = v.toFixed(2);
+}
+
+pauseBtn.addEventListener('click', () => {
+  state.paused = !state.paused;
+  pauseBtn.setAttribute('aria-pressed', state.paused ? 'true' : 'false');
+  pauseBtn.textContent = state.paused ? 'Resume' : 'Pause';
+});
+
+resetBtn.addEventListener('click', () => {
+  state.simTime = 0;
+  state.intensity = 0.4;
+  state.resetCount += 1;
+  state.paused = false;
+  pauseBtn.setAttribute('aria-pressed', 'false');
+  pauseBtn.textContent = 'Pause';
+  intensityInput.value = '0.4';
+  applyIntensity(0.4);
+  camera.position.copy(CAM_POS);
+  camera.lookAt(CAM_TGT);
+  camDrift = 0;
+});
+
+intensityInput.addEventListener('input', () => {
+  applyIntensity(parseFloat(intensityInput.value));
+});
+
+window.__SHOWCASE__ = {
+  getState(){
+    return {
+      ready: state.ready,
+      paused: state.paused,
+      simTime: state.simTime,
+      intensity: state.intensity,
+      resetCount: state.resetCount,
+    };
+  },
+};
+
+/* ---------------- resize ---------------- */
+
+function onResize(){
+  const w = window.innerWidth, h = window.innerHeight;
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h);
+}
+window.addEventListener('resize', onResize);
+
+/* ---------------- animation loop ---------------- */
+
+applyIntensity(0.4);
+seaUniforms.uCamPos.value.copy(camera.position);
+
+let camDrift = 0;
+let lastFrame = performance.now();
+let firstFrameDone = false;
+
+function frame(now){
+  const dt = Math.min((now - lastFrame) / 1000, 0.1);
+  lastFrame = now;
+
+  if (!state.paused){
+    state.simTime += dt;
+    camDrift += dt * 0.05;
+  }
+
+  const t = state.simTime;
+
+  seaUniforms.uTime.value = t;
+  skyMat.uniforms.uTime.value = t;
+
+  // gentle camera sway synced to the swell (tiny, keeps framing readable)
+  const bobY = Math.sin(t * 0.55) * 0.9 + Math.sin(t * 0.31 + 1.3) * 0.5;
+  const bobX = Math.sin(t * 0.23) * 1.4;
+  camera.position.set(CAM_POS.x + bobX, CAM_POS.y + bobY, CAM_POS.z);
+  camera.lookAt(CAM_TGT.x + bobX * 0.3, CAM_TGT.y, CAM_TGT.z);
+  seaUniforms.uCamPos.value.copy(camera.position);
+
+  renderer.render(scene, camera);
+
+  if (!firstFrameDone){
+    firstFrameDone = true;
+    state.ready = true;
+  }
+  requestAnimationFrame(frame);
+}
+
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

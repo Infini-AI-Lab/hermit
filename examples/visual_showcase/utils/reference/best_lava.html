@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Lava Lamp</title>
+<style>
+  :root{
+    --ui-bg: rgba(10, 12, 24, 0.55);
+    --ui-border: rgba(255, 176, 120, 0.28);
+    --ui-text: #f4e3d3;
+    --ui-dim: #b9a7a0;
+  }
+  *{ box-sizing: border-box; }
+  html, body{
+    margin:0; padding:0; width:100%; height:100%;
+    background:#05060d; overflow:hidden;
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  }
+  #stage{ position:fixed; inset:0; }
+  #scene{ position:absolute; inset:0; width:100%; height:100%; display:block; touch-action:none; }
+
+  .panel{
+    position:fixed; left:50%; transform:translateX(-50%);
+    bottom: max(14px, env(safe-area-inset-bottom));
+    display:flex; align-items:center; gap:14px;
+    padding:10px 16px;
+    background:var(--ui-bg);
+    border:1px solid var(--ui-border);
+    border-radius:999px;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    box-shadow: 0 8px 30px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.06);
+    max-width: calc(100vw - 20px);
+    z-index: 5;
+  }
+  .panel button{
+    appearance:none; border:1px solid var(--ui-border);
+    background:linear-gradient(180deg, rgba(255,154,77,0.16), rgba(255,154,77,0.05));
+    color:var(--ui-text);
+    font-size:14px; font-weight:600; letter-spacing:0.02em;
+    padding:8px 16px; border-radius:999px; cursor:pointer;
+    transition: background .15s ease, transform .1s ease, border-color .15s ease;
+    white-space:nowrap;
+  }
+  .panel button:hover{ background:linear-gradient(180deg, rgba(255,154,77,0.30), rgba(255,154,77,0.10)); border-color: rgba(255,176,120,0.55); }
+  .panel button:active{ transform: scale(0.96); }
+  .panel button[aria-pressed="true"]{
+    background:linear-gradient(180deg, rgba(255,154,77,0.42), rgba(255,110,40,0.18));
+    border-color: rgba(255,190,130,0.75);
+  }
+  .slider-wrap{ display:flex; align-items:center; gap:10px; min-width:0; }
+  .slider-wrap label{
+    color:var(--ui-dim); font-size:12px; font-weight:600;
+    text-transform:uppercase; letter-spacing:0.09em; white-space:nowrap;
+  }
+  input[type="range"]{
+    -webkit-appearance:none; appearance:none;
+    width: clamp(110px, 24vw, 220px); height:22px;
+    background:transparent; cursor:pointer;
+  }
+  input[type="range"]::-webkit-slider-runnable-track{
+    height:6px; border-radius:3px;
+    background:linear-gradient(90deg, #5a2c18, #ff9a4d);
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.6);
+  }
+  input[type="range"]::-webkit-slider-thumb{
+    -webkit-appearance:none; appearance:none;
+    width:18px; height:18px; margin-top:-6px; border-radius:50%;
+    background:radial-gradient(circle at 35% 30%, #ffe0b8, #ff9a4d 60%, #b4521c);
+    border:1px solid rgba(255,220,180,0.8);
+    box-shadow:0 0 10px rgba(255,154,77,0.7);
+  }
+  input[type="range"]::-moz-range-track{
+    height:6px; border-radius:3px;
+    background:linear-gradient(90deg, #5a2c18, #ff9a4d);
+  }
+  input[type="range"]::-moz-range-thumb{
+    width:18px; height:18px; border-radius:50%; border:1px solid rgba(255,220,180,0.8);
+    background:radial-gradient(circle at 35% 30%, #ffe0b8, #ff9a4d 60%, #b4521c);
+    box-shadow:0 0 10px rgba(255,154,77,0.7);
+  }
+  #readout{
+    color:var(--ui-text); font-size:12px; font-variant-numeric:tabular-nums;
+    min-width:3ch; text-align:right; opacity:0.85;
+  }
+  .title{
+    position:fixed; top:18px; left:0; right:0; text-align:center;
+    color:rgba(244,227,211,0.5); font-size:12px; letter-spacing:0.35em;
+    text-transform:uppercase; pointer-events:none; z-index:4;
+    text-shadow:0 2px 8px rgba(0,0,0,0.8);
+  }
+  @media (max-width: 480px){
+    .panel{ gap:10px; padding:8px 12px; bottom: max(10px, env(safe-area-inset-bottom)); }
+    .panel button{ font-size:12.5px; padding:7px 12px; }
+    .slider-wrap label{ font-size:10.5px; }
+    .title{ font-size:10px; letter-spacing:0.28em; }
+  }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="scene" data-testid="scene" aria-label="Animated lava lamp with glowing wax blobs"></canvas>
+</div>
+<div class="title">Lava Lamp</div>
+<div class="panel">
+  <button id="pauseBtn" data-testid="pause" aria-pressed="false">Pause</button>
+  <button id="resetBtn" data-testid="reset">Reset</button>
+  <div class="slider-wrap">
+    <label for="intensity">Heat</label>
+    <input id="intensity" data-testid="intensity" type="range" min="0" max="1" step="0.01" value="0.4" aria-label="Heat intensity">
+    <span id="readout">0.40</span>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ============ Lava Lamp — WebGL metaball wax inside a glass vessel ============ */
+
+const canvas = document.getElementById("scene");
+const gl = canvas.getContext("webgl", { antialias: false, alpha: false, powerPreference: "high-performance" });
+
+const VERT = `
+attribute vec2 aPos;
+void main(){ gl_Position = vec4(aPos, 0.0, 1.0); }
+`;
+
+const FRAG = `
+precision highp float;
+
+uniform vec2  uRes;
+uniform float uTime;
+uniform float uIntensity;
+uniform float uCx;        // lamp center x (px)
+uniform float uGlassBot;  // glass bottom y (px, gl coords)
+uniform float uHalfW;     // px per x-unit
+uniform float uGlassH;    // px per v-unit (v = 0..1 over glass)
+uniform float uVy;        // v-units per x-unit (aspect)
+uniform int   uCount;
+uniform vec4  uBlobs[16]; // x, v, radius(x-units), heat
+
+float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123); }
+float vnoise(vec2 p){
+  vec2 i = floor(p), f = fract(p);
+  vec2 u = f*f*(3.0-2.0*f);
+  return mix(mix(hash(i), hash(i+vec2(1,0)), u.x),
+             mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), u.x), u.y);
+}
+
+float vesselR(float v){
+  float base = 1.0 - 0.72 * pow(clamp(v,0.0,1.0), 1.28);
+  base += 0.045 * sin(v * 3.4 + 0.4) * (1.0 - v*0.6);
+  return base;
+}
+
+/* isotropic metaball kernel in screen space (q = vec2(x, v*uVy)).
+   Normalized so a single isolated blob surfaces at d ~ 0.87*r. */
+float blobK(vec2 q, vec4 b){
+  vec2 d = q - vec2(b.x, b.y * uVy);
+  float r = b.z;
+  float d2 = dot(d,d) / (r*r);
+  if(d2 > 1.0) return 0.0;
+  float t = 1.0 - d2;
+  return t*t*4.0;
+}
+float fieldQ(vec2 q){
+  float f = 0.0;
+  for(int i=0;i<16;i++){
+    if(i>=uCount) break;
+    f += blobK(q, uBlobs[i]);
+  }
+  return f;
+}
+
+void main(){
+  vec2 frag = gl_FragCoord.xy;
+  vec2 p = vec2((frag.x - uCx) / uHalfW, (frag.y - uGlassBot) / uGlassH);
+  vec2 q = vec2(p.x, p.y * uVy);   // screen-isotropic lamp space
+  float ax = abs(p.x);
+
+  /* ---------- room ---------- */
+  vec2 uv = frag / uRes;
+  vec3 col = mix(vec3(0.030, 0.032, 0.055), vec3(0.012, 0.013, 0.026), uv.y);
+  vec2 hc = (uv - vec2(0.5, 0.46)) * vec2(uRes.x/uRes.y, 1.0) * 1.35;
+  float halo = exp(-dot(hc, hc));
+  col += vec3(0.10, 0.05, 0.035) * halo * (0.55 + 0.25*uIntensity);
+
+  /* ---------- lamp geometry ---------- */
+  float yPx = frag.y - uGlassBot;
+  float gh  = uGlassH;
+  float baseTopY =  0.012 * gh;
+  float baseBotY = -0.400 * gh;
+  float capBotY  =  1.005 * gh;
+  float capTopY  =  1.185 * gh;
+
+  float baseHalfTop = 1.10;
+  float baseHalfBot = 1.42;
+  float capHalfBot  = 0.40;
+  float capHalfTop  = 0.24;
+
+  float glassR = vesselR(clamp(p.y, 0.0, 1.0));
+  float inGlass = step(0.0, p.y) * step(p.y, 1.0) * step(ax, glassR);
+
+  float hw = 0.0; float inMetal = 0.0;
+  if(yPx < baseTopY && yPx > baseBotY){
+    float t = (yPx - baseBotY) / (baseTopY - baseBotY);
+    hw = mix(baseHalfBot, baseHalfTop, t);
+    inMetal = 1.0;
+  } else if(yPx > capBotY && yPx < capTopY){
+    float t = (yPx - capBotY) / (capTopY - capBotY);
+    hw = mix(capHalfBot, capHalfTop, t);
+    inMetal = 1.0;
+  }
+
+  /* ---------- table ---------- */
+  float tableY = uGlassBot - 0.400 * gh;
+  if(frag.y < tableY){
+    float d = (tableY - frag.y);
+    float fade = exp(-d / (0.55 * gh));
+    vec3 table = mix(vec3(0.020, 0.018, 0.030), vec3(0.045, 0.030, 0.038), fade);
+    float lx = (frag.x - uCx) / (uHalfW * 2.2);
+    float pool = exp(-lx*lx*2.0) * exp(-d / (0.30 * gh));
+    table += vec3(0.55, 0.22, 0.08) * pool * (0.35 + 0.5*uIntensity);
+    float mg = exp(-lx*lx*3.0) * exp(-d / (0.16 * gh));
+    table += vec3(0.9, 0.45, 0.18) * mg * 0.20;
+    col = table;
+  }
+
+  /* ---------- metal base & cap ---------- */
+  if(inMetal > 0.5 && ax < hw){
+    float grad;
+    if(yPx < baseTopY){ grad = (yPx - baseBotY) / (baseTopY - baseBotY); }
+    else { grad = 1.0 - (yPx - capBotY) / (capTopY - capBotY); }
+    float shade = 0.16 + 0.30 * grad;
+    float cx = ax / hw;
+    float cyl = sqrt(max(0.0, 1.0 - cx*cx*0.92));
+    float brush = (vnoise(vec2(ax * 3.0, yPx * 0.05)) - 0.5) * 0.06;
+    vec3 metal = vec3(0.24, 0.215, 0.235) * (shade + cyl * 0.62 + brush);
+    if(yPx < baseTopY){
+      float bounce = exp(-max(0.0, baseTopY - yPx) / (0.11 * gh));
+      metal += vec3(0.85, 0.34, 0.10) * bounce * 0.30 * (0.4 + uIntensity);
+      float ring = smoothstep(0.55, 0.95, sin((yPx / gh) * 150.0) * 0.5 + 0.5);
+      metal *= 1.0 - ring * 0.05;
+    }
+    metal += vec3(1.0, 0.9, 0.8) * pow(cyl, 10.0) * 0.20 * smoothstep(0.2, 0.9, grad);
+    metal *= smoothstep(1.0, 0.86, ax / hw);
+    metal += vec3(0.9, 0.85, 0.8) * exp(-abs(hw - ax) * 30.0 / max(hw, 0.001)) * 0.18;
+    col = metal;
+  }
+
+  /* ---------- glass interior ---------- */
+  if(inGlass > 0.5){
+    vec3 liqBot = vec3(0.085, 0.030, 0.115);
+    vec3 liqTop = vec3(0.030, 0.032, 0.090);
+    vec3 liquid = mix(liqBot, liqTop, p.y);
+
+    float n = vnoise(vec2(p.x * 3.0 + 7.0, p.y * 2.2 - uTime * (0.10 + 0.35 * uIntensity)));
+    float n2 = vnoise(vec2(p.x * 6.0 - 3.0, p.y * 4.0 - uTime * (0.2 + 0.6 * uIntensity) + 11.0));
+    liquid += vec3(0.22, 0.08, 0.26) * n * 0.14 * (0.5 + uIntensity);
+    liquid += vec3(0.10, 0.05, 0.14) * n2 * 0.08;
+
+    /* wax field + gradient (screen space) */
+    float F = fieldQ(q);
+    float e = 1.5 / uHalfW;
+    vec2 gradF = vec2(
+      fieldQ(q + vec2(e, 0.0)) - fieldQ(q - vec2(e, 0.0)),
+      fieldQ(q + vec2(0.0, e)) - fieldQ(q - vec2(0.0, e))
+    );
+
+    float glow = 0.0;
+    for(int i=0;i<16;i++){
+      if(i>=uCount) break;
+      vec4 b = uBlobs[i];
+      vec2 d = q - vec2(b.x, b.y * uVy);
+      float d2 = dot(d,d) / (b.z * b.z);
+      glow += exp(-d2 * 1.6) * (0.35 + 0.65 * b.w);
+    }
+    vec3 waxGlow = vec3(1.0, 0.42, 0.12);
+    liquid += waxGlow * glow * 0.15 * (0.7 + 0.6 * uIntensity);
+
+    float surface = smoothstep(0.88, 1.12, F);
+    if(surface > 0.001){
+      vec3 n3 = normalize(vec3(-gradF * 2.0, 0.9));
+      vec3 L = normalize(vec3(-0.35, 0.55, 0.75));
+      float diff = max(dot(n3, L), 0.0);
+      float spec = pow(max(dot(reflect(-L, n3), vec3(0.0, 0.0, 1.0)), 0.0), 14.0);
+
+      float heatAvg = 0.0; float wsum = 0.0;
+      for(int i=0;i<16;i++){
+        if(i>=uCount) break;
+        float k = blobK(q, uBlobs[i]);
+        heatAvg += k * uBlobs[i].w; wsum += k;
+      }
+      heatAvg = wsum > 0.0 ? heatAvg / wsum : 0.0;
+
+      float core = smoothstep(1.2, 3.0, F);
+      vec3 cool = vec3(0.80, 0.16, 0.10);
+      vec3 warm = vec3(1.0, 0.58, 0.16);
+      vec3 hot  = vec3(1.0, 0.92, 0.58);
+      vec3 wax = mix(cool, warm, clamp(heatAvg * 1.6 - 0.1, 0.0, 1.0));
+      wax = mix(wax, hot, core * (0.30 + 0.70 * heatAvg));
+      wax += vec3(1.0, 0.45, 0.15) * (1.0 - core) * 0.15;
+      wax *= 0.86 + 0.34 * diff;
+      wax += vec3(1.0, 0.70, 0.30) * core * 0.18;
+      wax += vec3(1.0, 0.88, 0.72) * spec * 0.16;
+      wax *= mix(0.84, 1.0, smoothstep(0.90, 1.60, F));
+
+      liquid = mix(liquid, wax, surface);
+    }
+
+    /* glass wall effects */
+    float wd = (glassR - 0.035) - ax;
+    float rim = exp(-max(wd, 0.0) * 26.0);
+    liquid += vec3(0.75, 0.85, 1.0) * rim * 0.22;
+    float streakL = exp(-pow((ax - glassR * 0.62) * 7.0, 2.0));
+    float streakR = exp(-pow((ax - glassR * 0.80) * 9.0, 2.0));
+    liquid += vec3(0.9, 0.95, 1.0) * (streakL * 0.09 + streakR * 0.045) * (0.6 + 0.4 * (1.0 - p.y));
+
+    /* gentle bottom shading + warm pooled light (no harsh band) */
+    liquid *= 1.0 - 0.16 * exp(-p.y * 10.0);
+    liquid += vec3(0.9, 0.35, 0.10) * exp(-p.y * 6.0) * 0.09 * (0.5 + uIntensity);
+
+    /* outer edge: darken slightly, then bright silhouette line */
+    float edge = smoothstep(glassR, glassR - 0.05, ax);
+    liquid *= mix(0.60, 1.0, edge);
+    liquid += vec3(0.85, 0.9, 1.0) * exp(-abs(wd) * 55.0) * 0.30;
+    /* bright contact rim where glass meets base and cap */
+    float contact = exp(-abs(p.y) * 90.0) + exp(-abs(p.y - 1.0) * 90.0);
+    liquid += vec3(0.8, 0.85, 0.95) * contact * 0.25;
+
+    col = liquid;
+  }
+
+  float vig = 1.0 - 0.45 * pow(length((uv - 0.5) * vec2(1.05, 1.0)), 2.2);
+  col *= vig;
+
+  gl_FragColor = vec4(col, 1.0);
+}
+`;
+
+/* ---------- GL setup ---------- */
+function compile(type, src){
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src);
+  gl.compileShader(s);
+  if(!gl.getShaderParameter(s, gl.COMPILE_STATUS)) console.error(gl.getShaderInfoLog(s));
+  return s;
+}
+const prog = gl.createProgram();
+gl.attachShader(prog, compile(gl.VERTEX_SHADER, VERT));
+gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, FRAG));
+gl.linkProgram(prog);
+if(!gl.getProgramParameter(prog, gl.LINK_STATUS)) console.error(gl.getProgramInfoLog(prog));
+gl.useProgram(prog);
+
+const buf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+const aPos = gl.getAttribLocation(prog, "aPos");
+gl.enableVertexAttribArray(aPos);
+gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+const U = {};
+["uRes","uTime","uIntensity","uCx","uGlassBot","uHalfW","uGlassH","uVy","uCount","uBlobs"]
+  .forEach(n => U[n] = gl.getUniformLocation(prog, n));
+const blobData = new Float32Array(16 * 4);
+
+/* ---------- State ---------- */
+const MAXB = 16;
+const state = { ready: false, paused: false, simTime: 0, intensity: 0.4, resetCount: 0 };
+
+let blobs = [];
+let layoutSeed = 1;
+let rngState = 1;
+function srand(){ rngState = (rngState * 1103515245 + 12345) & 0x7fffffff; return rngState / 0x7fffffff; }
+
+let ASPECT = 2.45; // v-units per x-unit, updated on resize
+
+function vesselR(v){
+  let base = 1.0 - 0.72 * Math.pow(Math.min(Math.max(v,0),1), 1.28);
+  base += 0.045 * Math.sin(v * 3.4 + 0.4) * (1.0 - v*0.6);
+  return base;
+}
+function maxBlobR(v){ return Math.max(0.08, vesselR(v) - 0.10); }
+
+function makeBlob(x, v, r, heat){
+  return {
+    x, v, r,
+    vx: (srand() - 0.5) * 0.04,
+    vv: (srand() - 0.5) * 0.04,
+    heat, phase: srand() * Math.PI * 2, r0: r,
+    mergeCd: 0, splitCd: 1.5 + srand() * 2, anchor: false
+  };
+}
+
+function initialLayout(){
+  rngState = layoutSeed;
+  blobs = [];
+  const pool = makeBlob(0.0, 0.07, 0.55, 0.55);
+  pool.anchor = true;
+  blobs.push(pool);
+  const starters = [
+    [ -0.34, 0.30, 0.30, 0.85 ],
+    [  0.30, 0.52, 0.27, 0.55 ],
+    [ -0.10, 0.74, 0.23, 0.30 ],
+    [  0.16, 0.16, 0.25, 0.70 ],
+    [ -0.48, 0.46, 0.19, 0.45 ],
+    [  0.50, 0.80, 0.16, 0.22 ]
+  ];
+  for(const s of starters) blobs.push(makeBlob(s[0], s[1], s[2], s[3]));
+  blobs.push(makeBlob(0.42, 0.36, 0.11, 0.6));
+  blobs.push(makeBlob(-0.22, 0.60, 0.10, 0.4));
+  blobs.push(makeBlob(0.10, 0.90, 0.12, 0.28));
+  blobs.push(makeBlob(-0.55, 0.68, 0.11, 0.35));
+}
+initialLayout();
+
+/* ---------- Physics ---------- */
+function curl(x, v, t){
+  return Math.sin(v * 5.3 + t * 0.7 + x * 2.1) * Math.cos(x * 4.1 - t * 0.53)
+       + 0.5 * Math.sin(v * 9.1 - t * 1.1);
+}
+
+function stepSim(dt){
+  const I = state.intensity;
+  const t = state.simTime;
+
+  for(const b of blobs){
+    const target = b.r0 * (1.0 + 0.09 * Math.sin(t * 0.8 + b.phase)) * (1.0 + 0.13 * b.heat);
+    b.r += (target - b.r) * Math.min(1, dt * 3.0);
+
+    const bottomHeat = Math.exp(-(b.v - 0.06) * (b.v - 0.06) / 0.012);
+    const topCool = Math.exp(-(1.0 - b.v) * (1.0 - b.v) / 0.02);
+    b.heat += (bottomHeat * (0.55 + 1.15 * I) - 0.16 - topCool * (0.55 + 0.9 * I)) * dt;
+    b.heat = Math.min(1, Math.max(0, b.heat));
+    if(b.anchor) b.heat = Math.min(b.heat, 0.62); // the reservoir stays pooled
+
+    b.vv += (b.heat - 0.42) * (1.4 + 2.6 * I) * dt;
+    b.vx += curl(b.x, b.v, t) * (0.020 + 0.10 * I) * dt;
+    b.vx += -b.x * 0.01 * dt;
+
+    if(b.anchor){
+      b.vx += (-b.x * 2.2 - b.vx * 2.0) * dt;
+      b.vv += ((0.07 - b.v) * 10.0 - b.vv * 4.0) * dt;
+    }
+
+    const drag = Math.exp(-dt * (1.6 + 0.8 * (1 - I)));
+    b.vx *= drag; b.vv *= drag;
+
+    b.x += b.vx * dt;
+    b.v += b.vv * dt;
+
+    /* containment: horizontal limit follows the vessel profile */
+    const lim = maxBlobR(b.v) - b.r * 0.55;
+    if(Math.abs(b.x) > lim){
+      b.x = Math.sign(b.x) * lim;
+      b.vx *= -0.25;
+    }
+    /* vertical margins use the blob's on-screen height (r / ASPECT v-units) */
+    const vLo = b.anchor ? 0.03 : 0.03 + (b.r / ASPECT) * 0.5;
+    const vHi = 1.0 - 0.035 - (b.r / ASPECT) * 0.55;
+    if(b.v < vLo){ b.v = vLo; b.vv = Math.abs(b.vv) * 0.25; b.heat = Math.max(b.heat, 0.5); }
+    if(b.v > vHi){ b.v = vHi; b.vv = -Math.abs(b.vv) * 0.25; b.heat = Math.min(b.heat, 0.35); }
+
+    b.mergeCd = Math.max(0, b.mergeCd - dt);
+    b.splitCd = Math.max(0, b.splitCd - dt);
+  }
+
+  /* coalescence */
+  for(let i = 0; i < blobs.length; i++){
+    for(let j = i + 1; j < blobs.length; j++){
+      const a = blobs[i], c = blobs[j];
+      if(a.mergeCd > 0 || c.mergeCd > 0) continue;
+      if(blobs.length <= 6) break;
+      const dx = a.x - c.x, dv = (a.v - c.v) * ASPECT;
+      const dist = Math.hypot(dx, dv);
+      if(dist < (a.r + c.r) * 0.34 && Math.abs(a.heat - c.heat) < 0.35){
+        const big = a.r >= c.r ? a : c, small = a.r >= c.r ? c : a;
+        const m1 = big.r * big.r, m2 = small.r * small.r, m = m1 + m2;
+        if(Math.sqrt(m) > maxBlobR(big.v) * 0.9) continue;
+        big.x = (big.x * m1 + small.x * m2) / m;
+        big.v = (big.v * m1 + small.v * m2) / m;
+        big.vx = (big.vx * m1 + small.vx * m2) / m;
+        big.vv = (big.vv * m1 + small.vv * m2) / m;
+        big.heat = (big.heat * m1 + small.heat * m2) / m;
+        big.r = Math.sqrt(m);
+        big.r0 = big.r;
+        big.mergeCd = 3.0;
+        big.splitCd = 2.5;
+        blobs.splice(blobs.indexOf(small), 1);
+        break;
+      }
+    }
+  }
+
+  /* pinch-off */
+  for(let i = blobs.length - 1; i >= 0; i--){
+    const b = blobs[i];
+    if(blobs.length >= MAXB - 2) break;
+    if(b.splitCd > 0 || b.anchor) continue;
+    const tooBig = b.r > maxBlobR(b.v) * 0.60;
+    const wantsSplit = (b.heat > 0.75 && b.v > 0.30 && b.v < 0.75) || (b.heat < 0.25 && b.v > 0.6);
+    if((tooBig || (b.r > 0.26 && wantsSplit)) && srand() < dt * (0.5 + 1.6 * I)){
+      const frac = 0.30 + srand() * 0.15;
+      const nr = b.r * Math.sqrt(frac);
+      const ang = srand() * Math.PI * 2;
+      const drop = makeBlob(
+        b.x + Math.cos(ang) * b.r * 0.7,
+        b.v + (Math.sin(ang) * b.r * 0.7) / ASPECT,
+        nr, b.heat * 0.9
+      );
+      drop.vx = b.vx + Math.cos(ang) * 0.10;
+      drop.vv = b.vv + (srand() - 0.3) * 0.05;
+      b.r *= Math.sqrt(1 - frac); b.r0 = b.r;
+      b.mergeCd = 2.0; drop.mergeCd = 2.0;
+      b.splitCd = 3.0 + srand() * 3; drop.splitCd = b.splitCd;
+      blobs.push(drop);
+    }
+  }
+}
+
+/* ---------- Layout ---------- */
+let view = { cx: 0, glassBot: 0, halfW: 0, glassH: 0 };
+function resize(){
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const W = window.innerWidth, H = window.innerHeight;
+  canvas.width = Math.round(W * dpr);
+  canvas.height = Math.round(H * dpr);
+  canvas.style.width = W + "px";
+  canvas.style.height = H + "px";
+  gl.viewport(0, 0, canvas.width, canvas.height);
+
+  const portrait = H > W * 1.15;
+  const aspect = portrait ? 3.05 : 2.45;
+  ASPECT = aspect;
+  const baseMargin = portrait ? 118 : 92;
+  const topMargin = 44;
+  const maxHalfW = W * (portrait ? 0.34 : 0.26);
+  let glassH = Math.min((H - topMargin - baseMargin) / 1.585, aspect * maxHalfW);
+  glassH = Math.max(glassH, 170);
+  const halfW = glassH / aspect;
+
+  view.halfW = halfW * dpr;
+  view.glassH = glassH * dpr;
+  view.cx = (W / 2) * dpr;
+  view.glassBot = (baseMargin + 0.400 * glassH) * dpr;
+}
+window.addEventListener("resize", resize);
+resize();
+
+/* ---------- Render ---------- */
+function render(){
+  gl.uniform2f(U.uRes, canvas.width, canvas.height);
+  gl.uniform1f(U.uTime, state.simTime);
+  gl.uniform1f(U.uIntensity, state.intensity);
+  gl.uniform1f(U.uCx, view.cx);
+  gl.uniform1f(U.uGlassBot, view.glassBot);
+  gl.uniform1f(U.uHalfW, view.halfW);
+  gl.uniform1f(U.uGlassH, view.glassH);
+  gl.uniform1f(U.uVy, ASPECT);
+  const n = Math.min(blobs.length, MAXB);
+  gl.uniform1i(U.uCount, n);
+  for(let i = 0; i < n; i++){
+    blobData[i*4+0] = blobs[i].x;
+    blobData[i*4+1] = blobs[i].v;
+    blobData[i*4+2] = blobs[i].r;
+    blobData[i*4+3] = blobs[i].heat;
+  }
+  gl.uniform4fv(U.uBlobs, blobData);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+}
+
+/* ---------- Main loop ---------- */
+let last = performance.now();
+let acc = 0;
+const FIXED = 1 / 120;
+function frame(now){
+  requestAnimationFrame(frame);
+  let dt = (now - last) / 1000;
+  last = now;
+  if(dt > 0.1) dt = 0.1;
+  if(!state.paused){
+    acc += dt;
+    let guard = 0;
+    while(acc >= FIXED && guard < 12){
+      stepSim(FIXED);
+      state.simTime += FIXED;
+      acc -= FIXED;
+      guard++;
+    }
+    if(guard >= 12) acc = 0;
+  }
+  render();
+  if(!state.ready) state.ready = true;
+}
+requestAnimationFrame(frame);
+
+/* ---------- Controls ---------- */
+const pauseBtn = document.getElementById("pauseBtn");
+const resetBtn = document.getElementById("resetBtn");
+const intensityEl = document.getElementById("intensity");
+const readout = document.getElementById("readout");
+
+pauseBtn.addEventListener("click", () => {
+  state.paused = !state.paused;
+  pauseBtn.setAttribute("aria-pressed", state.paused ? "true" : "false");
+  pauseBtn.textContent = state.paused ? "Resume" : "Pause";
+});
+resetBtn.addEventListener("click", () => {
+  state.resetCount++;
+  layoutSeed = (layoutSeed * 16807 + 7) % 2147483647;
+  initialLayout();
+  state.simTime = 0;
+  state.intensity = 0.4;
+  intensityEl.value = "0.4";
+  readout.textContent = "0.40";
+  state.paused = false;
+  pauseBtn.setAttribute("aria-pressed", "false");
+  pauseBtn.textContent = "Pause";
+  acc = 0;
+});
+intensityEl.addEventListener("input", () => {
+  state.intensity = parseFloat(intensityEl.value);
+  readout.textContent = state.intensity.toFixed(2);
+});
+
+/* ---------- Diagnostic API ---------- */
+window.__SHOWCASE__ = {
+  getState(){
+    return {
+      ready: state.ready,
+      paused: state.paused,
+      simTime: state.simTime,
+      intensity: state.intensity,
+      resetCount: state.resetCount
+    };
+  }
+};
+</script>
+</body>
+</html>

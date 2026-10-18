@@ -4,7 +4,9 @@ GLM 5.3 Flash writes one offline, interactive, animated web page, `index.html`, 
 (`waves`), a lava lamp (`lava`) or wind-driven silk (`silk`). Every brief asks for the same pause and reset buttons, an
 intensity slider and a `getState()` hook. A real browser (headless Chrome, `runtime/browser_capture.cjs`) runs the
 page and takes five screenshots; `judge.py` scores them. `task-info/<case>/` describes one case to the Evolver, so a
-learner trained on one case never sees another.
+learner trained on one case never sees another. Two toolsets share the task: experiment 1's (`pipeline.py`, a browser
+inspection tool) and experiment 2's generic toolset (`agent/`, no browser tool; the section
+[below](#the-generic-toolset-experiment-2)).
 
 ## Conditions
 
@@ -36,6 +38,12 @@ On macOS or Linux, from the repository root:
 - Google Chrome in its standard place, or `VISUAL_CHROME` set to a Chrome executable. `npm ci` downloads no browser.
 - `FIREWORKS_API_KEY` for the agent and the judge. It is read from the environment only, and removed from the
   browser's environment.
+- For the generic toolset (Linux only): bubblewrap (`bwrap`) with unprivileged user namespaces, Playwright's Chromium
+  build (`npx playwright install chromium` from `runtime/`, or `VISUAL_CHROME_BIN`), a GPU the sandbox can see
+  (`/dev/dri` or the NVIDIA device nodes) so that `runtime/chrome-gpu.sh` renders WebGL, and Node 22. The pre-flight is
+  free: `python examples/visual_showcase/utils/confine.py selftest ~/.cache/visual_showcase/selftest` (a scratch
+  directory outside `/tmp`, which the sandbox replaces) checks the GPU pixel path and the isolation and prints a JSON
+  report.
 
 Without Three.js a run stops before its first model call. Without Playwright, pngjs or Chrome it still calls the
 model and then fails its captures. To check the browser side first (free, about 30 seconds): `ls` should list the
@@ -55,7 +63,9 @@ python examples/visual_showcase/utils/prepare.py
 ```
 
 This writes `tasks.jsonl`, `splits/` and `task-info/` here. Each case has a training split (`splits/waves.txt`) and a
-test split (`splits/waves-eval.txt`, the same brief under the id `waves-eval`).
+test split (`splits/waves-eval.txt`, the same brief under the id `waves-eval`). `prepare.py --toolset generic` writes
+the same rows and splits plus `task-info-generic/` for the generic toolset (below); the rows are byte-identical, so the
+two toolsets share `tasks.jsonl`.
 
 ## Runs and scores
 
@@ -70,8 +80,52 @@ test split (`splits/waves-eval.txt`, the same brief under the id `waves-eval`).
   leaves out scores, feedback and `judge/`. The rubric's model cost is recorded in `judge/`, outside the Trainer's
   budget. `VISUAL_JUDGE=mechanical` scores the mechanical items only, without a model call.
 
+## The generic toolset (experiment 2)
+
+`agent/agent.py` (`VisualAgent`, named by `agent.name: ../utils/agent/agent.py:VisualAgent`) runs the same model with
+the same limits, records and final capture as `pipeline.py`, but with four generic tools and no browser tool:
+
+| Tool | What it does |
+|---|---|
+| `write_file(path, content)` | Writes a file in the workspace (at most 500,000 bytes; `index.html` is the only file submitted) |
+| `read_file(path, start_line, max_lines)` | Numbered lines of a workspace file; `README.md` holds the brief |
+| `replace_text(path, old, new)` | Exactly one occurrence |
+| `run_command(command, timeout_s)` | `bash -c command` inside the sandbox of `confine.py` (bubblewrap: an allowlist of read-only paths, the workspace read-write, a private `/tmp` discarded after the command, no network, the GPU device nodes visible, an environment without any key); at most 90 seconds. PNG or JPEG files the command creates or modifies in the workspace are shown to the model in the next message (at most 5 per call, 40 per run, 2 MB and 2.1 megapixels each). |
+
+The system prompt (`agent/texts.py`) says that and nothing about how a page could be rendered: no node, Playwright,
+Chromium, GPU or screenshot procedure. Arms: `harness` (B') without an adapter or with the untouched root, else
+`adapted` (C): a prompt-only or toolsmith adapter contributes `ADAPTER.md` to the system prompt and a toolsmith adapter's
+admitted tools (`tool_catalog`) become function tools dispatched through `tool_call`, whose result images are packed
+like a command's (at most 6 adapter tool calls per run); an MWM adapter contributes its context package and read-only
+`wm` tool. `agent.params.facts_file` (the hinted baseline) appends a text file to the system prompt.
+
+`prepare.py --toolset generic` writes two task-info sets for the learners (gitignored, because the facts name this
+machine's absolute paths):
+
+- `task-info-generic/<case>/README.md`: the brief and the contract as in `task-info/`, then "How the agent runs" with
+  the generic tool list and the acting system prompt quoted verbatim, then the environment facts; `judge.md`, how a
+  run is observed and recorded (the same final capture); `environment.md`, the facts alone: headless only, node and
+  the packages and how `require()` finds them, the Chromium build and the GPU flags (`runtime/chrome-gpu.sh`), the
+  venv `python3`, loopback and the `/vendor/` mapping, what is writable, the limits, which files come back as images,
+  what the sandbox contains, the agent's tool list and prompt, the ready contract and viewports.
+- `task-info-generic/environment-mwm.md`: the same facts with a preamble saying they describe the ACTING agent's
+  machine, for the MWM learner (`evolver.params.environment_file`), whose own tools are unchanged.
+
+A generic run's record adds to the layout above: `cmd-NN/` per `run_command` (its launch trace and, when the command
+produced images, the `index.html` of that moment), `tools/NN.json` with the image records (file, sha256, size,
+non-blank, packed for the model) and whether a browser was launched, and in `result.json` the counters `run_commands`,
+`adapter_tool_calls`, `image_bearing_calls`, `looked_calls` (an image-bearing call that launched a browser and
+returned a non-blank image), `first_look_call`, `looked_final`, `tools_exported`, `tools_called`, `tool_errors` and
+`context_exhausted`. `emergence.py` sums them over run records (and re-renders each snapshot to check that the image
+the agent saw matches the page); `tool_works.py` exports a toolsmith checkpoint and checks offline that its tool
+renders `reference/webgl_probe.html` with the GPU and `reference/best_<case>.html` like the host capturer does.
+
 ## Configs
 
 - [`mwm_visual/`](../mwm_visual/): the MWM learner, one adapter per case.
 - [`prompt_only/`](../prompt_only/): the prompt-only Evolver, the same cases,
   steps and eval repeats.
+- Experiment 2, the generic toolset: [`prompt_only_generic/`](../prompt_only_generic/) (arm P),
+  [`mwm_visual_generic/`](../mwm_visual_generic/) (arm M: the learner of `mwm_visual/` with the acting agent's
+  `environment_file`), [`toolsmith/`](../toolsmith/) (arm T) and [`baseline/`](../baseline/) (B'-blind and B'-hinted,
+  `eval --adapter none`).
