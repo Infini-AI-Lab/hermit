@@ -622,9 +622,11 @@ def test_time_refusals_timeout_clamp_and_failed_commands(scratch):
     host.dispatch("run_command", {"command": "echo hi", "timeout_s": 90}, time.monotonic() + 100)
     assert fake.calls[-1]["timeout_s"] == pytest.approx(80, abs=0.5)
     host.dispatch("run_command", {"command": "echo hi"}, far())
-    assert fake.calls[-1]["timeout_s"] == 60
+    assert fake.calls[-1]["timeout_s"] == 120
+    host.dispatch("run_command", {"command": "echo hi", "timeout_s": 300}, far())
+    assert fake.calls[-1]["timeout_s"] == 300
     failed = json.loads(host.dispatch("run_command", {"command": "fail"}, far())[0])
-    assert failed["exit_code"] == 1 and failed["stderr"] == "boom" and host.run_commands == 3 and host.tool_errors == 1
+    assert failed["exit_code"] == 1 and failed["stderr"] == "boom" and host.run_commands == 4 and host.tool_errors == 1
     host.calls = gh.MAX_TOOL_CALLS
     assert "budget exhausted" in json.loads(host.dispatch("read_file", {"path": "README.md"}, far())[0])["error"]
 

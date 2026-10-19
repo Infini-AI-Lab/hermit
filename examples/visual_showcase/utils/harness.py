@@ -22,6 +22,8 @@ CAPTURER = RUNTIME / "browser_capture.cjs"
 VENDOR = RUNTIME / "node_modules" / "three" / "build" / "three.module.min.js"
 NODE = os.environ.get("VISUAL_NODE") or "node"
 CAPTURE_LOCK = Path(os.environ.get("VISUAL_CAPTURE_LOCK") or Path.home() / ".cache" / "visual_showcase" / "capture.lock")
+CAPTURE_TIMEOUT_S = 300                # why: above the capturer's own 250 s watchdog and its cleanup (experiment 4
+                                       # raised the capturer's deadlines about sixfold; 90 s before)
 MAX_TOOL_CALLS = 24
 MAX_INSPECTIONS = 3
 MAX_FILE_BYTES = 500000
@@ -75,7 +77,7 @@ def check_vendor() -> None:
         raise RuntimeError(f"{VENDOR} is missing: run npm ci --prefix examples/visual_showcase/utils/runtime")
 
 
-def capture(workspace, output, case, timeout=90, count_wait=False) -> dict:
+def capture(workspace, output, case, timeout=CAPTURE_TIMEOUT_S, count_wait=False) -> dict:
     """Run the browser capturer on workspace/index.html into the new directory `output`; returns its summary."""
     workspace, output = Path(workspace), Path(output)
     check_vendor()
@@ -85,7 +87,7 @@ def capture(workspace, output, case, timeout=90, count_wait=False) -> dict:
     env.pop("FIREWORKS_API_KEY", None)       # the key never reaches the browser
     # One capture at a time on this machine, so parallel runs never share the browser and CPU during a capture.
     # The timeout bounds the capture itself, not the wait for the lock: an agent's command in another run may hold the
-    # shared lock for up to 90 s, and counting that wait starved captures into a failure with no screenshot
+    # shared lock for up to its timeout, and counting that wait starved captures into a failure with no screenshot
     # (experiment 3, silk-pg2b). count_wait=True keeps the old rule for a capture inside an agent's time budget
     # (experiment 1's inspect_page). The wait is recorded in host-lock.json.
     CAPTURE_LOCK.parent.mkdir(parents=True, exist_ok=True)

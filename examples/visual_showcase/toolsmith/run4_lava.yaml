@@ -1,0 +1,61 @@
+# Visual showcase, case lava, generic toolset, experiment 4, arm T: the toolsmith Evolver (template 1.2) grows
+# ADAPTER.md and tool bundles (tools/<name>/) that the agent's harness exposes as callable tools whose results may carry
+# images. Same task and acting agent (GLM 5.3 Flash) as run_lava.yaml (experiments 2 and 3) except: the learner is
+# GLM 5.3 (not Flash, same 4096-token thinking cap), training runs 48 steps instead of 12, and every time limit is
+# longer (the host's capture: load 60 s, ready 20 s, whole observation 240 s; the agent: a command or tool 300 s, a
+# run 1800 s; the self-tests 300 s per program, 1200 s per round). Step k runs the adapter of step k-1, from the root W0
+# (no instructions, no tools); every step is tagged lava-ts/ckpt-step-N. Same task, steps, models, limits and eval
+# repeats as ../prompt_only_generic/run4_lava.yaml: compare the two at ckpt-step-12, -24, -36 and -48.
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/lava.txt
+  test: ../utils/splits/lava-eval.txt  # the alias row lava-eval: the same task under another id
+  step_size: 1
+task_info: ../utils/task-info-generic/lava/   # README.md and environment.md are what the learner reads (judge.md is for people); probes/ feeds its self-tests
+agent:
+  name: ../utils/agent/agent.py:VisualAgent
+  concurrency: 1                      # one run at a time, eval repeats too: runs never share the machine
+judge:
+  path: ../utils/judge.py
+template: toolsmith@1.2               # W0: "No learned instructions yet." and no tools
+evolver:
+  name: toolsmith
+  params: {runner_tool: confine}      # the self-tests run through the task tool below; null would skip them
+evolver_access:
+  tools:                              # task tools the Evolver may call; the Trainer loads the entrypoint from this folder
+    - name: confine
+      description: "Run a program inside the task's confined sandbox (bubblewrap, no network, GPU visible); argv tokens
+        python3/node/bash are resolved to host interpreters."
+      entrypoint: ../utils/confine.py:run_tool
+      input_schema:
+        type: object
+        properties:
+          argv: {type: array, items: {type: string}}
+          cwd: {type: string}         # the working directory, bound read-write
+          timeout_s: {type: number}
+          ro: {type: array}           # [[host_path, mount_point], ...]: tool_call binds the bundle at /tool
+          lock: {type: [string, "null"]}   # shared (the default) waits for the host's final capture; null: no lock
+          extra_env: {type: object}
+          tmp_dir: {type: [string, "null"]}
+        required: [argv, cwd, timeout_s]
+        additionalProperties: false
+llm:                                  # the learner: GLM 5.3 (the agent and the judge stay on GLM 5.3 Flash)
+  base_url: https://api.fireworks.ai/inference/v1
+  model: accounts/fireworks/models/glm-5p3
+  api_key_env: FIREWORKS_API_KEY
+  price: {input: 1.40, cached_input: 0.26, output: 4.40}   # USD per million tokens (Fireworks, 2026-10-19)
+  extra_body: {reasoning_effort: 4096}  # the same thinking cap as the Flash learner of experiments 2 and 3
+  timeout: 1800                       # why: about 75 output tokens per second, and a reply may hold 32,000 tokens
+sandbox:
+  enabled: false                      # an in-process Evolver; the programs it tests run in confine.py's own sandbox
+  env: []                             # variables passed to started programs: none, so never the key
+trainer:
+  run_name: lava-ts
+  output_dir: runs
+  tree_dir: runs/trees-v3/lava      # one tree per case: separate adapters, all from the same W0
+  epochs: 48
+  save_freq: {steps: 1, epochs: 1}
+  budget: {usd: 60.0, hours: 96}
+  call_timeout_min: 120               # why: two learner replies and two self-test rounds of up to 20 minutes each
+eval:
+  repeats: 5

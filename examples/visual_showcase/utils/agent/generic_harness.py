@@ -43,7 +43,7 @@ TOOL_TEXT_CAP = 120_000               # cumulative tool text per run; afterwards
 TAIL_CHARS = 500
 MIN_SECONDS_LEFT = 60                 # why: a command and the final capture both need time; refuse late calls
 TIMEOUT_MARGIN = 20                   # why: the kill, the scan and the final capture need this before the deadline
-DEFAULT_TIMEOUT_S, MAX_TIMEOUT_S = 60, 90
+DEFAULT_TIMEOUT_S, MAX_TIMEOUT_S = 120, 300   # why: room for a browser on a busy machine (60, 90 s before exp. 4)
 READ_LINES_DEFAULT, READ_LINES_MAX = 300, 500
 MAX_SCAN_FILES, SCAN_DEPTH = 4000, 8   # why: a command may unpack anything; the scan stays bounded
 WM_NAMES = frozenset({"list", "memory", "recall", "search", "read", "trace"})
@@ -88,8 +88,9 @@ TOOLS = [
              {"path": {"type": "string", "minLength": 1}, "old": {"type": "string", "minLength": 1},
               "new": {"type": "string"}}, ["path", "old", "new"]),
     function("run_command", "Run one shell command (bash -c) with your workspace as the working directory, no network, "
-             "a private /tmp that is discarded afterwards, and a timeout of timeout_s seconds (default 60, maximum 90). "
-             "Returns exit code, stdout and stderr. PNG files the command creates or modifies inside the workspace "
+             "a private /tmp that is discarded afterwards, and a timeout of timeout_s seconds "
+             f"(default {DEFAULT_TIMEOUT_S}, maximum {MAX_TIMEOUT_S}). Returns exit code, stdout and stderr. PNG files "
+             "the command creates or modifies inside the workspace "
              "are shown to you as images in the next message (at most five per command, forty per run).",
              {"command": {"type": "string", "minLength": 1}, "timeout_s": {"type": "integer", "minimum": 1,
                                                                             "maximum": MAX_TIMEOUT_S}}, ["command"]),

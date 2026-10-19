@@ -91,13 +91,14 @@ below. This is the only case this adapter is trained on.
 The agent works in a tool loop with four generic tools: `write_file` (a file in its workspace; `index.html` is the
 only file submitted), `read_file` (numbered lines of a workspace file; `README.md` holds the brief), `replace_text`
 (one exact replacement) and `run_command` (one `bash -c` command inside a sandbox whose working directory is the
-workspace; no network; at most 90 seconds; PNG files the command creates or modifies in the workspace are returned
-to the agent as images, at most five per command and forty per run; a JPEG is reported, not shown). There is no browser tool.
-With a learned adapter, the adapter's context is appended to the system prompt and the tools the adapter exports, if
-any, are offered next to the four above; an MWM adapter offers its read-only `wm` tool (`list`, `memory`, `recall`,
-`search`, `read`, `trace`). Limits per run: 600 seconds, 12 model requests, 24 tool calls and 65,536 completion
-tokens. Only the last `index.html` is submitted. The brief's inspection paragraph refers to the host's final
-observation after the run; the system prompt tells the agent so. `judge.md` says how a run is observed and recorded.
+workspace; no network; at most {command_s} seconds; PNG files the command creates or modifies in the workspace are
+returned to the agent as images, at most five per command and forty per run; a JPEG is reported, not shown). There is
+no browser tool. With a learned adapter, the adapter's context is appended to the system prompt and the tools the
+adapter exports, if any, are offered next to the four above; an MWM adapter offers its read-only `wm` tool (`list`,
+`memory`, `recall`, `search`, `read`, `trace`). Limits per run: {run_s} seconds, {requests} model requests,
+{tool_calls} tool calls and 65,536 completion tokens. Only the last `index.html` is submitted. The brief's inspection
+paragraph refers to the host's final observation after the run; the system prompt tells the agent so. `judge.md` says
+how a run is observed and recorded.
 
 The agent's system prompt, verbatim (`agent/texts.py`, `ACTING_SYSTEM_PROMPT`):
 
@@ -202,13 +203,14 @@ limits are unchanged: the adapter is the only writable area, the default command
 """
 
 # The acting harness's limits (agent/agent.py, pinned by the experiment contract); repeated here as facts.
-LIMITS = {"command_s": 90, "tool_s": 90, "run_s": 600,   # why: inspect_page's capture timeout; experiment 1's run length
+LIMITS = {"command_s": 300, "tool_s": 300, "run_s": 1800,  # generic_harness.MAX_TIMEOUT_S, toolsmith's tool maximum,
+                                                         # agent.RUN_SECONDS (90, 90 and 600 s before experiment 4)
           "images_per_call": 5, "images_per_run": 40,     # why: five is one capture's worth; forty bounds a run's bytes
           "image_mb": 2, "image_mpx": 2.1,               # why: pngstats decodes up to 2.2 Mpx; 1280x800 is 1.0 Mpx
           "requests": 12, "tool_calls": 24,              # agent.MAX_REQUESTS, generic_harness.MAX_TOOL_CALLS
           "adapter_calls": 6}                            # generic_harness.MAX_ADAPTER_CALLS
 # The host's observation deadlines (runtime/browser_capture.cjs: goto timeout, ready wait, the whole body).
-HOST = {"load_s": 10, "ready_s": 4, "observe_s": 40}
+HOST = {"load_s": 60, "ready_s": 20, "observe_s": 240}     # 10, 4 and 40 s before experiment 4
 # Probe pages for the toolsmith self-tests (task-info-generic/<case>/probes/): pages whose correct picture is known.
 PROBES = [{"page": "webgl_probe.html", "label": "webgl-solid-colour", "expect_rgb": [30, 120, 200], "tolerance": 10,
            "note": "a page with the contract's controls whose WebGL scene canvas is cleared to rgb(30,120,200) every "
@@ -295,7 +297,7 @@ def generic_files(data: dict, contract: dict) -> dict[str, str]:
     for c in data["cases"]:
         files[f"task-info-generic/{c['id']}/README.md"] = README_GENERIC.format(
             title=c["title_en"], system_prompt=texts.ACTING_SYSTEM_PROMPT, prompt=c["prompt"],
-            contract=json.dumps(contract, ensure_ascii=False, indent=2), environment=environment)
+            contract=json.dumps(contract, ensure_ascii=False, indent=2), environment=environment, **LIMITS)
         files[f"task-info-generic/{c['id']}/judge.md"] = judge_generic()
         files[f"task-info-generic/{c['id']}/environment.md"] = environment
         for probe in PROBES:

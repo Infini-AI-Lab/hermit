@@ -106,7 +106,8 @@ HIDDEN_UNDER_BASE = ("envs", "pkgs")
 INNER_TMP = "/tmp"
 INNER_TRACE = "/tmp/trace"
 HEAD_BYTES, TAIL_BYTES = 12_000, 4_000        # of stdout and of stderr each; the rest is counted as dropped
-LOCK_WAIT_S = 90.0
+LOCK_WAIT_S = 360.0         # why: the host's final capture holds the lock exclusively for up to
+                            # harness.CAPTURE_TIMEOUT_S (300 s); a shorter wait would fail other runs' commands
 TERM_GRACE_S = 3.0
 FSIZE_LIMIT = 256 * 1024 * 1024
 # RLIMIT_NPROC counts every thread of the uid (not of the sandbox): this uid already runs ~1000 threads outside and one

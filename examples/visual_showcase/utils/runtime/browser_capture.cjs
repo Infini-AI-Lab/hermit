@@ -10,6 +10,11 @@ const ROOT = __dirname;
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const inside = (root, child) => child === root || child.startsWith(root + path.sep);
+// Deadlines of one capture, in ms. Experiment 4 raised them about sixfold (load 10 s, ready 4 s, whole observation
+// 40 s before): while other users loaded the GPUs, pages that load in about 1 s on an idle machine took over 10 s and
+// their captures failed, which scored good pages 0 (experiments 2 and 3).
+const TIMEOUTS_MS = {launch:60000, load:60000, ready:20000, action:15000, screenshot:20000, observe:240000,
+  watchdog:250000, context_close:10000, video:10000, browser_close:10000, server_close:5000};
 function args(argv) {
   const out = {vendor:path.join(ROOT,'node_modules/three/build/three.module.min.js'),chrome:process.env.VISUAL_CHROME||null};
   for(let i=0;i<argv.length;i++) {
@@ -96,7 +101,7 @@ async function run(opt) {
       time_origin:'after ready observation and two browser animation frames; actual elapsed times recorded, not deterministic simulation checkpoints',
       allowed_files:['index.html','vendor/three.module.min.js','vendor/three.core.min.js (both host frozen dependencies)'],external_requests:'blocked by route plus page CSP',
       reduced_motion:'no-preference to observe the requested animation',interaction:'pause, wait, reset, set intensity to 75% of declared range, run two seconds, capture, keyboard ArrowLeft, restore 75%, phone capture',
-      no_score:true},screenshots:[],diagnostic_images:[],observations:{},console_errors:[],page_errors:[],blocked_requests:[],csp_violations:[],dialogs:[],capture_errors:[],
+      timeouts_ms:TIMEOUTS_MS,no_score:true},screenshots:[],diagnostic_images:[],observations:{},console_errors:[],page_errors:[],blocked_requests:[],csp_violations:[],dialogs:[],capture_errors:[],
     limitations:['Frame differences indicate visible change, not physical correctness, beauty or semantic fidelity.',
       'Browser requestAnimationFrame intervals are scheduling observations, not proof of application render FPS or GPU throughput.',
       'getState and DOM control states are application self reports; independent screenshots are retained separately.',
@@ -105,13 +110,13 @@ async function run(opt) {
   const killBrowser=()=>{const child=browserServer?.process();if(child&&child.exitCode===null)child.kill('SIGKILL');};
   const interrupted=()=>{killBrowser();process.exit(143);};
   process.once('SIGTERM',interrupted);process.once('SIGINT',interrupted);
-  watchdog=setTimeout(()=>{killBrowser();},43000);
+  watchdog=setTimeout(()=>{killBrowser();},TIMEOUTS_MS.watchdog);
   async function body() {
     frozen=await filesForCapture(opt);
     summary.input={index_sha256:frozen.indexSHA,index_bytes:frozen.files.get('/index.html').bytes.length,vendor:frozen.vendor};
     host=await serve(frozen.files);
     const {chromium}=require('playwright'),{PNG}=require('pngjs');
-    browserServer=await chromium.launchServer({...(opt.chrome?{executablePath:opt.chrome}:{channel:'chrome'}),headless:true,timeout:15000,args:['--force-webrtc-ip-handling-policy=disable_non_proxied_udp']});
+    browserServer=await chromium.launchServer({...(opt.chrome?{executablePath:opt.chrome}:{channel:'chrome'}),headless:true,timeout:TIMEOUTS_MS.launch,args:['--force-webrtc-ip-handling-policy=disable_non_proxied_udp']});
     browser=await chromium.connect(browserServer.wsEndpoint());
     context=await browser.newContext({viewport:summary.method.desktop,deviceScaleFactor:1,reducedMotion:'no-preference',serviceWorkers:'block',acceptDownloads:false,
       ...(opt.record?{recordVideo:{dir:opt.output,size:summary.method.desktop}}:{})});
@@ -128,30 +133,30 @@ async function run(opt) {
       document.addEventListener('securitypolicyviolation',e=>{if(violations.length<100)violations.push({directive:e.effectiveDirective,blocked_uri:e.blockedURI});});
       Object.defineProperty(window,'__HOST_OBSERVE__',{value:()=>({intervals:samples.slice(),violations:violations.slice()}),writable:false,configurable:false});
     });
-    const page=await context.newPage();page.setDefaultTimeout(3500);video=page.video();
+    const page=await context.newPage();page.setDefaultTimeout(TIMEOUTS_MS.action);video=page.video();
     context.on('page',popup=>{if(popup!==page){cappedPush(summary.blocked_requests,{url:popup.url(),resource_type:'popup'});popup.close().catch(()=>{});}});
     page.on('console',message=>{if(message.type()==='error')cappedPush(summary.console_errors,message.text().slice(0,2000));});
     page.on('pageerror',error=>cappedPush(summary.page_errors,String(error).slice(0,2000)));
     page.on('dialog',dialog=>{cappedPush(summary.dialogs,{type:dialog.type(),message:dialog.message().slice(0,500)});dialog.dismiss().catch(()=>{});});
-    await page.goto(host.origin+'/index.html',{waitUntil:'load',timeout:10000});
+    await page.goto(host.origin+'/index.html',{waitUntil:'load',timeout:TIMEOUTS_MS.load});
     async function state(){return page.evaluate(()=>{
       try {const s=window.__SHOWCASE__?.getState?.();if(!s||typeof s!=='object')return {available:false};
         const result={available:true};for(const k of ['ready','paused','simTime','intensity','resetCount'])result[k]=typeof s[k]==='boolean'||typeof s[k]==='number'||typeof s[k]==='string'?s[k]:null;return result;
       }catch(e){return {available:false,error:String(e).slice(0,500)};}
     });}
-    try {await page.waitForFunction(()=>window.__SHOWCASE__?.getState?.().ready===true,null,{timeout:4000});summary.observations.ready_contract=true;}
+    try {await page.waitForFunction(()=>window.__SHOWCASE__?.getState?.().ready===true,null,{timeout:TIMEOUTS_MS.ready});summary.observations.ready_contract=true;}
     catch {summary.observations.ready_contract=false;}
     await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
     const clockOrigin=performance.now();
     async function sceneBuffer(){
       const scene=page.locator('[data-testid="scene"]');
-      if(await scene.count()===1&&await scene.isVisible())return {bytes:await scene.screenshot({animations:'allow',timeout:4000}),scope:'scene'};
-      return {bytes:await page.screenshot({animations:'allow',timeout:4000}),scope:'viewport_fallback_includes_controls'};
+      if(await scene.count()===1&&await scene.isVisible())return {bytes:await scene.screenshot({animations:'allow',timeout:TIMEOUTS_MS.screenshot}),scope:'scene'};
+      return {bytes:await page.screenshot({animations:'allow',timeout:TIMEOUTS_MS.screenshot}),scope:'viewport_fallback_includes_controls'};
     }
     async function capture(name,label,target=null) {
       await page.evaluate(()=>{document.documentElement.scrollTop=0;document.body.scrollTop=0;});
       const elapsed=(performance.now()-clockOrigin)/1000;
-      const screenshot=await page.screenshot({path:path.join(opt.output,name+'.png'),animations:'allow',timeout:5000});
+      const screenshot=await page.screenshot({path:path.join(opt.output,name+'.png'),animations:'allow',timeout:TIMEOUTS_MS.screenshot});
       const record={id:name,label,file:name+'.png',sha256:hash(screenshot),bytes:screenshot.length,elapsed_seconds:elapsed,target_seconds:target,viewport:page.viewportSize(),state:await state()};
       summary.screenshots.push(record);return record;
     }
@@ -207,16 +212,16 @@ async function run(opt) {
     summary.observations.final_state=await state();
     summary.capture_ok=summary.screenshots.length===5;summary.status=summary.capture_ok?'capture_complete':'capture_incomplete';
   }
-  try {await deadline(body(),40000,'Capture');}
+  try {await deadline(body(),TIMEOUTS_MS.observe,'Capture');}
   catch(error){summary.status='capture_error';summary.capture_errors.push({name:error.name,message:String(error.message).slice(0,4000)});}
   finally {
     // connect() is a remote Playwright connection even on localhost: video.path()
     // is unsupported. Start saveAs before closing the context that finalizes it.
     const videoSave=video?video.saveAs(path.join(opt.output,'capture.webm')).then(()=>({saved:true}),e=>({error:String(e.message)})):null;
-    if(context)await deadline(context.close(),3000,'Context close').catch(()=>{});
-    if(videoSave){try{const saved=await deadline(videoSave,2000,'Video finalization');summary.video=saved.error?saved:{file:'capture.webm',bytes:(await fsp.stat(path.join(opt.output,'capture.webm'))).size,format:'webm',description:'Real browser recording including desktop interactions and viewport resize; no generated intermediate states'};}catch(e){summary.video={error:String(e.message)};}}
-    if(browser)await deadline(browser.close(),3000,'Browser close').catch(()=>{});
-    if(browserServer)await deadline(browserServer.close(),1500,'Browser server close').catch(()=>{});
+    if(context)await deadline(context.close(),TIMEOUTS_MS.context_close,'Context close').catch(()=>{});
+    if(videoSave){try{const saved=await deadline(videoSave,TIMEOUTS_MS.video,'Video finalization');summary.video=saved.error?saved:{file:'capture.webm',bytes:(await fsp.stat(path.join(opt.output,'capture.webm'))).size,format:'webm',description:'Real browser recording including desktop interactions and viewport resize; no generated intermediate states'};}catch(e){summary.video={error:String(e.message)};}}
+    if(browser)await deadline(browser.close(),TIMEOUTS_MS.browser_close,'Browser close').catch(()=>{});
+    if(browserServer)await deadline(browserServer.close(),TIMEOUTS_MS.server_close,'Browser server close').catch(()=>{});
     killBrowser();clearTimeout(watchdog);process.removeListener('SIGTERM',interrupted);process.removeListener('SIGINT',interrupted);
     if(host){summary.http_audit=host.audit;await host.close();}
     if(frozen){try{summary.workspace_unchanged=hash(await fsp.readFile(frozen.file))===frozen.indexSHA;}catch{summary.workspace_unchanged=false;}}

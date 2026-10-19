@@ -88,9 +88,15 @@ def test_generic_toolset_texts(tmp_path):
     assert "at most 6 of the calls may be calls of adapter tools" in flat_env
     assert "until a later image-bearing call replaces them" in flat_env
     assert prepare.LIMITS["adapter_calls"] == 6 and prepare.LIMITS["tool_calls"] == 24 and prepare.LIMITS["requests"] == 12
-    assert "10-second load timeout (a page that has not loaded by then is not observed at all)" in flat_env
-    assert "at most 4 seconds for `getState().ready`" in flat_env
-    assert "ends after 40 seconds" in flat_env
+    assert "60-second load timeout (a page that has not loaded by then is not observed at all)" in flat_env
+    assert "at most 20 seconds for `getState().ready`" in flat_env
+    assert "ends after 240 seconds" in flat_env
+    assert "a `run_command` takes at most 300 seconds, a tool at most 300 seconds, a run 1800 seconds" in flat_env
+    # the facts state the capturer's own deadlines (runtime/browser_capture.cjs TIMEOUTS_MS)
+    capturer = (UTILS / "runtime" / "browser_capture.cjs").read_text()
+    deadlines = {k: int(v) for k, v in re.findall(r"\b(load|ready|observe):(\d+)", capturer.split("};")[0])}
+    assert deadlines == {"load": 1000 * prepare.HOST["load_s"], "ready": 1000 * prepare.HOST["ready_s"],
+                         "observe": 1000 * prepare.HOST["observe_s"]}, deadlines
     for value in (confine.NODE, confine.NODE_MODULES, confine.CHROME_BIN, confine.WRAPPER, confine.PYTHON,
                   confine.PREFIX, confine.BASE_PREFIX, confine.NODE_DIR, confine.PLAYWRIGHT_DIR):
         assert value in env, value
@@ -117,7 +123,7 @@ def test_generic_toolset_texts(tmp_path):
     assert readme.endswith("## Environment facts\n\n" + env)
     flat = " ".join(readme.split())           # the README wraps at ~120 columns
     for phrase in ("`write_file`", "`read_file`", "`replace_text`", "`run_command`", "There is no browser tool",
-                   "600 seconds, 12 model requests, 24 tool calls and 65,536 completion tokens"):
+                   "1800 seconds, 12 model requests, 24 tool calls and 65,536 completion tokens"):
         assert phrase in flat, phrase
     assert "inspect_page" not in readme and "3 inspections" not in readme
 
