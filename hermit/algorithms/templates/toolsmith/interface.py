@@ -27,7 +27,7 @@ SCHEMA_KEYS = frozenset({"type", "properties", "required", "additionalProperties
                          "items", "minimum", "maximum"})
 MAX_DESCRIPTION = 1024
 MAX_TOOLS = 8
-DEFAULT_TIMEOUT_S, MAX_TIMEOUT_S = 60, 90
+DEFAULT_TIMEOUT_S, MAX_TIMEOUT_S = 120, 300    # why: a browser on a busy machine needs minutes (60 and 90 s in 1.1)
 TEXT_CHARS, STDERR_CHARS, TAIL_CHARS = 12_000, 2_000, 2_000
 MAX_IMAGES, MAX_IMAGE_BYTES = 5, 2_000_000      # why: the agent shows at most five images per call, each ≤ 2 MB
 MAX_ARGS_CHARS = 60_000                 # why: the arguments travel as one argv string; Linux caps one at 128 KiB

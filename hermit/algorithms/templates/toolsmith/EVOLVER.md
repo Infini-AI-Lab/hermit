@@ -45,7 +45,7 @@ A bundle is a directory `tools/<name>/` holding `TOOL.json` and the program it n
   pass. It runs in a scratch working directory that holds an `index.html`; it may spawn the entry itself.
 - `example_args` (optional, default `{}`): arguments that fit `parameters`; the self-test of the contract calls the tool
   with them.
-- `timeout_s` (optional, default 60): an integer from 1 to 90.
+- `timeout_s` (optional, default 120): an integer from 1 to 300.
 
 Other files in the bundle may only be `.py .md .json .txt .js .cjs .mjs .sh`, UTF-8 text, at most 60,000 bytes each; no
 file or directory name may start with a dot; at most 40 files under `tools/` in total. Directories whose name starts

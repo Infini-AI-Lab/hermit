@@ -64,6 +64,7 @@ def parse_reply(text: str) -> Reply:
     files, deletes, problems = [], [], []
     summary = None
     current: tuple[str, list] | None = None
+    text = text.rsplit("</think>", 1)[-1]     # why: leaked reasoning before </think> quotes the markers
 
     def close(lines: list[str]) -> str:
         if len(lines) >= 2 and _FENCE.match(lines[0]) and _FENCE.match(lines[-1]):
@@ -551,8 +552,8 @@ class ToolsmithEvolver(Evolver):
         """Run the self-test of up to max_tests_per_round bundles: the bundle's own test (when declared), then the
         contract check through Session.call("tool_call") in a seeded scratch workspace. {name: record}."""
         p, ws = ctx.params, ctx.workspace
-        per_test = float(p.get("test_timeout_s", 60))
-        deadline = time.time() + float(p.get("test_total_s", 300))
+        per_test = float(p.get("test_timeout_s", 300))
+        deadline = time.time() + float(p.get("test_total_s", 1200))
         results: dict[str, dict] = {}
         admitted, rejected = iface.catalog(ws.adapter)
         bundles = {t["name"]: t for t in admitted}

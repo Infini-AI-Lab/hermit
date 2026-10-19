@@ -1,6 +1,6 @@
 # Toolsmith
 
-Use `evolver.name: toolsmith` with `template: toolsmith@1.1` to learn instructions and callable tools together. Each
+Use `evolver.name: toolsmith` with `template: toolsmith@1.2` to learn instructions and callable tools together. Each
 step makes one learner generation request that may rewrite `ADAPTER.md` and any number of tool bundles
 (`tools/<name>/`), then self-tests the changed bundles inside the task's own sandbox and gives the learner one repair
 turn with the exact failures. Choose it when the acting agent needs a capability its harness does not offer — for
@@ -17,7 +17,7 @@ by the last one it saw. Only the bundles change; the exports do not.
 ## Setup
 
 ```yaml
-template: toolsmith@1.1
+template: toolsmith@1.2
 evolver:
   name: toolsmith
   params: {runner_tool: confine}      # a task tool with the confined runner's signature; null skips the self-tests
@@ -53,7 +53,7 @@ Without a runner the Evolver still writes files, but reports every bundle as unt
 
 | Resource | Contract |
 |---|---|
-| Template and method | `template: toolsmith@1.1`, `evolver.name: toolsmith` |
+| Template and method | `template: toolsmith@1.2`, `evolver.name: toolsmith` |
 | Confined runner | A task tool (`evolver_access.tools`) whose function takes `argv, cwd, timeout_s, ro, lock` and returns `{exit_code, stdout, stderr, seconds, timed_out, ...}`; named in `evolver.params.runner_tool` |
 | Acting harness | Builds a `Session` on the adapter with resources `tool_runner` (the same runner) and `workspace` (the agent's working directory), calls `tool_catalog` once, exposes each admitted tool as a function and dispatches its calls to `tool_call(name, args)`; turns the returned image paths into image parts for the model; after the last request, calls `finalize(final_sha, seen)` with the versions whose images a later accepted request carried, and submits the version it names |
 | Task description | `task-info/README.md`; `task-info/environment.md` when the machine's facts (interpreters, packages, paths, limits) matter for writing a working program; optionally `task-info/probes/probes.json` with probe pages for the self-tests |
@@ -111,7 +111,7 @@ Set overrides under `evolver.params`.
 | Parameter | Values / default | Effect |
 |---|---|---|
 | `runner_tool` | A task tool name / `null` | Names the confined runner; `null` skips the self-tests and the repair turn, and every bundle is reported as untested |
-| `test_timeout_s`, `test_total_s` | Seconds / 60, 300 | Bound one program and one self-test round; a bundle not reached within `test_total_s` is reported as not tested, not as failed |
+| `test_timeout_s`, `test_total_s` | Seconds / 300, 1200 | Bound one program and one self-test round; a bundle not reached within `test_total_s` is reported as not tested, not as failed |
 | `max_tests_per_round` | Count / 4 | Bundles tested per round, changed ones first; raise it when the learner writes many tools at once |
 | `repair_rounds` | Count / 1 | Learner turns spent on self-test failures; 0 keeps the first reply as written |
 | `images` | Count / 0 | Self-test images attached to the learner's prompt; 0 keeps the learner text-only (it reads the image measures instead) |

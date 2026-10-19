@@ -120,7 +120,7 @@ def test_bundle_rules(scratch):
         "subentry": ({**WORDCOUNT, "name": "subentry", "entry": "lib/run.py"}, {"lib/run.py": RUN_PY}, "plain file name"),
         "notest": ({**WORDCOUNT, "name": "notest", "test": "test.py"}, {"run.py": RUN_PY}, "\"test\" names 'test.py'"),
         "examples": ({**WORDCOUNT, "name": "examples", "example_args": {"file": 3}}, {"run.py": RUN_PY}, "do not fit"),
-        "slow": ({**WORDCOUNT, "name": "slow", "timeout_s": 91}, {"run.py": RUN_PY}, "\"timeout_s\""),
+        "slow": ({**WORDCOUNT, "name": "slow", "timeout_s": 301}, {"run.py": RUN_PY}, "\"timeout_s\""),
         "booltimeout": ({**WORDCOUNT, "name": "booltimeout", "timeout_s": True}, {"run.py": RUN_PY}, "\"timeout_s\""),
         "binary": ({**WORDCOUNT, "name": "binary"}, {"run.py": RUN_PY, "fixture.png": "x"}, "only .py, .md"),
         "dotfile": ({**WORDCOUNT, "name": "dotfile"}, {"run.py": RUN_PY, ".secret/x.txt": ""}, "may start with '.'"),

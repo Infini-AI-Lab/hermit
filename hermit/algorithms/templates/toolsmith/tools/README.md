@@ -16,7 +16,7 @@ or `.`, are not tools.
 - `entry`: the program file in this directory: `run.py`, `run.cjs`, `run.js`, `run.mjs` or `run.sh`.
 - `test`: optional self-test, `test.py`, `test.cjs` or `test.sh`; no arguments; exit 0 = pass.
 - `example_args`: optional, default `{}`: arguments fitting `parameters`, used by the contract self-test.
-- `timeout_s`: optional, default 60: an integer from 1 to 90.
+- `timeout_s`: optional, default 120: an integer from 1 to 300.
 
 Other files: only `.py .md .json .txt .js .cjs .mjs .sh`, UTF-8 text, at most 60,000 bytes each, no name starting with
 a dot, at most 40 files under `tools/`. At most 8 tools are admitted, alphabetically. No file may contain the start of

@@ -11,7 +11,7 @@ template–method combinations meaningful.
 | Search text candidates with validation-based selection | [GEPA](gepa.md) | Start with prompt-only | Validation split and GEPA extra |
 | Make bounded skill edits with a validation gate | [SkillOpt](skillopt.md) | Start with prompt-only or the paper seed | Validation split and SkillOpt extra |
 | Build a persistent world model from an ordered environment stream | [MWM](mwm.md) | `mwm` | Evidence store, deployment description, tools, Linux learner environment |
-| Learn instructions and callable tools (programs) together, self-tested in the task's sandbox | [Toolsmith](toolsmith.md) | `toolsmith@1.1` | Learner model endpoint, a confined runner declared as a task tool, a harness that exposes `tool_catalog` / `tool_call` |
+| Learn instructions and callable tools (programs) together, self-tested in the task's sandbox | [Toolsmith](toolsmith.md) | `toolsmith@1.2` | Learner model endpoint, a confined runner declared as a task tool, a harness that exposes `tool_catalog` / `tool_call` |
 | Learn the framework contract offline | [Quick Start](../get-started/quickstart.md) | Prompt-only with a teaching learner | Included toy tasks |
 
 ## Compare the work behind each step

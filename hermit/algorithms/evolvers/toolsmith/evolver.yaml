@@ -11,9 +11,9 @@ params:
   max_tokens: 32000          # reasoning models spend much of it thinking
   temperature: 0.3
   runner_tool: null          # a task tool (evolver_access.tools) with confine.run's signature; null = no self-tests
-  test_timeout_s: 60         # per self-test program and per contract call
+  test_timeout_s: 300        # per self-test program and per contract call (the template's tool maximum)
   max_tests_per_round: 4     # bundles tested per round (changed first, then never tested)
-  test_total_s: 300          # wall-clock cap of one self-test round
+  test_total_s: 1200         # wall-clock cap of one self-test round (four tools at the maximum)
   repair_rounds: 1           # extra model turns with the failures of the self-tests
   images: 0                  # self-test images attached to the model's prompt (0 = text only; the learner stays blind)
   exposed_tools_max: 8       # tools the agent's harness exposes (the template admits at most 8, alphabetically)

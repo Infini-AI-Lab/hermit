@@ -31,6 +31,6 @@ name, every parameter is optional, the entry exists, the files are text of the a
 HTML page. At most eight tools are listed; the rest are reported as rejected. A bad bundle fails check 6 with its
 `TOOL.json` as the path, so the Trainer's repair drops that bundle alone.
 
-Train it with `template: toolsmith@1.1` and `evolver: {name: toolsmith, params: {runner_tool: <a task tool that runs
+Train it with `template: toolsmith@1.2` and `evolver: {name: toolsmith, params: {runner_tool: <a task tool that runs
 inside the sandbox>}}`; see `docs/methods/toolsmith.md` and the visual showcase recipe. Image measures for the learner's
 self-tests come from `hermit.runtime.pngstats` (standard library only).

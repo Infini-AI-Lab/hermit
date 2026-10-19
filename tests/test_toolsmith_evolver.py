@@ -209,7 +209,7 @@ def test_step_applies_valid_blocks_skips_invalid_ones_and_marks_a_tool_working(t
     # The test ran, then the contract call, both in a workspace seeded with the trajectory's page.
     assert [c["argv"][-2] for c in runner.calls] == ["/tool/test.py", "/tool/run.py"]
     assert all(c["ro"] == [[str(adapter / "tools" / "shot"), "/tool"]] and c["lock"] == "shared" for c in runner.calls)
-    assert runner.calls[0]["timeout_s"] == 60 and runner.calls[1]["timeout_s"] == 30
+    assert runner.calls[0]["timeout_s"] == 300 and runner.calls[1]["timeout_s"] == 30
     ws = Path(runner.calls[1]["cwd"])
     assert ws == ctx.workspace.scratch / "ws" / "shot" and "data-testid='scene'" in (ws / "index.html").read_text()
     assert json.loads(runner.calls[1]["argv"][-1]) == {"tag": "t"}
@@ -338,6 +338,13 @@ def test_markers_after_a_sentence_and_content_before_the_end_marker():
     reply = load("evolver").parse_reply("Here is the file: <<<FILE ADAPTER.md>>>\nline one\nlast line<<<END FILE>>>\n"
                                         "SUMMARY: s\n")
     assert reply.files == [("ADAPTER.md", "line one\nlast line")] and not reply.problems and reply.summary == "s"
+
+
+def test_reasoning_leaked_before_think_end_is_ignored():
+    """A draft block inside leaked reasoning is not a file of the reply."""
+    reply = load("evolver").parse_reply("Draft:\n<<<FILE tools/shot/run.py>>>\nprint(1)\n<<<END FILE>>>\nOK.</think>"
+                                        "<<<FILE ADAPTER.md>>>\nreal\n<<<END FILE>>>\nSUMMARY: s\n")
+    assert reply.files == [("ADAPTER.md", "real")] and not reply.problems and reply.summary == "s"
 
 
 class ProbeRunner(FakeRunner):
