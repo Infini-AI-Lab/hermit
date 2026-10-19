@@ -75,7 +75,7 @@ def check_vendor() -> None:
         raise RuntimeError(f"{VENDOR} is missing: run npm ci --prefix examples/visual_showcase/utils/runtime")
 
 
-def capture(workspace, output, case, timeout=90) -> dict:
+def capture(workspace, output, case, timeout=90, count_wait=False) -> dict:
     """Run the browser capturer on workspace/index.html into the new directory `output`; returns its summary."""
     workspace, output = Path(workspace), Path(output)
     check_vendor()
@@ -84,16 +84,25 @@ def capture(workspace, output, case, timeout=90) -> dict:
     env = dict(os.environ)
     env.pop("FIREWORKS_API_KEY", None)       # the key never reaches the browser
     # One capture at a time on this machine, so parallel runs never share the browser and CPU during a capture.
-    # Waiting counts against the caller's timeout.
+    # The timeout bounds the capture itself, not the wait for the lock: an agent's command in another run may hold the
+    # shared lock for up to 90 s, and counting that wait starved captures into a failure with no screenshot
+    # (experiment 3, silk-pg2b). count_wait=True keeps the old rule for a capture inside an agent's time budget
+    # (experiment 1's inspect_page). The wait is recorded in host-lock.json.
     CAPTURE_LOCK.parent.mkdir(parents=True, exist_ok=True)
     started = time.monotonic()
-    with open(CAPTURE_LOCK, "a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        waited = time.monotonic() - started
-        result = subprocess.run([NODE, str(CAPTURER), "--workspace", str(workspace), "--output", str(output),
-                                 "--case", case, "--vendor", str(VENDOR)],
-                                capture_output=True, text=True, timeout=max(1.0, timeout - waited), env=env)
-    output.mkdir(parents=True, exist_ok=True)
+    waited = None
+    try:
+        with open(CAPTURE_LOCK, "a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            waited = time.monotonic() - started
+            result = subprocess.run([NODE, str(CAPTURER), "--workspace", str(workspace), "--output", str(output),
+                                     "--case", case, "--vendor", str(VENDOR)],
+                                    capture_output=True, text=True, env=env,
+                                    timeout=max(1.0, timeout - waited) if count_wait else timeout)
+    finally:
+        output.mkdir(parents=True, exist_ok=True)
+        save(output / "host-lock.json", {"lock_wait_s": None if waited is None else round(waited, 3),
+                                         "capture_s": round(time.monotonic() - started - (waited or 0), 3)})
     (output / "controller-stdout.log").write_text(result.stdout)
     (output / "controller-stderr.log").write_text(result.stderr)
     if not (output / "summary.json").exists():
@@ -193,7 +202,8 @@ class Harness:
                     raise TimeoutError("Less than 50 seconds remain for a browser inspection")
                 self.inspections += 1
                 out = self.run / "checks" / f"check-{self.inspections:02d}" / "capture"
-                summary = capture(self.workspace, out, self.case, timeout=min(90, deadline - time.monotonic()))
+                summary = capture(self.workspace, out, self.case, timeout=min(90, deadline - time.monotonic()),
+                                  count_wait=True)
                 self.last_inspected_sha = summary.get("input", {}).get("index_sha256")
                 images, image_records = images_for_model(out, summary)
                 result = {"ok": summary.get("capture_ok", False), "inspection": self.inspections,

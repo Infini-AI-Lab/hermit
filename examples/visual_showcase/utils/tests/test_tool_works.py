@@ -298,3 +298,33 @@ def test_emergence_without_render_and_over_a_step(scratch, monkeypatch):
     assert json.loads(out.read_text())["rendered"] is False
     with pytest.raises(SystemExit):
         emergence.main(["--step", str(scratch / "nothing"), "--out", str(out)])
+
+
+def test_a_long_lock_wait_does_not_eat_the_host_capture_timeout(scratch, monkeypatch):
+    """The host capture's timeout bounds the capture, not the wait for the exclusive lock (count_wait=False)."""
+    import fcntl
+    import subprocess as sp
+    import threading
+    harness = tool_works.load_by_path("visual_harness_lock_test", tool_works.HERE / "harness.py")
+    lock_path = scratch / "capture.lock"
+    monkeypatch.setattr(harness, "CAPTURE_LOCK", lock_path)
+    monkeypatch.setattr(harness, "check_vendor", lambda: None)
+    seen = {}
+
+    def fake_run(argv, capture_output, text, env, timeout):
+        seen["timeout"] = timeout
+        out = Path(argv[argv.index("--output") + 1])
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "summary.json").write_text(json.dumps({"status": "capture_complete"}))
+        return sp.CompletedProcess(argv, 0, "", "")
+    monkeypatch.setattr(harness.subprocess, "run", fake_run)
+    holder = open(lock_path, "a")
+    fcntl.flock(holder, fcntl.LOCK_SH)                         # another run's command holds the shared lock
+    threading.Timer(1.5, lambda: fcntl.flock(holder, fcntl.LOCK_UN)).start()
+    ws = scratch / "ws"
+    ws.mkdir()
+    (ws / "index.html").write_text("<p>x</p>")
+    harness.capture(ws, scratch / "out", "waves", timeout=2)
+    assert seen["timeout"] == 2                                # not 2 - 1.5
+    lock = json.loads((scratch / "out" / "host-lock.json").read_text())
+    assert lock["lock_wait_s"] >= 1.4
