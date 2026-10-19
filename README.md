@@ -25,7 +25,7 @@ collects feedback, and applies a configurable learning method to improve the ada
 each update.
 
 <p align="center">
-  <img src="assets/harness-adapter.gif" alt="Model and harness adapters train from task feedback, progressing from V0 to V3 while the base agent stays frozen" width="720">
+  <img src="assets/harness-adapter.gif" alt="An agent meets a new scenario with a poor fit; the agent is frozen, a harness adapter is added, and task feedback trains it from V0 to V5 until the fit is better" width="720">
 </p>
 
 ## News
