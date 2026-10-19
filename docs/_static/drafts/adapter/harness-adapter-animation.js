@@ -16,6 +16,12 @@
       byId(`${name}-flow`).innerHTML = window.AdapterArrowStyles.render(arrow, 436, 602, 82, `main-${name}`);
     });
   }
+  // ?score=chart|number|bar|columns|tally|none: how the scenario shows the fit improving (a draft choice)
+  const score = new URLSearchParams(location.search).get('score') || 'chart';
+  const chart = byId('score-chart'), bar = byId('score-bar'), number = byId('score-number');
+  const dots = [...chart.querySelectorAll('.score-dot')], line = chart.querySelector('.score-line');
+  const columns = [...byId('score-columns').querySelectorAll('.score-column')], tasks = [...byId('score-tally').querySelectorAll('.score-task')];
+  if (['chart', 'bar', 'columns', 'tally'].includes(score)) ['harness-limited', 'harness-better'].forEach(id => byId(id).setAttribute('y', 128));
   const subtitleTimes = [.1, 1.6, 2.8];
   const rows = ['harness'].map((name, i) => ({
     name, adapter: byId(`${name}-adapter`),
@@ -50,6 +56,26 @@
       alpha(row.limited, 1 - fit);
       alpha(row.better, fit);
       row.scenarioBox.style.stroke = stateColor;
+      const shown = fade(time, row.adapterAt, .4), last = row.versions.length - 1, step = row.trainFor / last;
+      alpha(chart, score === 'chart' ? shown : 0);
+      alpha(bar, score === 'bar' ? shown : 0);
+      alpha(number, score === 'number' ? 1 : 0);
+      alpha(byId('score-columns'), score === 'columns' ? shown : 0);
+      alpha(byId('score-tally'), score === 'tally' ? shown : 0);
+      if (score === 'number') {
+        alpha(row.limited, 0);
+        alpha(row.better, 0);
+        number.textContent = `Fit ${Math.round(32 + 54 * progress)}%`;
+        number.style.fill = stateColor;
+      }
+      dots.forEach((dot, i) => { alpha(dot, i === 0 ? 1 : fade(time, row.trainAt + i * step, .08)); dot.style.fill = stateColor; });
+      line.style.strokeDashoffset = (last - progress * last).toFixed(3);
+      line.style.stroke = stateColor;
+      byId('score-fill').setAttribute('width', (160 * progress).toFixed(1));
+      byId('score-fill').style.fill = stateColor;
+      columns.forEach((column, i) => { alpha(column, i === 0 ? 1 : fade(time, row.trainAt + i * step, .08)); column.style.fill = stateColor; });
+      const passed = Math.round(3 + 6 * progress);
+      tasks.forEach((task, i) => task.classList.toggle('passed', i < passed));
     });
     subtitleTimes.forEach((at, i) => { byId(`subtitle-${i + 1}`).style.opacity = fade(time, at, .9).toFixed(3); });
     timeline.value = time.toFixed(2);
