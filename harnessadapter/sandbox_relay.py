@@ -152,6 +152,12 @@ def main(argv: list[str] | None = None) -> None:
     # The command keeps the descriptors it was started with (a worker's result pipe); the relay's own sockets are
     # created non-inheritable, so nothing of the relay leaks into it.
     proc = subprocess.Popen(command, close_fds=False)
+    # The relay's own copy of a result pipe (a worker's) closes now: only the command holds it.
+    if os.environ.get("HA_RESULT_FD", "").isdigit():
+        try:
+            os.close(int(os.environ["HA_RESULT_FD"]))
+        except OSError:
+            pass
     try:
         raise SystemExit(proc.wait())
     except KeyboardInterrupt:

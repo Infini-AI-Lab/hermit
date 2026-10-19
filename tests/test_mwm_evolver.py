@@ -138,7 +138,8 @@ def make(tmp: Path, monkeypatch, steps: int = 2, deployment_param: bool = False)
                                  "tools": [{"name": "echo", "description": "Echo a text.", "entrypoint": "echo.py:echo",
                                             "input_schema": {"type": "object", "properties": {"text": {"type": "string"}}},
                                             "output_schema": {"type": "object"}}]},
-              "sandbox": {"enabled": bool(shutil.which("bwrap")), "network": "none"},
+              "sandbox": {"enabled": bool(shutil.which("bwrap")), "network": "none",
+                          "profiles": {"rollout": {"write": [str(tmp / "taskdir")]}}},   # the host's task directory
               "trainer": {"run_name": "mwm-test", "output_dir": "runs", "epochs": 1, "call_timeout_min": 10}}
     path = tmp / "run.yaml"
     path.write_text(yaml.safe_dump(config))

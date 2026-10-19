@@ -40,9 +40,20 @@ def _run(job: dict) -> dict:
     raise ValueError(f"unknown job kind: {job.get('kind')!r}")
 
 
+def _not_dumpable() -> None:
+    """Make /proc/<this process> unreadable to the programs the agent starts: through /proc/<pid>/fd they could
+    otherwise open the result pipe this process holds."""
+    try:
+        import ctypes
+        ctypes.CDLL(None, use_errno=True).prctl(4, 0, 0, 0, 0)      # PR_SET_DUMPABLE, 0
+    except Exception:
+        pass
+
+
 def main() -> None:
     fd = int(os.environ.pop("HA_RESULT_FD"))
     os.set_inheritable(fd, False)
+    _not_dumpable()
     with os.fdopen(fd, "w") as result:
         try:
             payload = _run(json.loads(sys.stdin.read()))

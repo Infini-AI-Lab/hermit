@@ -113,16 +113,22 @@ What the preset keeps from the agent is the run's secrets:
 - read-only: the task's project (the deepest directory holding the config, the data, the task info, the judge and
   the agent; an example's `<method>/` config and its `../utils/`), the whole Python environment, the adapter under
   test, `sandbox.read` and `profiles.rollout.read`; a granted directory holding a virtual environment (an external
-  benchmark's `.venv`) comes with the Python installation that environment was made from;
-- read-write: the agent's own code directory (real agents keep logs beside their code), a work directory per call
-  (its HOME, logs and workspaces) and `profiles.rollout.write`;
-- covered, wherever they fall in the above: the task, split and judge files read as empty; the runs output
-  directory, the tree directory and the agent's earlier logs are empty; and `profiles.rollout.mask` (a judge's
-  answers kept beside the task);
+  benchmark's `.venv`) comes with the Python installation that environment was made from. "Every package" means the
+  environment's site directories and what their `.pth` files add, not the directory a program was started from;
+- read-write: only `.logs` beside the agent's own code (examples/officeqa_paper keeps its logs there), a work
+  directory per call (its HOME, logs and workspaces) and `profiles.rollout.write`; the agent's code, the config and
+  the task's helpers are read-only, so an agent cannot change what later calls run;
+- covered, wherever they fall in the above: the task, split and judge files read as empty; every `runs` and `.logs`
+  directory in the project (this run's and the other methods' beside it, whose judge feedback can carry answers), the
+  tree directory, and `profiles.rollout.mask` (a judge's answers kept beside the task) are empty;
 - environment: inherited, unless `profiles.rollout.env` lists the variables (`sandbox.env` is the learner's);
 - network: open, unless `profiles.rollout.network: isolated`, which allows the agent's bound model endpoint (a
   `127.0.0.1` endpoint is forwarded) and the role's `allow` through its own proxy;
 - a CLI agent's login is copied into its own `CODEX_HOME` or `CLAUDE_CONFIG_DIR`.
+
+Every sandbox has its own process namespace: the host's processes, their environment and their files are not
+reachable through `/proc`. `agent.timeout_min` stops a task call that runs longer and records it as an error. The
+agent is never imported in the framework's process while its role is sandboxed.
 
 `eval` and `check` take `profiles.rollout` unless they have one of their own. A profile path may name an environment
 variable (`$SLB_WORKDIR`, set by a launcher); an unset one is an error. The result comes back on a pipe only the worker
@@ -132,7 +138,9 @@ GPU, a docker socket) gets it through the profile's `read` or `write`, or runs u
 `prepare.py` makes) and not the answers beside it, officeqa_paper covers `.private/`, clbench grants its checkout
 and task directory from the launcher's variables.
 
-The `learner` and `tool` roles are strict: `sandbox.network`, `sandbox.env` and the framework's own packages.
+The `learner` and `tool` roles are strict: `sandbox.network`, `sandbox.env` and the framework's own packages. A
+declared tool that needs more says so in `profiles.tool` (examples/clbench_database/mwm's `sql` tool reads the
+registered database and writes the task directory).
 
 | Setting | Effect |
 |---|---|

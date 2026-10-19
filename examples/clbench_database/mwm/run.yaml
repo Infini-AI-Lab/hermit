@@ -38,6 +38,10 @@ sandbox:
                                    # variable is always passed
   profiles:                        # the agent's sandbox (rollout; eval and check take it too); launch.sh sets both
     rollout: {read: [$MWM_CLBENCH], write: [$MWM_TASK_WORKDIR]}   # CL-Bench and its .venv; the task's directory
+    tool:                          # the learner's `sql` tool: the registered database (in CL-Bench), current_db and its log
+      read: [$MWM_CLBENCH]
+      write: [$MWM_TASK_WORKDIR]
+      env: [MW_TOOLSRV, MWM_TASK_WORKDIR]
 trainer:
   run_name: null                   # launch.sh: <tag>-o<i>
   output_dir: runs

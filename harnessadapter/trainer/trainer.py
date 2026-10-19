@@ -37,7 +37,6 @@ from harnessadapter.llm import ChatClient
 from harnessadapter.isolate import ToolRunner, agent_pipeline, profile
 from harnessadapter.sandbox import AllowlistProxy, Sandbox, network_mode
 from harnessadapter.spec import check_spec, repair
-from harnessadapter.agents.base import load_agent
 from harnessadapter.task import TaskData, load_callable
 from harnessadapter.tools import FunctionTool, ToolServer, assemble
 from harnessadapter.trainer import card
@@ -132,7 +131,7 @@ class Trainer:
         self.branch = self.run_name
         self.data = TaskData(config.path(d["data"]["tasks"]), config.path(d["data"]["train"]),
                              config.path(d["data"]["val"]), config.path(d["data"]["test"]))
-        self.pipeline = load_agent(d["agent"]["name"], d["agent"].get("params"), config.base).run
+        self.pipeline = None             # set when the run starts: the agent runs in its sandbox, never imported here
         self.judge = load_callable(f"{d['judge']['path']}:{d['judge']['name']}", config.base)
         self.spec = find(d["evolver"]["name"], config.base)
         self.evolver, self.params = instantiate(self.spec, d["evolver"]["params"],

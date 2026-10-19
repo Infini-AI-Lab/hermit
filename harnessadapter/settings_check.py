@@ -89,7 +89,10 @@ def run_check(config: Config, *, probe: bool = True, log=print) -> bool:
     except Exception as exc:
         problems.append(f"data: {exc}")
     try:
-        pipeline = load_agent(d["agent"]["name"], d["agent"].get("params"), config.base).run
+        # A sandboxed agent is loaded only inside its sandbox (the probe below); importing it here would run the
+        # task's code in this process.
+        sandboxed = profile(d["sandbox"], "check")["enabled"]
+        pipeline = True if sandboxed else load_agent(d["agent"]["name"], d["agent"].get("params"), config.base).run
         judge = load_callable(f"{d['judge']['path']}:{d['judge']['name']}", config.base)
     except Exception as exc:
         problems.append(f"agent/judge: {exc}")

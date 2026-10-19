@@ -175,4 +175,4 @@ def test_load_agent_builtin_class_function_and_alias(tmp_path):
         "data: {tasks: tasks.jsonl, train: train.txt}\npipeline: {run: 'agent.py:plain', concurrency: 2, params: {x: 1}}\n"
         "judge: {path: judge.py}\ntemplate: prompt-only@1.0\nevolver: {name: prompt_only}\n")
     cfg = Config.load(tmp_path / "run.yaml", [])
-    assert cfg["agent"] == {"name": "agent.py:plain", "concurrency": 2, "params": {"x": 1}}
+    assert cfg["agent"] == {"name": "agent.py:plain", "concurrency": 2, "timeout_min": None, "params": {"x": 1}}

@@ -34,6 +34,7 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
 from urllib.parse import urlparse
 import uuid
 
@@ -132,16 +133,39 @@ def project_root(config) -> list[Path]:
     return [common]
 
 
-def _agent_code(name: str, base: Path) -> list[Path]:
-    """The directory of a task's own agent (file.py:Class or module:Class); a built-in agent is in the package."""
+SKIP_WALK = {".git", ".venv", "node_modules", "__pycache__"}
+
+
+def project_records(roots: list[Path], config, keep=()) -> list[Path]:
+    """Every run-record directory in the task's project, besides this run's: the `runs` (or this config's output
+    directory's name) and `.logs` of the other methods beside it, whose judge feedback can carry the answers.
+    `keep` are directories the agent writes itself (its own logs)."""
+    names = {"runs", ".logs", Path(str(config.data["trainer"].get("output_dir") or "runs")).name}
+    keep = {Path(k).resolve() for k in keep}
+    out = []
+    for root in roots:
+        for directory, children, _ in os.walk(root):
+            descend = []
+            for child in children:
+                path = Path(directory) / child
+                if child in names and path.resolve() not in keep:
+                    out.append(path)
+                elif child not in SKIP_WALK and not (path.is_symlink()):
+                    descend.append(child)
+            children[:] = descend
+    return out
+
+
+def _agent_logs(name: str, base: Path) -> list[Path]:
+    """The `.logs` directory beside a task's own agent file (file.py:Class), the one place there it may write: real
+    agents keep their logs there (examples/officeqa_paper). The code itself stays read-only, or an agent could
+    rewrite what every later call, and the host, runs. A module agent and a built-in one get nothing."""
     target = str(name).rpartition(":")[0]
-    if not target:
+    if not target.endswith(".py"):
         return []
-    if target.endswith(".py"):
-        return [(Path(base) / target).resolve().parent]
-    import importlib.util
-    spec = importlib.util.find_spec(target)
-    return [Path(spec.origin).resolve().parent] if spec and spec.origin else []
+    logs = (Path(base) / target).resolve().parent / ".logs"
+    logs.mkdir(exist_ok=True)
+    return [logs]
 
 
 def _model_access(data: dict) -> tuple[list[str], list[str], list[int]]:
@@ -202,8 +226,9 @@ def _framework_env(extra: dict | None = None) -> dict:
 
 
 def _run_worker(box: Sandbox, job: dict, work: Path, *, home: Path, readable=(), writable=(), env=None,
-                keep=(), forward=()) -> dict:
-    """Run worker.py in the sandbox with `job`; return its payload, or raise with what it left behind."""
+                keep=(), forward=(), timeout: float | None = None) -> dict:
+    """Run worker.py in the sandbox with `job`; return its payload, or raise with what it left behind. After
+    `timeout` seconds the sandbox is stopped (everything in it goes with it: its own process namespace)."""
     read_end, write_end = os.pipe()
     env = dict(env or _framework_env())
     env["HA_RESULT_FD"] = str(write_end)
@@ -221,8 +246,22 @@ def _run_worker(box: Sandbox, job: dict, work: Path, *, home: Path, readable=(),
         proc.stdin.close()
     except BrokenPipeError:
         pass                                             # it ended before reading: the exit code tells why
-    with os.fdopen(read_end, "r") as result:
-        data = result.read()
+    # Read on a thread: a result larger than the pipe's buffer must drain while the worker writes it.
+    received: list[str] = []
+
+    def read():
+        with os.fdopen(read_end, "r") as result:
+            received.append(result.read())
+    reader = threading.Thread(target=read, daemon=True)
+    reader.start()
+    reader.join(timeout)
+    if reader.is_alive():
+        proc.kill()
+        proc.wait()
+        reader.join(10)
+        raise TimeoutError(f"the sandboxed {job['kind']} ran longer than {timeout / 60:.1f} min and was stopped; "
+                           f"log {log}")
+    data = received[0] if received else ""
     code = proc.wait()
     if not data:
         tail = log.read_text(errors="replace")[-1500:] if log.exists() else ""
@@ -248,12 +287,15 @@ class SandboxedAgent:
         allow, self.keys, self.forward = _model_access(d)
         self.work_root = Path(work_root) if work_root else config.path(self.params.get("logs", ".logs")) / role
         self.cli = self._cli_kind()
-        # The agent's own directory is writable: agents keep logs beside their code (examples/officeqa_paper,
-        # servelearnbench), and those logs become learning material. The masks go over it read-only, so writing
-        # there cannot uncover the data, the judge or the runs.
-        self.box = RoleSandbox(config, role, records=records, readable=project_root(config),
-                               writable=_agent_code(self.name, self.base),
-                               allow=allow, env_keys=self.keys, masked=run_secrets(config),
+        self.timeout = float(agent["timeout_min"]) * 60 if agent.get("timeout_min") else None
+        # Only the logs beside the agent's code are writable (examples/officeqa_paper keeps them there); the code,
+        # the config and the task's helpers are read-only. Every run record in the project is covered, this run's
+        # and the other methods' beside it.
+        project, logs = project_root(config), _agent_logs(self.name, self.base)
+        self.box = RoleSandbox(config, role, records=records, readable=project, writable=logs,
+                               allow=allow, env_keys=self.keys,
+                               masked=[m for m in [*run_secrets(config), *project_records(project, config, keep=logs)]
+                                       if m.resolve() not in {p.resolve() for p in logs}],
                                probe_absent=[Path.home() / ".ssh", Path.home() / ".bashrc"])
 
     def _cli_kind(self) -> str | None:
@@ -282,8 +324,12 @@ class SandboxedAgent:
             keep.append(var)
         job = {"kind": "agent", "name": self.name, "params": params, "base": str(self.base), "task": task,
                "adapter": str(adapter) if adapter else None}
-        payload = _run_worker(self.box.sandbox, job, work, home=home, readable=[adapter] if adapter else [],
-                              env=env, keep=keep, forward=self.forward)
+        try:
+            payload = _run_worker(self.box.sandbox, job, work, home=home, readable=[adapter] if adapter else [],
+                                  env=env, keep=keep, forward=self.forward, timeout=self.timeout)
+        finally:
+            if self.cli:                                 # the login copy does not outlive the call
+                (home / CLI_HOMES[self.cli][0] / CLI_HOMES[self.cli][2]).unlink(missing_ok=True)
         rec = payload["output"]
         return RunOutput(output=rec.get("output"), log=Path(rec["log"]) if rec.get("log") else None,
                          cost_usd=rec.get("cost_usd"), wall_s=rec.get("wall_s") or 0.0, api_speed=rec.get("api_speed"),
@@ -320,10 +366,12 @@ class ToolRunner:
         adapter, root = bound.get("_adapter"), bound.get("_root")
         job = {"kind": "tool", "entrypoint": entrypoint, "base": str(base), "arguments": arguments,
                "bound": {k: str(v) for k, v in bound.items()}}
-        payload = _run_worker(self.box.sandbox, job, work, home=home,
-                              readable=[p for p in (Path(base), root) if p is not None],
-                              writable=[adapter] if adapter is not None else [])
-        shutil.rmtree(work, ignore_errors=True)
+        try:
+            payload = _run_worker(self.box.sandbox, job, work, home=home,
+                                  readable=[p for p in (Path(base), root) if p is not None],
+                                  writable=[adapter] if adapter is not None else [])
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
         return payload["result"]
 
     def close(self) -> None:

@@ -165,11 +165,34 @@ def _python_paths(packages: list[str]) -> list[Path]:
     files (not its site-packages as a whole), and the needed distributions."""
     out = [Path(sys.base_prefix), Path(sys.executable).resolve().parent.parent, *_venv_paths()]
     if "*" in packages:
-        # Every installed package: what this Python imports from, besides the framework's checkout (its package
-        # is bound by itself) and the working directory.
-        out += [Path(p) for p in sys.path if p and os.path.isdir(p) and Path(p).resolve() != FRAMEWORK]
+        out += _installed_paths()
         packages = [p for p in packages if p != "*"]
     return out + distribution_paths(package_closure(["harnessadapter", *packages]))
+
+
+def _installed_paths() -> list[Path]:
+    """Every installed package: the environment's site directories and what their .pth files add (an editable
+    install's source). Not the rest of sys.path: the working directory a program was started from (`python -m`
+    puts it first) or PYTHONPATH can be the home or a directory of runs. The framework's checkout is excluded too
+    (its package is bound by itself), and so is any directory that holds the home."""
+    import site
+    sites = [Path(p) for p in [*site.getsitepackages(), site.getusersitepackages()] if os.path.isdir(p)]
+    out = list(sites)
+    for directory in sites:
+        for pth in sorted(directory.glob("*.pth")):
+            try:
+                lines = pth.read_text().splitlines()
+            except OSError:
+                continue
+            for line in lines:
+                line = line.strip()
+                if not line or line.startswith(("#", "import ", "import\t")):
+                    continue
+                p = (directory / line).resolve() if not os.path.isabs(line) else Path(line).resolve()
+                if p.is_dir():
+                    out.append(p)
+    home = Path.home().resolve()
+    return [p for p in out if p.resolve() != FRAMEWORK and not home.is_relative_to(p.resolve())]
 
 
 class _Bridges:
@@ -270,6 +293,7 @@ class Sandbox:
             raise ValueError("sandbox.audit must be null or files")
         self._bridges: _Bridges | None = None
         self._empty: str | None = None
+        self._setup = threading.Lock()                   # concurrent first calls (an agent's concurrency) share one
         # Number records after the ones already there: a resumed run builds a new Sandbox in the same run directory.
         taken = [int(m.group(1)) for f in (self.record_dir.glob(f"{self.role}-*.json") if self.record_dir else [])
                  if (m := re.fullmatch(rf"{re.escape(self.role)}-(\d+)\.json", f.name))]
@@ -327,7 +351,10 @@ class Sandbox:
         if found:      # run the program by its real path: PATH entries outside the sandbox do not exist inside
             real = Path(found).resolve()     # ... except this Python, which must keep its environment's path
             command = [sys.executable if real == Path(sys.executable).resolve() else str(real), *command[1:]]
-        args = ["bwrap", "--die-with-parent", "--new-session", "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp",
+        # A process namespace of its own: the host's processes (their environment, their open files, their root
+        # through /proc/<pid>/root) are not there to read or signal.
+        args = ["bwrap", "--die-with-parent", "--new-session", "--unshare-pid", "--dev", "/dev", "--proc", "/proc",
+                "--tmpfs", "/tmp",
                 "--ro-bind", "/usr", "/usr"]
         for link in ("/lib", "/lib64", "/bin", "/sbin"):
             if os.path.islink(link):
@@ -357,8 +384,18 @@ class Sandbox:
                     seen.add(key)
                     out.append(name)
                     args.extend([flag, name, name])
+        # A call's own path that holds a covered path goes in before the masks, or binding it after would uncover
+        # them (a tool's task directory holding the runs); one beneath a mask goes on top, after them.
+        cover = [n for path in self.masked for n in _names(path) if os.path.exists(n)]
+
+        def holds_mask(path) -> bool:
+            return any(c == n or c.startswith(n + "/") for n in _names(path) for c in cover)
         bind(self.visible(command), "--ro-bind", ro)
+        bind([p for p in readable if holds_mask(p)], "--ro-bind", ro)
         bind(self.writable, "--bind", rw)
+        bind([p for p in writable if holds_mask(p)], "--bind", rw)
+        readable = [p for p in readable if not holds_mask(p)]
+        writable = [p for p in writable if not holds_mask(p)]
         shown = ro + rw
         # Shortest first, so a covered directory comes before anything beneath it; a path under one is already
         # hidden, and covering it again would leave a mount point behind in the empty directory.
@@ -395,8 +432,9 @@ class Sandbox:
         if self.network == "isolated" or deny:
             # The check inside: on an isolated network the network and the paths, on an open one the paths only
             # (what must be missing, and the covered secrets).
-            if self._bridges is None:
-                self._bridges = _Bridges()
+            with self._setup:
+                if self._bridges is None:
+                    self._bridges = _Bridges()
             ports = self.forwarded_ports(command, env, forward) if self.network == "isolated" else []
             record = self._record(command, {**policy, "forwarded": ports, "probe": None}, env, name=name)
             report = self._bridges.report_listener(name, lambda result: self._probe_result(record, result))
@@ -412,14 +450,15 @@ class Sandbox:
         return args + ["--", *command], env
 
     def _absent(self, bound: list[str]) -> list[str]:
-        """The probe paths that exist outside and are neither bound nor above or below a bound path."""
+        """The probe paths that exist outside and are neither bound themselves nor above a bound path. One beneath a
+        bound directory stays: it is shown by accident (a home bound whole), and the check must catch that."""
         out = []
         for path in self.probe_absent:
             p = Path(path).expanduser()
             if not p.exists():
                 continue
             p = str(p.resolve())
-            if any(p == b or p.startswith(b + "/") or b.startswith(p + "/") for b in bound):
+            if any(p == b or b.startswith(p + "/") for b in bound):
                 continue
             out.append(p)
         return out
@@ -444,12 +483,13 @@ class Sandbox:
         record.write_text(json.dumps(data, indent=1))
 
     def _empty_file(self) -> str:
-        if self._empty is None:
-            fd, name = tempfile.mkstemp(prefix="ha-sbx-empty-")
-            os.close(fd)
-            os.chmod(name, 0o444)
-            self._empty = name
-        return self._empty
+        with self._setup:
+            if self._empty is None:
+                fd, name = tempfile.mkstemp(prefix="ha-sbx-empty-")
+                os.close(fd)
+                os.chmod(name, 0o444)
+                self._empty = name
+            return self._empty
 
     def close(self):
         if self._bridges is not None:

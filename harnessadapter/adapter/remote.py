@@ -54,6 +54,7 @@ class SandboxedServer:
         self.loop = asyncio.new_event_loop()
         self._ready = threading.Event()
         self._stop: asyncio.Event | None = None
+        self._task: asyncio.Task | None = None
         self._client = None
         self._failure: BaseException | None = None
         self._thread = threading.Thread(target=self._run, name="harnessadapter-session", daemon=True)
@@ -74,6 +75,7 @@ class SandboxedServer:
         from mcp.client.stdio import StdioServerParameters, stdio_client
 
         self._stop = asyncio.Event()
+        self._task = asyncio.current_task()
         params = StdioServerParameters(command=self.args[0], args=self.args[1:], env=self.env, cwd=str(self.work))
         try:
             async with stdio_client(params, errlog=self._errlog) as (reader, writer):
@@ -101,11 +103,18 @@ class SandboxedServer:
         """Run one tool in the server; await it from any event loop."""
         return await asyncio.wrap_future(asyncio.run_coroutine_threadsafe(self._call(name, arguments), self.loop))
 
+    def _halt(self) -> None:
+        if self._client is not None and self._stop is not None:
+            self._stop.set()                             # connected: leave the client and stop the server
+        elif self._task is not None:
+            self._task.cancel()                          # still starting: stop that, and the server with it
+
     def close(self) -> None:
-        if self._stop is not None and self.loop.is_running():
-            self.loop.call_soon_threadsafe(self._stop.set)
-        self._thread.join(timeout=10)
-        if not self._thread.is_alive():
-            self.loop.close()
+        if self.loop.is_running():
+            self.loop.call_soon_threadsafe(self._halt)
+        self._thread.join(timeout=15)
+        if self._thread.is_alive():                      # it did not stop: leave its files for it, report where
+            raise RuntimeError(f"the sandboxed adapter server did not stop; its files are in {self.work}")
+        self.loop.close()
         self._errlog.close()
         shutil.rmtree(self.work, ignore_errors=True)

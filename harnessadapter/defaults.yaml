@@ -11,6 +11,7 @@ task_info: null
 agent:
   name: null                  # react | codex | claude-code, or file.py:Class / file.py:function of the task's own
   concurrency: 4
+  timeout_min: null           # a sandboxed task call that runs longer is stopped and recorded as an error; null: none
   params: {}
 pipeline:                     # the older spelling of `agent`: run -> name
   run: null
