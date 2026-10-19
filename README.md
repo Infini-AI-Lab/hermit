@@ -28,6 +28,14 @@ each update.
   <img src="assets/harness-adapter.gif" alt="An agent meets a new scenario with a poor fit; the agent is frozen, a harness adapter is added, and task feedback trains it from V0 to V5 while a score curve in the scenario rises until the fit is better" width="720">
 </p>
 
+<p align="center">
+  <img src="assets/install-and-use.gif" alt="Install and use Hermit in four commands: pip install, harnessadapter train, harnessadapter deploy, harnessadapter convert to a plugin" width="100%">
+</p>
+
+<p align="center">
+  <img src="assets/training-loop.gif" alt="Customize your own training loop: initialize the adapter, run rollouts, optimize with evolver.step, check and commit, finalize" width="100%">
+</p>
+
 ## News
 
 - **[2026/10]** `harnessadapter convert` emits an adapter as an installable plugin for **Claude Code, Codex, Pi

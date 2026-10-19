@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark"><title>Commands and code · Draft</title>
+<style>
+:root { --paper: #fbfaf7; --ink: #2d2a26; --quiet: #777873; --line: #d8d7d1; --core: #e3e7f0; --outline: #2e3f66; --ice: #2e5bd9;
+        --term: #1B1D22; --term-edge: #33363E; --prompt: #C6743C; --cmd: #F5F4F0; --dot: #C6743C; --note: #9A948C; --accent: #E0905A; --desc: #8C8780; }
+@media (prefers-color-scheme: dark) { :root { --paper: #191e23; --ink: #e6e7e3; --quiet: #a2aaa9; --line: #3e474e; --core: #293241; --outline: #9daec9; --ice: #a3c0df; } }
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100svh; display: grid; place-items: center; background: var(--paper); color: var(--ink); font-family: -apple-system, system-ui, sans-serif; }
+main { width: min(1080px, calc(100% - 32px)); padding: 30px 0 24px; }
+figure { margin: 0; }
+.terminal { background: var(--term); border: 2px solid var(--term-edge); border-radius: 14px; padding: 20px 28px 16px; font-family: 'Source Code Pro', 'JetBrains Mono', 'DejaVu Sans Mono', ui-monospace, monospace; font-size: 18px; line-height: 1.5; color: var(--cmd); }
+.bar { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+.dots { display: flex; gap: 7px; }
+.dots i { width: 11px; height: 11px; border-radius: 50%; background: var(--dot); }
+.dots i:nth-child(1) { opacity: .45; } .dots i:nth-child(2) { opacity: .7; }
+.divider { width: 2px; height: 30px; background: var(--term-edge); }
+.note { color: var(--note); font-size: 15px; padding-left: 10px; }
+.pill { margin-left: auto; font-size: 14px; font-weight: 600; color: var(--accent); background: rgba(198, 116, 60, .18); border-radius: 999px; padding: 4px 12px; white-space: nowrap; }
+.steps { display: flex; flex-direction: column; counter-reset: step; }
+.step { margin: 0 -28px; padding: 7px 28px 9px; border-left: 4px solid transparent; display: grid; column-gap: 22px; align-items: baseline; }
+.step pre { margin: 0; font: inherit; white-space: pre; overflow-x: auto; min-width: 0; }
+.step .desc { margin: 0; font-family: -apple-system, system-ui, sans-serif; font-size: 17px; line-height: inherit; font-weight: 700; letter-spacing: .02em; color: var(--accent); display: flex; align-items: baseline; gap: 10px; white-space: nowrap; }
+.step .desc i { font-style: normal; font-family: 'Source Code Pro', ui-monospace, monospace; font-size: 12px; font-weight: 700; letter-spacing: 0; color: var(--term); background: var(--prompt); border-radius: 6px; padding: 2px 7px; }
+.step .desc i::before { content: counter(step, decimal-leading-zero); counter-increment: step; }
+.step.on { background: rgba(198, 116, 60, .16); border-left-color: var(--prompt); }
+.step.on .desc { color: #fff; }
+.step.later { opacity: 0; }
+.cursor { display: inline-block; width: 2px; height: 1.05em; background: var(--cmd); vertical-align: -0.15em; margin-left: 1px; }
+/* A: the label above the step, uppercase */
+.layout-above .step { grid-template-columns: minmax(0, 1fr); }
+.layout-above .step .desc { order: -1; margin-bottom: 5px; text-transform: uppercase; letter-spacing: .12em; font-size: 15px; }
+/* B: the label in a right column, on the step's first line */
+.layout-right .step { grid-template-columns: minmax(0, 1fr) 15em; }
+.layout-right .step .desc { justify-self: start; }
+/* C: the label in a left column, the code beside it */
+.layout-left .step { grid-template-columns: 15em minmax(0, 1fr); }
+.layout-left .step .desc { order: -1; }
+/* D: the whole label is one filled chip, left of the step */
+.layout-chip .step { grid-template-columns: 15.5em minmax(0, 1fr); column-gap: 16px; }
+.layout-chip .step .desc { justify-self: start; }
+.layout-chip .step .desc { order: -1; font-size: 13px; line-height: 1.3; text-transform: uppercase; letter-spacing: .1em; color: var(--term); background: var(--prompt); border-radius: 7px; padding: 4px 10px; gap: 8px; }
+.layout-chip .step .desc i { background: var(--term); color: var(--accent); padding: 1px 5px; }
+.layout-chip .step.on .desc { color: var(--term); background: #fff; }
+#cmd.layout-left, #cmd.layout-chip, #cmd.layout-right { font-size: 15.5px; }
+#cmd.layout-right .step { grid-template-columns: minmax(0, 1fr) 14em; }
+.prompt { color: var(--prompt); margin-right: 12px; }
+.cmd b { font-weight: 600; color: #fff; }
+.cmd b.t, .kw { color: var(--accent); }
+.controls { display: flex; align-items: center; gap: 10px; max-width: 420px; margin: 12px auto 0; color: var(--quiet); }
+button { font: inherit; font-size: 12px; color: inherit; border: 0; background: transparent; padding: 8px; min-height: 40px; display: inline-flex; align-items: center; gap: 5px; border-radius: 5px; cursor: pointer; }
+button:hover { background: var(--core); color: var(--ink); }
+button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+#play-icon { fill: currentColor; stroke: none; }
+#timeline { -webkit-appearance: none; appearance: none; background: transparent; flex: 1; height: 24px; cursor: pointer; }
+#timeline::-webkit-slider-runnable-track { height: 3px; border-radius: 2px; background: linear-gradient(to right, var(--outline) var(--progress, 0%), var(--line) var(--progress, 0%)); }
+#timeline::-webkit-slider-thumb { -webkit-appearance: none; width: 10px; height: 10px; margin-top: -3.5px; border-radius: 50%; background: var(--outline); }
+output { font-size: 11px; font-variant-numeric: tabular-nums; min-width: 64px; }
+.modes { display: flex; gap: 6px; justify-content: center; margin: 0 0 16px; font-size: 13px; color: var(--quiet); }
+.modes button { border: 1px solid var(--line); min-height: 34px; padding: 6px 12px; }
+.modes button.on { background: var(--outline); color: var(--paper); border-color: var(--outline); }
+.draft-note { color: var(--quiet); font-size: 11px; text-align: center; margin: 8px 0 0; }
+</style>
+</head><body><main>
+<div class="modes" role="group" aria-label="Variant">
+<button type="button" data-mode="cmd" class="on">Command line</button>
+<button type="button" data-mode="code">Code</button>
+<span style="width:14px"></span>
+<button type="button" data-style="highlight">Highlight</button>
+<button type="button" data-style="reveal" class="on">Reveal step by step</button>
+<button type="button" data-style="type">Typewriter</button>
+<span style="width:14px"></span>
+<button type="button" data-layout="above" class="on">A above</button>
+<button type="button" data-layout="right">B right</button>
+<button type="button" data-layout="left">C left</button>
+<button type="button" data-layout="chip">D chip</button>
+</div>
+<figure aria-label="What each step does: the commands, and the training loop.">
+<div id="cmd" class="terminal">
+  <div class="bar"><div class="dots"><i></i><i></i><i></i></div><div class="divider"></div><span class="note">train once, plug into any agent</span></div>
+  <div class="steps" id="cmd-steps"></div>
+</div>
+<div id="code" class="terminal" hidden>
+  <div class="bar"><div class="dots"><i></i><i></i><i></i></div><div class="divider"></div><span class="note">the training loop</span><span class="pill" id="ver">V0</span></div>
+  <div class="steps" id="code-steps"></div>
+</div>
+</figure>
+<div class="controls" aria-label="Animation controls">
+<button id="play-pause" type="button" aria-label="Pause animation"><svg id="pause-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M7 5v10M13 5v10"/></svg><svg id="play-icon" viewBox="0 0 20 20" aria-hidden="true" hidden><path d="m7 4 9 6-9 6Z"/></svg></button>
+<button id="replay" type="button" aria-label="Replay animation"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 8a6.5 6.5 0 1 1 .8 6.3M4 3v5h5"/></svg><span>Replay</span></button>
+<input id="timeline" type="range" min="0" max="10" value="0" step="0.01" aria-label="Animation position in seconds">
+<output id="time" for="timeline">0.0 / 10s</output>
+</div>
+<p class="draft-note">Concept draft · every step with its explanation; the current step is lit</p>
+<script>
+(() => {
+  'use strict';
+  const byId = id => document.getElementById(id);
+  const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  // A step: its lines, its label, how long it is shown, and (for the loop) the adapter version after it.
+  const STEPS = {
+    cmd: [
+      { lines: ['pip install -e .'], desc: 'install', secs: 2 },
+      { lines: ['harnessadapter train --config run.yaml'], desc: 'train', secs: 2.4 },
+      { lines: ['harnessadapter deploy --adapter final --workspace my-project --host codex'], desc: 'deploy', secs: 2.2 },
+      { lines: ['harnessadapter convert --adapter final --output plugin --target claude-code'], desc: 'convert to a plugin', secs: 2.4 },
+    ],
+    code: [
+      { lines: ['adapter = template'], desc: 'start', secs: 2 },
+      { lines: ['for tasks in batches(train):', '    results  = [judge(t, agent(t, adapter)) for t in tasks]'], desc: 'rollouts', secs: 2.4 },
+      { lines: ['    proposal = evolver.step(adapter, feedback(results))'], desc: 'learn', secs: 2.4 },
+      { lines: ['    if check(proposal).passed:', '        adapter = commit(proposal)'], desc: 'check, commit', secs: 2.6, ver: 1 },
+      { lines: ['adapter = evolver.finalize(adapter)'], desc: 'final adapter', secs: 2.2, ver: 1 },
+    ],
+  };
+  const cmdLine = text => `<span class="prompt">$</span><span class="cmd">${esc(text).replace(/^(harnessadapter \w+|pip install)/, '<b>$1</b>').replace(/(--target \S+|--host \S+)/, '<b class="t">$1</b>')}</span>`;
+  const codeLine = text => esc(text).replace(/\b(for|in|if|or)\b/g, '<span class="kw">$1</span>').replace(/\b(evolver\.(?:step|finalize))\b/g, '<b class="t">$1</b>');
+  const format = (mode, text) => text.split('\n').map(mode === 'cmd' ? cmdLine : codeLine).join('\n');
+  for (const [mode, steps] of Object.entries(STEPS)) {
+    byId(`${mode}-steps`).innerHTML = steps.map((s, i) =>
+      `<div class="step" data-n="${i}"><pre>${format(mode, s.lines.join('\n'))}</pre><p class="desc"><i></i><span>${esc(s.desc)}</span></p></div>`).join('');
+  }
+  const HOLD = 1.2, CHAR = .03, TYPE_HOLD = 1.1;      // seconds: the final hold, one typed character, the pause after a typed step
+  const timeline = byId('timeline'), playButton = byId('play-pause');
+  let mode = 'cmd', style = 'reveal', layout = 'above', time = 0, playing = false, previous = null, frame = null;
+  const secsOf = s => style === 'type' ? s.lines.join('\n').length * CHAR + TYPE_HOLD : s.secs;
+  const durationOf = m => STEPS[m].reduce((t, s) => t + secsOf(s), 0) + HOLD;
+  let duration = durationOf(mode);
+  function render(t) {
+    time = Math.min(duration, Math.max(0, t));
+    let at = 0, index = 0, startAt = 0;
+    STEPS[mode].forEach((s, i) => { if (time >= at) { index = i; startAt = at; } at += secsOf(s); });
+    document.querySelectorAll(`#${mode} .step`).forEach((el, i) => {
+      const step = STEPS[mode][i], raw = step.lines.join('\n'), pre = el.querySelector('pre');
+      el.classList.toggle('on', style === 'highlight' && i === index);
+      el.classList.toggle('later', style !== 'highlight' && i > index);
+      if (style === 'type' && i === index) {
+        const n = Math.min(raw.length, Math.floor((time - startAt) / CHAR));
+        pre.innerHTML = format(mode, raw.slice(0, n)) + (n < raw.length ? '<span class="cursor"></span>' : '');
+      } else if (pre.dataset.full !== '1' || style === 'type') {
+        pre.innerHTML = format(mode, raw);
+        pre.dataset.full = '1';
+      }
+    });
+    if (mode === 'code') byId('ver').textContent = `V${STEPS.code[index].ver || 0}`;
+    timeline.value = time.toFixed(2);
+    timeline.style.setProperty('--progress', `${time / duration * 100}%`);
+    byId('time').textContent = `${time.toFixed(1)} / ${duration.toFixed(0)}s`;
+  }
+  function setPlaying(value) {
+    playing = value;
+    playButton.setAttribute('aria-label', value ? 'Pause animation' : 'Play animation');
+    byId('pause-icon').toggleAttribute('hidden', !value);
+    byId('play-icon').toggleAttribute('hidden', value);
+    previous = null;
+    if (frame !== null) cancelAnimationFrame(frame);
+    frame = value ? requestAnimationFrame(tick) : null;
+  }
+  function tick(now) {
+    if (!playing) return;
+    if (previous !== null) render(time + (now - previous) / 1000);
+    previous = now;
+    if (time >= duration) setPlaying(false);
+    else frame = requestAnimationFrame(tick);
+  }
+  const restart = () => { duration = durationOf(mode); timeline.max = duration.toFixed(2); render(0); setPlaying(true); };
+  const applyLayout = () => document.querySelectorAll('.terminal').forEach(t => { t.className = `terminal layout-${layout}`; });
+  playButton.addEventListener('click', () => { if (playing) setPlaying(false); else { if (time >= duration) render(0); setPlaying(true); } });
+  byId('replay').addEventListener('click', () => { render(0); setPlaying(true); });
+  timeline.addEventListener('input', () => { setPlaying(false); render(Number(timeline.value)); });
+  const group = (attr, set) => document.querySelectorAll(`.modes button[${attr}]`).forEach(button => button.addEventListener('click', () => {
+    set(button.getAttribute(attr));
+    document.querySelectorAll(`.modes button[${attr}]`).forEach(b => b.classList.toggle('on', b === button));
+    byId('cmd').hidden = mode !== 'cmd';
+    byId('code').hidden = mode !== 'code';
+    applyLayout();
+    restart();
+  }));
+  group('data-mode', v => { mode = v; });
+  group('data-style', v => { style = v; });
+  group('data-layout', v => { layout = v; });
+  applyLayout();
+  restart();
+})();
+</script>
+</main></body></html>
