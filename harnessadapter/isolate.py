@@ -5,18 +5,25 @@ The Trainer, `eval` and `check` used to call the agent in their own process, so 
 started, ran with the framework's access: the task's answers, the run records, the network. Now every call runs in
 a worker process (`worker.py`) inside the role's sandbox, and only the worker can hand its result back.
 
-A role's sandbox, from `sandbox` and `sandbox.profiles.<role>` in the run config:
+The agent's sandbox (rollout, eval, check) is a preset for task code, which reaches far more than a learner does:
+its own helpers beside the config, the Python packages of its benchmark, the variables its launcher exported, the
+endpoints those name. Its point is the run's secrets, not a minimal world:
 
-- read-only: the config's directory, the adapter of this call, `sandbox.read` and `profiles.<role>.read`;
+- read-only: the task's project (the deepest directory holding the config, the data, the task info, the judge and
+  the agent), the whole Python environment, the adapter of this call, `sandbox.read` and `profiles.<role>.read`;
 - read-write: the agent's own directory (agents keep logs beside their code), this call's work directory (the
   built-in agents' logs and workspaces go there) and `profiles.<role>.write`;
 - covered, read-only, wherever they fall in the above: the run's secrets (the task's data and split files, the judge,
-  the runs and trees directories, the agent's log directory);
-- network: the role's own allowlist proxy for `sandbox.allow`, `profiles.<role>.allow` and the agent's model
-  endpoint (its binding); a model served on the loopback is forwarded;
+  the runs and trees directories, the agent's log directory) and `profiles.<role>.mask` (a judge's answers kept
+  beside the task, say);
+- environment: inherited (`sandbox.env` is the learner's), unless `profiles.<role>.env` lists the variables;
+- network: open, unless `profiles.<role>.network: isolated`, which gives the role its own allowlist proxy for
+  `sandbox.allow`, `profiles.<role>.allow` and the agent's model endpoint, and forwards a loopback model;
 - `profiles.<role>.enabled: false` runs that role as before, in the framework's process.
 
-`sandbox.profiles.<role>.inherit: false` drops the top-level `read`, `allow` and `packages` for that role.
+`eval` and `check` take `profiles.rollout` unless they have a profile of their own. The `tool` role (a template's or
+task's declared tools) keeps the strict defaults of the learner: `sandbox.network`, `sandbox.env` and the framework's
+own packages. `sandbox.profiles.<role>.inherit: false` drops the top-level `read`, `allow` and `packages`.
 """
 from __future__ import annotations
 
@@ -34,24 +41,36 @@ from harnessadapter.sandbox import FRAMEWORK, PACKAGE, AllowlistProxy, Sandbox, 
 from harnessadapter.task import RunOutput
 
 ROLES = ("learner", "rollout", "eval", "check", "tool")
+AGENT_ROLES = ("rollout", "eval", "check")
 WORKER = PACKAGE / "worker.py"
-PROFILE_KEYS = {"enabled", "inherit", "read", "write", "allow", "packages"}
+PROFILE_KEYS = {"enabled", "inherit", "read", "write", "allow", "packages", "mask", "network", "env"}
 CLI_HOMES = {"codex": (".codex", "CODEX_HOME", "auth.json"), "claude": (".claude", "CLAUDE_CONFIG_DIR", ".credentials.json")}
 
 
 def profile(sandbox: dict, role: str) -> dict:
     """`sandbox.profiles.<role>` with its defaults, merged with the top-level lists unless `inherit: false`."""
-    raw = dict((sandbox.get("profiles") or {}).get(role) or {})
+    profiles = sandbox.get("profiles") or {}
+    raw = profiles.get(role)
+    if raw is None and role in ("eval", "check"):
+        raw = profiles.get("rollout")                    # the same agent, so the same needs
+    raw = dict(raw or {})
     unknown = set(raw) - PROFILE_KEYS
     if unknown:
         raise ValueError(f"sandbox.profiles.{role}: unknown keys {sorted(unknown)}")
+    agent = role in AGENT_ROLES
+    network = raw.get("network", "open" if agent else sandbox.get("network", "isolated"))
+    network_mode(network)
+    env = raw["env"] if "env" in raw else (None if agent else sandbox.get("env"))
+    if env is not None and not isinstance(env, list):
+        raise ValueError(f"sandbox.profiles.{role}.env must be a list of variable names or null")
     inherit = raw.get("inherit", True)
     top = {k: list(sandbox.get(k) or []) for k in ("read", "allow", "packages")} if inherit else \
         {"read": [], "allow": [], "packages": []}
     return {"enabled": bool(sandbox.get("enabled", True)) and bool(raw.get("enabled", True)),
             "read": top["read"] + list(raw.get("read") or []), "write": list(raw.get("write") or []),
             "allow": top["allow"] + list(raw.get("allow") or []),
-            "packages": top["packages"] + list(raw.get("packages") or [])}
+            "packages": (["*"] if agent else []) + top["packages"] + list(raw.get("packages") or []),
+            "mask": list(raw.get("mask") or []), "network": network, "env": env}
 
 
 def validate(sandbox: dict) -> None:
@@ -78,6 +97,39 @@ def run_secrets(config) -> list[Path]:
     params = (d.get("agent") or {}).get("params") or {}
     out.append(config.path(params.get("logs", ".logs")))
     return [p for p in out if p is not None]
+
+
+def config_paths(config, role: str, key: str, values) -> list[Path]:
+    """Paths from the config; one naming an unset variable is an error, not a path that quietly binds nothing."""
+    out = []
+    for value in values:
+        path = config.path(value)
+        if path is not None and "$" in str(path):
+            raise ValueError(f"sandbox.profiles.{role}.{key}: {value!r} names an unset environment variable")
+        if path is not None:
+            out.append(path)
+    return out
+
+
+def project_root(config) -> list[Path]:
+    """The task's project: the deepest directory holding the config and every path it names for the task (data,
+    task info, judge, agent). An example keeps its config in a method's directory and its task in ../utils. When
+    that directory would be the filesystem's root or the home, each path's own directory is given instead."""
+    d = config.data
+    names = [*(d["data"].get(k) for k in ("tasks", "train", "val", "test")), d.get("task_info"),
+             (d.get("judge") or {}).get("path")]
+    agent = str((d.get("agent") or {}).get("name") or "").rpartition(":")[0]
+    if agent.endswith(".py"):
+        names.append(agent)
+    paths = [Path(config.base).resolve()]
+    for name in names:
+        p = config.path(name)
+        if p is not None and p.exists():
+            paths.append(p.resolve())
+    common = Path(os.path.commonpath([str(p) for p in paths]))
+    if common == Path("/") or common == Path.home().resolve() or len(common.parts) < 3:
+        return sorted({p if p.is_dir() else p.parent for p in paths})
+    return [common]
 
 
 def _agent_code(name: str, base: Path) -> list[Path]:
@@ -121,19 +173,20 @@ class RoleSandbox:
         s = d["sandbox"]
         prof = profile(s, role)
         self.role, self.enabled = role, prof["enabled"]
-        network, wants_proxy = network_mode(s["network"])
+        network, wants_proxy = network_mode(prof["network"])
         allow = [*prof["allow"], *allow]
-        env_allow = s.get("env")
+        env_allow = prof["env"]
         if env_allow is not None:
             env_allow = [*env_allow, *[k for k in env_keys if k not in env_allow]]
         self.proxy = AllowlistProxy(allow, log=records / f"network-{role}.jsonl" if records else None) \
             if (self.enabled and network == "isolated" and wants_proxy and allow) else None
-        self.sandbox = Sandbox(enabled=self.enabled, network=s["network"], allow=allow,
-                               read=[config.path(p) for p in prof["read"]], readable=list(readable),
-                               writable=[*writable, *[config.path(p) for p in prof["write"]]],
+        self.sandbox = Sandbox(enabled=self.enabled, network=prof["network"], allow=allow,
+                               read=config_paths(config, role, "read", prof["read"]), readable=list(readable),
+                               writable=[*writable, *config_paths(config, role, "write", prof["write"])],
                                proxy_url=self.proxy.url if self.proxy else None, env_allow=env_allow,
                                enforce=s.get("enforce", "required"), packages=prof["packages"], record_dir=records,
-                               probe_absent=list(probe_absent), masked=list(masked), role=role,
+                               probe_absent=list(probe_absent),
+                               masked=[*masked, *config_paths(config, role, "mask", prof["mask"])], role=role,
                                audit=s.get("audit") if records else None)
 
     def close(self) -> None:
@@ -198,7 +251,7 @@ class SandboxedAgent:
         # The agent's own directory is writable: agents keep logs beside their code (examples/officeqa_paper,
         # servelearnbench), and those logs become learning material. The masks go over it read-only, so writing
         # there cannot uncover the data, the judge or the runs.
-        self.box = RoleSandbox(config, role, records=records, readable=[self.base],
+        self.box = RoleSandbox(config, role, records=records, readable=project_root(config),
                                writable=_agent_code(self.name, self.base),
                                allow=allow, env_keys=self.keys, masked=run_secrets(config),
                                probe_absent=[Path.home() / ".ssh", Path.home() / ".bashrc"])

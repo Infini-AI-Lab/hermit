@@ -40,6 +40,10 @@ sandbox:
   allow: []                  # the Evolver's own model endpoint is always reachable
   read: []
   env: []                    # the Evolver's model key variable is always passed; nothing else is
+  profiles:                  # the agent's sandbox (rollout; eval and check take it too)
+    rollout:
+      read: [../utils/documents]   # the source documents (prepare.py links them)
+      mask: [../utils/.private]    # the judge's answers, beside the task
 trainer:
   run_name: smoke-skillopt
   output_dir: runs

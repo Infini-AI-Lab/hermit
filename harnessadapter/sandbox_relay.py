@@ -75,11 +75,12 @@ def listen_forward(port: int, sock_path: str) -> bool:
     return True
 
 
-def probe(ports: list[int], deny: list[str] = (), keep: list[str] = ()) -> dict:
+def probe(ports: list[int], deny: list[str] = (), keep: list[str] = (), open_network: bool = False) -> dict:
     """The isolation as seen from inside: outside TCP blocked, forwarded ports open, denied paths absent or covered.
-    `keep` are the paths this command mounted on top of a covered directory: they are all it may hold."""
+    `keep` are the paths this command mounted on top of a covered directory: they are all it may hold. On an open
+    network only the paths are checked."""
     outside = {}
-    for host, port in OUTSIDE:
+    for host, port in ([] if open_network else OUTSIDE):
         try:
             socket.create_connection((host, port), timeout=3).close()
             outside[f"{host}:{port}"] = "reachable"
@@ -134,13 +135,14 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--deny", action="append", default=[])
     parser.add_argument("--keep", action="append", default=[])
     parser.add_argument("--report")
+    parser.add_argument("--open-network", action="store_true")
     args = parser.parse_args(argv[:split])
     ports = []
     for item in args.forward:
         port, _, sock_path = item.partition("=")
         listen_forward(int(port), sock_path)
         ports.append(int(port))
-    result = probe(ports, args.deny, args.keep)
+    result = probe(ports, args.deny, args.keep, open_network=args.open_network)
     if args.report:
         _report(args.report, result)
     if not result["passed"]:

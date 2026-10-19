@@ -76,6 +76,11 @@ for name, ids in splits.items():
 (HERE / "splits" / "smoke_test.txt").write_text("\n".join(splits["test"][:4]) + "\n")
 (HERE / "data.json").write_text(json.dumps({"docs": str(docs), "answers": str(private / "answers.jsonl"),
                                              "csv": str(args.csv.resolve()), "drifted_from_split": drifted}, indent=1))
+# The documents, linked beside the task: the configs grant the agent's sandbox this link (and cover .private/).
+link = HERE / "documents"
+if link.is_symlink() or link.exists():
+    link.unlink()
+link.symlink_to(docs, target_is_directory=True)
 
 # SkillOpt's starting skill for OfficeQA, as a prompt-only adapter (start_from in the configs).
 import harnessadapter

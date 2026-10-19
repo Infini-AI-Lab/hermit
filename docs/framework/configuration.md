@@ -106,16 +106,33 @@ it), the `harnessadapter` package (not the checkout around it), the learner prog
 directory, the granted accesses and `sandbox.read`. Read-write: the adapter, state, scratch and output directories.
 The task's data, other runs and the user's home are not there at all.
 
-A rollout worker sees the run's directory read-only, the adapter under test, and a work directory of its own (its
-HOME, logs and workspaces). The agent's own code directory is writable, because real agents keep logs beside their
-code. The run's secrets inside the visible directory are covered: the task, split and judge files read as empty, and
-the runs output directory, the tree directory and the agent's other logs are empty directories. The agent reaches its
-model at the bound `base_url` (a `127.0.0.1` endpoint is forwarded, any other host goes through the allowlist proxy),
-with the key variable passed on; a CLI agent's login is copied into its own `CODEX_HOME` or `CLAUDE_CONFIG_DIR`. The
-result comes back on a pipe that only the worker can write, so nothing the agent starts can report a result.
+The agent's roles (`rollout`, `eval`, `check`) use a preset for task code, which needs far more than a learner: its
+helpers beside the config, its benchmark's packages, the variables its launcher exported, the endpoints those name.
+What the preset keeps from the agent is the run's secrets:
 
-A pipeline that needs what the worker does not give it (a GPU, a docker socket, a path elsewhere) gets it through
-`sandbox.profiles.<role>.read` or `.write`, or runs unconfined with `profiles.<role>.enabled: false`.
+- read-only: the task's project (the deepest directory holding the config, the data, the task info, the judge and
+  the agent; an example's `<method>/` config and its `../utils/`), the whole Python environment, the adapter under
+  test, `sandbox.read` and `profiles.rollout.read`; a granted directory holding a virtual environment (an external
+  benchmark's `.venv`) comes with the Python installation that environment was made from;
+- read-write: the agent's own code directory (real agents keep logs beside their code), a work directory per call
+  (its HOME, logs and workspaces) and `profiles.rollout.write`;
+- covered, wherever they fall in the above: the task, split and judge files read as empty; the runs output
+  directory, the tree directory and the agent's earlier logs are empty; and `profiles.rollout.mask` (a judge's
+  answers kept beside the task);
+- environment: inherited, unless `profiles.rollout.env` lists the variables (`sandbox.env` is the learner's);
+- network: open, unless `profiles.rollout.network: isolated`, which allows the agent's bound model endpoint (a
+  `127.0.0.1` endpoint is forwarded) and the role's `allow` through its own proxy;
+- a CLI agent's login is copied into its own `CODEX_HOME` or `CLAUDE_CONFIG_DIR`.
+
+`eval` and `check` take `profiles.rollout` unless they have one of their own. A profile path may name an environment
+variable (`$SLB_WORKDIR`, set by a launcher); an unset one is an error. The result comes back on a pipe only the worker
+can write, so nothing the agent starts can report a result. A pipeline that needs what the preset does not give (a
+GPU, a docker socket) gets it through the profile's `read` or `write`, or runs unconfined with
+`profiles.rollout.enabled: false`. The examples' configs show each case: officeqa grants its prepared corpus (a link
+`prepare.py` makes) and not the answers beside it, officeqa_paper covers `.private/`, clbench grants its checkout
+and task directory from the launcher's variables.
+
+The `learner` and `tool` roles are strict: `sandbox.network`, `sandbox.env` and the framework's own packages.
 
 | Setting | Effect |
 |---|---|
@@ -128,7 +145,7 @@ A pipeline that needs what the worker does not give it (a GPU, a docker socket, 
 | `sandbox.read` | Additional filesystem paths those programs may read. |
 | `sandbox.packages` | Additional Python distributions to show, by name, beside the framework's own dependencies. |
 | `sandbox.env` | Environment variables passed on, in addition to required runtime variables; null inherits the environment. |
-| `sandbox.profiles.<role>` | Per role: `enabled`, `read`, `write`, `allow`, `packages`; `inherit: false` drops the shared lists. |
+| `sandbox.profiles.<role>` | Per role: `enabled`, `read`, `write`, `mask`, `allow`, `packages`, `network`, `env`; `inherit: false` drops the shared lists. |
 | `sandbox.audit: files` | Trace every file a sandboxed process opens, with strace running outside, beside its record. |
 
 The older values still work: `network: restricted` means `isolated`, and `network: none` means `isolated` without the
@@ -139,6 +156,8 @@ environment (the run's tool endpoint, a tool gate, a model meter) and the allowl
 and relayed over a Unix socket, so a program that ignores the proxy variables has no route out. Before the learner
 starts, a check inside the sandbox confirms that an outside connection fails, that every forwarded port answers, and
 that the task's data file and the home's `.ssh` and `.bashrc` are absent; the learner does not start unless it passes.
+On an open network (the agent's default) the same check runs for the paths only: what must be absent is, and every
+covered secret is empty.
 
 Every wrapped program leaves a record, `sandbox/<role>-<n>.json` in the run's directory (`eval` writes its own beside
 its results): what was bound read-only and read-write, what was covered, which ports were forwarded, which

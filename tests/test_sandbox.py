@@ -66,6 +66,20 @@ def test_open_network_has_no_namespace_and_no_relay(tmp_path, monkeypatch):
     assert "--unshare-net" not in args and str(RELAY) not in args
 
 
+def test_open_network_still_checks_the_covered_paths(tmp_path, monkeypatch):
+    """A rollout's network is open by default, but its masks are still proven from inside."""
+    fake_bwrap(monkeypatch)
+    secret = tmp_path / "tasks.jsonl"
+    secret.write_text("x")
+    args, _ = Sandbox(network="open", readable=[tmp_path], masked=[secret]).wrap(["true"])
+    command = args[args.index("--") + 1:]
+    assert "--unshare-net" not in args and command[:2] == [sys.executable, str(RELAY)]
+    assert "--open-network" in command and "--forward" not in command
+    assert command[command.index("--deny") + 1] == str(secret.resolve())
+    from harnessadapter.sandbox_relay import probe
+    assert probe([], [], open_network=True)["outside"] == {}
+
+
 def test_older_network_values():
     assert network_mode("restricted") == ("isolated", True)
     assert network_mode("none") == ("isolated", False)
@@ -244,3 +258,18 @@ def test_file_audit_sees_what_the_sandbox_opens(tmp_path):
     finally:
         box.close()
     assert str(granted / "a.txt") in (tmp_path / "records" / "learner-1.strace").read_text()
+
+
+def test_a_granted_virtual_environment_comes_with_its_base_python(tmp_path, monkeypatch):
+    """A task's external checkout runs its own .venv, whose interpreter links to an installation elsewhere."""
+    fake_bwrap(monkeypatch)
+    base = tmp_path / "pythons" / "cpython-3.12.4"
+    (base / "bin").mkdir(parents=True)
+    alias = tmp_path / "pythons" / "cpython-3.12"                 # uv's version alias, a link to the installation
+    alias.symlink_to(base)
+    checkout = tmp_path / "clbench"
+    (checkout / ".venv").mkdir(parents=True)
+    (checkout / ".venv" / "pyvenv.cfg").write_text(f"home = {alias / 'bin'}\nversion = 3.12\n")
+    args, _ = Sandbox(network="open", read=[checkout]).wrap(["true"])
+    ro = binds(args, "--ro-bind")
+    assert str(alias) in ro and str(base.resolve()) in ro        # the interpreter links through the alias

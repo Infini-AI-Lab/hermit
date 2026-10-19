@@ -13,7 +13,7 @@ from harnessadapter.config import Config
 from harnessadapter.evolver.loader import find, instantiate, load_class
 from harnessadapter.spec import check_spec
 from harnessadapter.agents.base import load_agent
-from harnessadapter.isolate import agent_pipeline, validate as validate_profiles
+from harnessadapter.isolate import ROLES, agent_pipeline, config_paths, profile, validate as validate_profiles
 from harnessadapter.task import TaskData, load_callable
 from harnessadapter.trainer.rollout import run_one
 from harnessadapter.trainer.trainer import needs_errors, warnings_for
@@ -100,6 +100,13 @@ def run_check(config: Config, *, probe: bool = True, log=print) -> bool:
     sandbox_problems = [f"sandbox.read path does not exist: {m}" for m in missing]
     try:
         validate_profiles(d["sandbox"])
+        # A role's paths: a variable the launcher should have exported, a link prepare.py should have made.
+        for role in ROLES:
+            prof = profile(d["sandbox"], role)
+            for key in ("read", "write", "mask"):
+                for path in config_paths(config, role, key, prof[key]):
+                    if key != "write" and not path.exists():
+                        sandbox_problems.append(f"sandbox.profiles.{role}.{key} path does not exist: {path}")
     except ValueError as exc:
         sandbox_problems.append(str(exc))
     if d["sandbox"]["enabled"] and d["sandbox"].get("enforce", "required") == "required" and not shutil.which("bwrap"):

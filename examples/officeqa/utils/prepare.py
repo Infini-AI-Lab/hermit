@@ -28,4 +28,10 @@ for name, part in splits.items():
 (here / "splits" / "try_train.txt").write_text("\n".join(ids[:12]) + "\n")
 (here / "splits" / "try_test.txt").write_text("\n".join(ids[73:83]) + "\n")
 (here / "data_root.txt").write_text(str(prepared) + "\n")
+# What the agent reads, linked beside the task: the configs grant the agent's sandbox this link (prepared/agent), never
+# prepared/private, which holds the answers.
+link = here / "prepared_agent"
+if link.is_symlink() or link.exists():
+    link.unlink()
+link.symlink_to(prepared / "agent", target_is_directory=True)
 print({k: len(v) for k, v in splits.items()})

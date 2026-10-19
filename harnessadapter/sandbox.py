@@ -140,10 +140,35 @@ def _venv_paths() -> list[Path]:
     return out
 
 
+def _venv_bases(paths) -> list[Path]:
+    """The Python installations the virtual environments in `paths` (a granted directory that is one, or holds one
+    as .venv) were made from: a venv's interpreter is a link to that installation, which lies elsewhere."""
+    out = []
+    for path in paths:
+        for cfg in (Path(path) / "pyvenv.cfg", Path(path) / ".venv" / "pyvenv.cfg"):
+            try:
+                lines = cfg.read_text().splitlines()
+            except OSError:
+                continue
+            for line in lines:
+                key, _, value = line.partition("=")
+                if key.strip() == "home" and value.strip():
+                    # The installation's bin/, as written: uv names a version alias (a link to the installation)
+                    # and the venv's interpreter links through it, so both names must exist inside.
+                    home = Path(value.strip())
+                    out.append(home.parent if home.name == "bin" else home)
+    return out
+
+
 def _python_paths(packages: list[str]) -> list[Path]:
     """What the framework's Python needs: the interpreter with its standard library, the virtual environment's own
     files (not its site-packages as a whole), and the needed distributions."""
     out = [Path(sys.base_prefix), Path(sys.executable).resolve().parent.parent, *_venv_paths()]
+    if "*" in packages:
+        # Every installed package: what this Python imports from, besides the framework's checkout (its package
+        # is bound by itself) and the working directory.
+        out += [Path(p) for p in sys.path if p and os.path.isdir(p) and Path(p).resolve() != FRAMEWORK]
+        packages = [p for p in packages if p != "*"]
     return out + distribution_paths(package_closure(["harnessadapter", *packages]))
 
 
@@ -230,7 +255,7 @@ class Sandbox:
     proxy_url: str | None = None
     env_allow: list[str] | None = None                   # None: every variable passes; else only these (+ ALWAYS)
     enforce: str = "required"                            # required | best_effort
-    packages: list[str] = field(default_factory=list)    # Python distributions to show beside the framework's
+    packages: list[str] = field(default_factory=list)    # Python distributions to show beside the framework's ("*": all)
     record_dir: Path | None = None                       # where each wrapped command leaves its record
     probe_absent: list[Path] = field(default_factory=list)   # paths the isolation check must find missing
     masked: list[Path] = field(default_factory=list)     # paths inside a bound directory to cover (a run's secrets)
@@ -253,6 +278,7 @@ class Sandbox:
     def visible(self, command: list[str]) -> list[Path]:
         """Every read-only path inside the sandbox for this command (besides the system)."""
         out = [*_python_paths(self.packages), PACKAGE, *self.readable, *self.read]
+        out += _venv_bases([*self.readable, *self.read, *self.writable])
         root = _program_root(command[0]) if command else None
         if root is not None:
             out.append(root)
@@ -365,17 +391,21 @@ class Sandbox:
             trace = self.record_dir / f"{name}.strace"
             args = ["strace", "-f", "-qq", "-e", "trace=%file", "-o", str(trace), *args]
             policy["audit"] = str(trace)
-        if self.network == "isolated":
+        deny = [*self._absent(ro + rw), *masked]
+        if self.network == "isolated" or deny:
+            # The check inside: on an isolated network the network and the paths, on an open one the paths only
+            # (what must be missing, and the covered secrets).
             if self._bridges is None:
                 self._bridges = _Bridges()
-            ports = self.forwarded_ports(command, env, forward)
+            ports = self.forwarded_ports(command, env, forward) if self.network == "isolated" else []
             record = self._record(command, {**policy, "forwarded": ports, "probe": None}, env, name=name)
             report = self._bridges.report_listener(name, lambda result: self._probe_result(record, result))
             args += ["--bind", str(self._bridges.dir), str(self._bridges.dir)]
             command = [sys.executable, str(RELAY),
                        *[a for p in ports for a in ("--forward", f"{p}={self._bridges.socket_for(p)}")],
-                       *[a for p in [*self._absent(ro + rw), *masked] for a in ("--deny", p)],
+                       *[a for p in deny for a in ("--deny", p)],
                        *[a for p in own for a in ("--keep", p)],
+                       *(["--open-network"] if self.network == "open" else []),
                        "--report", str(report), "--", *command]
         else:
             self._record(command, policy, env, name=name)

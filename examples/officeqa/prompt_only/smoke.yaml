@@ -30,6 +30,8 @@ sandbox:
   allow: []                  # the Evolver's own model endpoint is always reachable
   read: []                   # an allowlist: the Evolver sees nothing of this machine beyond its workspace and accesses
   env: []                    # the Evolver's model key variable is always passed; nothing else is
+  profiles:                  # the agent's sandbox (rollout; eval and check take it too)
+    rollout: {read: [../utils/prepared_agent]}   # the corpus (prepare.py links it); the answers beside it stay out
 trainer:
   run_name: smoke
   output_dir: runs

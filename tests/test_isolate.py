@@ -12,8 +12,8 @@ import yaml
 
 import harnessadapter.sandbox as sandbox_module
 from harnessadapter.config import Config
-from harnessadapter.isolate import (SandboxedAgent, ToolRunner, _model_access, agent_pipeline, profile, run_secrets,
-                                    validate)
+from harnessadapter.isolate import (SandboxedAgent, ToolRunner, _model_access, agent_pipeline, config_paths, profile,
+                                    project_root, run_secrets, validate)
 from harnessadapter.sandbox import Sandbox
 from harnessadapter.tools import assemble
 from test_training import make_task
@@ -43,10 +43,52 @@ def test_profiles_merge_with_the_top_level_unless_told_not_to():
          "profiles": {"rollout": {"read": ["env"], "write": ["out"]}, "eval": {"inherit": False, "allow": ["b"]},
                       "check": {"enabled": False}}}
     assert profile(s, "rollout") == {"enabled": True, "read": ["shared", "env"], "write": ["out"],
-                                     "allow": ["a.example"], "packages": ["p"]}
+                                     "allow": ["a.example"], "packages": ["*", "p"], "mask": [],
+                                     "network": "open", "env": None}
     assert profile(s, "eval")["read"] == [] and profile(s, "eval")["allow"] == ["b"]
     assert profile(s, "check")["enabled"] is False and profile(s, "learner")["read"] == ["shared"]
     assert profile({**s, "enabled": False}, "rollout")["enabled"] is False     # the global switch wins
+
+
+def test_the_agent_roles_preset_and_the_strict_roles():
+    s = {"network": "isolated", "env": ["A"], "packages": [],
+         "profiles": {"rollout": {"read": ["../env"], "mask": ["../utils/.private"]}}}
+    for role in ("eval", "check"):                                # the same agent: rollout's profile
+        assert profile(s, role)["read"] == ["../env"] and profile(s, role)["mask"] == ["../utils/.private"]
+    for role in ("rollout", "eval", "check"):                     # task code: open network, its environment, all packages
+        p = profile(s, role)
+        assert p["network"] == "open" and p["env"] is None and "*" in p["packages"]
+    for role in ("learner", "tool"):                              # strict: the top-level settings
+        p = profile(s, role)
+        assert p["network"] == "isolated" and p["env"] == ["A"] and "*" not in p["packages"]
+    tight = {"profiles": {"rollout": {"network": "isolated", "env": ["SLB_WORKDIR"]}}}
+    assert profile(tight, "rollout")["network"] == "isolated" and profile(tight, "eval")["env"] == ["SLB_WORKDIR"]
+    with pytest.raises(ValueError):
+        profile({"profiles": {"rollout": {"network": "sideways"}}}, "rollout")
+
+
+def test_the_project_is_the_directory_holding_the_config_and_the_task(tmp_path):
+    """An example keeps its config in a method's directory and the task in ../utils."""
+    utils, method = tmp_path / "ex" / "utils", tmp_path / "ex" / "prompt_only"
+    (utils / "agent").mkdir(parents=True)
+    method.mkdir()
+    for f in ("tasks.jsonl", "train.txt", "judge.py", "agent/agent.py"):
+        (utils / f).write_text("")
+    (method / "run.yaml").write_text(yaml.safe_dump({
+        "data": {"tasks": "../utils/tasks.jsonl", "train": "../utils/train.txt"}, "task_info": "../utils",
+        "agent": {"name": "../utils/agent/agent.py:A"}, "judge": {"path": "../utils/judge.py"},
+        "template": "prompt-only@1.0", "evolver": {"name": "prompt_only"}}))
+    config = Config.load(method / "run.yaml", [])
+    assert project_root(config) == [(tmp_path / "ex").resolve()]
+
+
+def test_a_profile_path_naming_an_unset_variable_is_an_error(tmp_path, monkeypatch):
+    monkeypatch.delenv("HA_TEST_UNSET", raising=False)
+    config = Config.load(make_task(tmp_path, sandbox={"profiles": {"rollout": {"read": ["$HA_TEST_UNSET/x"]}}}), [])
+    with pytest.raises(ValueError, match="unset environment variable"):
+        config_paths(config, "rollout", "read", profile(config.data["sandbox"], "rollout")["read"])
+    monkeypatch.setenv("HA_TEST_UNSET", str(tmp_path))
+    assert config_paths(config, "rollout", "read", ["$HA_TEST_UNSET/x"]) == [tmp_path / "x"]
 
 
 def test_profiles_reject_unknown_roles_and_keys():
