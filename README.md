@@ -12,7 +12,7 @@
 [![Version](https://img.shields.io/badge/version-0.2.0-C6743C.svg)](pyproject.toml)
 [![Docs](https://img.shields.io/badge/docs-read-1B1D22.svg)](docs/index.md)
 
-**[Get started](docs/get-started/quickstart.md)** · **[What is an adapter?](docs/framework/what-is-a-harness-adapter.md)** · **[Tutorials](docs/tutorials/deploy-an-adapter.md)** · **[Recipes](docs/recipes/officeqa.md)** · **[Examples](examples/README.md)** · **[Commands](docs/framework/commands.md)**
+**[Get started](docs/get-started/quickstart.md)** · **[What is an adapter?](docs/framework/what-is-a-harness-adapter.md)** · **[Algorithms](#supported-algorithms)** · **[Tutorials](docs/tutorials/deploy-an-adapter.md)** · **[Recipes](docs/recipes/officeqa.md)** · **[Examples](examples/README.md)** · **[Commands](docs/framework/commands.md)**
 
 </div>
 
@@ -71,6 +71,35 @@ plugin: `ADAPTER.md`, `skills/`, `agents/` and tools behind an MCP entry, option
 The **training end** is what a learner works within: `adapter.yaml` (learnable and fixed files, the check),
 `EVOLVER.md`, and the Git tree of every version. See [What is a harness adapter?](docs/framework/what-is-a-harness-adapter.md)
 
+## Supported algorithms
+
+Learning methods plug into the same Evolver interface. The Trainer handles task execution, feedback collection,
+specification checks, versioning, and budgets; each method controls how the adapter learns.
+
+| Algorithm | `evolver.name` | What it learns | How it updates |
+|---|---|---|---|
+| [GEPA](docs/methods/gepa.md) | `gepa` | Learnable text files, such as `ADAPTER.md` | Reflects on execution feedback, tests revisions, and uses Pareto-based candidate selection. |
+| [SkillOpt](docs/methods/skillopt.md) | `skillopt` | A skill document, stored as `ADAPTER.md` by default | Merges and ranks trajectory-driven edits under a textual learning rate, with a validation gate, epoch-level slow updates, and optimizer memory. |
+| [MetaWorld Model (MWM)](docs/methods/mwm.md) | `mwm` | Environment knowledge, briefings, examples, and callable programs | A Codex learner reviews evidence after each block of episodes and maintains a persistent world model for subsequent tasks. |
+
+We also include a **prompt-rewriting baseline** (`prompt_only`) and **agent-based learners** (`codex`, `claude`).
+The baseline rewrites learnable Markdown files in one model call per step; the agent learners use Codex or Claude
+Code to inspect learning material and edit the adapter within its specification.
+
+Choose a method with `evolver.name` in the run config. Methods declare their data and environment requirements;
+GEPA and SkillOpt require validation tasks, while MWM requires a task-integrated evidence store. To add another
+algorithm, subclass `Evolver` and implement `step`; see [Custom Evolver](docs/framework/custom-evolver.md).
+
+### Planned support
+
+The following methods are planned for integration as Evolvers; they are not yet available in the framework.
+
+| Algorithm | Planned integration |
+|---|---|
+| [Harness²](https://github.com/google-research/harness2) | Propose–Probe–Compose adapter updates from execution contrasts, with a persistent library of components and improvement experience to guide future updates. |
+| [ACE — Agentic Context Engineering](https://github.com/ace-agent/ace) | Reflector–Curator updates to a structured playbook, accumulating and refining reusable strategies through incremental edits. |
+| [Continual Harness](https://github.com/sethkarten/continual-harness) | Online refinement from recent trajectory windows, updating instructions, subagent definitions, skills, and memory while preserving environment state between updates. |
+
 ## Installation
 
 ```bash
@@ -122,18 +151,6 @@ harnessadapter convert --adapter DIR --output OUT --target codex   # or claude-c
 The full walkthrough is in the [Quick Start](docs/get-started/quickstart.md).
 
 ## What's included
-
-**Evolvers** (learning methods)
-
-| `evolver.name` | Method |
-|---|---|
-| `prompt_only` | One model call per step rewrites `ADAPTER.md` from the step's results |
-| `codex` / `claude` | A Codex or Claude Code agent edits the adapter from the step's learning material |
-| `gepa` | [GEPA](https://github.com/gepa-ai/gepa): reflective text evolution with Pareto selection |
-| `skillopt` | [SkillOpt](https://github.com/microsoft/SkillOpt): a few validation-gated skill edits per step, under a learning rate |
-| `mwm` | MetaWorld Model: a learner maintains a world model of the environment after every block of episodes |
-
-To write your own, subclass `Evolver` and implement `step`; see [Custom Evolver](docs/framework/custom-evolver.md).
 
 **Adapter templates**: `prompt_only` (context only), `lean_collab` (skills, a shared lemma library and a team service
 for agents proving Lean theorems together), `mwm` (memory, briefing and callable programs behind one `wm` tool).
