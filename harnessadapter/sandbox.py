@@ -61,13 +61,55 @@ def network_mode(value: str) -> tuple[str, bool]:
     return NETWORKS[value]
 
 
-def _program_root(executable: str) -> Path | None:
-    """The installation a program lives in: its real file's directory, or the parent of a bin/ directory."""
+def program_paths(executable: str, depth: int = 2) -> list[Path]:
+    """What a program needs to start, and nothing around it: every name on its chain of links, the package its real
+    file belongs to (the parent of a bin/ directory, else the file's directory, never the home or above it), the
+    interpreter its #! line names (a node CLI runs on the node beside its link), and, for a short wrapper script,
+    the programs it names by absolute path (a ~/bin/codex that execs an nvm-installed codex)."""
+    import re
     found = shutil.which(executable)
     if not found:
-        return None
-    real = Path(found).resolve()
-    return real.parent.parent if real.parent.name == "bin" else real.parent
+        return []
+    home = Path.home().resolve()
+    out: list[Path] = []
+    seen: set[str] = set()
+
+    def system(path: Path) -> bool:
+        return str(path).startswith(("/usr/", "/bin/", "/sbin/", "/lib"))
+
+    def add(path: str, depth: int) -> None:
+        p = Path(os.path.abspath(path))
+        if str(p) in seen or system(p):
+            return
+        seen.add(str(p))
+        hops = [p]
+        while hops[-1].is_symlink() and len(hops) < 20:
+            hops.append(Path(os.path.normpath(hops[-1].parent / os.readlink(hops[-1]))))
+        real = hops[-1].resolve()
+        out.extend(hops)
+        root = real.parent.parent if real.parent.name == "bin" else real.parent
+        out.append(real if home.is_relative_to(root.resolve()) else root)
+        try:
+            text = real.read_bytes()[:8192]
+        except OSError:
+            return
+        if text.startswith(b"#!"):
+            words = text[2:].split(b"\n", 1)[0].decode(errors="replace").split()
+            if words:
+                name = words[0]
+                if name.endswith("/env"):
+                    name = next((w for w in words[1:] if not w.startswith("-")), "")
+                if name and not name.startswith("/"):
+                    beside = [h.parent / name for h in hops if (h.parent / name).exists()]
+                    name = str(beside[0]) if beside else (shutil.which(name) or "")
+                if name:
+                    add(name, depth)
+            if depth > 0 and len(text) < 8192:
+                for token in re.findall(r"(/[^\s\"'$;|&()]+)", text.decode(errors="replace")):
+                    if os.path.isfile(token) and os.access(token, os.X_OK):
+                        add(token, depth - 1)
+    add(found, depth)
+    return list(dict.fromkeys(out))
 
 
 def _canonical(name: str) -> str:
@@ -170,6 +212,29 @@ def _python_paths(packages: list[str]) -> list[Path]:
     return out + distribution_paths(package_closure(["harnessadapter", *packages]))
 
 
+def _editable_finder_paths(directory: Path, line: str) -> list[Path]:
+    """The source directories of a setuptools editable install that imports a finder (`import __editable___x_finder;
+    ...install()`): the finder module's MAPPING names them."""
+    import ast
+    import re
+    out = []
+    for module in re.findall(r"import\s+(__editable__[\w.]*finder)", line):
+        try:
+            tree = ast.parse((directory / f"{module}.py").read_text())
+        except (OSError, SyntaxError):
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign) and any(getattr(t, "id", None) == "MAPPING" for t in node.targets):
+                try:
+                    mapping = ast.literal_eval(node.value)
+                except ValueError:
+                    continue
+                for value in mapping.values():
+                    p = Path(value)
+                    out.append(p.parent if p.is_file() else p)
+    return out
+
+
 def _installed_paths() -> list[Path]:
     """Every installed package: the environment's site directories and what their .pth files add (an editable
     install's source). Not the rest of sys.path: the working directory a program was started from (`python -m`
@@ -186,7 +251,10 @@ def _installed_paths() -> list[Path]:
                 continue
             for line in lines:
                 line = line.strip()
-                if not line or line.startswith(("#", "import ", "import\t")):
+                if line.startswith(("import ", "import\t")):
+                    out += _editable_finder_paths(directory, line)
+                    continue
+                if not line or line.startswith("#"):
                     continue
                 p = (directory / line).resolve() if not os.path.isabs(line) else Path(line).resolve()
                 if p.is_dir():
@@ -303,9 +371,9 @@ class Sandbox:
         """Every read-only path inside the sandbox for this command (besides the system)."""
         out = [*_python_paths(self.packages), PACKAGE, *self.readable, *self.read]
         out += _venv_bases([*self.readable, *self.read, *self.writable])
-        root = _program_root(command[0]) if command else None
-        if root is not None:
-            out.append(root)
+        found = shutil.which(command[0]) if command else None
+        if found and Path(found).resolve() != Path(sys.executable).resolve():
+            out += program_paths(command[0])          # this Python is shown above, by its packages, not its venv
         bwrap = shutil.which("bwrap")
         if bwrap and not Path(bwrap).resolve().is_relative_to("/usr"):
             out.append(Path(bwrap).resolve())            # a nested sandbox (the mwm Evolver) needs the same binary
@@ -323,7 +391,7 @@ class Sandbox:
 
     def wrap(self, command: list[str], *, writable: list[Path] = (), env: dict | None = None,
              home: Path | None = None, keep=(), forward: list[int] = (),
-             readable: list[Path] = ()) -> tuple[list[str], dict]:
+             readable: list[Path] = (), masked: list[Path] = ()) -> tuple[list[str], dict]:
         """The command to run and its environment. `home` becomes HOME (it must be among the writable paths).
         `keep` names variables the caller set for this command itself (an agent's provider settings): they pass
         whatever sandbox.env lists. `forward` names more ports to re-create inside an isolated network.
@@ -369,13 +437,17 @@ class Sandbox:
         # Order: what is shown read-only, the role's own writable paths, the masks over both (read-only, so a
         # writable directory cannot uncover a secret inside it), then this call's readable and writable paths, which
         # may lie under a mask and are bound back on top of it.
-        seen, ro, rw, masked, own = set(), [], [], [], []
+        to_mask = [*self.masked, *masked]                  # the sandbox's own, and this call's (computed now)
+        seen, ro, rw, masked, own, aliases = set(), [], [], [], [], []
 
         def bind(paths, flag, out, fresh=False):
             for path in paths:
                 if flag == "--bind":
                     Path(path).mkdir(parents=True, exist_ok=True)
-                for name in _names(path):
+                names = _names(path)
+                if len(names) == 2:
+                    aliases.append(tuple(names))           # the same directory under two names: masks need both
+                for name in names:
                     if not os.path.exists(name) or name.startswith("/usr"):
                         continue
                     key = (flag, name)
@@ -386,7 +458,7 @@ class Sandbox:
                     args.extend([flag, name, name])
         # A call's own path that holds a covered path goes in before the masks, or binding it after would uncover
         # them (a tool's task directory holding the runs); one beneath a mask goes on top, after them.
-        cover = [n for path in self.masked for n in _names(path) if os.path.exists(n)]
+        cover = [n for path in to_mask for n in _names(path) if os.path.exists(n)]
 
         def holds_mask(path) -> bool:
             return any(c == n or c.startswith(n + "/") for n in _names(path) for c in cover)
@@ -399,7 +471,15 @@ class Sandbox:
         shown = ro + rw
         # Shortest first, so a covered directory comes before anything beneath it; a path under one is already
         # hidden, and covering it again would leave a mount point behind in the empty directory.
-        for name in sorted((n for path in self.masked for n in _names(path)), key=len):
+        # A secret is covered under every name it is shown by: through a bound directory reached by a link, the
+        # same file has a second path inside, and covering one name leaves the other.
+        names = {n for path in to_mask for n in _names(path)}
+        for n in list(names):
+            for given, real in aliases:
+                for a, b in ((real, given), (given, real)):
+                    if n == a or n.startswith(a + "/"):
+                        names.add(b + n[len(a):])
+        for name in sorted(names, key=len):
             if not os.path.exists(name) or not any(name == b or name.startswith(b + "/") for b in shown) or any(
                     name == m or name.startswith(m + "/") for m in masked):
                 continue                                  # nothing there, not shown anyway, or covered already

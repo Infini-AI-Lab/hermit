@@ -35,11 +35,28 @@ from harnessadapter.adapter.loader import Adapter, inside, load_manifest, subage
 from harnessadapter.adapter.resources import EvidenceStore, LearningMaterial
 
 
+# Set in a sandboxed agent's worker (#11): a Session made there runs the adapter's tools in a sandbox of their own.
+# The adapter is the learner's work, and its code must not run in the process that reports the task's result.
+DEFAULT_SANDBOX = None
+
+
+def _adapter_sandbox():
+    from harnessadapter.sandbox import Sandbox
+    # Inside the agent's sandbox already: this one separates the adapter's code from the agent's process (its own
+    # process namespace), with the agent's network and packages.
+    return Sandbox(role="adapter", network="open", packages=["*"], enforce="required")
+
+
 class Session:
     def __init__(self, adapter: Path | str, *, resources: dict | None = None, deployment: dict | Path | str | None = None,
                  learning_material: Path | str | None = None, evidence: Path | str | None = None,
                  audit_log: Path | str | None = None, sandbox=None):
         self._remote = None
+        if sandbox is None and DEFAULT_SANDBOX:
+            sandbox = _adapter_sandbox()
+            owned = True
+        else:
+            owned = sandbox is True
         if sandbox is not None and sandbox is not False:
             from harnessadapter.adapter.remote import SandboxedServer
             from harnessadapter.sandbox import Sandbox
@@ -50,7 +67,7 @@ class Session:
             self._root = Path(adapter).resolve()
             self._manifest = load_manifest(self._root)
             self._sandbox = Sandbox(role="session") if sandbox is True else sandbox
-            self._owns_sandbox = sandbox is True
+            self._owns_sandbox = owned
             if isinstance(deployment, (str, Path)):
                 deployment = json.loads(Path(deployment).read_text())
             self._init_audit(audit_log)

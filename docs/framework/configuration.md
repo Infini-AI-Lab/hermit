@@ -118,17 +118,27 @@ What the preset keeps from the agent is the run's secrets:
 - read-write: only `.logs` beside the agent's own code (examples/officeqa_paper keeps its logs there), a work
   directory per call (its HOME, logs and workspaces) and `profiles.rollout.write`; the agent's code, the config and
   the task's helpers are read-only, so an agent cannot change what later calls run;
-- covered, wherever they fall in the above: the task, split and judge files read as empty; every `runs` and `.logs`
-  directory in the project (this run's and the other methods' beside it, whose judge feedback can carry answers), the
-  tree directory, and `profiles.rollout.mask` (a judge's answers kept beside the task) are empty;
+- covered, wherever they fall in the above and under every name they are shown by (a directory reached through a
+  link): the task, split and judge files read as empty; every `runs` and `.logs` directory in the project and any
+  directory holding a run (this run's and the other methods' beside it, whose judge feedback can carry answers,
+  found again for each call), the other calls' work, the tree directory, and `profiles.rollout.mask` (a judge's
+  answers kept beside the task) are empty. A project too large to search is shown path by path instead;
 - environment: inherited, unless `profiles.rollout.env` lists the variables (`sandbox.env` is the learner's);
 - network: open, unless `profiles.rollout.network: isolated`, which allows the agent's bound model endpoint (a
   `127.0.0.1` endpoint is forwarded) and the role's `allow` through its own proxy;
-- a CLI agent's login is copied into its own `CODEX_HOME` or `CLAUDE_CONFIG_DIR`.
+- a CLI agent (codex, claude-code) gets its CLI as installed: the links to it, its package, the interpreter it
+  names (node) and what a short wrapper script runs; its login is copied into its own `CODEX_HOME` or
+  `CLAUDE_CONFIG_DIR` for the call and removed after it;
+- the adapter's tools never run in the agent's process: a `Session` made there serves them from a sandbox of its
+  own (the adapter is the learner's work, and the agent's process reports the result).
 
 Every sandbox has its own process namespace: the host's processes, their environment and their files are not
 reachable through `/proc`. `agent.timeout_min` stops a task call that runs longer and records it as an error. The
 agent is never imported in the framework's process while its role is sandboxed.
+
+The result's `log` is copied into the learner's material outside any sandbox, so it must lie where the call could
+write (its work directory, the agent's logs, the role's `write`); another path is dropped with a warning, and a link
+is never followed.
 
 `eval` and `check` take `profiles.rollout` unless they have one of their own. A profile path may name an environment
 variable (`$SLB_WORKDIR`, set by a launcher); an unset one is an error. The result comes back on a pipe only the worker

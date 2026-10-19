@@ -112,10 +112,13 @@ def config_paths(config, role: str, key: str, values) -> list[Path]:
     return out
 
 
-def project_root(config) -> list[Path]:
+PROJECT_LIMIT = 20000                                     # directories; a larger project is shown path by path
+
+
+def project_root(config, narrow: bool = False) -> list[Path]:
     """The task's project: the deepest directory holding the config and every path it names for the task (data,
     task info, judge, agent). An example keeps its config in a method's directory and its task in ../utils. When
-    that directory would be the filesystem's root or the home, each path's own directory is given instead."""
+    that directory would be the filesystem's root or the home, or `narrow`, each path's own directory is given."""
     d = config.data
     names = [*(d["data"].get(k) for k in ("tasks", "train", "val", "test")), d.get("task_info"),
              (d.get("judge") or {}).get("path")]
@@ -128,7 +131,7 @@ def project_root(config) -> list[Path]:
         if p is not None and p.exists():
             paths.append(p.resolve())
     common = Path(os.path.commonpath([str(p) for p in paths]))
-    if common == Path("/") or common == Path.home().resolve() or len(common.parts) < 3:
+    if narrow or common == Path("/") or common == Path.home().resolve() or len(common.parts) < 3:
         return sorted({p if p.is_dir() else p.parent for p in paths})
     return [common]
 
@@ -136,21 +139,30 @@ def project_root(config) -> list[Path]:
 SKIP_WALK = {".git", ".venv", "node_modules", "__pycache__"}
 
 
-def project_records(roots: list[Path], config, keep=()) -> list[Path]:
-    """Every run-record directory in the task's project, besides this run's: the `runs` (or this config's output
-    directory's name) and `.logs` of the other methods beside it, whose judge feedback can carry the answers.
-    `keep` are directories the agent writes itself (its own logs)."""
+def project_records(roots: list[Path], config, keep=(), limit: int | None = None) -> list[Path]:
+    """Every run-record directory in the task's project: the `runs` (or this config's output directory's name) and
+    `.logs` directories, and any directory holding a run (its steps.jsonl) whatever its name, this run's and the
+    other methods' beside it, whose judge feedback can carry the answers. Found anew for every call, so a run
+    started later is covered too. `keep` are directories the agent writes itself (its own logs). Past `limit`
+    directories walked, OverflowError."""
     names = {"runs", ".logs", Path(str(config.data["trainer"].get("output_dir") or "runs")).name}
     keep = {Path(k).resolve() for k in keep}
-    out = []
+    out, walked = [], 0
     for root in roots:
-        for directory, children, _ in os.walk(root):
+        for directory, children, files in os.walk(root):
+            walked += 1
+            if limit is not None and walked > limit:
+                raise OverflowError(f"more than {limit} directories under {root}")
+            if "steps.jsonl" in files and Path(directory).resolve() not in keep:
+                out.append(Path(directory))
+                children[:] = []
+                continue
             descend = []
             for child in children:
                 path = Path(directory) / child
                 if child in names and path.resolve() not in keep:
                     out.append(path)
-                elif child not in SKIP_WALK and not (path.is_symlink()):
+                elif child not in SKIP_WALK and not path.is_symlink():
                     descend.append(child)
             children[:] = descend
     return out
@@ -226,19 +238,28 @@ def _framework_env(extra: dict | None = None) -> dict:
 
 
 def _run_worker(box: Sandbox, job: dict, work: Path, *, home: Path, readable=(), writable=(), env=None,
-                keep=(), forward=(), timeout: float | None = None) -> dict:
+                keep=(), forward=(), timeout: float | None = None, masked=()) -> dict:
     """Run worker.py in the sandbox with `job`; return its payload, or raise with what it left behind. After
     `timeout` seconds the sandbox is stopped (everything in it goes with it: its own process namespace)."""
     read_end, write_end = os.pipe()
     env = dict(env or _framework_env())
     env["HA_RESULT_FD"] = str(write_end)
-    args, env = box.wrap([sys.executable, str(WORKER)], readable=list(readable), writable=[work, *writable],
-                         env=env, home=home, keep=["PYTHONPATH", "HA_RESULT_FD", *keep], forward=list(forward))
+    try:
+        args, env = box.wrap([sys.executable, str(WORKER)], readable=list(readable), writable=[work, *writable],
+                             env=env, home=home, keep=["PYTHONPATH", "HA_RESULT_FD", *keep], forward=list(forward),
+                             masked=list(masked))
+    except BaseException:
+        os.close(read_end)
+        os.close(write_end)
+        raise
     log = work / "worker.log"
     try:
         with open(log, "wb") as out:
             proc = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=out, stderr=subprocess.STDOUT, env=env,
                                     cwd=str(work), pass_fds=(write_end,))
+    except BaseException:
+        os.close(read_end)
+        raise
     finally:
         os.close(write_end)
     try:
@@ -262,7 +283,11 @@ def _run_worker(box: Sandbox, job: dict, work: Path, *, home: Path, readable=(),
         raise TimeoutError(f"the sandboxed {job['kind']} ran longer than {timeout / 60:.1f} min and was stopped; "
                            f"log {log}")
     data = received[0] if received else ""
-    code = proc.wait()
+    try:
+        code = proc.wait(timeout=30)                     # it answered; a process kept alive after that is stopped
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        code = proc.wait()
     if not data:
         tail = log.read_text(errors="replace")[-1500:] if log.exists() else ""
         reason = "the sandbox's isolation check failed" if code == 97 else f"it exited with code {code}"
@@ -271,6 +296,16 @@ def _run_worker(box: Sandbox, job: dict, work: Path, *, home: Path, readable=(),
     if not payload.get("ok"):
         raise RuntimeError(f"{payload.get('error')}\n{payload.get('traceback', '')}".strip())
     return payload
+
+
+def _owned_log(value, roots) -> Path | None:
+    if not value:
+        return None
+    path = Path(value)
+    if path.is_symlink():
+        return None
+    real = Path(os.path.realpath(path))
+    return path if any(real.is_relative_to(Path(os.path.realpath(r))) for r in roots) else None
 
 
 def _safe(text: str) -> str:
@@ -290,12 +325,22 @@ class SandboxedAgent:
         self.timeout = float(agent["timeout_min"]) * 60 if agent.get("timeout_min") else None
         # Only the logs beside the agent's code are writable (examples/officeqa_paper keeps them there); the code,
         # the config and the task's helpers are read-only. Every run record in the project is covered, this run's
-        # and the other methods' beside it.
-        project, logs = project_root(config), _agent_logs(self.name, self.base)
-        self.box = RoleSandbox(config, role, records=records, readable=project, writable=logs,
+        # and the other methods' beside it (found again for each call). A project too large to search is not shown
+        # whole: each of the config's paths is shown by its own directory.
+        self.config, self.logs = config, _agent_logs(self.name, self.base)
+        self.project = project_root(config)
+        try:
+            project_records(self.project, config, limit=PROJECT_LIMIT)
+        except OverflowError:
+            self.project = project_root(config, narrow=True)
+        readable = list(self.project)
+        if self.cli:                                     # the CLI and the node it may run on, as installed
+            from harnessadapter.sandbox import program_paths
+            readable += program_paths(self.cli)
+        own = {p.resolve() for p in self.logs}
+        self.box = RoleSandbox(config, role, records=records, readable=readable, writable=self.logs,
                                allow=allow, env_keys=self.keys,
-                               masked=[m for m in [*run_secrets(config), *project_records(project, config, keep=logs)]
-                                       if m.resolve() not in {p.resolve() for p in logs}],
+                               masked=[m for m in run_secrets(config) if m.resolve() not in own],
                                probe_absent=[Path.home() / ".ssh", Path.home() / ".bashrc"])
 
     def _cli_kind(self) -> str | None:
@@ -324,14 +369,27 @@ class SandboxedAgent:
             keep.append(var)
         job = {"kind": "agent", "name": self.name, "params": params, "base": str(self.base), "task": task,
                "adapter": str(adapter) if adapter else None}
+        # This call's covers: the run records in the project as they are now, and the other calls' work (this one's
+        # own directory is bound back on top).
+        own = {p.resolve() for p in self.logs}
+        calls = [self.work_root, *(self.work_root.parent / r for r in AGENT_ROLES)]
+        masked = [m for m in [*project_records(self.project, self.config, keep=self.logs), *calls]
+                  if m.resolve() not in own]
         try:
             payload = _run_worker(self.box.sandbox, job, work, home=home, readable=[adapter] if adapter else [],
-                                  env=env, keep=keep, forward=self.forward, timeout=self.timeout)
+                                  env=env, keep=keep, forward=self.forward, timeout=self.timeout, masked=masked)
         finally:
             if self.cli:                                 # the login copy does not outlive the call
                 (home / CLI_HOMES[self.cli][0] / CLI_HOMES[self.cli][2]).unlink(missing_ok=True)
         rec = payload["output"]
-        return RunOutput(output=rec.get("output"), log=Path(rec["log"]) if rec.get("log") else None,
+        # The log is copied into the learner's material outside any sandbox: it must lie where this call could
+        # write (its work directory, the agent's logs, the role's write grants), never a file it merely names.
+        log = _owned_log(rec.get("log"), [work, *self.box.sandbox.writable])
+        if rec.get("log") and log is None:
+            rec.setdefault("extra", {})
+            rec["extra"] = {**(rec.get("extra") or {}),
+                            "sandbox_warning": f"log {rec['log']!r} lies outside what the call could write; dropped"}
+        return RunOutput(output=rec.get("output"), log=log,
                          cost_usd=rec.get("cost_usd"), wall_s=rec.get("wall_s") or 0.0, api_speed=rec.get("api_speed"),
                          messages=rec.get("messages"), tokens=rec.get("tokens"), extra=rec.get("extra") or {})
 
@@ -358,6 +416,7 @@ class ToolRunner:
         self.box = RoleSandbox(config, "tool", records=records, masked=run_secrets(config),
                                probe_absent=[Path.home() / ".ssh", Path.home() / ".bashrc"])
         self.enabled = self.box.enabled
+        self.timeout = float(config.data["trainer"].get("call_timeout_min") or 60) * 60
 
     def __call__(self, entrypoint: str, base: Path, arguments: dict, bound: dict) -> object:
         work = self.work_root / f"tool-{uuid.uuid4().hex[:8]}"
@@ -369,7 +428,7 @@ class ToolRunner:
         try:
             payload = _run_worker(self.box.sandbox, job, work, home=home,
                                   readable=[p for p in (Path(base), root) if p is not None],
-                                  writable=[adapter] if adapter is not None else [])
+                                  writable=[adapter] if adapter is not None else [], timeout=self.timeout)
         finally:
             shutil.rmtree(work, ignore_errors=True)
         return payload["result"]

@@ -103,3 +103,33 @@ def test_a_server_that_cannot_start_is_reported(tmp_path):
     (root / "tools.py").write_text("raise SystemExit('broken tools')\n")
     with pytest.raises(RuntimeError, match="did not start"):
         Session(root, sandbox=True)
+
+
+GARBLE = """
+
+def garble():
+    # Half a message into the server's own channel (the MCP server moved it off stdout, which is /dev/null).
+    import os
+    for fd in os.listdir('/proc/self/fd'):
+        try:
+            if int(fd) > 2 and os.readlink(f'/proc/self/fd/{fd}').startswith('pipe:'):
+                os.write(int(fd), b'{"x": ')
+        except OSError:
+            pass
+    return {}
+"""
+
+
+@pytest.mark.skipif(not _bwrap_works(), reason="needs a working bubblewrap (unprivileged user namespaces)")
+def test_a_tool_that_breaks_its_channel_ends_in_an_error_not_a_hang(tmp_path):
+    root = adapter_copy(tmp_path)
+    manifest = yaml.safe_load((root / "adapter.yaml").read_text())
+    manifest["exports"]["tools"].append({"name": "garble", "description": "x", "entrypoint": "tools.py:garble",
+                                         "input_schema": {"type": "object"}, "output_schema": {"type": "object"}})
+    (root / "adapter.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (root / "tools.py").write_text((root / "tools.py").read_text() +
+                                   GARBLE)
+    with Session(root, sandbox=True) as s:
+        s._remote.call_timeout = 5
+        with pytest.raises(ToolError, match="no answer"):
+            s.call("garble", {})

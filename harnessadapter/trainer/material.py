@@ -45,13 +45,14 @@ class Material:
         for r in results:
             record = dict(r)
             log = r.get("log")
-            if log and Path(log).exists():
+            # A link is copied as a link, never followed: the log is the agent's, and what it links to need not be.
+            if log and Path(log).exists() and not Path(log).is_symlink():
                 target = d / "trajectories" / _safe(r["id"])
                 if Path(log).is_dir():
                     shutil.copytree(log, target, symlinks=True)
                 else:
                     target.mkdir(parents=True)
-                    shutil.copy2(log, target / Path(log).name)
+                    shutil.copy2(log, target / Path(log).name, follow_symlinks=False)
                 record["trajectory"] = os.path.relpath(target, d)
             else:
                 record["trajectory"] = None

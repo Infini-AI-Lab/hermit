@@ -273,3 +273,33 @@ def test_a_granted_virtual_environment_comes_with_its_base_python(tmp_path, monk
     args, _ = Sandbox(network="open", read=[checkout]).wrap(["true"])
     ro = binds(args, "--ro-bind")
     assert str(alias) in ro and str(base.resolve()) in ro        # the interpreter links through the alias
+
+
+@pytest.mark.skipif(not _bwrap_works(), reason="needs a working bubblewrap (unprivileged user namespaces)")
+@pytest.mark.parametrize("cli", ["codex", "claude"])
+def test_an_installed_cli_starts_with_only_its_own_paths(cli):
+    """The built-in CLI agents: the CLI as installed (an nvm package, a ~/bin wrapper) starts inside, with no home."""
+    from harnessadapter.sandbox import program_paths
+    if not REAL_WHICH(cli):
+        pytest.skip(f"{cli} is not installed")
+    box = Sandbox(network="open", readable=program_paths(cli), packages=["*"])
+    try:
+        args, env = box.wrap([cli, "--version"])
+        proc = subprocess.run(args, env=env, capture_output=True, text=True, timeout=120)
+    finally:
+        box.close()
+    assert proc.returncode == 0, proc.stderr[-1500:]
+    assert str(Path.home()) not in [a for a in args if a == str(Path.home())]   # the home is never bound whole
+
+
+def test_program_paths_never_bind_the_home(tmp_path, monkeypatch):
+    from harnessadapter.sandbox import program_paths
+    home = tmp_path / "home"
+    (home / "bin").mkdir(parents=True)
+    tool = home / "bin" / "tool"
+    tool.write_text("#!/bin/sh\necho hi\n")
+    tool.chmod(0o755)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("PATH", f"{home / 'bin'}:/usr/bin:/bin")
+    paths = program_paths("tool")
+    assert tool in paths and home not in paths

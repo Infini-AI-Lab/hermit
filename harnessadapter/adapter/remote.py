@@ -29,7 +29,7 @@ def _field(result, *names):
 
 class SandboxedServer:
     def __init__(self, sandbox, root: Path, *, deployment: dict | None = None, learning_material: Path | None = None,
-                 evidence: Path | None = None, timeout: float = 60):
+                 evidence: Path | None = None, timeout: float = 60, call_timeout: float | None = 600):
         from harnessadapter.isolate import _framework_env
 
         self.work = Path(tempfile.mkdtemp(prefix="ha-session-"))
@@ -47,6 +47,7 @@ class SandboxedServer:
             command += ["--evidence", str(evidence)]
             writable.append(Path(evidence))
         self.sandbox = sandbox
+        self.call_timeout = call_timeout
         self.args, self.env = sandbox.wrap(command, readable=readable, writable=writable, home=self.work,
                                            env=_framework_env(), keep=["PYTHONPATH"])
         self.log = self.work / "server.log"
@@ -93,7 +94,13 @@ class SandboxedServer:
     async def _call(self, name: str, arguments: dict):
         if self._client is None:
             raise RuntimeError(f"the sandboxed adapter server is not running; log {self.log}")
-        result = await self._client.call_tool(name, arguments)
+        # A tool that breaks its own channel (writes to the server's stdout) leaves the answer unreadable: the call
+        # ends with an error after `call_timeout`, never waits forever.
+        try:
+            result = await asyncio.wait_for(self._client.call_tool(name, arguments), self.call_timeout)
+        except asyncio.TimeoutError:
+            raise ToolError(f"{name}: no answer from the sandboxed adapter server in {self.call_timeout:.0f} s; "
+                            f"log {self.log}") from None
         # mcp's result fields are snake_case in newer releases, camelCase in older ones.
         if _field(result, "is_error", "isError"):
             raise ToolError("".join(getattr(c, "text", "") for c in result.content))
