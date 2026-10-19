@@ -1,0 +1,55 @@
+# Smoke: 4 training questions in 2 epochs of 2 steps, 2 validation questions, 4 test questions.
+# Codex harness: as skillopt/smoke.yaml, but GLM 5.3 Flash acts in SkillOpt's Codex harness (codex exec in a
+# workspace-write sandbox, the skill as SKILL.md, the whole corpus under docs/; utils/agent/agent.py).
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/smoke_train.txt
+  val: ../utils/splits/smoke_val.txt
+  test: ../utils/splits/smoke_test.txt
+  step_size: 2
+  shuffle_seed: 42
+task_info: ../utils/task-info/
+agent:
+  name: ../utils/agent/agent.py:OfficeQAAgent
+  params:
+    harness: codex
+  concurrency: 4
+judge:
+  path: ../utils/judge.py
+template: prompt-only@1.0
+start_from: ../utils/seed_adapter  # SkillOpt's initial OfficeQA skill
+evolver:
+  name: skillopt
+  params:
+    total_steps: 4
+    minibatch_size: 2
+    merge_batch_size: 2
+    analyst_workers: 4
+    learning_rate: 4
+    min_learning_rate: 2
+    lr_scheduler: cosine
+    slow_update_samples: 2
+    slow_update_gate: true        # the paper gates the slow update on validation
+    use_meta_skill: true
+    prompt_env: officeqa
+    trajectory_view: paper        # trajectories as the paper-time analyst saw them
+    promote_final: false          # the paper-time code hands back the best skill as is
+    seed: 42
+llm:                           # the optimizer: GLM 5.3 at medium effort (the paper: GPT-5.5, medium)
+  model: fireworks/accounts/fireworks/models/glm-5p3     # <backend>/<model id>; the price is the backend's
+  extra_body: {reasoning_effort: medium}
+sandbox:
+  enabled: true
+  network: restricted
+  allow: []                  # the Evolver's own model endpoint is always reachable
+  read: []
+  env: []                    # the Evolver's model key variable is always passed; nothing else is
+trainer:
+  run_name: codex-smoke-skillopt
+  output_dir: runs
+  tree_dir: runs/trees/codex-smoke-skillopt       # one adapter tree per run: runs can train side by side
+  epochs: 2
+  budget: {usd: null, hours: null}
+  call_timeout_min: 90
+eval:
+  repeats: 3                 # the target samples: three passes over the test questions

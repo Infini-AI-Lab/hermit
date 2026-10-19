@@ -59,6 +59,5 @@ Trainer endpoint tools. The gate refuses calls outside that list. Inspect the se
 `harnessadapter/evolver/gate.py`. This controls the learner's Trainer-tool endpoint, separately from the acting
 agent's task/adapter tools. It does not make arbitrary shell commands safe or impose a mandatory check order.
 
-For a complete task-specific Codex configuration, see `examples/officeqa/codex/smoke.yaml` and its
-`codex_glm/` learner definition. Acting agents are configured under `agent`; `evolver.name: codex` selects the
+For a complete task-specific Codex configuration, see `examples/clbench_poker/prompt_only/run.yaml`. Acting agents are configured under `agent`; `evolver.name: codex` selects the
 learner, not the acting host.

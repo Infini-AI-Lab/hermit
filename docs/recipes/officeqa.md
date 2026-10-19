@@ -55,11 +55,7 @@ rewrite the skill, and checks and saves the returned adapter. `eval` separately 
 four test tasks, three passes each (`eval.repeats`): `final`, the seed skill the run started from, and no skill.
 A smoke run checks that the integration works; four test questions cannot establish a reliable performance gain.
 
-The example requests sandboxing. On a machine without `bwrap`, programs launched through that sandbox fail; see
-[Installation](../get-started/installation.md) before using an agent Evolver such as `examples/officeqa/codex/`.
-That learner has a shell, so its config hides `examples/` from it (`evolver.params.hide`: the answers are in
-`utils/.private/`) and writes its run outside the checkout, to `~/.cache/harnessadapter/officeqa-codex/`.
-The in-process `prompt_only` method calls the run's model tool directly; enabling the sandbox does not turn the whole
+The example requests sandboxing. The in-process `prompt_only` method calls the run's model tool directly; enabling the sandbox does not turn the whole
 Python process into an isolated environment.
 
 ## Inspect the result
@@ -118,6 +114,26 @@ GEPA settings. Each method has its own config and output directory; do not mix t
 Outputs are in `examples/officeqa/<method>/runs/<configured-run-name>/`, including `checkout/CARD.md`,
 `steps.jsonl`, `eval/`, and `workspace/state/` (saved per step in `step_NNNN/state/`) with each method's
 candidates and records.
+
+## Run in the Codex harness
+
+The SkillOpt paper also runs its OfficeQA agent in a Codex harness: each rollout is a `codex exec` session in a
+workspace-write sandbox without network or web search, in a fresh workspace with the skill as
+`.agents/skills/skillopt-target/SKILL.md`, the question with its parsed source pages as `task.md`, and the whole corpus
+under `docs/`; SkillOpt's analyst also reads the summary SkillOpt writes of each session. Each method folder has
+`smoke_codex.yaml` and `run_codex.yaml`, its `smoke.yaml` and `run.yaml` with `agent.params.harness: codex` and no
+budget. They need the Codex CLI; Codex reaches the acting model through its backend's Responses API.
+
+```bash
+harnessadapter train --config examples/officeqa/skillopt/smoke_codex.yaml
+harnessadapter train --config examples/officeqa/skillopt/run_codex.yaml
+harnessadapter eval --config examples/officeqa/skillopt/run_codex.yaml --adapter final
+harnessadapter eval --config examples/officeqa/skillopt/run_codex.yaml --adapter none
+```
+
+Codex's workspaces and its own home are under `~/.cache/harnessadapter/officeqa-codex-actor/` (`agent.params.codex_dir`),
+outside the checkout, so no repository instructions reach the session. The sandbox limits writes, not reads: the
+session can read files outside its workspace. Inspect the commands in each rollout's `codex_raw.txt` when that matters.
 
 ## Included adapters
 

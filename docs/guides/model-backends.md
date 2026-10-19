@@ -44,8 +44,8 @@ The top-level `model` is a default: `model=vllm/qwen` on the command line moves 
 of its own. The OfficeQA configs leave the acting agent's model to it but set the learner's `llm` (GLM 5.3, as in
 the SkillOpt paper's setting), so `model=vllm/qwen` moves the agent and `llm=vllm/qwen` the learner; a config that
 sets `llm` or `agent.params.model` itself keeps them unless they are overridden too
-(`llm=vllm/qwen agent.params.model=vllm/qwen`). The `codex_glm` Evolver pins its model in its
-manifest; `evolver.params.model=vllm/qwen` moves it.
+(`llm=vllm/qwen agent.params.model=vllm/qwen`). An agent Evolver such as `codex` takes its model
+from `evolver.params.model`; `evolver.params.model=vllm/qwen` moves it.
 
 ## Where backends are declared
 

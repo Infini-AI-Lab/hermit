@@ -218,3 +218,27 @@ def test_skillopt_reads_skillopt_prediction_files_and_the_paper_view(tmp_path):
     view, system, user = module.paper_view(got, system, user)
     assert len(view) == 1 and len(system) == len(user) == 3000
     assert "[obs]    " + "o" * 800 + "\n" in view[0]["content"] and "Q" * 501 not in view[0]["content"]
+
+
+def test_skillopt_shows_the_analyst_a_codex_trace_summary(tmp_path):
+    pytest.importorskip("skillopt")
+    from harnessadapter.evolver.loader import find, load_class
+    from skillopt.gradient.reflect import fmt_minibatch_trajectories
+    import sys
+    module = sys.modules[load_class(find("skillopt")).__module__]
+    log = tmp_path / "log"
+    log.mkdir()
+    (log / "conversation.json").write_text(json.dumps([{"role": "user", "content": "Q"},
+                                                       {"type": "message", "turn": 1, "content": "<answer>1</answer>"}]))
+    (log / "codex_trace_summary.txt").write_text("Codex Trace Summary\n- read SKILL.md: success")
+    record = {"id": "t1", "trajectory": "log", "judge": {"score": 0.0}, "output": {"answer": "1"}, "status": "ok"}
+    view = module.conversation(record, tmp_path)
+    module.write_prediction(tmp_path / "predictions" / "t1", *module.paper_view(*view),
+                            codex_summary=module.codex_trace(record, tmp_path))
+    item = {"id": "t1", "task_description": "Q"}
+    with module.skillopt_model(lambda **kw: None, {}):
+        shown = fmt_minibatch_trajectories([item], str(tmp_path / "predictions"))
+    with module.skillopt_model(lambda **kw: None, {"codex_trace_to_optimizer": False}):
+        hidden = fmt_minibatch_trajectories([item], str(tmp_path / "predictions"))
+    assert "#### Codex Trace Summary\nCodex Trace Summary\n- read SKILL.md: success" in shown
+    assert "Codex Trace Summary" not in hidden

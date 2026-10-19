@@ -1,0 +1,42 @@
+# OfficeQA in the SkillOpt paper's setting with the prompt_only Evolver: one model call per step of 10 training
+# questions rewrites the skill from the failures and the judge's feedback; 4 epochs over the 50 training questions,
+# no validation gate (the final adapter is the last one). GLM 5.3 Flash acts.
+# Codex harness: as prompt_only/run.yaml, but GLM 5.3 Flash acts in SkillOpt's Codex harness (codex exec in a
+# workspace-write sandbox, the skill as SKILL.md, the whole corpus under docs/; utils/agent/agent.py).
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/train.txt
+  test: ../utils/splits/test.txt
+  step_size: 10
+  shuffle_seed: 42
+task_info: ../utils/task-info/
+agent:
+  name: ../utils/agent/agent.py:OfficeQAAgent
+  params:
+    harness: codex
+  concurrency: 8
+judge:
+  path: ../utils/judge.py
+template: prompt-only@1.0
+start_from: ../utils/seed_adapter  # SkillOpt's initial OfficeQA skill
+evolver:
+  name: prompt_only
+llm:                           # the learner: GLM 5.3 at medium effort, as for GEPA and SkillOpt
+  model: fireworks/accounts/fireworks/models/glm-5p3     # <backend>/<model id>; the price is the backend's
+  extra_body: {reasoning_effort: medium}
+sandbox:
+  enabled: true
+  network: restricted
+  allow: []                  # the Evolver's own model endpoint is always reachable
+  read: []
+  env: []                    # the Evolver's model key variable is always passed; nothing else is
+trainer:
+  run_name: codex-prompt-only
+  output_dir: runs
+  tree_dir: runs/trees/codex-prompt-only       # one adapter tree per run: runs can train side by side
+  epochs: 4
+  save_freq: {steps: null, epochs: 1}
+  budget: {usd: null, hours: null}
+  call_timeout_min: 60
+eval:
+  repeats: 3                 # the target samples: three passes over the test questions

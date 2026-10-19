@@ -1,0 +1,42 @@
+# OfficeQA in the SkillOpt paper's setting with the GEPA Evolver (the paper's GEPA settings are not published): GEPA's
+# default reflection minibatch of 3, Pareto selection over the 24 validation questions, 4 epochs over the 50 training
+# questions. GLM 5.3 Flash acts.
+# Codex harness: as gepa/run.yaml, but GLM 5.3 Flash acts in SkillOpt's Codex harness (codex exec in a
+# workspace-write sandbox, the skill as SKILL.md, the whole corpus under docs/; utils/agent/agent.py).
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/train.txt
+  val: ../utils/splits/val.txt
+  test: ../utils/splits/test.txt
+  step_size: 3
+  shuffle_seed: 42
+task_info: ../utils/task-info/
+agent:
+  name: ../utils/agent/agent.py:OfficeQAAgent
+  params:
+    harness: codex
+  concurrency: 8
+judge:
+  path: ../utils/judge.py
+template: prompt-only@1.0
+start_from: ../utils/seed_adapter  # SkillOpt's initial OfficeQA skill
+evolver:
+  name: gepa
+llm:                           # the optimizer: GLM 5.3 at medium effort (the paper: GPT-5.5, medium)
+  model: fireworks/accounts/fireworks/models/glm-5p3     # <backend>/<model id>; the price is the backend's
+  extra_body: {reasoning_effort: medium}
+sandbox:
+  enabled: true
+  network: restricted
+  allow: []                  # the Evolver's own model endpoint is always reachable
+  read: []
+  env: []                    # the Evolver's model key variable is always passed; nothing else is
+trainer:
+  run_name: codex-gepa
+  output_dir: runs
+  tree_dir: runs/trees/codex-gepa       # one adapter tree per run: runs can train side by side
+  epochs: 4
+  budget: {usd: null, hours: null}
+  call_timeout_min: 180       # Codex sessions are slower
+eval:
+  repeats: 3                 # the target samples: three passes over the test questions

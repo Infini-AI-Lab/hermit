@@ -23,6 +23,7 @@ params:
   prompt_env: ""              # officeqa: SkillOpt's OfficeQA analyst prompts; empty: its generic prompts
   obs_chars: 0                # characters of each tool result shown to the analyst; 0: all, as in SkillOpt
   trajectory_view: full       # paper: clip trajectories and prompts as SkillOpt did for the paper (v0.1.0)
+  codex_trace_to_optimizer: true   # show the analyst a run's Codex trace summary (SkillOpt's Codex harness)
   promote_final: true         # score the final skill on validation and keep it if it beats the best
   max_tokens: null            # null: SkillOpt's own limit for each call
   temperature: null           # null: the endpoint's default

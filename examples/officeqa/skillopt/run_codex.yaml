@@ -1,0 +1,57 @@
+# OfficeQA in the SkillOpt paper's setting (arXiv 2605.23904): its 50/24/172 split, oracle pages with file tools, exact
+# match, and its SkillOpt hyperparameters: 4 epochs of batches of 40 (2 steps each), minibatch 8, merge 8, learning
+# rate 4 decaying to 2, validation gate, gated slow update, meta skill. GLM 5.3 Flash acts.
+# Codex harness: as skillopt/run.yaml, but GLM 5.3 Flash acts in SkillOpt's Codex harness (codex exec in a
+# workspace-write sandbox, the skill as SKILL.md, the whole corpus under docs/; utils/agent/agent.py).
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/train.txt
+  val: ../utils/splits/val.txt
+  test: ../utils/splits/test.txt
+  step_size: 40
+  shuffle_seed: 42
+task_info: ../utils/task-info/
+agent:
+  name: ../utils/agent/agent.py:OfficeQAAgent
+  params:
+    harness: codex
+  concurrency: 8
+judge:
+  path: ../utils/judge.py
+template: prompt-only@1.0
+start_from: ../utils/seed_adapter  # SkillOpt's initial OfficeQA skill
+evolver:
+  name: skillopt
+  params:
+    total_steps: 8
+    minibatch_size: 8
+    merge_batch_size: 8
+    analyst_workers: 16
+    learning_rate: 4
+    min_learning_rate: 2
+    lr_scheduler: cosine
+    slow_update_samples: 20
+    slow_update_gate: true        # the paper gates the slow update on validation
+    use_meta_skill: true
+    prompt_env: officeqa
+    trajectory_view: paper        # trajectories as the paper-time analyst saw them
+    promote_final: false          # the paper-time code hands back the best skill as is
+    seed: 42
+llm:                           # the optimizer: GLM 5.3 at medium effort (the paper: GPT-5.5, medium)
+  model: fireworks/accounts/fireworks/models/glm-5p3     # <backend>/<model id>; the price is the backend's
+  extra_body: {reasoning_effort: medium}
+sandbox:
+  enabled: true
+  network: restricted
+  allow: []                  # the Evolver's own model endpoint is always reachable
+  read: []
+  env: []                    # the Evolver's model key variable is always passed; nothing else is
+trainer:
+  run_name: codex-skillopt
+  output_dir: runs
+  tree_dir: runs/trees/codex-skillopt       # one adapter tree per run: runs can train side by side
+  epochs: 4
+  budget: {usd: null, hours: null}
+  call_timeout_min: 360       # Codex sessions are slower
+eval:
+  repeats: 3                 # the target samples: three passes over the test questions

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import json
+import os
 from pathlib import Path
 import random
 import shutil
@@ -101,10 +102,18 @@ def paper_view(entries: list[dict], system: str, user: str) -> tuple[list[dict],
     return [{"role": "trajectory", "content": text}], system[:3000], user[:3000]
 
 
-def write_prediction(where: Path, entries: list[dict], system: str, user: str) -> None:
+def codex_trace(record: dict, step_dir: Path) -> str:
+    """The summary of the run SkillOpt's Codex harness writes next to its prediction files (codex_trace_summary.txt),
+    when the run's log has one."""
+    path = step_dir / record["trajectory"] / "codex_trace_summary.txt" if record.get("trajectory") else None
+    return path.read_text() if path is not None and path.is_file() else ""
+
+
+def write_prediction(where: Path, entries: list[dict], system: str, user: str, codex_summary: str = "") -> None:
     where.mkdir(parents=True, exist_ok=True)
     (where / "conversation.json").write_text(json.dumps(entries, ensure_ascii=False, indent=1))
-    for name, text in (("target_system_prompt.txt", system), ("target_user_prompt.txt", user)):
+    for name, text in (("target_system_prompt.txt", system), ("target_user_prompt.txt", user),
+                       ("codex_trace_summary.txt", codex_summary)):
         if text:
             (where / name).write_text(text)
 
@@ -127,7 +136,8 @@ def rollout_result(record: dict, task: dict, success: float) -> dict:
 
 @contextmanager
 def skillopt_model(llm, params: dict):
-    """Route SkillOpt's optimizer calls (skillopt.model.chat_optimizer) to the run's `llm` tool."""
+    """Route SkillOpt's optimizer calls (skillopt.model.chat_optimizer) to the run's `llm` tool, and show the analyst
+    the Codex trace summaries of the runs that have one (SkillOpt's codex_trace_to_optimizer)."""
     from skillopt.model import get_optimizer_backend, set_optimizer_backend
     from skillopt.model import openai_compatible_backend as backend
 
@@ -147,14 +157,20 @@ def skillopt_model(llm, params: dict):
         return reply["content"], {"prompt_tokens": usage.get("input_tokens", 0),
                                   "completion_tokens": usage.get("output_tokens", 0)}
 
-    saved = backend.chat_optimizer, get_optimizer_backend()
+    gate = "REFLACT_CODEX_TRACE_TO_OPTIMIZER"         # read by skillopt.gradient.reflect.fmt_minibatch_trajectories
+    saved = backend.chat_optimizer, get_optimizer_backend(), os.environ.get(gate)
     backend.chat_optimizer = chat_optimizer
     set_optimizer_backend("openai_compatible")
+    os.environ[gate] = "1" if params.get("codex_trace_to_optimizer", True) else "0"
     try:
         yield
     finally:
         backend.chat_optimizer = saved[0]
         set_optimizer_backend(saved[1])
+        if saved[2] is None:
+            os.environ.pop(gate, None)
+        else:
+            os.environ[gate] = saved[2]
 
 
 class SkillOptEvolver(Evolver):
@@ -211,7 +227,8 @@ class SkillOptEvolver(Evolver):
             for r in records:
                 view = conversation(r, current, int(p.get("obs_chars", 0)))
                 write_prediction(scratch / "predictions" / str(r["id"]),
-                                 *(paper_view(*view) if p.get("trajectory_view") == "paper" else view))
+                                 *(paper_view(*view) if p.get("trajectory_view") == "paper" else view),
+                                 codex_summary=codex_trace(r, current))
             rec["rollout_hard"], rec["rollout_soft"] = compute_score(results)
             # 2. reflect
             env = p.get("prompt_env") or None
@@ -368,7 +385,8 @@ class SkillOptEvolver(Evolver):
             for row in rows:
                 view = conversation({**row, "trajectory": row.get("log")}, where, int(p.get("obs_chars", 0)))
                 write_prediction(where / "predictions" / str(row["id"]),
-                                 *(paper_view(*view) if p.get("trajectory_view") == "paper" else view))
+                                 *(paper_view(*view) if p.get("trajectory_view") == "paper" else view),
+                                 codex_summary=codex_trace({**row, "trajectory": row.get("log")}, where))
             results.append([rollout_result(row, st["tasks"][row["id"]], success) for row in rows])
             dirs.append(where)
         pairs = build_comparison_pairs(results[0], results[1], items, prev_rollout_dir=str(dirs[0]),
