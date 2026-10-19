@@ -7,7 +7,8 @@ codex, its Codex harness: `codex exec` in a workspace-write sandbox without netw
 workspace with the skill as .agents/skills/skillopt-target/SKILL.md, the question with its oracle pages as task.md and
 the whole corpus under docs/ (the question's source files as hints). A session has 180 s; one without an <answer> is
 run again with its reply, up to 24 sessions. SkillOpt summarizes the sessions in codex_trace_summary.txt, which its
-analyst reads.
+analyst reads. Codex runs through codex_sandbox.py, which keeps the workspace-write sandbox but lets a session read
+only the system, its workspace and the corpus (Codex's own sandbox lets it read the whole disk, answers included).
 
 The adapter's ADAPTER.md is the skill; adapter=None runs without one. The run's SkillOpt prediction files
 (conversation.json, target_*_prompt.txt; for codex also codex_raw.txt and codex_trace_summary.txt) are its log.
@@ -26,6 +27,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import tempfile
 import threading
 import time
@@ -138,8 +140,10 @@ def _setup_codex(params: dict | None) -> None:
         (home / "config.toml").write_text("".join(f"{args[i + 1]}\n" for i in range(0, len(args), 2)))
         os.environ["CODEX_HOME"] = str(home)
         backend_config.set_target_backend("codex_exec")
-        backend_config.configure_codex_exec(sandbox="workspace-write", reasoning_effort=EFFORT, use_sdk="cli",
-                                            network_access=False, web_search=False, approval_policy="never")
+        os.environ["OFFICEQA_CODEX_READ"] = DATA["docs"]       # the corpus: what codex_sandbox.py lets a session read
+        backend_config.configure_codex_exec(path=str(HERE / "codex_sandbox.py"), sandbox="workspace-write",
+                                            reasoning_effort=EFFORT, use_sdk="cli", network_access=False,
+                                            web_search=False, approval_policy="never")
         azure_openai.TARGET_DEPLOYMENT = _binding.model
         _codex_home = home
 
@@ -204,6 +208,8 @@ class OfficeQAAgent(Agent):
         if codex:
             for link in (pred_dir / "codex_exec" / "docs").glob("root_*"):
                 link.unlink()                               # the corpus stays out of the run's log
+            for scratch in ("codex_home", "tmp"):           # codex_sandbox.py's per-rollout CODEX_HOME and TMPDIR
+                shutil.rmtree(out_root / scratch, ignore_errors=True)
             summary = pred_dir / "codex_trace_summary.txt"
             if summary.is_file():                           # what SkillOpt's analyst reads besides the replies
                 messages.append({"role": "user", "content": summary.read_text()})
