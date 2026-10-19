@@ -225,7 +225,9 @@ class OfficeQAAgent(Agent):
                  "cut_off_replies": totals["cut_off"], "oracle_pages_chars": result["oracle_parsed_pages_chars"],
                  "turns": result["n_turns"]}
         if codex:
-            extra["session_timed_out"] = "timed out after" in result["fail_reason"]
+            # SkillOpt reports a session past its 180 s as "timed out after" or, from its own timeout handler (it writes
+            # Codex's output as bytes), as "write() argument must be str, not bytes"
+            extra["session_timed_out"] = any(s in result["fail_reason"] for s in ("timed out after", "str, not bytes"))
         return RunOutput(output={"answer": answer, "fail_reason": "" if result["agent_ok"] else result["fail_reason"]},
                          log=pred_dir, messages=messages, cost_usd=cost, tokens=tokens,
                          wall_s=round(time.time() - started, 1), api_speed={"model_calls": totals["calls"]}, extra=extra)

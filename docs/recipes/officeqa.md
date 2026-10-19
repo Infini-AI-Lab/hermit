@@ -131,9 +131,13 @@ harnessadapter eval --config examples/officeqa/skillopt/run_codex.yaml --adapter
 harnessadapter eval --config examples/officeqa/skillopt/run_codex.yaml --adapter none
 ```
 
-Codex's workspaces and its own home are under `~/.cache/harnessadapter/officeqa-codex-actor/` (`agent.params.codex_dir`),
-outside the checkout, so no repository instructions reach the session. The sandbox limits writes, not reads: the
-session can read files outside its workspace. Inspect the commands in each rollout's `codex_raw.txt` when that matters.
+Codex's workspaces are under `~/.cache/harnessadapter/officeqa-codex-actor/` (`agent.params.codex_dir`), outside the
+checkout, so no repository instructions reach the session. Codex's workspace-write sandbox limits writes but lets a
+session read the whole disk, answers included, and acting models do search outside their workspace. So Codex runs
+through `examples/officeqa/utils/agent/codex_sandbox.py`: the same sandbox, set by a permission profile that lets the
+session read only the system, its workspace and the corpus, with a fresh Codex home and TMPDIR per rollout and only
+Codex's core environment variables in its shell. Codex's built-in rules still keep `/tmp` readable and writable, so
+keep answer files out of `/tmp`, and inspect the commands in each rollout's `codex_raw.txt`.
 
 ## Included adapters
 

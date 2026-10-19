@@ -9,7 +9,7 @@ workspace-write sandbox (the workspace and TMPDIR writable, no network), but rea
 defaults (less /private/tmp, /private/var/folders and /Volumes), the command-line developer tools, the workspace and
 the paths in OFFICEQA_CODEX_READ (the corpus). Each
 rollout gets a fresh CODEX_HOME and TMPDIR next to `predictions/`, so no session sees another; the session's shell
-gets no API keys.
+gets only Codex's core environment variables (no API keys, nothing of the shell that started the run).
 
 CODEX_HOME names the home whose config.toml (the provider settings) each rollout's home starts from.
 """
@@ -37,6 +37,7 @@ def settings(template: str, readable: list[str]) -> str:
         *lines,
         "",
         "[shell_environment_policy]",
+        'inherit = "core"',                                    # HOME, PATH, SHELL, TMPDIR, USER, ...: nothing else
         'exclude = ["*KEY*", "*TOKEN*", "*SECRET*"]',
         "",
         "[permissions.officeqa]",
