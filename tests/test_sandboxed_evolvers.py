@@ -86,3 +86,13 @@ def test_agent_evolver_with_a_fake_codex(tmp_path, monkeypatch):
     assert steps[0]["evolver"]["usage"][0]["output_tokens"] == 7
     # (100 - 40) × 1.0 + 40 × 0.5 + 7 × 10.0 = 150 per million tokens
     assert steps[0]["evolver"]["usage"][0]["cost_usd"] == pytest.approx(150e-6)
+
+
+def test_an_agent_gets_an_empty_stdin(tmp_path):
+    # codex exec appends its stdin to the prompt; a launcher may leave a command file on the Trainer's stdin.
+    from types import SimpleNamespace
+    from hermit.evolver.agent import _run
+    log = tmp_path / "agent.log"
+    probe = "import os; print(os.path.samestat(os.fstat(0), os.stat(os.devnull)))"
+    assert _run([sys.executable, "-c", probe], dict(os.environ), SimpleNamespace(cancel=None), log, tmp_path) == 0
+    assert log.read_text().strip() == "True"

@@ -42,7 +42,8 @@ Anthropic messages (input_tokens excludes cache components — added back),
 same normalisation as the original.
 
 Env: PORT (default 3129), UPSTREAM (default https://api.fireworks.ai),
-PROXY (e.g. http://mw-egress-meta:3128), LEDGER (json path), FLUSH_S.
+PROXY (e.g. http://mw-egress-meta:3128), LEDGER (json path), FLUSH_S,
+UPSTREAM_KEY_ENV (the relay sends its own key; see below).
 
 REWRITE_DEVELOPER_ROLE=1 additionally rewrites message role "developer" to
 "system" in request bodies (both `input` items of the Responses API and
@@ -96,6 +97,14 @@ REPAIR_TOOL_ARGS = os.environ.get("REWRITE_REPAIR_TOOL_ARGS", "") not in ("", "0
 # DUMP_REJECTED=<dir>: write each request the upstream answered with 400 to
 # <dir>/<utc>-<bucket>.json (request body + response) for diagnosis.
 DUMP_REJECTED = os.environ.get("DUMP_REJECTED", "")
+# UPSTREAM_KEY_ENV=<variable> (2026-10-20): the relay authenticates to a
+# bearer-token upstream (Fireworks, OpenAI, vLLM) with the key held in that
+# variable of its own environment, and drops the Authorization and x-api-key
+# the client sent. The client is then given a placeholder: a Codex learner
+# whose shell can print its environment holds no key to print or store.
+# Unset = the client's own key passes, as before.
+UPSTREAM_KEY_ENV = os.environ.get("UPSTREAM_KEY_ENV", "")
+_CLIENT_AUTH = {"authorization", "x-api-key"}
 _REPAIR_NOTE = ("[relay] the arguments of this tool call were not valid JSON and "
                 "were replaced by {} so the conversation could continue; the call "
                 "did not run — repeat it with well-formed JSON arguments.")
@@ -355,6 +364,16 @@ def split_bucket(request_path: str) -> tuple[str, str]:
     return "unattributed", request_path
 
 
+def upstream_auth(hdrs: dict) -> dict:
+    """The headers to forward: with UPSTREAM_KEY_ENV set, the relay's own bearer key replaces whatever key the client
+    sent; otherwise unchanged."""
+    if not UPSTREAM_KEY_ENV:
+        return hdrs
+    out = {k: v for k, v in hdrs.items() if k.lower() not in _CLIENT_AUTH}
+    out["Authorization"] = "Bearer " + os.environ.get(UPSTREAM_KEY_ENV, "")
+    return out
+
+
 def _upstream_conn():
     if PROXY:
         p = urlsplit(PROXY)
@@ -399,7 +418,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/health":          # the upstream too: a launcher refuses a port whose meter faces elsewhere
             with _lock:
-                body = json.dumps({**_health, "upstream": UPSTREAM}).encode()
+                body = json.dumps({**_health, "upstream": UPSTREAM,
+                                   "key_from": UPSTREAM_KEY_ENV or "client"}).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
@@ -418,7 +438,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         # Any other GET (/<bucket>/v1/models, the preflight of `hermit check`) is relayed as is, unmetered.
         _, path = split_bucket(self.path)
-        hdrs = {k: v for k, v in self.headers.items() if k.lower() not in _DROP_REQ}
+        hdrs = upstream_auth({k: v for k, v in self.headers.items() if k.lower() not in _DROP_REQ})
         hdrs["Accept-Encoding"] = "identity"
         try:
             conn = _upstream_conn()
@@ -452,8 +472,8 @@ class Handler(BaseHTTPRequestHandler):
         # "prime" and the per-run buckets prime_<hash> (2026-09-08; hashed 2026-09-13)
         if PRIME_EFFORT and bucket.startswith("prime") and body:
             body = align_effort(body)
-        hdrs = {k: v for k, v in self.headers.items()
-                if k.lower() not in _DROP_REQ}
+        hdrs = upstream_auth({k: v for k, v in self.headers.items()
+                              if k.lower() not in _DROP_REQ})
         hdrs["Content-Length"] = str(len(body))
         hdrs["Accept-Encoding"] = "identity"
 
@@ -616,7 +636,10 @@ class Server(ThreadingHTTPServer):
 
 
 def main():
-    srv = Server(("0.0.0.0", PORT), Handler)
+    if UPSTREAM_KEY_ENV and not os.environ.get(UPSTREAM_KEY_ENV):
+        sys.exit(f"wire meter: UPSTREAM_KEY_ENV names {UPSTREAM_KEY_ENV}, which is not set")
+    # A relay that adds its own key serves this machine only: on a shared network anyone could spend the key.
+    srv = Server(("127.0.0.1" if UPSTREAM_KEY_ENV else "0.0.0.0", PORT), Handler)
 
     def _bye(sig, frame):
         _flush()
@@ -632,7 +655,8 @@ def main():
 
     threading.Thread(target=_flusher, daemon=True).start()
     print(f"wire meter on :{PORT} upstream={UPSTREAM} "
-          f"proxy={PROXY or 'direct'} ledger={LEDGER_PATH or 'off'}",
+          f"proxy={PROXY or 'direct'} ledger={LEDGER_PATH or 'off'} "
+          f"key={('$' + UPSTREAM_KEY_ENV) if UPSTREAM_KEY_ENV else 'the client'}",
           flush=True)
     srv.serve_forever()
 
