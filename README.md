@@ -43,7 +43,7 @@ This design offers three practical benefits:
 
 ## A Unified Framework for Harness Evolution
 
-Bring your tasks, agent, and learning method. Hermit handles the training loop.
+Hermit provides an RL-style training loop for evolving harness adapters:
 
 <p align="center">
 <picture>
@@ -51,16 +51,6 @@ Bring your tasks, agent, and learning method. Hermit handles the training loop.
 <img src="assets/training-loop-light.svg" alt="Animated training flow: tasks run through the acting agent and harness adapter, feedback reaches the Evolver, and checked updates become the next adapter version." width="100%">
 </picture>
 </p>
-
-*One loop from task feedback to a trained adapter.*
-
-- **Run existing methods.** GEPA, SkillOpt, MWM, and agent learners.
-
-- **Build your own.** Implement an Evolver or define an adapter template.
-
-- **Compare experiments.** Shared task and evaluation interfaces across supported harnesses.
-
-Batching, feedback records, checks, budgets, recovery, and versioning are built in.
 
 ### Easy to Use
 
@@ -75,6 +65,13 @@ Batching, feedback records, checks, budgets, recovery, and versioning are built 
 <p align="center">
 <img src="assets/training-loop.gif" alt="Training pseudocode: initialize the adapter, run and judge tasks, call evolver.step, check and commit the proposal, then finalize." width="100%">
 </p>
+
+### Supported Learning Methods
+
+| Status | Methods |
+| --- | --- |
+| ✅ **Supported** | [GEPA](docs/methods/gepa.md) · [SkillOpt](docs/methods/skillopt.md) · [MetaWorld Model](docs/methods/mwm.md) |
+| 🚧 **Coming Soon** | [Harness²](https://github.com/google-research/harness2) · [ACE](https://github.com/ace-agent/ace) · [Continual Harness](https://github.com/sethkarten/continual-harness) |
 
 ## Get Started
 
@@ -187,25 +184,6 @@ harnessadapter convert --adapter DIR --output OUT --target codex
 
 </details>
 
-## Supported Learning Methods
-
-Choose a method with `evolver.name`.
-
-| Method | Config | What it does |
-| --- | --- | --- |
-| [GEPA](docs/methods/gepa.md) | `gepa` | Reflective text evolution with candidate rollouts and Pareto-based selection. |
-| [SkillOpt](docs/methods/skillopt.md) | `skillopt` | Bounded skill edits, validation gating, epoch-level slow updates, and optimizer memory. |
-| [MetaWorld Model](docs/methods/mwm.md) | `mwm` | A Codex learner maintains environment knowledge, briefings, examples, and callable programs. |
-| Prompt-only baseline | `prompt_only` | Rewrites learnable Markdown files in one model call per step. |
-| Agent learners | `codex` / `claude` | A Codex or Claude Code agent inspects learning material and edits the adapter. |
-
-<details>
-<summary>Method Requirements</summary>
-
-GEPA and SkillOpt require validation tasks. MWM requires a task-integrated evidence store. All edits remain subject to the adapter specification.
-
-</details>
-
 ## Supported Agents and Adapters
 
 | Host | Deploy into a workspace | Convert to a plugin |
@@ -257,17 +235,7 @@ Runnable recipes, with evaluation details in each adapter’s `CARD.md`.
 
 [Browse the recipes](docs/recipes/index.md) · [Read the evaluation guide](docs/guides/evaluation.md)
 
-## Roadmap and Contributing
-
-### Planned Method Integrations
-
-These integrations are planned and are not yet available as built-in Evolvers.
-
-| Method | Planned integration |
-| --- | --- |
-| [Harness²](https://github.com/google-research/harness2) | Propose–Probe–Compose updates, with a library of components and improvement experience. |
-| [ACE](https://github.com/ace-agent/ace) | Reflector–Curator updates to an evolving playbook of reusable strategies. |
-| [Continual Harness](https://github.com/sethkarten/continual-harness) | Online updates to instructions, subagents, skills, and memory from recent trajectories. |
+## Contributing
 
 Help extend Hermit by [implementing an Evolver](docs/framework/custom-evolver.md), [connecting a task](docs/tutorials/your-own-task.md), or [reporting a reproduction or integration issue](https://github.com/haizhongzheng/MetaHarnessAdapter/issues).
 
