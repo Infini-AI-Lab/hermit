@@ -20,9 +20,11 @@ from dataclasses import asdict
 import json
 import random
 import shutil
+import subprocess
 import sys
 import threading
 import time
+import uuid
 from pathlib import Path
 
 import yaml
@@ -205,6 +207,10 @@ class Trainer:
                     self.run_dir / "root", self.spec.directory]
         # What else the run starts has a sandbox of its own (#11): the agent that does the tasks (rollouts, and
         # run_agent for the Evolver) and the tools a template or task declares.
+        # The spec checks run the adapter's modules in a sandbox of their own, as strictly as the run asks.
+        import harnessadapter.spec as spec_module
+        spec_module.SANDBOX_ENFORCE = d["sandbox"].get("enforce", "required") if d["sandbox"]["enabled"] \
+            else "best_effort"
         self.pipeline, self._close_pipeline = agent_pipeline(self.config, "rollout", records=records)
         self.tool_runner = ToolRunner(self.config, records=records, work_root=self.run_dir / "tool_calls")
         atexit.register(self._close_sandboxes)
@@ -340,6 +346,23 @@ class Trainer:
             tool.cancel = cancel
         return tools
 
+    def _snapshot_adapter(self, source: Path) -> Path:
+        """A private copy of the adapter the learner names, made inside the learner's own sandbox: a link it swaps
+        in the meantime can only reach what the learner sees, and the rollout gets the copy, which the learner
+        cannot change while it runs."""
+        dest = self.run_dir / "agent_runs" / uuid.uuid4().hex[:12]
+        dest.mkdir(parents=True)
+        if self.sandbox.enabled and shutil.which("bwrap"):
+            args, env = self.sandbox.wrap(["cp", "-a", "--no-preserve=ownership", f"{source}/.", str(dest)],
+                                          writable=[dest])
+            run = subprocess.run(args, env=env, capture_output=True, text=True, timeout=300)
+            if run.returncode != 0:
+                shutil.rmtree(dest, ignore_errors=True)
+                raise ValueError(f"the adapter could not be copied from the workspace: {run.stderr.strip()[-300:]}")
+        else:
+            shutil.copytree(source, dest, symlinks=True, dirs_exist_ok=True)
+        return dest
+
     def _run_agent_tool(self) -> FunctionTool:
         """The acting-agent runner: an adapter through the user's pipeline and judge, on train or validation tasks."""
         allowed = {"train": set(self.data.splits["train"]), "val": set(self.data.splits["val"])}
@@ -352,9 +375,13 @@ class Trainer:
             if not target.resolve().is_relative_to(self.run_dir.resolve()):
                 raise ValueError("the adapter must be inside the workspace")
             tasks = [self.data.tasks[t] for t in task_ids]
-            results = run_tasks(tasks, target, self.pipeline, self.judge,
-                                concurrency=int(self.config["agent"]["concurrency"]), budget=self.budget,
-                                part="evolver")
+            snapshot = self._snapshot_adapter(target)
+            try:
+                results = run_tasks(tasks, snapshot, self.pipeline, self.judge,
+                                    concurrency=int(self.config["agent"]["concurrency"]), budget=self.budget,
+                                    part="evolver")
+            finally:
+                shutil.rmtree(snapshot, ignore_errors=True)
             # A training task's run also names its log (the trajectory, when the pipeline keeps one).
             return {"results": [{k: r[k] for k in ("id", "status", "output", "judge", "cost_usd", "wall_s")}
                                 | ({"log": r["log"]} if r["id"] in allowed["train"] else {}) for r in results]}

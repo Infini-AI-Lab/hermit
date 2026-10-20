@@ -35,16 +35,22 @@ from harnessadapter.adapter.loader import Adapter, inside, load_manifest, subage
 from harnessadapter.adapter.resources import EvidenceStore, LearningMaterial
 
 
-# Set in a sandboxed agent's worker (#11): a Session made there runs the adapter's tools in a sandbox of their own.
-# The adapter is the learner's work, and its code must not run in the process that reports the task's result.
-DEFAULT_SANDBOX = None
+# Set by a sandboxed agent's worker (#11) in its environment, so every process it starts inherits it (a benchmark's
+# own runner, a CLI agent's tool server): a Session made there runs the adapter's tools in a sandbox of their own.
+# The adapter is the learner's work; its code runs neither in the process that reports the task's result nor with
+# that process's access.
+ENV_SANDBOX = "HA_ADAPTER_SANDBOX"                    # "1": sandbox by default; "0": this is that sandbox's server
+ENV_ENFORCE = "HA_ADAPTER_SANDBOX_ENFORCE"            # the run's sandbox.enforce
+ENV_PYTHON = "HA_FRAMEWORK_PYTHON"                    # the framework's interpreter, for a server started elsewhere
 
 
 def _adapter_sandbox():
-    from harnessadapter.sandbox import Sandbox
-    # Inside the agent's sandbox already: this one separates the adapter's code from the agent's process (its own
-    # process namespace), with the agent's network and packages.
-    return Sandbox(role="adapter", network="open", packages=["*"], enforce="required")
+    """Strict, like the learner's: no network but the loopback endpoints the environment names (forwarded), none of
+    the environment's keys, and the framework's own packages (the templates' tools need nothing else)."""
+    from harnessadapter.sandbox import LOCAL_URL, Sandbox
+    loopback = [k for k, v in os.environ.items() if LOCAL_URL.search(str(v))]
+    return Sandbox(role="adapter", network="isolated", env_allow=loopback,
+                   enforce=os.environ.get(ENV_ENFORCE, "required"))
 
 
 class Session:
@@ -52,7 +58,8 @@ class Session:
                  learning_material: Path | str | None = None, evidence: Path | str | None = None,
                  audit_log: Path | str | None = None, sandbox=None):
         self._remote = None
-        if sandbox is None and DEFAULT_SANDBOX:
+        self._sandboxed = False
+        if sandbox is None and os.environ.get(ENV_SANDBOX) == "1":
             sandbox = _adapter_sandbox()
             owned = True
         else:
@@ -71,10 +78,12 @@ class Session:
             if isinstance(deployment, (str, Path)):
                 deployment = json.loads(Path(deployment).read_text())
             self._init_audit(audit_log)
-            self._remote = SandboxedServer(
-                self._sandbox, self._root, deployment=deployment,
-                learning_material=Path(learning_material).resolve() if learning_material is not None else None,
-                evidence=Path(evidence).resolve() if evidence is not None else None)
+            self._sandboxed = True
+            if self._manifest.get("tools"):                # nothing to serve, nothing to start
+                self._remote = SandboxedServer(
+                    self._sandbox, self._root, deployment=deployment,
+                    learning_material=Path(learning_material).resolve() if learning_material is not None else None,
+                    evidence=Path(evidence).resolve() if evidence is not None else None)
             return
         bound = dict(resources or {})
         if deployment is not None:
@@ -93,15 +102,16 @@ class Session:
 
     @property
     def sandboxed(self) -> bool:
-        return self._remote is not None
+        return self._sandboxed
 
     def close(self) -> None:
         """Stop a sandboxed Session's server (nothing to do otherwise)."""
         if self._remote is not None:
             self._remote.close()
             self._remote = None
-            if self._owns_sandbox:
-                self._sandbox.close()
+        if self._sandboxed and self._owns_sandbox:
+            self._sandbox.close()
+            self._owns_sandbox = False
 
     def __enter__(self):
         return self
@@ -190,9 +200,9 @@ class Session:
         record = {"time": datetime.now(timezone.utc).isoformat(), "pid": os.getpid(), "adapter": self.manifest["name"],
                   "version": self.version, "tool": name, "arguments": arguments}
         try:
-            if self._remote is None:
+            if not self._sandboxed:
                 result = await self.adapter.call(name, arguments)
-            elif not self.has_tool(name):
+            elif not self.has_tool(name) or self._remote is None:
                 raise ValueError(f"Unknown tool: {name}")
             else:
                 result = await self._remote.acall(name, arguments)

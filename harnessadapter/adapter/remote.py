@@ -30,11 +30,19 @@ def _field(result, *names):
 class SandboxedServer:
     def __init__(self, sandbox, root: Path, *, deployment: dict | None = None, learning_material: Path | None = None,
                  evidence: Path | None = None, timeout: float = 60, call_timeout: float | None = 600):
+        import os
+        from harnessadapter.adapter.session import ENV_PYTHON, ENV_SANDBOX
         from harnessadapter.isolate import _framework_env
+        from harnessadapter.sandbox import program_paths
 
         self.work = Path(tempfile.mkdtemp(prefix="ha-session-"))
-        command = [sys.executable, "-m", "harnessadapter.runtime.mcp_server", "--adapter", str(root)]
         readable, writable = [root], [self.work]
+        # The server runs on the framework's Python. A program on another interpreter (a benchmark's own venv) that
+        # holds a Session names it through the environment; that installation is shown for the server.
+        python = os.environ.get(ENV_PYTHON) or sys.executable
+        if Path(python).resolve() != Path(sys.executable).resolve():
+            readable += [Path(python).parent.parent, *program_paths(python)]
+        command = [python, "-m", "harnessadapter.runtime.mcp_server", "--adapter", str(root)]
         if deployment is not None:
             path = self.work / "host.json"
             path.write_text(json.dumps(deployment))
@@ -48,8 +56,9 @@ class SandboxedServer:
             writable.append(Path(evidence))
         self.sandbox = sandbox
         self.call_timeout = call_timeout
+        env = _framework_env({ENV_SANDBOX: "0"})          # the server is the sandbox: its Session serves in place
         self.args, self.env = sandbox.wrap(command, readable=readable, writable=writable, home=self.work,
-                                           env=_framework_env(), keep=["PYTHONPATH"])
+                                           env=env, keep=["PYTHONPATH", ENV_SANDBOX])
         self.log = self.work / "server.log"
         self._errlog = open(self.log, "w")
         self.loop = asyncio.new_event_loop()

@@ -108,6 +108,8 @@ def assemble(*, adapter: Path, root: Path, template_decls: list, task_decls: lis
 
     def check(path: str | None = None) -> dict:
         target = Path(path) if path else adapter
+        if not target.resolve().is_relative_to(adapter.resolve()):   # its own working copy (or a part of it) only
+            raise ValueError("check_spec checks your working copy of the adapter")
         return check_spec(target, root, python=python).to_dict()
     tools["check_spec"] = FunctionTool(
         "check_spec", "Check whether the adapter (default: your working copy) conforms to its template's "

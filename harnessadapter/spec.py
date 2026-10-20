@@ -128,10 +128,28 @@ def _frontmatter(text: str) -> dict | None:
     return head if isinstance(head, dict) else None
 
 
+# Checks 5 and 6 run code: the adapter's modules (the learner's work) and the template's check. They run in a
+# sandbox of their own (#11): the adapter and the template read-only, no network, none of the environment's keys.
+# `required` refuses to run without bubblewrap; a run sets its sandbox.enforce here (the Trainer does).
+SANDBOX_ENFORCE = "best_effort"
+
+
+def _run_sandboxed(command: list[str], readable: list[Path], timeout: float) -> subprocess.CompletedProcess:
+    from harnessadapter.sandbox import Sandbox
+    keep = ["PYTHONPATH", "PYTHONDONTWRITEBYTECODE"]
+    box = Sandbox(role="spec", network="isolated", env_allow=keep, readable=[Path(p) for p in readable],
+                  enforce=SANDBOX_ENFORCE)
+    try:
+        args, env = box.wrap(command, env=_child_env(), keep=keep)
+        return subprocess.run(args, capture_output=True, text=True, timeout=timeout, env=env)
+    finally:
+        box.close()
+
+
 def _deploy_check(adapter: Path, python: str) -> list[Issue]:
     try:
-        run = subprocess.run([python, "-m", "harnessadapter.adapter.render_context", "--adapter", str(adapter)],
-                             capture_output=True, text=True, timeout=DEPLOY_TIMEOUT, env=_child_env())
+        run = _run_sandboxed([python, "-m", "harnessadapter.adapter.render_context", "--adapter", str(adapter)],
+                             [adapter], DEPLOY_TIMEOUT)
     except subprocess.TimeoutExpired:
         return [Issue("", 5, f"rendering the exports took longer than {DEPLOY_TIMEOUT} s")]
     if run.returncode != 0:
@@ -170,11 +188,8 @@ def template_check(adapter: Path, root: Path, python: str | None = None) -> list
         f"r = m.{function}(sys.argv[1])\n"
         "print(json.dumps(r))\n")
     command = [python or sys.executable, "-c", script, str(adapter)]
-    if shutil.which("bwrap"):
-        command = ["bwrap", "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp",
-                   "--unshare-net", "--die-with-parent", *command]
     try:
-        run = subprocess.run(command, capture_output=True, text=True, timeout=TEMPLATE_CHECK_TIMEOUT, env=_child_env())
+        run = _run_sandboxed(command, [adapter, root], TEMPLATE_CHECK_TIMEOUT)
     except subprocess.TimeoutExpired:
         return [Issue("", 6, f"the template check took longer than {TEMPLATE_CHECK_TIMEOUT} s")]
     if run.returncode != 0:

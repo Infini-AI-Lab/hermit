@@ -129,8 +129,10 @@ What the preset keeps from the agent is the run's secrets:
 - a CLI agent (codex, claude-code) gets its CLI as installed: the links to it, its package, the interpreter it
   names (node) and what a short wrapper script runs; its login is copied into its own `CODEX_HOME` or
   `CLAUDE_CONFIG_DIR` for the call and removed after it;
-- the adapter's tools never run in the agent's process: a `Session` made there serves them from a sandbox of its
-  own (the adapter is the learner's work, and the agent's process reports the result).
+- the adapter's tools never run in the agent's process, nor in any process it starts (a benchmark's own runner, a
+  CLI agent's tool server): a `Session` made there serves them from a sandbox of its own, as strict as the
+  learner's (no network but the loopback endpoints the environment names, none of its keys, the framework's
+  packages), under the run's `enforce`; an adapter without tools starts nothing.
 
 Every sandbox has its own process namespace: the host's processes, their environment and their files are not
 reachable through `/proc`. `agent.timeout_min` stops a task call that runs longer and records it as an error. The
@@ -147,6 +149,11 @@ GPU, a docker socket) gets it through the profile's `read` or `write`, or runs u
 `profiles.rollout.enabled: false`. The examples' configs show each case: officeqa grants its prepared corpus (a link
 `prepare.py` makes) and not the answers beside it, officeqa_paper covers `.private/`, clbench grants its checkout
 and task directory from the launcher's variables.
+
+Wherever else the framework executes the adapter, the learner's work, it does so in a sandbox: the spec check's
+deploy and template checks (the adapter and the template read-only, no network, no keys) and the mwm Evolver's
+maintenance, admission gates and context rendering (in the learner's own sandbox). `run_agent` runs a copy of the
+adapter the learner names, made inside the learner's sandbox.
 
 The `learner` and `tool` roles are strict: `sandbox.network`, `sandbox.env` and the framework's own packages. A
 declared tool that needs more says so in `profiles.tool` (examples/clbench_database/mwm's `sql` tool reads the

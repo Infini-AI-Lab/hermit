@@ -323,6 +323,7 @@ class SandboxedAgent:
         self.work_root = Path(work_root) if work_root else config.path(self.params.get("logs", ".logs")) / role
         self.cli = self._cli_kind()
         self.timeout = float(agent["timeout_min"]) * 60 if agent.get("timeout_min") else None
+        self.enforce = d["sandbox"].get("enforce", "required")
         # Only the logs beside the agent's code are writable (examples/officeqa_paper keeps them there); the code,
         # the config and the task's helpers are read-only. Every run record in the project is covered, this run's
         # and the other methods' beside it (found again for each call). A project too large to search is not shown
@@ -356,7 +357,9 @@ class SandboxedAgent:
         home.mkdir(parents=True)
         # Logs and workspaces go to this call's own directory: the agent's log directory is covered (earlier calls).
         params = {**self.params, "logs": str(work / "logs"), "workspaces": str(work / "workspaces")}
-        env, keep = _framework_env(), list(self.keys)
+        from harnessadapter.adapter.session import ENV_ENFORCE
+        env = _framework_env({ENV_ENFORCE: self.enforce})
+        keep = [*self.keys, ENV_ENFORCE]
         if self.cli:                                     # a CLI agent signs in with a copy of the user's login only
             folder, var, login = CLI_HOMES[self.cli]
             agent_home = home / folder

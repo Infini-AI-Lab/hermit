@@ -525,3 +525,56 @@ def test_the_adapters_code_runs_outside_the_workers_process(tmp_path):
         agent.close()
     assert out.output == "genuine" and out.extra["sandboxed"] is True
     assert out.extra["wrote"] == "0"                                # no pipe of the agent's reachable from the adapter
+
+
+# --- the third review's holes, closed -------------------------------------------------------------------------------
+
+@needs_bwrap
+def test_the_spec_check_runs_the_adapters_code_in_a_sandbox(tmp_path, monkeypatch):
+    """check_spec imports the adapter's tool modules (the learner's work): top-level code there sees nothing."""
+    import harnessadapter.spec as spec_module
+    from test_session_sandbox import EXAMPLE
+    monkeypatch.setattr(spec_module, "SANDBOX_ENFORCE", "required")
+    adapter = tmp_path / "adapter"
+    shutil.copytree(EXAMPLE, adapter)
+    secret, planted = tmp_path / "answers.jsonl", tmp_path / "planted.txt"
+    secret.write_text("gold")
+    (adapter / "tools.py").write_text(
+        f"import os\ntry:\n    open({str(planted)!r}, 'w').write(open({str(secret)!r}).read())\nexcept Exception:\n"
+        "    pass\n" + (EXAMPLE / "tools.py").read_text())
+    spec_module._deploy_check(adapter, sys.executable)
+    assert not planted.exists()                                      # neither read the secret nor wrote outside
+
+
+@needs_bwrap
+def test_a_session_in_a_process_the_agent_starts_is_sandboxed_too(tmp_path):
+    """A benchmark's own runner (another process) holding a Session: the setting is inherited."""
+    from test_session_sandbox import adapter_copy
+    config = Config.load(sandboxed_task(tmp_path), [])
+    (tmp_path / "pipeline.py").write_text(
+        "import subprocess, sys\nfrom harnessadapter.task import RunOutput\n\n"
+        "def run(task, adapter):\n"
+        "    code = ('from harnessadapter.adapter.session import Session\\n'\n"
+        "            's = Session(sys.argv[1]); print(s.sandboxed); s.close()')\n"
+        "    out = subprocess.run([sys.executable, '-c', 'import sys\\n' + code, str(adapter)], capture_output=True,\n"
+        "                         text=True)\n"
+        "    return RunOutput(output=out.stdout.strip().splitlines()[-1] if out.stdout.strip() else out.stderr[-500:])\n")
+    adapter = adapter_copy(tmp_path / "runs" / "r")
+    agent = SandboxedAgent(config, "rollout", records=None)
+    try:
+        out = agent({"id": "t1", "a": 1, "b": 2}, adapter)
+    finally:
+        agent.close()
+    assert out.output == "True", out.output
+
+
+def test_an_adapter_without_tools_starts_no_server(tmp_path, monkeypatch):
+    from harnessadapter import Session
+    adapter = tmp_path / "adapter"
+    shutil.copytree(Path(__file__).resolve().parents[1] / "harnessadapter/algorithms/templates/prompt_only", adapter)
+    monkeypatch.setenv("HA_ADAPTER_SANDBOX", "1")
+    s = Session(adapter)
+    assert s.sandboxed and s._remote is None and s.context() is not None
+    with pytest.raises(ValueError, match="Unknown tool"):
+        s.call("anything", {})
+    s.close()

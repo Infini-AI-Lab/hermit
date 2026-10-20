@@ -54,6 +54,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 
 from harnessadapter.evolver.agent import parse_log
 from harnessadapter.evolver.base import Context, Evolver, FinalResult, StepContext, StepResult, Usage
@@ -69,7 +70,6 @@ def _load(name: str):
     return module
 
 
-_prompt = _load("prompt")
 
 WORK = "/w"                       # the learner's working directory: the world model, as natively mounted
 EDIT_TIMES = ".mwm/edit_times.json"
@@ -401,8 +401,9 @@ class MwmEvolver(Evolver):
         session = self._session_dir(ctx, label)
         record: dict = {"label": label, "block": block, "tick": tick}
         try:
-            state = _prompt.prepare_session(adapter, session, block=block, tick=tick)
-            text = _prompt.build_prompt(adapter, Path(ctx.params["evidence"]), goal, notes=notes, session=session)
+            state = self._isolated(ctx, "prepare", adapter=str(adapter), session=str(session), block=block, tick=tick,
+                                   evidence=str(Path(ctx.params["evidence"])), goal=goal, notes=notes)
+            text = state["prompt"]
         except Exception as exc:                               # noqa: BLE001
             _restore(snapshot, adapter)
             record.update(status="prepare_failed", error=f"{type(exc).__name__}: {exc}")
@@ -454,7 +455,7 @@ class MwmEvolver(Evolver):
             _restore(snapshot, adapter)
             record.update(status="rule_broken", changed=[], protected_changes=broken)
             return record
-        admission = _prompt.finalize(adapter, session)
+        admission = self._isolated(ctx, "admit", adapter=str(adapter), session=str(session))
         record["admission"] = admission
         changed = _changed(before, _digest(adapter))
         record.update(status="adopted", changed=changed)
@@ -511,12 +512,30 @@ class MwmEvolver(Evolver):
 
     def _render_context(self, ctx: Context) -> None:
         """ADAPTER.md: the host package rendered with this deployment, for hosts that read the context file."""
-        adapter = ctx.workspace.adapter
-        from harnessadapter.algorithms.evolvers.mwm import deployment as _dep
-        from harnessadapter.adapter.loader import Adapter
-        loaded = Adapter(adapter, {"deployment": _dep.host_settings(self._deployment_dir(ctx))})
-        text = loaded._module("interface.py").context(_resources=loaded.resources)
-        (adapter / "ADAPTER.md").write_text(text.rstrip("\n") + "\n")
+        self._isolated(ctx, "render", adapter=str(ctx.workspace.adapter), deployment=str(self._deployment_dir(ctx)))
+
+    @staticmethod
+    def _isolated(ctx: Context, name: str, **arguments):
+        """Run a maintenance step that executes the adapter's modules (isolated.py) in the learner's sandbox; in
+        this process only when the run has no sandbox."""
+        if ctx.sandbox is None or not getattr(ctx.sandbox, "enabled", True):
+            module = _load("isolated")
+            return getattr(module, name)(**arguments)
+        from harnessadapter.isolate import _framework_env, _run_worker
+        work = ctx.workspace.scratch / f"maintenance-{uuid.uuid4().hex[:8]}"
+        (work / "home").mkdir(parents=True)
+        readable = [HERE]
+        if name == "render":
+            readable.append(Path(arguments["deployment"]))
+        job = {"kind": "tool", "entrypoint": f"{HERE / 'isolated.py'}:{name}", "base": str(HERE),
+               "arguments": arguments, "bound": {}}
+        try:
+            return _run_worker(ctx.sandbox, job, work, home=work / "home", readable=readable,
+                               writable=[Path(arguments["adapter"]), *([Path(arguments["session"])]
+                                                                      if "session" in arguments else [])],
+                               env=_framework_env())["result"]
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
 
     @staticmethod
     def _notes(admission: dict | None) -> str:

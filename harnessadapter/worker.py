@@ -23,10 +23,12 @@ import traceback
 
 def _run(job: dict) -> dict:
     if job["kind"] == "agent":
-        import harnessadapter.adapter.session as session_module
+        from harnessadapter.adapter.session import ENV_PYTHON, ENV_SANDBOX
         from harnessadapter.agents.base import load_agent
         from harnessadapter.task import RunOutput, output_record
-        session_module.DEFAULT_SANDBOX = True            # the adapter's tools never run in this process
+        # The adapter's tools never run in this process, nor in any it starts (inherited through the environment).
+        os.environ[ENV_SANDBOX] = "1"
+        os.environ[ENV_PYTHON] = sys.executable
         agent = load_agent(job["name"], job.get("params"), Path(job["base"]))
         out = agent.run(job["task"], Path(job["adapter"]) if job.get("adapter") else None)
         if not isinstance(out, RunOutput):
