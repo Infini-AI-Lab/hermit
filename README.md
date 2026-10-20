@@ -68,25 +68,30 @@ Hermit provides an RL-style training loop for evolving harness adapters:
 
 ### Supported Learning Methods
 
-| Status | Methods |
-| --- | --- |
-| ✅ **Supported** | [GEPA](docs/methods/gepa.md) · [SkillOpt](docs/methods/skillopt.md) · [MetaWorld Model](docs/methods/mwm.md) |
-| 🚧 **Coming Soon** | [Harness²](https://github.com/google-research/harness2) · [ACE](https://github.com/ace-agent/ace) · [Continual Harness](https://github.com/sethkarten/continual-harness) |
+<table align="center">
+<thead>
+<tr>
+<th>Status</th>
+<th>Methods</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>✅ <strong>Supported</strong></td>
+<td><a href="docs/methods/gepa.md">GEPA</a> · <a href="docs/methods/skillopt.md">SkillOpt</a> · <a href="docs/methods/mwm.md">MetaWorld Model</a></td>
+</tr>
+<tr>
+<td>🚧 <strong>Coming Soon</strong></td>
+<td><a href="https://github.com/google-research/harness2">Harness²</a> · <a href="https://github.com/ace-agent/ace">ACE</a> · <a href="https://github.com/sethkarten/continual-harness">Continual Harness</a> · <a href="https://arxiv.org/abs/2610.12668">ReHarness</a></td>
+</tr>
+</tbody>
+</table>
 
 ## Get Started
 
-| [Use a trained adapter](docs/tutorials/deploy-an-adapter.md) | [Train for your tasks](docs/get-started/first-model.md) | [Build a new method](docs/framework/custom-evolver.md) |
-| --- | --- | --- |
-| Deploy to your agent. | Use your tasks and feedback. | Implement and compare your idea. |
+### Install
 
-<details>
-<summary>Run the Local Training Demo · No API Key Required</summary>
-
-The included **local training walkthrough** connects feedback, an adapter update, evaluation, and deployment. A scripted learner reads the judge's feedback and writes the learned rule.
-
-Python 3.11+ and Git · No model account, GPU, or dataset download required
-
-### 01 Install
+Python 3.11+ and Git
 
 ```bash
 git clone https://github.com/haizhongzheng/MetaHarnessAdapter.git
@@ -96,7 +101,13 @@ source .venv/bin/activate
 python -m pip install -e .
 ```
 
-### 02 Train and Evaluate
+### Quick Start
+
+The included **local training walkthrough** connects feedback, an adapter update, evaluation, and deployment. A scripted learner reads the judge's feedback and writes the learned rule.
+
+No model account, GPU, or dataset download required.
+
+#### Train and Evaluate
 
 ```bash
 harnessadapter check --config docs/_examples/first_training/run.yaml
@@ -111,7 +122,7 @@ The teaching agent starts by echoing lowercase text. After a failed attempt, the
 
 This deterministic example verifies the training contract. Its constructed score gain is not a real-model performance result. The example uses trusted local Python with the learner-program sandbox disabled.
 
-### 03 Inspect and Deploy
+#### Inspect and Deploy
 
 ```bash
 cat .demo/first-training/first-training/checkout/ADAPTER.md
@@ -128,23 +139,98 @@ The generated `AGENTS.md` contains the learned rule. Start Codex in that workspa
 
 **Ready for a real agent?** [Train with an API model](docs/get-started/first-model.md) · [Run OfficeQA](docs/recipes/officeqa.md) · [Bring your own task](docs/tutorials/your-own-task.md)
 
-</details>
+### Examples
 
-<details>
-<summary>What You Need for Each Starting Point</summary>
+Runnable recipes, with evaluation details in each adapter’s `CARD.md`.
 
-| Your goal | What Hermit provides | What you bring |
-| --- | --- | --- |
-| **Use an existing adapter**<br>[Use an adapter →](docs/tutorials/deploy-an-adapter.md) | Workspace deployment and native plugin conversion for a compatible adapter. | An adapter, a supported agent host, and any dependencies the adapter needs. |
-| **Adapt to your own tasks**<br>[Train your adapter →](docs/get-started/first-model.md) | Existing templates and Evolvers, with a Trainer that connects execution, feedback, checks, and versioning. | Your tasks, acting agent, evaluator, and model access. |
-| **Develop a learning method or adapter design**<br>[Build a learning method →](docs/framework/custom-evolver.md) | Editable adapter specifications and an Evolver interface for implementing and comparing methods on shared task pipelines. | Your adapter design or update algorithm, plus an evaluation task. |
+<table align="center">
+<thead>
+<tr>
+<th>Recipe</th>
+<th>Task and methods</th>
+<th>Recorded result or evaluation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="docs/recipes/officeqa.md">OfficeQA</a></td>
+<td>133 questions on U.S. Treasury Bulletins. Prompt-only, Codex, GEPA, SkillOpt.</td>
+<td>Scores and run details in each adapter's card.</td>
+</tr>
+<tr>
+<td><a href="docs/recipes/officeqa-paper.md">OfficeQA · paper setting</a></td>
+<td>SkillOpt's 50 / 24 / 172 split; exact-match scoring. SkillOpt and GEPA.</td>
+<td>Test means: 0.576 (SkillOpt), 0.564 (GEPA). 172 questions × 3 repeats. <a href="https://github.com/haizhongzheng/MetaHarnessAdapter/tree/main/examples/officeqa_paper">Adapters &amp; cards</a>.</td>
+</tr>
+<tr>
+<td><a href="docs/recipes/lean-collaboration.md">Lean collaboration</a></td>
+<td>Five Codex agents proving theorems with a shared team service; a finished adapter.</td>
+<td>8/8 development problems; 12/24 held-out problems so far.</td>
+</tr>
+<tr>
+<td><a href="docs/recipes/servelearnbench.md">ServeLearnBench</a></td>
+<td>retail_l3: 624 serving cases in eight windows. MWM and prompt-only.</td>
+<td>Per-window tests scored with <code>slb score</code>.</td>
+</tr>
+<tr>
+<td><a href="docs/recipes/clbench.md">CL-Bench</a></td>
+<td>Database and poker streams. MWM and prompt-only.</td>
+<td>Accuracy reported per stream.</td>
+</tr>
+</tbody>
+</table>
 
-</details>
+[Browse the recipes](docs/recipes/index.md) · [Read the evaluation guide](docs/guides/evaluation.md)
 
-<details>
-<summary>More Ways to Start: Deploy a Seed, Train OfficeQA, or Use Your Own Server</summary>
+#### More Starting Points
 
-### Deploy an Adapter Without Training
+<table align="center">
+<thead>
+<tr>
+<th><a href="docs/tutorials/deploy-an-adapter.md">Use a trained adapter</a></th>
+<th><a href="docs/get-started/first-model.md">Train for your tasks</a></th>
+<th><a href="docs/framework/custom-evolver.md">Build a new method</a></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Deploy to your agent.</td>
+<td>Use your tasks and feedback.</td>
+<td>Implement and compare your idea.</td>
+</tr>
+</tbody>
+</table>
+
+#### What You Need for Each Starting Point
+
+<table align="center">
+<thead>
+<tr>
+<th>Your goal</th>
+<th>What Hermit provides</th>
+<th>What you bring</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Use an existing adapter</strong><br><a href="docs/tutorials/deploy-an-adapter.md">Use an adapter →</a></td>
+<td>Workspace deployment and native plugin conversion for a compatible adapter.</td>
+<td>An adapter, a supported agent host, and any dependencies the adapter needs.</td>
+</tr>
+<tr>
+<td><strong>Adapt to your own tasks</strong><br><a href="docs/get-started/first-model.md">Train your adapter →</a></td>
+<td>Existing templates and Evolvers, with a Trainer that connects execution, feedback, checks, and versioning.</td>
+<td>Your tasks, acting agent, evaluator, and model access.</td>
+</tr>
+<tr>
+<td><strong>Develop a learning method or adapter design</strong><br><a href="docs/framework/custom-evolver.md">Build a learning method →</a></td>
+<td>Editable adapter specifications and an Evolver interface for implementing and comparing methods on shared task pipelines.</td>
+<td>Your adapter design or update algorithm, plus an evaluation task.</td>
+</tr>
+</tbody>
+</table>
+
+#### Deploy an Adapter Without Training
 
 ```bash
 mkdir -p .demo
@@ -153,7 +239,7 @@ harnessadapter deploy --adapter .demo/adapter --workspace .demo/codex-workspace 
 cat .demo/codex-workspace/AGENTS.md
 ```
 
-### Train on OfficeQA
+#### Train on OfficeQA
 
 Prepare the dataset and model endpoint as described in the [OfficeQA recipe](docs/recipes/officeqa.md). GEPA requires the `gepa` installation extra; SkillOpt requires `skillopt`. Sandboxed agent Evolvers require Linux with `bubblewrap`.
 
@@ -165,7 +251,7 @@ harnessadapter train --config examples/officeqa/gepa/smoke.yaml
 harnessadapter eval --config examples/officeqa/gepa/smoke.yaml --adapter final
 ```
 
-### Use Your Own Model Server
+#### Use Your Own Model Server
 
 Models use `<backend>/<model id>` references. See [Model backends](docs/guides/model-backends.md) for endpoint configuration and requirements.
 
@@ -175,104 +261,17 @@ harnessadapter backends check vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8
 harnessadapter train --config examples/officeqa/gepa/smoke.yaml model=vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8
 ```
 
-### Convert a Trained Adapter into a Plugin
+#### Convert a Trained Adapter into a Plugin
 
 ```bash
 harnessadapter convert --adapter DIR --output OUT --target codex
 # Other targets: claude-code, pi, hermes
 ```
 
-</details>
-
-## Supported Agents and Adapters
-
-| Host | Deploy into a workspace | Convert to a plugin |
-| --- | --- | --- |
-| Codex | Yes | Yes |
-| Claude Code | Yes | Yes |
-| Pi | Yes | Yes |
-| Hermes | — | Yes |
-| Your own agent loop | Consume the adapter's context and tools directly. |  |
-
-<details>
-<summary>Included Adapter Templates</summary>
-
-- `prompt_only` — context-only adaptation.
-
-- `lean_collab` — skills, a shared lemma library, and a team service for agents proving Lean theorems.
-
-- `mwm` — memory, a briefing, and callable programs behind a single `wm` tool.
-
-[Customize a template →](docs/tutorials/customize-an-adapter.md)
-
-</details>
-
-<details>
-<summary>How Adapters, Plugins, and Learning Methods Relate</summary>
-
-| Concept or approach | What it provides | How it relates to Hermit |
-| --- | --- | --- |
-| Model adapter<br>e.g. LoRA | Adaptation through additional model parameters. | A harness adapter is a trainable external harness. Its training leaves the original harness and model fixed. |
-| Agent plugin | A host-native way to package and load extensions. | A trained harness adapter can be delivered as a plugin. Its training specification also defines what can be learned and checked. |
-| A learning-method implementation | A particular update strategy, such as reflective text edits or skill optimization. | The method runs as an Evolver; Hermit supplies the shared training infrastructure. |
-| Your own training scripts | A workflow tailored to your task and algorithm. | Hermit lets you supply the acting pipeline, judge, and learning method while reusing records, checks, budgets, recovery, and version history. |
-
-The adapter is the learning artifact. The Evolver is the learning method. Hermit provides the platform that connects them to tasks and deployment.
-
-</details>
-
-## Examples
-
-Runnable recipes, with evaluation details in each adapter’s `CARD.md`.
-
-| Recipe | Task and methods | Recorded result or evaluation |
-| --- | --- | --- |
-| [OfficeQA](docs/recipes/officeqa.md) | 133 questions on U.S. Treasury Bulletins. Prompt-only, Codex, GEPA, SkillOpt. | Scores and run details in each adapter's card. |
-| [OfficeQA · paper setting](docs/recipes/officeqa-paper.md) | SkillOpt's 50 / 24 / 172 split; exact-match scoring. SkillOpt and GEPA. | Test means: 0.576 (SkillOpt), 0.564 (GEPA). 172 questions × 3 repeats. [Adapters & cards](https://github.com/haizhongzheng/MetaHarnessAdapter/tree/main/examples/officeqa_paper). |
-| [Lean collaboration](docs/recipes/lean-collaboration.md) | Five Codex agents proving theorems with a shared team service; a finished adapter. | 8/8 development problems; 12/24 held-out problems so far. |
-| [ServeLearnBench](docs/recipes/servelearnbench.md) | retail_l3: 624 serving cases in eight windows. MWM and prompt-only. | Per-window tests scored with `slb score`. |
-| [CL-Bench](docs/recipes/clbench.md) | Database and poker streams. MWM and prompt-only. | Accuracy reported per stream. |
-
-[Browse the recipes](docs/recipes/index.md) · [Read the evaluation guide](docs/guides/evaluation.md)
-
 ## Contributing
 
 Help extend Hermit by [implementing an Evolver](docs/framework/custom-evolver.md), [connecting a task](docs/tutorials/your-own-task.md), or [reporting a reproduction or integration issue](https://github.com/haizhongzheng/MetaHarnessAdapter/issues).
 
-<details>
-<summary>Project Updates · October 2026</summary>
-：
-- `convert` emits installable plugins for Claude Code, Codex, Pi, and Hermes. [#6](https://github.com/haizhongzheng/MetaHarnessAdapter/pull/6)
-
-- MWM is a built-in template and Evolver, with CL-Bench and ServeLearnBench examples. [#7](https://github.com/haizhongzheng/MetaHarnessAdapter/pull/7), [#8](https://github.com/haizhongzheng/MetaHarnessAdapter/pull/8)
-
-- GEPA and SkillOpt run as built-in Evolvers, including OfficeQA in the SkillOpt paper's setting. [#2](https://github.com/haizhongzheng/MetaHarnessAdapter/pull/2)
-
-- v0.2.0 introduces adapter templates, Evolvers, the Trainer, and evolving tasks.
-
-</details>
-
-## Documentation
-
-- [Installation](docs/get-started/installation.md)
-
-- [First training cycle](docs/get-started/quickstart.md)
-
-- [What is a harness adapter?](docs/framework/what-is-a-harness-adapter.md)
-
-- [Use & train adapters](docs/framework/adapter-lifecycle.md)
-
-- [Tutorials](docs/tutorials/deploy-an-adapter.md)
-
-- [Architecture](docs/framework/overview.md)
-
-- [Configuration](docs/framework/configuration.md)
-
-- [Commands](docs/framework/commands.md)
-
-- [Adapter manifest](docs/framework/adapter-manifest.md)
-
-Build the docs with `docs/build.sh` and preview them with `docs/serve.sh`.
 
 ## License
 
