@@ -28,7 +28,7 @@ OfficeQA skill as a `prompt-only@1.0` adapter) inside `examples/officeqa/utils/`
 questions.
 
 The acting agent answers with GLM 5.3 Flash on Fireworks (`fireworks/accounts/fireworks/models/glm-5p3-flash`,
-the default of `utils/agent/agent.py`), and the configs' learners are GLM 5.3 or GLM 5.3 Flash on Fireworks: set
+the default of `utils/agent/agent.py`), and the configs' learners are GLM 5.3 on Fireworks: set
 `FIREWORKS_API_KEY` in your shell before continuing, or bind the run to another backend (see
 [Model backends](../guides/model-backends.md)). `model=vllm/...` on the command line moves the acting agent;
 the configs that set `llm` keep their learner unless `llm=vllm/...` is given too.
@@ -122,7 +122,40 @@ workspace-write sandbox without network or web search, in a fresh workspace with
 `.agents/skills/skillopt-target/SKILL.md`, the question with its parsed source pages as `task.md`, and the whole corpus
 under `docs/`; SkillOpt's analyst also reads the summary SkillOpt writes of each session. Each method folder has
 `smoke_codex.yaml` and `run_codex.yaml`, its `smoke.yaml` and `run.yaml` with `agent.params.harness: codex` and no
-budget. They need the Codex CLI; Codex reaches the acting model through its backend's Responses API.
+budget. Codex reaches the acting model through its backend's Responses API.
+
+Each Codex session runs in a Docker container of its own (`examples/officeqa/utils/agent/codex_sandbox.py`) whose
+files are only its workspace, a fresh Codex home and the corpus (read-only), with a private `/tmp`. The containers sit
+on an internal Docker network with no route out; their only way out is an HTTPS proxy
+(`utils/agent/docker/egress_proxy.py`) that opens connections to the model provider's API and refuses the rest, and
+logs each decision. Codex's own workspace-write sandbox runs inside the container, as SkillOpt asks: the session's
+commands write only the workspace, `/tmp` and parts of the fresh Codex home, and have no network at all. That sandbox
+needs namespaces, which Docker allows a container only with `SYS_ADMIN` and without its seccomp and AppArmor profiles;
+the session's commands run in user, mount and network namespaces of their own. The session's shell gets only Codex's
+core environment variables (no API key), with Codex's shell snapshot off (it would bring back the whole environment).
+Build the image (Codex 0.134.0 for Linux arm64; on an x64 host use `@openai/codex@0.134.0-linux-x64` and
+`--build-arg TRIPLE=x86_64-unknown-linux-musl`), create the network and start the proxy once:
+
+```bash
+cd examples/officeqa/utils/agent/docker
+npm pack @openai/codex@0.134.0-linux-arm64 && mkdir -p codex
+tar -xzf openai-codex-0.134.0-linux-arm64.tgz --strip-components 1 -C codex
+docker build -t officeqa-codex:0.134.0 .
+docker network create --internal oq-sandbox
+docker run -d --name oq-egress --restart unless-stopped --read-only --network bridge officeqa-codex:0.134.0 \
+  python3 -u /opt/egress_proxy.py 3128 api.fireworks.ai:443
+docker network connect oq-sandbox oq-egress
+```
+
+`OFFICEQA_CODEX_IMAGE`, `OFFICEQA_CODEX_NETWORK` and `OFFICEQA_CODEX_PROXY` name others. Eight rollouts at a time
+per run start eight containers; give Docker's VM enough CPUs and memory for every run you start side by side (the
+results in the example's README ran four runs on 12 CPUs and 24 GB). `docker logs oq-egress` lists every connection
+the sessions' Codex made or was refused. The proxy above lets through only Fireworks: for another backend, start it
+with that backend's `host:port` (a plain-HTTP or local endpoint cannot be reached from the network). The agent checks
+the image, the network, the provider's key and the corpus before its first session and stops if one is missing. The
+container is root with `SYS_ADMIN`, so Codex's sandbox is what keeps a session's commands in: on macOS, Docker's VM
+(colima, Docker Desktop) shares your home folder by default, so share only the corpus and the Codex workspaces'
+folder, and keep the answers out of both.
 
 ```bash
 harnessadapter train --config examples/officeqa/skillopt/smoke_codex.yaml
@@ -132,12 +165,8 @@ harnessadapter eval --config examples/officeqa/skillopt/run_codex.yaml --adapter
 ```
 
 Codex's workspaces are under `~/.cache/harnessadapter/officeqa-codex-actor/` (`agent.params.codex_dir`), outside the
-checkout, so no repository instructions reach the session. Codex's workspace-write sandbox limits writes but lets a
-session read the whole disk, answers included, and acting models do search outside their workspace. So Codex runs
-through `examples/officeqa/utils/agent/codex_sandbox.py`: the same sandbox, set by a permission profile that lets the
-session read only the system, its workspace and the corpus, with a fresh Codex home and TMPDIR per rollout and only
-Codex's core environment variables in its shell. Codex's built-in rules still keep `/tmp` readable and writable, so
-keep answer files out of `/tmp`, and inspect the commands in each rollout's `codex_raw.txt`.
+checkout, so no repository instructions reach the session; each rollout's commands are in its `codex_raw.txt`, except
+for a session that timed out, whose `codex_raw.txt` SkillOpt leaves empty.
 
 ## Included adapters
 

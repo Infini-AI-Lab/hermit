@@ -7,8 +7,8 @@ codex, its Codex harness: `codex exec` in a workspace-write sandbox without netw
 workspace with the skill as .agents/skills/skillopt-target/SKILL.md, the question with its oracle pages as task.md and
 the whole corpus under docs/ (the question's source files as hints). A session has 180 s; one without an <answer> is
 run again with its reply, up to 24 sessions. SkillOpt summarizes the sessions in codex_trace_summary.txt, which its
-analyst reads. Codex runs through codex_sandbox.py, which keeps the workspace-write sandbox but lets a session read
-only the system, its workspace and the corpus (Codex's own sandbox lets it read the whole disk, answers included).
+analyst reads. Codex runs through codex_sandbox.py, in a container of its own (docker/) that sees only the workspace
+and the corpus and reaches only the model provider, with Codex's workspace-write sandbox inside it.
 
 The adapter's ADAPTER.md is the skill; adapter=None runs without one. The run's SkillOpt prediction files
 (conversation.json, target_*_prompt.txt; for codex also codex_raw.txt and codex_trace_summary.txt) are its log.
@@ -28,6 +28,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import subprocess
 import tempfile
 import threading
 import time
@@ -42,9 +43,12 @@ EFFORT = "medium"                                                 # paper p.8: t
 MAX_TURNS, MAX_TOKENS = 24, 16384                                 # configs/officeqa/default.yaml; issue #13
 UNAVAILABLE = "target API unavailable"
 CODEX_DIR = "~/.cache/harnessadapter/officeqa-codex-actor"         # the codex harness's homes and rollouts/
-# Codex's own reports of a provider it could not reach (it retries those itself first), not the session's text
+# Codex's own reports of a provider it could not reach (it retries those itself first), and of a container that could
+# not start (codex_sandbox.py), not the session's text
 CODEX_UNAVAILABLE = re.compile(r"unexpected status (?:429|5\d\d)|exceeded retry limit|stream disconnected|"
-                               r"error sending request|too many requests|service unavailable|bad gateway", re.I)
+                               r"error sending request|too many requests|service unavailable|bad gateway|"
+                               r"officeqa: corpus not mounted|error response from daemon|"
+                               r"cannot connect to the docker daemon", re.I)
 
 _usage = threading.local()
 _lock = threading.Lock()
@@ -140,7 +144,10 @@ def _setup_codex(params: dict | None) -> None:
         (home / "config.toml").write_text("".join(f"{args[i + 1]}\n" for i in range(0, len(args), 2)))
         os.environ["CODEX_HOME"] = str(home)
         backend_config.set_target_backend("codex_exec")
-        os.environ["OFFICEQA_CODEX_READ"] = DATA["docs"]       # the corpus: what codex_sandbox.py lets a session read
+        os.environ["OFFICEQA_CODEX_CORPUS"] = DATA["docs"]     # the corpus: what codex_sandbox.py mounts read-only
+        ready = subprocess.run([str(HERE / "codex_sandbox.py"), "--check"], capture_output=True, text=True)
+        if ready.returncode:                                # else every session would fail and score as a wrong answer
+            raise RuntimeError(f"the Codex harness's container is not ready: {ready.stderr.strip()}")
         backend_config.configure_codex_exec(path=str(HERE / "codex_sandbox.py"), sandbox="workspace-write",
                                             reasoning_effort=EFFORT, use_sdk="cli", network_access=False,
                                             web_search=False, approval_policy="never")
@@ -208,8 +215,7 @@ class OfficeQAAgent(Agent):
         if codex:
             for link in (pred_dir / "codex_exec" / "docs").glob("root_*"):
                 link.unlink()                               # the corpus stays out of the run's log
-            for scratch in ("codex_home", "tmp"):           # codex_sandbox.py's per-rollout CODEX_HOME and TMPDIR
-                shutil.rmtree(out_root / scratch, ignore_errors=True)
+            shutil.rmtree(out_root / "codex_home", ignore_errors=True)    # codex_sandbox.py's per-rollout CODEX_HOME
             summary = pred_dir / "codex_trace_summary.txt"
             if summary.is_file():                           # what SkillOpt's analyst reads besides the replies
                 messages.append({"role": "user", "content": summary.read_text()})
