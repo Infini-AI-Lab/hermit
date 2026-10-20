@@ -1,0 +1,14 @@
+:root { --training: #d8731e; }
+@media (prefers-color-scheme: dark) { :root { --training: #efb078; } }
+.adapter-version { fill: var(--adapter-ink); font-size: 15px; font-weight: 600; }
+.version-tag { fill: var(--paper); stroke: var(--adapter); stroke-width: 1.25; }
+.feedback { color: var(--training); }
+.feedback-line, .feedback-head { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.feedback-label { fill: currentColor; font-size: 13px; font-weight: 500; }
+.draft-note { color: var(--quiet); font-size: 11px; text-align: center; margin: 8px 0 0; }
+.score-axis { fill: none; stroke: var(--quiet); stroke-width: 1; }
+.score-axis-label { fill: var(--quiet); font-size: 10px; letter-spacing: .6px; }
+.score-line { fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+.score-track { fill: var(--line); }
+.score-task { fill: var(--fail); fill-opacity: .35; }
+.score-task.passed { fill: var(--pass); fill-opacity: 1; }

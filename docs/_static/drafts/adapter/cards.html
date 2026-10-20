@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark"><title>Commands and code · Draft</title>
+<style>
+:root { --paper: #fbfaf7; --ink: #2d2a26; --quiet: #777873; --line: #d8d7d1; --core: #e3e7f0; --outline: #2e3f66; --ice: #2e5bd9;
+        --term: #1B1D22; --term-edge: #33363E; --prompt: #C6743C; --cmd: #F5F4F0; --dot: #C6743C; --note: #9A948C; --accent: #E0905A; --desc: #8C8780; }
+@media (prefers-color-scheme: dark) { :root { --paper: #191e23; --ink: #e6e7e3; --quiet: #a2aaa9; --line: #3e474e; --core: #293241; --outline: #9daec9; --ice: #a3c0df; } }
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100svh; display: grid; place-items: center; background: var(--paper); color: var(--ink); font-family: -apple-system, system-ui, sans-serif; }
+main { width: min(1200px, calc(100% - 32px)); padding: 30px 0 24px; }
+figure { margin: 0; }
+.terminal { background: var(--term); border: 2px solid var(--term-edge); border-radius: 14px; padding: 20px 28px 16px; font-family: 'Source Code Pro', 'JetBrains Mono', 'DejaVu Sans Mono', ui-monospace, monospace; font-size: 17px; line-height: 1.65; color: var(--cmd); }
+.bar { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+.dots { display: flex; gap: 7px; }
+.dots i { width: 11px; height: 11px; border-radius: 50%; background: var(--dot); }
+.dots i:nth-child(1) { opacity: .45; } .dots i:nth-child(2) { opacity: .7; }
+.divider { width: 2px; height: 30px; background: var(--term-edge); }
+.note { color: var(--note); font-size: 17px; padding-left: 10px; }
+.pill { margin-left: auto; font-size: 14px; font-weight: 600; color: var(--accent); background: rgba(198, 116, 60, .18); border-radius: 999px; padding: 4px 12px; white-space: nowrap; }
+.steps { display: flex; flex-direction: column; counter-reset: step; }
+.step { margin: 0 -28px; padding: 7px 28px 9px; border-left: 4px solid transparent; display: grid; column-gap: 22px; align-items: baseline; }
+.step pre { margin: 0; font: inherit; white-space: pre; overflow-x: auto; min-width: 0; }
+.step .desc { margin: 0; font-family: -apple-system, system-ui, sans-serif; font-size: 17px; line-height: inherit; font-weight: 500; letter-spacing: .02em; color: var(--accent); display: flex; align-items: baseline; gap: 10px; white-space: nowrap; }
+.step .desc i { align-self: center; line-height: 1.2; font-size: 13px; padding: 2px 8px; }
+.step .desc i { font-style: normal; font-family: 'Source Code Pro', ui-monospace, monospace; font-size: 12px; font-weight: 700; letter-spacing: 0; color: var(--term); background: var(--prompt); border-radius: 6px; padding: 2px 7px; }
+.step .desc i::before { content: counter(step, decimal-leading-zero); counter-increment: step; }
+.step.on { background: rgba(198, 116, 60, .16); border-left-color: var(--prompt); }
+.step.on .desc { color: #fff; }
+.step.later { opacity: 0; }
+.untyped { visibility: hidden; }
+.cursor { display: inline-block; width: 2px; height: 1.05em; background: var(--cmd); vertical-align: -0.15em; margin-left: 1px; }
+/* A: the label above the step, uppercase */
+.layout-above .step { grid-template-columns: minmax(0, 1fr); }
+.layout-above .step .desc { order: -1; margin-bottom: 5px; text-transform: uppercase; letter-spacing: .12em; font-size: 15px; }
+/* B: the label in a right column, on the step's first line */
+.layout-right .step { grid-template-columns: minmax(0, 1fr) 15em; }
+.layout-right .step .desc { justify-self: start; }
+/* C: the label in a left column, the code beside it */
+.layout-left .step { grid-template-columns: 262px minmax(0, 1fr); }   /* in px: the two cards' code columns start at the same x */
+.layout-left .step .desc { order: -1; }
+/* D: the whole label is one filled chip, left of the step */
+.layout-chip .step { grid-template-columns: 15.5em minmax(0, 1fr); column-gap: 16px; }
+.layout-chip .step .desc { justify-self: start; }
+.layout-chip .step .desc { order: -1; font-size: 13px; line-height: 1.3; text-transform: uppercase; letter-spacing: .1em; color: var(--term); background: var(--prompt); border-radius: 7px; padding: 4px 10px; gap: 8px; }
+.layout-chip .step .desc i { background: var(--term); color: var(--accent); padding: 1px 5px; }
+.layout-chip .step.on .desc { color: var(--term); background: #fff; }
+#cmd.layout-right .step { grid-template-columns: minmax(0, 1fr) 14em; }
+.prompt { color: var(--prompt); margin-right: 12px; }
+.cmd b { font-weight: 600; color: #fff; }
+.cmd b.t, .kw { color: var(--accent); }
+.t { color: var(--prompt); }
+b.t { color: var(--accent); }
+.controls { display: flex; align-items: center; gap: 10px; max-width: 420px; margin: 12px auto 0; color: var(--quiet); }
+button { font: inherit; font-size: 12px; color: inherit; border: 0; background: transparent; padding: 8px; min-height: 40px; display: inline-flex; align-items: center; gap: 5px; border-radius: 5px; cursor: pointer; }
+button:hover { background: var(--core); color: var(--ink); }
+button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+#play-icon { fill: currentColor; stroke: none; }
+#timeline { -webkit-appearance: none; appearance: none; background: transparent; flex: 1; height: 24px; cursor: pointer; }
+#timeline::-webkit-slider-runnable-track { height: 3px; border-radius: 2px; background: linear-gradient(to right, var(--outline) var(--progress, 0%), var(--line) var(--progress, 0%)); }
+#timeline::-webkit-slider-thumb { -webkit-appearance: none; width: 10px; height: 10px; margin-top: -3.5px; border-radius: 50%; background: var(--outline); }
+output { font-size: 11px; font-variant-numeric: tabular-nums; min-width: 64px; }
+.modes { display: flex; gap: 6px; justify-content: center; margin: 0 0 16px; font-size: 13px; color: var(--quiet); }
+.modes button { border: 1px solid var(--line); min-height: 34px; padding: 6px 12px; }
+.modes button.on { background: var(--outline); color: var(--paper); border-color: var(--outline); }
+.draft-note { color: var(--quiet); font-size: 11px; text-align: center; margin: 8px 0 0; }
+.cards { display: flex; flex-direction: column; gap: 22px; }
+.terminal.later { opacity: 0; }
+</style>
+</head><body><main>
+<figure aria-label="The commands, then the training loop, each step typed with its label.">
+<div class="cards">
+<div id="cmd" class="terminal layout-left">
+  <div class="bar"><div class="dots"><i></i><i></i><i></i></div><div class="divider"></div><span class="note">Install and use Hermit</span></div>
+  <div class="steps" id="cmd-steps"></div>
+</div>
+<div id="code" class="terminal layout-left">
+  <div class="bar"><div class="dots"><i></i><i></i><i></i></div><div class="divider"></div><span class="note">Customize your own training loop</span></div>
+  <div class="steps" id="code-steps"></div>
+</div>
+</div>
+</figure>
+<div class="controls" aria-label="Animation controls">
+<button id="play-pause" type="button" aria-label="Pause animation"><svg id="pause-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M7 5v10M13 5v10"/></svg><svg id="play-icon" viewBox="0 0 20 20" aria-hidden="true" hidden><path d="m7 4 9 6-9 6Z"/></svg></button>
+<button id="replay" type="button" aria-label="Replay animation"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 8a6.5 6.5 0 1 1 .8 6.3M4 3v5h5"/></svg><span>Replay</span></button>
+<input id="timeline" type="range" min="0" max="10" value="0" step="0.01" aria-label="Animation position in seconds">
+<output id="time" for="timeline">0.0 / 10s</output>
+</div>
+<p class="draft-note">Concept draft · typewriter, labels in the left column</p>
+<script>
+(() => {
+  'use strict';
+  const byId = id => document.getElementById(id);
+  const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const CARDS = [
+    { id: 'cmd', steps: [
+      { lines: ['pip install -e .'], desc: 'Install' },
+      { lines: ['harnessadapter train --config run.yaml'], desc: 'Train' },
+      { lines: ['harnessadapter deploy --adapter my-adapter --workspace my-project --host codex'], desc: 'Deploy' },
+      { lines: ['harnessadapter convert --adapter my-adapter --output plugin --target claude-code'], desc: 'Convert to a plugin' },
+    ] },
+    { id: 'code', steps: [
+      { lines: ['adapter.initialize()'], desc: 'Initialize' },
+      { lines: ['for tasks in batches(train):', '    results  = [judge(t, agent(t, adapter)) for t in tasks]'], desc: 'Rollouts' },
+      { lines: ['    proposal = evolver.step(adapter, feedback(results))'], desc: 'Optimize' },
+      { lines: ['    if check(proposal).passed:', '        adapter = commit(proposal)'], desc: 'Check, commit', ver: 1 },
+      { lines: ['adapter = evolver.finalize(adapter)'], desc: 'Final adapter', ver: 1 },
+    ] },
+  ];
+  const cmdLine = text => `<span class="prompt">$</span><span class="cmd">${esc(text).replace(/^(harnessadapter \w+|pip install)/, '<b>$1</b>').replace(/(--target \S+|--host \S+)/, '<b class="t">$1</b>')}</span>`;
+  // adapter and evolver, the two things the loop is about, in orange; keywords lighter; evolver.* bold
+  const codeLine = text => esc(text).replace(/\b(for|in|if|or)\b/g, '<span class="kw">$1</span>')
+    .replace(/\b(evolver)(\.(?:step|finalize))\b/g, '<b class="t">$1$2</b>').replace(/\b(adapter)\b/g, '<span class="t">$1</span>');
+  const format = (card, text) => text.split('\n').map(card === 'cmd' ? cmdLine : codeLine).join('\n');
+  for (const card of CARDS) {
+    byId(`${card.id}-steps`).innerHTML = card.steps.map((s, i) =>
+      `<div class="step" data-n="${i}"><pre></pre><p class="desc"><i></i><span>${esc(s.desc)}</span></p></div>`).join('');
+  }
+  // seconds: the typing runs 15% faster than the base pace, and the time saved goes to the final hold, so the
+  // whole clip keeps the base length (base: 30 ms per character, 1.1 s after each step, 2 s at the end)
+  const SPEED = .85, CHAR = .03 * SPEED, TYPE_HOLD = 1.1 * SPEED;
+  const endAt = (card, char, hold) => card.steps.reduce((t, s) => t + s.lines.join('\n').length * char + hold, 0);
+  const duration = Math.max(...CARDS.map(c => endAt(c, .03, 1.1))) + 2;
+  // each card has its own schedule from time 0: the two play side by side, independently
+  const schedules = CARDS.map(card => { const out = []; let t = 0;
+    card.steps.forEach((s, i) => { const raw = s.lines.join('\n'); out.push({ step: i, at: t, raw }); t += raw.length * CHAR + TYPE_HOLD; });
+    return { steps: out, end: t }; });
+  const timeline = byId('timeline'), playButton = byId('play-pause');
+  timeline.max = duration.toFixed(2);
+  let time = 0, playing = false, previous = null, frame = null;
+  function render(tt) {
+    time = Math.min(duration, Math.max(0, tt));
+    CARDS.forEach((card, c) => {
+      let cur = schedules[c].steps[0];
+      for (const s of schedules[c].steps) if (time >= s.at) cur = s;
+      document.querySelectorAll(`#${card.id} .step`).forEach((el, i) => {
+        const raw = card.steps[i].lines.join('\n'), pre = el.querySelector('pre');
+        el.classList.toggle('later', i > cur.step);
+        if (i === cur.step) {
+          const n = Math.min(raw.length, Math.floor((time - cur.at) / CHAR));
+          pre.innerHTML = format(card.id, raw.slice(0, n)) + (n < raw.length ? '<span class="cursor"></span>' : '')
+            + (n < raw.length ? `<span class="untyped">${esc(raw.slice(n))}</span>` : '');
+        } else pre.innerHTML = format(card.id, raw);
+      });
+    });
+    timeline.value = time.toFixed(2);
+    timeline.style.setProperty('--progress', `${time / duration * 100}%`);
+    byId('time').textContent = `${time.toFixed(1)} / ${duration.toFixed(0)}s`;
+  }
+  function setPlaying(value) {
+    playing = value;
+    playButton.setAttribute('aria-label', value ? 'Pause animation' : 'Play animation');
+    byId('pause-icon').toggleAttribute('hidden', !value);
+    byId('play-icon').toggleAttribute('hidden', value);
+    previous = null;
+    if (frame !== null) cancelAnimationFrame(frame);
+    frame = value ? requestAnimationFrame(tick) : null;
+  }
+  function tick(now) {
+    if (!playing) return;
+    if (previous !== null) render(time + (now - previous) / 1000);
+    previous = now;
+    if (time >= duration) setPlaying(false);
+    else frame = requestAnimationFrame(tick);
+  }
+  playButton.addEventListener('click', () => { if (playing) setPlaying(false); else { if (time >= duration) render(0); setPlaying(true); } });
+  byId('replay').addEventListener('click', () => { render(0); setPlaying(true); });
+  timeline.addEventListener('input', () => { setPlaying(false); render(Number(timeline.value)); });
+  render(0);
+  setPlaying(true);
+})();
+</script>
+</main></body></html>
