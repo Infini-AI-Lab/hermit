@@ -95,6 +95,19 @@ commands and tools (300 s), and the learner's self-tests (300 s per program). It
 limit (1800 s until then); only a model request that hangs for 1800 s is abandoned. While other users
 loaded the GPUs, pages that load in about 1 s took over 10 s and their captures failed, scoring good pages 0.
 
+Its amendment 3 compares three arms, all with GLM 5.3 as the learner:
+- **PC** ([`prompt_only_codex/`](prompt_only_codex/)): prompt-only as the CL-Bench poker example runs it, the
+  prompt-only template with the built-in Codex Evolver (one fresh `codex exec` session per step, effort high,
+  `check_spec` only).
+- **TC** ([`toolsmith_codex/`](toolsmith_codex/)): the toolsmith template with the same Codex Evolver. Its one extra
+  tool, `test_tools` (`utils/tool_selftest.py`), runs the scripted toolsmith's self-test on demand on the agent's
+  machine, which the session's own sandbox is not.
+- **TS** (`toolsmith/`): the toolsmith template with its scripted Evolver.
+
+The Codex learners reach the model through the metering relay `hermit/runtime/wire_meter.py` with
+`UPSTREAM_KEY_ENV` set, so the session holds only a placeholder key; the `learner` backend's `base_url` names the
+relay (see the configs' comments).
+
 ## Code
 
 ```text
@@ -113,7 +126,9 @@ utils/runtime/chrome-gpu.sh   starts Chromium with the GPU flags
 utils/reference/    webgl_probe.html (a GPU probe page) and best_<case>.html (experiment 1's best pages) for the checks
 utils/task-info-generic/      the task for experiment 2's learners, with the machine facts (generated, not committed)
 utils/tool_works.py, utils/emergence.py   offline checks: does a learned tool render truthfully; did the agent look
+utils/tool_selftest.py   the task tool test_tools: the toolsmith self-test for an agent learner (arm TC)
 utils/tests/        tests of the sandbox, the agent, the generic texts and the checks
 prompt_only_generic/   arm P: run_<case>.yaml, smoke.yaml      toolsmith/   arm T: run_<case>.yaml, smoke.yaml
 mwm_visual_generic/    arm M: run_<case>.yaml, smoke.yaml      baseline/    eval_<case>.yaml, eval_<case>_hinted.yaml
+prompt_only_codex/     experiment 4, arm PC: run4_<case>.yaml      toolsmith_codex/   arm TC: run4_<case>.yaml
 ```

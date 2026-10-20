@@ -1,0 +1,55 @@
+# Visual showcase, case silk, generic toolset, experiment 4 (amendment 3), arm PC: prompt-only as the CL-Bench poker
+# example runs it (../../clbench_poker/prompt_only/run.yaml). The prompt-only template (one learned ADAPTER.md, served
+# to the agent as its context, no tools) and the built-in Codex Evolver: one fresh `codex exec` session per step reads
+# the step's learning material (each run's input, output, judge score and feedback, full trajectory) and rewrites
+# ADAPTER.md, then calls check_spec. As in the poker run: reasoning effort high, a 1M context window, check_spec as the
+# only Trainer tool, no login files, the session sandboxed with no network but its model relay. The learner model is
+# GLM 5.3 (not Flash), the learner of every experiment-4 arm. Same task, acting agent (GLM 5.3 Flash), steps, limits
+# and eval repeats as ../toolsmith/run4_silk.yaml (arm TS) and ../toolsmith_codex/run4_silk.yaml (arm TC).
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/silk.txt
+  test: ../utils/splits/silk-eval.txt  # the alias row silk-eval: the same task under another id
+  step_size: 1
+task_info: ../utils/task-info-generic/silk/   # README.md (the brief, the tool list, the facts), environment.md,
+                                    # judge.md (how a run is observed and recorded)
+agent:
+  name: ../utils/agent/agent.py:VisualAgent
+  concurrency: 1                      # one run at a time, eval repeats too: runs never share the machine
+judge:
+  path: ../utils/judge.py
+template: prompt-only@1.0           # W0: "(No instructions learned yet.)"
+evolver:
+  name: codex                         # the built-in Codex AgentEvolver (hermit/algorithms/evolvers/codex)
+  resume: false                       # a fresh session every step, as in the poker run
+  params:
+    model: learner/accounts/fireworks/models/glm-5p3   # GLM 5.3 on the `learner` backend below
+    args: [-c, 'model_reasoning_effort="high"', -c, model_context_window=1048576, --disable, view_image]
+                                      # effort high and the 1M window as the poker run's launch.sh passes them;
+                                      # view_image off: GLM 5.3 takes no image input, and the material holds PNGs
+    home: []                          # no login files: the relay holds the key
+    tools: [check_spec]              # as in the poker run: no run_agent, llm or budget
+    hide: null                        # nothing to cover: the sandbox shows only what it binds. The poker run's
+                                      # `hide: []` covers examples/, which holds this run's own workspace
+backends:
+  learner:                            # a metering relay in front of Fireworks (hermit/runtime/wire_meter.py)
+    from: fireworks
+    base_url: http://127.0.0.1:3460/unset/inference/v1   # lane.sh: http://127.0.0.1:<346k>/<lane>/inference/v1,
+                                                          # the relay of worker k, which sends the worker's key
+    api_key_env: RELAY_PLACEHOLDER_KEY   # the session's key is a placeholder (lane.sh sets it); it never holds a key
+sandbox:
+  enabled: true
+  network: restricted                 # the session's own namespace: the relay and the Trainer's tools, nothing else
+  allow: []
+  read: []
+  env: []                             # the placeholder key variable is always passed; nothing else is
+trainer:
+  run_name: silk-pc
+  output_dir: runs
+  tree_dir: runs/trees-v3/silk      # one tree per case: separate adapters, all from the same W0
+  epochs: 48
+  save_freq: {steps: 1, epochs: 1}
+  budget: {usd: null, hours: 96}      # no cost ceiling (the user); visual-run-v3/spend_gate.py logs the spend
+  call_timeout_min: 240               # a hang guard: GLM 5.3 is slower than the poker run's Flash (35 min there)
+eval:
+  repeats: 5

@@ -1,0 +1,79 @@
+# Visual showcase, case silk, generic toolset, experiment 4 (amendment 3), arm TC: the toolsmith template 1.2
+# (ADAPTER.md and tool bundles tools/<name>/ that the agent's harness exposes as callable tools whose results may carry
+# images) with the same built-in Codex Evolver as arm PC (../prompt_only_codex/run4_silk.yaml): one fresh `codex
+# exec` session per step reads the learning material and edits the adapter. Besides check_spec it may call one task
+# tool, test_tools (../utils/tool_selftest.py): the self-test the scripted toolsmith Evolver (arm TS,
+# ../toolsmith/run4_silk.yaml) runs after every reply, on the acting agent's machine, which the session's own sandbox
+# is not (no GPU, browser or Node there). Same task, acting agent (GLM 5.3 Flash), learner model (GLM 5.3), steps,
+# limits and eval repeats as the other two arms.
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/silk.txt
+  test: ../utils/splits/silk-eval.txt  # the alias row silk-eval: the same task under another id
+  step_size: 1
+task_info: ../utils/task-info-generic/silk/   # README.md (the brief, the tool list, the facts), environment.md,
+                                    # judge.md (how a run is observed and recorded); probes/ feeds test_tools
+agent:
+  name: ../utils/agent/agent.py:VisualAgent
+  concurrency: 1                      # one run at a time, eval repeats too: runs never share the machine
+judge:
+  path: ../utils/judge.py
+template: toolsmith@1.2               # W0: "No learned instructions yet." and no tools
+evolver:
+  name: codex                         # the built-in Codex AgentEvolver (hermit/algorithms/evolvers/codex)
+  resume: false                       # a fresh session every step, as in the poker run
+  params:
+    model: learner/accounts/fireworks/models/glm-5p3   # GLM 5.3 on the `learner` backend below
+    args: [-c, 'model_reasoning_effort="high"', -c, model_context_window=1048576, --disable, view_image]
+                                      # effort high and the 1M window as the poker run's launch.sh passes them;
+                                      # view_image off: GLM 5.3 takes no image input, and the material holds PNGs
+    home: []                          # no login files: the relay holds the key
+    tools: [check_spec, test_tools]  # the poker run's check_spec, and the self-test below
+    hide: null                        # nothing to cover: the sandbox shows only what it binds. The poker run's
+                                      # `hide: []` covers examples/, which holds this run's own workspace
+evolver_access:
+  tools:                              # task tools the session may call (evolver.params.tools lets it); the Trainer
+                                      # loads the entrypoint from this folder and runs it in its own process
+    - name: test_tools
+      description: "Self-test tool bundles of your working copy (tools/<name>/) on the acting agent's machine, where
+        the agent's tools run (the task's confined sandbox: GPU, Chromium, Node, no network); your own shell has none
+        of these. Per bundle, as the self-test in EVOLVER.md: its own `test` in a scratch workspace, one call with its
+        `example_args` in a workspace holding the agent's best recent page, and, when that call returned images, one
+        call per probe page whose correct picture is known. Returns a text report per bundle (exit codes, timings,
+        stdout and stderr tails, image sizes and measures, blank or not, probe colours) and `working` per bundle; you
+        do not see the images. Up to 4 bundles per call (default: the first 4 by name); a call takes up to 20 minutes.
+        It changes nothing: you edit the files yourself (EVOLVER.md's reply grammar is for a learner that answers in
+        one message), and nothing is restored for you."
+      entrypoint: ../utils/tool_selftest.py:silk
+      input_schema:
+        type: object
+        properties:
+          names: {type: array, items: {type: string}, maxItems: 4}
+        additionalProperties: false
+      output_schema:
+        type: object
+        properties: {report: {type: string}, working: {type: object}}
+        required: [report, working]
+backends:
+  learner:                            # a metering relay in front of Fireworks (hermit/runtime/wire_meter.py)
+    from: fireworks
+    base_url: http://127.0.0.1:3460/unset/inference/v1   # lane.sh: http://127.0.0.1:<346k>/<lane>/inference/v1,
+                                                          # the relay of worker k, which sends the worker's key
+    api_key_env: RELAY_PLACEHOLDER_KEY   # the session's key is a placeholder (lane.sh sets it); it never holds a key
+sandbox:
+  enabled: true
+  network: restricted                 # the session's own namespace: the relay and the Trainer's tools, nothing else
+  allow: []
+  read: []
+  env: []                             # the placeholder key variable is always passed; nothing else is
+trainer:
+  run_name: silk-tc
+  output_dir: runs
+  tree_dir: runs/trees-v3/silk      # one tree per case: separate adapters, all from the same W0
+  epochs: 48
+  save_freq: {steps: 1, epochs: 1}
+  budget: {usd: null, hours: 96}      # no cost ceiling (the user); visual-run-v3/spend_gate.py logs the spend
+  call_timeout_min: 240               # a hang guard: GLM 5.3 is slower than the poker run's Flash (35 min there)
+                                      # (a test_tools round takes up to 20 min)
+eval:
+  repeats: 5
