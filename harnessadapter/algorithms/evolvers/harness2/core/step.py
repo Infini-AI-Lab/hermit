@@ -158,8 +158,12 @@ def run_stage(env: Env, *, label: str, dim: str, job: str, fallback: S.Tree, har
             continue
         if rejected:
             err = ("these files are off the editable surface and were not applied: " + ", ".join(sorted(rejected)[:6])
-                   + ". Component names must be lowercase letters, digits, `_` or `-` (e.g. "
-                   f"`{env.surface.skill_dir}/table_lookup/SKILL.md`).")
+                   + ". The editable paths, relative to the harness root, are "
+                   + ", ".join(f"`{a}`" for a in env.surface.always_on)
+                   + f" and `{env.surface.skill_dir}/<name>/SKILL.md` (skills sit at the root, not under `harness/`)"
+                   + (f", `{env.surface.skill_dir}/<name>/scripts/<file>.py`" if env.surface.scripts else "")
+                   + (f", `{env.surface.agent_dir}/<name>.md`" if env.surface.agents else "")
+                   + "; component names are lowercase letters, digits, `_` or `-`.")
         else:
             kept, err, triggered = _accept(env, new, fallback, label)
             if not err:

@@ -152,11 +152,18 @@ _FENCE = re.compile(r"\A(`{3,}|~{3,})[^\n]*\n(.*)\n\1[ \t]*\Z", re.S)
 
 
 def _rel(path: str) -> str:
+    """A reply's block path, relative to the harness root. The evidence shows the tree as `context/harness/`, whose
+    always-on files sit in `harness/`, so models often write `harness/skills/...`: skills and agents are at the
+    root, and that prefix is dropped."""
     rel = path.strip().strip("`'\"")
     for prefix in ("context/harness/", "harness_root/", "./"):
         if rel.startswith(prefix):
             rel = rel[len(prefix):]
-    return S.normalize_rel(rel)
+    rel = S.normalize_rel(rel)
+    for misplaced in ("harness/skills/", "harness/agents/"):
+        if rel.startswith(misplaced):
+            rel = rel[len("harness/"):]
+    return rel
 
 
 def parse_blocks(text: str) -> tuple[dict[str, str], list[str]]:

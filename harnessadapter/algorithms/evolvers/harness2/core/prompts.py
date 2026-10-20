@@ -11,7 +11,9 @@ not:
 - a step's reference set is ONE rollout of EACH task of a batch (not k replicates of one task), so "read the base
   set as a set" becomes "read the batch as a set", and patterns across tasks replace variance between replicates;
 - the harness a step adopts is carried to the NEXT tasks (and the held-out ones), so the generalisation block asks
-  for reusable procedure and family-wide facts, never one question's facts (upstream's carry-forward wording);
+  for reusable procedure and family-wide facts, never one question's facts (upstream's carry-forward wording), with
+  the grounding rule of upstream's tts pack (nothing from memory alone; a fact seen in one period or kind of
+  document stays scoped to it);
 - the llm channel cannot edit files in place, so its "how to make a change" asks for whole-file reply blocks;
 - the composers also receive the generalisation block: upstream's composer is told that "every rule that bound the
   candidate proposers binds you", and in a training loop its harness is the one carried to other tasks, so the rule
@@ -227,7 +229,8 @@ the proposal. For every file you change or create, write its COMPLETE new conten
 ...the whole new file...
 FILE>>>
 
-with the path relative to the harness (`harness/...`, `skills/<name>/SKILL.md`). To remove a
+with the path relative to the harness root: `harness/<file>.md` for the always-on files and
+`skills/<name>/SKILL.md` for a skill (skills sit at the root, NOT under `harness/`). To remove a
 component, write one line `<<<DELETE skills/<name>/SKILL.md>>>`.
 
 - Files you do not mention are inherited unchanged. Do not repeat a file to keep it the same.
@@ -357,6 +360,11 @@ buys nothing there.
 A fact the evidence establishes about the WHOLE family of tasks -- how the source documents are organised, what a
 recurring field, table or unit means, where a kind of figure is reported -- is worth encoding, labelled as such. A
 fact about one question's answer never is.
+
+Ground every fact: encode only what the trajectories or the workspace's own documents establish. Never assert a
+formula, standard, rate, convention or format rule from memory alone -- if the rollouts did not show it and the files
+do not state it, it does not go in. A fact observed for one period, source or kind of document is a hypothesis for
+the others: scope it in the text ("in the documents seen so far, ...") rather than stating it as universal.
 
 `context/library/` HOLDS, FOR EARLIER STEPS IN THIS {dw.upper()}, THE FULL HARNESS THAT WAS ADOPTED THERE -- all of
 its components -- together with the note saying why and the lesson drawn. Browse `INDEX.md` first, then open the
