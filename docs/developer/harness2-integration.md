@@ -4,8 +4,11 @@ orphan: true
 
 # Harness² integration plan
 
-Status: proposal, 2026-10-19. Nothing in this document is implemented yet. It is written against
-MetaHarnessAdapter `main` at `3ad559b` and the Harness² release at
+Status, 2026-10-20: Plan A is implemented on the `llm` channel (`harnessadapter/algorithms/evolvers/harness2/`,
+template `harness2@1.0`, `docs/methods/harness2.md`, tests `tests/test_harness2_*.py`, example
+`examples/officeqa_paper/harness2/`). Still planned: the `agent` channel (sandboxed Codex or Claude Code editors),
+Plan B (`Harness2Agent` and `mode: library`) and Plan C. The rest of this document is the original proposal of
+2026-10-19, written against MetaHarnessAdapter `main` at `3ad559b` and the Harness² release at
 [google-research/harness2](https://github.com/google-research/harness2) `1cfe254` (paper:
 [arXiv:2610.14224](https://arxiv.org/abs/2610.14224), site: [harness2.github.io](https://harness2.github.io)).
 

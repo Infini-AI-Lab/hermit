@@ -1,0 +1,13 @@
+# The editable surface of this adapter, read by the harness2 Evolver and by check.py.
+#
+# skills: inline -> every skill's body is rendered into ADAPTER.md after the always-on files. Use it for an acting
+#   agent that reads only ADAPTER.md (the built-in react agent, a task's own pipeline). index -> ADAPTER.md lists the
+#   skills by name and description and a host loads the bodies on demand (Codex, Claude Code; needs exports.skills).
+# scripts / agents: whether skills may carry scripts/*.py and whether agents/<name>.md roles exist. This template
+#   declares neither: its learnable paths are the four always-on files and skills/*/SKILL.md.
+surface:
+  skills: inline
+  scripts: false
+  agents: false
+always_on_max: 24000        # characters of the four always-on files together
+context_max: 40000          # bytes of the rendered ADAPTER.md (the prompt-only template's cap)
