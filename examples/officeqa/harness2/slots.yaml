@@ -1,0 +1,25 @@
+# Harness² prompt slots for OfficeQA (the per-task text its stage prompts interpolate). They describe the work, never
+# its measurement: the Evolver refuses the words benchmark, evaluation, grader, rubric and score here.
+work: >-
+  Answering a question about U.S. Treasury Bulletins (1939-2025). The agent gets the question and the bulletin files
+  its answer comes from, searches and reads those files with grep, glob and read tools (at most 24 turns), computes
+  what the question asks, and returns one final answer inside <answer>...</answer> in exactly the form the question
+  requests (unit, rounding, list format).
+domain_word: area
+deliverable_word: final answer
+inv_levers: >-
+  The tools are grep, glob and read over the question's candidate files. The bulletins are long text renderings of
+  scanned tables, so a run can spend its turns on broad greps and long reads. Look for turns spent before the right
+  table is found, reads that miss the needed row or column, arithmetic done in one leap instead of step by step, and
+  runs that end without the <answer> tag.
+dom_levers: >-
+  What a practitioner of Treasury statistics knows: which table of a bulletin reports a kind of figure, how a table's
+  headers encode period, basis and unit, how fiscal and calendar years differ, that later issues revise earlier
+  figures, and how growth rates, shares, averages and differences are computed and rounded.
+yardstick: >-
+  A good run finds the table that reports the asked-for figure for the asked-for period and basis, quotes the exact
+  cells it uses, does the arithmetic explicitly, and gives the answer in the requested unit and rounding inside
+  <answer>...</answer> well before the turn limit.
+selection_checks: >-
+  One value (or the requested list) in the requested unit and rounding, consistent with the figures quoted in the
+  final message.

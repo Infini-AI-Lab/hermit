@@ -1,0 +1,4 @@
+Parts of this package (core/surface.py, core/context.py, core/prompts.py, core/selection.py, core/library.py,
+core/ledger.py) are derived from google-research/harness2 (https://github.com/google-research/harness2),
+Copyright 2026 Google LLC, licensed under the Apache License, Version 2.0. The prompts are kept verbatim where the
+framework's surface allows it; the surface description, the evidence layout for a batch and the llm channel are new.

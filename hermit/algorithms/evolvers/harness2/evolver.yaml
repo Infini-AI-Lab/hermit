@@ -1,0 +1,28 @@
+description: Harness² (Xu et al., arXiv:2610.14224). Each step is a contrastive Propose-Probe-Compose round over the
+  step's rollouts - an INV editor (how the agent works) and a DOM editor (what a practitioner knows) propose scoped
+  harness edits, each candidate is probed on the same tasks, a composer merges what the trajectories support, and the
+  composition is probed too - followed by blind selection (k > 1), a reflection, and a per-domain library of adopted
+  harnesses with their lessons. Label-free - no judge score or feedback reaches any session. Needs the `harness2`
+  template and the run's `llm` tool.
+class: evolver.py:Harness2Evolver
+needs: []
+params:
+  mode: exec                 # exec: the adopted harness is carried to the next step (library mode: planned)
+  k: 1                       # task-level recursion budget: k INV + k DOM candidates and k compositions per step
+  recursion: parallel        # parallel (k independent compositions) | sequential (k chained rounds)
+  select: auto               # auto: the composition at k = 1, blind selection among the k finals at k > 1 | composed | blind
+  reflect: true              # write edit verdicts and a transferable lesson; only a step with a lesson enters the library
+  channel: llm               # llm: one metered call of the run's llm tool per stage | agent (not implemented yet)
+  max_tokens: 32000          # per call; reasoning models spend much of it thinking
+  temperature: null          # null: the endpoint's default
+  inline_chars: 600000       # llm channel: evidence inlined per call, at most (trajectories are clipped to fit)
+  obs_trunc: 50000           # per-observation clip in rendered trajectories, before inlining
+  stage_attempts: 2          # an invalid proposal is retried once with the validator's message, then falls back
+  workers: 4                 # concurrent sessions and probes in a phase
+  slots: null                # YAML with the task's prompt slots (work, domain_word, deliverable_word, inv_levers,
+                             # dom_levers, yardstick, domain_guidance, selection_checks); default <task_info>/harness2.yaml
+  domain_field: domain       # task field naming the library domain; absent -> one domain. One harness serves a
+                             # batch, so a batch that mixes domains reads and fills its majority domain's library
+  leak_globs: []             # task-source paths that must never reach a session (answer keys)
+  verdict_markers: []        # more strings that mark grader output (this task judge's feedback wording)
+  proposer: null             # file.py:Class or module:Class with call(mission, root, label, harvest=...) (tests)

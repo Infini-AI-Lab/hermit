@@ -1,0 +1,28 @@
+template:
+  id: harness2
+  version: "1.0"
+  contract: "1"
+  name: Harness² execution harness
+exports:
+  context: ADAPTER.md
+structure:
+  learnable:
+    - path: ADAPTER.md
+      format: {text: true, max_bytes: 40000}
+    - path: harness/systemprompt.md
+      format: {text: true, max_bytes: 24000}
+    - path: harness/guardrails.md
+      format: {text: true, max_bytes: 24000}
+    - path: harness/LongTermMEMORY.md
+      format: {text: true, max_bytes: 24000}
+    - path: harness/tool_guidance.md
+      format: {text: true, max_bytes: 24000}
+    - path: skills/*/SKILL.md
+      format: {text: true, max_bytes: 24000, max_files: 40, frontmatter: [description]}
+  fixed:
+    - harness2.yaml
+    - check.py
+    - EVOLVER.md
+    - README.md
+    - skills/README.md
+check: check.py:check
