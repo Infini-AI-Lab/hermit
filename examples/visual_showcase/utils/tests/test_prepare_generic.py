@@ -91,7 +91,12 @@ def test_generic_toolset_texts(tmp_path):
     assert "60-second load timeout (a page that has not loaded by then is not observed at all)" in flat_env
     assert "at most 20 seconds for `getState().ready`" in flat_env
     assert "ends after 240 seconds" in flat_env
-    assert "a `run_command` takes at most 300 seconds, a tool at most 300 seconds, a run 1800 seconds" in flat_env
+    assert ("a `run_command` takes at most 300 seconds and a tool at most 300 seconds; a run has no time limit, "
+            "and a model request is abandoned only when it hangs for 1800 seconds") in flat_env
+    acting = (UTILS / "agent" / "agent.py").read_text()   # the facts state the agent's own limits
+    assert re.search(r"^RUN_SECONDS: float \| None = None ", acting, re.M)
+    assert int(re.search(r"^REQUEST_GUARD_S = (\d+)", acting, re.M).group(1)) == prepare.LIMITS["request_guard_s"]
+    assert "the run itself has no time limit" in texts.LOOP_GENERIC and "1800 seconds" not in texts.LOOP_GENERIC
     # the facts state the capturer's own deadlines (runtime/browser_capture.cjs TIMEOUTS_MS)
     capturer = (UTILS / "runtime" / "browser_capture.cjs").read_text()
     deadlines = {k: int(v) for k, v in re.findall(r"\b(load|ready|observe):(\d+)", capturer.split("};")[0])}
@@ -123,7 +128,7 @@ def test_generic_toolset_texts(tmp_path):
     assert readme.endswith("## Environment facts\n\n" + env)
     flat = " ".join(readme.split())           # the README wraps at ~120 columns
     for phrase in ("`write_file`", "`read_file`", "`replace_text`", "`run_command`", "There is no browser tool",
-                   "1800 seconds, 12 model requests, 24 tool calls and 65,536 completion tokens"):
+                   "12 model requests, 24 tool calls and 65,536 completion tokens, and no time limit"):
         assert phrase in flat, phrase
     assert "inspect_page" not in readme and "3 inspections" not in readme
 

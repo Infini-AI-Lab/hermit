@@ -83,8 +83,9 @@ two toolsets share `tasks.jsonl`.
 ## The generic toolset (experiment 2)
 
 `agent/agent.py` (`VisualAgent`, named by `agent.name: ../utils/agent/agent.py:VisualAgent`) runs the same model with
-the same limits, records and final capture as `pipeline.py`, except a run's time (1800 seconds since experiment 4,
-600 before), but with four generic tools and no browser tool:
+the same limits, records and final capture as `pipeline.py`, except time and tools. A run has no time limit (600
+seconds before experiment 4, 1800 until its amendment 2), and a model request is abandoned only when it hangs for 1800
+seconds. It has four generic tools and no browser tool:
 
 | Tool | What it does |
 |---|---|

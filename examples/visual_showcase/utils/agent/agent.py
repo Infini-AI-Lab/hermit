@@ -10,8 +10,8 @@ context package and read-only `wm` tool.
 Arms: `harness` (B') without an adapter or for the untouched root (no `origin` in adapter.yaml), else `adapted` (C).
 `facts_file` (the hinted baseline) names a text file appended to the system prompt after the tool instructions.
 Model, prices, the request loop's shape, the records and the host's final capture are experiment 1's (utils/pipeline.py,
-utils/harness.py, imported by file), and so are the limits except the run's time (RUN_SECONDS); utils/judge.py scores
-the record unchanged.
+utils/harness.py, imported by file), and so are the limits except time: a run has no time limit (RUN_SECONDS) and a
+model request is abandoned only when it hangs (REQUEST_GUARD_S); utils/judge.py scores the record unchanged.
 """
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 import hashlib
 import importlib.util
 import json
+import math
 import os
 from pathlib import Path
 import secrets
@@ -57,8 +58,13 @@ RUNNER = confine.run                          # the confined runner; tests repla
 FINAL_CAPTURE = pipeline._final_capture       # the host's final capture (LOCK_EX inside harness.capture); tests fake it
 MAX_REQUESTS = pipeline.MAX_REQUESTS["harness"]
 CONTEXT_GUARD_TOKENS = 90_000                 # why: a request above this is one tool result away from the model's window
-RUN_SECONDS = 1800                            # why: a busy machine slows commands and lock waits count against
-                                              # the run (experiment 1's 600 s, pipeline.ACTOR_SECONDS, until exp. 4)
+RUN_SECONDS: float | None = None              # no time limit: a run ends by its requests, tool calls or completion
+                                              # tokens, so a slow API or a busy machine cannot cut it short (experiment
+                                              # 1's 600 s, pipeline.ACTOR_SECONDS, until exp. 4; 1800 s until its
+                                              # amendment 2)
+REQUEST_GUARD_S = 1800                        # why: only a request that hangs is abandoned; the longest reply (32,768
+                                              # tokens) takes 18 minutes at 30 tok/s, the lanes' speed floor
+                                              # (pipeline.REQUEST_TIMEOUT, 420 s, until experiment 4's amendment 2)
 FINAL_MESSAGE_CHARS = 1500
 RESULT_KEYS = ("arm", "case", "status", "stop_reason", "finished_utc", "elapsed_seconds", "model_calls", "tool_calls",
                "inspection_calls", "wm_calls", "usage", "submission_sha256", "final_inspected_sha256",
@@ -193,7 +199,7 @@ class VisualAgent(Agent):
         client = pipeline.make_client()
         messages = [{"role": "system", "content": sys_text}, {"role": "user", "content": task["prompt"]}]
         start = time.monotonic()
-        deadline = start + RUN_SECONDS
+        deadline = math.inf if RUN_SECONDS is None else start + RUN_SECONDS
         calls, model_s = 0, 0.0
         usage = {"prompt_tokens": 0, "completion_tokens": 0, "cached_tokens": 0}
         status, reason = "budget_exhausted", "maximum requests reached"
@@ -213,7 +219,7 @@ class VisualAgent(Agent):
                 break
             options = {**pipeline.SAMPLING, "max_tokens": min(pipeline.MAX_TOKENS, remaining), "tools": host.tools,
                        "tool_choice": "auto"}
-            client.timeout = max(1, min(pipeline.REQUEST_TIMEOUT, deadline - time.monotonic()))
+            client.timeout = max(1, min(REQUEST_GUARD_S, deadline - time.monotonic()))
             calls += 1
             record = {"call": calls, "request_message_count": len(messages), "request_image_count": sum(
                 1 for m in messages if isinstance(m.get("content"), list)

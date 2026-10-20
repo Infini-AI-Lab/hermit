@@ -91,7 +91,8 @@ experiment 2 are pending; the [recipe](../../docs/recipes/visual-showcase.md) ha
 Experiment 4 (`run4_<case>.yaml` in `prompt_only_generic/` and `toolsmith/`) trains P and T for 48 steps with GLM 5.3
 (not Flash) as the learner and longer limits everywhere a busy machine could cut a run short: the host's capture
 (`runtime/browser_capture.cjs`: load 60 s, ready 20 s, whole observation 240 s, before 10, 4 and 40 s), the agent's
-commands and tools (300 s) and runs (1800 s), and the learner's self-tests (300 s per program). While other users
+commands and tools (300 s), and the learner's self-tests (300 s per program). Its amendment 2 removed the run's time
+limit (1800 s until then); only a model request that hangs for 1800 s is abandoned. While other users
 loaded the GPUs, pages that load in about 1 s took over 10 s and their captures failed, scoring good pages 0.
 
 ## Code

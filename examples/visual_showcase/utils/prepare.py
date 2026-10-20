@@ -95,8 +95,9 @@ workspace; no network; at most {command_s} seconds; PNG files the command create
 returned to the agent as images, at most five per command and forty per run; a JPEG is reported, not shown). There is
 no browser tool. With a learned adapter, the adapter's context is appended to the system prompt and the tools the
 adapter exports, if any, are offered next to the four above; an MWM adapter offers its read-only `wm` tool (`list`,
-`memory`, `recall`, `search`, `read`, `trace`). Limits per run: {run_s} seconds, {requests} model requests,
-{tool_calls} tool calls and 65,536 completion tokens. Only the last `index.html` is submitted. The brief's inspection
+`memory`, `recall`, `search`, `read`, `trace`). Limits per run: {requests} model requests, {tool_calls} tool calls and
+65,536 completion tokens, and no time limit (a model request is abandoned only when it hangs for {request_guard_s}
+seconds). Only the last `index.html` is submitted. The brief's inspection
 paragraph refers to the host's final observation after the run; the system prompt tells the agent so. `judge.md` says
 how a run is observed and recorded.
 
@@ -161,8 +162,9 @@ exports execute there, in the same sandbox). Paths are absolute and resolved. Th
   those URLs, and Chromium blocks module scripts from `file://`.
 - F8. Writable: the workspace (the working directory) only. `/tmp` is private per command and discarded afterwards, so
   outputs must go under the working directory. HOME=/tmp/home.
-- F9. Limits: a `run_command` takes at most {command_s} seconds, a tool at most {tool_s} seconds, a run {run_s} seconds;
-  a host lock may delay a command (the wait is not charged to its timeout).
+- F9. Limits: a `run_command` takes at most {command_s} seconds and a tool at most {tool_s} seconds; a run has no time
+  limit, and a model request is abandoned only when it hangs for {request_guard_s} seconds; a host lock may delay a
+  command (the wait is not charged to its timeout).
 - F10. PNG files that a command or tool writes or modifies under the workspace are returned to the agent as images
   (at most {images_per_call} per call, {images_per_run} per run, {image_mb} MB and {image_mpx} megapixels each); a JPEG is
   reported as rejected, never shown, and the self-tests count only non-blank PNGs.
@@ -203,8 +205,11 @@ limits are unchanged: the adapter is the only writable area, the default command
 """
 
 # The acting harness's limits (agent/agent.py, pinned by the experiment contract); repeated here as facts.
-LIMITS = {"command_s": 300, "tool_s": 300, "run_s": 1800,  # generic_harness.MAX_TIMEOUT_S, toolsmith's tool maximum,
-                                                         # agent.RUN_SECONDS (90, 90 and 600 s before experiment 4)
+LIMITS = {"command_s": 300, "tool_s": 300,               # generic_harness.MAX_TIMEOUT_S, toolsmith's tool maximum
+                                                         # (90 and 90 s before experiment 4)
+          "request_guard_s": 1800,                       # agent.REQUEST_GUARD_S; a run has no time limit
+                                                         # (agent.RUN_SECONDS is None: 600 s before experiment 4,
+                                                         # 1800 s until its amendment 2)
           "images_per_call": 5, "images_per_run": 40,     # why: five is one capture's worth; forty bounds a run's bytes
           "image_mb": 2, "image_mpx": 2.1,               # why: pngstats decodes up to 2.2 Mpx; 1280x800 is 1.0 Mpx
           "requests": 12, "tool_calls": 24,              # agent.MAX_REQUESTS, generic_harness.MAX_TOOL_CALLS

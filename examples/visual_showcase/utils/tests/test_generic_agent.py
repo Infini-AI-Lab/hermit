@@ -264,6 +264,8 @@ def test_harness_arm_writes_the_page_runs_a_command_and_packs_its_images(scratch
     base = Path(out.log)
     result = json.loads((base / "result.json").read_text())
     assert set(agent.RESULT_KEYS) <= set(result)
+    # no time limit on the run; a request is abandoned only when it hangs for REQUEST_GUARD_S
+    assert agent.RUN_SECONDS is None and client.timeout == agent.REQUEST_GUARD_S == 1800
     assert result["arm"] == "harness" and result["status"] == "completed" and result["valid_submission"] is True
     assert result["model_calls"] == 3 and result["tool_calls"] == 2 and result["run_commands"] == 1
     assert result["image_bearing_calls"] == 1 and result["looked_calls"] == 1 and result["looked_blank_calls"] == 0
