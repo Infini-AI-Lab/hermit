@@ -230,6 +230,8 @@ def test_file_blocks_real_model_shapes(tmp_path):
     assert files == {"harness/tool_guidance.md": "", "harness/guardrails.md": "Quote the cell.\n",
                      "harness/systemprompt.md": "Use grep first.\n```inner```\n"}
     assert LlmProposer._usable(text, "stop", "context/harness", None)          # a mid-line mention is not a block
+    misplaced, _ = parse_blocks("<<<FILE harness/skills/tables/SKILL.md\n---\ndescription: d\n---\nB\nFILE>>>")
+    assert list(misplaced) == ["skills/tables/SKILL.md"]                     # skills sit at the root
     assert not LlmProposer._usable("<<<FILE harness/guardrails.md\ncut off", "length", "context/harness", None)
     assert not LlmProposer._usable("<why>B</why>", "length", None, r"```choice")
     S.write_tree(SPEC, {"skills/old/SKILL.md": SKILL}, tmp_path / "h", render=False)
