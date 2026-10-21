@@ -135,6 +135,10 @@ SANDBOX_ENFORCE = "best_effort"
 
 
 def _run_sandboxed(command: list[str], readable: list[Path], timeout: float) -> subprocess.CompletedProcess:
+    # SANDBOX_ENFORCE is None when the run's sandbox is off (sandbox.enabled: false): run unconfined, as the rest of
+    # that run does. Otherwise the adapter's modules run in a strict sandbox under the run's enforce.
+    if SANDBOX_ENFORCE is None:
+        return subprocess.run(command, capture_output=True, text=True, timeout=timeout, env=_child_env())
     from harnessadapter.sandbox import Sandbox
     keep = ["PYTHONPATH", "PYTHONDONTWRITEBYTECODE"]
     box = Sandbox(role="spec", network="isolated", env_allow=keep, readable=[Path(p) for p in readable],

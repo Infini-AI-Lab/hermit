@@ -151,9 +151,11 @@ GPU, a docker socket) gets it through the profile's `read` or `write`, or runs u
 and task directory from the launcher's variables.
 
 Wherever else the framework executes the adapter, the learner's work, it does so in a sandbox: the spec check's
-deploy and template checks (the adapter and the template read-only, no network, no keys) and the mwm Evolver's
-maintenance, admission gates and context rendering (in the learner's own sandbox). `run_agent` runs a copy of the
-adapter the learner names, made inside the learner's sandbox.
+deploy and template checks (the adapter and the template read-only, no network, no keys), the mwm Evolver's
+maintenance, admission gates and context rendering (in the learner's own sandbox), and a CLI acting agent's deploy —
+rendering the adapter's exports and the tool server it starts — so the adapter's modules never run with the agent's
+login or network. `run_agent` runs a copy of the adapter the learner names, made inside the learner's sandbox. (A
+standalone `deploy`, `convert` or `serve` the user runs for their own host, outside a run, still renders on the host.)
 
 The `learner` and `tool` roles are strict: `sandbox.network`, `sandbox.env` and the framework's own packages. A
 declared tool that needs more says so in `profiles.tool` (examples/clbench_database/mwm's `sql` tool reads the

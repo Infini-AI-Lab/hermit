@@ -8,7 +8,7 @@ import sys
 
 from harnessadapter.adapter.loader import load_manifest
 from harnessadapter.hosts.context import PROJECT_CONTEXT, START, append_context
-from harnessadapter.hosts.inputs import (MARKER, PACKAGE_ROOT, check_workspace, copy_skills, render_exports, retire_roles,
+from harnessadapter.hosts.inputs import (MARKER, PACKAGE_ROOT, _adapter_sandbox_env, check_workspace, copy_skills, render_exports, retire_roles,
                                          role_body, server_name, source_label, subagent_markdown, subagent_name)
 
 
@@ -48,7 +48,7 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
     if has_tools:
         server = {"type": "stdio", "command": python,
                   "args": ["-m", "harnessadapter.runtime.mcp_server", "--adapter", str(adapter), "--audit-log", str(audit)],
-                  "env": {"PYTHONPATH": PACKAGE_ROOT}}
+                  "env": {"PYTHONPATH": PACKAGE_ROOT, **_adapter_sandbox_env(python)}}
         if learning_material is not None:
             server["args"].extend(["--learning-material", str(Path(learning_material).resolve())])
     (output / ".mcp.json").write_text(json.dumps({"mcpServers": {server_name(manifest): server} if has_tools else {}},

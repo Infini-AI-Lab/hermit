@@ -133,6 +133,11 @@ class Trainer:
         self.branch = self.run_name
         self.data = TaskData(config.path(d["data"]["tasks"]), config.path(d["data"]["train"]),
                              config.path(d["data"]["val"]), config.path(d["data"]["test"]))
+        # The spec checks run the adapter's modules in a sandbox, as strictly as the run asks. Set before the first
+        # check_spec (start_from), so no learner-authored code runs on the host unconfined under enforce: required.
+        import harnessadapter.spec as spec_module
+        spec_module.SANDBOX_ENFORCE = d["sandbox"].get("enforce", "required") if d["sandbox"]["enabled"] \
+            else None
         self.pipeline = None             # set when the run starts: the agent runs in its sandbox, never imported here
         self.judge = load_callable(f"{d['judge']['path']}:{d['judge']['name']}", config.base)
         self.spec = find(d["evolver"]["name"], config.base)
@@ -207,10 +212,6 @@ class Trainer:
                     self.run_dir / "root", self.spec.directory]
         # What else the run starts has a sandbox of its own (#11): the agent that does the tasks (rollouts, and
         # run_agent for the Evolver) and the tools a template or task declares.
-        # The spec checks run the adapter's modules in a sandbox of their own, as strictly as the run asks.
-        import harnessadapter.spec as spec_module
-        spec_module.SANDBOX_ENFORCE = d["sandbox"].get("enforce", "required") if d["sandbox"]["enabled"] \
-            else "best_effort"
         self.pipeline, self._close_pipeline = agent_pipeline(self.config, "rollout", records=records)
         self.tool_runner = ToolRunner(self.config, records=records, work_root=self.run_dir / "tool_calls")
         atexit.register(self._close_sandboxes)

@@ -455,7 +455,12 @@ class MwmEvolver(Evolver):
             _restore(snapshot, adapter)
             record.update(status="rule_broken", changed=[], protected_changes=broken)
             return record
-        admission = self._isolated(ctx, "admit", adapter=str(adapter), session=str(session))
+        try:
+            admission = self._isolated(ctx, "admit", adapter=str(adapter), session=str(session))
+        except Exception as exc:                               # noqa: BLE001 - a worker/isolation failure in admission
+            _restore(snapshot, adapter)
+            record.update(status="admit_failed", error=f"{type(exc).__name__}: {exc}", changed=[])
+            return record
         record["admission"] = admission
         changed = _changed(before, _digest(adapter))
         record.update(status="adopted", changed=changed)
@@ -529,11 +534,12 @@ class MwmEvolver(Evolver):
             readable.append(Path(arguments["deployment"]))
         job = {"kind": "tool", "entrypoint": f"{HERE / 'isolated.py'}:{name}", "base": str(HERE),
                "arguments": arguments, "bound": {}}
+        timeout = float(ctx.params.get("session_timeout_s", 1800))
         try:
             return _run_worker(ctx.sandbox, job, work, home=work / "home", readable=readable,
                                writable=[Path(arguments["adapter"]), *([Path(arguments["session"])]
                                                                       if "session" in arguments else [])],
-                               env=_framework_env())["result"]
+                               env=_framework_env(), timeout=timeout)["result"]
         finally:
             shutil.rmtree(work, ignore_errors=True)
 

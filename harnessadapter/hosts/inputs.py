@@ -23,9 +23,25 @@ def child_env() -> dict:
 
 
 def render_exports(adapter, python):
-    """Render the context and the roles in a subprocess with the framework's interpreter."""
-    result = subprocess.run([python, "-m", "harnessadapter.adapter.render_context", "--adapter", str(adapter)],
-                            capture_output=True, text=True, env=child_env())
+    """Render the context and the roles in a subprocess with the framework's interpreter. Inside a run (an acting
+    agent's worker sets HA_ADAPTER_SANDBOX), the adapter's modules (the learner's work) are imported in a strict
+    sandbox: the adapter read-only, no network, none of the agent's keys, so they never run with the agent's login."""
+    command = [python, "-m", "harnessadapter.adapter.render_context", "--adapter", str(adapter)]
+    env = child_env()
+    if os.environ.get("HA_ADAPTER_SANDBOX") == "1":
+        from harnessadapter.adapter.session import ENV_ENFORCE
+        from harnessadapter.sandbox import Sandbox
+        box = Sandbox(role="render", network="isolated", env_allow=["PYTHONPATH", "PYTHONDONTWRITEBYTECODE"],
+                      readable=[Path(adapter)], enforce=os.environ.get(ENV_ENFORCE, "required"))
+        try:
+            args, env = box.wrap(command, env=env, keep=["PYTHONPATH"])
+            result = subprocess.run(args, capture_output=True, text=True, env=env)
+        finally:
+            box.close()
+        if result.returncode != 0:
+            raise RuntimeError(f"rendering the adapter's exports failed: {result.stderr.strip()[-1500:]}")
+        return json.loads(result.stdout)
+    result = subprocess.run(command, capture_output=True, text=True, env=env)
     if result.returncode != 0:
         raise RuntimeError(f"rendering the adapter's exports failed: {result.stderr.strip()[-1500:]}")
     return json.loads(result.stdout)
@@ -64,9 +80,19 @@ def copy_skills(adapter: Path, manifest: dict, target: Path) -> list[str]:
     if source.is_dir():
         for child in sorted(source.iterdir()):
             if (child / "SKILL.md").is_file():
-                shutil.copytree(child, target / child.name, dirs_exist_ok=True)
+                shutil.copytree(child, target / child.name, dirs_exist_ok=True, symlinks=True)
                 names.append(child.name)
     return names
+
+
+def _adapter_sandbox_env(python: str) -> dict:
+    """The variables that put a tool server's Session in its own sandbox, when deploy runs inside a run. A host may
+    start the server with a cleared environment, so they travel in the server's own `env`. Empty for a standalone
+    deploy (no run around it): that server serves the adapter in place, as before."""
+    if os.environ.get("HA_ADAPTER_SANDBOX") != "1":
+        return {}
+    from harnessadapter.adapter.session import ENV_ENFORCE, ENV_PYTHON, ENV_SANDBOX
+    return {ENV_SANDBOX: "1", ENV_ENFORCE: os.environ.get(ENV_ENFORCE, "required"), ENV_PYTHON: python}
 
 
 def check_workspace(adapter: Path, output: Path, host: str) -> dict:
