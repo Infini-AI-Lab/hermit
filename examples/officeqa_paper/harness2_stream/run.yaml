@@ -27,7 +27,7 @@ evolver:
     slots: slots.yaml                  # names the answer's form (the value alone): see slots.yaml
     sources: sources.py:task_files
     name: officeqa
-    leak_globs: ["answers.jsonl", "*.csv", "*private*", "data.json"]
+    leak_globs: ["answers.jsonl", "*.csv", "data.json"]  # not "*private*": "privately held debt" is a skill topic
     verdict_markers: ["' but expected '"]                # the judge's feedback wording
     probe_absent: []                                     # launch.sh: the answer files no session may see
 sandbox:
