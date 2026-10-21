@@ -10,23 +10,19 @@ source files, and Codex, a `codex exec` session with the whole corpus.
 
 ## Setup
 
-Install the framework first ([Installation](../../docs/get-started/installation.md)) with the `skillopt` extra (the
-agent is SkillOpt's own rollout and the judge its scorer) and the `gepa` extra. Also needed: the gated Hugging Face
-dataset `databricks/officeqa` (`officeqa_full.csv`, and `treasury_bulletins_parsed/` with `transformed/` and
-`jsons/`), and the key of the models' backend: for the default (GLM 5.3 Flash acting, GLM 5.3 learning, on
-Fireworks) `FIREWORKS_API_KEY`. `model=<backend>/<model id>` on the command line moves the agent, `llm=...` the
-learner ([Model backends](../../docs/guides/model-backends.md)). The Codex harness also needs Docker: each session
-runs in a container of its own that sees only its workspace and the corpus and reaches only the model provider, set
-up once as in the [recipe](../../docs/recipes/officeqa.md#run-in-the-codex-harness).
+Install the framework first ([Installation](../../docs/get-started/installation.md)) with the `skillopt` and `gepa`
+extras. Also needed: the gated Hugging Face dataset `databricks/officeqa` (`officeqa_full.csv`, and
+`treasury_bulletins_parsed/` with `transformed/` and `jsons/`), and the key of the models' backend: for the default
+(GLM 5.3 Flash acting, GLM 5.3 learning, on Fireworks) `FIREWORKS_API_KEY`. `model=<backend>/<model id>` on the
+command line moves the agent, `llm=...` the learner ([Model backends](../../docs/guides/model-backends.md)). The Codex
+harness also needs Docker, set up once as in the [recipe](../../docs/recipes/officeqa.md#run-in-the-codex-harness).
 
 ```bash
 pip install -e '.[skillopt,gepa]'
 python examples/officeqa/utils/prepare.py --csv /path/to/officeqa_full.csv --docs /path/to/treasury_bulletins_parsed
 ```
 
-`prepare.py` writes into `utils/` the questions, the paper's split (from SkillOpt's repository at a pinned commit),
-`data.json` and `seed_adapter/` (SkillOpt's initial skill, where every config starts), and the answers into
-`utils/.private/`.
+`prepare.py` writes the questions, the paper's split and SkillOpt's initial skill (`utils/seed_adapter/`) to `utils/`.
 
 ## Run
 
@@ -50,14 +46,9 @@ questions: the folder's `smoke.yaml`, after `harnessadapter check --config ...`
 
 Agent: GLM 5.3 Flash (reasoning effort medium) in SkillOpt's rollout, in direct chat (`run.yaml`) and in SkillOpt's
 Codex harness (`run_codex.yaml`; Codex CLI 0.134 for Linux, one container per session). Learner: GLM 5.3 (medium).
-172 test questions, three passes each.
-
-Both methods train the same adapter, one `ADAPTER.md` (the `prompt-only@1.0` template) given to the agent as its
-skill, from SkillOpt's initial skill. **GEPA** ([`gepa/`](gepa/), [method](../../docs/methods/gepa.md)): GLM 5.3
-reflects on three trajectories at a time to propose a new skill, and the candidates are kept on a Pareto front over
-the 24 validation questions. **SkillOpt** ([`skillopt/`](skillopt/), [method](../../docs/methods/skillopt.md)), with
-the paper's hyperparameters: GLM 5.3 analysts propose edits from batches of 40 questions, a learning rate bounds how
-many are applied, and the validation questions gate every update.
+172 test questions, three passes each. Both methods train one `ADAPTER.md` from SkillOpt's initial skill: **GEPA**
+([`gepa/`](gepa/), [method](../../docs/methods/gepa.md)), and **SkillOpt** ([`skillopt/`](skillopt/),
+[method](../../docs/methods/skillopt.md)) with the paper's SkillOpt hyperparameters.
 
 | Method | accuracy, direct chat | accuracy, Codex harness |
 |---|---|---|
@@ -66,17 +57,8 @@ many are applied, and the validation questions gate every update.
 | **GEPA** (`gepa/`) | 0.564 | 0.595 |
 | **SkillOpt** (`skillopt/`) | 0.576 | 0.628 |
 
-Paired per question with 95% bootstrap intervals, both methods beat no skill in direct chat (GEPA +14.9 [+9.5, +20.5]
-points, SkillOpt +16.1 [+10.3, +22.1]); in the Codex harness SkillOpt does (+8.5 [+3.1, +14.0]) and GEPA is borderline
-(+5.2 [−0.2, +10.5]). SkillOpt − GEPA is +1.2 [−3.1, +5.4] in direct chat and +3.3 [−0.8, +7.4] in the Codex harness:
-the two methods are not separated.
-
-`gepa/adapter/` and `skillopt/adapter/` are the skills the direct-chat runs trained, with their cards
-([GEPA](gepa/adapter/CARD.md), [SkillOpt](skillopt/adapter/CARD.md)). The recipe has every paired difference, the
-paper's own Codex-harness numbers, what each run selected, what the direct-chat runs cost, and the Codex sessions'
-timeouts in its [Results](../../docs/recipes/officeqa.md#results), the sessions' isolation in [Run in the Codex
-harness](../../docs/recipes/officeqa.md#run-in-the-codex-harness), and the differences from the paper in [Reproduction
-limits](../../docs/recipes/officeqa.md#reproduction-limits).
+Paired differences with 95% intervals, each run's selection and cost, the Codex sessions' isolation and the
+differences from the paper: the [recipe](../../docs/recipes/officeqa.md#results).
 
 ## Code
 
