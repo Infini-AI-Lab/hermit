@@ -6,11 +6,9 @@ each question's parsed source pages, SkillOpt's initial skill as the seed, and e
 SkillOpt's own rollout, answers with the adapter's `ADAPTER.md` as its skill, in direct chat or in SkillOpt's Codex
 harness, and the `gepa` or `skillopt` Evolver trains that skill from the scored answers. The code, configs and
 trained adapters are in `examples/officeqa/`
-([README](https://github.com/haizhongzheng/MetaHarnessAdapter/tree/main/examples/officeqa)). The dataset is gated,
-so this is not reproducible by installing the framework alone, and every command below that runs the agent makes
-real model calls. For an API-only walkthrough without external dataset assets, use
-[First real-model training](../get-started/first-model.md); for local training without model access,
-[Quick Start](../get-started/quickstart.md).
+([README](https://github.com/haizhongzheng/MetaHarnessAdapter/tree/main/examples/officeqa)). For an API-only
+walkthrough without external dataset assets, use [First real-model training](../get-started/first-model.md); for
+local training without model access, [Quick Start](../get-started/quickstart.md).
 
 ## Requirements and configuration
 
