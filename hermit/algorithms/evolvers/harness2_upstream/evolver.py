@@ -69,6 +69,7 @@ def _markers(context, extra: list[str]) -> None:
 
 
 class Harness2UpstreamEvolver(Evolver):
+    _pinned_bin = ""
 
     def setup(self, ctx) -> None:
         _upstream()
@@ -82,6 +83,7 @@ class Harness2UpstreamEvolver(Evolver):
         from hermit.algorithms.evolvers.harness2_upstream.channel import FrameworkProposer
 
         params, ws = ctx.params, ctx.workspace
+        self._pinned_bin = str(params.get("claude_bin") or "")
         records = sorted((ws.learning_material / "current" / "tasks").glob("*.json"))
         if len(records) != 1:
             return StepResult("failed", f"the paper's protocol runs one task per step (data.step_size: 1); this step "
@@ -106,7 +108,11 @@ class Harness2UpstreamEvolver(Evolver):
             spec=channel, audit_dir=ws.output / "sessions", attempts=2,
             params={**params, "claude_bin": self._claude(ws)}, sandbox=self._sandbox(ctx), cancel=ctx.cancel)
         lib = library.Library(root=ws.state / "library" / MODE, domain=domain, surface=U.SURFACE)
+        lib.forget([tid])                    # an entry from an attempt at this task that never finished (upstream retain)
         before = lib.entries()
+        down = self._endpoint_down(params, ctx.cancel)
+        if down:
+            return StepResult("failed", f"{tid}: the editors' model endpoint is not answering ({down})")
 
         res = schedule.run_task(tid, k, adapter=bench, prop=prop, runs_root=root, modes=(MODE,), library=lib,
                                 selector_prop=prop)
@@ -133,16 +139,45 @@ class Harness2UpstreamEvolver(Evolver):
                                                      "label": row.label, "error": row.error},
                  "sessions_usd": round(sum(u.cost_usd or 0.0 for u in getattr(prop, "usages", [])), 6),
                  "claude": params.get("claude_bin") or self._claude(ws)}
+        # Every editor stage fell back without a session reply: the model endpoint failed, and the deliverable is H0's.
+        extra["editors_failed"] = bool(stages) and all(s["fell_back"] for s in stages) \
+            and not getattr(prop, "usages", [])
         self._keep(root, ws.output / "h2")
+        (ws.output / "harness2.json").write_text(json.dumps(extra, indent=1, default=str))
         (ws.output / "report.md").write_text(self._report(tid, res, stages, selection, added))
         chosen = selection.get("chosen_label") or "nothing"
-        return StepResult("done", f"{tid}: {res.status}; delivered {chosen}; library {len(before)} -> "
-                                  f"{len(lib.entries())}", usage=list(getattr(prop, "usages", [])),
-                          extra={"harness2": extra})
+        status = "failed" if extra["editors_failed"] else "done"
+        return StepResult(status, f"{tid}: {res.status}; delivered {chosen}; library {len(before)} -> "
+                                  f"{len(lib.entries())}" + ("; NO EDITOR SESSION RAN" if status == "failed" else ""),
+                          usage=list(getattr(prop, "usages", [])), extra={"harness2": extra})
 
     # --- helpers --------------------------------------------------------------------------------------------------
+    @staticmethod
+    def _endpoint_down(params: dict, cancel, wait_s: int = 600) -> str:
+        """For a model bound to a local relay (a wire meter), wait up to `wait_s` for it to answer; the reason it does
+        not, or "" (also for a remote endpoint, which is not checked)."""
+        import time
+        import urllib.request
+        from urllib.parse import urlsplit
+        url = str((params.get("binding") or {}).get("base_url") or "")
+        parts = urlsplit(url)
+        if parts.hostname not in ("127.0.0.1", "localhost"):
+            return ""
+        health, reason, started = f"{parts.scheme}://{parts.netloc}/health", "", time.time()
+        while time.time() - started < wait_s and not (cancel is not None and cancel.is_set()):
+            try:
+                with urllib.request.urlopen(health, timeout=5):
+                    return ""
+            except OSError as exc:
+                reason = f"{health}: {exc}"
+            time.sleep(10)
+        return reason or "stopped"
+
     def _claude(self, ws) -> str:
-        """The Claude Code binary, pinned for the whole run (it updates itself): its versioned path, kept in state."""
+        """The Claude Code binary, pinned for the whole run (it updates itself): `params.claude_bin` (a copy the
+        launcher made), else its versioned path, kept in state."""
+        if self._pinned_bin:
+            return self._pinned_bin
         pin = ws.state / "claude_bin.txt"
         if pin.is_file() and Path(pin.read_text().strip()).is_file():
             return pin.read_text().strip()

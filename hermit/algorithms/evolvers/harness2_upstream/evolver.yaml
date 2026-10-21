@@ -15,6 +15,7 @@ params:
   k: 1                       # task-level recursion budget (the paper's main tables: 1)
   session_timeout_s: 3600    # wall clock per session attempt (upstream's ChannelSpec default)
   tools: Read,Write,Edit,Glob,Grep,Bash   # the session's tools: files and a shell inside its sandbox, no web
+  claude_bin: null           # the Claude Code binary to pin for the run; null: the versioned path of `claude` at start
   slots: null                # YAML with the task's prompt slots (upstream BenchPrompts: work, domain_word,
                              # deliverable_word, inv_levers, dom_levers, yardstick, domain_guidance, selection_checks)
   sources: null              # file.py:function(task, dest) -> directory of the task's source material, or None

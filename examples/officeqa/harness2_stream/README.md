@@ -13,6 +13,9 @@ one stream, in upstream's seeded order, one question per step. Every question st
    inherits.
 
 The adapter never changes. Executor: GEPA's and SkillOpt's (GLM 5.3 Flash, medium effort, 24 turns, 16,384 tokens).
+`slots.yaml` states the answer's form as the task describes it (the value alone, in the requested unit and rounding),
+as upstream's benchmarks state their deliverables; without it, H0 and the compositions wrap right values in sentences
+that exact match refuses (a smoke run before the change: UID0226).
 Editors: Claude Code (upstream's `claude_cli` channel) on GLM 5.3 at medium effort, the model GEPA and SkillOpt
 optimise with, each session in its own sandbox that shows only its evidence and reaches only the model. The editors
 see the question, its parsed pages and source bulletins, and the trajectories; no judge result reaches them.
@@ -35,5 +38,6 @@ question whose composed harness gave no answer, is `extra.harness2.judged`. The 
 (`runs.base1`, H0 on the same question) and the two probes. Each step's output holds upstream's records of the
 question: the evidence each session saw, the candidate harnesses, the notes and the lesson.
 
-The paper reports the mean of three streams with different seeds (`SEED`). A question costs four executions and four
-editor sessions, so a stream costs several times a GEPA or SkillOpt evaluation.
+The paper reports the mean of three streams with different seeds (`SEED`). A question costs four executions (about
+0.01 USD) and four editor sessions (about 0.65 USD) and takes about 9 minutes, so a stream costs about 110-140 USD and
+a day. A run stopped by its budget cannot be resumed: keep `trainer.budget.usd` well above the projection.

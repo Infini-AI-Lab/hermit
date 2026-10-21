@@ -3,8 +3,8 @@
 One step holds one task. Executions go through the Trainer's run_agent tool, so they run the task's own pipeline,
 are metered against the run's budget and are logged with the other tool calls; the reference execution is the
 Trainer's own rollout of the step, which ran the starting adapter on this task. A run's judge result stays in this
-object (`private`) and is never written where a session can read it: upstream reads it only through `score`, after
-selection has committed.
+object (`private`) and in the step's output (`scores.jsonl`), never where a session can read it: upstream reads it
+only through `score`, after selection has committed.
 """
 from __future__ import annotations
 
@@ -162,6 +162,9 @@ class FrameworkBench:
             self._keep_log(Path(result["log"]) if result.get("log") else None, out)
         (out / "run.json").write_text(json.dumps({"run_id": run_id, **run}, ensure_ascii=False, indent=1,
                                                  default=str))
+        with self._lock, open(self.ctx.workspace.output / "scores.jsonl", "a") as f:   # survives a stopped step
+            f.write(json.dumps({"run_id": run_id, "answered": self.delivered(out),
+                                "score": self.private[run_id].get("score")}) + "\n")
         return out
 
     def _material_log(self) -> Path | None:

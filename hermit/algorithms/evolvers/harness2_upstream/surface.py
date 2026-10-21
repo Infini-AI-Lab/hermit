@@ -124,8 +124,8 @@ The notes are read by a person, not applied by a machine."""
 _INV_EDITS = (
     ("- MECHANICAL REPETITION: use `scripts/<name>.py` for repeated deterministic extraction,\n"
      "  conversion or checking, with clear inputs, outputs and failure behavior.",
-     "- MECHANICAL REPETITION: write the exact repeated procedure -- what to search, which rows or\n"
-     "  columns to read, how to check the result -- as a skill, step by step."),
+     "- MECHANICAL REPETITION: write the exact repeated procedure -- its inputs, its steps and the\n"
+     "  check of its result -- as a skill, step by step."),
     ("use an on-demand skill for a narrow multi-step procedure", "use a skill for a narrow multi-step procedure"),
     (", and carry any helper it requires.", "."),
     ("__LOOP_LEVER__", "rule in `guardrails.md` -- for example, never ending a run without the {deliverable}"),

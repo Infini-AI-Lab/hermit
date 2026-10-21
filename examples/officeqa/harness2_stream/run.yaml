@@ -24,7 +24,7 @@ evolver:
     model: fireworks/accounts/fireworks/models/glm-5p3   # launch.sh: the same model through a wire meter
     effort: medium
     k: 1
-    slots: slots.yaml
+    slots: slots.yaml                  # names the answer's form (the value alone): see slots.yaml
     sources: sources.py:task_files
     name: officeqa
     leak_globs: ["answers.jsonl", "*.csv", "*private*", "data.json"]
@@ -42,4 +42,4 @@ trainer:
   epochs: 1
   call_timeout_min: 300                # one question's sessions and executions, retries included
   save_freq: {steps: null, epochs: 1}
-  budget: {usd: 150, tokens: null, hours: null}
+  budget: {usd: 300, tokens: null, hours: null}   # a ceiling: a stream costs about 110-140 USD (smoke: 0.65-0.7 a question)
