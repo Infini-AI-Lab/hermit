@@ -2,7 +2,8 @@
 
 Use `evolver.name: codex` or `claude` when a learner should inspect trajectories, use tools, and edit an adapter
 directory over several actions. This is useful for skills, multiple files, and tool code that a single text rewrite
-does not capture well.
+does not capture well. On the single-file prompt-only template, the Codex learner is the [prompt-only](prompt-only.md)
+method.
 
 ## Requirements and setup
 

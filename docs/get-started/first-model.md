@@ -1,17 +1,19 @@
 # First training with a real model
 
-Use an API endpoint to run both an acting model and the built-in prompt-only learner on six included sentiment
-tasks. No external dataset, benchmark package, GPU, or agent CLI is needed. Unlike the
-[offline walkthrough](quickstart.md), both acting and learning make real model calls.
+Use an API endpoint to run both an acting model and the [GEPA](../methods/gepa.md) learner on nine included
+sentiment tasks. No external dataset, GPU, or agent CLI is needed; GEPA's library is an installation extra. Unlike
+the [offline walkthrough](quickstart.md), both acting and learning make real model calls.
 
-This is an integration smoke test: three training tasks and three held-out tasks. **There is no promised score
-gain.** A strong model may already satisfy the judge, and a learned update can also perform worse.
+This is an integration smoke test: three training tasks, three validation tasks with which GEPA chooses between
+candidate adapters, and three held-out test tasks. **There is no promised score gain.** A strong model may already
+satisfy the judge, and a learned update can also perform worse.
 
 ## 1. Install and make a working copy
 
 Complete [Installation](installation.md), activate its environment, then run from the repository root:
 
 ```bash
+python -m pip install -e '.[gepa]'
 mkdir -p .demo
 cp -R docs/_examples/first_model .demo/first-model
 ```
@@ -58,7 +60,8 @@ harnessadapter eval --config .demo/first-model/run.yaml --adapter none
 ```
 
 The first command loads components without an acting-model call. It does not authenticate the endpoint or prove
-that the learner works. The second runs one acting task; `eval` runs all three held-out tasks.
+that the learner works. The second sends one short request to the learner endpoint and runs one acting task;
+`eval` runs all three held-out tasks.
 
 The judge requires exactly `{"label": "positive"}`, `{"label": "negative"}`, or `{"label": "neutral"}`.
 Invalid JSON, extra keys, prose, and wrong labels score zero. A low score without execution errors is valid
@@ -72,18 +75,24 @@ harnessadapter eval --config .demo/first-model/run.yaml --adapter root
 harnessadapter eval --config .demo/first-model/run.yaml --adapter final
 ```
 
-One batch of three training attempts becomes learning material. The prompt-only learner rewrites `ADAPTER.md`,
-and the Trainer checks and records the candidate. An unusable learner reply can leave the adapter unchanged.
-The initial template is `root`; `final` is the selected result.
+One batch of three training attempts becomes learning material. GEPA first scores the starting adapter on the
+three validation tasks. If a training attempt failed, it asks the learner model for a new `ADAPTER.md` from the
+attempts and the judge's feedback, runs that version on the same three training tasks, and keeps it only if it scores
+higher; a kept version is then scored on the validation tasks. If all three training attempts were already correct,
+there is nothing to learn from and the step proposes nothing. The Trainer checks and records the result. The
+initial template is `root`; `final` is the candidate with the best validation score, which is `root` when no new
+version was kept.
 
-The complete sequence normally makes **13 acting requests**: one probe, three no-adapter tests, three training
-attempts, three root tests, and three final tests. There is one learner rewrite request for the default single file, with one
-additional request if the response contains no usable file. HTTP retries can add provider requests. The normal total of 13 acting plus one learner generation assumes every command succeeds once and the learner reply has a usable file.
+The complete sequence makes **16 to 22 acting requests**: one probe, three no-adapter tests, three training
+attempts, three validation tests of the starting adapter, three tests of a proposed version on the training tasks and
+three validation tests if it is kept, three root tests, and three final tests. There are **one to three learner
+requests**: the probe from `check`, then none during training when every training attempt was correct, otherwise
+one, with one more if the reply holds no usable instructions. HTTP retries can add provider requests.
 
 The YAML uses token and time budgets; prices are not invented, so dollar cost is reported as unknown. Add
 verified `llm.price` settings for learner dollars and acting-client prices in the copied pipeline if you need
-dollar accounting. Probe and test calls are outside the training budget. Training can overshoot during in-flight
-requests; use endpoint-side spending controls when needed.
+dollar accounting. Probe and test calls are outside the training budget; GEPA's candidate tests during training
+count toward it. Training can overshoot during in-flight requests; use endpoint-side spending controls when needed.
 
 ## 5. Inspect what was learned
 
@@ -92,11 +101,17 @@ cat .demo/first-model/runs/first-model/checkout/ADAPTER.md
 cat .demo/first-model/runs/first-model/steps.jsonl
 cat .demo/first-model/runs/first-model/eval/final/summary.json
 cat .demo/first-model/runs/first-model/step_0001/output/report.md
+cat .demo/first-model/runs/first-model/step_0001/state/gepa.json
 ```
 
+`report.md` says what GEPA did with the step: kept a new version, rejected it, or skipped. `gepa.json` holds the
+candidate pool with each candidate's validation scores.
+
 Look for a general classification/formatting rule, not copied training reviews. The feedback explicitly discloses
-training labels in this protocol. Test labels stay in judge-owned code and are not sent as task input to the
-learner; this in-process, sandbox-disabled example does not create a security boundary around those files.
+training labels in this protocol, and the learner model sees only the training attempts and their feedback. GEPA's
+code receives the validation results and keeps only their scores; the feedback of a wrong validation answer names its
+label, and the run's `tools.jsonl` records it. Test labels stay in judge-owned code. This in-process,
+sandbox-disabled example does not create a security boundary around those files.
 
 Require `errors: 0` when comparing scores. `mean_score` is the fraction of correct task attempts here.
 Three test tasks do not establish a reliable improvement. The final adapter can be deployed using

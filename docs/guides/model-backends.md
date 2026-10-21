@@ -22,7 +22,7 @@ harnessadapter train --config run.yaml model=vllm/Qwen/Qwen3-30B-A3B-Instruct-25
 
 | Setting | Who calls the model | Dialect it speaks |
 |---|---|---|
-| `llm` | the run's `llm` tool: the `prompt_only`, `gepa` and `skillopt` Evolvers | chat completions |
+| `llm` | the run's `llm` tool: the `gepa` and `skillopt` Evolvers | chat completions |
 | `agent.params.model` with `agent.name: react` | the built-in tool-calling agent | chat completions |
 | `agent.params.model` with `agent.name: codex` / `claude-code` | the CLI acting agent | Responses API / Messages API |
 | `evolver.params.model` of the `codex`, `claude` and `mwm` Evolvers | the learner's CLI session | Responses API / Messages API |

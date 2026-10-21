@@ -1,6 +1,7 @@
 data:
   tasks: tasks.jsonl
   train: train.txt
+  val: val.txt
   test: test.txt
   step_size: 3
   shuffle: false
@@ -9,9 +10,8 @@ judge:
   path: judge.py
 template: prompt-only@1.0
 evolver:
-  name: prompt_only
+  name: gepa
   params:
-    max_examples: 3
     max_tokens: 4096
 llm:
   base_url: https://your-endpoint.example/v1

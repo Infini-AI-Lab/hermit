@@ -29,10 +29,10 @@ each new terminal. Editable installation uses this checkout's Python code.
 | Workflow | Additional requirements |
 |---|---|
 | [Offline first training](quickstart.md) | None beyond the core install |
-| [First real-model training](first-model.md) | A compatible chat-completions endpoint, model id, and credential; data is included |
+| [First real-model training](first-model.md) | `python -m pip install -e '.[gepa]'`, a compatible chat-completions endpoint, model id, and credential; data is included |
 | Generate a Codex / Claude Code / Pi workspace | No host CLI is needed until you start the host |
 | Run an acting host | Installed and authenticated host, plus adapter tool dependencies |
-| Prompt-only learner | Configured learner chat-completions endpoint and credential |
+| Prompt-only learner | The Codex CLI, Linux with bubblewrap, and a learner backend that serves the Responses API |
 | GEPA | `python -m pip install -e '.[gepa]'`, learner endpoint, validation split |
 | SkillOpt | `python -m pip install -e '.[skillopt]'`, learner endpoint, validation split |
 | Codex / Claude learner | Selected authenticated CLI and supported program-execution environment |
