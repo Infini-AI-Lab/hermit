@@ -32,7 +32,7 @@ class SandboxedServer:
                  evidence: Path | None = None, timeout: float = 60, call_timeout: float | None = 600):
         import os
         from harnessadapter.adapter.session import ENV_PYTHON, ENV_SANDBOX
-        from harnessadapter.isolate import _framework_env
+        from harnessadapter.sandbox import framework_env
         from harnessadapter.sandbox import program_paths
 
         self.work = Path(tempfile.mkdtemp(prefix="ha-session-"))
@@ -56,7 +56,7 @@ class SandboxedServer:
             writable.append(Path(evidence))
         self.sandbox = sandbox
         self.call_timeout = call_timeout
-        env = _framework_env({ENV_SANDBOX: "0"})          # the server is the sandbox: its Session serves in place
+        env = framework_env({ENV_SANDBOX: "0"})          # the server is the sandbox: its Session serves in place
         self.args, self.env = sandbox.wrap(command, readable=readable, writable=writable, home=self.work,
                                            env=env, keep=["PYTHONPATH", ENV_SANDBOX])
         self.log = self.work / "server.log"

@@ -526,7 +526,8 @@ class MwmEvolver(Evolver):
         if ctx.sandbox is None or not getattr(ctx.sandbox, "enabled", True):
             module = _load("isolated")
             return getattr(module, name)(**arguments)
-        from harnessadapter.isolate import _framework_env, _run_worker
+        from harnessadapter.isolate import _run_worker
+        from harnessadapter.sandbox import framework_env
         work = ctx.workspace.scratch / f"maintenance-{uuid.uuid4().hex[:8]}"
         (work / "home").mkdir(parents=True)
         readable = [HERE]
@@ -539,7 +540,7 @@ class MwmEvolver(Evolver):
             return _run_worker(ctx.sandbox, job, work, home=work / "home", readable=readable,
                                writable=[Path(arguments["adapter"]), *([Path(arguments["session"])]
                                                                       if "session" in arguments else [])],
-                               env=_framework_env(), timeout=timeout)["result"]
+                               env=framework_env(), timeout=timeout)["result"]
         finally:
             shutil.rmtree(work, ignore_errors=True)
 

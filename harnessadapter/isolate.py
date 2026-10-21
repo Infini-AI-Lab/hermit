@@ -38,7 +38,7 @@ import threading
 from urllib.parse import urlparse
 import uuid
 
-from harnessadapter.sandbox import FRAMEWORK, PACKAGE, AllowlistProxy, Sandbox, framework_env as _framework_env, network_mode
+from harnessadapter.sandbox import FRAMEWORK, PACKAGE, AllowlistProxy, Sandbox, framework_env, network_mode
 from harnessadapter.task import RunOutput
 
 ROLES = ("learner", "rollout", "eval", "check", "tool")
@@ -236,7 +236,7 @@ def _run_worker(box: Sandbox, job: dict, work: Path, *, home: Path, readable=(),
     """Run worker.py in the sandbox with `job`; return its payload, or raise with what it left behind. After
     `timeout` seconds the sandbox is stopped (everything in it goes with it: its own process namespace)."""
     read_end, write_end = os.pipe()
-    env = dict(env or _framework_env())
+    env = dict(env or framework_env())
     env["HA_RESULT_FD"] = str(write_end)
     try:
         args, env = box.wrap([sys.executable, str(WORKER)], readable=list(readable), writable=[work, *writable],
@@ -356,7 +356,7 @@ class SandboxedAgent:
         # Logs and workspaces go to this call's own directory: the agent's log directory is covered (earlier calls).
         params = {**self.params, "logs": str(work / "logs"), "workspaces": str(work / "workspaces")}
         from harnessadapter.adapter.session import ENV_ENFORCE
-        env = _framework_env({ENV_ENFORCE: self.enforce})
+        env = framework_env({ENV_ENFORCE: self.enforce})
         keep = [*self.keys, ENV_ENFORCE]
         if self.cli:                                     # a CLI agent signs in with a copy of the user's login only
             folder, var, login = CLI_HOMES[self.cli]

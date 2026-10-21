@@ -92,7 +92,6 @@ def program_paths(executable: str, depth: int = 2) -> list[Path]:
     file belongs to (the parent of a bin/ directory, else the file's directory, never the home or above it), the
     interpreter its #! line names (a node CLI runs on the node beside its link), and, for a short wrapper script,
     the programs it names by absolute path (a ~/bin/codex that execs an nvm-installed codex)."""
-    import re
     found = shutil.which(executable)
     if not found:
         return []
@@ -242,7 +241,6 @@ def _editable_finder_paths(directory: Path, line: str) -> list[Path]:
     """The source directories of a setuptools editable install that imports a finder (`import __editable___x_finder;
     ...install()`): the finder module's MAPPING names them."""
     import ast
-    import re
     out = []
     for module in re.findall(r"import\s+(__editable__[\w.]*finder)", line):
         try:

@@ -1,20 +1,19 @@
 """check_spec: does an adapter conform to its template's specification and deploy?  And the Trainer's repair.
 
 Checks 1–5 are the framework library; check 6 is the template's own function (`check: file.py:function` in
-adapter.yaml), run in a subprocess without network. The template function receives the adapter path and returns a
-list of issues ({path, problem}) or {"passed": bool, "issues": [...]}.
+adapter.yaml). Checks 5 and 6 run the adapter's and the template's modules, so they run in a strict sandbox
+(read-only, no network, no keys) when the run's sandbox is on, and unconfined when it is off. The template function
+receives the adapter path and returns a list of issues ({path, problem}) or {"passed": bool, "issues": [...]}.
 """
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 import hashlib
 import json
-import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
-import tempfile
 
 import yaml
 
