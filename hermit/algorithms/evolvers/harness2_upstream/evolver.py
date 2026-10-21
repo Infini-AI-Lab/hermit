@@ -104,9 +104,12 @@ class Harness2UpstreamEvolver(Evolver):
                                name=str(params.get("name") or "task"), obs_trunc=int(params.get("obs_trunc") or 50000),
                                leak_globs=tuple(params.get("leak_globs") or ()),
                                sources=_load(params.get("sources"), ctx.base))
+        sandbox, claude = self._sandbox(ctx), self._claude(ws)
+        if sandbox is not None:
+            self._assert_hidden(sandbox, claude, [ws.learning_material.parent, *(params.get("probe_absent") or [])])
         prop = (_load(params.get("proposer"), ctx.base) or FrameworkProposer)(
             spec=channel, audit_dir=ws.output / "sessions", attempts=2,
-            params={**params, "claude_bin": self._claude(ws)}, sandbox=self._sandbox(ctx), cancel=ctx.cancel)
+            params={**params, "claude_bin": claude}, sandbox=sandbox, cancel=ctx.cancel)
         lib = library.Library(root=ws.state / "library" / MODE, domain=domain, surface=U.SURFACE)
         lib.forget([tid])                    # an entry from an attempt at this task that never finished (upstream retain)
         before = lib.entries()
@@ -200,6 +203,18 @@ class Harness2UpstreamEvolver(Evolver):
                        proxy_url=getattr(run, "proxy_url", None), env_allow=[], enforce=getattr(run, "enforce",
                                                                                                  "required"),
                        record_dir=ctx.workspace.output / "sandbox", probe_absent=absent, role="editor")
+
+    @staticmethod
+    def _assert_hidden(sandbox, program: str, paths) -> None:
+        """Refuse to start sessions whose sandbox would show the run (its learning material and tools log carry the
+        judge's feedback, its output the scores) or an answer file: a bound directory above one of them shows it."""
+        shown = [Path(p).resolve() for p in sandbox.visible([program])]
+        for path in (Path(p).expanduser().resolve() for p in paths):
+            for bound in shown:
+                if bound == path or bound in path.parents:
+                    raise RuntimeError(f"the editors' sandbox would show {path} (it binds {bound}); move what is "
+                                       f"bound out of the way, e.g. a pinned Claude Code binary into a directory of "
+                                       f"its own")
 
     @staticmethod
     def _keep(root: Path, dest: Path) -> None:

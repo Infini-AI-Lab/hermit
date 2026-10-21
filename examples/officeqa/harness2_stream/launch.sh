@@ -29,10 +29,11 @@ if ! curl -s -m 2 "http://127.0.0.1:$WM_PORT/health" > /dev/null; then
       sleep 5; done" >> "runs/$TAG.wire_meter.log" 2>&1 < /dev/null &
   sleep 3
 fi
-# Claude Code updates itself: the run uses a copy of today's binary.
+# Claude Code updates itself: the run uses a copy of today's binary, alone in its directory (the sessions' sandbox
+# shows the directory a program lives in).
 CLAUDE_BIN=$(readlink -f "$(command -v claude)")
-PINNED="$HERE/runs/claude-$(basename "$CLAUDE_BIN")"
-[ -x "$PINNED" ] || cp "$CLAUDE_BIN" "$PINNED"
+PINNED="$HERE/runs/.claude-pin/$(basename "$CLAUDE_BIN")/claude"
+[ -x "$PINNED" ] || { mkdir -p "$(dirname "$PINNED")" && cp "$CLAUDE_BIN" "$PINNED"; }
 # The answer files: the sessions' sandbox is checked to show neither.
 ABSENT=$("$PY" -c "import json; d = json.load(open('../utils/data.json'));
 from pathlib import Path; print(json.dumps([str(Path(d['answers']).parent), d['csv']]))")
