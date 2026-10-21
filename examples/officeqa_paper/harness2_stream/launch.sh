@@ -22,14 +22,21 @@ cd "$HERE"
 mkdir -p runs
 "$PY" ../harness2/make_seed.py
 "$PY" stream.py --seed "$SEED" --split ../utils/splits/test.txt --out "stream_s$SEED.txt" ${MAX_TASKS:+--max "$MAX_TASKS"}
+# The meter restarts if it dies; each start keeps its own ledger (sum runs/$TAG.wire_ledger-*.json for the bill).
 if ! curl -s -m 2 "http://127.0.0.1:$WM_PORT/health" > /dev/null; then
-  PORT=$WM_PORT LEDGER="$HERE/runs/$TAG.wire_ledger.json" UPSTREAM=https://api.fireworks.ai \
-    setsid nohup "$PY" -m harnessadapter.runtime.wire_meter > "runs/$TAG.wire_meter.log" 2>&1 < /dev/null &
-  sleep 2
+  setsid nohup bash -c "while true; do PORT=$WM_PORT UPSTREAM=https://api.fireworks.ai \
+      LEDGER=$HERE/runs/$TAG.wire_ledger-\$(date -u +%Y%m%dT%H%M%SZ).json '$PY' -m harnessadapter.runtime.wire_meter; \
+      sleep 5; done" >> "runs/$TAG.wire_meter.log" 2>&1 < /dev/null &
+  sleep 3
 fi
+# Claude Code updates itself: the run uses a copy of today's binary.
+CLAUDE_BIN=$(readlink -f "$(command -v claude)")
+PINNED="$HERE/runs/claude-$(basename "$CLAUDE_BIN")"
+[ -x "$PINNED" ] || cp "$CLAUDE_BIN" "$PINNED"
 # The answer files: the sessions' sandbox is checked to show neither.
 ABSENT=$("$PY" -c "import json; d = json.load(open('../utils/data.json'));
 from pathlib import Path; print(json.dumps([str(Path(d['answers']).parent), d['csv']]))")
 exec "$PY" -m harnessadapter.cli train --config run.yaml "trainer.run_name=$TAG" "data.train=stream_s$SEED.txt" \
   "backends.learner={from: fireworks, base_url: 'http://127.0.0.1:$WM_PORT/$TAG/inference/v1'}" \
-  "evolver.params.model=learner/accounts/fireworks/models/glm-5p3" "evolver.params.probe_absent=$ABSENT" "$@"
+  "evolver.params.model=learner/accounts/fireworks/models/glm-5p3" "evolver.params.probe_absent=$ABSENT" \
+  "evolver.params.claude_bin=$PINNED" "$@"

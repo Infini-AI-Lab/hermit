@@ -22,7 +22,7 @@ TEMPLATE = Path(__file__).resolve().parents[1] / "harnessadapter" / "algorithms"
 PROPOSER = r'''
 import json, shutil, tempfile
 from pathlib import Path
-from harness2.core.proposer import Reply
+from harness2.core.proposer import ProposerError, Reply
 from harnessadapter.algorithms.evolvers.harness2_upstream.channel import FrameworkProposer
 
 LEAKS = ("expected the sum", '"score"', '"judge"', '"feedback"')
@@ -30,6 +30,8 @@ LEAKS = ("expected the sum", '"score"', '"judge"', '"feedback"')
 
 class Scripted(FrameworkProposer):
     def call(self, mission, context_dir, label, **kwargs):
+        if self.params.get("endpoint_down"):
+            raise ProposerError(f"[{label}] connection refused", attempts=2)
         root = Path(context_dir)
         for f in root.rglob("*"):
             if f.is_file():
@@ -87,7 +89,7 @@ def task_files(task, dest):
 '''
 
 
-def run(tmp_path: Path) -> Path:
+def run(tmp_path: Path, **params) -> Path:
     (tmp_path / "proposer.py").write_text(PROPOSER)
     (tmp_path / "sources.py").write_text(SOURCES)
     (tmp_path / "slots.yaml").write_text("work: Adding two numbers given in the task.\ndeliverable_word: sum\n")
@@ -95,7 +97,7 @@ def run(tmp_path: Path) -> Path:
                      evolver={"name": "harness2_upstream",
                               "params": {"proposer": "proposer.py:Scripted", "backend": None, "model": "scripted",
                                          "slots": "slots.yaml", "name": "toy", "sources": "sources.py:task_files",
-                                         "calls_log": str(tmp_path / "calls.jsonl")}},
+                                         "calls_log": str(tmp_path / "calls.jsonl"), **params}},
                      trainer={"run_name": "h2u", "output_dir": "runs", "epochs": 1, "budget": {"usd": 5}})
     (tmp_path / "stream.txt").write_text("t0\nt1\nt2\n")
     Trainer(Config.load(path, ["data.train=stream.txt", "data.step_size=1", "data.shuffle=false"])).train()
@@ -147,3 +149,13 @@ def test_one_task_per_step_is_required(tmp_path):
     steps = [json.loads(l) for l in (tmp_path / "runs" / "h2u" / "steps.jsonl").read_text().splitlines()]
     assert all(s["evolver"]["status"] == "failed" for s in steps)
     assert not (tmp_path / "calls.jsonl").exists()
+
+
+def test_a_step_without_editor_sessions_is_marked_failed(tmp_path):
+    run_dir = run(tmp_path, endpoint_down=True)
+    steps = [json.loads(l) for l in (run_dir / "steps.jsonl").read_text().splitlines()]
+    assert all(s["evolver"]["status"] == "failed" and "NO EDITOR SESSION RAN" in s["evolver"]["summary"] for s in steps)
+    extra = json.loads((run_dir / "step_0001" / "output" / "harness2.json").read_text())
+    assert extra["editors_failed"] and all(s["fell_back"] for s in extra["stages"])
+    scores = [json.loads(l) for l in (run_dir / "step_0001" / "output" / "scores.jsonl").read_text().splitlines()]
+    assert sorted(r["run_id"].rsplit("/", 1)[-1] for r in scores) == ["agg1", "base1", "dom1", "inv1"]
