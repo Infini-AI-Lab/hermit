@@ -42,7 +42,10 @@ harnessadapter eval --config skillopt/run.yaml --adapter none
 harnessadapter eval --config skillopt/run.yaml --adapter ../utils/seed_adapter
 ```
 
-Use `gepa/smoke.yaml` and `gepa/run.yaml` for GEPA. Preserve each config's run-name and tree-directory settings.
+Use `gepa/smoke.yaml` and `gepa/run.yaml` for GEPA. For [Harness²](../methods/harness2.md), run
+`python harness2/make_seed.py` once, then use `harness2/smoke.yaml` and `harness2/run.yaml`; its prompt slots,
+which name the answer's exact form, are in `harness2/slots.yaml`. Preserve each config's run-name and
+tree-directory settings.
 
 ## Outputs and included adapters
 
