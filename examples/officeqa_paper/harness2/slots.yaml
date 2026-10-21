@@ -1,25 +1,37 @@
 # Harness² prompt slots for OfficeQA (the per-task text its stage prompts interpolate). They describe the work, never
 # its measurement: the Evolver refuses the words benchmark, evaluation, grader, rubric and score here.
+#
+# `work` spells out the deliverable's exact shape. The stage prompts keep a deliverable's shape fixed, but only the
+# shape the work names. A first run whose `work` said only "in exactly the form the question requests" adopted edits
+# telling the agent to state derivations and caveats "in the message"; the agent then wrote them inside the tags, and
+# half its test answers became a correct value followed by prose.
 work: >-
   Answering a question about U.S. Treasury Bulletins (1939-2025). The agent gets the question and the bulletin files
   its answer comes from, searches and reads those files with grep, glob and read tools (at most 24 turns), computes
-  what the question asks, and returns one final answer inside <answer>...</answer> in exactly the form the question
-  requests (unit, rounding, list format).
+  what the question asks, and ends with one final answer inside <answer>...</answer>.
+
+  The deliverable is ONLY the text between <answer> and </answer>, and it is the bare value itself: one number, date
+  or name, or the list the question asks for, in exactly the unit, rounding and list form the question requests (for
+  example `1234.56`, `12.3%`, `June 30, 1950`, `[1.25, 3.5]`). Nothing else belongs inside the tags: no sentence,
+  label, derivation, source citation, caveat, or unit word the question did not ask for. The derivation, the quoted
+  cells and any caveat go in the message before the tags. The question asks for a value, so a sentence in place of
+  one (saying the figure cannot be determined) delivers nothing.
 domain_word: area
 deliverable_word: final answer
 inv_levers: >-
   The tools are grep, glob and read over the question's candidate files. The bulletins are long text renderings of
   scanned tables, so a run can spend its turns on broad greps and long reads. Look for turns spent before the right
   table is found, reads that miss the needed row or column, arithmetic done in one leap instead of step by step, and
-  runs that end without the <answer> tag.
+  runs that end without the <answer> tag or with anything but the bare value inside it.
 dom_levers: >-
   What a practitioner of Treasury statistics knows: which table of a bulletin reports a kind of figure, how a table's
   headers encode period, basis and unit, how fiscal and calendar years differ, that later issues revise earlier
   figures, and how growth rates, shares, averages and differences are computed and rounded.
 yardstick: >-
   A good run finds the table that reports the asked-for figure for the asked-for period and basis, quotes the exact
-  cells it uses, does the arithmetic explicitly, and gives the answer in the requested unit and rounding inside
-  <answer>...</answer> well before the turn limit.
+  cells it uses and does the arithmetic explicitly in its message, then puts only the bare value, in the requested
+  unit and rounding, inside <answer>...</answer>, well before the turn limit.
 selection_checks: >-
-  One value (or the requested list) in the requested unit and rounding, consistent with the figures quoted in the
-  final message.
+  The text inside <answer>...</answer> is one bare value (or the requested list) in the requested unit and rounding,
+  with no words, derivation or caveat inside the tags, and it agrees with the figures quoted in the message before
+  the tags.

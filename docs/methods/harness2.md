@@ -25,7 +25,9 @@ an agent that reads only `ADAPTER.md`. To start from an existing instruction tex
 `slots.yaml` (or `task-info/harness2.yaml`) gives the task-shaped text the stage prompts interpolate: `work`,
 `domain_word`, `deliverable_word`, `inv_levers`, `dom_levers`, `yardstick`, `domain_guidance`, `selection_checks`.
 They describe the work, never its measurement: the Evolver refuses the words benchmark, evaluation, grader, rubric
-and score there.
+and score there. Spell out the deliverable's exact shape in `work`: the stage prompts keep a deliverable's shape
+fixed, but only the shape the work names. On OfficeQA, a `work` that said only "in the form the question requests"
+let adopted edits move derivations and caveats inside the `<answer>` tags.
 
 ## One framework step
 
