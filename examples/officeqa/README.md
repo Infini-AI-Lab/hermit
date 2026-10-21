@@ -57,9 +57,9 @@ Codex harness (`run_codex.yaml`; Codex CLI 0.134 for Linux, one container per se
 | initial skill: SkillOpt's, where both methods start (`utils/seed_adapter/`) | 0.465 | 0.564 |
 | **GEPA** (`gepa/`) | 0.564 | 0.595 |
 | **SkillOpt** (`skillopt/`) | 0.576 | 0.628 |
-| **Harness²** (`harness2/`), the training-loop variant: no judge feedback, no validation split, k = 1 | 0.488 (stopped by the USD 40 budget at step 25, epoch 3) | – |
+| **Harness²** (`harness2/`), the training-loop variant: no judge feedback, no validation split, k = 1 | 0.583 (stopped by the USD 40 budget at step 25, epoch 3; 0.572 at the epoch-1 checkpoint) | – |
 
-Harness² ([method](../../docs/methods/harness2.md)) carries the adopted harness across steps, unlike the paper's per-task protocol; `harness2/slots.yaml` names the answer's form, since no judge feedback reaches it. No Harness² adapter is included.
+Harness² ([method](../../docs/methods/harness2.md)) carries the adopted harness across steps, unlike the paper's per-task protocol; `harness2/slots.yaml` names the answer's form, since no judge feedback reaches it (with slots that did not, its epoch-1 adapter scored 0.250 against the starting skill's 0.380, both evaluated without the parsed pages). Its training run was made without the questions' parsed pages in the prompt, which lowers every method's score by 0.05 to 0.11; the numbers here are the same-day re-evaluation with the pages restored. No Harness² adapter is included.
 
 Paired differences with 95% intervals, each run's selection and cost, the Codex sessions' isolation and the
 differences from the paper: the [recipe](../../docs/recipes/officeqa.md#results).
