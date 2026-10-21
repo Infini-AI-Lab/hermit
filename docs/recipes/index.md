@@ -7,7 +7,7 @@ Pick a recipe by the task and evaluation protocol. Recipes specify actual integr
 |---|---|---|---|
 | [Offline first training](../get-started/quickstart.md) | Included code, Python, Git | Scripted teaching learner | Feedback → adapter update → held-out evaluation → deployment |
 | [First real-model training](../get-started/first-model.md) | Model endpoint, id, and credential; included data | Prompt-only | A real actor and learner without external benchmark assets |
-| [OfficeQA](officeqa.md) | Gated dataset, parsed source pages, SkillOpt acting dependencies, model access | Prompt-only, GEPA, SkillOpt; direct chat or Codex harness | Skill optimization for a document agent in the SkillOpt paper's split, seed skill, and scoring |
+| [OfficeQA](officeqa.md) | Gated dataset, parsed source pages, SkillOpt acting dependencies, model access | GEPA, SkillOpt; direct chat or Codex harness | Skill optimization for a document agent in the SkillOpt paper's split, seed skill, and scoring |
 | [ServeLearnBench](servelearnbench.md) | Benchmark package, Linux learner environment, model access | MWM; prompt-only comparison configs | Ordered serving episodes and per-window held-out tests |
 | [CL-Bench](clbench.md) | CL-Bench and MetaWorld checkouts, venue environments, Linux, model access | MWM; comparison examples in the repository | Persistent environment learning over ordered database/poker streams |
 | [Lean collaboration](lean-collaboration.md) | Lean/Mathlib, agent hosts, team service | Existing adapter | Multi-agent consumption with shared tools and state |
@@ -18,7 +18,7 @@ Examples are grouped by task, with a method folder inside each task. Paths below
 
 | Task | Task integration | Method configurations / launchers |
 |---|---|---|
-| OfficeQA | `examples/officeqa/utils/` | `examples/officeqa/{prompt_only,gepa,skillopt}/` |
+| OfficeQA | `examples/officeqa/utils/` | `examples/officeqa/{gepa,skillopt}/` |
 | CL-Bench database | `examples/clbench_database/utils/` | `examples/clbench_database/{mwm,prompt_only}/` |
 | CL-Bench poker | `examples/clbench_poker/utils/` | `examples/clbench_poker/{mwm,prompt_only}/` |
 | ServeLearnBench | `examples/servelearnbench/utils/` | `examples/servelearnbench/{mwm,prompt_only}/` |

@@ -4,7 +4,7 @@ This recipe makes real model calls. It runs OfficeQA as the SkillOpt paper does:
 train/validation/test split of OfficeQA Full, each question's parsed source pages with file tools limited to its
 source files, a seed skill, and exact-match scoring. A GLM agent answers questions about Treasury Bulletins with the
 adapter's `ADAPTER.md` as its skill, and the `gepa` Evolver revises that skill from the scored answers; SkillOpt
-and prompt-only (a Codex session that rewrites the skill) train the same skill afterwards.
+trains the same skill afterwards.
 
 Complete [Installation](../get-started/installation.md), activate the virtual environment, and run the commands from
 the repository root. For an API-only walkthrough without external dataset assets, use [First real-model training](../get-started/first-model.md).
@@ -31,8 +31,7 @@ The acting agent answers with GLM 5.3 Flash on Fireworks (`fireworks/accounts/fi
 the default of `utils/agent/agent.py`), and the configs' learners are GLM 5.3 on Fireworks: set
 `FIREWORKS_API_KEY` in your shell before continuing, or bind the run to another backend (see
 [Model backends](../guides/model-backends.md)). `model=vllm/...` on the command line moves the acting agent;
-the GEPA and SkillOpt configs set `llm` and keep their learner unless `llm=vllm/...` is given too, and the prompt-only
-configs keep theirs unless `evolver.params.model=vllm/...` is (Codex needs a backend that serves the Responses API).
+the configs set `llm` and keep their learner unless `llm=vllm/...` is given too.
 
 ## Check, train, evaluate
 
@@ -95,7 +94,7 @@ choose another name, for example `trainer.run_name=smoke-02`, and use the same o
 commands. The framework does not automatically choose the best checkpoint:
 `final` is the Evolver's final selection, which defaults to the last adapter.
 
-## Train with SkillOpt or prompt-only
+## Train with SkillOpt
 
 The same task trains with the `skillopt` Evolver instead of `gepa`. It too scores candidate adapters on the
 validation questions. Run the smoke config first, then the full one:
@@ -115,20 +114,6 @@ GEPA settings. Each method has its own config and output directory; do not mix t
 Outputs are in `examples/officeqa/<method>/runs/<configured-run-name>/`, including `checkout/CARD.md`,
 `steps.jsonl`, `eval/`, and `workspace/state/` (saved per step in `step_NNNN/state/`) with each method's
 candidates and records.
-
-`prompt_only/` trains the skill with the built-in Codex Evolver, as the CL-Bench examples' prompt-only baselines do:
-after every step a fresh Codex session with GLM 5.3 (reasoning effort medium) reads the step's learning material and
-rewrites `ADAPTER.md`, with no validation gate. The session runs in the framework's sandbox, so it needs Linux,
-bubblewrap and the Codex CLI on `PATH` ([Codex and Claude agent learners](../methods/agent.md)). The sandbox shows
-the learner its workspace, the learning material and the task description and hides the framework's `examples/`,
-with the answers; a run inside `examples/` would be hidden too, so these configs write their runs under
-`~/.cache/harnessadapter/officeqa-prompt-only/` instead of `prompt_only/runs/`.
-
-```bash
-harnessadapter train --config examples/officeqa/prompt_only/smoke.yaml
-harnessadapter train --config examples/officeqa/prompt_only/run.yaml
-harnessadapter eval --config examples/officeqa/prompt_only/run.yaml --adapter final
-```
 
 ## Run in the Codex harness
 

@@ -5,9 +5,8 @@ answers are figures found in the bulletins, often after a computation. This exam
 questions) as the [SkillOpt paper](https://arxiv.org/abs/2605.23904) does: its 50 / 24 / 172 train / validation /
 test split, each question's parsed source pages in the prompt, and exact match, with the acting agent in either of
 the paper's harnesses: direct chat, with read and grep tools limited to the question's source files, or Codex, a
-`codex exec` session with the whole corpus. The adapter's `ADAPTER.md` is the agent's skill. Three methods train it,
-one folder each: prompt-only, GEPA and SkillOpt; GEPA and SkillOpt are compared with no skill and with SkillOpt's
-initial skill.
+`codex exec` session with the whole corpus. The adapter's `ADAPTER.md` is the agent's skill. Two methods train it,
+one folder each, GEPA and SkillOpt; they are compared with no skill and with SkillOpt's initial skill.
 
 ## Setup
 
@@ -17,9 +16,7 @@ Hugging Face dataset `databricks/officeqa` (`officeqa_full.csv`, and `treasury_b
 `transformed/` and `jsons/`), and a Fireworks key in `FIREWORKS_API_KEY`, or another backend
 ([Model backends](../../docs/guides/model-backends.md)). The Codex harness also needs Docker: each Codex session runs in
 a container that sees only its workspace and the corpus and reaches only the model provider (`utils/agent/docker/`;
-set up as in the [recipe](../../docs/recipes/officeqa.md#run-in-the-codex-harness)). Prompt-only's learner is a Codex
-session in the framework's sandbox, which needs Linux, bubblewrap and the Codex CLI
-([agent learners](../../docs/methods/agent.md)).
+set up as in the [recipe](../../docs/recipes/officeqa.md#run-in-the-codex-harness)).
 
 ```bash
 pip install -e '.[skillopt,gepa]'
@@ -35,7 +32,6 @@ It fetches the split from SkillOpt's repository at a pinned commit; `--split-dir
 ```bash
 harnessadapter train --config examples/officeqa/skillopt/run.yaml        # SkillOpt
 harnessadapter train --config examples/officeqa/gepa/run.yaml            # GEPA
-harnessadapter train --config examples/officeqa/prompt_only/run.yaml     # prompt-only
 harnessadapter train --config examples/officeqa/skillopt/run_codex.yaml  # SkillOpt in the Codex harness, as the others
 harnessadapter eval  --config examples/officeqa/skillopt/run.yaml --adapter final   # SkillOpt's trained skill
 harnessadapter eval  --config examples/officeqa/gepa/run.yaml     --adapter final   # GEPA's trained skill
@@ -44,8 +40,7 @@ harnessadapter eval  --config examples/officeqa/skillopt/run.yaml --adapter ../u
 ```
 
 An adapter's accuracy is `mean_score` in `<method>/runs/<run name>/eval/<adapter>/summary.json` (172 test
-questions, three passes each; prompt-only's runs are under `~/.cache/harnessadapter/officeqa-prompt-only/` instead);
-`--adapter adapter` evaluates the adapter included in `gepa/` or `skillopt/`.
+questions, three passes each); `--adapter adapter` evaluates the adapter included in `gepa/` or `skillopt/`.
 Before a `run.yaml`, run its folder's `smoke.yaml` (a few questions) and `harnessadapter check --config ...` (add
 `--no-probe` to skip its one model call). `run_codex.yaml` and `smoke_codex.yaml` are the folder's `run.yaml` and
 `smoke.yaml` with the agent in the Codex harness (`agent.params.harness: codex`) and no budget; evaluate in that
@@ -54,13 +49,8 @@ under `~/.cache/harnessadapter/officeqa-codex-actor/`, outside the checkout.
 
 ## Methods
 
-All three methods train the same adapter, one `ADAPTER.md` (the prompt-only template), from SkillOpt's initial
+Both methods train the same adapter, one `ADAPTER.md` (the `prompt-only@1.0` template), from SkillOpt's initial
 skill, with GLM 5.3 (reasoning effort medium) as the learner.
-**prompt-only** ([`prompt_only/`](prompt_only/), [method](../../docs/methods/agent.md)): the built-in Codex Evolver on
-the prompt-only template, as in [`clbench_poker/prompt_only/`](../clbench_poker/prompt_only/): after every 10
-training questions a fresh Codex session reads the trajectories and the judge's feedback and rewrites the skill;
-there is no validation gate, and the final skill is the last one. The session runs in the framework's sandbox, which
-hides the framework's `examples/` and the answers with them, so these runs are written outside the checkout.
 **GEPA** ([`gepa/`](gepa/), [method](../../docs/methods/gepa.md)): GLM 5.3 reflects on three trajectories at a time
 to propose a new skill, and the candidates are kept on a Pareto front over the 24 validation questions.
 **SkillOpt** ([`skillopt/`](skillopt/), [method](../../docs/methods/skillopt.md)), with the paper's
@@ -126,6 +116,6 @@ utils/agent/        OfficeQAAgent (agent.py): SkillOpt's rollout (direct or Code
                     codex_sandbox.py and docker/: the Codex harness's container, network proxy and image
 utils/prepare.py    tasks.jsonl, the splits, data.json and seed_adapter/      utils/judge.py   SkillOpt's exact match
 utils/task-info/    the task for the learner
-prompt_only/ gepa/ skillopt/   smoke.yaml and run.yaml per method, smoke_codex.yaml and run_codex.yaml for the
-                    Codex harness; gepa/ and skillopt/ include the adapter their run.yaml trained
+gepa/ skillopt/     smoke.yaml and run.yaml per method, smoke_codex.yaml and run_codex.yaml for the Codex
+                    harness, and the adapter their run.yaml trained
 ```
