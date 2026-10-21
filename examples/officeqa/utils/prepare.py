@@ -80,6 +80,14 @@ for name, ids in splits.items():
 (HERE / "splits" / "smoke_train.txt").write_text("\n".join(splits["train"][:4]) + "\n")
 (HERE / "splits" / "smoke_val.txt").write_text("\n".join(splits["val"][:2]) + "\n")
 (HERE / "splits" / "smoke_test.txt").write_text("\n".join(splits["test"][:4]) + "\n")
+# SkillOpt reads a question's parsed pages from jsons/ beside the directory transformed/ resolves to, symlinks
+# followed: a transformed/ linked in from a folder without jsons/ leaves every prompt without its pages.
+from skillopt.envs.officeqa.tool_runtime import build_oracle_parsed_pages_context, resolve_docs_roots
+roots = resolve_docs_roots([str(docs)])
+without = [t["id"] for t in tasks if not build_oracle_parsed_pages_context(t["source_files"], t["source_docs"], roots)]
+if without:
+    raise SystemExit(f"{len(without)} of {len(tasks)} questions get no parsed pages: SkillOpt looks for jsons/ beside "
+                     f"{roots[0]}. Put transformed/ and jsons/ side by side as real directories.")
 (HERE / "data.json").write_text(json.dumps({"docs": str(docs), "answers": str(private / "answers.jsonl"),
                                              "csv": str(args.csv.resolve()), "drifted_from_split": drifted}, indent=1))
 
