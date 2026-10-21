@@ -75,8 +75,34 @@ keeps each call's mission and reply.
 - Hooks and plugins (the paper's C8) are not part of the template, and scripts (C7) only where the actor can run
   them.
 
-## Example
+## The paper's protocol, by the upstream code
 
-[`examples/officeqa_paper/harness2/`](../../examples/officeqa_paper/harness2/) runs Harness² in the SkillOpt
-paper's OfficeQA setting, with the split, rollout, scorer, seed skill, optimizer model and budget of the GEPA and
-SkillOpt runs beside it.
+`harness2_upstream` runs Harness² as the paper does, with the paper's own code: the upstream package
+(`pip install -e '.[harness2]'`, pinned) drives every task through its benchmark seam, and nothing above is reused.
+The training split is the task stream:
+
+```yaml
+data: {train: stream.txt, step_size: 1, shuffle: false}   # one task per step, in the stream's order
+trainer: {epochs: 1}
+evolver:
+  name: harness2_upstream
+  params: {model: <backend>/<model>, effort: medium, k: 1, slots: slots.yaml}
+```
+
+Each step hands the step's task to `harness2.core.schedule.run_task`: the reference execution is the Trainer's
+rollout of the starting adapter H0; the INV and DOM candidates and the composition are executed on the same task
+through `run_agent`; the composition's execution is the task's deliverable; a reflection adds the adopted harness and
+its lesson to the domain's library, which is the only thing the next task inherits. The adapter is never written, so
+every task starts from H0. The editor sessions are upstream's `claude_cli` channel (Claude Code on the bound model,
+which must serve the Messages API), each in a sandbox that shows only its evidence and reaches only the model. A
+task's score is the judge's score of its deliverable, in `step_NNNN/step_result.json` (`extra.harness2`), never seen
+by a session. Upstream knows OpenCode's and Codex's surfaces; this one describes the template's, where every
+component is in the agent's prompt and there are no scripts, subagents or plugins.
+
+## Examples
+
+[`examples/officeqa_paper/harness2/`](../../examples/officeqa_paper/harness2/) runs the `harness2` Evolver in the
+SkillOpt paper's OfficeQA setting, with the split, rollout, scorer, seed skill, optimizer model and budget of the
+GEPA and SkillOpt runs beside it.
+[`examples/officeqa_paper/harness2_stream/`](../../examples/officeqa_paper/harness2_stream/) runs
+`harness2_upstream` on the same test questions as one stream, with the same executor and optimizer model.
