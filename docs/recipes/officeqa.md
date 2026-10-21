@@ -12,9 +12,8 @@ local training without model access, [Quick Start](../get-started/quickstart.md)
 
 ## Requirements and configuration
 
-Complete [Installation](../get-started/installation.md) with the `skillopt` and `gepa` extras (both pinned to tested
-commits; the agent and the judge are SkillOpt's, so GEPA needs `skillopt` too), activate the virtual environment,
-and run the commands from the repository root:
+Complete [Installation](../get-started/installation.md) with the `skillopt` and `gepa` extras, activate the virtual
+environment, and run the commands from the repository root:
 
 ```bash
 python -m pip install -e '.[skillopt,gepa]'
