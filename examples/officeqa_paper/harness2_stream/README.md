@@ -32,9 +32,10 @@ MAX_TASKS=2 TAG=h2-smoke FIREWORKS_API_KEY=... WM_PORT=3592 examples/officeqa_pa
 
 ## Reading the result
 
-The score of question *t* is the judge's score of its deliverable, `extra.harness2.runs.agg1` in
-`runs/<tag>/step_NNNN/step_result.json`; a question without one counts 0. Upstream's own number, which leaves out a
-question whose composed harness gave no answer, is `extra.harness2.judged`. The same file has the reference execution
+The score of question *t* is the judge's score of its deliverable, `runs.agg1.score` in
+`runs/<tag>/step_NNNN/output/harness2.json` (each execution's score is also in `output/scores.jsonl` as soon as it is
+judged, which survives a stopped step); a question without one counts 0. Upstream's own number, which leaves out a
+question whose composed harness gave no answer, is `judged` there. The same file has the reference execution
 (`runs.base1`, H0 on the same question) and the two probes. Each step's output holds upstream's records of the
 question: the evidence each session saw, the candidate harnesses, the notes and the lesson.
 

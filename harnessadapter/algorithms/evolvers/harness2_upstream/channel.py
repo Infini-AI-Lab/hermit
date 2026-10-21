@@ -12,8 +12,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import os
 from pathlib import Path
+import re
+import shutil
 import signal
 import subprocess
+import tempfile
 import threading
 import time
 from typing import Any
@@ -76,10 +79,6 @@ class FrameworkProposer(Proposer):
                         raise RuntimeError("the session was stopped by the Trainer (budget or timeout)")
                     raise subprocess.TimeoutExpired(cmd, wall)
                 time.sleep(1)
-        # A link in the edited harness would be followed when upstream harvests it (outside the sandbox): drop links.
-        for path in sorted((Path(cwd) / "context").rglob("*"), reverse=True):
-            if path.is_symlink():
-                path.unlink()
         payload = _parse_json(out_path.read_text(errors="replace"))
         text = str(payload.get("result") or payload.get("text") or "")
         problem = ""
@@ -91,10 +90,31 @@ class FrameworkProposer(Proposer):
         usage = self._usage(payload)
         return text, float(usage.cost_usd or 0.0) if usage else 0.0, problem
 
+    def _harvest(self, tmp: Path, sub: str, label: str, cache_key: str = "") -> Path | None:
+        """Upstream's harvest, without following links: the session wrote this tree, and the harvest runs outside its
+        sandbox. A linked directory on the way gives nothing back (upstream retries the stage); links inside are
+        copied as links and dropped."""
+        path = Path(tmp)
+        for part in Path(sub).parts:
+            path = path / part
+            if path.is_symlink():
+                return None
+        if not path.is_dir():
+            return None
+        dest = Path(self.audit_dir or tempfile.mkdtemp(prefix="harness2-harvest-"))
+        safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", label) + (f".{cache_key}" if cache_key else "")
+        dest = dest / f"{safe}.workspace"
+        shutil.rmtree(dest, ignore_errors=True)
+        shutil.copytree(path, dest, symlinks=True)
+        for link in [q for q in dest.rglob("*") if q.is_symlink()]:
+            link.unlink()
+        return dest
+
     def _usage(self, payload: dict) -> Usage | None:
         u = payload.get("usage") or {}
-        if not u:
-            return None
+        if not any(int(u.get(k) or 0) for k in ("input_tokens", "output_tokens", "cache_read_input_tokens",
+                                                 "cache_creation_input_tokens")):
+            return None                          # no model call reached the endpoint
         cached = int(u.get("cache_read_input_tokens") or 0)
         usage = Usage(model=str(self.params.get("model") or self.spec.model),
                       input_tokens=int(u.get("input_tokens") or 0) + cached
