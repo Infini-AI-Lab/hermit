@@ -23,6 +23,8 @@ gepa = ["gepa @ git+https://github.com/gepa-ai/gepa@d771eb21b5dd3228bc3f567293d2
 # json_repair: SkillOpt recovers malformed JSON from non-OpenAI optimizer models with it (its own qwen/claude extras).
 skillopt = ["skillopt @ git+https://github.com/microsoft/SkillOpt@79124b37e9a6371e13b753f8bcd7adb1e493ade1",
             "json_repair>=0.61.0"]
+# The harness2_upstream Evolver runs upstream Harness² (no dependencies of its own), pinned to the tested commit.
+harness2 = ["harness2 @ git+https://github.com/google-research/harness2@1cfe254e8d25b15f37048c3730134686abe60335"]
 
 [project.scripts]
 hermit = "hermit.cli:main"

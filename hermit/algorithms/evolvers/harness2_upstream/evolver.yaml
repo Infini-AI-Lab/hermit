@@ -1,0 +1,26 @@
+description: Harness² (Xu et al., arXiv:2610.14224) under the paper's own protocol, run by the upstream code
+  (google-research/harness2, the `harness2` extra) through its benchmark seam. The training split is the task stream
+  (step_size 1, one epoch, no shuffle) - every task starts from the starting adapter H0; a reference execution, an
+  INV and a DOM editor session whose candidates are executed on the same task, a composer session whose composition is
+  executed on the same task as the deliverable, and a reflection that adds the adopted harness and its lesson to a
+  per-domain library, the only thing carried to the next task. The adapter is never changed. Editor sessions are
+  upstream's claude_cli channel on the bound model, each in its own sandbox; executions go through run_agent. No judge
+  score reaches any session.
+class: evolver.py:Harness2UpstreamEvolver
+needs: []
+params:
+  backend: claude            # the editor sessions run Claude Code (upstream's claude_cli channel) on the bound model
+  model: null                # a <backend>/<model> reference; the backend must serve the Messages API
+  effort: medium             # Claude Code's --effort for every session
+  k: 1                       # task-level recursion budget (the paper's main tables: 1)
+  session_timeout_s: 3600    # wall clock per session attempt (upstream's ChannelSpec default)
+  tools: Read,Write,Edit,Glob,Grep,Bash   # the session's tools: files and a shell inside its sandbox, no web
+  slots: null                # YAML with the task's prompt slots (upstream BenchPrompts: work, domain_word,
+                             # deliverable_word, inv_levers, dom_levers, yardstick, domain_guidance, selection_checks)
+  sources: null              # file.py:function(task, dest) -> directory of the task's source material, or None
+  domain_field: domain       # task field naming the library domain; absent -> one domain
+  name: task                 # the benchmark name in upstream's run namespaces
+  obs_trunc: 50000           # per-observation clip in rendered trajectories (upstream's default; at least 10000)
+  leak_globs: []             # source paths that must never reach a session (answer keys)
+  verdict_markers: []        # more strings that mark grader output (this task judge's feedback wording)
+  proposer: null             # file.py:Class or module:Class replacing the session channel (tests)

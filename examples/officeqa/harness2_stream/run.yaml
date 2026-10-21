@@ -1,0 +1,45 @@
+# Harness² under the paper's own protocol (Xu et al., arXiv:2610.14224, Sec. 2), run by the upstream code: the 172 test
+# questions are one stream, in upstream's seeded order (launch.sh writes it). Every question starts from SkillOpt's
+# initial skill (H0, where GEPA and SkillOpt start too): a reference execution, INV and DOM editor sessions whose
+# candidates run on the same question, a composer session whose composition runs on the same question as its
+# deliverable, and a reflection into the library, the only thing the next question inherits. The executor is GEPA's and
+# SkillOpt's (GLM 5.3 Flash, medium effort, 24 turns, 16,384 tokens); the editor sessions are Claude Code on GLM 5.3 at
+# medium effort, the model GEPA and SkillOpt optimise with. Started by launch.sh.
+data:
+  tasks: ../utils/tasks.jsonl
+  train: stream_s0.txt                 # launch.sh: upstream's order of ../utils/splits/test.txt for SEED
+  step_size: 1                         # one question per step
+  shuffle: false                       # the stream's own order
+task_info: ../utils/task-info
+agent:
+  name: ../utils/agent/agent.py:OfficeQAPaperAgent
+  concurrency: 1
+judge:
+  path: ../utils/judge.py
+template: harness2@1.0
+start_from: ../harness2/seed_adapter   # H0 (launch.sh runs ../harness2/make_seed.py)
+evolver:
+  name: harness2_upstream
+  params:
+    model: fireworks/accounts/fireworks/models/glm-5p3   # launch.sh: the same model through a wire meter
+    effort: medium
+    k: 1
+    slots: slots.yaml
+    sources: sources.py:task_files
+    name: officeqa
+    leak_globs: ["answers.jsonl", "*.csv", "*private*", "data.json"]
+    verdict_markers: ["' but expected '"]                # the judge's feedback wording
+    probe_absent: []                                     # launch.sh: the answer files no session may see
+sandbox:
+  enabled: true
+  network: restricted
+  allow: []
+  read: []
+  env: []
+trainer:
+  run_name: h2-stream-s0
+  output_dir: runs
+  epochs: 1
+  call_timeout_min: 300                # one question's sessions and executions, retries included
+  save_freq: {steps: null, epochs: 1}
+  budget: {usd: 150, tokens: null, hours: null}
