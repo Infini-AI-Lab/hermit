@@ -83,6 +83,7 @@ class FrameworkBench:
         self.private: dict[str, dict] = {}          # run_id -> judge result; read only by score()
         self._lock = threading.Lock()
         self._h0: Path | None = None
+        self._sources: Path | None = None
 
     # --- the task -------------------------------------------------------------------------------------------------
     def tasks(self, split: str = "all") -> list[str]:
@@ -105,9 +106,13 @@ class FrameworkBench:
         return json.dumps({k: v for k, v in self.task.items() if k != "id"}, ensure_ascii=False, indent=1)
 
     def task_files(self, task_id: str) -> Path | None:
+        """The task's source material, gathered once: the INV and DOM stages build their evidence concurrently."""
         if self.sources is None:
             return None
-        return self.sources(dict(self.task), self.root / "_sources" / self.tid)
+        with self._lock:
+            if self._sources is None:
+                self._sources = self.sources(dict(self.task), self.root / "_sources" / self.tid)
+        return self._sources
 
     # --- the harness ----------------------------------------------------------------------------------------------
     def base_harness(self) -> Path:

@@ -71,13 +71,30 @@ def tmp_path():
         shutil.rmtree(path, ignore_errors=True)
 
 
+# The task's source material, written slowly enough that two stages gathering it at once would collide.
+SOURCES = r'''
+import time
+from pathlib import Path
+
+
+def task_files(task, dest):
+    dest.mkdir(parents=True, exist_ok=True)
+    note = dest / "numbers.txt"
+    if not note.exists():
+        time.sleep(0.3)
+        note.symlink_to(Path(__file__).resolve())
+    return dest
+'''
+
+
 def run(tmp_path: Path) -> Path:
     (tmp_path / "proposer.py").write_text(PROPOSER)
+    (tmp_path / "sources.py").write_text(SOURCES)
     (tmp_path / "slots.yaml").write_text("work: Adding two numbers given in the task.\ndeliverable_word: sum\n")
     path = make_task(tmp_path, template=str(TEMPLATE),
                      evolver={"name": "harness2_upstream",
                               "params": {"proposer": "proposer.py:Scripted", "backend": None, "model": "scripted",
-                                         "slots": "slots.yaml", "name": "toy",
+                                         "slots": "slots.yaml", "name": "toy", "sources": "sources.py:task_files",
                                          "calls_log": str(tmp_path / "calls.jsonl")}},
                      trainer={"run_name": "h2u", "output_dir": "runs", "epochs": 1, "budget": {"usd": 5}})
     (tmp_path / "stream.txt").write_text("t0\nt1\nt2\n")
@@ -108,6 +125,7 @@ def test_every_task_starts_from_h0_and_only_the_library_carries(tmp_path):
     first_inv, later_inv = calls[labels.index("inv1.a1")], [c for c in calls if c["label"] == "inv1.a1"][1]
     assert not any(f.startswith("library/") for f in first_inv["files"])     # the first task sees an empty library
     assert "library/INDEX.md" in later_inv["files"] and "rollouts/base1.md" in later_inv["files"]
+    assert "source/numbers.txt" in first_inv["files"]                         # the task's source material
     assert "Adding two numbers" in first_inv["mission"] or "THE WORK" in first_inv["mission"]
     summary = json.loads(next((run_dir / "step_0001" / "output" / "h2").glob("toy-mha-agg1/t0/summary.json"))
                          .read_text())
