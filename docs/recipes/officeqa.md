@@ -3,8 +3,8 @@
 This recipe makes real model calls. It runs OfficeQA as the SkillOpt paper does: the paper's 50 / 24 / 172
 train/validation/test split of OfficeQA Full, each question's parsed source pages with file tools limited to its
 source files, a seed skill, and exact-match scoring. A GLM agent answers questions about Treasury Bulletins with the
-adapter's `ADAPTER.md` as its skill, and the `prompt_only` Evolver revises that skill from the scored answers;
-GEPA and SkillOpt train the same skill afterwards.
+adapter's `ADAPTER.md` as its skill, and the `gepa` Evolver revises that skill from the scored answers; SkillOpt
+and prompt-only (a Codex session that rewrites the skill) train the same skill afterwards.
 
 Complete [Installation](../get-started/installation.md), activate the virtual environment, and run the commands from
 the repository root. For an API-only walkthrough without external dataset assets, use [First real-model training](../get-started/first-model.md).
@@ -31,41 +31,43 @@ The acting agent answers with GLM 5.3 Flash on Fireworks (`fireworks/accounts/fi
 the default of `utils/agent/agent.py`), and the configs' learners are GLM 5.3 on Fireworks: set
 `FIREWORKS_API_KEY` in your shell before continuing, or bind the run to another backend (see
 [Model backends](../guides/model-backends.md)). `model=vllm/...` on the command line moves the acting agent;
-the configs that set `llm` keep their learner unless `llm=vllm/...` is given too.
+the GEPA and SkillOpt configs set `llm` and keep their learner unless `llm=vllm/...` is given too, and the prompt-only
+configs keep theirs unless `evolver.params.model=vllm/...` is (Codex needs a backend that serves the Responses API).
 
 ## Check, train, evaluate
 
-Inspect `examples/officeqa/prompt_only/smoke.yaml`. It selects `prompt-only@1.0`, starts from
-`../utils/seed_adapter`, uses the `prompt_only` Evolver with GLM 5.3 as its model, batches of two tasks, one epoch,
-and a training budget of USD 3 / one hour. Dollar accounting uses the prices stored in the example; verify them for
+Inspect `examples/officeqa/gepa/smoke.yaml`. It selects `prompt-only@1.0`, starts from `../utils/seed_adapter`,
+uses the `gepa` Evolver with GLM 5.3 as its model, batches of two tasks, two validation tasks, one epoch, and a
+training budget of USD 5 / three hours. Dollar accounting uses the prices stored in the example; verify them for
 your endpoint. Usage becomes visible at call boundaries, so the budget is not a provider-side spending cap. The
 separate `check` probe and `eval` calls are outside the training budget.
 
 ```bash
-harnessadapter check --config examples/officeqa/prompt_only/smoke.yaml
-harnessadapter train --config examples/officeqa/prompt_only/smoke.yaml
-harnessadapter eval --config examples/officeqa/prompt_only/smoke.yaml --adapter final
-harnessadapter eval --config examples/officeqa/prompt_only/smoke.yaml --adapter ../utils/seed_adapter
-harnessadapter eval --config examples/officeqa/prompt_only/smoke.yaml --adapter none
+harnessadapter check --config examples/officeqa/gepa/smoke.yaml
+harnessadapter train --config examples/officeqa/gepa/smoke.yaml
+harnessadapter eval --config examples/officeqa/gepa/smoke.yaml --adapter final
+harnessadapter eval --config examples/officeqa/gepa/smoke.yaml --adapter ../utils/seed_adapter
+harnessadapter eval --config examples/officeqa/gepa/smoke.yaml --adapter none
 ```
 
 `check` runs one training task without an adapter to probe the pipeline and judge; use `--no-probe` to skip that model
-call. `train` executes two steps. On each step it runs the acting agent, scores the answers, lets the learner
-rewrite the skill, and checks and saves the returned adapter. `eval` separately measures a selected version on the
-four test tasks, three passes each (`eval.repeats`): `final`, the seed skill the run started from, and no skill.
+call. `train` executes two steps. On each step it runs the acting agent, scores the answers, lets GEPA reflect on
+them and propose a new skill (kept if it does better on the same tasks, then scored on the validation tasks), and
+checks and saves the adapter GEPA hands back. `eval` separately measures a selected version on the four test tasks,
+three passes each (`eval.repeats`): `final`, the seed skill the run started from, and no skill.
 A smoke run checks that the integration works; four test questions cannot establish a reliable performance gain.
 
-The example requests sandboxing. The in-process `prompt_only` method calls the run's model tool directly; enabling the sandbox does not turn the whole
-Python process into an isolated environment.
+The example requests sandboxing. The in-process `gepa` method calls the run's model tool directly; enabling the
+sandbox does not turn the whole Python process into an isolated environment.
 
 ## Inspect the result
 
-Paths in `smoke.yaml` are relative to that file, so the outputs are under `examples/officeqa/prompt_only/runs/`:
+Paths in `smoke.yaml` are relative to that file, so the outputs are under `examples/officeqa/gepa/runs/`:
 
 ```text
 runs/
-  trees/smoke-prompt-only/  Git history of adapter versions
-  smoke-prompt-only/
+  trees/smoke-gepa/         Git history of adapter versions
+  smoke-gepa/
     checkout/                current adapter, including ADAPTER.md and CARD.md
     steps.jsonl              scores, changes, costs, and commit IDs per step
     learning_material/       results and available logs shown to the learner
@@ -75,14 +77,14 @@ runs/
 ```
 
 ```bash
-cat examples/officeqa/prompt_only/runs/smoke-prompt-only/checkout/ADAPTER.md
-cat examples/officeqa/prompt_only/runs/smoke-prompt-only/checkout/CARD.md
+cat examples/officeqa/gepa/runs/smoke-gepa/checkout/ADAPTER.md
+cat examples/officeqa/gepa/runs/smoke-gepa/checkout/CARD.md
 ```
 
 Deploy the selected adapter into a separate generated workspace:
 
 ```bash
-harnessadapter deploy --adapter examples/officeqa/prompt_only/runs/smoke-prompt-only/checkout --workspace .demo/officeqa-codex --host codex
+harnessadapter deploy --adapter examples/officeqa/gepa/runs/smoke-gepa/checkout --workspace .demo/officeqa-codex --host codex
 ```
 
 Inspect its `AGENTS.md` before starting the host. This checks host integration; effectiveness in another host needs
@@ -93,11 +95,10 @@ choose another name, for example `trainer.run_name=smoke-02`, and use the same o
 commands. The framework does not automatically choose the best checkpoint:
 `final` is the Evolver's final selection, which defaults to the last adapter.
 
-## Train with GEPA or SkillOpt
+## Train with SkillOpt or prompt-only
 
-The same task trains with the `gepa` or `skillopt` Evolver instead of `prompt_only`. Both score candidate
-adapters on validation questions, so their configs add a validation split. Run the smoke config first, then the
-full one:
+The same task trains with the `skillopt` Evolver instead of `gepa`. It too scores candidate adapters on the
+validation questions. Run the smoke config first, then the full one:
 
 ```bash
 harnessadapter train --config examples/officeqa/skillopt/smoke.yaml
@@ -107,13 +108,27 @@ harnessadapter eval --config examples/officeqa/skillopt/run.yaml --adapter none
 harnessadapter eval --config examples/officeqa/skillopt/run.yaml --adapter ../utils/seed_adapter
 ```
 
-Use `examples/officeqa/gepa/smoke.yaml` and `gepa/run.yaml` for GEPA. `skillopt/run.yaml` uses the paper's
+Use `examples/officeqa/gepa/run.yaml` for the full GEPA run. `skillopt/run.yaml` uses the paper's
 SkillOpt hyperparameters (4 epochs, batches of 40, learning rate 4 decaying to 2, gated slow update, meta skill);
 `gepa/run.yaml` uses GEPA's default reflection minibatch of 3 and 4 epochs, since the paper does not publish its
 GEPA settings. Each method has its own config and output directory; do not mix their run-name or tree settings.
 Outputs are in `examples/officeqa/<method>/runs/<configured-run-name>/`, including `checkout/CARD.md`,
 `steps.jsonl`, `eval/`, and `workspace/state/` (saved per step in `step_NNNN/state/`) with each method's
 candidates and records.
+
+`prompt_only/` trains the skill with the built-in Codex Evolver, as the CL-Bench examples' prompt-only baselines do:
+after every step a fresh Codex session with GLM 5.3 (reasoning effort medium) reads the step's learning material and
+rewrites `ADAPTER.md`, with no validation gate. The session runs in the framework's sandbox, so it needs Linux,
+bubblewrap and the Codex CLI on `PATH` ([Codex and Claude agent learners](../methods/agent.md)). The sandbox shows
+the learner its workspace, the learning material and the task description and hides the framework's `examples/`,
+with the answers; a run inside `examples/` would be hidden too, so these configs write their runs under
+`~/.cache/harnessadapter/officeqa-prompt-only/` instead of `prompt_only/runs/`.
+
+```bash
+harnessadapter train --config examples/officeqa/prompt_only/smoke.yaml
+harnessadapter train --config examples/officeqa/prompt_only/run.yaml
+harnessadapter eval --config examples/officeqa/prompt_only/run.yaml --adapter final
+```
 
 ## Run in the Codex harness
 

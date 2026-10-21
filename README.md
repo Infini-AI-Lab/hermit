@@ -155,7 +155,7 @@ Runnable recipes, with evaluation details in each adapter’s `CARD.md`.
 <tr>
 <td><a href="docs/recipes/officeqa.md">OfficeQA</a></td>
 <td>U.S. Treasury Bulletins in the SkillOpt paper's setting: its 50 / 24 / 172 split, source pages, exact match; the agent in direct chat or SkillOpt's Codex harness. Prompt-only, GEPA, SkillOpt.</td>
-<td>Test accuracy, direct chat: 0.576 (SkillOpt), 0.564 (GEPA), 0.415 without a skill. Codex harness: 0.628 (SkillOpt), 0.595 (GEPA), 0.593 (prompt-only), 0.543 without a skill. 172 questions × 3 repeats. <a href="examples/officeqa/README.md">Results &amp; adapters</a>.</td>
+<td>Test accuracy, direct chat: 0.576 (SkillOpt), 0.564 (GEPA), 0.415 without a skill. Codex harness: 0.628 (SkillOpt), 0.595 (GEPA), 0.543 without a skill. 172 questions × 3 repeats. <a href="examples/officeqa/README.md">Results &amp; adapters</a>.</td>
 </tr>
 <tr>
 <td><a href="docs/recipes/lean-collaboration.md">Lean collaboration</a></td>

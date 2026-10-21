@@ -40,6 +40,5 @@ Set overrides under `evolver.params`. `files` must refer to text paths that the 
 edit. `max_examples` and `max_chars` bound evidence shown to the learner; `max_tokens` bounds the model response,
 which can include reasoning tokens depending on the provider.
 
-The [first real-model tutorial](../get-started/first-model.md) includes all data and code.
-The [OfficeQA recipe](../recipes/officeqa.md) supplies a larger benchmark integration. Use a small smoke run before
-increasing epochs or evidence size, and evaluate with the [same held-out protocol](../guides/evaluation.md).
+The [first real-model tutorial](../get-started/first-model.md) includes all data and code. Use a small smoke run
+before increasing epochs or evidence size, and evaluate with the [same held-out protocol](../guides/evaluation.md).

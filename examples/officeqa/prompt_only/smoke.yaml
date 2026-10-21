@@ -1,4 +1,7 @@
-# Smoke: the prompt_only Evolver on 4 training questions in 2 steps, 1 epoch; eval on 4 test questions.
+# Smoke: the prompt-only template and the built-in Codex Evolver (as in prompt_only/run.yaml) on 4 training
+# questions in 2 steps, 1 epoch; eval on 4 test questions.
+# The Evolver's Codex session runs in the framework's sandbox (Linux, bubblewrap), which hides the framework's examples
+# and the answers with them, so the run is written outside the checkout.
 data:
   tasks: ../utils/tasks.jsonl
   train: ../utils/splits/smoke_train.txt
@@ -14,10 +17,15 @@ judge:
 template: prompt-only@1.0
 start_from: ../utils/seed_adapter  # SkillOpt's initial OfficeQA skill
 evolver:
-  name: prompt_only
-llm:                           # the learner: GLM 5.3 at medium effort, as for GEPA and SkillOpt
-  model: fireworks/accounts/fireworks/models/glm-5p3     # <backend>/<model id>; the price is the backend's
-  extra_body: {reasoning_effort: medium}
+  name: codex                  # the built-in Codex AgentEvolver
+  resume: false                # a fresh session every step
+  params:
+    model: fireworks/accounts/fireworks/models/glm-5p3   # the learner: GLM 5.3, as for GEPA and SkillOpt
+    args: ["-c", 'model_reasoning_effort="medium"', "-c", "model_context_window=1048576"]   # medium effort, as for
+                               # GEPA and SkillOpt; the model's context window on Fireworks
+    home: []                   # no login files: the provider key is the backend's variable
+    tools: [check_spec]        # no run_agent, llm or budget
+    hide: []                   # the framework's examples (the answers among them), tests, docs and .git
 sandbox:
   enabled: true
   network: restricted
@@ -26,10 +34,10 @@ sandbox:
   env: []                    # the Evolver's model key variable is always passed; nothing else is
 trainer:
   run_name: smoke-prompt-only
-  output_dir: runs
-  tree_dir: runs/trees/smoke-prompt-only       # one adapter tree per run: runs can train side by side
+  output_dir: ~/.cache/harnessadapter/officeqa-prompt-only
+  tree_dir: ~/.cache/harnessadapter/officeqa-prompt-only/trees/smoke-prompt-only   # one adapter tree per run
   epochs: 1
-  budget: {usd: 3, hours: 1}
+  budget: {usd: 5, hours: 3}
   call_timeout_min: 30
 eval:
   repeats: 3                 # the target samples: three passes over the test questions

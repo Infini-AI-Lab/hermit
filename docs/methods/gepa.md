@@ -17,7 +17,7 @@ data:
 ```
 
 Add this to a complete task config with `llm` credentials. The
-[OfficeQA recipe](../recipes/officeqa.md#train-with-gepa-or-skillopt) has ready-made configurations.
+[OfficeQA recipe](../recipes/officeqa.md#check-train-evaluate) has ready-made configurations.
 
 ## One framework step
 

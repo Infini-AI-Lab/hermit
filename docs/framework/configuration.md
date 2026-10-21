@@ -8,15 +8,15 @@ configuration. Paths are relative to that file's directory, and `${VAR}` in path
 The [OfficeQA recipe](../recipes/officeqa.md) uses this config. Its dataset and model-access prerequisites are
 described in the recipe; this file alone does not supply them.
 
-```{literalinclude} ../../examples/officeqa/prompt_only/smoke.yaml
+```{literalinclude} ../../examples/officeqa/gepa/smoke.yaml
 :language: yaml
-:caption: examples/officeqa/prompt_only/smoke.yaml
+:caption: examples/officeqa/gepa/smoke.yaml
 ```
 
 `agent.name` names the acting agent: a built-in one (`react`, `codex`, `claude-code`) or the task's own class or
 function. `judge.path` names its scoring module.
 `template` chooses the adapter's files and editing rules. `evolver.name` chooses the learning method.
-The `llm` section configures the run's model tool, which the prompt-only learner uses.
+The `llm` section configures the run's model tool, which the GEPA learner uses.
 
 Models are named by reference, `<backend>/<model id>` (`fireworks/accounts/fireworks/models/glm-5p3-flash`,
 `vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8`); the backend decides the endpoint, the key variable and the price,
@@ -35,8 +35,8 @@ The framework merges `harnessadapter/defaults.yaml`, your YAML, and command-line
 Only write settings you want to override:
 
 ```bash
-harnessadapter train --config examples/officeqa/prompt_only/smoke.yaml trainer.run_name=smoke-02 trainer.epochs=2
-harnessadapter eval --config examples/officeqa/prompt_only/smoke.yaml --adapter final trainer.run_name=smoke-02
+harnessadapter train --config examples/officeqa/gepa/smoke.yaml trainer.run_name=smoke-02 trainer.epochs=2
+harnessadapter eval --config examples/officeqa/gepa/smoke.yaml --adapter final trainer.run_name=smoke-02
 ```
 
 Use the same run name for training and evaluation. Unknown configuration keys are rejected. Fields inside

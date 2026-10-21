@@ -41,11 +41,11 @@ model of the CLI's own provider (`gpt-5.4`), as before. So a provider id that ha
 name (`openai/...`) is read as a reference to that backend.
 
 The top-level `model` is a default: `model=vllm/qwen` on the command line moves every caller that names no model
-of its own. The OfficeQA configs leave the acting agent's model to it but set the learner's `llm` (GLM 5.3, as in
-the SkillOpt paper's setting), so `model=vllm/qwen` moves the agent and `llm=vllm/qwen` the learner; a config that
-sets `llm` or `agent.params.model` itself keeps them unless they are overridden too
-(`llm=vllm/qwen agent.params.model=vllm/qwen`). An agent Evolver such as `codex` takes its model
-from `evolver.params.model`; `evolver.params.model=vllm/qwen` moves it.
+of its own. The OfficeQA GEPA and SkillOpt configs leave the acting agent's model to it but set the learner's `llm`
+(GLM 5.3, as in the SkillOpt paper's setting), so `model=vllm/qwen` moves the agent and `llm=vllm/qwen` the
+learner; a config that sets `llm` or `agent.params.model` itself keeps them unless they are overridden too
+(`llm=vllm/qwen agent.params.model=vllm/qwen`). An agent Evolver such as `codex` (OfficeQA's prompt-only configs)
+takes its model from `evolver.params.model`; `evolver.params.model=vllm/qwen` moves it.
 
 ## Where backends are declared
 
@@ -167,8 +167,8 @@ python -m sglang.launch_server --model-path Qwen/Qwen3-30B-A3B-Instruct-2507-FP8
 
 ```bash
 harnessadapter backends check vllm/qwen3                    # /models, then chat, responses and messages
-harnessadapter check --config examples/officeqa/prompt_only/run.yaml model=vllm/qwen3 llm=vllm/qwen3
-harnessadapter train --config examples/officeqa/prompt_only/run.yaml model=vllm/qwen3 llm=vllm/qwen3
+harnessadapter check --config examples/officeqa/gepa/run.yaml model=vllm/qwen3 llm=vllm/qwen3
+harnessadapter train --config examples/officeqa/gepa/run.yaml model=vllm/qwen3 llm=vllm/qwen3
 ```
 
 The examples' launchers take the same references: `MW_MODEL=vllm/qwen3 VLLM_BASE_URL=http://127.0.0.1:8000/v1`
