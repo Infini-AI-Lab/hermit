@@ -38,7 +38,7 @@ import threading
 from urllib.parse import urlparse
 import uuid
 
-from harnessadapter.sandbox import FRAMEWORK, PACKAGE, AllowlistProxy, Sandbox, network_mode
+from harnessadapter.sandbox import FRAMEWORK, PACKAGE, AllowlistProxy, Sandbox, framework_env as _framework_env, network_mode
 from harnessadapter.task import RunOutput
 
 ROLES = ("learner", "rollout", "eval", "check", "tool")
@@ -231,12 +231,6 @@ class RoleSandbox:
             self.proxy.close()
 
 
-def _framework_env(extra: dict | None = None) -> dict:
-    env = {**os.environ, **(extra or {})}
-    env["PYTHONPATH"] = str(FRAMEWORK) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
-    return env
-
-
 def _run_worker(box: Sandbox, job: dict, work: Path, *, home: Path, readable=(), writable=(), env=None,
                 keep=(), forward=(), timeout: float | None = None, masked=()) -> dict:
     """Run worker.py in the sandbox with `job`; return its payload, or raise with what it left behind. After
@@ -308,7 +302,11 @@ def _owned_log(value, roots) -> Path | None:
     return path if any(real.is_relative_to(Path(os.path.realpath(r))) for r in roots) else None
 
 
+HOME_SECRETS = [Path.home() / ".ssh", Path.home() / ".bashrc"]   # proven absent inside a sandbox
+
+
 def _safe(text: str) -> str:
+    """A filename-safe slug of a task id (shared with the learning material)."""
     return re.sub(r"[^A-Za-z0-9._-]+", "_", str(text))[:60] or "task"
 
 
@@ -342,7 +340,7 @@ class SandboxedAgent:
         self.box = RoleSandbox(config, role, records=records, readable=readable, writable=self.logs,
                                allow=allow, env_keys=self.keys,
                                masked=[m for m in run_secrets(config) if m.resolve() not in own],
-                               probe_absent=[Path.home() / ".ssh", Path.home() / ".bashrc"])
+                               probe_absent=list(HOME_SECRETS))
 
     def _cli_kind(self) -> str | None:
         from harnessadapter.backends import CLI_AGENTS
@@ -417,7 +415,7 @@ class ToolRunner:
     def __init__(self, config, *, records: Path | None, work_root: Path):
         self.work_root = Path(work_root)
         self.box = RoleSandbox(config, "tool", records=records, masked=run_secrets(config),
-                               probe_absent=[Path.home() / ".ssh", Path.home() / ".bashrc"])
+                               probe_absent=list(HOME_SECRETS))
         self.enabled = self.box.enabled
         self.timeout = float(config.data["trainer"].get("call_timeout_min") or 60) * 60
 

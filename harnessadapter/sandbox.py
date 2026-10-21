@@ -34,6 +34,7 @@ import select
 import shutil
 import socket
 import socketserver
+import subprocess
 import sys
 import tempfile
 import threading
@@ -50,6 +51,31 @@ FRAMEWORK = Path(__file__).resolve().parents[1]          # the checkout; only it
 PACKAGE = Path(__file__).resolve().parent
 RELAY = PACKAGE / "sandbox_relay.py"
 LOCAL_URL = re.compile(r"https?://(?:127\.0\.0\.1|localhost):(\d+)")
+
+
+def framework_env(extra: dict | None = None, *, no_bytecode: bool = False) -> dict:
+    """The environment for a framework subprocess: this checkout first on PYTHONPATH, so a child imports this
+    harnessadapter, not another installed one. `no_bytecode` keeps an acting adapter free of bytecode caches."""
+    env = {**os.environ, **(extra or {})}
+    env["PYTHONPATH"] = str(FRAMEWORK) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+    if no_bytecode:
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+    return env
+
+
+def run_in_strict_sandbox(command: list[str], *, role: str, readable, enforce: str, timeout: float | None = None,
+                          no_bytecode: bool = False) -> "subprocess.CompletedProcess":
+    """Run `command` in a strict sandbox and return the finished process. The adapter's or template's own modules
+    (the learner's work) run here, never with the caller's network or keys: an isolated network, only `readable`
+    shown read-only, and only PYTHONPATH kept. The caller decides what a non-zero exit means."""
+    keep = ["PYTHONPATH", *(["PYTHONDONTWRITEBYTECODE"] if no_bytecode else [])]
+    box = Sandbox(role=role, network="isolated", env_allow=keep, readable=[Path(p) for p in readable],
+                  enforce=enforce)
+    try:
+        args, env = box.wrap(command, env=framework_env(no_bytecode=no_bytecode), keep=keep)
+        return subprocess.run(args, capture_output=True, text=True, timeout=timeout, env=env)
+    finally:
+        box.close()
 NETWORKS = {"isolated": ("isolated", True), "restricted": ("isolated", True), "none": ("isolated", False),
             "open": ("open", False)}
 
@@ -438,7 +464,7 @@ class Sandbox:
         # writable directory cannot uncover a secret inside it), then this call's readable and writable paths, which
         # may lie under a mask and are bound back on top of it.
         to_mask = [*self.masked, *masked]                  # the sandbox's own, and this call's (computed now)
-        seen, ro, rw, masked, own, aliases = set(), [], [], [], [], []
+        seen, ro, rw, covered, aliases = set(), [], [], [], []
 
         def bind(paths, flag, out, fresh=False):
             for path in paths:
@@ -481,9 +507,9 @@ class Sandbox:
                         names.add(b + n[len(a):])
         for name in sorted(names, key=len):
             if not os.path.exists(name) or not any(name == b or name.startswith(b + "/") for b in shown) or any(
-                    name == m or name.startswith(m + "/") for m in masked):
+                    name == m or name.startswith(m + "/") for m in covered):
                 continue                                  # nothing there, not shown anyway, or covered already
-            masked.append(name)
+            covered.append(name)
             # A file is covered by an empty regular file: /dev/null cannot be opened on a mount without devices.
             args.extend(["--tmpfs", name] if os.path.isdir(name) else ["--ro-bind", self._empty_file(), name])
         n_ro, n_rw = len(ro), len(rw)
@@ -492,12 +518,12 @@ class Sandbox:
         own = ro[n_ro:] + rw[n_rw:]                       # this call's paths, which may lie under a mask
         # A covered directory becomes read-only last: a call's own paths beneath it needed their mount points made
         # first, and the remount leaves what is mounted inside it as it is.
-        for name in masked:
+        for name in covered:
             if os.path.isdir(name):
                 args.extend(["--remount-ro", name])
         ro = [p for p in ro if p not in rw]               # a path bound both ways is writable: the later bind wins
         env["HOME"] = _names(home)[0] if home else _names(self.writable[0])[0] if self.writable else "/tmp"
-        policy = {"enforced": True, "network": self.network, "read_only": ro, "read_write": rw, "masked": masked,
+        policy = {"enforced": True, "network": self.network, "read_only": ro, "read_write": rw, "masked": covered,
                   "proxy": self.proxy_url, "allow": list(self.allow)}
         name = f"{self.role}-{next(self._count)}"
         if self.audit == "files":
@@ -508,7 +534,7 @@ class Sandbox:
             trace = self.record_dir / f"{name}.strace"
             args = ["strace", "-f", "-qq", "-e", "trace=%file", "-o", str(trace), *args]
             policy["audit"] = str(trace)
-        deny = [*self._absent(ro + rw), *masked]
+        deny = [*self._absent(ro + rw), *covered]
         if self.network == "isolated" or deny:
             # The check inside: on an isolated network the network and the paths, on an open one the paths only
             # (what must be missing, and the covered secrets).

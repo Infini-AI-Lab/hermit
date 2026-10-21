@@ -137,17 +137,12 @@ SANDBOX_ENFORCE = "best_effort"
 def _run_sandboxed(command: list[str], readable: list[Path], timeout: float) -> subprocess.CompletedProcess:
     # SANDBOX_ENFORCE is None when the run's sandbox is off (sandbox.enabled: false): run unconfined, as the rest of
     # that run does. Otherwise the adapter's modules run in a strict sandbox under the run's enforce.
+    from harnessadapter.sandbox import framework_env, run_in_strict_sandbox
     if SANDBOX_ENFORCE is None:
-        return subprocess.run(command, capture_output=True, text=True, timeout=timeout, env=_child_env())
-    from harnessadapter.sandbox import Sandbox
-    keep = ["PYTHONPATH", "PYTHONDONTWRITEBYTECODE"]
-    box = Sandbox(role="spec", network="isolated", env_allow=keep, readable=[Path(p) for p in readable],
-                  enforce=SANDBOX_ENFORCE)
-    try:
-        args, env = box.wrap(command, env=_child_env(), keep=keep)
-        return subprocess.run(args, capture_output=True, text=True, timeout=timeout, env=env)
-    finally:
-        box.close()
+        return subprocess.run(command, capture_output=True, text=True, timeout=timeout,
+                              env=framework_env(no_bytecode=True))
+    return run_in_strict_sandbox(command, role="spec", readable=readable, enforce=SANDBOX_ENFORCE, timeout=timeout,
+                                 no_bytecode=True)
 
 
 def _deploy_check(adapter: Path, python: str) -> list[Issue]:
@@ -168,14 +163,6 @@ def _path_in(adapter: Path, text: str) -> str:
         if rel in text or str(adapter / rel) in text:
             return rel
     return ""
-
-
-def _child_env() -> dict:
-    env = dict(os.environ)
-    package_root = str(Path(__file__).resolve().parents[1])
-    env["PYTHONPATH"] = package_root + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
-    env["PYTHONDONTWRITEBYTECODE"] = "1"
-    return env
 
 
 def template_check(adapter: Path, root: Path, python: str | None = None) -> list[Issue]:

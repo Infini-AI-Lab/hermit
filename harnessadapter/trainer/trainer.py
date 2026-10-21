@@ -36,7 +36,7 @@ from harnessadapter.evolver.base import (Access, Context, Evolver, FinalResult, 
                                          Workspace)
 from harnessadapter.evolver.loader import find, instantiate
 from harnessadapter.llm import ChatClient
-from harnessadapter.isolate import ToolRunner, agent_pipeline, profile
+from harnessadapter.isolate import HOME_SECRETS, ToolRunner, agent_pipeline, profile
 from harnessadapter.sandbox import AllowlistProxy, Sandbox, network_mode
 from harnessadapter.spec import check_spec, repair
 from harnessadapter.task import TaskData, load_callable
@@ -223,8 +223,7 @@ class Trainer:
                                env_allow=env_allow, enforce=d["sandbox"].get("enforce", "required"),
                                packages=learner["packages"], record_dir=records, audit=d["sandbox"].get("audit"),
                                # The isolation check inside proves these absent: the task's data and the home.
-                               probe_absent=[self.config.path(d["data"]["tasks"]), Path.home() / ".ssh",
-                                             Path.home() / ".bashrc"])
+                               probe_absent=[self.config.path(d["data"]["tasks"]), *HOME_SECRETS])
         resolved = {"config": d, "template": self.template, "tree": str(self.tree.repo), "branch": self.branch,
                     "start": start, "evolver": {"name": self.spec.name, "directory": str(self.spec.directory),
                                                 "class": self.spec.class_path, "needs": self.spec.needs,

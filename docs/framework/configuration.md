@@ -189,7 +189,7 @@ covered secret is empty.
 Every wrapped program leaves a record, `sandbox/<role>-<n>.json` in the run's directory (`eval` writes its own beside
 its results): what was bound read-only and read-write, what was covered, which ports were forwarded, which
 environment variables passed, and the result of that check, which for a worker also proves the covered paths empty.
-Each role's proxy writes one line per request, allowed or refused, to `sandbox/network*.jsonl`. With `audit: files`,
+Framework-internal checks that run the adapter's own modules (the spec check, a CLI agent's deploy render, a sandboxed `Session`) leave records under their own labels — `spec-`, `render-`, `adapter-`, `session-` — beside the role records; they are not configurable roles. Each role's proxy writes one line per request, allowed or refused, to `sandbox/network*.jsonl`. With `audit: files`,
 `<role>-<n>.strace` lists the file accesses; strace is bubblewrap's parent, out of the sandbox's reach.
 
 Giving more read paths or inheriting credentials changes what the learner can access. Warnings are recorded with the

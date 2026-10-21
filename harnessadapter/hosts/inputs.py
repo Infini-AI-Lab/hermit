@@ -9,17 +9,11 @@ import subprocess
 import uuid
 
 from harnessadapter.adapter.loader import inside
+from harnessadapter.sandbox import FRAMEWORK, framework_env, run_in_strict_sandbox
 
 MARKER = ".harnessadapter-deploy.json"
 # The directory holding this harnessadapter package: child processes must import this copy, not another installed one.
-PACKAGE_ROOT = str(Path(__file__).resolve().parents[2])
-
-
-def child_env() -> dict:
-    """Environment for framework subprocesses: this package first on PYTHONPATH."""
-    env = dict(os.environ)
-    env["PYTHONPATH"] = PACKAGE_ROOT + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
-    return env
+PACKAGE_ROOT = str(FRAMEWORK)
 
 
 def render_exports(adapter, python):
@@ -27,21 +21,12 @@ def render_exports(adapter, python):
     agent's worker sets HA_ADAPTER_SANDBOX), the adapter's modules (the learner's work) are imported in a strict
     sandbox: the adapter read-only, no network, none of the agent's keys, so they never run with the agent's login."""
     command = [python, "-m", "harnessadapter.adapter.render_context", "--adapter", str(adapter)]
-    env = child_env()
     if os.environ.get("HA_ADAPTER_SANDBOX") == "1":
         from harnessadapter.adapter.session import ENV_ENFORCE
-        from harnessadapter.sandbox import Sandbox
-        box = Sandbox(role="render", network="isolated", env_allow=["PYTHONPATH", "PYTHONDONTWRITEBYTECODE"],
-                      readable=[Path(adapter)], enforce=os.environ.get(ENV_ENFORCE, "required"))
-        try:
-            args, env = box.wrap(command, env=env, keep=["PYTHONPATH"])
-            result = subprocess.run(args, capture_output=True, text=True, env=env)
-        finally:
-            box.close()
-        if result.returncode != 0:
-            raise RuntimeError(f"rendering the adapter's exports failed: {result.stderr.strip()[-1500:]}")
-        return json.loads(result.stdout)
-    result = subprocess.run(command, capture_output=True, text=True, env=env)
+        result = run_in_strict_sandbox(command, role="render", readable=[Path(adapter)],
+                                       enforce=os.environ.get(ENV_ENFORCE, "required"))
+    else:
+        result = subprocess.run(command, capture_output=True, text=True, env=framework_env())
     if result.returncode != 0:
         raise RuntimeError(f"rendering the adapter's exports failed: {result.stderr.strip()[-1500:]}")
     return json.loads(result.stdout)

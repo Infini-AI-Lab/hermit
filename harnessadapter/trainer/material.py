@@ -6,6 +6,8 @@ import os
 from pathlib import Path
 import shutil
 
+from harnessadapter.isolate import _safe
+
 README = """# Learning material
 
 One directory per training step (`step_0001/`, ...); `current` points at the latest; `index.jsonl` has one line per
@@ -93,5 +95,3 @@ class Material:
             current.symlink_to(self.step_dir(last_step).name)
 
 
-def _safe(task_id: str) -> str:
-    return "".join(c if c.isalnum() or c in "-_." else "_" for c in str(task_id))
