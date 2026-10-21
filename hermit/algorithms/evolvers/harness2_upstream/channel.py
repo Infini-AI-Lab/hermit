@@ -76,6 +76,10 @@ class FrameworkProposer(Proposer):
                         raise RuntimeError("the session was stopped by the Trainer (budget or timeout)")
                     raise subprocess.TimeoutExpired(cmd, wall)
                 time.sleep(1)
+        # A link in the edited harness would be followed when upstream harvests it (outside the sandbox): drop links.
+        for path in sorted((Path(cwd) / "context").rglob("*"), reverse=True):
+            if path.is_symlink():
+                path.unlink()
         payload = _parse_json(out_path.read_text(errors="replace"))
         text = str(payload.get("result") or payload.get("text") or "")
         problem = ""
@@ -103,8 +107,32 @@ class FrameworkProposer(Proposer):
         return usage
 
 
+def _descendants(pid: int) -> list[int]:
+    """Every process below `pid`: the sandbox starts its program in a session of its own, which a process-group kill
+    does not reach."""
+    children: dict[int, list[int]] = {}
+    for stat in Path("/proc").glob("[0-9]*/stat"):
+        try:
+            fields = stat.read_text().rsplit(")", 1)[1].split()
+        except (OSError, IndexError):
+            continue
+        children.setdefault(int(fields[1]), []).append(int(stat.parent.name))
+    out, todo = [], [pid]
+    while todo:
+        for child in children.get(todo.pop(), []):
+            out.append(child)
+            todo.append(child)
+    return out
+
+
 def _kill(proc: subprocess.Popen) -> None:
+    below = _descendants(proc.pid)
     for sig in (signal.SIGTERM, signal.SIGKILL):
+        for target in below:
+            try:
+                os.kill(target, sig)
+            except ProcessLookupError:
+                pass
         try:
             os.killpg(proc.pid, sig)
         except ProcessLookupError:
