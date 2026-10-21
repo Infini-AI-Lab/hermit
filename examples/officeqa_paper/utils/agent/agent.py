@@ -8,7 +8,8 @@ target_*_prompt.txt) are its log.
 The target model's calls (SkillOpt's chat_target_messages) go to the model `agent.params.model` names (a
 `<backend>/<model>` reference, see harnessadapter.backends; default GLM 5.3 Flash on Fireworks, FIREWORKS_API_KEY) at
 medium reasoning effort, as the paper runs its student. A rollout the API could not serve raises, so it is recorded
-as an error rather than a wrong answer.
+as an error rather than a wrong answer. So does a question whose parsed pages SkillOpt cannot find under data.json's
+docs, before any model call: without them the rollout is not the paper's setting, and every score drops.
 """
 from __future__ import annotations
 
@@ -117,12 +118,16 @@ class OfficeQAPaperAgent(Agent):
     def run(self, task: dict, adapter: Path | None) -> RunOutput:
         _setup(self.params)
         from skillopt.envs.officeqa.rollout import process_one
+        from skillopt.envs.officeqa.tool_runtime import build_oracle_parsed_pages_context, resolve_docs_roots
 
         session = self.session(adapter)
         skill = session.context().strip() if session is not None else ""
         (HERE / ".logs").mkdir(exist_ok=True)
         item = {"id": task["id"], "question": task["question"], "task_type": task.get("category", "officeqa"),
                 "source_files": task["source_files"], "source_docs": task["source_docs"], "ground_truth": ""}
+        if not build_oracle_parsed_pages_context(item["source_files"], item["source_docs"],
+                                                 resolve_docs_roots([DATA["docs"]])):   # cached: the rollout rereads them
+            raise RuntimeError(f"no parsed pages for {task['id']} under {DATA['docs']}: see utils/prepare.py")
         started = time.time()
         for attempt in range(3):            # the API was unavailable: run the whole rollout again later
             out_root = Path(tempfile.mkdtemp(prefix=f"{task['id']}-", dir=HERE / ".logs"))

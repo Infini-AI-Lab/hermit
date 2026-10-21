@@ -64,6 +64,14 @@ for name in ("train", "val", "test"):
         tasks.append({"id": item["uid"], "question": row["question"].strip(), "category": item["category"],
                       "source_files": source_files, "source_docs": source_docs})
         answers.append({"id": item["uid"], "answer": row["answer"].strip()})
+# SkillOpt reads a question's parsed pages from jsons/ beside the directory transformed/ resolves to, symlinks
+# followed: a transformed/ linked in from a folder without jsons/ leaves every prompt without its pages.
+from skillopt.envs.officeqa.tool_runtime import build_oracle_parsed_pages_context, resolve_docs_roots
+roots = resolve_docs_roots([str(docs)])
+without = [t["id"] for t in tasks if not build_oracle_parsed_pages_context(t["source_files"], t["source_docs"], roots)]
+if without:
+    raise SystemExit(f"{len(without)} of {len(tasks)} questions get no parsed pages: SkillOpt looks for jsons/ beside "
+                     f"{roots[0]}. Put transformed/ and jsons/ side by side as real directories.")
 with open(HERE / "tasks.jsonl", "w") as f:
     f.writelines(json.dumps(t, ensure_ascii=False) + "\n" for t in tasks)
 with open(private / "answers.jsonl", "w") as f:
