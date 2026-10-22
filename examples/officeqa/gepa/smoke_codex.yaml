@@ -1,4 +1,6 @@
 # Smoke: 4 training questions in 2 steps, 2 validation questions, 4 test questions.
+# Codex harness: as gepa/smoke.yaml, but GLM 5.3 Flash acts in SkillOpt's Codex harness (codex exec in a
+# workspace-write sandbox, the skill as SKILL.md, the whole corpus under docs/; utils/agent/agent.py).
 data:
   tasks: ../utils/tasks.jsonl
   train: ../utils/splits/smoke_train.txt
@@ -8,7 +10,9 @@ data:
   shuffle_seed: 42
 task_info: ../utils/task-info/
 agent:
-  name: ../utils/agent/agent.py:OfficeQAPaperAgent
+  name: ../utils/agent/agent.py:OfficeQAAgent
+  params:
+    harness: codex
   concurrency: 4
 judge:
   path: ../utils/judge.py
@@ -26,11 +30,11 @@ sandbox:
   read: []
   env: []                    # the Evolver's model key variable is always passed; nothing else is
 trainer:
-  run_name: smoke-gepa
+  run_name: codex-smoke-gepa
   output_dir: runs
-  tree_dir: runs/trees/smoke-gepa       # one adapter tree per run: runs can train side by side
+  tree_dir: runs/trees/codex-smoke-gepa       # one adapter tree per run: runs can train side by side
   epochs: 1
-  budget: {usd: 5, hours: 3}
+  budget: {usd: null, hours: null}
   call_timeout_min: 60
 eval:
   repeats: 3                 # the target samples: three passes over the test questions

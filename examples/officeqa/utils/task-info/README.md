@@ -1,9 +1,6 @@
-# OfficeQA (Treasury Bulletins)
+# OfficeQA (SkillOpt paper setting)
 
-The acting agent answers questions about U.S. Treasury Bulletins (1939–2025) by searching and reading the bulletins'
-text, then computing the requested figure. Files here:
-
-- `task.md` — what a task and an answer look like
-- `goal.md` — what to optimise
-- `judge.md` — how answers are scored and what the feedback says
-- `pipeline.md` — how the acting agent runs
+Questions about U.S. Treasury Bulletins (1939-2025). The agent gets the question with the parsed pages its answer
+comes from, can read and search the question's source files, and must answer inside `<answer>...</answer>`.
+Scoring is exact match after normalisation (lower case, commas, punctuation and unit words removed), no tolerance.
+The adapter's ADAPTER.md is given to the agent as its skill.

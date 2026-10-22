@@ -1,28 +1,22 @@
-"""OfficeQA judge: the official reward.score_answer, strict (tolerance 0). Feedback includes the reference answer
-unless OFFICEQA_FEEDBACK=score."""
+"""SkillOpt's OfficeQA scorer (skillopt/envs/officeqa/evaluator.py): exact match after its normalisation, no numeric
+tolerance; token F1 is recorded as `f1`. Feedback is SkillOpt's fail_reason, which names the reference answer."""
 from __future__ import annotations
 
-import importlib.util
 import json
-import os
 from pathlib import Path
 
+from skillopt.envs.officeqa.evaluator import evaluate
+
 HERE = Path(__file__).resolve().parent
-PREPARED = Path((HERE / "data_root.txt").read_text().strip())
-_spec = importlib.util.spec_from_file_location("officeqa_reward", PREPARED / "private" / "reward.py")
-reward = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(reward)
-ANSWERS = {r["task_id"]: r["answer"] for r in
-           (json.loads(l) for l in (PREPARED / "private" / "answers.jsonl").read_text().splitlines() if l.strip())}
+_answers_file = Path(json.loads((HERE / "data.json").read_text())["answers"])
+ANSWERS = {r["id"]: r["answer"] for r in map(json.loads, _answers_file.read_text().splitlines()) if r}
 
 
 def score(task: dict, output) -> dict:
+    out = output.output or {}
     gold = ANSWERS[task["id"]]
-    text = output.output or ""
-    got = reward.extract_final_answer(text)
-    value = reward.score_answer(gold, text, 0.0)
-    if os.environ.get("OFFICEQA_FEEDBACK", "gold") == "score":
-        feedback = "correct" if value else "incorrect"
-    else:
-        feedback = ("correct" if value else "incorrect") + f"; the agent answered {got!r}; the reference answer is {gold!r}"
-    return {"score": value, "feedback": feedback, "answered": bool(got)}
+    if not out.get("answer"):
+        return {"score": 0.0, "feedback": out.get("fail_reason") or "no answer", "f1": 0.0, "answered": False}
+    result = evaluate(out["answer"], gold)
+    feedback = "correct" if result["em"] else f"predicted '{result['predicted_answer']}' but expected '{gold}'"
+    return {"score": result["em"], "feedback": feedback, "f1": result["f1"], "answered": True}

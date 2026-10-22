@@ -154,13 +154,8 @@ Runnable recipes, with evaluation details in each adapter’s `CARD.md`.
 <tbody>
 <tr>
 <td><a href="docs/recipes/officeqa.md">OfficeQA</a></td>
-<td>133 questions on U.S. Treasury Bulletins. Prompt-only, Codex, GEPA, SkillOpt.</td>
-<td>Scores and run details in each adapter's card.</td>
-</tr>
-<tr>
-<td><a href="docs/recipes/officeqa-paper.md">OfficeQA · paper setting</a></td>
-<td>SkillOpt's 50 / 24 / 172 split; exact-match scoring. SkillOpt and GEPA.</td>
-<td>Test means: 0.576 (SkillOpt), 0.564 (GEPA). 172 questions × 3 repeats. <a href="https://github.com/haizhongzheng/MetaHarnessAdapter/tree/main/examples/officeqa_paper">Adapters &amp; cards</a>.</td>
+<td>U.S. Treasury Bulletins in the SkillOpt paper's setting: its 50 / 24 / 172 split, source pages, exact match; the agent in direct chat or SkillOpt's Codex harness. GEPA, SkillOpt.</td>
+<td>Test accuracy, direct chat: 0.576 (SkillOpt), 0.564 (GEPA), 0.415 without a skill. Codex harness: 0.628 (SkillOpt), 0.595 (GEPA), 0.543 without a skill. 172 questions × 3 repeats. <a href="examples/officeqa/README.md">Results &amp; adapters</a>.</td>
 </tr>
 <tr>
 <td><a href="docs/recipes/lean-collaboration.md">Lean collaboration</a></td>
@@ -241,11 +236,11 @@ cat .demo/codex-workspace/AGENTS.md
 
 #### Train on OfficeQA
 
-Prepare the dataset and model endpoint as described in the [OfficeQA recipe](docs/recipes/officeqa.md). GEPA requires the `gepa` installation extra; SkillOpt requires `skillopt`. Sandboxed agent Evolvers require Linux with `bubblewrap`.
+Prepare the dataset and model endpoint as described in the [OfficeQA recipe](docs/recipes/officeqa.md). The agent is SkillOpt's own rollout, so the `skillopt` installation extra is needed; GEPA also requires `gepa`. Sandboxed agent Evolvers require Linux with `bubblewrap`.
 
 ```bash
-python -m pip install -e '.[gepa]'
-python examples/officeqa/utils/prepare.py /path/to/officeqa/prepared
+python -m pip install -e '.[skillopt,gepa]'
+python examples/officeqa/utils/prepare.py --csv /path/to/officeqa_full.csv --docs /path/to/treasury_bulletins_parsed
 harnessadapter check --config examples/officeqa/gepa/smoke.yaml
 harnessadapter train --config examples/officeqa/gepa/smoke.yaml
 harnessadapter eval --config examples/officeqa/gepa/smoke.yaml --adapter final
@@ -258,7 +253,7 @@ Models use `<backend>/<model id>` references. See [Model backends](docs/guides/m
 ```bash
 vllm serve Qwen/Qwen3-30B-A3B-Instruct-2507-FP8 --enable-auto-tool-choice --tool-call-parser hermes
 harnessadapter backends check vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8
-harnessadapter train --config examples/officeqa/gepa/smoke.yaml model=vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8
+harnessadapter train --config examples/officeqa/gepa/smoke.yaml model=vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8 llm=vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8
 ```
 
 #### Convert a Trained Adapter into a Plugin

@@ -6,4 +6,5 @@ and the reference label. Learn a general classification and output procedure; do
 or their answers into the adapter.
 
 This small, hand-written dataset is an integration smoke test. It does not estimate real-world accuracy.
-The learner receives training rows and feedback; held-out labels are not included in those records.
+The learner receives training rows and feedback; validation and held-out labels are not included in those
+records. Validation tasks only score candidate adapters.

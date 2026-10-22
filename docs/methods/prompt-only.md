@@ -1,45 +1,60 @@
 # Prompt-only
 
-Use `evolver.name: prompt_only` to rewrite learnable Markdown from task feedback. Each step normally makes one
-learner generation request per configured file, with one additional request if no usable file is returned.
-HTTP retries are separate provider attempts. Start here for an instruction-only adapter whose changes are easy
-to inspect.
+Prompt-only learns one instruction file. The adapter uses the `prompt-only@1.0` template: a single `ADAPTER.md`
+given to the acting agent as context, with no tools. After every step a fresh session of the built-in Codex
+Evolver reads the step's learning material (each task's input, the agent's output, the judge's score and feedback,
+and the trajectory) and rewrites `ADAPTER.md`. Start here for an instruction-only adapter whose changes are easy to
+inspect.
 
 ## Setup
+
+The learner is a [Codex agent learner](agent.md), so it needs the Codex CLI on `PATH`, Linux with bubblewrap for
+its sandbox, and a learner model on a backend that serves the Responses API.
 
 ```yaml
 template: prompt-only@1.0
 evolver:
-  name: prompt_only
-llm:
-  base_url: https://your-endpoint.example/v1
-  model: your-learner-model
-  api_key_env: LEARNER_API_KEY
+  name: codex
+  resume: false                  # a fresh session every step
+  params:
+    model: fireworks/accounts/fireworks/models/glm-5p3-flash   # the learner: <backend>/<model id>
+    args: ["-c", 'model_reasoning_effort="high"']
+    home: []                     # no login files: the provider key is the backend's variable
+    tools: [check_spec]          # the specification check only
+    hide: []                     # the framework's examples, tests, docs and .git
+sandbox:
+  enabled: true
+  network: restricted
+trainer:
+  output_dir: ~/runs/my-task     # outside the checkout: see `hide` below
 ```
 
-This fragment belongs in a complete [run config](../framework/configuration.md). Set the named environment variable
-before running. The acting model is configured by your pipeline, separately from `llm`.
+This fragment belongs in a complete [run config](../framework/configuration.md). The acting model is configured by
+your agent, separately from the learner.
 
 ## How an update works
 
-For the default single `ADAPTER.md`, expect one or two generation requests per step, excluding HTTP retries.
-Multiple entries in `files` multiply that work.
-
-The method reads scored examples, prioritizes failures, and asks the learner model to rewrite the configured files.
-The Trainer then applies specification checks. There is no validation-based improvement gate in this method:
-a structurally valid update can reduce task performance. The default final selection is the current adapter.
+Each step is one Codex session. It reads the task description and the adapter's `EVOLVER.md`, studies the step's
+results, edits `ADAPTER.md`, calls `check_spec`, and writes a report whose first line says what it changed. The run
+records each session as one call with its token totals; to count the session's individual model requests, put a
+metering relay in front of the learner, as the examples' `launch.sh` does (`harnessadapter/runtime/wire_meter.py`).
+The Trainer then applies its specification checks. There is no validation-based improvement gate in this method: a
+structurally valid update can reduce task performance. The final adapter is the current one.
 
 ## Parameters and defaults
 
-```{literalinclude} ../../harnessadapter/algorithms/evolvers/prompt_only/evolver.yaml
+```{literalinclude} ../../harnessadapter/algorithms/evolvers/codex/evolver.yaml
 :language: yaml
 :start-at: params:
 ```
 
-Set overrides under `evolver.params`. `files` must refer to text paths that the template permits the learner to
-edit. `max_examples` and `max_chars` bound evidence shown to the learner; `max_tokens` bounds the model response,
-which can include reasoning tokens depending on the provider.
+`model` binds the learner to a backend, which supplies its endpoint, key variable and price. `args` passes Codex
+settings, such as the reasoning effort or the model's context window (`-c model_context_window=...`).
+`tools: [check_spec]` leaves the session only the specification check. `hide` lists paths the session must not read;
+any value, even `[]`, also hides the framework checkout's `examples/`, `tests/`, `docs/` and `.git`, and with them a
+run written there, so keep `trainer.output_dir` outside the checkout.
 
-The [first real-model tutorial](../get-started/first-model.md) includes all data and code.
-The [OfficeQA recipe](../recipes/officeqa.md) supplies a larger benchmark integration. Use a small smoke run before
-increasing epochs or evidence size, and evaluate with the [same held-out protocol](../guides/evaluation.md).
+`examples/clbench_poker/prompt_only/`, `examples/clbench_database/prompt_only/` and
+`examples/servelearnbench/prompt_only/` run this method as their streams' baseline; their `launch.sh` sets the
+learner's model and the run's paths. Use a small smoke run before a long one, and evaluate with the
+[same held-out protocol](../guides/evaluation.md).

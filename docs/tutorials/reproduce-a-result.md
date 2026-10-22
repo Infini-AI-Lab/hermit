@@ -7,8 +7,7 @@ An existing launcher saves setup work; it does not by itself guarantee the same 
 
 | Experiment | Starting page | Evidence to preserve |
 |---|---|---|
-| OfficeQA, 133-question integration | [OfficeQA](../recipes/officeqa.md) | Prepared corpus/index/scorer, split files, acting and learner settings |
-| OfficeQA, paper-style split | [Paper setting](../recipes/officeqa-paper.md) | Dataset revision, seed skill, 50/24/172 split, source-file tools and scorer |
+| OfficeQA, SkillOpt paper setting | [OfficeQA](../recipes/officeqa.md) | Dataset revision, seed skill, 50/24/172 split, source-file tools and scorer, acting and learner settings |
 | ServeLearnBench retail_l3 | [ServeLearnBench](../recipes/servelearnbench.md) | Scenario revision, ordered serving stream, block size, per-window adapter selection |
 | CL-Bench database/poker | [CL-Bench](../recipes/clbench.md) | Venue checkout, order, environment reset behavior, model settings, outcome ledger |
 | Lean collaboration | [Lean recipe](../recipes/lean-collaboration.md) | Adapter version, theorem set, Lean/Mathlib, host/team-service configuration |

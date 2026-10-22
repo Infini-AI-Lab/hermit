@@ -50,9 +50,9 @@ original adapter directory, which must remain available.
 For the exact source-to-host paths, managed instruction blocks, and the learner's editable working copy, see the
 [Adapter file interface](adapter.md#acting-interface).
 
-In OfficeQA, `examples/officeqa/utils/tools.py` loads the adapter's context for each execution and appends it to the
-system prompt. The search/read tools, model choice, and tool-calling loop remain defined in that pipeline. This
-particular integration consumes context only.
+In OfficeQA, `examples/officeqa/utils/agent/agent.py` loads the adapter's context for each execution and passes it
+to SkillOpt's rollout as the skill in the system prompt. The file tools, model choice, and tool-calling loop remain
+defined in that agent. This particular integration consumes context only.
 
 The Lean collaboration template has more exports: instructions, skills, and tools for sharing proof work. Its tools
 also need Lean/Mathlib and per-run shared state. Packaging files as an adapter does not install these dependencies
@@ -123,8 +123,8 @@ The Evolver receives a working copy of the adapter, task information, results, a
 persistent state. It may rewrite instructions, run candidate experiments, keep a candidate pool, or return the
 current adapter unchanged.
 
-The built-in `prompt_only` method asks a model to rewrite Markdown using scored examples. The `codex` and `claude`
-methods launch a learner agent to inspect material and edit files. The learner improves what future task executions
+The built-in `gepa` and `skillopt` methods ask a model to rewrite Markdown using scored examples and test a rewrite
+before keeping it. The `codex` and `claude` methods launch a learner agent to inspect material and edit files. The learner improves what future task executions
 will consume; the acting agent solves those tasks. The two roles can use different models.
 
 Template and Evolver are separate, but still need compatible capabilities. A method that only rewrites Markdown
@@ -158,12 +158,13 @@ next batch would run with it. This is an illustrative update, not a measured Off
 
 `check_spec` checks fixed files, allowed paths, formats, export loading, and template-specific requirements. It does
 not measure task performance. A valid edit can lower the score; the Trainer does not reject it for that reason.
-The Evolver may validate candidates itself. The built-in prompt-only method does not test its rewrite before
-returning it.
+The Evolver may validate candidates itself. The prompt-only method (a Codex session per step) does not test its
+rewrite before returning it.
 
 Step 1 and step 2 use different task batches. A higher score on step 2 alone does not show improvement: the questions
-also changed. Run separate evaluations on the same held-out test split to compare `final`, `root`, and `none`; see
-[OfficeQA evaluation](../recipes/officeqa.md#check-train-evaluate).
+also changed. Run separate evaluations on the same held-out test split to compare `final`, the adapter the run started
+from (`root`, or the `start_from` adapter when the config sets one, such as OfficeQA's `../utils/seed_adapter`), and
+`none`; see [OfficeQA evaluation](../recipes/officeqa.md#check-train-evaluate).
 
 `final` means the adapter selected by `finalize`, which defaults to the current adapter. It does not mean “the
 highest-scoring checkpoint.” The framework does not automatically evaluate the final adapter or run baselines.
@@ -186,8 +187,8 @@ Recording a trajectory during training alone does not make it part of the deploy
 
 ## Available in this version
 
-Version 0.2.0 includes the `prompt-only`, `lean-collab` and `mwm` templates and the `prompt_only`, `codex`, `claude`,
-`gepa`, `skillopt` and `mwm` Evolvers. OfficeQA and CL-Bench (database, poker) provide end-to-end task integrations;
+Version 0.2.0 includes the `prompt-only`, `lean-collab` and `mwm` templates and the `codex`, `claude`, `gepa`,
+`skillopt` and `mwm` Evolvers. OfficeQA and CL-Bench (database, poker) provide end-to-end task integrations;
 the Lean template can be deployed, but its complete training pipeline has not been migrated.
 
 For detailed contracts, continue to [Adapter](adapter.md), [Evolver](evolver.md), [Trainer](trainer.md), or

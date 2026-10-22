@@ -17,7 +17,7 @@ data:
 ```
 
 Add this to a complete task config with `llm` credentials. The
-[OfficeQA recipe](../recipes/officeqa.md#train-with-gepa-or-skillopt) has ready-made configurations.
+[OfficeQA recipe](../recipes/officeqa.md#check-train-evaluate) has ready-made configurations.
 
 ## One framework step
 
@@ -38,7 +38,7 @@ Keep validation separate from test; repeated validation selection is part of tra
 
 | Parameter | Values / default | Effect |
 |---|---|---|
-| `files` | List of learnable text paths / `[ADAPTER.md]` | Proposes a change to one file per reflection, rotating files per parent candidate; unlike prompt-only, it does not rewrite every file each step |
+| `files` | List of learnable text paths / `[ADAPTER.md]` | Proposes a change to one file per reflection, rotating files per parent candidate |
 | `candidate_selection_strategy` | `pareto` or `current_best` / `pareto` | Chooses the next parent from per-task validation leaders or the highest validation mean; finalization still chooses the highest mean |
 | `acceptance_criterion` | `strict_improvement` or `improvement_or_equal` / strict | Compares child and parent score sums on the current training minibatch; allowing equality can add tied candidates |
 | `skip_perfect_score`, `perfect_score` | Boolean and threshold / true, 1.0 | Skips reflection when every parent minibatch score reaches the threshold; set the threshold to match the judge's score scale |
