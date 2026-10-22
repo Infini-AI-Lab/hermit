@@ -25,7 +25,7 @@ Hermit is a unified framework for training, evaluating, and deploying harness ad
 A **harness adapter** is a **trainable external harness** that adapts an existing agent to new scenarios **without modifying its original harness or model.** Like a **model adapter** for a model, it adapts an agent while keeping the base system fixed.
 
 <p align="center">
-<img src="assets/harness-adapter.gif" alt="A trainable external harness evolves from task feedback while the agent&#x27;s original harness and model stay fixed." width="720">
+<img src="assets/harness-adapter.gif" alt="An agent made of a model and a harness meets a new scenario and fits it poorly. The agent is frozen, a harness adapter plugs into its side, a frame closes around the two as one agent, and task feedback trains the adapter from V0 to V5 while the score curve rises." width="720">
 </p>
 
 This design offers three practical benefits:
