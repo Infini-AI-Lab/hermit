@@ -164,6 +164,28 @@ def test_a_declared_tool_with_a_runner_is_never_imported_here(tmp_path):
     assert calls == [("tools.py:probe", {"x": 3})]
 
 
+def test_check_spec_takes_a_candidate_under_scratch_or_state_and_nothing_else(tmp_path, monkeypatch):
+    """GEPA and SkillOpt write each candidate under scratch/ and check it before adopting it (#17 refused those)."""
+    from harnessadapter import tools as module
+    seen = []
+
+    class Result:
+        def to_dict(self):
+            return {"passed": True, "issues": []}
+    monkeypatch.setattr("harnessadapter.spec.check_spec", lambda target, root, python=None: seen.append(target) or Result())
+    budget = type("B", (), {"remaining": lambda s: {}, "snapshot": lambda s: {}})()
+    for d in ("adapter", "scratch", "state", "elsewhere"):
+        (tmp_path / d).mkdir()
+    tools = module.assemble(adapter=tmp_path / "adapter", root=tmp_path, template_decls=[], task_decls=[],
+                            task_base=tmp_path, budget=budget, within=[tmp_path / "scratch", tmp_path / "state"])
+    assert tools["check_spec"]()["passed"]
+    assert tools["check_spec"](path=str(tmp_path / "scratch" / "candidate"))["passed"]
+    assert tools["check_spec"](path=str(tmp_path / "state" / "pool" / "3"))["passed"]
+    with pytest.raises(ValueError, match="scratch or state"):
+        tools["check_spec"](path=str(tmp_path / "elsewhere"))
+    assert [p.name for p in seen] == ["adapter", "candidate", "3"]
+
+
 # --- inside a real sandbox ------------------------------------------------------------------------------------------
 
 SNOOP = r'''

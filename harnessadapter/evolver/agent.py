@@ -48,10 +48,12 @@ def _fill(text: str, ctx: StepContext) -> str:
 
 
 def _run(command: list[str], env: dict, ctx: Context, log: Path, cwd: Path) -> int:
-    """Run a process group, streaming stdout to `log`; kill it when the Trainer cancels the call."""
+    """Run a process group, streaming stdout to `log`; kill it when the Trainer cancels the call. Its stdin is
+    empty: a coding-agent CLI given a prompt still reads a non-terminal stdin to its end as more prompt, so one
+    inherited from a shell or a service (a socket, a pipe that never closes) would hang the session."""
     with open(log, "w") as out:
-        proc = subprocess.Popen(command, stdout=out, stderr=subprocess.STDOUT, env=env, cwd=str(cwd),
-                                start_new_session=True)
+        proc = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, env=env,
+                                cwd=str(cwd), start_new_session=True)
         while proc.poll() is None:
             if ctx.cancel is not None and ctx.cancel.is_set():
                 os.killpg(proc.pid, signal.SIGTERM)

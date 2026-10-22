@@ -101,15 +101,19 @@ def declared(decl: dict, base: Path, source: str, bound: dict, runner=None) -> F
 
 def assemble(*, adapter: Path, root: Path, template_decls: list, task_decls: list, task_base: Path,
              budget, llm_client=None, python: str | None = None,
-             metered: list | None = None, runner=None) -> dict[str, FunctionTool]:
-    """One toolset for one call. `adapter` is the workspace copy the tools act on; `root` the template's files."""
+             metered: list | None = None, runner=None, within: list[Path] = ()) -> dict[str, FunctionTool]:
+    """One toolset for one call. `adapter` is the workspace copy the tools act on; `root` the template's files;
+    `within` are the learner's other writable directories (scratch, state), where an Evolver keeps a candidate."""
     from harnessadapter.spec import check_spec
     tools: dict[str, FunctionTool] = {}
+    checkable = [Path(p).resolve() for p in (adapter, *within)]
 
     def check(path: str | None = None) -> dict:
         target = Path(path) if path else adapter
-        if not target.resolve().is_relative_to(adapter.resolve()):   # its own working copy (or a part of it) only
-            raise ValueError("check_spec checks your working copy of the adapter")
+        # The learner's own work only: its working copy, or a candidate it wrote in its scratch or state directory.
+        if not any(target.resolve().is_relative_to(c) for c in checkable):
+            raise ValueError("check_spec checks your working copy of the adapter, or a copy under your scratch or "
+                             "state directory")
         return check_spec(target, root, python=python).to_dict()
     tools["check_spec"] = FunctionTool(
         "check_spec", "Check whether the adapter (default: your working copy) conforms to its template's "

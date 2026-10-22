@@ -121,8 +121,11 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path) -> RunOutpu
     started = time.time()
     with open(log, "w") as out:
         try:
+            # An empty stdin: the CLI reads a non-terminal stdin to its end as more prompt, and an inherited one
+            # (a shell's socket, an open pipe) may never end.
             proc = subprocess.run(command(backend, prompt, workspace, params, last), cwd=str(workspace), env=env,
-                                  stdout=out, stderr=subprocess.STDOUT, timeout=float(params.get("timeout_s", 3600)))
+                                  stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
+                                  timeout=float(params.get("timeout_s", 3600)))
             code = proc.returncode
         except subprocess.TimeoutExpired:
             code = -1

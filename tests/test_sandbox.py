@@ -80,6 +80,24 @@ def test_open_network_still_checks_the_covered_paths(tmp_path, monkeypatch):
     assert probe([], [], open_network=True)["outside"] == {}
 
 
+def test_a_role_grant_beneath_a_mask_is_bound_on_top_of_it(tmp_path, monkeypatch):
+    """A launcher keeps the task directory the agent writes inside the runs directory (clbench:
+    <runs>/<tag>/order0/task). The runs directory is covered; the granted directory must still be there, writable,
+    and the check inside must know it is the one thing the covered directory may hold."""
+    fake_bwrap(monkeypatch)
+    runs = tmp_path / "runs"
+    task = runs / "order0" / "task"
+    task.mkdir(parents=True)
+    (runs / "steps.jsonl").write_text("secret")
+    args, _ = Sandbox(network="open", readable=[tmp_path], writable=[task], masked=[runs]).wrap(["true"])
+    pairs = [(args[i], args[i + 1]) for i in range(len(args) - 1)]
+    s = lambda p: str(p.resolve())
+    assert pairs.index(("--tmpfs", s(runs))) < pairs.index(("--bind", s(task)))
+    command = args[args.index("--") + 1:]
+    assert command[command.index("--keep") + 1] == s(task)
+    assert command[command.index("--deny") + 1] == s(runs)
+
+
 def test_older_network_values():
     assert network_mode("restricted") == ("isolated", True)
     assert network_mode("none") == ("isolated", False)

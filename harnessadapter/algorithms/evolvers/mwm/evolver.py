@@ -361,8 +361,8 @@ class MwmEvolver(Evolver):
         start = time.time()
         timed_out = False
         with open(log, "w") as out:
-            proc = subprocess.Popen(command, stdout=out, stderr=subprocess.STDOUT, env=env, cwd=str(cwd),
-                                    start_new_session=True)
+            proc = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, env=env,
+                                    cwd=str(cwd), start_new_session=True)   # an empty stdin: codex reads it to its end
             while proc.poll() is None:
                 cancelled = ctx.cancel is not None and ctx.cancel.is_set()
                 timed_out = time.time() - start > timeout

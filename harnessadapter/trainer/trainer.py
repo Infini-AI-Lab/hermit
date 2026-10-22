@@ -339,7 +339,8 @@ class Trainer:
                          template_decls=read_manifest(self.run_dir / "root").get("evolver_tools") or [],
                          task_decls=_task_tool_decls(self.config), task_base=self.config.base,
                          budget=self.budget, llm_client=self.llm, python=self.python, metered=metered,
-                         runner=self.tool_runner if self.tool_runner.enabled else None)
+                         runner=self.tool_runner if self.tool_runner.enabled else None,
+                         within=[self.ws.scratch, self.ws.state])
         tools["run_agent"] = self._run_agent_tool()
         for tool in tools.values():
             tool.log_path = self.run_dir / "tools.jsonl"

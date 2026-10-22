@@ -486,10 +486,20 @@ class Sandbox:
 
         def holds_mask(path) -> bool:
             return any(c == n or c.startswith(n + "/") for n in _names(path) for c in cover)
-        bind(self.visible(command), "--ro-bind", ro)
+
+        def beneath_mask(path) -> bool:
+            """Strictly under a covered path. A role's grant kept inside the run's records (a launcher's task
+            directory under the runs directory, which the agent writes) is bound on top of the mask, after it, like
+            a call's own path; bound before, the mask would cover it."""
+            return any(n.startswith(c + "/") for n in _names(path) for c in cover)
+        deferred_ro = [p for p in [*self.readable, *self.read] if beneath_mask(p)]
+        deferred_rw = [p for p in self.writable if beneath_mask(p)]
+        skip = {os.path.abspath(str(p)) for p in deferred_ro}
+        bind([p for p in self.visible(command) if os.path.abspath(str(p)) not in skip], "--ro-bind", ro)
         bind([p for p in readable if holds_mask(p)], "--ro-bind", ro)
-        bind(self.writable, "--bind", rw)
+        bind([p for p in self.writable if p not in deferred_rw], "--bind", rw)
         bind([p for p in writable if holds_mask(p)], "--bind", rw)
+        readable, writable = [*readable, *deferred_ro], [*writable, *deferred_rw]
         readable = [p for p in readable if not holds_mask(p)]
         writable = [p for p in writable if not holds_mask(p)]
         shown = ro + rw
