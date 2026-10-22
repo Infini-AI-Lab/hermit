@@ -4,6 +4,9 @@
 #
 #   FIREWORKS_API_KEY=... SEED=0 WM_PORT=3591 examples/officeqa_paper/harness2_stream/launch.sh [overrides...]
 #   MAX_TASKS=2 TAG=h2-smoke ...                           # a smoke run on the first questions of the stream
+#   LIBRARY_FROM=runs/h2-stream-s0 TAG=h2-stream-s0-rest STREAM=stream_rest_s0.txt \
+#     SPLITS="../utils/splits/train.txt ../utils/splits/val.txt" CLAUDE_BIN=runs/.claude-pin/<version>/claude ...
+#                                                          # that stream continued on other questions (paths: from here)
 #
 # Writes upstream's stream order for SEED, regenerates H0 (../harness2/seed_adapter), starts a wire meter in front of
 # Fireworks for the editor sessions (bucket TAG; ledger runs/TAG.wire_ledger.json), and trains with the editor model
@@ -14,14 +17,21 @@ FRAMEWORK=$(cd "$HERE/../../.." && pwd)
 PY=${MW_FRAMEWORK_PYTHON:-$FRAMEWORK/.venv/bin/python}
 SEED=${SEED:-0}
 TAG=${TAG:-h2-stream-s$SEED}
+SPLITS=${SPLITS:-../utils/splits/test.txt}   # the stream's questions (several files: their union)
+STREAM=${STREAM:-stream_s$SEED.txt}
+LIBRARY_FROM=${LIBRARY_FROM:-}               # a finished run whose library this run starts from: a continuation
 WM_PORT=${WM_PORT:?set WM_PORT, the wire meter port for the editor sessions}
 : "${FIREWORKS_API_KEY:?set FIREWORKS_API_KEY}"
 command -v claude > /dev/null || { echo "REFUSING: the Claude Code CLI (claude) is not on PATH"; exit 1; }
 export PYTHONPATH=$FRAMEWORK${PYTHONPATH:+:$PYTHONPATH}
 cd "$HERE"
+if [ -n "$LIBRARY_FROM" ]; then
+  [ -d "$LIBRARY_FROM" ] || { echo "REFUSING: LIBRARY_FROM=$LIBRARY_FROM is not a directory"; exit 1; }
+  LIBRARY_FROM=$(readlink -f "$LIBRARY_FROM")
+fi
 mkdir -p runs
 "$PY" ../harness2/make_seed.py
-"$PY" stream.py --seed "$SEED" --split ../utils/splits/test.txt --out "stream_s$SEED.txt" ${MAX_TASKS:+--max "$MAX_TASKS"}
+"$PY" stream.py --seed "$SEED" --split $SPLITS --out "$STREAM" ${MAX_TASKS:+--max "$MAX_TASKS"}
 # The meter restarts if it dies; each start keeps its own ledger (sum runs/$TAG.wire_ledger-*.json for the bill).
 if ! curl -s -m 2 "http://127.0.0.1:$WM_PORT/health" > /dev/null; then
   setsid nohup bash -c "while true; do PORT=$WM_PORT UPSTREAM=https://api.fireworks.ai \
@@ -29,15 +39,21 @@ if ! curl -s -m 2 "http://127.0.0.1:$WM_PORT/health" > /dev/null; then
       sleep 5; done" >> "runs/$TAG.wire_meter.log" 2>&1 < /dev/null &
   sleep 3
 fi
-# Claude Code updates itself: the run uses a copy of today's binary, alone in its directory (the sessions' sandbox
-# shows the directory a program lives in).
-CLAUDE_BIN=$(readlink -f "$(command -v claude)")
-PINNED="$HERE/runs/.claude-pin/$(basename "$CLAUDE_BIN")/claude"
+# Claude Code updates itself: the run uses a copy of today's binary (or of CLAUDE_BIN, e.g. the stream it continues
+# pinned), alone in its directory (the sessions' sandbox shows the directory a program lives in).
+if [ -n "${CLAUDE_BIN:-}" ]; then
+  CLAUDE_BIN=$(readlink -f "$CLAUDE_BIN"); VERSION=$("$CLAUDE_BIN" --version | awk '{print $1}')
+else
+  CLAUDE_BIN=$(readlink -f "$(command -v claude)"); VERSION=$(basename "$CLAUDE_BIN")
+fi
+PINNED="$HERE/runs/.claude-pin/$VERSION/claude"
 [ -x "$PINNED" ] || { mkdir -p "$(dirname "$PINNED")" && cp "$CLAUDE_BIN" "$PINNED"; }
-# The answer files: the sessions' sandbox is checked to show neither.
-ABSENT=$("$PY" -c "import json; d = json.load(open('../utils/data.json'));
-from pathlib import Path; print(json.dumps([str(Path(d['answers']).parent), d['csv']]))")
-exec "$PY" -m hermit.cli train --config run.yaml "trainer.run_name=$TAG" "data.train=stream_s$SEED.txt" \
+# The answer files and the run continued (its records carry the judge's feedback): the sessions' sandbox is checked to
+# show none of them.
+ABSENT=$("$PY" -c "import json, sys; d = json.load(open('../utils/data.json'));
+from pathlib import Path; print(json.dumps([str(Path(d['answers']).parent), d['csv'], *sys.argv[1:]]))" \
+  ${LIBRARY_FROM:+"$LIBRARY_FROM"})
+exec "$PY" -m hermit.cli train --config run.yaml "trainer.run_name=$TAG" "data.train=$STREAM" \
   "backends.learner={from: fireworks, base_url: 'http://127.0.0.1:$WM_PORT/$TAG/inference/v1'}" \
   "evolver.params.model=learner/accounts/fireworks/models/glm-5p3" "evolver.params.probe_absent=$ABSENT" \
-  "evolver.params.claude_bin=$PINNED" "$@"
+  "evolver.params.claude_bin=$PINNED" ${LIBRARY_FROM:+"evolver.params.library_from=$LIBRARY_FROM"} "$@"

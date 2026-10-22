@@ -24,4 +24,6 @@ params:
   obs_trunc: 50000           # per-observation clip in rendered trajectories (upstream's default; at least 10000)
   leak_globs: []             # source paths that must never reach a session (answer keys)
   verdict_markers: []        # more strings that mark grader output (this task judge's feedback wording)
+  library_from: null         # a finished stream (its run directory) whose library this run starts from: the run
+                             # continues that stream on other tasks
   proposer: null             # file.py:Class or module:Class replacing the session channel (tests)
