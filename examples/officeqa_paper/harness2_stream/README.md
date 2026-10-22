@@ -30,6 +30,22 @@ FIREWORKS_API_KEY=... SEED=0 WM_PORT=3591 examples/officeqa_paper/harness2_strea
 MAX_TASKS=2 TAG=h2-smoke FIREWORKS_API_KEY=... WM_PORT=3592 examples/officeqa_paper/harness2_stream/launch.sh   # smoke
 ```
 
+### Continuing a stream
+
+A finished stream can be continued on other questions, e.g. the 74 training and validation questions after the 172
+test questions: the new run starts from that stream's library (copied once, before its first question) and keeps
+everything else, the pinned Claude Code included, so it is the same stream with those questions at its end. Paths
+are relative to this directory:
+
+```bash
+LIBRARY_FROM=runs/h2-stream-s0 TAG=h2-stream-s0-rest STREAM=stream_rest_s0.txt \
+  SPLITS="../utils/splits/train.txt ../utils/splits/val.txt" CLAUDE_BIN=runs/.claude-pin/<version>/claude \
+  FIREWORKS_API_KEY=... SEED=0 WM_PORT=3592 examples/officeqa_paper/harness2_stream/launch.sh
+```
+
+GEPA and SkillOpt were trained on those questions: there, compare with H0 (`runs.base1`) only. The continued
+questions all come after the test questions, so each sees a larger library than in one shuffled stream of all 246.
+
 ## Reading the result
 
 The score of question *t* is the judge's score of its deliverable, `runs.agg1.score` in

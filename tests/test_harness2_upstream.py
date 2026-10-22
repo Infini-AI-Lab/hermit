@@ -159,3 +159,52 @@ def test_a_step_without_editor_sessions_is_marked_failed(tmp_path):
     assert extra["editors_failed"] and all(s["fell_back"] for s in extra["stages"])
     scores = [json.loads(l) for l in (run_dir / "step_0001" / "output" / "scores.jsonl").read_text().splitlines()]
     assert sorted(r["run_id"].rsplit("/", 1)[-1] for r in scores) == ["agg1", "base1", "dom1", "inv1"]
+
+
+def test_a_run_continues_a_finished_stream_from_its_library(tmp_path):
+    first = run(tmp_path)                                                 # t0, t1, t2
+    (tmp_path / "rest.txt").write_text("t3\nt4\n")
+    Trainer(Config.load(tmp_path / "run.yaml", [
+        "data.train=rest.txt", "data.step_size=1", "data.shuffle=false", "trainer.run_name=h2u-rest",
+        f"evolver.params.calls_log={tmp_path / 'rest-calls.jsonl'}", "evolver.params.library_from=runs/h2u"])).train()
+    rest = tmp_path / "runs" / "h2u-rest"
+    results = [json.loads((rest / f"step_{n:04d}" / "step_result.json").read_text())["extra"]["harness2"]
+               for n in (1, 2)]
+    assert [r["library"] for r in results] == [{"entries_before": 3, "added": ["t3"]},
+                                               {"entries_before": 4, "added": ["t4"]}]
+    assert all(r["status"] == "ok" and r["runs"]["agg1"]["score"] == 1.0 for r in results)
+    calls = [json.loads(l) for l in (tmp_path / "rest-calls.jsonl").read_text().splitlines()]
+    first_inv = next(c for c in calls if c["label"] == "inv1.a1")         # the continuation's first task
+    assert "library/INDEX.md" in first_inv["files"] and "library/harnesses/t2/EXPERIENCE.md" in first_inv["files"]
+    state = rest / "workspace" / "state" / "library"
+    assert json.loads((state / "imported.json").read_text())["entries"] == ["default/t0", "default/t1", "default/t2"]
+    assert sorted(p.name for p in (state / "agg" / "default" / "harnesses").iterdir()) == ["t0", "t1", "t2", "t3", "t4"]
+    done = first / "workspace" / "state" / "library" / "agg" / "default" / "harnesses"
+    assert sorted(p.name for p in done.iterdir()) == ["t0", "t1", "t2"]   # the stream continued is left as it was
+
+
+def test_a_continuation_refuses_an_unfinished_run_grader_wording_and_the_same_tasks(tmp_path):
+    first = run(tmp_path)
+    (tmp_path / "rest.txt").write_text("t3\n")
+
+    def cont(name, source, stream="rest.txt"):
+        Trainer(Config.load(tmp_path / "run.yaml", [
+            f"data.train={stream}", "data.step_size=1", "data.shuffle=false", f"trainer.run_name={name}",
+            f"evolver.params.calls_log={tmp_path / 'more-calls.jsonl'}",
+            f"evolver.params.library_from={source}"])).train()
+        return tmp_path / "runs" / name
+
+    (first / "summary.json").rename(first / "summary.json.held")
+    with pytest.raises(SystemExit, match="has not finished"):
+        cont("c-unfinished", "runs/h2u")
+    (first / "summary.json.held").rename(first / "summary.json")
+    tainted = tmp_path / "tainted"
+    shutil.copytree(first / "workspace" / "state" / "library" / "agg", tainted)
+    (tainted / "default" / "harnesses" / "t1" / "EXPERIENCE.md").write_text('{"pass_rate": 1.0}\n')
+    with pytest.raises(SystemExit, match="grader-verdict marker"):
+        cont("c-tainted", tainted)
+    (tmp_path / "again.txt").write_text("t2\nt3\n")
+    again = cont("c-again", "runs/h2u", "again.txt")
+    steps = [json.loads(l) for l in (again / "steps.jsonl").read_text().splitlines()]
+    assert steps[0]["evolver"]["status"] == "failed" and "continues" in steps[0]["evolver"]["summary"]
+    assert steps[1]["evolver"]["status"] == "done"

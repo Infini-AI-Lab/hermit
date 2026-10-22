@@ -12,6 +12,9 @@ by the run_agent tool; the reference execution is the Trainer's rollout of the s
 written, so every Trainer rollout is H0; the library lives in the Training State. The step's records go to its output
 (the per-task tree upstream writes, without the copied source files); the scores of its executions, which no session
 sees, go to the step result (`extra.harness2`) for the experimenter.
+
+`params.library_from` continues a finished stream: its library is copied into the Training State before the first
+task, so the new tasks come after that stream's (upstream: a task sees the entries of every task before it).
 """
 from __future__ import annotations
 
@@ -72,9 +75,13 @@ class Harness2UpstreamEvolver(Evolver):
     _pinned_bin = ""
 
     def setup(self, ctx) -> None:
-        _upstream()
+        context = _upstream()[0]
         if ctx.params.get("proposer") is None and ctx.params.get("backend") != "claude":
             raise ValueError("harness2_upstream runs its sessions as Claude Code: set params.backend: claude")
+        if ctx.params.get("library_from"):
+            _markers(context, ctx.params.get("verdict_markers"))
+            self._import_library(Path(ctx.base or ".", ctx.params["library_from"]).expanduser().resolve(),
+                                 ctx.workspace.state / "library", context)
 
     def step(self, ctx) -> StepResult:
         context, judge, library, schedule, spec = _upstream()
@@ -111,6 +118,11 @@ class Harness2UpstreamEvolver(Evolver):
             spec=channel, audit_dir=ws.output / "sessions", attempts=2,
             params={**params, "claude_bin": claude}, sandbox=sandbox, cancel=ctx.cancel)
         lib = library.Library(root=ws.state / "library" / MODE, domain=domain, surface=U.SURFACE)
+        imported = ws.state / "library" / "imported.json"
+        if imported.is_file() and \
+                f"{lib.dir.name}/{lib.entry_dir(tid).name}" in json.loads(imported.read_text())["entries"]:
+            return StepResult("failed", f"{tid} is a task of the stream this run continues (library_from): a "
+                                        f"continuation takes other tasks")
         lib.forget([tid])                    # an entry from an attempt at this task that never finished (upstream retain)
         before = lib.entries()
         down = self._endpoint_down(params, ctx.cancel)
@@ -215,6 +227,33 @@ class Harness2UpstreamEvolver(Evolver):
                     raise RuntimeError(f"the editors' sandbox would show {path} (it binds {bound}); move what is "
                                        f"bound out of the way, e.g. a pinned Claude Code binary into a directory of "
                                        f"its own")
+
+    @staticmethod
+    def _import_library(source: Path, dest: Path, context) -> None:
+        """Copy a finished stream's library (its run directory, or the library's mode directory) to `dest`/agg, with a
+        record of the entries in `dest`/imported.json. Refuses a run that has not finished, a library with links, an
+        entry carrying grader wording (upstream's tripwire, as when the entry was added) and a run that already has a
+        library of its own."""
+        root = source / "workspace" / "state" / "library" / MODE if (source / "workspace").is_dir() else source
+        if (source / "workspace").is_dir() and not (source / "summary.json").is_file():
+            raise RuntimeError(f"library_from: the run {source} has not finished")
+        domains = sorted(d for d in root.iterdir() if (d / "INDEX.md").is_file()) if root.is_dir() else []
+        if not domains:
+            raise RuntimeError(f"library_from: no library in {root}")
+        if (dest / MODE).exists() and any((dest / MODE).iterdir()):
+            raise RuntimeError(f"library_from: this run has a library of its own already ({dest / MODE})")
+        links = [p for p in root.rglob("*") if p.is_symlink()]
+        if links:
+            raise RuntimeError(f"library_from: {links[0]} is a link")
+        entries = []
+        for d in domains:
+            for entry in sorted(p for p in (d / "harnesses").glob("*") if p.is_dir()):
+                context.assert_tree_has_no_grader_verdicts(
+                    {str(f.relative_to(entry)): f.read_text(errors="replace") for f in entry.rglob("*") if f.is_file()})
+                entries.append(f"{d.name}/{entry.name}")
+        shutil.rmtree(dest / MODE, ignore_errors=True)
+        shutil.copytree(root, dest / MODE)
+        (dest / "imported.json").write_text(json.dumps({"from": str(root), "entries": entries}, indent=1) + "\n")
 
     @staticmethod
     def _keep(root: Path, dest: Path) -> None:

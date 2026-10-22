@@ -99,6 +99,10 @@ task's score is the judge's score of its deliverable, in `step_NNNN/step_result.
 by a session. Upstream knows OpenCode's and Codex's surfaces; this one describes the template's, where every
 component is in the agent's prompt and there are no scripts, subagents or plugins.
 
+`library_from: <run directory>` continues a finished stream on other tasks: the run starts from that stream's
+library, copied into its Training State before the first task, and is the same stream with the new tasks at its end.
+It refuses a run that has not finished, a library carrying grader wording, and a task that stream already took.
+
 ## Examples
 
 [`examples/officeqa_paper/harness2/`](../../examples/officeqa_paper/harness2/) runs the `harness2` Evolver in the
