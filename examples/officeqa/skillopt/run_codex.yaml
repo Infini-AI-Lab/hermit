@@ -46,6 +46,8 @@ sandbox:
   allow: []                  # the Evolver's own model endpoint is always reachable
   read: []
   env: []                    # the Evolver's model key variable is always passed; nothing else is
+  profiles:                  # the agent's role runs unconfined: it drives Docker (the daemon's socket, the sessions'
+    rollout: {enabled: false}   # homes under ~/.cache); each Codex session is in a container of its own (codex_sandbox.py)
 trainer:
   run_name: codex-skillopt
   output_dir: runs

@@ -66,6 +66,20 @@ def test_open_network_has_no_namespace_and_no_relay(tmp_path, monkeypatch):
     assert "--unshare-net" not in args and str(RELAY) not in args
 
 
+def test_open_network_still_checks_the_covered_paths(tmp_path, monkeypatch):
+    """A rollout's network is open by default, but its masks are still proven from inside."""
+    fake_bwrap(monkeypatch)
+    secret = tmp_path / "tasks.jsonl"
+    secret.write_text("x")
+    args, _ = Sandbox(network="open", readable=[tmp_path], masked=[secret]).wrap(["true"])
+    command = args[args.index("--") + 1:]
+    assert "--unshare-net" not in args and command[:2] == [sys.executable, str(RELAY)]
+    assert "--open-network" in command and "--forward" not in command
+    assert command[command.index("--deny") + 1] == str(secret.resolve())
+    from harnessadapter.sandbox_relay import probe
+    assert probe([], [], open_network=True)["outside"] == {}
+
+
 def test_older_network_values():
     assert network_mode("restricted") == ("isolated", True)
     assert network_mode("none") == ("isolated", False)
@@ -216,3 +230,76 @@ def test_records_continue_after_a_resume(tmp_path, monkeypatch):
     Sandbox(network="open", record_dir=tmp_path).wrap(["true"])
     Sandbox(network="open", record_dir=tmp_path).wrap(["true"])    # a resumed run: a new Sandbox, same directory
     assert sorted(p.name for p in tmp_path.glob("learner-*.json")) == ["learner-1.json", "learner-2.json"]
+
+
+def test_file_audit_wraps_bubblewrap_in_strace(tmp_path, monkeypatch):
+    monkeypatch.setattr(sandbox_module.shutil, "which",
+                        lambda name, *a, **k: f"/usr/bin/{name}" if name in ("bwrap", "strace")
+                        else REAL_WHICH(name, *a, **k))
+    args, _ = Sandbox(network="open", record_dir=tmp_path, audit="files").wrap(["true"])
+    trace = str(tmp_path / "learner-1.strace")
+    assert args[:7] == ["strace", "-f", "-qq", "-e", "trace=%file", "-o", trace] and args[7] == "bwrap"
+    assert json.loads((tmp_path / "learner-1.json").read_text())["audit"] == trace
+    with pytest.raises(RuntimeError, match="strace"):
+        Sandbox(network="open", audit="files").wrap(["true"])             # nowhere to leave the trace
+    with pytest.raises(ValueError):
+        Sandbox(audit="everything")
+
+
+@pytest.mark.skipif(not _bwrap_works() or not REAL_WHICH("strace"), reason="needs bubblewrap and strace")
+def test_file_audit_sees_what_the_sandbox_opens(tmp_path):
+    granted = tmp_path / "granted"
+    granted.mkdir()
+    (granted / "a.txt").write_text("a")
+    box = Sandbox(readable=[granted], record_dir=tmp_path / "records", audit="files")
+    try:
+        args, env = box.wrap([sys.executable, "-c", f"open({str(granted / 'a.txt')!r}).read()"])
+        assert subprocess.run(args, env=env, capture_output=True, timeout=120).returncode == 0
+    finally:
+        box.close()
+    assert str(granted / "a.txt") in (tmp_path / "records" / "learner-1.strace").read_text()
+
+
+def test_a_granted_virtual_environment_comes_with_its_base_python(tmp_path, monkeypatch):
+    """A task's external checkout runs its own .venv, whose interpreter links to an installation elsewhere."""
+    fake_bwrap(monkeypatch)
+    base = tmp_path / "pythons" / "cpython-3.12.4"
+    (base / "bin").mkdir(parents=True)
+    alias = tmp_path / "pythons" / "cpython-3.12"                 # uv's version alias, a link to the installation
+    alias.symlink_to(base)
+    checkout = tmp_path / "clbench"
+    (checkout / ".venv").mkdir(parents=True)
+    (checkout / ".venv" / "pyvenv.cfg").write_text(f"home = {alias / 'bin'}\nversion = 3.12\n")
+    args, _ = Sandbox(network="open", read=[checkout]).wrap(["true"])
+    ro = binds(args, "--ro-bind")
+    assert str(alias) in ro and str(base.resolve()) in ro        # the interpreter links through the alias
+
+
+@pytest.mark.skipif(not _bwrap_works(), reason="needs a working bubblewrap (unprivileged user namespaces)")
+@pytest.mark.parametrize("cli", ["codex", "claude"])
+def test_an_installed_cli_starts_with_only_its_own_paths(cli):
+    """The built-in CLI agents: the CLI as installed (an nvm package, a ~/bin wrapper) starts inside, with no home."""
+    from harnessadapter.sandbox import program_paths
+    if not REAL_WHICH(cli):
+        pytest.skip(f"{cli} is not installed")
+    box = Sandbox(network="open", readable=program_paths(cli), packages=["*"])
+    try:
+        args, env = box.wrap([cli, "--version"])
+        proc = subprocess.run(args, env=env, capture_output=True, text=True, timeout=120)
+    finally:
+        box.close()
+    assert proc.returncode == 0, proc.stderr[-1500:]
+    assert str(Path.home()) not in [a for a in args if a == str(Path.home())]   # the home is never bound whole
+
+
+def test_program_paths_never_bind_the_home(tmp_path, monkeypatch):
+    from harnessadapter.sandbox import program_paths
+    home = tmp_path / "home"
+    (home / "bin").mkdir(parents=True)
+    tool = home / "bin" / "tool"
+    tool.write_text("#!/bin/sh\necho hi\n")
+    tool.chmod(0o755)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("PATH", f"{home / 'bin'}:/usr/bin:/bin")
+    paths = program_paths("tool")
+    assert tool in paths and home not in paths

@@ -13,6 +13,7 @@ from harnessadapter.config import Config
 from harnessadapter.evolver.loader import find, instantiate, load_class
 from harnessadapter.spec import check_spec
 from harnessadapter.agents.base import load_agent
+from harnessadapter.isolate import ROLES, agent_pipeline, config_paths, profile, validate as validate_profiles
 from harnessadapter.task import TaskData, load_callable
 from harnessadapter.trainer.rollout import run_one
 from harnessadapter.trainer.trainer import needs_errors, warnings_for
@@ -88,7 +89,10 @@ def run_check(config: Config, *, probe: bool = True, log=print) -> bool:
     except Exception as exc:
         problems.append(f"data: {exc}")
     try:
-        pipeline = load_agent(d["agent"]["name"], d["agent"].get("params"), config.base).run
+        # A sandboxed agent is loaded only inside its sandbox (the probe below); importing it here would run the
+        # task's code in this process.
+        sandboxed = profile(d["sandbox"], "check")["enabled"]
+        pipeline = True if sandboxed else load_agent(d["agent"]["name"], d["agent"].get("params"), config.base).run
         judge = load_callable(f"{d['judge']['path']}:{d['judge']['name']}", config.base)
     except Exception as exc:
         problems.append(f"agent/judge: {exc}")
@@ -97,8 +101,21 @@ def run_check(config: Config, *, probe: bool = True, log=print) -> bool:
     # Sandbox: paths the task makes readable must exist (an unset variable leaves a path that names nothing).
     missing = [str(config.path(h)) for h in d["sandbox"]["read"] or [] if not config.path(h).exists()]
     sandbox_problems = [f"sandbox.read path does not exist: {m}" for m in missing]
+    try:
+        validate_profiles(d["sandbox"])
+        # A role's paths: a variable the launcher should have exported, a link prepare.py should have made.
+        for role in ROLES:
+            prof = profile(d["sandbox"], role)
+            for key in ("read", "write", "mask"):
+                for path in config_paths(config, role, key, prof[key]):
+                    if key != "write" and not path.exists():
+                        sandbox_problems.append(f"sandbox.profiles.{role}.{key} path does not exist: {path}")
+    except ValueError as exc:
+        sandbox_problems.append(str(exc))
     if d["sandbox"]["enabled"] and d["sandbox"].get("enforce", "required") == "required" and not shutil.which("bwrap"):
         sandbox_problems.append("sandbox.enforce is required but bubblewrap (bwrap) is not installed")
+    if d["sandbox"].get("audit") == "files" and not shutil.which("strace"):
+        sandbox_problems.append("sandbox.audit is files but strace is not installed")
     report("sandbox", sandbox_problems,
            f"enabled={d['sandbox']['enabled']}, enforce={d['sandbox'].get('enforce', 'required')}, "
            f"network={d['sandbox']['network']}, env={d['sandbox']['env']}")
@@ -110,7 +127,18 @@ def run_check(config: Config, *, probe: bool = True, log=print) -> bool:
     if probe and data is not None and pipeline is not None and data.splits["train"]:
         task = data.tasks[data.splits["train"][0]]
         t0 = time.time()
-        record = run_one(task, None, pipeline, judge)
+        # The probe runs the agent as a rollout would: in the check role's sandbox (#11), not in this process.
+        try:
+            probe_pipeline, close = agent_pipeline(config, "check", records=None)
+        except Exception as exc:
+            probe_pipeline, close = None, (lambda: None)
+            record = {"status": "error", "error": f"the check sandbox: {exc}", "judge": {"score": 0.0},
+                      "api_speed": None, "cost_usd": None}
+        if probe_pipeline is not None:
+            try:
+                record = run_one(task, None, probe_pipeline, judge)
+            finally:
+                close()
         problems = [record["error"]] if record["status"] != "ok" else []
         report("agent probe", problems, f"task {task['id']}: score {record['judge']['score']}, "
                f"{time.time() - t0:.0f} s, api speed {json.dumps(record.get('api_speed'))}, cost {record['cost_usd']}")

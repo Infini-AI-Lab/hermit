@@ -30,6 +30,8 @@ sandbox:
   allow: []
   env: [MW_TOOLSRV]                # the channel client's URL (the Evolver's tool gate); the learner's model key
                                    # variable is always passed
+  profiles:                        # the agent's sandbox (rollout; eval and check take it too); launch.sh sets both
+    rollout: {read: [$MWM_CLBENCH], write: [$MWM_TASK_WORKDIR]}   # CL-Bench and its .venv; the task's directory
 trainer:
   run_name: null
   output_dir: runs

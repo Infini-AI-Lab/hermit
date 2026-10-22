@@ -22,7 +22,8 @@ pip install -e '.[skillopt,gepa]'
 python examples/officeqa/utils/prepare.py --csv /path/to/officeqa_full.csv --docs /path/to/treasury_bulletins_parsed
 ```
 
-`prepare.py` writes the questions, the paper's split and SkillOpt's initial skill (`utils/seed_adapter/`) to `utils/`.
+`prepare.py` writes the questions, the paper's split, SkillOpt's initial skill (`utils/seed_adapter/`) and a link to the
+corpus (`utils/documents`, what the agent's sandbox is granted) to `utils/`.
 
 ## Run
 

@@ -13,14 +13,14 @@ from harnessadapter.adapter.session import Session
 
 
 async def serve(root: Path, audit_log: Path | None, learning_material: Path | None = None, *,
-                deployment: Path | None = None, python_sandbox: bool = False):
+                deployment: Path | None = None, python_sandbox: bool = False, evidence: Path | None = None):
     resources = {}
     if python_sandbox:
         from harnessadapter.runtime.python_sandbox import PythonSandbox
         resources["python_sandbox"] = PythonSandbox(root)
     # The same Session a Python program uses; the audit record is its record.
     session = Session(root, resources=resources, deployment=deployment, learning_material=learning_material,
-                      audit_log=audit_log)
+                      evidence=evidence, audit_log=audit_log)
     adapter = session.adapter
     lock = asyncio.Lock()
 
@@ -54,9 +54,11 @@ def main(argv=None) -> None:
     parser.add_argument("--audit-log", type=Path)
     parser.add_argument("--learning-material", type=Path, help="Read-only LearningMaterial directory bound to the tools")
     parser.add_argument("--deployment", type=Path, help="A host.json of deployment texts, bound as the `deployment` resource")
+    parser.add_argument("--evidence", type=Path, help="An evidence store directory bound as the `evidence` resource")
     parser.add_argument("--python-sandbox", action="store_true", help="Bind the bubblewrap Python sandbox so admitted learned tools can run")
     args = parser.parse_args(argv)
-    asyncio.run(serve(args.adapter, args.audit_log, args.learning_material, deployment=args.deployment, python_sandbox=args.python_sandbox))
+    asyncio.run(serve(args.adapter, args.audit_log, args.learning_material, deployment=args.deployment, python_sandbox=args.python_sandbox,
+                      evidence=args.evidence))
 
 
 if __name__ == "__main__":

@@ -59,6 +59,7 @@ splits/                   train.txt, val.txt and test.txt (50 / 24 / 172 ids), a
 data.json                 absolute paths of the corpus, the answers and the CSV, and drifted_from_split
 seed_adapter/             SkillOpt's initial OfficeQA skill as a prompt-only@1.0 adapter, where every config starts
 .private/answers.jsonl    the answers, which the judge reads
+documents                 a link to the corpus: what the agent's sandbox is granted (`.private/` is covered inside)
 ```
 
 The split comes from SkillOpt's repository at a pinned commit unless `--split-dir` names a local copy of its

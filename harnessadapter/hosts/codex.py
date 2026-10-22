@@ -13,7 +13,7 @@ import tomllib
 
 from harnessadapter.adapter.loader import load_manifest
 from harnessadapter.hosts.context import PROJECT_CONTEXT, append_context
-from harnessadapter.hosts.inputs import (MARKER, PACKAGE_ROOT, check_workspace, copy_skills, render_exports, retire_roles,
+from harnessadapter.hosts.inputs import (MARKER, PACKAGE_ROOT, _adapter_sandbox_env, check_workspace, copy_skills, render_exports, retire_roles,
                                          role_body, server_name, source_label)
 
 
@@ -52,7 +52,7 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
     if has_tools:
         server = {"command": python, "args": ["-m", "harnessadapter.runtime.mcp_server", "--adapter", str(adapter),
                                               "--audit-log", str(audit)],
-                  "env": {"PYTHONPATH": PACKAGE_ROOT},
+                  "env": {"PYTHONPATH": PACKAGE_ROOT, **_adapter_sandbox_env(python)},
                   "startup_timeout_sec": 20, "tool_timeout_sec": 120, "required": True}
         if learning_material is not None:
             server["args"].extend(["--learning-material", str(Path(learning_material).resolve())])

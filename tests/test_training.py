@@ -22,7 +22,7 @@ from harnessadapter.task import RunOutput
 def run(task, adapter):
     text = (Path(adapter) / "ADAPTER.md").read_text() if adapter else ""
     answer = str(task["a"] + task["b"]) if "add the numbers" in text else "?"
-    log = Path(__file__).parent / "logs" / f"{task['id']}.txt"
+    log = Path(__file__).parent / ".logs" / f"{task['id']}.txt"
     log.parent.mkdir(exist_ok=True)
     log.write_text(f"question {task['a']}+{task['b']} answer {answer}")
     return RunOutput(output=answer, log=log, cost_usd=0.01, wall_s=0.1, api_speed={"tps": 50}, tokens=100)

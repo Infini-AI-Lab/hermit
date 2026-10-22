@@ -18,6 +18,7 @@ import errno
 import json
 import os
 import socket
+import stat
 import subprocess
 import sys
 import threading
@@ -74,10 +75,12 @@ def listen_forward(port: int, sock_path: str) -> bool:
     return True
 
 
-def probe(ports: list[int], deny: list[str] = ()) -> dict:
-    """The isolation as seen from inside: outside TCP blocked, forwarded ports open, denied paths absent."""
+def probe(ports: list[int], deny: list[str] = (), keep: list[str] = (), open_network: bool = False) -> dict:
+    """The isolation as seen from inside: outside TCP blocked, forwarded ports open, denied paths absent or covered.
+    `keep` are the paths this command mounted on top of a covered directory: they are all it may hold. On an open
+    network only the paths are checked."""
     outside = {}
-    for host, port in OUTSIDE:
+    for host, port in ([] if open_network else OUTSIDE):
         try:
             socket.create_connection((host, port), timeout=3).close()
             outside[f"{host}:{port}"] = "reachable"
@@ -90,10 +93,27 @@ def probe(ports: list[int], deny: list[str] = ()) -> dict:
             forwarded[str(port)] = "open"
         except OSError as exc:
             forwarded[str(port)] = f"closed ({type(exc).__name__})"
-    denied = {path: ("absent" if not os.path.lexists(path) else "visible") for path in deny}
+    denied = {path: _hidden(path, keep) for path in deny}
     passed = (all(v != "reachable" for v in outside.values()) and all(v == "open" for v in forwarded.values())
-              and all(v == "absent" for v in denied.values()))
+              and all(v in ("absent", "masked") for v in denied.values()))
     return {"passed": passed, "outside": outside, "forwarded": forwarded, "denied": denied}
+
+
+def _hidden(path: str, keep: list[str] = ()) -> str:
+    """absent (not there), masked (a covered file reads as empty, a covered directory holds nothing but the paths
+    this command mounted on top of it), or visible."""
+    if not os.path.lexists(path):
+        return "absent"
+    try:
+        if os.path.isdir(path):
+            def kept(entry):
+                full = os.path.join(path, entry)
+                return any(k == full or k.startswith(full + "/") for k in keep)
+            return "masked" if all(kept(e) for e in os.listdir(path)) else "visible"
+        st = os.stat(path)
+        return "masked" if stat.S_ISCHR(st.st_mode) or (stat.S_ISREG(st.st_mode) and st.st_size == 0) else "visible"
+    except OSError:
+        return "absent"
 
 
 def _report(sock_path: str, result: dict) -> None:
@@ -113,21 +133,31 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--forward", action="append", default=[])
     parser.add_argument("--deny", action="append", default=[])
+    parser.add_argument("--keep", action="append", default=[])
     parser.add_argument("--report")
+    parser.add_argument("--open-network", action="store_true")
     args = parser.parse_args(argv[:split])
     ports = []
     for item in args.forward:
         port, _, sock_path = item.partition("=")
         listen_forward(int(port), sock_path)
         ports.append(int(port))
-    result = probe(ports, args.deny)
+    result = probe(ports, args.deny, args.keep, open_network=args.open_network)
     if args.report:
         _report(args.report, result)
     if not result["passed"]:
         print(json.dumps({"type": "sandbox.isolation_failed", "probe": result}), file=sys.stderr, flush=True)
         raise SystemExit(FAILED)
     command = argv[split + 1:]
-    proc = subprocess.Popen(command)
+    # The command keeps the descriptors it was started with (a worker's result pipe); the relay's own sockets are
+    # created non-inheritable, so nothing of the relay leaks into it.
+    proc = subprocess.Popen(command, close_fds=False)
+    # The relay's own copy of a result pipe (a worker's) closes now: only the command holds it.
+    if os.environ.get("HA_RESULT_FD", "").isdigit():
+        try:
+            os.close(int(os.environ["HA_RESULT_FD"]))
+        except OSError:
+            pass
     try:
         raise SystemExit(proc.wait())
     except KeyboardInterrupt:

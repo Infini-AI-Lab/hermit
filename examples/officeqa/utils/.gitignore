@@ -3,3 +3,4 @@ tasks.jsonl
 splits/
 data.json
 seed_adapter/
+documents

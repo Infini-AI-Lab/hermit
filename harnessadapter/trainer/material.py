@@ -6,6 +6,8 @@ import os
 from pathlib import Path
 import shutil
 
+from harnessadapter.isolate import _safe
+
 README = """# Learning material
 
 One directory per training step (`step_0001/`, ...); `current` points at the latest; `index.jsonl` has one line per
@@ -45,13 +47,14 @@ class Material:
         for r in results:
             record = dict(r)
             log = r.get("log")
-            if log and Path(log).exists():
+            # A link is copied as a link, never followed: the log is the agent's, and what it links to need not be.
+            if log and Path(log).exists() and not Path(log).is_symlink():
                 target = d / "trajectories" / _safe(r["id"])
                 if Path(log).is_dir():
                     shutil.copytree(log, target, symlinks=True)
                 else:
                     target.mkdir(parents=True)
-                    shutil.copy2(log, target / Path(log).name)
+                    shutil.copy2(log, target / Path(log).name, follow_symlinks=False)
                 record["trajectory"] = os.path.relpath(target, d)
             else:
                 record["trajectory"] = None
@@ -92,5 +95,3 @@ class Material:
             current.symlink_to(self.step_dir(last_step).name)
 
 
-def _safe(task_id: str) -> str:
-    return "".join(c if c.isalnum() or c in "-_." else "_" for c in str(task_id))

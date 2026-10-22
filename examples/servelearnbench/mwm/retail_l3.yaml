@@ -32,6 +32,8 @@ sandbox:
   allow: []
   env: [MW_TOOLSRV]                # the channel client's URL (the Evolver's tool gate); the learner's model key
                                    # variable is always passed
+  profiles:                        # the agent's sandbox (rollout; eval and check take it too); launch.sh sets it
+    rollout: {write: [$SLB_WORKDIR]}                               # the run's task directory: rows, episodes, evidence
 trainer:
   run_name: null                   # launch.sh: <tag>
   output_dir: runs

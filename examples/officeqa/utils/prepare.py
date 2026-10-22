@@ -8,8 +8,9 @@
 --split-dir  SkillOpt's data/officeqa_id_split (ids, source files and pages, at the paper's dataset revision);
              without it the files are fetched from github.com/microsoft/SkillOpt at the pinned commit.
 
-Writes tasks.jsonl (questions only), splits/, data.json and seed_adapter/ (SkillOpt's initial OfficeQA skill as a
-prompt-only adapter) here, and the answers to .private/answers.jsonl.
+Writes tasks.jsonl (questions only), splits/, data.json, seed_adapter/ (SkillOpt's initial OfficeQA skill as a
+prompt-only adapter) and documents (a link to --docs, what the agent's sandbox is granted) here, and the answers to
+.private/answers.jsonl.
 """
 import argparse
 import csv
@@ -46,6 +47,11 @@ docs = args.docs.resolve()
 for sub in ("transformed", "jsons"):
     if not (docs / sub).is_dir():
         raise SystemExit(f"{docs / sub} is missing: --docs is treasury_bulletins_parsed/ with transformed/ and jsons/")
+# The documents, linked beside the task: the configs grant the agent's sandbox this link (and cover .private/).
+link = HERE / "documents"
+if link.is_symlink() or link.exists():
+    link.unlink()
+link.symlink_to(docs, target_is_directory=True)
 rows = {r["uid"]: r for r in csv.DictReader(args.csv.open(encoding="utf-8", newline=""))}
 private = HERE / ".private"
 private.mkdir(mode=0o700, exist_ok=True)

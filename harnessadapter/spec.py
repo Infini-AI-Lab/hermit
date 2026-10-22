@@ -1,20 +1,19 @@
 """check_spec: does an adapter conform to its template's specification and deploy?  And the Trainer's repair.
 
 Checks 1–5 are the framework library; check 6 is the template's own function (`check: file.py:function` in
-adapter.yaml), run in a subprocess without network. The template function receives the adapter path and returns a
-list of issues ({path, problem}) or {"passed": bool, "issues": [...]}.
+adapter.yaml). Checks 5 and 6 run the adapter's and the template's modules, so they run in a strict sandbox
+(read-only, no network, no keys) when the run's sandbox is on, and unconfined when it is off. The template function
+receives the adapter path and returns a list of issues ({path, problem}) or {"passed": bool, "issues": [...]}.
 """
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 import hashlib
 import json
-import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
-import tempfile
 
 import yaml
 
@@ -128,10 +127,27 @@ def _frontmatter(text: str) -> dict | None:
     return head if isinstance(head, dict) else None
 
 
+# Checks 5 and 6 run code: the adapter's modules (the learner's work) and the template's check. They run in a
+# sandbox of their own (#11): the adapter and the template read-only, no network, none of the environment's keys.
+# `required` refuses to run without bubblewrap; a run sets its sandbox.enforce here (the Trainer does).
+SANDBOX_ENFORCE = "best_effort"
+
+
+def _run_sandboxed(command: list[str], readable: list[Path], timeout: float) -> subprocess.CompletedProcess:
+    # SANDBOX_ENFORCE is None when the run's sandbox is off (sandbox.enabled: false): run unconfined, as the rest of
+    # that run does. Otherwise the adapter's modules run in a strict sandbox under the run's enforce.
+    from harnessadapter.sandbox import framework_env, run_in_strict_sandbox
+    if SANDBOX_ENFORCE is None:
+        return subprocess.run(command, capture_output=True, text=True, timeout=timeout,
+                              env=framework_env(no_bytecode=True))
+    return run_in_strict_sandbox(command, role="spec", readable=readable, enforce=SANDBOX_ENFORCE, timeout=timeout,
+                                 no_bytecode=True)
+
+
 def _deploy_check(adapter: Path, python: str) -> list[Issue]:
     try:
-        run = subprocess.run([python, "-m", "harnessadapter.adapter.render_context", "--adapter", str(adapter)],
-                             capture_output=True, text=True, timeout=DEPLOY_TIMEOUT, env=_child_env())
+        run = _run_sandboxed([python, "-m", "harnessadapter.adapter.render_context", "--adapter", str(adapter)],
+                             [adapter], DEPLOY_TIMEOUT)
     except subprocess.TimeoutExpired:
         return [Issue("", 5, f"rendering the exports took longer than {DEPLOY_TIMEOUT} s")]
     if run.returncode != 0:
@@ -148,14 +164,6 @@ def _path_in(adapter: Path, text: str) -> str:
     return ""
 
 
-def _child_env() -> dict:
-    env = dict(os.environ)
-    package_root = str(Path(__file__).resolve().parents[1])
-    env["PYTHONPATH"] = package_root + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
-    env["PYTHONDONTWRITEBYTECODE"] = "1"
-    return env
-
-
 def template_check(adapter: Path, root: Path, python: str | None = None) -> list[Issue]:
     """Check 6: the template's own function, if declared; run without network when bubblewrap is available."""
     manifest = read_manifest(root)
@@ -170,11 +178,8 @@ def template_check(adapter: Path, root: Path, python: str | None = None) -> list
         f"r = m.{function}(sys.argv[1])\n"
         "print(json.dumps(r))\n")
     command = [python or sys.executable, "-c", script, str(adapter)]
-    if shutil.which("bwrap"):
-        command = ["bwrap", "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp",
-                   "--unshare-net", "--die-with-parent", *command]
     try:
-        run = subprocess.run(command, capture_output=True, text=True, timeout=TEMPLATE_CHECK_TIMEOUT, env=_child_env())
+        run = _run_sandboxed(command, [adapter, root], TEMPLATE_CHECK_TIMEOUT)
     except subprocess.TimeoutExpired:
         return [Issue("", 6, f"the template check took longer than {TEMPLATE_CHECK_TIMEOUT} s")]
     if run.returncode != 0:

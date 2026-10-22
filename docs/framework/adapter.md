@@ -160,6 +160,13 @@ coroutine, `agents()` and `skills()` give the other exports. Resources a tool ma
 the same record `harnessadapter serve` writes. The [task interface](task.md) leaves host integration to the
 pipeline; it does not automatically implement every export.
 
+Outside a run's rollout sandbox (a production program, say), `Session(adapter, sandbox=True)` keeps the adapter's code
+out of the program: the tools run in a `harnessadapter serve` inside a sandbox (no network, the adapter read-only,
+nothing writable but the evidence store), reached over MCP, and the audit log is still written by the program. Pass a
+configured `harnessadapter.sandbox.Sandbox` instead of `True` to grant more. `deployment`, `learning_material` and
+`evidence` go with it; other `resources` are refused, and so is an adapter whose subagents come from a Python exporter.
+Close the session, or use it in a `with` block, to stop the server.
+
 ## Evolution interface
 
 ### What does the Evolver edit?

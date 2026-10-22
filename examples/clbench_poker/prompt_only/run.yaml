@@ -30,6 +30,8 @@ sandbox:
   allow: []
   read: []
   env: []                          # the learner's model key variable is always passed; nothing else is
+  profiles:                        # the agent's sandbox (rollout; eval and check take it too); launch.sh sets both
+    rollout: {read: [$MWM_CLBENCH], write: [$MWM_TASK_WORKDIR]}   # CL-Bench and its .venv; the task's directory
 trainer:
   run_name: null                   # launch.sh: <tag>-o<i>
   output_dir: runs

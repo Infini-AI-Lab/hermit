@@ -11,6 +11,7 @@ task_info: null
 agent:
   name: null                  # react | codex | claude-code, or file.py:Class / file.py:function of the task's own
   concurrency: 4
+  timeout_min: null           # a sandboxed task call that runs longer is stopped and recorded as an error; null: none
   params: {}
 pipeline:                     # the older spelling of `agent`: run -> name
   run: null
@@ -37,6 +38,11 @@ sandbox:
   read: []                     # more paths the Evolver may read (an allowlist; nothing else is visible)
   packages: []                 # more Python distributions to show, beside the framework's own dependencies
   env: null                    # environment variables passed to what the Evolver starts; null = all of them
+  audit: null                  # files: strace each sandboxed process's file accesses (from outside) beside its record
+  profiles: {}                 # per role (learner, rollout, eval, check, tool): {enabled, inherit, read, write, mask,
+                               # allow, packages, network, env}; eval and check take rollout's. The agent's roles see
+                               # the task's project, every package, the environment and an open network; e.g.
+                               # profiles: {rollout: {read: [$DATA/corpus], mask: [../utils/.private]}}
 model: null                    # the run's default model, a `<backend>/<model id>` reference (see backends): what `llm`,
                                # agent.params.model and evolver.params.model use when they name none
 backends: {}                   # this run's model backends by name: {base_url, api_key_env, apis, prices, ...} or
