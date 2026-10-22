@@ -177,34 +177,49 @@ def test_a_run_continues_a_finished_stream_from_its_library(tmp_path):
     first_inv = next(c for c in calls if c["label"] == "inv1.a1")         # the continuation's first task
     assert "library/INDEX.md" in first_inv["files"] and "library/harnesses/t2/EXPERIENCE.md" in first_inv["files"]
     state = rest / "workspace" / "state" / "library"
-    assert json.loads((state / "imported.json").read_text())["entries"] == ["default/t0", "default/t1", "default/t2"]
+    imported = json.loads((state / "imported.json").read_text())
+    assert imported["entries"] == ["default/t0", "default/t1", "default/t2"] and imported["taken"] == ["t0", "t1", "t2"]
+    assert imported["stop_reason"] == "completed all epochs"
     assert sorted(p.name for p in (state / "agg" / "default" / "harnesses").iterdir()) == ["t0", "t1", "t2", "t3", "t4"]
     done = first / "workspace" / "state" / "library" / "agg" / "default" / "harnesses"
     assert sorted(p.name for p in done.iterdir()) == ["t0", "t1", "t2"]   # the stream continued is left as it was
 
 
-def test_a_continuation_refuses_an_unfinished_run_grader_wording_and_the_same_tasks(tmp_path):
-    first = run(tmp_path)
+def test_a_continuation_refuses_what_would_not_continue_the_stream(tmp_path):
+    first = run(tmp_path)                                                 # t0, t1, t2
     (tmp_path / "rest.txt").write_text("t3\n")
 
-    def cont(name, source, stream="rest.txt"):
+    def cont(name, source, stream="rest.txt", *more):
         Trainer(Config.load(tmp_path / "run.yaml", [
             f"data.train={stream}", "data.step_size=1", "data.shuffle=false", f"trainer.run_name={name}",
-            f"evolver.params.calls_log={tmp_path / 'more-calls.jsonl'}",
-            f"evolver.params.library_from={source}"])).train()
-        return tmp_path / "runs" / name
+            f"evolver.params.calls_log={tmp_path / 'more-calls.jsonl'}", f"evolver.params.library_from={source}",
+            *more])).train()
+        run_dir = tmp_path / "runs" / name
+        return [json.loads(l) for l in (run_dir / "steps.jsonl").read_text().splitlines()]
 
     (first / "summary.json").rename(first / "summary.json.held")
     with pytest.raises(SystemExit, match="has not finished"):
         cont("c-unfinished", "runs/h2u")
     (first / "summary.json.held").rename(first / "summary.json")
+    with pytest.raises(SystemExit, match="effort differ"):                # the editor settings are the stream's
+        cont("c-effort", "runs/h2u", "rest.txt", "evolver.params.effort=high")
     tainted = tmp_path / "tainted"
     shutil.copytree(first / "workspace" / "state" / "library" / "agg", tainted)
     (tainted / "default" / "harnesses" / "t1" / "EXPERIENCE.md").write_text('{"pass_rate": 1.0}\n')
     with pytest.raises(SystemExit, match="grader-verdict marker"):
         cont("c-tainted", tainted)
-    (tmp_path / "again.txt").write_text("t2\nt3\n")
-    again = cont("c-again", "runs/h2u", "again.txt")
-    steps = [json.loads(l) for l in (again / "steps.jsonl").read_text().splitlines()]
+    # A start that recorded no step left its import behind: the next start imports again.
+    left = tmp_path / "runs" / "c-restart" / "workspace" / "state" / "library"
+    (left / "agg" / "default").mkdir(parents=True)
+    (left / "agg" / "default" / "INDEX.md").write_text("# a start that recorded no step\n")
+    (left / "imported.json").write_text("{}\n")
+    steps = cont("c-restart", "runs/h2u")
+    assert steps[0]["evolver"]["status"] == "done" and "library 3 -> 4" in steps[0]["evolver"]["summary"]
+    # A task the stream took is refused, with or without a library entry of its own.
+    shutil.rmtree(first / "workspace" / "state" / "library" / "agg" / "default" / "harnesses" / "t1")
+    (tmp_path / "again.txt").write_text("t1\nt3\n")
+    steps = cont("c-again", "runs/h2u", "again.txt")
     assert steps[0]["evolver"]["status"] == "failed" and "continues" in steps[0]["evolver"]["summary"]
     assert steps[1]["evolver"]["status"] == "done"
+    with pytest.raises(SystemExit, match="is this run"):                  # resume_mode=disable moved the stream away
+        cont("h2u", "runs/h2u", "rest.txt", "trainer.resume_mode=disable")

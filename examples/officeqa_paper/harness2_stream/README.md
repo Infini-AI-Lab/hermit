@@ -34,8 +34,9 @@ MAX_TASKS=2 TAG=h2-smoke FIREWORKS_API_KEY=... WM_PORT=3592 examples/officeqa_pa
 
 A finished stream can be continued on other questions, e.g. the 74 training and validation questions after the 172
 test questions: the new run starts from that stream's library (copied once, before its first question) and keeps
-everything else, the pinned Claude Code included, so it is the same stream with those questions at its end. Paths
-are relative to this directory:
+everything else, so it is the same stream with those questions at its end. A continuation names its TAG, SPLITS,
+STREAM and CLAUDE_BIN (the continued stream's pinned binary); the Evolver refuses editor settings, slots, sources or a
+binary that differ from that stream's, and a question it took. Paths are relative to this directory:
 
 ```bash
 LIBRARY_FROM=runs/h2-stream-s0 TAG=h2-stream-s0-rest STREAM=stream_rest_s0.txt \

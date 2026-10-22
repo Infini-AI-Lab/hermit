@@ -11,7 +11,12 @@
 # Writes upstream's stream order for SEED, regenerates H0 (../harness2/seed_adapter), starts a wire meter in front of
 # Fireworks for the editor sessions (bucket TAG; ledger runs/TAG.wire_ledger.json), and trains with the editor model
 # bound to the meter. Needs the `harness2` and `skillopt` extras, the Claude Code CLI and bubblewrap.
-set -eu
+set -eu -o pipefail
+if [ -n "${LIBRARY_FROM:-}" ]; then          # a continuation names what differs from the stream it continues
+  for v in TAG SPLITS STREAM CLAUDE_BIN; do
+    [ -n "${!v:-}" ] || { echo "REFUSING: a continuation (LIBRARY_FROM) needs $v"; exit 1; }
+  done
+fi
 HERE=$(cd "$(dirname "$0")" && pwd)
 FRAMEWORK=$(cd "$HERE/../../.." && pwd)
 PY=${MW_FRAMEWORK_PYTHON:-$FRAMEWORK/.venv/bin/python}
@@ -28,6 +33,7 @@ cd "$HERE"
 if [ -n "$LIBRARY_FROM" ]; then
   [ -d "$LIBRARY_FROM" ] || { echo "REFUSING: LIBRARY_FROM=$LIBRARY_FROM is not a directory"; exit 1; }
   LIBRARY_FROM=$(readlink -f "$LIBRARY_FROM")
+  [ "$(readlink -f "runs/$TAG")" != "$LIBRARY_FROM" ] || { echo "REFUSING: TAG=$TAG is the run continued"; exit 1; }
 fi
 mkdir -p runs
 "$PY" ../harness2/make_seed.py
@@ -46,8 +52,13 @@ if [ -n "${CLAUDE_BIN:-}" ]; then
 else
   CLAUDE_BIN=$(readlink -f "$(command -v claude)"); VERSION=$(basename "$CLAUDE_BIN")
 fi
+[[ "$VERSION" =~ ^[0-9]+(\.[0-9]+)+$ ]] || { echo "REFUSING: no version for $CLAUDE_BIN ($VERSION)"; exit 1; }
 PINNED="$HERE/runs/.claude-pin/$VERSION/claude"
-[ -x "$PINNED" ] || { mkdir -p "$(dirname "$PINNED")" && cp "$CLAUDE_BIN" "$PINNED"; }
+if [ -e "$PINNED" ]; then
+  cmp -s "$CLAUDE_BIN" "$PINNED" || { echo "REFUSING: $PINNED is not $CLAUDE_BIN"; exit 1; }
+else
+  mkdir -p "$(dirname "$PINNED")" && cp "$CLAUDE_BIN" "$PINNED.part.$$" && mv "$PINNED.part.$$" "$PINNED"
+fi
 # The answer files and the run continued (its records carry the judge's feedback): the sessions' sandbox is checked to
 # show none of them.
 ABSENT=$("$PY" -c "import json, sys; d = json.load(open('../utils/data.json'));

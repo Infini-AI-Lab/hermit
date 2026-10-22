@@ -11,7 +11,7 @@ from harness2.core.schedule import stream_order
 
 parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 parser.add_argument("--seed", type=int, required=True)
-parser.add_argument("--split", type=Path, nargs="+", required=True)
+parser.add_argument("--split", type=Path, nargs="+", action="extend", required=True)
 parser.add_argument("--out", type=Path, required=True)
 parser.add_argument("--domain", default="default", help="the library domain (the Evolver's, for a task without one)")
 parser.add_argument("--max", type=int, default=None, help="only the first N of the stream (a smoke run)")
