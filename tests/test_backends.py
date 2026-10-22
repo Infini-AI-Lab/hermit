@@ -248,7 +248,7 @@ def test_config_load_with_references(tmp_path, monkeypatch):
     (tmp_path / "judge.py").write_text("def score(task, output):\n    return 1.0\n")
     (tmp_path / "run.yaml").write_text(yaml.safe_dump({
         "data": {"tasks": "tasks.jsonl", "train": "train.txt"}, "judge": {"path": "judge.py"},
-        "template": "prompt-only@1.0", "evolver": {"name": "prompt_only"}, "model": "vllm/q",
+        "template": "prompt-only@1.0", "evolver": {"name": "gepa"}, "model": "vllm/q",
         "backends": {"vllm": {"base_url": "http://box:8000/v1"}},
         "agent": {"name": "react", "params": {"prompt": "hi"}}}))
     config = Config.load(tmp_path / "run.yaml")
@@ -334,7 +334,7 @@ def test_instantiate_binds_an_agent_evolver(monkeypatch):
     assert params["model"] == "q" and params["env"]["ANTHROPIC_MODEL"] == "q" and params["env"]["ANTHROPIC_AUTH_TOKEN"] == "local"
     _, params = instantiate(find("codex"), {"model": "gpt-5.4"}, backends=reg())
     assert params["model"] == "gpt-5.4" and "binding" not in params             # the CLI's own provider
-    _, params = instantiate(find("prompt_only"), {}, backends=reg(), default_model="vllm/q")
+    _, params = instantiate(find("gepa"), {}, backends=reg(), default_model="vllm/q")
     assert "binding" not in params                                             # not an agent Evolver
 
 

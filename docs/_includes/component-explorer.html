@@ -25,7 +25,7 @@
         <span>Receives a task<br>Uses the adapter's exports<br>Produces an answer</span>
       </div>
     </div>
-    <p class="ha-note"><strong>OfficeQA:</strong> the pipeline reads <code>ADAPTER.md</code> as context and adds it to the system prompt on each run. A host connector instead prepares workspace files before the agent starts.</p>
+    <p class="ha-note"><strong>OfficeQA:</strong> the agent reads <code>ADAPTER.md</code> as context and adds it to the system prompt, as the skill, on each run. A host connector instead prepares workspace files before the agent starts.</p>
     <p class="ha-boundary">The Trainer and Evolver are not needed to use an existing adapter. Runtime dependencies still apply.</p>
   </div>
   <div data-view="train">

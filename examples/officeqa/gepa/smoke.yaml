@@ -1,30 +1,24 @@
-# GEPA smoke: 4 training questions in 2 steps, 2 validation questions; eval on 2 test questions.
+# Smoke: 4 training questions in 2 steps, 2 validation questions, 4 test questions.
 data:
   tasks: ../utils/tasks.jsonl
   train: ../utils/splits/smoke_train.txt
   val: ../utils/splits/smoke_val.txt
   test: ../utils/splits/smoke_test.txt
   step_size: 2
+  shuffle_seed: 42
 task_info: ../utils/task-info/
-model: fireworks/accounts/fireworks/models/glm-5p3-flash   # the run's model: the react agent and the `llm` tool; <backend>/<model id>
 agent:
-  name: react     # the built-in tool-calling agent: no pipeline code for this task
+  name: ../utils/agent/agent.py:OfficeQAAgent
   concurrency: 4
-  params:
-    prompt: ../utils/agent/prompt.md
-    tools: ../utils/tools.py
-    user: "{question}"
-    max_turns: 24
-    max_tokens: 16384
-    max_output_tokens: 65536
-    temperature: 0.6
-    answer_tag: FINAL_ANSWER
-    logs: .logs
 judge:
   path: ../utils/judge.py
 template: prompt-only@1.0
+start_from: ../utils/seed_adapter  # SkillOpt's initial OfficeQA skill
 evolver:
   name: gepa
+llm:                           # the optimizer: GLM 5.3 at medium effort (the paper: GPT-5.5, medium)
+  model: fireworks/accounts/fireworks/models/glm-5p3     # <backend>/<model id>; the price is the backend's
+  extra_body: {reasoning_effort: medium}
 sandbox:
   enabled: true
   network: restricted
@@ -32,10 +26,15 @@ sandbox:
   read: []
   env: []                    # the Evolver's model key variable is always passed; nothing else is
   profiles:                  # the agent's sandbox (rollout; eval and check take it too)
-    rollout: {read: [../utils/prepared_agent]}   # the corpus (prepare.py links it); the answers beside it stay out
+    rollout:
+      read: [../utils/documents]   # the source documents (prepare.py links them)
+      mask: [../utils/.private]    # the judge's answers, beside the task
 trainer:
-  run_name: gepa-smoke
+  run_name: smoke-gepa
   output_dir: runs
+  tree_dir: runs/trees/smoke-gepa       # one adapter tree per run: runs can train side by side
   epochs: 1
-  budget: {usd: 3, hours: 2}
+  budget: {usd: 5, hours: 3}
   call_timeout_min: 60
+eval:
+  repeats: 3                 # the target samples: three passes over the test questions

@@ -170,7 +170,7 @@ def project_records(roots: list[Path], config, keep=(), limit: int | None = None
 
 def _agent_logs(name: str, base: Path) -> list[Path]:
     """The `.logs` directory beside a task's own agent file (file.py:Class), the one place there it may write: real
-    agents keep their logs there (examples/officeqa_paper). The code itself stays read-only, or an agent could
+    agents keep their logs there (examples/officeqa). The code itself stays read-only, or an agent could
     rewrite what every later call, and the host, runs. A module agent and a built-in one get nothing."""
     target = str(name).rpartition(":")[0]
     if not target.endswith(".py"):
@@ -322,7 +322,7 @@ class SandboxedAgent:
         self.cli = self._cli_kind()
         self.timeout = float(agent["timeout_min"]) * 60 if agent.get("timeout_min") else None
         self.enforce = d["sandbox"].get("enforce", "required")
-        # Only the logs beside the agent's code are writable (examples/officeqa_paper keeps them there); the code,
+        # Only the logs beside the agent's code are writable (examples/officeqa keeps them there); the code,
         # the config and the task's helpers are read-only. Every run record in the project is covered, this run's
         # and the other methods' beside it (found again for each call). A project too large to search is not shown
         # whole: each of the config's paths is shown by its own directory.

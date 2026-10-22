@@ -6,7 +6,7 @@ template–method combinations meaningful.
 
 | Goal | Starting method | Template | Additional inputs |
 |---|---|---|---|
-| Improve a short instruction document with few moving parts | [Prompt-only](prompt-only.md) | `prompt-only@1.0` | Learner model endpoint |
+| Improve a short instruction document with few moving parts | [Prompt-only](prompt-only.md) | `prompt-only@1.0` | Codex CLI, Linux learner environment |
 | Let a coding agent edit several files, skills, or code | [Codex / Claude](agent.md) | A template with the intended learnable paths | Authenticated learner CLI |
 | Search text candidates with validation-based selection | [GEPA](gepa.md) | Start with prompt-only | Validation split and GEPA extra |
 | Make bounded skill edits with a validation gate | [SkillOpt](skillopt.md) | Start with prompt-only or the paper seed | Validation split and SkillOpt extra |
@@ -20,7 +20,7 @@ task-specific service overhead. Call counts vary with evidence, candidates, and 
 
 | Method | Additional model / acting work | Persistent learner state | Final selection |
 |---|---|---|---|
-| Prompt-only | Normally one learner request per configured file, with one format retry if necessary; no built-in candidate rollout gate | Short change notes | Current adapter |
+| Prompt-only | One Codex learner session per step that rewrites `ADAPTER.md`; no candidate rollout gate | Notes the session keeps in `state/` | Current adapter |
 | Codex / Claude | A multi-action learner session; candidate tests depend on what the learner does | Saved files and optional supported session handle | Current adapter unless the method customizes finalization |
 | GEPA | Initial-parent validation, reflection, child minibatch tests, and validation for a child that passes the minibatch criterion | Candidate pool, validation scores, per-candidate next file | Highest retained validation mean |
 | SkillOpt | Reflection/merge/ranking calls, validation (cached by skill content), optional epoch-end and final validation work | Current/best skills, validation cache, update history and meta skill | Retained best, with optional final promotion |

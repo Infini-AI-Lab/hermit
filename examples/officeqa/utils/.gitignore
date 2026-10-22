@@ -1,4 +1,6 @@
+.private/
 tasks.jsonl
 splits/
-data_root.txt
-prepared_agent
+data.json
+seed_adapter/
+documents

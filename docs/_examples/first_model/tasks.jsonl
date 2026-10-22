@@ -1,6 +1,9 @@
 {"id":"train-001","prompt":"Classify the sentiment of this review: The service was wonderful and I loved the meal."}
 {"id":"train-002","prompt":"Classify the sentiment of this review: The product broke immediately and support was awful."}
 {"id":"train-003","prompt":"Classify the sentiment of this review: The package contains three cables."}
+{"id":"val-001","prompt":"Classify the sentiment of this review: The staff were friendly and the room was spotless."}
+{"id":"val-002","prompt":"Classify the sentiment of this review: The delivery was late and the box arrived crushed."}
+{"id":"val-003","prompt":"Classify the sentiment of this review: The manual is printed in English and French."}
 {"id":"test-001","prompt":"Classify the sentiment of this review: This was a delightful experience."}
 {"id":"test-002","prompt":"Classify the sentiment of this review: I regret buying this disappointing device."}
 {"id":"test-003","prompt":"Classify the sentiment of this review: The shop opens at nine."}

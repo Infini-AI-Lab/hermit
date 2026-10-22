@@ -1,6 +1,8 @@
 # OfficeQA in the SkillOpt paper's setting (arXiv 2605.23904): its 50/24/172 split, oracle pages with file tools, exact
 # match, and its SkillOpt hyperparameters: 4 epochs of batches of 40 (2 steps each), minibatch 8, merge 8, learning
 # rate 4 decaying to 2, validation gate, gated slow update, meta skill. GLM 5.3 Flash acts.
+# Codex harness: as skillopt/run.yaml, but GLM 5.3 Flash acts in SkillOpt's Codex harness (codex exec in a
+# workspace-write sandbox, the skill as SKILL.md, the whole corpus under docs/; utils/agent/agent.py).
 data:
   tasks: ../utils/tasks.jsonl
   train: ../utils/splits/train.txt
@@ -10,7 +12,9 @@ data:
   shuffle_seed: 42
 task_info: ../utils/task-info/
 agent:
-  name: ../utils/agent/agent.py:OfficeQAPaperAgent
+  name: ../utils/agent/agent.py:OfficeQAAgent
+  params:
+    harness: codex
   concurrency: 8
 judge:
   path: ../utils/judge.py
@@ -42,16 +46,14 @@ sandbox:
   allow: []                  # the Evolver's own model endpoint is always reachable
   read: []
   env: []                    # the Evolver's model key variable is always passed; nothing else is
-  profiles:                  # the agent's sandbox (rollout; eval and check take it too)
-    rollout:
-      read: [../utils/documents]   # the source documents (prepare.py links them)
-      mask: [../utils/.private]    # the judge's answers, beside the task
+  profiles:                  # the agent's role runs unconfined: it drives Docker (the daemon's socket, the sessions'
+    rollout: {enabled: false}   # homes under ~/.cache); each Codex session is in a container of its own (codex_sandbox.py)
 trainer:
-  run_name: paper-skillopt
+  run_name: codex-skillopt
   output_dir: runs
-  tree_dir: runs/trees/paper-skillopt       # one adapter tree per run: runs can train side by side
+  tree_dir: runs/trees/codex-skillopt       # one adapter tree per run: runs can train side by side
   epochs: 4
-  budget: {usd: 40, hours: 30}
-  call_timeout_min: 180
+  budget: {usd: null, hours: null}
+  call_timeout_min: 360       # Codex sessions are slower
 eval:
   repeats: 3                 # the target samples: three passes over the test questions

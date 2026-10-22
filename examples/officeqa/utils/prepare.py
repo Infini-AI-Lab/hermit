@@ -1,37 +1,95 @@
 #!/usr/bin/env python3
-"""Write tasks.jsonl and the splits from an OfficeQA prepared directory (questions only; answers stay private).
+"""Write the SkillOpt paper's OfficeQA split (arXiv 2605.23904: 50 train, 24 validation, 172 test) for this example.
 
-    python prepare.py /path/to/officeqa_official_133/prepared
-Splits are deterministic (seed 0): 60 train, 13 validation, 60 test; smoke splits: 4 train, 2 validation, 2 test;
-try splits: 12 train, 10 test.
+    python prepare.py --csv officeqa_full.csv --docs treasury_bulletins_parsed --split-dir SkillOpt/data/officeqa_id_split
+
+--csv        databricks/officeqa officeqa_full.csv (questions and answers)
+--docs       databricks/officeqa treasury_bulletins_parsed/ with transformed/ (text) and jsons/ (page-level parse)
+--split-dir  SkillOpt's data/officeqa_id_split (ids, source files and pages, at the paper's dataset revision);
+             without it the files are fetched from github.com/microsoft/SkillOpt at the pinned commit.
+
+Writes tasks.jsonl (questions only), splits/, data.json, seed_adapter/ (SkillOpt's initial OfficeQA skill as a
+prompt-only adapter) and documents (a link to --docs, what the agent's sandbox is granted) here, and the answers to
+.private/answers.jsonl.
 """
+import argparse
+import csv
 import json
 from pathlib import Path
-import random
-import sys
+import shutil
+import urllib.request
 
-prepared = Path(sys.argv[1]).resolve()
-here = Path(__file__).resolve().parent
-rows = [json.loads(l) for l in (prepared / "agent" / "tasks.jsonl").read_text().splitlines() if l.strip()]
-with open(here / "tasks.jsonl", "w") as f:
-    for r in rows:
-        f.write(json.dumps({"id": r["task_id"], "question": r["question"]}, ensure_ascii=False) + "\n")
-ids = sorted(r["task_id"] for r in rows)
-random.Random(0).shuffle(ids)
-splits = {"train": ids[:60], "val": ids[60:73], "test": ids[73:]}
-(here / "splits").mkdir(exist_ok=True)
-for name, part in splits.items():
-    (here / "splits" / f"{name}.txt").write_text("\n".join(part) + "\n")
-(here / "splits" / "smoke_train.txt").write_text("\n".join(ids[:4]) + "\n")
-(here / "splits" / "smoke_val.txt").write_text("\n".join(ids[60:62]) + "\n")
-(here / "splits" / "smoke_test.txt").write_text("\n".join(ids[73:75]) + "\n")
-(here / "splits" / "try_train.txt").write_text("\n".join(ids[:12]) + "\n")
-(here / "splits" / "try_test.txt").write_text("\n".join(ids[73:83]) + "\n")
-(here / "data_root.txt").write_text(str(prepared) + "\n")
-# What the agent reads, linked beside the task: the configs grant the agent's sandbox this link (prepared/agent), never
-# prepared/private, which holds the answers.
-link = here / "prepared_agent"
+HERE = Path(__file__).resolve().parent
+SKILLOPT_COMMIT = "79124b37e9a6371e13b753f8bcd7adb1e493ade1"
+
+
+def split_items(split_dir: str | None, name: str) -> list[dict]:
+    if split_dir:
+        return json.loads((Path(split_dir) / name / "items.json").read_text())
+    url = (f"https://raw.githubusercontent.com/microsoft/SkillOpt/{SKILLOPT_COMMIT}/data/officeqa_id_split/"
+           f"{name}/items.json")
+    with urllib.request.urlopen(url, timeout=60) as response:
+        return json.loads(response.read())
+
+
+def as_list(value) -> list[str]:
+    from skillopt.envs.officeqa.dataloader import _parse_list_field     # SkillOpt's own parsing of these fields
+    return _parse_list_field(value)
+
+
+parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+parser.add_argument("--csv", required=True, type=Path)
+parser.add_argument("--docs", required=True, type=Path)
+parser.add_argument("--split-dir")
+args = parser.parse_args()
+
+docs = args.docs.resolve()
+for sub in ("transformed", "jsons"):
+    if not (docs / sub).is_dir():
+        raise SystemExit(f"{docs / sub} is missing: --docs is treasury_bulletins_parsed/ with transformed/ and jsons/")
+# The documents, linked beside the task: the configs grant the agent's sandbox this link (and cover .private/).
+link = HERE / "documents"
 if link.is_symlink() or link.exists():
     link.unlink()
-link.symlink_to(prepared / "agent", target_is_directory=True)
-print({k: len(v) for k, v in splits.items()})
+link.symlink_to(docs, target_is_directory=True)
+rows = {r["uid"]: r for r in csv.DictReader(args.csv.open(encoding="utf-8", newline=""))}
+private = HERE / ".private"
+private.mkdir(mode=0o700, exist_ok=True)
+(HERE / "splits").mkdir(exist_ok=True)
+tasks, answers, splits, drifted = [], [], {}, []
+for name in ("train", "val", "test"):
+    items = split_items(args.split_dir, name)
+    splits[name] = [item["uid"] for item in items]
+    for item in items:
+        row = rows[item["uid"]]
+        # Every field comes from the CSV, so question, answer and pages agree. Items whose sources differ from the
+        # split's (the paper's dataset revision) are listed in data.json as drifted.
+        source_files, source_docs = as_list(row["source_files"]), as_list(row["source_docs"])
+        if (source_files, source_docs) != (as_list(item["source_files"]), as_list(item["source_docs"])):
+            drifted.append(item["uid"])
+        tasks.append({"id": item["uid"], "question": row["question"].strip(), "category": item["category"],
+                      "source_files": source_files, "source_docs": source_docs})
+        answers.append({"id": item["uid"], "answer": row["answer"].strip()})
+with open(HERE / "tasks.jsonl", "w") as f:
+    f.writelines(json.dumps(t, ensure_ascii=False) + "\n" for t in tasks)
+with open(private / "answers.jsonl", "w") as f:
+    f.writelines(json.dumps(a, ensure_ascii=False) + "\n" for a in answers)
+(private / "answers.jsonl").chmod(0o600)
+for name, ids in splits.items():
+    (HERE / "splits" / f"{name}.txt").write_text("\n".join(ids) + "\n")
+(HERE / "splits" / "smoke_train.txt").write_text("\n".join(splits["train"][:4]) + "\n")
+(HERE / "splits" / "smoke_val.txt").write_text("\n".join(splits["val"][:2]) + "\n")
+(HERE / "splits" / "smoke_test.txt").write_text("\n".join(splits["test"][:4]) + "\n")
+(HERE / "data.json").write_text(json.dumps({"docs": str(docs), "answers": str(private / "answers.jsonl"),
+                                             "csv": str(args.csv.resolve()), "drifted_from_split": drifted}, indent=1))
+
+# SkillOpt's starting skill for OfficeQA, as a prompt-only adapter (start_from in the configs).
+import harnessadapter
+import skillopt
+seed = HERE / "seed_adapter"
+if seed.exists():
+    shutil.rmtree(seed)
+shutil.copytree(Path(harnessadapter.__file__).parent / "algorithms" / "templates" / "prompt_only", seed)
+(seed / "ADAPTER.md").write_text((Path(skillopt.__file__).parent / "envs" / "officeqa" / "skills" / "initial.md")
+                                 .read_text())
+print({name: len(ids) for name, ids in splits.items()}, "sources differing from the split:", drifted)

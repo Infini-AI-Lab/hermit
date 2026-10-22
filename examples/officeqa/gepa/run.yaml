@@ -1,31 +1,26 @@
-# OfficeQA with the GEPA Evolver: one GEPA iteration per step of 3 training questions; candidates are scored on
-# the 13 validation questions. GLM 5.3 Flash for acting and reflecting.
+# OfficeQA in the SkillOpt paper's setting with the GEPA Evolver (the paper's GEPA settings are not published): GEPA's
+# default reflection minibatch of 3, Pareto selection over the 24 validation questions, 4 epochs over the 50 training
+# questions. GLM 5.3 Flash acts.
 data:
   tasks: ../utils/tasks.jsonl
   train: ../utils/splits/train.txt
   val: ../utils/splits/val.txt
   test: ../utils/splits/test.txt
-  step_size: 3               # GEPA's reflection minibatch
+  step_size: 3
+  shuffle_seed: 42
 task_info: ../utils/task-info/
-model: fireworks/accounts/fireworks/models/glm-5p3-flash   # the run's model: the react agent and the `llm` tool; <backend>/<model id>
 agent:
-  name: react     # the built-in tool-calling agent: no pipeline code for this task
-  concurrency: 10
-  params:
-    prompt: ../utils/agent/prompt.md
-    tools: ../utils/tools.py
-    user: "{question}"
-    max_turns: 24
-    max_tokens: 16384
-    max_output_tokens: 65536
-    temperature: 0.6
-    answer_tag: FINAL_ANSWER
-    logs: .logs
+  name: ../utils/agent/agent.py:OfficeQAAgent
+  concurrency: 8
 judge:
   path: ../utils/judge.py
 template: prompt-only@1.0
+start_from: ../utils/seed_adapter  # SkillOpt's initial OfficeQA skill
 evolver:
   name: gepa
+llm:                           # the optimizer: GLM 5.3 at medium effort (the paper: GPT-5.5, medium)
+  model: fireworks/accounts/fireworks/models/glm-5p3     # <backend>/<model id>; the price is the backend's
+  extra_body: {reasoning_effort: medium}
 sandbox:
   enabled: true
   network: restricted
@@ -33,10 +28,15 @@ sandbox:
   read: []
   env: []                    # the Evolver's model key variable is always passed; nothing else is
   profiles:                  # the agent's sandbox (rollout; eval and check take it too)
-    rollout: {read: [../utils/prepared_agent]}   # the corpus (prepare.py links it); the answers beside it stay out
+    rollout:
+      read: [../utils/documents]   # the source documents (prepare.py links them)
+      mask: [../utils/.private]    # the judge's answers, beside the task
 trainer:
-  run_name: officeqa-gepa
+  run_name: paper-gepa
   output_dir: runs
-  epochs: 1
-  budget: {usd: 30, hours: 12}
+  tree_dir: runs/trees/paper-gepa       # one adapter tree per run: runs can train side by side
+  epochs: 4
+  budget: {usd: 40, hours: 30}
   call_timeout_min: 60
+eval:
+  repeats: 3                 # the target samples: three passes over the test questions

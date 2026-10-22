@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  const duration = 6;
+  const duration = 8;
   const byId = id => document.getElementById(id);
   const timeline = byId('timeline');
   const playButton = byId('play-pause');

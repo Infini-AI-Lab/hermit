@@ -22,7 +22,7 @@ harnessadapter train --config run.yaml model=vllm/Qwen/Qwen3-30B-A3B-Instruct-25
 
 | Setting | Who calls the model | Dialect it speaks |
 |---|---|---|
-| `llm` | the run's `llm` tool: the `prompt_only`, `gepa` and `skillopt` Evolvers | chat completions |
+| `llm` | the run's `llm` tool: the `gepa` and `skillopt` Evolvers | chat completions |
 | `agent.params.model` with `agent.name: react` | the built-in tool-calling agent | chat completions |
 | `agent.params.model` with `agent.name: codex` / `claude-code` | the CLI acting agent | Responses API / Messages API |
 | `evolver.params.model` of the `codex`, `claude` and `mwm` Evolvers | the learner's CLI session | Responses API / Messages API |
@@ -41,10 +41,11 @@ model of the CLI's own provider (`gpt-5.4`), as before. So a provider id that ha
 name (`openai/...`) is read as a reference to that backend.
 
 The top-level `model` is a default: `model=vllm/qwen` on the command line moves every caller that names no model
-of its own. The OfficeQA configs name none (one `model:` line serves the react agent and the `llm` tool), so one
-override moves the whole run; a config that sets `llm` or `agent.params.model` itself keeps them unless they are
-overridden too (`llm=vllm/qwen agent.params.model=vllm/qwen`). The `codex_glm` Evolver pins its model in its
-manifest; `evolver.params.model=vllm/qwen` moves it.
+of its own. The OfficeQA configs leave the acting agent's model to it but set the learner's `llm` (GLM 5.3; the
+SkillOpt paper used GPT-5.5), so `model=vllm/qwen` moves the agent and `llm=vllm/qwen` the learner; a config that
+sets `llm` or `agent.params.model` itself keeps them unless they are overridden too
+(`llm=vllm/qwen agent.params.model=vllm/qwen`). An agent Evolver such as `codex` takes its model
+from `evolver.params.model`; `evolver.params.model=vllm/qwen` moves it.
 
 ## Where backends are declared
 
@@ -166,8 +167,8 @@ python -m sglang.launch_server --model-path Qwen/Qwen3-30B-A3B-Instruct-2507-FP8
 
 ```bash
 harnessadapter backends check vllm/qwen3                    # /models, then chat, responses and messages
-harnessadapter check --config examples/officeqa/prompt_only/run.yaml model=vllm/qwen3
-harnessadapter train --config examples/officeqa/prompt_only/run.yaml model=vllm/qwen3
+harnessadapter check --config examples/officeqa/gepa/run.yaml model=vllm/qwen3 llm=vllm/qwen3
+harnessadapter train --config examples/officeqa/gepa/run.yaml model=vllm/qwen3 llm=vllm/qwen3
 ```
 
 The examples' launchers take the same references: `MW_MODEL=vllm/qwen3 VLLM_BASE_URL=http://127.0.0.1:8000/v1`
@@ -184,7 +185,8 @@ model on another backend that figure is replaced by the backend's price (unknown
 
 Context length: a local server is often started with a shorter context than the hosted model has, and a request
 whose prompt plus `max_tokens` exceeds it fails (vLLM: HTTP 400, "maximum context length"). The built-in `react`
-agent keeps its whole history, so a task whose tool results pile up fails on it: on OfficeQA, one question's history
-on Qwen3.6-35B-A3B reached 114,689 tokens, and with `max_tokens: 16384` the request exceeded a 131,072-token server
-by one token. Serve the model with its full context (vLLM `--max-model-len`, SGLang `--context-length`), or lower
-`agent.params.max_tokens` and `tool_result_chars`.
+agent keeps its whole history, so a task whose tool results pile up fails on it: on an OfficeQA setting with search
+tools over the whole corpus, one question's history on Qwen3.6-35B-A3B reached 114,689 tokens, and with
+`max_tokens: 16384` the request exceeded a 131,072-token server by one token. Serve the model with its full
+context (vLLM `--max-model-len`, SGLang `--context-length`), or lower `agent.params.max_tokens` and
+`tool_result_chars`.

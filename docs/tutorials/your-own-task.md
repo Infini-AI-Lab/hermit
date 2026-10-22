@@ -90,14 +90,17 @@ experiment. A context optimizer might use:
 
 ```yaml
 template: prompt-only@1.0
-evolver: {name: prompt_only}
+evolver: {name: gepa}
+data:
+  val: val.txt
 llm:
   base_url: https://your-endpoint.example/v1
   model: your-learner-model
   api_key_env: LEARNER_API_KEY
 ```
 
-Configure the acting model in your pipeline independently. Add a validation split for GEPA or SkillOpt.
+Configure the acting model in your pipeline independently. GEPA and SkillOpt need a validation split (`data.val`)
+and their installation extra.
 Keep a finite budget and start with a small batch.
 
 Run `check`, baseline `eval --adapter none`, `train`, then `eval --adapter root` and `eval --adapter final`.
