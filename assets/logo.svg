@@ -8,7 +8,7 @@
   <g mask="url(#ht3)"><g transform="rotate(45 33 36)" fill="#1B1D22"><ellipse cx="33" cy="35" rx="17.5" ry="11.5" transform="rotate(-10 33 35)"/></g></g>
   <g mask="url(#hl)" fill="none" stroke="#C6743C" stroke-width="3.2" stroke-linecap="round"><path d="M21.40 55.20q-5.10 2.20 -7.40 7.15"/><path d="M24.42 55.70q-3.10 3.15 -4.34 7.59"/><path d="M38.60 55.20q5.10 2.20 7.40 7.15"/><path d="M35.58 55.70q3.10 3.15 4.34 7.59"/></g>
   <g mask="url(#hb)" fill="#C6743C"><ellipse cx="30" cy="46" rx="14" ry="11"/></g>
-  <g fill="#C6743C"><path d="M13 48L11.70 40.61A7.5 7.5 0 1 1 7.25 43.18Z"/><path d="M47 48L52.75 43.18A7.5 7.5 0 1 1 48.30 40.61Z"/></g>
-  <g fill="#1B1D22"><circle cx="25.5" cy="44" r="2.2"/><circle cx="34.5" cy="44" r="2.2"/></g>
+  <g fill="#C6743C"><path d="M13 48L11.70 40.61A7.5 7.5 0 1 1 7.25 43.18Z"/><g><path d="M47 48L52.75 43.18A7.5 7.5 0 1 1 48.30 40.61Z"/><animateTransform attributeName="transform" type="rotate" values="0 47 48;0 47 48;-16 47 48;4 47 48;-16 47 48;0 47 48;0 47 48" keyTimes="0;0.62;0.67;0.72;0.77;0.82;1" dur="6.5s" repeatCount="indefinite"/></g></g>
+  <g fill="#1B1D22"><ellipse cx="25.5" cy="44" rx="2.2" ry="2.2"><animate attributeName="ry" values="2.2;2.2;0.25;2.2;2.2" keyTimes="0;0.9;0.93;0.96;1" dur="4.2s" repeatCount="indefinite"/></ellipse><ellipse cx="34.5" cy="44" rx="2.2" ry="2.2"><animate attributeName="ry" values="2.2;2.2;0.25;2.2;2.2" keyTimes="0;0.9;0.93;0.96;1" dur="4.2s" repeatCount="indefinite"/></ellipse></g>
   </g>
 </svg>
