@@ -101,7 +101,8 @@ component is in the agent's prompt and there are no scripts, subagents or plugin
 
 `library_from: <run directory>` continues a finished stream on other tasks: the run starts from that stream's
 library, copied into its Training State before the first task, and is the same stream with the new tasks at its end.
-It refuses a run that has not finished, a library carrying grader wording, and a task that stream already took.
+It refuses a run without a summary (still going, or interrupted), editor settings that differ from that run's (model,
+effort, tools, slots, sources, the Claude Code binary), a library carrying grader wording, and a task that stream took.
 
 ## Examples
 
