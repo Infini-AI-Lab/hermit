@@ -37,13 +37,13 @@ your agent, separately from the learner.
 Each step is one Codex session. It reads the task description and the adapter's `EVOLVER.md`, studies the step's
 results, edits `ADAPTER.md`, calls `check_spec`, and writes a report whose first line says what it changed. The run
 records each session as one call with its token totals; to count the session's individual model requests, put a
-metering relay in front of the learner, as the examples' `launch.sh` does (`harnessadapter/runtime/wire_meter.py`).
+metering relay in front of the learner, as the examples' `launch.sh` does (`hermit/runtime/wire_meter.py`).
 The Trainer then applies its specification checks. There is no validation-based improvement gate in this method: a
 structurally valid update can reduce task performance. The final adapter is the current one.
 
 ## Parameters and defaults
 
-```{literalinclude} ../../harnessadapter/algorithms/evolvers/codex/evolver.yaml
+```{literalinclude} ../../hermit/algorithms/evolvers/codex/evolver.yaml
 :language: yaml
 :start-at: params:
 ```

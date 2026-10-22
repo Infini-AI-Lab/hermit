@@ -73,7 +73,7 @@ filesystem grants and execution isolation.
 | Status and usage | Returned `StepResult` | Trainer control flow and accounting. |
 | Reports | `workspace.output` | Saved run records. |
 
-```{literalinclude} ../../harnessadapter/evolver/base.py
+```{literalinclude} ../../hermit/evolver/base.py
 :language: python
 :pyobject: StepResult
 ```
@@ -105,7 +105,7 @@ For selection guidance, setup, and the complete parameter defaults, use [Choose 
 | `mwm` | MetaWorld Model, with `template: mwm`: one native MWM learner session per block (the step), under the MWM contract, with the task's evidence store mounted at `/evidence`, in its own network namespace. See `docs/methods/mwm.md`. | The Codex CLI, a task that keeps an MWM evidence store (`evolver_access.environment`), `task-info/mwm/`, `data.shuffle: false` |
 
 Change a parameter with `evolver.params` in the run config; each Evolver's `evolver.yaml` under
-`harnessadapter/algorithms/evolvers/` lists them with their defaults. For `gepa`, `data.step_size` is the reflection minibatch;
+`hermit/algorithms/evolvers/` lists them with their defaults. For `gepa`, `data.step_size` is the reflection minibatch;
 for `skillopt`, it is the batch size and `trainer.epochs` the number of epochs. Both select from candidates they keep
 in `state/`, and `finalize` hands back the one with the best validation score.
 

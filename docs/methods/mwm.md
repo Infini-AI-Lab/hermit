@@ -37,7 +37,7 @@ before that window's checkpoint is tested.
 
 ## Parameters and defaults
 
-```{literalinclude} ../../harnessadapter/algorithms/evolvers/mwm/evolver.yaml
+```{literalinclude} ../../hermit/algorithms/evolvers/mwm/evolver.yaml
 :language: yaml
 ```
 

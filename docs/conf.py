@@ -1,4 +1,4 @@
-"""Sphinx configuration for the MetaHarnessAdapter documentation.
+"""Sphinx configuration for the Hermit documentation.
 
 Build: bash docs/build.sh  ->  docs/_build/html
 Live preview: bash docs/serve.sh
@@ -9,8 +9,8 @@ import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
 
-project = "MetaHarnessAdapter"
-author = "MetaHarnessAdapter contributors"
+project = "Hermit"
+author = "Hermit contributors"
 copyright = f"2026-{datetime.now().year}, {author}"
 release = version = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
 
@@ -39,7 +39,7 @@ html_theme_options = {
     "accent_color": "orange",
     "light_logo": "_static/wordmark-light.svg",
     "dark_logo": "_static/wordmark-dark.svg",
-    "github_url": "https://github.com/haizhongzheng/MetaHarnessAdapter",
+    "github_url": "https://github.com/haizhongzheng/hermit",
     "nav_links": [
         {"title": "Quick Start", "url": "get-started/quickstart"},
         {"title": "Methods", "url": "methods/index"},
@@ -50,7 +50,7 @@ html_theme_options = {
 html_context = {
     "source_type": "github",
     "source_user": "haizhongzheng",
-    "source_repo": "MetaHarnessAdapter",
+    "source_repo": "hermit",
     "source_version": "main",
     "source_docs_path": "/docs/",
 }

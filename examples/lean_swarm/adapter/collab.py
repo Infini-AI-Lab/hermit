@@ -57,7 +57,7 @@ run_cmd do
 
 
 try:   # v12s: under the standalone service the caller's settings come from a context variable (wiring only, no rule change)
-    from harnessadapter.runtime.agent_context import get as _ctx_get
+    from hermit.runtime.agent_context import get as _ctx_get
 except ImportError:
     _ctx_get = os.environ.get
 

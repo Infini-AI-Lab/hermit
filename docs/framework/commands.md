@@ -2,22 +2,22 @@
 
 | Command | Purpose |
 |---|---|
-| `harnessadapter check --config run.yaml` | Check the settings before training |
-| `harnessadapter train --config run.yaml` | Run the Trainer |
-| `harnessadapter eval --config run.yaml --adapter ...` | Evaluate one adapter on the test split |
-| `harnessadapter deploy --adapter DIR --workspace WORKSPACE --host codex` | Generate a host workspace from an adapter |
-| `harnessadapter convert --adapter DIR --output OUT --target claude-code` | Emit a plugin in a host's native format |
-| `harnessadapter serve DIR` | Serve adapter tools over stdio, normally started by a host |
+| `hermit check --config run.yaml` | Check the settings before training |
+| `hermit train --config run.yaml` | Run the Trainer |
+| `hermit eval --config run.yaml --adapter ...` | Evaluate one adapter on the test split |
+| `hermit deploy --adapter DIR --workspace WORKSPACE --host codex` | Generate a host workspace from an adapter |
+| `hermit convert --adapter DIR --output OUT --target claude-code` | Emit a plugin in a host's native format |
+| `hermit serve DIR` | Serve adapter tools over stdio, normally started by a host |
 
 The first three accept `key=value` overrides after the config (see [Configuration](configuration.md)).
 
 ## Typical workflow
 
 ```bash
-harnessadapter check --config run.yaml                      # optional: catch setting mistakes before spending
-harnessadapter train --config run.yaml                      # train; resumes automatically after a crash
-harnessadapter eval  --config run.yaml --adapter final      # evaluate the final selection
-harnessadapter eval  --config run.yaml --adapter none       # optional: the agent without any adapter
+hermit check --config run.yaml                      # optional: catch setting mistakes before spending
+hermit train --config run.yaml                      # train; resumes automatically after a crash
+hermit eval  --config run.yaml --adapter final      # evaluate the final selection
+hermit eval  --config run.yaml --adapter none       # optional: the agent without any adapter
 ```
 
 ## check
@@ -47,10 +47,10 @@ the same `run_name` is unfinished, `resume_mode: auto` continues it.
 ## eval
 
 ```bash
-harnessadapter eval --config run.yaml --adapter final         # a run's final adapter
-harnessadapter eval --config run.yaml --adapter <tag|commit|path>
-harnessadapter eval --config run.yaml --adapter root          # the template's initial content
-harnessadapter eval --config run.yaml --adapter none          # no harness adapter: a pure baseline
+hermit eval --config run.yaml --adapter final         # a run's final adapter
+hermit eval --config run.yaml --adapter <tag|commit|path>
+hermit eval --config run.yaml --adapter root          # the template's initial content
+hermit eval --config run.yaml --adapter none          # no harness adapter: a pure baseline
 ```
 
 | Item | Rule |
@@ -68,9 +68,9 @@ user chooses: `--adapter none` runs the acting agent with no harness adapter at 
 ## deploy
 
 ```bash
-harnessadapter deploy --adapter DIR --workspace WORKSPACE --host codex
-harnessadapter deploy --adapter DIR --workspace WORKSPACE --host claude-code
-harnessadapter deploy --adapter DIR --workspace WORKSPACE --host pi
+hermit deploy --adapter DIR --workspace WORKSPACE --host codex
+hermit deploy --adapter DIR --workspace WORKSPACE --host claude-code
+hermit deploy --adapter DIR --workspace WORKSPACE --host pi
 ```
 
 This generates host instruction files, role/skill files, and tool configuration. It does not launch the acting
@@ -82,15 +82,15 @@ the adapter directory. See the [file mapping](adapter.md#acting-interface) for e
 ## convert
 
 ```bash
-harnessadapter convert --adapter DIR --output OUT --target claude-code
-harnessadapter convert --adapter DIR --output OUT --target codex
-harnessadapter convert --adapter DIR --output OUT --target pi
-harnessadapter convert --adapter DIR --output OUT --target hermes
+hermit convert --adapter DIR --output OUT --target claude-code
+hermit convert --adapter DIR --output OUT --target codex
+hermit convert --adapter DIR --output OUT --target pi
+hermit convert --adapter DIR --output OUT --target hermes
 ```
 
 `deploy` prepares a workspace you work in; `convert` emits a plugin in the host's native format, installed once and
-available in every project. The adapter is copied into the plugin, and its MCP entry runs `harnessadapter serve` on
-that copy, so `harnessadapter` must be installed and on PATH wherever the plugin is used. Nothing in the plugin
+available in every project. The adapter is copied into the plugin, and its MCP entry runs `hermit serve` on
+that copy, so `hermit` must be installed and on PATH wherever the plugin is used. Nothing in the plugin
 names the machine that produced it.
 
 ### What each host's plugin carries
@@ -99,7 +99,7 @@ names the machine that produced it.
 |---|---|---|---|---|
 | Context (`ADAPTER.md`) | output style, forced while enabled | refused | refused | system prompt section, up to 4,000 characters |
 | Skills | `skills/` | `skills/` | `skills/` | `ctx.register_skill` |
-| Tools | `.mcp.json` | `mcp.json` | generated extension, `pi.registerMcpServer` | `ctx.register_tool`, forwarding to `harnessadapter serve` |
+| Tools | `.mcp.json` | `mcp.json` | generated extension, `pi.registerMcpServer` | `ctx.register_tool`, forwarding to `hermit serve` |
 | Roles | `agents/` | refused | refused | refused |
 
 A part the target's plugin format cannot carry is refused: `convert` exits 2 and names every such part before writing
@@ -135,16 +135,16 @@ Hermes plugin data directory); Pi has none, so it goes to the package directory.
 `claude mcp list` and `codex mcp list` show whether the tool server starts. `hermes plugins doctor OUT` runs Hermes'
 discovery, manifest parsing and `register(ctx)` without installing.
 
-`harnessadapter.json` next to the embedded adapter records the adapter's id and version and the framework version
-that made the plugin; `harnessadapter serve` warns on stderr when the installed framework is another version.
+`hermit.json` next to the embedded adapter records the adapter's id and version and the framework version
+that made the plugin; `hermit serve` warns on stderr when the installed framework is another version.
 Converting again into the same output replaces the generated parts, so a skill, a role or a context the adapter no
 longer has does not survive from the earlier plugin; the host's audit log there is kept.
 
 ## serve
 
 ```bash
-harnessadapter serve DIR
-harnessadapter serve DIR --audit-log tool-calls.jsonl
+hermit serve DIR
+hermit serve DIR --audit-log tool-calls.jsonl
 ```
 
 Starts the implemented per-session MCP tool server on stdio. Generated plugin entries normally run it for the host.
@@ -154,13 +154,13 @@ It is not an HTTP preview server or the proposed standalone-service launcher. `-
 
 `deploy` and `convert` accept `--python` to choose the Python executable used for tools; it defaults to the running interpreter.
 `deploy --output` is an alias for `--workspace`. `convert --allow-lossy` allows explicitly reported omitted exports.
-`check --no-probe` skips only the acting-task probe. Use `harnessadapter COMMAND --help` for argument syntax.
+`check --no-probe` skips only the acting-task probe. Use `hermit COMMAND --help` for argument syntax.
 
 ## Implementation notes
 
 - `check` also verifies that every `sandbox.read` path exists. It does not check the pipeline's host: adapters are meant to
   be usable by any acting agent, and each pipeline deploys the exports (context, tools, roles, skills) in its own way.
-- `harnessadapter deploy --adapter DIR --workspace WORKSPACE --host codex|claude-code|pi` deploys an adapter's exports into
+- `hermit deploy --adapter DIR --workspace WORKSPACE --host codex|claude-code|pi` deploys an adapter's exports into
   a host workspace (context block, MCP tools, native roles, skills).
-- `harnessadapter convert --adapter DIR --output OUT --target ...` emits a plugin in the host's native format instead,
+- `hermit convert --adapter DIR --output OUT --target ...` emits a plugin in the host's native format instead,
   and exits 2 naming every part the target's plugin cannot carry.

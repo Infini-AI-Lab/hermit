@@ -6,7 +6,7 @@ each question's parsed source pages, SkillOpt's initial skill as the seed, and e
 SkillOpt's own rollout, answers with the adapter's `ADAPTER.md` as its skill, in direct chat or in SkillOpt's Codex
 harness, and the `gepa` or `skillopt` Evolver trains that skill from the scored answers. The code, configs and
 trained adapters are in `examples/officeqa/`
-([README](https://github.com/haizhongzheng/MetaHarnessAdapter/tree/main/examples/officeqa)). For an API-only
+([README](https://github.com/haizhongzheng/hermit/tree/main/examples/officeqa)). For an API-only
 walkthrough without external dataset assets, use [First real-model training](../get-started/first-model.md); for
 local training without model access, [Quick Start](../get-started/quickstart.md).
 
@@ -76,11 +76,11 @@ training budget of USD 5 / three hours. Usage becomes visible at call boundaries
 provider-side spending cap. The separate `check` probe and `eval` calls are outside the training budget.
 
 ```bash
-harnessadapter check --config examples/officeqa/gepa/smoke.yaml
-harnessadapter train --config examples/officeqa/gepa/smoke.yaml
-harnessadapter eval --config examples/officeqa/gepa/smoke.yaml --adapter final
-harnessadapter eval --config examples/officeqa/gepa/smoke.yaml --adapter ../utils/seed_adapter
-harnessadapter eval --config examples/officeqa/gepa/smoke.yaml --adapter none
+hermit check --config examples/officeqa/gepa/smoke.yaml
+hermit train --config examples/officeqa/gepa/smoke.yaml
+hermit eval --config examples/officeqa/gepa/smoke.yaml --adapter final
+hermit eval --config examples/officeqa/gepa/smoke.yaml --adapter ../utils/seed_adapter
+hermit eval --config examples/officeqa/gepa/smoke.yaml --adapter none
 ```
 
 `check` runs one training task without an adapter to probe the pipeline and judge; use `--no-probe` to skip that
@@ -102,7 +102,7 @@ it into a separate generated workspace:
 ```bash
 cat examples/officeqa/gepa/runs/smoke-gepa/checkout/ADAPTER.md
 cat examples/officeqa/gepa/runs/smoke-gepa/checkout/CARD.md
-harnessadapter deploy --adapter examples/officeqa/gepa/runs/smoke-gepa/checkout \
+hermit deploy --adapter examples/officeqa/gepa/runs/smoke-gepa/checkout \
   --workspace .demo/officeqa-codex --host codex
 ```
 
@@ -142,13 +142,13 @@ validation gate, gated slow update, and meta skill, with `prompt_env: officeqa` 
 `skillopt/smoke.yaml` runs 4 training questions in 2 epochs of 2 steps. Run it first, then the full configs:
 
 ```bash
-harnessadapter train --config examples/officeqa/skillopt/smoke.yaml
-harnessadapter train --config examples/officeqa/gepa/run.yaml
-harnessadapter train --config examples/officeqa/skillopt/run.yaml
-harnessadapter eval --config examples/officeqa/gepa/run.yaml --adapter final
-harnessadapter eval --config examples/officeqa/skillopt/run.yaml --adapter final
-harnessadapter eval --config examples/officeqa/skillopt/run.yaml --adapter none
-harnessadapter eval --config examples/officeqa/skillopt/run.yaml --adapter ../utils/seed_adapter
+hermit train --config examples/officeqa/skillopt/smoke.yaml
+hermit train --config examples/officeqa/gepa/run.yaml
+hermit train --config examples/officeqa/skillopt/run.yaml
+hermit eval --config examples/officeqa/gepa/run.yaml --adapter final
+hermit eval --config examples/officeqa/skillopt/run.yaml --adapter final
+hermit eval --config examples/officeqa/skillopt/run.yaml --adapter none
+hermit eval --config examples/officeqa/skillopt/run.yaml --adapter ../utils/seed_adapter
 ```
 
 Each row of [Results](#results) is the `mean_score` of one evaluation, in the folder named after its selector:
@@ -219,16 +219,16 @@ container is root with `SYS_ADMIN`, so Codex's sandbox is what keeps a session's
 and keep the answers out of both.
 
 ```bash
-harnessadapter train --config examples/officeqa/skillopt/smoke_codex.yaml
-harnessadapter train --config examples/officeqa/gepa/run_codex.yaml
-harnessadapter train --config examples/officeqa/skillopt/run_codex.yaml
-harnessadapter eval --config examples/officeqa/gepa/run_codex.yaml --adapter final
-harnessadapter eval --config examples/officeqa/skillopt/run_codex.yaml --adapter final
-harnessadapter eval --config examples/officeqa/skillopt/run_codex.yaml --adapter none
-harnessadapter eval --config examples/officeqa/skillopt/run_codex.yaml --adapter ../utils/seed_adapter
+hermit train --config examples/officeqa/skillopt/smoke_codex.yaml
+hermit train --config examples/officeqa/gepa/run_codex.yaml
+hermit train --config examples/officeqa/skillopt/run_codex.yaml
+hermit eval --config examples/officeqa/gepa/run_codex.yaml --adapter final
+hermit eval --config examples/officeqa/skillopt/run_codex.yaml --adapter final
+hermit eval --config examples/officeqa/skillopt/run_codex.yaml --adapter none
+hermit eval --config examples/officeqa/skillopt/run_codex.yaml --adapter ../utils/seed_adapter
 ```
 
-Codex's workspaces are under `~/.cache/harnessadapter/officeqa-codex-actor/` (`agent.params.codex_dir`), outside the
+Codex's workspaces are under `~/.cache/hermit/officeqa-codex-actor/` (`agent.params.codex_dir`), outside the
 checkout, so no repository instructions reach the session; each rollout's commands are in its `codex_raw.txt`, except
 for a session that timed out, whose `codex_raw.txt` SkillOpt leaves empty.
 
@@ -257,7 +257,7 @@ A run's records are under `examples/officeqa/<method>/runs/<run name>/` (`<run>`
 | `<run>/eval/<selector>/results.jsonl` | per attempt: the judge's score and feedback, `tokens`, `wall_s`, log path |
 | `examples/officeqa/<method>/runs/trees/<run name>/` | Git history of the adapter versions |
 | `examples/officeqa/utils/agent/.logs/` | direct-chat rollouts: SkillOpt's prediction files |
-| `~/.cache/harnessadapter/officeqa-codex-actor/rollouts/` | Codex-harness rollouts, with `codex_raw.txt` |
+| `~/.cache/hermit/officeqa-codex-actor/rollouts/` | Codex-harness rollouts, with `codex_raw.txt` |
 | `docker logs oq-egress` | every connection the Codex sessions made or were refused |
 
 `<selector>` is `final`, `none`, `adapter`, or a directory's name such as `seed_adapter`; re-evaluating a selector
@@ -287,8 +287,8 @@ one container per session). Learner: GLM 5.3 (medium). Test: 172 questions, thre
 |---|---|---|
 | none: the agent without an adapter | 0.415 | 0.543 |
 | SkillOpt's initial skill (`utils/seed_adapter/`) | 0.465 | 0.564 |
-| GEPA's trained skill | 0.564 ([card](https://github.com/haizhongzheng/MetaHarnessAdapter/blob/main/examples/officeqa/gepa/adapter/CARD.md)) | 0.595 |
-| SkillOpt's trained skill | 0.576 ([card](https://github.com/haizhongzheng/MetaHarnessAdapter/blob/main/examples/officeqa/skillopt/adapter/CARD.md)) | 0.628 |
+| GEPA's trained skill | 0.564 ([card](https://github.com/haizhongzheng/hermit/blob/main/examples/officeqa/gepa/adapter/CARD.md)) | 0.595 |
+| SkillOpt's trained skill | 0.576 ([card](https://github.com/haizhongzheng/hermit/blob/main/examples/officeqa/skillopt/adapter/CARD.md)) | 0.628 |
 
 Paired differences in points of accuracy, with 95% bootstrap intervals over questions; bold where the interval lies
 above zero. In direct chat, the trained skills' wins over the initial skill were reported without their intervals,
@@ -351,8 +351,8 @@ are not the results above.
 `skillopt/run.yaml` trained in direct chat. Evaluate them with a directory selector:
 
 ```bash
-harnessadapter eval --config examples/officeqa/gepa/run.yaml --adapter adapter
-harnessadapter eval --config examples/officeqa/skillopt/run.yaml --adapter adapter
+hermit eval --config examples/officeqa/gepa/run.yaml --adapter adapter
+hermit eval --config examples/officeqa/skillopt/run.yaml --adapter adapter
 ```
 
 Numbers they copied from training answers are replaced by made-up numbers of the same form, so their cards' scores

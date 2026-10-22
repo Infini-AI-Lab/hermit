@@ -9,9 +9,9 @@ From the repository root:
 
 ```bash
 mkdir -p .demo
-cp -R harnessadapter/algorithms/templates/prompt_only .demo/deploy-adapter
+cp -R hermit/algorithms/templates/prompt_only .demo/deploy-adapter
 python -c 'from pathlib import Path; Path(".demo/deploy-adapter/ADAPTER.md").write_text("# Working rules\n\nCheck units before doing arithmetic.\n")'
-python -m harnessadapter.spec .demo/deploy-adapter --root harnessadapter/algorithms/templates/prompt_only
+python -m hermit.spec .demo/deploy-adapter --root hermit/algorithms/templates/prompt_only
 ```
 
 Use a fresh destination for the copy. You can instead use a trained `<run>/checkout/` with its compatible template.
@@ -19,7 +19,7 @@ Use a fresh destination for the copy. You can instead use a trained `<run>/check
 ## 2. Generate and inspect a workspace
 
 ```bash
-harnessadapter deploy --adapter .demo/deploy-adapter --workspace .demo/deploy-codex --host codex
+hermit deploy --adapter .demo/deploy-adapter --workspace .demo/deploy-codex --host codex
 cat .demo/deploy-codex/AGENTS.md
 cat .demo/deploy-codex/.codex/config.toml
 ```
@@ -36,7 +36,7 @@ generated files you expect to keep unchanged.
 
 ```bash
 python -c 'from pathlib import Path; Path(".demo/deploy-adapter/ADAPTER.md").write_text("# Working rules\n\nCheck units and dates before doing arithmetic.\n")'
-harnessadapter deploy --adapter .demo/deploy-adapter --workspace .demo/deploy-codex --host codex
+hermit deploy --adapter .demo/deploy-adapter --workspace .demo/deploy-codex --host codex
 cat .demo/deploy-codex/AGENTS.md
 ```
 
@@ -56,7 +56,7 @@ Return to the repository root for the remaining commands. For Claude Code use a 
 From the repository root, this context-only adapter can be converted for Claude Code:
 
 ```bash
-harnessadapter convert --adapter .demo/deploy-adapter --output .demo/deploy-plugin --target claude-code
+hermit convert --adapter .demo/deploy-adapter --output .demo/deploy-plugin --target claude-code
 python -c 'from pathlib import Path; print("\n".join(str(p) for p in sorted(Path(".demo/deploy-plugin").rglob("*")) if p.is_file()))'
 ```
 

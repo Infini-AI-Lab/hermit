@@ -34,8 +34,8 @@ manifest-driven service lifecycle remains a [proposal](../developer/service-desi
 | Custom pipeline | Your agent receives the exports directly | You own the acting loop or need dynamic integration |
 
 ```bash
-harnessadapter deploy --adapter DIR --workspace WS --host codex
-harnessadapter convert --adapter DIR --output OUT --target claude-code
+hermit deploy --adapter DIR --workspace WS --host codex
+hermit convert --adapter DIR --output OUT --target claude-code
 ```
 
 Both commands exist in this checkout. They generate files; they do not launch an acting agent or prove that the

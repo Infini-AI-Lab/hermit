@@ -13,7 +13,7 @@ import unittest
 TASK = Path(__file__).resolve().parents[2]
 FRAMEWORK = TASK.parents[1]
 CLBENCH = Path(os.environ.get("MWM_CLBENCH", str(Path.home() / "code/clbench")))
-TEMPLATE = FRAMEWORK / "harnessadapter/algorithms/templates/mwm"
+TEMPLATE = FRAMEWORK / "hermit/algorithms/templates/mwm"
 
 
 @unittest.skipUnless((CLBENCH / "src/interface.py").is_file(), "clbench checkout not available")
@@ -30,9 +30,9 @@ class HostDrivenByAFakeTurn(unittest.TestCase):
         self.adapter = self.tmp / "adapter"
         shutil.copytree(TEMPLATE, self.adapter, ignore=shutil.ignore_patterns("__pycache__"))
         (self.adapter / "ADAPTER.md").write_text("CONTEXT FOR THE HOST\n")
-        from harnessadapter.algorithms.evolvers.mwm import deployment as _dep
+        from hermit.algorithms.evolvers.mwm import deployment as _dep
         deployment = _dep.host_settings(TASK / "utils/task-info/mwm")
-        from harnessadapter import Session
+        from hermit import Session
         session = Session(self.adapter, evidence=self.tmp / "evidence", deployment=deployment)
         self.system = host.AdapterHost(session, model="m", workspace=self.tmp / "ws", venue="database")
         self.seen = []
@@ -99,7 +99,7 @@ class HostDrivenByAFakeTurn(unittest.TestCase):
         cost = json.loads((self.tmp / "ws/cost.jsonl").read_text().splitlines()[-1])
         self.assertEqual((cost["role"], cost["input_tokens"], cost["output_tokens"], cost["cached_input_tokens"]), ("host", 20, 10, 4))
         # the MWM evidence writer turns the host's records into the learner's files
-        from harnessadapter.algorithms.evolvers.mwm.evidence import clbench as clbench_evidence, readme
+        from hermit.algorithms.evolvers.mwm.evidence import clbench as clbench_evidence, readme
         qs = clbench_evidence.group_questions(self.system._pending)
         self.assertEqual(len(qs), 1)
         paths = clbench_evidence.write_raw(qs, str(self.tmp / "evidence"), 1)

@@ -19,7 +19,7 @@ Each agent talks only to the adapter: the plan, the proved lemmas and the messag
 Install the framework first ([Installation](../../docs/get-started/installation.md)). Check the adapter against its template:
 
 ```bash
-python -m harnessadapter.spec examples/lean_swarm/adapter --root harnessadapter/algorithms/templates/lean_collab
+python -m hermit.spec examples/lean_swarm/adapter --root hermit/algorithms/templates/lean_collab
 ```
 
 Also needed: the Codex CLI, bubblewrap and socat on PATH, the key of the model's backend (`FIREWORKS_API_KEY` for
@@ -46,7 +46,7 @@ without starting an agent. The launcher does, in order:
 
 1. **Service.** Starts the team service with a config naming the adapter, one endpoint per agent and the
    `COLLAB_*` variables: the shared library directory, the target theorem and the Lean checkout.
-2. **Workspaces.** `harnessadapter deploy` of the adapter into one workspace per agent (its instructions into
+2. **Workspaces.** `hermit deploy` of the adapter into one workspace per agent (its instructions into
    `AGENTS.md`, its skills under `.codex/skills/`), plus the problem as `Problem.lean` with the target left as
    `sorry`.
 3. **Agents.** `codex exec` in each workspace with the task and the agent's own endpoint as the `team` MCP server,

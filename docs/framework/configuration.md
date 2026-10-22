@@ -21,7 +21,7 @@ The `llm` section configures the run's model tool, which the GEPA learner uses.
 Models are named by reference, `<backend>/<model id>` (`fireworks/accounts/fireworks/models/glm-5p3-flash`,
 `vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8`); the backend decides the endpoint, the key variable and the price,
 so the same config runs against another provider or a local vLLM or SGLang server with one override:
-`harnessadapter train --config run.yaml model=vllm/...`. See [Model backends](../guides/model-backends.md).
+`hermit train --config run.yaml model=vllm/...`. See [Model backends](../guides/model-backends.md).
 
 The acting agent owns its own model configuration. Changing `llm.model` does not change the acting agent's model;
 a built-in agent takes it from `agent.params.model`, and so does OfficeQA's own agent (GLM 5.3 Flash when unset).
@@ -31,12 +31,12 @@ For every field, its default, type, and path rules, use the [complete field refe
 
 ## Defaults and overrides
 
-The framework merges `harnessadapter/defaults.yaml`, your YAML, and command-line overrides, in that order.
+The framework merges `hermit/defaults.yaml`, your YAML, and command-line overrides, in that order.
 Only write settings you want to override:
 
 ```bash
-harnessadapter train --config examples/officeqa/gepa/smoke.yaml trainer.run_name=smoke-02 trainer.epochs=2
-harnessadapter eval --config examples/officeqa/gepa/smoke.yaml --adapter final trainer.run_name=smoke-02
+hermit train --config examples/officeqa/gepa/smoke.yaml trainer.run_name=smoke-02 trainer.epochs=2
+hermit eval --config examples/officeqa/gepa/smoke.yaml --adapter final trainer.run_name=smoke-02
 ```
 
 Use the same run name for training and evaluation. Unknown configuration keys are rejected. Fields inside
@@ -95,15 +95,15 @@ Every process the framework starts runs in a sandbox, in one of five roles. Only
 |---|---|
 | `learner` | The Evolver's learner program (a coding agent or a script). |
 | `rollout` | The task pipeline during training: each task's agent runs in its own worker process. |
-| `eval` | The same worker, for `harnessadapter eval`. |
-| `check` | The same worker, for the probe of `harnessadapter check`. |
+| `eval` | The same worker, for `hermit eval`. |
+| `check` | The same worker, for the probe of `hermit check`. |
 | `tool` | A tool the template or task declares for the Evolver; its code is never imported in the Trainer. |
 
 A custom Evolver's own Python code runs in the Trainer, as before; what it starts goes through the learner sandbox.
 
 It is a positive allowlist: inside, only what is granted exists. Read-only: the system's `/usr` and a few `/etc`
 files, the Python interpreter, the Python distributions the framework depends on (not every package installed beside
-it), the `harnessadapter` package (not the checkout around it), the learner program's installation, the Evolver's
+it), the `hermit` package (not the checkout around it), the learner program's installation, the Evolver's
 directory, the granted accesses and `sandbox.read`. Read-write: the adapter, state, scratch and output directories.
 The task's data, other runs and the user's home are not there at all.
 

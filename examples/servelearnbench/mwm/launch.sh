@@ -6,14 +6,14 @@
 #   examples/servelearnbench/mwm/launch.sh retail_l3 test     # the per-window tests, then `slb score`
 #
 # `train` starts two wire meters (the host's on WM_PORT, the learner's on WM_PORT+1), each in front of its model's
-# backend, and one `harnessadapter train` in the background, logging to <runs>/<tag>/run.log. `test` replays every
+# backend, and one `hermit train` in the background, logging to <runs>/<tag>/run.log. `test` replays every
 # window's held-out tests on the adapter the run had at that window (examples/servelearnbench/utils/windows.py) and
 # scores the result file; it can run while training is still going (windows not trained yet are skipped) and again
 # later.
 #
 # Settings (environment variables, all optional):
 #   MW_MODEL         the host's and the learner's model, a backend reference <backend>/<model id>
-#                    (`harnessadapter backends list`; default fireworks/accounts/fireworks/models/glm-5p3-flash);
+#                    (`hermit backends list`; default fireworks/accounts/fireworks/models/glm-5p3-flash);
 #                    MW_HOST_MODEL and MW_EVOLVER_MODEL name either alone. The learner's backend must serve the
 #                    Responses API (Codex speaks nothing else; vLLM and SGLang do). For example:
 #                    MW_MODEL=vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8 VLLM_BASE_URL=http://127.0.0.1:8102/v1
@@ -22,7 +22,7 @@
 #   MW_TAG           the run's name (default slb_<scenario>)        WM_PORT  the host meter's port (default 3451)
 #   MW_RUNS          where runs go (default ~/code/metaworld-runs)  MW_TRAIN_SPLIT  another train split (a smoke)
 #   MW_EFFORT        the reasoning effort of host and learner (default high)
-#   MW_WIRE_METER    the wire meter script (default: the framework's harnessadapter/runtime/wire_meter.py)
+#   MW_WIRE_METER    the wire meter script (default: the framework's hermit/runtime/wire_meter.py)
 #   MW_METHOD        another method's config, examples/servelearnbench/<method>/<scenario>.yaml (default mwm);
 #                    examples/servelearnbench/prompt_only/launch.sh sets it
 set -eu
@@ -41,7 +41,7 @@ MODEL=${MW_MODEL:-fireworks/accounts/fireworks/models/glm-5p3-flash}
 HOST_MODEL=${MW_HOST_MODEL:-$MODEL}
 EVOLVER_MODEL=${MW_EVOLVER_MODEL:-$MODEL}
 EFFORT=${MW_EFFORT:-high}
-METER=${MW_WIRE_METER:-$FRAMEWORK/harnessadapter/runtime/wire_meter.py}
+METER=${MW_WIRE_METER:-$FRAMEWORK/hermit/runtime/wire_meter.py}
 META_PORT=$((WM_PORT+1))
 TASKDIR=$FRAMEWORK/examples/servelearnbench/utils
 CONFIG=$FRAMEWORK/examples/servelearnbench/$METHOD/$SCENARIO.yaml
@@ -58,8 +58,8 @@ if ! grep -q "\"scenario\": \"$SCENARIO\"" "$TASKDIR/tasks.jsonl" 2>/dev/null; t
   "$PY" "$TASKDIR/prepare.py" --scenario "$SCENARIO" --block "${BLOCK:-12}"
 fi
 
-# The two models resolved on their backends (the shell form of harnessadapter.backends: HOST_* and EVOLVER_*).
-resolve() { "$PY" -m harnessadapter.backends shell "$2" | sed "s/^HA_/$1_/"; }
+# The two models resolved on their backends (the shell form of hermit.backends: HOST_* and EVOLVER_*).
+resolve() { "$PY" -m hermit.backends shell "$2" | sed "s/^HA_/$1_/"; }
 # HOST_MODEL stays the reference; HOST_MODEL_ID is the model's id on its backend (same for EVOLVER_*).
 eval "$(resolve HOST "$HOST_MODEL")"; [ -n "${HOST_MODEL_ID:-}" ] || { echo "REFUSING: cannot resolve $HOST_MODEL"; exit 1; }
 eval "$(resolve EVOLVER "$EVOLVER_MODEL")"; [ -n "${EVOLVER_MODEL_ID:-}" ] || { echo "REFUSING: cannot resolve $EVOLVER_MODEL"; exit 1; }
@@ -132,7 +132,7 @@ EVOLVER=$(sed -n '/^evolver:/,/^[a-z]/p' "$CONFIG" | grep -E '^\s+name:' | head 
 echo "=== setting stamp: scenario=$SCENARIO method=$METHOD framework=$HEAD servelearnbench=$SLB_VERSION" \
      "host_model=$HOST_MODEL host_effort=$EFFORT evolver=$EVOLVER evolver_model=$EVOLVER_MODEL evolver_effort=$EFFORT" \
      "meter=$WM_PORT/$META_PORT shuffle=false train=${MW_TRAIN_SPLIT:-splits/serving.txt} ===" > "$LOG"
-setsid nohup "$PY" -m harnessadapter.cli train --config "$CONFIG" \
+setsid nohup "$PY" -m hermit.cli train --config "$CONFIG" \
     "trainer.run_name=$TAG" "trainer.output_dir=$RUNS/$TAG" \
     ${MW_TRAIN_SPLIT:+"data.train=$MW_TRAIN_SPLIT"} \
     "backends.learner=$LEARNER" "evolver.params.model=learner/$EVOLVER_MODEL_ID" \

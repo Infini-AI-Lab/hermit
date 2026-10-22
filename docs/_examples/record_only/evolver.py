@@ -1,7 +1,7 @@
 """An offline example of the Evolver contract; records evidence without optimizing."""
 import json
 
-from harnessadapter.evolver.base import Evolver, StepContext, StepResult
+from hermit.evolver.base import Evolver, StepContext, StepResult
 
 
 class RecordOnlyEvolver(Evolver):

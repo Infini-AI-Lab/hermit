@@ -11,17 +11,17 @@ import re
 import pytest
 import yaml
 
-from harnessadapter.config import Config
-from harnessadapter.evaluate import evaluate
-from harnessadapter.evolver.base import Usage
-from harnessadapter.trainer.trainer import Trainer
+from hermit.config import Config
+from hermit.evaluate import evaluate
+from hermit.evolver.base import Usage
+from hermit.trainer.trainer import Trainer
 
-TEMPLATE = Path(__file__).resolve().parents[1] / "harnessadapter" / "algorithms" / "templates" / "prompt_only"
+TEMPLATE = Path(__file__).resolve().parents[1] / "hermit" / "algorithms" / "templates" / "prompt_only"
 KINDS = ("ALPHA", "BETA", "GAMMA", "DELTA")
 
 PIPELINE = '''
 from pathlib import Path
-from harnessadapter.task import RunOutput
+from hermit.task import RunOutput
 
 def run(task, adapter):
     text = (Path(adapter) / "ADAPTER.md").read_text() if adapter else ""
@@ -171,7 +171,7 @@ def test_gepa_never_takes_a_cut_off_reply(tmp_path):
 
 def test_skillopt_retries_a_cut_off_reply_with_more_room():
     pytest.importorskip("skillopt")
-    from harnessadapter.evolver.loader import find, load_class
+    from hermit.evolver.loader import find, load_class
     import sys
     module = sys.modules[load_class(find("skillopt")).__module__]
     asked = []
@@ -202,7 +202,7 @@ def test_run_agent_names_logs_of_training_tasks_only(tmp_path):
 
 def test_skillopt_reads_skillopt_prediction_files_and_the_paper_view(tmp_path):
     pytest.importorskip("skillopt")
-    from harnessadapter.evolver.loader import find, load_class
+    from hermit.evolver.loader import find, load_class
     import sys
     module = sys.modules[load_class(find("skillopt")).__module__]
     log = tmp_path / "log"
@@ -222,7 +222,7 @@ def test_skillopt_reads_skillopt_prediction_files_and_the_paper_view(tmp_path):
 
 def test_skillopt_shows_the_analyst_a_codex_trace_summary(tmp_path):
     pytest.importorskip("skillopt")
-    from harnessadapter.evolver.loader import find, load_class
+    from hermit.evolver.loader import find, load_class
     from skillopt.gradient.reflect import fmt_minibatch_trajectories
     import sys
     module = sys.modules[load_class(find("skillopt")).__module__]

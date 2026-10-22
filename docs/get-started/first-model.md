@@ -54,9 +54,9 @@ text response; some reasoning models need more.
 ## 3. Check and measure the baseline
 
 ```bash
-harnessadapter check --config .demo/first-model/run.yaml --no-probe
-harnessadapter check --config .demo/first-model/run.yaml
-harnessadapter eval --config .demo/first-model/run.yaml --adapter none
+hermit check --config .demo/first-model/run.yaml --no-probe
+hermit check --config .demo/first-model/run.yaml
+hermit eval --config .demo/first-model/run.yaml --adapter none
 ```
 
 The first command loads components without an acting-model call. It does not authenticate the endpoint or prove
@@ -70,9 +70,9 @@ feedback; connection or model errors require investigation.
 ## 4. Train and evaluate the selected adapter
 
 ```bash
-harnessadapter train --config .demo/first-model/run.yaml
-harnessadapter eval --config .demo/first-model/run.yaml --adapter root
-harnessadapter eval --config .demo/first-model/run.yaml --adapter final
+hermit train --config .demo/first-model/run.yaml
+hermit eval --config .demo/first-model/run.yaml --adapter root
+hermit eval --config .demo/first-model/run.yaml --adapter final
 ```
 
 One batch of three training attempts becomes learning material. GEPA first scores the starting adapter on the

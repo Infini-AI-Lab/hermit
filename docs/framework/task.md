@@ -38,7 +38,7 @@ the current `train` and `eval` commands require a configured scoring callable.
 
 Only `output` is required when constructing `RunOutput`:
 
-```{literalinclude} ../../harnessadapter/task.py
+```{literalinclude} ../../hermit/task.py
 :language: python
 :pyobject: RunOutput
 ```
@@ -57,7 +57,7 @@ log paths available until the Trainer has collected them.
 
 ### Feedback result
 
-```{literalinclude} ../../harnessadapter/task.py
+```{literalinclude} ../../hermit/task.py
 :language: python
 :pyobject: JudgeResult
 ```
@@ -77,7 +77,7 @@ agent:
   params:
     model: fireworks/accounts/fireworks/models/glm-5p3-flash   # <backend>/<model id>; or {base_url, model, api_key_env, price}
     prompt: utils/agent/prompt.md      # system prompt; `{context}` marks where ADAPTER.md goes (else appended)
-    tools: utils/tools.py              # the task's tools: functions marked with @harnessadapter.agents.tool
+    tools: utils/tools.py              # the task's tools: functions marked with @hermit.agents.tool
     user: "{question}"                 # the first user message from the task's fields
     max_turns: 24
     answer_tag: FINAL_ANSWER           # optional: one more call without tools when the tag is missing
@@ -91,7 +91,7 @@ agent:
 Every agent has the same interface, the task's own included:
 
 ```python
-from harnessadapter.agents import Agent
+from hermit.agents import Agent
 
 class MyAgent(Agent):                     # agent.name: agent/agent.py:MyAgent
     def run(self, task, adapter):         # self.params, self.base (the config's directory), self.session(adapter)
@@ -103,7 +103,7 @@ A plain `run(task, adapter)` function is accepted too (`agent.name: agent/pipeli
 `params` and `base` when its signature names them. A task tool is a plain function:
 
 ```python
-from harnessadapter.agents import tool
+from hermit.agents import tool
 
 @tool("Read lines of one bulletin file.", {"type": "object", "properties": {
       "filename": {"type": "string"}, "start_line": {"type": "integer"}}, "required": ["filename"]})

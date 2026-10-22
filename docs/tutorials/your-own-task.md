@@ -24,9 +24,9 @@ Its config's output path was written for its original directory. Change `trainer
 `trainer.run_name` to `my-task` in the copied `run.yaml`. Then run:
 
 ```bash
-harnessadapter check --config .demo/my-task/run.yaml
-harnessadapter train --config .demo/my-task/run.yaml
-harnessadapter eval --config .demo/my-task/run.yaml --adapter final
+hermit check --config .demo/my-task/run.yaml
+hermit train --config .demo/my-task/run.yaml
+hermit eval --config .demo/my-task/run.yaml --adapter final
 ```
 
 Outputs now live under `.demo/my-task/runs/my-task/`. Replace the teaching components one at a time.

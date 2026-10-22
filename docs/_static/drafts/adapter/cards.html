@@ -95,9 +95,9 @@ output { font-size: 11px; font-variant-numeric: tabular-nums; min-width: 64px; }
   const CARDS = [
     { id: 'cmd', steps: [
       { lines: ['pip install -e .'], desc: 'Install' },
-      { lines: ['harnessadapter train --config run.yaml'], desc: 'Train' },
-      { lines: ['harnessadapter deploy --adapter my-adapter --workspace my-project --host codex'], desc: 'Deploy' },
-      { lines: ['harnessadapter convert --adapter my-adapter --output plugin --target claude-code'], desc: 'Convert to a plugin' },
+      { lines: ['hermit train --config run.yaml'], desc: 'Train' },
+      { lines: ['hermit deploy --adapter my-adapter --workspace my-project --host codex'], desc: 'Deploy' },
+      { lines: ['hermit convert --adapter my-adapter --output plugin --target claude-code'], desc: 'Convert to a plugin' },
     ] },
     { id: 'code', steps: [
       { lines: ['adapter.initialize()'], desc: 'Initialize' },
@@ -107,7 +107,7 @@ output { font-size: 11px; font-variant-numeric: tabular-nums; min-width: 64px; }
       { lines: ['adapter = evolver.finalize(adapter)'], desc: 'Final adapter', ver: 1 },
     ] },
   ];
-  const cmdLine = text => `<span class="prompt">$</span><span class="cmd">${esc(text).replace(/^(harnessadapter \w+|pip install)/, '<b>$1</b>').replace(/(--target \S+|--host \S+)/, '<b class="t">$1</b>')}</span>`;
+  const cmdLine = text => `<span class="prompt">$</span><span class="cmd">${esc(text).replace(/^(hermit \w+|pip install)/, '<b>$1</b>').replace(/(--target \S+|--host \S+)/, '<b class="t">$1</b>')}</span>`;
   // adapter and evolver, the two things the loop is about, in orange; keywords lighter; evolver.* bold
   const codeLine = text => esc(text).replace(/\b(for|in|if|or)\b/g, '<span class="kw">$1</span>')
     .replace(/\b(evolver)(\.(?:step|finalize))\b/g, '<b class="t">$1$2</b>').replace(/\b(adapter)\b/g, '<span class="t">$1</span>');

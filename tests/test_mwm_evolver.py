@@ -12,15 +12,15 @@ import textwrap
 import pytest
 import yaml
 
-from harnessadapter.config import Config
-from harnessadapter.trainer.trainer import Trainer
+from hermit.config import Config
+from hermit.trainer.trainer import Trainer
 
 
 @pytest.fixture
 def tmp_path():
     """A directory outside /tmp: the template check runs under bubblewrap with an empty tmpfs at /tmp."""
     import tempfile
-    base = Path.home() / ".cache" / "harnessadapter-tests"
+    base = Path.home() / ".cache" / "hermit-tests"
     base.mkdir(parents=True, exist_ok=True)
     path = Path(tempfile.mkdtemp(dir=base))
     yield path
@@ -56,9 +56,9 @@ seen["relative_evidence"] = os.path.exists("../evidence/README.md")
 seen["world_model_ro"] = not os.access("/world-model/memory", os.W_OK)
 ws = Path(os.environ["FAKE_WORKSPACE"])
 areas = [ws / n for n in os.listdir(ws) if n not in ("adapter", "agent_home")] + [ws.parent / "learning_material"]
-import harnessadapter
-repo = Path(harnessadapter.__file__).resolve().parents[1]
-areas += [repo / "examples", repo / "harnessadapter" / "algorithms" / "evolvers" / "mwm" / "materials"]
+import hermit
+repo = Path(hermit.__file__).resolve().parents[1]
+areas += [repo / "examples", repo / "hermit" / "algorithms" / "evolvers" / "mwm" / "materials"]
 seen["home_entries"] = sorted(os.listdir(os.environ["CODEX_HOME"]))
 (Path(os.environ["CODEX_HOME"]) / "leftover.txt").write_text("from a previous session")
 areas.append(cwd.parent.parent / "learning_material")
@@ -90,7 +90,7 @@ print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 100, "cach
 PIPELINE = textwrap.dedent('''
     import os
     from pathlib import Path
-    from harnessadapter.task import RunOutput
+    from hermit.task import RunOutput
 
     def run(task, adapter):
         evidence = Path(os.environ["MWM_TEST_EVIDENCE"])

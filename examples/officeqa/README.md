@@ -28,18 +28,18 @@ corpus (`utils/documents`, what the agent's sandbox is granted) to `utils/`.
 ## Run
 
 ```bash
-harnessadapter train --config examples/officeqa/gepa/run.yaml          # GEPA
-harnessadapter train --config examples/officeqa/skillopt/run.yaml      # SkillOpt
-harnessadapter eval  --config examples/officeqa/gepa/run.yaml     --adapter final                  # GEPA's skill
-harnessadapter eval  --config examples/officeqa/skillopt/run.yaml --adapter final                  # SkillOpt's skill
-harnessadapter eval  --config examples/officeqa/skillopt/run.yaml --adapter none                   # no skill
-harnessadapter eval  --config examples/officeqa/skillopt/run.yaml --adapter ../utils/seed_adapter  # initial skill
+hermit train --config examples/officeqa/gepa/run.yaml          # GEPA
+hermit train --config examples/officeqa/skillopt/run.yaml      # SkillOpt
+hermit eval  --config examples/officeqa/gepa/run.yaml     --adapter final                  # GEPA's skill
+hermit eval  --config examples/officeqa/skillopt/run.yaml --adapter final                  # SkillOpt's skill
+hermit eval  --config examples/officeqa/skillopt/run.yaml --adapter none                   # no skill
+hermit eval  --config examples/officeqa/skillopt/run.yaml --adapter ../utils/seed_adapter  # initial skill
 ```
 
 An adapter's accuracy is `mean_score` in `<method>/runs/<run name>/eval/<selector>/summary.json` (172 test
 questions, three passes each), where `<selector>` is `final`, `none`, `adapter` or a directory's name such as
 `seed_adapter`; `--adapter adapter` evaluates the trained adapter included in the folder. A smoke on a few
-questions: the folder's `smoke.yaml`, after `harnessadapter check --config ...`
+questions: the folder's `smoke.yaml`, after `hermit check --config ...`
 ([walkthrough](../../docs/recipes/officeqa.md#check-train-evaluate)). The Codex harness: the same commands with
 `run_codex.yaml` and `smoke_codex.yaml`, the folder's configs with `agent.params.harness: codex` and no budget.
 

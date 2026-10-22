@@ -72,7 +72,7 @@ codex-workspace/
     config.toml
     agents/reviewer.toml
     skills/verify-output/SKILL.md
-  .harnessadapter-deploy.json
+  .hermit-deploy.json
 ```
 
 ```text
@@ -82,7 +82,7 @@ claude-workspace/
   .claude/
     agents/reviewer.md
     skills/verify-output/SKILL.md
-  .harnessadapter-deploy.json
+  .hermit-deploy.json
 ```
 
 ```text
@@ -91,7 +91,7 @@ pi-workspace/            # only for an adapter without roles
   .pi/
     mcp.json
     skills/verify-output/SKILL.md
-  .harnessadapter-deploy.json
+  .hermit-deploy.json
 ```
 
 Only declared exports produce corresponding content. A prompt-only adapter has no tool-server entry, skills, or
@@ -103,9 +103,9 @@ roles to install. The generated deployment report identifies the actual paths an
 rendered context between markers like these:
 
 ```html
-<!-- harnessadapter:file-example:start -->
+<!-- hermit:file-example:start -->
 <!-- Rendered adapter instructions appear in this managed block. -->
-<!-- harnessadapter:file-example:end -->
+<!-- hermit:file-example:end -->
 ```
 
 The snippet shows the boundaries, not the complete generated contents. Redeployment replaces that adapter's block
@@ -122,7 +122,7 @@ Tool code is not copied into `AGENTS.md`. The generated MCP configuration starts
 adapter's absolute path:
 
 ```text
-python -m harnessadapter.runtime.mcp_server --adapter /absolute/path/to/adapter ...
+python -m hermit.runtime.mcp_server --adapter /absolute/path/to/adapter ...
 ```
 
 That wrapper exposes the declared tool schemas, loads the Python functions, and returns their results to the
@@ -142,7 +142,7 @@ A program that runs its own agent uses an adapter through `Session`, the Python 
 `convert`:
 
 ```python
-from harnessadapter import Session
+from hermit import Session
 
 session = Session("docs/_examples/file_adapter")
 system_prompt = base_prompt + session.context()          # ADAPTER.md as the Evolver last wrote it
@@ -157,13 +157,13 @@ for call in message["tool_calls"]:                       # a chat-completions tu
 coroutine, `agents()` and `skills()` give the other exports. Resources a tool may receive through its reserved
 `_resources` parameter are bound at construction: `deployment=` (a host.json or its dict), `learning_material=`,
 `evidence=` (a record directory), or any mapping under `resources=`. `audit_log=` writes one JSON line per call,
-the same record `harnessadapter serve` writes. The [task interface](task.md) leaves host integration to the
+the same record `hermit serve` writes. The [task interface](task.md) leaves host integration to the
 pipeline; it does not automatically implement every export.
 
 Outside a run's rollout sandbox (a production program, say), `Session(adapter, sandbox=True)` keeps the adapter's code
-out of the program: the tools run in a `harnessadapter serve` inside a sandbox (no network, the adapter read-only,
+out of the program: the tools run in a `hermit serve` inside a sandbox (no network, the adapter read-only,
 nothing writable but the evidence store), reached over MCP, and the audit log is still written by the program. Pass a
-configured `harnessadapter.sandbox.Sandbox` instead of `True` to grant more. `deployment`, `learning_material` and
+configured `hermit.sandbox.Sandbox` instead of `True` to grant more. `deployment`, `learning_material` and
 `evidence` go with it; other `resources` are refused, and so is an adapter whose subagents come from a Python exporter.
 Close the session, or use it in a `with` block, to stop the server.
 
@@ -186,7 +186,7 @@ The learner's path is `ctx.workspace.adapter`. A scripted Evolver can use normal
 can edit the same files through its file tools. For example, this method appends a predefined instruction:
 
 ```python
-from harnessadapter.evolver.base import StepContext, StepResult
+from hermit.evolver.base import StepContext, StepResult
 
 def step(self, ctx: StepContext) -> StepResult:
     path = ctx.workspace.adapter / "ADAPTER.md"
@@ -270,8 +270,8 @@ From the repository root after installation, use fresh output directories:
 ```bash
 mkdir -p .demo
 cp -R docs/_examples/file_adapter .demo/file-adapter
-harnessadapter deploy --adapter .demo/file-adapter --workspace .demo/file-codex --host codex
-harnessadapter deploy --adapter .demo/file-adapter --workspace .demo/file-claude --host claude-code
+hermit deploy --adapter .demo/file-adapter --workspace .demo/file-codex --host codex
+hermit deploy --adapter .demo/file-adapter --workspace .demo/file-claude --host claude-code
 ```
 
 Inspect `.demo/file-codex/AGENTS.md`, `.demo/file-claude/CLAUDE.md`, and the generated roles, skills, and tool
@@ -280,7 +280,7 @@ configuration. No model is called by these deployment commands.
 After editing the source copy, check it against the template:
 
 ```bash
-python -m harnessadapter.spec .demo/file-adapter --root docs/_examples/file_adapter
+python -m hermit.spec .demo/file-adapter --root docs/_examples/file_adapter
 ```
 
 Then rerun the deployment command to refresh host files. This is the same source-edit → check → deploy boundary

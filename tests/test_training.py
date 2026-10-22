@@ -7,17 +7,17 @@ import textwrap
 import pytest
 import yaml
 
-from harnessadapter.config import Config
-from harnessadapter.evaluate import evaluate
-from harnessadapter.settings_check import run_check
-from harnessadapter.trainer.trainer import Trainer
-from harnessadapter.tree import INVALID_MARK, git
+from hermit.config import Config
+from hermit.evaluate import evaluate
+from hermit.settings_check import run_check
+from hermit.trainer.trainer import Trainer
+from hermit.tree import INVALID_MARK, git
 
-TEMPLATE = Path(__file__).resolve().parents[1] / "harnessadapter" / "algorithms" / "templates" / "prompt_only"
+TEMPLATE = Path(__file__).resolve().parents[1] / "hermit" / "algorithms" / "templates" / "prompt_only"
 
 PIPELINE = '''
 from pathlib import Path
-from harnessadapter.task import RunOutput
+from hermit.task import RunOutput
 
 def run(task, adapter):
     text = (Path(adapter) / "ADAPTER.md").read_text() if adapter else ""
@@ -33,7 +33,7 @@ def score(task, output):
     return {"score": float(ok), "feedback": "correct" if ok else f"expected the sum of {task['a']} and {task['b']}"}
 '''
 EVOLVER = '''
-from harnessadapter.evolver.base import Evolver, StepResult
+from hermit.evolver.base import Evolver, StepResult
 
 class Toy(Evolver):
     def step(self, ctx):
@@ -229,7 +229,7 @@ def test_no_change_means_no_commit(tmp_path):
 
 
 def test_warnings_name_risky_settings(tmp_path):
-    from harnessadapter.trainer.trainer import warnings_for
+    from hermit.trainer.trainer import warnings_for
     text = " ".join(warnings_for(load(make_task(tmp_path)), val_given=True))
     assert "sandbox.enabled is false" in text and "sandbox.network is open" in text and "sandbox.env is not set" in text
 
@@ -250,7 +250,7 @@ def test_shuffle_must_be_boolean(tmp_path):
 
 BOOT_EVOLVER = '''
 import subprocess
-from harnessadapter.evolver.base import Evolver, StepResult
+from hermit.evolver.base import Evolver, StepResult
 
 class Boot(Evolver):
     def bootstrap(self, ctx):

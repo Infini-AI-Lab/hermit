@@ -9,11 +9,11 @@ import sys
 import pytest
 import yaml
 
-from harnessadapter.plugins import Unsupported, build
+from hermit.plugins import Unsupported, build
 
 ROOT = Path(__file__).resolve().parents[1]
 EXAMPLE = ROOT / "docs" / "_examples" / "file_adapter"        # a short context, a skill, a role and a tool
-LEAN = ROOT / "harnessadapter" / "algorithms" / "templates" / "lean_collab"  # a context of about 6,000 characters
+LEAN = ROOT / "hermit" / "algorithms" / "templates" / "lean_collab"  # a context of about 6,000 characters
 
 
 def variant(tmp_path, *, roles=True, context=True):
@@ -45,7 +45,7 @@ def test_claude_code_carries_every_part(tmp_path):
     assert "force-for-plugin: true" in style and style.rstrip().endswith("Check the result before returning it.")
     assert (plugin / "agents" / "reviewer.md").is_file() and (plugin / "skills" / "verify-output" / "SKILL.md").is_file()
     server = json.loads((plugin / ".mcp.json").read_text())["mcpServers"]["file_example"]
-    assert server["command"] == "harnessadapter"
+    assert server["command"] == "hermit"
     assert server["args"] == ["serve", "${CLAUDE_PLUGIN_ROOT}/adapter",
                               "--audit-log", "${CLAUDE_PLUGIN_DATA}/tool-calls.jsonl"]
     assert (plugin / "adapter" / "adapter.yaml").is_file()
@@ -90,7 +90,7 @@ def test_pi_package(tmp_path):
     assert (out / "skills" / "verify-output" / "SKILL.md").is_file()
     # Pi reads no MCP server from package files; the extension registers it when Pi loads the package.
     extension = (out / "extensions" / "file-example.ts").read_text()
-    assert 'pi.registerMcpServer("file_example"' in extension and 'command: "harnessadapter"' in extension
+    assert 'pi.registerMcpServer("file_example"' in extension and 'command: "hermit"' in extension
     assert 'args: ["serve", join(root, "adapter")' in extension
     assert "import.meta.url" in extension
 
@@ -127,7 +127,7 @@ def test_hermes_plugin_registers_context_skills_and_tools(tmp_path):
     result = build("hermes", variant(tmp_path, roles=False), out, sys.executable)
     assert "provides_tools: [file_example_count_words]" in (out / "plugin.yaml").read_text()
     # The plugin's module is the shipped file, copied unchanged; only the data next to it is per adapter.
-    assert (out / "__init__.py").read_bytes() == (ROOT / "harnessadapter" / "plugins" / "hermes" /
+    assert (out / "__init__.py").read_bytes() == (ROOT / "hermit" / "plugins" / "hermes" /
                                                   "plugin_init.py").read_bytes()
     ctx = StubContext()
     load_hermes_module(out).register(ctx)
@@ -148,8 +148,8 @@ def test_hermes_refuses_a_context_it_would_drop_and_roles(tmp_path):
 
 
 def test_hermes_bridge_runs_the_tool(tmp_path, monkeypatch):
-    if not (Path(sys.executable).parent / "harnessadapter").exists():
-        pytest.skip("the harnessadapter console script is not installed next to this interpreter")
+    if not (Path(sys.executable).parent / "hermit").exists():
+        pytest.skip("the hermit console script is not installed next to this interpreter")
     monkeypatch.setenv("PATH", str(Path(sys.executable).parent) + os.pathsep + os.environ.get("PATH", ""))
     out = tmp_path / "hermes"
     build("hermes", variant(tmp_path, roles=False), out, sys.executable)
@@ -169,10 +169,10 @@ def test_refuses_a_foreign_nonempty_directory(tmp_path):
 
 
 def test_serve_runs_the_tool_server(tmp_path):
-    """`harnessadapter serve DIR` is the line the plugins carry: an MCP server on stdio for one host session."""
+    """`hermit serve DIR` is the line the plugins carry: an MCP server on stdio for one host session."""
     import subprocess
     audit = tmp_path / "calls.jsonl"
-    proc = subprocess.Popen([sys.executable, "-m", "harnessadapter.cli", "serve", str(EXAMPLE), "--audit-log", str(audit)],
+    proc = subprocess.Popen([sys.executable, "-m", "hermit.cli", "serve", str(EXAMPLE), "--audit-log", str(audit)],
                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
 
     def request(id, method, params):
@@ -216,10 +216,10 @@ def test_reconversion_drops_the_parts_the_adapter_lost(tmp_path):
 
 @pytest.mark.parametrize("target", ["claude-code", "codex", "pi", "hermes"])
 def test_plugin_records_the_framework_version(tmp_path, target):
-    from harnessadapter import __version__
+    from hermit import __version__
     result = build(target, variant(tmp_path, roles=False, context=False), tmp_path / target, sys.executable)
     root = Path(result.get("plugin") or result["output"])
-    record = json.loads((root / "harnessadapter.json").read_text())
+    record = json.loads((root / "hermit.json").read_text())
     assert record["plugin"] == "file-example" and record["version"] == "1.0"
     assert record["framework"] == __version__ == result["framework"]
     if target == "hermes":
@@ -230,14 +230,14 @@ def test_serve_warns_when_the_framework_version_differs(tmp_path):
     import subprocess
     result = build("claude-code", variant(tmp_path, roles=False, context=False), tmp_path / "cc", sys.executable)
     plugin = Path(result["plugin"])
-    record = json.loads((plugin / "harnessadapter.json").read_text())
-    (plugin / "harnessadapter.json").write_text(json.dumps({**record, "framework": "0.0.0"}))
-    proc = subprocess.run([sys.executable, "-m", "harnessadapter.cli", "serve", str(plugin / "adapter")],
+    record = json.loads((plugin / "hermit.json").read_text())
+    (plugin / "hermit.json").write_text(json.dumps({**record, "framework": "0.0.0"}))
+    proc = subprocess.run([sys.executable, "-m", "hermit.cli", "serve", str(plugin / "adapter")],
                           input="", capture_output=True, text=True, timeout=60)
-    assert "made by harnessadapter 0.0.0" in proc.stderr
-    proc = subprocess.run([sys.executable, "-m", "harnessadapter.cli", "serve", str(EXAMPLE)],
+    assert "made by hermit 0.0.0" in proc.stderr
+    proc = subprocess.run([sys.executable, "-m", "hermit.cli", "serve", str(EXAMPLE)],
                           input="", capture_output=True, text=True, timeout=60)
-    assert "made by harnessadapter" not in proc.stderr
+    assert "made by hermit" not in proc.stderr
 
 
 @pytest.mark.parametrize("target,marker", [("pi", "package.json"), ("hermes", "plugin.yaml")])

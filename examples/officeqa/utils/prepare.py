@@ -84,12 +84,12 @@ for name, ids in splits.items():
                                              "csv": str(args.csv.resolve()), "drifted_from_split": drifted}, indent=1))
 
 # SkillOpt's starting skill for OfficeQA, as a prompt-only adapter (start_from in the configs).
-import harnessadapter
+import hermit
 import skillopt
 seed = HERE / "seed_adapter"
 if seed.exists():
     shutil.rmtree(seed)
-shutil.copytree(Path(harnessadapter.__file__).parent / "algorithms" / "templates" / "prompt_only", seed)
+shutil.copytree(Path(hermit.__file__).parent / "algorithms" / "templates" / "prompt_only", seed)
 (seed / "ADAPTER.md").write_text((Path(skillopt.__file__).parent / "envs" / "officeqa" / "skills" / "initial.md")
                                  .read_text())
 print({name: len(ids) for name, ids in splits.items()}, "sources differing from the split:", drifted)

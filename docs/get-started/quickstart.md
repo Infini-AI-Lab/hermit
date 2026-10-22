@@ -9,8 +9,8 @@ learns that rule from judge feedback. It demonstrates the training contract, not
 Follow [Installation](installation.md), activate the environment, and run everything below from the repository root:
 
 ```bash
-harnessadapter --help
-harnessadapter check --config docs/_examples/first_training/run.yaml
+hermit --help
+hermit check --config docs/_examples/first_training/run.yaml
 ```
 
 The probe runs one training task without an adapter. Its score should be **0**, because the agent echoes lowercase
@@ -19,7 +19,7 @@ text while the judge requires uppercase output. That task score does not mean th
 ## 2. Measure the baseline
 
 ```bash
-harnessadapter eval --config docs/_examples/first_training/run.yaml --adapter none
+hermit eval --config docs/_examples/first_training/run.yaml --adapter none
 ```
 
 The JSON summary should report `tasks: 2`, `mean_score: 0.0`, and `errors: 0`. The held-out inputs differ
@@ -28,7 +28,7 @@ from the training inputs. Answers are computed by the judge rather than stored i
 ## 3. Train from feedback
 
 ```bash
-harnessadapter train --config docs/_examples/first_training/run.yaml
+hermit train --config docs/_examples/first_training/run.yaml
 ```
 
 There are two steps of one task each. After the first failure, the learner reads the judge's feedback and writes
@@ -46,8 +46,8 @@ The sandbox is disabled for this local scripted demonstration. It launches no ex
 ## 4. Evaluate the result
 
 ```bash
-harnessadapter eval --config docs/_examples/first_training/run.yaml --adapter root
-harnessadapter eval --config docs/_examples/first_training/run.yaml --adapter final
+hermit eval --config docs/_examples/first_training/run.yaml --adapter root
+hermit eval --config docs/_examples/first_training/run.yaml --adapter final
 ```
 
 Expected `mean_score`: **none = 0.0, root = 0.0, final = 1.0**, all with zero execution errors.
@@ -64,7 +64,7 @@ For a real agent, the pipeline passes adapter context and tools to a model. See
 cat .demo/first-training/first-training/checkout/ADAPTER.md
 cat .demo/first-training/first-training/checkout/CARD.md
 cat .demo/first-training/first-training/eval/final/summary.json
-harnessadapter deploy \
+hermit deploy \
   --adapter .demo/first-training/first-training/checkout \
   --workspace .demo/first-training/workspace \
   --host codex
@@ -79,8 +79,8 @@ For Claude Code, use `--host claude-code` and a different workspace directory.
 An unfinished run resumes automatically. For an independent experiment, choose a new name on every command:
 
 ```bash
-harnessadapter train --config docs/_examples/first_training/run.yaml trainer.run_name=first-training-02
-harnessadapter eval --config docs/_examples/first_training/run.yaml --adapter final trainer.run_name=first-training-02
+hermit train --config docs/_examples/first_training/run.yaml trainer.run_name=first-training-02
+hermit eval --config docs/_examples/first_training/run.yaml --adapter final trainer.run_name=first-training-02
 ```
 
 That experiment's outputs are under `.demo/first-training/first-training-02/`.

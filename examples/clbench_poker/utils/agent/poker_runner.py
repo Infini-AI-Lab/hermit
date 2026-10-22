@@ -48,8 +48,8 @@ def main() -> None:
     from src.runtime.runner import run_task
     from src.tasks.exploitable_poker.task import Poker
     from host import AdapterHost
-    from harnessadapter import Session
-    from harnessadapter.algorithms.evolvers.mwm.evidence import poker as poker_evidence, readme as evidence_readme
+    from hermit import Session
+    from hermit.algorithms.evolvers.mwm.evidence import poker as poker_evidence, readme as evidence_readme
 
     row = json.loads(args.task)
     order, hand_num = int(row["order"]), int(row["hand_num"])
@@ -64,7 +64,7 @@ def main() -> None:
         # every outcome from this hand on is stale. The ledger holds one line per hand, in stream order.
         graded = graded[:hand_num - 1]
         ledger.write_text("".join(json.dumps(o) + "\n" for o in graded))
-    from harnessadapter.algorithms.evolvers.mwm import deployment as _dep
+    from hermit.algorithms.evolvers.mwm import deployment as _dep
     venue_texts = TASKS / "task-info" / "mwm"
     deployment = _dep.host_settings(venue_texts)
 

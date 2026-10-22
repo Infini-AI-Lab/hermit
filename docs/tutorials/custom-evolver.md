@@ -32,9 +32,9 @@ In the copied `run.yaml`, set `trainer.output_dir: runs` and `trainer.run_name: 
 `evolver.name: learner` pointing to the copied definition, then run:
 
 ```bash
-harnessadapter check --config .demo/my-evolver/run.yaml
-harnessadapter train --config .demo/my-evolver/run.yaml
-harnessadapter eval --config .demo/my-evolver/run.yaml --adapter final
+hermit check --config .demo/my-evolver/run.yaml
+hermit train --config .demo/my-evolver/run.yaml
+hermit eval --config .demo/my-evolver/run.yaml --adapter final
 cat .demo/my-evolver/runs/learner-demo/checkout/ADAPTER.md
 ```
 

@@ -12,7 +12,7 @@ Settings come from the environment (the launcher sets them) or, for the model, f
                          test binds a snapshot of what the adapter had been trained on (windows.py)
   SLB_MODEL              the host model, as the endpoint names it (default GLM 5.3 flash on Fireworks)
   SLB_BASE_URL           the endpoint (default Fireworks; a wire meter in the examples). The launcher sets both
-                         from a backend reference (MW_MODEL, harnessadapter.backends)
+                         from a backend reference (MW_MODEL, hermit.backends)
   SLB_API_KEY            the key (ServeLearnBench's own variable; the launcher takes it from the backend's)
   SLB_REASONING_EFFORT   default high (the paper's setting)
 
@@ -28,9 +28,9 @@ from pathlib import Path
 import threading
 import time
 
-from harnessadapter import Session
-from harnessadapter.agents import Agent
-from harnessadapter.task import RunOutput
+from hermit import Session
+from hermit.agents import Agent
+from hermit.task import RunOutput
 
 HERE = Path(__file__).resolve().parent
 
@@ -38,7 +38,7 @@ UTILS = HERE.parent
 MWM = HERE.parent / "task-info" / "mwm"     # the venue's texts for MWM
 
 
-from harnessadapter.algorithms.evolvers.mwm.evidence import servelearnbench as evidence   # the MWM learner's records
+from hermit.algorithms.evolvers.mwm.evidence import servelearnbench as evidence   # the MWM learner's records
 
 WM_CALL_CAP = 100
 CAP_NOTICE = f"wm call limit reached for this episode ({WM_CALL_CAP}); act on the environment."
@@ -46,7 +46,7 @@ DEFAULT_MODEL = "fireworks/accounts/fireworks/models/glm-5p3-flash"      # a bac
 
 
 def _default_endpoint() -> tuple[str, str]:
-    from harnessadapter.backends import registry, resolve
+    from hermit.backends import registry, resolve
     binding = resolve(DEFAULT_MODEL, registry())
     return binding.model, binding.base_url
 
@@ -62,7 +62,7 @@ def _setup(scenario: str, params: dict | None = None) -> dict:
         model, base_url = _default_endpoint()
         spec = (params or {}).get("model")
         if isinstance(spec, dict) and spec.get("base_url") and spec.get("model"):     # agent.params.model, resolved
-            from harnessadapter.backends import Binding
+            from hermit.backends import Binding
             binding = Binding.from_spec(spec)
             model, base_url = binding.model, binding.base_url
             if binding.key() and not os.environ.get("SLB_API_KEY"):
@@ -89,7 +89,7 @@ def _setup(scenario: str, params: dict | None = None) -> dict:
 
 
 def _deployment() -> dict:
-    from harnessadapter.algorithms.evolvers.mwm import deployment as _dep
+    from hermit.algorithms.evolvers.mwm import deployment as _dep
     return _dep.host_settings(MWM)
 
 

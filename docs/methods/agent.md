@@ -36,13 +36,13 @@ Only enable `evolver.resume` for a backend that declares support; `check` report
 
 Codex:
 
-```{literalinclude} ../../harnessadapter/algorithms/evolvers/codex/evolver.yaml
+```{literalinclude} ../../hermit/algorithms/evolvers/codex/evolver.yaml
 :language: yaml
 ```
 
 Claude:
 
-```{literalinclude} ../../harnessadapter/algorithms/evolvers/claude/evolver.yaml
+```{literalinclude} ../../hermit/algorithms/evolvers/claude/evolver.yaml
 :language: yaml
 ```
 
@@ -57,7 +57,7 @@ external calls are not automatically accounted for merely because the Trainer la
 
 Agent-backed learners can set `evolver.params.tools` to an allowlist such as `[check_spec]`; null exposes all
 Trainer endpoint tools. The gate refuses calls outside that list. Inspect the selected method's defaults and
-`harnessadapter/evolver/gate.py`. This controls the learner's Trainer-tool endpoint, separately from the acting
+`hermit/evolver/gate.py`. This controls the learner's Trainer-tool endpoint, separately from the acting
 agent's task/adapter tools. It does not make arbitrary shell commands safe or impose a mandatory check order.
 
 For a complete task-specific Codex configuration, see `examples/clbench_poker/prompt_only/run.yaml`. Acting agents are configured under `agent`; `evolver.name: codex` selects the

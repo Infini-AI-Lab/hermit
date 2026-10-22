@@ -7,22 +7,22 @@ Start with the extension boundary you need. A task integration normally requires
 | New task, acting agent, or judge | [Bring your task](../tutorials/your-own-task.md), [task contract](../framework/task.md) | No-adapter probe, adapter consumption, split isolation, logs, scoring |
 | New instruction/skill/tool structure | [Customize an adapter](../tutorials/customize-an-adapter.md), [manifest](../framework/adapter-manifest.md) | Learnable/fixed rules, checker, exported schemas |
 | New learning method | [Evolver tutorial](../tutorials/custom-evolver.md), [full contract](../framework/custom-evolver.md) | Failure handling, state persistence, usage, final selection |
-| New host exporter | `harnessadapter/hosts/`, `harnessadapter/plugins/` | Supported exports, refusal/omission behavior, repeat generation |
-| Trainer behavior | [Trainer contract](../framework/trainer.md), `harnessadapter/trainer/` | Rollback, resume boundaries, records, budget observations |
+| New host exporter | `hermit/hosts/`, `hermit/plugins/` | Supported exports, refusal/omission behavior, repeat generation |
+| Trainer behavior | [Trainer contract](../framework/trainer.md), `hermit/trainer/` | Rollback, resume boundaries, records, budget observations |
 
 ## Repository map
 
 | Location | Responsibility |
 |---|---|
-| `harnessadapter/cli.py`, `config.py` | Command parsing and config resolution |
-| `harnessadapter/agents/` | Built-in acting agents and the Agent/function interface |
-| `harnessadapter/task.py` | Task records, callable loading, pipeline/judge types |
-| `harnessadapter/adapter/` | Manifest loading and acting consumption |
-| `harnessadapter/algorithms/templates/` | Built-in adapter seeds and specifications |
-| `harnessadapter/algorithms/evolvers/` | Built-in learning methods and defaults |
-| `harnessadapter/evolver/` | Shared learner contracts and program/agent execution |
-| `harnessadapter/trainer/` | Training loop, rollouts, material, budgets, recovery |
-| `harnessadapter/runtime/` | Tool serving, sandboxing, and runtime support |
+| `hermit/cli.py`, `config.py` | Command parsing and config resolution |
+| `hermit/agents/` | Built-in acting agents and the Agent/function interface |
+| `hermit/task.py` | Task records, callable loading, pipeline/judge types |
+| `hermit/adapter/` | Manifest loading and acting consumption |
+| `hermit/algorithms/templates/` | Built-in adapter seeds and specifications |
+| `hermit/algorithms/evolvers/` | Built-in learning methods and defaults |
+| `hermit/evolver/` | Shared learner contracts and program/agent execution |
+| `hermit/trainer/` | Training loop, rollouts, material, budgets, recovery |
+| `hermit/runtime/` | Tool serving, sandboxing, and runtime support |
 | `examples/<task>/utils/` | Task integrations and benchmark-owned acting/scoring logic |
 | `tests/` | Framework regression tests |
 | `docs/_examples/` | Small offline examples included in documentation |

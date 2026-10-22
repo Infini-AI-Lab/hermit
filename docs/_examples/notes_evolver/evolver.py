@@ -6,7 +6,7 @@ No model is called, so the example runs offline; a real method would ask a model
 """
 import json
 
-from harnessadapter.evolver.base import Evolver, StepContext, StepResult
+from hermit.evolver.base import Evolver, StepContext, StepResult
 
 HEADING = "# Notes from feedback"
 

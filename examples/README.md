@@ -36,9 +36,9 @@ Run from the repository root. Prepare the task once, then check, train and evalu
 pip install -e '.[skillopt,gepa]'
 python examples/officeqa/utils/prepare.py --csv /path/to/officeqa_full.csv --docs /path/to/treasury_bulletins_parsed
 export FIREWORKS_API_KEY=...                   # the configs name GLM models on Fireworks
-harnessadapter check --config examples/officeqa/gepa/smoke.yaml
-harnessadapter train --config examples/officeqa/gepa/smoke.yaml
-harnessadapter eval  --config examples/officeqa/gepa/smoke.yaml --adapter final
+hermit check --config examples/officeqa/gepa/smoke.yaml
+hermit train --config examples/officeqa/gepa/smoke.yaml
+hermit eval  --config examples/officeqa/gepa/smoke.yaml --adapter final
 ```
 
 Paths inside a config, and a path given to `--adapter`, are relative to the config's folder: a config reaches its

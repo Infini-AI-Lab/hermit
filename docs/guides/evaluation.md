@@ -30,9 +30,9 @@ in judge-owned storage rather than task rows. Filesystem grants must also preser
 ## Run repeated tests
 
 ```bash
-harnessadapter eval --config run.yaml --adapter none eval.repeats=3
-harnessadapter eval --config run.yaml --adapter root eval.repeats=3
-harnessadapter eval --config run.yaml --adapter final eval.repeats=3
+hermit eval --config run.yaml --adapter none eval.repeats=3
+hermit eval --config run.yaml --adapter root eval.repeats=3
+hermit eval --config run.yaml --adapter final eval.repeats=3
 ```
 
 Results are written under `<output_dir>/<run_name>/eval/<selector>/`. Re-evaluating the same selector replaces its

@@ -12,8 +12,8 @@ File callables such as `pipeline.py:run` also resolve against the config directo
 the active Python environment. Values inside free-form method parameters can have their own path rules.
 
 ```bash
-harnessadapter train --config path/to/run.yaml trainer.run_name=trial-02 data.step_size=4
-harnessadapter eval --config path/to/run.yaml --adapter final trainer.run_name=trial-02 eval.repeats=3
+hermit train --config path/to/run.yaml trainer.run_name=trial-02 data.step_size=4
+hermit eval --config path/to/run.yaml --adapter final trainer.run_name=trial-02 eval.repeats=3
 ```
 
 Overrides are YAML values; quote shell-sensitive lists and dictionaries. Unknown framework keys are rejected.
@@ -68,7 +68,7 @@ dialects it serves, prices). See [Model backends](../guides/model-backends.md).
 | Field | Type / default | Meaning and constraints |
 |---|---|---|
 | `model` | string / null | The run's default model, a `<backend>/<model id>` reference; used by `llm`, `agent.params.model` and the `codex`, `claude` and `mwm` Evolvers' `evolver.params.model` when they name none |
-| `backends` | mapping / {} | Backends declared for this run by name, over `~/.config/harnessadapter/backends.yaml` and the built-ins. Fields: `base_url`, `api_key_env`, `key_required`, `apis`, `messages_url`, `litellm`, `prices`, `extra_body`, `context_window`, `models`, or `from: <other>` to copy one |
+| `backends` | mapping / {} | Backends declared for this run by name, over `~/.config/hermit/backends.yaml` and the built-ins. Fields: `base_url`, `api_key_env`, `key_required`, `apis`, `messages_url`, `litellm`, `prices`, `extra_body`, `context_window`, `models`, or `from: <other>` to copy one |
 | `llm` | reference, mapping / null | The run's chat-completions `llm` tool: a reference, `{model: <reference>, price, extra_body}`, or the endpoint itself (below) |
 
 `agent.params.model` takes the same forms. For a Codex or Claude Code acting agent or Evolver a reference becomes
@@ -130,6 +130,6 @@ not isolate user pipelines or arbitrary in-process Python Evolvers. Read
 
 ## Complete defaults
 
-```{literalinclude} ../../harnessadapter/defaults.yaml
+```{literalinclude} ../../hermit/defaults.yaml
 :language: yaml
 ```

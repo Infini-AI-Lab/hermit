@@ -1,4 +1,4 @@
-# MetaHarnessAdapter docs
+# Hermit docs
 
 The documentation site is built with [Sphinx](https://www.sphinx-doc.org/), the [Shibuya](https://shibuya.lepture.com/) theme and [MyST](https://myst-parser.readthedocs.io/) Markdown. Every page is a Markdown file in this directory.
 

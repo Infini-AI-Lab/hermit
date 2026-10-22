@@ -95,7 +95,7 @@ known to that process; a resumed process restores accounting from completed reco
 ## Resume an interrupted run
 
 ```bash
-harnessadapter train --config run.yaml
+hermit train --config run.yaml
 ```
 
 The default `trainer.resume_mode: auto` restores an unfinished run from its last completed step, including adapter,
@@ -112,7 +112,7 @@ only when a restart is intended.
 ## Branch an experiment from an adapter
 
 ```bash
-harnessadapter train --config run.yaml trainer.run_name=experiment-02 start_from=experiment-01/final
+hermit train --config run.yaml trainer.run_name=experiment-02 start_from=experiment-01/final
 ```
 
 The referenced tag must exist in the configured template tree. A compatible adapter directory also works.

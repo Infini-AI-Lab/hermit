@@ -7,8 +7,8 @@ import sys
 
 import pytest
 
-from harnessadapter.config import Config
-from harnessadapter.trainer.trainer import Trainer
+from hermit.config import Config
+from hermit.trainer.trainer import Trainer
 from test_training import make_task
 
 pytestmark = pytest.mark.skipif(not shutil.which("bwrap"), reason="needs bubblewrap")
@@ -38,7 +38,7 @@ def test_command_evolver_in_sandbox(tmp_path):
     script = tmp_path / "cmd" / "evolve.py"      # the Evolver's own directory stays readable in the sandbox
     script.write_text(SCRIPT)
     (tmp_path / "cmd" / "evolver.yaml").write_text(
-        "class: harnessadapter.evolver.agent:CommandEvolver\n"
+        "class: hermit.evolver.agent:CommandEvolver\n"
         f"params: {{command: [{json.dumps(sys.executable)}, {json.dumps(str(script))}, "
         f"{json.dumps(str(tmp_path / 'test.txt'))}, {json.dumps(str(Path.home() / '.bashrc'))}]}}\n")
     cfg = Config.load(path, ["evolver.name=cmd", "trainer.epochs=1"])
@@ -73,7 +73,7 @@ def test_agent_evolver_with_a_fake_codex(tmp_path, monkeypatch):
     (evolver / "codex").chmod(0o755)
     (evolver / "START.md").write_text("start {message}")
     (evolver / "RESUME.md").write_text("resume {message}")
-    (evolver / "evolver.yaml").write_text("class: harnessadapter.evolver.agent:AgentEvolver\n"
+    (evolver / "evolver.yaml").write_text("class: hermit.evolver.agent:AgentEvolver\n"
                                           "params: {backend: codex, prompt: START.md, resume_prompt: RESUME.md, home: [],\n"
                                           "         price: {input: 1.0, cached_input: 0.5, output: 10.0}}\n")
     monkeypatch.setenv("PATH", f"{evolver}{os.pathsep}{os.environ['PATH']}")

@@ -49,9 +49,9 @@ previous session handle; this is independent of storing files in `state/`.
 From the repository root, with the package installed:
 
 ```bash
-harnessadapter check --config docs/_examples/interface_task/run.yaml
-harnessadapter train --config docs/_examples/interface_task/run.yaml
-harnessadapter eval --config docs/_examples/interface_task/run.yaml --adapter final
+hermit check --config docs/_examples/interface_task/run.yaml
+hermit train --config docs/_examples/interface_task/run.yaml
+hermit eval --config docs/_examples/interface_task/run.yaml --adapter final
 ```
 
 The task is a local echo stub. The run has two training steps and one test task; no model is called.
@@ -67,12 +67,12 @@ You can reuse a launcher instead of implementing a new Python learning loop:
 
 | Class | What you supply | How it hands back an adapter |
 |---|---|---|
-| `harnessadapter.evolver.agent:AgentEvolver` | Backend, prompt files, model selection, and host arguments. | The learner agent edits the working directory. |
-| `harnessadapter.evolver.agent:CommandEvolver` | An external command and optional environment values. | The program edits the working directory and may write a result file. |
+| `hermit.evolver.agent:AgentEvolver` | Backend, prompt files, model selection, and host arguments. | The learner agent edits the working directory. |
+| `hermit.evolver.agent:CommandEvolver` | An external command and optional environment values. | The program edits the working directory and may write a result file. |
 
 `AgentEvolver` supports `codex` and `claude`. Its parameters include `backend`, `prompt`, `resume_prompt`, `model`,
 `args`, and `home`. Prompt placeholders include the workspace paths, `message`, `epoch`, and `step`.
-The bundled definitions are under `harnessadapter/algorithms/evolvers/`.
+The bundled definitions are under `hermit/algorithms/evolvers/`.
 
 `CommandEvolver` supplies `HA_CONTEXT`, a path to JSON describing the workspace, access, progress, session, and
 parameters, plus `HA_TOOL_URL` for the tool endpoint. A program may write `output/step_result.json` using the
@@ -102,51 +102,51 @@ semantics and intended access boundaries.
 
 ### Lifecycle
 
-```{literalinclude} ../../harnessadapter/evolver/base.py
+```{literalinclude} ../../hermit/evolver/base.py
 :language: python
 :pyobject: Evolver
 ```
 
 ### Workspace and context
 
-```{literalinclude} ../../harnessadapter/evolver/base.py
+```{literalinclude} ../../hermit/evolver/base.py
 :language: python
 :pyobject: Workspace
 ```
 
-```{literalinclude} ../../harnessadapter/evolver/base.py
+```{literalinclude} ../../hermit/evolver/base.py
 :language: python
 :pyobject: Access
 ```
 
-```{literalinclude} ../../harnessadapter/evolver/base.py
+```{literalinclude} ../../hermit/evolver/base.py
 :language: python
 :pyobject: Context
 ```
 
-```{literalinclude} ../../harnessadapter/evolver/base.py
+```{literalinclude} ../../hermit/evolver/base.py
 :language: python
 :pyobject: Progress
 ```
 
-```{literalinclude} ../../harnessadapter/evolver/base.py
+```{literalinclude} ../../hermit/evolver/base.py
 :language: python
 :pyobject: StepContext
 ```
 
 ### Results and usage
 
-```{literalinclude} ../../harnessadapter/evolver/base.py
+```{literalinclude} ../../hermit/evolver/base.py
 :language: python
 :pyobject: StepResult
 ```
 
-```{literalinclude} ../../harnessadapter/evolver/base.py
+```{literalinclude} ../../hermit/evolver/base.py
 :language: python
 :pyobject: FinalResult
 ```
 
-```{literalinclude} ../../harnessadapter/evolver/base.py
+```{literalinclude} ../../hermit/evolver/base.py
 :language: python
 :pyobject: Usage
 ```

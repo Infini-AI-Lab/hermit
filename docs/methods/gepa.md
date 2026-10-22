@@ -30,7 +30,7 @@ Keep validation separate from test; repeated validation selection is part of tra
 
 ## Parameters and defaults
 
-```{literalinclude} ../../harnessadapter/algorithms/evolvers/gepa/evolver.yaml
+```{literalinclude} ../../hermit/algorithms/evolvers/gepa/evolver.yaml
 :language: yaml
 ```
 

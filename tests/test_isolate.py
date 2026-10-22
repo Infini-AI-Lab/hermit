@@ -10,12 +10,12 @@ import sys
 import pytest
 import yaml
 
-import harnessadapter.sandbox as sandbox_module
-from harnessadapter.config import Config
-from harnessadapter.isolate import (SandboxedAgent, ToolRunner, _model_access, _owned_log, agent_pipeline,
+import hermit.sandbox as sandbox_module
+from hermit.config import Config
+from hermit.isolate import (SandboxedAgent, ToolRunner, _model_access, _owned_log, agent_pipeline,
                                     config_paths, profile, project_records, project_root, run_secrets, validate)
-from harnessadapter.sandbox import Sandbox
-from harnessadapter.tools import assemble
+from hermit.sandbox import Sandbox
+from hermit.tools import assemble
 from test_training import make_task
 
 REAL_WHICH = shutil.which
@@ -166,13 +166,13 @@ def test_a_declared_tool_with_a_runner_is_never_imported_here(tmp_path):
 
 def test_check_spec_takes_a_candidate_under_scratch_or_state_and_nothing_else(tmp_path, monkeypatch):
     """GEPA and SkillOpt write each candidate under scratch/ and check it before adopting it (#17 refused those)."""
-    from harnessadapter import tools as module
+    from hermit import tools as module
     seen = []
 
     class Result:
         def to_dict(self):
             return {"passed": True, "issues": []}
-    monkeypatch.setattr("harnessadapter.spec.check_spec", lambda target, root, python=None: seen.append(target) or Result())
+    monkeypatch.setattr("hermit.spec.check_spec", lambda target, root, python=None: seen.append(target) or Result())
     budget = type("B", (), {"remaining": lambda s: {}, "snapshot": lambda s: {}})()
     for d in ("adapter", "scratch", "state", "elsewhere"):
         (tmp_path / d).mkdir()
@@ -191,7 +191,7 @@ def test_check_spec_takes_a_candidate_under_scratch_or_state_and_nothing_else(tm
 SNOOP = r'''
 import json, os, subprocess, sys
 from pathlib import Path
-from harnessadapter.task import RunOutput
+from hermit.task import RunOutput
 
 def _peek(path):
     try:
@@ -326,8 +326,8 @@ def test_a_failed_agent_reports_its_error_through_the_worker(tmp_path):
 
 @needs_bwrap
 def test_training_and_eval_with_sandboxed_rollouts(tmp_path):
-    from harnessadapter.evaluate import evaluate
-    from harnessadapter.trainer.trainer import Trainer
+    from hermit.evaluate import evaluate
+    from hermit.trainer.trainer import Trainer
     config = Config.load(sandboxed_task(tmp_path), ["trainer.epochs=1"])
     Trainer(config, log=lambda *_: None).train()
     steps = [json.loads(l) for l in (tmp_path / "runs/toy-run/steps.jsonl").read_text().splitlines()]
@@ -386,7 +386,7 @@ def test_other_methods_run_records_in_the_project_are_covered(tmp_path):
 
 
 def test_every_package_is_shown_but_not_the_working_directory_or_the_home(tmp_path, monkeypatch):
-    from harnessadapter.sandbox import _installed_paths
+    from hermit.sandbox import _installed_paths
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(sys, "path", [str(tmp_path), str(Path.home()), *sys.path])   # `python -m` from the home
     shown = {p.resolve() for p in _installed_paths()}
@@ -438,7 +438,7 @@ def test_a_returned_log_must_lie_where_the_call_could_write(tmp_path):
 
 
 def test_the_material_copy_does_not_follow_a_link(tmp_path):
-    from harnessadapter.trainer.material import Material
+    from hermit.trainer.material import Material
     secret = tmp_path / "secret.txt"
     secret.write_text("gold")
     logs = tmp_path / "logs"
@@ -515,8 +515,8 @@ def evil():
 """
 
 PIPELINE_WITH_ADAPTER = """
-from harnessadapter.adapter.session import Session
-from harnessadapter.task import RunOutput
+from hermit.adapter.session import Session
+from hermit.task import RunOutput
 
 def run(task, adapter):
     s = Session(adapter)
@@ -554,7 +554,7 @@ def test_the_adapters_code_runs_outside_the_workers_process(tmp_path):
 @needs_bwrap
 def test_the_spec_check_runs_the_adapters_code_in_a_sandbox(tmp_path, monkeypatch):
     """check_spec imports the adapter's tool modules (the learner's work): top-level code there sees nothing."""
-    import harnessadapter.spec as spec_module
+    import hermit.spec as spec_module
     from test_session_sandbox import EXAMPLE
     monkeypatch.setattr(spec_module, "SANDBOX_ENFORCE", "required")
     adapter = tmp_path / "adapter"
@@ -574,9 +574,9 @@ def test_a_session_in_a_process_the_agent_starts_is_sandboxed_too(tmp_path):
     from test_session_sandbox import adapter_copy
     config = Config.load(sandboxed_task(tmp_path), [])
     (tmp_path / "pipeline.py").write_text(
-        "import subprocess, sys\nfrom harnessadapter.task import RunOutput\n\n"
+        "import subprocess, sys\nfrom hermit.task import RunOutput\n\n"
         "def run(task, adapter):\n"
-        "    code = ('from harnessadapter.adapter.session import Session\\n'\n"
+        "    code = ('from hermit.adapter.session import Session\\n'\n"
         "            's = Session(sys.argv[1]); print(s.sandboxed); s.close()')\n"
         "    out = subprocess.run([sys.executable, '-c', 'import sys\\n' + code, str(adapter)], capture_output=True,\n"
         "                         text=True)\n"
@@ -591,9 +591,9 @@ def test_a_session_in_a_process_the_agent_starts_is_sandboxed_too(tmp_path):
 
 
 def test_an_adapter_without_tools_starts_no_server(tmp_path, monkeypatch):
-    from harnessadapter import Session
+    from hermit import Session
     adapter = tmp_path / "adapter"
-    shutil.copytree(Path(__file__).resolve().parents[1] / "harnessadapter/algorithms/templates/prompt_only", adapter)
+    shutil.copytree(Path(__file__).resolve().parents[1] / "hermit/algorithms/templates/prompt_only", adapter)
     monkeypatch.setenv("HA_ADAPTER_SANDBOX", "1")
     s = Session(adapter)
     assert s.sandboxed and s._remote is None and s.context() is not None
@@ -605,8 +605,8 @@ def test_an_adapter_without_tools_starts_no_server(tmp_path, monkeypatch):
 @needs_bwrap
 def test_a_cli_deploy_renders_the_adapter_in_a_sandbox(tmp_path, monkeypatch):
     """A CLI agent (codex/claude-code) deploys the adapter; its modules must not run with the agent's access."""
-    import harnessadapter.spec as spec_module
-    from harnessadapter.hosts.codex import prepare
+    import hermit.spec as spec_module
+    from hermit.hosts.codex import prepare
     from test_session_sandbox import EXAMPLE
     monkeypatch.setattr(spec_module, "SANDBOX_ENFORCE", "required")
     monkeypatch.setenv("HA_ADAPTER_SANDBOX", "1")
