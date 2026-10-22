@@ -2,7 +2,7 @@
 
 `adapter.yaml` is the manifest at the root of every adapter directory. It names the template the adapter comes
 from, declares what the adapter exports to an acting agent, and states which files a learner may change. The
-rules below are the ones `harnessadapter.adapter.manifest` and `harnessadapter.adapter.loader` enforce; a
+rules below are the ones `hermit.adapter.manifest` and `hermit.adapter.loader` enforce; a
 manifest that breaks one does not load, and a candidate whose manifest drifts from its template fails the
 specification check.
 
@@ -18,7 +18,7 @@ The file has six sections and no others:
 | [`origin`](#origin) | the Trainer | people and the tree |
 
 A seventh, [`serve`](#serve-design-not-implemented), is proposed and not yet read by anything; its stdio command,
-`harnessadapter serve DIR`, exists and is what `convert` writes into a plugin.
+`hermit serve DIR`, exists and is what `convert` writes into a plugin.
 
 The first five are **fixed across a tree**: every adapter committed under a template carries them byte-for-byte as
 the template's root does (check 3 of the specification check). An acting integration needs only `template` and
@@ -29,7 +29,7 @@ the template's root does (check 3 of the specification check). An acting integra
 Most people never write a manifest from scratch: they take a template and change one thing. A run names a template
 either by its built-in id (`template: prompt-only@1.0`) or by a directory holding an `adapter.yaml`
 (`template: ./my_template`), so the way to customize is to copy a template directory, edit it, and point the run
-at the copy. The built-in templates are under `harnessadapter/algorithms/templates/`; finished adapters with their cards are
+at the copy. The built-in templates are under `hermit/algorithms/templates/`; finished adapters with their cards are
 under `examples/`. What you want to change decides which part you touch:
 
 | You want to | Change | Where |
@@ -47,7 +47,7 @@ listing it. And the first five sections are the template's identity: edit them i
 training starts, not in a trained adapter, because every commit of a tree must carry them unchanged. If the
 change is an edit to the acting-side texts only, keep the template's `id` and `version`; if it changes the
 manifest, give the copy its own `template.id` (or a new `version`) so its tree is not mistaken for the original's.
-Run `harnessadapter check --config run.yaml` afterwards: it loads the template, the task and the Evolver and
+Run `hermit check --config run.yaml` afterwards: it loads the template, the task and the Evolver and
 reports what does not fit.
 
 The sections below are the reference for each field.
@@ -210,7 +210,7 @@ part of the fixed sections; a hand-written adapter has none.
 
 ## `serve` (design, not implemented)
 
-The manifest does not accept a `serve` section. The implemented `harnessadapter serve DIR` command starts a
+The manifest does not accept a `serve` section. The implemented `hermit serve DIR` command starts a
 per-session stdio MCP tool server, normally launched by a generated host entry. Generic standalone startup,
 health checks, discovery, and relay lifecycle remain a [design proposal](../developer/service-design.md).
 Do not add the proposed fields or flags to a working configuration.

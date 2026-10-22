@@ -12,10 +12,10 @@ model: fireworks/accounts/fireworks/models/glm-5p3-flash   # the run's model: th
 ```
 
 ```bash
-harnessadapter backends list                 # the backends known here
-harnessadapter backends show vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8        # a reference, resolved
-harnessadapter backends check vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8       # does the server answer each dialect?
-harnessadapter train --config run.yaml model=vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8   # the same run, locally
+hermit backends list                 # the backends known here
+hermit backends show vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8        # a reference, resolved
+hermit backends check vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8       # does the server answer each dialect?
+hermit train --config run.yaml model=vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8   # the same run, locally
 ```
 
 ## Where a model is named
@@ -52,9 +52,9 @@ from `evolver.params.model`; `evolver.params.model=vllm/qwen` moves it.
 Three layers, each overriding the one below by name:
 
 1. **the run config's `backends:` section**, or `backends.<name>.<field>=...` on the command line;
-2. **your own file**, `~/.config/harnessadapter/backends.yaml` (or the file `HA_BACKENDS` names): the place for
+2. **your own file**, `~/.config/hermit/backends.yaml` (or the file `HA_BACKENDS` names): the place for
    the servers you run, declared once for every example and run;
-3. **the framework's built-ins**, `harnessadapter/backends.yaml`: `fireworks`, `openai`, `anthropic`, `deepseek`,
+3. **the framework's built-ins**, `hermit/backends.yaml`: `fireworks`, `openai`, `anthropic`, `deepseek`,
    `vllm` (`http://127.0.0.1:8000/v1`), `sglang` (`http://127.0.0.1:30000/v1`) and `ollama`.
 
 `<NAME>_BASE_URL` in the environment moves a backend without a file: `VLLM_BASE_URL=http://gpu-box:8000/v1`. The
@@ -62,7 +62,7 @@ key is read from the backend's `api_key_env` (`<NAME>_API_KEY` by default: `FIRE
 local backend has `key_required: false`, so an unset variable means no key is sent.
 
 ```yaml
-# ~/.config/harnessadapter/backends.yaml
+# ~/.config/hermit/backends.yaml
 vllm:                                   # the built-in, moved: every other field stays
   base_url: http://gpu-box:8000/v1
   api_key_env: LAB_VLLM_KEY
@@ -93,8 +93,8 @@ lab-sglang:                             # a new one, like the built-in sglang at
 The framework's own client, the react agent and the examples' task agents speak **chat completions**. The CLI
 agents do not: **Codex speaks the OpenAI Responses API only** (`wire_api = "chat"` is rejected since Codex 0.95),
 and **Claude Code speaks the Anthropic Messages API only**. A backend's `apis` says what it serves, and the
-framework checks a model's dialect against its backend before a run starts: `harnessadapter check` reports it,
-`train` refuses to start on a mismatch, and `harnessadapter backends check <ref>` sends one short request in each
+framework checks a model's dialect against its backend before a run starts: `hermit check` reports it,
+`train` refuses to start on a mismatch, and `hermit backends check <ref>` sends one short request in each
 dialect (and lists `GET /models`) so a wrong claim shows up before anything is spent.
 
 | Backend | chat | responses (Codex) | messages (Claude Code) |
@@ -166,16 +166,16 @@ python -m sglang.launch_server --model-path Qwen/Qwen3-30B-A3B-Instruct-2507-FP8
 ```
 
 ```bash
-harnessadapter backends check vllm/qwen3                    # /models, then chat, responses and messages
-harnessadapter check --config examples/officeqa/gepa/run.yaml model=vllm/qwen3 llm=vllm/qwen3
-harnessadapter train --config examples/officeqa/gepa/run.yaml model=vllm/qwen3 llm=vllm/qwen3
+hermit backends check vllm/qwen3                    # /models, then chat, responses and messages
+hermit check --config examples/officeqa/gepa/run.yaml model=vllm/qwen3 llm=vllm/qwen3
+hermit train --config examples/officeqa/gepa/run.yaml model=vllm/qwen3 llm=vllm/qwen3
 ```
 
 The examples' launchers take the same references: `MW_MODEL=vllm/qwen3 VLLM_BASE_URL=http://127.0.0.1:8000/v1`
 for both the host and the learner, `MW_HOST_MODEL` / `MW_EVOLVER_MODEL` for either alone
 ([CL-Bench](../recipes/clbench.md), [ServeLearnBench](../recipes/servelearnbench.md)); `--model vllm/qwen3` for
 the Lean swarm (`examples/lean_swarm/launch.sh`). Their wire meters sit in front of whichever backend the
-reference names: `python -m harnessadapter.backends shell <ref>` prints a backend's origin and path for the meter,
+reference names: `python -m hermit.backends shell <ref>` prints a backend's origin and path for the meter,
 and a `backends.learner={from: <backend>, base_url: <the meter's URL>}` override binds the learner through it.
 
 Prices: a hosted backend's models have prices in the built-in table; a local model has none, so its cost is

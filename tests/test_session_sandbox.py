@@ -1,4 +1,4 @@
-"""A Session in sandboxed mode: the adapter's tools run in a sandboxed `harnessadapter serve`, never in the program."""
+"""A Session in sandboxed mode: the adapter's tools run in a sandboxed `hermit serve`, never in the program."""
 import asyncio
 import json
 from pathlib import Path
@@ -9,8 +9,8 @@ import sys
 import pytest
 import yaml
 
-from harnessadapter import Session
-from harnessadapter.adapter.remote import ToolError
+from hermit import Session
+from hermit.adapter.remote import ToolError
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "docs" / "_examples" / "file_adapter"
 

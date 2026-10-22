@@ -24,7 +24,7 @@ python examples/clbench_database/utils/prepare.py --clbench ~/code/clbench      
 
 ## Run
 
-One `harnessadapter train` per order, in the background, with the host's and the learner's wire meters; logs and
+One `hermit train` per order, in the background, with the host's and the learner's wire meters; logs and
 results under `$MW_RUNS/<tag>/`.
 
 ```bash
@@ -60,7 +60,7 @@ contract.
 
 ```text
 utils/agent/        CLBenchDatabaseAgent (agent.py) starts database_runner.py in clbench's virtualenv through
-                    clbench_host.py; host.py is the acting host, built over harnessadapter.Session
+                    clbench_host.py; host.py is the acting host, built over hermit.Session
 utils/prepare.py    tasks.jsonl and one ordered split per order      utils/judge.py   the venue's score and feedback
 utils/task-info/    the task for the learner; task-info/mwm/ is what MWM needs to know about the venue
 utils/tests/        golden tests of the MWM texts (both venues) and the host test

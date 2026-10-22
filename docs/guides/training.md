@@ -20,8 +20,8 @@ Start from a recipe rather than filling every default. A smoke run should have f
 schedule, and a time or usage budget. It establishes that the integration works; it cannot establish a reliable gain.
 
 ```bash
-harnessadapter check --config run.yaml --no-probe
-harnessadapter check --config run.yaml
+hermit check --config run.yaml --no-probe
+hermit check --config run.yaml
 ```
 
 The first command skips the task execution probe. The second runs one training task without an adapter and may
@@ -30,10 +30,10 @@ spend model credits. Check that output, judge feedback, and logs contain what yo
 ## 3. Run baselines and train
 
 ```bash
-harnessadapter eval --config run.yaml --adapter none
-harnessadapter train --config run.yaml
-harnessadapter eval --config run.yaml --adapter root
-harnessadapter eval --config run.yaml --adapter final
+hermit eval --config run.yaml --adapter none
+hermit train --config run.yaml
+hermit eval --config run.yaml --adapter root
+hermit eval --config run.yaml --adapter final
 ```
 
 `root` and `final` require the relevant adapter tree. Use the same run-name and output overrides on the related

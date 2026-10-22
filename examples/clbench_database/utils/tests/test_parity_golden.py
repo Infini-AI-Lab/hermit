@@ -29,8 +29,8 @@ import yaml
 
 TASKS = Path(__file__).resolve().parents[2]                 # examples/clbench_database/utils/agent
 FRAMEWORK = TASKS.parents[1]
-TEMPLATE = FRAMEWORK / "harnessadapter/algorithms/templates/mwm"
-EVOLVER = FRAMEWORK / "harnessadapter/algorithms/evolvers/mwm"
+TEMPLATE = FRAMEWORK / "hermit/algorithms/templates/mwm"
+EVOLVER = FRAMEWORK / "hermit/algorithms/evolvers/mwm"
 METAWORLD = Path(os.environ.get("MW_METAWORLD", str(Path.home() / "code/metaworld")))
 VENUES = {"clbench": TASKS, "poker": TASKS.parent / "clbench_poker"}
 sys.path.insert(0, str(FRAMEWORK))
@@ -100,7 +100,7 @@ class ContractParity(unittest.TestCase):
 @unittest.skipUnless((METAWORLD / "mwm/wm_iface.py").is_file(), "native metaworld checkout not available")
 class PackageParity(unittest.TestCase):
     def test_push_package_matches_native(self):
-        from harnessadapter import Session
+        from hermit import Session
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             wrepo = tmp / "wrepo"
@@ -111,11 +111,11 @@ class PackageParity(unittest.TestCase):
             native = _native("from mwm import wm_iface; "
                              f"i=wm_iface.WorldModelInterface({str(wrepo)!r}, {str(evidence)!r}, delegation='none', "
                              "code_channel=True); print(i.package(wm_iface.transport_note()), end='')")
-            from harnessadapter.algorithms.evolvers.mwm import deployment as _dep
+            from hermit.algorithms.evolvers.mwm import deployment as _dep
             host = _dep.host_settings(TASKS / "utils/task-info/mwm")
             # The pipeline reads ADAPTER.md as the Evolver wrote it after an adopted step; write it the same way
             # first (interface.context with the venue's host.json), since no step has run on this copy.
-            from harnessadapter.adapter.loader import Adapter
+            from hermit.adapter.loader import Adapter
             loaded = Session(wrepo, evidence=evidence, deployment=host).adapter
             (wrepo / "ADAPTER.md").write_text(loaded._module("interface.py").context(_resources=loaded.resources))
             ours = Session(wrepo, evidence=evidence, deployment=host).context()

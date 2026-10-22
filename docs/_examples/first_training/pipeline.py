@@ -1,7 +1,7 @@
 """A deterministic teaching agent that interprets one adapter rule."""
 from pathlib import Path
-from harnessadapter.adapter.loader import Adapter
-from harnessadapter.task import RunOutput
+from hermit.adapter.loader import Adapter
+from hermit.task import RunOutput
 
 
 def run(task: dict, adapter: Path | None) -> RunOutput:

@@ -11,8 +11,8 @@ import time
 
 import pytest
 
-import harnessadapter.sandbox as sandbox_module
-from harnessadapter.sandbox import (FRAMEWORK, PACKAGE, RELAY, AllowlistProxy, Sandbox, network_mode,
+import hermit.sandbox as sandbox_module
+from hermit.sandbox import (FRAMEWORK, PACKAGE, RELAY, AllowlistProxy, Sandbox, network_mode,
                                     package_closure)
 
 REAL_WHICH = shutil.which
@@ -29,8 +29,9 @@ def binds(args, flag):
 
 
 def test_closure_has_the_framework_dependencies_and_nothing_beside_them():
-    names = {d.metadata["Name"].lower() for d in package_closure(["harnessadapter"])}
-    assert {"harnessadapter", "mcp", "jsonschema", "pyyaml"} <= names
+    from hermit.sandbox import DISTRIBUTION
+    names = {d.metadata["Name"].lower() for d in package_closure([DISTRIBUTION])}
+    assert {"hermit-harness", "mcp", "jsonschema", "pyyaml"} <= names
     assert "pytest" not in names               # installed (the test extra), but not needed by the framework
 
 
@@ -76,7 +77,7 @@ def test_open_network_still_checks_the_covered_paths(tmp_path, monkeypatch):
     assert "--unshare-net" not in args and command[:2] == [sys.executable, str(RELAY)]
     assert "--open-network" in command and "--forward" not in command
     assert command[command.index("--deny") + 1] == str(secret.resolve())
-    from harnessadapter.sandbox_relay import probe
+    from hermit.sandbox_relay import probe
     assert probe([], [], open_network=True)["outside"] == {}
 
 
@@ -297,7 +298,7 @@ def test_a_granted_virtual_environment_comes_with_its_base_python(tmp_path, monk
 @pytest.mark.parametrize("cli", ["codex", "claude"])
 def test_an_installed_cli_starts_with_only_its_own_paths(cli):
     """The built-in CLI agents: the CLI as installed (an nvm package, a ~/bin wrapper) starts inside, with no home."""
-    from harnessadapter.sandbox import program_paths
+    from hermit.sandbox import program_paths
     if not REAL_WHICH(cli):
         pytest.skip(f"{cli} is not installed")
     box = Sandbox(network="open", readable=program_paths(cli), packages=["*"])
@@ -311,7 +312,7 @@ def test_an_installed_cli_starts_with_only_its_own_paths(cli):
 
 
 def test_program_paths_never_bind_the_home(tmp_path, monkeypatch):
-    from harnessadapter.sandbox import program_paths
+    from hermit.sandbox import program_paths
     home = tmp_path / "home"
     (home / "bin").mkdir(parents=True)
     tool = home / "bin" / "tool"

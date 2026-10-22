@@ -7,7 +7,7 @@ ServeLearnBench scores a method on each window's held-out test tasks after that 
 method as it then stands. Test tasks never update a method, so the same scores come from replaying them later on
 the adapter the run had at that point: the Trainer keeps one commit per step, and this script picks, for window w,
 the last step whose tasks all lie in windows 0..w (the adapter before any later serving task was learned from),
-runs `harnessadapter eval` on that commit with the window's test split, and then assembles every row the pipeline
+runs `hermit eval` on that commit with the window's test split, and then assembles every row the pipeline
 wrote (serving and test) into one file in the benchmark's format:
 
     <workdir>/results/<scenario>_<method>.jsonl        slb score <file>
@@ -93,9 +93,9 @@ def main() -> None:
     os.environ["SLB_WORKDIR"] = str(workdir)
     os.environ.setdefault("SLB_METHOD", a.method)
 
-    from harnessadapter.config import Config
-    from harnessadapter.evaluate import evaluate
-    from harnessadapter.tree import ROOT_TAG
+    from hermit.config import Config
+    from hermit.evaluate import evaluate
+    from hermit.tree import ROOT_TAG
 
     windows = json.loads((HERE / "windows.json").read_text())
     tasks = {json.loads(l)["id"]: json.loads(l) for l in (HERE / "tasks.jsonl").read_text().splitlines() if l.strip()}
@@ -151,7 +151,7 @@ def assemble(workdir: Path, scenario: str, method: str) -> None:
     path = out / f"{scenario}_{method}.jsonl"
     with open(path, "w") as f:
         f.write(json.dumps({"config": {"scenario": scenario, "method": method, "model": model,
-                                       "source": "harnessadapter examples/servelearnbench"}}) + "\n")
+                                       "source": "hermit examples/servelearnbench"}}) + "\n")
         for r in serving + tests:
             r = dict(r)
             r["method"] = method

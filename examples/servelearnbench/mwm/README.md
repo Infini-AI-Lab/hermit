@@ -21,7 +21,7 @@ Complete guidance: [`docs/recipes/servelearnbench.md`](../../../docs/recipes/ser
 
 The framework in `.venv/` (Python 3.12+); the `codex` CLI and bubblewrap (`bwrap`) on the PATH (the learner is a
 Codex session in its own namespace). Both sides reach their backend through the framework's wire meter
-(`harnessadapter/runtime/wire_meter.py`), a local proxy the launcher starts: it records the tokens per run and
+(`hermit/runtime/wire_meter.py`), a local proxy the launcher starts: it records the tokens per run and
 rewrites the learner's requests the way Codex's provider needs.
 
 ---

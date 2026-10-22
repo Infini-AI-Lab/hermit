@@ -1,7 +1,7 @@
 """Private labels are kept in the judge, outside learner-visible task rows."""
 import json
 
-from harnessadapter.task import JudgeResult, RunOutput
+from hermit.task import JudgeResult, RunOutput
 
 LABELS = {
     "train-001": "positive",

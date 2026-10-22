@@ -13,7 +13,7 @@ and the corpus and reaches only the model provider, with Codex's workspace-write
 The adapter's ADAPTER.md is the skill; adapter=None runs without one. The run's SkillOpt prediction files
 (conversation.json, target_*_prompt.txt; for codex also codex_raw.txt and codex_trace_summary.txt) are its log.
 
-The target model (`agent.params.model`, a `<backend>/<model>` reference, see harnessadapter.backends; default GLM 5.3
+The target model (`agent.params.model`, a `<backend>/<model>` reference, see hermit.backends; default GLM 5.3
 Flash on Fireworks, FIREWORKS_API_KEY) answers at medium reasoning effort, as the paper runs its student: SkillOpt's
 chat_target_messages calls it directly, Codex through the backend's Responses API with the provider settings in a
 CODEX_HOME of its own (no user configuration or instructions). Codex's workspaces are under `agent.params.codex_dir`,
@@ -33,8 +33,8 @@ import tempfile
 import threading
 import time
 
-from harnessadapter.agents import Agent
-from harnessadapter.task import RunOutput
+from hermit.agents import Agent
+from hermit.task import RunOutput
 
 HERE = Path(__file__).resolve().parent
 DATA = json.loads((HERE.parent / "data.json").read_text())
@@ -42,7 +42,7 @@ DEFAULT_MODEL = "fireworks/accounts/fireworks/models/glm-5p3-flash"
 EFFORT = "medium"                                                 # paper p.8: teacher and student at medium
 MAX_TURNS, MAX_TOKENS = 24, 16384                                 # configs/officeqa/default.yaml; issue #13
 UNAVAILABLE = "target API unavailable"
-CODEX_DIR = "~/.cache/harnessadapter/officeqa-codex-actor"         # the codex harness's homes and rollouts/
+CODEX_DIR = "~/.cache/hermit/officeqa-codex-actor"         # the codex harness's homes and rollouts/
 # Codex's own reports of a provider it could not reach (it retries those itself first), and of a container that could
 # not start (codex_sandbox.py), not the session's text
 CODEX_UNAVAILABLE = re.compile(r"unexpected status (?:429|5\d\d)|exceeded retry limit|stream disconnected|"
@@ -60,7 +60,7 @@ _codex_home = None
 def _bind(params: dict | None):
     """The target model: agent.params.model (resolved by the framework into a binding), else the default."""
     global _binding
-    from harnessadapter.backends import Binding, registry, resolve
+    from hermit.backends import Binding, registry, resolve
     model = (params or {}).get("model")
     _binding = Binding.from_spec(model) if isinstance(model, dict) else resolve(model or DEFAULT_MODEL, registry())
 

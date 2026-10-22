@@ -15,7 +15,7 @@ Use [OfficeQA](officeqa.md) for one.
 ## What the adapter contains
 
 ```text
-harnessadapter/algorithms/templates/lean_collab/
+hermit/algorithms/templates/lean_collab/
   adapter.yaml     template, exports (context, five tools, reactions, concurrent_tool_calls, skills), structure
   ADAPTER.md       learnable instructions every agent reads
   skills/          learnable skills (good-map, good-leaf, kernel-check, lean-workflow, solving-together)
@@ -55,7 +55,7 @@ repository), not by `deploy`:
 1. **Start the service**, one per run, from a JSON config:
 
    ```bash
-   python -m harnessadapter.runtime.service --config run.json
+   python -m hermit.runtime.service --config run.json
    ```
 
    ```json
@@ -70,7 +70,7 @@ repository), not by `deploy`:
 2. **Deploy a workspace per agent** with the adapter's context, skills and roles:
 
    ```bash
-   harnessadapter deploy --adapter examples/lean_swarm/adapter --workspace /work/A1 --host codex
+   hermit deploy --adapter examples/lean_swarm/adapter --workspace /work/A1 --host codex
    ```
 
    and point the agent at its own endpoint instead of the per-session wrapper `deploy` wrote: the run script

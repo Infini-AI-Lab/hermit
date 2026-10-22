@@ -1,6 +1,6 @@
 # Overview
 
-MetaHarnessAdapter improves the instructions, skills, and tools used by an existing AI agent through feedback from
+Hermit improves the instructions, skills, and tools used by an existing AI agent through feedback from
 task executions. It packages those additions as a **harness adapter**, and provides the loop for running tasks,
 learning from results, and saving revised adapters.
 

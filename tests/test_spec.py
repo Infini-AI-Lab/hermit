@@ -2,10 +2,10 @@
 from pathlib import Path
 import shutil
 
-from harnessadapter.adapter.manifest import matches
-from harnessadapter.spec import check_spec, repair
+from hermit.adapter.manifest import matches
+from hermit.spec import check_spec, repair
 
-TEMPLATES = Path(__file__).resolve().parents[1] / "harnessadapter" / "algorithms" / "templates"
+TEMPLATES = Path(__file__).resolve().parents[1] / "hermit" / "algorithms" / "templates"
 
 
 def copy(src, dst):
@@ -67,7 +67,7 @@ def test_adapter_md_is_required(tmp_path):
 
 def test_context_name_is_fixed(tmp_path):
     import pytest
-    from harnessadapter.adapter.manifest import read_manifest
+    from hermit.adapter.manifest import read_manifest
     a = tmp_path / "a"; a.mkdir()
     (a / "adapter.yaml").write_text("template: {id: x, version: '1'}\nexports: {context: OTHER.md}\nstructure: {}\n")
     with pytest.raises(ValueError, match="always ADAPTER.md"):

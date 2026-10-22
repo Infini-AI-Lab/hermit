@@ -8,8 +8,8 @@ learner CLIs, and sandbox support depend on the workflow you choose.
 If you do not have a checkout:
 
 ```bash
-git clone https://github.com/haizhongzheng/MetaHarnessAdapter.git
-cd MetaHarnessAdapter
+git clone https://github.com/haizhongzheng/hermit.git
+cd hermit
 ```
 
 From the repository root:
@@ -18,7 +18,7 @@ From the repository root:
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e .
-harnessadapter --help
+hermit --help
 ```
 
 Help should list `check`, `train`, `eval`, `deploy`, `convert`, and `serve`. Activate the environment again in
@@ -57,7 +57,7 @@ For exact experiment reproduction, record the framework commit and dependency re
 ## Verify the local installation
 
 ```bash
-harnessadapter check --config docs/_examples/first_training/run.yaml
+hermit check --config docs/_examples/first_training/run.yaml
 ```
 
 The probe should score the first toy task zero without execution errors. Its sandbox-disabled warning is expected

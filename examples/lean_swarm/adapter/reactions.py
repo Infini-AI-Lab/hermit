@@ -2,7 +2,7 @@
 replication of r20 on the service stack. Kept: host-side ingest, the notice gate as it was then (requests older
 than 10 min dropped, urgent or not; no busy guard; no `defer`), resume of an ended session, snapshots, served-notice
 log. Not present then, so absent here: the phase-1 push (09-30) and the idle rule (09-29 14:20).
-Below: the v30 module with those rules removed or reverted (marked v20s). The standalone service (harnessadapter/runtime/service.py) calls `react` every tick
+Below: the v30 module with those rules removed or reverted (marked v20s). The standalone service (hermit/runtime/service.py) calls `react` every tick
 (5 s) with the run script's status report; `react` returns commands for the run script: `interrupt` (stop the session,
 resume it with the text) and `resume` (resume a session that ended, with the text). The run script decides nothing.
 
@@ -29,7 +29,7 @@ import collab
 import assembly
 
 try:
-    from harnessadapter.runtime.agent_context import AGENT_ENV
+    from hermit.runtime.agent_context import AGENT_ENV
 except ImportError:   # outside the service there is no per-call context
     AGENT_ENV = None
 

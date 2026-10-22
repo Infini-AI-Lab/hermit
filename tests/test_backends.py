@@ -10,11 +10,11 @@ import threading
 import pytest
 import yaml
 
-from harnessadapter import backends
-from harnessadapter.backends import (Binding, bind_agent_params, bindings_of, is_ref, normalize_config, probe,
+from hermit import backends
+from hermit.backends import (Binding, bind_agent_params, bindings_of, is_ref, normalize_config, probe,
                                      problems_of, registry, resolve, shell_lines)
-from harnessadapter.config import Config
-from harnessadapter.llm import ChatClient
+from hermit.config import Config
+from hermit.llm import ChatClient
 
 ROOT = Path(__file__).resolve().parents[1]
 GLM = "accounts/fireworks/models/glm-5p3-flash"
@@ -195,8 +195,8 @@ def test_bind_agent_params(monkeypatch):
 
 
 def test_claude_cost_counts_only_on_anthropic():
-    from harnessadapter.evolver.agent import price_usage
-    from harnessadapter.evolver.base import Usage
+    from hermit.evolver.agent import price_usage
+    from hermit.evolver.base import Usage
     r = reg()
     reported = lambda: [Usage(model="q", input_tokens=2_000_000, output_tokens=1_000_000, calls=3, cost_usd=3.6)]
     local = bind_agent_params({"backend": "claude", "model": {"model": "vllm/q", "price": {"input": 0, "output": 0}}},
@@ -325,7 +325,7 @@ def test_shell_lines_and_cli(capsys, monkeypatch):
 # ---- the Evolver side, the check command, the CLI dispatch and the meter -----------------------------------------------
 
 def test_instantiate_binds_an_agent_evolver(monkeypatch):
-    from harnessadapter.evolver.loader import find, instantiate
+    from hermit.evolver.loader import find, instantiate
     monkeypatch.setenv("FIREWORKS_API_KEY", "fw-key")
     _, params = instantiate(find("codex"), {"model": f"fireworks/{GLM}", "args": ["-c", "x=1"]}, backends=reg())
     assert params["model"] == GLM and params["args"][1] == 'model_provider="fireworks"' and params["args"][-1] == "x=1"
@@ -354,8 +354,8 @@ def _tiny_run(tmp_path, **overrides):
 
 
 def test_check_reports_models_and_train_refuses_a_missing_dialect(tmp_path, monkeypatch):
-    from harnessadapter.settings_check import run_check
-    from harnessadapter.trainer.trainer import Trainer
+    from hermit.settings_check import run_check
+    from hermit.trainer.trainer import Trainer
     monkeypatch.setenv("HA_BACKENDS", str(tmp_path / "no-user-file.yaml"))
     lines = []
     config = Config.load(_tiny_run(tmp_path))
@@ -375,7 +375,7 @@ def test_check_reports_models_and_train_refuses_a_missing_dialect(tmp_path, monk
 
 def test_evolver_binding_reaches_the_sandbox(tmp_path, monkeypatch):
     """The Trainer lets the Evolver's endpoint through the allowlist and its key variable into the sandbox."""
-    from harnessadapter.trainer.trainer import Trainer
+    from hermit.trainer.trainer import Trainer
     monkeypatch.setenv("HA_BACKENDS", str(tmp_path / "no-user-file.yaml"))
     monkeypatch.setenv("LAB_KEY", "sekret-123")
     config = Config.load(_tiny_run(tmp_path, backends={"vllm": {"base_url": "http://box:8000/v1", "api_key_env": "LAB_KEY"}},
@@ -389,8 +389,8 @@ def test_evolver_binding_reaches_the_sandbox(tmp_path, monkeypatch):
 
 
 def test_cli_dispatch_and_meter_buckets(capsys):
-    from harnessadapter.cli import main as cli_main
-    from harnessadapter.runtime.wire_meter import split_bucket
+    from hermit.cli import main as cli_main
+    from hermit.runtime.wire_meter import split_bucket
     assert cli_main(["backends", "list"]) == 0 and "fireworks" in capsys.readouterr().out
     assert cli_main(["backends", "show", f"fireworks/{GLM}"]) == 0 and '"ref"' in capsys.readouterr().out
     assert split_bucket("/run_o0/inference/v1/chat/completions") == ("run_o0", "/inference/v1/chat/completions")

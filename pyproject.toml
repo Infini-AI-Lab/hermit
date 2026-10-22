@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "harnessadapter"
+name = "hermit-harness"
 version = "0.2.0"
 description = "Train harness adapters: templates, Evolvers, a Trainer and evolving tasks; deploy adapters into Codex and Claude Code"
 readme = "README.md"
@@ -25,13 +25,13 @@ skillopt = ["skillopt @ git+https://github.com/microsoft/SkillOpt@79124b37e9a637
             "json_repair>=0.61.0"]
 
 [project.scripts]
-harnessadapter = "harnessadapter.cli:main"
+hermit = "hermit.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["harnessadapter*"]
+include = ["hermit*"]
 
 [tool.setuptools.package-data]
-harnessadapter = ["defaults.yaml", "backends.yaml", "algorithms/evolvers/**/*", "algorithms/templates/**/*"]
+hermit = ["defaults.yaml", "backends.yaml", "algorithms/evolvers/**/*", "algorithms/templates/**/*"]
 
 [tool.setuptools]
 include-package-data = true

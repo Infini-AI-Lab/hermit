@@ -1,0 +1,13 @@
+description: A Claude Code agent improves the adapter from the step's learning material.
+class: hermit.evolver.agent:AgentEvolver
+needs: []
+params:
+  backend: claude
+  prompt: START.md
+  resume_prompt: RESUME.md
+  args: []
+  model: null                # the agent's model; null: its default
+  price: null                # USD per million tokens {input, cached_input, output}
+  home: [auth.json, .credentials.json]   # files of the agent's home copied into the run's
+  tools: null                # the only Trainer tools the agent may use, e.g. [check_spec]; null: all
+  hide: null                 # paths hidden from the agent besides examples/tests/docs/.git; null: nothing hidden

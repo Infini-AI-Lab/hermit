@@ -9,7 +9,7 @@ offline with the echo task of tutorial 3.
 
 ```bash
 mkdir -p .demo
-cp -R harnessadapter/algorithms/templates/prompt_only .demo/my_template
+cp -R hermit/algorithms/templates/prompt_only .demo/my_template
 ```
 
 `.demo/my_template/` holds `adapter.yaml` (the manifest), `ADAPTER.md` (the instructions), `EVOLVER.md` (how a
@@ -117,9 +117,9 @@ with `check.py` under `fixed`.
 Point a run at the directory. With the offline echo task and its recording Evolver:
 
 ```bash
-harnessadapter check --config docs/_examples/interface_task/run.yaml template=../../../.demo/my_template trainer.run_name=my-template
-harnessadapter train --config docs/_examples/interface_task/run.yaml template=../../../.demo/my_template trainer.run_name=my-template
-harnessadapter deploy --adapter .demo/my_template --workspace .demo/ws --host codex && cat .demo/ws/AGENTS.md
+hermit check --config docs/_examples/interface_task/run.yaml template=../../../.demo/my_template trainer.run_name=my-template
+hermit train --config docs/_examples/interface_task/run.yaml template=../../../.demo/my_template trainer.run_name=my-template
+hermit deploy --adapter .demo/my_template --workspace .demo/ws --host codex && cat .demo/ws/AGENTS.md
 ```
 
 Paths in overrides are relative to the config file. `check` loads your template and reports what does not fit

@@ -1,6 +1,6 @@
 """Learn one supported output rule from scored training feedback, offline."""
 import json
-from harnessadapter.evolver.base import Evolver, StepContext, StepResult
+from hermit.evolver.base import Evolver, StepContext, StepResult
 
 
 class FormatEvolver(Evolver):

@@ -94,8 +94,8 @@ Hermit provides an RL-style training loop for evolving harness adapters:
 Python 3.11+ and Git
 
 ```bash
-git clone https://github.com/haizhongzheng/MetaHarnessAdapter.git
-cd MetaHarnessAdapter
+git clone https://github.com/haizhongzheng/hermit.git
+cd hermit
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e .
@@ -110,10 +110,10 @@ No model account, GPU, or dataset download required.
 #### Train and Evaluate
 
 ```bash
-harnessadapter check --config docs/_examples/first_training/run.yaml
-harnessadapter eval --config docs/_examples/first_training/run.yaml --adapter none
-harnessadapter train --config docs/_examples/first_training/run.yaml
-harnessadapter eval --config docs/_examples/first_training/run.yaml --adapter final
+hermit check --config docs/_examples/first_training/run.yaml
+hermit eval --config docs/_examples/first_training/run.yaml --adapter none
+hermit train --config docs/_examples/first_training/run.yaml
+hermit eval --config docs/_examples/first_training/run.yaml --adapter final
 ```
 
 The teaching agent starts by echoing lowercase text. After a failed attempt, the learner writes `Output format: uppercase.` into `ADAPTER.md`. Later executions load the updated adapter.
@@ -126,7 +126,7 @@ This deterministic example verifies the training contract. Its constructed score
 
 ```bash
 cat .demo/first-training/first-training/checkout/ADAPTER.md
-harnessadapter deploy \
+hermit deploy \
   --adapter .demo/first-training/first-training/checkout \
   --workspace .demo/first-training/workspace \
   --host codex
@@ -229,8 +229,8 @@ Runnable recipes, with evaluation details in each adapter’s `CARD.md`.
 
 ```bash
 mkdir -p .demo
-cp -R harnessadapter/algorithms/templates/prompt_only .demo/adapter
-harnessadapter deploy --adapter .demo/adapter --workspace .demo/codex-workspace --host codex
+cp -R hermit/algorithms/templates/prompt_only .demo/adapter
+hermit deploy --adapter .demo/adapter --workspace .demo/codex-workspace --host codex
 cat .demo/codex-workspace/AGENTS.md
 ```
 
@@ -241,9 +241,9 @@ Prepare the dataset and model endpoint as described in the [OfficeQA recipe](doc
 ```bash
 python -m pip install -e '.[skillopt,gepa]'
 python examples/officeqa/utils/prepare.py --csv /path/to/officeqa_full.csv --docs /path/to/treasury_bulletins_parsed
-harnessadapter check --config examples/officeqa/gepa/smoke.yaml
-harnessadapter train --config examples/officeqa/gepa/smoke.yaml
-harnessadapter eval --config examples/officeqa/gepa/smoke.yaml --adapter final
+hermit check --config examples/officeqa/gepa/smoke.yaml
+hermit train --config examples/officeqa/gepa/smoke.yaml
+hermit eval --config examples/officeqa/gepa/smoke.yaml --adapter final
 ```
 
 #### Use Your Own Model Server
@@ -252,20 +252,20 @@ Models use `<backend>/<model id>` references. See [Model backends](docs/guides/m
 
 ```bash
 vllm serve Qwen/Qwen3-30B-A3B-Instruct-2507-FP8 --enable-auto-tool-choice --tool-call-parser hermes
-harnessadapter backends check vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8
-harnessadapter train --config examples/officeqa/gepa/smoke.yaml model=vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8 llm=vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8
+hermit backends check vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8
+hermit train --config examples/officeqa/gepa/smoke.yaml model=vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8 llm=vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8
 ```
 
 #### Convert a Trained Adapter into a Plugin
 
 ```bash
-harnessadapter convert --adapter DIR --output OUT --target codex
+hermit convert --adapter DIR --output OUT --target codex
 # Other targets: claude-code, pi, hermes
 ```
 
 ## Contributing
 
-Help extend Hermit by [implementing an Evolver](docs/framework/custom-evolver.md), [connecting a task](docs/tutorials/your-own-task.md), or [reporting a reproduction or integration issue](https://github.com/haizhongzheng/MetaHarnessAdapter/issues).
+Help extend Hermit by [implementing an Evolver](docs/framework/custom-evolver.md), [connecting a task](docs/tutorials/your-own-task.md), or [reporting a reproduction or integration issue](https://github.com/haizhongzheng/hermit/issues).
 
 
 ## License

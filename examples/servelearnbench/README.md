@@ -28,7 +28,7 @@ examples/servelearnbench/mwm/launch.sh retail_l3            # MWM: train on the 
 examples/servelearnbench/prompt_only/launch.sh retail_l3    # prompt-only, same stream and host
 ```
 
-Each launcher starts the wire meters and one `harnessadapter train` in the background (`$MW_RUNS/<tag>/run.log`),
+Each launcher starts the wire meters and one `hermit train` in the background (`$MW_RUNS/<tag>/run.log`),
 then replays every window's held-out tests on the adapter the run had after that window and scores the result file
 with `slb score` (`test.log` and `task/results/retail_l3_<method>.jsonl` in the run directory). The tests can be rerun with
 `launch.sh retail_l3 test`. A smoke on the first 12 serving tasks: `MW_TRAIN_SPLIT=examples/servelearnbench/utils/splits/smoke_serving.txt`.

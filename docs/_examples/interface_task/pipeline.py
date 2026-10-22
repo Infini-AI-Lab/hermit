@@ -1,8 +1,8 @@
 """Offline pipeline stub for exercising the interface; no model is called."""
 from pathlib import Path
 
-from harnessadapter import Session
-from harnessadapter.task import RunOutput
+from hermit import Session
+from hermit.task import RunOutput
 
 
 def run(task: dict, adapter: Path | None) -> RunOutput:

@@ -1,7 +1,7 @@
 """The CL-Bench host over a Harness Adapter: a ContinualLearningSystem for clbench's runner, no learner inside.
 
 CL-Bench owns the loop: it asks the system for one environment action per turn (`run_action_turn`) and executes it
-on its own side. This host is that system with an adapter plugged in through `harnessadapter.Session` and nothing
+on its own side. This host is that system with an adapter plugged in through `hermit.Session` and nothing
 else: the adapter's context is the system prompt, its tools are offered beside the task's, a call to one of them
 runs through the Session. Ported from metaworld's host (mwm/seat.py and the clbench systems built on it), reduced
 to the host side; sub-agents were already off in the framework's runs. Behaviour kept as it was:
@@ -25,7 +25,7 @@ from typing import Any, Optional
 from src.interface import ContinualLearningSystem, Observation, Query, Response, observation_marks_instance_complete
 from src.systems.utils import native_tools
 
-from harnessadapter import Session
+from hermit import Session
 
 logger = logging.getLogger(__name__)
 

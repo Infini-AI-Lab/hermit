@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from harnessadapter import Session
+from hermit import Session
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "docs" / "_examples" / "file_adapter"
 

@@ -6,18 +6,18 @@ import tomllib
 
 import pytest
 
-from harnessadapter.hosts.claude_code import prepare as claude_prepare
-from harnessadapter.hosts.codex import prepare as codex_prepare
-from harnessadapter.hosts.pi import prepare as pi_prepare
+from hermit.hosts.claude_code import prepare as claude_prepare
+from hermit.hosts.codex import prepare as codex_prepare
+from hermit.hosts.pi import prepare as pi_prepare
 
-LEAN = Path(__file__).resolve().parents[1] / "harnessadapter" / "algorithms" / "templates" / "lean_collab"
+LEAN = Path(__file__).resolve().parents[1] / "hermit" / "algorithms" / "templates" / "lean_collab"
 
 
 def test_codex(tmp_path):
     result = codex_prepare(LEAN, tmp_path / "w", sys.executable)
     config = tomllib.loads((tmp_path / "w" / ".codex" / "config.toml").read_text())
     assert "lean_collab" in config["mcp_servers"]
-    assert "harnessadapter:lean-collab:start" in (tmp_path / "w" / "AGENTS.md").read_text()
+    assert "hermit:lean-collab:start" in (tmp_path / "w" / "AGENTS.md").read_text()
     assert set(result["skills"]) == {"good-leaf", "good-map", "kernel-check", "lean-workflow", "solving-together"}
     # Redeploying into the same workspace is allowed; a foreign nonempty workspace is not.
     codex_prepare(LEAN, tmp_path / "w", sys.executable)
@@ -32,12 +32,12 @@ def test_claude(tmp_path):
 def test_pi(tmp_path):
     result = pi_prepare(LEAN, tmp_path / "p", sys.executable)
     mcp = json.loads((tmp_path / "p" / ".pi" / "mcp.json").read_text())
-    assert mcp["mcpServers"]["lean_collab"]["args"][:3] == ["-m", "harnessadapter.runtime.mcp_server", "--adapter"]
-    assert "harnessadapter:lean-collab:start" in (tmp_path / "p" / "AGENTS.md").read_text()
+    assert mcp["mcpServers"]["lean_collab"]["args"][:3] == ["-m", "hermit.runtime.mcp_server", "--adapter"]
+    assert "hermit:lean-collab:start" in (tmp_path / "p" / "AGENTS.md").read_text()
     assert (tmp_path / "p" / ".pi" / "skills" / "good-map" / "SKILL.md").exists()
     assert result["context_injected_via"] == "AGENTS.md" and result["roles"] == {}
     pi_prepare(LEAN, tmp_path / "p", sys.executable)
-    assert (tmp_path / "p" / "AGENTS.md").read_text().count("harnessadapter:lean-collab:start") == 1
+    assert (tmp_path / "p" / "AGENTS.md").read_text().count("hermit:lean-collab:start") == 1
     with pytest.raises(ValueError, match="generated for another host"):
         codex_prepare(LEAN, tmp_path / "p", sys.executable)
 
@@ -73,7 +73,7 @@ def test_one_file_subagent(tmp_path):
 
 
 def test_subagent_without_frontmatter_fails_the_check(tmp_path):
-    from harnessadapter.spec import check_spec
+    from hermit.spec import check_spec
     a = subagent_adapter(tmp_path)
     root = tmp_path / "root"
     import shutil

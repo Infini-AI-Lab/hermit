@@ -102,9 +102,9 @@ output { font-size: 11px; font-variant-numeric: tabular-nums; min-width: 64px; }
   const STEPS = {
     cmd: [
       { lines: ['pip install -e .'], desc: 'install', secs: 2 },
-      { lines: ['harnessadapter train --config run.yaml'], desc: 'train', secs: 2.4 },
-      { lines: ['harnessadapter deploy --adapter final --workspace my-project --host codex'], desc: 'deploy', secs: 2.2 },
-      { lines: ['harnessadapter convert --adapter final --output plugin --target claude-code'], desc: 'convert to a plugin', secs: 2.4 },
+      { lines: ['hermit train --config run.yaml'], desc: 'train', secs: 2.4 },
+      { lines: ['hermit deploy --adapter final --workspace my-project --host codex'], desc: 'deploy', secs: 2.2 },
+      { lines: ['hermit convert --adapter final --output plugin --target claude-code'], desc: 'convert to a plugin', secs: 2.4 },
     ],
     code: [
       { lines: ['adapter = template'], desc: 'start', secs: 2 },
@@ -114,7 +114,7 @@ output { font-size: 11px; font-variant-numeric: tabular-nums; min-width: 64px; }
       { lines: ['adapter = evolver.finalize(adapter)'], desc: 'final adapter', secs: 2.2, ver: 1 },
     ],
   };
-  const cmdLine = text => `<span class="prompt">$</span><span class="cmd">${esc(text).replace(/^(harnessadapter \w+|pip install)/, '<b>$1</b>').replace(/(--target \S+|--host \S+)/, '<b class="t">$1</b>')}</span>`;
+  const cmdLine = text => `<span class="prompt">$</span><span class="cmd">${esc(text).replace(/^(hermit \w+|pip install)/, '<b>$1</b>').replace(/(--target \S+|--host \S+)/, '<b class="t">$1</b>')}</span>`;
   const codeLine = text => esc(text).replace(/\b(for|in|if|or)\b/g, '<span class="kw">$1</span>').replace(/\b(evolver\.(?:step|finalize))\b/g, '<b class="t">$1</b>');
   const format = (mode, text) => text.split('\n').map(mode === 'cmd' ? cmdLine : codeLine).join('\n');
   for (const [mode, steps] of Object.entries(STEPS)) {

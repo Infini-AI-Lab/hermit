@@ -30,12 +30,12 @@ def host_model(params: dict) -> tuple[str, dict]:
     if not model:
         if os.environ.get("MWM_HOST_MODEL"):
             return os.environ["MWM_HOST_MODEL"], {}      # a litellm id, as the launcher sets it; never a reference
-        from harnessadapter.backends import registry, resolve
+        from hermit.backends import registry, resolve
         model = resolve(DEFAULT_MODEL, registry()).spec()
     if isinstance(model, str):
-        from harnessadapter.backends import registry, resolve
+        from hermit.backends import registry, resolve
         model = resolve(model, registry()).spec()
-    from harnessadapter.backends import Binding
+    from hermit.backends import Binding
     binding = Binding.from_spec(model)
     if binding.backend.key_required and binding.api_key_env and not binding.key():
         raise RuntimeError(f"{binding.api_key_env} is not set (the key of backend {binding.backend.name!r})")

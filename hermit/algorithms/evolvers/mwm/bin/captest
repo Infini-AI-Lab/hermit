@@ -1,0 +1,43 @@
+#!/usr/bin/env python3
+"""Let the learner run a tool's own test, sandboxed (the native `captest` command).
+
+  captest --wrepo . --name refund_amount
+
+Same discovery and test as the hosts' admission (the adapter's mwm_core.capabilities with the framework's Python
+sandbox), so PASS here means the tool will be served.
+"""
+import argparse
+import importlib.util
+from pathlib import Path
+import sys
+import types
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--wrepo", required=True)
+    ap.add_argument("--name", required=True)
+    a = ap.parse_args()
+    root = Path(a.wrepo).resolve()
+    package = types.ModuleType("_captest_core")
+    package.__path__ = [str(root / "mwm_core")]
+    sys.modules["_captest_core"] = package
+    spec = importlib.util.spec_from_file_location("_captest_core.capabilities", root / "mwm_core" / "capabilities.py")
+    C = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = C
+    spec.loader.exec_module(C)
+    from hermit.runtime.python_sandbox import PythonSandbox
+    C.RESOURCES.set({"python_sandbox": PythonSandbox(root)})
+    schemas = {s["_module"]: s for s in C.candidates(str(root))}
+    if a.name not in schemas:
+        print(f"FAIL: no tool named {a.name!r} — tools/{a.name}/run.py "
+              f"needs a literal SCHEMA dict (name/description/parameters) "
+              f"and a run() function")
+        sys.exit(1)
+    ok, log = C.run_test(str(root), a.name)
+    print(("PASS: " if ok else "FAIL: ") + (log.strip() or "(no output)"))
+    sys.exit(0 if ok else 1)
+
+
+if __name__ == "__main__":
+    main()

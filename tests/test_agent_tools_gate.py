@@ -9,10 +9,10 @@ import urllib.request
 
 import pytest
 
-from harnessadapter.config import Config
-from harnessadapter.evolver.gate import ToolGate
-from harnessadapter.sandbox import FRAMEWORK, HidingSandbox, hidden_paths
-from harnessadapter.trainer.trainer import Trainer
+from hermit.config import Config
+from hermit.evolver.gate import ToolGate
+from hermit.sandbox import FRAMEWORK, HidingSandbox, hidden_paths
+from hermit.trainer.trainer import Trainer
 from test_training import make_task
 
 
@@ -97,7 +97,7 @@ def test_agent_evolver_gates_the_tools(tmp_path, monkeypatch):
     (evolver / "codex").write_text(FAKE_CODEX)
     (evolver / "codex").chmod(0o755)
     (evolver / "START.md").write_text("output={output}\n{message}")
-    (evolver / "evolver.yaml").write_text("class: harnessadapter.evolver.agent:AgentEvolver\n"
+    (evolver / "evolver.yaml").write_text("class: hermit.evolver.agent:AgentEvolver\n"
                                           "params: {backend: codex, prompt: START.md, home: [], tools: [check_spec]}\n")
     monkeypatch.setenv("PATH", f"{evolver}{os.pathsep}{os.environ['PATH']}")
     cfg = Config.load(path, ["evolver.name=gated", "trainer.epochs=1", "data.step_size=6"])

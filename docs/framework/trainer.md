@@ -19,7 +19,7 @@ algorithm.
 
 ## Interface
 
-Start a run with `harnessadapter train --config run.yaml`. The Python entry point is `Trainer(config).train()`.
+Start a run with `hermit train --config run.yaml`. The Python entry point is `Trainer(config).train()`.
 
 | Input | How the Trainer uses it |
 |---|---|
@@ -178,9 +178,9 @@ outside the training budget. See [Configuration](configuration.md#budgets-and-ch
 After installation, run the bundled offline interface example from the repository root:
 
 ```bash
-harnessadapter check --config docs/_examples/interface_task/run.yaml
-harnessadapter train --config docs/_examples/interface_task/run.yaml
-harnessadapter eval --config docs/_examples/interface_task/run.yaml --adapter final
+hermit check --config docs/_examples/interface_task/run.yaml
+hermit train --config docs/_examples/interface_task/run.yaml
+hermit eval --config docs/_examples/interface_task/run.yaml --adapter final
 ```
 
 The pipeline echoes input text and the Evolver records scores without changing the adapter. It exercises two

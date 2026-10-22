@@ -6,12 +6,12 @@ can make paid calls.
 
 | Symptom | Inspect first | Action |
 |---|---|---|
-| `harnessadapter` not found | Active Python environment | Activate it and run `python -m pip install -e .`; verify `harnessadapter --help` |
+| `hermit` not found | Active Python environment | Activate it and run `python -m pip install -e .`; verify `hermit --help` |
 | Unknown key or wrong file path | Config spelling and config directory | Compare the [field reference](../reference/config-fields.md); resolve paths relative to the YAML |
 | Template not found | `template` and its `adapter.yaml` | Use a registered id such as `prompt-only@1.0` or a directory containing the manifest |
 | GEPA/SkillOpt cannot import | Installed extra and environment | Install `'.[gepa]'` or `'.[skillopt]'` in the environment running the CLI |
 | Learner authentication fails | Learner endpoint, key variable, backend CLI | Verify the configured variable is set without printing it; authenticate the selected CLI |
-| `train refuses to start: ... serves [...], not 'responses'` (or `'messages'`) | The model's backend and the caller's dialect | Codex speaks the Responses API only, Claude Code the Messages API only: bind a backend that serves it (vLLM, SGLang, Fireworks, DeepSeek) or a translating proxy; `harnessadapter backends check <ref>` tries each dialect. See [Model backends](model-backends.md) |
+| `train refuses to start: ... serves [...], not 'responses'` (or `'messages'`) | The model's backend and the caller's dialect | Codex speaks the Responses API only, Claude Code the Messages API only: bind a backend that serves it (vLLM, SGLang, Fireworks, DeepSeek) or a translating proxy; `hermit backends check <ref>` tries each dialect. See [Model backends](model-backends.md) |
 | Actor works but learner fails, or conversely | Separate actor/learner configurations | The pipeline owns acting-model settings; `llm` and backend parameters own learner settings |
 | bwrap missing or namespace denied | Linux runtime and namespace policy | Install bubblewrap and use an environment permitting its namespaces; see [Installation](../get-started/installation.md) |
 | Probe fails on `adapter=None` | Pipeline's baseline branch | Make no-adapter execution valid; do not assume every call has an adapter directory |

@@ -8,7 +8,7 @@
 #   MW_MODEL=vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8 VLLM_BASE_URL=http://127.0.0.1:8102/v1 \
 #     MW_TAG=mwm_poker_local WM_PORT=3431 MW_ORDERS="0" ./launch.sh               # a local vLLM server
 #
-# Models are backend references, <backend>/<model id> (`harnessadapter backends list`; harnessadapter/backends.py):
+# Models are backend references, <backend>/<model id> (`hermit backends list`; hermit/backends.py):
 # MW_MODEL names the host's and the learner's model alike, MW_HOST_MODEL and MW_EVOLVER_MODEL either alone (default
 # GLM 5.3 Flash on Fireworks). The backend's key variable (FIREWORKS_API_KEY, ...) must be set, or MW_KEY_FILE holds
 # the key (default ~/code/metaworld/.fireworks, read for the fireworks backend only). The learner's backend must
@@ -16,7 +16,7 @@
 #
 # Per tag: a host wire meter (WM_PORT) and a learner wire meter with the rewrites codex needs (WM_PORT+1), each in
 # front of its model's backend. Per order: a task directory <runs>/<tag>/order<i>/task (evidence store, host workspace,
-# current_db, outcomes.jsonl) and one `harnessadapter train` run, <runs>/<tag>/<tag>-o<i>. Run the venue's prepare.py
+# current_db, outcomes.jsonl) and one `hermit train` run, <runs>/<tag>/<tag>-o<i>. Run the venue's prepare.py
 # first. MW_TRAIN_SPLIT names another split file (a prefix of the order's stream, for a smoke run of one order).
 set -eu
 VENUE=database
@@ -30,7 +30,7 @@ TAG=${MW_TAG:?set MW_TAG}
 WM_PORT=${WM_PORT:?set WM_PORT}
 # Any Python with the framework's dependencies; PYTHONPATH below makes it import THIS checkout.
 PY=${MW_FRAMEWORK_PYTHON:-$FRAMEWORK/.venv/bin/python}
-METER=${MW_WIRE_METER:-$FRAMEWORK/harnessadapter/runtime/wire_meter.py}
+METER=${MW_WIRE_METER:-$FRAMEWORK/hermit/runtime/wire_meter.py}
 [ -z "${MW_MODEL_ID:-}" ] || { echo "REFUSING: MW_MODEL_ID is gone; set MW_MODEL (or MW_HOST_MODEL) to a <backend>/<model id> reference"; exit 1; }
 MODEL=${MW_MODEL:-fireworks/accounts/fireworks/models/glm-5p3-flash}
 HOST_MODEL=${MW_HOST_MODEL:-$MODEL}
@@ -40,8 +40,8 @@ META_PORT=$((WM_PORT+1))
 TASKDIR=$FRAMEWORK/examples/clbench_database/utils
 export PYTHONPATH=$FRAMEWORK${PYTHONPATH:+:$PYTHONPATH}
 
-# The two models resolved on their backends (the shell form of harnessadapter.backends: HOST_* and EVOLVER_*).
-resolve() { "$PY" -m harnessadapter.backends shell "$2" | sed "s/^HA_/$1_/"; }
+# The two models resolved on their backends (the shell form of hermit.backends: HOST_* and EVOLVER_*).
+resolve() { "$PY" -m hermit.backends shell "$2" | sed "s/^HA_/$1_/"; }
 # HOST_MODEL stays the reference; HOST_MODEL_ID is the model's id on its backend (same for EVOLVER_*).
 eval "$(resolve HOST "$HOST_MODEL")"; [ -n "${HOST_MODEL_ID:-}" ] || { echo "REFUSING: cannot resolve $HOST_MODEL"; exit 1; }
 eval "$(resolve EVOLVER "$EVOLVER_MODEL")"; [ -n "${EVOLVER_MODEL_ID:-}" ] || { echo "REFUSING: cannot resolve $EVOLVER_MODEL"; exit 1; }
@@ -101,7 +101,7 @@ for i in ${MW_ORDERS:-0}; do
   mkdir -p "$WD/evidence"
   : > "$WD/current_db"
   # The store's README exists before the bootstrap session, as natively (the wrapper wrote it before block 0).
-  "$PY" -m harnessadapter.algorithms.evolvers.mwm.evidence.readme --evidence "$WD/evidence" --from "$HERE/../utils/task-info/mwm/contract/env_evidence.md"
+  "$PY" -m hermit.algorithms.evolvers.mwm.evidence.readme --evidence "$WD/evidence" --from "$HERE/../utils/task-info/mwm/contract/env_evidence.md"
   if [ "$VENUE" = database ]; then   # the first question's database, registered before the bootstrap, as natively
     "$CLBENCH/.venv/bin/python" "$FRAMEWORK/examples/clbench_database/utils/agent/database_runner.py" --register-first $i \
       --workdir "$WD" --clbench "$CLBENCH" --framework "$FRAMEWORK"
@@ -114,7 +114,7 @@ for i in ${MW_ORDERS:-0}; do
        "host_model=$HOST_MODEL host_effort=$EFFORT evolver=mwm evolver_model=$EVOLVER_MODEL evolver_effort=$EFFORT" \
        "meter=$META_PORT shuffle=false bucket=${TAG}_o$i ===" > "$LOG"
   MWM_TASK_WORKDIR="$WD" CLB_API_BASE="http://127.0.0.1:$WM_PORT/${TAG}_o$i$HOST_PATH" \
-    setsid nohup "$PY" -m harnessadapter.cli train --config "$HERE/run.yaml" \
+    setsid nohup "$PY" -m hermit.cli train --config "$HERE/run.yaml" \
       "trainer.run_name=$TAG-o$i" "trainer.output_dir=$RUNS/$TAG" \
       "data.train=${MW_TRAIN_SPLIT:-$TASKDIR/splits/order$i.txt}" \
       "backends.learner=$LEARNER" "evolver.params.model=learner/$EVOLVER_MODEL_ID" \

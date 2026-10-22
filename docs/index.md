@@ -1,4 +1,4 @@
-# MetaHarnessAdapter
+# Hermit
 
 Train the instructions, skills, roles, and tools used by an existing agent, using feedback from its task attempts.
 The learned files form a **harness adapter**: a versioned directory your agent consumes. Model weights stay

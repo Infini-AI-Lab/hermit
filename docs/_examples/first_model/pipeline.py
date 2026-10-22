@@ -2,9 +2,9 @@
 import os
 from pathlib import Path
 
-from harnessadapter.adapter.loader import Adapter
-from harnessadapter.llm import ChatClient
-from harnessadapter.task import RunOutput
+from hermit.adapter.loader import Adapter
+from hermit.llm import ChatClient
+from hermit.task import RunOutput
 
 
 def run(task: dict, adapter: Path | None) -> RunOutput:

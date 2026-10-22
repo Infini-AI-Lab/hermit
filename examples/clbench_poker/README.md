@@ -57,7 +57,7 @@ contract.
 
 ```text
 utils/agent/        CLBenchPokerAgent (agent.py) starts poker_runner.py in clbench's virtualenv through
-                    clbench_host.py; host.py is the acting host, built over harnessadapter.Session
+                    clbench_host.py; host.py is the acting host, built over hermit.Session
 utils/prepare.py    tasks.jsonl and one ordered split per order      utils/judge.py   the venue's score and feedback
 utils/task-info/    the task for the learner; task-info/mwm/ is what MWM needs to know about the venue
 mwm/ prompt_only/   run.yaml and launch.sh per method
