@@ -99,6 +99,20 @@ def test_a_role_grant_beneath_a_mask_is_bound_on_top_of_it(tmp_path, monkeypatch
     assert command[command.index("--deny") + 1] == s(runs)
 
 
+def test_a_venv_granted_for_one_call_brings_its_base_installation(tmp_path, monkeypatch):
+    """A sandboxed adapter server runs on the framework's Python, granted per call by a program on another
+    interpreter: the venv's base installation (its pyvenv.cfg `home`) must be bound too, or Python finds no stdlib."""
+    fake_bwrap(monkeypatch)
+    base = tmp_path / "base"
+    (base / "bin").mkdir(parents=True)
+    venv = tmp_path / "venv"
+    venv.mkdir()
+    (venv / "pyvenv.cfg").write_text(f"home = {base / 'bin'}\nversion = 3.12.0\n")
+    args, _ = Sandbox(network="isolated").wrap(["true"], readable=[venv])
+    ro = binds(args, "--ro-bind")
+    assert str(venv.resolve()) in ro and str(base.resolve()) in ro
+
+
 def test_older_network_values():
     assert network_mode("restricted") == ("isolated", True)
     assert network_mode("none") == ("isolated", False)

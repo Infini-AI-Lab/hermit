@@ -3,7 +3,8 @@
 The program never imports the adapter's code: the tools run in a child process inside the sandbox it is given
 (#11), with the adapter read-only, the deployment texts and learning material read-only, the evidence store writable,
 and whatever network the sandbox grants. The client runs on its own thread and event loop, so the one connection
-serves synchronous and asynchronous callers alike, from any event loop.
+serves synchronous and asynchronous callers alike, from any event loop. It speaks MCP over stdio by itself and needs
+no package beyond the standard library, so a program on any interpreter can hold a sandboxed Session.
 """
 from __future__ import annotations
 
@@ -18,13 +19,6 @@ import threading
 
 class ToolError(RuntimeError):
     """A tool call the sandboxed server answered with an error (its text is the message)."""
-
-
-def _field(result, *names):
-    for name in names:
-        if name in type(result).model_fields:
-            return getattr(result, name)
-    raise AttributeError(f"{type(result).__name__} has none of {names}")
 
 
 class SandboxedServer:
@@ -81,24 +75,79 @@ class SandboxedServer:
         self.loop.run_until_complete(self._serve())
 
     async def _serve(self) -> None:
-        from mcp import ClientSession
-        from mcp.client.stdio import StdioServerParameters, stdio_client
-
+        # The client side is a few lines of MCP over stdio (newline-delimited JSON-RPC), written here rather than
+        # taken from the `mcp` package: the program that holds the Session may run on another interpreter (a
+        # benchmark's own virtual environment) where that package is not installed. The server, on the framework's
+        # Python, is the real thing.
         self._stop = asyncio.Event()
         self._task = asyncio.current_task()
-        params = StdioServerParameters(command=self.args[0], args=self.args[1:], env=self.env, cwd=str(self.work))
+        self._pending: dict[int, asyncio.Future] = {}
+        self._next_id = 0
+        proc = None
+        reader = None
         try:
-            async with stdio_client(params, errlog=self._errlog) as (reader, writer):
-                async with ClientSession(reader, writer) as client:
-                    await client.initialize()
-                    self._client = client
-                    self._ready.set()
-                    await self._stop.wait()
+            proc = await asyncio.create_subprocess_exec(*self.args, stdin=asyncio.subprocess.PIPE,
+                                                        stdout=asyncio.subprocess.PIPE, stderr=self._errlog,
+                                                        env=self.env, cwd=str(self.work))
+            self._proc = proc
+            reader = asyncio.ensure_future(self._read(proc.stdout))
+            from hermit import __version__
+            await self._request("initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
+                                               "clientInfo": {"name": "hermit", "version": __version__}})
+            await self._send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+            self._client = proc
+            self._ready.set()
+            await self._stop.wait()
         except BaseException as exc:                     # a server that dies is reported to the caller waiting on it
             self._failure = exc
         finally:
             self._client = None
+            if reader is not None:
+                reader.cancel()
+            if proc is not None and proc.returncode is None:
+                try:
+                    proc.stdin.close()
+                    await asyncio.wait_for(proc.wait(), 5)
+                except (asyncio.TimeoutError, OSError):
+                    proc.kill()
             self._ready.set()
+
+    async def _send(self, message: dict) -> None:
+        self._proc.stdin.write((json.dumps(message) + "\n").encode())
+        await self._proc.stdin.drain()
+
+    async def _request(self, method: str, params: dict):
+        self._next_id += 1
+        rid = self._next_id
+        future = self.loop.create_future()
+        self._pending[rid] = future
+        await self._send({"jsonrpc": "2.0", "id": rid, "method": method, "params": params})
+        return await future
+
+    async def _read(self, stdout) -> None:
+        """Answers to our requests, by id; the server's own requests and notifications are left unanswered."""
+        try:
+            while True:
+                line = await stdout.readline()
+                if not line:
+                    break
+                try:
+                    message = json.loads(line)
+                except ValueError:
+                    continue
+                future = self._pending.pop(message.get("id"), None) if "id" in message and "method" not in message else None
+                if future is None or future.done():
+                    continue
+                if "error" in message:
+                    err = message["error"]
+                    future.set_exception(RuntimeError(f"{err.get('message')} ({err.get('code')})"))
+                else:
+                    future.set_result(message.get("result"))
+        finally:
+            for future in self._pending.values():
+                if not future.done():
+                    future.set_exception(RuntimeError("the sandboxed adapter server closed its channel"))
+            self._pending.clear()
 
     async def _call(self, name: str, arguments: dict):
         if self._client is None:
@@ -106,14 +155,14 @@ class SandboxedServer:
         # A tool that breaks its own channel (writes to the server's stdout) leaves the answer unreadable: the call
         # ends with an error after `call_timeout`, never waits forever.
         try:
-            result = await asyncio.wait_for(self._client.call_tool(name, arguments), self.call_timeout)
+            result = await asyncio.wait_for(self._request("tools/call", {"name": name, "arguments": arguments}),
+                                            self.call_timeout)
         except asyncio.TimeoutError:
             raise ToolError(f"{name}: no answer from the sandboxed adapter server in {self.call_timeout:.0f} s; "
                             f"log {self.log}") from None
-        # mcp's result fields are snake_case in newer releases, camelCase in older ones.
-        if _field(result, "is_error", "isError"):
-            raise ToolError("".join(getattr(c, "text", "") for c in result.content))
-        return _field(result, "structured_content", "structuredContent")
+        if result.get("isError"):
+            raise ToolError("".join(c.get("text", "") for c in result.get("content", [])))
+        return result.get("structuredContent")
 
     async def acall(self, name: str, arguments: dict):
         """Run one tool in the server; await it from any event loop."""

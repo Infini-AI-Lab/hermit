@@ -98,6 +98,20 @@ def test_tools_run_in_the_sandboxed_server(tmp_path):
 
 
 @pytest.mark.skipif(not _bwrap_works(), reason="needs a working bubblewrap (unprivileged user namespaces)")
+def test_the_client_needs_no_mcp_package(tmp_path, monkeypatch):
+    """A benchmark's own interpreter holds the Session (clbench's host runs in its venv, without `mcp`): the client
+    side must work with the standard library alone, only the server imports the package."""
+    if not _bwrap_works():
+        pytest.skip("bubblewrap not usable")
+    monkeypatch.setitem(sys.modules, "mcp", None)        # `import mcp` raises in this process
+    monkeypatch.setitem(sys.modules, "mcp.client", None)
+    root = adapter_copy(tmp_path)
+    with Session(root, sandbox=True) as s:
+        assert s.sandboxed and s.has_tool("snoop")
+        got = json.loads(s.call("snoop", {"path": "/etc/hostname"})["text"])
+        assert got["write_adapter"].startswith("ERR")
+
+
 def test_a_server_that_cannot_start_is_reported(tmp_path):
     root = adapter_copy(tmp_path)
     (root / "tools.py").write_text("raise SystemExit('broken tools')\n")

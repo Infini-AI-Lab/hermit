@@ -497,6 +497,9 @@ class Sandbox:
         deferred_rw = [p for p in self.writable if beneath_mask(p)]
         skip = {os.path.abspath(str(p)) for p in deferred_ro}
         bind([p for p in self.visible(command) if os.path.abspath(str(p)) not in skip], "--ro-bind", ro)
+        # A virtual environment granted for this call alone (the framework's, shown to a sandboxed adapter server
+        # started from another interpreter) needs the installation it was made from, like a sandbox-level grant.
+        bind(_venv_bases([*readable, *writable]), "--ro-bind", ro)
         bind([p for p in readable if holds_mask(p)], "--ro-bind", ro)
         bind([p for p in self.writable if p not in deferred_rw], "--bind", rw)
         bind([p for p in writable if holds_mask(p)], "--bind", rw)
