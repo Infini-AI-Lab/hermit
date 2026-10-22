@@ -34,7 +34,8 @@ def _realpath(path) -> str:
 
 
 def _resolve_node() -> str:
-    candidate = os.environ.get("VISUAL_NODE") or str(Path.home() / ".nvm" / "versions" / "node" / "v22.23.3" / "bin" / "node")
+    candidate = (os.environ.get("VISUAL_NODE") or shutil.which("node")
+                 or str(Path.home() / ".nvm" / "versions" / "node" / "v22.23.3" / "bin" / "node"))
     real = _realpath(candidate)
     if not os.path.isfile(real) or not os.access(real, os.X_OK):
         raise RuntimeError(f"confine: node is missing at {candidate} (set VISUAL_NODE to a node executable)")

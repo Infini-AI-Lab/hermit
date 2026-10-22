@@ -9,8 +9,8 @@
   rubric_score = null.
 - score = rubric_score, or 0.0 when it is null. VISUAL_JUDGE=mechanical skips the rubric: score = mechanical_score.
 - feedback: one line per rubric dimension (its score and reason), or one line that says why there is no rubric verdict,
-  then one line per mechanical item, for Evolvers that learn from the judge (prompt_only). VISUAL_FEEDBACK=0 leaves it
-  empty. The mwm_visual learner never sees it, nor the score.
+  then one line per mechanical item, for Evolvers that learn from the judge (Codex, toolsmith). VISUAL_FEEDBACK=0 leaves
+  it empty. The mwm_visual learner never sees it, nor the score.
 - Everything is also written to <run log>/judge/judge.json, which the learner's evidence excludes; the rubric's model
   cost is recorded there, not metered by the Trainer.
 """

@@ -732,7 +732,7 @@ def test_hermit_check_loads_the_agent(scratch):
         "agent": {"name": f"{UTILS / 'agent' / 'agent.py'}:VisualAgent", "concurrency": 1, "params": {"facts_file": None}},
         "judge": {"path": str(UTILS / "judge.py")},
         "template": "prompt-only@1.0",
-        "evolver": {"name": "prompt_only", "params": {"max_chars": 6000}},
+        "evolver": {"name": "codex", "params": {"tools": ["check_spec"], "home": []}},   # prompt-only: the Codex learner
         "llm": {"base_url": pipeline.BASE_URL, "model": pipeline.MODEL, "api_key_env": pipeline.KEY_ENV, "price": pipeline.PRICE},
         "sandbox": {"enabled": True, "network": "none", "env": []},
         "trainer": {"run_name": "wp2-check", "output_dir": str(scratch / "runs"), "tree_dir": str(scratch / "trees"),

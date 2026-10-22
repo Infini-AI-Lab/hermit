@@ -169,12 +169,16 @@ Train and evaluate harness adapters on benchmarks using different evolution meth
 </tr>
 <tr>
 <td><a href="docs/methods/prompt-only.md">Prompt-only</a></td>
-<td><a href="examples/clbench_database/prompt_only/">CL-Bench database</a> · <a href="examples/clbench_poker/prompt_only/">CL-Bench poker</a> · <a href="examples/servelearnbench/prompt_only/">ServeLearnBench</a></td>
+<td><a href="examples/clbench_database/prompt_only/">CL-Bench database</a> · <a href="examples/clbench_poker/prompt_only/">CL-Bench poker</a> · <a href="examples/servelearnbench/prompt_only/">ServeLearnBench</a> · <a href="examples/visual_showcase/prompt_only_codex/">Visual showcase</a></td>
+</tr>
+<tr>
+<td><a href="docs/methods/toolsmith.md">Toolsmith</a></td>
+<td><a href="examples/visual_showcase/toolsmith/">Visual showcase</a> · <a href="examples/visual_showcase/toolsmith_codex/">Visual showcase (Codex learner)</a></td>
 </tr>
 </tbody>
 </table>
 
-Walkthroughs: [OfficeQA](docs/recipes/officeqa.md) · [CL-Bench](docs/recipes/clbench.md) · [ServeLearnBench](docs/recipes/servelearnbench.md).
+Walkthroughs: [OfficeQA](docs/recipes/officeqa.md) · [CL-Bench](docs/recipes/clbench.md) · [ServeLearnBench](docs/recipes/servelearnbench.md) · [Visual showcase](docs/recipes/visual-showcase.md).
 
 Smaller training demos: [Quick Start](docs/get-started/quickstart.md) (offline) · [First real-model training](docs/get-started/first-model.md). [Task folder layout](examples/README.md).
 

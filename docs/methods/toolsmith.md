@@ -125,6 +125,6 @@ template's `check.py` rejects a malformed bundle by naming its `TOOL.json`, so t
 alone. The template's `README.md` and `EVOLVER.md` under `hermit/algorithms/templates/toolsmith/` state the
 bundle format and the execution protocol in full.
 
-The [visual showcase recipe](../recipes/visual-showcase.md) runs this method against prompt-only and an in-process MWM
-learner on the same task. Use a smoke run before increasing epochs, and evaluate with the
+The [visual showcase recipe](../recipes/visual-showcase.md) runs this method, with its scripted learner and with the
+Codex learner, against prompt-only for 48 steps on the same task. Use a smoke run before increasing epochs, and evaluate with the
 [same held-out protocol](../guides/evaluation.md).

@@ -9,7 +9,7 @@ Pick a recipe by the task and evaluation protocol. Recipes specify actual integr
 | [ServeLearnBench](servelearnbench.md) | Benchmark package, Linux learner environment, model access | MWM; prompt-only comparison configs | Ordered serving episodes and per-window held-out tests |
 | [CL-Bench](clbench.md) | CL-Bench and MetaWorld checkouts, venue environments, Linux, model access | MWM; comparison examples in the repository | Persistent environment learning over ordered database/poker streams |
 | [Lean collaboration](lean-collaboration.md) | Lean/Mathlib, agent hosts, team service | Existing adapter | Multi-agent consumption with shared tools and state |
-| [Visual showcase](visual-showcase.md) | Node, Playwright's Chromium with GPU WebGL, bubblewrap, model access | Prompt-only, an in-process MWM learner, Toolsmith; untrained baselines | One animated web page per brief judged from screenshots; learners growing a render-and-look procedure or tool for a blind agent |
+| [Visual showcase](visual-showcase.md) | Node, Playwright's Chromium with GPU WebGL, bubblewrap, model access | Prompt-only (Codex), Toolsmith (Codex or scripted learner); earlier: an in-process MWM learner, untrained baselines | One animated web page per brief judged from screenshots; learners growing a render-and-look procedure or tool for a blind agent |
 
 Before a recipe, the offline [Quick Start](../get-started/quickstart.md) and
 [First real-model training](../get-started/first-model.md) run the same loop without benchmark assets.

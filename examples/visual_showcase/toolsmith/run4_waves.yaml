@@ -1,11 +1,12 @@
-# Visual showcase, case waves, generic toolset, experiment 4, arm T: the toolsmith Evolver (template 1.2) grows
+# Visual showcase, case waves, generic toolset, experiment 4, arm TS: the toolsmith Evolver (template 1.2) grows
 # ADAPTER.md and tool bundles (tools/<name>/) that the agent's harness exposes as callable tools whose results may carry
 # images. Same task and acting agent (GLM 5.3 Flash) as run_waves.yaml (experiments 2 and 3) except: the learner is
 # GLM 5.3 (not Flash, same 4096-token thinking cap), training runs 48 steps instead of 12, and every time limit is
 # longer (the host's capture: load 60 s, ready 20 s, whole observation 240 s; the agent: a command or tool 300 s, no
 # run limit; the self-tests 300 s per program, 1200 s per round). Step k runs the adapter of step k-1, from the root W0
 # (no instructions, no tools); every step is tagged waves-ts/ckpt-step-N. Same task, steps, models, limits and eval
-# repeats as ../prompt_only_generic/run4_waves.yaml: compare the two at ckpt-step-12, -24, -36 and -48.
+# repeats as ../prompt_only_codex/run4_waves.yaml (arm PC) and ../toolsmith_codex/run4_waves.yaml (arm TC): compare
+# the three at ckpt-step-12, -24, -36 and -48.
 data:
   tasks: ../utils/tasks.jsonl
   train: ../utils/splits/waves.txt

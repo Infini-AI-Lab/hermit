@@ -74,7 +74,7 @@ two toolsets share `tasks.jsonl`.
   so several runs can share it.
 - `judge.py` checks 12 mechanical items of the final capture and has GLM 5.3 Flash rate the case's five review
   dimensions from its screenshots, without telling it the arm or the adapter (details in its docstring). The score is
-  the rubric score, or 0 when it could not be obtained. Its feedback, for Evolvers that learn from it (`prompt_only`),
+  the rubric score, or 0 when it could not be obtained. Its feedback, for Evolvers that learn from it (Codex, toolsmith),
   has one line per rubric dimension with its reason (or one line saying why there is no rubric verdict), then one
   line per mechanical item; `VISUAL_FEEDBACK=0` leaves it empty. The `mwm_visual` learner never sees it: its evidence
   leaves out scores, feedback and `judge/`. The rubric's model cost is recorded in `judge/`, outside the Trainer's
@@ -130,10 +130,11 @@ renders `reference/webgl_probe.html` with the GPU and `reference/best_<case>.htm
 
 ## Configs
 
-- [`mwm_visual/`](../mwm_visual/): the MWM learner, one adapter per case.
-- [`prompt_only/`](../prompt_only/): the prompt-only Evolver, the same cases,
-  steps and eval repeats.
-- Experiment 2, the generic toolset: [`prompt_only_generic/`](../prompt_only_generic/) (arm P),
-  [`mwm_visual_generic/`](../mwm_visual_generic/) (arm M: the learner of `mwm_visual/` with the acting agent's
-  `environment_file`), [`toolsmith/`](../toolsmith/) (arm T) and [`baseline/`](../baseline/) (B'-blind and B'-hinted,
-  `eval --adapter none`).
+- Experiment 4, the generic toolset, 48 steps: [`prompt_only_codex/`](../prompt_only_codex/) (PC),
+  [`toolsmith_codex/`](../toolsmith_codex/) (TC) and [`toolsmith/`](../toolsmith/) `run4_<case>.yaml` (TS).
+- Experiment 1: [`mwm_visual/`](../mwm_visual/), the MWM learner, one adapter per case.
+- Experiment 2, the generic toolset: [`mwm_visual_generic/`](../mwm_visual_generic/) (arm M: the learner of
+  `mwm_visual/` with the acting agent's `environment_file`), [`toolsmith/`](../toolsmith/) `run_<case>.yaml` (arm T)
+  and [`baseline/`](../baseline/) (B'-blind and B'-hinted, `eval --adapter none`).
+- The prompt-only arms of experiments 1 and 2 used a scripted prompt-only learner that hermit has removed; their
+  configs went with it.

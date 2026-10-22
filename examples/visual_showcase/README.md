@@ -1,134 +1,155 @@
 # Visual showcase
 
-GLM 5.3 Flash writes one offline, interactive, animated web page, `index.html`, for a short brief: ocean waves
-(`waves`), a lava lamp (`lava`) or wind-driven silk (`silk`). Every brief asks for the same pause and reset buttons,
-an intensity slider and a `getState()` hook. A real headless browser runs the page and takes five screenshots;
-the judge checks 12 mechanical items and has the same model rate five visual dimensions from the screenshots.
-This example trains one adapter per brief with the MWM learner (`mwm_visual/`, an in-process GLM learner that reads
-the agent's runs and their screenshots) and with the prompt-only Evolver (`prompt_only/`), and compares them with
-two untrained arms: one request without tools (A) and the tool loop with a browser inspection tool (B). A second
-experiment ([below](#experiment-2-growing-the-visual-tool)) takes the browser tool away and asks the learners to grow
-one.
+An acting agent, GLM 5.3 Flash, writes one offline, interactive, animated WebGL page, `index.html`, for a short
+brief: ocean waves (`waves`), wind-driven silk (`silk`) or a lava lamp (`lava`). It has four generic tools,
+`write_file`, `read_file`, `replace_text` and `run_command` (one `bash -c` command in a bubblewrap sandbox; PNG files a
+command writes are shown to the model), and is told nothing about browsers: to see its page it has to render the
+page itself. A headless browser then runs the submitted page and takes five screenshots, and GLM 5.3 Flash rates
+five visual dimensions from them without being told the method or the step (score 0 to 1).
 
-## Setup
+Experiment 4 trains one harness adapter per brief with each of three methods, 48 steps each, with GLM 5.3 as the
+learner:
 
-Install the framework first ([Installation](../../docs/get-started/installation.md)). The browser side needs Node 20
-or newer and the capturer's packages (Playwright, pngjs, Three.js 0.180.0), and a Chromium that renders WebGL
-(`VISUAL_CHROME` names the executable or a wrapper; `VISUAL_NODE` names `node` when it is not on PATH):
+| Row | Method | What the learner writes | Configs |
+|---|---|---|---|
+| **PC** | [Prompt-only](../../docs/methods/prompt-only.md): the prompt-only template with the built-in Codex Evolver, as the CL-Bench poker example runs it | `ADAPTER.md`, the agent's instructions | [`prompt_only_codex/`](prompt_only_codex/) |
+| **TC** | [Toolsmith](../../docs/methods/toolsmith.md) with the same Codex Evolver, plus one task tool, `test_tools`, that self-tests its tools on the agent's machine | `ADAPTER.md` and tool bundles (`tools/<name>/`) that the agent's harness exposes as function tools whose results carry images | [`toolsmith_codex/`](toolsmith_codex/) |
+| **TS** | Toolsmith with its own scripted Evolver, which self-tests every changed tool in the agent's sandbox | the same as TC | [`toolsmith/`](toolsmith/) |
 
-```bash
-npm ci --prefix examples/visual_showcase/utils/runtime
-python examples/visual_showcase/utils/prepare.py        # tasks.jsonl, splits/, task-info/
-export FIREWORKS_API_KEY=...                             # the agent and the judge
-```
+## Watch them learn
 
-[`utils/README.md`](utils/README.md) describes the arms, the limits of a run, the free browser check and every record
-a run writes.
+One grid per brief. Rows are the methods; columns are training steps 1, 6, 12, 36 and 48. Each cell is the page that
+step's training run submitted, the version the judge scored: step 1 is before any learning, and step N uses the
+adapter after N − 1 updates. The corner shows the judge's score. A white cell is the host's placeholder page (the
+agent submitted nothing); a black or empty one is a page that failed to render, as the judge also saw it. The pages
+were rendered again as the judge's capture renders them (Chromium, GPU WebGL, 1280 × 800), each on a paused virtual
+clock advanced 100 ms per frame: three seconds of page time after a one-second warm-up, so all cells play in step.
 
-## Run
+### waves
 
-```bash
-hermit check --config examples/visual_showcase/prompt_only/smoke.yaml
-hermit train --config examples/visual_showcase/mwm_visual/run_waves.yaml
-hermit eval  --config examples/visual_showcase/mwm_visual/run_waves.yaml --adapter waves-r5/ckpt-step-5
-```
+![Experiment 4, waves: 3 rows (PC, TC, TS) by training steps 1, 6, 12, 36 and 48 of animated ocean pages with their scores](assets/exp4_waves.gif)
 
-Each case has its own config (`run_waves.yaml`, `run_lava.yaml`, `run_silk.yaml`) and its own adapter tree; arm A is
-the same config with `agent.name=../utils/pipeline.py:run_direct`, arm B is `eval --adapter none`.
+### silk
+
+![Experiment 4, silk: 3 rows (PC, TC, TS) by training steps 1, 6, 12, 36 and 48 of animated silk pages with their scores](assets/exp4_silk.gif)
+
+### lava
+
+![Experiment 4, lava: 3 rows (PC, TC, TS) by training steps 1, 6, 12, 36 and 48 of animated lava-lamp pages with their scores](assets/exp4_lava.gif)
 
 ## Results
 
-Host: GLM 5.3 Flash (Fireworks), temperature 0, reasoning effort 4096; one adapter per brief, five learning rounds,
-three eval repeats per checkpoint on the same brief. Mean rubric score of the eval repeats:
+Mean judge score of each checkpoint's adapter on its brief: 5 runs at steps 12, 24 and 36, 10 at step 48.
 
-| Arm | waves | lava | silk |
-|---|---|---|---|
-| A: one request, no tools | 0.40 | 0.65 | 0.37 |
-| B: tool loop with `inspect_page` | 0.93 | 0.65 | 0.92 |
-| **MWM** ([`mwm_visual/`](mwm_visual/)), best checkpoint | 0.95 | 0.95 | 1.00 |
-| **prompt-only** ([`prompt_only/`](prompt_only/)), best checkpoint | 0.98 | 0.93 | 0.93 |
+| Brief | Method | Step 12 | Step 24 | Step 36 | Step 48 |
+|---|---|---|---|---|---|
+| waves | PC | 0.95 | 0.92 | 0.73 | 0.85 |
+| waves | TC | 0.86 | 0.61 | 0.51 | 0.86 |
+| waves | TS | 0.77 | 0.87 | 0.87 | **0.955** |
+| silk | PC | 0.91 | 0.95 | 0.95 | **1.00** |
+| silk | TC | 0.88 | 0.86 | 0.89 | 0.85 |
+| silk | TS | 0.85 | 0.71 | 0.87 | 0.865 |
+| lava | PC | 0.72 | 0.81 | 0.96 | **0.95** |
+| lava | TC | 0.68 | 0.97 | 0.90 | 0.835 |
+| lava | TS | 0.61 | 0.81 | 0.75 | 0.755 |
+| mean of the three | PC | 0.86 | 0.89 | 0.88 | **0.93** |
+| mean of the three | TC | 0.81 | 0.81 | 0.77 | 0.85 |
+| mean of the three | TS | 0.74 | 0.80 | 0.83 | 0.86 |
 
-Checkpoint-to-checkpoint variance is large (single-brief training, a noisy rubric); the per-checkpoint table and the
-costs are in the run records. The whole experiment cost about 8 USD.
+- **One training run per method and brief.** The table describes these runs; it does not rank the methods. A single
+  failed eval run moves a five-run mean by up to 0.2, which is why the curves are not monotone: 14 of the 225 eval
+  runs scored 0.2 or less, most of them because no page was submitted or a shader or script error left the page
+  blank. PC lava step 12 includes one run whose capture timed out (no verdict, counted as 0; 0.90 without it).
+- **Averaged over the three briefs, every method scored higher at step 48 than at step 12** (PC +0.07, TC +0.04, TS
+  +0.12); PC on waves and TC on silk ended lower. Prompt-only ends highest on silk and lava, toolsmith with its
+  scripted learner on waves.
+- **The agents looked at their pages.** At step 48 every TC and TS eval run called its learned tool to see its page.
+  PC's agents rendered their page through `run_command` and looked at it in all ten runs on waves and lava; on silk
+  they never looked and still scored 1.00 in all ten runs.
+- **What the toolsmith learners built** (step 48): TC grew one render-and-look tool per brief (`look_page`,
+  `inspect_silk`); TS grew two each, a scene checker and a helper (`vendor_check`, a static audit of the page against
+  the brief's contract; `glsl_check`, shader compilation; `page_edit`, several text replacements in one call).
+  `utils/tool_works.py`, an offline check that a learned tool
+  renders a known page truthfully, passes every checkpoint of TC and TS on waves and silk and of TS on lava; TC's lava
+  tool passes steps 1 to 6 only, after which it times its frames differently from the reference capture (best
+  correlation 0.79 against a threshold of 0.8).
+- The judge is the acting model itself, so the scores are that model's view, not a human rating.
 
-## Experiment 2: growing the visual tool
+A 48-step training run took 3.6 to 6.8 hours with PC, 9.7 to 12.2 with TC and 10.8 to 13.8 with TS, plus 1 to 3.6
+hours for its 25 eval runs, with three training runs at a time on one machine that other users shared (the host's
+captures take turns under a lock). Model spend for experiment 4 was about 214 USD; the nine runs in the table took
+about 202 USD of it, the rest an interrupted first attempt, runs stopped when the arms changed, and a cancelled second
+seed.
 
-Experiment 1 handed the agent a ready-made browser tool. Experiment 2 takes it away. The agent (`utils/agent/agent.py`,
-the same model, limits, records and final capture) gets four generic primitives: `write_file`, `read_file`,
-`replace_text` and `run_command`, one `bash -c` command inside a bubblewrap sandbox (`utils/confine.py`: no network,
-the workspace the only writable place, a private `/tmp`, the GPU visible) whose only picture channel is that PNG
-files a command writes into the workspace are shown to the model. The agent is told nothing about node,
-Playwright, Chromium or the GPU. The learners are told the machine's facts
-(`utils/task-info-generic/<case>/environment.md`, written by `prepare.py --toolset generic`: interpreters, packages,
-the Chromium build and its GPU flags, the sandbox's paths and limits) and must grow a render-and-look procedure or
-tool. Same briefs and judge; 12 steps per brief, five eval repeats per checkpoint.
+## Run it
 
-| Arm | What the agent gets | Config |
-|---|---|---|
-| B'-blind | The four primitives, no adapter | [`baseline/`](baseline/) `eval_<case>.yaml`, `eval --adapter none` |
-| B'-hinted | B' with the machine facts appended to its system prompt (what the learners know) | [`baseline/`](baseline/) `eval_<case>_hinted.yaml`, `eval --adapter none` |
-| **P** | B' plus `ADAPTER.md` written by the prompt-only Evolver ([method](../../docs/methods/prompt-only.md)) | [`prompt_only_generic/`](prompt_only_generic/) `run_<case>.yaml` |
-| **M** | B' plus the adapter of the MWM learner of `mwm_visual/` (unchanged code, reading the acting agent's facts): its context package and read-only `wm` tool | [`mwm_visual_generic/`](mwm_visual_generic/) `run_<case>.yaml` |
-| **T** | B' plus a toolsmith adapter ([method](../../docs/methods/toolsmith.md)): learned `ADAPTER.md` and learned tool bundles that the harness exposes as function tools whose results carry images; the learner self-tests them in the same sandbox | [`toolsmith/`](toolsmith/) `run_<case>.yaml` |
+Install the framework ([Installation](../../docs/get-started/installation.md)), Node 20 or newer, the capturer's
+packages and Playwright's Chromium, and bubblewrap with unprivileged user namespaces; the
+[recipe](../../docs/recipes/visual-showcase.md) lists the requirements. Then, from the repository root:
 
 ```bash
-python examples/visual_showcase/utils/prepare.py --toolset generic                 # task-info-generic/ for this machine
+npm ci --prefix examples/visual_showcase/utils/runtime
+python examples/visual_showcase/utils/prepare.py --toolset generic     # tasks, splits, the learners' task-info
 python examples/visual_showcase/utils/confine.py selftest ~/.cache/visual_showcase/selftest   # the sandbox pre-flight
-hermit check --no-probe --config examples/visual_showcase/toolsmith/smoke.yaml
-hermit train --config examples/visual_showcase/toolsmith/smoke.yaml
-hermit train --config examples/visual_showcase/toolsmith/run_waves.yaml   # and the other two methods
-hermit eval  --config examples/visual_showcase/toolsmith/run_waves.yaml --adapter waves-ts/ckpt-step-6
-hermit eval  --config examples/visual_showcase/baseline/eval_waves.yaml --adapter none
-hermit eval  --config examples/visual_showcase/baseline/eval_waves_hinted.yaml --adapter none
+export FIREWORKS_API_KEY=...                                           # the agent, the judge and the learners
 ```
 
-Run names are `<case>-pg`, `<case>-mg`, `<case>-ts` and `<case>-bprime[-hinted]`. Besides the score, each run's
-`result.json` counts whether the agent ever saw its page (`looked_calls`, `first_look_call`) and which adapter tools it
-had and called (`tools_exported`, `tools_called`); `utils/emergence.py` sums them over run records and
-`utils/tool_works.py` checks offline whether a toolsmith checkpoint's tool renders a known page truthfully. Results of
-experiment 2 are pending; the [recipe](../../docs/recipes/visual-showcase.md) has the requirements and the protocol.
+Toolsmith with its scripted learner (TS), per brief:
 
-Experiment 4 (`run4_<case>.yaml` in `prompt_only_generic/` and `toolsmith/`) trains P and T for 48 steps with GLM 5.3
-(not Flash) as the learner and longer limits everywhere a busy machine could cut a run short: the host's capture
-(`runtime/browser_capture.cjs`: load 60 s, ready 20 s, whole observation 240 s, before 10, 4 and 40 s), the agent's
-commands and tools (300 s), and the learner's self-tests (300 s per program). Its amendment 2 removed the run's time
-limit (1800 s until then); only a model request that hangs for 1800 s is abandoned. While other users
-loaded the GPUs, pages that load in about 1 s took over 10 s and their captures failed, scoring good pages 0.
+```bash
+hermit check --no-probe --config examples/visual_showcase/toolsmith/run4_waves.yaml
+hermit train --config examples/visual_showcase/toolsmith/run4_waves.yaml
+hermit eval  --config examples/visual_showcase/toolsmith/run4_waves.yaml --adapter waves-ts/ckpt-step-48 eval.repeats=10
+```
 
-Its amendment 3 compares three arms, all with GLM 5.3 as the learner:
-- **PC** ([`prompt_only_codex/`](prompt_only_codex/)): prompt-only as the CL-Bench poker example runs it, the
-  prompt-only template with the built-in Codex Evolver (one fresh `codex exec` session per step, effort high,
-  `check_spec` only).
-- **TC** ([`toolsmith_codex/`](toolsmith_codex/)): the toolsmith template with the same Codex Evolver. Its one extra
-  tool, `test_tools` (`utils/tool_selftest.py`), runs the scripted toolsmith's self-test on demand on the agent's
-  machine, which the session's own sandbox is not.
-- **TS** (`toolsmith/`): the toolsmith template with its scripted Evolver.
+PC and TC run the Codex CLI as the learner. It reaches the model through the metering relay
+`hermit/runtime/wire_meter.py`, which adds the key itself, so the learner's session holds only a placeholder:
 
-The Codex learners reach the model through the metering relay `hermit/runtime/wire_meter.py` with
-`UPSTREAM_KEY_ENV` set, so the session holds only a placeholder key; the `learner` backend's `base_url` names the
-relay (see the configs' comments).
+```bash
+export RELAY_PLACEHOLDER_KEY=placeholder     # the session's key: any dummy value; the relay sends FIREWORKS_API_KEY
+PORT=3460 UPSTREAM=https://api.fireworks.ai UPSTREAM_KEY_ENV=FIREWORKS_API_KEY LEDGER=waves-pc-ledger.json \
+  REWRITE_DEVELOPER_ROLE=1 REWRITE_STRIP_SERVER_TOOLS=1 REWRITE_REPAIR_TOOL_ARGS=1 \
+  python -m hermit.runtime.wire_meter &
+hermit train --config examples/visual_showcase/prompt_only_codex/run4_waves.yaml \
+  backends.learner.base_url=http://127.0.0.1:3460/waves-pc/inference/v1
+hermit eval  --config examples/visual_showcase/prompt_only_codex/run4_waves.yaml --adapter waves-pc/ckpt-step-48 \
+  backends.learner.base_url=http://127.0.0.1:3460/waves-pc/inference/v1 eval.repeats=10
+```
+
+`toolsmith_codex/run4_<brief>.yaml` runs the same way. Every step is tagged `<run>/ckpt-step-N` (`waves-pc`,
+`waves-tc`, `waves-ts`, …); evaluation runs 5 repeats unless `eval.repeats` says otherwise (10 for step 48 above).
+[`utils/README.md`](utils/README.md) describes the agent, the limits of a run and every record a run writes;
+`utils/tool_works.py` and `utils/emergence.py` recompute the tool check and the looking counts from the records.
+
+## Earlier experiments
+
+- **Experiment 1** gave the agent a ready-made browser tool (`inspect_page`) and trained one adapter per brief for
+  five learning rounds (three eval repeats per checkpoint). Best checkpoints, waves / lava / silk: MWM
+  ([`mwm_visual/`](mwm_visual/)) 0.95 / 0.95 / 1.00, the then scripted prompt-only learner 0.98 / 0.93 / 0.93; the
+  untrained tool loop scored 0.93 / 0.65 / 0.92 and one request without tools 0.40 / 0.65 / 0.37. About 8 USD.
+- **Experiments 2 and 3** introduced the generic toolset above with 12 steps and GLM 5.3 Flash as the learner: the
+  MWM learner ([`mwm_visual_generic/`](mwm_visual_generic/)), toolsmith ([`toolsmith/`](toolsmith/)
+  `run_<brief>.yaml`) and the untrained baselines ([`baseline/`](baseline/): the four primitives alone, and with the
+  machine's facts in the system prompt).
+
+Their prompt-only arms used a scripted prompt-only learner that hermit has since removed (prompt-only is now the Codex
+form, PC above), so those configs were removed; they remain in the git history.
 
 ## Code
 
 ```text
-utils/pipeline.py   the acting agent: arms A (run_direct) and B/C (run); records under .logs/
-utils/harness.py    the agent's tools: write_file, read_file, replace_text, inspect_page, and the browser capture
+utils/agent/        the acting agent: agent.py (VisualAgent), generic_harness.py (its tools, image packing), texts.py
+utils/confine.py    the bubblewrap sandbox of run_command, the learned tools and the self-tests; its selftest
 utils/judge.py      12 mechanical items and the GLM vision rubric      utils/prepare.py   tasks, splits, task-info
-utils/runtime/      browser_capture.cjs (Playwright) and its packages   utils/cases.json   the three briefs
-utils/task-info/    the task for the learner, one folder per brief
-mwm_visual/         the MWM learner (mwm_visual/) and its template, run_<case>.yaml, smoke.yaml
-prompt_only/        run_<case>.yaml and smoke.yaml for the prompt-only Evolver
-
-utils/agent/        experiment 2's acting agent: agent.py (VisualAgent), generic_harness.py (its tools, image packing),
-                    texts.py (its prompts)
-utils/confine.py    the bubblewrap sandbox of run_command, the learned tools and the toolsmith's self-tests; its selftest
-utils/runtime/chrome-gpu.sh   starts Chromium with the GPU flags
-utils/reference/    webgl_probe.html (a GPU probe page) and best_<case>.html (experiment 1's best pages) for the checks
-utils/task-info-generic/      the task for experiment 2's learners, with the machine facts (generated, not committed)
+utils/runtime/      browser_capture.cjs (Playwright, the host's final capture) and its packages; chrome-gpu.sh
+utils/tool_selftest.py   test_tools, the toolsmith self-test as a task tool (TC)
 utils/tool_works.py, utils/emergence.py   offline checks: does a learned tool render truthfully; did the agent look
-utils/tool_selftest.py   the task tool test_tools: the toolsmith self-test for an agent learner (arm TC)
-utils/tests/        tests of the sandbox, the agent, the generic texts and the checks
-prompt_only_generic/   arm P: run_<case>.yaml, smoke.yaml      toolsmith/   arm T: run_<case>.yaml, smoke.yaml
-mwm_visual_generic/    arm M: run_<case>.yaml, smoke.yaml      baseline/    eval_<case>.yaml, eval_<case>_hinted.yaml
-prompt_only_codex/     experiment 4, arm PC: run4_<case>.yaml      toolsmith_codex/   arm TC: run4_<case>.yaml
+utils/reference/    webgl_probe.html and experiment 1's best pages, for the checks
+utils/tests/        tests of the sandbox, the agent, the texts and the checks
+prompt_only_codex/  PC: run4_<brief>.yaml      toolsmith_codex/   TC: run4_<brief>.yaml
+toolsmith/          TS: run4_<brief>.yaml; experiments 2 and 3: run_<brief>.yaml, smoke.yaml
+mwm_visual/         experiment 1's MWM learner and template
+utils/pipeline.py, utils/harness.py   experiment 1's agent and its browser tool
+mwm_visual_generic/ experiments 2 and 3, MWM      baseline/   the untrained generic-toolset arms
+assets/             the animations above
 ```
