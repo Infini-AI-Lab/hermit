@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hermit — Train Your Harness Adapter</title>
+<meta name="description" content="Hermit trains, evaluates and deploys harness adapters: trainable external harnesses that adapt an existing agent to new scenarios without touching its harness or model.">
+<link rel="icon" href="../../assets/logo.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --accent: #C6743C; --accent-strong: #A85D2B; --accent-soft: #FBF3EC; --accent-line: #EBCDB5;
+    --ink: #1B1D22; --ink-soft: #33363E; --muted: #6B6E76; --muted-2: #9A9DA5;
+    --line: #E4E2DC; --line-soft: #EFEDE7; --bg: #FFFFFF; --bg-soft: #FAF9F6; --code-bg: #F5F1EB;
+    --pass: #1f9367; --maxw: 960px;
+  }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+    --accent: #E0905A; --accent-strong: #F0A86E; --accent-soft: #2A2320; --accent-line: #5A4030;
+    --ink: #E8E6E1; --ink-soft: #CFCCC5; --muted: #A2A5AD; --muted-2: #7B7E86;
+    --line: #33363E; --line-soft: #2A2D34; --bg: #191B20; --bg-soft: #1F2127; --code-bg: #23262D; --pass: #7FD1A8; color-scheme: dark; } }
+  :root[data-theme="dark"] {
+    --accent: #E0905A; --accent-strong: #F0A86E; --accent-soft: #2A2320; --accent-line: #5A4030;
+    --ink: #E8E6E1; --ink-soft: #CFCCC5; --muted: #A2A5AD; --muted-2: #7B7E86;
+    --line: #33363E; --line-soft: #2A2D34; --bg: #191B20; --bg-soft: #1F2127; --code-bg: #23262D; --pass: #7FD1A8; color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; color: var(--ink); background: var(--bg); font-family: 'Space Grotesk', -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 17px; line-height: 1.65; -webkit-font-smoothing: antialiased; }
+  a { color: var(--accent-strong); text-decoration: none; }
+  a:not(.btn):not(.chip) { border-bottom: 1px dotted var(--accent-line); }
+  a:not(.btn):not(.chip):hover { color: var(--accent); border-bottom-color: var(--accent); }
+  code, pre, .mono { font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .container { max-width: var(--maxw); margin: 0 auto; padding: 0 28px; }
+  header.hero { padding: 56px 0 28px; border-bottom: 1px dashed var(--line); }
+  .stamp { font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; letter-spacing: .04em; color: var(--muted); margin-bottom: 28px; }
+  .stamp .dot { color: var(--accent); }
+  .title-row { display: flex; align-items: center; gap: 18px; }
+  .title-row img { width: 72px; height: 72px; }
+  h1.title { font-size: clamp(36px, 5.4vw, 60px); font-weight: 700; line-height: 1.05; letter-spacing: -.025em; margin: 0; }
+  h1.title i { color: var(--accent); font-style: normal; }
+  p.subtitle { font-size: clamp(18px, 2.2vw, 22px); color: var(--ink-soft); margin: 14px 0 18px; max-width: 46ch; line-height: 1.4; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 26px; }
+  .chip { font-family: 'IBM Plex Mono', monospace; font-size: 12px; padding: 4px 10px; border: 1px solid var(--accent-line); background: var(--accent-soft); color: var(--accent-strong); border-radius: 4px; }
+  .btns { display: flex; flex-wrap: wrap; gap: 10px; }
+  .btn { font-family: 'IBM Plex Mono', monospace; font-size: 13px; padding: 8px 14px; border: 1px solid var(--line); border-radius: 6px; color: var(--ink); background: var(--bg); }
+  .btn:hover { border-color: var(--accent); color: var(--accent-strong); }
+  .btn.accent { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.accent:hover { background: var(--accent-strong); color: #fff; }
+  section { padding: 56px 0; }
+  section.alt { background: var(--bg-soft); border-top: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft); }
+  h2 { font-size: clamp(24px, 3vw, 30px); font-weight: 600; letter-spacing: -.015em; margin: 0 0 22px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+  h2 .s { color: var(--accent); font-family: 'IBM Plex Mono', monospace; font-weight: 500; margin-right: 10px; }
+  h3 { font-size: 20px; font-weight: 600; margin: 34px 0 10px; }
+  p { margin: 0 0 14px; }
+  .figure { margin: 0; }
+  .figure img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 8px; background: #fbfaf7; }
+  .figure .cap { border-left: 3px solid var(--accent); padding: 8px 14px; margin-top: 12px; font-size: 14.5px; color: var(--ink-soft); }
+  .figure .cap b.n { font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); display: block; margin-bottom: 4px; }
+  .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 36px 0 0; }
+  .tile { border: 1px solid var(--line); border-top: 2px solid var(--accent); border-radius: 6px; padding: 18px 18px 16px; background: var(--bg); }
+  .tile .k { font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: var(--muted); letter-spacing: .04em; }
+  .tile .v { font-size: 30px; font-weight: 700; color: var(--accent-strong); letter-spacing: -.02em; margin: 6px 0 4px; }
+  .tile .d { font-size: 14px; color: var(--ink-soft); line-height: 1.45; }
+  ul.arrows { list-style: none; padding: 0; margin: 0 0 20px; }
+  ul.arrows li { padding-left: 24px; position: relative; margin: 6px 0; font-weight: 500; }
+  ul.arrows li::before { content: "→"; position: absolute; left: 0; color: var(--accent); font-family: 'IBM Plex Mono', monospace; }
+  .cta { border: 1px solid var(--accent-line); background: var(--accent-soft); border-radius: 8px; padding: 18px 22px; display: flex; flex-wrap: wrap; gap: 16px; align-items: center; justify-content: space-between; margin-top: 28px; }
+  .cta .k { font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; letter-spacing: .06em; color: var(--accent-strong); text-transform: uppercase; }
+  .cta .t { font-size: 17px; font-weight: 500; }
+  table.need { width: 100%; border-collapse: collapse; border-left: 3px solid var(--accent); background: var(--bg); }
+  table.need td { padding: 12px 16px; vertical-align: top; border-bottom: 1px solid var(--line-soft); font-size: 15.5px; }
+  table.need td:first-child { font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; letter-spacing: .08em; color: var(--accent-strong); text-transform: uppercase; width: 90px; padding-top: 15px; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .card { border: 1px solid var(--line); border-radius: 8px; padding: 16px; background: var(--bg); }
+  .card h4 { margin: 0 0 10px; font-size: 15px; font-weight: 600; }
+  .card img { width: 100%; height: auto; display: block; border-radius: 4px; }
+  .methods { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 18px; }
+  .methods .chip.soon { background: transparent; color: var(--muted); border-color: var(--line); }
+  table.res { width: 100%; border-collapse: collapse; font-size: 15px; margin: 10px 0 6px; }
+  table.res th { text-align: left; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 500; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  table.res td { padding: 8px 10px; border-bottom: 1px solid var(--line-soft); }
+  table.res td.num { font-family: 'IBM Plex Mono', monospace; font-variant-numeric: tabular-nums; }
+  table.res tr.ours td { font-weight: 600; }
+  table.res tr.ours td.num { color: var(--accent-strong); }
+  .note { font-size: 13.5px; color: var(--muted); }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; overflow-x: auto; font-size: 13.5px; line-height: 1.6; }
+  pre .c { color: var(--muted); }
+  footer { padding: 28px 0 48px; border-top: 1px dashed var(--line); font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; color: var(--muted); }
+  @media (max-width: 760px) { .tiles, .two { grid-template-columns: 1fr; } .title-row img { width: 56px; height: 56px; } table.need td:first-child { width: 70px; } }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="container">
+    <div class="stamp">Hermit <span class="dot">/</span> 2026 <span class="dot">·</span> Harness adapters <span class="dot">·</span> Continual learning for agents</div>
+    <div class="title-row"><img src="../../assets/logo.svg" alt=""><h1 class="title">Herm<i>i</i>t</h1></div>
+    <p class="subtitle">Train, evaluate and deploy <b>harness adapters</b>: trainable external harnesses that adapt an existing agent to new scenarios without touching its harness or model.</p>
+    <div class="chips">
+      <span class="chip">Trainable</span><span class="chip">No harness changes</span><span class="chip">Transferable</span><span class="chip">RL-style loop</span><span class="chip">GEPA · SkillOpt · MWM</span><span class="chip">Codex · Claude Code</span>
+    </div>
+    <div class="btns">
+      <a class="btn accent" href="https://github.com/haizhongzheng/hermit">Code</a>
+      <a class="btn" href="#get-started">Quick start</a>
+      <a class="btn" href="#how">How it works</a>
+      <a class="btn" href="#results">Results</a>
+    </div>
+  </div>
+</header>
+
+<section>
+  <div class="container">
+    <figure class="figure">
+      <img src="../../assets/harness-adapter.gif" alt="An agent made of a model and a harness meets a new scenario and fits it poorly. The agent is frozen, a harness adapter plugs into its side, a frame closes around the two as one agent, and task feedback trains the adapter from V0 to V5 while the score curve rises.">
+      <figcaption class="cap"><b class="n">Figure 1 · the adapter learns, the agent stays frozen</b>A harness adapter plugs into an existing agent from outside. Task feedback trains the adapter from V0 to V5; the agent's own harness and model never change. Like a model adapter for a model, one level up.</figcaption>
+    </figure>
+    <div class="tiles">
+      <div class="tile"><div class="k">[ 01 ] · CL-Bench database</div><div class="v">0.795</div><div class="d">accuracy with an MWM adapter, against 0.400 for the benchmark's stateless baseline and 0.580 in-context.</div></div>
+      <div class="tile"><div class="k">[ 02 ] · ServeLearnBench retail L3</div><div class="v">45.3</div><div class="d">hidden-policy score (H) with an MWM adapter, against 4.5 blind and 28.7 for the best leaderboard method.</div></div>
+      <div class="tile"><div class="k">[ 03 ] · OfficeQA, Codex harness</div><div class="v">0.628</div><div class="d">accuracy with a SkillOpt-trained adapter, against 0.543 with no skill. GEPA reaches 0.595 in the same loop.</div></div>
+    </div>
+  </div>
+</section>
+
+<section class="alt">
+  <div class="container">
+    <h2><span class="s">§</span>What Hermit gives you out of the box</h2>
+    <p>Hermit is an open-source framework with <b>one training loop</b> for harness adapters. Bring your tasks and feedback; choose a learning method or write your own. It supports, <b>without task-specific plumbing</b>:</p>
+    <ul class="arrows">
+      <li>One Trainer for every method: rollouts, judge feedback, an Evolver step, a checked commit, the next version</li>
+      <li>GEPA, SkillOpt and MetaWorld Model as built-in Evolvers; Codex and Claude Code as learner agents</li>
+      <li>Adapters as files in a git tree: inspect every version, roll back, ship the final one</li>
+      <li>Deploy an adapter into Codex, Claude Code, pi or Hermes, or convert it into a plugin</li>
+      <li>Every process in a sandbox: rollouts, learners and tools see the task, never the answers</li>
+      <li>Any model backend by reference: Fireworks, OpenAI, Anthropic, DeepSeek, vLLM, SGLang, Ollama</li>
+    </ul>
+    <div class="cta">
+      <div><div class="k">Open source · Apache 2.0</div><div class="t">Train an adapter for your agent on your own tasks.</div></div>
+      <div class="btns"><a class="btn accent" href="https://github.com/haizhongzheng/hermit">Star on GitHub</a><a class="btn" href="#get-started">Quick start</a></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <h2><span class="s">§</span>Why a harness adapter</h2>
+    <table class="need">
+      <tr><td>Need</td><td>Agents meet scenarios their harness was not written for: a new domain, a new tool, a stream of tasks whose rules only show in the feedback. They should <b>keep learning in deployment</b>.</td></tr>
+      <tr><td>Today</td><td>Two ways to adapt an agent: <b>edit its harness by hand</b>, which does not scale and does not learn, or <b>fine-tune the model</b>, which is expensive, opaque, and tied to one model.</td></tr>
+      <tr><td>Why</td><td>A harness adapter puts the learnable part <b>outside</b> the agent: an instruction file, skills, tools, a world model of the venue. The base stays frozen, the adapter trains from feedback, and the same adapter moves between compatible harnesses.</td></tr>
+    </table>
+  </div>
+</section>
+
+<section class="alt" id="how">
+  <div class="container">
+    <h2><span class="s">§</span>How it works: an RL-style loop for harnesses</h2>
+    <figure class="figure">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="../../assets/training-loop-dark.svg">
+        <img src="../../assets/training-loop-light.svg" alt="Training flow: tasks run through the acting agent and harness adapter, feedback reaches the Evolver, and checked updates become the next adapter version.">
+      </picture>
+      <figcaption class="cap"><b class="n">Figure 2 · one loop, many methods</b>The Trainer runs a batch of tasks through the acting agent with the current adapter, scores them with your judge, and hands the trajectories and feedback to an Evolver. The Evolver proposes a new adapter; the Trainer checks it against the template and commits it as the next version.</figcaption>
+    </figure>
+    <div class="two" style="margin-top:28px">
+      <div class="card"><h4>From the command line</h4><img src="../../assets/install-and-use.gif" alt="Install Hermit, train an adapter, deploy it, convert it into a plugin."></div>
+      <div class="card"><h4>Or write your own loop</h4><img src="../../assets/training-loop.gif" alt="Training pseudocode: initialize, rollouts, optimize, check and commit, finalize."></div>
+    </div>
+    <h3>Learning methods</h3>
+    <div class="methods">
+      <span class="chip">GEPA</span><span class="chip">SkillOpt</span><span class="chip">MetaWorld Model</span><span class="chip">Codex learner</span><span class="chip">Claude Code learner</span>
+      <span class="chip soon">Harness² · soon</span><span class="chip soon">ACE · soon</span><span class="chip soon">Continual Harness · soon</span><span class="chip soon">ReHarness · soon</span>
+    </div>
+    <p>An Evolver is a few hundred lines: it receives the step's learning material and the adapter's working copy, and returns a proposal. Everything else, from sandboxing to the git tree to evaluation, is the framework's.</p>
+  </div>
+</section>
+
+<section id="results">
+  <div class="container">
+    <h2><span class="s">§</span>Results</h2>
+    <p>All runs: GLM 5.3 Flash as the acting model, reasoning effort high; the learner is a Codex session with the same model. Full settings and the trained adapters are in the repository.</p>
+    <h3>CL-Bench: learn from a stream of tasks</h3>
+    <table class="res">
+      <thead><tr><th>Method</th><th>Database · accuracy</th><th>Poker · bb/hand</th></tr></thead>
+      <tbody>
+        <tr><td>Stateless (benchmark baseline)</td><td class="num">0.400</td><td class="num">1.76</td></tr>
+        <tr><td>In-context (benchmark baseline)</td><td class="num">0.580</td><td class="num">2.51</td></tr>
+        <tr><td>Prompt-only adapter, Codex learner</td><td class="num">0.470</td><td class="num">1.65</td></tr>
+        <tr class="ours"><td>MetaWorld Model adapter</td><td class="num">0.795</td><td class="num">3.08</td></tr>
+      </tbody>
+    </table>
+    <p class="note">Five orders of each stream, one run per order, mean over orders.</p>
+    <h3>ServeLearnBench: learn a hidden policy while serving</h3>
+    <table class="res">
+      <thead><tr><th>Method</th><th>H · hidden policy</th><th>F · fully specified</th></tr></thead>
+      <tbody>
+        <tr><td>Blind (no learning)</td><td class="num">4.5</td><td class="num">94.3</td></tr>
+        <tr><td>Best leaderboard method (CH)</td><td class="num">28.7</td><td class="num">92.0</td></tr>
+        <tr><td>Prompt-only adapter, Codex learner</td><td class="num">18.8</td><td class="num">97.1</td></tr>
+        <tr class="ours"><td>MetaWorld Model adapter</td><td class="num">45.3</td><td class="num">98.4</td></tr>
+        <tr><td>Oracle (policy given)</td><td class="num">89.2</td><td class="num">95.5</td></tr>
+      </tbody>
+    </table>
+    <p class="note">retail_l3: 624 serving requests in eight windows, 537 held-out tests. Leaderboard rows are the benchmark's published numbers for the same model.</p>
+    <h3>OfficeQA: optimize a skill file</h3>
+    <table class="res">
+      <thead><tr><th>Skill</th><th>Direct chat</th><th>Codex harness</th></tr></thead>
+      <tbody>
+        <tr><td>None</td><td class="num">0.415</td><td class="num">0.543</td></tr>
+        <tr><td>SkillOpt's initial skill</td><td class="num">0.465</td><td class="num">0.564</td></tr>
+        <tr class="ours"><td>GEPA in Hermit</td><td class="num">0.564</td><td class="num">0.595</td></tr>
+        <tr class="ours"><td>SkillOpt in Hermit</td><td class="num">0.576</td><td class="num">0.628</td></tr>
+      </tbody>
+    </table>
+    <p class="note">The SkillOpt paper's setting: 50 / 24 / 172 split, exact match, 172 test questions × 3 passes.</p>
+  </div>
+</section>
+
+<section class="alt" id="get-started">
+  <div class="container">
+    <h2><span class="s">§</span>Get started</h2>
+<pre><span class="c"># Python 3.11+ and git</span>
+git clone https://github.com/haizhongzheng/hermit.git &amp;&amp; cd hermit
+python3 -m venv .venv &amp;&amp; source .venv/bin/activate
+pip install -e .
+
+<span class="c"># train an adapter, evaluate it, deploy it into your agent</span>
+hermit train  --config run.yaml
+hermit eval   --config run.yaml --adapter final
+hermit deploy --adapter my-adapter --workspace my-project --host codex
+hermit convert --adapter my-adapter --output plugin --target claude-code</pre>
+    <p>Then: <a href="https://github.com/haizhongzheng/hermit/blob/main/docs/get-started/first-model.md">train with an API model</a> · <a href="https://github.com/haizhongzheng/hermit/blob/main/docs/recipes/officeqa.md">run OfficeQA</a> · <a href="https://github.com/haizhongzheng/hermit/blob/main/docs/tutorials/your-own-task.md">bring your own task</a> · <a href="https://github.com/haizhongzheng/hermit/blob/main/docs/framework/custom-evolver.md">build a new method</a></p>
+  </div>
+</section>
+
+<footer><div class="container">Hermit · Apache-2.0 · <a href="https://github.com/haizhongzheng/hermit">github.com/haizhongzheng/hermit</a></div></footer>
+</body>
+</html>
