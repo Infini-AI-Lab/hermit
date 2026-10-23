@@ -14,12 +14,11 @@ agents and with a team that shares only free-text notes.
 
 Each agent talks only to the adapter: the plan, the proved lemmas and the messages all pass through it.
 
-## One round
+## Async Multi-agent Collaboration on Lean, Visualization
 
-One problem, replayed from the run's logs: five agents, one theorem, the first proof wins. The top bar is the
-round's two stages. The graph is the shared lemma library as it grows: every verified lemma is a mark coloured by
-the agent that proved it, placed above the lemmas it uses, the target on top; at the end, the lemmas the final
-proof is built from keep their colour and the rest fade. The table and the chart count each agent's lemmas.
+Five agents first write a plan that breaks the theorem into lemmas. Each agent then proves different lemmas,
+every proved lemma goes into a shared library, and the proof is assembled from them. Colour = the agent that
+proved the lemma.
 
 <p align="center">
   <img src="round.gif" alt="A round replayed: the planning and solving stages, the shared lemma library growing as a dependency graph coloured by agent, and each agent's lemma counts" width="900">
