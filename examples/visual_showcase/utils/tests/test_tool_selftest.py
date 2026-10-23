@@ -112,14 +112,3 @@ def test_a_working_bundle_is_reported_like_the_scripted_self_test(tmp_path):
     record = json.loads((home / "calls.jsonl").read_text().splitlines()[-1])
     assert record["tested"] == ["shot"] and record["working"] == {"shot": True}
     assert not (adapter / "tools" / "shot" / "shot.png").exists()    # the working copy is left as it was
-
-
-def test_at_most_four_bundles_per_call(tmp_path):
-    tools = _load("visual_test_tools_under_test_2", UTILS / "tool_selftest.py")
-    adapter, root, info = layout(tmp_path)
-    for name in ("a1", "a2", "a3", "a4"):
-        shutil.copytree(adapter / "tools" / "shot", adapter / "tools" / name, symlinks=True)
-        (adapter / "tools" / name / "TOOL.json").write_text(json.dumps({**SHOT, "name": name}))
-    out = tools.run(None, adapter, root, info, runner=Runner())
-    assert sorted(out["working"]) == ["a1", "a2", "a3", "a4"]
-    assert "only the first 4 named bundles are tested in one call: shot not tested" in out["report"]

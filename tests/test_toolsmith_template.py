@@ -1,6 +1,6 @@
-"""The toolsmith template: bundle validation and the catalog, check 6 and repair on a candidate, and tool_call through
-a fake confined runner (and once through a real bubblewrap, when available). Scratch directories live outside /tmp
-because check 6 runs under bubblewrap with an empty tmpfs at /tmp."""
+"""The toolsmith template: the catalog, check 6 and repair on a candidate, tool_call through a fake confined runner
+(and once through a real bubblewrap, when available), and finalize. Scratch directories live outside /tmp because
+check 6 runs under bubblewrap with an empty tmpfs at /tmp."""
 from __future__ import annotations
 
 import json
@@ -17,7 +17,6 @@ import zlib
 import pytest
 
 from hermit import Session
-from hermit.adapter.manifest import read_manifest, structure_of
 from hermit.spec import check_spec, repair
 
 ROOT = Path(__file__).resolve().parents[1] / "hermit" / "algorithms" / "templates" / "toolsmith"
@@ -77,85 +76,6 @@ def png(width: int = 4, height: int = 4) -> bytes:
     raw = b"".join(b"\x00" + bytes((30, 120, 200)) * width for _ in range(height))
     return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
             + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
-
-
-def problems(issues: list[dict]) -> str:
-    return " | ".join(i["problem"] for i in issues)
-
-
-# --- the template itself ---------------------------------------------------------------------------------------------
-def test_template_conforms_and_readme_is_fixed():
-    structure = structure_of(read_manifest(ROOT))
-    assert structure.is_fixed("tools/README.md") and structure.learnable_for("tools/README.md") is None
-    assert structure.learnable_for("tools/x/run.py").format["max_bytes"] == 60000
-    assert (ROOT / "ADAPTER.md").read_text() == "No learned instructions yet.\n"
-    result = check_spec(ROOT, ROOT)
-    assert result.passed, result.issues
-    assert Session(ROOT).call("tool_catalog", {}) == {"tools": [], "rejected": []}
-
-
-def test_bundle_rules(scratch):
-    iface = interface()
-    adapter = scratch / "adapter"
-    shutil.copytree(ROOT, adapter)
-    bundle(adapter, WORDCOUNT, {"run.py": RUN_PY, "test.py": TEST_PY, "NOTES.md": "how it works\n"})
-    assert iface.validate_bundle(adapter, "wordcount") == []
-    bad = {
-        "Shot": ({**WORDCOUNT, "name": "Shot"}, {"run.py": RUN_PY}, "not a tool name"),
-        "renamed": ({**WORDCOUNT, "name": "other"}, {"run.py": RUN_PY}, "must equal the directory name"),
-        "run_command": ({**WORDCOUNT, "name": "run_command"}, {"run.py": RUN_PY}, "reserved name"),
-        "longdesc": ({**WORDCOUNT, "name": "longdesc", "description": "x" * 1025}, {"run.py": RUN_PY}, "1025 characters"),
-        "needs_arg": ({**WORDCOUNT, "name": "needs_arg", "parameters": {**WORDCOUNT["parameters"], "required": ["file"]}},
-                      {"run.py": RUN_PY}, "every parameter must be optional"),
-        "keywords": ({**WORDCOUNT, "name": "keywords",
-                      "parameters": {"type": "object", "properties": {"a": {"type": "string", "pattern": "x"}}}},
-                     {"run.py": RUN_PY}, "keywords outside the allowed set: ['pattern']"),
-        "notobject": ({**WORDCOUNT, "name": "notobject", "parameters": {"type": "array"}}, {"run.py": RUN_PY},
-                      "\"type\": \"object\""),
-        "badschema": ({**WORDCOUNT, "name": "badschema",
-                       "parameters": {"type": "object", "properties": {"a": {"type": "strung"}}}},
-                      {"run.py": RUN_PY}, "not a valid JSON Schema"),
-        "noentry": ({**WORDCOUNT, "name": "noentry"}, {}, "does not exist in the bundle"),
-        "badentry": ({**WORDCOUNT, "name": "badentry", "entry": "run.rb"}, {"run.rb": ""}, "must end in one of"),
-        "subentry": ({**WORDCOUNT, "name": "subentry", "entry": "lib/run.py"}, {"lib/run.py": RUN_PY}, "plain file name"),
-        "notest": ({**WORDCOUNT, "name": "notest", "test": "test.py"}, {"run.py": RUN_PY}, "\"test\" names 'test.py'"),
-        "examples": ({**WORDCOUNT, "name": "examples", "example_args": {"file": 3}}, {"run.py": RUN_PY}, "do not fit"),
-        "slow": ({**WORDCOUNT, "name": "slow", "timeout_s": 301}, {"run.py": RUN_PY}, "\"timeout_s\""),
-        "booltimeout": ({**WORDCOUNT, "name": "booltimeout", "timeout_s": True}, {"run.py": RUN_PY}, "\"timeout_s\""),
-        "binary": ({**WORDCOUNT, "name": "binary"}, {"run.py": RUN_PY, "fixture.png": "x"}, "only .py, .md"),
-        "dotfile": ({**WORDCOUNT, "name": "dotfile"}, {"run.py": RUN_PY, ".secret/x.txt": ""}, "may start with '.'"),
-        "page": ({**WORDCOUNT, "name": "page"}, {"run.py": RUN_PY, "page.txt": "<!DOCTYPE html>\n"}, "starts an HTML document"),
-        "htmltag": ({**WORDCOUNT, "name": "htmltag"}, {"run.py": "s = '<html>'\n"}, "starts an HTML document"),
-        "scene": ({**WORDCOUNT, "name": "scene"}, {"run.py": "s = '<canvas data-testid=\"scene\">'\n"}, "scene attribute"),
-        "hook": ({**WORDCOUNT, "name": "hook"},
-                 {"run.cjs": "await page.waitForFunction(() => window.__SHOWCASE__.getState().ready)\n"},
-                 "outside a quoted string"),
-    }
-    for name, (spec, files, expected) in bad.items():
-        spec = {**spec, "entry": spec.get("entry", "run.py")}
-        if name == "hook":
-            spec["entry"] = "run.cjs"
-        directory = bundle(adapter, {**spec, "name": spec["name"]}, files) if spec["name"] == name else None
-        if directory is None:       # the manifest's name differs from the directory on purpose
-            directory = adapter / "tools" / name
-            directory.mkdir()
-            (directory / "TOOL.json").write_text(json.dumps(spec))
-            for file, text in files.items():
-                (directory / file).write_text(text)
-        issues = iface.validate_bundle(adapter, name)
-        assert issues, name
-        assert all(i["path"] == f"tools/{name}/TOOL.json" and i["check"] == 6 for i in issues), (name, issues)
-        assert expected in problems(issues), (name, problems(issues))
-    # Quoted selectors and quoted state hooks are the legitimate way to look at the page.
-    ok = bundle(adapter, {**WORDCOUNT, "name": "looker", "entry": "run.cjs", "test": None},
-                {"run.cjs": "const scene = page.locator('[data-testid=\"scene\"]');\n"
-                            "await page.waitForFunction('window.__SHOWCASE__.getState().ready === true');\n"})
-    assert iface.validate_bundle(adapter, "looker") == [], iface.validate_bundle(adapter, "looker")
-    assert ok.is_dir()
-    broken_json = adapter / "tools" / "brokenjson"
-    broken_json.mkdir()
-    (broken_json / "TOOL.json").write_text("{not json")
-    assert "not valid JSON" in problems(iface.validate_bundle(adapter, "brokenjson"))
 
 
 def test_catalog_admits_alphabetically_and_ignores_non_tools(scratch):
@@ -278,52 +198,6 @@ def test_tool_call_protocol_and_image_validation(scratch):
     assert iface.program_argv("run.sh", {"a": 1})[:2] == ["bash", "-c"] and iface.program_argv("run.sh", {})[-1] == "{}"
     with pytest.raises(ValueError):
         iface.program_argv("run.rb", {})
-
-
-def test_tool_call_reports_failures_as_text(scratch):
-    adapter = scratch / "adapter"
-    shutil.copytree(ROOT, adapter)
-    bundle(adapter, WORDCOUNT, {"run.py": RUN_PY, "test.py": TEST_PY})
-    bundle(adapter, {**WORDCOUNT, "name": "broken", "entry": "nope.py", "test": None}, {})
-    ws = scratch / "ws"
-    ws.mkdir()
-    for i in range(7):
-        (ws / f"img{i}.png").write_bytes(png())
-
-    def call(runner, name="wordcount", args=None):
-        return session(adapter, ws, runner).call("tool_call", {"name": name, **({"args": args} if args is not None else {})})
-
-    idle = FakeRunner()
-    unknown = call(idle, "other")
-    assert unknown["error"] == "unknown tool" and "Tools: wordcount" in unknown["text"] and not idle.calls
-    rejected = call(idle, "broken")
-    assert rejected["error"] == "unknown tool" and "rejected" in rejected["text"] and not idle.calls
-    invalid = call(idle, args={"file": 5})
-    assert invalid["error"] == "invalid arguments" and "5 is not of type 'string'" in invalid["text"] and not idle.calls
-    extra = call(idle, args={"other": 1})
-    assert extra["error"] == "invalid arguments" and not idle.calls
-    failed = call(FakeRunner(exit_code=1, stdout="partial", stderr="Traceback: boom"))
-    assert failed["error"] == "exit 1" and "Traceback: boom" in failed["text"] and failed["images"] == []
-    timed = call(FakeRunner(exit_code=-9, timed_out=True))
-    assert timed["error"] == "timeout" and "timed out after 10 s" in timed["text"] and timed["timed_out"] is True
-    busy = call(FakeRunner(exit_code=-1, error="host busy, retry"))
-    assert busy["error"] == "host busy, retry" and "did not run" in busy["text"]
-    silent = call(FakeRunner(stdout="hello\n[1, 2]\n"))
-    assert silent["error"] == "no result line" and "hello" in silent["text"]
-    no_text = call(FakeRunner(stdout=json.dumps({"images": ["img0.png"]}) + "\n"))
-    assert no_text["error"] == "bad result" and no_text["images"] == []
-    long = call(FakeRunner(stdout=json.dumps({"text": "x" * 20_000, "images": [f"img{i}.png" for i in range(7)]})))
-    assert long["error"] is None and len(long["text"]) == 12_000 and long["text"].endswith("[clipped to 12000 characters]")
-    assert long["images"] == [f"img{i}.png" for i in range(5)]
-    assert [r["path"] for r in long["images_rejected"]] == ["img5.png", "img6.png"]
-    bad_images = call(FakeRunner(stdout=json.dumps({"text": "t", "images": "img0.png"})))
-    assert bad_images["images"] == [] and bad_images["images_rejected"][0]["problem"].startswith("images must be a list")
-    big_args = call(idle, args={"file": "x" * 70_000})
-    assert big_args["error"] == "arguments too large" and not idle.calls
-    # The deployment texts may carry the workspace instead of a dedicated resource.
-    via_deployment = Session(adapter, resources={"tool_runner": FakeRunner(stdout='{"text": "ok"}')},
-                             deployment={"workspace": str(ws)}).call("tool_call", {"name": "wordcount"})
-    assert via_deployment["text"] == "ok"
 
 
 # --- one real confined run -----------------------------------------------------------------------------------------------

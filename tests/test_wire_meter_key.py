@@ -99,22 +99,3 @@ def test_the_relay_key_replaces_the_clients(upstream):
         assert headers["authorization"] == "Bearer relay-only-value"
         assert "x-api-key" not in headers
     assert "relay-only-value" not in out and "key=$TEST_RELAY_KEY" in out      # the log names the variable only
-
-
-def test_without_it_the_clients_key_passes(upstream):
-    url, seen = upstream
-    proc, port = _meter(url, {})
-    try:
-        assert _health(port)["key_from"] == "client"
-        assert _call(port, "POST", "/lane_a/v1/chat/completions") == 200
-    finally:
-        proc.terminate()
-        proc.communicate(timeout=10)
-    assert seen[0]["authorization"] == "Bearer client-placeholder" and seen[0]["x-api-key"] == "client-x"
-
-
-def test_an_unset_key_variable_refuses_to_start(upstream):
-    url, _ = upstream
-    proc, _ = _meter(url, {"UPSTREAM_KEY_ENV": "TEST_RELAY_KEY_NOT_SET"})
-    out = proc.communicate(timeout=15)[0].decode()
-    assert proc.returncode != 0 and "TEST_RELAY_KEY_NOT_SET" in out

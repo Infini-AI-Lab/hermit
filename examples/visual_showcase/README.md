@@ -136,7 +136,7 @@ utils/runtime/      browser_capture.cjs (Playwright) and its packages; chrome-gp
 utils/tool_selftest.py   test_tools, the toolsmith self-test as a task tool (TC)
 utils/tool_works.py offline check: does a learned tool render a known page truthfully
 utils/reference/    webgl_probe.html and three reference pages, for the checks
-utils/tests/        tests of the sandbox, the agent, the texts and the checks
+utils/tests/        tests of the sandbox, the agent and the self-test tool
 prompt_only_codex/  PC: run4_<brief>.yaml      toolsmith_codex/   TC: run4_<brief>.yaml
 toolsmith/          TS: run4_<brief>.yaml
 assets/             the animations above

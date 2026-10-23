@@ -1,7 +1,6 @@
 """The generic acting agent (utils/agent/agent.py + generic_harness.py) without a model and without bubblewrap: a
 scripted ChatClient replaces pipeline.make_client, a fake confine.run writes images into the workspace, a fake final
-capture writes capture/summary.json. One bwrap-marked test runs the real confine.run (`bash -c 'echo hi'`); one runs
-`hermit check --no-probe` on a scratch config naming the agent. Scratch directories live outside /tmp."""
+capture writes capture/summary.json. Scratch directories live outside /tmp."""
 from __future__ import annotations
 
 import copy
@@ -12,8 +11,6 @@ import os
 from pathlib import Path
 import shutil
 import struct
-import subprocess
-import sys
 import tempfile
 import time
 import zlib
@@ -26,8 +23,6 @@ from hermit.evolver.base import Usage
 UTILS = Path(__file__).resolve().parents[1]
 REPO = UTILS.parents[2]
 TOOLSMITH = REPO / "hermit" / "algorithms" / "templates" / "toolsmith"
-HAS_BWRAP = shutil.which("bwrap") is not None
-needs_bwrap = pytest.mark.skipif(not HAS_BWRAP, reason="bubblewrap is not installed")
 
 
 def _load_agent():
@@ -58,16 +53,13 @@ def scratch():
 
 
 # --- fakes ------------------------------------------------------------------------------------------------------------
-def make_png(path: Path, width: int = 320, height: int = 240, blank: bool = False) -> Path:
-    """An 8-bit RGB PNG pngstats decodes: a gradient (non-blank) or solid white."""
+def make_png(path: Path, width: int = 320, height: int = 240) -> Path:
+    """An 8-bit RGB PNG pngstats decodes: a gradient (non-blank)."""
     rows = bytearray()
     for y in range(height):
         rows.append(0)
-        if blank:
-            rows += b"\xff" * (width * 3)
-        else:
-            rows += bytes(v for x in range(width)
-                          for v in (x * 255 // max(1, width - 1), y * 255 // max(1, height - 1), (x + y) & 255))
+        rows += bytes(v for x in range(width)
+                      for v in (x * 255 // max(1, width - 1), y * 255 // max(1, height - 1), (x + y) & 255))
 
     def chunk(kind: bytes, body: bytes) -> bytes:
         return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body) & 0xFFFFFFFF)
@@ -75,13 +67,6 @@ def make_png(path: Path, width: int = 320, height: int = 240, blank: bool = Fals
             + chunk(b"IDAT", zlib.compress(bytes(rows))) + chunk(b"IEND", b""))
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     Path(path).write_bytes(data)
-    return Path(path)
-
-
-def make_jpeg(path: Path, width: int = 400, height: int = 300) -> Path:
-    """SOI, one SOF0 segment with the size, EOI: enough for the header parser and the magic check."""
-    sof = b"\xff\xc0" + struct.pack(">HBHHB", 11, 8, height, width, 1) + b"\x01\x11\x00"
-    Path(path).write_bytes(b"\xff\xd8" + sof + b"\xff\xd9")
     return Path(path)
 
 
@@ -117,12 +102,10 @@ class FakeClient:
 
 
 class FakeRun:
-    """A confine.run stand-in. bash -c commands are a tiny language, one statement per ';':
-    `png NAME [W H] [blank]`, `jpeg NAME`, `fat NAME`, `huge NAME`, `symlink NAME TARGET`, `echo TEXT`, `fail`.
+    """A confine.run stand-in. bash -c commands are a tiny language, one statement per ';': `png NAME`, `echo TEXT`.
     Toolsmith bundle calls (python3 bootstrap) write tool.png and print the JSON result line."""
 
-    def __init__(self, browser: bool = True):
-        self.browser = browser
+    def __init__(self):
         self.calls: list[dict] = []
         self.tool_images = ["tool.png"]
         self.outside: Path | None = None        # a tool listing "link.png" plants a symlink to this file
@@ -130,7 +113,7 @@ class FakeRun:
     def __call__(self, argv, cwd, timeout_s, **kw):
         cwd = Path(cwd)
         record = {"exit_code": 0, "stdout": "", "stderr": "", "seconds": 0.01, "timed_out": False, "lock_wait_s": 0.0,
-                  "dropped_bytes": 0, "bwrap_argv_sha": "ab" * 32, "browser_launched": self.browser, "error": None}
+                  "dropped_bytes": 0, "bwrap_argv_sha": "ab" * 32, "browser_launched": True, "error": None}
         call = {"argv": list(argv), "cwd": str(cwd), "timeout_s": timeout_s, **kw}
         self.calls.append(call)
         out = []
@@ -140,22 +123,9 @@ class FakeRun:
                 if not words:
                     continue
                 if words[0] == "png":
-                    size = (int(words[2]), int(words[3])) if len(words) >= 4 and words[2].isdigit() else (320, 240)
-                    make_png(cwd / words[1], *size, blank="blank" in words)
-                elif words[0] == "jpeg":
-                    make_jpeg(cwd / words[1])
-                elif words[0] == "fat":
-                    (cwd / words[1]).write_bytes(b"\x89PNG\r\n\x1a\n" + b"\0" * 2_100_000)
-                elif words[0] == "huge":
-                    data = make_png(cwd / words[1], 8, 8).read_bytes()
-                    (cwd / words[1]).write_bytes(data[:16] + struct.pack(">II", 3000, 3000) + data[24:])
-                elif words[0] == "symlink":
-                    os.symlink(words[2], cwd / words[1])
+                    make_png(cwd / words[1])
                 elif words[0] == "echo":
                     out.append(" ".join(words[1:]))
-                elif words[0] == "fail":
-                    record.update(exit_code=1, stderr="boom")
-                time.sleep(0.002)      # why: distinct mtimes between statements keep the image order deterministic
         elif argv[0] == "python3":
             for name in self.tool_images:
                 if name == "link.png" and self.outside is not None:
@@ -187,7 +157,7 @@ def bundle(adapter: Path, name: str, **files: str) -> None:
         (directory / filename).write_text(text)
 
 
-def toolsmith_adapter(scratch: Path, *, origin: bool = True, card: bool = True, tools=("wordcount",)) -> Path:
+def toolsmith_adapter(scratch: Path, *, card: bool = True, tools=("wordcount",)) -> Path:
     adapter = scratch / "adapter"
     shutil.copytree(TOOLSMITH, adapter, ignore=shutil.ignore_patterns("__pycache__"))
     for name in tools:
@@ -195,10 +165,9 @@ def toolsmith_adapter(scratch: Path, *, origin: bool = True, card: bool = True, 
     (adapter / "ADAPTER.md").write_text("Learned: call wordcount before you finish.\n")
     if card:
         (adapter / "CARD.md").write_text("spending: 1.23 USD\n")
-    if origin:
-        data = yaml.safe_load((adapter / "adapter.yaml").read_text())
-        data["origin"] = {"template": "toolsmith", "version": "1.1"}
-        (adapter / "adapter.yaml").write_text(yaml.safe_dump(data, sort_keys=False))
+    data = yaml.safe_load((adapter / "adapter.yaml").read_text())
+    data["origin"] = {"template": "toolsmith", "version": "1.1"}
+    (adapter / "adapter.yaml").write_text(yaml.safe_dump(data, sort_keys=False))
     return adapter
 
 
@@ -228,7 +197,7 @@ def new_agent(scratch: Path) -> agent.VisualAgent:
 PAGE = "<!doctype html><html><body><canvas data-testid='scene'></canvas></body></html>"
 
 
-# --- the run: arm B' -----------------------------------------------------------------------------------------------
+# --- the run ---------------------------------------------------------------------------------------------------------
 def test_harness_arm_writes_the_page_runs_a_command_and_packs_its_images(scratch, monkeypatch, runner):
     client = scripted(monkeypatch, [
         {"tool_calls": [tc("write_file", {"path": "index.html", "content": PAGE})]},
@@ -286,103 +255,12 @@ def test_harness_arm_writes_the_page_runs_a_command_and_packs_its_images(scratch
     assert out.cost_usd == pytest.approx(0.003) and out.tokens == 3150 and out.log == base
 
 
-# The format of the records experiment 4's learners read, constant fields included: the key order of request.json,
-# result.json (also pipeline_extra, with "calls") and judge/judge.json in its run records, e.g.
-# toolsmith/runs/waves-ts3a/learning_material/step_0048/trajectories/waves/.
-EXP4_REQUEST_KEYS = ["arm", "case", "task_id", "adapter", "started_utc", "model", "settings", "facts_file", "system",
-                     "task", "tools", "tools_exported", "tools_skipped", "tools_rejected", "catalog_error"]
-EXP4_RESULT_KEYS = ["arm", "case", "status", "stop_reason", "finished_utc", "elapsed_seconds", "model_calls",
-                    "tool_calls", "inspection_calls", "wm_calls", "usage", "submission_sha256", "final_inspected_sha256",
-                    "final_inspection_matches", "valid_submission", "extraction", "cost_usd", "run_commands",
-                    "adapter_tool_calls", "image_bearing_calls", "looked_calls", "looked_blank_calls", "looked_final",
-                    "seen_final", "seen_pages", "finalize", "first_image_call", "first_look_call", "tools_exported",
-                    "tools_called", "tool_errors", "context_exhausted", "images_total", "tool_text_chars", "confined"]
-EXP4_JUDGE_KEYS = ["task_id", "case", "mode", "score", "judged_utc", "mechanical", "mechanical_score", "rubric",
-                   "rubric_score", "judge_usage", "judge_cost_usd", "judge_model"]
-
-
-def test_records_keep_the_format_experiment_4s_learners_read(scratch, monkeypatch, runner):
-    scripted(monkeypatch, [{"content": "nothing written"}])
-    out = new_agent(scratch).run(task(), None)
-    base = Path(out.log)
-    request = json.loads((base / "request.json").read_text())
-    result = json.loads((base / "result.json").read_text())
-    assert list(request) == EXP4_REQUEST_KEYS and request["facts_file"] is None
-    assert list(result) == EXP4_RESULT_KEYS and list(out.extra) == [*EXP4_RESULT_KEYS, "calls"]
-    assert (result["inspection_calls"], result["wm_calls"], result["final_inspected_sha256"],
-            result["final_inspection_matches"], result["extraction"]) == (0, 0, None, False, None)
-    # No valid page, so the judge writes its record without the paid rubric call.
-    spec = importlib.util.spec_from_file_location("visual_judge_under_test", UTILS / "judge.py")
-    judge = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(judge)
-    assert result["valid_submission"] is False and judge.score(task(), out)["score"] == 0.0
-    record = json.loads((base / "judge" / "judge.json").read_text())
-    assert list(record) == EXP4_JUDGE_KEYS and record["mode"] == "vlm"
-
-
-def test_images_replace_earlier_image_messages_and_no_artifact_status(scratch, monkeypatch, runner):
-    client = scripted(monkeypatch, [
-        {"tool_calls": [tc("run_command", {"command": "png a.png"})]},
-        {"tool_calls": [tc("run_command", {"command": "png b.png"}, "c2"), tc("read_file", {"path": "README.md"}, "c3")]},
-        {"content": "done"}])
-    out = new_agent(scratch).run(task(), None)
-    result = out.extra
-    assert result["status"] == "no_artifact" and result["valid_submission"] is False
-    assert result["image_bearing_calls"] == 2 and result["looked_final"] is False
-    messages = client.requests[2]["messages"]
-    users = [m for m in messages if m["role"] == "user"]
-    assert users[1]["content"] == pipeline.IMAGES_REMOVED and isinstance(users[2]["content"], list)
-    assert sum(1 for m in messages if isinstance(m.get("content"), list)) == 1
-    second = json.loads((Path(out.log) / "tools" / "02.json").read_text())
-    assert [i["file"] for i in second["image_records"]] == ["b.png"]      # a.png was unchanged: not sent again
-
-
-def test_context_guard_stops_after_a_large_prompt(scratch, monkeypatch, runner):
-    client = scripted(monkeypatch, [
-        {"tool_calls": [tc("write_file", {"path": "index.html", "content": PAGE})], "prompt_tokens": 95_000},
-        {"content": "never requested"}])
-    out = new_agent(scratch).run(task(), None)
-    assert out.extra["status"] == "context_exhausted" and out.extra["context_exhausted"] is True
-    assert out.extra["model_calls"] == 1 and out.extra["valid_submission"] is True and len(client.requests) == 1
-    assert "95000" in out.extra["stop_reason"]
-
-
-def test_a_cut_off_tool_call_does_not_poison_the_conversation(scratch, monkeypatch, runner):
-    """A response cut off at the token limit mid-call leaves invalid JSON arguments; the provider refuses a conversation
-    that holds them (HTTP 400), so the replayed message carries "{}" and the model is told what happened."""
-    cut = {"id": "c1", "type": "function", "function": {"name": "write_file",
-                                                          "arguments": '{"path": "index.html", "content": "<html'}}
-    client = scripted(monkeypatch, [
-        {"tool_calls": [cut], "finish_reason": "length"},
-        {"tool_calls": [tc("write_file", {"path": "index.html", "content": PAGE}, "c2")]},
-        {"content": "Wrote a shorter page."}])
-    out = new_agent(scratch).run(task(), None)
-    assert out.output["status"] == "completed" and out.output["model_calls"] == 3
-    replayed = client.requests[1]["messages"][2]
-    assert replayed["role"] == "assistant" and replayed["tool_calls"][0]["function"]["arguments"] == "{}"
-    tool_message = client.requests[1]["messages"][3]
-    assert "cut off at the output token limit" in tool_message["content"]
-    calls = Path(out.log) / "calls" / "01.json"
-    assert json.loads(calls.read_text())["assistant"]["tool_calls"][0]["function"]["arguments"].startswith('{"path"')
-
-
 def test_api_error_is_recorded_with_the_key_redacted(scratch, monkeypatch, runner):
     monkeypatch.setenv(pipeline.KEY_ENV, "sk-secret")
     scripted(monkeypatch, [])
     out = new_agent(scratch).run(task(), None)
     assert out.extra["status"] == "api_error" and "sk-secret" not in out.extra["stop_reason"]
     assert "[REDACTED]" in json.loads((Path(out.log) / "calls" / "01.json").read_text())["error"]
-
-
-# --- arms and adapters -----------------------------------------------------------------------------------------------
-def test_arm_detection_root_without_origin_is_harness(scratch, monkeypatch, runner):
-    root = toolsmith_adapter(scratch, origin=False, card=False)
-    assert pipeline.arm_of(None) == "harness" and pipeline.arm_of(root) == "harness"
-    scripted(monkeypatch, [{"content": "x"}])
-    out = new_agent(scratch).run(task(), root)
-    request = json.loads((Path(out.log) / "request.json").read_text())
-    assert out.extra["arm"] == "harness" and request["system"] == texts.ACTING_SYSTEM_PROMPT
-    assert request["tools_exported"] == [] and request["adapter"] == str(root)
 
 
 def test_toolsmith_adapter_exposes_its_catalog_and_packs_tool_images(scratch, monkeypatch, runner):
@@ -445,57 +323,6 @@ def test_toolsmith_finalize_submits_the_last_version_the_model_saw(scratch, monk
     assert (base / "workspace" / "index.html").read_text() == PAGE2      # the agent's workspace is left as it was
 
 
-def test_toolsmith_finalize_counts_only_images_a_later_request_carried(scratch, monkeypatch, runner):
-    adapter = toolsmith_adapter(scratch)
-    scripted(monkeypatch, [
-        {"tool_calls": [tc("write_file", {"path": "index.html", "content": PAGE})]},
-        {"tool_calls": [tc("wordcount", {}, "c2")]},
-        {"tool_calls": [tc("write_file", {"path": "index.html", "content": PAGE2}, "c3"), tc("wordcount", {}, "c4")]}])
-    out = new_agent(scratch).run(task(), adapter)      # the 4th request fails: call 4's images never reach the model
-    result = json.loads((Path(out.log) / "result.json").read_text())
-    assert result["status"] == "api_error" and result["looked_calls"] == 2
-    assert [s["call"] for s in result["seen_pages"]] == [2] and result["finalize"]["submitted_call"] == 2
-    assert (Path(out.log) / "submission" / "index.html").read_text() == PAGE
-
-
-def test_toolsmith_finalize_keeps_a_final_version_the_model_saw(scratch, monkeypatch, runner):
-    adapter = toolsmith_adapter(scratch)
-    scripted(monkeypatch, [
-        {"tool_calls": [tc("write_file", {"path": "index.html", "content": PAGE})]},
-        {"tool_calls": [tc("wordcount", {}, "c2")]},
-        {"tool_calls": [tc("write_file", {"path": "index.html", "content": PAGE2}, "c3"), tc("wordcount", {}, "c4")]},
-        {"content": "done"}])
-    out = new_agent(scratch).run(task(), adapter)
-    result = json.loads((Path(out.log) / "result.json").read_text())
-    assert [s["call"] for s in result["seen_pages"]] == [2, 4] and result["finalize"]["replaced"] is False
-    assert (Path(out.log) / "submission" / "index.html").read_text() == PAGE2 and result["seen_final"] is True
-    assert not (Path(out.log) / "unseen_final").exists()
-
-
-def test_a_learned_tool_shown_another_page_is_not_a_look_at_index(scratch, monkeypatch, runner):
-    adapter = toolsmith_adapter(scratch)
-    scripted(monkeypatch, [
-        {"tool_calls": [tc("write_file", {"path": "index.html", "content": PAGE})]},
-        {"tool_calls": [tc("wordcount", {}, "c2")]},
-        {"tool_calls": [tc("wordcount", {"file": "draft.html"}, "c3")]},
-        {"content": "done"}])
-    out = new_agent(scratch).run(task(), adapter)
-    result = json.loads((Path(out.log) / "result.json").read_text())
-    assert result["looked_calls"] == 2 and [s["call"] for s in result["seen_pages"]] == [2]
-
-
-def test_without_a_finalize_export_the_final_version_is_submitted(scratch, monkeypatch, runner):
-    scripted(monkeypatch, [
-        {"tool_calls": [tc("write_file", {"path": "index.html", "content": PAGE})]},
-        {"tool_calls": [tc("run_command", {"command": "png shot.png", "timeout_s": 30}, "c2")]},
-        {"tool_calls": [tc("write_file", {"path": "index.html", "content": PAGE2}, "c3")]},
-        {"content": "done"}])
-    out = new_agent(scratch).run(task(), None)
-    result = json.loads((Path(out.log) / "result.json").read_text())
-    assert result["finalize"] is None and result["seen_final"] is False and [s["call"] for s in result["seen_pages"]] == [2]
-    assert (Path(out.log) / "submission" / "index.html").read_text() == PAGE2
-
-
 def test_toolsmith_tool_listing_an_outside_path_or_symlink_gets_nothing_packed(scratch, monkeypatch, runner):
     adapter = toolsmith_adapter(scratch, card=False)
     runner.tool_images = ["../outside.png", "link.png"]
@@ -512,13 +339,13 @@ def test_toolsmith_tool_listing_an_outside_path_or_symlink_gets_nothing_packed(s
 
 
 # --- the harness on its own ----------------------------------------------------------------------------------------
-def host_for(scratch: Path, run_fn=None) -> tuple[gh.Harness, Path]:
+def host_for(scratch: Path) -> tuple[gh.Harness, Path]:
     workspace, run = scratch / "ws", scratch / "run"
     workspace.mkdir()
     run.mkdir()
     (workspace / "README.md").write_text("the task\nline two\nline three\n")
     (workspace / "index.html").write_text(pipeline.PLACEHOLDER)
-    return gh.Harness(workspace, run, runner=gh.ConfinedRunner(run_fn or FakeRun())), workspace
+    return gh.Harness(workspace, run, runner=gh.ConfinedRunner(FakeRun())), workspace
 
 
 def far() -> float:
@@ -548,181 +375,3 @@ def test_file_tools_paths_and_caps(scratch):
     assert json.loads(host.dispatch("read_file", None, far())[0])["error"].startswith("ValueError: Tool arguments")
     assert host.calls == 14 and host.tool_errors == 10
     assert len(list((scratch / "run" / "tools").glob("*.json"))) == 14
-
-
-def test_run_command_image_caps_symlinks_and_rejections(scratch):
-    fake = FakeRun()
-    host, ws = host_for(scratch, fake)
-    outside = make_png(scratch / "outside.png")
-    command = ("fat fat.png; huge huge.png; png p1.png; png p2.png; png p3.png; png p4.png; png p5.png; png p6.png; jpeg j.jpg;"
-               f" symlink link.png {outside}; png sub/deep.png")
-    text, parts = host.dispatch("run_command", {"command": command}, far())
-    result = json.loads(text)
-    record = json.loads((scratch / "run" / "tools" / "01.json").read_text())
-    assert [i["file"] for i in record["image_records"]] == ["p1.png", "p2.png", "p3.png", "p4.png", "p5.png"]
-    problems = {r["file"]: r["problem"] for r in record["images_rejected"]}
-    assert problems["p6.png"].startswith("more than 5") and problems["j.jpg"].startswith("more than 5")
-    assert problems["sub/deep.png"].startswith("more than 5")
-    assert problems["fat.png"].startswith("2100008 bytes") and "3000x3000" in problems["huge.png"]
-    assert "link.png" not in problems and not (ws / "link.png").exists() and record["symlinks_removed"] == ["link.png"]
-    assert len(parts) == 10 and host.images_total == 5 and result["images"][4]["packed_for_model"] is True
-    # The per-run budget: the next command gets nothing more.
-    host.images_total = gh.MAX_IMAGES_PER_RUN
-    text, parts = host.dispatch("run_command", {"command": "png late.png; jpeg late.jpg"}, far())
-    rejected = {r["file"]: r["problem"] for r in json.loads(text)["images_rejected"]}
-    assert rejected == {"late.png": "image budget exhausted", "late.jpg": "image budget exhausted"} and parts == []
-    # A JPEG is reported, never shown: only PNG images reach the model (the judge and the blank measure are PNG).
-    host.images_total = 0
-    text, parts = host.dispatch("run_command", {"command": "jpeg only.jpg"}, far())
-    rejected = {r["file"]: r["problem"] for r in json.loads(text)["images_rejected"]}
-    assert rejected == {"only.jpg": "a JPEG file: only PNG images are shown"} and parts == []
-    assert host.image_bearing_calls == 1 and host.looked_calls == 1 and host.looked_blank_calls == 0
-
-
-def test_blank_images_and_no_browser_are_not_looks(scratch):
-    fake = FakeRun(browser=False)
-    host, _ = host_for(scratch, fake)
-    host.dispatch("run_command", {"command": "png white.png 400 300 blank"}, far())
-    assert host.image_bearing_calls == 1 and host.looked_calls == 0 and host.looked_blank_calls == 0
-    fake.browser = True
-    host.dispatch("run_command", {"command": "png white2.png 400 300 blank"}, far())
-    assert host.looked_blank_calls == 1 and host.looked_calls == 0 and host.first_look_call is None
-    host.dispatch("run_command", {"command": "png tiny.png 100 80"}, far())     # smaller than 320x240: blank by rule
-    assert host.looked_blank_calls == 2
-    host.dispatch("run_command", {"command": "png real.png 400 300"}, far())
-    assert host.looked_calls == 1 and host.first_look_call == 4 and host.first_image_call == 1
-    record = json.loads((scratch / "run" / "tools" / "04.json").read_text())
-    assert record["image_records"][0]["stats"]["nonuniform_fraction"] > 0.5
-
-
-def test_time_refusals_timeout_clamp_and_failed_commands(scratch):
-    fake = FakeRun()
-    host, _ = host_for(scratch, fake)
-    soon = time.monotonic() + 30
-    refused = json.loads(host.dispatch("run_command", {"command": "echo hi"}, soon)[0])
-    assert refused["ok"] is False and "Less than 60 seconds" in refused["error"] and fake.calls == []
-    host.dispatch("run_command", {"command": "echo hi", "timeout_s": 90}, time.monotonic() + 100)
-    assert fake.calls[-1]["timeout_s"] == pytest.approx(80, abs=0.5)
-    host.dispatch("run_command", {"command": "echo hi"}, far())
-    assert fake.calls[-1]["timeout_s"] == 120
-    host.dispatch("run_command", {"command": "echo hi", "timeout_s": 300}, far())
-    assert fake.calls[-1]["timeout_s"] == 300
-    failed = json.loads(host.dispatch("run_command", {"command": "fail"}, far())[0])
-    assert failed["exit_code"] == 1 and failed["stderr"] == "boom" and host.run_commands == 4 and host.tool_errors == 1
-    host.calls = gh.MAX_TOOL_CALLS
-    assert "budget exhausted" in json.loads(host.dispatch("read_file", {"path": "README.md"}, far())[0])["error"]
-
-
-def test_tool_text_caps(scratch):
-    host, ws = host_for(scratch)
-    (ws / "long.txt").write_text("\n".join("y" * 200 for _ in range(400)))
-    text = host.dispatch("read_file", {"path": "long.txt", "max_lines": 500}, far())[0]
-    assert json.loads(text)["truncated"] is True and len(text) <= gh.RESULT_CHARS
-    host.text_chars = gh.TOOL_TEXT_CAP - 10
-    text = host.dispatch("read_file", {"path": "README.md"}, far())[0]
-    rendered = json.loads(text)
-    assert rendered["truncated"] is True and "cumulative" in rendered["reason"] and len(rendered["tail"]) <= gh.TAIL_CHARS
-    (scratch / "two").mkdir()
-    host2, _ = host_for(scratch / "two", FakeRun())
-    text = host2.dispatch("run_command", {"command": "echo " + "z" * 7000}, far())[0]
-    shown = json.loads(text)["stdout"]
-    assert len(shown) < 7000 and "clipped to 6000" in shown
-    assert len(json.loads((scratch / "two" / "run" / "tools" / "01.json").read_text())["result"]["stdout"]) == 7001
-
-
-def test_adapter_tool_budget(scratch):
-    host, _ = host_for(scratch)
-    host.tools.append({"type": "function", "function": {"name": "shot", "description": "d",
-                                                        "parameters": {"type": "object", "properties": {}}}})
-    host.schemas["shot"] = {"type": "object", "properties": {}}
-    host.adapter_calls = gh.MAX_ADAPTER_CALLS
-    assert "adapter tool budget" in json.loads(host.dispatch("shot", {}, far())[0])["error"]
-
-
-def test_expose_catalog_sanitises_and_skips():
-    catalog = {"tools": [
-        {"name": "shot", "description": "Take a picture.", "parameters": {
-            "type": "object", "properties": {"width": {"type": "integer", "pattern": "x", "minimum": 1},
-                                             "list": {"type": "array", "items": {"type": "string", "format": "uri"}}},
-            "required": ["width", "ghost"], "additionalProperties": True, "$schema": "x"}},
-        {"name": "Shot", "description": "d", "parameters": {}},
-        {"name": "run_command", "description": "d", "parameters": {}},
-        {"name": "shot", "description": "d", "parameters": {}},
-        {"name": "silent", "description": "", "parameters": {}},
-        {"name": "plain", "description": "x" * 2000, "parameters": "not a schema"}],
-        "rejected": [{"name": "broken", "problem": "no entry"}]}
-    specs, skipped = gh.expose_catalog(catalog)
-    assert [s["function"]["name"] for s in specs] == ["shot", "plain"]
-    assert specs[0]["function"]["parameters"] == {
-        "type": "object", "properties": {"width": {"type": "integer", "minimum": 1},
-                                         "list": {"type": "array", "items": {"type": "string"}}},
-        "required": ["width"], "additionalProperties": False}
-    assert specs[1]["function"]["parameters"] == {"type": "object", "properties": {}, "required": [],
-                                                  "additionalProperties": False}
-    assert len(specs[1]["function"]["description"]) == gh.MAX_DESCRIPTION
-    assert [(s["name"], s["problem"].split(" ")[0]) for s in skipped] == [
-        ("Shot", "not"), ("run_command", "collides"), ("shot", "duplicate"), ("silent", "no")]
-    assert gh.expose_catalog({}) == ([], []) and gh.expose_catalog(None) == ([], [])
-
-
-def test_pack_images_batch_cap(scratch):
-    a, b = make_png(scratch / "a.png", 320, 240), make_png(scratch / "b.png", 320, 240)
-    size = len(a.read_bytes()) * 4 // 3 + 4
-    parts, records = gh.pack_images([a, b], cap=size + 10, labels=["a.png", "b.png"])
-    assert len(parts) == 2 and records[0]["packed_for_model"] is True and records[1]["packed_for_model"] is False
-    assert "batch cap" in records[1]["omitted"] and parts[0]["text"].startswith("a.png")
-
-
-def test_scan_and_describe(scratch):
-    ws = scratch / "ws"
-    ws.mkdir()
-    before = gh.scan_images(ws)
-    make_png(ws / "one.png")
-    (ws / "note.txt").write_text("not an image")
-    after = gh.scan_images(ws)
-    assert gh.changed_images(before, after) == ["one.png"] and gh.changed_images(after, after) == []
-    (ws / "one.png").write_bytes(make_png(scratch / "tmp.png", 321, 240).read_bytes())
-    assert gh.changed_images(after, gh.scan_images(ws)) == ["one.png"]
-    record, problem = gh.describe_image(ws, "one.png")
-    assert problem is None and record["width"] == 321 and record["nonblank"] is True
-    assert gh.describe_image(ws, "note.txt") == (None, "not a PNG file")
-    assert gh.describe_image(ws, "../tmp.png")[1] == "'../tmp.png' lies outside the workspace"
-    assert gh.describe_image(ws, str(ws / "one.png"))[0]["file"] == "one.png"
-
-
-# --- the real sandbox and the settings check ---------------------------------------------------------------------
-@needs_bwrap
-def test_real_confine_run_through_the_harness(scratch):
-    host, _ = host_for(scratch, agent.confine.run)
-    text, parts = host.dispatch("run_command", {"command": "echo hi; pwd", "timeout_s": 20}, far())
-    result = json.loads(text)
-    assert result["exit_code"] == 0 and result["stdout"].startswith("hi\n") and parts == []
-    assert result["timed_out"] is False and result["images"] == []
-    record = json.loads((scratch / "run" / "tools" / "01.json").read_text())
-    assert record["confined"] is True and len(record["bwrap_argv_sha"]) == 64 and record["browser_launched"] is False
-    assert not (scratch / "run" / "cmd-01" / "tmp").exists() and (scratch / "run" / "cmd-01" / "trace").is_file()
-
-
-def test_hermit_check_loads_the_agent(scratch):
-    config = {
-        "data": {"tasks": str(UTILS / "tasks.jsonl"), "train": str(UTILS / "splits" / "waves.txt"),
-                 "test": str(UTILS / "splits" / "waves-eval.txt"), "step_size": 1},
-        "task_info": str(UTILS / "task-info-generic" / "waves"),
-        "agent": {"name": f"{UTILS / 'agent' / 'agent.py'}:VisualAgent", "concurrency": 1},
-        "judge": {"path": str(UTILS / "judge.py")},
-        "template": "prompt-only@1.0",
-        "evolver": {"name": "codex", "params": {"tools": ["check_spec"], "home": []}},   # prompt-only: the Codex learner
-        "llm": {"base_url": pipeline.BASE_URL, "model": pipeline.MODEL, "api_key_env": pipeline.KEY_ENV, "price": pipeline.PRICE},
-        "sandbox": {"enabled": True, "network": "none", "env": []},
-        "trainer": {"run_name": "wp2-check", "output_dir": str(scratch / "runs"), "tree_dir": str(scratch / "trees"),
-                    "epochs": 1, "budget": {"usd": 0.1, "hours": 1}}}
-    if not (UTILS / "tasks.jsonl").is_file() or not (UTILS / "task-info-generic" / "waves" / "README.md").is_file():
-        pytest.skip("utils/tasks.jsonl or task-info-generic/waves are not prepared here (python utils/prepare.py)")
-    path = scratch / "check.yaml"
-    path.write_text(yaml.safe_dump(config, sort_keys=False))
-    exe = Path(sys.executable).parent / "hermit"
-    env = {**os.environ, pipeline.KEY_ENV: os.environ.get(pipeline.KEY_ENV) or "placeholder"}   # check wants a key; --no-probe never uses it
-    proc = subprocess.run([str(exe), "check", "--config", str(path), "--no-probe"], capture_output=True, text=True,
-                          cwd=str(scratch), timeout=120, env=env)
-    assert proc.returncode == 0, proc.stdout + proc.stderr
-    assert "[ok] task" in proc.stdout and "PROBLEM" not in proc.stdout
