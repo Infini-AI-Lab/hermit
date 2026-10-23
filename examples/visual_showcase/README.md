@@ -89,7 +89,10 @@ packages and Playwright's Chromium, and bubblewrap with unprivileged user namesp
 
 ```bash
 npm ci --prefix examples/visual_showcase/utils/runtime
-python examples/visual_showcase/utils/prepare.py --toolset generic     # tasks, splits, the learners' task-info
+(cd examples/visual_showcase/utils/runtime && npx playwright install chromium)
+export VISUAL_CHROME_BIN=$(ls -d ~/.cache/ms-playwright/chromium-*/chrome-linux64/chrome | tail -1)   # that Chromium
+export VISUAL_CHROME=$PWD/examples/visual_showcase/utils/runtime/chrome-gpu.sh   # the host's captures, with GPU WebGL
+python examples/visual_showcase/utils/prepare.py                       # tasks, splits, the learners' task-info
 python examples/visual_showcase/utils/confine.py selftest ~/.cache/visual_showcase/selftest   # the sandbox pre-flight
 export FIREWORKS_API_KEY=...                                           # the agent, the judge and the learners
 ```
@@ -119,37 +122,22 @@ hermit eval  --config examples/visual_showcase/prompt_only_codex/run4_waves.yaml
 `toolsmith_codex/run4_<brief>.yaml` runs the same way. Every step is tagged `<run>/ckpt-step-N` (`waves-pc`,
 `waves-tc`, `waves-ts`, …); evaluation runs 5 repeats unless `eval.repeats` says otherwise (10 for step 48 above).
 [`utils/README.md`](utils/README.md) describes the agent, the limits of a run and every record a run writes;
-`utils/tool_works.py` and `utils/emergence.py` recompute the tool check and the looking counts from the records.
-
-## Earlier experiments
-
-- **Experiment 1** gave the agent a ready-made browser tool (`inspect_page`) and trained one adapter per brief for
-  five learning rounds (three eval repeats per checkpoint). Best checkpoints, waves / lava / silk: MWM
-  ([`mwm_visual/`](mwm_visual/)) 0.95 / 0.95 / 1.00, the then scripted prompt-only learner 0.98 / 0.93 / 0.93; the
-  untrained tool loop scored 0.93 / 0.65 / 0.92 and one request without tools 0.40 / 0.65 / 0.37. About 8 USD.
-- **Experiments 2 and 3** introduced the generic toolset above with 12 steps and GLM 5.3 Flash as the learner: the
-  MWM learner ([`mwm_visual_generic/`](mwm_visual_generic/)), toolsmith ([`toolsmith/`](toolsmith/)
-  `run_<brief>.yaml`) and the untrained baselines ([`baseline/`](baseline/): the four primitives alone, and with the
-  machine's facts in the system prompt).
-
-Their prompt-only arms used a scripted prompt-only learner that hermit has since removed (prompt-only is now the Codex
-form, PC above), so those configs were removed; they remain in the git history.
+`utils/tool_works.py` reruns the tool check on a checkpoint.
 
 ## Code
 
 ```text
 utils/agent/        the acting agent: agent.py (VisualAgent), generic_harness.py (its tools, image packing), texts.py
+utils/pipeline.py   the agent's model and settings, the adapter as the agent sees it, the host's final capture
+utils/harness.py    the browser capture: runtime/browser_capture.cjs, one capture at a time
 utils/confine.py    the bubblewrap sandbox of run_command, the learned tools and the self-tests; its selftest
 utils/judge.py      12 mechanical items and the GLM vision rubric      utils/prepare.py   tasks, splits, task-info
-utils/runtime/      browser_capture.cjs (Playwright, the host's final capture) and its packages; chrome-gpu.sh
+utils/runtime/      browser_capture.cjs (Playwright) and its packages; chrome-gpu.sh, Chromium with GPU WebGL
 utils/tool_selftest.py   test_tools, the toolsmith self-test as a task tool (TC)
-utils/tool_works.py, utils/emergence.py   offline checks: does a learned tool render truthfully; did the agent look
-utils/reference/    webgl_probe.html and experiment 1's best pages, for the checks
+utils/tool_works.py offline check: does a learned tool render a known page truthfully
+utils/reference/    webgl_probe.html and three reference pages, for the checks
 utils/tests/        tests of the sandbox, the agent, the texts and the checks
 prompt_only_codex/  PC: run4_<brief>.yaml      toolsmith_codex/   TC: run4_<brief>.yaml
-toolsmith/          TS: run4_<brief>.yaml; experiments 2 and 3: run_<brief>.yaml, smoke.yaml
-mwm_visual/         experiment 1's MWM learner and template
-utils/pipeline.py, utils/harness.py   experiment 1's agent and its browser tool
-mwm_visual_generic/ experiments 2 and 3, MWM      baseline/   the untrained generic-toolset arms
+toolsmith/          TS: run4_<brief>.yaml
 assets/             the animations above
 ```

@@ -1,17 +1,15 @@
-"""The generic acting agent (experiment 2): GLM 5.3 Flash on Fireworks writes one offline interactive index.html with
-four generic primitives (write_file, read_file, replace_text, run_command) inside the bubblewrap sandbox of
-utils/confine.py. It is told nothing about how a page could be rendered; images a command writes into the workspace are
-the only pictures it ever sees. An adapter can add to that: a toolsmith adapter's learned tools (its `tool_catalog`)
-become function tools whose results may carry images, a prompt-only adapter contributes ADAPTER.md, an MWM adapter its
-context package and read-only `wm` tool.
+"""The acting agent: GLM 5.3 Flash on Fireworks writes one offline interactive index.html with four generic primitives
+(write_file, read_file, replace_text, run_command) inside the bubblewrap sandbox of utils/confine.py. It is told nothing
+about how a page could be rendered; images a command writes into the workspace are the only pictures it ever sees. An
+adapter can add to that: its context (ADAPTER.md) joins the system prompt, and a toolsmith adapter's learned tools (its
+`tool_catalog`) become function tools whose results may carry images.
 
-    agent: {name: ../utils/agent/agent.py:VisualAgent, concurrency: 1, params: {facts_file: null}}
+    agent: {name: ../utils/agent/agent.py:VisualAgent, concurrency: 1}
 
-Arms: `harness` (B') without an adapter or for the untouched root (no `origin` in adapter.yaml), else `adapted` (C).
-`facts_file` (the hinted baseline) names a text file appended to the system prompt after the tool instructions.
-Model, prices, the request loop's shape, the records and the host's final capture are experiment 1's (utils/pipeline.py,
-utils/harness.py, imported by file), and so are the limits except time: a run has no time limit (RUN_SECONDS) and a
-model request is abandoned only when it hangs (REQUEST_GUARD_S); utils/judge.py scores the record unchanged.
+Arms: `harness` without an adapter or for the untouched root (no `origin` in adapter.yaml), else `adapted`. The model,
+its settings and the host's final capture come from utils/pipeline.py and utils/harness.py (imported by file). A run has
+no time limit (RUN_SECONDS) and a model request is abandoned only when it hangs (REQUEST_GUARD_S); utils/judge.py
+scores the record.
 """
 from __future__ import annotations
 
@@ -56,15 +54,12 @@ gh = _load("visual_generic_harness", HERE / "generic_harness.py")
 
 RUNNER = confine.run                          # the confined runner; tests replace it with a fake
 FINAL_CAPTURE = pipeline._final_capture       # the host's final capture (LOCK_EX inside harness.capture); tests fake it
-MAX_REQUESTS = pipeline.MAX_REQUESTS["harness"]
+MAX_REQUESTS = pipeline.MAX_REQUESTS
 CONTEXT_GUARD_TOKENS = 90_000                 # why: a request above this is one tool result away from the model's window
 RUN_SECONDS: float | None = None              # no time limit: a run ends by its requests, tool calls or completion
-                                              # tokens, so a slow API or a busy machine cannot cut it short (experiment
-                                              # 1's 600 s, pipeline.ACTOR_SECONDS, until exp. 4; 1800 s until its
-                                              # amendment 2)
+                                              # tokens, so a slow API or a busy machine cannot cut it short
 REQUEST_GUARD_S = 1800                        # why: only a request that hangs is abandoned; the longest reply (32,768
                                               # tokens) takes 18 minutes at 30 tok/s, the lanes' speed floor
-                                              # (pipeline.REQUEST_TIMEOUT, 420 s, until experiment 4's amendment 2)
 FINAL_MESSAGE_CHARS = 1500
 RESULT_KEYS = ("arm", "case", "status", "stop_reason", "finished_utc", "elapsed_seconds", "model_calls", "tool_calls",
                "inspection_calls", "wm_calls", "usage", "submission_sha256", "final_inspected_sha256",
@@ -106,13 +101,11 @@ def _replayable(message: dict) -> dict:
 
 
 class VisualAgent(Agent):
-    """`agent.name: ../utils/agent/agent.py:VisualAgent`; params: facts_file (text appended to the system prompt),
-    logs (run records; default $VISUAL_LOG_ROOT, else utils/.logs)."""
+    """`agent.name: ../utils/agent/agent.py:VisualAgent`; params: logs (run records; default $VISUAL_LOG_ROOT, else
+    utils/.logs)."""
 
     def run(self, task: dict, adapter: Path | None) -> RunOutput:
-        arm = pipeline.arm_of(adapter)
-        with pipeline.no_bytecode(), pipeline.agent_view(adapter if arm == "adapted" else None) as view:
-            return self._actor(task, arm, adapter, view)
+        return self._actor(task, pipeline.arm_of(adapter), adapter)
 
     def _log_root(self) -> Path:
         if self.params.get("logs"):
@@ -120,20 +113,12 @@ class VisualAgent(Agent):
         return Path(os.environ.get("VISUAL_LOG_ROOT") or UTILS / ".logs")
 
     def _system_text(self, session) -> tuple[str, dict]:
-        """The system prompt and what the adapter contributed: exposed function tools, skipped and rejected entries,
-        the wm spec."""
+        """The system prompt and what the adapter contributed: exposed function tools, skipped and rejected entries."""
         sys_text = texts.ACTING_SYSTEM_PROMPT
-        facts_file = self.params.get("facts_file")
-        if facts_file:
-            sys_text += "\n\n" + self.path(facts_file).read_text().strip()
-        contributed = {"tools": [], "skipped": [], "rejected": [], "wm_spec": None, "catalog_error": None}
+        contributed = {"tools": [], "skipped": [], "rejected": [], "catalog_error": None}
         if session is None:
             return sys_text, contributed
-        if session.has_tool("context_package"):             # the MWM template: its live five-part package
-            package = session.call("context_package", {})["text"]
-        else:                                               # any other template: its context export
-            package = session.context()
-        sys_text += "\n\n" + (texts.BRIDGE if session.has_tool("wm") else texts.ADAPTED) + "\n\n" + package
+        sys_text += "\n\n" + texts.ADAPTED + "\n\n" + session.context()
         if session.has_tool("tool_catalog"):
             try:
                 catalog = session.call("tool_catalog", {})
@@ -143,10 +128,6 @@ class VisualAgent(Agent):
             contributed["rejected"] = list((catalog or {}).get("rejected") or [])
             if contributed["tools"]:
                 sys_text += "\n\n" + texts.ADAPTER_TOOLS_NOTE
-        if session.has_tool("wm"):
-            tool = next(t for t in session.tools if t["name"] == "wm")
-            contributed["wm_spec"] = {"type": "function", "function": {
-                "name": "wm", "description": tool["description"] + texts.WM_SUFFIX, "parameters": tool["input_schema"]}}
         return sys_text, contributed
 
     @staticmethod
@@ -172,7 +153,7 @@ class VisualAgent(Agent):
             record["reason"] += " (no snapshot of the chosen version: the final version is submitted)"
         return record
 
-    def _actor(self, task: dict, arm: str, adapter_dir: Path | None, view: Path | None) -> RunOutput:
+    def _actor(self, task: dict, arm: str, adapter_dir: Path | None) -> RunOutput:
         harness.check_vendor()      # before any model call: the final capture of this run would need it
         case = task["case"]
         base = _log_dir(self._log_root(), case, arm)
@@ -183,17 +164,17 @@ class VisualAgent(Agent):
         runner = gh.ConfinedRunner(RUNNER)
         session = None
         if arm == "adapted":
-            session = self.session(view, resources={"tool_runner": runner, "workspace": str(workspace)})
+            session = self.session(adapter_dir, resources={"tool_runner": runner, "workspace": str(workspace)})
         sys_text, contributed = self._system_text(session)
-        host = gh.Harness(workspace, base, case, runner=runner, session=session, adapter_tools=contributed["tools"],
-                          wm_spec=contributed["wm_spec"])
+        host = gh.Harness(workspace, base, runner=runner, session=session, adapter_tools=contributed["tools"])
         tools_exported = [t["function"]["name"] for t in contributed["tools"]]
-        facts_file = self.params.get("facts_file")
+        # request.json and result.json keep the format experiment 4's learners read, constant fields included
+        # (facts_file, inspection_calls, wm_calls, final_inspected_sha256, final_inspection_matches, extraction).
         gh.save(base / "request.json", {
             "arm": arm, "case": case, "task_id": task["id"], "adapter": str(adapter_dir) if adapter_dir else None,
             "started_utc": pipeline.utc(), "model": pipeline.MODEL,
             "settings": {**pipeline.SAMPLING, "max_tokens": pipeline.MAX_TOKENS},
-            "facts_file": str(self.path(facts_file)) if facts_file else None, "system": sys_text, "task": task["prompt"],
+            "facts_file": None, "system": sys_text, "task": task["prompt"],
             "tools": host.tools, "tools_exported": tools_exported, "tools_skipped": contributed["skipped"],
             "tools_rejected": contributed["rejected"], "catalog_error": contributed["catalog_error"]})
         client = pipeline.make_client()
@@ -270,7 +251,7 @@ class VisualAgent(Agent):
                                             "write less per call." if finish == "length" else "")})
                 messages.append({"role": "tool", "tool_call_id": tool_call.get("id"), "content": tool_text})
                 if images:
-                    new_images = images  # Deterministic: the most recent image-bearing call only, as experiment 1.
+                    new_images = images  # Deterministic: the most recent image-bearing call only.
                     new_seen = host.last_dispatch_look
             if new_images:
                 for j in image_message_indices:
@@ -301,7 +282,7 @@ class VisualAgent(Agent):
         result = {
             "arm": arm, "case": case, "status": status, "stop_reason": reason, "finished_utc": pipeline.utc(),
             "elapsed_seconds": round(time.monotonic() - start, 3), "model_calls": calls, "tool_calls": host.calls,
-            "inspection_calls": 0, "wm_calls": host.wm_calls, "usage": usage, "submission_sha256": submission_sha,
+            "inspection_calls": 0, "wm_calls": 0, "usage": usage, "submission_sha256": submission_sha,
             "final_inspected_sha256": None, "final_inspection_matches": False, "valid_submission": valid,
             "extraction": None, "cost_usd": cost,
             "run_commands": host.run_commands, "adapter_tool_calls": host.adapter_calls,

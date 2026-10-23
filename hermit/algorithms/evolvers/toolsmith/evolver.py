@@ -372,9 +372,7 @@ class ToolsmithEvolver(Evolver):
             t = _read_json(path, None)
             if not isinstance(t, dict):
                 continue
-            ours = t.get("name") in exported if isinstance(exported, list) else \
-                t.get("name") not in PRIMITIVES and t.get("name") != "wm"      # older records: no tools_exported
-            if ours:
+            if isinstance(exported, list) and t.get("name") in exported:
                 calls.append((path.stem, t))
         mechanical = ((record.get("judge") or {}).get("extra") or {}).get("mechanical") or []
         failed = [f"{m.get('item')} ({m.get('detail')})" for m in mechanical
@@ -388,11 +386,6 @@ class ToolsmithEvolver(Evolver):
         else:
             number, last = calls[-1]
             reply = last.get("result")
-            if isinstance(reply, str):       # an older record keeps the result as JSON text
-                try:
-                    reply = json.loads(reply)
-                except ValueError:
-                    reply = {"text": reply}
             reply = reply if isinstance(reply, dict) else {}
             sizes = sorted({f"{i.get('width')}x{i.get('height')}" for _, t in calls
                             for i in t.get("image_records") or [] if isinstance(i, dict)})

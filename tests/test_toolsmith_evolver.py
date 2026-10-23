@@ -102,16 +102,17 @@ RECORDS = [
     {"name": "write_file", "arguments": {"path": "index.html", "content": "<html>" * 100},
      "result": {"ok": True, "file": "index.html"}, "seconds": 0.0},
     {"name": "run_command", "arguments": {"command": "ls -la && python3 -c 'print(1)'"},
-     "result": json.dumps({"exit_code": 0, "stdout": "index.html\n1\n", "stderr": "", "seconds": 0.4,
-                           "timed_out": False, "lock_wait_s": 0.0, "images": []}),
+     "result": {"exit_code": 0, "stdout": "index.html\n1\n", "stderr": "", "seconds": 0.4,
+                "timed_out": False, "lock_wait_s": 0.0, "images": []},
      "image_records": [], "browser_launched": False},
     {"name": "run_command", "arguments": {"command": "node render.js"},
-     "result": json.dumps({"exit_code": 127, "stdout": "", "stderr": "bash: node: command not found\n", "seconds": 0.1,
-                           "timed_out": False, "lock_wait_s": 0.0, "images": []}), "image_records": []},
-    {"name": "inspect_page", "arguments": {}, "result": "Error: Unknown tool 'inspect_page'", "seconds": 0.0},
+     "result": {"exit_code": 127, "stdout": "", "stderr": "bash: node: command not found\n", "seconds": 0.1,
+                "timed_out": False, "lock_wait_s": 0.0, "images": []}, "image_records": []},
+    {"name": "inspect_page", "arguments": {}, "result": {"ok": False, "error": "ValueError: Unknown tool"},
+     "seconds": 0.0},
     {"name": "shot", "arguments": {"tag": "a"},
-     "result": json.dumps({"text": "rendered", "exit_code": 0, "seconds": 3.0, "timed_out": False, "lock_wait_s": 0.0,
-                           "error": None, "images": [{"file": "shot.png", "nonblank": True}]}),
+     "result": {"text": "rendered", "exit_code": 0, "seconds": 3.0, "timed_out": False, "lock_wait_s": 0.0,
+                "error": None, "images": [{"file": "shot.png", "nonblank": True}]},
      "image_records": [{"file": "shot.png", "bytes": 5000, "width": 320, "height": 240, "nonblank": True,
                         "packed_for_model": True}], "browser_launched": True},
 ]
@@ -203,7 +204,7 @@ def test_step_applies_valid_blocks_skips_invalid_ones_and_marks_a_tool_working(t
     assert len(calls) == 1
     prompt = calls[0][-1]["content"]
     for text in ("# Task README", "F1 headless only", "# Toolsmith adapter: the learner's contract", "Run: case=waves",
-                 "Error: Unknown tool 'inspect_page'", "bash: node: command not found", "rubric 1: the canvas is blank",
+                 "error: ValueError: Unknown tool", "bash: node: command not found", "rubric 1: the canvas is blank",
                  "I could not see the rendered page.", "Pipeline extra", "(none yet)"):
         assert text in prompt, text
     # The test ran, then the contract call, both in a workspace seeded with the trajectory's page.
@@ -322,7 +323,7 @@ def test_digest_keeps_header_footer_adapter_calls_and_errors_when_truncating(tmp
     assert f"Tool calls ({len(records)}):" in full and "omitted" not in full
     assert "01 write_file index.html (600 chars) -> ok" in full
     assert "21 run_command `node render.js` -> exit 127, 0.1 s" in full and "bash: node: command not found" in full
-    assert "32 inspect_page {} -> exit ?" in full and "Error: Unknown tool 'inspect_page'" in full
+    assert "32 inspect_page {} -> exit ?, 0.0 s, error: ValueError: Unknown tool" in full
     assert "33 shot {\"tag\": \"a\"} -> exit 0, 3.0 s, browser_launched=True" in full and "images: 1 (shot.png)" in full
     assert full.rstrip().endswith("…[+" + str(len(("done " * 400).strip()) - 1500) + " chars]")
     short = digest.build(d, limit=3000)      # why: header + footer take ~1 700; the entries compete for the rest

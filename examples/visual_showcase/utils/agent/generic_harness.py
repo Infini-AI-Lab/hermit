@@ -1,8 +1,8 @@
-"""The generic acting agent's harness (experiment 2): four primitives over the run's workspace — write_file, read_file,
-replace_text and run_command — plus the adapter's learned tools (toolsmith `tool_catalog`/`tool_call`) and the read-only
-`wm` tool of an MWM adapter. Nothing here knows how a page is rendered: the only channel back to the model is that PNG
-files a command or a learned tool writes inside the workspace are packed as image parts. Only PNG: the host capture, the
-judge and the blank measurement (hermit.runtime.pngstats) all work on PNG; a JPEG is reported, not shown.
+"""The acting agent's harness: four primitives over the run's workspace — write_file, read_file, replace_text and
+run_command — plus the adapter's learned tools (toolsmith `tool_catalog`/`tool_call`). Nothing here knows how a page is
+rendered: the only channel back to the model is that PNG files a command or a learned tool writes inside the workspace
+are packed as image parts. Only PNG: the host capture, the judge and the blank measurement (hermit.runtime.pngstats)
+all work on PNG; a JPEG is reported, not shown.
 
 Commands and learned tools run through the confined runner (confine.run) the agent binds; the harness owns the per-call
 directory `<run>/cmd-NN/` (its `tmp` is the sandbox's /tmp, deleted after the image scan; `trace` is kept; `index.html`
@@ -35,10 +35,10 @@ MAX_IMAGE_BYTES = 2_000_000
 MAX_IMAGE_PIXELS = 2_100_000          # why: the host capture is 1280x800; a phone capture 390x844; both well below
 MAX_IMAGES_PER_CALL = 5
 MAX_IMAGES_PER_RUN = 40
-IMAGE_BATCH_CAP = 8_000_000           # base64 characters per image batch sent to the model (as utils/harness.py)
+IMAGE_BATCH_CAP = 8_000_000           # base64 characters per image batch sent to the model
 STDOUT_CHARS, STDERR_CHARS = 6_000, 2_000     # of a command's output shown to the model; the record keeps it all
 RECORD_TEXT_CHARS = 1_000_000
-RESULT_CHARS = 32_000                 # one rendered tool message (as utils/harness.py)
+RESULT_CHARS = 32_000                 # one rendered tool message
 TOOL_TEXT_CAP = 120_000               # cumulative tool text per run; afterwards only TAIL_CHARS tails
 TAIL_CHARS = 500
 MIN_SECONDS_LEFT = 60                 # why: a command and the final capture both need time; refuse late calls
@@ -46,7 +46,6 @@ TIMEOUT_MARGIN = 20                   # why: the kill, the scan and the final ca
 DEFAULT_TIMEOUT_S, MAX_TIMEOUT_S = 120, 300   # why: room for a browser on a busy machine (60, 90 s before exp. 4)
 READ_LINES_DEFAULT, READ_LINES_MAX = 300, 500
 MAX_SCAN_FILES, SCAN_DEPTH = 4000, 8   # why: a command may unpack anything; the scan stays bounded
-WM_NAMES = frozenset({"list", "memory", "recall", "search", "read", "trace"})
 PRIMITIVES = ("write_file", "read_file", "replace_text", "run_command")
 RESERVED = frozenset({*PRIMITIVES, "inspect_page", "wm", "tool_catalog", "tool_call", "context_package"})
 NAME_RE = re.compile(r"[a-z][a-z0-9_]{0,63}")
@@ -54,7 +53,6 @@ SCHEMA_KEYS = frozenset({"type", "properties", "required", "additionalProperties
                          "items", "minimum", "maximum"})
 MAX_DESCRIPTION = 1024
 PNG_MAGIC, JPEG_MAGIC = b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff"
-MIME = {"png": "image/png", "jpeg": "image/jpeg"}
 
 
 def sha(path: str | Path) -> str:
@@ -200,32 +198,16 @@ def image_kind(path: Path) -> str | None:
     return None
 
 
-def image_dimensions(path: Path, kind: str) -> tuple[int, int] | None:
-    """(width, height) from the PNG IHDR or the first JPEG SOF marker, without decoding the pixels."""
+def image_dimensions(path: Path) -> tuple[int, int] | None:
+    """(width, height) from the PNG IHDR, without decoding the pixels."""
     try:
         data = Path(path).read_bytes()
     except OSError:
         return None
-    if kind == "png":
-        if len(data) < 24 or data[12:16] != b"IHDR":
-            return None
-        width, height = struct.unpack(">II", data[16:24])
-        return width, height
-    pos = 2
-    while pos + 9 <= len(data):
-        if data[pos] != 0xFF:
-            pos += 1
-            continue
-        marker = data[pos + 1]
-        if marker in (0xD8, 0x01) or 0xD0 <= marker <= 0xD7:
-            pos += 2
-            continue
-        length = struct.unpack(">H", data[pos + 2:pos + 4])[0]
-        if marker in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF):
-            height, width = struct.unpack(">HH", data[pos + 5:pos + 9])
-            return width, height
-        pos += 2 + length
-    return None
+    if len(data) < 24 or data[12:16] != b"IHDR":
+        return None
+    width, height = struct.unpack(">II", data[16:24])
+    return width, height
 
 
 def scan_images(workspace: Path) -> dict[str, tuple[int, int, str]]:
@@ -271,7 +253,7 @@ def describe_image(workspace: Path, rel: str) -> tuple[dict | None, str | None]:
         return None, "not a PNG file"
     if kind != "png":
         return None, "a JPEG file: only PNG images are shown"
-    dims = image_dimensions(path, kind)
+    dims = image_dimensions(path)
     if dims is None:
         return None, "image header unreadable"
     width, height = dims
@@ -279,29 +261,27 @@ def describe_image(workspace: Path, rel: str) -> tuple[dict | None, str | None]:
         return None, f"{width}x{height} is more than {MAX_IMAGE_PIXELS} pixels"
     record = {"file": rel, "kind": kind, "sha256": sha(path), "bytes": info.st_size, "width": width, "height": height,
               "nonblank": None, "stats": None, "packed_for_model": False}
-    if kind == "png":
-        measured = pngstats.stats(path)
-        record["nonblank"] = not measured["blank"]
-        record["stats"] = {k: measured[k] for k in ("mean_luma", "nonuniform_fraction", "dominant_rgb", "error")}
+    measured = pngstats.stats(path)
+    record["nonblank"] = not measured["blank"]
+    record["stats"] = {k: measured[k] for k in ("mean_luma", "nonuniform_fraction", "dominant_rgb", "error")}
     return record, None
 
 
 def pack_images(paths: list[Path], cap: int = IMAGE_BATCH_CAP, labels: list[str] | None = None) -> tuple[list, list]:
     """Image parts for one user message (a text label then an image_url per file, fixed order) and a packing record per
     path: {file, base64_characters, packed_for_model: True} or {file, omitted: reason}. A file that would push the batch
-    over `cap` base64 characters is omitted, the next smaller one may still fit (as utils/harness.images_for_model)."""
+    over `cap` base64 characters is omitted, the next smaller one may still fit."""
     parts, records, total = [], [], 0
     for index, path in enumerate(paths):
         path = Path(path)
         label = labels[index] if labels else path.name
-        kind = image_kind(path) or "png"
         encoded = base64.b64encode(path.read_bytes()).decode()
         if total + len(encoded) > cap:
             records.append({"file": label, "omitted": f"{cap:,} base64-character batch cap", "packed_for_model": False})
             continue
         total += len(encoded)
         parts += [{"type": "text", "text": f"{label} — image file written in your workspace"},
-                  {"type": "image_url", "image_url": {"url": f"data:{MIME[kind]};base64,{encoded}"}}]
+                  {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{encoded}"}}]
         records.append({"file": label, "base64_characters": len(encoded), "packed_for_model": True})
     return parts, records
 
@@ -397,18 +377,15 @@ def _names_other_page(name: str, args) -> bool:
 class Harness:
     """One run's tools over `workspace`; records go under `run` (tools/NN.json, cmd-NN/).
 
-    `runner` is a ConfinedRunner; `session` (arm C) a hermit Session whose `tool_call` runs the `adapter_tools`
-    (function specs from expose_catalog) and whose `wm` (when `wm_spec` is given) answers read-only knowledge calls."""
+    `runner` is a ConfinedRunner; `session` (arm `adapted`) a hermit Session whose `tool_call` runs the
+    `adapter_tools` (function specs from expose_catalog)."""
 
-    def __init__(self, workspace, run, case, *, runner: ConfinedRunner, session=None, adapter_tools=(), wm_spec=None):
-        self.workspace, self.run, self.case = Path(workspace), Path(run), case
+    def __init__(self, workspace, run, *, runner: ConfinedRunner, session=None, adapter_tools=()):
+        self.workspace, self.run = Path(workspace), Path(run)
         self.runner, self.session = runner, session
-        self.adapter_names = [t["function"]["name"] for t in adapter_tools]
         self.tools = [*TOOLS, *adapter_tools]
-        if wm_spec is not None:
-            self.tools.append(wm_spec)
         self.schemas = {t["function"]["name"]: t["function"]["parameters"] for t in self.tools}
-        self.calls = self.run_commands = self.adapter_calls = self.wm_calls = self.tool_errors = 0
+        self.calls = self.run_commands = self.adapter_calls = self.tool_errors = 0
         self.images_total = self.text_chars = 0
         self.image_bearing_calls = self.looked_calls = self.looked_blank_calls = 0
         self.first_image_call = self.first_look_call = None
@@ -447,8 +424,6 @@ class Harness:
                 result = self._replace_text(args)
             elif name == "run_command":
                 result, parts = self._run_command(n, args, deadline, record)
-            elif name == "wm":
-                result = self._wm(args)
             else:
                 result, parts = self._adapter_tool(n, name, args, deadline, record)
         except Exception as exc:  # noqa: BLE001 - every failure is text for the model, never an exception
@@ -583,12 +558,6 @@ class Harness:
                   "images": [self._image_for_model(r) for r in record["image_records"]],
                   "images_rejected": record["images_rejected"]}
         return result, parts
-
-    def _wm(self, args: dict) -> dict:
-        self.wm_calls += 1
-        if args.get("name") not in WM_NAMES:
-            raise ValueError("Only read-only knowledge operations are admitted; no executable tools or delegates")
-        return self.session.call("wm", args)
 
     def _note_run(self, record: dict, raw: dict) -> None:
         record.update(confined=True, lock_wait_s=raw.get("lock_wait_s"), timed_out=bool(raw.get("timed_out")),

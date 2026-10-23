@@ -117,7 +117,7 @@ Set overrides under `evolver.params`.
 | `images` | Count / 0 | Self-test images attached to the learner's prompt; 0 keeps the learner text-only (it reads the image measures instead) |
 | `require_image` | Boolean / true | Whether a tool counts as working only when it returns a non-blank PNG; false also accepts tools that answer in text |
 | `trajectory_chars` | Characters / 20000 | Clips each trajectory digest; the digest keeps its header, the adapter-tool calls and non-zero exits before the rest |
-| `max_examples`, `max_chars` | Count, characters / 8, 6000 | Bound the task records shown, as in prompt-only |
+| `max_examples`, `max_chars` | Count, characters / 8, 6000 | Bound the task records shown |
 | `exposed_tools_max` | Count / 8 | What the harness exposes; the template admits at most eight bundles alphabetically and rejects the rest |
 
 Bundles live under the template's learnable `tools/**` (text files, at most 60,000 bytes each and 40 files); the
@@ -126,5 +126,5 @@ alone. The template's `README.md` and `EVOLVER.md` under `hermit/algorithms/temp
 bundle format and the execution protocol in full.
 
 The [visual showcase recipe](../recipes/visual-showcase.md) runs this method, with its scripted learner and with the
-Codex learner, against prompt-only for 48 steps on the same task. Use a smoke run before increasing epochs, and evaluate with the
-[same held-out protocol](../guides/evaluation.md).
+Codex learner, against prompt-only for 48 steps on the same task. Run `hermit check --no-probe` and a one-step run
+(`trainer.epochs=1`) before the full run, and evaluate with the [same held-out protocol](../guides/evaluation.md).

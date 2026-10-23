@@ -1,9 +1,8 @@
-"""tool_works.py and emergence.py with fakes, no browser and no bwrap: a scratch toolsmith adapter with one bundle, a
-fake confined runner that writes PNGs into the workspace, a fake host capture, the Tree export path on a tiny git
-repository, and emergence metrics over a hand-made run record. Scratch lives outside /tmp like the real runs."""
+"""tool_works.py with fakes, no browser and no bwrap: a scratch toolsmith adapter with one bundle, a fake confined
+runner that writes PNGs into the workspace, a fake host capture and the Tree export path on a tiny git repository.
+Scratch lives outside /tmp like the real runs."""
 from __future__ import annotations
 
-import hashlib
 import importlib.util
 import json
 import os
@@ -30,7 +29,6 @@ def _load(name: str, path: Path):
 
 
 tool_works = _load("visual_tool_works", UTILS / "tool_works.py")
-emergence = _load("visual_emergence", UTILS / "emergence.py")
 
 
 # --- PNG fixtures -----------------------------------------------------------------------------------------------------
@@ -212,96 +210,8 @@ def test_host_capture_reuses_an_existing_desktop_t0(scratch):
     assert shot == out / "capture" / "desktop-t0.png"
 
 
-# --- emergence --------------------------------------------------------------------------------------------------------
-def _record(run: Path, nn: int, name: str, images=(), *, launched=True, sha=None, snapshot: str | None = None):
-    (run / "tools").mkdir(exist_ok=True)
-    record = {"name": name, "arguments": {}, "image_records": [{"file": f, "packed_for_model": True} for f in images],
-              "browser_launched": launched, "index_sha_at_call": sha}
-    (run / "tools" / f"{nn:02d}.json").write_text(json.dumps(record))
-    if snapshot is not None:
-        (run / f"cmd-{nn:02d}").mkdir()
-        (run / f"cmd-{nn:02d}" / "index.html").write_text(snapshot)
-
-
-def make_run(root: Path) -> Path:
-    run = root / "waves-harness-20261017T000000Z-abc123"
-    (run / "workspace").mkdir(parents=True)
-    (run / "submission").mkdir()
-    (run / "judge").mkdir()
-    page_a, page_b = "<!doctype html><title>A</title>", "<!doctype html><title>B</title>"
-    (run / "submission" / "index.html").write_text(page_b)
-    sha_a, sha_b = (hashlib.sha256(p.encode()).hexdigest() for p in (page_a, page_b))
-    assert emergence.sha256(run / "submission" / "index.html") == sha_b
-    (run / "workspace" / "shot1.png").write_bytes(PNGS["pattern"])
-    (run / "workspace" / "shot2.png").write_bytes(PNGS["white"])
-    (run / "request.json").write_text(json.dumps({"case": "waves"}))
-    (run / "result.json").write_text(json.dumps({"case": "waves", "arm": "adapted", "status": "completed",
-                                                 "stop_reason": "final", "submission_sha256": sha_b,
-                                                 "looked_calls": 2, "image_bearing_calls": 3}))
-    (run / "judge" / "judge.json").write_text(json.dumps({"score": 0.9}))
-    _record(run, 1, "write_file")
-    _record(run, 2, "run_command", ["shot1.png"], sha=sha_a, snapshot=page_a)            # looked, matches
-    _record(run, 3, "run_command", ["shot2.png"], sha=sha_b)                   # white: looked_blank; sha = submission
-    _record(run, 4, "shot", ["shot1.png"], sha=sha_b, snapshot=page_b)         # adapter tool, looked, matches, final
-    _record(run, 5, "run_command", ["shot1.png"], launched=False, sha=sha_b, snapshot=page_b)  # PNG, no browser
-    return run
-
-
-class FakeRender:
-    def __init__(self):
-        self.calls = []
-
-    def __call__(self, case: str, snapshot: Path, out_dir: Path) -> Path:
-        self.calls.append((case, Path(snapshot).read_text()))
-        out = Path(out_dir) / "capture" / "desktop-t0.png"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_bytes(PNGS["pattern"])
-        return out
-
-
-def test_emergence_metrics_of_one_record(scratch, monkeypatch):
-    monkeypatch.setattr(emergence, "_render_dir", lambda key: scratch / "renders" / key)
-    run = make_run(scratch)
-    render = FakeRender()
-    row = emergence.analyse_run(run, render)
-    flags = {c["call"]: (c["image_bearing"], c["looked"], c["looked_blank"], c["render_match"]) for c in row["calls"]}
-    assert flags == {1: (False, False, False, None), 2: (True, True, False, True), 3: (True, False, True, False),
-                     4: (True, True, False, True), 5: (True, False, False, True)}
-    assert row["calls"][2]["snapshot"].endswith("submission/index.html")       # sha matched the submission
-    assert [c[1] for c in render.calls] == ["<!doctype html><title>A</title>", "<!doctype html><title>B</title>"]
-    expected = {"case": "waves", "arm": "adapted", "status": "completed", "score": 0.9, "tool_calls": 5,
-                "run_commands": 3, "adapter_tool_calls": 1, "image_bearing_calls": 4, "looked_calls": 2,
-                "looked_blank_calls": 1, "render_matched_calls": 3, "render_checked_calls": 4, "first_image_call": 2,
-                "first_look_call": 2, "first_render_match_call": 2, "looked_final": True}
-    assert {k: row[k] for k in expected} == expected
-    assert row["harness_result"]["looked_calls"] == 2 and row["harness_result"]["image_bearing_calls"] == 3
-
-
-def test_emergence_without_render_and_over_a_step(scratch, monkeypatch):
-    monkeypatch.setattr(emergence, "_render_dir", lambda key: scratch / "renders" / key)
-    run = make_run(scratch / "a")
-    row = emergence.analyse_run(run, None)
-    assert row["render_checked_calls"] == 0 and all(c["render_match"] is None for c in row["calls"])
-    assert row["looked_calls"] == 2 and row["looked_final"] is True
-    step = scratch / "step_0003"
-    shutil.copytree(run, step / "trajectories" / "waves")
-    (step / "trajectories" / "waves-eval").mkdir()                     # a trajectory without records: skipped
-    out = scratch / "emergence.json"
-    assert emergence.main(["--step", str(step), "--out", str(out)], render=FakeRender()) == 0
-    report = json.loads(out.read_text())
-    assert report["rendered"] is True and [r["id"] for r in report["runs"]] == ["waves"]
-    assert report["summary"] == {"runs": 1, "tool_calls": 5, "image_bearing_calls": 4, "looked_calls": 2,
-                                 "looked_blank_calls": 1, "render_matched_calls": 3, "runs_with_images": 1.0,
-                                 "runs_looked": 1.0, "runs_looked_blank_only": 0.0, "runs_render_matched": 1.0,
-                                 "runs_looked_final": 1.0, "scores": [0.9]}
-    assert emergence.main(["--run", str(run), "--out", str(out)]) == 0
-    assert json.loads(out.read_text())["rendered"] is False
-    with pytest.raises(SystemExit):
-        emergence.main(["--step", str(scratch / "nothing"), "--out", str(out)])
-
-
 def test_a_long_lock_wait_does_not_eat_the_host_capture_timeout(scratch, monkeypatch):
-    """The host capture's timeout bounds the capture, not the wait for the exclusive lock (count_wait=False)."""
+    """The host capture's timeout bounds the capture, not the wait for the exclusive lock."""
     import fcntl
     import subprocess as sp
     import threading

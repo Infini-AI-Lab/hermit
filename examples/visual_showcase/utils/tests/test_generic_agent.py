@@ -132,9 +132,6 @@ class FakeRun:
         record = {"exit_code": 0, "stdout": "", "stderr": "", "seconds": 0.01, "timed_out": False, "lock_wait_s": 0.0,
                   "dropped_bytes": 0, "bwrap_argv_sha": "ab" * 32, "browser_launched": self.browser, "error": None}
         call = {"argv": list(argv), "cwd": str(cwd), "timeout_s": timeout_s, **kw}
-        if kw.get("ro"):
-            root = Path(kw["ro"][0][0]).parents[1]
-            call["card_present"] = (root / "CARD.md").exists()
         self.calls.append(call)
         out = []
         if argv[0] == "bash" and argv[1] == "-c":
@@ -205,29 +202,6 @@ def toolsmith_adapter(scratch: Path, *, origin: bool = True, card: bool = True, 
     return adapter
 
 
-def mwm_adapter(scratch: Path) -> Path:
-    adapter = scratch / "mwm"
-    adapter.mkdir()
-    manifest = {
-        "template": {"id": "fake-mwm", "version": "1.0", "contract": "1", "name": "Fake MWM"},
-        "exports": {"context": "ADAPTER.md", "tools": [
-            {"name": "wm", "description": "The world model.", "entrypoint": "interface.py:wm",
-             "input_schema": {"type": "object", "properties": {"name": {"type": "string"}, "args": {"type": "object"}},
-                              "required": ["name"], "additionalProperties": False},
-             "output_schema": {"type": "object"}},
-            {"name": "context_package", "description": "The package.", "entrypoint": "interface.py:context_package",
-             "input_schema": {"type": "object", "properties": {}, "additionalProperties": False},
-             "output_schema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}}]},
-        "structure": {"learnable": [{"path": "ADAPTER.md", "format": {"text": True}}], "fixed": ["interface.py"]},
-        "origin": {"template": "fake-mwm", "version": "1.0"}}
-    (adapter / "adapter.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
-    (adapter / "ADAPTER.md").write_text("context file\n")
-    (adapter / "interface.py").write_text(
-        "def wm(name, args=None):\n    return {'op': name, 'ok': True}\n\n"
-        "def context_package():\n    return {'text': 'FIVE-PART PACKAGE'}\n")
-    return adapter
-
-
 @pytest.fixture
 def runner(monkeypatch):
     fake = FakeRun()
@@ -247,8 +221,8 @@ def task() -> dict:
     return {"id": "waves", "case": "waves", "prompt": "Make waves.\n\n[data-testid=\"scene\"] must be present."}
 
 
-def new_agent(scratch: Path, **params) -> agent.VisualAgent:
-    return agent.VisualAgent({"logs": str(scratch / "logs"), **params}, base=scratch)
+def new_agent(scratch: Path) -> agent.VisualAgent:
+    return agent.VisualAgent({"logs": str(scratch / "logs")}, base=scratch)
 
 
 PAGE = "<!doctype html><html><body><canvas data-testid='scene'></canvas></body></html>"
@@ -270,7 +244,7 @@ def test_harness_arm_writes_the_page_runs_a_command_and_packs_its_images(scratch
     assert result["model_calls"] == 3 and result["tool_calls"] == 2 and result["run_commands"] == 1
     assert result["image_bearing_calls"] == 1 and result["looked_calls"] == 1 and result["looked_blank_calls"] == 0
     assert result["first_image_call"] == 2 and result["first_look_call"] == 2 and result["looked_final"] is True
-    assert result["images_total"] == 1 and result["inspection_calls"] == 0 and result["confined"] is True
+    assert result["images_total"] == 1 and result["confined"] is True
     assert result["tools_called"] == {"write_file": 1, "run_command": 1} and result["tool_errors"] == 0
     assert result["context_exhausted"] is False and result["tools_exported"] == []
     request = json.loads((base / "request.json").read_text())
@@ -312,6 +286,40 @@ def test_harness_arm_writes_the_page_runs_a_command_and_packs_its_images(scratch
     assert out.cost_usd == pytest.approx(0.003) and out.tokens == 3150 and out.log == base
 
 
+# The format of the records experiment 4's learners read, constant fields included: the key order of request.json,
+# result.json (also pipeline_extra, with "calls") and judge/judge.json in its run records, e.g.
+# toolsmith/runs/waves-ts3a/learning_material/step_0048/trajectories/waves/.
+EXP4_REQUEST_KEYS = ["arm", "case", "task_id", "adapter", "started_utc", "model", "settings", "facts_file", "system",
+                     "task", "tools", "tools_exported", "tools_skipped", "tools_rejected", "catalog_error"]
+EXP4_RESULT_KEYS = ["arm", "case", "status", "stop_reason", "finished_utc", "elapsed_seconds", "model_calls",
+                    "tool_calls", "inspection_calls", "wm_calls", "usage", "submission_sha256", "final_inspected_sha256",
+                    "final_inspection_matches", "valid_submission", "extraction", "cost_usd", "run_commands",
+                    "adapter_tool_calls", "image_bearing_calls", "looked_calls", "looked_blank_calls", "looked_final",
+                    "seen_final", "seen_pages", "finalize", "first_image_call", "first_look_call", "tools_exported",
+                    "tools_called", "tool_errors", "context_exhausted", "images_total", "tool_text_chars", "confined"]
+EXP4_JUDGE_KEYS = ["task_id", "case", "mode", "score", "judged_utc", "mechanical", "mechanical_score", "rubric",
+                   "rubric_score", "judge_usage", "judge_cost_usd", "judge_model"]
+
+
+def test_records_keep_the_format_experiment_4s_learners_read(scratch, monkeypatch, runner):
+    scripted(monkeypatch, [{"content": "nothing written"}])
+    out = new_agent(scratch).run(task(), None)
+    base = Path(out.log)
+    request = json.loads((base / "request.json").read_text())
+    result = json.loads((base / "result.json").read_text())
+    assert list(request) == EXP4_REQUEST_KEYS and request["facts_file"] is None
+    assert list(result) == EXP4_RESULT_KEYS and list(out.extra) == [*EXP4_RESULT_KEYS, "calls"]
+    assert (result["inspection_calls"], result["wm_calls"], result["final_inspected_sha256"],
+            result["final_inspection_matches"], result["extraction"]) == (0, 0, None, False, None)
+    # No valid page, so the judge writes its record without the paid rubric call.
+    spec = importlib.util.spec_from_file_location("visual_judge_under_test", UTILS / "judge.py")
+    judge = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(judge)
+    assert result["valid_submission"] is False and judge.score(task(), out)["score"] == 0.0
+    record = json.loads((base / "judge" / "judge.json").read_text())
+    assert list(record) == EXP4_JUDGE_KEYS and record["mode"] == "vlm"
+
+
 def test_images_replace_earlier_image_messages_and_no_artifact_status(scratch, monkeypatch, runner):
     client = scripted(monkeypatch, [
         {"tool_calls": [tc("run_command", {"command": "png a.png"})]},
@@ -327,16 +335,6 @@ def test_images_replace_earlier_image_messages_and_no_artifact_status(scratch, m
     assert sum(1 for m in messages if isinstance(m.get("content"), list)) == 1
     second = json.loads((Path(out.log) / "tools" / "02.json").read_text())
     assert [i["file"] for i in second["image_records"]] == ["b.png"]      # a.png was unchanged: not sent again
-
-
-def test_facts_file_is_appended_after_the_tool_instructions(scratch, monkeypatch, runner):
-    facts = scratch / "environment.md"
-    facts.write_text("## Environment facts\nF1 headless only.\n")
-    scripted(monkeypatch, [{"content": "nothing"}])
-    out = new_agent(scratch, facts_file=str(facts)).run(task(), None)
-    request = json.loads((Path(out.log) / "request.json").read_text())
-    assert request["system"] == texts.ACTING_SYSTEM_PROMPT + "\n\n## Environment facts\nF1 headless only."
-    assert request["facts_file"] == str(facts) and request["arm"] == "harness"
 
 
 def test_context_guard_stops_after_a_large_prompt(scratch, monkeypatch, runner):
@@ -405,13 +403,13 @@ def test_toolsmith_adapter_exposes_its_catalog_and_packs_tool_images(scratch, mo
     assert request["tools_rejected"][0]["name"] == "Shot" and request["tools_skipped"] == []
     system = request["system"]
     assert system.startswith(texts.ACTING_SYSTEM_PROMPT + "\n\n" + texts.ADAPTED + "\n\nLearned: call wordcount")
-    assert system.endswith(texts.ADAPTER_TOOLS_NOTE) and "spending" not in system and texts.BRIDGE not in system
-    # The tool ran through the confined runner in the workspace with the bundle bound at /tool, CARD.md hidden.
+    assert system.endswith(texts.ADAPTER_TOOLS_NOTE) and "spending" not in system
+    # The tool ran through the confined runner in the workspace with the bundle bound at /tool.
     call = runner.calls[0]
     assert call["argv"][0] == "python3" and call["argv"][-2] == "/tool/run.py"
     assert json.loads(call["argv"][-1]) == {"file": "index.html"}
     assert call["cwd"] == str(base / "workspace") and call["ro"][0][1] == "/tool" and call["ro"][0][0].endswith("tools/wordcount")
-    assert call["card_present"] is False and call["lock"] == "shared" and call["timeout_s"] == 30
+    assert call["lock"] == "shared" and call["timeout_s"] == 30
     assert call["tmp_dir"].endswith("cmd-02/tmp") and call["trace"].endswith("cmd-02/trace")
     record = json.loads((base / "tools" / "02.json").read_text())
     assert record["name"] == "wordcount" and record["confined"] is True and record["bwrap_argv_sha"] == "ab" * 32
@@ -513,24 +511,6 @@ def test_toolsmith_tool_listing_an_outside_path_or_symlink_gets_nothing_packed(s
     assert (scratch / "outside.png").is_file()
 
 
-def test_mwm_adapter_gets_bridge_package_and_read_only_wm(scratch, monkeypatch, runner):
-    adapter = mwm_adapter(scratch)
-    scripted(monkeypatch, [
-        {"tool_calls": [tc("wm", {"name": "run", "args": {}}), tc("wm", {"name": "list"}, "c2")]},
-        {"content": "x"}])
-    out = new_agent(scratch).run(task(), adapter)
-    base = Path(out.log)
-    request = json.loads((base / "request.json").read_text())
-    assert request["system"] == texts.ACTING_SYSTEM_PROMPT + "\n\n" + texts.BRIDGE + "\n\nFIVE-PART PACKAGE"
-    wm = request["tools"][-1]["function"]
-    assert wm["name"] == "wm" and wm["description"] == "The world model." + texts.WM_SUFFIX
-    first = json.loads((base / "tools" / "01.json").read_text())["result"]
-    second = json.loads((base / "tools" / "02.json").read_text())["result"]
-    assert first["ok"] is False and "read-only" in first["error"] and second == {"op": "list", "ok": True}
-    assert out.extra["wm_calls"] == 2 and out.extra["tool_errors"] == 1 and out.extra["tools_called"] == {"wm": 2}
-    assert runner.calls == []
-
-
 # --- the harness on its own ----------------------------------------------------------------------------------------
 def host_for(scratch: Path, run_fn=None) -> tuple[gh.Harness, Path]:
     workspace, run = scratch / "ws", scratch / "run"
@@ -538,7 +518,7 @@ def host_for(scratch: Path, run_fn=None) -> tuple[gh.Harness, Path]:
     run.mkdir()
     (workspace / "README.md").write_text("the task\nline two\nline three\n")
     (workspace / "index.html").write_text(pipeline.PLACEHOLDER)
-    return gh.Harness(workspace, run, "waves", runner=gh.ConfinedRunner(run_fn or FakeRun())), workspace
+    return gh.Harness(workspace, run, runner=gh.ConfinedRunner(run_fn or FakeRun())), workspace
 
 
 def far() -> float:
@@ -655,7 +635,6 @@ def test_adapter_tool_budget(scratch):
     host.tools.append({"type": "function", "function": {"name": "shot", "description": "d",
                                                         "parameters": {"type": "object", "properties": {}}}})
     host.schemas["shot"] = {"type": "object", "properties": {}}
-    host.adapter_names.append("shot")
     host.adapter_calls = gh.MAX_ADAPTER_CALLS
     assert "adapter tool budget" in json.loads(host.dispatch("shot", {}, far())[0])["error"]
 
@@ -728,8 +707,8 @@ def test_hermit_check_loads_the_agent(scratch):
     config = {
         "data": {"tasks": str(UTILS / "tasks.jsonl"), "train": str(UTILS / "splits" / "waves.txt"),
                  "test": str(UTILS / "splits" / "waves-eval.txt"), "step_size": 1},
-        "task_info": str(UTILS / "task-info" / "waves"),
-        "agent": {"name": f"{UTILS / 'agent' / 'agent.py'}:VisualAgent", "concurrency": 1, "params": {"facts_file": None}},
+        "task_info": str(UTILS / "task-info-generic" / "waves"),
+        "agent": {"name": f"{UTILS / 'agent' / 'agent.py'}:VisualAgent", "concurrency": 1},
         "judge": {"path": str(UTILS / "judge.py")},
         "template": "prompt-only@1.0",
         "evolver": {"name": "codex", "params": {"tools": ["check_spec"], "home": []}},   # prompt-only: the Codex learner
@@ -737,8 +716,8 @@ def test_hermit_check_loads_the_agent(scratch):
         "sandbox": {"enabled": True, "network": "none", "env": []},
         "trainer": {"run_name": "wp2-check", "output_dir": str(scratch / "runs"), "tree_dir": str(scratch / "trees"),
                     "epochs": 1, "budget": {"usd": 0.1, "hours": 1}}}
-    if not (UTILS / "tasks.jsonl").is_file() or not (UTILS / "task-info" / "waves" / "README.md").is_file():
-        pytest.skip("utils/tasks.jsonl or task-info/waves are not prepared here (python utils/prepare.py)")
+    if not (UTILS / "tasks.jsonl").is_file() or not (UTILS / "task-info-generic" / "waves" / "README.md").is_file():
+        pytest.skip("utils/tasks.jsonl or task-info-generic/waves are not prepared here (python utils/prepare.py)")
     path = scratch / "check.yaml"
     path.write_text(yaml.safe_dump(config, sort_keys=False))
     exe = Path(sys.executable).parent / "hermit"

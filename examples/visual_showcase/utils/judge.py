@@ -2,17 +2,16 @@
 
 - Mechanical: 12 pass/fail items (see `mechanical`) read from the run's final capture (capture/summary.json) and
   result.json; mechanical_score = passed / 12.
-- Rubric: GLM 5.3 Flash (the actor's transport settings) sees the case title, the brief's two description paragraphs,
-  the case's five review dimensions, the five final-capture PNGs and one line per mechanical item; it is never told the
-  arm, round or adapter. It returns strict JSON: per dimension an integer 1-5 and one sentence grounded in a named
-  screenshot. rubric_score = mean((s - 1) / 4). One retry on an unusable reply; after that, or on a transport error,
-  rubric_score = null.
-- score = rubric_score, or 0.0 when it is null. VISUAL_JUDGE=mechanical skips the rubric: score = mechanical_score.
+- Rubric: GLM 5.3 Flash (the actor's model and sampling settings) sees the case title, the brief's two description
+  paragraphs, the case's five review dimensions, the five final-capture PNGs and one line per mechanical item; it is
+  never told the arm, round or adapter. It returns strict JSON: per dimension an integer 1-5 and one sentence grounded
+  in a named screenshot. rubric_score = mean((s - 1) / 4). One retry on an unusable reply; after that, or on a
+  transport error, rubric_score = null.
+- score = rubric_score, or 0.0 when it is null.
 - feedback: one line per rubric dimension (its score and reason), or one line that says why there is no rubric verdict,
-  then one line per mechanical item, for Evolvers that learn from the judge (Codex, toolsmith). VISUAL_FEEDBACK=0 leaves
-  it empty. The mwm_visual learner never sees it, nor the score.
-- Everything is also written to <run log>/judge/judge.json, which the learner's evidence excludes; the rubric's model
-  cost is recorded there, not metered by the Trainer.
+  then one line per mechanical item, for the Evolvers, which learn from the judge (Codex, toolsmith).
+- Everything is also written to <run log>/judge/judge.json, in the format experiment 4's records have (`mode` is
+  always "vlm"); the rubric's model cost is recorded there, not metered by the Trainer.
 """
 from __future__ import annotations
 
@@ -133,7 +132,7 @@ def mechanical(summary: dict, result: dict) -> list[dict]:
 
 
 def make_client() -> ChatClient:
-    """The rubric model's own client: the actor's transport settings (no retries, 420 s per request)."""
+    """The rubric model's own client: no retries, 420 s per request."""
     return ChatClient(BASE_URL, MODEL, api_key_env=KEY_ENV, price=PRICE, timeout=REQUEST_TIMEOUT, max_retries=0)
 
 
@@ -246,13 +245,11 @@ def _read_json(path: Path) -> dict:
         return {}
 
 
-def _rubric_lines(mode: str, record: dict) -> list[str]:
+def _rubric_lines(record: dict) -> list[str]:
     """The feedback's rubric lines, first so that a reader that clips the feedback keeps them: one per dimension, or one
     that says why there is no rubric verdict (the score is then 0.0)."""
     if record.get("dimensions"):
         return [f"rubric {d['dimension']}: {d['score']}/5 - {d['reason']}" for d in record["dimensions"]]
-    if mode == "mechanical":
-        return []
     if "skipped" in record:
         return [f"rubric: skipped ({record['skipped']}); score 0.0"]
     error = (record.get("errors") or ["no usable reply"])[-1][:200]
@@ -260,16 +257,13 @@ def _rubric_lines(mode: str, record: dict) -> list[str]:
 
 
 def score(task: dict, output) -> dict:
-    log = Path(output.log) if getattr(output, "log", None) else Path((output.output or {}).get("log_dir", ""))
+    log = Path(output.log)
     summary = _read_json(log / "capture" / "summary.json")
     result = _read_json(log / "result.json")
     items = mechanical(summary, result)
     mechanical_score = sum(i["passed"] for i in items) / len(items)
-    mode = os.environ.get("VISUAL_JUDGE", "vlm")
     usage, cost = None, None
-    if mode == "mechanical":
-        rubric_record, rubric_score, value = {"skipped": "VISUAL_JUDGE=mechanical"}, None, mechanical_score
-    elif result.get("valid_submission") is not True:
+    if result.get("valid_submission") is not True:
         rubric_record = {"skipped": "no valid submission: the host's placeholder page has no scene to review"}
         rubric_score, value = None, 0.0
     else:
@@ -283,11 +277,9 @@ def score(task: dict, output) -> dict:
     if log.is_dir():
         (log / "judge").mkdir(exist_ok=True)
         (log / "judge" / "judge.json").write_text(json.dumps(
-            {"task_id": task.get("id"), "case": task.get("case"), "mode": mode, "score": value,
+            {"task_id": task.get("id"), "case": task.get("case"), "mode": "vlm", "score": value,
              "judged_utc": datetime.now(timezone.utc).isoformat(), **extra}, ensure_ascii=False, indent=2) + "\n")
-    feedback = ""
-    if os.environ.get("VISUAL_FEEDBACK", "1") != "0":
-        feedback = "\n".join(" ".join(line.split())        # one line per item: error details can carry newlines
-                             for line in _rubric_lines(mode, rubric_record)
-                             + [f"{i['item']}: {'pass' if i['passed'] else 'fail'} - {i['detail']}" for i in items])
+    feedback = "\n".join(" ".join(line.split())            # one line per item: error details can carry newlines
+                          for line in _rubric_lines(rubric_record)
+                          + [f"{i['item']}: {'pass' if i['passed'] else 'fail'} - {i['detail']}" for i in items])
     return {"score": value, "feedback": feedback, **extra}

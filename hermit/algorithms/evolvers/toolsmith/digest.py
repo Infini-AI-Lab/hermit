@@ -121,8 +121,6 @@ def _adapter_tool(number: str, name: str, record: dict) -> Entry:
     exit_code = result.get("exit_code", record.get("exit_code"))
     error = _error_of(result)
     text = result.get("text") if isinstance(result.get("text"), str) else None
-    if text is None and not error and set(result) - {"images"}:
-        text = json.dumps(result, ensure_ascii=False, default=str)     # an older record: the whole result is the text
     head = f"{number} {name} {_one_line(json.dumps(args, ensure_ascii=False, default=str), ARGS_CHARS)} -> " \
         + _status(exit_code, result, record, error)
     lines = [head]
@@ -231,22 +229,8 @@ def _read_json(path: Path):
 
 
 def _as_dict(value) -> dict:
-    """A tool record's result as a dict: a dict as is, a JSON-object string parsed, any other text under `text`."""
-    if isinstance(value, dict):
-        return value
-    if isinstance(value, str):
-        stripped = value.strip()
-        if stripped.startswith("{"):
-            try:
-                parsed = json.loads(stripped)
-                if isinstance(parsed, dict):
-                    return parsed
-            except ValueError:
-                pass
-        return {"text": value}
-    if value is None:
-        return {}
-    return {"text": json.dumps(value, ensure_ascii=False, default=str)}
+    """A tool record's result: the harness records a dict ({} when there is none)."""
+    return value if isinstance(value, dict) else {}
 
 
 def _error_of(result: dict) -> str | None:

@@ -30,7 +30,7 @@ a `CARD.md`.
 | [`clbench_database/`](clbench_database/) | The CL-Bench database exploration stream (accuracy) | `CLBenchDatabaseAgent`: metaworld's host seat in CL-Bench's loop | [`prompt_only`](clbench_database/prompt_only/), [`mwm`](clbench_database/mwm/) |
 | [`clbench_poker/`](clbench_poker/) | The CL-Bench exploitable-poker stream (bb/hand) | `CLBenchPokerAgent` | [`prompt_only`](clbench_poker/prompt_only/), [`mwm`](clbench_poker/mwm/) |
 | [`servelearnbench/`](servelearnbench/) | A ServeLearnBench scenario: serving stream, per-window tests | `ServeLearnBenchAgent`: the benchmark's own loop | [`prompt_only`](servelearnbench/prompt_only/), [`mwm`](servelearnbench/mwm/) |
-| [`visual_showcase/`](visual_showcase/) | Visual showcase: one animated, interactive web page per brief, judged from browser screenshots | `VisualAgent` (generic file and command tools in a sandbox, no browser tool), GLM 5.3 Flash; experiment 1: `pipeline.py:run` (a tool loop with a browser inspection tool) | experiment 4: [`prompt_only_codex`](visual_showcase/prompt_only_codex/), [`toolsmith_codex`](visual_showcase/toolsmith_codex/), [`toolsmith`](visual_showcase/toolsmith/); earlier: [`mwm_visual`](visual_showcase/mwm_visual/), [`mwm_visual_generic`](visual_showcase/mwm_visual_generic/), [`baseline`](visual_showcase/baseline/) |
+| [`visual_showcase/`](visual_showcase/) | Visual showcase: one animated, interactive web page per brief, judged from browser screenshots | `VisualAgent` (generic file and command tools in a sandbox, no browser tool), GLM 5.3 Flash | [`prompt_only_codex`](visual_showcase/prompt_only_codex/), [`toolsmith_codex`](visual_showcase/toolsmith_codex/), [`toolsmith`](visual_showcase/toolsmith/) |
 
 ## Demos
 

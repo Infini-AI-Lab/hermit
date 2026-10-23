@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Offline "tool works" check of a toolsmith checkpoint (experiment 2): does the learned tool return a true picture of
+"""Offline "tool works" check of a toolsmith checkpoint: does the learned tool return a true picture of
 the page in front of it, independently of any judge score?
 
-    python examples/visual_showcase/utils/tool_works.py --tree runs/trees/waves --tag waves-ts/ckpt-step-12 \\
+    python examples/visual_showcase/utils/tool_works.py --tree runs/trees-v3/waves --tag waves-ts/ckpt-step-12 \\
         --case waves --out tool_works.json [--tool NAME] [--scratch DIR] [--reference-capture DIR]
 
 The tag is exported from the training tree (hermit.tree.Tree.export) into the scratch directory and opened
@@ -12,7 +12,7 @@ admitted tool (tool_catalog) the check seeds a fresh workspace and calls tool_ca
 1. probe: reference/webgl_probe.html as index.html. Pass when at least one image comes back whose dominant colour is
    within PROBE_TOLERANCE of rgb(30,120,200), the colour the probe clears its scene to. A tool that starts Chromium
    without the GPU flags gets a white frame here (SwiftShader), so this proves the GPU path, not just "a PNG exists".
-2. reference: reference/best_<case>.html (experiment 1's best arm-B page, judge score 1.0). Pass when at least one
+2. reference: reference/best_<case>.html (a page the judge scored 1.0; reference/SOURCES.md). Pass when at least one
    image comes back and pngstats.thumb_corr between it and the host capturer's desktop-t0.png of the same page is at
    least MATCH_MIN.
 
@@ -156,7 +156,7 @@ def probe_phase(adapter: Path, workspace: Path, runner, name: str) -> dict:
 
 
 def reference_phase(adapter: Path, workspace: Path, runner, name: str, case: str, reference_png: Path) -> dict:
-    """Phase 2: experiment 1's best page; pass when one image correlates with the host's desktop-t0.png."""
+    """Phase 2: the reference page; pass when one image correlates with the host's desktop-t0.png."""
     from hermit.runtime import pngstats
     seed(workspace, REFERENCE / f"best_{case}.html")
     result = call_tool(adapter, workspace, runner, name)

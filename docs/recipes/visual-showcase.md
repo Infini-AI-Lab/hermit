@@ -6,11 +6,10 @@ primitives inside a bubblewrap sandbox and is told nothing about how a page coul
 machine's facts and must grow a render-and-look procedure or tool. Experiment 4, the showcase, trains one adapter per
 brief for 48 steps with GLM 5.3 as the learner and three methods: prompt-only (the Codex learner on the prompt-only
 template, **PC**), [Toolsmith](../methods/toolsmith.md) with the same Codex learner (**TC**) and Toolsmith with its
-scripted learner (**TS**). Its results and animations are in
-[`examples/visual_showcase/README.md`](../../examples/visual_showcase/README.md).
+scripted learner (**TS**). Its results and animations are in `examples/visual_showcase/README.md`.
 
-The integration lives in `examples/visual_showcase/`: `utils/` holds the task (agents, judge, data preparation, the
-browser capturer, the sandbox) and one folder per method holds its configs.
+The integration lives in `examples/visual_showcase/`: `utils/` holds the task (the agent, the judge, data preparation,
+the browser capturer, the sandbox) and one folder per method holds its configs.
 
 ## Requirements
 
@@ -18,7 +17,7 @@ Use Linux with the framework installed and a Fireworks credential in `FIREWORKS_
 GLM 5.3 Flash through it, the learners GLM 5.3. PC and TC also need the Codex CLI on `PATH` (the learner of
 `evolver.name: codex`). The browser side needs:
 
-- Node 20 or newer (the experiments were built with Node 22) and the capturer's packages, pinned in
+- Node 20 or newer (the experiment was built with Node 22) and the capturer's packages, pinned in
   `utils/runtime/package.json`: Playwright, pngjs and Three.js 0.180.0. `VISUAL_NODE` names `node` when it is not on
   PATH.
 - Playwright's Chromium build (`npx playwright install chromium` from the runtime folder, or `VISUAL_CHROME_BIN`)
@@ -45,38 +44,36 @@ From the repository root:
 
 ```bash
 npm ci --prefix examples/visual_showcase/utils/runtime
-python examples/visual_showcase/utils/prepare.py --toolset generic     # tasks.jsonl, splits/, task-info-generic/
+python examples/visual_showcase/utils/prepare.py     # tasks.jsonl, splits/, task-info-generic/
 export FIREWORKS_API_KEY=...
 ```
 
-`utils/task-info-generic/<case>/` is the learner's text: the brief and its contract, the generic tool list with the
-acting system prompt quoted verbatim, and `environment.md`, the facts of the machine the agent's commands run on
+`utils/task-info-generic/<case>/` is the learner's text: the brief and its contract, the tool list with the acting
+system prompt quoted verbatim, and `environment.md`, the facts of the machine the agent's commands run on
 (interpreters, packages, the Chromium build and its GPU flags, the sandbox's paths and limits), with resolved absolute
-paths. It is generated on the machine that runs the experiment and not committed; `environment-mwm.md` is the same
-text with a preamble for the MWM learner. Plain `prepare.py` (no `--toolset`) writes experiment 1's `utils/task-info/`.
+paths. It is generated on the machine that runs the experiment and not committed.
 
-## The two toolsets
+## The agent and the methods
 
-| | Experiment 1 (`utils/task-info/`) | Experiments 2 to 4 (`utils/task-info-generic/`) |
-|---|---|---|
-| The agent's tools | `write_file`, `read_file`, `replace_text`, `inspect_page` (runs the page in the browser and returns its screenshots) | `write_file`, `read_file`, `replace_text`, `run_command` (one `bash -c` command in the sandbox: no network, the workspace writable, PNG files it writes shown to the model) |
-| What the agent is told | The inspection tool and its budget | Nothing about node, Playwright, Chromium or the GPU ("blind") |
-| What the learner is told | The brief, the contract, how a run is observed | The same, plus the machine facts |
-| Untrained arms | A (one request, no tools), B (the tool loop) | B'-blind (the four primitives), B'-hinted (B' with the facts in its system prompt) |
-| Learners | MWM (`mwm_visual/`) | Experiment 4: PC (`prompt_only_codex/`), TC (`toolsmith_codex/`), TS (`toolsmith/`, `run4_<case>.yaml`); experiments 2 and 3: the MWM learner (`mwm_visual_generic/`, experiment 2), toolsmith (`toolsmith/`, `run_<case>.yaml`) |
-| Steps per brief, eval repeats | 6 (5 learning rounds), 3 | Experiment 4: 48, 5 per checkpoint (10 at step 48); experiments 2 and 3: 12, 3 or 5 at step 6 and 5 or 10 at step 12 |
+The agent is `utils/agent/agent.py` (`VisualAgent`). Its tools are `write_file`, `read_file`, `replace_text` and
+`run_command` (one `bash -c` command in the sandbox: no network, the workspace writable, PNG files it writes shown to
+the model), and its system prompt says nothing about node, Playwright, Chromium or the GPU. With a learned adapter,
+the adapter's `ADAPTER.md` joins the system prompt, and a toolsmith adapter's admitted tools become function tools
+whose results may carry images. Experiment 4 lengthens every limit a busy machine could cut short (the host's capture:
+load 60 s, ready 20 s, whole observation 240 s; a command or tool 300 s; no limit on a run; a model request abandoned
+only after hanging 1800 s).
 
-Experiment 1's agent is `utils/pipeline.py`; the generic toolset's is `utils/agent/agent.py` (`VisualAgent`), which
-keeps the same records and final capture. With a learned adapter, a prompt-only or toolsmith adapter contributes
-`ADAPTER.md` to the system prompt and a toolsmith adapter's admitted tools become function tools whose results may
-carry images; an MWM adapter contributes its context package and read-only `wm` tool. Experiment 4 lengthens every
-limit a busy machine could cut short (the host's capture: load 60 s, ready 20 s, whole observation 240 s; a command
-or tool 300 s; no limit on a run; a model request abandoned only after hanging 1800 s). The prompt-only arms of
-experiments 1 to 3 used a scripted prompt-only learner that hermit has removed; their configs went with it.
+| Row | Template | Learner | Configs |
+|---|---|---|---|
+| PC | `prompt-only@1.0` | the built-in Codex Evolver, as the CL-Bench poker example runs it | `prompt_only_codex/run4_<case>.yaml` |
+| TC | `toolsmith@1.2` | the same Codex Evolver, plus the task tool `test_tools` | `toolsmith_codex/run4_<case>.yaml` |
+| TS | `toolsmith@1.2` | the toolsmith Evolver, which self-tests every changed tool in the agent's sandbox | `toolsmith/run4_<case>.yaml` |
+
+Each run trains 48 steps on one brief; each checkpoint evaluated gets 5 eval runs (10 at step 48).
 
 ## Launch
 
-Experiment 4, per brief (`waves`, `lava`, `silk`); `--no-probe` skips the paid probe run of `check`. TS:
+Per brief (`waves`, `lava`, `silk`); `--no-probe` skips the paid probe run of `check`. TS:
 
 ```bash
 hermit check --no-probe --config examples/visual_showcase/toolsmith/run4_waves.yaml
@@ -102,20 +99,7 @@ hermit eval  --config examples/visual_showcase/prompt_only_codex/run4_waves.yaml
 `toolsmith_codex/run4_<case>.yaml` (TC) runs the same way; its one task tool, `test_tools`
 (`utils/tool_selftest.py`), runs the scripted toolsmith's self-test on the agent's machine, which the Codex session's
 own sandbox is not. Evaluate steps 12, 24, 36 and 48 (`eval.repeats=10` for step 48). Run names are `<case>-pc`,
-`<case>-tc` and `<case>-ts` (experiment 2's toolsmith runs are `<case>-ts-e2`); every step is tagged
-`<run>/ckpt-step-N`.
-
-Experiment 2 and its untrained arms, per brief:
-
-```bash
-hermit train --config examples/visual_showcase/mwm_visual_generic/run_waves.yaml    # arm M
-hermit train --config examples/visual_showcase/toolsmith/run_waves.yaml             # arm T
-hermit eval  --config examples/visual_showcase/baseline/eval_waves.yaml --adapter none          # B'-blind
-hermit eval  --config examples/visual_showcase/baseline/eval_waves_hinted.yaml --adapter none   # B'-hinted
-```
-
-Experiment 1's MWM learner: `hermit train --config examples/visual_showcase/mwm_visual/run_waves.yaml`. The baseline
-configs train nothing: evaluate them with `--adapter none` only.
+`<case>-tc` and `<case>-ts`; every step is tagged `<run>/ckpt-step-N`.
 
 ## Outputs
 
@@ -127,7 +111,7 @@ configs train nothing: evaluate them with `--adapter none` only.
 | `<run>/step_NNNN/` | The Evolver's `output/` and a `state/` snapshot of the step (TS: `output/report.md`, `state/tests.json`) |
 | `<run>/test_tools/calls.jsonl` | TC: every `test_tools` self-test the Codex session ran |
 | `<run>/eval/<label>/summary.json`, `results.jsonl` | The held-out evaluation of one checkpoint: `mean_score` over the repeats |
-| `<run>/checkout/`, `trees-v3/<case>/` (experiment 4), `trees/<case>/` | The run's adapter and the git tree holding every checkpoint tag |
+| `<run>/checkout/`, `trees-v3/<case>/` | The run's adapter and the git tree holding every checkpoint tag |
 | `examples/visual_showcase/utils/.logs/` (or `$VISUAL_LOG_ROOT`) | Every run record as written by the agent, including eval runs |
 
 A toolsmith checkpoint's learned files are `ADAPTER.md` and `tools/<name>/` in the tree
@@ -141,14 +125,13 @@ passed their self-tests.
 readiness, motion and the controls), checks 12 mechanical items and has GLM 5.3 Flash rate the brief's five review
 dimensions from the screenshots without being told the arm or the adapter. The score is the rubric score (0 when no
 verdict could be obtained); its feedback is one line per dimension and one per item. The rubric call's cost is
-recorded in the run's `judge/` directory, outside the Trainer's budget. `VISUAL_JUDGE=mechanical` scores the
-mechanical items only, without a model call, for free smokes.
+recorded in the run's `judge/` directory, outside the Trainer's budget.
 
 Report the eval `mean_score` of each checkpoint; `solved_once` counts scores of exactly 1.0 and says little here.
 Compare methods on the same `ckpt-step-N` tags, not on `final`, which `eval --adapter final` rewrites. The agent's own
 counters in `result.json` and `pipeline_extra` (`looked_calls`, `first_look_call`, `tools_exported`, `tools_called`)
-say whether a run ever saw its page, independently of the score; `utils/emergence.py` recomputes them over run records
-and `utils/tool_works.py` checks offline whether a toolsmith checkpoint's tool renders a known page truthfully.
+say whether a run ever saw its page, independently of the score; `utils/tool_works.py` checks offline whether a
+toolsmith checkpoint's tool renders a known page truthfully.
 
 ## Runtime and cost evidence
 
@@ -157,10 +140,6 @@ other users shared): a 48-step training run took 3.6 to 6.8 hours with PC, 9.7 t
 TS, and the 25 eval runs of its four checkpoints 1 to 3.6 hours. Its model spend was about 214 USD; the nine runs in
 its results took about 202 USD of it, the rest an interrupted first attempt, runs stopped when the arms changed, and a
 cancelled second seed.
-
-Experiment 1 (measured, one run each): an agent run takes about four minutes and costs about 0.03 USD plus the judge's
-rubric call; the whole experiment — three briefs, two learners, six steps each, three eval repeats per checkpoint —
-cost about 8 USD.
 
 ## Limits
 
@@ -171,8 +150,6 @@ cost about 8 USD.
 - `environment.md` names this machine's paths, Chromium build and GPU flags; regenerate it where the experiment runs.
   A machine without a GPU the sandbox can see renders WebGL blank, which the agent cannot tell from a working render.
 - The capture lock makes the host's captures take turns: budget wall-clock time per config accordingly.
-- The hinted baseline gives the agent the facts, not a procedure; it bounds what instructions alone can add.
-- Keep smoke evidence (one step, `VISUAL_JUDGE=mechanical`) separate from the experiment's measurements.
 
 For the learner contract see [Toolsmith](../methods/toolsmith.md) and [Prompt-only](../methods/prompt-only.md); for
 reporting held-out results see [Evaluation](../guides/evaluation.md).
