@@ -1,0 +1,29 @@
+# Continual Harness (Pokemon Red): Hermit drives the agent; the Continual Harness repo is the environment.
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/train.txt
+  test: ../utils/test.txt
+  step_size: 1
+  shuffle: false
+task_info: ../utils/task-info
+model: fireworks/accounts/fireworks/models/glm-5p3-flash
+agent:
+  name: ../utils/agent.py:run
+  concurrency: 1
+  timeout_min: 15
+judge:
+  path: ../utils/judge.py
+template: prompt-only@1.0
+start_from: ../seed_adapter
+evolver:
+  name: prompt_only
+sandbox:
+  enabled: false          # the game server runs in the Continual Harness checkout's own venv, over HTTP
+  network: open
+  env: []
+trainer:
+  run_name: ch-red
+  output_dir: runs
+  epochs: 1
+  budget: {usd: 5, hours: 2}
+  call_timeout_min: 20
