@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -27,11 +27,20 @@ skillopt = ["skillopt @ git+https://github.com/microsoft/SkillOpt@79124b37e9a637
 [project.scripts]
 hermit = "hermit.cli:main"
 
+[project.urls]
+Homepage = "https://github.com/haizhongzheng/hermit"
+Documentation = "https://github.com/haizhongzheng/hermit/tree/main/docs"
+Issues = "https://github.com/haizhongzheng/hermit/issues"
+Changelog = "https://github.com/haizhongzheng/hermit/blob/main/CHANGELOG.md"
+
 [tool.setuptools.packages.find]
 include = ["hermit*"]
 
 [tool.setuptools.package-data]
 hermit = ["defaults.yaml", "backends.yaml", "algorithms/evolvers/**/*", "algorithms/templates/**/*"]
+
+[tool.setuptools.exclude-package-data]
+"*" = ["**/__pycache__/*", "**/*.pyc", "**/*.pyo"]
 
 [tool.setuptools]
 include-package-data = true

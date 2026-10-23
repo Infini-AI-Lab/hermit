@@ -27,9 +27,12 @@ the task directory rather than patching the MWM template.
 
 ## Block lifecycle
 
-The Trainer first serves the block with the current adapter. The learner then reviews its evidence, performs
-maintenance, and revises memory and programs. The native bootstrap is part of the first step's learner processing;
-the first serving block uses the seed adapter. The next block consumes the accepted update.
+With bootstrap enabled (the default), the Trainer runs the native bootstrap session before any rollout and
+records it as step 0. That session receives an evidence store containing only its README; the first serving
+block uses the bootstrapped adapter. With bootstrap disabled, the first block uses the starting adapter.
+
+After serving each block, the learner reviews its evidence, performs maintenance, and revises memory and
+programs. The next block consumes the accepted update.
 
 When `block_size` is set, a shorter last block receives no learner session. Align learning and test boundaries
 deliberately. In ServeLearnBench, a window boundary may occur inside a block, so some cases are not learned

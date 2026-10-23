@@ -12,7 +12,7 @@
 [![Version](https://img.shields.io/badge/version-0.2.0-C6743C.svg)](pyproject.toml)
 [![Docs](https://img.shields.io/badge/docs-read-1B1D22.svg)](docs/index.md)
 
-**[Get Started](#get-started)** · **[Harness Adapters](#what-is-a-harness-adapter)** · **[Algorithms](#supported-harness-evolution-methods)** · **[Examples and recipes](#examples-and-recipes)** · **[Docs](docs/index.md)**
+**[Get Started](#get-started)** · **[Harness Adapters](#what-is-a-harness-adapter)** · **[Algorithms](#supported-harness-evolution-methods)** · **[Examples and Recipes](#examples-and-recipes)** · **[Docs](docs/index.md)**
 
 </div>
 
@@ -141,11 +141,11 @@ The generated `AGENTS.md` contains the learned rule. Start Codex in that workspa
 
 **Ready for a real agent?** [Train with an API model](docs/get-started/first-model.md) · [Run OfficeQA](docs/recipes/officeqa.md) · [Bring your own task](docs/tutorials/your-own-task.md)
 
-### Examples and recipes
+### Examples and Recipes
 
-Every method has been run on at least one benchmark. A recipe folder under `examples/` holds the configs, the
-launcher and the trained adapter; the task's README gives the measured results, and each adapter's `CARD.md` the
-evaluation details.
+#### Harness Evolution Recipes
+
+Train and evaluate harness adapters on benchmarks using different evolution methods. Each task's README reports results; each included adapter's `CARD.md` records evaluation details.
 
 <table align="center">
 <thead>
@@ -171,14 +171,16 @@ evaluation details.
 <td><a href="docs/methods/prompt-only.md">Prompt-only</a></td>
 <td><a href="examples/clbench_database/prompt_only/">CL-Bench database</a> · <a href="examples/clbench_poker/prompt_only/">CL-Bench poker</a> · <a href="examples/servelearnbench/prompt_only/">ServeLearnBench</a></td>
 </tr>
-<tr>
-<td><a href="docs/methods/agent.md">Codex agents</a>, a finished adapter</td>
-<td><a href="examples/lean_swarm/">Lean collaboration</a></td>
-</tr>
 </tbody>
 </table>
 
-Walkthroughs: [OfficeQA](docs/recipes/officeqa.md) · [CL-Bench](docs/recipes/clbench.md) · [ServeLearnBench](docs/recipes/servelearnbench.md) · [Lean collaboration](docs/recipes/lean-collaboration.md). Smaller examples that need no benchmark: [Quick Start](docs/get-started/quickstart.md) (offline) and [First real-model training](docs/get-started/first-model.md). The layout of a task folder: [`examples/README.md`](examples/README.md).
+Walkthroughs: [OfficeQA](docs/recipes/officeqa.md) · [CL-Bench](docs/recipes/clbench.md) · [ServeLearnBench](docs/recipes/servelearnbench.md).
+
+Smaller training demos: [Quick Start](docs/get-started/quickstart.md) (offline) · [First real-model training](docs/get-started/first-model.md). [Task folder layout](examples/README.md).
+
+#### Harness Adapter Examples
+
+The finished [Lean collaboration adapter](examples/lean_swarm/) coordinates five Codex agents through shared tools, state, and skills to prove Lean theorems together. [Walkthrough →](docs/recipes/lean-collaboration.md)
 
 #### More Starting Points
 

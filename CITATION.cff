@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use Hermit in research, please cite this software and record the version or commit used."
+type: software
+title: "Hermit: A Harness Evolution Framework for Continual Learning and RSI"
+authors:
+  - name: "Hermit contributors"
+version: 0.2.0
+license: Apache-2.0
+repository-code: "https://github.com/haizhongzheng/hermit"
+url: "https://github.com/haizhongzheng/hermit"

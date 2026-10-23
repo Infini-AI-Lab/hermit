@@ -72,4 +72,5 @@ bash docs/serve.sh 8000
 ```
 
 Open <http://127.0.0.1:8000>. The preview rebuilds on source changes. The strict build treats warnings as errors.
+The local preview includes design drafts under `_static/drafts/`; the default publication build excludes them.
 For earlier `evolve` / `run` interfaces and current limitations, see [Compatibility](../reference/compatibility.md).

@@ -4,6 +4,7 @@ Build: bash docs/build.sh  ->  docs/_build/html
 Live preview: bash docs/serve.sh
 """
 from datetime import datetime
+import os
 from pathlib import Path
 import tomllib
 
@@ -23,6 +24,10 @@ extensions = [
 source_suffix = {".md": "markdown"}
 root_doc = "index"
 exclude_patterns = ["_build", "_includes", "_examples", "README.md", "Thumbs.db", ".DS_Store"]
+# Published documentation excludes local design drafts. serve.sh opts in for local review.
+if os.environ.get("HERMIT_DOCS_INCLUDE_DRAFTS") != "1":
+    # Static-copy exclusions are relative to each html_static_path entry.
+    exclude_patterns += ["_static/drafts", "_static/drafts/**", "drafts", "drafts/**"]
 
 myst_enable_extensions = ["colon_fence", "deflist", "html_image", "substitution"]
 myst_heading_anchors = 3

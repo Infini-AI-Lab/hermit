@@ -1,0 +1,33 @@
+name: Bug report
+description: Report an error or unexpected behavior in Hermit.
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: "For security vulnerabilities, follow SECURITY.md. Remove API keys and private task data from logs."
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Hermit version or commit, Python version, OS, and relevant host or optional dependency versions.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Include the smallest command, configuration, and example that reproduces the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Include the error and traceback, with credentials and private data removed.
+      render: text

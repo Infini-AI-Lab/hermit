@@ -1,0 +1,23 @@
+name: Feature request
+description: Propose an improvement, integration, or learning method.
+title: "[Feature] "
+body:
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Use case
+      description: What are you trying to accomplish, and what prevents it today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the interface or workflow, and how you would verify that it works.
+    validations:
+      required: true
+  - type: textarea
+    id: references
+    attributes:
+      label: References and alternatives
+      description: Link relevant methods, implementations, examples, or existing issues.
