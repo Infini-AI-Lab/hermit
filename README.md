@@ -12,7 +12,7 @@
 [![Version](https://img.shields.io/badge/version-0.2.0-C6743C.svg)](pyproject.toml)
 [![Docs](https://img.shields.io/badge/docs-read-1B1D22.svg)](docs/index.md)
 
-**[Get Started](#get-started)** · **[Harness Adapters](#what-is-a-harness-adapter)** · **[Algorithms](#supported-harness-evolution-methods)** · **[Examples](#examples)** · **[Docs](docs/index.md)**
+**[Get Started](#get-started)** · **[Harness Adapters](#what-is-a-harness-adapter)** · **[Algorithms](#supported-harness-evolution-methods)** · **[Examples and recipes](#examples-and-recipes)** · **[Docs](docs/index.md)**
 
 </div>
 
@@ -141,43 +141,44 @@ The generated `AGENTS.md` contains the learned rule. Start Codex in that workspa
 
 **Ready for a real agent?** [Train with an API model](docs/get-started/first-model.md) · [Run OfficeQA](docs/recipes/officeqa.md) · [Bring your own task](docs/tutorials/your-own-task.md)
 
-### Examples
+### Examples and recipes
 
-Runnable recipes, with evaluation details in each adapter’s `CARD.md`.
+Every method has been run on at least one benchmark. A recipe folder under `examples/` holds the configs, the
+launcher and the trained adapter; the task's README gives the measured results, and each adapter's `CARD.md` the
+evaluation details.
 
 <table align="center">
 <thead>
 <tr>
-<th>Recipe</th>
-<th>Task and methods</th>
-<th>Recorded result or evaluation</th>
+<th>Method</th>
+<th>Recipes</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><a href="docs/recipes/officeqa.md">OfficeQA</a></td>
-<td>U.S. Treasury Bulletins in the SkillOpt paper's setting: its 50 / 24 / 172 split, source pages, exact match; the agent in direct chat or SkillOpt's Codex harness. GEPA, SkillOpt.</td>
-<td>Test accuracy, direct chat: 0.576 (SkillOpt), 0.564 (GEPA), 0.415 without a skill. Codex harness: 0.628 (SkillOpt), 0.595 (GEPA), 0.543 without a skill. 172 questions × 3 repeats. <a href="examples/officeqa/README.md">Results &amp; adapters</a>.</td>
+<td><a href="docs/methods/mwm.md">MWM</a></td>
+<td><a href="examples/clbench_database/mwm/">CL-Bench database</a> · <a href="examples/clbench_poker/mwm/">CL-Bench poker</a> · <a href="examples/servelearnbench/mwm/">ServeLearnBench</a></td>
 </tr>
 <tr>
-<td><a href="docs/recipes/lean-collaboration.md">Lean collaboration</a></td>
-<td>Five Codex agents proving theorems with a shared team service; a finished adapter.</td>
-<td>8/8 development problems; 12/24 held-out problems so far.</td>
+<td><a href="docs/methods/skillopt.md">SkillOpt</a></td>
+<td><a href="examples/officeqa/skillopt/">OfficeQA</a></td>
 </tr>
 <tr>
-<td><a href="docs/recipes/servelearnbench.md">ServeLearnBench</a></td>
-<td>retail_l3: 624 serving cases in eight windows. MWM and prompt-only.</td>
-<td>Per-window tests scored with <code>slb score</code>.</td>
+<td><a href="docs/methods/gepa.md">GEPA</a></td>
+<td><a href="examples/officeqa/gepa/">OfficeQA</a></td>
 </tr>
 <tr>
-<td><a href="docs/recipes/clbench.md">CL-Bench</a></td>
-<td>Database and poker streams. MWM and prompt-only.</td>
-<td>Accuracy reported per stream.</td>
+<td><a href="docs/methods/prompt-only.md">Prompt-only</a></td>
+<td><a href="examples/clbench_database/prompt_only/">CL-Bench database</a> · <a href="examples/clbench_poker/prompt_only/">CL-Bench poker</a> · <a href="examples/servelearnbench/prompt_only/">ServeLearnBench</a></td>
+</tr>
+<tr>
+<td><a href="docs/methods/agent.md">Codex agents</a>, a finished adapter</td>
+<td><a href="examples/lean_swarm/">Lean collaboration</a></td>
 </tr>
 </tbody>
 </table>
 
-[Browse the recipes](docs/recipes/index.md) · [Read the evaluation guide](docs/guides/evaluation.md)
+Walkthroughs: [OfficeQA](docs/recipes/officeqa.md) · [CL-Bench](docs/recipes/clbench.md) · [ServeLearnBench](docs/recipes/servelearnbench.md) · [Lean collaboration](docs/recipes/lean-collaboration.md). Smaller examples that need no benchmark: [Quick Start](docs/get-started/quickstart.md) (offline) and [First real-model training](docs/get-started/first-model.md). The layout of a task folder: [`examples/README.md`](examples/README.md).
 
 #### More Starting Points
 

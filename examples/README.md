@@ -18,13 +18,28 @@ examples/<task>/
                      one, a trained adapter/ where included
 ```
 
+## Recipes
+
+Each of these runs a task end to end and reports a number: its README gives the commands, the result table and
+how the number was measured, and the method folders hold the trained adapters where they are included, each with
+a `CARD.md`.
+
 | Folder | Task | Agent | Methods |
 |---|---|---|---|
 | [`officeqa/`](officeqa/) | OfficeQA Full in the SkillOpt paper's setting: questions about U.S. Treasury Bulletins, its 50 / 24 / 172 split, exact match | `OfficeQAAgent`: SkillOpt's own rollout, GLM 5.3 Flash, in direct chat or SkillOpt's Codex harness | [`gepa`](officeqa/gepa/), [`skillopt`](officeqa/skillopt/) |
 | [`clbench_database/`](clbench_database/) | The CL-Bench database exploration stream (accuracy) | `CLBenchDatabaseAgent`: metaworld's host seat in CL-Bench's loop | [`prompt_only`](clbench_database/prompt_only/), [`mwm`](clbench_database/mwm/) |
 | [`clbench_poker/`](clbench_poker/) | The CL-Bench exploitable-poker stream (bb/hand) | `CLBenchPokerAgent` | [`prompt_only`](clbench_poker/prompt_only/), [`mwm`](clbench_poker/mwm/) |
 | [`servelearnbench/`](servelearnbench/) | A ServeLearnBench scenario: serving stream, per-window tests | `ServeLearnBenchAgent`: the benchmark's own loop | [`prompt_only`](servelearnbench/prompt_only/), [`mwm`](servelearnbench/mwm/) |
-| [`lean_swarm/`](lean_swarm/) | Lean swarm: five Codex agents prove one formal-conjectures theorem together; a finished adapter, check and deploy only | Codex | — |
+
+## Demos
+
+These show one part of the framework and report no number.
+
+| Folder | What it shows |
+|---|---|
+| [`lean_swarm/`](lean_swarm/) | Check and deploy a finished adapter: five Codex agents prove one formal-conjectures theorem together; no training config |
+| [`docs/_examples/first_training/`](../docs/_examples/first_training/) | The whole loop offline, with a scripted learner and no model ([Quick Start](../docs/get-started/quickstart.md)) |
+| [`docs/_examples/first_model/`](../docs/_examples/first_model/) | A first training with a real model, on included data, without benchmark assets ([First real-model training](../docs/get-started/first-model.md)) |
 
 The methods themselves are described in [`docs/methods/`](../docs/methods/).
 
