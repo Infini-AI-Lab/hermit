@@ -5,30 +5,32 @@
   <img src="assets/wordmark-light-card.svg" alt="Hermit" width="360">
 </picture>
 
-### Train/Evolve Your Harness Adapter for Continual Learning and RSI
+### A Framework for Continual Learning and RSI through Harness Adapter Evolution
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB.svg?logo=python&logoColor=white)](pyproject.toml)
 [![Version](https://img.shields.io/badge/version-0.2.0-C6743C.svg)](pyproject.toml)
 [![Docs](https://img.shields.io/badge/docs-read-1B1D22.svg)](docs/index.md)
 
-**[Get started](#get-started)** · **[What is an adapter?](#what-is-a-harness-adapter)** · **[Algorithms](#supported-learning-methods)** · **[Tutorials](docs/tutorials/deploy-an-adapter.md)** · **[Recipes](docs/recipes/officeqa.md)** · **[Examples](#examples)** · **[Commands](docs/framework/commands.md)**
+**[Get Started](#get-started)** · **[Harness Adapters](#what-is-a-harness-adapter)** · **[Algorithms](#supported-harness-evolution-methods)** · **[Examples](#examples)** · **[Docs](docs/index.md)**
 
 </div>
 
 ---
 
-Hermit is a unified framework for training, evaluating, and deploying harness adapters. Bring your tasks and feedback; choose an existing learning method or build your own.
+Hermit is a framework for training, evaluating, and deploying harness adapters, with support for multiple harness evolution algorithms. It adapts your agent to new tasks by evolving an external adapter while keeping your existing model and harness unchanged.
 
 ## What Is a Harness Adapter?
 
-A **harness adapter** is a **trainable external harness** that adapts an existing agent to new scenarios **without modifying its original harness or model.** Like a **model adapter** for a model, it adapts an agent while keeping the base system fixed.
+A **harness adapter** is a **trainable external harness** (like a plugin with built-in training support). Just as a **model adapter** adapts a model, a harness adapter adapts an existing agent to new scenarios **without modifying its original harness or model.**
 
 <p align="center">
 <img src="assets/harness-adapter.gif" alt="An agent made of a model and a harness meets a new scenario and fits it poorly. The agent is frozen, a harness adapter plugs into its side, a frame closes around the two as one agent, and task feedback trains the adapter from V0 to V5 while the score curve rises." width="720">
 </p>
 
-This design offers three practical benefits:
+**Why Harness Adapters?**
+
+Many harnesses are black boxes; even open-source ones have carefully designed component interactions that direct evolution can disrupt. Harness adapters let you train an external layer while keeping the original harness and model fixed.
 
 <table align="center">
   <thead>
@@ -37,7 +39,7 @@ This design offers three practical benefits:
   <tbody>
     <tr><td><strong>Trainable</strong></td><td>Learn from task feedback.</td></tr>
     <tr><td><strong>No changes to your existing harness</strong></td><td>Keep your acting harness and model fixed.</td></tr>
-    <tr><td><strong>Transferable</strong></td><td>Reuse across compatible harnesses.</td></tr>
+    <tr><td><strong>Transferable</strong></td><td>Reuse across models and harnesses.</td></tr>
   </tbody>
 </table>
 
@@ -52,21 +54,7 @@ Hermit provides an RL-style training loop for evolving harness adapters:
 </picture>
 </p>
 
-### Easy to Use
-
-#### Run from the Command Line:
-
-<p align="center">
-<img src="assets/install-and-use.gif" alt="An animated command overview of installing Hermit, training an adapter, deploying it, and converting it into a plugin." width="100%">
-</p>
-
-#### Customize Your Training Loop:
-
-<p align="center">
-<img src="assets/training-loop.gif" alt="Training pseudocode: initialize the adapter, run and judge tasks, call evolver.step, check and commit the proposal, then finalize." width="100%">
-</p>
-
-### Supported Learning Methods
+### Supported Harness Evolution Methods
 
 <table align="center">
 <thead>
@@ -86,6 +74,20 @@ Hermit provides an RL-style training loop for evolving harness adapters:
 </tr>
 </tbody>
 </table>
+
+### Easy to Use
+
+#### Customize Your Training Loop:
+
+<p align="center">
+<img src="assets/training-loop.gif" alt="Training pseudocode: initialize the adapter, run and judge tasks, call evolver.step, check and commit the proposal, then finalize." width="100%">
+</p>
+
+#### Run from the Command Line:
+
+<p align="center">
+<img src="assets/install-and-use.gif" alt="An animated command overview of installing Hermit, training an adapter, deploying it, and converting it into a plugin." width="100%">
+</p>
 
 ## Get Started
 
