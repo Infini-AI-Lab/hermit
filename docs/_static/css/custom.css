@@ -35,6 +35,31 @@ html.dark {
   color: var(--sy-c-link);
 }
 
+/* Native FAQ disclosures keep answers readable without JavaScript. */
+details.ha-faq {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--sy-c-border, #d3d5d9);
+  border-radius: 0;
+  background: transparent;
+  scroll-margin-top: 8rem;
+}
+details.ha-faq > summary {
+  padding: 1rem 0;
+  font-weight: 600;
+  line-height: 1.5;
+  cursor: pointer;
+}
+details.ha-faq > summary::marker { color: var(--sy-c-link); }
+details.ha-faq > summary:hover { color: var(--sy-c-link); }
+details.ha-faq > summary:focus-visible {
+  outline: 2px solid var(--sy-c-link);
+  outline-offset: 3px;
+}
+details.ha-faq[open] { padding-bottom: .5rem; }
+details.ha-faq > :not(summary) { margin-left: 1rem; margin-right: 1rem; }
+
 /* Local interface diagrams on the component pages. */
 .ha-contract { --ha-contract-link-width: 150px; margin: 1.5rem 0; font-size: 14px; }
 .ha-contract-label { margin: 16px 0 8px; font-weight: 600; }

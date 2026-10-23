@@ -45,7 +45,7 @@ adapter improves it. Plugin conversion can refuse unsupported exports. See the
 Workspace tool configuration refers to local source paths. Plugin conversion embeds an adapter copy. Tool
 consumers need the framework and the adapter's Python dependencies wherever tools execute.
 
-## The training end: what a plugin never has
+## The training end: built-in training support
 
 The template declares the editable scope in `adapter.yaml`. The learner reads `EVOLVER.md` and task feedback,
 then edits a working adapter. The Trainer checks those files against the template, records the resulting version,

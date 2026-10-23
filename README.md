@@ -268,6 +268,31 @@ hermit convert --adapter DIR --output OUT --target codex
 # Other targets: claude-code, pi, hermes
 ```
 
+## FAQ
+
+<details>
+<summary><strong>How Is a Harness Adapter Different from a Plugin?</strong></summary>
+
+Think of it as a plugin with built-in training support: it defines what can be learned and checked, while Hermit manages updates and versioning from task feedback. A compatible adapter can be deployed as a native plugin.
+
+</details>
+
+<details>
+<summary><strong>Why Not Evolve the Original Harness Directly?</strong></summary>
+
+Many harnesses are closed-source, and changing a carefully designed harness can disrupt its component interactions. An adapter keeps learned changes in an external layer while leaving the original harness and model fixed.
+
+</details>
+
+<details>
+<summary><strong>When Should I Use Hermit?</strong></summary>
+
+Use Hermit to deploy an existing adapter, train one on your tasks, or develop and compare harness evolution methods through a shared training interface.
+
+</details>
+
+[Full FAQ: training, transfer, supported methods, and evaluation →](docs/faq.md)
+
 ## Contributing
 
 Help extend Hermit by [implementing an Evolver](docs/framework/custom-evolver.md), [connecting a task](docs/tutorials/your-own-task.md), or [reporting a reproduction or integration issue](https://github.com/haizhongzheng/hermit/issues).

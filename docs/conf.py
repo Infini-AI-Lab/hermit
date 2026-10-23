@@ -38,7 +38,7 @@ html_theme = "shibuya"
 html_title = f"{project} {version}"
 html_static_path = ["_static", "../assets"]
 html_css_files = ["css/custom.css", "css/overview-diagrams.css"]
-html_js_files = ["js/component-explorer.js", "js/overview-diagrams.js"]
+html_js_files = ["js/component-explorer.js", "js/overview-diagrams.js", "js/faq.js"]
 html_favicon = "../assets/logo.svg"
 html_theme_options = {
     "accent_color": "orange",

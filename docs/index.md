@@ -37,6 +37,7 @@ get-started/installation
 get-started/quickstart
 get-started/first-model
 framework/what-is-a-harness-adapter
+faq
 ```
 
 ```{toctree}
