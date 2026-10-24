@@ -37,6 +37,11 @@ import sys
 IMAGE = os.environ.get("OFFICEQA_CODEX_IMAGE", "officeqa-codex:0.134.0")
 NETWORK = os.environ.get("OFFICEQA_CODEX_NETWORK", "oq-sandbox")
 PROXY = os.environ.get("OFFICEQA_CODEX_PROXY", "http://oq-egress:3128")
+# OFFICEQA_CODEX_DIRECT_EGRESS=1: run sessions on the default bridge network with direct provider access, skipping the
+# internal network and the egress proxy. Use it only where the proxy path does not work (e.g. a host whose Codex build
+# cannot reach the provider through the CONNECT proxy) and reaching the provider directly is acceptable — it drops the
+# "only the provider" network isolation the proxy enforces.
+DIRECT_EGRESS = os.environ.get("OFFICEQA_CODEX_DIRECT_EGRESS") == "1"
 # Docker's default capabilities less three the sessions do not need, plus what bubblewrap needs to make namespaces
 SECURITY = ["--cap-drop", "NET_RAW", "--cap-drop", "MKNOD", "--cap-drop", "AUDIT_WRITE", "--cap-add", "SYS_ADMIN",
             "--security-opt", "seccomp=unconfined", "--security-opt", "apparmor=unconfined"]
@@ -74,7 +79,7 @@ def check() -> list[str]:
     corpus = Path(os.environ["OFFICEQA_CODEX_CORPUS"])
     return ([f"no image {IMAGE} (docker/Dockerfile)"] * (not inspect("image", "inspect", IMAGE))
             + [f"no network {NETWORK} (docker network create --internal {NETWORK})"]
-            * (not inspect("network", "inspect", NETWORK))
+            * (not DIRECT_EGRESS and not inspect("network", "inspect", NETWORK))
             + [f"{k} is not set" for k in re.findall(r'env_key\s*=\s*"([^"]+)"', template) if not os.environ.get(k)]
             + [f"{corpus} lacks {d}/" for d in ("transformed", "jsons") if not (corpus / d).is_dir()])
 
@@ -97,10 +102,14 @@ def main() -> None:
     if docker is None:
         sys.exit("officeqa: docker not found")
     name = f"oqx-{rollout.name}-{os.getpid()}"
-    cmd = [docker, "run", "--rm", "--name", name, "--label", "officeqa-codex=1", "--network", NETWORK,
+    # Default: the isolated internal network, with the egress proxy as the only way out. Direct-egress: the default
+    # bridge network and no proxy (Codex reaches the provider straight out).
+    network = ["--network", "bridge"] if DIRECT_EGRESS else ["--network", NETWORK]
+    proxy = [] if DIRECT_EGRESS else ["-e", f"HTTPS_PROXY={PROXY}"]
+    cmd = [docker, "run", "--rm", "--name", name, "--label", "officeqa-codex=1", *network,
            "--read-only", "--tmpfs", "/tmp:size=4g", "--pids-limit", "2048", "--memory", "6g", *SECURITY,
            *mount(work), *mount(home), *mount(corpus, readonly=True), "-w", str(work),
-           "-e", f"CODEX_HOME={home}", "-e", f"HTTPS_PROXY={PROXY}", *(a for k in keys for a in ("-e", k)),
+           "-e", f"CODEX_HOME={home}", *proxy, *(a for k in keys for a in ("-e", k)),
            IMAGE, "sh", "-c", CHECK, "sh", str(corpus), *args]
 
     # The watcher holds the read end of a pipe whose write end only `docker run` keeps; when that ends, however it
