@@ -24,6 +24,7 @@ import json
 import re
 from pathlib import Path
 
+from hermit.adapter.manifest import read_manifest, structure_of
 from hermit.evolver.base import Evolver, FinalResult, StepContext, StepResult
 
 FAILURE_MARKERS = ("error", "exception", "traceback", "not allowed", "no matches", "failed", "timeout",
@@ -139,6 +140,14 @@ class ContinualHarnessEvolver(Evolver):
         sampling = {k: p[k] for k in ("max_tokens", "temperature") if p.get(k) is not None}
         before = {f: (adapter / f).read_text() if (adapter / f).exists() else None
                   for f in ("ADAPTER.md", "policy.md", "subagents.md", "skills.md", "memory.md")}
+        try:                                                 # the byte cap for each file, so the Refiner stays within it
+            structure = structure_of(read_manifest(adapter))
+        except Exception:                                    # noqa: BLE001 — no manifest budget; refine without a cap
+            structure = None
+
+        def budget(fname: str) -> int | None:
+            learnable = structure.learnable_for(fname) if structure else None
+            return learnable.format.get("max_bytes") if learnable else None
 
         if structured:
             changed = []
@@ -149,7 +158,8 @@ class ContinualHarnessEvolver(Evolver):
                 if not (adapter / fname).exists():
                     continue
                 cur = (adapter / fname).read_text()
-                new = self._refine(ctx, sampling, evidence, cur, f"the {comp} component (`{fname}`)", intent)
+                new = self._refine(ctx, sampling, evidence, cur, f"the {comp} component (`{fname}`)", intent,
+                                   budget(fname))
                 if new and new.strip() != cur.strip():
                     (adapter / fname).write_text(new.strip() + "\n")
                     changed.append(comp)
@@ -162,7 +172,8 @@ class ContinualHarnessEvolver(Evolver):
             intent = ("Rewrite the whole harness document — keep what works, fix what failed, codify successful "
                       "sequences under a `## Skills` section, record discovered facts under `## Memory`, capture "
                       "repeated multi-step patterns under `## Sub-agents`, and improve the base policy.")
-            new = self._refine(ctx, sampling, evidence, cur, "the harness document (`ADAPTER.md`)", intent)
+            new = self._refine(ctx, sampling, evidence, cur, "the harness document (`ADAPTER.md`)", intent,
+                               budget("ADAPTER.md"))
             if new and new.strip() != cur.strip():
                 (adapter / "ADAPTER.md").write_text(new.strip() + "\n")
                 record["outcome"] = f"refined ADAPTER.md: {len(cur)} -> {len(new)} chars"
@@ -200,24 +211,39 @@ class ContinualHarnessEvolver(Evolver):
                 f"=== FAILURE SIGNATURES ===\n{chr(10).join(signals) or '(none explicit; use the feedback below)'}\n\n"
                 f"=== JUDGE FEEDBACK (a signal, not a target to game) ===\n{chr(10).join(feedback) or '(none)'}")
 
-    def _refine(self, ctx, sampling: dict, evidence: str, current: str, what: str, intent: str) -> str | None:
+    def _refine(self, ctx, sampling: dict, evidence: str, current: str, what: str, intent: str,
+                budget: int | None = None) -> str | None:
+        size = ""
+        if budget:                                           # keep the harness sharp, not ever-growing, within the cap
+            soft = int(budget * 0.85)
+            size = (f"\n\nStay within about {soft} characters ({budget} bytes is a hard cap — a longer document is "
+                    f"rejected and the edit is lost). Keep the harness SHARP, not long: consolidate and prune — merge "
+                    f"duplicate guidance, drop stale or low-value entries, tighten wording — rather than appending to "
+                    f"what is already there. A shorter, sharper harness beats a longer one.")
         prompt = (f"You are the Refiner of a self-improving agent harness (Continual Harness). Improve {what} from the "
                   f"agent's recent rollouts and the failures seen in them — base your edits on the failure signatures "
-                  f"and feedback, not on any score.\n\n{intent}\n\n=== CURRENT {what} ===\n{current or '(empty)'}\n\n"
-                  f"{evidence}\n\nReply with the COMPLETE new content of {what} inside a single ``` code block, and "
+                  f"and feedback, not on any score.\n\n{intent}{size}\n\n=== CURRENT {what} ===\n{current or '(empty)'}"
+                  f"\n\n{evidence}\n\nReply with the COMPLETE new content of {what} inside a single ``` code block, and "
                   f"nothing else.")
         messages = [{"role": "user", "content": prompt}]
-        for _ in range(2):      # a reasoning model may spend a reply thinking; ask once more for the block
+        for _ in range(3):      # a reasoning model may think first; an over-budget draft gets one compaction pass
             try:
                 reply = ctx.tools["llm"](messages=messages, **sampling)
             except Exception:                                # noqa: BLE001 — skip this pass, as CH tolerates a failed one
                 return None
             text = reply.get("content") or ""
             block = _extract_block(text)
-            if block is not None:
-                return block
-            messages += [{"role": "assistant", "content": text},
-                         {"role": "user", "content": "Reply now with only the complete new content in one ``` block."}]
+            if block is None:
+                messages += [{"role": "assistant", "content": text},
+                             {"role": "user", "content": "Reply now with only the complete new content in one ``` block."}]
+                continue
+            if budget and len(block.encode()) > budget:      # too long: ask once to compress under the cap
+                messages += [{"role": "assistant", "content": text},
+                             {"role": "user", "content": f"That is {len(block.encode())} bytes, over the {budget}-byte "
+                              f"cap. Reply again with the COMPLETE content compressed to under {int(budget * 0.85)} "
+                              f"characters — merge and cut, keep the highest-value guidance — in one ``` block."}]
+                continue
+            return block
         return None
 
     @staticmethod
