@@ -20,7 +20,7 @@ pytest.importorskip("harness2.core.schedule")
 
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE = ROOT / "hermit" / "algorithms" / "templates" / "harness2_codex"
-AGENT_DIR = ROOT / "examples" / "officeqa_paper" / "utils" / "agent"
+AGENT_DIR = ROOT / "examples" / "officeqa" / "utils" / "agent"
 SKILL = "---\ndescription: reading a table of a bulletin\n---\nRun `python3 .agents/skills/tables/scripts/sum.py`.\n"
 HOOKS = {"hooks": {"PostToolUse": [{"matcher": "Bash", "hooks": [{"type": "command",
                                                                   "command": "python3 scripts/check.py"}]}]}}

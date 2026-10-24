@@ -20,7 +20,7 @@ The template is a tree of harness components rendered into `ADAPTER.md`: four al
 (system prompt, guardrails, long-term memory, tool guidance) and skills under `skills/<name>/SKILL.md`. Its
 `harness2.yaml` declares how the acting agent receives them; the built-in template renders skill bodies inline, for
 an agent that reads only `ADAPTER.md`. To start from an existing instruction text, put it in
-`harness/systemprompt.md` and render, as [`make_seed.py`](../../examples/officeqa_paper/harness2/make_seed.py) does.
+`harness/systemprompt.md` and render, as [`make_seed.py`](../../examples/officeqa/harness2/make_seed.py) does.
 
 `slots.yaml` (or `task-info/harness2.yaml`) gives the task-shaped text the stage prompts interpolate: `work`,
 `domain_word`, `deliverable_word`, `inv_levers`, `dom_levers`, `yardstick`, `domain_guidance`, `selection_checks`.
@@ -116,7 +116,7 @@ editor sessions see upstream's Codex surface text, so skills on demand, scripts,
 An acting agent deploys the tree itself: `AGENTS.md`, `.agents/`, `scripts/` and `.codex/` are copied to the
 workspace root (upstream's `codex_root` install), `sub_agents/` become agent roles in the session's `CODEX_HOME`, and
 the session runs with `--dangerously-bypass-hook-trust` so the hooks fire. The OfficeQA agent does this in a Docker
-container per session ([example](../../examples/officeqa_paper/harness2_stream/)); the trajectory is the `codex exec
+container per session ([example](../../examples/officeqa/harness2_stream/)); the trajectory is the `codex exec
 --json` event stream, rendered by upstream's own Codex renderer.
 
 `library_from: <run directory>` continues a finished stream on other tasks: the run starts from that stream's
@@ -126,8 +126,8 @@ effort, tools, slots, sources, the Claude Code binary), a library carrying grade
 
 ## Examples
 
-[`examples/officeqa_paper/harness2/`](../../examples/officeqa_paper/harness2/) runs the `harness2` Evolver in the
+[`examples/officeqa/harness2/`](../../examples/officeqa/harness2/) runs the `harness2` Evolver in the
 SkillOpt paper's OfficeQA setting, with the split, rollout, scorer, seed skill, optimizer model and budget of the
 GEPA and SkillOpt runs beside it.
-[`examples/officeqa_paper/harness2_stream/`](../../examples/officeqa_paper/harness2_stream/) runs
+[`examples/officeqa/harness2_stream/`](../../examples/officeqa/harness2_stream/) runs
 `harness2_upstream` on the same test questions as one stream, with the same executor and optimizer model.

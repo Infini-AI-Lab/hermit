@@ -3,7 +3,7 @@
 ../utils/prepare.py) as a `harness2@1.0` adapter, in harness/systemprompt.md. Its rendered ADAPTER.md is the seed
 skill itself, so Harness² starts from exactly the text the GEPA and SkillOpt runs start from.
 
-    python examples/officeqa_paper/harness2/make_seed.py
+    python examples/officeqa/harness2/make_seed.py
 """
 from pathlib import Path
 import shutil

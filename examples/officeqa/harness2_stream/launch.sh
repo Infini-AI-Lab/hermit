@@ -2,7 +2,7 @@
 # Harness² under the paper's protocol on OfficeQA: one stream of the test split through `hermit train`, as the
 # CL-Bench examples run theirs.
 #
-#   FIREWORKS_API_KEY=... SEED=0 WM_PORT=3591 examples/officeqa_paper/harness2_stream/launch.sh [overrides...]
+#   FIREWORKS_API_KEY=... SEED=0 WM_PORT=3591 examples/officeqa/harness2_stream/launch.sh [overrides...]
 #   HARNESS=codex ...                                      # Codex as the acting agent (run_codex.yaml), as the paper
 #   EDITOR_MODEL=accounts/fireworks/models/glm-5p3 ...     # the editors' model (default: direct glm-5p3, codex glm-5p3-flash)
 #   MAX_TASKS=2 TAG=h2-smoke ...                           # a smoke run on the first questions of the stream

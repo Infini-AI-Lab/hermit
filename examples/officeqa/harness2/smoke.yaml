@@ -7,7 +7,7 @@ data:
   shuffle_seed: 42
 task_info: ../utils/task-info/
 agent:
-  name: ../utils/agent/agent.py:OfficeQAPaperAgent
+  name: ../utils/agent/agent.py:OfficeQAAgent
   concurrency: 4
 judge:
   path: ../utils/judge.py

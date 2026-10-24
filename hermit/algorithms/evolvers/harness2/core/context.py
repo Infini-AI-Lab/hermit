@@ -247,7 +247,7 @@ GRADER_VERDICT_MARKERS: tuple[str, ...] = (
     "Judge findings on the rendered result", '"passed_count"', '"pass_rate"', '"test_pass_rate"',
     '"judge":', '"score":', '"feedback":', "check_feedback", '"mean_score"',
     "the reference answer is",          # examples/officeqa judge feedback
-    "' but expected '",                 # examples/officeqa_paper (SkillOpt) judge feedback
+    "' but expected '",                 # examples/officeqa (SkillOpt) judge feedback
 )
 EXTRA_MARKERS: list[str] = []           # a run's own judge wording (evolver param `verdict_markers`)
 

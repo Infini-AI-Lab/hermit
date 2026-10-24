@@ -12,7 +12,7 @@ data:
   shuffle: false                       # the stream's own order
 task_info: ../utils/task-info
 agent:
-  name: ../utils/agent/agent.py:OfficeQAPaperAgent
+  name: ../utils/agent/agent.py:OfficeQAAgent
   concurrency: 1
 judge:
   path: ../utils/judge.py

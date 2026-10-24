@@ -4,7 +4,7 @@ written by ../utils/prepare.py) as a `harness2-codex` adapter: the skill text is
 copy), and the on-demand directories hold only the template's placeholders. Harness² under Codex then starts from
 exactly the text the GEPA and SkillOpt runs start from, as Codex reads it.
 
-    python examples/officeqa_paper/harness2_stream/make_seed_codex.py
+    python examples/officeqa/harness2_stream/make_seed_codex.py
 """
 from pathlib import Path
 import shutil

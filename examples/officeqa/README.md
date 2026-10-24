@@ -73,4 +73,8 @@ utils/prepare.py    tasks.jsonl, the splits, data.json and seed_adapter/      ut
 utils/task-info/    the task for the learner
 gepa/ skillopt/     smoke.yaml and run.yaml per method, smoke_codex.yaml and run_codex.yaml for the Codex harness;
                     adapter/ is the skill run.yaml trained (direct chat), with its CARD.md
+harness2/           Harness² as a training-loop Evolver (harness2@1.0): smoke.yaml, run.yaml, slots.yaml, make_seed.py
+harness2_stream/    Harness² under the paper's protocol, by the upstream code: run.yaml (SkillOpt's rollout) and
+                    run_codex.yaml (Codex as the acting agent: utils/agent/codex_agent.py, codex_session.py, the
+                    harness2-codex template); launch.sh starts a stream
 ```

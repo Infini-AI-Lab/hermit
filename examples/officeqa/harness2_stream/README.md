@@ -26,8 +26,8 @@ Prepare `../utils/` first (`../README.md`), then:
 
 ```bash
 pip install -e '.[skillopt,harness2]'
-FIREWORKS_API_KEY=... SEED=0 WM_PORT=3591 examples/officeqa_paper/harness2_stream/launch.sh
-MAX_TASKS=2 TAG=h2-smoke FIREWORKS_API_KEY=... WM_PORT=3592 examples/officeqa_paper/harness2_stream/launch.sh   # smoke
+FIREWORKS_API_KEY=... SEED=0 WM_PORT=3591 examples/officeqa/harness2_stream/launch.sh
+MAX_TASKS=2 TAG=h2-smoke FIREWORKS_API_KEY=... WM_PORT=3592 examples/officeqa/harness2_stream/launch.sh   # smoke
 ```
 
 ### Codex as the acting agent
@@ -47,8 +47,8 @@ image `officeqa-codex:0.162.0`, the internal network `oq-sandbox` and the proxy 
 then:
 
 ```bash
-HARNESS=codex FIREWORKS_API_KEY=... SEED=0 WM_PORT=3591 examples/officeqa_paper/harness2_stream/launch.sh
-HARNESS=codex MAX_TASKS=1 TAG=h2-codex-smoke FIREWORKS_API_KEY=... WM_PORT=3592 examples/officeqa_paper/harness2_stream/launch.sh
+HARNESS=codex FIREWORKS_API_KEY=... SEED=0 WM_PORT=3591 examples/officeqa/harness2_stream/launch.sh
+HARNESS=codex MAX_TASKS=1 TAG=h2-codex-smoke FIREWORKS_API_KEY=... WM_PORT=3592 examples/officeqa/harness2_stream/launch.sh
 ```
 
 A session has `agent.params.timeout_s` seconds (3,600, the paper's cap; its 200-turn cap is not a setting Codex has,
@@ -68,7 +68,7 @@ binary that differ from that stream's, and a question it took. Paths are relativ
 ```bash
 LIBRARY_FROM=runs/h2-stream-s0 TAG=h2-stream-s0-rest STREAM=stream_rest_s0.txt \
   SPLITS="../utils/splits/train.txt ../utils/splits/val.txt" CLAUDE_BIN=runs/.claude-pin/<version>/claude \
-  FIREWORKS_API_KEY=... SEED=0 WM_PORT=3592 examples/officeqa_paper/harness2_stream/launch.sh
+  FIREWORKS_API_KEY=... SEED=0 WM_PORT=3592 examples/officeqa/harness2_stream/launch.sh
 ```
 
 GEPA and SkillOpt were trained on those questions: there, compare with H0 (`runs.base1`) only. The continued
