@@ -35,12 +35,16 @@ COMPONENTS = {
                                                 "already works; be concrete about what to do differently."),
     "subagents": ("subagents.md", "Sub-agents", "CRUD the sub-agent playbooks: create a named playbook for any "
                                                 "repeated multi-step pattern, edit ones that led to failures, delete "
-                                                "unused ones. Each entry: a short name, when to use it, the steps."),
+                                                "unused ones. Write each as a `## <short-name>` section whose first "
+                                                "line says when to delegate to it, followed by the steps (the name "
+                                                "and that first line become the sub-agent the acting agent can call)."),
     "skills":    ("skills.md", "Skills",        "CRUD the skills: codify any sequence or procedure that worked into a "
-                                                "reusable skill, repair ones that failed, drop stale ones. Each entry: "
-                                                "a name and the steps."),
+                                                "reusable skill, repair ones that failed, drop stale ones. Write each "
+                                                "as a `## <short-name>` section with the steps (so the agent can pull "
+                                                "one skill by name)."),
     "memory":    ("memory.md", "Memory",        "CRUD the memory: add facts, constraints or quirks the agent "
-                                                "discovered; refresh stale notes; remove ones it has moved past."),
+                                                "discovered; refresh stale notes; remove ones it has moved past. Put "
+                                                "each note under a `## <short-topic>` heading so it can be looked up."),
 }
 EMPTY = ("(no ", "(none")
 
