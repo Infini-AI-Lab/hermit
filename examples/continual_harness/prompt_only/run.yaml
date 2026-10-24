@@ -1,29 +1,46 @@
-# Continual Harness (Pokemon Red): Hermit drives the agent; the Continual Harness repo is the environment.
+# Continual Harness (Pokemon Red), prompt-only evolution.
+#
+# Hermit drives the agent and evolves the harness (the prompt in ADAPTER.md); the Continual Harness repo is the
+# environment (PyBoy emulator + game server + milestone scoring). GLM 5.3 Flash acts (one button per step) and
+# the GEPA Evolver reflects on the windows' traces to rewrite ADAPTER.md. The game server runs in the Continual
+# Harness checkout's own venv and is reached over HTTP, so the sandbox is off.
+#
+# Before / after:
+#   hermit eval  --config run.yaml --adapter root    # the seed policy on the test window
+#   hermit train --config run.yaml                   # GEPA evolves ADAPTER.md
+#   hermit eval  --config run.yaml --adapter final   # the evolved policy on the test window
 data:
   tasks: ../utils/tasks.jsonl
   train: ../utils/train.txt
+  val: ../utils/val.txt
   test: ../utils/test.txt
-  step_size: 1
+  step_size: 3
   shuffle: false
 task_info: ../utils/task-info
 model: fireworks/accounts/fireworks/models/glm-5p3-flash
 agent:
   name: ../utils/agent.py:run
-  concurrency: 1
+  concurrency: 2
   timeout_min: 15
 judge:
   path: ../utils/judge.py
 template: prompt-only@1.0
 start_from: ../seed_adapter
 evolver:
-  name: prompt_only
+  name: gepa
+llm:                              # the optimizer that rewrites ADAPTER.md
+  model: fireworks/accounts/fireworks/models/glm-5p3-flash
+  extra_body: {reasoning_effort: medium}
 sandbox:
-  enabled: false          # the game server runs in the Continual Harness checkout's own venv, over HTTP
+  enabled: false                 # the game server runs in the Continual Harness checkout's own venv, over HTTP
   network: open
   env: []
 trainer:
   run_name: ch-red
   output_dir: runs
-  epochs: 1
-  budget: {usd: 5, hours: 2}
-  call_timeout_min: 20
+  tree_dir: runs/trees/ch-red
+  epochs: 3                        # three GEPA reflection attempts over the 3 training windows
+  budget: {usd: 15, hours: 3}
+  call_timeout_min: 30
+eval:
+  repeats: 3                      # three passes over the test window (the score is stochastic)

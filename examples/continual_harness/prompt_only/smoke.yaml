@@ -1,0 +1,36 @@
+# Smoke: validate the GEPA + Continual Harness + no-sandbox chain cheaply (1 train / 1 val / 1 test, short windows).
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/smoke_train.txt
+  val: ../utils/smoke_val.txt
+  test: ../utils/smoke_test.txt
+  step_size: 1
+  shuffle: false
+task_info: ../utils/task-info
+model: fireworks/accounts/fireworks/models/glm-5p3-flash
+agent:
+  name: ../utils/agent.py:run
+  concurrency: 2
+  timeout_min: 15
+judge:
+  path: ../utils/judge.py
+template: prompt-only@1.0
+start_from: ../seed_adapter
+evolver:
+  name: gepa
+llm:
+  model: fireworks/accounts/fireworks/models/glm-5p3-flash
+  extra_body: {reasoning_effort: medium}
+sandbox:
+  enabled: false
+  network: open
+  env: []
+trainer:
+  run_name: ch-red-smoke
+  output_dir: runs
+  tree_dir: runs/trees/ch-red-smoke
+  epochs: 1
+  budget: {usd: 5, hours: 1}
+  call_timeout_min: 20
+eval:
+  repeats: 1
