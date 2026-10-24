@@ -5,7 +5,7 @@
 # its own (../utils/agent/codex_agent.py) with the paper's wall clock (3,600 s; the paper's 200-turn cap is not a
 # setting Codex has, and upstream does not enforce one on Codex either). Executor and editors are both GLM 5.3 Flash
 # at medium effort: the executor as GEPA's and SkillOpt's, the editors as Claude Code sessions (`claude -p`).
-# Started by `HARNESS=codex launch.sh`.
+# Started by launch.sh.
 data:
   tasks: ../utils/tasks.jsonl
   train: stream_s0.txt                 # launch.sh: upstream's order of ../utils/splits/test.txt for SEED

@@ -16,11 +16,9 @@ import threading
 from harness2.core import tree as T
 from harness2.core.spec import BenchPrompts, BenchSpec, ChannelSpec
 
-from hermit.algorithms.evolvers.harness2.core import render as R
 from hermit.algorithms.evolvers.harness2_upstream import surface as U
 
 TRUNCATED = "…(+{n} chars — render truncation)"          # upstream's renderer marker (substrate/codex.py)
-TOOL_ERRORS = ("[read error", "[grep error", "[tool error", "[search error")
 
 
 class Substrate:
@@ -37,36 +35,6 @@ class Substrate:
 def _clip(text, limit: int) -> str:
     text = "" if text is None else str(text).replace("\x00", "")
     return text if limit <= 0 or len(text) <= limit else text[:limit] + TRUNCATED.format(n=len(text) - limit)
-
-
-def render_conversation(log: Path, run: dict, *, obs_trunc: int) -> str:
-    """A SkillOpt prediction directory (conversation.json, target_*_prompt.txt) in upstream's trajectory grammar. The
-    ending is always named: an empty last reply, the turn limit reached while still calling tools, or the reason the
-    rollout gave."""
-    entries = json.loads((log / "conversation.json").read_text(encoding="utf-8", errors="replace"))
-    lines = []
-    system = log / "target_system_prompt.txt"
-    if system.is_file():
-        lines.append(f"[HARNESS system prompt] {_clip(system.read_text(errors='replace'), obs_trunc)}")
-    for i, e in enumerate(entries):
-        if e.get("role") == "user":
-            lines.append(f"[USER] {_clip(e.get('content'), obs_trunc)}")
-        elif e.get("type") == "tool_call":
-            lines.append(f"[ACTION] {_clip(e.get('cmd'), 2000)}")
-            obs = str(e.get("obs") or "")
-            tag = "[OBSERVATION ERROR]" if obs.lstrip().startswith(TOOL_ERRORS) else "[OBSERVATION]"
-            lines.append(f"{tag} {_clip(obs, obs_trunc)}")
-        elif (e.get("content") or "").strip():
-            lines.append(f"[ASSISTANT] {_clip(e['content'], obs_trunc)}")
-        elif i == len(entries) - 1:
-            lines.append("[ASSISTANT] (empty reply: no text and no tool call)")
-    output = run.get("output") if isinstance(run.get("output"), dict) else {}
-    reason = (output or {}).get("fail_reason") or ""
-    if reason:
-        lines.append(f"[ERROR] {_clip(reason, 1000)}")
-    elif not ((output or {}).get("answer") or "").strip() and entries and entries[-1].get("type") == "tool_call":
-        lines.append("[ERROR] the turn limit was reached while the agent was still calling tools; no answer was given")
-    return "\n".join(lines).strip() or "(no trajectory events recorded)"
 
 
 class FrameworkBench:
@@ -103,8 +71,6 @@ class FrameworkBench:
     def task_prompt(self, task_id: str) -> str:
         """The task as the agent received it: its first user prompt, else the task's own fields."""
         log = self._material_log()
-        if log is not None and (log / "target_user_prompt.txt").is_file():
-            return (log / "target_user_prompt.txt").read_text(errors="replace")
         if log is not None and (log / "task.md").is_file():            # a Codex session: its prompt and task.md
             prompt = (log / "prompt.txt").read_text(errors="replace") if (log / "prompt.txt").is_file() else ""
             return (prompt.strip() + "\n\n" if prompt.strip() else "") + "# task.md\n\n" + \
@@ -216,8 +182,6 @@ class FrameworkBench:
 
     def trajectory(self, run_dir: Path, *, obs_trunc: int) -> str:
         run, log = self._run(run_dir), Path(run_dir) / "log"
-        if (log / "conversation.json").is_file():
-            return render_conversation(log, run, obs_trunc=obs_trunc)
         if (log / "agent-codex.jsonl").is_file():                      # a Codex session: upstream's own renderer
             from harness2.substrate.codex import render_events
             text = render_events(log / "agent-codex.jsonl", obs_trunc=obs_trunc, max_chars=max(obs_trunc * 40, 2_000_000))
@@ -226,10 +190,6 @@ class FrameworkBench:
             if reason:
                 text = text.rstrip() + f"\n[ERROR] {_clip(reason, 1000)}"
             return text.strip() or "(no trajectory events recorded)"
-        if log.is_dir():
-            text = R.render_log(log, obs_trunc=obs_trunc) if any(log.iterdir()) else ""
-            if text.strip():
-                return text
         return f"(no trajectory recorded for {Path(run_dir).name})"
 
     # --- the judge (upstream calls it only after selection) --------------------------------------------------------

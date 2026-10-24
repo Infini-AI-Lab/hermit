@@ -10,7 +10,7 @@ template–method combinations meaningful.
 | Let a coding agent edit several files, skills, or code | [Codex / Claude](agent.md) | A template with the intended learnable paths | Authenticated learner CLI |
 | Search text candidates with validation-based selection | [GEPA](gepa.md) | Start with prompt-only | Validation split and GEPA extra |
 | Make bounded skill edits with a validation gate | [SkillOpt](skillopt.md) | Start with prompt-only or the paper seed | Validation split and SkillOpt extra |
-| Refine a harness from trajectories without labels, with a library of adopted harnesses | [Harness²](harness2.md) | `harness2@1.0` | Learner model endpoint |
+| Refine a harness per task from trajectories without labels, with a library of adopted harnesses | [Harness²](harness2.md) | `harness2-codex@1.0` | Learner model endpoint, Codex, the `harness2` extra |
 | Build a persistent world model from an ordered environment stream | [MWM](mwm.md) | `mwm` | Evidence store, deployment description, tools, Linux learner environment |
 | Learn the framework contract offline | [Quick Start](../get-started/quickstart.md) | Prompt-only with a teaching learner | Included toy tasks |
 
@@ -25,7 +25,7 @@ task-specific service overhead. Call counts vary with evidence, candidates, and 
 | Codex / Claude | A multi-action learner session; candidate tests depend on what the learner does | Saved files and optional supported session handle | Current adapter unless the method customizes finalization |
 | GEPA | Initial-parent validation, reflection, child minibatch tests, and validation for a child that passes the minibatch criterion | Candidate pool, validation scores, per-candidate next file | Highest retained validation mean |
 | SkillOpt | Reflection/merge/ranking calls, validation (cached by skill content), optional epoch-end and final validation work | Current/best skills, validation cache, update history and meta skill | Retained best, with optional final promotion |
-| Harness² | Two editors, a composer and a reflector per step, plus three probe rollouts per task (k = 1) | Library of adopted harnesses with lessons | Current adapter |
+| Harness² | Two editors, a composer and a reflector per task, plus three probe executions (k = 1); the adapter stays H0 | Library of adopted harnesses with lessons | Unchanged adapter; the stream's own deliverables are the result |
 | MWM | Maintenance and a learner session per eligible block, plus native bootstrap/retry behavior | World-model adapter plus method/session records | Current world-model adapter |
 
 `use_gate: false` in SkillOpt removes the ordinary improvement requirement, **not** the validation calls.

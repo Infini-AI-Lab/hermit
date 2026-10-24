@@ -80,9 +80,7 @@ def test_codex_layout_round_trip_and_validators(tmp_path):
                      'hooks.json needs a top-level {"hooks"', "ADAPTER.md is not AGENTS.md"):
         assert expected in problems, (expected, problems)
     assert layout.off_surface(tree) == []
-    prompt = U.layout_of(ROOT / "hermit" / "algorithms" / "templates" / "harness2")
-    assert type(prompt).__name__ == "PromptLayout" and prompt.name == "mha"
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError):                                          # only the Codex template is trained
         U.layout_of(ROOT / "hermit" / "algorithms" / "templates" / "prompt_only")
 
 

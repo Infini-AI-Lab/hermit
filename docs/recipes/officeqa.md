@@ -132,8 +132,6 @@ smoke runs four.
 | `skillopt/smoke_codex.yaml` | Codex | 4 / 2 / 4 | 2 | 2 | none | 90 | `codex-smoke-skillopt` |
 | `skillopt/run.yaml` | direct | 50 / 24 / 172 | 40 | 4 | USD 40, 30 h | 180 | `paper-skillopt` |
 | `skillopt/run_codex.yaml` | Codex | 50 / 24 / 172 | 40 | 4 | none | 360 | `codex-skillopt` |
-| `harness2/smoke.yaml` | direct | 4 / – / 4 | 2 | 1 | USD 5, 3 h | 180 | `smoke-harness2` |
-| `harness2/run.yaml` | direct | 50 / – / 172 | 5 | 4 | USD 40, 30 h | 180 | `paper-harness2` |
 
 `call_timeout_min` is the time, in minutes, the Trainer allows each Evolver call (setup, a step, finalize); Codex
 sessions are slower, so `run_codex.yaml` allows more. `gepa/run.yaml` uses GEPA's default reflection minibatch of 3
@@ -141,7 +139,7 @@ sessions are slower, so `run_codex.yaml` allows more. `gepa/run.yaml` uses GEPA'
 (68 steps), since the paper does not publish its GEPA settings. `skillopt/run.yaml` uses the paper's SkillOpt
 hyperparameters: 4 epochs of batches of 40 (2 steps each), minibatch 8, merge 8, learning rate 4 decaying to 2,
 validation gate, gated slow update, and meta skill, with `prompt_env: officeqa` and `trajectory_view: paper`.
-For [Harness²](../methods/harness2.md), run `python examples/officeqa/harness2/make_seed.py` once (SkillOpt's seed skill as a `harness2@1.0` adapter), then use `harness2/smoke.yaml` and `harness2/run.yaml`; it takes no validation split, and its prompt slots, which name the answer's exact form, are in `harness2/slots.yaml`.
+[Harness²](../methods/harness2.md) has no training run: it processes the test questions as one stream, with Codex as the acting agent; see [`harness2_stream/`](../../examples/officeqa/harness2_stream/).
 `skillopt/smoke.yaml` runs 4 training questions in 2 epochs of 2 steps. Run it first, then the full configs:
 
 ```bash

@@ -14,10 +14,10 @@ from test_training import make_task
 
 pytest.importorskip("harness2.core.schedule")
 
-TEMPLATE = Path(__file__).resolve().parents[1] / "hermit" / "algorithms" / "templates" / "harness2"
+TEMPLATE = Path(__file__).resolve().parents[1] / "hermit" / "algorithms" / "templates" / "harness2_codex"
 
 # The scripted channel: the INV and DOM editors add a triggered skill, the composer writes the rule the toy pipeline
-# needs into systemprompt.md, the reflector writes a lesson. Every session fails the test if its evidence carries the
+# needs into AGENTS.md, the reflector writes a lesson. Every session fails the test if its evidence carries the
 # judge's feedback, and records what it saw.
 PROPOSER = r'''
 import json, shutil, tempfile
@@ -41,21 +41,22 @@ class Scripted(FrameworkProposer):
         with open(self.params["calls_log"], "a") as out:
             out.write(json.dumps({"label": label, "files": seen, "mission": mission[:300]}) + "\n")
         if label.startswith("experience."):
-            text = ("<edits>\ncomponent: systemprompt.md\ncandidates: agg1\nchange: the rule\n"
+            text = ("<edits>\ncomponent: AGENTS.md\ncandidates: agg1\nchange: the rule\n"
                     "observed: the deliverable became the sum\nverdict: helped\n</edits>\n<experience>\n"
-                    "cue: adding numbers\nlesson: state the operation in systemprompt.md\n"
+                    "cue: adding numbers\nlesson: state the operation in AGENTS.md\n"
                     "evidence: the agg1 rollout answered with the sum\nconfidence: high\n</experience>")
             reply = Reply(label=label, text=text, ok=True, attempts=1)
         else:
             work = Path(tempfile.mkdtemp()) / "harness"
             shutil.copytree(root / "harness", work)
             if label.startswith("agg"):
-                (work / "systemprompt.md").write_text("Always add the numbers.\n")
+                (work / "AGENTS.md").write_text("Always add the numbers.\n")
             else:
-                (work / "skills" / "sum_check").mkdir(parents=True, exist_ok=True)
-                (work / "skills" / "sum_check" / "SKILL.md").write_text(
+                (work / ".agents" / "skills" / "sum_check").mkdir(parents=True, exist_ok=True)
+                (work / ".agents" / "skills" / "sum_check" / "SKILL.md").write_text(
                     "---\ndescription: checking a sum before answering\n---\nAdd again and compare.\n")
-                (work / "guardrails.md").write_text("When a sum must be checked, follow the `sum_check` skill.\n")
+                (work / "AGENTS.md").write_text((work / "AGENTS.md").read_text().rstrip() + "\n- When a sum must be "
+                                                "checked, read .agents/skills/sum_check/SKILL.md and follow it.\n")
             reply = Reply(label=label, text=f"<notes>{label}: edited</notes>", ok=True, attempts=1, workspace=work)
         self._calls.append(reply)
         return reply
@@ -110,7 +111,7 @@ def test_every_task_starts_from_h0_and_only_the_library_carries(tmp_path):
     assert [s["tasks"] for s in steps] == [["t0"], ["t1"], ["t2"]]
     assert all(s["rollout"]["mean_score"] == 0.0 for s in steps)          # every Trainer rollout ran H0
     assert not any(s["changed"] for s in steps)
-    assert (run_dir / "workspace" / "adapter" / "ADAPTER.md").read_text() == ""
+    assert (run_dir / "workspace" / "adapter" / "AGENTS.md").read_text() == (TEMPLATE / "AGENTS.md").read_text()
     results = [json.loads((run_dir / f"step_{n:04d}" / "step_result.json").read_text())["extra"]["harness2"]
                for n in (1, 2, 3)]
     for i, r in enumerate(results):
@@ -129,12 +130,12 @@ def test_every_task_starts_from_h0_and_only_the_library_carries(tmp_path):
     assert "library/INDEX.md" in later_inv["files"] and "rollouts/base1.md" in later_inv["files"]
     assert "source/numbers.txt" in first_inv["files"]                         # the task's source material
     assert "Adding two numbers" in first_inv["mission"] or "THE WORK" in first_inv["mission"]
-    summary = json.loads(next((run_dir / "step_0001" / "output" / "h2").glob("toy-mha-agg1/t0/summary.json"))
+    summary = json.loads(next((run_dir / "step_0001" / "output" / "h2").glob("toy-cx-agg1/t0/summary.json"))
                          .read_text())
     assert summary["modes"]["agg"]["ledger"]["R"] == 4 and summary["modes"]["agg"]["ledger"]["P"] == 3
     lib = run_dir / "workspace" / "state" / "library" / "agg" / "default"
     assert sorted(p.name for p in (lib / "harnesses").iterdir()) == ["t0", "t1", "t2"]
-    assert "Always add the numbers." in (lib / "harnesses" / "t2" / "harness" / "systemprompt.md").read_text()
+    assert "Always add the numbers." in (lib / "harnesses" / "t2" / "harness" / "AGENTS.md").read_text()
 
 
 def test_one_task_per_step_is_required(tmp_path):

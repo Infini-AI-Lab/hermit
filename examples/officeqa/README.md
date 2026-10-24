@@ -57,9 +57,8 @@ Codex harness (`run_codex.yaml`; Codex CLI 0.134 for Linux, one container per se
 | initial skill: SkillOpt's, where both methods start (`utils/seed_adapter/`) | 0.465 | 0.564 |
 | **GEPA** (`gepa/`) | 0.564 | 0.595 |
 | **SkillOpt** (`skillopt/`) | 0.576 | 0.628 |
-| **Harness²** (`harness2/`), the training-loop variant: no judge feedback, no validation split, k = 1 | 0.583 (stopped by the USD 40 budget at step 25, epoch 3; 0.572 at the epoch-1 checkpoint) | – |
 
-Harness² ([method](../../docs/methods/harness2.md)) carries the adopted harness across steps, unlike the paper's per-task protocol; `harness2/slots.yaml` names the answer's form, since no judge feedback reaches it (with slots that did not, its epoch-1 adapter scored 0.250 against the starting skill's 0.380, both evaluated without the parsed pages). Its training run was made without the questions' parsed pages in the prompt, which lowers every method's score by 0.05 to 0.11; the numbers here are the same-day re-evaluation with the pages restored. No Harness² adapter is included.
+[Harness²](../../docs/methods/harness2.md) is not in this table: it trains nothing and processes the test questions as one stream, each question refined and answered by Codex; its results are reported with [`harness2_stream/`](harness2_stream/).
 
 Paired differences with 95% intervals, each run's selection and cost, the Codex sessions' isolation and the
 differences from the paper: the [recipe](../../docs/recipes/officeqa.md#results).
@@ -73,8 +72,7 @@ utils/prepare.py    tasks.jsonl, the splits, data.json and seed_adapter/      ut
 utils/task-info/    the task for the learner
 gepa/ skillopt/     smoke.yaml and run.yaml per method, smoke_codex.yaml and run_codex.yaml for the Codex harness;
                     adapter/ is the skill run.yaml trained (direct chat), with its CARD.md
-harness2/           Harness² as a training-loop Evolver (harness2@1.0): smoke.yaml, run.yaml, slots.yaml, make_seed.py
-harness2_stream/    Harness² under the paper's protocol, by the upstream code: run.yaml (SkillOpt's rollout) and
-                    run_codex.yaml (Codex as the acting agent: utils/agent/codex_agent.py, codex_session.py, the
+harness2_stream/    Harness² under the paper's protocol, by the upstream code, with Codex as the acting agent
+                    (run_codex.yaml, slots_codex.yaml; utils/agent/codex_agent.py and codex_session.py; the
                     harness2-codex template); launch.sh starts a stream
 ```
