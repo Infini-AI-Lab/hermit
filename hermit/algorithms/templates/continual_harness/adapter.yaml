@@ -1,0 +1,24 @@
+# The Continual Harness adapter: the harness state a Refiner maintains — base policy p, sub-agents G, skills K,
+# memory M, as separate learnable files — rendered into ADAPTER.md, which is what the agent reads as its context.
+template:
+  id: continual-harness
+  version: "1.0"
+  contract: "1"
+  name: Continual Harness
+exports:
+  context: ADAPTER.md
+structure:
+  learnable:
+    - path: ADAPTER.md          # the rendered context (policy + sub-agents + skills + memory); the agent reads this
+      format: {text: true, max_bytes: 80000}
+    - path: policy.md           # p — the base policy / instructions
+      format: {text: true, max_bytes: 40000}
+    - path: subagents.md        # G — named playbooks for repeated multi-step patterns
+      format: {text: true, max_bytes: 40000}
+    - path: skills.md           # K — reusable procedures / step sequences that worked
+      format: {text: true, max_bytes: 40000}
+    - path: memory.md           # M — facts and notes discovered while acting
+      format: {text: true, max_bytes: 40000}
+  fixed:
+    - EVOLVER.md
+    - README.md
