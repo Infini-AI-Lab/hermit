@@ -42,6 +42,8 @@ sandbox:
   allow: []
   read: []
   env: []
+  profiles:                  # the agent's role runs unconfined: it drives Docker (the daemon's socket, the sessions'
+    rollout: {enabled: false}   # homes under ~/.cache); each Codex session is in a container of its own (codex_session.py)
 trainer:
   run_name: h2-codex-s0
   output_dir: runs

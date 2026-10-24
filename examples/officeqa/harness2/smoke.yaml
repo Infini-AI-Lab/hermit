@@ -28,6 +28,10 @@ sandbox:
   allow: []
   read: []
   env: []
+  profiles:                  # the agent's sandbox (rollout; eval and check take it too), as the gepa and skillopt configs
+    rollout:
+      read: [../utils/documents]   # the source documents (prepare.py links them)
+      mask: [../utils/.private]    # the judge's answers, beside the task
 trainer:
   run_name: smoke-harness2
   output_dir: runs
