@@ -96,8 +96,28 @@ its lesson to the domain's library, which is the only thing the next task inheri
 every task starts from H0. The editor sessions are upstream's `claude_cli` channel (Claude Code on the bound model,
 which must serve the Messages API), each in a sandbox that shows only its evidence and reaches only the model. A
 task's score is the judge's score of its deliverable, in `step_NNNN/step_result.json` (`extra.harness2`), never seen
-by a session. Upstream knows OpenCode's and Codex's surfaces; this one describes the template's, where every
-component is in the agent's prompt and there are no scripts, subagents or plugins.
+by a session. Upstream knows OpenCode's and Codex's surfaces. On the `harness2` template the Evolver describes the
+template's own: every component is in the agent's prompt and there are no scripts, subagents or plugins. On the
+`harness2-codex` template it uses upstream's Codex surface as it is.
+
+### Codex as the acting agent
+
+```yaml
+template: harness2-codex@1.0
+agent: {name: ../utils/agent/codex_agent.py:OfficeQACodexAgent}   # an agent that runs `codex exec` with the tree deployed
+```
+
+The `harness2-codex` template is the paper's Codex harness as an adapter, in the layout Codex reads from its
+workspace root: `AGENTS.md` (the one always-on file, at most 8,000 characters), `.agents/skills/<name>/SKILL.md`
+with the helpers under its `scripts/`, `scripts/<name>.py`, `sub_agents/<name>/AGENT.md` and `.codex/hooks.json`.
+`ADAPTER.md` is kept equal to `AGENTS.md`; the template's `check.py` is upstream's validator (a trigger line in
+`AGENTS.md` for every skill, scripts that compile, a helper a skill invokes travels with it, the hook schema). The
+editor sessions see upstream's Codex surface text, so skills on demand, scripts, subagents and hooks are all levers.
+An acting agent deploys the tree itself: `AGENTS.md`, `.agents/`, `scripts/` and `.codex/` are copied to the
+workspace root (upstream's `codex_root` install), `sub_agents/` become agent roles in the session's `CODEX_HOME`, and
+the session runs with `--dangerously-bypass-hook-trust` so the hooks fire. The OfficeQA agent does this in a Docker
+container per session ([example](../../examples/officeqa_paper/harness2_stream/)); the trajectory is the `codex exec
+--json` event stream, rendered by upstream's own Codex renderer.
 
 `library_from: <run directory>` continues a finished stream on other tasks: the run starts from that stream's
 library, copied into its Training State before the first task, and is the same stream with the new tasks at its end.

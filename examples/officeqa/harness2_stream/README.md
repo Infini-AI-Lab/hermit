@@ -30,6 +30,33 @@ FIREWORKS_API_KEY=... SEED=0 WM_PORT=3591 examples/officeqa_paper/harness2_strea
 MAX_TASKS=2 TAG=h2-smoke FIREWORKS_API_KEY=... WM_PORT=3592 examples/officeqa_paper/harness2_stream/launch.sh   # smoke
 ```
 
+### Codex as the acting agent
+
+`HARNESS=codex` runs the same stream with Codex as the acting agent, as the paper does (`run_codex.yaml`,
+`slots_codex.yaml`): the harness is Codex's own tree (the `harness2-codex` template: `AGENTS.md`, `.agents/skills/`,
+`scripts/`, `sub_agents/`, `.codex/hooks.json`), H0 is SkillOpt's initial skill as `AGENTS.md`
+(`make_seed_codex.py`), the editors are Claude Code sessions (`claude -p`) on GLM 5.3 Flash, and every execution is
+one `codex exec` session in a Docker container of its own
+(`../utils/agent/codex_agent.py`, `codex_session.py`): the workspace holds `task.md` (the question with its parsed
+pages and source files, as SkillOpt's Codex harness writes it) and the whole corpus under `docs/`; the container
+reaches only the model provider through the egress proxy, and Codex's workspace-write sandbox inside it gives the
+session's commands no network at all. The editors then see upstream's Codex surface, so skills on demand, scripts,
+subagents and hooks are all levers. Build the container once (`../utils/agent/docker/`: Codex 0.162.0 for Linux, the
+image `officeqa-codex:0.162.0`, the internal network `oq-sandbox` and the proxy `oq-egress`, as the
+[OfficeQA recipe](../../../docs/recipes/officeqa.md#run-in-the-codex-harness) describes for its own Codex harness),
+then:
+
+```bash
+HARNESS=codex FIREWORKS_API_KEY=... SEED=0 WM_PORT=3591 examples/officeqa_paper/harness2_stream/launch.sh
+HARNESS=codex MAX_TASKS=1 TAG=h2-codex-smoke FIREWORKS_API_KEY=... WM_PORT=3592 examples/officeqa_paper/harness2_stream/launch.sh
+```
+
+A session has `agent.params.timeout_s` seconds (3,600, the paper's cap; its 200-turn cap is not a setting Codex has,
+and upstream enforces none on Codex) and answers inside `<answer>...</answer>`; one that ends without an answer
+scores 0. Executor and editors are both GLM 5.3 Flash at medium effort (`EDITOR_MODEL` changes the editors'). Each rollout's log holds the
+`codex exec --json` event stream (`agent-codex.jsonl`), `task.md`, `prompt.txt`, `last_message.txt` and what the
+adapter deployed (`harness.json`).
+
 ### Continuing a stream
 
 A finished stream can be continued on other questions, e.g. the 74 training and validation questions after the 172

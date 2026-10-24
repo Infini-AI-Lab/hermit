@@ -3,14 +3,19 @@
 # CL-Bench examples run theirs.
 #
 #   FIREWORKS_API_KEY=... SEED=0 WM_PORT=3591 examples/officeqa_paper/harness2_stream/launch.sh [overrides...]
+#   HARNESS=codex ...                                      # Codex as the acting agent (run_codex.yaml), as the paper
+#   EDITOR_MODEL=accounts/fireworks/models/glm-5p3 ...     # the editors' model (default: direct glm-5p3, codex glm-5p3-flash)
 #   MAX_TASKS=2 TAG=h2-smoke ...                           # a smoke run on the first questions of the stream
+#   SKIP_TASKS=10 ...                                      # drop the stream's first questions (continuing a run that took them)
 #   LIBRARY_FROM=runs/h2-stream-s0 TAG=h2-stream-s0-rest STREAM=stream_rest_s0.txt \
 #     SPLITS="../utils/splits/train.txt ../utils/splits/val.txt" CLAUDE_BIN=runs/.claude-pin/<version>/claude ...
 #                                                          # that stream continued on other questions (paths: from here)
 #
-# Writes upstream's stream order for SEED, regenerates H0 (../harness2/seed_adapter), starts a wire meter in front of
-# Fireworks for the editor sessions (bucket TAG; ledger runs/TAG.wire_ledger.json), and trains with the editor model
-# bound to the meter. Needs the `harness2` and `skillopt` extras, the Claude Code CLI and bubblewrap.
+# Writes upstream's stream order for SEED, regenerates H0 (../harness2/seed_adapter, or seed_adapter_codex for
+# HARNESS=codex), starts a wire meter in front of Fireworks for the editor sessions (bucket TAG; ledger
+# runs/TAG.wire_ledger.json), and trains with the editor model bound to the meter. Needs the `harness2` and `skillopt`
+# extras, the Claude Code CLI and bubblewrap; HARNESS=codex also needs the Codex harness's container (../utils/agent/
+# codex_session.py --check names what is missing; docker/ builds it).
 set -eu -o pipefail
 if [ -n "${LIBRARY_FROM:-}" ]; then          # a continuation names what differs from the stream it continues
   for v in TAG SPLITS STREAM CLAUDE_BIN; do
@@ -21,7 +26,11 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 FRAMEWORK=$(cd "$HERE/../../.." && pwd)
 PY=${MW_FRAMEWORK_PYTHON:-$FRAMEWORK/.venv/bin/python}
 SEED=${SEED:-0}
-TAG=${TAG:-h2-stream-s$SEED}
+HARNESS=${HARNESS:-direct}                   # direct: SkillOpt's rollout (run.yaml); codex: a Codex session (run_codex.yaml)
+case "$HARNESS" in
+  direct) CONFIG=run.yaml; TAG=${TAG:-h2-stream-s$SEED}; EDITOR_MODEL=${EDITOR_MODEL:-accounts/fireworks/models/glm-5p3};;
+  codex) CONFIG=run_codex.yaml; TAG=${TAG:-h2-codex-s$SEED}; EDITOR_MODEL=${EDITOR_MODEL:-accounts/fireworks/models/glm-5p3-flash};;
+  *) echo "REFUSING: HARNESS is direct or codex, not $HARNESS"; exit 1;; esac
 SPLITS=${SPLITS:-../utils/splits/test.txt}   # the stream's questions (several files: their union)
 STREAM=${STREAM:-stream_s$SEED.txt}
 LIBRARY_FROM=${LIBRARY_FROM:-}               # a finished run whose library this run starts from: a continuation
@@ -36,8 +45,14 @@ if [ -n "$LIBRARY_FROM" ]; then
   [ "$(readlink -f "runs/$TAG")" != "$LIBRARY_FROM" ] || { echo "REFUSING: TAG=$TAG is the run continued"; exit 1; }
 fi
 mkdir -p runs
-"$PY" ../harness2/make_seed.py
-"$PY" stream.py --seed "$SEED" --split $SPLITS --out "$STREAM" ${MAX_TASKS:+--max "$MAX_TASKS"}
+if [ "$HARNESS" = codex ]; then
+  "$PY" make_seed_codex.py
+  "$PY" ../utils/agent/codex_session.py --check "$("$PY" -c "import json; print(json.load(open('../utils/data.json'))['docs'])")" \
+    || { echo "REFUSING: the Codex harness's container is not ready (see ../utils/agent/codex_session.py)"; exit 1; }
+else
+  "$PY" ../harness2/make_seed.py
+fi
+"$PY" stream.py --seed "$SEED" --split $SPLITS --out "$STREAM" ${MAX_TASKS:+--max "$MAX_TASKS"} ${SKIP_TASKS:+--skip "$SKIP_TASKS"}
 # The meter restarts if it dies; each start keeps its own ledger (sum runs/$TAG.wire_ledger-*.json for the bill).
 if ! curl -s -m 2 "http://127.0.0.1:$WM_PORT/health" > /dev/null; then
   setsid nohup bash -c "while true; do PORT=$WM_PORT UPSTREAM=https://api.fireworks.ai \
@@ -64,7 +79,7 @@ fi
 ABSENT=$("$PY" -c "import json, sys; d = json.load(open('../utils/data.json'));
 from pathlib import Path; print(json.dumps([str(Path(d['answers']).parent), d['csv'], *sys.argv[1:]]))" \
   ${LIBRARY_FROM:+"$LIBRARY_FROM"})
-exec "$PY" -m hermit.cli train --config run.yaml "trainer.run_name=$TAG" "data.train=$STREAM" \
+exec "$PY" -m hermit.cli train --config "$CONFIG" "trainer.run_name=$TAG" "data.train=$STREAM" \
   "backends.learner={from: fireworks, base_url: 'http://127.0.0.1:$WM_PORT/$TAG/inference/v1'}" \
-  "evolver.params.model=learner/accounts/fireworks/models/glm-5p3" "evolver.params.probe_absent=$ABSENT" \
+  "evolver.params.model=learner/$EDITOR_MODEL" "evolver.params.probe_absent=$ABSENT" \
   "evolver.params.claude_bin=$PINNED" ${LIBRARY_FROM:+"evolver.params.library_from=$LIBRARY_FROM"} "$@"

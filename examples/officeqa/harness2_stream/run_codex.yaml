@@ -1,0 +1,51 @@
+# Harness² under the paper's own protocol (Xu et al., arXiv:2610.14224, Sec. 2), run by the upstream code, with Codex
+# as the acting agent, as the paper runs it: the harness is Codex's own tree (AGENTS.md, .agents/skills/, scripts/,
+# sub_agents/, .codex/hooks.json; the harness2-codex template), every question starts from SkillOpt's initial skill as
+# AGENTS.md (H0, where GEPA and SkillOpt start too), and each execution is one `codex exec` session in a container of
+# its own (../utils/agent/codex_agent.py) with the paper's wall clock (3,600 s; the paper's 200-turn cap is not a
+# setting Codex has, and upstream does not enforce one on Codex either). Executor and editors are both GLM 5.3 Flash
+# at medium effort: the executor as GEPA's and SkillOpt's, the editors as Claude Code sessions (`claude -p`).
+# Started by `HARNESS=codex launch.sh`.
+data:
+  tasks: ../utils/tasks.jsonl
+  train: stream_s0.txt                 # launch.sh: upstream's order of ../utils/splits/test.txt for SEED
+  step_size: 1                         # one question per step
+  shuffle: false                       # the stream's own order
+task_info: ../utils/task-info
+agent:
+  name: ../utils/agent/codex_agent.py:OfficeQACodexAgent
+  concurrency: 2                       # the INV and DOM probes of a question run side by side
+  params:
+    model: fireworks/accounts/fireworks/models/glm-5p3-flash
+    effort: medium
+    timeout_s: 3600                    # one session's wall clock, as the paper's rollouts
+    codex_dir: ~/.cache/hermit/officeqa-h2-codex
+judge:
+  path: ../utils/judge.py
+template: harness2-codex@1.0
+start_from: seed_adapter_codex         # H0 (launch.sh runs make_seed_codex.py)
+evolver:
+  name: harness2_upstream
+  params:
+    model: fireworks/accounts/fireworks/models/glm-5p3-flash   # launch.sh: the same model through a wire meter
+    effort: medium
+    k: 1
+    slots: slots_codex.yaml            # names the answer's form (the value alone) and Codex's levers
+    sources: sources.py:task_files
+    name: officeqa
+    leak_globs: ["answers.jsonl", "*.csv", "data.json"]  # not "*private*": "privately held debt" is a skill topic
+    verdict_markers: ["' but expected '"]                # the judge's feedback wording
+    probe_absent: []                                     # launch.sh: the answer files no session may see
+sandbox:
+  enabled: true
+  network: restricted
+  allow: []
+  read: []
+  env: []
+trainer:
+  run_name: h2-codex-s0
+  output_dir: runs
+  epochs: 1
+  call_timeout_min: 360                # one question's sessions and executions (executions up to 60 min each), retries included
+  save_freq: {steps: null, epochs: 1}
+  budget: {usd: 400, tokens: null, hours: null}

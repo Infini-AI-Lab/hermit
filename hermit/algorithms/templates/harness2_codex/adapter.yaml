@@ -1,0 +1,32 @@
+template:
+  id: harness2-codex
+  version: "1.0"
+  contract: "1"
+  name: Harness² execution harness for Codex
+exports:
+  context: ADAPTER.md
+structure:
+  learnable:
+    - path: ADAPTER.md
+      format: {text: true, max_bytes: 32000}
+    - path: AGENTS.md
+      format: {text: true, max_bytes: 32000}
+    - path: .agents/skills/*/SKILL.md
+      format: {text: true, max_bytes: 24000, max_files: 40, frontmatter: [description]}
+    - path: .agents/skills/*/scripts/*
+      format: {text: true, max_bytes: 200000, max_files: 80}
+    - path: scripts/*.py
+      format: {text: true, max_bytes: 200000, max_files: 40}
+    - path: sub_agents/*/AGENT.md
+      format: {text: true, max_bytes: 24000, max_files: 20, frontmatter: [description]}
+    - path: .codex/hooks.json
+      format: {text: true, max_bytes: 24000}
+  fixed:
+    - check.py
+    - EVOLVER.md
+    - README.md
+    - scripts/README.md
+    - sub_agents/README.md
+    - .codex/README.md
+    - .agents/skills/README.md
+check: check.py:check

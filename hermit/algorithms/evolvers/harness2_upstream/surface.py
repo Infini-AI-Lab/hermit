@@ -1,7 +1,13 @@
 # The prompt text below is derived from google-research/harness2 core/prompts.py (_SURFACE_OPENCODE, _INV_TEMPLATE and
 # _DOM_TEMPLATE), Copyright 2026 Google LLC, Apache-2.0.
-"""The `harness2` template's editable surface, as upstream Harness² sees it.
+"""The editable surface of a Harness² adapter, as upstream Harness² sees it: one `Layout` per template.
 
+`harness2-codex` (CodexLayout) is upstream's own Codex surface (harness2.substrate.codex.CODEX_SURFACE) and the
+adapter is the Codex tree itself (AGENTS.md, .agents/skills/, scripts/, sub_agents/, .codex/hooks.json), so no path
+changes hands; upstream's stage prompts already describe that surface. ADAPTER.md, the framework's context export,
+is kept equal to AGENTS.md.
+
+`harness2` (PromptLayout) is the prompt-only surface below, for an acting agent that reads only ADAPTER.md.
 Upstream edits a tree with the paper's component paths; the template keeps the four always-on files under harness/:
 
     systemprompt.md                       <-> harness/systemprompt.md      c1  always on
@@ -181,3 +187,89 @@ def to_adapter(tree: T.Tree, template: Path, dest: Path) -> Path:
 def off_surface(tree: T.Tree) -> list[str]:
     """Paths upstream accepts but this executor cannot use (scripts, subagents, plugins)."""
     return sorted(rel for rel in tree if rel not in TO_TEMPLATE and not T._rx(SURFACE)["skill"].fullmatch(rel))
+
+
+# ---------------------------------------------------------------- layouts
+class PromptLayout:
+    """The `harness2` template: the four always-on files and inline skills, rendered into ADAPTER.md."""
+    template_id = "harness2"
+    name = "mha"                     # upstream's substrate name, part of its run namespaces
+    surface = SURFACE
+    allow_subagents = False
+    install_mode = "workspace_config"
+    off_surface_hint = "no scripts, subagents or plugins; only the four always-on files and skills/<name>/SKILL.md"
+
+    @staticmethod
+    def register() -> None:
+        register()
+
+    @staticmethod
+    def from_adapter(adapter: Path) -> T.Tree:
+        return from_adapter(adapter)
+
+    @staticmethod
+    def to_adapter(tree: T.Tree, template: Path, dest: Path) -> Path:
+        return to_adapter(tree, template, dest)
+
+    @staticmethod
+    def off_surface(tree: T.Tree) -> list[str]:
+        return off_surface(tree)
+
+    @staticmethod
+    def upstream_path(rel: str) -> str:
+        """A template path as upstream names it (for a problem the template check reports)."""
+        return FROM_TEMPLATE.get(rel, rel)
+
+
+class CodexLayout:
+    """The `harness2-codex` template: upstream's Codex tree as it is; ADAPTER.md is a copy of AGENTS.md."""
+    template_id = "harness2-codex"
+    name = "cx"
+    allow_subagents = True
+    install_mode = "codex_root"
+    off_surface_hint = ("AGENTS.md, .agents/skills/<name>/SKILL.md and its scripts/, scripts/<name>.py, "
+                        "sub_agents/<name>/AGENT.md, .codex/hooks.json")
+
+    def __init__(self) -> None:
+        from harness2.substrate.codex import CODEX_SURFACE
+        self.surface = CODEX_SURFACE
+        self.template_files = ("adapter.yaml", "check.py", "EVOLVER.md", "README.md",
+                               *(rel for rel, _ in CODEX_SURFACE.stubs))
+
+    @staticmethod
+    def register() -> None:
+        return None                   # upstream's prompts know the codex surface
+
+    def from_adapter(self, adapter: Path) -> T.Tree:
+        return T.read_tree(self.surface, adapter)          # the stubs and the framework's own files are not the tree
+
+    def to_adapter(self, tree: T.Tree, template: Path, dest: Path) -> Path:
+        if dest.exists():
+            shutil.rmtree(dest)
+        dest.mkdir(parents=True)
+        for rel in self.template_files:
+            if (template / rel).is_file():
+                (dest / rel).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(template / rel, dest / rel)
+        T.write_tree(self.surface, tree, dest, stubs=True)
+        (dest / "ADAPTER.md").write_text(tree.get("AGENTS.md", ""), encoding="utf-8")
+        return dest
+
+    @staticmethod
+    def off_surface(tree: T.Tree) -> list[str]:
+        return []
+
+    @staticmethod
+    def upstream_path(rel: str) -> str:
+        return rel
+
+
+def layout_of(adapter: Path):
+    """The layout of an adapter (or template), by its template id."""
+    import yaml
+    data = yaml.safe_load((Path(adapter) / "adapter.yaml").read_text()) or {}
+    ident = str((data.get("template") or {}).get("id") or "")
+    for cls in (PromptLayout, CodexLayout):
+        if ident == cls.template_id:
+            return cls()
+    raise ValueError(f"harness2_upstream trains the harness2 and harness2-codex templates, not {ident!r}")

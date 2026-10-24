@@ -25,10 +25,13 @@ TOOL_ERRORS = ("[read error", "[grep error", "[tool error", "[search error")
 
 class Substrate:
     """The part of a substrate upstream's core uses: a name for its namespaces and the editable surface."""
-    name = "mha"
+
+    def __init__(self, layout) -> None:
+        self.layout = layout
+        self.name = layout.name
 
     def surface(self) -> T.SurfaceSpec:
-        return U.SURFACE
+        return self.layout.surface
 
 
 def _clip(text, limit: int) -> str:
@@ -70,16 +73,18 @@ class FrameworkBench:
     """The BenchmarkAdapter for the step's one task (`record`, the Trainer's rollout of it)."""
 
     def __init__(self, ctx, record: dict, *, prompts: BenchPrompts, channel: ChannelSpec, runs_root: Path,
-                 domain: str, name: str, obs_trunc: int, leak_globs: tuple[str, ...] = (), sources=None):
+                 domain: str, name: str, obs_trunc: int, leak_globs: tuple[str, ...] = (), sources=None,
+                 layout=None):
         self.ctx, self.record, self.task = ctx, record, dict(record.get("input") or {"id": record["id"]})
         self.tid = record["id"]
         self.domain, self.sources, self.obs_trunc = domain, sources, obs_trunc
         self.root = Path(runs_root)
-        self.spec = BenchSpec(name=name, runs_root=self.root, install_mode="workspace_config", prompts=prompts,
+        self.layout = layout if layout is not None else U.layout_of(ctx.workspace.adapter)
+        self.spec = BenchSpec(name=name, runs_root=self.root, install_mode=self.layout.install_mode, prompts=prompts,
                               channels={"proposer": channel, "selector": channel},
-                              domain_word=prompts.domain_word, leak_globs=tuple(leak_globs), allow_subagents=False,
-                              obs_trunc=obs_trunc)
-        self.substrate = Substrate()
+                              domain_word=prompts.domain_word, leak_globs=tuple(leak_globs),
+                              allow_subagents=self.layout.allow_subagents, obs_trunc=obs_trunc)
+        self.substrate = Substrate(self.layout)
         self.private: dict[str, dict] = {}          # run_id -> judge result; read only by score()
         self._lock = threading.Lock()
         self._h0: Path | None = None
@@ -100,6 +105,10 @@ class FrameworkBench:
         log = self._material_log()
         if log is not None and (log / "target_user_prompt.txt").is_file():
             return (log / "target_user_prompt.txt").read_text(errors="replace")
+        if log is not None and (log / "task.md").is_file():            # a Codex session: its prompt and task.md
+            prompt = (log / "prompt.txt").read_text(errors="replace") if (log / "prompt.txt").is_file() else ""
+            return (prompt.strip() + "\n\n" if prompt.strip() else "") + "# task.md\n\n" + \
+                (log / "task.md").read_text(errors="replace")
         for message in self.record.get("messages") or []:
             if message.get("role") == "user" and message.get("content"):
                 return str(message["content"])
@@ -119,21 +128,21 @@ class FrameworkBench:
         """H0: the starting adapter's tree (the Trainer never changes the adapter in this protocol)."""
         with self._lock:
             if self._h0 is None:
-                self._h0 = T.write_tree(U.SURFACE, U.from_adapter(self.ctx.workspace.adapter), self.root / "_h0")
+                self._h0 = T.write_tree(self.layout.surface, self.layout.from_adapter(self.ctx.workspace.adapter),
+                                        self.root / "_h0")
         return self._h0
 
     def validate_tree(self, tree: T.Tree) -> None:
         """The template's whole check on the adapter this tree becomes; every problem in one message, which upstream
         hands back to the session as its retry feedback."""
-        off = U.off_surface(tree)
-        problems = [f"{rel}: this agent cannot use it (no scripts, subagents or plugins; only the four always-on "
-                    f"files and skills/<name>/SKILL.md)" for rel in off]
+        off = self.layout.off_surface(tree)
+        problems = [f"{rel}: this agent cannot use it ({self.layout.off_surface_hint})" for rel in off]
         with self._lock:
-            probe = U.to_adapter({k: v for k, v in tree.items() if k not in off}, self.ctx.workspace.adapter,
-                                 self.root / "_validate")
+            probe = self.layout.to_adapter({k: v for k, v in tree.items() if k not in off},
+                                           self.ctx.workspace.adapter, self.root / "_validate")
             result = self.ctx.tools["check_spec"](path=str(probe))
         for issue in result.get("issues") or []:
-            rel = U.FROM_TEMPLATE.get(issue.get("path") or "", issue.get("path") or "")
+            rel = self.layout.upstream_path(issue.get("path") or "")
             problems.append(f"{rel or 'the harness'}: {issue.get('problem')}")
         if problems:
             raise ValueError("; ".join(problems))
@@ -155,7 +164,8 @@ class FrameworkBench:
             self._keep_log(self._material_log(), out)
         else:
             adapter = self.ctx.workspace.adapter if harness_dir is None else \
-                U.to_adapter(T.read_tree(U.SURFACE, harness_dir), self.ctx.workspace.adapter, out / "adapter")
+                self.layout.to_adapter(T.read_tree(self.layout.surface, harness_dir), self.ctx.workspace.adapter,
+                                       out / "adapter")
             result = self.ctx.tools["run_agent"](task_ids=[task_id], adapter=str(adapter))["results"][0]
             run = {k: result.get(k) for k in ("status", "error", "output", "cost_usd", "wall_s")}
             self.private[run_id] = dict(result.get("judge") or {})
@@ -208,6 +218,14 @@ class FrameworkBench:
         run, log = self._run(run_dir), Path(run_dir) / "log"
         if (log / "conversation.json").is_file():
             return render_conversation(log, run, obs_trunc=obs_trunc)
+        if (log / "agent-codex.jsonl").is_file():                      # a Codex session: upstream's own renderer
+            from harness2.substrate.codex import render_events
+            text = render_events(log / "agent-codex.jsonl", obs_trunc=obs_trunc, max_chars=max(obs_trunc * 40, 2_000_000))
+            output = run.get("output") if isinstance(run.get("output"), dict) else {}
+            reason = (output or {}).get("fail_reason") or ""
+            if reason:
+                text = text.rstrip() + f"\n[ERROR] {_clip(reason, 1000)}"
+            return text.strip() or "(no trajectory events recorded)"
         if log.is_dir():
             text = R.render_log(log, obs_trunc=obs_trunc) if any(log.iterdir()) else ""
             if text.strip():

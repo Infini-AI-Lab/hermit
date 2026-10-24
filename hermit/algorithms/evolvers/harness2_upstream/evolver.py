@@ -109,7 +109,8 @@ class Harness2UpstreamEvolver(Evolver):
                                         f"has {len(records)}")
         record = json.loads(records[0].read_text())
         tid = record["id"]
-        U.register()
+        layout = U.layout_of(ws.adapter)
+        layout.register()
         _markers(context, params.get("verdict_markers"))
         slots = yaml.safe_load(Path(ctx.base or ".", params["slots"]).read_text()) if params.get("slots") else {}
         prompts = spec.BenchPrompts(**{k: str(v).strip() for k, v in (slots or {}).items()})
@@ -122,14 +123,14 @@ class Harness2UpstreamEvolver(Evolver):
         bench = FrameworkBench(ctx, record, prompts=prompts, channel=channel, runs_root=root, domain=domain,
                                name=str(params.get("name") or "task"), obs_trunc=int(params.get("obs_trunc") or 50000),
                                leak_globs=tuple(params.get("leak_globs") or ()),
-                               sources=_load(params.get("sources"), ctx.base))
+                               sources=_load(params.get("sources"), ctx.base), layout=layout)
         sandbox, claude = self._sandbox(ctx), self._claude(ws)
         if sandbox is not None:
             self._assert_hidden(sandbox, claude, [ws.learning_material.parent, *(params.get("probe_absent") or [])])
         prop = (_load(params.get("proposer"), ctx.base) or FrameworkProposer)(
             spec=channel, audit_dir=ws.output / "sessions", attempts=2,
             params={**params, "claude_bin": claude}, sandbox=sandbox, cancel=ctx.cancel)
-        lib = library.Library(root=ws.state / "library" / MODE, domain=domain, surface=U.SURFACE)
+        lib = library.Library(root=ws.state / "library" / MODE, domain=domain, surface=layout.surface)
         imported = ws.state / "library" / "imported.json"
         if params.get("library_from") and not imported.is_file():
             return StepResult("failed", "library_from is applied when a run starts, and this run started without it: "
