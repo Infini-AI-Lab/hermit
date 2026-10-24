@@ -3,22 +3,20 @@ as a hermit Evolver.
 
 Continual Harness refines the *whole harness* — the base policy `p`, sub-agents `G`, skills `K`, memory `M` — from
 the agent's own trajectory, driven by failure signatures (tool-call errors, loops, no-progress), with **no reward or
-labels and no accept/reject gate**: the Refiner just applies the edits, as its reset-free loop does. That is what
-sets it apart from the score-driven evolvers here (gepa/skillopt need a judge score and keep a change only if it
-improves a metric).
+labels and no accept/reject gate**: the Refiner just applies the edits, as its reset-free loop does. That label-free,
+failure-signature-driven, whole-harness refinement is what sets it apart from the score-driven evolvers here
+(gepa/skillopt need a judge score and keep a change only if it improves a metric).
 
-This port keeps that character on hermit's step model. Each training step the Trainer has already rolled the current
-adapter out on the step's minibatch; this evolver:
+On hermit's step model, each training step the Trainer has already rolled the current adapter out on the step's
+minibatch; this evolver reads those trajectories (`learning_material/current/tasks/*.json`), gathers failure
+signatures (and the judge's feedback, used as a signal — not a score to optimise), and refines the harness:
 
-1. reads those trajectories (`learning_material/current/tasks/*.json`) and gathers failure signatures — tool-call
-   errors, non-ok runs, and the judge's feedback (used as a signal, not as a score to optimise);
-2. if there is nothing to learn from (no signatures), leaves the adapter unchanged;
-3. otherwise has the run's `llm` tool CRUD-rewrite the harness document (the base policy plus `## Sub-agents`,
-   `## Skills`, `## Memory` sections) to fix the observed failures, codify what worked, and drop what is stale;
-4. applies it in place (a `check_spec` guard only, so a malformed rewrite can't break later rollouts — not a score).
+- **continual-harness template** (policy.md / subagents.md / skills.md / memory.md): one CRUD pass per component via
+  the run's `llm` tool, then re-render ADAPTER.md (the agent's context) from the four parts. This is CH's four passes.
+- **prompt-only template** (ADAPTER.md only): one holistic rewrite of ADAPTER.md covering p + G/K/M as sections.
 
-A prompt-only adapter has one learnable file (`ADAPTER.md`); G/K/M live as sections of it, which is where a
-text-prompt agent reads them anyway. Training State (`state/continual_harness.json`): one record per step.
+Either way the edits are applied in place, with only a `check_spec` guard (so a malformed rewrite can't break later
+rollouts — not a score). Training State (`state/continual_harness.json`): one record per step.
 """
 from __future__ import annotations
 
@@ -30,6 +28,21 @@ from hermit.evolver.base import Evolver, FinalResult, StepContext, StepResult
 
 FAILURE_MARKERS = ("error", "exception", "traceback", "not allowed", "no matches", "failed", "timeout",
                    '"success": false', '"success":false', "denied", "refused")
+
+# component -> (source file, section heading in the rendered context, the refinement intent for that pass)
+COMPONENTS = {
+    "prompt":    ("policy.md", None,            "Rewrite the base policy to avoid the failures observed. Keep what "
+                                                "already works; be concrete about what to do differently."),
+    "subagents": ("subagents.md", "Sub-agents", "CRUD the sub-agent playbooks: create a named playbook for any "
+                                                "repeated multi-step pattern, edit ones that led to failures, delete "
+                                                "unused ones. Each entry: a short name, when to use it, the steps."),
+    "skills":    ("skills.md", "Skills",        "CRUD the skills: codify any sequence or procedure that worked into a "
+                                                "reusable skill, repair ones that failed, drop stale ones. Each entry: "
+                                                "a name and the steps."),
+    "memory":    ("memory.md", "Memory",        "CRUD the memory: add facts, constraints or quirks the agent "
+                                                "discovered; refresh stale notes; remove ones it has moved past."),
+}
+EMPTY = ("(no ", "(none")
 
 
 def clip_middle(text: str, limit: int) -> str:
@@ -48,8 +61,7 @@ def _content(message: dict) -> str:
 
 
 def trajectory_text(record: dict) -> str:
-    """The run as text: the messages the pipeline returned (system prompt and first task message left out — the
-    refinement prompt already shows the policy and the task)."""
+    """The run as text: the messages the pipeline returned (system prompt and first task message left out)."""
     lines, task_seen = [], False
     for m in record.get("messages") or []:
         role = m.get("role")
@@ -68,8 +80,8 @@ def trajectory_text(record: dict) -> str:
 
 
 def failure_signatures(record: dict) -> list[str]:
-    """Self-observable things that went wrong in a run — no ground truth needed: a non-ok status, and any message
-    (typically a tool result) that reads like an error."""
+    """Self-observable things that went wrong — no ground truth needed: a non-ok status, and any message (typically a
+    tool result) that reads like an error."""
     out = []
     if record.get("status") and record["status"] != "ok":
         out.append(f"run status: {record['status']}" + (f" ({record['error']})" if record.get("error") else ""))
@@ -77,10 +89,18 @@ def failure_signatures(record: dict) -> list[str]:
         if m.get("role") == "system":
             continue
         text = _content(m)
-        low = text.lower()
-        if text and any(mark in low for mark in FAILURE_MARKERS):
+        if text and any(mark in text.lower() for mark in FAILURE_MARKERS):
             out.append(f"[{m.get('role')}] {text.strip()[:300]}")
     return out
+
+
+def _extract_block(text: str) -> str | None:
+    """The content of the last ``` block, else None."""
+    fences = [m.start() for m in re.finditer(r"```", text)]
+    if len(fences) >= 2:
+        inner = text[fences[-2] + 3:fences[-1]]
+        return inner.split("\n", 1)[1] if "\n" in inner else inner      # drop an optional ```lang line
+    return None
 
 
 class ContinualHarnessEvolver(Evolver):
@@ -88,104 +108,69 @@ class ContinualHarnessEvolver(Evolver):
         p = ctx.params
         if "llm" not in ctx.tools:
             return StepResult("failed", "continual_harness needs the run's llm tool: set `llm` in the run config")
-        file = p.get("file", "ADAPTER.md")
         components = list(p.get("components") or ["prompt", "subagents", "skills", "memory"])
         n = ctx.progress.step if ctx.progress else 0
         adapter = ctx.workspace.adapter
-        doc = (adapter / file).read_text() if (adapter / file).exists() else ""
+        structured = (adapter / "policy.md").exists()        # the continual-harness template vs prompt-only
 
         current = ctx.workspace.learning_material / "current"
         records = [json.loads(f.read_text()) for f in sorted((current / "tasks").glob("*.json"))]
         state_file = ctx.workspace.state / "continual_harness.json"
         state = json.loads(state_file.read_text()) if state_file.exists() else {"steps": []}
-        record = {"step": n, "tasks": len(records)}
+        record = {"step": n, "tasks": len(records), "mode": "structured" if structured else "flat"}
 
-        # Gather failure signatures + feedback across the step's rollouts (the signal, no labels).
         signals, feedback = [], []
         for r in records:
-            for s in failure_signatures(r):
-                signals.append(f"- task {r.get('id')}: {s}")
+            signals += [f"- task {r.get('id')}: {s}" for s in failure_signatures(r)]
             fb = (r.get("judge") or {}).get("feedback")
             if fb:
                 feedback.append(f"- task {r.get('id')}: {fb}")
-
-        min_signals = int(p.get("min_signals", 1))
-        if len(signals) + len(feedback) < min_signals:
+        if len(signals) + len(feedback) < int(p.get("min_signals", 1)):
             record["outcome"] = "unchanged: no failure signatures this step"
             state["steps"].append(record)
             state_file.write_text(json.dumps(state, ensure_ascii=False, indent=1))
             return StepResult("done", record["outcome"])
 
-        trace_chars = int(p.get("trace_chars", 12000))
-        runs = "\n\n".join(
-            f"### Task {r.get('id')} (status {r.get('status')})\n"
-            f"Final output: {str(r.get('output') or '(none)')[:500]}\n"
-            f"Trajectory:\n{clip_middle(trajectory_text(r), trace_chars)}"
-            for r in records)
-        section_lines = {
-            "prompt": "the base policy / instructions `p`",
-            "subagents": "a `## Sub-agents` section (named playbooks for repeated multi-step patterns)",
-            "skills": "a `## Skills` section (reusable step sequences / procedures that worked)",
-            "memory": "a `## Memory` section (facts and notes the agent discovered; drop ones it has moved past)",
-        }
-        maintain = "\n".join(f"- {section_lines[c]}" for c in components if c in section_lines)
-        prompt = f"""You are the Refiner of a self-improving agent harness (Continual Harness).
-
-Below is the agent's CURRENT harness document, then the most recent rollouts with the failures observed in them.
-Rewrite the harness document so the agent does better next time. You are improving the WHOLE harness via CRUD — keep
-what works, fix what failed, add what's missing, delete what's stale. Maintain these parts of the document:
-{maintain}
-
-Base your edits on the observed FAILURE SIGNATURES and feedback — not on any score. Concretely: rewrite the policy
-to avoid the failures seen; codify any sequence that worked into Skills; record discovered facts/constraints in
-Memory; capture repeated multi-step patterns as Sub-agents. Be specific to what the trajectories show.
-
-=== CURRENT HARNESS DOCUMENT ===
-{doc or "(empty)"}
-
-=== RECENT ROLLOUTS ===
-{runs}
-
-=== FAILURE SIGNATURES ===
-{chr(10).join(signals) or "(none explicit; use the feedback below)"}
-
-=== JUDGE FEEDBACK (signal, not a target to game) ===
-{chr(10).join(feedback) or "(none)"}
-
-Reply with the COMPLETE new harness document inside a single ``` code block, and nothing else."""
-
+        evidence = self._evidence(records, signals, feedback, int(p.get("trace_chars", 12000)))
         sampling = {k: p[k] for k in ("max_tokens", "temperature") if p.get(k) is not None}
-        reply_text, new_doc, error = "", None, None
-        messages = [{"role": "user", "content": prompt}]
-        for _ in range(2):      # a reasoning model may spend a reply thinking; ask once more for the block
-            try:
-                reply = ctx.tools["llm"](messages=messages, **sampling)
-            except Exception as exc:                        # noqa: BLE001 — skip the step, as CH tolerates a failed pass
-                error = f"{type(exc).__name__}: {exc}"
-                break
-            reply_text = reply.get("content") or ""
-            new_doc = _extract_block(reply_text)
-            if new_doc:
-                break
-            messages += [{"role": "assistant", "content": reply_text},
-                         {"role": "user", "content": "Reply now with only the complete new document in one ``` block."}]
-        (ctx.workspace.output / "refiner_prompt.md").write_text(prompt)
-        (ctx.workspace.output / "refiner_reply.txt").write_text(reply_text)
+        before = {f: (adapter / f).read_text() if (adapter / f).exists() else None
+                  for f in ("ADAPTER.md", "policy.md", "subagents.md", "skills.md", "memory.md")}
 
-        if error:
-            record["outcome"] = f"unchanged: the refiner call failed ({error})"
-        elif not new_doc or new_doc.strip() == doc.strip():
-            record["outcome"] = "unchanged: the refiner proposed no new document"
+        if structured:
+            changed = []
+            for comp in components:
+                if comp not in COMPONENTS:
+                    continue
+                fname, _, intent = COMPONENTS[comp]
+                if not (adapter / fname).exists():
+                    continue
+                cur = (adapter / fname).read_text()
+                new = self._refine(ctx, sampling, evidence, cur, f"the {comp} component (`{fname}`)", intent)
+                if new and new.strip() != cur.strip():
+                    (adapter / fname).write_text(new.strip() + "\n")
+                    changed.append(comp)
+            (adapter / "ADAPTER.md").write_text(self._render(adapter))
+            record["changed"] = changed
+            record["outcome"] = (f"refined {', '.join(changed)}" if changed else "unchanged: no component changed") + \
+                f" from {len(signals)} failure signature(s), {len(feedback)} feedback note(s)"
         else:
-            (adapter / file).write_text(new_doc.strip() + "\n")
-            check = ctx.tools["check_spec"](path=str(adapter)) if "check_spec" in ctx.tools else {"passed": True}
-            if not check.get("passed", True):
-                (adapter / file).write_text(doc)            # keep the working document; a broken rewrite is dropped
-                record["outcome"] = "unchanged: the rewrite failed check_spec: " + \
-                    "; ".join(i["problem"] for i in check.get("issues", [])[:3])
+            cur = before["ADAPTER.md"] or ""
+            intent = ("Rewrite the whole harness document — keep what works, fix what failed, codify successful "
+                      "sequences under a `## Skills` section, record discovered facts under `## Memory`, capture "
+                      "repeated multi-step patterns under `## Sub-agents`, and improve the base policy.")
+            new = self._refine(ctx, sampling, evidence, cur, "the harness document (`ADAPTER.md`)", intent)
+            if new and new.strip() != cur.strip():
+                (adapter / "ADAPTER.md").write_text(new.strip() + "\n")
+                record["outcome"] = f"refined ADAPTER.md: {len(cur)} -> {len(new)} chars"
             else:
-                record["outcome"] = (f"refined {file} from {len(signals)} failure signature(s) and "
-                                     f"{len(feedback)} feedback note(s): {len(doc)} -> {len(new_doc)} chars")
+                record["outcome"] = "unchanged: the refiner proposed no new document"
+
+        check = ctx.tools["check_spec"](path=str(adapter)) if "check_spec" in ctx.tools else {"passed": True}
+        if not check.get("passed", True):
+            for f, text in before.items():                   # a broken rewrite is dropped; keep the working harness
+                (adapter / f).write_text(text) if text is not None else None
+            record["outcome"] = "unchanged: the rewrite failed check_spec: " + \
+                "; ".join(i["problem"] for i in check.get("issues", [])[:3])
 
         state["steps"].append(record)
         state_file.write_text(json.dumps(state, ensure_ascii=False, indent=1))
@@ -199,11 +184,48 @@ Reply with the COMPLETE new harness document inside a single ``` code block, and
         return FinalResult(adapter=ctx.workspace.adapter,
                            summary=f"continual-harness refinement: {changed} of {len(steps)} steps changed the harness")
 
+    # ---------- helpers ----------
 
-def _extract_block(text: str) -> str | None:
-    """The content of the last ``` block, else None (or the whole reply if it has no fence but has content)."""
-    fences = [m.start() for m in re.finditer(r"```", text)]
-    if len(fences) >= 2:
-        inner = text[fences[-2] + 3:fences[-1]]
-        return inner.split("\n", 1)[1] if "\n" in inner else inner      # drop an optional ```lang line
-    return None
+    @staticmethod
+    def _evidence(records: list, signals: list, feedback: list, trace_chars: int) -> str:
+        runs = "\n\n".join(
+            f"### Task {r.get('id')} (status {r.get('status')})\n"
+            f"Final output: {str(r.get('output') or '(none)')[:500]}\n"
+            f"Trajectory:\n{clip_middle(trajectory_text(r), trace_chars)}" for r in records)
+        return (f"=== RECENT ROLLOUTS ===\n{runs}\n\n"
+                f"=== FAILURE SIGNATURES ===\n{chr(10).join(signals) or '(none explicit; use the feedback below)'}\n\n"
+                f"=== JUDGE FEEDBACK (a signal, not a target to game) ===\n{chr(10).join(feedback) or '(none)'}")
+
+    def _refine(self, ctx, sampling: dict, evidence: str, current: str, what: str, intent: str) -> str | None:
+        prompt = (f"You are the Refiner of a self-improving agent harness (Continual Harness). Improve {what} from the "
+                  f"agent's recent rollouts and the failures seen in them — base your edits on the failure signatures "
+                  f"and feedback, not on any score.\n\n{intent}\n\n=== CURRENT {what} ===\n{current or '(empty)'}\n\n"
+                  f"{evidence}\n\nReply with the COMPLETE new content of {what} inside a single ``` code block, and "
+                  f"nothing else.")
+        messages = [{"role": "user", "content": prompt}]
+        for _ in range(2):      # a reasoning model may spend a reply thinking; ask once more for the block
+            try:
+                reply = ctx.tools["llm"](messages=messages, **sampling)
+            except Exception:                                # noqa: BLE001 — skip this pass, as CH tolerates a failed one
+                return None
+            text = reply.get("content") or ""
+            block = _extract_block(text)
+            if block is not None:
+                return block
+            messages += [{"role": "assistant", "content": text},
+                         {"role": "user", "content": "Reply now with only the complete new content in one ``` block."}]
+        return None
+
+    @staticmethod
+    def _render(adapter: Path) -> str:
+        """The agent's context: the base policy followed by the non-empty sub-agents / skills / memory sections."""
+        policy = (adapter / "policy.md").read_text().strip() if (adapter / "policy.md").exists() else ""
+        parts = [policy]
+        for comp in ("subagents", "skills", "memory"):
+            fname, heading, _ = COMPONENTS[comp]
+            if not (adapter / fname).exists():
+                continue
+            body = (adapter / fname).read_text().strip()
+            if body and not body.lower().startswith(EMPTY):
+                parts.append(f"## {heading}\n\n{body}")
+        return "\n\n".join(parts) + "\n"
