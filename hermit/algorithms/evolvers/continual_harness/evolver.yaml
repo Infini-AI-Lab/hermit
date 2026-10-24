@@ -1,0 +1,14 @@
+description: Continual Harness-style harness refinement (Karten et al. 2026, sethkarten/continual-harness) as a hermit
+  Evolver. Each step it reads the rollout trajectories, finds failure signatures (tool-call errors, no-progress,
+  the judge's feedback), and has the run's `llm` tool CRUD-rewrite the whole harness document — base policy (p) plus
+  Sub-agents (G), Skills (K) and Memory (M) sections — to fix them. Unlike gepa/skillopt it is label-free — it never
+  scores candidates or gates on validation; it applies the refinement in place, as CH's reset-free Refiner does.
+class: evolver.py:ContinualHarnessEvolver
+needs: []
+params:
+  file: ADAPTER.md                                  # the harness document it refines (p + G/K/M as sections)
+  components: [prompt, subagents, skills, memory]    # which aspects the refinement is told to maintain
+  trace_chars: 12000                                # characters of each trajectory shown to the model
+  max_tokens: 32000
+  temperature: null                                 # null: the endpoint's default
+  min_signals: 1                                    # skip the step if fewer than this many failure/feedback signals
