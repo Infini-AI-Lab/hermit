@@ -1,0 +1,43 @@
+# Smoke: 4 training questions in 2 steps, 4 test questions, in the Codex harness. Confirms the Continual Harness
+# evolver runs end to end with codex (check -> train -> eval). GLM 5.3 Flash acts in a codex exec session per rollout
+# (one Docker container each, utils/agent/codex_sandbox.py); the Refiner rewrites ADAPTER.md from failure signatures.
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/smoke_train.txt
+  test: ../utils/splits/smoke_test.txt
+  step_size: 2
+  shuffle_seed: 42
+task_info: ../utils/task-info/
+agent:
+  name: ../utils/agent/agent.py:OfficeQAAgent
+  params:
+    harness: codex
+  concurrency: 4
+judge:
+  path: ../utils/judge.py
+template: prompt-only@1.0
+start_from: ../utils/seed_adapter
+evolver:
+  name: continual_harness
+  params:
+    components: [prompt, subagents, skills, memory]
+llm:                           # the Refiner model: GLM 5.3 Flash
+  model: fireworks/accounts/fireworks/models/glm-5p3-flash
+  extra_body: {reasoning_effort: medium}
+sandbox:
+  enabled: true
+  network: restricted
+  allow: []
+  read: []
+  env: []
+  profiles:                  # the agent's role runs unconfined: it drives Docker (each Codex session is a container of
+    rollout: {enabled: false}   # its own, codex_sandbox.py)
+trainer:
+  run_name: codex-smoke-ch
+  output_dir: runs
+  tree_dir: runs/trees/codex-smoke-ch
+  epochs: 1
+  budget: {usd: null, hours: null}
+  call_timeout_min: 60
+eval:
+  repeats: 1
