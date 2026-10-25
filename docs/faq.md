@@ -9,6 +9,15 @@ The two can overlap: a compatible harness adapter can be distributed as a native
 
 </details>
 
+<details class="ha-faq" id="what-can-a-harness-adapter-contain">
+<summary>What Can a Harness Adapter Contain?</summary>
+
+A harness adapter can contain instructions, skills, memory, tools, executable code, and agent coordination logic. It can be an entire repository implementing an external harness.
+
+Its specification defines how the agent uses it, which parts can be trained, and how updates are checked—while keeping the original model and harness unchanged.
+
+</details>
+
 <details class="ha-faq" id="why-not-evolve-the-original-harness-directly">
 <summary>Why Not Evolve the Original Harness Directly?</summary>
 

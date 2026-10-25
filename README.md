@@ -12,7 +12,7 @@
 [![Version](https://img.shields.io/badge/version-0.2.0-C6743C.svg)](pyproject.toml)
 [![Docs](https://img.shields.io/badge/docs-read-1B1D22.svg)](docs/index.md)
 
-**[Get Started](#get-started)** · **[Harness Adapters](#what-is-a-harness-adapter)** · **[Algorithms](#supported-harness-evolution-methods)** · **[Examples and Recipes](#examples-and-recipes)** · **[Docs](docs/index.md)**
+**[Get Started](#get-started)** · **[Harness Adapters](#what-is-a-harness-adapter)** · **[Methods](#supported-harness-evolution-methods)** · **[Examples and Recipes](#examples-and-recipes)** · **[FAQ](#faq)** · **[Docs](docs/index.md)**
 
 </div>
 
@@ -30,29 +30,9 @@ A **harness adapter** is a **trainable external harness** (like a plugin with bu
 
 **Why Harness Adapters?**
 
-Many harnesses are black boxes; even open-source ones have carefully designed component interactions that direct evolution can disrupt. Harness adapters let you train an external layer while keeping the original harness and model fixed.
-
-<table align="center">
-  <thead>
-    <tr><th>Benefit</th><th>What it means</th></tr>
-  </thead>
-  <tbody>
-    <tr><td><strong>Trainable</strong></td><td>Learn from task feedback.</td></tr>
-    <tr><td><strong>No changes to your existing harness</strong></td><td>Keep your acting harness and model fixed.</td></tr>
-    <tr><td><strong>Transferable</strong></td><td>Reuse across models and harnesses.</td></tr>
-  </tbody>
-</table>
+Many harnesses are black boxes; even open-source ones have carefully designed component interactions that direct evolution can disrupt. Harness adapters offer three practical benefits: **(1) No changes to your existing harness:** evolve an external adapter through supported extension interfaces, even when both the model and harness are black boxes; **(2) Transferable:** reuse across compatible models and harnesses; **(3) Trainable:** learn from task feedback.
 
 ## A Unified Framework for Harness Evolution
-
-Hermit provides an RL-style training loop for evolving harness adapters:
-
-<p align="center">
-<picture>
-<source media="(prefers-color-scheme: dark)" srcset="assets/training-loop-dark.svg">
-<img src="assets/training-loop-light.svg" alt="Animated training flow: tasks run through the acting agent and harness adapter, feedback reaches the Evolver, and checked updates become the next adapter version." width="100%">
-</picture>
-</p>
 
 ### Supported Harness Evolution Methods
 
@@ -74,6 +54,15 @@ Hermit provides an RL-style training loop for evolving harness adapters:
 </tr>
 </tbody>
 </table>
+
+Hermit provides an RL-style training loop for evolving harness adapters:
+
+<p align="center">
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset="assets/training-loop-dark.svg">
+<img src="assets/training-loop-light.svg" alt="Animated training flow: tasks run through the acting agent and harness adapter, feedback reaches the Evolver, and checked updates become the next adapter version." width="100%">
+</picture>
+</p>
 
 ### Easy to Use
 
@@ -274,6 +263,15 @@ hermit convert --adapter DIR --output OUT --target codex
 <summary><strong>How Is a Harness Adapter Different from a Plugin?</strong></summary>
 
 Think of it as a plugin with built-in training support: it defines what can be learned and checked, while Hermit manages updates and versioning from task feedback. A compatible adapter can be deployed as a native plugin.
+
+</details>
+
+<details>
+<summary><strong>What Can a Harness Adapter Contain?</strong></summary>
+
+A harness adapter can contain instructions, skills, memory, tools, executable code, and agent coordination logic. It can be an entire repository implementing an external harness.
+
+Its specification defines how the agent uses it, which parts can be trained, and how updates are checked—while keeping the original model and harness unchanged.
 
 </details>
 
