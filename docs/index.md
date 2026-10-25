@@ -66,6 +66,7 @@ methods/agent
 methods/gepa
 methods/skillopt
 methods/mwm
+methods/harness2
 ```
 
 ```{toctree}

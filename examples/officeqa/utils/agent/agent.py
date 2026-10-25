@@ -18,7 +18,7 @@ Flash on Fireworks, FIREWORKS_API_KEY) answers at medium reasoning effort, as th
 chat_target_messages calls it directly, Codex through the backend's Responses API with the provider settings in a
 CODEX_HOME of its own (no user configuration or instructions). Codex's workspaces are under `agent.params.codex_dir`,
 outside any checkout: Codex reads the instructions of the repository it runs in. A rollout the API could not serve
-raises, so it is recorded as an error rather than a wrong answer; a Codex session past its 180 s is a failed answer,
+raises, so it is recorded as an error rather than a wrong answer (so does a question whose parsed pages SkillOpt cannot find under data.json's docs: without them the rollout is not the paper's setting); a Codex session past its 180 s is a failed answer,
 as in SkillOpt.
 """
 from __future__ import annotations
@@ -192,6 +192,10 @@ class OfficeQAAgent(Agent):
         logs.mkdir(parents=True, exist_ok=True)
         item = {"id": task["id"], "question": task["question"], "task_type": task.get("category", "officeqa"),
                 "source_files": task["source_files"], "source_docs": task["source_docs"], "ground_truth": ""}
+        from skillopt.envs.officeqa.tool_runtime import build_oracle_parsed_pages_context, resolve_docs_roots
+        if not build_oracle_parsed_pages_context(item["source_files"], item["source_docs"],
+                                                 resolve_docs_roots([DATA["docs"]])):   # cached: the rollout rereads them
+            raise RuntimeError(f"no parsed pages for {task['id']} under {DATA['docs']}: see utils/prepare.py")
         started = time.time()
         for attempt in range(3):            # the API was unavailable: run the whole rollout again later
             out_root = Path(tempfile.mkdtemp(prefix=f"{task['id']}-", dir=logs))

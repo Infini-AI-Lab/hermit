@@ -1,0 +1,1 @@
+<!-- c8: codex lifecycle hooks -- the only lever that acts INSIDE the tool loop, so the model cannot skip it. Add ONE file, .codex/hooks.json, Claude-Code hook schema: {"hooks": {"PostToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "..."}]}]}}. A PostToolUse command that prints {"decision":"block","reason":"..."} feeds the reason back to the model. -->

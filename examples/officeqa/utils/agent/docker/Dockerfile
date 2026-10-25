@@ -14,7 +14,10 @@ RUN (command -v python3 && test -s /etc/ssl/certs/ca-certificates.crt) >/dev/nul
     || (apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 \
         ca-certificates && rm -rf /var/lib/apt/lists/*)
 COPY codex /opt/codex
-RUN ln -s /opt/codex/vendor/${TRIPLE}/bin/codex /usr/local/bin/codex
+# codex and ripgrep on every PATH, a login shell's included (Codex runs commands with `bash -lc`, and
+# /etc/profile resets PATH)
+RUN ln -s /opt/codex/vendor/${TRIPLE}/bin/codex /usr/local/bin/codex \
+    && ln -s /opt/codex/vendor/${TRIPLE}/codex-path/rg /usr/local/bin/rg
 # what the npm launcher sets: ripgrep on PATH, the package's root
 ENV PATH=/opt/codex/vendor/${TRIPLE}/codex-path:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     CODEX_MANAGED_PACKAGE_ROOT=/opt/codex \

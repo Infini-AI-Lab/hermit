@@ -97,10 +97,15 @@ def main() -> None:
     if docker is None:
         sys.exit("officeqa: docker not found")
     name = f"oqx-{rollout.name}-{os.getpid()}"
+    # The session runs as this user, not as the container's root: Codex's bubblewrap sandbox makes mount points in
+    # the workspace from inside a user namespace, where root cannot write a directory this user owns, and the files
+    # the session leaves stay this user's.
     cmd = [docker, "run", "--rm", "--name", name, "--label", "officeqa-codex=1", "--network", NETWORK,
            "--read-only", "--tmpfs", "/tmp:size=4g", "--pids-limit", "2048", "--memory", "6g", *SECURITY,
+           "--user", f"{os.getuid()}:{os.getgid()}",
            *mount(work), *mount(home), *mount(corpus, readonly=True), "-w", str(work),
-           "-e", f"CODEX_HOME={home}", "-e", f"HTTPS_PROXY={PROXY}", *(a for k in keys for a in ("-e", k)),
+           "-e", f"HOME={home}", "-e", f"CODEX_HOME={home}", "-e", f"HTTPS_PROXY={PROXY}",
+           *(a for k in keys for a in ("-e", k)),
            IMAGE, "sh", "-c", CHECK, "sh", str(corpus), *args]
 
     # The watcher holds the read end of a pipe whose write end only `docker run` keeps; when that ends, however it
