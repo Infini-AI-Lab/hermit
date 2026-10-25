@@ -58,7 +58,18 @@ Codex harness (`run_codex.yaml`; Codex CLI 0.134 for Linux, one container per se
 | **GEPA** (`gepa/`) | 0.564 | 0.595 |
 | **SkillOpt** (`skillopt/`) | 0.576 | 0.628 |
 
-[Harness²](../../docs/methods/harness2.md) is not in this table: it trains nothing and processes the test questions as one stream, each question refined and answered by Codex; its results are reported with [`harness2_stream/`](harness2_stream/).
+[Harness²](../../docs/methods/harness2.md) is not in this table: it trains nothing and processes the test questions as one stream, each question refined and answered by Codex; its result is reported with [`harness2_stream/`](harness2_stream/).
+
+On one row of settings for every method (GLM 5.3 Flash acts and learns, Codex 0.162.0, one evaluation pass; the
+`run_codex_flash.yaml` configs), not comparable with the table above:
+
+| Method | accuracy |
+|---|---|
+| no skill | 0.541 |
+| initial skill | 0.576 |
+| **GEPA**, mean of 4 trainings | 0.580 |
+| **SkillOpt**, mean of 4 trainings | 0.600 |
+| **Harness²**, one stream over the test questions | 0.651 |
 
 Paired differences with 95% intervals, each run's selection and cost, the Codex sessions' isolation and the
 differences from the paper: the [recipe](../../docs/recipes/officeqa.md#results).

@@ -57,8 +57,11 @@ subagents and hooks are all levers.
 An acting agent deploys the tree itself: `AGENTS.md`, `.agents/`, `scripts/` and `.codex/` are copied to the
 workspace root (upstream's `codex_root` install), `sub_agents/` become agent roles in the session's `CODEX_HOME`, and
 the session runs with `--dangerously-bypass-hook-trust` so the hooks fire. The OfficeQA agent does this in a Docker
-container per session ([example](../../examples/officeqa/harness2_stream/)); the trajectory is the `codex exec
---json` event stream, rendered by upstream's own Codex renderer.
+container per session ([example](https://github.com/haizhongzheng/hermit/tree/main/examples/officeqa/harness2_stream)); the trajectory is the `codex exec
+--json` event stream, rendered by upstream's own Codex renderer. On OfficeQA's 172 test questions as one stream, with
+GLM 5.3 Flash as executor and editors, the deliverable scores 0.651 against 0.576 for the initial skill it starts
+from, +7.6 [+1.7, +13.4] paired ([the example's result](https://github.com/haizhongzheng/hermit/tree/main/examples/officeqa/harness2_stream#result), [the
+recipe's Flash row](../recipes/officeqa.md#the-flash-row)).
 
 ## Continuing a stream
 
@@ -76,5 +79,5 @@ An interrupted run is instead resumed in place, as any run ([runs guide](../guid
 
 ## Example
 
-[`examples/officeqa/harness2_stream/`](../../examples/officeqa/harness2_stream/) runs the 172 OfficeQA test
+[`examples/officeqa/harness2_stream/`](https://github.com/haizhongzheng/hermit/tree/main/examples/officeqa/harness2_stream) runs the 172 OfficeQA test
 questions as one stream, with GLM 5.3 Flash as both the executor (in Codex) and the editors' model.

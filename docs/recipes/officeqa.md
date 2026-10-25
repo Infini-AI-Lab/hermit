@@ -132,6 +132,8 @@ smoke runs four.
 | `skillopt/smoke_codex.yaml` | Codex | 4 / 2 / 4 | 2 | 2 | none | 90 | `codex-smoke-skillopt` |
 | `skillopt/run.yaml` | direct | 50 / 24 / 172 | 40 | 4 | USD 40, 30 h | 180 | `paper-skillopt` |
 | `skillopt/run_codex.yaml` | Codex | 50 / 24 / 172 | 40 | 4 | none | 360 | `codex-skillopt` |
+| `gepa/run_codex_flash.yaml` | Codex 0.162 | 50 / 24 / 172 | 3 | 4 | none | 180 | `flash-codex-gepa` |
+| `skillopt/run_codex_flash.yaml` | Codex 0.162 | 50 / 24 / 172 | 40 | 4 | none | 360 | `flash-codex-skillopt` |
 
 `call_timeout_min` is the time, in minutes, the Trainer allows each Evolver call (setup, a step, finalize); Codex
 sessions are slower, so `run_codex.yaml` allows more. `gepa/run.yaml` uses GEPA's default reflection minibatch of 3
@@ -139,7 +141,11 @@ sessions are slower, so `run_codex.yaml` allows more. `gepa/run.yaml` uses GEPA'
 (68 steps), since the paper does not publish its GEPA settings. `skillopt/run.yaml` uses the paper's SkillOpt
 hyperparameters: 4 epochs of batches of 40 (2 steps each), minibatch 8, merge 8, learning rate 4 decaying to 2,
 validation gate, gated slow update, and meta skill, with `prompt_env: officeqa` and `trajectory_view: paper`.
-[Harness²](../methods/harness2.md) has no training run: it processes the test questions as one stream, with Codex as the acting agent; see [`harness2_stream/`](../../examples/officeqa/harness2_stream/).
+The two `run_codex_flash.yaml` configs are `run_codex.yaml` with GLM 5.3 Flash as the learner too, one evaluation
+pass, and the Codex 0.162.0 image (`OFFICEQA_CODEX_IMAGE=officeqa-codex:0.162.0`): the settings of
+[the Flash row](#the-flash-row), shared with the Harness² stream.
+[Harness²](../methods/harness2.md) has no training run: it processes the test questions as one stream, with Codex as
+the acting agent; see [`harness2_stream/`](https://github.com/haizhongzheng/hermit/tree/main/examples/officeqa/harness2_stream) for its protocol and result.
 `skillopt/smoke.yaml` runs 4 training questions in 2 epochs of 2 steps. Run it first, then the full configs:
 
 ```bash
@@ -345,6 +351,57 @@ An earlier Codex-harness run on macOS, with Codex's own sandbox limited to reads
 the corpus, gave 0.539, 0.531, 0.591 and 0.597 for the four skills (none, initial, GEPA, SkillOpt). There `/tmp`
 stayed shared and the sessions' shells inherited the environment of the shell that started the runs; those numbers
 are not the results above.
+
+### The Flash row
+
+A second row of settings, on which every method in the repository is measured alike: GLM 5.3 Flash (medium) acts
+**and learns**, every session is Codex 0.162.0 in a container of its own (the image `officeqa-codex:0.162.0`), the
+test questions are evaluated **once** (`eval.repeats: 1`, a standard error of about 3.7 points per accuracy), the
+learner's spending is recorded (Codex sessions record only tokens). Not comparable with the table above (Codex
+0.134, GLM 5.3 as the learner, three passes). GEPA and SkillOpt were each trained four times from the same config
+(`gepa/run_codex_flash.yaml`, `skillopt/run_codex_flash.yaml`; run names `flash-codex-gepa`, `-r2`, `-r3`, `-r4`
+and `flash-codex-skillopt`, `-r2`, `-r3`, `-r4`), each `final` evaluated once; Harness² is one stream over the
+same 172 questions ([`harness2_stream/`](https://github.com/haizhongzheng/hermit/tree/main/examples/officeqa/harness2_stream#result)), which answers each
+question once while learning and is therefore not an evaluation of a frozen adapter.
+
+| Method | Protocol | accuracy | Runs |
+|---|---|---|---|
+| none: the agent without an adapter | one pass | 0.541 | |
+| SkillOpt's initial skill | one pass | 0.576 | |
+| GEPA, `final` | train on 50 / select on 24 / test on 172 | **0.580** (sd 0.031) | 0.541, 0.610, 0.599, 0.570 |
+| SkillOpt, `final` | train on 50 / select on 24 / test on 172 | **0.600** (sd 0.003) | 0.599, 0.605, 0.599, 0.599 |
+| Harness², deliverable | stream over the 172, no training split, no judge verdict | **0.651** | one stream (seed 0); its reference execution of the initial skill: 0.576 |
+
+Paired per question, 95% bootstrap intervals; a method's four runs are averaged per question first:
+
+| Difference | points |
+|---|---|
+| initial skill − none | +3.5 [−2.3, +9.9] |
+| GEPA − none | +3.9 [−2.3, +10.5] |
+| SkillOpt − none | +6.0 [−0.3, +12.4] |
+| GEPA − initial skill | +0.4 [−5.4, +6.2] |
+| SkillOpt − initial skill | +2.5 [−3.6, +8.6] |
+| SkillOpt − GEPA | +2.0 [−1.0, +5.1] |
+| Harness² deliverable − its reference execution | **+7.6** [+1.7, +13.4] |
+
+- GEPA's four trainings spread over 7 points of test accuracy for the same validation score (its `final` was
+  candidate 3 of 21, 1 of 11, 9 of 23 and 12 of 23, validation means 0.708, 0.708, 0.750, 0.792; the initial
+  skill's validation mean itself ranged 0.458–0.625 across the runs' own evaluations of it); SkillOpt's four `final`
+  skills (its best skill from steps 1, 6, 2, 1; validation 0.750, 0.792, 0.750, 0.750) are different texts of
+  3.2–13.9 KB that differ on 27–39 questions each while landing on the same total. Report the means, never one run.
+- The learned skills quote training questions' answers and particulars (bare-number examples, a month count, a
+  table's row label); no `final` skill quotes a test answer (one quoted training answer, 2.916, is also a test
+  question's).
+- Of each evaluation's 172 sessions, 1–4 reached the harness's 180 s cap and scored 0 (4 without a skill);
+  about one session in ten tried the network or searched the host's file system before answering, and found
+  neither (the container holds the workspace and the read-only corpus; the session's commands have no network).
+- Learner spending and training time, at the backend's prices: GEPA USD 0.09, 0.07, 0.06, 0.08 in 3.2, 2.5, 2.9,
+  3.1 h; SkillOpt USD 0.15, 0.17, 0.15, 0.14 in 1.4, 1.3, 1.2, 1.3 h; Harness² USD 25.86 of editor sessions and
+  USD 1.62 of executions in 20.5 h, about 0.16 USD per question against GEPA's and SkillOpt's 0.01 (the executions'
+  Codex tokens are not priced).
+- Of the misses in each evaluation, about nine are the right number in the wrong form, mostly a missing `%` where
+  the reference answer carries one (13 of the 172 do, and the reference answers are not consistent about it);
+  the judge keeps `%` and strips commas, `$` and `million`.
 
 ## Included adapters
 

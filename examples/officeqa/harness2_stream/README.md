@@ -76,6 +76,35 @@ question whose composed harness gave no answer, is `judged` there. The same file
 (`runs.base1`, H0 on the same question) and the two probes. Each step's output holds upstream's records of the
 question: the evidence each session saw, the candidate harnesses, the notes and the lesson.
 
-The paper reports the mean of three streams with different seeds (`SEED`). With GLM 5.3 Flash a question costs
-four executions (about 0.01 USD) and four editor sessions (about 0.1 USD) and takes about 7 minutes, so a stream
-costs about 20 USD and a day.
+## Result
+
+One stream, `SEED=0`, over the 172 test questions (run `h2-codex-s0`, 2026-10-23/24: the first 10 questions, then a
+continuation on the remaining 162). Executor and editors GLM 5.3 Flash at medium effort, Codex 0.162.0, one container
+per session, 3,600 s per session; exact match; one pass, so each accuracy carries a standard error of about 3.7
+points.
+
+| Execution | accuracy |
+|---|---|
+| reference: H0, the initial skill (`runs.base1`) | 0.576 |
+| INV probe (`runs.inv1`) | 0.651 |
+| DOM probe (`runs.dom1`) | 0.645 |
+| **deliverable: the composed harness (`runs.agg1`)** | **0.651** |
+
+Deliverable − reference, paired per question with a 95% bootstrap interval: **+7.6** [+1.7, +13.4]. Per question,
+the deliverable fixed 19 the reference got wrong and lost 6 it got right; on 12 more a probe or the reference was
+right and the deliverable wrong. Majority of the three single executions: 0.663; any of the four right: 0.721
+(upper bounds on what delivery could reach, not results).
+
+The 6 losses are answer-form drift, not retrieval: the judge keeps `%` but strips commas, `million` and `$`, and the
+reference answers carry `%` on some questions and not on others; the deliverable copies the form the editors chose.
+The library ends with 160 adopted harnesses (148 skills, 92 scripts, no sub-agents, 27 with stored constants); the
+editors cite it in about four of five sessions; the cost per question stays flat along the stream.
+
+Spending and time: editor sessions USD 25.86, executions USD 1.62, 20.5 h in all, about 7 minutes and 0.16 USD per
+question. On the same questions, under the same executor, Codex version and one pass, no adapter scores 0.541 and
+the initial skill 0.576; GEPA and SkillOpt trained with GLM 5.3 Flash as the learner score 0.580 and 0.600 (means
+of four trainings each): the [recipe's Flash row](../../../docs/recipes/officeqa.md#the-flash-row). Those two are
+evaluated frozen after training on the 74 training and validation questions; this stream answers each test
+question once, with no training split, and learns from its own executions without the judge's verdict.
+
+The paper reports the mean of three streams with different seeds (`SEED`); this is one.
