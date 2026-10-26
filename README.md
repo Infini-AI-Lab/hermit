@@ -151,7 +151,7 @@ Train and evaluate harness adapters on benchmarks using different evolution meth
 </tr>
 <tr>
 <td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/reharness.html">ReHarness</a></td>
-<td><a href="examples/clbench_database/reharness/">CL-Bench database</a> · <a href="examples/clbench_poker/reharness/">CL-Bench poker</a> · <a href="examples/officeqa/reharness/">OfficeQA</a></td>
+<td><a href="examples/clbench_database/reharness/">CL-Bench database</a> · <a href="examples/clbench_poker/reharness/">CL-Bench poker</a></td>
 </tr>
 <tr>
 <td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/skillopt.html">SkillOpt</a></td>

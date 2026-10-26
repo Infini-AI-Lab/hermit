@@ -166,7 +166,6 @@ Each row of [Results](#results) is the `mean_score` of one evaluation, in the fo
 | initial skill | `skillopt/run.yaml` | `../utils/seed_adapter` | `skillopt/runs/paper-skillopt/eval/seed_adapter/` |
 | GEPA | `gepa/run.yaml` | `final` | `gepa/runs/paper-gepa/eval/final/` |
 | SkillOpt | `skillopt/run.yaml` | `final` | `skillopt/runs/paper-skillopt/eval/final/` |
-| ReHarness, direct chat | `reharness/run.yaml`, through `reharness/launch.sh run eval` ([ReHarness](#reharness)) | `final` | `reharness/runs/paper-reharness/eval/final/` |
 
 The Codex column uses `run_codex.yaml` in the same commands (run names `codex-gepa` and `codex-skillopt`), after the
 setup below.
@@ -249,67 +248,6 @@ transcripts; a session that times out leaves none), about 200 tried the network 
 container holds nothing else. The proxy let through only connections to the model provider and refused Codex's own
 to chatgpt.com, ab.chatgpt.com and api.github.com.
 
-## ReHarness
-
-[ReHarness](https://arxiv.org/abs/2610.12668) (Xiao et al., 2026) learns a bank of reflections, one per question
-seen, instead of one skill: before each question the harness retrieves the five reflections whose source questions
-are closest to it (Qwen3-Embedding-8B, cosine) and appends them to the agent's context below `ADAPTER.md`; after
-it, the Evolver revises each retrieved reflection from its own source trajectory with the new one as feedback, and
-writes the question's reflection. The method is strictly online: one pass over a stream, one question per step, no
-validation set, no replay ([ReHarness](../methods/reharness.md) has its controls). `examples/officeqa/reharness/`
-runs it in direct chat with the `reharness` Evolver on the `reharness` template, starting from SkillOpt's initial
-skill as `ADAPTER.md` (`make_seed.py` writes `seed_adapter/`: the skill, then the template's framing of the retrieved
-reflections, over an empty bank), with GLM 5.3 Flash at medium effort as the acting model and as the reflection and
-revision agents, as the paper uses one backbone for every agent. `utils/agent/agent.py` hands the question to the
-adapter's context tool (`Session.context(query=question, task=row)`) and records what was retrieved in the output's
-`extra["context_tool"]`.
-
-Two protocols, because the paper's is not this page's:
-
-| Config | Stream (`data.train`) | Test | `run_name` | The number |
-|---|---|---|---|---|
-| `reharness/smoke.yaml` | the 4 smoke training questions | the 4 smoke test questions, one pass | `smoke-reharness` | none: a smoke |
-| `reharness/run.yaml` | the 50 training questions | 172, three passes | `paper-reharness` | `mean_score` in `reharness/runs/paper-reharness/eval/final/summary.json` |
-| `reharness/stream.yaml` | the 172 test questions | none | `stream-reharness` | the mean of `rollout.mean_score` over the steps of `reharness/runs/stream-reharness/steps.jsonl` (step 0, the bootstrap, has none) |
-
-`run.yaml` is the setting of [Results](#results): the bank is written from the 50 training questions in the split's
-order, then frozen and evaluated on the 172 test questions like the GEPA and SkillOpt skills, so its row is
-comparable with theirs. `stream.yaml` is the paper's protocol: the 172 test questions are themselves the stream;
-each is answered with the bank written from the questions before it and scored before the Evolver reads it, so the
-judge's feedback, which names the reference answer, reaches the bank only after the question was answered, as the
-environment's reward does. Its number is not comparable with the Results table (the method learns from the test
-questions themselves, and each is answered once), only with other methods run under the same protocol. Neither
-protocol uses a validation split: there is no candidate selection, and `final` is the bank after the stream. All
-three configs set `data.step_size: 1`, `data.shuffle: false` and `trainer.epochs: 1`, a budget of USD 5 / 3 h
-(smoke) or USD 40 / 30 h, and `call_timeout_min: 30`.
-
-The adapter's reader runs in the rollouts' adapter sandbox, which has no keys and reaches only the loopback
-endpoints named in the environment, so the configs are started through `launch.sh`: it starts a wire meter
-(`python -m hermit.runtime.wire_meter`) on `WM_PORT` in front of Fireworks that signs the reader's requests with
-`FIREWORKS_API_KEY` (or reuses one already there), exports `REHARNESS_EMBED_URL` to it, writes `seed_adapter/`, and
-runs the command with the Evolver's embedding model bound to the same relay (`evolver.params.embedding`), so the
-meter's ledger, `reharness/runs/wire_ledger-<port>.json`, holds the whole embedding bill under the bucket
-`officeqa_reharness_<config>`. The key comes from the environment or the file `MW_KEY_FILE` names and is written
-nowhere. Further arguments go to `hermit` as they are:
-
-```bash
-FIREWORKS_API_KEY=... WM_PORT=3601 examples/officeqa/reharness/launch.sh smoke check --no-probe
-FIREWORKS_API_KEY=... WM_PORT=3601 examples/officeqa/reharness/launch.sh smoke
-FIREWORKS_API_KEY=... WM_PORT=3601 examples/officeqa/reharness/launch.sh smoke eval
-FIREWORKS_API_KEY=... WM_PORT=3601 examples/officeqa/reharness/launch.sh run
-FIREWORKS_API_KEY=... WM_PORT=3601 examples/officeqa/reharness/launch.sh run eval            # --adapter final
-FIREWORKS_API_KEY=... WM_PORT=3601 examples/officeqa/reharness/launch.sh stream
-```
-
-`eval` takes `--adapter final` unless another selector is given (`--adapter seed_adapter` is the initial skill over
-an empty bank, which retrieves nothing). An interrupted stream is resumed in place by the same command
-(`resume_mode: auto`). The run's records are those of [Outputs and scoring](#outputs-and-scoring), plus the bank:
-`<run>/checkout/reflections/<id>.json`, one per question of the stream, each with its revisions, and
-`<run>/workspace/state/reharness.json`, what each step retrieved, revised and wrote.
-
-The Codex-harness variant is not provided: `reharness/` has no `run_codex.yaml`, and no Codex-harness number is
-reported for the method.
-
 ## Outputs and scoring
 
 A run's records are under `examples/officeqa/<method>/runs/<run name>/` (`<run>` below):
@@ -350,8 +288,7 @@ replaces its records.
 
 All numbers come from the full configs (`run.yaml`, `run_codex.yaml`); none from a smoke run. Agent: GLM 5.3 Flash
 (reasoning effort medium) in SkillOpt's rollout, in direct chat or in the Codex harness (Codex CLI 0.134 for Linux,
-one container per session). Learner: GLM 5.3 (medium) for GEPA and SkillOpt; ReHarness's reflection and revision
-agents are the acting model, GLM 5.3 Flash (medium) ([ReHarness](#reharness)). Test: 172 questions, three passes each.
+one container per session). Learner: GLM 5.3 (medium). Test: 172 questions, three passes each.
 
 | Skill | Direct chat | Codex harness |
 |---|---|---|
@@ -359,7 +296,6 @@ agents are the acting model, GLM 5.3 Flash (medium) ([ReHarness](#reharness)). T
 | SkillOpt's initial skill (`utils/seed_adapter/`) | 0.465 | 0.564 |
 | GEPA's trained skill | 0.564 ([card](https://github.com/Infini-AI-Lab/hermit/blob/main/examples/officeqa/gepa/adapter/CARD.md)) | 0.595 |
 | SkillOpt's trained skill | 0.576 ([card](https://github.com/Infini-AI-Lab/hermit/blob/main/examples/officeqa/skillopt/adapter/CARD.md)) | 0.628 |
-| ReHarness's bank (`reharness/run.yaml`): the initial skill plus the five reflections retrieved per question, written from the 50 training questions | 0.579 | not provided |
 
 Paired differences in points of accuracy, with 95% bootstrap intervals over questions; bold where the interval lies
 above zero. In direct chat, the trained skills' wins over the initial skill were reported without their intervals,
@@ -378,10 +314,6 @@ The two methods are not separated in either harness. GEPA − none in the Codex 
 items whose sources drifted ([Reproduction limits](#reproduction-limits)) it becomes +5.8 [+0.6, +11.2]; every other
 conclusion holds without them.
 
-ReHarness is not in the differences table: the baselines' per-question results are not in the repository, so no
-paired interval. Its own 95% bootstrap interval over questions is [0.514, 0.645], which covers both trained skills'
-means; its run is described in the [example](https://github.com/haizhongzheng/hermit/blob/main/examples/officeqa/README.md#results).
-
 - The agent starts higher in the Codex harness: it runs shell commands and its own scripts, without direct chat's
   turn and reply limits. The initial skill does not help there.
 - Of each adapter's 516 Codex-harness test attempts, sessions past 180 s made 12 wrong without a skill, 17 with the
@@ -397,7 +329,6 @@ What each run handed back as `final` (validation mean); the direct-chat rows are
 | SkillOpt, direct chat | its best skill, from step 5 (0.750) |
 | GEPA, Codex harness | candidate 13 of 18 (0.750; initial skill 0.625) |
 | SkillOpt, Codex harness | its one accepted update, from step 1 (0.708); it rejected the rest |
-| ReHarness, direct chat | the bank after the 50th question, 49 reflections (strictly online: no validation, no selection) |
 
 Neither Codex-trained skill contains a test answer.
 
@@ -407,7 +338,6 @@ The included cards also record the direct-chat runs' training time and spending,
 |---|---|---|---|---|---|
 | GEPA (`gepa/run.yaml`) | 68 | 6.48 h | USD 1.3869 | USD 7.4196 | USD 3.4533 |
 | SkillOpt (`skillopt/run.yaml`) | 8 | 2.40 h | USD 1.3500 | USD 4.5337 | USD 3.4350 |
-| ReHarness (`reharness/run.yaml`) | 50 | 1.39 h | USD 0.3978 | USD 0.8963 | USD 3.9676 |
 
 These are observations for planning. Not recorded here:
 
@@ -442,7 +372,6 @@ evaluations of a frozen adapter.
 | SkillOpt's initial skill | one pass | 0.576 | |
 | GEPA, `final` | train on 50 / select on 24 / test on 172 | **0.580** (sd 0.031) | 0.541, 0.610, 0.599, 0.570 |
 | SkillOpt, `final` | train on 50 / select on 24 / test on 172 | **0.600** (sd 0.003) | 0.599, 0.605, 0.599, 0.599 |
-| ReHarness, `final` (the bank after the 50) | train on 50 as a stream / no selection / test on 172 | **0.625** (sd 0.026) | 0.663, 0.616, 0.616, 0.605 |
 | Continual Harness, the stream's answers | stream over the 172, no training split, no judge verdict | **0.634** | one stream (the same seed-0 order) |
 | Harness², deliverable | stream over the 172, no training split, no judge verdict | **0.651** | one stream (seed 0); its reference execution of the initial skill: 0.576 |
 
@@ -459,7 +388,6 @@ Paired per question, 95% bootstrap intervals; a method's four runs are averaged 
 | Harness² deliverable − its reference execution | **+7.6** [+1.7, +13.4] |
 | Continual Harness − Harness²'s reference execution | +5.8 [−1.2, +12.8] |
 | Continual Harness − Harness² deliverable | −1.7 [−7.6, +4.1] |
-| ReHarness `final` (mean of 4) − initial skill, its own reference execution (0.564) | +6.1 [+0.0, +12.2] |
 
 - GEPA's four trainings spread over 7 points of test accuracy for the same validation score (its `final` was
   candidate 3 of 21, 1 of 11, 9 of 23 and 12 of 23, validation means 0.708, 0.708, 0.750, 0.792; the initial
@@ -477,13 +405,6 @@ Paired per question, 95% bootstrap intervals; a method's four runs are averaged 
   USD 1.62 of executions in 20.5 h, about 0.16 USD per question against GEPA's and SkillOpt's 0.01 (the executions'
   Codex tokens are not priced); Continual Harness USD 3.67 of Refiner calls and USD 2.81 of executions in 8.6 h,
   about 0.04 USD per question.
-- ReHarness's four `final` banks (49 or 50 reflections of 7.8 to 8.6 K characters on average; in three runs one
-  write was lost to a reply cut off at `max_tokens` twice) spread over 6 points of test accuracy for the same
-  config, as GEPA's skills do; report the mean. Its reference execution of the initial skill ran under its own
-  acting harness (`utils/agent/codex_agent.py`, 3,600 s sessions), 0.564 against Harness²'s 0.576 for the same
-  text, within one pass's noise; the paired difference is against that execution. Training: USD 0.69 to 0.89 of
-  sessions and USD 1.23 to 1.30 of reflection and revision calls in 1.3 to 1.4 h; each evaluation USD 2.22 to 3.33
-  in 19 to 25 minutes; the embedding calls (about 50 per training, one per question evaluated) carry no price.
 - The two streams are within one stream's noise of each other (11 questions only Continual Harness gets right, 14
   only Harness²); Continual Harness scores 0.663 on the first half of the stream and 0.605 on the second, Harness²
   0.640 and 0.663.
@@ -504,10 +425,6 @@ hermit eval --config examples/officeqa/skillopt/run.yaml --adapter adapter
 Numbers they copied from training answers are replaced by made-up numbers of the same form, so their cards' scores
 are those of the adapters as trained; re-evaluate the distributed adapters when that distinction matters.
 
-No ReHarness bank is included: its reflections quote the training questions' reference answers from the judge's
-feedback (37 of the 49 in the direct-chat `run.yaml` bank), which the repository does not redistribute. Each
-ReHarness run's card is in its checkout (`reharness/runs/<run>/checkout/CARD.md`), with the bank beside it.
-
 ## Reproduction limits
 
 This setup differs from the paper's:
@@ -522,13 +439,6 @@ This setup differs from the paper's:
 - Data: questions and answers from the latest dataset revision. `data.json` lists the items whose sources changed
   since the paper's revision: 6 test and 2 training questions for the results above. The results hold without them,
   except that in the Codex harness GEPA − no skill becomes +5.8 [+0.6, +11.2].
-- ReHarness: OfficeQA is not a benchmark of the ReHarness paper (CL-Bench, MemoryBench, MemoryArena; Claude Opus
-  4.8, GPT-5.5 and Gemini 3.7 Flash), so its rows here are this repository's settings, not a reproduction of a
-  published number: GLM 5.3 Flash as every agent, SkillOpt's initial skill as the text above the reflections, the
-  venue's acting pipeline as the decision agent, cosine ranking. The shared stream withholds the judge's verdict
-  (`feedback: false`) that the paper's environment outcome provides; the split run selects nothing, as the method
-  has no validation step. The method page lists
-  [where the integration departs from the paper](../methods/reharness.md#where-this-integration-departs-from-the-paper).
 
 Hosted models and the dataset can change independently of the code, so the same commit need not give the same
 numbers.

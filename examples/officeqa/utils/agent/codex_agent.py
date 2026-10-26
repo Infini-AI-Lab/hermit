@@ -18,11 +18,6 @@ provider; Codex's workspace-write sandbox runs inside it, so the session's comma
         codex_dir: ~/.cache/hermit/officeqa-h2-codex   # workspaces, homes and logs, outside any checkout
         docs: null                     # the corpus; default ../data.json's docs (utils/prepare.py)
 
-An adapter that is context rather than a Codex tree (`ADAPTER.md` and no `AGENTS.md`: the prompt-only and reharness
-templates) is deployed as `AGENTS.md` holding its context for this question, `Session.context(query=question,
-task=row)`: `ADAPTER.md` and, when the manifest declares a context tool, what that tool renders for the question
-(ReHarness's retrieved reflections; the tool's whole result is recorded in the output's `extra["context_tool"]`).
-
 The answer is the text inside the last `<answer>...</answer>` of Codex's final message; a session that ends without
 one answers nothing, and `fail_reason` says why. A session the provider could not serve (429, 5xx) is run again
 later, up to three times; a container that could not start raises. The rollout's log is a directory:
@@ -110,13 +105,10 @@ def frontmatter(text: str) -> tuple[dict[str, str], str]:
     return head, body[body.find("\n") + 1:] if "\n" in body else ""
 
 
-def deploy_harness(adapter: Path | None, work: Path, context: str | None = None) -> dict:
+def deploy_harness(adapter: Path | None, work: Path) -> dict:
     """The adapter's Codex tree into the workspace root, as upstream installs it; the sub_agents are returned for
-    the home's config (name, description, instructions). An adapter without an `AGENTS.md` is deployed as one
-    holding `context` (the Session's context for this question) when that is given. Without an adapter the
-    workspace carries no harness."""
-    out: dict = {"agents_md": False, "skills": [], "scripts": [], "hooks": False, "sub_agents": [], "memory": False,
-                 "context": False}
+    the home's config (name, description, instructions). Without an adapter the workspace carries no harness."""
+    out: dict = {"agents_md": False, "skills": [], "scripts": [], "hooks": False, "sub_agents": [], "memory": False}
     if adapter is None:
         return out
     adapter = Path(adapter)
@@ -127,9 +119,6 @@ def deploy_harness(adapter: Path | None, work: Path, context: str | None = None)
                             ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
         elif src.is_file():
             shutil.copy2(src, work / entry)
-    if not (work / "AGENTS.md").is_file() and context and context.strip():
-        (work / "AGENTS.md").write_text(context.rstrip("\n") + "\n", encoding="utf-8")
-        out["context"] = True
     out["agents_md"] = (work / "AGENTS.md").is_file()
     out["skills"] = sorted(p.parent.name for p in (work / ".agents" / "skills").glob("*/SKILL.md"))
     out["scripts"] = sorted(p.name for p in (work / "scripts").glob("*.py"))
@@ -219,16 +208,6 @@ class OfficeQACodexAgent(Agent):
         corpus = Path(docs).resolve()
         self._ready(corpus)
         text, roots = task_text(task, docs)
-        # A context adapter (no AGENTS.md of its own): its context for this question, retrieved once here, before the
-        # session, and deployed as the session's AGENTS.md; a Codex tree keeps its own AGENTS.md.
-        context, context_tool = None, None
-        if adapter is not None and not (Path(adapter) / "AGENTS.md").is_file() and (Path(adapter) / "adapter.yaml").is_file():
-            session = self.session(adapter)
-            try:
-                context = session.context(query=task["question"], task=task)
-                context_tool = session.last_context
-            finally:
-                session.close()
         effort = str(self.params.get("effort") or EFFORT)
         timeout_s = float(self.params.get("timeout_s") or TIMEOUT_S)
         rollouts = Path(os.path.expanduser(str(self.params.get("codex_dir") or CODEX_DIR))) / "rollouts"
@@ -241,7 +220,7 @@ class OfficeQACodexAgent(Agent):
             for d in (work, home, log):
                 shutil.rmtree(d, ignore_errors=True)
                 d.mkdir(parents=True)
-            deployed = deploy_harness(adapter, work, context)
+            deployed = deploy_harness(adapter, work)
             keys = write_home(home, binding, deployed["sub_agents"])
             prompt = PROMPT + ("\n" + MEMORY_NOTE if deployed["memory"] else "")
             (work / "task.md").write_text(text, encoding="utf-8")
@@ -289,8 +268,7 @@ class OfficeQACodexAgent(Agent):
             shutil.copytree(work / "memory", log / "memory", dirs_exist_ok=True)
         (log / "last_message.txt").write_text(last, encoding="utf-8")
         (log / "harness.json").write_text(json.dumps({**deployed, "sub_agents": [r["name"] for r in
-                                                                                  deployed["sub_agents"]],
-                                                      "context_tool": context_tool}, indent=1, default=str))
+                                                                                  deployed["sub_agents"]]}, indent=1))
         shutil.rmtree(work / "docs", ignore_errors=True)       # the mount point and any links: the corpus stays out
         _, usage = parse_log(log / "agent-codex.jsonl", "codex", binding.ref)
         u = usage[0] if usage else None
@@ -307,5 +285,4 @@ class OfficeQACodexAgent(Agent):
                                 "turns": u.calls if u else 0, "actions": actions, "exit_code": code,
                                 "session_timed_out": timed_out, "workspace": str(work),
                                 "deployed": {k: v for k, v in deployed.items() if k != "sub_agents"}
-                                | {"sub_agents": [r["name"] for r in deployed["sub_agents"]]}}
-                              | ({"context_tool": context_tool} if context_tool is not None else {}))
+                                | {"sub_agents": [r["name"] for r in deployed["sub_agents"]]}})

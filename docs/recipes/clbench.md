@@ -64,6 +64,16 @@ MW_TAG=reharness-db WM_PORT=3481 MW_ORDERS="0" examples/clbench_database/reharne
 MW_TAG=reharness-poker WM_PORT=3491 MW_ORDERS="0" examples/clbench_poker/reharness/launch.sh
 ```
 
+The reported runs were made this way inside the offline container of [`docker/offline.sh`](https://github.com/Infini-AI-Lab/hermit/blob/main/docker/README.md),
+whose only route out is Fireworks:
+
+```bash
+docker/offline.sh run MW_TAG=rh_db_flash WM_PORT=3481 MW_ORDERS="0 1 2 3 4" MW_RUNS=<runs> \
+  examples/clbench_database/reharness/launch.sh
+docker/offline.sh run MW_TAG=rh_poker_flash WM_PORT=3491 MW_ORDERS="0 1 2 3 4" MW_RUNS=<runs> \
+  examples/clbench_poker/reharness/launch.sh
+```
+
 The protocol is the paper's: streaming. Each question or hand is answered with the bank as it stands, then the
 Evolver reads the trajectory with the venue's verdict as its outcome (`feedback: true`, the Evolver's default: the
 accuracy verdict, or the hand's net chips), so the stream is online-supervised, and the stream's own scores are the

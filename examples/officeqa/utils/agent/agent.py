@@ -10,11 +10,8 @@ run again with its reply, up to 24 sessions. SkillOpt summarizes the sessions in
 analyst reads. Codex runs through codex_sandbox.py, in a container of its own (docker/) that sees only the workspace
 and the corpus and reaches only the model provider, with Codex's workspace-write sandbox inside it.
 
-The adapter's context is the skill: ADAPTER.md and, below it, what the adapter's context tool renders for the question
-when its manifest declares one (ReHarness's retrieved reflections; Session.context(query=question, task=row), whose
-whole result is recorded in the output's extra["context_tool"]). adapter=None runs without one. The run's SkillOpt
-prediction files (conversation.json, target_*_prompt.txt; for codex also codex_raw.txt and codex_trace_summary.txt)
-are its log.
+The adapter's ADAPTER.md is the skill; adapter=None runs without one. The run's SkillOpt prediction files
+(conversation.json, target_*_prompt.txt; for codex also codex_raw.txt and codex_trace_summary.txt) are its log.
 
 The target model (`agent.params.model`, a `<backend>/<model>` reference, see hermit.backends; default GLM 5.3
 Flash on Fireworks, FIREWORKS_API_KEY) answers at medium reasoning effort, as the paper runs its student: SkillOpt's
@@ -189,8 +186,7 @@ class OfficeQAAgent(Agent):
         from skillopt.envs.officeqa.rollout import process_one
 
         session = self.session(adapter)
-        # The question is the instance's input: what the adapter's context tool, if it declares one, retrieves for.
-        skill = session.context(query=task["question"], task=task).strip() if session is not None else ""
+        skill = session.context().strip() if session is not None else ""
         codex = _harness(self.params) == "codex"
         logs = _codex_dir(self.params) / "rollouts" if codex else HERE / ".logs"
         logs.mkdir(parents=True, exist_ok=True)
@@ -242,8 +238,6 @@ class OfficeQAAgent(Agent):
             # SkillOpt reports a session past its 180 s as "timed out after" or, from its own timeout handler (it writes
             # Codex's output as bytes), as "write() argument must be str, not bytes"
             extra["session_timed_out"] = any(s in result["fail_reason"] for s in ("timed out after", "str, not bytes"))
-        if session is not None and session.last_context is not None:
-            extra["context_tool"] = session.last_context      # what the adapter's context tool rendered for this question
         return RunOutput(output={"answer": answer, "fail_reason": "" if result["agent_ok"] else result["fail_reason"]},
                          log=pred_dir, messages=messages, cost_usd=cost, tokens=tokens,
                          wall_s=round(time.time() - started, 1), api_speed={"model_calls": totals["calls"]}, extra=extra)
