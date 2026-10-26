@@ -166,6 +166,7 @@ Each row of [Results](#results) is the `mean_score` of one evaluation, in the fo
 | initial skill | `skillopt/run.yaml` | `../utils/seed_adapter` | `skillopt/runs/paper-skillopt/eval/seed_adapter/` |
 | GEPA | `gepa/run.yaml` | `final` | `gepa/runs/paper-gepa/eval/final/` |
 | SkillOpt | `skillopt/run.yaml` | `final` | `skillopt/runs/paper-skillopt/eval/final/` |
+| ReHarness, direct chat | `reharness/run.yaml`, through `reharness/launch.sh run eval` ([ReHarness](#reharness)) | `final` | `reharness/runs/paper-reharness/eval/final/` |
 
 The Codex column uses `run_codex.yaml` in the same commands (run names `codex-gepa` and `codex-skillopt`), after the
 setup below.
@@ -349,7 +350,8 @@ replaces its records.
 
 All numbers come from the full configs (`run.yaml`, `run_codex.yaml`); none from a smoke run. Agent: GLM 5.3 Flash
 (reasoning effort medium) in SkillOpt's rollout, in direct chat or in the Codex harness (Codex CLI 0.134 for Linux,
-one container per session). Learner: GLM 5.3 (medium). Test: 172 questions, three passes each.
+one container per session). Learner: GLM 5.3 (medium) for GEPA and SkillOpt; ReHarness's reflection and revision
+agents are the acting model, GLM 5.3 Flash (medium) ([ReHarness](#reharness)). Test: 172 questions, three passes each.
 
 | Skill | Direct chat | Codex harness |
 |---|---|---|
@@ -493,6 +495,10 @@ hermit eval --config examples/officeqa/skillopt/run.yaml --adapter adapter
 Numbers they copied from training answers are replaced by made-up numbers of the same form, so their cards' scores
 are those of the adapters as trained; re-evaluate the distributed adapters when that distinction matters.
 
+No ReHarness bank is included: its reflections quote the training questions' reference answers from the judge's
+feedback (37 of the 49 in the direct-chat `run.yaml` bank), which the repository does not redistribute. Each
+ReHarness run's card is in its checkout (`reharness/runs/<run>/checkout/CARD.md`), with the bank beside it.
+
 ## Reproduction limits
 
 This setup differs from the paper's:
@@ -507,6 +513,13 @@ This setup differs from the paper's:
 - Data: questions and answers from the latest dataset revision. `data.json` lists the items whose sources changed
   since the paper's revision: 6 test and 2 training questions for the results above. The results hold without them,
   except that in the Codex harness GEPA − no skill becomes +5.8 [+0.6, +11.2].
+- ReHarness: OfficeQA is not a benchmark of the ReHarness paper (CL-Bench, MemoryBench, MemoryArena; Claude Opus
+  4.8, GPT-5.5 and Gemini 3.7 Flash), so its rows here are this repository's settings, not a reproduction of a
+  published number: GLM 5.3 Flash as every agent, SkillOpt's initial skill as the text above the reflections, the
+  venue's acting pipeline as the decision agent, cosine ranking. The shared stream withholds the judge's verdict
+  (`feedback: false`) that the paper's environment outcome provides; the split run selects nothing, as the method
+  has no validation step. The method page lists
+  [where the integration departs from the paper](../methods/reharness.md#where-this-integration-departs-from-the-paper).
 
 Hosted models and the dataset can change independently of the code, so the same commit need not give the same
 numbers.
