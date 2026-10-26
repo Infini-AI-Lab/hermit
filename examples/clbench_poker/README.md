@@ -64,7 +64,19 @@ Codex.
 | ICL: clbench's in-context baseline | 2.51 |
 | **prompt-only** (`prompt_only/`) | 1.65 |
 | **MWM** (`mwm/`) | 3.08 |
-| **ReHarness** (`reharness/`) | not yet measured |
+| **ReHarness** (`reharness/`) | 0.28 |
+
+ReHarness, one run per order on 2026-10-25, inside the offline container of [`docker/`](../../docker/) (Fireworks the
+only reachable service; `accounts/fireworks/models/qwen3-embedding-8b` for retrieval): −0.36, 0.75, 0.08, −0.13 and
+1.06 bb/hand over the five orders (the mean reward of each order's 120 hands in `task/outcomes.jsonl`; the stream
+has 104 instances), 86 to 108 minutes per order, about USD 0.28 of host calls and USD 1.17 of reflection and
+revision calls per order at the backend's prices, no rollout errors, every instance's reflection written (58 of the
+3,050 agent replies were read from the field alone, a bare quote or an escape inside their JSON). Below the
+stateless baseline: the paper itself reports only marginal gains on exploitable poker, where hand-level rewards are
+weakly coupled with strategy quality; here the five retrieved reflections, about 7 K characters each after revision,
+add about 37 K characters of other hands' evidence and strategies to every hand's context, and the rewards fall in
+the later quarters of four orders, where the opponent variant has shifted. Each run's card is
+`<tag>-o<order>/checkout/CARD.md` under `$MW_RUNS`; no bank is included.
 
 ## Code
 

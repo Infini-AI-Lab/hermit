@@ -73,6 +73,10 @@ of which the learner's five revision calls side by side and the reflection call 
 prices), 231 to 235 learner calls (1.2 to 1.5 M input and 0.47 to 0.54 M output tokens, USD 0.41 to 0.48) and 79 to
 80 embedding calls of about 18 K tokens in all. Accuracy 0.740 over the five orders
 ([the example's results](https://github.com/haizhongzheng/hermit/blob/main/examples/clbench_database/README.md#results)).
+On the poker venue (five orders of 104 instances, 120 hands each): 86 to 108 minutes per order, 242 to 341 host
+calls (USD 0.23 to 0.35), 610 to 613 learner calls (USD 1.07 to 1.32) and 208 embedding calls; 0.28 bb/hand over the
+five orders, below the stateless baseline
+([the example's results](https://github.com/haizhongzheng/hermit/blob/main/examples/clbench_poker/README.md#results)).
 
 ## On local GPUs
 
@@ -139,12 +143,13 @@ section 4):
 
 - Models: GLM 5.3 Flash at reasoning effort high acts, reflects and revises, instead of the paper's Claude Opus 4.8,
   GPT-5.5 and Gemini 3.7 Flash at high thinking effort (one backbone for every agent, as here).
-- Tasks and metric: the database venue (and poker, once measured), reported as raw accuracy or bb/hand over
+- Tasks and metric: the database and poker venues, reported as raw accuracy or bb/hand over
   clbench's five orders with one run each, instead of the paper's six CL-Bench tasks reported as normalized gain over
   the stateless backbone, (r_method − r_stateless) / (r_max − r_stateless), averaged over three independently
   sampled stream rollouts with a shared seed. In that measure, over clbench's stateless baseline (0.400) with
   r_max = 1, the database accuracies are ReHarness 0.57, MWM 0.66, ICL 0.30; the paper's Table 5 reports 0.361 ±
-  0.004 for its database task with Claude Opus 4.8, under its own host and metric, so the numbers are not comparable.
+  0.004 for its database task with Claude Opus 4.8, under its own host and metric, so the numbers are not comparable;
+  on poker it reports only marginal gains, and here the method scores below the stateless baseline.
 - Scoring and host: the fork's accuracy scoring with unlimited queries (`CLB_SCORING=accuracy`, `CLB_QUERY_BUDGET=0`,
   the `SCORING_UNLIMITED` contract the launcher checks for), and the venue's own host prompt and tools as the decision
   agent, with the retrieved reflections appended below `ADAPTER.md`
