@@ -1,0 +1,4 @@
+# The skillopt Evolver: SkillOpt pinned to the tested commit, and json_repair, with which SkillOpt recovers
+# malformed JSON from non-OpenAI optimizer models (python -m pip install -e . -r requirements-skillopt.txt).
+skillopt @ git+https://github.com/microsoft/SkillOpt@79124b37e9a6371e13b753f8bcd7adb1e493ade1
+json_repair>=0.61.0

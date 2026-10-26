@@ -1,6 +1,6 @@
 # Compatibility and current limits
 
-These docs target framework **0.2.0** in this checkout. Preserve the exact Git revision for experiments; version
+These docs target framework **0.1.0** in this checkout. Preserve the exact Git revision for experiments; version
 numbers alone may not distinguish unreleased changes.
 
 ## Execution support
@@ -46,4 +46,4 @@ framework's stdio server. Neither command guarantees that arbitrary tool depende
 Older `evolve` / `run` instructions do not describe this interface. The current experiment commands are
 `check`, `train`, and `eval`; consumption uses `deploy` and `convert`. There is no documented automatic
 migration of old configurations or learner-state formats. Preserve an old experiment and create a separate
-0.2.0 configuration, validating the pipeline, judge, manifest, and splits before spending on a new run.
+0.1.0 configuration, validating the pipeline, judge, manifest, and splits before spending on a new run.

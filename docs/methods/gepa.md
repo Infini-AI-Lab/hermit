@@ -6,7 +6,7 @@ text to optimize, and budget for candidate rollouts in addition to the main trai
 ## Setup
 
 ```bash
-python -m pip install -e '.[gepa]'
+python -m pip install -e . -r requirements-gepa.txt
 ```
 
 ```yaml

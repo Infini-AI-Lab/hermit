@@ -58,9 +58,9 @@ being what still sets it apart. Harness² ([harness2.md](harness2.md)) uses no l
 
 ## Example
 
-[`examples/officeqa/continual_harness/`](https://github.com/haizhongzheng/hermit/tree/main/examples/officeqa/continual_harness): OfficeQA in the SkillOpt
+[`examples/officeqa/continual_harness/`](https://github.com/Infini-AI-Lab/hermit/tree/main/examples/officeqa/continual_harness): OfficeQA in the SkillOpt
 paper's setting, Codex as the acting agent, GLM 5.3 Flash acting and refining. Its `stream_codex.yaml` is the
 paper's own protocol (one stream over the test questions, `feedback: false`): on OfficeQA's 172 test questions in
 the same order as the Harness² stream it scores 0.634, against 0.576 for the initial skill it starts from (+5.8
 [−1.2, +12.8] paired) and 0.651 for Harness² (−1.7 [−7.6, +4.1]), at about a quarter of Harness²'s cost
-([the example's result](https://github.com/haizhongzheng/hermit/tree/main/examples/officeqa/continual_harness#result), [the recipe's Flash row](../recipes/officeqa.md#the-flash-row)).
+([the example's result](https://github.com/Infini-AI-Lab/hermit/tree/main/examples/officeqa/continual_harness#result), [the recipe's Flash row](../recipes/officeqa.md#the-flash-row)).

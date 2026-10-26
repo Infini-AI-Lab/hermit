@@ -4,8 +4,27 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ## Unreleased
 
+## 0.1.0 - 2026-10-25
+
+The first release: the framework as described in the documentation, with the Harness² and Continual Harness
+reproductions and the OfficeQA Flash row.
+
+### Added
+
+- Harness² under the paper's protocol by the upstream code (`harness2_upstream`, `harness2-codex@1.0`,
+  `examples/officeqa/harness2_stream/`), with Codex as the acting agent.
+- Continual Harness (`continual_harness`, `continual-harness@1.0`, `examples/officeqa/continual_harness/`): the
+  paper's four components on Codex's tree, refined from trajectories; a memory file for Codex sessions.
+- The OfficeQA Flash row: every method on one row of settings, with GEPA and SkillOpt as means of four trainings.
+- The developer guide for reproducing a published method.
+- `requirements-gepa.txt`, `requirements-skillopt.txt` and `requirements-harness2.txt`: the Git-pinned packages of
+  the optional Evolvers, formerly the `gepa`, `skillopt` and `harness2` extras (PyPI does not accept direct references).
+- A PyPI description (`README-pypi.md`); the package ships the templates' dot-directories.
+
 ### Changed
 
+- The repository is `Infini-AI-Lab/hermit`.
+- The Codex session of the OfficeQA harness runs as the host user (Codex 0.162).
 - Require setuptools 77+ for the SPDX license metadata and declared license files.
 - Exclude Python bytecode caches from packaged adapter templates and Evolvers.
 - Include repository, documentation, issue, and changelog links in package metadata.
@@ -17,9 +36,7 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 - Contribution and security-reporting guides, software citation metadata, Issue and PR templates, and optional
   pre-commit file checks.
 
-## 0.2.0 Development Baseline
-
-The package currently declares version 0.2.0. This baseline is not a tagged release in this checkout.
+### Development baseline (before 0.1.0)
 
 - Adapter templates and specifications, task execution, an Evolver interface, and a Trainer with learning records,
   version history, budgets, and recovery.

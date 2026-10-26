@@ -48,7 +48,7 @@ The methods themselves are described in [`docs/methods/`](../docs/methods/).
 Run from the repository root. Prepare the task once, then check, train and evaluate with a method's config:
 
 ```bash
-pip install -e '.[skillopt,gepa]'
+pip install -e . -r requirements-skillopt.txt -r requirements-gepa.txt
 python examples/officeqa/utils/prepare.py --csv /path/to/officeqa_full.csv --docs /path/to/treasury_bulletins_parsed
 export FIREWORKS_API_KEY=...                   # the configs name GLM models on Fireworks
 hermit check --config examples/officeqa/gepa/smoke.yaml

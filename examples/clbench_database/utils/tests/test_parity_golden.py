@@ -1,6 +1,6 @@
 """Golden parity: the framework's mwm (algorithms/templates/mwm + algorithms/evolvers/mwm) renders the same texts as native metaworld.
 
-Ported from the old port's tasks/CLBench/tests/test_parity_golden.py to the 0.2.0 layout. Skipped when the native
+Ported from the old port's tasks/CLBench/tests/test_parity_golden.py to the current layout. Skipped when the native
 checkout (MW_METAWORLD, default ~/code/metaworld) is absent. Surfaces compared:
 
 1. the learner contract for the clbench venue (native contract.render vs the CONTRACT.md the Evolver writes); the

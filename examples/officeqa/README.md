@@ -18,7 +18,7 @@ command line moves the agent, `llm=...` the learner ([Model backends](../../docs
 harness also needs Docker, set up once as in the [recipe](../../docs/recipes/officeqa.md#run-in-the-codex-harness).
 
 ```bash
-pip install -e '.[skillopt,gepa]'
+pip install -e . -r requirements-skillopt.txt -r requirements-gepa.txt
 python examples/officeqa/utils/prepare.py --csv /path/to/officeqa_full.csv --docs /path/to/treasury_bulletins_parsed
 ```
 

@@ -24,7 +24,7 @@ Evolver the reproduction adds.
 - Task-side adaptations of an acting agent (for example, deploying a memory file into a Codex workspace and
   collecting it afterwards) are application code under `examples/` and are allowed, listed separately in the pull
   request.
-- Where the authors publish their code, use it: pin it as an optional extra and call it at its seam, as
+- Where the authors publish their code, use it: pin it in a `requirements-<name>.txt` and call it at its seam, as
   `harness2_upstream` does. When the code cannot be used as is, say so and name, per component, which upstream file
   and function the reimplementation follows.
 

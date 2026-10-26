@@ -9,7 +9,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB.svg?logo=python&logoColor=white)](pyproject.toml)
-[![Version](https://img.shields.io/badge/version-0.2.0-C6743C.svg)](pyproject.toml)
+[![Version](https://img.shields.io/badge/version-0.1.0-C6743C.svg)](pyproject.toml)
 [![Docs](https://img.shields.io/badge/docs-read-1B1D22.svg)](docs/index.md)
 
 **[Get Started](#get-started)** · **[Harness Adapters](#what-is-a-harness-adapter)** · **[Methods](#supported-harness-evolution-methods)** · **[Examples and Recipes](#examples-and-recipes)** · **[FAQ](#faq)** · **[Docs](docs/index.md)**
@@ -85,7 +85,7 @@ Hermit provides an RL-style training loop for evolving harness adapters:
 Python 3.11+ and Git
 
 ```bash
-git clone https://github.com/haizhongzheng/hermit.git
+git clone https://github.com/Infini-AI-Lab/hermit.git
 cd hermit
 python3 -m venv .venv
 source .venv/bin/activate
@@ -241,7 +241,7 @@ cat .demo/codex-workspace/AGENTS.md
 Prepare the dataset and model endpoint as described in the [OfficeQA recipe](docs/recipes/officeqa.md). The agent is SkillOpt's own rollout, so the `skillopt` installation extra is needed; GEPA also requires `gepa`. Sandboxed agent Evolvers require Linux with `bubblewrap`.
 
 ```bash
-python -m pip install -e '.[skillopt,gepa]'
+python -m pip install -e . -r requirements-skillopt.txt -r requirements-gepa.txt
 python examples/officeqa/utils/prepare.py --csv /path/to/officeqa_full.csv --docs /path/to/treasury_bulletins_parsed
 hermit check --config examples/officeqa/gepa/smoke.yaml
 hermit train --config examples/officeqa/gepa/smoke.yaml
@@ -301,7 +301,7 @@ Use Hermit to deploy an existing adapter, train one on your tasks, or develop an
 
 ## Contributing
 
-Help extend Hermit by [implementing an Evolver](docs/framework/custom-evolver.md), [connecting a task](docs/tutorials/your-own-task.md), or [reporting a reproduction or integration issue](https://github.com/haizhongzheng/hermit/issues).
+Help extend Hermit by [implementing an Evolver](docs/framework/custom-evolver.md), [connecting a task](docs/tutorials/your-own-task.md), or [reporting a reproduction or integration issue](https://github.com/Infini-AI-Lab/hermit/issues).
 
 
 ## License

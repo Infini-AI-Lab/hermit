@@ -16,7 +16,7 @@ Before a recipe, the offline [Quick Start](../get-started/quickstart.md) and
 ## Where the files are
 
 Every recipe's code, configs and trained adapters are under `examples/<task>/`; the layout of a task folder and how
-to run one are in [`examples/README.md`](https://github.com/haizhongzheng/hermit/blob/main/examples/README.md).
+to run one are in [`examples/README.md`](https://github.com/Infini-AI-Lab/hermit/blob/main/examples/README.md).
 Configuration paths and `eval --adapter` directories resolve against the method config's directory. Stream
 launchers can override output directories; use their recipe's explicit output settings. MWM venue text lives
 under `utils/task-info/mwm/`, with a configurable deployment path.

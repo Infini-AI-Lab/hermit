@@ -1,5 +1,5 @@
 description: Harness² (Xu et al., arXiv:2610.14224) under the paper's own protocol, run by the upstream code
-  (google-research/harness2, the `harness2` extra) through its benchmark seam. The training split is the task stream
+  (google-research/harness2, requirements-harness2.txt) through its benchmark seam. The training split is the task stream
   (step_size 1, one epoch, no shuffle) - every task starts from the starting adapter H0; a reference execution, an
   INV and a DOM editor session whose candidates are executed on the same task, a composer session whose composition is
   executed on the same task as the deliverable, and a reflection that adds the adopted harness and its lesson to a
