@@ -74,9 +74,10 @@ empty bank: −0.36, 0.75, 0.08, −0.13 and 1.06 bb/hand over the five orders (
 stream's instances; sd 0.60, a standard error of 0.27 on the mean), 86 to 108 minutes per order, about USD 0.28 of
 host calls and USD 1.17 of reflection and revision calls per order at the backend's prices, no rollout errors, every
 instance's reflection written (58 of the 3,058 agent replies were read from the field alone, a bare quote or an
-escape inside their JSON; 13 were second attempts). Below the stateless baseline: the paper itself reports only
-marginal gains on exploitable poker, where hand-level rewards are weakly coupled with strategy quality; here the five
-retrieved reflections, about 7 K characters each after revision, add about 35 K characters of other hands' evidence
+escape inside their JSON; 13 were second attempts). Below the stateless baseline. The paper reports gains near zero
+for ReHarness on exploitable poker (normalized gain 0.009, 0.016 and −0.005 for its three backbones), from noisy
+hand-level rewards; a result clearly below stateless is not explained by that, and its cause is not settled. Here the
+five retrieved reflections, about 7 K characters each after revision, add about 35 K characters of other hands' evidence
 and strategies to a hand's context on average over the stream (38 K over its last quarter), and in every order the
 last quarter of the hands scores below the first, after the opponent variant has shifted. The runs were made from a
 tree of the branch before its rebase (the launcher stamped it `9125458`, a commit this history does not contain) that

@@ -167,7 +167,8 @@ section 4):
   sampled stream rollouts with a shared seed. In that measure, over clbench's stateless baseline (0.400) with
   r_max = 1, the database accuracies are ReHarness 0.57, MWM 0.66, ICL 0.30; the paper's Table 5 reports 0.361 ±
   0.004 for its database task with Claude Opus 4.8, under its own host and metric, so the numbers are not comparable;
-  on poker it reports only marginal gains, and here the method scores below the stateless baseline.
+  on poker it reports gains near zero (0.009, 0.016, −0.005), and here the method scores clearly below the stateless
+  baseline, which those numbers do not explain.
 - Scoring and host: the fork's accuracy scoring with unlimited queries (`CLB_SCORING=accuracy`, `CLB_QUERY_BUDGET=0`,
   the `SCORING_UNLIMITED` contract the launcher checks for), and the venue's own host prompt and tools as the decision
   agent, with the retrieved reflections appended below `ADAPTER.md`
