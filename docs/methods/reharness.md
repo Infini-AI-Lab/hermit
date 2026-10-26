@@ -167,7 +167,7 @@ the k revision calls per instance; the step records show the difference.
 Per instance: one reflection call, one revision call per retrieved reflection (k once the bank holds k), and one
 embedding call for x_t (one more when the retrieval had to be recomputed). The reader's own embedding call goes
 through the relay and appears in its ledger, not in the run's usage. The bank grows by one file per instance, about
-8 KB of embedding each at 4096 dimensions, versioned in the adapter's Git tree.
+11 KB of base64 embedding each at 4096 dimensions (8 KB of half floats), versioned in the adapter's Git tree.
 
 The first instance reads an empty bank and gets the static context alone; retrieval helps only once instances of the
 same kind have recurred. A revision can leave a reflection unchanged (indel distance 0), shorten it or lengthen it.

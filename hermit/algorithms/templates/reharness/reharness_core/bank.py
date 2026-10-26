@@ -12,7 +12,8 @@ A reflection file:
      "revisions": [{"step": 9, "by": "<task id>", "rank": 2, "indel_distance": 123, "chars_before": 800,
                     "chars_after": 950}, ...]}
 
-Embeddings are unit vectors stored as base64 IEEE half floats (about 8 KB for 4096 dimensions), so a bank of a few
+Embeddings are unit vectors stored as base64 IEEE half floats (8 KB of floats, about 11 KB of base64, for 4096
+dimensions), so a bank of a few
 hundred reflections stays small in the adapter's git history.
 """
 from __future__ import annotations

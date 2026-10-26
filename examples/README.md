@@ -69,5 +69,6 @@ SGLang server with one override, `model=vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP
 - A task: `utils/prepare.py`, the task's tools or an `utils/agent/agent.py` with an `Agent` subclass, `utils/judge.py`,
   `utils/task-info/README.md` (see [Task integration](../docs/framework/task.md) and the
   [built-in agents](../docs/framework/task.md#built-in-agents)), and a row in the table above.
-- A method on an existing task: `<method>/smoke.yaml` and `run.yaml`, and a row in `docs/methods/<method>.md`.
+- A method on an existing task: `<method>/smoke.yaml` and `run.yaml` (a stream's launcher may take a prefix split in
+  place of a smoke config, `MW_TRAIN_SPLIT=...`, as the CL-Bench folders do), and a row in `docs/methods/<method>.md`.
 - A method: `docs/methods/<method>.md` in the shape of the others: what it does, one step, knobs, configs, commands.
