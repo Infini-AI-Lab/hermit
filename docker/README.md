@@ -41,7 +41,7 @@ a container on that network and on the default one, running `examples/officeqa/u
 other target. Every client in the container is pointed at it: `HTTPS_PROXY` and `HTTP_PROXY` (the agents' and
 Evolvers' HTTP clients, clbench's litellm, curl), `PROXY` (the wire meters read it and reach their upstream through
 it), with `NO_PROXY=127.0.0.1,localhost` so that the meters on the loopback are reached directly. Inside hermit's own
-sandboxes the adapter's tools (the ReHarness reader) and the template's checks are isolated further: they see only the
+sandboxes the adapter's tools (a context tool that retrieves, say) and the template's checks are isolated further: they see only the
 forwarded `127.0.0.1` ports of the run (the meters), whose traffic leaves through the proxy. The acting agent itself
 (the rollout role) keeps the container's network, which is the internal one, unless the run sets
 `profiles.rollout.network: isolated`. The TLS session is end to end between the client and Fireworks; the proxy sees
@@ -121,22 +121,17 @@ launchers need neither `MW_KEY_FILE` nor `MWM_CLBENCH`; the other variables are 
 list them). The commands run from the checkout root on the host, in the checkout root inside:
 
 ```bash
-# CL-Bench database, ReHarness (GLM 5.3 Flash, effort high; Qwen3-Embedding-8B through the embedding relay)
-docker/offline.sh run MW_TAG=rh_db_flash WM_PORT=3481 MW_ORDERS="0 1 2 3 4" \
-  MW_RUNS=$HERMIT_DIR/examples/clbench_database/runs examples/clbench_database/reharness/launch.sh
+# CL-Bench database, MWM (the Codex learner through its meter)
+docker/offline.sh run MW_TAG=mwm_db_flash WM_PORT=3401 MW_ORDERS="0 1 2 3 4" \
+  MW_RUNS=$HERMIT_DIR/examples/clbench_database/runs examples/clbench_database/mwm/launch.sh
 
-# CL-Bench database, the prompt-only baseline (the Codex learner through its meter)
+# CL-Bench database, the prompt-only baseline
 docker/offline.sh run MW_TAG=po_db_flash WM_PORT=3441 MW_ORDERS="0 1 2 3 4" \
   MW_RUNS=$HERMIT_DIR/examples/clbench_database/runs examples/clbench_database/prompt_only/launch.sh
-
-# OfficeQA, ReHarness (GLM 5.3 Flash, effort medium): train on the stream, then evaluate the final bank
-docker/offline.sh run WM_PORT=3601 examples/officeqa/reharness/launch.sh run
-docker/offline.sh run WM_PORT=3601 examples/officeqa/reharness/launch.sh run eval
 ```
 
-A smoke first: `MW_TRAIN_SPLIT=<a file with a few ids> MW_ORDERS=0` for the CL-Bench launchers,
-`launch.sh smoke check --no-probe` and `launch.sh smoke` for OfficeQA. The scores are where the examples' READMEs
-say: the mean score in a CL-Bench run's `steps.jsonl`, `mean_score` in an OfficeQA `eval/<selector>/summary.json`.
+A smoke first: `MW_TRAIN_SPLIT=<a file with a few ids> MW_ORDERS=0` for the CL-Bench launchers. The scores are where
+the examples' READMEs say: the mean score in a CL-Bench run's `steps.jsonl`.
 `docker/offline.sh shell` opens a shell in the same setup for looking around; the proxy keeps logging.
 
 To take the setup down: `docker rm -f hermit-egress && docker network rm hermit-offline`.
