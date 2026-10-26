@@ -1,0 +1,45 @@
+# Smoke: 4 training questions in 2 steps of 2, 4 test questions, one epoch. Confirms the Continual Harness Evolver
+# runs end to end on the Codex harness (check -> train -> eval), not a measurement. The full run is run_codex.yaml.
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/smoke_train.txt
+  test: ../utils/splits/smoke_test.txt
+  step_size: 2
+  shuffle_seed: 42
+task_info: ../utils/task-info/
+agent:
+  name: ../utils/agent/codex_agent.py:OfficeQACodexAgent
+  concurrency: 2
+  params:
+    model: fireworks/accounts/fireworks/models/glm-5p3-flash
+    effort: medium
+    timeout_s: 1800
+    codex_dir: ~/.cache/hermit/officeqa-ch-codex
+judge:
+  path: ../utils/judge.py
+template: continual-harness@1.0
+start_from: seed_adapter               # make_seed.py writes it from ../utils/seed_adapter
+evolver:
+  name: continual_harness
+  params:
+    feedback: true
+llm:
+  model: fireworks/accounts/fireworks/models/glm-5p3-flash
+  extra_body: {reasoning_effort: medium}
+sandbox:
+  enabled: true
+  network: restricted
+  allow: []
+  read: []
+  env: []
+  profiles:
+    rollout: {enabled: false}
+trainer:
+  run_name: smoke-codex-ch
+  output_dir: runs
+  tree_dir: runs/trees/smoke-codex-ch
+  epochs: 1
+  budget: {usd: 3, hours: 2}
+  call_timeout_min: 60
+eval:
+  repeats: 1

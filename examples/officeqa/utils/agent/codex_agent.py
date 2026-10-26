@@ -44,11 +44,15 @@ DEFAULT_MODEL = "fireworks/accounts/fireworks/models/glm-5p3-flash"
 EFFORT = "medium"                                                 # paper p.8: teacher and student at medium
 TIMEOUT_S = 3600
 CODEX_DIR = "~/.cache/hermit/officeqa-h2-codex"
-ROOT_ENTRIES = ("AGENTS.md", ".agents", "scripts", ".codex")      # upstream's codex_root install (CODEX_ROOT_ENTRIES)
+ROOT_ENTRIES = ("AGENTS.md", ".agents", "scripts", ".codex",      # upstream's codex_root install (CODEX_ROOT_ENTRIES)
+                "memory")                                         # the continual-harness template's notes
 ANSWER = re.compile(r"<answer>(.*?)</answer>", re.IGNORECASE | re.DOTALL)
 PROMPT = ("Read `task.md`, inspect or search the full OfficeQA corpus under `docs/`, and answer the question.\n"
           "Treat candidate files in `task.md` as hints, not an access limit.\n"
           "Return the final answer inside <answer>...</answer>.")
+MEMORY_NOTE = ("`memory/NOTES.md` is your memory across questions: read it first, and record under a `## <topic>` "
+               "heading anything worth keeping for later questions (where figures live, how a source is laid out, "
+               "a pitfall).")                                     # only when the harness carries a memory
 CORPUS_NOTE = ("The full OfficeQA document corpus is available under `docs/`. The candidate files below are source "
                "hints or likely starting points; search the full corpus if needed.")
 # Codex's own reports of a provider it could not reach (it retries those itself first), and of a container that
@@ -88,7 +92,15 @@ def frontmatter(text: str) -> tuple[dict[str, str], str]:
     for line in text[4:end].splitlines():
         key, sep, value = line.partition(":")
         if sep and re.fullmatch(r"[A-Za-z_][\w-]*", key.strip()):
-            head[key.strip()] = value.strip().strip("\"'")
+            value = value.strip()
+            if value.startswith('"') and value.endswith('"') and len(value) >= 2:   # a double-quoted YAML scalar
+                try:
+                    value = str(json.loads(value))
+                except ValueError:
+                    value = value.strip('"')
+            else:
+                value = value.strip("\"'")
+            head[key.strip()] = value
     body = text[end + 4:]
     return head, body[body.find("\n") + 1:] if "\n" in body else ""
 
@@ -96,7 +108,7 @@ def frontmatter(text: str) -> tuple[dict[str, str], str]:
 def deploy_harness(adapter: Path | None, work: Path) -> dict:
     """The adapter's Codex tree into the workspace root, as upstream installs it; the sub_agents are returned for
     the home's config (name, description, instructions). Without an adapter the workspace carries no harness."""
-    out: dict = {"agents_md": False, "skills": [], "scripts": [], "hooks": False, "sub_agents": []}
+    out: dict = {"agents_md": False, "skills": [], "scripts": [], "hooks": False, "sub_agents": [], "memory": False}
     if adapter is None:
         return out
     adapter = Path(adapter)
@@ -111,6 +123,7 @@ def deploy_harness(adapter: Path | None, work: Path) -> dict:
     out["skills"] = sorted(p.parent.name for p in (work / ".agents" / "skills").glob("*/SKILL.md"))
     out["scripts"] = sorted(p.name for p in (work / "scripts").glob("*.py"))
     out["hooks"] = (work / ".codex" / "hooks.json").is_file()
+    out["memory"] = (work / "memory" / "NOTES.md").is_file()
     for agent_md in sorted((adapter / "sub_agents").glob("*/AGENT.md")):
         meta, body = frontmatter(agent_md.read_text(encoding="utf-8"))
         name = re.sub(r"[^a-z0-9_]", "_", agent_md.parent.name.lower())
@@ -209,6 +222,7 @@ class OfficeQACodexAgent(Agent):
                 d.mkdir(parents=True)
             deployed = deploy_harness(adapter, work)
             keys = write_home(home, binding, deployed["sub_agents"])
+            prompt = PROMPT + ("\n" + MEMORY_NOTE if deployed["memory"] else "")
             (work / "task.md").write_text(text, encoding="utf-8")
             # The corpus is bound into docs/root_1 by the container (a real directory there, so `find docs` and
             # `rg --files docs` list it; a link they would not follow); further roots, if any, are linked.
@@ -219,7 +233,7 @@ class OfficeQACodexAgent(Agent):
                     "-m", binding.model, "-c", f'model_reasoning_effort="{effort}"',
                     "-c", 'approval_policy="never"',          # as SkillOpt's Codex harness: never wait for an approval
                     "--dangerously-bypass-hook-trust", "-o", str(work / ".last_message.txt"),
-                    *(["--enable", "multi_agent"] if deployed["sub_agents"] else []), PROMPT]
+                    *(["--enable", "multi_agent"] if deployed["sub_agents"] else []), prompt]
             code, timed_out = codex_session.run(args, work=work, home=home, corpus=corpus, keys=keys,
                                                 timeout=timeout_s, stdout=log / "agent-codex.jsonl",
                                                 corpus_at=(Path(roots[0]), work / "docs" / "root_1"))
@@ -249,7 +263,9 @@ class OfficeQACodexAgent(Agent):
             fail = "no <answer>...</answer> in the final message"
         # The log stays self-contained; the workspace stays for inspection, without its links into the corpus.
         shutil.copy2(work / "task.md", log / "task.md")
-        (log / "prompt.txt").write_text(PROMPT, encoding="utf-8")
+        (log / "prompt.txt").write_text(prompt, encoding="utf-8")
+        if (work / "memory").is_dir():              # the notes the session left: the Evolver folds them into the memory
+            shutil.copytree(work / "memory", log / "memory", dirs_exist_ok=True)
         (log / "last_message.txt").write_text(last, encoding="utf-8")
         (log / "harness.json").write_text(json.dumps({**deployed, "sub_agents": [r["name"] for r in
                                                                                   deployed["sub_agents"]]}, indent=1))

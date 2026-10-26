@@ -1,0 +1,52 @@
+# Continual Harness in the paper's own setting, online and reset-free, on the stream Harness² ran: the 172 OfficeQA
+# test questions in upstream Harness²'s seed-0 order (stream_s0.txt, the order ../harness2_stream ran), one question
+# per step. Each step the current harness answers the question (that answer is the question's result, scored before
+# the step's refinement), then the Refiner refines the four components from that trajectory alone: `feedback: false`,
+# so no judge verdict and no reference answer reaches the Refiner, as in Harness² and in the paper. The harness is
+# carried from question to question; nothing is evaluated afterwards. Acting agent, Codex image (0.162.0:
+# OFFICEQA_CODEX_IMAGE=officeqa-codex:0.162.0), models (GLM 5.3 Flash acts and refines, medium effort), session wall
+# clock and starting text (SkillOpt's initial skill as AGENTS.md) are those of ../harness2_stream/run_codex.yaml.
+# The stream's accuracy is the mean of the steps' rollout scores (steps.jsonl); no `hermit eval` follows.
+data:
+  tasks: ../utils/tasks.jsonl
+  train: stream_s0.txt                 # upstream Harness²'s seed-0 order of ../utils/splits/test.txt
+  step_size: 1                         # one question per step
+  shuffle: false                       # the stream's own order
+task_info: ../utils/task-info/
+agent:
+  name: ../utils/agent/codex_agent.py:OfficeQACodexAgent
+  concurrency: 1
+  params:
+    model: fireworks/accounts/fireworks/models/glm-5p3-flash
+    effort: medium
+    timeout_s: 3600                    # one session's wall clock, as the Harness² stream
+    codex_dir: ~/.cache/hermit/officeqa-ch-codex
+judge:
+  path: ../utils/judge.py
+template: continual-harness@1.0
+start_from: seed_adapter               # make_seed.py: SkillOpt's initial skill as AGENTS.md, G / K / M empty
+evolver:
+  name: continual_harness
+  params:
+    feedback: false                    # trajectory only: the paper's and Harness²'s label footing
+llm:                                   # the Refiner: GLM 5.3 Flash at medium effort, the acting model
+  model: fireworks/accounts/fireworks/models/glm-5p3-flash
+  extra_body: {reasoning_effort: medium}
+sandbox:
+  enabled: true
+  network: restricted
+  allow: []
+  read: []
+  env: []
+  profiles:                  # the agent's role runs unconfined: it drives Docker (the daemon's socket, the sessions'
+    rollout: {enabled: false}   # homes under ~/.cache); each Codex session is in a container of its own (codex_session.py)
+trainer:
+  run_name: ch-stream-s0
+  output_dir: runs
+  tree_dir: runs/trees/ch-stream-s0
+  epochs: 1
+  save_freq: {steps: null, epochs: 1}
+  budget: {usd: 100, tokens: null, hours: null}
+  call_timeout_min: 120                # one question's session (up to 60 min) and four Refiner calls
+eval:
+  repeats: 1                           # not used: the stream's own answers are the result
