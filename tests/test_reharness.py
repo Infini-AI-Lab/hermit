@@ -418,6 +418,33 @@ def test_a_trajectory_without_feedback_and_a_codex_event_stream(tmp_path):
     assert trajectory.NO_FEEDBACK in without and "[assistant] <answer>12</answer>" in without
 
 
+def test_the_codex_agent_deploys_a_context_adapter_as_agents_md(tmp_path):
+    """The OfficeQA Codex agent writes AGENTS.md from the Session's context for an adapter that is context rather than
+    a Codex tree (the reharness template), and leaves a tree's own AGENTS.md alone."""
+    import sys as _sys
+    agent_dir = Path(__file__).resolve().parents[1] / "examples" / "officeqa" / "utils" / "agent"
+    _sys.path.insert(0, str(agent_dir))
+    import codex_agent
+    adapter = tmp_path / "adapter"
+    shutil.copytree(TEMPLATE, adapter, ignore=shutil.ignore_patterns("__pycache__"))
+    work = tmp_path / "work"
+    work.mkdir()
+    deployed = codex_agent.deploy_harness(adapter, work, "# Skill\n\n[RANKED REFLECTIONS]\n[RANK 1 OF 1 REFLECTION]\nx\n")
+    assert deployed["context"] and deployed["agents_md"]
+    assert (work / "AGENTS.md").read_text().startswith("# Skill") and "[RANK 1 OF 1 REFLECTION]" in (work / "AGENTS.md").read_text()
+    assert not (work / "ADAPTER.md").exists() and not (work / "reflections").exists()     # the bank stays out of the session
+    work2 = tmp_path / "work2"
+    work2.mkdir()
+    assert not codex_agent.deploy_harness(adapter, work2)["agents_md"]                  # no context given: no harness
+    tree = tmp_path / "tree"
+    tree.mkdir()
+    (tree / "AGENTS.md").write_text("the tree's own")
+    work3 = tmp_path / "work3"
+    work3.mkdir()
+    deployed = codex_agent.deploy_harness(tree, work3, "context that must not replace it")
+    assert (work3 / "AGENTS.md").read_text() == "the tree's own" and not deployed["context"]
+
+
 def test_a_resumed_run_continues_with_the_restored_trajectories(tmp_path):
     """State persistence: a run that died after step 2 resumes at step 3 with the bank and the stored source
     trajectories of the saved step, so the revisions keep reading real trajectories and no step is recorded twice."""

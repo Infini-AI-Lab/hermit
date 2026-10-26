@@ -15,6 +15,9 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 - ReHarness on the CL-Bench examples: `examples/clbench_database/reharness/` and `examples/clbench_poker/reharness/`
   (host, learner and embedding meters; one run per order); the hosts read the adapter's context per instance, record
   what the context tool retrieved, and fall back to `ADAPTER.md` when it fails.
+- ReHarness on OfficeQA: `examples/officeqa/reharness/` (direct chat, and the Flash row's `stream_codex.yaml` and
+  `run_codex_flash.yaml`); the OfficeQA Codex agent deploys a context adapter as the session's `AGENTS.md`, the
+  Session's context for the question, and records what the adapter's context tool retrieved.
 - `exports.context_tool` in `adapter.yaml`: a declared tool the harness calls once per task with `{query, task}`,
   whose text is appended to the context (`Session.context(query=..., task=...)`, `session.last_context`); hidden from
   the agent's tools, called by the deploy check with an empty query, refused by the CLI agents; the `react` agent

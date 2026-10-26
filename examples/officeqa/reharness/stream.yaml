@@ -1,0 +1,49 @@
+# ReHarness under its paper's protocol (Xiao et al., arXiv:2610.12668): strictly online, the 172 test questions
+# themselves as one stream, one question per step in the split's order, one pass; no validation set, no replay, no
+# held-out test. Each question is answered with the bank written from the questions before it and scored before the
+# Evolver reads it: the judge's feedback, which names the reference answer, reaches the bank only after the question
+# was answered, as the environment's reward does. The number is the mean of rollout.mean_score over the steps of
+# runs/stream-reharness/steps.jsonl (step 0, the bootstrap, has none). Not comparable with run.yaml's row: another
+# question set is learned from, and each question is answered once. Started by launch.sh, which puts the embedding
+# model behind a loopback relay for the adapter's reader.
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/test.txt    # the stream: the test questions, in the split's order
+  step_size: 1                 # one question per step: one ReHarness instance (read, revise, write)
+  shuffle: false               # the stream in the split's order
+                               # no data.test: nothing is held out; `hermit eval` has nothing to run here
+task_info: ../utils/task-info/
+agent:
+  name: ../utils/agent/agent.py:OfficeQAAgent
+  concurrency: 1               # the stream is one question at a time, and there is no eval
+judge:
+  path: ../utils/judge.py
+template: reharness
+start_from: seed_adapter       # SkillOpt's initial OfficeQA skill over the reharness template (make_seed.py)
+evolver:
+  name: reharness
+  params:
+    k: 5                       # reflections retrieved and revised per question (the paper: 5)
+    embedding: fireworks/accounts/fireworks/models/qwen3-embedding-8b   # the paper's Qwen3-Embedding-8B; launch.sh
+                               # binds it to its loopback relay, the same one the adapter's reader embeds through
+model: fireworks/accounts/fireworks/models/glm-5p3-flash   # the agent's model (it answers at medium effort; agent.py)
+llm:                           # the reflection and revision agents: the acting model (the paper: one backbone throughout)
+  model: fireworks/accounts/fireworks/models/glm-5p3-flash
+  extra_body: {reasoning_effort: medium}
+sandbox:
+  enabled: true
+  network: restricted
+  allow: []                  # the Evolver's own model endpoint is always reachable
+  read: []
+  env: []                    # the Evolver's model key variable is always passed; nothing else is
+  profiles:                  # the agent's sandbox (rollout; check takes it too)
+    rollout:
+      read: [../utils/documents]   # the source documents (prepare.py links them)
+      mask: [../utils/.private]    # the judge's answers, beside the task
+trainer:
+  run_name: stream-reharness
+  output_dir: runs
+  tree_dir: runs/trees/stream-reharness     # one adapter tree per run: runs can train side by side
+  epochs: 1                    # one pass over the stream
+  budget: {usd: 40, hours: 30}
+  call_timeout_min: 30         # one question's revisions (side by side) and reflection

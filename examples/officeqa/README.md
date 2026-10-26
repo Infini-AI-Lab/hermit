@@ -4,9 +4,10 @@
 answers are figures found in the bulletins, often after a computation. This example runs OfficeQA Full (246
 questions) as the [SkillOpt paper](https://arxiv.org/abs/2605.23904) does: its 50 / 24 / 172 train / validation /
 test split, each question's parsed source pages in the prompt, and exact match. It trains the agent's skill, the
-adapter's `ADAPTER.md`, with the GEPA and SkillOpt methods and compares them with no skill and with SkillOpt's
-initial skill, in both of the paper's harnesses: direct chat, with read and grep tools limited to the question's
-source files, and Codex, a `codex exec` session with the whole corpus.
+adapter's `ADAPTER.md`, with the GEPA and SkillOpt methods, and with ReHarness a bank of reflections retrieved below
+that skill (direct chat only), and compares them with no skill and with SkillOpt's initial skill, in both of the
+paper's harnesses: direct chat, with read and grep tools limited to the question's source files, and Codex, a
+`codex exec` session with the whole corpus.
 
 ## Setup
 
@@ -34,6 +35,9 @@ hermit eval  --config examples/officeqa/gepa/run.yaml     --adapter final       
 hermit eval  --config examples/officeqa/skillopt/run.yaml --adapter final                  # SkillOpt's skill
 hermit eval  --config examples/officeqa/skillopt/run.yaml --adapter none                   # no skill
 hermit eval  --config examples/officeqa/skillopt/run.yaml --adapter ../utils/seed_adapter  # initial skill
+FIREWORKS_API_KEY=... WM_PORT=3601 examples/officeqa/reharness/launch.sh run        # ReHarness: the 50 as one stream
+FIREWORKS_API_KEY=... WM_PORT=3601 examples/officeqa/reharness/launch.sh run eval   # its bank on the 172, three passes
+FIREWORKS_API_KEY=... WM_PORT=3601 examples/officeqa/reharness/launch.sh stream     # the paper's protocol: the 172 as one stream
 ```
 
 An adapter's accuracy is `mean_score` in `<method>/runs/<run name>/eval/<selector>/summary.json` (172 test
@@ -42,6 +46,14 @@ questions, three passes each), where `<selector>` is `final`, `none`, `adapter` 
 questions: the folder's `smoke.yaml`, after `hermit check --config ...`
 ([walkthrough](../../docs/recipes/officeqa.md#check-train-evaluate)). The Codex harness: the same commands with
 `run_codex.yaml` and `smoke_codex.yaml`, the folder's configs with `agent.params.harness: codex` and no budget.
+
+ReHarness runs through its launcher: it puts the embedding model behind a loopback relay for the adapter's reader
+(whose sandbox has no keys), writes `reharness/seed_adapter/` and starts `hermit train`, `eval` or `check` on
+`reharness/<config>.yaml`; `launch.sh smoke check --no-probe`, `launch.sh smoke` and `launch.sh smoke eval` are its
+check and smoke. `run.yaml` is evaluated like the other methods (`reharness/runs/paper-reharness/eval/final/`);
+`stream.yaml` has no test split, and its number is the mean of `rollout.mean_score` over the steps of
+`reharness/runs/stream-reharness/steps.jsonl` (step 0, the bootstrap, has none). The
+[recipe](../../docs/recipes/officeqa.md#reharness) explains the two protocols.
 
 ## Results
 
@@ -54,6 +66,7 @@ Each evaluation makes one pass over the 172 test questions.
 | initial skill | 0.576 |
 | **GEPA** | 0.580 |
 | **SkillOpt** | 0.600 |
+| **ReHarness**, the frozen bank | 0.625 |
 | **Continual Harness** | 0.634 |
 | **Harness²** | 0.651 |
 
@@ -71,8 +84,32 @@ Results use two settings:
   scores measure performance during adaptation. See [`continual_harness/`](continual_harness/) and
   [`harness2_stream/`](harness2_stream/) for their protocols.
 
+**ReHarness** ([`reharness/`](reharness/), [method](../../docs/methods/reharness.md)) keeps the initial skill as
+the harness's text and learns a bank of reflections below it, five retrieved per question by Qwen3-Embedding-8B and
+revised after it, with the acting model as its reflection and revision agents. Each session is Codex in a container
+of its own through [`utils/agent/codex_agent.py`](utils/agent/codex_agent.py) (3,600 s wall clock, as the two
+streams; GEPA's and SkillOpt's trainings used SkillOpt's own Codex harness with 180 s sessions), which deploys the
+skill and the question's retrieved reflections as the session's `AGENTS.md`. Two settings:
+
+- **Train/test split** ([`reharness/run_codex_flash.yaml`](reharness/run_codex_flash.yaml)): the bank is written
+  from the 50 training questions as one stream (the judge's feedback in each trajectory, as GEPA's and SkillOpt's
+  learners see it), then frozen and evaluated once on the 172; there is no selection, the method has no validation
+  step. Four independent trainings on 2026-10-25: 0.663, 0.616, 0.616 and 0.605 (mean **0.625**, sd 0.026); paired
+  against a reference execution of the initial skill under the same harness (0.564, one pass), +6.1 points
+  [+0.0, +12.2] over questions. The training streams scored 0.62 to 0.70 (0.56 to 0.64 over their first 25 questions,
+  0.68 to 0.80 over their last 25) in 1.3 to 1.4 h (USD 0.69 to 0.89 of sessions, USD 1.23 to 1.30 of reflection and
+  revision calls); each evaluation took 19 to 25 minutes (USD 2.22 to 3.33), no errors, no session timed out. The
+  banks hold 49 or 50 reflections of 7.8 to 8.6 K characters on average (in three runs one write was lost to a reply
+  cut off at `max_tokens` twice).
+- **Test streaming** ([`reharness/stream_codex.yaml`](reharness/stream_codex.yaml)): the 172 in the same seed-0
+  order as Continual Harness and Harness², no verdict to the learner (`feedback: false`); a second stream with the
+  verdicts (`feedback: true`, the paper's own footing) runs beside it. Their rows are added when the streams finish.
+
 Paired differences with 95% intervals, each run's selection and cost, the Codex sessions' isolation and the
 differences from the paper: the [recipe](../../docs/recipes/officeqa.md#the-flash-row).
+
+The earlier direct-chat runs (`run.yaml`, `stream.yaml`: SkillOpt's rollout, three passes) are in the recipe's
+[direct-chat table](../../docs/recipes/officeqa.md#results); they are not on this row.
 
 ## Code
 
@@ -86,4 +123,8 @@ gepa/ skillopt/     smoke.yaml and run.yaml per method, smoke_codex.yaml and run
 harness2_stream/    Harness² under the paper's protocol, by the upstream code, with Codex as the acting agent
                     (run_codex.yaml, slots_codex.yaml; utils/agent/codex_agent.py and codex_session.py; the
                     harness2-codex template); launch.sh starts a stream
+reharness/          ReHarness: stream_codex.yaml (the 172 test questions as one stream, Codex as the acting agent),
+                    run_codex_flash.yaml (the 50 as one stream, then the frozen bank on the 172), the direct-chat
+                    smoke.yaml, run.yaml and stream.yaml; launch.sh starts the embedding relay and the command;
+                    make_seed.py writes seed_adapter/, the initial skill over the reharness template
 ```

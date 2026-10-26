@@ -119,8 +119,9 @@ export REHARNESS_EMBED_URL=http://127.0.0.1:3461/reharness/inference/v1
 The relay listens on the loopback only, but every local process that reaches its port can spend the key through it:
 on a shared machine, run inside the offline container (`docker/offline.sh`) or another private network namespace.
 
-The examples' `launch.sh` start this relay beside their host and learner meters and resolve the paths with
-`python -m hermit.backends shell <ref>`. `setup` embeds one word through the Evolver's client before the first
+The examples' `launch.sh` start this relay (the CL-Bench ones beside their host and learner meters, the OfficeQA
+one alone, its models calling the provider directly) and resolve the paths with `python -m hermit.backends shell
+<ref>`. `setup` embeds one word through the Evolver's client before the first
 step, so a wrong endpoint fails at startup rather than at the first instance. Outside a sandbox the reader can send
 a key itself: `REHARNESS_EMBED_API_KEY_ENV` names the variable that holds it. `hermit eval` needs the same
 variable: the final adapter retrieves for held-out instances too.
@@ -143,9 +144,9 @@ the k revision calls per instance; the step records show the difference.
 
 ## Where this integration departs from the paper
 
-- **The reward.** r_t is the judge's score and feedback as the task's judge writes them. A judge whose feedback names
-  the reference answer hands it to the reflection and revision agents; `feedback: false` withholds the whole
-  verdict, and the `[OUTCOME]` block says so, for a stream run on the label-free footing of other methods.
+- **The reward.** r_t is the judge's score and feedback as the task's judge writes them. On OfficeQA the feedback
+  names the reference answer, which the reflection and revision agents then read; `feedback: false` withholds it,
+  and the `[OUTCOME]` block says so, for a stream run on the label-free footing of other methods.
 - **The trajectory text.** tau_t is rendered from the pipeline's `messages`, or from its copied log when there are
   none (CL-Bench's turn records are rendered turn by turn; a Codex session's `agent-codex.jsonl` as its reasoning
   summaries, messages, commands with exit codes and output, file changes and tool calls), as `[TASK]`,
@@ -202,7 +203,10 @@ Evaluate the final adapter against `root` and `none` on the held-out split with 
 
 ## Examples
 
-`examples/clbench_database/reharness/` and `examples/clbench_poker/reharness/` run this method on the two CL-Bench
-venues; their `launch.sh` start the host and learner meters and the embedding relay, set the reader's variable and
-bind the models that go through a meter. The [CL-Bench recipe](../recipes/clbench.md) describes the venues' data,
-models, scoring and the runs' results.
+`examples/clbench_database/reharness/`, `examples/clbench_poker/reharness/` and `examples/officeqa/reharness/` run
+this method on the three tasks; their `launch.sh` start the embedding relay (the CL-Bench ones beside the host and
+learner meters), set the reader's variable and bind the models that go through a meter. On OfficeQA the Codex configs (`stream_codex.yaml`, `run_codex_flash.yaml`)
+act through `utils/agent/codex_agent.py`, which deploys a context adapter as the session's `AGENTS.md`: the
+Session's context for the question, `ADAPTER.md` and the retrieved reflections below it, retrieved once before
+the session starts. The [CL-Bench](../recipes/clbench.md) and [OfficeQA](../recipes/officeqa.md) recipes describe the tasks'
+data, models and scoring.
