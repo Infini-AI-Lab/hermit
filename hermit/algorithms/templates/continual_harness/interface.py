@@ -18,11 +18,20 @@ code.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 PARTS = {"skills": "skills.md", "memory": "memory.md", "subagents": "subagents.md"}
 _EMPTY_PREFIX = ("(no ", "(none")
+
+
+def _slug(text: str) -> str:
+    """A valid hermit sub-agent/role name (hosts require `[a-z][a-z0-9-]{0,63}`): lowercase, runs of other
+    characters collapsed to a single hyphen, must start with a letter. Empty if the heading has no usable letters."""
+    s = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
+    s = re.sub(r"^[^a-z]+", "", s)
+    return s[:64].rstrip("-")
 
 
 def _read(part: str) -> str:
@@ -36,19 +45,27 @@ def _is_empty(text: str) -> bool:
 
 
 def _sections(text: str) -> list[dict]:
-    """Split a part into {heading, body} sections by Markdown headings (#, ##, ###). Any text before the first
-    heading becomes a leading section with heading None."""
-    sections, heading, buf = [], None, []
+    """Split a part into {heading, level, body} sections by Markdown headings, ignoring any `#` line that falls inside
+    a ``` fenced code block (so a shell comment like `# build the index` is not mistaken for a heading). `level` is
+    the number of leading `#` (so entries written as `## name` are level 2); text before the first heading becomes a
+    leading section with heading None and level 0."""
+    sections, heading, level, buf, in_fence = [], None, 0, [], False
     for line in text.splitlines():
-        if line.lstrip().startswith("#"):
+        stripped = line.lstrip()
+        if stripped.startswith("```"):
+            in_fence = not in_fence
+            buf.append(line)
+            continue
+        if not in_fence and stripped.startswith("#"):
             if heading is not None or any(b.strip() for b in buf):
-                sections.append({"heading": heading, "body": "\n".join(buf).strip()})
-            heading = line.lstrip().lstrip("#").strip()
+                sections.append({"heading": heading, "level": level, "body": "\n".join(buf).strip()})
+            level = len(stripped) - len(stripped.lstrip("#"))
+            heading = stripped.lstrip("#").strip()
             buf = []
         else:
             buf.append(line)
     if heading is not None or any(b.strip() for b in buf):
-        sections.append({"heading": heading, "body": "\n".join(buf).strip()})
+        sections.append({"heading": heading, "level": level, "body": "\n".join(buf).strip()})
     return sections
 
 
@@ -60,7 +77,7 @@ def harness(name: str, args: dict | None = None) -> dict:
         for part in PARTS:
             text = _read(part)
             overview[part] = {"populated": not _is_empty(text),
-                              "entries": [s["heading"] for s in _sections(text) if s["heading"]]
+                              "entries": [s["heading"] for s in _sections(text) if s["level"] == 2]
                               if not _is_empty(text) else []}
         return {"component": "list", "overview": overview}
     if name not in PARTS:
@@ -81,15 +98,22 @@ def harness(name: str, args: dict | None = None) -> dict:
 
 
 def agent_definitions() -> list[dict]:
-    """Each sub-agent in subagents.md (a `## name` section) becomes a hermit sub-agent: name = the heading,
-    description = its first non-empty line, body = the section (the playbook). An empty/seed subagents.md -> none."""
+    """Each sub-agent in subagents.md (a `## name` section) becomes a hermit sub-agent: name = the heading slugified
+    to the `[a-z][a-z0-9-]{0,63}` a host requires, description = its first non-empty line, body = the section (the
+    playbook). Sections whose heading has no usable letters, or with no body, are skipped; an empty/seed
+    subagents.md -> none."""
     text = _read("subagents")
     if _is_empty(text):
         return []
     out, seen = [], set()
     for section in _sections(text):
-        name, body = section["heading"], section["body"]
-        if not name or not body or name in seen:
+        if section["level"] != 2:          # only `## name` entries are sub-agents (not a `# Title` or leading text)
+            continue
+        heading, body = section["heading"], section["body"]
+        if not heading or not body:
+            continue
+        name = _slug(heading)
+        if not name or name in seen:
             continue
         description = next((line.strip() for line in body.splitlines() if line.strip()), "")
         if not description:

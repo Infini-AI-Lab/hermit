@@ -33,8 +33,10 @@ exports:
     entrypoint: interface.py:agent_definitions
 structure:
   learnable:
-    - path: ADAPTER.md          # the rendered context (policy + sub-agents + skills + memory); the agent reads this
-      format: {text: true, max_bytes: 80000}
+    - path: ADAPTER.md          # the rendered context (policy + sub-agents + skills + memory); the agent reads this.
+      format: {text: true, max_bytes: 200000}   # derived artifact: must be >= the sum of the four part caps below
+                                                 # (4 x 40000) + headings, else a grown harness fails check_spec and
+                                                 # every step reverts (freezes the Refiner)
     - path: policy.md           # p — the base policy / instructions
       format: {text: true, max_bytes: 40000}
     - path: subagents.md        # G — named playbooks for repeated multi-step patterns

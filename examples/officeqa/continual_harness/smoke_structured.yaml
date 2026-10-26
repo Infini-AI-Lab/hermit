@@ -1,0 +1,43 @@
+# Smoke on the STRUCTURED continual-harness template (not prompt-only): the Refiner CRUD-edits the four parts
+# (policy.md / subagents.md / skills.md / memory.md) in separate passes and re-renders ADAPTER.md, and the template
+# exports the evolved skills/memory as a `harness` tool and sub-agents (interface.py). No start_from -> start from the
+# template's own seed. This exercises the structured 4-pass path end to end (check -> train -> eval) on 4+4 questions.
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/smoke_train.txt
+  test: ../utils/splits/smoke_test.txt
+  step_size: 2
+  shuffle_seed: 42
+task_info: ../utils/task-info/
+agent:
+  name: ../utils/agent/agent.py:OfficeQAAgent
+  concurrency: 4
+judge:
+  path: ../utils/judge.py
+template: continual-harness@1.0     # the structured template (policy p / sub-agents G / skills K / memory M)
+evolver:
+  name: continual_harness
+  params:
+    components: [prompt, subagents, skills, memory]
+llm:                           # the Refiner model: GLM 5.3 Flash
+  model: fireworks/accounts/fireworks/models/glm-5p3-flash
+  extra_body: {reasoning_effort: medium}
+sandbox:
+  enabled: true
+  network: restricted
+  allow: []
+  read: []
+  env: []
+  profiles:
+    rollout:
+      read: [../utils/documents]
+      mask: [../utils/.private]
+trainer:
+  run_name: structured-smoke-ch
+  output_dir: runs
+  tree_dir: runs/trees/structured-smoke-ch
+  epochs: 1
+  budget: {usd: 3, hours: 1}
+  call_timeout_min: 30
+eval:
+  repeats: 1
