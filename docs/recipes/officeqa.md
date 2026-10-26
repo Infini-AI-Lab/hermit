@@ -360,9 +360,11 @@ test questions are evaluated **once** (`eval.repeats: 1`, a standard error of ab
 learner's spending is recorded (Codex sessions record only tokens). Not comparable with the table above (Codex
 0.134, GLM 5.3 as the learner, three passes). GEPA and SkillOpt were each trained four times from the same config
 (`gepa/run_codex_flash.yaml`, `skillopt/run_codex_flash.yaml`; run names `flash-codex-gepa`, `-r2`, `-r3`, `-r4`
-and `flash-codex-skillopt`, `-r2`, `-r3`, `-r4`), each `final` evaluated once; Harness² is one stream over the
-same 172 questions ([`harness2_stream/`](https://github.com/haizhongzheng/hermit/tree/main/examples/officeqa/harness2_stream#result)), which answers each
-question once while learning and is therefore not an evaluation of a frozen adapter.
+and `flash-codex-skillopt`, `-r2`, `-r3`, `-r4`), each `final` evaluated once; Harness² and Continual Harness are
+one stream each over the same 172 questions in the same order
+([`harness2_stream/`](https://github.com/haizhongzheng/hermit/tree/main/examples/officeqa/harness2_stream#result),
+[`continual_harness/`](https://github.com/haizhongzheng/hermit/tree/main/examples/officeqa/continual_harness#result)), which answer each question once while learning and are therefore not
+evaluations of a frozen adapter.
 
 | Method | Protocol | accuracy | Runs |
 |---|---|---|---|
@@ -370,6 +372,7 @@ question once while learning and is therefore not an evaluation of a frozen adap
 | SkillOpt's initial skill | one pass | 0.576 | |
 | GEPA, `final` | train on 50 / select on 24 / test on 172 | **0.580** (sd 0.031) | 0.541, 0.610, 0.599, 0.570 |
 | SkillOpt, `final` | train on 50 / select on 24 / test on 172 | **0.600** (sd 0.003) | 0.599, 0.605, 0.599, 0.599 |
+| Continual Harness, the stream's answers | stream over the 172, no training split, no judge verdict | **0.634** | one stream (the same seed-0 order) |
 | Harness², deliverable | stream over the 172, no training split, no judge verdict | **0.651** | one stream (seed 0); its reference execution of the initial skill: 0.576 |
 
 Paired per question, 95% bootstrap intervals; a method's four runs are averaged per question first:
@@ -383,6 +386,8 @@ Paired per question, 95% bootstrap intervals; a method's four runs are averaged 
 | SkillOpt − initial skill | +2.5 [−3.6, +8.6] |
 | SkillOpt − GEPA | +2.0 [−1.0, +5.1] |
 | Harness² deliverable − its reference execution | **+7.6** [+1.7, +13.4] |
+| Continual Harness − Harness²'s reference execution | +5.8 [−1.2, +12.8] |
+| Continual Harness − Harness² deliverable | −1.7 [−7.6, +4.1] |
 
 - GEPA's four trainings spread over 7 points of test accuracy for the same validation score (its `final` was
   candidate 3 of 21, 1 of 11, 9 of 23 and 12 of 23, validation means 0.708, 0.708, 0.750, 0.792; the initial
@@ -398,7 +403,11 @@ Paired per question, 95% bootstrap intervals; a method's four runs are averaged 
 - Learner spending and training time, at the backend's prices: GEPA USD 0.09, 0.07, 0.06, 0.08 in 3.2, 2.5, 2.9,
   3.1 h; SkillOpt USD 0.15, 0.17, 0.15, 0.14 in 1.4, 1.3, 1.2, 1.3 h; Harness² USD 25.86 of editor sessions and
   USD 1.62 of executions in 20.5 h, about 0.16 USD per question against GEPA's and SkillOpt's 0.01 (the executions'
-  Codex tokens are not priced).
+  Codex tokens are not priced); Continual Harness USD 3.67 of Refiner calls and USD 2.81 of executions in 8.6 h,
+  about 0.04 USD per question.
+- The two streams are within one stream's noise of each other (11 questions only Continual Harness gets right, 14
+  only Harness²); Continual Harness scores 0.663 on the first half of the stream and 0.605 on the second, Harness²
+  0.640 and 0.663.
 - Of the misses in each evaluation, about nine are the right number in the wrong form, mostly a missing `%` where
   the reference answer carries one (13 of the 172 do, and the reference answers are not consistent about it);
   the judge keeps `%` and strips commas, `$` and `million`.

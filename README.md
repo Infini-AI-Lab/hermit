@@ -46,11 +46,11 @@ Many harnesses are black boxes; even open-source ones have carefully designed co
 <tbody>
 <tr>
 <td>✅ <strong>Supported</strong></td>
-<td><a href="docs/methods/gepa.md">GEPA</a> · <a href="docs/methods/skillopt.md">SkillOpt</a> · <a href="docs/methods/mwm.md">MetaWorld Model</a> · <a href="docs/methods/harness2.md">Harness²</a></td>
+<td><a href="docs/methods/gepa.md">GEPA</a> · <a href="docs/methods/skillopt.md">SkillOpt</a> · <a href="docs/methods/mwm.md">MetaWorld Model</a> · <a href="docs/methods/harness2.md">Harness²</a> · <a href="docs/methods/continual_harness.md">Continual Harness</a></td>
 </tr>
 <tr>
 <td>🚧 <strong>Coming Soon</strong></td>
-<td><a href="https://github.com/ace-agent/ace">ACE</a> · <a href="https://github.com/sethkarten/continual-harness">Continual Harness</a> · <a href="https://arxiv.org/abs/2610.12668">ReHarness</a></td>
+<td><a href="https://github.com/ace-agent/ace">ACE</a> · <a href="https://arxiv.org/abs/2610.12668">ReHarness</a></td>
 </tr>
 </tbody>
 </table>
@@ -159,6 +159,10 @@ Train and evaluate harness adapters on benchmarks using different evolution meth
 <tr>
 <td><a href="docs/methods/harness2.md">Harness²</a></td>
 <td><a href="examples/officeqa/harness2_stream/">OfficeQA</a> (the paper's per-question protocol, Codex as the acting agent)</td>
+</tr>
+<tr>
+<td><a href="docs/methods/continual_harness.md">Continual Harness</a></td>
+<td><a href="examples/officeqa/continual_harness/">OfficeQA</a> (policy, sub-agents, skills and memory refined in place, Codex as the acting agent)</td>
 </tr>
 <tr>
 <td><a href="docs/methods/prompt-only.md">Prompt-only</a></td>
