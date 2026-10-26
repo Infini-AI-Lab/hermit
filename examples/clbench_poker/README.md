@@ -74,8 +74,8 @@ revision calls per order at the backend's prices, no rollout errors, every insta
 3,050 agent replies were read from the field alone, a bare quote or an escape inside their JSON). Below the
 stateless baseline: the paper itself reports only marginal gains on exploitable poker, where hand-level rewards are
 weakly coupled with strategy quality; here the five retrieved reflections, about 7 K characters each after revision,
-add about 37 K characters of other hands' evidence and strategies to every hand's context, and the rewards fall in
-the later quarters of four orders, where the opponent variant has shifted. Each run's card is
+add about 37 K characters of other hands' evidence and strategies to every hand's context, and in every order the
+last quarter of the hands scores below the first, after the opponent variant has shifted. Each run's card is
 `<tag>-o<order>/checkout/CARD.md` under `$MW_RUNS`; no bank is included.
 
 ## Code
