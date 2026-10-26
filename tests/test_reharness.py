@@ -445,6 +445,72 @@ def test_the_codex_agent_deploys_a_context_adapter_as_agents_md(tmp_path):
     assert (work3 / "AGENTS.md").read_text() == "the tree's own" and not deployed["context"]
 
 
+def test_a_resumed_run_continues_with_the_restored_trajectories(tmp_path):
+    """State persistence: a run that died after step 2 resumes at step 3 with the bank and the stored source
+    trajectories of the saved step, so the revisions keep reading real trajectories and no step is recorded twice."""
+    config = make_run(tmp_path, {"k": 2})
+    train(config)
+    run = tmp_path / "runs" / "reharness-toy"
+    lines = (run / "steps.jsonl").read_text().splitlines()
+    (run / "steps.jsonl").write_text("\n".join(lines[:3]) + "\n")             # as if the run died after step 2
+    (run / "summary.json").unlink()
+    summary, model = train(Config.load(tmp_path / "run.yaml"))
+    assert [s["step"] for s in records(run)] == [0, 1, 2, 3, 4, 5, 6] and summary["steps"] == 6
+    state = json.loads((run / "workspace" / "state" / "reharness.json").read_text())
+    assert [s["step"] for s in state["steps"]] == [1, 2, 3, 4, 5, 6]            # the rerun added steps 3 to 6 once
+    revisions = [u for kind, u in model.prompts if kind.startswith("You are RevisionAgent")]
+    assert revisions and all("[TARGET MEMORY'S ORIGINAL TRAJECTORY]\n[TASK]\nTask " in u for u in revisions)
+    assert not any("is not available" in u for u in revisions)              # the stored trajectories came back
+    assert sorted(f.stem for f in (run / "checkout" / "reflections").glob("*.json")) == [f"t{i:02d}" for i in range(6)]
+
+
+def test_a_stopped_step_leaves_no_record_and_no_orphan_trajectory(tmp_path):
+    """Failure handling: when the Trainer stops the run while an agent is writing, the step comes back failed, the
+    Training State keeps no record of it and the trajectory stored for its memory is removed."""
+    import threading
+    import types
+    from hermit.algorithms.evolvers.reharness.evolver import ReHarnessEvolver
+    config = make_run(tmp_path, {"k": 2})
+    trainer = Trainer(config, log=lambda *_: None)
+    trainer.llm = ScriptedModel()
+    trainer.train()
+    ws = trainer.ws
+    before_state = (ws.state / "reharness.json").read_text()
+    before_files = sorted(p.name for p in (ws.state / "trajectories").glob("*"))
+    cancel = threading.Event()
+
+    def llm(messages, **sampling):
+        cancel.set()                                   # the Trainer stopped the run during this call
+        return {"content": json.dumps({"reflection": "- strategy: x"}), "finish_reason": "stop"}
+
+    ctx = types.SimpleNamespace(workspace=ws, params={"k": 2}, tools={"llm": llm},
+                                progress=types.SimpleNamespace(step=99), cancel=cancel, sandbox=None)
+    result = ReHarnessEvolver().step(ctx)
+    assert result.status == "failed" and "not committed" in result.summary
+    assert (ws.state / "reharness.json").read_text() == before_state
+    assert sorted(p.name for p in (ws.state / "trajectories").glob("*")) == before_files
+
+
+def test_a_failing_agent_leaves_the_bank_unchanged(tmp_path):
+    """Failure handling: an `llm` that raises is recorded per instance; nothing is written, the run goes on."""
+    class Raising(ScriptedModel):
+        def chat(self, messages, **kwargs):
+            raise RuntimeError("provider down")
+
+    config = make_run(tmp_path, {"k": 2})
+    trainer = Trainer(config, log=lambda *_: None)
+    trainer.llm = Raising()
+    trainer.train()
+    run = tmp_path / "runs" / "reharness-toy"
+    steps = [s for s in records(run) if not s.get("bootstrap")]
+    assert len(steps) == 6 and all(s["status"] == "done" for s in steps)
+    assert all(s["evolver"]["summary"].startswith("no reflection written: RuntimeError: provider down") for s in steps)
+    assert list((run / "checkout" / "reflections").glob("*.json")) == []
+    assert list((run / "workspace" / "state" / "trajectories").glob("*")) == []
+    state = json.loads((run / "workspace" / "state" / "reharness.json").read_text())
+    assert state["steps"][0]["instances"][0]["write"]["error"].startswith("RuntimeError: provider down")
+
+
 def test_without_a_recorded_context_tool_result_nothing_is_revised(tmp_path, embeddings, monkeypatch):
     """Eq. 2 revises what the agent read: a pipeline that records no context_tool result is taken to have read no
     reflections; `recompute_retrieval: true` ranks the bank again instead and says so."""
