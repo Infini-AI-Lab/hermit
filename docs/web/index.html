@@ -98,7 +98,7 @@
     <div class="title-row"><img src="assets/logo.svg" alt=""><h1 class="title">Herm<i>i</i>t</h1></div>
     <p class="subtitle">Train, evaluate and deploy <b>harness adapters</b>: trainable external harnesses that adapt an existing agent to new scenarios without touching its harness or model.</p>
     <div class="chips">
-      <span class="chip">Trainable</span><span class="chip">No harness changes</span><span class="chip">Transferable</span><span class="chip">RL-style loop</span><span class="chip">GEPA · SkillOpt · MWM · Harness² · Continual Harness</span><span class="chip">Codex · Claude Code</span>
+      <span class="chip">Trainable</span><span class="chip">No harness changes</span><span class="chip">Transferable</span><span class="chip">RL-style loop</span><span class="chip">GEPA · SkillOpt · MWM · Harness² · Continual Harness · ReHarness</span><span class="chip">Codex · Claude Code</span>
     </div>
     <div class="btns">
       <a class="btn accent" href="https://github.com/Infini-AI-Lab/hermit">Code</a>
@@ -129,7 +129,7 @@
     <p>Hermit is an open-source framework with <b>one training loop</b> for harness adapters. Bring your tasks and feedback; choose a learning method or write your own. It provides shared infrastructure for:</p>
     <ul class="arrows">
       <li>One Trainer for every method: rollouts, judge feedback, an Evolver step, a checked commit, the next version</li>
-      <li>GEPA, SkillOpt, MetaWorld Model, Harness² and Continual Harness; Codex and Claude Code as learner agents</li>
+      <li>GEPA, SkillOpt, MetaWorld Model, Harness², Continual Harness and ReHarness; Codex and Claude Code as learner agents</li>
       <li>Adapters as files in a git tree: inspect every version, roll back, ship the final one</li>
       <li>Deploy workspaces for Codex, Claude Code or Pi, or export supported contents as a native plugin for compatible hosts</li>
       <li>Adapter specification checks and versioned updates, with sandboxing for supported learner programs</li>
@@ -170,7 +170,7 @@
     <h3>Learning methods</h3>
     <div class="methods">
       <span class="chip">GEPA</span><span class="chip">SkillOpt</span><span class="chip">MetaWorld Model</span><span class="chip">Codex learner</span><span class="chip">Claude Code learner</span>
-      <span class="chip">Harness²</span><span class="chip soon">ACE · soon</span><span class="chip">Continual Harness</span><span class="chip soon">ReHarness · soon</span>
+      <span class="chip">Harness²</span><span class="chip soon">ACE · soon</span><span class="chip">Continual Harness</span><span class="chip">ReHarness</span>
     </div>
     <p>An Evolver is a few hundred lines: it receives the step's learning material and the adapter's working copy, and returns a proposal. The Trainer manages specification checks, versioning, run records and evaluation support.</p>
   </div>

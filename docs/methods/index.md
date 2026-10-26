@@ -13,6 +13,7 @@ template–method combinations meaningful.
 | Refine a harness per task from trajectories without labels, with a library of adopted harnesses | [Harness²](harness2.md) | `harness2-codex@1.0` | Learner model endpoint, Codex, the `harness2` extra |
 | Refine a policy, sub-agents, skills and memory in place from each step's trajectories, without a gate | [Continual Harness](continual_harness.md) | `continual-harness@1.0` | Learner model endpoint, Codex |
 | Build a persistent world model from an ordered environment stream | [MWM](mwm.md) | `mwm` | Evidence store, deployment description, tools, Linux learner environment |
+| Learn a bank of reflections online, retrieved per instance of an ordered stream | [ReHarness](reharness.md) | `reharness` | The run's `llm`, an embedding endpoint (or BM25), an agent that reads the adapter through `Session.context(query, task)` |
 | Learn the framework contract offline | [Quick Start](../get-started/quickstart.md) | Prompt-only with a teaching learner | Included toy tasks |
 
 ## Compare the work behind each step
@@ -29,6 +30,7 @@ task-specific service overhead. Call counts vary with evidence, candidates, and 
 | Harness² | Two editors, a composer and a reflector per task, plus three probe executions (k = 1); the adapter stays H0 | Library of adopted harnesses with lessons | Unchanged adapter; the stream's own deliverables are the result |
 | Continual Harness | Four Refiner calls per step (policy, sub-agents, skills, memory); no candidate rollout, no validation | Step log in `state/`; the memory the agent writes comes back with each trajectory | Current adapter |
 | MWM | Maintenance and a learner session per eligible block, plus native bootstrap/retry behavior | World-model adapter plus method/session records | Current world-model adapter |
+| ReHarness | Per instance, one reflection call, one revision call per retrieved reflection (up to k) and one embedding call; no candidate rollouts or validation | Reflection bank in the adapter; source trajectories and per-instance retrieval and revision records in `state/` | Current adapter: the bank after the last instance |
 
 `use_gate: false` in SkillOpt removes the ordinary improvement requirement, **not** the validation calls.
 GEPA's minibatch criterion is separate from its validation-based parent/final selection.
@@ -42,7 +44,9 @@ paths as learnable in a custom template. Changing `evolver.name` does not expand
 
 A text optimizer writes selected text files. A coding-agent Evolver can make more general edits, within the
 template's rules. MWM has its own memory, programs, evidence protocol, and learner contract; choosing it requires
-a task integration that supplies those resources.
+a task integration that supplies those resources. ReHarness writes its reflection bank (`reflections/*.json`,
+`index.json`) and leaves `ADAPTER.md` alone; its acting agent must read the adapter through
+`Session.context(query, task)`.
 
 ## Plan the data and comparison
 

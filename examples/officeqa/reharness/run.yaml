@@ -1,0 +1,48 @@
+# OfficeQA with the ReHarness Evolver (Xiao et al., arXiv:2610.12668) in the SkillOpt paper's setting, for the rows
+# beside GEPA and SkillOpt: the 50 training questions as one stream, one question per step in the split's order, one
+# pass (the method is strictly online: no validation set, no replay); then `hermit eval --adapter final` of the bank
+# on the 172 test questions, three passes each. GLM 5.3 Flash acts and writes the reflections. Started by launch.sh,
+# which puts the embedding model behind a loopback relay for the adapter's reader.
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/train.txt
+  test: ../utils/splits/test.txt
+  step_size: 1                 # one question per step: one ReHarness instance (read, revise, write)
+  shuffle: false               # the stream in the split's order
+task_info: ../utils/task-info/
+agent:
+  name: ../utils/agent/agent.py:OfficeQAAgent
+  concurrency: 8               # the eval; the stream itself is one question at a time
+judge:
+  path: ../utils/judge.py
+template: reharness
+start_from: seed_adapter       # SkillOpt's initial OfficeQA skill over the reharness template (make_seed.py)
+evolver:
+  name: reharness
+  params:
+    k: 5                       # reflections retrieved and revised per question (the paper: 5)
+    embedding: fireworks/accounts/fireworks/models/qwen3-embedding-8b   # the paper's Qwen3-Embedding-8B; launch.sh
+                               # binds it to its loopback relay, the same one the adapter's reader embeds through
+model: fireworks/accounts/fireworks/models/glm-5p3-flash   # the agent's model (it answers at medium effort; agent.py)
+llm:                           # the reflection and revision agents: the acting model (the paper: one backbone throughout)
+  model: fireworks/accounts/fireworks/models/glm-5p3-flash
+  extra_body: {reasoning_effort: medium}
+sandbox:
+  enabled: true
+  network: restricted
+  allow: []                  # the Evolver's own model endpoint is always reachable
+  read: []
+  env: []                    # the Evolver's model key variable is always passed; nothing else is
+  profiles:                  # the agent's sandbox (rollout; eval and check take it too)
+    rollout:
+      read: [../utils/documents]   # the source documents (prepare.py links them)
+      mask: [../utils/.private]    # the judge's answers, beside the task
+trainer:
+  run_name: paper-reharness
+  output_dir: runs
+  tree_dir: runs/trees/paper-reharness      # one adapter tree per run: runs can train side by side
+  epochs: 1                    # one pass over the stream
+  budget: {usd: 40, hours: 30}
+  call_timeout_min: 30         # one question's revisions (side by side) and reflection
+eval:
+  repeats: 3                 # the target samples: three passes over the test questions

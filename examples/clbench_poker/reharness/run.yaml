@@ -1,0 +1,47 @@
+# ReHarness (Xiao et al., arXiv:2610.12668) on the CL-Bench poker venue: the same host, stream and scoring as
+# ../mwm/run.yaml (bb/hand over the default schedule's 120 hands, 104 of which reach the host), with the reharness
+# template (a bank of reflections, one per past hand; the host's context is ADAPTER.md plus the top-k reflections
+# retrieved for the hand's first prompt, no tools for the model) and the reharness Evolver: after every hand it
+# revises each retrieved reflection from its own source trajectory, with the new one as feedback, and writes the
+# hand's reflection. Its agents are the run's `llm` tool, bound to the host's model (one backbone for all agents, as
+# in the paper), GLM 5.3 Flash through the learner's meter at reasoning effort high. Started per order by
+# `launch.sh`, which sets the per-order paths, the meters and the embedding relay.
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/order0.txt      # launch.sh: order<i>.txt
+  step_size: 1                           # one step per hand: ReHarness learns per instance, not per block of 5 (the
+                                         # `block` field of tasks.jsonl groups hands for MWM only, naming their evidence
+                                         # directory)
+  shuffle: false                         # the stream's own order
+task_info: ../utils/task-info
+agent:
+  name: ../utils/agent/agent.py:CLBenchPokerAgent
+  concurrency: 1
+judge:
+  path: ../utils/judge.py
+template: reharness
+evolver:
+  name: reharness
+  params:
+    k: 5                                 # reflections retrieved per hand and revised after it (the paper's k)
+    embedding: fireworks/accounts/fireworks/models/qwen3-embedding-8b   # launch.sh: the same model through its relay
+                                         # ({base_url, model, api_key_env}), so the Evolver's embedding calls are metered
+llm:                                     # the revision and reflection agents; launch.sh binds it to the learner's meter
+  model: fireworks/accounts/fireworks/models/glm-5p3-flash   # launch.sh: learner/<model id>
+  extra_body: {reasoning_effort: high}   # launch.sh: MW_EFFORT, the host's effort
+sandbox:                                 # the Evolver runs in the Trainer's process; `network` and `env` govern the
+  enabled: true                          # learner role and the template's checks and tools (the tool role), which reach
+  network: isolated                      # forwarded 127.0.0.1 endpoints only. The adapter's reader always runs so. The
+                                         # host (rollout; eval and check take it too) keeps the launcher's environment and
+  env: []                                # network and reaches the loopback meters directly; `profiles.rollout.network:
+                                         # isolated` would confine it to the 127.0.0.1 URLs its environment names
+  profiles:                              # the agent's sandbox (rollout; eval and check take it too); launch.sh sets both
+    rollout: {read: [$MWM_CLBENCH], write: [$MWM_TASK_WORKDIR]}   # CL-Bench and its .venv; the task's directory
+trainer:
+  run_name: null                   # launch.sh: <tag>-o<i>
+  output_dir: runs
+  epochs: 1
+  call_timeout_min: 30             # one step: up to k revision calls side by side and one reflection call, each with
+                                   # one retry; the bootstrap (step 0) writes index.json and calls no model
+  save_freq: {steps: 5, epochs: 1}
+  budget: {usd: null, tokens: null, hours: 48}   # a ceiling only

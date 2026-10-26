@@ -24,9 +24,12 @@ class CLBenchDatabaseAgent(Agent):
             raise ValueError("this agent serves an adapter")
         result, log, wall = run_host("database_runner.py", task, adapter, self.params)
         tokens = result.get("tokens") or {}
+        extra = {"success": result["success"], "verdict": result["verdict"],
+                 "queries_used": result["queries_used"], "drifted": result["drifted"], "host_tokens": tokens,
+                 "mwm": {"unit": "questions", "number": result["question_num"], "entry": result["entry"]}}
+        if result.get("context_tool") is not None:
+            # what the adapter's context tool rendered for the question (the Trainer keeps it as pipeline_extra;
+            # the ReHarness Evolver revises exactly the reflections it names)
+            extra["context_tool"] = result["context_tool"]
         return RunOutput(output=result["answer"], log=log, wall_s=wall,
-                         tokens=(tokens.get("input_tokens", 0) + tokens.get("output_tokens", 0)) or None,
-                         extra={"success": result["success"], "verdict": result["verdict"],
-                                "queries_used": result["queries_used"], "drifted": result["drifted"],
-                                "host_tokens": tokens,
-                                "mwm": {"unit": "questions", "number": result["question_num"], "entry": result["entry"]}})
+                         tokens=(tokens.get("input_tokens", 0) + tokens.get("output_tokens", 0)) or None, extra=extra)

@@ -139,9 +139,9 @@ pipeline that supplies them; the agent cannot pass it.
 ```yaml
 exports:
   tools:
-    - name: lookup
-      description: The notes that match an instance's input.
-      entrypoint: interface.py:lookup
+    - name: reflections
+      description: The top-k reflections of the bank for an instance's input.
+      entrypoint: interface.py:reflections
       input_schema:
         type: object
         properties: {query: {type: string}, task: {type: object}}
@@ -150,7 +150,7 @@ exports:
         type: object
         properties: {text: {type: string}}
         required: [text]
-  context_tool: lookup
+  context_tool: reflections
 ```
 
 `context_tool` names one of the declared tools as the harness's. The harness, not the agent, calls it once per
@@ -163,7 +163,8 @@ servers, and `respond` refuses it: the agent cannot call it. A manifest that nam
 The specification check's load check (check 5) calls the tool once with an empty query and an empty task, in a
 run's sandbox (strict, without network or keys, when the sandbox is on; unconfined when `sandbox.enabled` is false), so the tool must answer that call without an endpoint (with no query there is
 nothing to retrieve) and return an object with a `text` string. `deploy` and `convert` render `ADAPTER.md` alone: a
-host workspace or plugin has no per-task context.
+host workspace or plugin has no per-task context. The `reharness` template retrieves reflections this way
+([ReHarness](../methods/reharness.md)).
 
 ## `structure`
 

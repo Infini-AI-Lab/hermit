@@ -1,6 +1,8 @@
 """AdapterHost (the ported CL-Bench host) driven by a fake run_action_turn: the adapter's context is the system
 prompt, its tools are offered beside the task's, wm calls go through Session with the cap, turns are recorded in the
-native shape, the environment's answers land in the records and the conversation, cost.jsonl is written."""
+native shape, the environment's answers land in the records and the conversation, cost.jsonl is written. With an
+adapter that declares a context tool (the reharness template) the context is computed once per instance, from its
+first prompt, and the tool's result is kept in context_info."""
 from pathlib import Path
 import json
 import os
@@ -8,15 +10,18 @@ import shutil
 import sys
 import tempfile
 import types
+import importlib.util
 import unittest
 
 TASK = Path(__file__).resolve().parents[2]
 FRAMEWORK = TASK.parents[1]
 CLBENCH = Path(os.environ.get("MWM_CLBENCH", str(Path.home() / "code/clbench")))
 TEMPLATE = FRAMEWORK / "hermit/algorithms/templates/mwm"
+REHARNESS = FRAMEWORK / "hermit/algorithms/templates/reharness"
 
 
-@unittest.skipUnless((CLBENCH / "src/interface.py").is_file(), "clbench checkout not available")
+@unittest.skipUnless((CLBENCH / "src/interface.py").is_file() and importlib.util.find_spec("litellm") is not None,
+                     "clbench checkout and its environment (litellm) not available: run under <clbench>/.venv/bin/python")
 class HostDrivenByAFakeTurn(unittest.TestCase):
     def setUp(self):
         for p in (str(CLBENCH), str(TASK / "utils" / "agent")):
@@ -107,6 +112,46 @@ class HostDrivenByAFakeTurn(unittest.TestCase):
         self.assertTrue((self.tmp / "evidence" / "block001").is_dir() and "/evidence/block001/" in entry)
         readme.write(self.tmp / "evidence", "EVIDENCE TEXT")
         self.assertTrue((self.tmp / "evidence/README.md").read_text().startswith("EVIDENCE TEXT\n\nSub-agents:"))
+
+    def test_context_tool_once_per_instance(self):
+        """The reharness adapter: the reflections retrieved for the instance's first prompt sit below ADAPTER.md in the
+        system message of every turn of the instance (a later prompt retrieves nothing new), context_info names them,
+        the reader is not among the model's tools, and the next instance retrieves afresh."""
+        adapter = self.tmp / "reharness"
+        shutil.copytree(REHARNESS, adapter, ignore=shutil.ignore_patterns("__pycache__"))
+        if str(REHARNESS) not in sys.path:
+            sys.path.insert(0, str(REHARNESS))
+        from reharness_core import bank
+        bank.write_index(adapter, {"k": 1, "retrieval": "bm25", "embedding_model": None, "dim": None})
+        bank.save_reflection(adapter, bank.Reflection(id="m0", task="m0", step=1, query="how many products are in stock",
+                                                      reflection="- count the rows of products"))
+        bank.save_reflection(adapter, bank.Reflection(id="m1", task="m1", step=2, query="which supplier ships fastest",
+                                                      reflection="- join suppliers with shipments"))
+        from hermit import Session
+        system = self.host.AdapterHost(Session(adapter), model="m", workspace=self.tmp / "ws2", venue="database")
+        system.reset()
+        self.assertIsNone(system.context_info)
+        call = lambda cid, name, args: {"id": cid, "type": "function", "function": {"name": name, "arguments": json.dumps(args)}}
+        self.fake_turn([{"role": "assistant", "content": "", "tool_calls": [call("q1", "QUERY", {"query": "SELECT 1"})]}])
+        env_tools = [{"type": "function", "function": {"name": "QUERY", "parameters": {"type": "object"}}}]
+        query = lambda prompt, iid: self.Query(prompt=prompt, response_schema=None, instance_id=iid, tools=env_tools, metadata={})
+        system.respond(query("Question 1: how many products are in stock?", "q-1"))
+        prefix = self.seen[-1]["prefix"]
+        self.assertEqual(len(prefix), 1)
+        self.assertTrue(prefix[0]["content"].startswith((adapter / "ADAPTER.md").read_text()))
+        self.assertIn("[RANKED REFLECTIONS]\n[RANK 1 OF 1 REFLECTION]\n- count the rows of products", prefix[0]["content"])
+        self.assertEqual(self.seen[-1]["tools"], ["QUERY"])                                 # the reader is the harness's
+        self.assertEqual([r["id"] for r in system.context_info["retrieved"]], ["m0"])
+        self.assertEqual(system.context_info["query"], "Question 1: how many products are in stock?")
+        # the next turn of the same question keeps the context, though its prompt would retrieve the other reflection
+        system.observe(self.Observation(content="rows: 1", instance_complete=False))
+        system.respond(query("which supplier ships fastest", "q-1"))
+        self.assertEqual(self.seen[-1]["prefix"], prefix)
+        # a new question retrieves for its own first prompt
+        system.observe(self.Observation(content="correct", instance_complete=True))
+        system.respond(query("Question 2: which supplier ships fastest?", "q-2"))
+        self.assertIn("- join suppliers with shipments", self.seen[-1]["prefix"][0]["content"])
+        self.assertEqual([r["id"] for r in system.context_info["retrieved"]], ["m1"])
 
     def test_wm_cap(self):
         self.system._wm_calls = self.host.CALLS_PER_EPISODE

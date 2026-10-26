@@ -48,6 +48,32 @@ These commands make real model calls. Begin with one order. `MW_ORDERS="0 1 2 3 
 `MW_TRAIN_SPLIT` can select a prepared prefix split for a smoke run; a prefix is not the full experiment.
 The launcher uses `WM_PORT` and `WM_PORT+1` for host and learner wire meters.
 
+### ReHarness
+
+The same streams also run with ReHarness (Xiao et al., [arXiv:2610.12668](https://arxiv.org/abs/2610.12668)): the
+adapter is a bank of reflections, one per past instance, and before each question or hand the harness retrieves the
+five closest by the embedding of the instance's prompt and appends them to the host's context; after it, the
+Evolver revises the retrieved reflections and writes a new one. The learner is the run's `llm` tool on the host's
+model (no Codex), one step per instance (`data.step_size: 1` in both venues). The launcher needs the key of the
+embedding model's backend too (`MW_EMBED_MODEL`, default Qwen3-Embedding-8B on Fireworks) and a third port,
+`WM_PORT+2`, for the embedding relay that the adapter's sandboxed reader reaches on the loopback.
+
+```bash
+MW_TAG=reharness-db WM_PORT=3481 MW_ORDERS="0" examples/clbench_database/reharness/launch.sh
+MW_TAG=reharness-poker WM_PORT=3491 MW_ORDERS="0" examples/clbench_poker/reharness/launch.sh
+```
+
+Each run's `checkout/reflections/` is the bank after the stream, and `workspace/state/reharness.json` records what
+every step retrieved, revised and wrote. The venue metrics are read as for MWM below.
+
+Observed on the database venue with GLM 5.3 Flash at reasoning effort high (five orders of 40 questions, one run
+each, in the offline container of `docker/offline.sh`): 36 to 42 minutes per order, about one minute per question,
+of which the learner's five revision calls side by side and the reflection call after them take about 40 seconds; per order
+177 to 215 host calls (1.4 to 1.9 M input tokens, three quarters of them cached, USD 0.10 to 0.13 at the backend's
+prices), 231 to 235 learner calls (1.2 to 1.5 M input and 0.47 to 0.54 M output tokens, USD 0.41 to 0.48) and 79 to
+80 embedding calls of about 18 K tokens in all. Accuracy 0.740 over the five orders
+([the example's results](https://github.com/haizhongzheng/hermit/blob/main/examples/clbench_database/README.md#results)).
+
 ## On local GPUs
 
 Any server the backends layer knows can stand in for Fireworks. On a machine of L40s (vLLM 0.31), the poker stream
@@ -97,13 +123,40 @@ These are one order with one local model, not a comparison with the results in t
 | `order<order>/run.log` | Training process output |
 | `order<order>/task/evidence/` | Episode evidence |
 | `order<order>/task/outcomes.jsonl` | Poker outcome ledger |
-| `wire_ledger.json`, `meta_wire_ledger.json` | Provider usage captured by the meters |
+| `wire_ledger.json`, `meta_wire_ledger.json`, `embed_wire_ledger.json` (ReHarness) | Provider usage captured by the meters: the host's, the learner's and, for ReHarness, the embedding relay's (its calls carry no price and are the card's calls of unknown cost) |
 
 Database uses accuracy scoring with the configured query policy. Poker uses its outcome ledger and bb/hand;
 do not interpret the framework evaluator's generic `solved_once` field as the poker metric.
 
-The example documentation reports roughly a day per order for its model setting. This is an observed planning
-estimate; verify with a prefix run. No fresh benchmark measurements are implied by this guide.
+The MWM example documentation reports roughly a day per order for its model setting, an observed planning estimate;
+verify with a prefix run. The ReHarness figures above are observed runs, reported with their settings in the
+examples' READMEs; nothing else on this page is a measurement.
+
+## Reproduction limits
+
+The ReHarness runs differ from the paper's CL-Bench evaluation ([arXiv:2610.12668](https://arxiv.org/abs/2610.12668),
+section 4):
+
+- Models: GLM 5.3 Flash at reasoning effort high acts, reflects and revises, instead of the paper's Claude Opus 4.8,
+  GPT-5.5 and Gemini 3.7 Flash at high thinking effort (one backbone for every agent, as here).
+- Tasks and metric: the database venue (and poker, once measured), reported as raw accuracy or bb/hand over
+  clbench's five orders with one run each, instead of the paper's six CL-Bench tasks reported as normalized gain over
+  the stateless backbone, (r_method − r_stateless) / (r_max − r_stateless), averaged over three independently
+  sampled stream rollouts with a shared seed. In that measure, over clbench's stateless baseline (0.400) with
+  r_max = 1, the database accuracies are ReHarness 0.57, MWM 0.66, ICL 0.30; the paper's Table 5 reports 0.361 ±
+  0.004 for its database task with Claude Opus 4.8, under its own host and metric, so the numbers are not comparable.
+- Scoring and host: the fork's accuracy scoring with unlimited queries (`CLB_SCORING=accuracy`, `CLB_QUERY_BUDGET=0`,
+  the `SCORING_UNLIMITED` contract the launcher checks for), and the venue's own host prompt and tools as the decision
+  agent, with the retrieved reflections appended below `ADAPTER.md`
+  ([where the integration departs from the paper](../methods/reharness.md#where-this-integration-departs-from-the-paper));
+  the paper uses its own decision-agent prompt and each task's native metric. Ranking is by cosine, a choice the
+  paper leaves open.
+- Code: the authors publish none; the Evolver follows the paper's equations and Figure 5 prompts, verbatim.
+- Revision of the tree: the database runs were made from the files committed as the branch's first ReHarness
+  commit (the launcher stamped the working tree `1b0161e-dirty`), before the commit that changed how the Evolver
+  reads the agents' replies and retries one cut off at `max_tokens` (3 of 200 writes were lost to it).
+
+Hosted models can change independently of the code, so the same commit need not give the same numbers.
 
 ## Preserve the protocol
 

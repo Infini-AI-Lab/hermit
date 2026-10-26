@@ -144,7 +144,8 @@ the `text` it returns is appended below `ADAPTER.md` for that task. The agent is
 `tool_specs` and `respond` leave it out. `Session.context(query=..., task=...)` makes the call; the built-in `react`
 agent passes the task's user message as the query and records the tool's whole result in
 `RunOutput.extra["context_tool"]`, so the learning material says what the agent read. `deploy` and `convert` render
-`ADAPTER.md` alone: a workspace or plugin carries the instructions, not the per-task part. The declaration is in the
+`ADAPTER.md` alone: a workspace or plugin carries the instructions, not the per-task part. The `reharness` template
+retrieves reflections this way ([ReHarness](../methods/reharness.md)); the declaration is in the
 [manifest reference](adapter-manifest.md#per-task-context).
 
 ### Custom acting pipelines

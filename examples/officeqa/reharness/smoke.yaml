@@ -1,0 +1,45 @@
+# Smoke: the 4 smoke training questions as a stream of 4 steps (one question each), then the 4 smoke test questions,
+# one pass. Started by launch.sh, which puts the embedding model behind a loopback relay for the adapter's reader.
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/smoke_train.txt
+  test: ../utils/splits/smoke_test.txt
+  step_size: 1                 # one question per step: one ReHarness instance (read, revise, write)
+  shuffle: false               # the stream in the split's order
+task_info: ../utils/task-info/
+agent:
+  name: ../utils/agent/agent.py:OfficeQAAgent
+  concurrency: 4               # the eval; the stream itself is one question at a time
+judge:
+  path: ../utils/judge.py
+template: reharness
+start_from: seed_adapter       # SkillOpt's initial OfficeQA skill over the reharness template (make_seed.py)
+evolver:
+  name: reharness
+  params:
+    k: 5                       # reflections retrieved and revised per question (the paper: 5)
+    embedding: fireworks/accounts/fireworks/models/qwen3-embedding-8b   # the paper's Qwen3-Embedding-8B; launch.sh
+                               # binds it to its loopback relay, the same one the adapter's reader embeds through
+model: fireworks/accounts/fireworks/models/glm-5p3-flash   # the agent's model (it answers at medium effort; agent.py)
+llm:                           # the reflection and revision agents: the acting model (the paper: one backbone throughout)
+  model: fireworks/accounts/fireworks/models/glm-5p3-flash
+  extra_body: {reasoning_effort: medium}
+sandbox:
+  enabled: true
+  network: restricted
+  allow: []                  # the Evolver's own model endpoint is always reachable
+  read: []
+  env: []                    # the Evolver's model key variable is always passed; nothing else is
+  profiles:                  # the agent's sandbox (rollout; eval and check take it too)
+    rollout:
+      read: [../utils/documents]   # the source documents (prepare.py links them)
+      mask: [../utils/.private]    # the judge's answers, beside the task
+trainer:
+  run_name: smoke-reharness
+  output_dir: runs
+  tree_dir: runs/trees/smoke-reharness      # one adapter tree per run: runs can train side by side
+  epochs: 1                    # one pass over the stream
+  budget: {usd: 5, hours: 3}
+  call_timeout_min: 30         # one question's revisions (side by side) and reflection
+eval:
+  repeats: 1

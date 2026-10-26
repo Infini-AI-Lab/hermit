@@ -6,6 +6,16 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Added
 
+- The ReHarness method (Xiao et al., arXiv:2610.12668): the `reharness` Evolver, one step per instance of an ordered
+  stream, revising the retrieved reflections from their source trajectories and writing the instance's reflection
+  through the run's `llm` tool, with Qwen3-Embedding-8B or BM25 retrieval; `feedback: false` keeps the judge's verdict
+  out of what the agents read, for a stream on the label-free footing; documented in `docs/methods/reharness.md`.
+- The `reharness` adapter template: a bank of reflections with a reader that retrieves the top-k for each instance as
+  the adapter's per-task context.
+- ReHarness on the examples: `examples/clbench_database/reharness/`, `examples/clbench_poker/reharness/` and
+  `examples/officeqa/reharness/` (direct chat, and the Flash row's `stream_codex.yaml` and `run_codex_flash.yaml`);
+  the OfficeQA Codex agent deploys a context adapter as the session's `AGENTS.md`, the Session's context for the
+  question, and records what the adapter's context tool retrieved.
 - `exports.context_tool` in `adapter.yaml`: a declared tool the harness calls once per task with `{query, task}`,
   whose text is appended to the context (`Session.context(query=..., task=...)`, `session.last_context`); hidden from
   the agent's tools, called by the deploy check with an empty query, refused by the CLI agents; the `react` agent

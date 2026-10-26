@@ -1,0 +1,33 @@
+description: ReHarness (Xiao et al., arXiv:2610.12668), a recurrent harness for agentic continual learning. The
+  adapter (template reharness) is a bank of reflections; before each instance the harness retrieves the top-k for
+  the instance's input (Eq. 1, the template's reader). After it, one step per instance (data.step_size 1, shuffle
+  false), this Evolver revises each retrieved reflection from its own source trajectory with the new trajectory as
+  feedback (Eq. 2) and writes the instance's reflection with the revised ones as demonstrations (Eq. 3), through the
+  run's `llm` tool, with the paper's prompts. No validation data, no replay.
+class: evolver.py:ReHarnessEvolver
+needs: []
+params:
+  k: 5                             # reflections retrieved per instance, and revised after it (the paper: 5)
+  embedding: null                  # the embedding model, `<backend>/<model id>` (the paper: Qwen3-Embedding-8B, on
+                                   # Fireworks accounts/fireworks/models/qwen3-embedding-8b) or {base_url, model,
+                                   # api_key_env, price}; null: BM25 over the instances' inputs, no endpoint. With a
+                                   # model, the acting side's reader needs REHARNESS_EMBED_URL in the environment: inside
+                                   # a run's sandbox a loopback relay (127.0.0.1 or localhost) in front of the provider, as
+                                   # the examples' launch.sh starts
+  recompute_retrieval: false       # when a pipeline records no context_tool result, the agent is taken to have read no
+                                   # reflections: nothing is revised and the write gets no demonstrations. true recomputes
+                                   # the retrieval instead, for a pipeline known to call Session.context(query=...) but
+                                   # not to record session.last_context; the step's records say so
+  revise: true                     # backward revision (false: the paper's "No Revision" ablation, forward flow only)
+  demonstrations: true             # the revised reflections as demonstrations for the memory agent (false: ablated)
+  raw_memory: false                # true: store the trajectory itself in place of a reflection, no model calls
+                                   # (the paper's Top-K Raw baseline on the same retrieval); the reader then renders
+                                   # [RANKED TRAJECTORIES], and the adapter's ADAPTER.md should describe the entries so
+  trace_chars: 24000               # characters of a trajectory shown to an agent (the middle is left out)
+  obs_chars: 4000                  # characters per message or observation inside a trajectory
+  feedback: true                   # the judge's score and feedback in tau_t, the environment's outcome (the paper's
+                                   # footing); false: the trajectory and the output alone reach the agents, the
+                                   # label-free footing of a stream whose verdicts the learner must not see
+  max_tokens: 8192                 # per reflection or revision call
+  temperature: null                # null: the endpoint's default
+  parallel: 5                      # revision calls run side by side (each retrieved reflection is revised independently)
