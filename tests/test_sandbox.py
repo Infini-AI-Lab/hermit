@@ -308,6 +308,23 @@ def test_a_granted_virtual_environment_comes_with_its_base_python(tmp_path, monk
     assert str(alias) in ro and str(base.resolve()) in ro        # the interpreter links through the alias
 
 
+def test_a_uv_alias_inside_a_granted_checkout_is_bound_once(tmp_path, monkeypatch):
+    """uv keeps a managed interpreter under the checkout itself (UV_PYTHON_INSTALL_DIR) with its version alias, a link
+    beside it. The alias exists inside through the granted checkout; binding it again would fail on a link."""
+    fake_bwrap(monkeypatch)
+    checkout = tmp_path / "clbench"
+    base = checkout / ".uv-python" / "cpython-3.13.17"
+    (base / "bin").mkdir(parents=True)
+    alias = checkout / ".uv-python" / "cpython-3.13"
+    alias.symlink_to(base)
+    (checkout / ".venv").mkdir()
+    (checkout / ".venv" / "pyvenv.cfg").write_text(f"home = {alias / 'bin'}\nversion = 3.13\n")
+    args, _ = Sandbox(network="open", read=[checkout]).wrap(["true"])
+    ro = binds(args, "--ro-bind")
+    assert str(checkout.resolve()) in ro and str(base.resolve()) in ro
+    assert str(alias) not in ro                                   # reached through the checkout, never bound itself
+
+
 @pytest.mark.skipif(not _bwrap_works(), reason="needs a working bubblewrap (unprivileged user namespaces)")
 @pytest.mark.parametrize("cli", ["codex", "claude"])
 def test_an_installed_cli_starts_with_only_its_own_paths(cli):

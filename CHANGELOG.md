@@ -4,6 +4,26 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ## Unreleased
 
+### Added
+
+- `exports.context_tool` in `adapter.yaml`: a declared tool the harness calls once per task with `{query, task}`,
+  whose text is appended to the context (`Session.context(query=..., task=...)`, `session.last_context`); hidden from
+  the agent's tools, called by the deploy check with an empty query, refused by the CLI agents; the `react` agent
+  records its result as `RunOutput.extra["context_tool"]`.
+- `UPSTREAM_KEY_ENV` for the wire meter: a request that arrives without an `Authorization` header is signed with
+  that variable's key, for a sandboxed reader that holds none.
+- `docker/offline.sh`: the examples in a container whose only route out is an egress proxy to the model provider.
+
+### Changed
+
+- The wire meter listens on `BIND` (default `127.0.0.1`; it listened on every interface before), and a relay that
+  signs requests refuses any other address.
+
+### Fixed
+
+- The sandbox failed to bind uv's version-alias link when the managed interpreter lives inside a granted checkout.
+- The sandboxed adapter server lost its channel on a tool result over asyncio's 64 KiB line default.
+
 ## 0.1.0 - 2026-10-25
 
 The first release: the framework as described in the documentation, with the Harness² and Continual Harness

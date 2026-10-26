@@ -6,7 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-from hermit.adapter.loader import load_manifest
+from hermit.adapter.loader import agent_tools, load_manifest
 from hermit.hosts.context import PROJECT_CONTEXT, START, append_context
 from hermit.hosts.inputs import (MARKER, PACKAGE_ROOT, _adapter_sandbox_env, check_workspace, copy_skills, render_exports, retire_roles,
                                          role_body, server_name, source_label, subagent_markdown, subagent_name)
@@ -32,7 +32,7 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
         existing = PROJECT_CONTEXT + "\n\n" + existing
     context_text = append_context(existing, context, source=source_label(manifest), version=manifest["version"],
                                   adapter_id=manifest["id"])
-    has_tools = bool(manifest.get("tools"))
+    has_tools = bool(agent_tools(manifest))     # the context tool is the harness's, not served
     if has_tools:
         subprocess.run([python, "-c", "import mcp.server"], check=True, capture_output=True)
     agents_dir = output / ".claude/agents"

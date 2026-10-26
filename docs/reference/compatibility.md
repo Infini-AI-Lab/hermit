@@ -38,7 +38,7 @@ framework's stdio server. Neither command guarantees that arbitrary tool depende
 - Budget observation can overshoot with in-flight work; missing usage remains unknown.
 - Crash recovery restores the last completed framework step, not arbitrary external service state.
 - The evaluator's `solved_once` threshold is fixed at score 1.0.
-- Dynamic per-call adapter context requires a custom consuming pipeline; ordinary exported instructions are static.
+- Per-task adapter context comes only through a manifest's `context_tool`, consumed by `Session` and the `react` agent; `deploy` and `convert` render the static `ADAPTER.md` alone.
 - The proposed manifest `serve` section, health checks, standalone startup, and relay lifecycle are not supported.
 
 ## Earlier command interfaces

@@ -114,7 +114,10 @@ def read(filename: str, start_line: int = 1) -> dict:
 A function that declares `_task` receives the task row. The result is JSON; an exception becomes an error
 message the model reads. The adapter's own tools are offered beside these and answered through
 [`Session`](adapter.md#custom-acting-pipelines). A benchmark that owns its agent loop is an `Agent` subclass
-that runs that loop with `Session` plugged in; `examples/clbench_poker/utils/agent/agent.py` is one.
+that runs that loop with `Session` plugged in; `examples/clbench_poker/utils/agent/agent.py` is one. For an adapter
+whose manifest names a [`context_tool`](adapter.md#per-task-context), such a loop reads the context with
+`session.context(query=<the instance's input>, task=<the row>)` and records `session.last_context` in
+`RunOutput.extra["context_tool"]`, as `react` does, so the Evolver knows what the agent read.
 
 ## What the task owner provides
 

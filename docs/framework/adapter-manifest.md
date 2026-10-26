@@ -36,6 +36,7 @@ under `examples/`. What you want to change decides which part you touch:
 |---|---|---|
 | Different starting instructions, skills or roles | the learnable files themselves: `ADAPTER.md`, `skills/`, `agents/` | no manifest change; the learner starts from your text |
 | A new tool for the acting agent | add its Python to the directory and declare it | [`exports.tools`](#tool-declaration); the file goes under `fixed` |
+| Context chosen per task (a retrieval, a lookup) | a tool declaration the harness calls, not the agent | [`exports.context_tool`](#per-task-context) |
 | Let the learner edit more, or less | the list of learnable paths and their limits (size, file count, frontmatter) | [`structure`](#structure) |
 | Keep a file exactly as shipped | list it under `fixed` | [`structure`](#structure) |
 | Reject candidates by a rule of your own (a lint, a test, a forbidden word) | a checker function run after the built-in checks | [`check`](#check) |
@@ -95,6 +96,7 @@ What the acting agent receives. Required, may be empty (`{}`): then the adapter 
 | `skills` | a directory | skill folders copied to the host as they are (`skills/<name>/SKILL.md`) |
 | `reactions` | `{entrypoint: file.py:function}` | service integration only: a function the framework service calls on events; `deploy` ignores it |
 | `concurrent_tool_calls` | boolean | service integration only: run the adapter's tool calls concurrently instead of one at a time |
+| `context_tool` | the name of one declared tool | [per-task context](#per-task-context): the harness calls that tool once per task with `{query, task}` and appends the `text` it returns below `ADAPTER.md`; hidden from the agent's tools; `deploy` and `convert` call it once with an empty query (as the deploy check does) and render `ADAPTER.md` alone: a workspace or plugin has no per-task context |
 
 All paths are relative to the adapter root and must stay inside it.
 
@@ -131,6 +133,37 @@ file and nothing else. How each export reaches Codex or Claude Code is in [Actin
 Schemas may use local `$ref`s only; remote and dynamic references are rejected. A tool function may declare a
 reserved `_resources` parameter to receive framework bindings (the evidence store, deployment settings) from a
 pipeline that supplies them; the agent cannot pass it.
+
+### Per-task context
+
+```yaml
+exports:
+  tools:
+    - name: lookup
+      description: The notes that match an instance's input.
+      entrypoint: interface.py:lookup
+      input_schema:
+        type: object
+        properties: {query: {type: string}, task: {type: object}}
+        additionalProperties: false
+      output_schema:
+        type: object
+        properties: {text: {type: string}}
+        required: [text]
+  context_tool: lookup
+```
+
+`context_tool` names one of the declared tools as the harness's. The harness, not the agent, calls it once per
+task, before the agent's first model call, with `query` (the task's input text) and `task` (its row), and appends
+the `text` of the result below `ADAPTER.md` for that task. `Session.context(query=..., task=...)` makes the call
+and keeps the whole result in `session.last_context`; the built-in `react` agent does both and records the result as
+`RunOutput.extra["context_tool"]`. The tool is left out of `Session.tools`, `tool_specs` and the hosts' tool
+servers, and `respond` refuses it: the agent cannot call it. A manifest that names an undeclared tool does not load.
+
+The specification check's load check (check 5) calls the tool once with an empty query and an empty task, in a
+run's sandbox (strict, without network or keys, when the sandbox is on; unconfined when `sandbox.enabled` is false), so the tool must answer that call without an endpoint (with no query there is
+nothing to retrieve) and return an object with a `text` string. `deploy` and `convert` render `ADAPTER.md` alone: a
+host workspace or plugin has no per-task context.
 
 ## `structure`
 

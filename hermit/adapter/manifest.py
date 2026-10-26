@@ -13,6 +13,10 @@ import yaml
 
 MANIFEST = "adapter.yaml"
 CONTEXT = "ADAPTER.md"     # every adapter's context for the acting agent: a fixed name, always exported
+# exports.context_tool: a declared tool the harness calls once per task, before the agent's first model call, with
+# {query, task}; the `text` it returns is appended to the context for that task (per-task context, such as the
+# retrieval of ReHarness). It is the harness's tool, never offered to the agent.
+CONTEXT_TOOL = "context_tool"
 CARD = "CARD.md"          # written by the Trainer; neither learnable nor fixed
 FRAMEWORK_FILES = (MANIFEST, CARD)
 SECTIONS = ("template", "exports", "structure", "check", "evolver_tools", "origin")

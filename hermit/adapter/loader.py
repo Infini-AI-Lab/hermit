@@ -66,7 +66,25 @@ def load_manifest(root: Path) -> dict:
         for field in ("input_schema", "output_schema"):
             if not isinstance(tool.get(field), dict) or tool[field].get("type") != "object":
                 raise ValueError(f"Tool {name} requires an object {field}")
+    context_tool = manifest.get("context_tool")
+    if context_tool is not None and (not isinstance(context_tool, str) or context_tool not in names):
+        raise ValueError(f"context_tool must name one of the declared tools, not {context_tool!r}")
     return manifest
+
+
+def agent_tools(manifest: dict) -> list[dict]:
+    """The declared tools an agent (or a host's tool server) is offered: every declaration but the context tool,
+    which the harness calls itself once per task."""
+    hidden = manifest.get("context_tool")
+    return [dict(t) for t in manifest.get("tools") or [] if t.get("name") != hidden]
+
+
+def join_context(text: str, result) -> str:
+    """ADAPTER.md with a context tool's `text` appended, when it has one."""
+    extra = result.get("text") if isinstance(result, dict) else None
+    if not isinstance(extra, str) or not extra.strip():
+        return text
+    return text.rstrip() + "\n\n" + extra.strip() + "\n"
 
 
 def subagent_files(root: Path, directory: str) -> list:
@@ -155,6 +173,16 @@ class Adapter:
 
     def context(self):
         return inside(self.root, self.manifest["context"]).read_text()
+
+    async def acontext(self, query: str = "", task: dict | None = None) -> tuple[str, dict | None]:
+        """The context for one task: ADAPTER.md, and below it the `text` the manifest's `context_tool` returns for
+        {query, task} when the adapter declares one. Also returns that tool's whole result (None without one)."""
+        text = self.context()
+        name = self.manifest.get("context_tool")
+        if not name:
+            return text, None
+        result = await self.call(name, {"query": query or "", "task": dict(task or {})})
+        return join_context(text, result), result
 
     def agent_definitions(self):
         declaration = self.manifest.get("agents")

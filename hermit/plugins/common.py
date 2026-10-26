@@ -15,7 +15,7 @@ import json
 import shutil
 
 from hermit import __version__ as FRAMEWORK_VERSION
-from hermit.adapter.loader import load_manifest
+from hermit.adapter.loader import agent_tools, load_manifest
 from hermit.hosts.inputs import (copy_skills as _copy_skills, render_exports, role_body, server_name,
                                          subagent_markdown, subagent_name)
 
@@ -56,7 +56,7 @@ class Bundle:
 
     @property
     def tools(self) -> list:
-        return list(self.manifest.get("tools") or [])
+        return agent_tools(self.manifest)          # the context tool is the harness's: a plugin cannot call it per task
 
     @property
     def server(self) -> str:
