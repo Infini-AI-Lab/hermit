@@ -26,7 +26,7 @@ a `CARD.md`.
 
 | Folder | Task | Agent | Methods |
 |---|---|---|---|
-| [`officeqa/`](officeqa/) | OfficeQA Full in the SkillOpt paper's setting: questions about U.S. Treasury Bulletins, its 50 / 24 / 172 split, exact match | `OfficeQAAgent`: SkillOpt's own rollout, GLM 5.3 Flash, in direct chat or SkillOpt's Codex harness | [`gepa`](officeqa/gepa/), [`skillopt`](officeqa/skillopt/), [`harness2_stream`](officeqa/harness2_stream/) (Harness², the paper's per-question protocol, with Codex as the acting agent) |
+| [`officeqa/`](officeqa/) | OfficeQA Full in the SkillOpt paper's setting: questions about U.S. Treasury Bulletins, its 50 / 24 / 172 split, exact match | `OfficeQAAgent`: SkillOpt's own rollout, GLM 5.3 Flash, in direct chat or SkillOpt's Codex harness | [`gepa`](officeqa/gepa/), [`skillopt`](officeqa/skillopt/), [`harness2_stream`](officeqa/harness2_stream/) (Harness², the paper's per-question protocol, with Codex as the acting agent), [`continual_harness`](officeqa/continual_harness/) (Continual Harness, Codex as the acting agent) |
 | [`clbench_database/`](clbench_database/) | The CL-Bench database exploration stream (accuracy) | `CLBenchDatabaseAgent`: metaworld's host seat in CL-Bench's loop | [`prompt_only`](clbench_database/prompt_only/), [`mwm`](clbench_database/mwm/) |
 | [`clbench_poker/`](clbench_poker/) | The CL-Bench exploitable-poker stream (bb/hand) | `CLBenchPokerAgent` | [`prompt_only`](clbench_poker/prompt_only/), [`mwm`](clbench_poker/mwm/) |
 | [`servelearnbench/`](servelearnbench/) | A ServeLearnBench scenario: serving stream, per-window tests | `ServeLearnBenchAgent`: the benchmark's own loop | [`prompt_only`](servelearnbench/prompt_only/), [`mwm`](servelearnbench/mwm/) |

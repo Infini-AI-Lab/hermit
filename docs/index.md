@@ -67,6 +67,7 @@ methods/gepa
 methods/skillopt
 methods/mwm
 methods/harness2
+methods/continual_harness
 ```
 
 ```{toctree}
@@ -86,6 +87,7 @@ recipes/lean-collaboration
 :caption: Developer Guide
 
 developer/index
+developer/reproducing-a-method
 developer/service-design
 tutorials/custom-evolver
 framework/custom-evolver

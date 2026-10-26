@@ -1,0 +1,33 @@
+# The Continual Harness adapter (Karten et al. 2026, arXiv:2605.09998): the harness state a Refiner maintains, H = (p, G, K, M),
+# in the layout Codex reads from its workspace root. p, the base policy, is AGENTS.md (ADAPTER.md is its copy, the
+# framework's context export); G, the sub-agents, are sub_agents/<name>/AGENT.md, installed as Codex agent roles;
+# K, the skills, are .agents/skills/<name>/SKILL.md with executable helpers under scripts/; M, the memory, is
+# memory/NOTES.md, which the acting agent reads and writes during a task and the Refiner curates between tasks.
+template:
+  id: continual-harness
+  version: "1.0"
+  contract: "1"
+  name: Continual Harness (policy, sub-agents, skills, memory) for Codex
+exports:
+  context: ADAPTER.md
+structure:
+  learnable:
+    - path: ADAPTER.md                         # p, as the framework exports it: a copy of AGENTS.md
+      format: {text: true, max_bytes: 32000}
+    - path: AGENTS.md                          # p: the base policy, the one always-on file
+      format: {text: true, max_bytes: 32000}
+    - path: .agents/skills/*/SKILL.md          # K: a skill, frontmatter `description:`
+      format: {text: true, max_bytes: 24000, max_files: 40, frontmatter: [description]}
+    - path: .agents/skills/*/scripts/*         # K: a skill's executable helper
+      format: {text: true, max_bytes: 200000, max_files: 80}
+    - path: sub_agents/*/AGENT.md              # G: a sub-agent role, frontmatter `description:`
+      format: {text: true, max_bytes: 24000, max_files: 20, frontmatter: [description]}
+    - path: memory/NOTES.md                    # M: notes under `## <topic>` headings
+      format: {text: true, max_bytes: 40000}
+  fixed:
+    - check.py
+    - EVOLVER.md
+    - README.md
+    - .agents/skills/README.md
+    - sub_agents/README.md
+check: check.py:check

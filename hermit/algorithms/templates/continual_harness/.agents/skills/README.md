@@ -1,0 +1,1 @@
+<!-- c6: reusable workflows. Add one as .agents/skills/<name>/SKILL.md with YAML frontmatter: `description:` is REQUIRED (no frontmatter = skill silently dropped); `name:` is optional and must match the directory. Only name+description are advertised to the agent; the body is read on demand. -->

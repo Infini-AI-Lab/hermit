@@ -113,7 +113,7 @@ def test_codex_agent_deploys_the_tree_and_writes_the_home(tmp_path):
     work2 = tmp_path / "work2"
     work2.mkdir()
     assert codex_agent.deploy_harness(None, work2) == {"agents_md": False, "skills": [], "scripts": [], "hooks": False,
-                                                       "sub_agents": []}
+                                                       "sub_agents": [], "memory": False}
     assert "multi_agent" not in (codex_agent.write_home(tmp_path / "home2", binding, []), (tmp_path / "home2" / "config.toml").read_text())[1]
 
 
