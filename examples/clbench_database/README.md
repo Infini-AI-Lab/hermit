@@ -26,8 +26,8 @@ python examples/clbench_database/utils/prepare.py --clbench ~/code/clbench      
 
 ## Run
 
-One `hermit train` per order, in the background, with the host's and the learner's wire meters (ReHarness adds
-an embedding relay on `WM_PORT+2`); logs and results under `$MW_RUNS/<tag>/`.
+One `hermit train` per order, in the background, with the host's and the learner's wire meters; logs and
+results under `$MW_RUNS/<tag>/`.
 
 ```bash
 MW_TAG=db_mwm WM_PORT=3401 MW_ORDERS="0 1 2 3 4" examples/clbench_database/mwm/launch.sh            # MWM
@@ -36,9 +36,8 @@ MW_TAG=db_reharness WM_PORT=3481 MW_ORDERS="0 1 2 3 4" examples/clbench_database
 ```
 
 An order's accuracy is the mean score in its run's `steps.jsonl`. A smoke on the first N
-questions of one order: `MW_TRAIN_SPLIT=<file with those ids> MW_ORDERS=0 ... launch.sh`. `MW_EFFORT` (default
-`high`) sets the host's and the learner's reasoning effort. The stateless and ICL baselines are clbench's own
-systems, run with the same model and settings.
+questions of one order: `MW_TRAIN_SPLIT=<file with those ids> MW_ORDERS=0 ... launch.sh`. The stateless and ICL
+baselines are clbench's own systems, run with the same model and settings.
 
 ## Results
 

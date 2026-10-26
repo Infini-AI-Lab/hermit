@@ -32,13 +32,9 @@ MW_TAG=poker_prompt_only WM_PORT=3451 MW_ORDERS="0 1 2 3 4" examples/clbench_pok
 MW_TAG=poker_reharness WM_PORT=3491 MW_ORDERS="0 1 2 3 4" examples/clbench_poker/reharness/launch.sh    # ReHarness
 ```
 
-Each launcher starts the host's and the learner's wire meters on `WM_PORT` and `WM_PORT+1`; ReHarness adds an
-embedding relay on `WM_PORT+2`.
-
 An order's bb/hand is the mean reward in its `task/outcomes.jsonl`. A smoke on the first N
-hands of one order: `MW_TRAIN_SPLIT=<file with those ids> MW_ORDERS=0 ... launch.sh`. `MW_EFFORT` (default `high`)
-sets the host's and the learner's reasoning effort. The stateless and ICL baselines are clbench's own systems, run
-with the same model and settings.
+hands of one order: `MW_TRAIN_SPLIT=<file with those ids> MW_ORDERS=0 ... launch.sh`. The stateless and ICL
+baselines are clbench's own systems, run with the same model and settings.
 
 ## Results
 
