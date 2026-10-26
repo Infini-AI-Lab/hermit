@@ -31,7 +31,7 @@ Select additional tests for the affected interface. Host exporters have `tests/t
 integrations have `tests/test_optimizer_evolvers.py`:
 
 ```bash
-python -m pip install -e '.[test,gepa,skillopt]'
+python -m pip install -e . '.[test]' -r requirements-gepa.txt -r requirements-skillopt.txt
 python -m pytest tests/test_optimizer_evolvers.py
 ```
 

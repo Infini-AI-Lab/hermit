@@ -13,7 +13,7 @@ satisfy the judge, and a learned update can also perform worse.
 Complete [Installation](installation.md), activate its environment, then run from the repository root:
 
 ```bash
-python -m pip install -e '.[gepa]'
+python -m pip install -e . -r requirements-gepa.txt
 mkdir -p .demo
 cp -R docs/_examples/first_model .demo/first-model
 ```

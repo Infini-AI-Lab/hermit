@@ -1,7 +1,7 @@
 # Harness² under the paper's protocol (OfficeQA)
 
 [Harness²](https://arxiv.org/abs/2610.14224) as its paper runs it, by its own code
-([google-research/harness2](https://github.com/google-research/harness2), the `harness2` extra) through the
+([google-research/harness2](https://github.com/google-research/harness2), `requirements-harness2.txt`) through the
 [`harness2_upstream`](../../../hermit/algorithms/evolvers/harness2_upstream/) Evolver, with Codex as the acting
 agent. The 172 test questions are one stream, in upstream's seeded order, one question per step. Every question
 starts from SkillOpt's initial skill as `AGENTS.md` (H0; `make_seed_codex.py` writes it as a `harness2-codex`
@@ -38,7 +38,7 @@ Codex 0.162.0 for Linux, the image `officeqa-codex:0.162.0`, the internal networ
 own Codex harness), then:
 
 ```bash
-pip install -e '.[skillopt,harness2]'
+pip install -e . -r requirements-skillopt.txt -r requirements-harness2.txt
 FIREWORKS_API_KEY=... SEED=0 WM_PORT=3591 examples/officeqa/harness2_stream/launch.sh
 MAX_TASKS=2 TAG=h2-codex-smoke FIREWORKS_API_KEY=... WM_PORT=3592 examples/officeqa/harness2_stream/launch.sh   # smoke
 ```

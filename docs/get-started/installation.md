@@ -8,7 +8,7 @@ learner CLIs, and sandbox support depend on the workflow you choose.
 If you do not have a checkout:
 
 ```bash
-git clone https://github.com/haizhongzheng/hermit.git
+git clone https://github.com/Infini-AI-Lab/hermit.git
 cd hermit
 ```
 
@@ -29,12 +29,12 @@ each new terminal. Editable installation uses this checkout's Python code.
 | Workflow | Additional requirements |
 |---|---|
 | [Offline first training](quickstart.md) | None beyond the core install |
-| [First real-model training](first-model.md) | `python -m pip install -e '.[gepa]'`, a compatible chat-completions endpoint, model id, and credential; data is included |
+| [First real-model training](first-model.md) | `python -m pip install -e . -r requirements-gepa.txt`, a compatible chat-completions endpoint, model id, and credential; data is included |
 | Generate a Codex / Claude Code / Pi workspace | No host CLI is needed until you start the host |
 | Run an acting host | Installed and authenticated host, plus adapter tool dependencies |
 | Prompt-only learner | The Codex CLI, Linux with bubblewrap, and a learner backend that serves the Responses API |
-| GEPA | `python -m pip install -e '.[gepa]'`, learner endpoint, validation split |
-| SkillOpt | `python -m pip install -e '.[skillopt]'`, learner endpoint, validation split |
+| GEPA | `python -m pip install -e . -r requirements-gepa.txt`, learner endpoint, validation split |
+| SkillOpt | `python -m pip install -e . -r requirements-skillopt.txt`, learner endpoint, validation split |
 | Codex / Claude learner | Selected authenticated CLI and supported program-execution environment |
 | MWM | Linux learner environment, Codex, evidence store, task deployment contract, model access |
 | Benchmark recipe | Its dataset, scorer, model settings, and environment; see [catalog](../recipes/index.md) |

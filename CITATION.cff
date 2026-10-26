@@ -4,7 +4,7 @@ type: software
 title: "Hermit: A Harness Evolution Framework for Continual Learning and RSI"
 authors:
   - name: "Hermit contributors"
-version: 0.2.0
+version: 0.1.0
 license: Apache-2.0
-repository-code: "https://github.com/haizhongzheng/hermit"
-url: "https://github.com/haizhongzheng/hermit"
+repository-code: "https://github.com/Infini-AI-Lab/hermit"
+url: "https://github.com/Infini-AI-Lab/hermit"

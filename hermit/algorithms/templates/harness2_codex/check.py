@@ -4,7 +4,7 @@ surface, no file carries a grader's wording (upstream's tripwire), and ADAPTER.m
 context export is the always-on text; AGENTS.md is the file Codex reads).
 
 The rules are restated here rather than imported: the framework runs a template check in a sandbox that shows only
-its own dependencies, and `harness2` is an optional extra. The Evolver's proposals also pass upstream's own
+its own dependencies, and `harness2` is an optional package (requirements-harness2.txt). The Evolver's proposals also pass upstream's own
 validator before they are probed, so this check is the framework's gate, not the only one.
 
 Upstream's Codex surface:

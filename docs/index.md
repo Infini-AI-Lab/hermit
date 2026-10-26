@@ -4,7 +4,7 @@ Train the instructions, skills, roles, and tools used by an existing agent, usin
 The learned files form a **harness adapter**: a versioned directory your agent consumes. Model weights stay
 unchanged. You bring an acting pipeline, tasks, and a judge; the framework manages training, checks, and records.
 
-These docs describe the **0.2.0** code in this checkout.
+These docs describe the **0.1.0** code in this checkout.
 
 | Your goal | Start here | What you will produce |
 |---|---|---|

@@ -6,7 +6,7 @@ each question's parsed source pages, SkillOpt's initial skill as the seed, and e
 SkillOpt's own rollout, answers with the adapter's `ADAPTER.md` as its skill, in direct chat or in SkillOpt's Codex
 harness, and the `gepa` or `skillopt` Evolver trains that skill from the scored answers. The code, configs and
 trained adapters are in `examples/officeqa/`
-([README](https://github.com/haizhongzheng/hermit/tree/main/examples/officeqa)). For an API-only
+([README](https://github.com/Infini-AI-Lab/hermit/tree/main/examples/officeqa)). For an API-only
 walkthrough without external dataset assets, use [First real-model training](../get-started/first-model.md); for
 local training without model access, [Quick Start](../get-started/quickstart.md).
 
@@ -16,7 +16,7 @@ Complete [Installation](../get-started/installation.md) with the `skillopt` and 
 environment, and run the commands from the repository root:
 
 ```bash
-python -m pip install -e '.[skillopt,gepa]'
+python -m pip install -e . -r requirements-skillopt.txt -r requirements-gepa.txt
 ```
 
 Also needed:
@@ -145,7 +145,7 @@ The two `run_codex_flash.yaml` configs are `run_codex.yaml` with GLM 5.3 Flash a
 pass, and the Codex 0.162.0 image (`OFFICEQA_CODEX_IMAGE=officeqa-codex:0.162.0`): the settings of
 [the Flash row](#the-flash-row), shared with the Harness² stream.
 [Harness²](../methods/harness2.md) has no training run: it processes the test questions as one stream, with Codex as
-the acting agent; see [`harness2_stream/`](https://github.com/haizhongzheng/hermit/tree/main/examples/officeqa/harness2_stream) for its protocol and result.
+the acting agent; see [`harness2_stream/`](https://github.com/Infini-AI-Lab/hermit/tree/main/examples/officeqa/harness2_stream) for its protocol and result.
 `skillopt/smoke.yaml` runs 4 training questions in 2 epochs of 2 steps. Run it first, then the full configs:
 
 ```bash
@@ -294,8 +294,8 @@ one container per session). Learner: GLM 5.3 (medium). Test: 172 questions, thre
 |---|---|---|
 | none: the agent without an adapter | 0.415 | 0.543 |
 | SkillOpt's initial skill (`utils/seed_adapter/`) | 0.465 | 0.564 |
-| GEPA's trained skill | 0.564 ([card](https://github.com/haizhongzheng/hermit/blob/main/examples/officeqa/gepa/adapter/CARD.md)) | 0.595 |
-| SkillOpt's trained skill | 0.576 ([card](https://github.com/haizhongzheng/hermit/blob/main/examples/officeqa/skillopt/adapter/CARD.md)) | 0.628 |
+| GEPA's trained skill | 0.564 ([card](https://github.com/Infini-AI-Lab/hermit/blob/main/examples/officeqa/gepa/adapter/CARD.md)) | 0.595 |
+| SkillOpt's trained skill | 0.576 ([card](https://github.com/Infini-AI-Lab/hermit/blob/main/examples/officeqa/skillopt/adapter/CARD.md)) | 0.628 |
 
 Paired differences in points of accuracy, with 95% bootstrap intervals over questions; bold where the interval lies
 above zero. In direct chat, the trained skills' wins over the initial skill were reported without their intervals,
@@ -362,8 +362,8 @@ learner's spending is recorded (Codex sessions record only tokens). Not comparab
 (`gepa/run_codex_flash.yaml`, `skillopt/run_codex_flash.yaml`; run names `flash-codex-gepa`, `-r2`, `-r3`, `-r4`
 and `flash-codex-skillopt`, `-r2`, `-r3`, `-r4`), each `final` evaluated once; Harness² and Continual Harness are
 one stream each over the same 172 questions in the same order
-([`harness2_stream/`](https://github.com/haizhongzheng/hermit/tree/main/examples/officeqa/harness2_stream#result),
-[`continual_harness/`](https://github.com/haizhongzheng/hermit/tree/main/examples/officeqa/continual_harness#result)), which answer each question once while learning and are therefore not
+([`harness2_stream/`](https://github.com/Infini-AI-Lab/hermit/tree/main/examples/officeqa/harness2_stream#result),
+[`continual_harness/`](https://github.com/Infini-AI-Lab/hermit/tree/main/examples/officeqa/continual_harness#result)), which answer each question once while learning and are therefore not
 evaluations of a frozen adapter.
 
 | Method | Protocol | accuracy | Runs |

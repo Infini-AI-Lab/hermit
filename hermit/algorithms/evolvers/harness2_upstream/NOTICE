@@ -1,3 +1,3 @@
 surface.py derives its prompt text from google-research/harness2 (https://github.com/google-research/harness2)
 core/prompts.py, Copyright 2026 Google LLC, licensed under the Apache License, Version 2.0. Everything else in this
-package calls the upstream package (the `harness2` extra) and does not copy it.
+package calls the upstream package (requirements-harness2.txt) and does not copy it.

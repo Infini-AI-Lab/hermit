@@ -68,7 +68,7 @@ class GEPAEvolver(Evolver):
         try:
             import gepa  # noqa: F401
         except ImportError:
-            raise RuntimeError("the gepa Evolver needs the GEPA library: pip install -e '.[gepa]'") from None
+            raise RuntimeError("the gepa Evolver needs the GEPA library: pip install -r requirements-gepa.txt") from None
 
     def step(self, ctx: StepContext) -> StepResult:
         from gepa.strategies.instruction_proposal import InstructionProposalSignature, parse_proposal

@@ -2,7 +2,7 @@
 
 ## Report a Vulnerability
 
-Use the repository's [Security page](https://github.com/haizhongzheng/hermit/security) and select **Report a
+Use the repository's [Security page](https://github.com/Infini-AI-Lab/hermit/security) and select **Report a
 vulnerability** when private reporting is available. Include the affected version, a minimal reproducer, the
 execution environment, and the impact you observed.
 

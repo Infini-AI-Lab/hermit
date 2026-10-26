@@ -44,7 +44,7 @@ html_theme_options = {
     "accent_color": "orange",
     "light_logo": "_static/wordmark-light.svg",
     "dark_logo": "_static/wordmark-dark.svg",
-    "github_url": "https://github.com/haizhongzheng/hermit",
+    "github_url": "https://github.com/Infini-AI-Lab/hermit",
     "nav_links": [
         {"title": "Quick Start", "url": "get-started/quickstart"},
         {"title": "Methods", "url": "methods/index"},
