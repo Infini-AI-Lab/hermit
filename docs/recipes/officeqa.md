@@ -442,6 +442,7 @@ evaluations of a frozen adapter.
 | SkillOpt's initial skill | one pass | 0.576 | |
 | GEPA, `final` | train on 50 / select on 24 / test on 172 | **0.580** (sd 0.031) | 0.541, 0.610, 0.599, 0.570 |
 | SkillOpt, `final` | train on 50 / select on 24 / test on 172 | **0.600** (sd 0.003) | 0.599, 0.605, 0.599, 0.599 |
+| ReHarness, `final` (the bank after the 50) | train on 50 as a stream / no selection / test on 172 | **0.625** (sd 0.026) | 0.663, 0.616, 0.616, 0.605 |
 | Continual Harness, the stream's answers | stream over the 172, no training split, no judge verdict | **0.634** | one stream (the same seed-0 order) |
 | Harness², deliverable | stream over the 172, no training split, no judge verdict | **0.651** | one stream (seed 0); its reference execution of the initial skill: 0.576 |
 
@@ -458,6 +459,7 @@ Paired per question, 95% bootstrap intervals; a method's four runs are averaged 
 | Harness² deliverable − its reference execution | **+7.6** [+1.7, +13.4] |
 | Continual Harness − Harness²'s reference execution | +5.8 [−1.2, +12.8] |
 | Continual Harness − Harness² deliverable | −1.7 [−7.6, +4.1] |
+| ReHarness `final` (mean of 4) − initial skill, its own reference execution (0.564) | +6.1 [+0.0, +12.2] |
 
 - GEPA's four trainings spread over 7 points of test accuracy for the same validation score (its `final` was
   candidate 3 of 21, 1 of 11, 9 of 23 and 12 of 23, validation means 0.708, 0.708, 0.750, 0.792; the initial
@@ -475,6 +477,13 @@ Paired per question, 95% bootstrap intervals; a method's four runs are averaged 
   USD 1.62 of executions in 20.5 h, about 0.16 USD per question against GEPA's and SkillOpt's 0.01 (the executions'
   Codex tokens are not priced); Continual Harness USD 3.67 of Refiner calls and USD 2.81 of executions in 8.6 h,
   about 0.04 USD per question.
+- ReHarness's four `final` banks (49 or 50 reflections of 7.8 to 8.6 K characters on average; in three runs one
+  write was lost to a reply cut off at `max_tokens` twice) spread over 6 points of test accuracy for the same
+  config, as GEPA's skills do; report the mean. Its reference execution of the initial skill ran under its own
+  acting harness (`utils/agent/codex_agent.py`, 3,600 s sessions), 0.564 against Harness²'s 0.576 for the same
+  text, within one pass's noise; the paired difference is against that execution. Training: USD 0.69 to 0.89 of
+  sessions and USD 1.23 to 1.30 of reflection and revision calls in 1.3 to 1.4 h; each evaluation USD 2.22 to 3.33
+  in 19 to 25 minutes; the embedding calls (about 50 per training, one per question evaluated) carry no price.
 - The two streams are within one stream's noise of each other (11 questions only Continual Harness gets right, 14
   only Harness²); Continual Harness scores 0.663 on the first half of the stream and 0.605 on the second, Harness²
   0.640 and 0.663.
