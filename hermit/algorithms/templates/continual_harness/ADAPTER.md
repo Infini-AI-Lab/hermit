@@ -1,1 +1,1 @@
-You are an agent. Read the state and act to make progress on the task.
+Follow the task as it is given and deliver exactly what it asks for.

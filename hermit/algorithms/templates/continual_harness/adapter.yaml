@@ -1,49 +1,33 @@
-# The Continual Harness adapter: the harness state a Refiner maintains — base policy p, sub-agents G, skills K,
-# memory M, as separate learnable files — rendered into ADAPTER.md, which is what the agent reads as its context.
+# The Continual Harness adapter (Karten et al. 2026, arXiv:2605.09998): the harness state a Refiner maintains, H = (p, G, K, M),
+# in the layout Codex reads from its workspace root. p, the base policy, is AGENTS.md (ADAPTER.md is its copy, the
+# framework's context export); G, the sub-agents, are sub_agents/<name>/AGENT.md, installed as Codex agent roles;
+# K, the skills, are .agents/skills/<name>/SKILL.md with executable helpers under scripts/; M, the memory, is
+# memory/NOTES.md, which the acting agent reads and writes during a task and the Refiner curates between tasks.
 template:
   id: continual-harness
   version: "1.0"
   contract: "1"
-  name: Continual Harness
+  name: Continual Harness (policy, sub-agents, skills, memory) for Codex
 exports:
-  context: ADAPTER.md          # the push channel: policy + sub-agents + skills + memory, rendered into the context
-  tools:                       # the pull channel: the agent fetches one part of the harness on demand
-    - name: harness
-      description: >-
-        Reach the evolved harness. name: "skills" (reusable procedures K), "memory" (facts/notes M), "subagents"
-        (named playbooks G), or "list" (which parts are populated and their headings). args: optionally
-        {"query": "..."} to filter skills/memory/subagents to matching sections. The context already carries the
-        whole harness; use this to pull one part on demand.
-      entrypoint: interface.py:harness
-      input_schema:
-        type: object
-        properties:
-          name: {type: string, enum: [skills, memory, subagents, list]}
-          args: {type: object}
-        required: [name]
-        additionalProperties: false
-      output_schema:
-        type: object
-      annotations:
-        readOnlyHint: true
-        destructiveHint: false
-        idempotentHint: true
-        openWorldHint: false
-  agents:                      # sub-agents G: each `## name` section of subagents.md becomes a delegable sub-agent
-    entrypoint: interface.py:agent_definitions
+  context: ADAPTER.md
 structure:
   learnable:
-    - path: ADAPTER.md          # the rendered context (policy + sub-agents + skills + memory); the agent reads this
-      format: {text: true, max_bytes: 80000}
-    - path: policy.md           # p — the base policy / instructions
-      format: {text: true, max_bytes: 40000}
-    - path: subagents.md        # G — named playbooks for repeated multi-step patterns
-      format: {text: true, max_bytes: 40000}
-    - path: skills.md           # K — reusable procedures / step sequences that worked
-      format: {text: true, max_bytes: 40000}
-    - path: memory.md           # M — facts and notes discovered while acting
+    - path: ADAPTER.md                         # p, as the framework exports it: a copy of AGENTS.md
+      format: {text: true, max_bytes: 32000}
+    - path: AGENTS.md                          # p: the base policy, the one always-on file
+      format: {text: true, max_bytes: 32000}
+    - path: .agents/skills/*/SKILL.md          # K: a skill, frontmatter `description:`
+      format: {text: true, max_bytes: 24000, max_files: 40, frontmatter: [description]}
+    - path: .agents/skills/*/scripts/*         # K: a skill's executable helper
+      format: {text: true, max_bytes: 200000, max_files: 80}
+    - path: sub_agents/*/AGENT.md              # G: a sub-agent role, frontmatter `description:`
+      format: {text: true, max_bytes: 24000, max_files: 20, frontmatter: [description]}
+    - path: memory/NOTES.md                    # M: notes under `## <topic>` headings
       format: {text: true, max_bytes: 40000}
   fixed:
-    - interface.py              # the tool/agent exporter — code, never evolved; the Refiner edits only the parts
+    - check.py
     - EVOLVER.md
     - README.md
+    - .agents/skills/README.md
+    - sub_agents/README.md
+check: check.py:check

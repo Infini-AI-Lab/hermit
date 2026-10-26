@@ -1,14 +1,20 @@
-description: Continual Harness-style harness refinement (Karten et al. 2026, sethkarten/continual-harness) as a hermit
-  Evolver. Each step it reads the rollout trajectories, finds failure signatures (tool-call errors, no-progress,
-  the judge's feedback), and has the run's `llm` tool CRUD-rewrite the whole harness document — base policy (p) plus
-  Sub-agents (G), Skills (K) and Memory (M) sections — to fix them. Unlike gepa/skillopt it is label-free — it never
-  scores candidates or gates on validation; it applies the refinement in place, as CH's reset-free Refiner does.
+description: Continual Harness's Refiner (Karten et al. 2026, arXiv:2605.09998; sethkarten/continual-harness) as an
+  Evolver on the `continual-harness` template. Each step it reads the step's trajectories (Codex event streams or
+  message lists), extracts failure signatures (sessions that erred or timed out, commands that failed, answers that
+  were missing, and, when `feedback` is on, the judge's verdicts), folds the notes the acting agent wrote into the
+  memory, and runs four refinement passes with the run's `llm` tool, one per component - the base policy
+  (AGENTS.md, rewritten whole), the sub-agents (sub_agents/, create / update / retire), the skills (.agents/skills/,
+  add / update / retire, with executable helpers) and the memory (memory/NOTES.md, a few conservative changes). No
+  score is optimised and no validation gate is applied - every pass is applied in place, as the paper's reset-free
+  loop does; a pass whose result fails the template check is dropped, the others stand.
 class: evolver.py:ContinualHarnessEvolver
 needs: []
 params:
-  file: ADAPTER.md                                  # the harness document it refines (p + G/K/M as sections)
-  components: [prompt, subagents, skills, memory]    # which aspects the refinement is told to maintain
-  trace_chars: 12000                                # characters of each trajectory shown to the model
+  components: [policy, subagents, skills, memory]   # the passes to run, in this order
+  feedback: true                 # show the judge's feedback to the Refiner (off: trajectory-only, as the paper's setting)
+  trace_chars: 12000             # characters of each trajectory shown to the Refiner (the middle is cut)
+  task_info_chars: 3000          # characters of the task description shown to the Refiner
+  memory_max_changes: 5          # the memory pass changes at most this many notes
+  min_signals: 0                 # skip the step when fewer failure signatures than this and no note arrived (0: never skip)
   max_tokens: 32000
-  temperature: null                                 # null: the endpoint's default
-  min_signals: 1                                    # skip the step if fewer than this many failure/feedback signals
+  temperature: null              # null: the endpoint's default
