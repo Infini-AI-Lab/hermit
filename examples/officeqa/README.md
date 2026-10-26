@@ -68,6 +68,7 @@ Each evaluation makes one pass over the 172 test questions.
 | **SkillOpt** | 0.600 |
 | **ReHarness**, the frozen bank | 0.625 |
 | **Continual Harness** | 0.634 |
+| **ReHarness**, the stream's answers | 0.645 |
 | **Harness²** | 0.651 |
 
 Results use two settings:
@@ -102,8 +103,14 @@ skill and the question's retrieved reflections as the session's `AGENTS.md`. Two
   banks hold 49 or 50 reflections of 7.8 to 8.6 K characters on average (in three runs one write was lost to a reply
   cut off at `max_tokens` twice).
 - **Test streaming** ([`reharness/stream_codex.yaml`](reharness/stream_codex.yaml)): the 172 in the same seed-0
-  order as Continual Harness and Harness², no verdict to the learner (`feedback: false`); a second stream with the
-  verdicts (`feedback: true`, the paper's own footing) runs beside it. Their rows are added when the streams finish.
+  order as Continual Harness and Harness², each answered by the bank as it stands, no verdict to the learner
+  (`feedback: false`: the reflection and revision agents read the trajectory and the answer, never the judge's
+  verdict or the reference answer). One stream on 2026-10-25/26: **0.645**, 0.640 over the first 86 questions and
+  0.651 over the last 86; paired against the initial skill's reference execution, +8.1 points [+1.7, +14.5] (24
+  questions won, 10 lost). 4.0 h (USD 2.36 of sessions, USD 4.67 of reflection and revision calls), no errors, no
+  session timed out; 171 reflections of 8.3 K characters on average (one write lost to a reply cut off at
+  `max_tokens` twice). A second stream with the verdicts (`feedback: true`, the paper's own footing) runs beside
+  it; its row is added when it finishes.
 
 Paired differences with 95% intervals, each run's selection and cost, the Codex sessions' isolation and the
 differences from the paper: the [recipe](../../docs/recipes/officeqa.md#the-flash-row).
