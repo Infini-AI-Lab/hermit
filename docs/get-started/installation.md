@@ -5,6 +5,8 @@ learner CLIs, and sandbox support depend on the workflow you choose.
 
 ## Install the checkout
 
+**Recommended for examples, benchmark recipes, and development.**
+
 If you do not have a checkout:
 
 ```bash
@@ -23,6 +25,21 @@ hermit --help
 
 Help should list `check`, `train`, `eval`, `deploy`, `convert`, and `serve`. Activate the environment again in
 each new terminal. Editable installation uses this checkout's Python code.
+
+## Install from PyPI
+
+Install the core framework in a virtual environment:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install hermit-harness
+hermit --help
+```
+
+The package includes the CLI, adapter templates, and built-in Evolvers. GEPA, SkillOpt, and Harness² also need
+their method-specific dependencies. The example data, benchmark recipes, and `requirements-*.txt` files live in
+the repository; use a checkout for those workflows.
 
 ## Choose the additional requirements
 
@@ -55,6 +72,8 @@ A recipe can require Python 3.12+ even though the core supports 3.11. Check exte
 For exact experiment reproduction, record the framework commit and dependency revisions.
 
 ## Verify the local installation
+
+From the source checkout:
 
 ```bash
 hermit check --config docs/_examples/first_training/run.yaml

@@ -83,7 +83,11 @@ Hermit provides an RL-style training loop for evolving harness adapters:
 
 ### Install
 
-Python 3.11+ and Git
+Requires Python 3.11+ and Git.
+
+#### From Source (Recommended)
+
+Clone the repository to run the examples, reproduce recipes, or develop your own methods.
 
 ```bash
 git clone https://github.com/Infini-AI-Lab/hermit.git
@@ -92,6 +96,17 @@ python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e .
 ```
+
+#### From PyPI
+
+To use the framework CLI and bundled adapter templates in your Python environment:
+
+```bash
+python -m pip install hermit-harness
+hermit --help
+```
+
+The Quick Start below uses files from the source checkout. See [Installation](https://infini-ai-lab.github.io/hermit/docs/get-started/installation.html) for method-specific dependencies.
 
 ### Quick Start
 
