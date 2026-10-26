@@ -3,6 +3,8 @@
 The core framework needs **Python 3.11+ and Git**. It does not require a GPU. External tasks, model endpoints,
 learner CLIs, and sandbox support depend on the workflow you choose.
 
+To run from a prebuilt container instead of a local install (e.g. on Kubernetes), see [Run in Docker](docker.md).
+
 ## Install the checkout
 
 **Recommended for examples, benchmark recipes, and development.**

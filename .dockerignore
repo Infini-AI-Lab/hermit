@@ -1,0 +1,27 @@
+# Keep the build context small and the image clean. The repo's own .git is not needed (the Trainer makes fresh git
+# trees at run time); the gepa/skillopt git installs use the system git + build-time network.
+.git
+.venv
+venv
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+
+# Training output and local scratch — regenerated at run time, can be huge.
+runs/
+**/runs/
+scratch/
+
+# The Codex-harness session image's bundled binaries (large, unrelated to running the framework itself).
+examples/officeqa/utils/agent/docker/*.tgz
+examples/officeqa/utils/agent/docker/codex/
+
+# Linked datasets / corpora (provided at run time, not baked in).
+examples/officeqa/utils/documents
+examples/**/data.json
+
+# Editor / OS noise.
+.idea
+.vscode
+.DS_Store
+*.sqsh
