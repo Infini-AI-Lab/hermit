@@ -45,35 +45,34 @@ questions: the folder's `smoke.yaml`, after `hermit check --config ...`
 
 ## Results
 
-Agent: GLM 5.3 Flash (reasoning effort medium) in SkillOpt's rollout, in direct chat (`run.yaml`) and in SkillOpt's
-Codex harness (`run_codex.yaml`; Codex CLI 0.134 for Linux, one container per session). Learner: GLM 5.3 (medium).
-172 test questions, three passes each. Both methods train one `ADAPTER.md` from SkillOpt's initial skill: **GEPA**
-([`gepa/`](gepa/), [method](../../docs/methods/gepa.md)), and **SkillOpt** ([`skillopt/`](skillopt/),
-[method](../../docs/methods/skillopt.md)) with the paper's SkillOpt hyperparameters.
-
-| Method | accuracy, direct chat | accuracy, Codex harness |
-|---|---|---|
-| no skill: the agent without an adapter | 0.415 | 0.543 |
-| initial skill: SkillOpt's, where both methods start (`utils/seed_adapter/`) | 0.465 | 0.564 |
-| **GEPA** (`gepa/`) | 0.564 | 0.595 |
-| **SkillOpt** (`skillopt/`) | 0.576 | 0.628 |
-
-[Harness²](../../docs/methods/harness2.md) is not in this table: it trains nothing and processes the test questions as one stream, each question refined and answered by Codex; its result is reported with [`harness2_stream/`](harness2_stream/). [Continual Harness](../../docs/methods/continual_harness.md) has a train/test config and a stream config; its stream's result is reported with [`continual_harness/`](continual_harness/).
-
-On one row of settings for every method (GLM 5.3 Flash acts and learns, Codex 0.162.0, one evaluation pass; the
-`run_codex_flash.yaml` configs), not comparable with the table above:
+Agent and learner: GLM 5.3 Flash (reasoning effort medium), with Codex CLI 0.162.0 and one container per session.
+Each evaluation makes one pass over the 172 test questions.
 
 | Method | accuracy |
 |---|---|
 | no skill | 0.541 |
 | initial skill | 0.576 |
-| **GEPA**, mean of 4 trainings | 0.580 |
-| **SkillOpt**, mean of 4 trainings | 0.600 |
-| **Continual Harness**, one stream over the test questions | 0.634 |
-| **Harness²**, one stream over the test questions | 0.651 |
+| **GEPA** | 0.580 |
+| **SkillOpt** | 0.600 |
+| **Continual Harness** | 0.634 |
+| **Harness²** | 0.651 |
+
+Results use two settings:
+
+- **Train/test split:** [GEPA](../../docs/methods/gepa.md) and [SkillOpt](../../docs/methods/skillopt.md) train
+  one `ADAPTER.md` from SkillOpt's initial skill on 50 training questions, select on 24 validation questions,
+  and evaluate the fixed final adapter on 172 test questions. Accuracies are means of four independent
+  trainings, with one evaluation pass per final adapter. Configs:
+  [`gepa/run_codex_flash.yaml`](gepa/run_codex_flash.yaml) and
+  [`skillopt/run_codex_flash.yaml`](skillopt/run_codex_flash.yaml).
+- **Test streaming:** [Continual Harness](../../docs/methods/continual_harness.md) and
+  [Harness²](../../docs/methods/harness2.md) each process the 172 test questions once in the same order,
+  updating the adapter as they go, without a separate training split or access to judge verdicts. These
+  scores measure performance during adaptation. See [`continual_harness/`](continual_harness/) and
+  [`harness2_stream/`](harness2_stream/) for their protocols.
 
 Paired differences with 95% intervals, each run's selection and cost, the Codex sessions' isolation and the
-differences from the paper: the [recipe](../../docs/recipes/officeqa.md#results).
+differences from the paper: the [recipe](../../docs/recipes/officeqa.md#the-flash-row).
 
 ## Code
 
