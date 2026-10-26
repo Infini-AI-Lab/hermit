@@ -67,26 +67,6 @@ Codex.
 | **MWM** (`mwm/`) | 3.08 |
 | **ReHarness** (`reharness/`) | 0.28 |
 
-ReHarness, one run per order on 2026-10-25 (US Eastern; the step records' UTC times fall on 2026-10-26), inside the
-offline container of [`docker/`](../../docker/) (Fireworks the only reachable service; clbench fork at `2cc7eef`;
-`accounts/fireworks/models/qwen3-embedding-8b` for retrieval), starting from the template's `ADAPTER.md` over an
-empty bank: −0.36, 0.75, 0.08, −0.13 and 1.06 bb/hand over the five orders (120 hands per order, 104 of them the
-stream's instances; sd 0.60, a standard error of 0.27 on the mean), 86 to 108 minutes per order, about USD 0.28 of
-host calls and USD 1.17 of reflection and revision calls per order at the backend's prices, no rollout errors, every
-instance's reflection written (58 of the 3,058 agent replies were read from the field alone, a bare quote or an
-escape inside their JSON; 13 were second attempts). Below the stateless baseline. The paper reports gains near zero
-for ReHarness on exploitable poker (normalized gain 0.009, 0.016 and −0.005 for its three backbones), from noisy
-hand-level rewards; a result clearly below stateless is not explained by that, and its cause is not settled. Here the
-five retrieved reflections, about 7 K characters each after revision, add about 35 K characters of other hands' evidence
-and strategies to a hand's context on average over the stream (38 K over its last quarter), and in every order the
-last quarter of the hands scores below the first, after the opponent variant has shifted. The runs were made from a
-tree of the branch before its rebase (the launcher stamped it `9125458`, a commit this history does not contain) that
-already had the tolerant reader and the `max_tokens` retry; the committed code differs from it by the Evolver's
-`feedback` switch, whose default, true, is these runs' footing, the rendering of Codex event streams, which this
-venue's trajectories are not, and the host's handling of a failing reader, which these runs never met. No paired
-differences: the baselines are clbench's own systems. Each run's card is
-`$MW_RUNS/<tag>/<tag>-o<order>/checkout/CARD.md`; no bank is included.
-
 ## Code
 
 ```text
