@@ -39,7 +39,7 @@ sandbox:                                 # the Evolver runs in the Trainer's pro
     rollout: {read: [$MWM_CLBENCH], write: [$MWM_TASK_WORKDIR]}   # CL-Bench and its .venv; the task's directory
 trainer:
   run_name: null                   # launch.sh: <tag>-o<i>
-  output_dir: runs
+  output_dir: runs                 # launch.sh: $MW_RUNS/<tag>
   epochs: 1
   call_timeout_min: 30             # one step: up to k revision calls side by side and one reflection call, each with
                                    # one retry; the bootstrap (step 0) writes index.json and calls no model

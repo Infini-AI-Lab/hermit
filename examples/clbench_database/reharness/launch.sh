@@ -25,6 +25,8 @@
 # <runs>/<tag>/order<i>/task (host workspace, current_db, the host's evidence records, outcomes.jsonl) and one
 # `hermit train` run, <runs>/<tag>/<tag>-o<i>. Run the venue's prepare.py first. MW_TRAIN_SPLIT names another split
 # file (a prefix of the order's stream, for a smoke run).
+# A relay that signs requests lets every local process that reaches its port spend the key: on a shared machine,
+# run inside the offline container (docker/offline.sh) or another private network namespace.
 set -eu
 VENUE=database
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -75,8 +77,9 @@ HOST_KEY=""; [ -n "$HOST_API_KEY_ENV" ] && HOST_KEY=${!HOST_API_KEY_ENV:-}
 [ -n "${!HOST_LITELLM_KEY_ENV:-}" ] || export "$HOST_LITELLM_KEY_ENV=${HOST_KEY:-local}"
 [ -n "$HOST_PRICE_INPUT" ] && export MW_COST_IN_PER_M=$HOST_PRICE_INPUT MW_COST_OUT_PER_M=$HOST_PRICE_OUTPUT
 export CLB_SKIP_BASELINE=1 CLB_REQUEST_TIMEOUT=600 CLB_REASONING_EFFORT=$EFFORT
-# clbench's host calls litellm (1.81.6), whose model map does not know GLM 5.3 Flash on Fireworks: it would
-# refuse the host's tool_choice="auto" (its default anyway) unless unsupported parameters are dropped.
+# clbench's host calls litellm (1.81.6), whose bundled model map (the one it uses offline, LITELLM_LOCAL_MODEL_COST_MAP)
+# does not know GLM 5.3 Flash on Fireworks: it would refuse the host's tool_choice="auto" (its default anyway) unless
+# unsupported parameters are dropped. litellm reads the variable as bool(str): any non-empty value turns it on.
 export LITELLM_DROP_PARAMS=${LITELLM_DROP_PARAMS:-True}
 export MWM_CLBENCH=$CLBENCH MWM_METAWORLD=$METAWORLD
 if [ "$VENUE" = database ]; then
@@ -96,6 +99,8 @@ start_meter() {  # port upstream ledger log [extra env...]: a meter already on t
     env "$@" PORT=$port LEDGER="$ledger" UPSTREAM="$upstream" \
       setsid nohup "$PY" "$METER" > "$log" 2>&1 < /dev/null &
     echo "wire meter pid $! port $port -> $upstream"; sleep 2
+    curl -s -m 2 "http://127.0.0.1:$port/health" > /dev/null \
+      || { echo "REFUSING: the wire meter on port $port did not come up (see $log)"; exit 1; }
   fi
 }
 mkdir -p "$RUNS/$TAG"
@@ -121,8 +126,9 @@ for i in ${MW_ORDERS:-0}; do
   [ -e "$WD" ] && { echo "REFUSING: $WD exists"; exit 1; }
   mkdir -p "$WD/evidence"
   : > "$WD/current_db"
-  # The host runners keep the venue's record store under the task directory (the learner here reads the
-  # framework's learning material, not this store); the database runner needs the first question's database.
+  # The task directory keeps MWM's layout (current_db, the evidence README; the database's first question
+  # registered), as ../mwm/launch.sh writes it, because the host runners are MWM's; ReHarness's learner reads the
+  # framework's learning material, none of this.
   "$PY" -m hermit.algorithms.evolvers.mwm.evidence.readme --evidence "$WD/evidence" --from "$HERE/../utils/task-info/mwm/contract/env_evidence.md"
   if [ "$VENUE" = database ]; then
     "$CLBENCH/.venv/bin/python" "$FRAMEWORK/examples/clbench_database/utils/agent/database_runner.py" --register-first $i \
@@ -131,7 +137,8 @@ for i in ${MW_ORDERS:-0}; do
   # The learner model through its meter: the backend copied to the metered URL, the run's `llm` tool bound to it at
   # the host's reasoning effort (`llm` is a free-form section: a whole mapping on the command line). The embedding
   # model through its relay, once for the Evolver (evolver.params.embedding, with the key variable) and once for the
-  # adapter's reader (REHARNESS_EMBED_URL, which the rollout's sandbox forwards; the relay adds the key).
+  # adapter's reader (REHARNESS_EMBED_URL, which the adapter's sandbox forwards: the reader alone is confined, the
+  # host keeps the launcher's network; the relay adds the key).
   LEARNER="{from: '$EVOLVER_BACKEND', base_url: 'http://127.0.0.1:$META_PORT/${TAG}_o${i}_meta$EVOLVER_PATH'}"
   LLM="{model: 'learner/$EVOLVER_MODEL_ID', extra_body: {reasoning_effort: '$EFFORT'}}"
   EMBED_URL="http://127.0.0.1:$EMBED_PORT/${TAG}_o${i}_embed$EMBED_PATH"

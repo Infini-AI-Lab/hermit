@@ -80,7 +80,7 @@ reflection and revision agents; bind `llm` to the acting model.
 | `revise` | Boolean / true | False is the paper's No Revision ablation: the forward flow only, retrieved reflections never change |
 | `demonstrations` | Boolean / true | False writes each reflection without the revised reflections as demonstrations |
 | `raw_memory` | Boolean / false | True stores the rendered trajectory itself in place of a reflection, with no model calls: the paper's Top-K Raw baseline on the same retrieval. The reader then renders `[RANKED TRAJECTORIES]`; give such a run an `ADAPTER.md` that describes the entries as trajectories (the template's text describes reflections) |
-| `feedback` | Boolean / true | True puts the judge's score and feedback in tau_t's `[OUTCOME]` block, the environment's outcome (the paper's footing: online supervision). False keeps every verdict, score and reference answer away from the agents: the trajectory and the answer alone are their evidence, the label-free footing of a stream whose verdicts the learner must not see (OfficeQA's shared stream). Recorded per instance in the state |
+| `feedback` | Boolean / true | True puts the judge's score and feedback in tau_t's `[OUTCOME]` block, the environment's outcome (the paper's footing: online supervision). False keeps every verdict, score and reference answer away from the agents: the trajectory and the answer alone are their evidence, the label-free footing of a stream whose verdicts the learner must not see. The switch governs the `[OUTCOME]` block only: a venue whose own observations name the answer (CL-Bench database: `Correct answer: ...`) stays supervised through the trajectory. Recorded per instance in the state |
 | `trace_chars`, `obs_chars` | Character limits / 24000, 4000 | Clip a trajectory shown to an agent (its middle is left out) and each message or observation inside it; the stored source trajectory keeps up to 400,000 characters |
 | `max_tokens`, `temperature` | Per call / 8192, null | Sampling for the reflection and revision calls; null leaves the endpoint's default |
 | `parallel` | Positive integer / 5 | Revision calls in flight at once; each retrieved reflection is revised independently of the others |
@@ -115,6 +115,9 @@ PORT=3461 UPSTREAM=https://api.fireworks.ai UPSTREAM_KEY_ENV=FIREWORKS_API_KEY L
   python -m hermit.runtime.wire_meter &
 export REHARNESS_EMBED_URL=http://127.0.0.1:3461/reharness/inference/v1
 ```
+
+The relay listens on the loopback only, but every local process that reaches its port can spend the key through it:
+on a shared machine, run inside the offline container (`docker/offline.sh`) or another private network namespace.
 
 The examples' `launch.sh` start this relay (the CL-Bench ones beside their host and learner meters, the OfficeQA
 one alone, its models calling the provider directly) and resolve the paths with `python -m hermit.backends shell
@@ -172,13 +175,16 @@ through the relay and appears in its ledger, not in the run's usage. The bank gr
 The first instance reads an empty bank and gets the static context alone; retrieval helps only once instances of the
 same kind have recurred. A revision can leave a reflection unchanged (indel distance 0), shorten it or lengthen it.
 A pipeline error that leaves no trajectory skips the instance; an `llm` error is recorded and the instance goes on
-without a reflection. Scores in a step record describe the adapter before that step's update.
+without a reflection. In the CL-Bench hosts a reader that fails (the embedding relay unreachable past the
+client's retries) leaves the instance `ADAPTER.md` alone and records `retrieval: error: ...` in `context_tool`, so
+nothing is revised for it and the stream goes on; the reported runs met no such instance. Scores in a step record describe the adapter before that step's update.
 
 For planning, the CL-Bench database runs with GLM 5.3 Flash (reasoning effort high; 40 questions per stream): a step
-took about a minute, 40 to 50 seconds of it the learner's five revisions and one reflection side by side, at about
+took about a minute, about 40 seconds of it the learner's five revisions and one reflection side by side, at about
 USD 0.011 per step at the backend's prices; reflections grew under revision to about 7 K characters each on
 average after the stream (the longest 21 K), so the five retrieved ones add about 35 K characters to the decision
-agent's context. About 3 % of the agents' replies were not the JSON asked for at the first attempt.
+agent's context on average over the stream (38 K over its last quarter). About 3 % of the agents' replies were not
+the JSON asked for at the first attempt.
 
 ### Records to read after a run
 

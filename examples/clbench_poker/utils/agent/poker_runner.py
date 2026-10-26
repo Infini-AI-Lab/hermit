@@ -73,7 +73,8 @@ def main() -> None:
     task = Poker(schedule="default", run_index=order)
     task.prepare_run(order)
     session = Session(Path(args.adapter), evidence=evidence_dir, deployment=deployment or None)
-    system = AdapterHost(session, model=args.model, workspace=host_ws, venue="poker", name="mwm_framework_poker")
+    system = AdapterHost(session, model=args.model, workspace=host_ws, venue="poker", name="mwm_framework_poker",
+                         task_row=row)
     system.reset()
     task.reset()
     task.fast_forward(graded)

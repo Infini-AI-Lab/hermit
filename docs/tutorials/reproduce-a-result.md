@@ -10,7 +10,7 @@ An existing launcher saves setup work; it does not by itself guarantee the same 
 | OfficeQA, SkillOpt paper setting | [OfficeQA](../recipes/officeqa.md) | Dataset revision, seed skill, 50/24/172 split, source-file tools and scorer, acting and learner settings |
 | OfficeQA, ReHarness (the Flash row: the seed-0 stream, or the frozen bank) | [OfficeQA](../recipes/officeqa.md#reharness) | Which protocol and footing (judge feedback or none), the stream order, the embedding model and relay ledger, the Codex image, framework commit |
 | ServeLearnBench retail_l3 | [ServeLearnBench](../recipes/servelearnbench.md) | Scenario revision, ordered serving stream, block size, per-window adapter selection |
-| CL-Bench database/poker | [CL-Bench](../recipes/clbench.md) | Venue checkout, order, environment reset behavior, model settings, outcome ledger; for ReHarness the embedding model and `embed_wire_ledger.json` |
+| CL-Bench database/poker | [CL-Bench](../recipes/clbench.md) | Venue checkout, order, environment reset behavior, model settings, outcome ledger; for ReHarness the embedding model, `embed_wire_ledger.json` and the launcher's setting stamp in `order<i>/run.log` (framework and clbench revisions) |
 | Lean collaboration | [Lean recipe](../recipes/lean-collaboration.md) | Adapter version, theorem set, Lean/Mathlib, host/team-service configuration |
 
 ## Before spending on a full run

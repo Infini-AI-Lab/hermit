@@ -36,8 +36,9 @@ MW_TAG=db_reharness WM_PORT=3481 MW_ORDERS="0 1 2 3 4" examples/clbench_database
 ```
 
 An order's accuracy is the mean score in its run's `steps.jsonl`. A smoke on the first N
-questions of one order: `MW_TRAIN_SPLIT=<file with those ids> MW_ORDERS=0 ... launch.sh`. The stateless and ICL
-baselines are clbench's own systems, run with the same model and settings.
+questions of one order: `MW_TRAIN_SPLIT=<file with those ids> MW_ORDERS=0 ... launch.sh`. `MW_EFFORT` (default
+`high`) sets the host's and the learner's reasoning effort. The stateless and ICL baselines are clbench's own
+systems, run with the same model and settings.
 
 ## Results
 
@@ -66,18 +67,23 @@ question's reflection with the revised ones as examples. One pass over the strea
 | **ReHarness** (`reharness/`) | 0.740 |
 
 ReHarness, one run per order on 2026-10-25, inside the offline container of [`docker/`](../../docker/) (Fireworks the
-only reachable service; the embedding model `accounts/fireworks/models/qwen3-embedding-8b`): accuracies 0.750,
-0.775, 0.725, 0.650 and 0.800 over the five orders, 36 to 42 minutes per order, about USD 0.12 of host calls and
-USD 0.45 of reflection and revision calls per order at the backend's prices. The learner made 5 revisions and 1
-reflection per question once the bank held five; 3 of the 200 reflection writes were lost to replies that were not
-the JSON asked for, and 35 more parsed only after the one reminder (1163 agent calls in all). Reflections grow under
-revision, to about 7 K characters each on average after the stream (the five retrieved ones add about 35 K characters
-to the host's context). No rollout errors; the 79 to 80 embedding calls per order carry no price (the run's card
-counts them as calls of unknown cost). The runs were made from the files committed as the branch's first ReHarness
-commit (the launcher stamped the working tree `1b0161e-dirty`), before the commit that made the reader tolerant of
-what the lost replies contained and retries a reply cut off at `max_tokens` with a larger budget. Each run's card is
-`<tag>-o<order>/checkout/CARD.md` under `$MW_RUNS`; no bank is included in the repository, because the reflections
-quote the questions' reference answers from the judge's feedback.
+only reachable service; clbench fork at `2cc7eef`; the embedding model `accounts/fireworks/models/qwen3-embedding-8b`),
+starting from the template's `ADAPTER.md` over an empty bank: accuracies 0.750, 0.775, 0.725, 0.650 and 0.800 over the
+five orders (sd 0.058, a standard error of about 0.03 on the mean), 36 to 42 minutes per order, about USD 0.12 of
+host calls and USD 0.45 of reflection and revision calls per order at the backend's prices, no rollout errors. The
+learner made 5 revisions and 1 reflection per question once the bank held five; 3 of the 200 reflection writes were
+lost to replies that were not the JSON asked for, and 35 more parsed only after the one reminder (1163 agent calls in
+all). Reflections grow under revision, to about 7 K characters each on average after the stream; the five retrieved
+ones add about 35 K characters to the host's context on average over the stream, 38 K over its last quarter. The 79
+to 80 embedding calls per order (40 by the reader, the rest by the Evolver) carry no price; the card's `+79` or `+80
+calls of unknown cost` are the 40 rollouts, whose host cost the framework does not see (`wire_ledger.json` has it),
+plus the Evolver's embedding calls. The runs predate the branch's commit of the Evolver: they were made from main's
+`1b0161e` with the ReHarness files still uncommitted (the launcher stamped the working tree `1b0161e-dirty`), before
+the reader became tolerant of what the lost replies contained and retried a reply cut off at `max_tokens` with a
+larger budget. No paired differences: the stateless and ICL rows are clbench's own systems, whose per-question
+results the repository does not hold. Each run's card is `$MW_RUNS/<tag>/<tag>-o<order>/checkout/CARD.md`; no bank
+is included in the repository, because the reflections quote the questions' correct answers, which the venue's
+observation names after each answer (50 of the 197 quote their own question's).
 
 ## Code
 

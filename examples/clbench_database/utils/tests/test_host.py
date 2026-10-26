@@ -2,7 +2,9 @@
 prompt, its tools are offered beside the task's, wm calls go through Session with the cap, turns are recorded in the
 native shape, the environment's answers land in the records and the conversation, cost.jsonl is written. With an
 adapter that declares a context tool (the reharness template) the context is computed once per instance, from its
-first prompt, and the tool's result is kept in context_info."""
+first prompt, and the tool's result is kept in context_info; a context tool that fails leaves ADAPTER.md alone. The
+venue agents record the context tool's result in RunOutput.extra['context_tool'] only when the runner reports one (a
+plain-Python test, needing neither clbench nor litellm)."""
 from pathlib import Path
 import json
 import os
@@ -85,6 +87,7 @@ class HostDrivenByAFakeTurn(unittest.TestCase):
         query = self.Query(prompt="Question 1", response_schema=None, instance_id="q-1", tools=env_tools,
                            metadata={"db_path": "/secret.db", "difficulty": "hard", "kept": 1, "question_num": 1, "question_id": "q-1"})
         response = self.system.respond(query)
+        self.assertIsNone(self.system.context_info)            # the mwm adapter declares no context tool
         self.assertEqual(response.action, {"query": "SELECT 1"})
         self.assertEqual(self.seen[0]["prefix"], [{"role": "system", "content": "CONTEXT FOR THE HOST\n"}])
         self.assertEqual(self.seen[0]["tools"], ["QUERY", "ANSWER", "wm"])
@@ -153,11 +156,78 @@ class HostDrivenByAFakeTurn(unittest.TestCase):
         self.assertIn("- join suppliers with shipments", self.seen[-1]["prefix"][0]["content"])
         self.assertEqual([r["id"] for r in system.context_info["retrieved"]], ["m1"])
 
+    def test_context_tool_failure_degrades_to_adapter_md(self):
+        """A reader that fails leaves ADAPTER.md alone as the system prompt; context_info records the error, so the
+        Evolver revises nothing for the instance and the stream goes on."""
+        adapter = self.tmp / "reharness"
+        shutil.copytree(REHARNESS, adapter, ignore=shutil.ignore_patterns("__pycache__"))
+        from hermit import Session
+        session = Session(adapter)
+        real = session.context
+
+        def failing(query=None, task=None):            # the fallback `context()` without a query must still work
+            if query is not None or task is not None:
+                raise RuntimeError("embeddings HTTP 502 from http://127.0.0.1:1/x: upstream down")
+            return real()
+
+        session.context = failing
+        system = self.host.AdapterHost(session, model="m", workspace=self.tmp / "ws3", venue="database",
+                                       task_row={"id": "q-1"})
+        system.reset()
+        call = lambda cid, name, args: {"id": cid, "type": "function", "function": {"name": name, "arguments": json.dumps(args)}}
+        self.fake_turn([{"role": "assistant", "content": "", "tool_calls": [call("q1", "QUERY", {"query": "SELECT 1"})]}])
+        env_tools = [{"type": "function", "function": {"name": "QUERY", "parameters": {"type": "object"}}}]
+        system.respond(self.Query(prompt="Question 1", response_schema=None, instance_id="q-1", tools=env_tools, metadata={}))
+        self.assertEqual(self.seen[-1]["prefix"], [{"role": "system", "content": (adapter / "ADAPTER.md").read_text()}])
+        self.assertEqual(system.context_info["retrieved"], [])
+        self.assertTrue(system.context_info["retrieval"].startswith("error: RuntimeError: embeddings HTTP 502"))
+        self.assertEqual(system.context_info["query"], "Question 1")
+
     def test_wm_cap(self):
         self.system._wm_calls = self.host.CALLS_PER_EPISODE
         self.assertEqual(self.system._adapter_tool("wm", {"name": "list", "args": {}}), self.host.CAP_NOTICE)
         self.assertEqual(self.host.wm_text({"text": "page", "eof": False, "next_offset": 10, "path": "p"}),
                          'page\n[More text available; continue when useful: wm(name="read", args={"path": "p", "offset": 10, "limit": 4000})]')
+
+
+
+class AgentRecordsTheContextTool(unittest.TestCase):
+    """agent.py of both venues: the runner's `context_tool` (the host's context_info) goes into RunOutput.extra as
+    the Trainer keeps it (pipeline_extra); a runner that reports null, or none, records nothing."""
+    DB = {"answer": "42", "success": True, "verdict": "CORRECT", "queries_used": 1, "drifted": False, "question_num": 1,
+          "entry": "e", "tokens": {"input_tokens": 3, "output_tokens": 2}}
+    POKER = {"delta": 1.5, "reward_bb": 1.5, "settled_without_host": [], "settled_reward_bb": 0.0, "hand_num": 1,
+             "entry": "e", "tokens": {}}
+    CT = {"text": "[RANKED REFLECTIONS]...", "retrieved": [{"id": "m0"}], "query": "q", "k": 1, "retrieval": "bm25",
+          "bank_size": 1}
+
+    @staticmethod
+    def load(venue):
+        # both venues' files are agent.py and put their own directory on sys.path: load each under its own name
+        spec = importlib.util.spec_from_file_location(f"{venue}_agent", FRAMEWORK / "examples" / venue / "utils/agent/agent.py")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        return module
+
+    def check(self, venue, cls, base, output_key):
+        module = self.load(venue)
+        agent = getattr(module, cls)({})
+        for ct in (None, self.CT):
+            module.run_host = lambda runner, task, adapter, params, ct=ct: ({**base, "context_tool": ct}, Path("/nowhere"), 0.0)
+            out = agent.run({"id": "t"}, Path("/nowhere/adapter"))
+            self.assertEqual(out.output, base[output_key])
+            self.assertEqual("context_tool" in out.extra, ct is not None)
+            if ct is not None:
+                self.assertEqual(out.extra["context_tool"], self.CT)
+        module.run_host = lambda runner, task, adapter, params: (dict(base), Path("/nowhere"), 0.0)   # an older runner
+        self.assertNotIn("context_tool", agent.run({"id": "t"}, Path("/nowhere/adapter")).extra)
+
+    def test_database(self):
+        self.check("clbench_database", "CLBenchDatabaseAgent", self.DB, "answer")
+
+    def test_poker(self):
+        self.check("clbench_poker", "CLBenchPokerAgent", self.POKER, "delta")
 
 
 if __name__ == "__main__":

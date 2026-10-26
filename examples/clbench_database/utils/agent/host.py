@@ -66,10 +66,12 @@ class AdapterHost(ContinualLearningSystem):
     supports_baseline = False
     parallel_safe = False
 
-    def __init__(self, session: Session, *, model: str, workspace: Path, venue: str, name: str = "harness_adapter"):
+    def __init__(self, session: Session, *, model: str, workspace: Path, venue: str, name: str = "harness_adapter",
+                 task_row: Optional[dict] = None):
         if venue not in ("database", "poker"):
             raise ValueError(f"venue must be database or poker, not {venue!r}")
         self.session, self.model, self.venue, self._name = session, model, venue, name
+        self._task_row = task_row          # the instance's task row, handed to the adapter's context tool beside x_t
         ws = Path(workspace)
         ws.mkdir(parents=True, exist_ok=True)
         self.cost_log, self.uptake_log = ws / "cost.jsonl", ws / "uptake.jsonl"
@@ -95,10 +97,20 @@ class AdapterHost(ContinualLearningSystem):
             self._wm_calls = 0
             self._pending_call_id = None
             # The adapter's context for this instance, once: ADAPTER.md, and below it what the adapter's context tool
-            # renders for the instance's first prompt (x_t) when its manifest declares one; an adapter without one
-            # gets ADAPTER.md alone, and `last_context` stays None.
-            self._context = self.session.context(query=query.prompt)
-            self.context_info = self.session.last_context
+            # renders for the instance's first prompt (x_t) and its task row when its manifest declares one; an
+            # adapter without one gets ADAPTER.md alone, and `last_context` stays None. A context tool that fails
+            # (the embedding relay unreachable past its retries) leaves ADAPTER.md alone and `retrieval: error: ...`
+            # in context_info, so the Evolver revises nothing for the instance, rather than failing it: on poker a
+            # failed hand never reaches outcomes.jsonl and every later hand of the order would fail.
+            try:
+                self._context = self.session.context(query=query.prompt, task=self._task_row)
+                self.context_info = self.session.last_context
+            except Exception as exc:                   # noqa: BLE001 — the reader's failure is not the instance's
+                logger.warning("context tool failed (%s); ADAPTER.md alone for this instance", exc)
+                self._context = self.session.context()
+                self.context_info = ({"text": "", "retrieved": [], "query": query.prompt or "",
+                                      "retrieval": f"error: {type(exc).__name__}: {exc}"[:300]}
+                                     if self.session.context_tool else None)
         self._messages.append({"role": "user", "content": query.prompt if query.prompt else "(no content)"})
         try:
             turn = self._turn(query)

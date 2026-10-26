@@ -54,7 +54,8 @@ The same streams also run with ReHarness (Xiao et al., [arXiv:2610.12668](https:
 adapter is a bank of reflections, one per past instance, and before each question or hand the harness retrieves the
 five closest by the embedding of the instance's prompt and appends them to the host's context; after it, the
 Evolver revises the retrieved reflections and writes a new one. The learner is the run's `llm` tool on the host's
-model (no Codex), one step per instance (`data.step_size: 1` in both venues). The launcher needs the key of the
+model (no Codex and no MetaWorld checkout; without one, `MW_KEY_FILE` names the key file), one step per instance
+(`data.step_size: 1` in both venues). The launcher needs the key of the
 embedding model's backend too (`MW_EMBED_MODEL`, default Qwen3-Embedding-8B on Fireworks) and a third port,
 `WM_PORT+2`, for the embedding relay that the adapter's sandboxed reader reaches on the loopback.
 
@@ -62,6 +63,12 @@ embedding model's backend too (`MW_EMBED_MODEL`, default Qwen3-Embedding-8B on F
 MW_TAG=reharness-db WM_PORT=3481 MW_ORDERS="0" examples/clbench_database/reharness/launch.sh
 MW_TAG=reharness-poker WM_PORT=3491 MW_ORDERS="0" examples/clbench_poker/reharness/launch.sh
 ```
+
+The protocol is the paper's: streaming. Each question or hand is answered with the bank as it stands, then the
+Evolver reads the trajectory with the venue's verdict as its outcome (`feedback: true`, the Evolver's default: the
+accuracy verdict, or the hand's net chips), so the stream is online-supervised, and the stream's own scores are the
+result; nothing is evaluated afterwards. On the database venue the correct answer is also in the trajectory itself,
+in the venue's observation after an answer, so `feedback: false` would not make that stream label-free.
 
 Each run's `checkout/reflections/` is the bank after the stream, and `workspace/state/reharness.json` records what
 every step retrieved, revised and wrote. The venue metrics are read as for MWM below.
@@ -72,11 +79,11 @@ of which the learner's five revision calls side by side and the reflection call 
 177 to 215 host calls (1.4 to 1.9 M input tokens, three quarters of them cached, USD 0.10 to 0.13 at the backend's
 prices), 231 to 235 learner calls (1.2 to 1.5 M input and 0.47 to 0.54 M output tokens, USD 0.41 to 0.48) and 79 to
 80 embedding calls of about 18 K tokens in all. Accuracy 0.740 over the five orders
-([the example's results](https://github.com/haizhongzheng/hermit/blob/main/examples/clbench_database/README.md#results)).
+([the example's results](https://github.com/Infini-AI-Lab/hermit/blob/main/examples/clbench_database/README.md#results)).
 On the poker venue (five orders of 104 instances, 120 hands each): 86 to 108 minutes per order, 242 to 341 host
 calls (USD 0.23 to 0.35), 610 to 613 learner calls (USD 1.07 to 1.32) and 208 embedding calls; 0.28 bb/hand over the
 five orders, below the stateless baseline
-([the example's results](https://github.com/haizhongzheng/hermit/blob/main/examples/clbench_poker/README.md#results)).
+([the example's results](https://github.com/Infini-AI-Lab/hermit/blob/main/examples/clbench_poker/README.md#results)).
 
 ## On local GPUs
 
@@ -127,14 +134,15 @@ These are one order with one local model, not a comparison with the results in t
 | `order<order>/run.log` | Training process output |
 | `order<order>/task/evidence/` | Episode evidence |
 | `order<order>/task/outcomes.jsonl` | Poker outcome ledger |
-| `wire_ledger.json`, `meta_wire_ledger.json`, `embed_wire_ledger.json` (ReHarness) | Provider usage captured by the meters: the host's, the learner's and, for ReHarness, the embedding relay's (its calls carry no price and are the card's calls of unknown cost) |
+| `wire_ledger.json`, `meta_wire_ledger.json`, `embed_wire_ledger.json` (ReHarness) | Provider usage captured by the meters: the host's, the learner's and, for ReHarness, the embedding relay's (its calls carry no price; the card's calls of unknown cost are the unpriced rollouts plus the Evolver's own embedding calls, not the relay's) |
 
 Database uses accuracy scoring with the configured query policy. Poker uses its outcome ledger and bb/hand;
 do not interpret the framework evaluator's generic `solved_once` field as the poker metric.
 
 The MWM example documentation reports roughly a day per order for its model setting, an observed planning estimate;
 verify with a prefix run. The ReHarness figures above are observed runs, reported with their settings in the
-examples' READMEs; nothing else on this page is a measurement.
+examples' READMEs, and the local-GPU table is one observed order with one local model; no number on this page
+comes from a smoke run.
 
 ## Reproduction limits
 
@@ -157,9 +165,14 @@ section 4):
   the paper uses its own decision-agent prompt and each task's native metric. Ranking is by cosine, a choice the
   paper leaves open.
 - Code: the authors publish none; the Evolver follows the paper's equations and Figure 5 prompts, verbatim.
-- Revision of the tree: the database runs were made from the files committed as the branch's first ReHarness
-  commit (the launcher stamped the working tree `1b0161e-dirty`), before the commit that changed how the Evolver
-  reads the agents' replies and retries one cut off at `max_tokens` (3 of 200 writes were lost to it).
+- Revision of the tree: both runs predate the commit that brings ReHarness into this tree. The database runs were
+  made from main's `1b0161e` with the ReHarness files still uncommitted (the launcher stamped the working tree
+  `1b0161e-dirty`), before the Evolver read the agents' replies tolerantly and asked again with twice the budget for
+  a reply cut off at `max_tokens` (3 of the 200 reflection writes were lost under the earlier reader). The poker runs
+  were made from `9125458`, a commit of the branch's history before its rebase, not in this tree, with that reader;
+  the committed code differs from it by the Evolver's `feedback` switch (whose default, true, is what the runs did),
+  the rendering of Codex logs, which CL-Bench does not produce, and the host's handling of a failing reader. Both
+  used clbench fork `2cc7eef`, recorded with the framework revision in each `order<i>/run.log`'s setting stamp.
 
 Hosted models can change independently of the code, so the same commit need not give the same numbers.
 

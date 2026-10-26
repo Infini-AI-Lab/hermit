@@ -95,7 +95,8 @@ def main() -> None:
     task = dbtask.DatabaseExploration(schedule="default", run_index=order)
     task.prepare_run(order)
     session = Session(Path(args.adapter), evidence=evidence_dir, deployment=deployment or None)
-    system = AdapterHost(session, model=args.model, workspace=host_ws, venue="database", name="mwm_framework")
+    system = AdapterHost(session, model=args.model, workspace=host_ws, venue="database", name="mwm_framework",
+                         task_row=row)
     system.reset()
     task.reset()
     placeholders = [{"instance_id": q["question_id"], "success": False, "metadata": {}}
