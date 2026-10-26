@@ -28,8 +28,8 @@
   html { scroll-behavior: smooth; }
   body { margin: 0; color: var(--ink); background: var(--bg); font-family: 'Space Grotesk', -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 17px; line-height: 1.65; -webkit-font-smoothing: antialiased; }
   a { color: var(--accent-strong); text-decoration: none; }
-  a:not(.btn):not(.chip) { border-bottom: 1px dotted var(--accent-line); }
-  a:not(.btn):not(.chip):hover { color: var(--accent); border-bottom-color: var(--accent); }
+  a:not(.btn):not(.chip):not(.method) { border-bottom: 1px dotted var(--accent-line); }
+  a:not(.btn):not(.chip):not(.method):hover { color: var(--accent); border-bottom-color: var(--accent); }
   code, pre, .mono { font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace; }
   .container { max-width: var(--maxw); margin: 0 auto; padding: 0 28px; }
   header.hero { padding: 56px 0 28px; border-bottom: 1px dashed var(--line); }
@@ -54,14 +54,15 @@
   h3 { font-size: 20px; font-weight: 600; margin: 34px 0 10px; }
   p { margin: 0 0 14px; }
   .figure { margin: 0; }
+  .figure.collaboration { max-width: 760px; margin: 22px auto 0; }
   .figure img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 8px; background: #fbfaf7; }
   .figure .cap { border-left: 3px solid var(--accent); padding: 8px 14px; margin-top: 12px; font-size: 14.5px; color: var(--ink-soft); }
   .figure .cap b.n { font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); display: block; margin-bottom: 4px; }
   .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 36px 0 0; }
   .tile { border: 1px solid var(--line); border-top: 2px solid var(--accent); border-radius: 6px; padding: 18px 18px 16px; background: var(--bg); }
-  .tile .k { font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: var(--muted); letter-spacing: .04em; }
-  .tile .v { font-size: 30px; font-weight: 700; color: var(--accent-strong); letter-spacing: -.02em; margin: 6px 0 4px; }
-  .tile .d { font-size: 14px; color: var(--ink-soft); line-height: 1.45; }
+  .tile h4 { margin: 0 0 10px; font-size: 19px; font-weight: 600; }
+  .tile p { font-size: 14px; color: var(--ink-soft); line-height: 1.5; }
+  .tile a { font-size: 14px; }
   ul.arrows { list-style: none; padding: 0; margin: 0 0 20px; }
   ul.arrows li { padding-left: 24px; position: relative; margin: 6px 0; font-weight: 500; }
   ul.arrows li::before { content: "→"; position: absolute; left: 0; color: var(--accent); font-family: 'IBM Plex Mono', monospace; }
@@ -75,18 +76,15 @@
   .card { border: 1px solid var(--line); border-radius: 8px; padding: 16px; background: var(--bg); }
   .card h4 { margin: 0 0 10px; font-size: 15px; font-weight: 600; }
   .card img { width: 100%; height: auto; display: block; border-radius: 4px; }
-  .methods { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 18px; }
-  .methods .chip.soon { background: transparent; color: var(--muted); border-color: var(--line); }
-  table.res { width: 100%; border-collapse: collapse; font-size: 15px; margin: 10px 0 6px; }
-  table.res th { text-align: left; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 500; padding: 8px 10px; border-bottom: 1px solid var(--line); }
-  table.res td { padding: 8px 10px; border-bottom: 1px solid var(--line-soft); }
-  table.res td.num { font-family: 'IBM Plex Mono', monospace; font-variant-numeric: tabular-nums; }
-  table.res tr.ours td { font-weight: 600; }
-  table.res tr.ours td.num { color: var(--accent-strong); }
-  .note { font-size: 13.5px; color: var(--muted); }
+  .method-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin: 22px 0; }
+  a.method { display: flex; align-items: center; justify-content: center; min-height: 76px; padding: 14px; border: 1px solid var(--accent-line); border-radius: 8px; background: var(--bg); text-align: center; font-size: 18px; font-weight: 600; color: var(--ink); }
+  a.method:hover { border-color: var(--accent); color: var(--accent-strong); }
+  a.method:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .planned { font-size: 14px; color: var(--muted); }
   pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; overflow-x: auto; font-size: 13.5px; line-height: 1.6; }
   pre .c { color: var(--muted); }
   footer { padding: 28px 0 48px; border-top: 1px dashed var(--line); font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; color: var(--muted); }
+  @media (max-width: 600px) { .method-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .method-grid .method:last-child { grid-column: 1 / -1; } }
   @media (max-width: 760px) { .tiles, .two { grid-template-columns: 1fr; } .title-row img { width: 56px; height: 56px; } table.need td:first-child { width: 70px; } }
 </style>
 </head>
@@ -95,7 +93,7 @@
 <header class="hero">
   <div class="container">
     <div class="stamp">Hermit <span class="dot">/</span> 2026 <span class="dot">·</span> Harness adapters <span class="dot">·</span> Continual learning for agents</div>
-    <div class="title-row"><img src="assets/logo.svg" alt=""><h1 class="title">Herm<i>i</i>t</h1></div>
+    <div class="title-row"><img src="assets/logo.svg" alt="" width="64" height="64"><h1 class="title">Herm<i>i</i>t</h1></div>
     <p class="subtitle">Train, evaluate and deploy <b>harness adapters</b>: trainable external harnesses that adapt an existing agent to new scenarios without touching its harness or model.</p>
     <div class="chips">
       <span class="chip">Trainable</span><span class="chip">No harness changes</span><span class="chip">Transferable</span><span class="chip">RL-style loop</span><span class="chip">GEPA · SkillOpt · MWM · Harness² · Continual Harness</span><span class="chip">Codex · Claude Code</span>
@@ -103,8 +101,9 @@
     <div class="btns">
       <a class="btn accent" href="https://github.com/Infini-AI-Lab/hermit">Code</a>
       <a class="btn" href="docs/">Documentation</a>
+      <a class="btn" href="#methods">Methods</a>
       <a class="btn" href="#how">How it works</a>
-      <a class="btn" href="#results">Results</a>
+      <a class="btn" href="#collaboration">Collaboration demo</a>
     </div>
   </div>
 </header>
@@ -112,24 +111,35 @@
 <section>
   <div class="container">
     <figure class="figure">
-      <img src="assets/harness-adapter.gif" alt="An agent made of a model and a harness meets a new scenario and fits it poorly. The agent is frozen, a harness adapter plugs into its side, a frame closes around the two as one agent, and task feedback trains the adapter from V0 to V5 while the score curve rises.">
-      <figcaption class="cap"><b class="n">Figure 1 · the adapter learns, the agent stays frozen</b>A harness adapter plugs into an existing agent from outside. Task feedback trains the adapter from V0 to V5; the agent's own harness and model never change. Like a model adapter for a model, one level up.</figcaption>
+      <img src="assets/harness-adapter.gif" alt="An agent made of a model and a harness meets a new scenario and fits it poorly. The agent is frozen, a harness adapter plugs into its side, a frame closes around the two as one agent, and task feedback trains the adapter from V0 to V5 while the score curve rises." width="2096" height="594">
+      <figcaption class="cap"><b class="n">The adapter learns, the agent stays fixed</b>Task feedback improves an external harness adapter while the original model and harness stay unchanged.</figcaption>
     </figure>
-    <div class="tiles">
-      <div class="tile"><div class="k">[ 01 ] · CL-Bench database</div><div class="v">0.795</div><div class="d">accuracy with an MWM adapter, against 0.400 for the benchmark's stateless baseline and 0.580 in-context.</div></div>
-      <div class="tile"><div class="k">[ 02 ] · ServeLearnBench retail L3</div><div class="v">45.3</div><div class="d">hidden-policy score (H) with an MWM adapter, against 4.5 blind and 28.7 for the best leaderboard method.</div></div>
-      <div class="tile"><div class="k">[ 03 ] · OfficeQA, Codex harness</div><div class="v">0.600</div><div class="d">mean accuracy across four SkillOpt trainings, against 0.541 with no skill. Both acting and learning use GLM 5.3 Flash.</div></div>
-    </div>
+
   </div>
 </section>
 
-<section class="alt">
+<section class="alt" id="methods">
+  <div class="container">
+    <h2><span class="s">§</span>Supported Harness Evolution Methods</h2>
+    <p>Use an existing method, or bring your own Evolver to the same training framework.</p>
+    <div class="method-grid">
+      <a class="method" href="docs/methods/gepa.html">GEPA</a>
+      <a class="method" href="docs/methods/skillopt.html">SkillOpt</a>
+      <a class="method" href="docs/methods/mwm.html">MetaWorld Model</a>
+      <a class="method" href="docs/methods/harness2.html">Harness²</a>
+      <a class="method" href="docs/methods/continual_harness.html">Continual Harness</a>
+    </div>
+    <p class="planned">Coming soon: ACE · ReHarness. <a href="docs/methods/index.html">Compare methods and requirements →</a></p>
+  </div>
+</section>
+
+<section>
   <div class="container">
     <h2><span class="s">§</span>What Hermit gives you out of the box</h2>
     <p>Hermit is an open-source framework with <b>one training loop</b> for harness adapters. Bring your tasks and feedback; choose a learning method or write your own. It provides shared infrastructure for:</p>
     <ul class="arrows">
       <li>One Trainer for every method: rollouts, judge feedback, an Evolver step, a checked commit, the next version</li>
-      <li>GEPA, SkillOpt, MetaWorld Model, Harness² and Continual Harness; Codex and Claude Code as learner agents</li>
+      <li>Built-in evolution methods and a shared interface for your own Evolver</li>
       <li>Adapters as files in a git tree: inspect every version, roll back, ship the final one</li>
       <li>Deploy workspaces for Codex, Claude Code or Pi, or export supported contents as a native plugin for compatible hosts</li>
       <li>Adapter specification checks and versioned updates, with sandboxing for supported learner programs</li>
@@ -159,78 +169,55 @@
     <figure class="figure">
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="assets/training-loop-dark.svg">
-        <img src="assets/training-loop-light.svg" alt="Training flow: tasks run through the acting agent and harness adapter, feedback reaches the Evolver, and checked updates become the next adapter version.">
+        <img src="assets/training-loop-light.svg" alt="Training flow: tasks run through the acting agent and harness adapter, feedback reaches the Evolver, and checked updates become the next adapter version." width="1000" height="372">
       </picture>
-      <figcaption class="cap"><b class="n">Figure 2 · one loop, many methods</b>The Trainer runs a batch of tasks through the acting agent with the current adapter, scores them with your judge, and hands the trajectories and feedback to an Evolver. The Evolver proposes a new adapter; the Trainer checks it against the template and commits it as the next version.</figcaption>
+      <figcaption class="cap"><b class="n">One loop, many methods</b>The Trainer runs a batch of tasks through the acting agent with the current adapter, scores them with your judge, and hands the trajectories and feedback to an Evolver. The Evolver proposes a new adapter; the Trainer checks it against the template and commits it as the next version.</figcaption>
     </figure>
     <div class="two" style="margin-top:28px">
-      <div class="card"><h4>From the command line</h4><img src="assets/install-and-use.gif" alt="Install Hermit, train an adapter, deploy it, convert it into a plugin."></div>
-      <div class="card"><h4>Or write your own loop</h4><img src="assets/training-loop.gif" alt="Training pseudocode: initialize, rollouts, optimize, check and commit, finalize."></div>
+      <div class="card"><h4>From the command line</h4><img src="assets/install-and-use.gif" alt="Install Hermit, train an adapter, deploy it, convert it into a plugin." width="2400" height="530"></div>
+      <div class="card"><h4>Or write your own loop</h4><img src="assets/training-loop.gif" alt="Training pseudocode: initialize, rollouts, optimize, check and commit, finalize." width="2400" height="730"></div>
     </div>
-    <h3>Learning methods</h3>
-    <div class="methods">
-      <span class="chip">GEPA</span><span class="chip">SkillOpt</span><span class="chip">MetaWorld Model</span><span class="chip">Codex learner</span><span class="chip">Claude Code learner</span>
-      <span class="chip">Harness²</span><span class="chip soon">ACE · soon</span><span class="chip">Continual Harness</span><span class="chip soon">ReHarness · soon</span>
-    </div>
-    <p>An Evolver is a few hundred lines: it receives the step's learning material and the adapter's working copy, and returns a proposal. The Trainer manages specification checks, versioning, run records and evaluation support.</p>
+    <p style="margin-top:22px">Implement your update logic in an Evolver. The Trainer manages specification checks, versioning, run records and evaluation support.</p>
   </div>
 </section>
 
-<section id="results">
+<section id="examples">
   <div class="container">
-    <h2><span class="s">§</span>Results</h2>
-    <p>Each example documents its own model, learning and evaluation settings. The summaries below follow the corresponding recipes; they are not a comparison across benchmarks.</p>
-    <h3>CL-Bench: learn from a stream of tasks</h3>
-    <table class="res">
-      <thead><tr><th>Method</th><th>Database · accuracy</th><th>Poker · bb/hand</th></tr></thead>
-      <tbody>
-        <tr><td>Stateless (benchmark baseline)</td><td class="num">0.400</td><td class="num">1.76</td></tr>
-        <tr><td>In-context (benchmark baseline)</td><td class="num">0.580</td><td class="num">2.51</td></tr>
-        <tr><td>Prompt-only adapter, Codex learner</td><td class="num">0.470</td><td class="num">1.65</td></tr>
-        <tr class="ours"><td>MetaWorld Model adapter</td><td class="num">0.795</td><td class="num">3.08</td></tr>
-      </tbody>
-    </table>
-    <p class="note">Five orders of each stream, one run per order, mean over orders.</p>
-    <h3>ServeLearnBench: learn a hidden policy while serving</h3>
-    <table class="res">
-      <thead><tr><th>Method</th><th>H · hidden policy</th><th>F · fully specified</th></tr></thead>
-      <tbody>
-        <tr><td>Blind (no learning)</td><td class="num">4.5</td><td class="num">94.3</td></tr>
-        <tr><td>Best leaderboard method (CH)</td><td class="num">28.7</td><td class="num">92.0</td></tr>
-        <tr><td>Prompt-only adapter, Codex learner</td><td class="num">18.8</td><td class="num">97.1</td></tr>
-        <tr class="ours"><td>MetaWorld Model adapter</td><td class="num">45.3</td><td class="num">98.4</td></tr>
-        <tr><td>Oracle (policy given)</td><td class="num">89.2</td><td class="num">95.5</td></tr>
-      </tbody>
-    </table>
-    <p class="note">retail_l3: 624 serving requests in eight windows, 537 held-out tests. Leaderboard rows are the benchmark's published numbers for the same model.</p>
-    <h3>OfficeQA: harness evolution methods</h3>
-    <table class="res">
-      <thead><tr><th>Method</th><th>Accuracy</th></tr></thead>
-      <tbody>
-        <tr><td>No skill</td><td class="num">0.541</td></tr>
-        <tr><td>Initial skill</td><td class="num">0.576</td></tr>
-        <tr><td>GEPA</td><td class="num">0.580</td></tr>
-        <tr><td>SkillOpt</td><td class="num">0.600</td></tr>
-        <tr><td>Continual Harness</td><td class="num">0.634</td></tr>
-        <tr><td>Harness²</td><td class="num">0.651</td></tr>
-      </tbody>
-    </table>
-    <p class="note">GLM 5.3 Flash (medium) acts and learns; Codex 0.162.0, 172 questions, one evaluation pass. GEPA and SkillOpt use a 50/24/172 train/validation/test split; their accuracies are means of four independent trainings. Continual Harness and Harness² adapt during a test stream. <a href="docs/recipes/officeqa.html#the-flash-row">Protocols, uncertainty and costs →</a></p>
+    <h2><span class="s">§</span>Examples and recipes</h2>
+    <h3 id="collaboration">A harness adapter for collaboration</h3>
+    <p>Five Codex agents, one Lean theorem. A shared harness adapter connects their plans, messages and verified lemmas, so each agent can build on the others’ work without modifying Codex itself.</p>
+    <figure class="figure collaboration">
+      <img src="assets/lean-collaboration.gif" width="1600" height="1508" loading="lazy" decoding="async" alt="Five fixed Codex agents communicate through a shared harness adapter while their verified lemma library and collaborative proof grow over time.">
+      <figcaption class="cap"><b class="n">Shared adapter, coordinated agents</b>The diagram shows how agents communicate through the adapter; the replay below shows their contributions to one proof.</figcaption>
+    </figure>
+    <p style="margin-top:16px"><a href="docs/recipes/lean-collaboration.html">Explore the Lean collaboration adapter →</a></p>
+    <h3>Train adapters on your tasks</h3>
+    <p>Start from a runnable recipe, connect your tasks and feedback, and choose an evolution method.</p>
+    <div class="tiles">
+      <div class="tile"><h4>OfficeQA</h4><p>Optimize document-analysis skills or adapt throughout a task stream with GEPA, SkillOpt, Harness² and Continual Harness.</p><a href="docs/recipes/officeqa.html">Explore recipe →</a></div>
+      <div class="tile"><h4>CL-Bench</h4><p>Build environment knowledge from experience with MWM and prompt-only adapters.</p><a href="docs/recipes/clbench.html">Explore recipe →</a></div>
+      <div class="tile"><h4>ServeLearnBench</h4><p>Learn a changing policy while serving requests, then evaluate the adapter on held-out tasks.</p><a href="docs/recipes/servelearnbench.html">Explore recipe →</a></div>
+    </div>
   </div>
 </section>
 
 <section class="alt" id="get-started">
   <div class="container">
     <h2><span class="s">§</span>Get started</h2>
-<pre><span class="c"># Python 3.11+ and git</span>
-git clone https://github.com/Infini-AI-Lab/hermit.git &amp;&amp; cd hermit
-python3 -m venv .venv &amp;&amp; source .venv/bin/activate
-pip install -e .
-
-<span class="c"># run the offline training walkthrough</span>
-hermit check --config docs/_examples/first_training/run.yaml
-hermit train --config docs/_examples/first_training/run.yaml
-hermit eval  --config docs/_examples/first_training/run.yaml --adapter final</pre>
+    <p>Requires Python 3.11+ and Git.</p>
+    <h3>From source (recommended)</h3>
+    <p>Clone the repository to run examples, reproduce recipes and develop your own evolution methods.</p>
+<pre>git clone https://github.com/Infini-AI-Lab/hermit.git
+cd hermit
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e .
+hermit --help</pre>
+    <h3>Also available on PyPI</h3>
+    <p>Install the framework CLI and bundled adapter templates in your Python environment:</p>
+<pre>python -m pip install hermit-harness
+hermit --help</pre>
+    <p>The included examples and benchmark recipes use files from the source checkout. See <a href="docs/get-started/installation.html">Installation</a> for method-specific dependencies.</p>
     <p><a href="docs/get-started/quickstart.html">Offline Quick Start</a> · <a href="docs/get-started/first-model.html">train with an API model</a> · <a href="docs/recipes/officeqa.html">run OfficeQA</a> · <a href="docs/tutorials/your-own-task.html">bring your own task</a> · <a href="docs/framework/custom-evolver.html">build a new method</a></p>
   </div>
 </section>

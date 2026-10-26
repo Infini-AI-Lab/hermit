@@ -13,6 +13,7 @@ rm -rf -- "$site_dir/docs/_static/drafts"
 cp docs/web/index.html "$site_dir/index.html"
 mkdir -p "$site_dir/assets"
 cp -R assets/. "$site_dir/assets/"
+cp docs/web/assets/lean-collaboration.gif "$site_dir/assets/"
 touch "$site_dir/.nojekyll"
 
 echo "Built project site to: $site_dir"
