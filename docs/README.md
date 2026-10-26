@@ -10,6 +10,25 @@ bash docs/serve.sh 8000     # live preview at http://127.0.0.1:8000
 
 `build.sh` treats warnings as errors, so unresolved Sphinx references and pages missing from navigation fail the build. Raw HTML links and Markdown URL anchors also need verification; the strict build is not an external-link checker.
 
+## Published site
+
+The project homepage is at <https://infini-ai-lab.github.io/hermit/> and the documentation is at
+<https://infini-ai-lab.github.io/hermit/docs/>. GitHub Pages uses the Actions publishing source.
+The `Deploy project site and docs` workflow builds and deploys changes from `main`; it can also be started
+manually from the Actions tab.
+
+To build the same artifact locally:
+
+```sh
+bash docs/build-pages.sh
+python3 docs/check-pages.py
+python3 -m http.server 8000 --bind 127.0.0.1 --directory docs/_build/site
+```
+
+Open <http://127.0.0.1:8000/> for the homepage or <http://127.0.0.1:8000/docs/> for the docs.
+The artifact contains `docs/web/index.html` as its homepage, repository `assets/`, and the strict Sphinx build
+under `docs/`. Local design drafts under `_static/drafts/` are excluded.
+
 ## Adding a page
 
 1. Write the Markdown file, for example `docs/guide/my-topic.md`. Its first `#` heading is the page title.

@@ -26,8 +26,9 @@ test = ["pytest"]
 hermit = "hermit.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/Infini-AI-Lab/hermit"
-Documentation = "https://github.com/Infini-AI-Lab/hermit/tree/main/docs"
+Homepage = "https://infini-ai-lab.github.io/hermit/"
+Repository = "https://github.com/Infini-AI-Lab/hermit"
+Documentation = "https://infini-ai-lab.github.io/hermit/docs/"
 Issues = "https://github.com/Infini-AI-Lab/hermit/issues"
 Changelog = "https://github.com/Infini-AI-Lab/hermit/blob/main/CHANGELOG.md"
 

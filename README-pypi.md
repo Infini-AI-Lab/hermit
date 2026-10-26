@@ -18,7 +18,8 @@ pinned to Git commits in the repository's `requirements-gepa.txt`, `requirements
 `requirements-harness2.txt`. The examples, the benchmark recipes and the documentation are in the repository:
 
 - Repository: https://github.com/Infini-AI-Lab/hermit
-- Documentation: https://github.com/Infini-AI-Lab/hermit/tree/main/docs
+- Website: https://infini-ai-lab.github.io/hermit/
+- Documentation: https://infini-ai-lab.github.io/hermit/docs/
 - Changelog: https://github.com/Infini-AI-Lab/hermit/blob/main/CHANGELOG.md
 
 Apache-2.0.

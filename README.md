@@ -10,9 +10,10 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.11%2B-3776AB.svg?logo=python&logoColor=white)](pyproject.toml)
 [![Version](https://img.shields.io/badge/version-0.1.0-C6743C.svg)](pyproject.toml)
-[![Docs](https://img.shields.io/badge/docs-read-1B1D22.svg)](docs/index.md)
+[![Website](https://img.shields.io/badge/website-online-C6743C.svg)](https://infini-ai-lab.github.io/hermit/)
+[![Docs](https://img.shields.io/badge/docs-read-1B1D22.svg)](https://infini-ai-lab.github.io/hermit/docs/)
 
-**[Get Started](#get-started)** · **[Harness Adapters](#what-is-a-harness-adapter)** · **[Methods](#supported-harness-evolution-methods)** · **[Examples and Recipes](#examples-and-recipes)** · **[FAQ](#faq)** · **[Docs](docs/index.md)**
+**[Get Started](#get-started)** · **[Harness Adapters](#what-is-a-harness-adapter)** · **[Methods](#supported-harness-evolution-methods)** · **[Examples and Recipes](#examples-and-recipes)** · **[FAQ](#faq)** · **[Docs](https://infini-ai-lab.github.io/hermit/docs/)**
 
 </div>
 
@@ -46,7 +47,7 @@ Many harnesses are black boxes; even open-source ones have carefully designed co
 <tbody>
 <tr>
 <td>✅ <strong>Supported</strong></td>
-<td><a href="docs/methods/gepa.md">GEPA</a> · <a href="docs/methods/skillopt.md">SkillOpt</a> · <a href="docs/methods/mwm.md">MetaWorld Model</a> · <a href="docs/methods/harness2.md">Harness²</a> · <a href="docs/methods/continual_harness.md">Continual Harness</a></td>
+<td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/gepa.html">GEPA</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/skillopt.html">SkillOpt</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/mwm.html">MetaWorld Model</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/harness2.html">Harness²</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/continual_harness.html">Continual Harness</a></td>
 </tr>
 <tr>
 <td>🚧 <strong>Coming Soon</strong></td>
@@ -126,9 +127,9 @@ cat .demo/first-training/workspace/AGENTS.md
 
 The generated `AGENTS.md` contains the learned rule. Start Codex in that workspace to use it.
 
-[Full walkthrough, expected outputs, and repeat-run instructions →](docs/get-started/quickstart.md)
+[Full walkthrough, expected outputs, and repeat-run instructions →](https://infini-ai-lab.github.io/hermit/docs/get-started/quickstart.html)
 
-**Ready for a real agent?** [Train with an API model](docs/get-started/first-model.md) · [Run OfficeQA](docs/recipes/officeqa.md) · [Bring your own task](docs/tutorials/your-own-task.md)
+**Ready for a real agent?** [Train with an API model](https://infini-ai-lab.github.io/hermit/docs/get-started/first-model.html) · [Run OfficeQA](https://infini-ai-lab.github.io/hermit/docs/recipes/officeqa.html) · [Bring your own task](https://infini-ai-lab.github.io/hermit/docs/tutorials/your-own-task.html)
 
 ### Examples and Recipes
 
@@ -145,48 +146,48 @@ Train and evaluate harness adapters on benchmarks using different evolution meth
 </thead>
 <tbody>
 <tr>
-<td><a href="docs/methods/mwm.md">MWM</a></td>
+<td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/mwm.html">MWM</a></td>
 <td><a href="examples/clbench_database/mwm/">CL-Bench database</a> · <a href="examples/clbench_poker/mwm/">CL-Bench poker</a> · <a href="examples/servelearnbench/mwm/">ServeLearnBench</a></td>
 </tr>
 <tr>
-<td><a href="docs/methods/skillopt.md">SkillOpt</a></td>
+<td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/skillopt.html">SkillOpt</a></td>
 <td><a href="examples/officeqa/skillopt/">OfficeQA</a></td>
 </tr>
 <tr>
-<td><a href="docs/methods/gepa.md">GEPA</a></td>
+<td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/gepa.html">GEPA</a></td>
 <td><a href="examples/officeqa/gepa/">OfficeQA</a></td>
 </tr>
 <tr>
-<td><a href="docs/methods/harness2.md">Harness²</a></td>
+<td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/harness2.html">Harness²</a></td>
 <td><a href="examples/officeqa/harness2_stream/">OfficeQA</a> (the paper's per-question protocol, Codex as the acting agent)</td>
 </tr>
 <tr>
-<td><a href="docs/methods/continual_harness.md">Continual Harness</a></td>
+<td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/continual_harness.html">Continual Harness</a></td>
 <td><a href="examples/officeqa/continual_harness/">OfficeQA</a> (policy, sub-agents, skills and memory refined in place, Codex as the acting agent)</td>
 </tr>
 <tr>
-<td><a href="docs/methods/prompt-only.md">Prompt-only</a></td>
+<td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/prompt-only.html">Prompt-only</a></td>
 <td><a href="examples/clbench_database/prompt_only/">CL-Bench database</a> · <a href="examples/clbench_poker/prompt_only/">CL-Bench poker</a> · <a href="examples/servelearnbench/prompt_only/">ServeLearnBench</a></td>
 </tr>
 </tbody>
 </table>
 
-Walkthroughs: [OfficeQA](docs/recipes/officeqa.md) · [CL-Bench](docs/recipes/clbench.md) · [ServeLearnBench](docs/recipes/servelearnbench.md).
+Walkthroughs: [OfficeQA](https://infini-ai-lab.github.io/hermit/docs/recipes/officeqa.html) · [CL-Bench](https://infini-ai-lab.github.io/hermit/docs/recipes/clbench.html) · [ServeLearnBench](https://infini-ai-lab.github.io/hermit/docs/recipes/servelearnbench.html).
 
-Smaller training demos: [Quick Start](docs/get-started/quickstart.md) (offline) · [First real-model training](docs/get-started/first-model.md). [Task folder layout](examples/README.md).
+Smaller training demos: [Quick Start](https://infini-ai-lab.github.io/hermit/docs/get-started/quickstart.html) (offline) · [First real-model training](https://infini-ai-lab.github.io/hermit/docs/get-started/first-model.html). [Task folder layout](examples/README.md).
 
 #### Harness Adapter Examples
 
-The finished [Lean collaboration adapter](examples/lean_swarm/) coordinates five Codex agents through shared tools, state, and skills to prove Lean theorems together. [Walkthrough →](docs/recipes/lean-collaboration.md)
+The finished [Lean collaboration adapter](examples/lean_swarm/) coordinates five Codex agents through shared tools, state, and skills to prove Lean theorems together. [Walkthrough →](https://infini-ai-lab.github.io/hermit/docs/recipes/lean-collaboration.html)
 
 #### More Starting Points
 
 <table align="center">
 <thead>
 <tr>
-<th><a href="docs/tutorials/deploy-an-adapter.md">Use a trained adapter</a></th>
-<th><a href="docs/get-started/first-model.md">Train for your tasks</a></th>
-<th><a href="docs/framework/custom-evolver.md">Build a new method</a></th>
+<th><a href="https://infini-ai-lab.github.io/hermit/docs/tutorials/deploy-an-adapter.html">Use a trained adapter</a></th>
+<th><a href="https://infini-ai-lab.github.io/hermit/docs/get-started/first-model.html">Train for your tasks</a></th>
+<th><a href="https://infini-ai-lab.github.io/hermit/docs/framework/custom-evolver.html">Build a new method</a></th>
 </tr>
 </thead>
 <tbody>
@@ -210,17 +211,17 @@ The finished [Lean collaboration adapter](examples/lean_swarm/) coordinates five
 </thead>
 <tbody>
 <tr>
-<td><strong>Use an existing adapter</strong><br><a href="docs/tutorials/deploy-an-adapter.md">Use an adapter →</a></td>
+<td><strong>Use an existing adapter</strong><br><a href="https://infini-ai-lab.github.io/hermit/docs/tutorials/deploy-an-adapter.html">Use an adapter →</a></td>
 <td>Workspace deployment and native plugin conversion for a compatible adapter.</td>
 <td>An adapter, a supported agent host, and any dependencies the adapter needs.</td>
 </tr>
 <tr>
-<td><strong>Adapt to your own tasks</strong><br><a href="docs/get-started/first-model.md">Train your adapter →</a></td>
+<td><strong>Adapt to your own tasks</strong><br><a href="https://infini-ai-lab.github.io/hermit/docs/get-started/first-model.html">Train your adapter →</a></td>
 <td>Existing templates and Evolvers, with a Trainer that connects execution, feedback, checks, and versioning.</td>
 <td>Your tasks, acting agent, evaluator, and model access.</td>
 </tr>
 <tr>
-<td><strong>Develop a learning method or adapter design</strong><br><a href="docs/framework/custom-evolver.md">Build a learning method →</a></td>
+<td><strong>Develop a learning method or adapter design</strong><br><a href="https://infini-ai-lab.github.io/hermit/docs/framework/custom-evolver.html">Build a learning method →</a></td>
 <td>Editable adapter specifications and an Evolver interface for implementing and comparing methods on shared task pipelines.</td>
 <td>Your adapter design or update algorithm, plus an evaluation task.</td>
 </tr>
@@ -238,7 +239,7 @@ cat .demo/codex-workspace/AGENTS.md
 
 #### Train on OfficeQA
 
-Prepare the dataset and model endpoint as described in the [OfficeQA recipe](docs/recipes/officeqa.md). The agent is SkillOpt's own rollout, so the `skillopt` installation extra is needed; GEPA also requires `gepa`. Sandboxed agent Evolvers require Linux with `bubblewrap`.
+Prepare the dataset and model endpoint as described in the [OfficeQA recipe](https://infini-ai-lab.github.io/hermit/docs/recipes/officeqa.html). The agent uses SkillOpt's rollout, so install `requirements-skillopt.txt`; GEPA also needs `requirements-gepa.txt`. Sandboxed agent Evolvers require Linux with `bubblewrap`.
 
 ```bash
 python -m pip install -e . -r requirements-skillopt.txt -r requirements-gepa.txt
@@ -250,7 +251,7 @@ hermit eval --config examples/officeqa/gepa/smoke.yaml --adapter final
 
 #### Use Your Own Model Server
 
-Models use `<backend>/<model id>` references. See [Model backends](docs/guides/model-backends.md) for endpoint configuration and requirements.
+Models use `<backend>/<model id>` references. See [Model backends](https://infini-ai-lab.github.io/hermit/docs/guides/model-backends.html) for endpoint configuration and requirements.
 
 ```bash
 vllm serve Qwen/Qwen3-30B-A3B-Instruct-2507-FP8 --enable-auto-tool-choice --tool-call-parser hermes
@@ -297,11 +298,11 @@ Use Hermit to deploy an existing adapter, train one on your tasks, or develop an
 
 </details>
 
-[Full FAQ: training, transfer, supported methods, and evaluation →](docs/faq.md)
+[Full FAQ: training, transfer, supported methods, and evaluation →](https://infini-ai-lab.github.io/hermit/docs/faq.html)
 
 ## Contributing
 
-Help extend Hermit by [implementing an Evolver](docs/framework/custom-evolver.md), [connecting a task](docs/tutorials/your-own-task.md), or [reporting a reproduction or integration issue](https://github.com/Infini-AI-Lab/hermit/issues).
+Help extend Hermit by [implementing an Evolver](https://infini-ai-lab.github.io/hermit/docs/framework/custom-evolver.html), [connecting a task](https://infini-ai-lab.github.io/hermit/docs/tutorials/your-own-task.html), or [reporting a reproduction or integration issue](https://github.com/Infini-AI-Lab/hermit/issues).
 
 
 ## License

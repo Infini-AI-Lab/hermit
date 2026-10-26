@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Hermit — Train Your Harness Adapter</title>
 <meta name="description" content="Hermit trains, evaluates and deploys harness adapters: trainable external harnesses that adapt an existing agent to new scenarios without touching its harness or model.">
-<link rel="icon" href="../../assets/logo.svg">
+<link rel="icon" href="assets/logo.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -95,14 +95,14 @@
 <header class="hero">
   <div class="container">
     <div class="stamp">Hermit <span class="dot">/</span> 2026 <span class="dot">·</span> Harness adapters <span class="dot">·</span> Continual learning for agents</div>
-    <div class="title-row"><img src="../../assets/logo.svg" alt=""><h1 class="title">Herm<i>i</i>t</h1></div>
+    <div class="title-row"><img src="assets/logo.svg" alt=""><h1 class="title">Herm<i>i</i>t</h1></div>
     <p class="subtitle">Train, evaluate and deploy <b>harness adapters</b>: trainable external harnesses that adapt an existing agent to new scenarios without touching its harness or model.</p>
     <div class="chips">
-      <span class="chip">Trainable</span><span class="chip">No harness changes</span><span class="chip">Transferable</span><span class="chip">RL-style loop</span><span class="chip">GEPA · SkillOpt · MWM</span><span class="chip">Codex · Claude Code</span>
+      <span class="chip">Trainable</span><span class="chip">No harness changes</span><span class="chip">Transferable</span><span class="chip">RL-style loop</span><span class="chip">GEPA · SkillOpt · MWM · Harness² · Continual Harness</span><span class="chip">Codex · Claude Code</span>
     </div>
     <div class="btns">
       <a class="btn accent" href="https://github.com/Infini-AI-Lab/hermit">Code</a>
-      <a class="btn" href="#get-started">Quick start</a>
+      <a class="btn" href="docs/">Documentation</a>
       <a class="btn" href="#how">How it works</a>
       <a class="btn" href="#results">Results</a>
     </div>
@@ -112,13 +112,13 @@
 <section>
   <div class="container">
     <figure class="figure">
-      <img src="../../assets/harness-adapter.gif" alt="An agent made of a model and a harness meets a new scenario and fits it poorly. The agent is frozen, a harness adapter plugs into its side, a frame closes around the two as one agent, and task feedback trains the adapter from V0 to V5 while the score curve rises.">
+      <img src="assets/harness-adapter.gif" alt="An agent made of a model and a harness meets a new scenario and fits it poorly. The agent is frozen, a harness adapter plugs into its side, a frame closes around the two as one agent, and task feedback trains the adapter from V0 to V5 while the score curve rises.">
       <figcaption class="cap"><b class="n">Figure 1 · the adapter learns, the agent stays frozen</b>A harness adapter plugs into an existing agent from outside. Task feedback trains the adapter from V0 to V5; the agent's own harness and model never change. Like a model adapter for a model, one level up.</figcaption>
     </figure>
     <div class="tiles">
       <div class="tile"><div class="k">[ 01 ] · CL-Bench database</div><div class="v">0.795</div><div class="d">accuracy with an MWM adapter, against 0.400 for the benchmark's stateless baseline and 0.580 in-context.</div></div>
       <div class="tile"><div class="k">[ 02 ] · ServeLearnBench retail L3</div><div class="v">45.3</div><div class="d">hidden-policy score (H) with an MWM adapter, against 4.5 blind and 28.7 for the best leaderboard method.</div></div>
-      <div class="tile"><div class="k">[ 03 ] · OfficeQA, Codex harness</div><div class="v">0.628</div><div class="d">accuracy with a SkillOpt-trained adapter, against 0.543 with no skill. GEPA reaches 0.595 in the same loop.</div></div>
+      <div class="tile"><div class="k">[ 03 ] · OfficeQA, Codex harness</div><div class="v">0.600</div><div class="d">mean accuracy across four SkillOpt trainings, against 0.541 with no skill. Both acting and learning use GLM 5.3 Flash.</div></div>
     </div>
   </div>
 </section>
@@ -126,13 +126,13 @@
 <section class="alt">
   <div class="container">
     <h2><span class="s">§</span>What Hermit gives you out of the box</h2>
-    <p>Hermit is an open-source framework with <b>one training loop</b> for harness adapters. Bring your tasks and feedback; choose a learning method or write your own. It supports, <b>without task-specific plumbing</b>:</p>
+    <p>Hermit is an open-source framework with <b>one training loop</b> for harness adapters. Bring your tasks and feedback; choose a learning method or write your own. It provides shared infrastructure for:</p>
     <ul class="arrows">
       <li>One Trainer for every method: rollouts, judge feedback, an Evolver step, a checked commit, the next version</li>
-      <li>GEPA, SkillOpt and MetaWorld Model as built-in Evolvers; Codex and Claude Code as learner agents</li>
+      <li>GEPA, SkillOpt, MetaWorld Model, Harness² and Continual Harness; Codex and Claude Code as learner agents</li>
       <li>Adapters as files in a git tree: inspect every version, roll back, ship the final one</li>
-      <li>Deploy an adapter into Codex, Claude Code, pi or Hermes, or convert it into a plugin</li>
-      <li>Every process in a sandbox: rollouts, learners and tools see the task, never the answers</li>
+      <li>Deploy workspaces for Codex, Claude Code or Pi, or export supported contents as a native plugin for compatible hosts</li>
+      <li>Adapter specification checks and versioned updates, with sandboxing for supported learner programs</li>
       <li>Any model backend by reference: Fireworks, OpenAI, Anthropic, DeepSeek, vLLM, SGLang, Ollama</li>
     </ul>
     <div class="cta">
@@ -158,28 +158,28 @@
     <h2><span class="s">§</span>How it works: an RL-style loop for harnesses</h2>
     <figure class="figure">
       <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="../../assets/training-loop-dark.svg">
-        <img src="../../assets/training-loop-light.svg" alt="Training flow: tasks run through the acting agent and harness adapter, feedback reaches the Evolver, and checked updates become the next adapter version.">
+        <source media="(prefers-color-scheme: dark)" srcset="assets/training-loop-dark.svg">
+        <img src="assets/training-loop-light.svg" alt="Training flow: tasks run through the acting agent and harness adapter, feedback reaches the Evolver, and checked updates become the next adapter version.">
       </picture>
       <figcaption class="cap"><b class="n">Figure 2 · one loop, many methods</b>The Trainer runs a batch of tasks through the acting agent with the current adapter, scores them with your judge, and hands the trajectories and feedback to an Evolver. The Evolver proposes a new adapter; the Trainer checks it against the template and commits it as the next version.</figcaption>
     </figure>
     <div class="two" style="margin-top:28px">
-      <div class="card"><h4>From the command line</h4><img src="../../assets/install-and-use.gif" alt="Install Hermit, train an adapter, deploy it, convert it into a plugin."></div>
-      <div class="card"><h4>Or write your own loop</h4><img src="../../assets/training-loop.gif" alt="Training pseudocode: initialize, rollouts, optimize, check and commit, finalize."></div>
+      <div class="card"><h4>From the command line</h4><img src="assets/install-and-use.gif" alt="Install Hermit, train an adapter, deploy it, convert it into a plugin."></div>
+      <div class="card"><h4>Or write your own loop</h4><img src="assets/training-loop.gif" alt="Training pseudocode: initialize, rollouts, optimize, check and commit, finalize."></div>
     </div>
     <h3>Learning methods</h3>
     <div class="methods">
       <span class="chip">GEPA</span><span class="chip">SkillOpt</span><span class="chip">MetaWorld Model</span><span class="chip">Codex learner</span><span class="chip">Claude Code learner</span>
-      <span class="chip soon">Harness² · soon</span><span class="chip soon">ACE · soon</span><span class="chip soon">Continual Harness · soon</span><span class="chip soon">ReHarness · soon</span>
+      <span class="chip">Harness²</span><span class="chip soon">ACE · soon</span><span class="chip">Continual Harness</span><span class="chip soon">ReHarness · soon</span>
     </div>
-    <p>An Evolver is a few hundred lines: it receives the step's learning material and the adapter's working copy, and returns a proposal. Everything else, from sandboxing to the git tree to evaluation, is the framework's.</p>
+    <p>An Evolver is a few hundred lines: it receives the step's learning material and the adapter's working copy, and returns a proposal. The Trainer manages specification checks, versioning, run records and evaluation support.</p>
   </div>
 </section>
 
 <section id="results">
   <div class="container">
     <h2><span class="s">§</span>Results</h2>
-    <p>All runs: GLM 5.3 Flash as the acting model, reasoning effort high; the learner is a Codex session with the same model. Full settings and the trained adapters are in the repository.</p>
+    <p>Each example documents its own model, learning and evaluation settings. The summaries below follow the corresponding recipes; they are not a comparison across benchmarks.</p>
     <h3>CL-Bench: learn from a stream of tasks</h3>
     <table class="res">
       <thead><tr><th>Method</th><th>Database · accuracy</th><th>Poker · bb/hand</th></tr></thead>
@@ -203,17 +203,19 @@
       </tbody>
     </table>
     <p class="note">retail_l3: 624 serving requests in eight windows, 537 held-out tests. Leaderboard rows are the benchmark's published numbers for the same model.</p>
-    <h3>OfficeQA: optimize a skill file</h3>
+    <h3>OfficeQA: harness evolution methods</h3>
     <table class="res">
-      <thead><tr><th>Skill</th><th>Direct chat</th><th>Codex harness</th></tr></thead>
+      <thead><tr><th>Method</th><th>Accuracy</th></tr></thead>
       <tbody>
-        <tr><td>None</td><td class="num">0.415</td><td class="num">0.543</td></tr>
-        <tr><td>SkillOpt's initial skill</td><td class="num">0.465</td><td class="num">0.564</td></tr>
-        <tr class="ours"><td>GEPA in Hermit</td><td class="num">0.564</td><td class="num">0.595</td></tr>
-        <tr class="ours"><td>SkillOpt in Hermit</td><td class="num">0.576</td><td class="num">0.628</td></tr>
+        <tr><td>No skill</td><td class="num">0.541</td></tr>
+        <tr><td>Initial skill</td><td class="num">0.576</td></tr>
+        <tr><td>GEPA</td><td class="num">0.580</td></tr>
+        <tr><td>SkillOpt</td><td class="num">0.600</td></tr>
+        <tr><td>Continual Harness</td><td class="num">0.634</td></tr>
+        <tr><td>Harness²</td><td class="num">0.651</td></tr>
       </tbody>
     </table>
-    <p class="note">The SkillOpt paper's setting: 50 / 24 / 172 split, exact match, 172 test questions × 3 passes.</p>
+    <p class="note">GLM 5.3 Flash (medium) acts and learns; Codex 0.162.0, 172 questions, one evaluation pass. GEPA and SkillOpt use a 50/24/172 train/validation/test split; their accuracies are means of four independent trainings. Continual Harness and Harness² adapt during a test stream. <a href="docs/recipes/officeqa.html#the-flash-row">Protocols, uncertainty and costs →</a></p>
   </div>
 </section>
 
@@ -225,12 +227,11 @@ git clone https://github.com/Infini-AI-Lab/hermit.git &amp;&amp; cd hermit
 python3 -m venv .venv &amp;&amp; source .venv/bin/activate
 pip install -e .
 
-<span class="c"># train an adapter, evaluate it, deploy it into your agent</span>
-hermit train  --config run.yaml
-hermit eval   --config run.yaml --adapter final
-hermit deploy --adapter my-adapter --workspace my-project --host codex
-hermit convert --adapter my-adapter --output plugin --target claude-code</pre>
-    <p>Then: <a href="https://github.com/Infini-AI-Lab/hermit/blob/main/docs/get-started/first-model.md">train with an API model</a> · <a href="https://github.com/Infini-AI-Lab/hermit/blob/main/docs/recipes/officeqa.md">run OfficeQA</a> · <a href="https://github.com/Infini-AI-Lab/hermit/blob/main/docs/tutorials/your-own-task.md">bring your own task</a> · <a href="https://github.com/Infini-AI-Lab/hermit/blob/main/docs/framework/custom-evolver.md">build a new method</a></p>
+<span class="c"># run the offline training walkthrough</span>
+hermit check --config docs/_examples/first_training/run.yaml
+hermit train --config docs/_examples/first_training/run.yaml
+hermit eval  --config docs/_examples/first_training/run.yaml --adapter final</pre>
+    <p><a href="docs/get-started/quickstart.html">Offline Quick Start</a> · <a href="docs/get-started/first-model.html">train with an API model</a> · <a href="docs/recipes/officeqa.html">run OfficeQA</a> · <a href="docs/tutorials/your-own-task.html">bring your own task</a> · <a href="docs/framework/custom-evolver.html">build a new method</a></p>
   </div>
 </section>
 

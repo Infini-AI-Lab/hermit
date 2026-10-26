@@ -36,6 +36,7 @@ myst_fence_as_directive = ["mermaid"]
 
 html_theme = "shibuya"
 html_title = f"{project} {version}"
+html_baseurl = "https://infini-ai-lab.github.io/hermit/docs/"
 html_static_path = ["_static", "../assets"]
 html_css_files = ["css/custom.css", "css/overview-diagrams.css"]
 html_js_files = ["js/component-explorer.js", "js/overview-diagrams.js", "js/faq.js"]
@@ -46,15 +47,16 @@ html_theme_options = {
     "dark_logo": "_static/wordmark-dark.svg",
     "github_url": "https://github.com/Infini-AI-Lab/hermit",
     "nav_links": [
-        {"title": "Quick Start", "url": "get-started/quickstart"},
-        {"title": "Methods", "url": "methods/index"},
-        {"title": "Recipes", "url": "recipes/index"},
-        {"title": "Reference", "url": "reference/config-fields"},
+        {"title": "Project", "url": "https://infini-ai-lab.github.io/hermit/"},
+        {"title": "Quick Start", "url": "https://infini-ai-lab.github.io/hermit/docs/get-started/quickstart.html"},
+        {"title": "Methods", "url": "https://infini-ai-lab.github.io/hermit/docs/methods/index.html"},
+        {"title": "Recipes", "url": "https://infini-ai-lab.github.io/hermit/docs/recipes/index.html"},
+        {"title": "Reference", "url": "https://infini-ai-lab.github.io/hermit/docs/reference/config-fields.html"},
     ],
 }
 html_context = {
     "source_type": "github",
-    "source_user": "haizhongzheng",
+    "source_user": "Infini-AI-Lab",
     "source_repo": "hermit",
     "source_version": "main",
     "source_docs_path": "/docs/",
