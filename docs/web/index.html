@@ -35,10 +35,9 @@
   header.hero { padding: 56px 0 28px; border-bottom: 1px dashed var(--line); }
   .stamp { font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; letter-spacing: .04em; color: var(--muted); margin-bottom: 28px; }
   .stamp .dot { color: var(--accent); }
-  .title-row { display: flex; align-items: center; gap: 18px; }
-  .title-row img { width: 72px; height: 72px; }
-  h1.title { font-size: clamp(36px, 5.4vw, 60px); font-weight: 700; line-height: 1.05; letter-spacing: -.025em; margin: 0; }
-  h1.title i { color: var(--accent); font-style: normal; }
+  .title-row { display: flex; align-items: center; }
+  h1.title { width: 320px; max-width: 100%; line-height: 1; margin: 0; }
+  h1.title img { display: block; width: 100%; height: auto; }
   p.subtitle { font-size: clamp(18px, 2.2vw, 22px); color: var(--ink-soft); margin: 14px 0 18px; max-width: 46ch; line-height: 1.4; }
   .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 26px; }
   .chip { font-family: 'IBM Plex Mono', monospace; font-size: 12px; padding: 4px 10px; border: 1px solid var(--accent-line); background: var(--accent-soft); color: var(--accent-strong); border-radius: 4px; }
@@ -85,7 +84,7 @@
   pre .c { color: var(--muted); }
   footer { padding: 28px 0 48px; border-top: 1px dashed var(--line); font-family: 'IBM Plex Mono', monospace; font-size: 12.5px; color: var(--muted); }
   @media (max-width: 600px) { .method-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .method-grid .method:last-child { grid-column: 1 / -1; } }
-  @media (max-width: 760px) { .tiles, .two { grid-template-columns: 1fr; } .title-row img { width: 56px; height: 56px; } table.need td:first-child { width: 70px; } }
+  @media (max-width: 760px) { .tiles, .two { grid-template-columns: 1fr; } table.need td:first-child { width: 70px; } }
 </style>
 </head>
 <body>
@@ -93,7 +92,7 @@
 <header class="hero">
   <div class="container">
     <div class="stamp">Hermit <span class="dot">/</span> 2026 <span class="dot">·</span> Harness adapters <span class="dot">·</span> Continual learning for agents</div>
-    <div class="title-row"><img src="assets/logo.svg" alt="" width="64" height="64"><h1 class="title">Herm<i>i</i>t</h1></div>
+    <div class="title-row"><h1 class="title"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/wordmark-dark.svg"><img src="assets/wordmark-light.svg" alt="Hermit" width="235" height="60"></picture></h1></div>
     <p class="subtitle">Train, evaluate and deploy <b>harness adapters</b>: trainable external harnesses that adapt an existing agent to new scenarios without touching its harness or model.</p>
     <div class="chips">
       <span class="chip">Trainable</span><span class="chip">No harness changes</span><span class="chip">Transferable</span><span class="chip">RL-style loop</span><span class="chip">GEPA · SkillOpt · MWM · Harness² · Continual Harness</span><span class="chip">Codex · Claude Code</span>
