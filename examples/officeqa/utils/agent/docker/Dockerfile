@@ -1,11 +1,13 @@
-# The Codex harness's container: Ubuntu 24.04, python3 (for the session's scripts) and Codex 0.134.0 for Linux arm64
-# (its npm package: the codex binary, ripgrep and the bubblewrap its sandbox uses), unpacked into ./codex first:
+# The Codex harness's container: Ubuntu 24.04, python3 (for the session's scripts) and Codex 0.162.0 for Linux arm64
+# (its npm package: the codex binary, ripgrep and the bubblewrap its sandbox uses), unpacked into ./codex first.
+# This version must match codex_session.py's default image tag and OFFICEQA_CODEX_IMAGE in the run configs
+# (officeqa-codex:0.162.0):
 #
-#   npm pack @openai/codex@0.134.0-linux-arm64 && mkdir -p codex && tar -xzf openai-codex-0.134.0-linux-arm64.tgz \
+#   npm pack @openai/codex@0.162.0-linux-arm64 && mkdir -p codex && tar -xzf openai-codex-0.162.0-linux-arm64.tgz \
 #     --strip-components 1 -C codex
-#   docker build -t officeqa-codex:0.134.0 .
+#   docker build -t officeqa-codex:0.162.0 .
 #
-# On an x64 host: @openai/codex@0.134.0-linux-x64 and --build-arg TRIPLE=x86_64-unknown-linux-musl.
+# On an x64 host: @openai/codex@0.162.0-linux-x64 and --build-arg TRIPLE=x86_64-unknown-linux-musl.
 # BASE may name an image that already has python3 and CA certificates (the build then downloads nothing).
 ARG BASE=ubuntu:24.04
 FROM ${BASE}

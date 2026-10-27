@@ -37,6 +37,8 @@ ALWAYS_ON_MAX = 8_000                    # characters: the template's cap on the
 SKILL_MAX = 24_000                       # bytes, as adapter.yaml
 AGENT_MAX = 24_000
 NOTES_MAX = 40_000
+MAX_SKILLS = 40                          # count, as adapter.yaml (.agents/skills/*/SKILL.md max_files)
+MAX_SUBAGENTS = 20                       # count, as adapter.yaml (sub_agents/*/AGENT.md max_files)
 NAME_RX = re.compile(r"[a-z0-9][a-z0-9_\-]*")
 PLACEHOLDER = "(No notes yet"
 OUTPUT_TAIL = 600                        # characters of a command's output shown
@@ -515,7 +517,9 @@ class ContinualHarnessEvolver(Evolver):
             "when to delegate) and the role's instructions.\n\n"
             "From the rollouts: create a role for a repeated multi-step pattern the agent did by hand and did "
             "poorly, update a role that was used and led to failures, retire a role that was used repeatedly with "
-            "poor results. Do not create roles for one-off situations. Keep the registry small.\n\n"
+            "poor results. Do not create roles for one-off situations. Keep the registry small: it holds at most "
+            f"{MAX_SUBAGENTS} sub-agents and has {len(roles)} now; if it is at the limit, retire one in the same "
+            "response before you create.\n\n"
             f"=== THE HARNESS NOW ===\n{overview(adapter)}\n\n=== CURRENT SUB-AGENTS ===\n{listing}\n\n{evidence}\n\n"
             "Respond with ONLY a JSON object (no prose, no fences):\n"
             '{"analysis": "what you observed, one or two sentences",\n'
@@ -528,15 +532,14 @@ class ContinualHarnessEvolver(Evolver):
         if not isinstance(rec, dict):
             return {"changed": []}
         changed = []
-        for spec in rec.get("create") or []:
-            if not isinstance(spec, dict):
-                continue
-            name = slug(spec.get("name"))
-            d = adapter / "sub_agents" / name
-            d.mkdir(parents=True, exist_ok=True)
-            (d / "AGENT.md").write_text(with_frontmatter(spec.get("description"), str(spec.get("instructions") or ""))
-                                        [:AGENT_MAX], encoding="utf-8")
-            changed.append(f"+{name}")
+        # Retire first so a retire+create in the same pass stays within the registry cap (a create that would push
+        # sub_agents/*/AGENT.md over max_files makes check 4 fail and _pass drops the WHOLE pass, losing the edits).
+        for name in rec.get("retire") or []:
+            name = slug(name)
+            if name in roles:
+                shutil.rmtree(adapter / "sub_agents" / name, ignore_errors=True)
+                roles.pop(name, None)
+                changed.append(f"-{name}")
         for upd in rec.get("update") or []:
             if not isinstance(upd, dict):
                 continue
@@ -548,11 +551,19 @@ class ContinualHarnessEvolver(Evolver):
                                     str(upd.get("instructions") or role["instructions"]))[:AGENT_MAX]
             (adapter / "sub_agents" / name / "AGENT.md").write_text(text, encoding="utf-8")
             changed.append(f"~{name}")
-        for name in rec.get("retire") or []:
-            name = slug(name)
-            if name in roles:
-                shutil.rmtree(adapter / "sub_agents" / name, ignore_errors=True)
-                changed.append(f"-{name}")
+        for spec in rec.get("create") or []:
+            if not isinstance(spec, dict):
+                continue
+            name = slug(spec.get("name"))
+            if name not in roles and len(roles) >= MAX_SUBAGENTS:    # registry full: skip this one, keep the rest
+                changed.append(f"!{name} (registry full)")
+                continue
+            d = adapter / "sub_agents" / name
+            d.mkdir(parents=True, exist_ok=True)
+            (d / "AGENT.md").write_text(with_frontmatter(spec.get("description"), str(spec.get("instructions") or ""))
+                                        [:AGENT_MAX], encoding="utf-8")
+            roles[name] = roles.get(name) or {"description": "", "instructions": ""}
+            changed.append(f"+{name}")
         return {"changed": changed, "analysis": _tail(rec.get("analysis"), 300)}
 
     def _skills(self, ctx: StepContext, adapter: Path, evidence: str, sampling: dict) -> dict:
@@ -569,7 +580,9 @@ class ContinualHarnessEvolver(Evolver):
             "runs as `python3 .agents/skills/<name>/scripts/<file>`; it must be complete and must compile).\n\n"
             "From the rollouts: record a sequence that worked as a skill when it will recur; fix a skill that failed "
             "or whose helper errored (give the FULL replacement body or code); retire a skill that misled the agent "
-            "repeatedly. Prefer one good skill to several thin ones; a skill must be specific enough to follow.\n\n"
+            "repeatedly. Prefer one good skill to several thin ones; a skill must be specific enough to follow. The "
+            f"registry holds at most {MAX_SKILLS} skills and has {len(skills)} now; if it is at the limit, retire one "
+            "in the same response before you add.\n\n"
             f"=== THE HARNESS NOW ===\n{overview(adapter)}\n\n=== CURRENT SKILLS ===\n{listing}\n\n{evidence}\n\n"
             "Respond with ONLY a JSON object (no prose, no fences):\n"
             '{"analysis": "what you observed, one or two sentences",\n'
@@ -593,12 +606,14 @@ class ContinualHarnessEvolver(Evolver):
                 (d / "scripts").mkdir(exist_ok=True)
                 (d / "scripts" / fname).write_text(str(src or ""), encoding="utf-8")
 
-        for spec in rec.get("add") or []:
-            if not isinstance(spec, dict):
-                continue
-            name = slug(spec.get("name"))
-            write(name, spec.get("description"), str(spec.get("body") or ""), spec.get("scripts") or {})
-            changed.append(f"+{name}")
+        # Retire first so a retire+add in the same pass stays within the registry cap (an add that would push
+        # .agents/skills/*/SKILL.md over max_files makes check 4 fail and _pass drops the WHOLE pass, losing the edits).
+        for name in rec.get("retire") or []:
+            name = slug(name)
+            if name in skills:
+                shutil.rmtree(adapter / ".agents" / "skills" / name, ignore_errors=True)
+                skills.pop(name, None)
+                changed.append(f"-{name}")
         for upd in rec.get("update") or []:
             if not isinstance(upd, dict):
                 continue
@@ -609,11 +624,16 @@ class ContinualHarnessEvolver(Evolver):
             write(name, upd.get("description") or s["description"], str(upd.get("body") or s["body"]),
                   upd.get("scripts") or {})
             changed.append(f"~{name}")
-        for name in rec.get("retire") or []:
-            name = slug(name)
-            if name in skills:
-                shutil.rmtree(adapter / ".agents" / "skills" / name, ignore_errors=True)
-                changed.append(f"-{name}")
+        for spec in rec.get("add") or []:
+            if not isinstance(spec, dict):
+                continue
+            name = slug(spec.get("name"))
+            if name not in skills and len(skills) >= MAX_SKILLS:     # registry full: skip this one, keep the rest
+                changed.append(f"!{name} (registry full)")
+                continue
+            write(name, spec.get("description"), str(spec.get("body") or ""), spec.get("scripts") or {})
+            skills[name] = skills.get(name) or {"description": "", "body": "", "scripts": {}}
+            changed.append(f"+{name}")
         return {"changed": changed, "analysis": _tail(rec.get("analysis"), 300)}
 
     def _memory(self, ctx: StepContext, adapter: Path, evidence: str, sampling: dict) -> dict:
@@ -679,11 +699,13 @@ class ContinualHarnessEvolver(Evolver):
 # ---------- parsing replies ----------
 
 def _last_block(text: str) -> str | None:
-    """The content of the last ``` block, else None."""
+    """The content of the outermost ``` block — the first opening fence to the last closing fence — so a document
+    that itself contains nested ``` blocks (e.g. a policy with a shell example) is kept whole instead of being
+    truncated to the fragment after an inner fence. None if there is no fenced block."""
     fences = [m.start() for m in re.finditer(r"```", text)]
     if len(fences) >= 2:
-        inner = text[fences[-2] + 3:fences[-1]]
-        return inner.split("\n", 1)[1] if "\n" in inner else inner      # drop an optional ```lang line
+        inner = text[fences[0] + 3:fences[-1]]
+        return inner.split("\n", 1)[1] if "\n" in inner else inner      # drop the opening ```lang line
     return None
 
 
