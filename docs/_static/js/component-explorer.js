@@ -42,6 +42,22 @@ document.querySelectorAll('.ha-explorer').forEach((root) => {
       path.setAttribute('marker-end', 'url(#ha-arrowhead)');
       path.classList.toggle('is-active', i === step - 1);
       group.append(path);
+      // What this step hands to the next: above a horizontal arrow (one word per line), left of a vertical one.
+      const lines = (node.dataset.handoff || '').split('|').filter(Boolean);
+      if (!lines.length) return;
+      const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      label.classList.add('ha-handoff');
+      label.classList.toggle('is-active', i === step - 1);
+      label.setAttribute('text-anchor', sameRow ? 'middle' : 'end');
+      const rows = sameRow ? lines : [lines.join(' ')];
+      rows.forEach((row, j) => {
+        const span = document.createElementNS('http://www.w3.org/2000/svg', 'tspan');
+        span.setAttribute('x', sameRow ? (x1 + x2) / 2 : x1 - 8);
+        span.setAttribute('y', sameRow ? y1 - 7 - (rows.length - 1 - j) * 13 : (y1 + y2) / 2 + 4);
+        span.textContent = row;
+        label.append(span);
+      });
+      group.append(label);
     });
   }
   function select(index) {

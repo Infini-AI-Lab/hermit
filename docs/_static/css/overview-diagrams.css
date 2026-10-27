@@ -1,4 +1,4 @@
-.ha-live-map {
+.ha-live-map, .ha-anim-map {
   --map-bg: #fff;
   --map-text: #202c3c;
   --map-muted: #536174;
@@ -17,7 +17,7 @@
   color: var(--map-text);
   font-size: 14px;
 }
-html.dark .ha-live-map {
+html.dark .ha-live-map, html.dark .ha-anim-map {
   --map-bg: #171c24;
   --map-text: #e5eaf1;
   --map-muted: #bbc5d3;

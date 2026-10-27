@@ -18,7 +18,7 @@ An instruction-only adapter uses just the context path. Using a saved adapter do
 
 ## Evolving an adapter
 
-The framework repeats a feedback loop: run the acting agent with an adapter, collect evidence, let an Evolver
+Hermit repeats a feedback loop: run the acting agent with an adapter, collect learning material, let an Evolver
 revise a working copy, then check and save the version used by the next batch.
 
 ```{raw} html

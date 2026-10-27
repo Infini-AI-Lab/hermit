@@ -122,7 +122,8 @@ html.dark .ha-explorer {
 .ha-explorer .ha-trainer { border: 1px solid var(--ha-border); border-radius: 10px; padding: 16px; }
 .ha-explorer .ha-trainer-title { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; margin-bottom: 16px; }
 .ha-explorer .ha-trainer-title span { font-size: 11px; color: var(--ha-muted); }
-.ha-explorer .ha-train-flow { position: relative; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 30px 24px; }
+.ha-explorer .ha-train-flow { position: relative; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 40px 64px; }
+.ha-explorer .ha-train-flow .ha-node { padding: 11px 12px; gap: 6px; }
 .ha-explorer [data-step="3"] { grid-column: 3; grid-row: 2; }
 .ha-explorer [data-step="4"] { grid-column: 2; grid-row: 2; }
 .ha-explorer [data-step="5"] { grid-column: 1; grid-row: 2; }
@@ -130,6 +131,8 @@ html.dark .ha-explorer {
 .ha-explorer .ha-connections g path { fill: none; stroke: var(--ha-border); stroke-width: 2; }
 .ha-explorer .ha-connections g path.is-active { stroke: var(--ha-accent); }
 .ha-explorer .ha-connections marker path { fill: var(--ha-muted); }
+.ha-explorer .ha-connections .ha-handoff { fill: var(--ha-muted); font-size: 11px; }
+.ha-explorer .ha-connections .ha-handoff.is-active { fill: var(--ha-accent); font-weight: 600; }
 .ha-explorer .ha-loop { margin: 14px 0 0; font-size: 12px; color: var(--ha-muted); }
 .ha-explorer .ha-step-controls { margin-top: 16px; }
 .ha-explorer .ha-step-controls span { font-variant-numeric: tabular-nums; color: var(--ha-muted); }

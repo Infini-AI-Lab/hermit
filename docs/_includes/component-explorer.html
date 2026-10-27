@@ -35,12 +35,12 @@
       <div class="ha-trainer-title"><strong>Trainer</strong><span>Orchestrates every handoff below · tracks budget and progress</span></div>
       <div class="ha-train-flow">
         <svg class="ha-connections" aria-hidden="true"><defs><marker id="ha-arrowhead" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z"></path></marker></defs><g></g></svg>
-        <button class="ha-node" type="button" data-step="0" aria-pressed="true"><span class="ha-owner">1 · Task code</span><strong>Pipeline / acting agent</strong><code>run(task, adapter)</code><span>Current adapter + task → output</span></button>
-        <button class="ha-node" type="button" data-step="1" aria-pressed="false"><span class="ha-owner">2 · Task code</span><strong>Judge</strong><code>score(task, output)</code><span>Output → score + feedback</span></button>
-        <button class="ha-node" type="button" data-step="2" aria-pressed="false"><span class="ha-owner">3 · Trainer writes</span><strong>Learning material</strong><code>learning_material/step_N/</code><span>Results + available trajectories</span></button>
-        <button class="ha-node" type="button" data-step="3" aria-pressed="false"><span class="ha-owner">4 · Learning method</span><strong>Evolver / learner</strong><code>step(ctx)</code><span>Evidence → edits in adapter/</span></button>
-        <button class="ha-node" type="button" data-step="4" aria-pressed="false"><span class="ha-owner">5 · Template rules</span><strong>Check and repair</strong><code>check_spec(adapter, root)</code><span>Check files; restore violations</span></button>
-        <button class="ha-node" type="button" data-step="5" aria-pressed="false"><span class="ha-owner">6 · Trainer writes</span><strong>Git + run records</strong><code>commit · state · steps.jsonl</code><span>Accepted adapter → next batch</span></button>
+        <button class="ha-node" type="button" data-step="0" data-handoff="output" aria-pressed="true"><span class="ha-owner">1 · Task code</span><strong>Pipeline / acting agent</strong><code>run(task, adapter)</code><span>Current adapter + task</span></button>
+        <button class="ha-node" type="button" data-step="1" data-handoff="score +|feedback" aria-pressed="false"><span class="ha-owner">2 · Task code</span><strong>Judge</strong><code>score(task, output)</code><span>Scores the output</span></button>
+        <button class="ha-node" type="button" data-step="2" data-handoff="results +|trajectories" aria-pressed="false"><span class="ha-owner">3 · Trainer writes</span><strong>Learning material</strong><code>learning_material/<wbr>step_N/</code><span>Saved for each step</span></button>
+        <button class="ha-node" type="button" data-step="3" data-handoff="edited|adapter/" aria-pressed="false"><span class="ha-owner">4 · Learning method</span><strong>Evolver / learner</strong><code>step(ctx)</code><span>Reads the learning material</span></button>
+        <button class="ha-node" type="button" data-step="4" data-handoff="conforming|adapter" aria-pressed="false"><span class="ha-owner">5 · Template rules</span><strong>Check and repair</strong><code>check_spec(adapter, root)</code><span>Check files; restore violations</span></button>
+        <button class="ha-node" type="button" data-step="5" aria-pressed="false"><span class="ha-owner">6 · Trainer writes</span><strong>Git + run records</strong><code>commit · state · steps.jsonl</code><span>Commits the version; saves state and records</span></button>
       </div>
       <p class="ha-loop">↻ The next batch starts at 1 with the accepted adapter. A failed Evolver step retains the previous version.</p>
     </div>
