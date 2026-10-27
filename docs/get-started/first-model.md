@@ -89,6 +89,12 @@ three validation tests if it is kept, three root tests, and three final tests. T
 requests**: the probe from `check`, then none during training when every training attempt was correct, otherwise
 one, with one more if the reply holds no usable instructions. HTTP retries can add provider requests.
 
+```{raw} html
+:file: ../_includes/first-model-walkthrough.html
+```
+
+See more about training at [Evolving an adapter](../framework/overview.md#evolving-an-adapter).
+
 The YAML uses token and time budgets; prices are not invented, so dollar cost is reported as unknown. Add
 verified `llm.price` settings for learner dollars and acting-client prices in the copied pipeline if you need
 dollar accounting. Probe and test calls are outside the training budget; GEPA's candidate tests during training

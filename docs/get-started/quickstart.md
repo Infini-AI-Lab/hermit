@@ -31,8 +31,8 @@ from the training inputs. Answers are computed by the judge rather than stored i
 hermit train --config docs/_examples/first_training/run.yaml
 ```
 
-There are two steps of one task each. After the first failure, the learner reads the judge's feedback and writes
-`Output format: uppercase.` into `ADAPTER.md`. The next rollout uses that changed adapter.
+When the first training task fails, the learner reads the judge's feedback and writes
+`Output format: uppercase.` into `ADAPTER.md`. The next rollout uses that changed adapter on a different task.
 
 All inputs and code are under `docs/_examples/first_training/`:
 
