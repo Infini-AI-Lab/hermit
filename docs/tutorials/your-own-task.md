@@ -55,9 +55,11 @@ The teaching pipeline shows the boundary without a model dependency:
 :language: python
 ```
 
-Replace its interpreter with your agent call. Read `Adapter(adapter).context()` into the acting context.
-For tools, `Adapter(adapter).manifest["tools"]` provides declarations and `Adapter(adapter).call(name, args)`
-executes them. Your loop owns routing model tool requests and returning results.
+Replace its interpreter with your agent call. `Session(adapter).context()` reads the adapter's context into the
+acting system prompt, and `Session(adapter).tool_specs("openai")` declares its tools in the model's own format.
+`Session(adapter).call(name, arguments)` executes one, and `respond()` turns a tool call the model returns into the
+message that answers it, with errors as text. Your loop owns routing model tool requests and returning results. The
+[adapter interface](../framework/adapter.md) documents the other exports and the sandboxed form.
 
 Return `RunOutput` with the judge's output, usage when known, and messages or a log path for trajectories.
 Treat the shared adapter directory as input; keep per-task logs and mutable state elsewhere when tasks run

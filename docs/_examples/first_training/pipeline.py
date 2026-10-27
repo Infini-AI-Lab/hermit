@@ -1,11 +1,11 @@
 """A deterministic teaching agent that interprets one adapter rule."""
 from pathlib import Path
-from hermit.adapter.loader import Adapter
+from hermit import Session
 from hermit.task import RunOutput
 
 
 def run(task: dict, adapter: Path | None) -> RunOutput:
-    context = Adapter(adapter).context() if adapter is not None else ""
+    context = Session(adapter).context() if adapter is not None else ""
     answer = task["prompt"]
     if "Output format: uppercase." in context:
         answer = answer.upper()
