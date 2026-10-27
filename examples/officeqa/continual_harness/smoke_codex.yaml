@@ -22,7 +22,7 @@ start_from: seed_adapter               # make_seed.py writes it from ../utils/se
 evolver:
   name: continual_harness
   params:
-    feedback: true
+    feedback: false                    # label-free, as the paper (no judge verdicts to the Refiner)
 llm:
   model: fireworks/accounts/fireworks/models/glm-5p3-flash
   extra_body: {reasoning_effort: medium}

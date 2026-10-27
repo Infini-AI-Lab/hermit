@@ -3,7 +3,7 @@
 # helpers, memory/NOTES.md; the continual-harness template), starting from SkillOpt's initial skill as AGENTS.md
 # (where the GEPA, SkillOpt and Harness² runs start too). Each rollout is one `codex exec` session in a container of
 # its own (../utils/agent/codex_agent.py, Codex image 0.162.0: OFFICEQA_CODEX_IMAGE=officeqa-codex:0.162.0). Every
-# training step the Refiner reads the step's trajectories and the judge's feedback and refines the four components in
+# training step the Refiner reads the step's trajectories (label-free; see feedback below) and refines the components in
 # place; no validation gate. GLM 5.3 Flash acts and refines, at medium effort; one evaluation pass, as the all-Flash
 # GEPA and SkillOpt runs (gepa/run_codex_flash.yaml, skillopt/run_codex_flash.yaml).
 data:
@@ -28,7 +28,8 @@ start_from: seed_adapter               # make_seed.py writes it from ../utils/se
 evolver:
   name: continual_harness
   params:
-    feedback: true                     # the judge's verdicts are shown to the Refiner (a decision of this setup)
+    feedback: false                    # label-free, as the paper: the Refiner sees only trajectories, not the judge's
+                                       # verdicts (feedback: true would leak the expected answers of train tasks)
 llm:                                   # the Refiner: GLM 5.3 Flash at medium effort, the acting model
   model: fireworks/accounts/fireworks/models/glm-5p3-flash
   extra_body: {reasoning_effort: medium}
