@@ -39,7 +39,7 @@ def main(argv=None) -> int:
     con = sub.add_parser("convert", help="convert an adapter into a plugin in a host's native format")
     con.add_argument("--adapter", type=Path, required=True)
     con.add_argument("--output", type=Path, required=True)
-    con.add_argument("--target", choices=["claude-code", "codex", "pi", "hermes"], required=True)
+    con.add_argument("--target", choices=["claude-code", "codex", "pi", "hermes", "opencode"], required=True)
     con.add_argument("--allow-lossy", action="store_true",
                      help="leave out the parts the target cannot carry instead of failing; listed under `omitted`")
     con.add_argument("--python", default=sys.executable)

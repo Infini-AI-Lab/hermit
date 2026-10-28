@@ -1,4 +1,4 @@
-"""Convert an adapter into a plugin in the native format of Claude Code, Codex, Pi or Hermes."""
+"""Convert an adapter into a plugin in the native format of Claude Code, Codex, Pi, Hermes or OpenCode."""
 from __future__ import annotations
 
 from importlib import import_module
@@ -6,7 +6,8 @@ from pathlib import Path
 
 from hermit.plugins.common import Unsupported
 
-EMITTERS = {"claude-code": "claude_plugin", "codex": "codex_plugin", "pi": "pi_package", "hermes": "hermes_plugin"}
+EMITTERS = {"claude-code": "claude_plugin", "codex": "codex_plugin", "pi": "pi_package", "hermes": "hermes_plugin",
+            "opencode": "opencode_plugin"}
 TARGETS = tuple(EMITTERS)
 
 

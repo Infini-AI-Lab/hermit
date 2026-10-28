@@ -1,4 +1,5 @@
-"""Converting an adapter into a plugin in the native format of Claude Code, Codex, Pi and Hermes."""
+"""Converting an adapter into a plugin in the native format of Claude Code, Codex, Pi, Hermes or
+OpenCode."""
 import importlib.util
 import json
 import os
@@ -95,6 +96,52 @@ def test_pi_package(tmp_path):
     assert 'pi.registerMcpServer("file_example"' in extension and 'command: "hermit"' in extension
     assert 'args: ["serve", join(root, "adapter")' in extension
     assert "import.meta.url" in extension
+
+
+def test_opencode_carries_every_part(tmp_path):
+    out = tmp_path / "opencode"
+    result = build("opencode", EXAMPLE, out, sys.executable)
+    config = json.loads((out / "opencode.json").read_text())
+    assert config["$schema"] == "https://opencode.ai/config.json"
+    # Context: a file listed in `instructions`, which OpenCode combines with the project's own AGENTS.md.
+    assert config["instructions"] == [".opencode/context.md"]
+    assert (out / ".opencode" / "context.md").read_text() == (
+        "Review the task requirements before acting. Check the result before returning it.\n")
+    # Tools: a local MCP server run from the workspace, so the config names no path from this machine.
+    server = config["mcp"]["file_example"]
+    assert server["type"] == "local" and server["cwd"] == "." and server["enabled"] is True
+    assert server["command"] == ["hermit", "serve", "adapter", "--audit-log", ".opencode/audit/tool-calls.jsonl"]
+    assert str(out) not in json.dumps(config)
+    # Roles: the file name is the agent's name, and the frontmatter makes it a subagent.
+    agent = (out / ".opencode" / "agents" / "reviewer.md").read_text()
+    assert agent.startswith('---\ndescription: "Check a result against the task requirements."\nmode: subagent\n---\n')
+    assert agent.rstrip().endswith("Explain any mismatch.")
+    assert "\nname:" not in agent
+    assert (out / ".opencode" / "skills" / "verify-output" / "SKILL.md").is_file()
+    # The embedded adapter keeps the manifest where the framework now keeps it.
+    assert (out / "adapter" / ".hermit" / "adapter.yaml").is_file() and (out / "adapter" / "exports.yaml").is_file()
+    assert result["roles"] == {"reviewer": "reviewer"} and result["omitted"] == []
+    assert result["plugin"] == str(out) and result["context"] == ".opencode/context.md"
+
+
+def test_opencode_without_context_writes_no_instructions(tmp_path):
+    out = tmp_path / "opencode"
+    result = build("opencode", variant(tmp_path, context=False), out, sys.executable)
+    assert "instructions" not in json.loads((out / "opencode.json").read_text())
+    assert result["context"] is None and not (out / ".opencode" / "context.md").exists()
+
+
+def test_opencode_keeps_the_audit_log_of_an_earlier_conversion(tmp_path):
+    """Re-converting replaces the generated entries; the tool-call log OpenCode wrote is not one of them."""
+    out = tmp_path / "opencode"
+    build("opencode", EXAMPLE, out, sys.executable)
+    log = out / ".opencode" / "audit" / "tool-calls.jsonl"
+    log.write_text('{"tool": "count_words"}\n')
+    shutil.rmtree(tmp_path / "adapter", ignore_errors=True)
+    result = build("opencode", variant(tmp_path, roles=False, context=False), out, sys.executable)
+    assert log.read_text() == '{"tool": "count_words"}\n'
+    assert result["roles"] == {} and not (out / ".opencode" / "agents").exists()
+    assert not (out / ".opencode" / "context.md").exists()
 
 
 @pytest.mark.parametrize("target", ["pi", "codex"])
@@ -216,7 +263,7 @@ def test_reconversion_drops_the_parts_the_adapter_lost(tmp_path):
     assert (plugin / "adapter" / ".hermit" / "adapter.yaml").is_file() and (plugin / ".mcp.json").is_file()
 
 
-@pytest.mark.parametrize("target", ["claude-code", "codex", "pi", "hermes"])
+@pytest.mark.parametrize("target", ["claude-code", "codex", "pi", "hermes", "opencode"])
 def test_plugin_records_the_framework_version(tmp_path, target):
     from hermit import __version__
     result = build(target, variant(tmp_path, roles=False, context=False), tmp_path / target, sys.executable)
