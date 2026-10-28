@@ -145,10 +145,7 @@ def _canonical(name: str) -> str:
 def package_closure(roots: list[str]) -> list[importlib.metadata.Distribution]:
     """The installed distributions `roots` need: each root and, recursively, what it requires (extras only where a
     requirement asks for them). A requirement that is not installed is skipped."""
-    try:
-        from packaging.requirements import Requirement
-    except ImportError:                                   # pragma: no cover - packaging ships with pip and setuptools
-        Requirement = None
+    from packaging.requirements import Requirement    # a dependency of hermit: pip's own copy is not importable
     seen: dict[str, importlib.metadata.Distribution] = {}
     todo = [(name, ()) for name in roots]
     while todo:
@@ -161,13 +158,10 @@ def package_closure(roots: list[str]) -> list[importlib.metadata.Distribution]:
             continue
         seen[_canonical(name)] = dist
         for text in dist.requires or []:
-            if Requirement is not None:
-                req = Requirement(text)
-                if req.marker and not any(req.marker.evaluate({"extra": e}) for e in (extras or ("",))):
-                    continue
-                todo.append((req.name, tuple(req.extras)))
-            elif "extra ==" not in text:
-                todo.append((re.split(r"[\s;\[<>=!~@(]", text.strip(), maxsplit=1)[0], ()))
+            req = Requirement(text)
+            if req.marker and not any(req.marker.evaluate({"extra": e}) for e in (extras or ("",))):
+                continue
+            todo.append((req.name, tuple(req.extras)))
     return list(seen.values())
 
 
