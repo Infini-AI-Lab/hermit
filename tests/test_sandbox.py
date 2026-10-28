@@ -31,7 +31,8 @@ def binds(args, flag):
 def test_closure_has_the_framework_dependencies_and_nothing_beside_them():
     from hermit.sandbox import DISTRIBUTION
     names = {d.metadata["Name"].lower() for d in package_closure([DISTRIBUTION])}
-    assert {"hermit-harness", "mcp", "jsonschema", "pyyaml"} <= names
+    assert {"hermit-harness", "mcp", "jsonschema", "pyyaml", "packaging"} <= names
+    assert "cryptography" in names             # through mcp's pyjwt[crypto]: a requirement's extras are followed
     assert "pytest" not in names               # installed (the test extra), but not needed by the framework
 
 

@@ -21,6 +21,12 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   `python -m pip install -e . -r requirements-<name>.txt` with `python -m pip install -e . --group <name>`; the core
   dependencies of `requirements.txt` are in `pyproject.toml`.
 
+### Fixed
+
+- `packaging` is a core dependency. Without it, the sandbox's dependency closure dropped the packages a requirement's
+  extras bring (`cryptography` through mcp's `pyjwt[crypto]`), so in an environment with only the core installed,
+  `hermit.tools_mcp` and `hermit.runtime.mcp_server` failed to import inside the sandbox.
+
 ## 0.1.0 - 2026-10-25
 
 The first release: the framework as described in the documentation, with the Harness² and Continual Harness
