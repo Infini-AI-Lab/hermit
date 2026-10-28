@@ -61,8 +61,8 @@ To combine methods, repeat the option, for example `--group skillopt --group gep
 Each group retains its tested upstream Git commit. `all` includes the three method groups; it does not
 install host CLIs, datasets, or system tools. Groups are not published as package extras, so
 `pip install hermit-harness` still installs only the core; `hermit-harness[gepa]` is not supported.
-The old root `requirements*.txt` files have been replaced by these declarations. Documentation build
-dependencies remain in `docs/requirements.txt`.
+Without a checkout, install a method's pinned requirements from its group in `pyproject.toml` directly; the
+Evolver's missing-dependency error prints them. Documentation build dependencies are in `docs/requirements.txt`.
 
 ## Choose the additional requirements
 

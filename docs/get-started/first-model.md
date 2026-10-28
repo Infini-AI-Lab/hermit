@@ -1,7 +1,7 @@
 # First training with a real model
 
 Use an API endpoint to run both an acting model and the [GEPA](../methods/gepa.md) learner on nine included
-sentiment tasks. No external dataset, GPU, or agent CLI is needed; GEPA's library is an installation extra. Unlike
+sentiment tasks. No external dataset, GPU, or agent CLI is needed; GEPA's library comes from the `gepa` dependency group. Unlike
 the [offline walkthrough](quickstart.md), both acting and learning make real model calls.
 
 This is an integration smoke test: three training tasks, three validation tasks with which GEPA chooses between

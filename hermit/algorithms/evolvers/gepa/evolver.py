@@ -21,6 +21,7 @@ import random
 import shutil
 
 from hermit.evolver.base import Evolver, FinalResult, StepContext, StepResult
+from hermit.evolver.dependencies import missing_dependency
 
 
 def clip_middle(text: str, limit: int) -> str:
@@ -68,7 +69,7 @@ class GEPAEvolver(Evolver):
         try:
             import gepa  # noqa: F401
         except ImportError:
-            raise RuntimeError("the gepa Evolver needs the GEPA library: python -m pip install -e . --group gepa (from the Hermit checkout root; requires pip >=25.1)") from None
+            raise missing_dependency("gepa", "the GEPA library", "gepa") from None
 
     def step(self, ctx: StepContext) -> StepResult:
         from gepa.strategies.instruction_proposal import InstructionProposalSignature, parse_proposal

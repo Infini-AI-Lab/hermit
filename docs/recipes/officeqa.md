@@ -12,7 +12,7 @@ local training without model access, [Quick Start](../get-started/quickstart.md)
 
 ## Requirements and configuration
 
-Complete [Installation](../get-started/installation.md) with the `skillopt` and `gepa` extras, activate the virtual
+Complete [Installation](../get-started/installation.md) with the `skillopt` and `gepa` dependency groups, activate the virtual
 environment, and run the commands from the repository root:
 
 Run method installation commands from the Hermit checkout root with **pip 25.1+**;
@@ -451,7 +451,7 @@ numbers.
 Preserve `slow_update_gate`, `trajectory_view`, `prompt_env`, and final-selection settings (`promote_final`) when
 comparing protocols; see [SkillOpt](../methods/skillopt.md) for those controls and
 [Evaluation](../guides/evaluation.md) for reporting. Record the framework revision, the SkillOpt and GEPA commits the
-extras pin, the dataset revision and `data.json`'s drift list, the split, the seed skill, the model identifiers and
+dependency groups pin, the dataset revision and `data.json`'s drift list, the split, the seed skill, the model identifiers and
 reasoning effort, the complete config, the harness and Codex version, and the concurrency. Evaluate no skill, the
 seed skill and the trained skill in the same harness, and keep validation and test separate: do not select a
 checkpoint on the test split. A smoke run is not an experiment. [Reproduce a result](../tutorials/reproduce-a-result.md)

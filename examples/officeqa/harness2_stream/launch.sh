@@ -12,7 +12,8 @@
 #
 # Writes upstream's stream order for SEED, regenerates H0 (seed_adapter_codex), starts a wire meter in front of
 # Fireworks for the editor sessions (bucket TAG; ledger runs/TAG.wire_ledger.json), and trains with the editor model
-# bound to the meter. Needs the `harness2` and `skillopt` extras, the Claude Code CLI, bubblewrap and the Codex
+# bound to the meter. Needs the `harness2` and `skillopt` dependency groups (python -m pip install -e . --group harness2
+# --group skillopt), the Claude Code CLI, bubblewrap and the Codex
 # harness's container (../utils/agent/codex_session.py --check names what is missing; docker/ builds it).
 set -eu -o pipefail
 if [ -n "${LIBRARY_FROM:-}" ]; then          # a continuation names what differs from the stream it continues

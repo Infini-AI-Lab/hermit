@@ -102,7 +102,7 @@ llm:
 ```
 
 Configure the acting model in your pipeline independently. GEPA and SkillOpt need a validation split (`data.val`)
-and their installation extra.
+and their dependency groups (`--group gepa`, `--group skillopt`).
 Keep a finite budget and start with a small batch.
 
 Run `check`, baseline `eval --adapter none`, `train`, then `eval --adapter root` and `eval --adapter final`.

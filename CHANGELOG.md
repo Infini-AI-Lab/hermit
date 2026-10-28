@@ -4,6 +4,21 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ## Unreleased
 
+### Changed
+
+- The optional Evolvers' dependencies are dependency groups in `pyproject.toml` (`gepa`, `skillopt`, `harness2`,
+  and `all` for every method), with the same Git commit pins. Install them from a checkout with
+  `python -m pip install -e . --group <name>`, which needs pip 25.1+. The groups are not package extras:
+  `pip install hermit-harness` installs only the core.
+- An Evolver whose dependencies are missing names both the group command and the pinned requirements, so a user
+  without a checkout can install them.
+
+### Removed
+
+- `requirements.txt`, `requirements-gepa.txt`, `requirements-skillopt.txt` and `requirements-harness2.txt`. Replace
+  `python -m pip install -e . -r requirements-<name>.txt` with `python -m pip install -e . --group <name>`; the core
+  dependencies of `requirements.txt` are in `pyproject.toml`.
+
 ## 0.1.0 - 2026-10-25
 
 The first release: the framework as described in the documentation, with the Harness² and Continual Harness
