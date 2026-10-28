@@ -25,7 +25,8 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 - `packaging` is a core dependency. Without it, the sandbox's dependency closure dropped the packages a requirement's
   extras bring (`cryptography` through mcp's `pyjwt[crypto]`), so in an environment with only the core installed,
-  `hermit.tools_mcp` and `hermit.runtime.mcp_server` failed to import inside the sandbox.
+  `hermit.tools_mcp` and `hermit.runtime.mcp_server` failed to import inside the sandbox: the Codex and Claude
+  Evolvers' tool server and a sandboxed `Session`'s adapter server did not start.
 
 ## 0.1.0 - 2026-10-25
 
