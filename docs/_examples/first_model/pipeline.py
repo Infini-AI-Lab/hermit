@@ -2,7 +2,7 @@
 import os
 from pathlib import Path
 
-from hermit.adapter.loader import Adapter
+from hermit import Session
 from hermit.llm import ChatClient
 from hermit.task import RunOutput
 
@@ -13,7 +13,7 @@ def run(task: dict, adapter: Path | None) -> RunOutput:
         os.environ.get("ACTOR_MODEL") or os.environ["MODEL_NAME"],
         api_key_env="ACTOR_API_KEY" if os.environ.get("ACTOR_API_KEY") else "MODEL_API_KEY",
     )
-    context = Adapter(adapter).context() if adapter is not None else ""
+    context = Session(adapter).context() if adapter is not None else ""
     messages = [
         {"role": "system", "content": "Complete the user's request.\n" + context},
         {"role": "user", "content": task["prompt"]},
