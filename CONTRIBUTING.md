@@ -73,6 +73,9 @@ Remove credentials and private task data from shared logs. Use [private reportin
 For pull requests, describe the resulting behavior, affected interfaces, and validation. Keep documentation,
 commands, and defaults consistent. Report external requirements and unverified platform-specific checks.
 
+**Documentation-only pull requests must be discussed with the core team first.** Open an issue, agree on the
+change there, and link it in the pull request. Pull requests without that discussion will be closed.
+
 Use the existing task, adapter, and Evolver interfaces where possible. For the contracts and extension examples,
 see [task integration](docs/tutorials/your-own-task.md), [adapter customization](docs/tutorials/customize-an-adapter.md),
 and [custom Evolvers](docs/framework/custom-evolver.md).

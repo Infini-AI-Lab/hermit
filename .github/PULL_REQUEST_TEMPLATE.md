@@ -12,3 +12,4 @@ unverified, and any additional requirements for reproducing the change.
 - [ ] Tests and documentation cover the affected behavior, where applicable.
 - [ ] Commands, defaults, and public interfaces are consistent.
 - [ ] Shared logs and examples contain no credentials or private data.
+- [ ] Documentation-only: links the issue where it was discussed with the core team.
