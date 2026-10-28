@@ -9,7 +9,7 @@ description = "Train harness adapters: templates, Evolvers, a Trainer and evolvi
 readme = "README-pypi.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "mcp==2.2.0",
     "jsonschema==4.26.0",

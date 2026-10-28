@@ -1,6 +1,6 @@
 # Installation
 
-The core framework needs **Python 3.11+ and Git**. It does not require a GPU. External tasks, model endpoints,
+The core framework needs **Python 3.12+ and Git**. It does not require a GPU. External tasks, model endpoints,
 learner CLIs, and sandbox support depend on the workflow you choose.
 
 ## Install the checkout
@@ -60,7 +60,7 @@ python -m pip install -e . --group all
 To combine methods, repeat the option, for example `--group skillopt --group gepa` for OfficeQA.
 uv reads the same groups: `uv pip install -e . --group gepa`.
 The upstream Harness² package supports Python 3.12 and 3.13 only, so `--group harness2` and `--group all` fail on
-Python 3.11; install `gepa` and `skillopt` separately there.
+Python 3.14; install `gepa` and `skillopt` separately there.
 Each group retains its tested upstream Git commit. `all` includes the three method groups; it does not
 install host CLIs, datasets, or system tools. Groups are not published as package extras, so
 `pip install hermit-harness` still installs only the core; `hermit-harness[gepa]` is not supported.
@@ -95,7 +95,7 @@ The environment must permit the required namespaces. Installing the binary alone
 cluster's namespace policy. The sandbox does not isolate your acting pipeline or arbitrary in-process Python.
 See [sandbox boundaries](../framework/configuration.md#sandbox-network-and-warnings).
 
-A recipe can require Python 3.12+ even though the core supports 3.11. Check external dependencies separately.
+A recipe or method can support fewer Python versions than the core. Check external dependencies separately.
 For exact experiment reproduction, record the framework commit and dependency revisions.
 
 ## Verify the local installation

@@ -5,7 +5,7 @@ Start with the [developer guide](docs/developer/index.md) and choose the interfa
 
 ## Set Up
 
-Hermit core requires Python 3.11+ and Git. From a checkout:
+Hermit core requires Python 3.12+ and Git. From a checkout:
 
 ```bash
 python3 -m venv .venv

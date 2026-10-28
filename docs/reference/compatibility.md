@@ -7,7 +7,7 @@ numbers alone may not distinguish unreleased changes.
 
 | Capability | Current support |
 |---|---|
-| Core package | Python 3.11+ and Git |
+| Core package | Python 3.12+ and Git |
 | Local deterministic Quick Start | No model account, GPU, external dataset, or host CLI |
 | Context-only workspace generation | macOS and Linux |
 | Sandboxed learner programs | Linux with bubblewrap and permitted namespaces |

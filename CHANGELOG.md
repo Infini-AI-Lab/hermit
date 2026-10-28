@@ -6,6 +6,8 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Changed
 
+- Hermit requires Python 3.12+ (was 3.11+): the upstream Harness² package of the `harness2` group supports Python
+  3.12 and 3.13 only, so `--group all` failed on Python 3.11.
 - The optional Evolvers' dependencies are dependency groups in `pyproject.toml` (`gepa`, `skillopt`, `harness2`,
   and `all` for every method), with the same Git commit pins. Install them from a checkout with
   `python -m pip install -e . --group <name>`, which needs pip 25.1+. The groups are not package extras:
