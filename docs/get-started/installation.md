@@ -1,6 +1,6 @@
 # Installation
 
-The core framework needs **Python 3.11+ and Git**. It does not require a GPU. External tasks, model endpoints,
+The core framework needs **Python 3.12+ and Git**. It does not require a GPU. External tasks, model endpoints,
 learner CLIs, and sandbox support depend on the workflow you choose.
 
 ## Install the checkout
@@ -38,20 +38,48 @@ hermit --help
 ```
 
 The package includes the CLI, adapter templates, and built-in Evolvers. GEPA, SkillOpt, and Harness² also need
-their method-specific dependencies. The example data, benchmark recipes, and `requirements-*.txt` files live in
+their method-specific dependencies. The example data, benchmark recipes, and method dependency groups live in
 the repository; use a checkout for those workflows.
+
+## Install method dependency groups
+
+Method dependencies are declared once in `pyproject.toml`, separately from the core package dependencies.
+Run these commands from the checkout root in the environment that runs Hermit. Group installation requires
+**pip 25.1+** and Git:
+
+```bash
+python -m pip install --upgrade "pip>=25.1"
+python -m pip install -e . --group gepa
+# Other methods:
+python -m pip install -e . --group skillopt
+python -m pip install -e . --group harness2
+# Or all method dependencies:
+python -m pip install -e . --group all
+```
+
+To combine methods, repeat the option, for example `--group skillopt --group gepa` for OfficeQA.
+uv reads the same groups: `uv pip install -e . --group gepa`.
+Each group retains its tested upstream Git commit. `all` includes the three method groups; it does not
+install host CLIs, datasets, or system tools. Groups are not published as package extras, so
+`pip install hermit-harness` still installs only the core; `hermit-harness[gepa]` is not supported.
+Without a checkout, install a method's pinned requirements from its group in `pyproject.toml` directly; the
+Evolver's missing-dependency error prints them. Documentation build dependencies are in `docs/requirements.txt`.
+
+The upstream Harness² package supports Python 3.12 and 3.13 only, so `--group harness2` and `--group all` fail on
+Python 3.14; install `gepa` and `skillopt` separately there.
 
 ## Choose the additional requirements
 
 | Workflow | Additional requirements |
 |---|---|
 | [Offline first training](quickstart.md) | None beyond the core install |
-| [First real-model training](first-model.md) | `python -m pip install -e . -r requirements-gepa.txt`, a compatible chat-completions endpoint, model id, and credential; data is included |
+| [First real-model training](first-model.md) | `python -m pip install -e . --group gepa`, a compatible chat-completions endpoint, model id, and credential; data is included |
 | Generate a Codex / Claude Code / Pi workspace | No host CLI is needed until you start the host |
 | Run an acting host | Installed and authenticated host, plus adapter tool dependencies |
 | Prompt-only learner | The Codex CLI, Linux with bubblewrap, and a learner backend that serves the Responses API |
-| GEPA | `python -m pip install -e . -r requirements-gepa.txt`, learner endpoint, validation split |
-| SkillOpt | `python -m pip install -e . -r requirements-skillopt.txt`, learner endpoint, validation split |
+| GEPA | `python -m pip install -e . --group gepa`, learner endpoint, validation split |
+| SkillOpt | `python -m pip install -e . --group skillopt`, learner endpoint, validation split |
+| Harness² | Python 3.12 or 3.13, `python -m pip install -e . --group harness2`, Claude Code, and the execution environment described in [Harness²](../methods/harness2.md) |
 | Codex / Claude learner | Selected authenticated CLI and supported program-execution environment |
 | MWM | Linux learner environment, Codex, evidence store, task deployment contract, model access |
 | Benchmark recipe | Its dataset, scorer, model settings, and environment; see [catalog](../recipes/index.md) |
@@ -68,7 +96,7 @@ The environment must permit the required namespaces. Installing the binary alone
 cluster's namespace policy. The sandbox does not isolate your acting pipeline or arbitrary in-process Python.
 See [sandbox boundaries](../framework/configuration.md#sandbox-network-and-warnings).
 
-A recipe can require Python 3.12+ even though the core supports 3.11. Check external dependencies separately.
+A recipe or method can support fewer Python versions than the core. Check external dependencies separately.
 For exact experiment reproduction, record the framework commit and dependency revisions.
 
 ## Verify the local installation

@@ -1,4 +1,4 @@
-"""Harness² under the paper's protocol, by the upstream code (`pip install -e . -r requirements-harness2.txt`).
+"""Harness² under the paper's protocol, by the upstream code (`python -m pip install -e . --group harness2`).
 
 The paper (Xu et al., arXiv:2610.14224, Sec. 2) refines a harness per task, at test time: each task of a stream
 starts from the common harness H0; a reference execution; an INV and a DOM editor session, each candidate executed on
@@ -31,6 +31,7 @@ import sys
 import yaml
 
 from hermit.evolver.base import Evolver, StepResult
+from hermit.evolver.dependencies import missing_dependency
 
 MODE = "agg"           # parallel recursion; at k = 1 the sequential mode is the same procedure (upstream report.py)
 # The editor settings a continuation (library_from) shares with the stream it continues; slots, sources and the
@@ -43,8 +44,7 @@ def _upstream():
     try:
         from harness2.core import context, judge, library, schedule, spec
     except ImportError as exc:
-        raise RuntimeError("the harness2_upstream Evolver needs the upstream package: pip install -r requirements-harness2.txt") \
-            from exc
+        raise missing_dependency("harness2_upstream", "the upstream Harness² package", "harness2") from exc
     return context, judge, library, schedule, spec
 
 

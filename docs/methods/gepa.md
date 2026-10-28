@@ -5,8 +5,10 @@ text to optimize, and budget for candidate rollouts in addition to the main trai
 
 ## Setup
 
+From the repository root, with pip 25.1+ ([Installation](../get-started/installation.md)):
+
 ```bash
-python -m pip install -e . -r requirements-gepa.txt
+python -m pip install -e . --group gepa
 ```
 
 ```yaml

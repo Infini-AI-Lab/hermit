@@ -5,7 +5,7 @@ Start with the [developer guide](docs/developer/index.md) and choose the interfa
 
 ## Set Up
 
-Hermit core requires Python 3.11+ and Git. From a checkout:
+Hermit core requires Python 3.12+ and Git. From a checkout:
 
 ```bash
 python3 -m venv .venv
@@ -28,10 +28,10 @@ hermit eval --config docs/_examples/first_training/run.yaml --adapter final
 ```
 
 Select additional tests for the affected interface. Host exporters have `tests/test_convert.py`; algorithm
-integrations have `tests/test_optimizer_evolvers.py`:
+integrations have `tests/test_optimizer_evolvers.py`, which needs the method dependency groups (pip 25.1+):
 
 ```bash
-python -m pip install -e . '.[test]' -r requirements-gepa.txt -r requirements-skillopt.txt
+python -m pip install -e '.[test]' --group all
 python -m pytest tests/test_optimizer_evolvers.py
 ```
 

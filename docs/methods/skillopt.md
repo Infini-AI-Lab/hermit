@@ -6,8 +6,10 @@ validation rollouts.
 
 ## Setup
 
+From the repository root, with pip 25.1+ ([Installation](../get-started/installation.md)):
+
 ```bash
-python -m pip install -e . -r requirements-skillopt.txt
+python -m pip install -e . --group skillopt
 ```
 
 In a complete task config, select `evolver.name: skillopt`, provide `data.val`, and configure the learner's

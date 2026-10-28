@@ -1,7 +1,7 @@
 # Harness² under the paper's protocol (OfficeQA)
 
 [Harness²](https://arxiv.org/abs/2610.14224) as its paper runs it, by its own code
-([google-research/harness2](https://github.com/google-research/harness2), `requirements-harness2.txt`) through the
+([google-research/harness2](https://github.com/google-research/harness2), the `harness2` dependency group) through the
 [`harness2_upstream`](../../../hermit/algorithms/evolvers/harness2_upstream/) Evolver, with Codex as the acting
 agent. The 172 test questions are one stream, in upstream's seeded order, one question per step. Every question
 starts from SkillOpt's initial skill as `AGENTS.md` (H0; `make_seed_codex.py` writes it as a `harness2-codex`
@@ -35,10 +35,10 @@ benchmarks state their deliverables.
 Prepare `../utils/` first (`../README.md`), build the Codex harness's container once (`../utils/agent/docker/`:
 Codex 0.162.0 for Linux, the image `officeqa-codex:0.162.0`, the internal network `oq-sandbox` and the proxy
 `oq-egress`, as the [OfficeQA recipe](../../../docs/recipes/officeqa.md#run-in-the-codex-harness) describes for its
-own Codex harness), then:
+own Codex harness), then, from the repository root (dependency groups need pip 25.1+):
 
 ```bash
-pip install -e . -r requirements-skillopt.txt -r requirements-harness2.txt
+python -m pip install -e . --group skillopt --group harness2
 FIREWORKS_API_KEY=... SEED=0 WM_PORT=3591 examples/officeqa/harness2_stream/launch.sh
 MAX_TASKS=2 TAG=h2-codex-smoke FIREWORKS_API_KEY=... WM_PORT=3592 examples/officeqa/harness2_stream/launch.sh   # smoke
 ```

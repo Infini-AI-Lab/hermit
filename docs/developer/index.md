@@ -35,7 +35,8 @@ python -m pip install -e '.[test]'
 python -m pytest tests/test_training.py tests/test_spec.py tests/test_deploy.py
 ```
 
-Choose tests for the changed contract. Optimizer tests can need the `requirements-<method>.txt` packages; sandbox and MWM integration
+Choose tests for the changed contract. Optimizer tests need the method's dependency group (for example `python -m pip install -e . --group gepa`) and skip
+without it; sandbox and MWM integration
 tests can require Linux, learner CLIs, external packages, or environment fixtures. Inspect their prerequisites
 rather than interpreting every skipped test as coverage.
 

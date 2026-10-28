@@ -242,3 +242,16 @@ def test_skillopt_shows_the_analyst_a_codex_trace_summary(tmp_path):
         hidden = fmt_minibatch_trajectories([item], str(tmp_path / "predictions"))
     assert "#### Codex Trace Summary\nCodex Trace Summary\n- read SKILL.md: success" in shown
     assert "Codex Trace Summary" not in hidden
+
+
+def test_missing_dependency_requirements_match_pyproject_groups():
+    import tomllib
+
+    from hermit.evolver.dependencies import METHOD_REQUIREMENTS, missing_dependency
+
+    groups = tomllib.loads((Path(__file__).resolve().parents[1] / "pyproject.toml").read_text())["dependency-groups"]
+    assert {name: tuple(reqs) for name, reqs in groups.items() if name != "all"} == METHOD_REQUIREMENTS
+    assert groups["all"] == [{"include-group": name} for name in METHOD_REQUIREMENTS]
+    message = str(missing_dependency("skillopt", "SkillOpt", "skillopt"))
+    assert "--group skillopt" in message
+    assert all(f"'{r}'" in message for r in METHOD_REQUIREMENTS["skillopt"])

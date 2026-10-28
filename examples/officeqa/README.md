@@ -11,14 +11,14 @@ source files, and Codex, a `codex exec` session with the whole corpus.
 ## Setup
 
 Install the framework first ([Installation](../../docs/get-started/installation.md)) with the `skillopt` and `gepa`
-extras. Also needed: the gated Hugging Face dataset `databricks/officeqa` (`officeqa_full.csv`, and
-`treasury_bulletins_parsed/` with `transformed/` and `jsons/`), and the key of the models' backend: for the default
+dependency groups (pip 25.1+). Also needed: the gated Hugging Face dataset `databricks/officeqa` (`officeqa_full.csv`,
+and `treasury_bulletins_parsed/` with `transformed/` and `jsons/`), and the key of the models' backend: for the default
 (GLM 5.3 Flash acting, GLM 5.3 learning, on Fireworks) `FIREWORKS_API_KEY`. `model=<backend>/<model id>` on the
 command line moves the agent, `llm=...` the learner ([Model backends](../../docs/guides/model-backends.md)). The Codex
 harness also needs Docker, set up once as in the [recipe](../../docs/recipes/officeqa.md#run-in-the-codex-harness).
 
 ```bash
-pip install -e . -r requirements-skillopt.txt -r requirements-gepa.txt
+python -m pip install -e . --group skillopt --group gepa
 python examples/officeqa/utils/prepare.py --csv /path/to/officeqa_full.csv --docs /path/to/treasury_bulletins_parsed
 ```
 

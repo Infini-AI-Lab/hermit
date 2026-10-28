@@ -1,7 +1,7 @@
 # First training with a real model
 
 Use an API endpoint to run both an acting model and the [GEPA](../methods/gepa.md) learner on nine included
-sentiment tasks. No external dataset, GPU, or agent CLI is needed; GEPA's library is an installation extra. Unlike
+sentiment tasks. No external dataset, GPU, or agent CLI is needed; GEPA's library comes from the `gepa` dependency group. Unlike
 the [offline walkthrough](quickstart.md), both acting and learning make real model calls.
 
 This is an integration smoke test: three training tasks, three validation tasks with which GEPA chooses between
@@ -10,10 +10,11 @@ satisfy the judge, and a learned update can also perform worse.
 
 ## 1. Install and make a working copy
 
-Complete [Installation](installation.md), activate its environment, then run from the repository root:
+Complete [Installation](installation.md), activate its environment, then run from the repository root (the
+`gepa` dependency group needs pip 25.1+):
 
 ```bash
-python -m pip install -e . -r requirements-gepa.txt
+python -m pip install -e . --group gepa
 mkdir -p .demo
 cp -R docs/_examples/first_model .demo/first-model
 ```
