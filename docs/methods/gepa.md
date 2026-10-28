@@ -5,8 +5,11 @@ text to optimize, and budget for candidate rollouts in addition to the main trai
 
 ## Setup
 
+Run method installation commands from the Hermit checkout root with **pip 25.1+**;
+see [Installation](../get-started/installation.md) for upgrading pip and installing dependency groups.
+
 ```bash
-python -m pip install -e . -r requirements-gepa.txt
+python -m pip install -e . --group gepa
 ```
 
 ```yaml

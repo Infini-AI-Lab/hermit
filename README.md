@@ -109,6 +109,21 @@ hermit --help
 
 The Quick Start below uses files from the source checkout. See [Installation](https://infini-ai-lab.github.io/hermit/docs/get-started/installation.html) for method-specific dependencies.
 
+### Method Dependencies
+
+From the checkout root, install only the methods you need. Dependency groups require **pip 25.1+**:
+
+```bash
+python -m pip install --upgrade "pip>=25.1"
+python -m pip install -e . --group gepa
+# Or install every supported method dependency:
+python -m pip install -e . --group all
+```
+
+Groups `gepa`, `skillopt`, and `harness2` pin their upstream packages to tested Git commits in
+`pyproject.toml`. Repeat `--group` to combine methods. Groups are source-checkout configuration;
+`pip install hermit-harness` installs the core only. See [Installation](https://infini-ai-lab.github.io/hermit/docs/get-started/installation.html).
+
 ### Quick Start
 
 The included **local training walkthrough** connects feedback, an adapter update, evaluation, and deployment. A scripted learner reads the judge's feedback and writes the learned rule.
@@ -255,10 +270,10 @@ cat .demo/codex-workspace/AGENTS.md
 
 #### Train on OfficeQA
 
-Prepare the dataset and model endpoint as described in the [OfficeQA recipe](https://infini-ai-lab.github.io/hermit/docs/recipes/officeqa.html). The agent uses SkillOpt's rollout, so install `requirements-skillopt.txt`; GEPA also needs `requirements-gepa.txt`. Sandboxed agent Evolvers require Linux with `bubblewrap`.
+Prepare the dataset and model endpoint as described in the [OfficeQA recipe](https://infini-ai-lab.github.io/hermit/docs/recipes/officeqa.html). The agent uses SkillOpt's rollout, so install the `skillopt` and `gepa` dependency groups (pip 25.1+). Sandboxed agent Evolvers require Linux with `bubblewrap`.
 
 ```bash
-python -m pip install -e . -r requirements-skillopt.txt -r requirements-gepa.txt
+python -m pip install -e . --group skillopt --group gepa
 python examples/officeqa/utils/prepare.py --csv /path/to/officeqa_full.csv --docs /path/to/treasury_bulletins_parsed
 hermit check --config examples/officeqa/gepa/smoke.yaml
 hermit train --config examples/officeqa/gepa/smoke.yaml

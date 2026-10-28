@@ -18,9 +18,25 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest"]
-# The gepa, skillopt and harness2_upstream Evolvers need packages pinned to Git commits; PyPI does not accept such
-# references in package metadata, so they are requirements-gepa.txt, requirements-skillopt.txt and
-# requirements-harness2.txt (python -m pip install -e . -r requirements-<name>.txt).
+
+# Source-only method dependencies: groups are not included in PyPI package metadata.
+# From the checkout root, use pip >=25.1: python -m pip install -e . --group <method>.
+[dependency-groups]
+gepa = [
+    "gepa @ git+https://github.com/gepa-ai/gepa@d771eb21b5dd3228bc3f567293d2ccfc423fc900",
+]
+skillopt = [
+    "skillopt @ git+https://github.com/microsoft/SkillOpt@79124b37e9a6371e13b753f8bcd7adb1e493ade1",
+    "json_repair>=0.61.0",
+]
+harness2 = [
+    "harness2 @ git+https://github.com/google-research/harness2@1cfe254e8d25b15f37048c3730134686abe60335",
+]
+all = [
+    { include-group = "gepa" },
+    { include-group = "skillopt" },
+    { include-group = "harness2" },
+]
 
 [project.scripts]
 hermit = "hermit.cli:main"

@@ -12,8 +12,11 @@ satisfy the judge, and a learned update can also perform worse.
 
 Complete [Installation](installation.md), activate its environment, then run from the repository root:
 
+Run method installation commands from the Hermit checkout root with **pip 25.1+**;
+see [Installation](installation.md) for upgrading pip and installing dependency groups.
+
 ```bash
-python -m pip install -e . -r requirements-gepa.txt
+python -m pip install -e . --group gepa
 mkdir -p .demo
 cp -R docs/_examples/first_model .demo/first-model
 ```

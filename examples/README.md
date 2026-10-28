@@ -47,8 +47,10 @@ The methods themselves are described in [`docs/methods/`](../docs/methods/).
 
 Run from the repository root. Prepare the task once, then check, train and evaluate with a method's config:
 
+Method dependency groups require pip 25.1+; upgrade with `python -m pip install --upgrade "pip>=25.1"`. Run installation commands from the Hermit checkout root.
+
 ```bash
-pip install -e . -r requirements-skillopt.txt -r requirements-gepa.txt
+python -m pip install -e . --group skillopt --group gepa
 python examples/officeqa/utils/prepare.py --csv /path/to/officeqa_full.csv --docs /path/to/treasury_bulletins_parsed
 export FIREWORKS_API_KEY=...                   # the configs name GLM models on Fireworks
 hermit check --config examples/officeqa/gepa/smoke.yaml

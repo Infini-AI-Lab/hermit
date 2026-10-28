@@ -178,7 +178,7 @@ class SkillOptEvolver(Evolver):
         try:
             import skillopt  # noqa: F401
         except ImportError:
-            raise RuntimeError("the skillopt Evolver needs SkillOpt: pip install -r requirements-skillopt.txt") from None
+            raise RuntimeError("the skillopt Evolver needs SkillOpt: python -m pip install -e . --group skillopt (from the Hermit checkout root; requires pip >=25.1)") from None
 
     def step(self, ctx: StepContext) -> StepResult:
         from skillopt.engine.trainer import _extract_failure_patterns, _format_step_buffer, _normalise_patches

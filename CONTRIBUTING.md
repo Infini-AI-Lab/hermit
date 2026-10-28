@@ -7,6 +7,8 @@ Start with the [developer guide](docs/developer/index.md) and choose the interfa
 
 Hermit core requires Python 3.11+ and Git. From a checkout:
 
+Method dependency groups require pip 25.1+; upgrade with `python -m pip install --upgrade "pip>=25.1"`. Run installation commands from the Hermit checkout root.
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
@@ -31,7 +33,7 @@ Select additional tests for the affected interface. Host exporters have `tests/t
 integrations have `tests/test_optimizer_evolvers.py`:
 
 ```bash
-python -m pip install -e . '.[test]' -r requirements-gepa.txt -r requirements-skillopt.txt
+python -m pip install -e '.[test]' --group all
 python -m pytest tests/test_optimizer_evolvers.py
 ```
 

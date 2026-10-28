@@ -17,8 +17,10 @@ extras. Also needed: the gated Hugging Face dataset `databricks/officeqa` (`offi
 command line moves the agent, `llm=...` the learner ([Model backends](../../docs/guides/model-backends.md)). The Codex
 harness also needs Docker, set up once as in the [recipe](../../docs/recipes/officeqa.md#run-in-the-codex-harness).
 
+Method dependency groups require pip 25.1+; upgrade with `python -m pip install --upgrade "pip>=25.1"`. Run installation commands from the Hermit checkout root.
+
 ```bash
-pip install -e . -r requirements-skillopt.txt -r requirements-gepa.txt
+python -m pip install -e . --group skillopt --group gepa
 python examples/officeqa/utils/prepare.py --csv /path/to/officeqa_full.csv --docs /path/to/treasury_bulletins_parsed
 ```
 

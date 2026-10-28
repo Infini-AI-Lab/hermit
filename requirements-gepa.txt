@@ -1,2 +1,0 @@
-# The gepa Evolver: GEPA pinned to the tested commit (python -m pip install -e . -r requirements-gepa.txt).
-gepa @ git+https://github.com/gepa-ai/gepa@d771eb21b5dd3228bc3f567293d2ccfc423fc900

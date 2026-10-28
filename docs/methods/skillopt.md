@@ -6,8 +6,11 @@ validation rollouts.
 
 ## Setup
 
+Run method installation commands from the Hermit checkout root with **pip 25.1+**;
+see [Installation](../get-started/installation.md) for upgrading pip and installing dependency groups.
+
 ```bash
-python -m pip install -e . -r requirements-skillopt.txt
+python -m pip install -e . --group skillopt
 ```
 
 In a complete task config, select `evolver.name: skillopt`, provide `data.val`, and configure the learner's
