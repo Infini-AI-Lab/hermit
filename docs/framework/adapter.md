@@ -157,8 +157,9 @@ for call in message["tool_calls"]:                       # a chat-completions tu
 coroutine, `agents()` and `skills()` give the other exports. Resources a tool may receive through its reserved
 `_resources` parameter are bound at construction: `deployment=` (a host.json or its dict), `learning_material=`,
 `evidence=` (a record directory), or any mapping under `resources=`. `audit_log=` writes one JSON line per call,
-the same record `hermit serve` writes. The [task interface](task.md) leaves host integration to the
-pipeline; it does not automatically implement every export.
+the same record `hermit serve` writes; the log must live outside the adapter directory, whose files the Trainer
+keeps under version control, and `Session` refuses a path inside it. The [task interface](task.md) leaves host
+integration to the pipeline; it does not automatically implement every export.
 
 Outside a run's rollout sandbox (a production program, say), `Session(adapter, sandbox=True)` keeps the adapter's code
 out of the program: the tools run in a `hermit serve` inside a sandbox (no network, the adapter read-only,
