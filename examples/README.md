@@ -45,7 +45,8 @@ The methods themselves are described in [`docs/methods/`](../docs/methods/).
 
 ## Run an example
 
-Run from the repository root (dependency groups need pip 25.1+). Prepare the task once, then check, train and evaluate with a method's config:
+Run from the repository root (dependency groups need pip 25.1+). Prepare the task once, then check, train and
+evaluate with a method's config:
 
 ```bash
 python -m pip install -e . --group skillopt --group gepa

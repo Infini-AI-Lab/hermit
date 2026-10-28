@@ -19,7 +19,7 @@ evolver:
   params: {model: <backend>/<model>, effort: medium, k: 1, slots: slots.yaml}
 ```
 
-From the checkout root with pip 25.1+ (see [Installation](../get-started/installation.md)), install the upstream package, pinned, with `python -m pip install -e . --group harness2`. `slots.yaml` gives the
+From the checkout root with pip 25.1+ (see [Installation](../get-started/installation.md)), install the upstream package, pinned, with `python -m pip install -e . --group harness2`; it supports Python 3.12 and 3.13 only. `slots.yaml` gives the
 task-shaped text upstream's stage prompts interpolate: `work`, `domain_word`, `deliverable_word`, `inv_levers`,
 `dom_levers`, `yardstick`, `domain_guidance`, `selection_checks`. They describe the work, never its measurement:
 upstream refuses the words benchmark, evaluation, grader, rubric and score there. Spell out the deliverable's exact
