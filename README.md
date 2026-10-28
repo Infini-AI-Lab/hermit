@@ -12,6 +12,7 @@
 [![Version](https://img.shields.io/badge/version-0.1.0-C6743C.svg)](pyproject.toml)
 [![Website](https://img.shields.io/badge/website-online-C6743C.svg)](https://infini-ai-lab.github.io/hermit/)
 [![Docs](https://img.shields.io/badge/docs-read-1B1D22.svg)](https://infini-ai-lab.github.io/hermit/docs/)
+[![WeChat](https://img.shields.io/badge/WeChat-community-07C160?logo=wechat&logoColor=white)](community/wechat.md)
 
 **[Get Started](#get-started)** · **[Harness Adapters](#what-is-a-harness-adapter)** · **[Methods](#supported-harness-evolution-methods)** · **[Examples and Recipes](#examples-and-recipes)** · **[FAQ](#faq)** · **[Docs](https://infini-ai-lab.github.io/hermit/docs/)**
 
@@ -314,6 +315,10 @@ Use Hermit to deploy an existing adapter, train one on your tasks, or develop an
 </details>
 
 [Full FAQ: training, transfer, supported methods, and evaluation →](https://infini-ai-lab.github.io/hermit/docs/faq.html)
+
+## Community
+
+Join our [WeChat community](community/wechat.md) to discuss harness evolution, share experiments, and connect with other users and contributors.
 
 ## Contributing
 
