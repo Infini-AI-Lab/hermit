@@ -10,10 +10,8 @@ satisfy the judge, and a learned update can also perform worse.
 
 ## 1. Install and make a working copy
 
-Complete [Installation](installation.md), activate its environment, then run from the repository root:
-
-Run method installation commands from the Hermit checkout root with **pip 25.1+**;
-see [Installation](installation.md) for upgrading pip and installing dependency groups.
+Complete [Installation](installation.md), activate its environment, then run from the repository root (the
+`gepa` dependency group needs pip 25.1+):
 
 ```bash
 python -m pip install -e . --group gepa

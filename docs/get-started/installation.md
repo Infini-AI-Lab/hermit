@@ -58,6 +58,9 @@ python -m pip install -e . --group all
 ```
 
 To combine methods, repeat the option, for example `--group skillopt --group gepa` for OfficeQA.
+uv reads the same groups: `uv pip install -e . --group gepa`.
+The upstream Harness² package supports Python 3.12 and 3.13 only, so `--group harness2` and `--group all` fail on
+Python 3.11; install `gepa` and `skillopt` separately there.
 Each group retains its tested upstream Git commit. `all` includes the three method groups; it does not
 install host CLIs, datasets, or system tools. Groups are not published as package extras, so
 `pip install hermit-harness` still installs only the core; `hermit-harness[gepa]` is not supported.
@@ -75,7 +78,7 @@ Evolver's missing-dependency error prints them. Documentation build dependencies
 | Prompt-only learner | The Codex CLI, Linux with bubblewrap, and a learner backend that serves the Responses API |
 | GEPA | `python -m pip install -e . --group gepa`, learner endpoint, validation split |
 | SkillOpt | `python -m pip install -e . --group skillopt`, learner endpoint, validation split |
-| Harness² | `python -m pip install -e . --group harness2`, Claude Code, and the execution environment described in [Harness²](../methods/harness2.md) |
+| Harness² | Python 3.12 or 3.13, `python -m pip install -e . --group harness2`, Claude Code, and the execution environment described in [Harness²](../methods/harness2.md) |
 | Codex / Claude learner | Selected authenticated CLI and supported program-execution environment |
 | MWM | Linux learner environment, Codex, evidence store, task deployment contract, model access |
 | Benchmark recipe | Its dataset, scorer, model settings, and environment; see [catalog](../recipes/index.md) |

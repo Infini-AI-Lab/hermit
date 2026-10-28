@@ -6,8 +6,7 @@ validation rollouts.
 
 ## Setup
 
-Run method installation commands from the Hermit checkout root with **pip 25.1+**;
-see [Installation](../get-started/installation.md) for upgrading pip and installing dependency groups.
+From the repository root, with pip 25.1+ ([Installation](../get-started/installation.md)):
 
 ```bash
 python -m pip install -e . --group skillopt

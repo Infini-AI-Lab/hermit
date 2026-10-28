@@ -35,9 +35,7 @@ benchmarks state their deliverables.
 Prepare `../utils/` first (`../README.md`), build the Codex harness's container once (`../utils/agent/docker/`:
 Codex 0.162.0 for Linux, the image `officeqa-codex:0.162.0`, the internal network `oq-sandbox` and the proxy
 `oq-egress`, as the [OfficeQA recipe](../../../docs/recipes/officeqa.md#run-in-the-codex-harness) describes for its
-own Codex harness), then:
-
-Method dependency groups require pip 25.1+; upgrade with `python -m pip install --upgrade "pip>=25.1"`. Run installation commands from the Hermit checkout root.
+own Codex harness), then, from the repository root (dependency groups need pip 25.1+):
 
 ```bash
 python -m pip install -e . --group skillopt --group harness2

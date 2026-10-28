@@ -13,10 +13,7 @@ local training without model access, [Quick Start](../get-started/quickstart.md)
 ## Requirements and configuration
 
 Complete [Installation](../get-started/installation.md) with the `skillopt` and `gepa` dependency groups, activate the virtual
-environment, and run the commands from the repository root:
-
-Run method installation commands from the Hermit checkout root with **pip 25.1+**;
-see [Installation](../get-started/installation.md) for upgrading pip and installing dependency groups.
+environment, and run the commands from the repository root (dependency groups need pip 25.1+):
 
 ```bash
 python -m pip install -e . --group skillopt --group gepa
