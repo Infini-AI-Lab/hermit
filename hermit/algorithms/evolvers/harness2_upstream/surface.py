@@ -25,7 +25,7 @@ class CodexLayout:
     def __init__(self) -> None:
         from harness2.substrate.codex import CODEX_SURFACE
         self.surface = CODEX_SURFACE
-        self.template_files = ("adapter.yaml", "check.py", "EVOLVER.md", "README.md",
+        self.template_files = (".hermit", "exports.yaml", "README.md",
                                *(rel for rel, _ in CODEX_SURFACE.stubs))
 
     @staticmethod
@@ -43,7 +43,9 @@ class CodexLayout:
             shutil.rmtree(dest)
         dest.mkdir(parents=True)
         for rel in self.template_files:
-            if (template / rel).is_file():
+            if (template / rel).is_dir():
+                shutil.copytree(template / rel, dest / rel)
+            elif (template / rel).is_file():
                 (dest / rel).parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(template / rel, dest / rel)
         T.write_tree(self.surface, tree, dest, stubs=True)
@@ -64,7 +66,7 @@ class CodexLayout:
 def layout_of(adapter: Path):
     """The layout of an adapter (or template), by its template id."""
     import yaml
-    data = yaml.safe_load((Path(adapter) / "adapter.yaml").read_text()) or {}
+    data = yaml.safe_load((Path(adapter) / ".hermit" / "adapter.yaml").read_text()) or {}
     ident = str((data.get("template") or {}).get("id") or "")
     if ident == CodexLayout.template_id:
         return CodexLayout()

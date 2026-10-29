@@ -12,12 +12,15 @@ A minimal context adapter contains `ADAPTER.md`. More capable adapters export sk
 
 ```text
 adapter/
-  adapter.yaml      template identity, exports, learnable/fixed rules
+  .hermit/
+    adapter.yaml    template identity, learnable/fixed rules
+    EVOLVER.md      editing guidance consumed by the learner
+    CARD.md         provenance and evaluation, after training
+  exports.yaml      what the acting agent receives
   ADAPTER.md        instructions consumed by the acting agent
-  EVOLVER.md        editing guidance consumed by the learner
-  skills/          optional reusable procedures
-  agents/          optional role definitions
-  tools.py         optional declared tool implementations
+  skills/           optional reusable procedures
+  agents/           optional role definitions
+  tools.py          optional declared tool implementations
 ```
 
 The acting pipeline decides how these exports reach its agent. A custom model loop can read the context and call
@@ -47,7 +50,7 @@ consumers need the framework and the adapter's Python dependencies wherever tool
 
 ## The training end: built-in training support
 
-The template declares the editable scope in `adapter.yaml`. The learner reads `EVOLVER.md` and task feedback,
+The template declares the editable scope in `.hermit/adapter.yaml`. The learner reads `.hermit/EVOLVER.md` and task feedback,
 then edits a working adapter. The Trainer checks those files against the template, records the resulting version,
 and supplies the accepted adapter to the next rollout batch.
 
@@ -58,7 +61,7 @@ and supplies the accepted adapter to the next rollout batch.
 | `check` | Optional template-owned checker in addition to built-in file checks |
 | `evolver_tools` | Helpers available to the learner, not acting-agent exports |
 | Adapter tree | Git history, run branches, checkpoint and final tags |
-| `CARD.md` | Framework-written provenance and recorded evaluation |
+| `.hermit/CARD.md` | Framework-written provenance and recorded evaluation |
 
 A method may use validation to select candidates, but structural acceptance by the Trainer is not itself a
 performance gate. Evaluate the selected adapter on held-out tasks.
@@ -66,10 +69,10 @@ performance gate. Evaluate the selected adapter on held-out tasks.
 ## Where this stands
 
 The framework supports the context/skills/roles/tools contract, training/versioning, workspace deployment,
-native plugin conversion, and a per-session stdio MCP tool server. It does not implement the proposed manifest
+native plugin conversion, and a per-session stdio MCP tool server. It does not implement the proposed metadata
 `serve` section, generic standalone service launch/relay lifecycle, or dynamic context delivery in ordinary host
 plugins. See [Compatibility](../reference/compatibility.md).
 
 Continue with [Quick Start](../get-started/quickstart.md) for an executable learning cycle,
 [Using and training adapters](adapter-lifecycle.md) for concrete handoffs, or
-[adapter.yaml](adapter-manifest.md) for the manifest contract.
+the [adapter metadata reference](adapter-manifest.md) for `.hermit/adapter.yaml` and `exports.yaml`.

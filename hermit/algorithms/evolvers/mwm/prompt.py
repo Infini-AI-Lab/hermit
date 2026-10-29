@@ -60,7 +60,7 @@ NATIVE_PROMPT=True      # the session prompt is the native review/bootstrap prom
 # keeps wm_iface/wm_tools in the frozen package, outside the world model. The
 # broker refuses writes here and a session that changed any of them by another
 # route is not adopted (session.finalize: unchanged.protected).
-PROTECTED_PATHS=('adapter.json','interface.py','mwm_core','CONTRACT.md','EVOLVER.md')
+PROTECTED_PATHS=('.hermit','interface.py','mwm_core','CONTRACT.md')
 BOOTSTRAP_PROMPT=(
     "BOOTSTRAP SESSION (before any episodes). Read CONTRACT.md fully, "
     "then /environment/README.md. Where it lists public information, "
@@ -124,14 +124,14 @@ def prepare_session(adapter, session, block=1, tick=0, method_root=None):
         core=core.replace('@CAPTEST@',CAPTEST_CMD)
         # The native THREE RULES paragraph stays; only what rules 2 and 3 name
         # changes to the files this transport actually protects: the wrapper's
-        # files here are CONTRACT.md and EVOLVER.md (no AGENTS.md/CLAUDE.md/env/),
+        # files here are CONTRACT.md and .hermit/EVOLVER.md (no AGENTS.md/CLAUDE.md/env/),
         # and instead of state.json the learner must not edit the code that
         # serves the world model (PROTECTED_PATHS; the broker refuses the
         # write, finalize discards a session that changed them another way).
         rule2_native="    2. Do not write the raw record (evidence/), env/, .git/, or the\n       wrapper's files (CONTRACT.md, AGENTS.md, CLAUDE.md). The standard\n       layout for world-model artifacts is "
-        rule2_here="    2. Do not write the raw record (evidence/), .git/, or the wrapper's\n       files (CONTRACT.md, EVOLVER.md). The standard layout for\n       world-model artifacts is "
+        rule2_here="    2. Do not write the raw record (evidence/), .git/, or the wrapper's\n       files (CONTRACT.md, .hermit/EVOLVER.md). The standard layout for\n       world-model artifacts is "
         rule3_native='    3. Do not edit state.json.\n'
-        rule3_here='    3. Do not edit the code that serves the world model to hosts:\n       adapter.yaml, interface.py, check.py, mwm_core/.\n'
+        rule3_here='    3. Do not edit the code that serves the world model to hosts:\n       interface.py, .hermit/check.py, mwm_core/.\n'
         if rule2_native not in core or rule3_native not in core:
             raise ValueError('materials/core.md no longer carries the native THREE RULES wording')
         core=core.replace(rule2_native,rule2_here).replace(rule3_native,rule3_here)
@@ -198,7 +198,7 @@ def _render_advice(advice):
     return "\n".join(lines)
 
 
-def build_prompt(adapter: Path, evidence: Path, goal: str, method_root=None, notes: str = '', guide: str = 'EVOLVER.md', session=None):
+def build_prompt(adapter: Path, evidence: Path, goal: str, method_root=None, notes: str = '', guide: str = '.hermit/EVOLVER.md', session=None):
     """The native session prompt (mwm/session.py review_prompt + run_session):
     the contract pointer, the block's evidence listing, wrapper notes, the
     previous check's advice, the agenda sentence, and the wrapper-computed

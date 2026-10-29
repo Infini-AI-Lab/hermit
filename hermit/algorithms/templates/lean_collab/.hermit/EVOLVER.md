@@ -8,7 +8,8 @@ and a message channel. The adapter is what each agent receives.
 | `ADAPTER.md` | The context every agent reads (placed in its AGENTS.md / CLAUDE.md) | yes: UTF-8 text, at most 60,000 bytes |
 | `skills/<name>/SKILL.md` (+ files) | Host skills each agent can load on demand; frontmatter `name`, `description` | yes: UTF-8 text, at most 40,000 bytes per file, 40 files |
 | `collab.py`, `assembly.py`, `reactions.py` | The team tools (`check`, `pull`, `refute`, `say`, `plan`) and the service's reactions | no (fixed) |
-| `adapter.yaml`, `README.md`, this guide | Declarations and documentation | no (fixed) |
+| `exports.yaml` | The exports: tool declarations (name, description, input schema), the reactions entrypoint, concurrent_tool_calls and the skills directory | yes: must stay valid YAML |
+| `README.md`, `.hermit/` (this guide) | Documentation and metadata | no (fixed) |
 
-A valid change edits `ADAPTER.md` or adds, edits or removes skills. Tool names and replies come from the fixed code;
-the context and skills may describe how to use them but cannot change them.
+A valid change edits `ADAPTER.md` or `exports.yaml`, or adds, edits or removes skills. Tool replies come from the fixed
+code; the context, skills and tool descriptions may say how to use the tools but cannot change what they do.

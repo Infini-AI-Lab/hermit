@@ -14,7 +14,7 @@ An existing launcher saves setup work; it does not by itself guarantee the same 
 
 ## Before spending on a full run
 
-1. Read the included adapter's `CARD.md` and the recipe's limitations.
+1. Read the included adapter's `.hermit/CARD.md` and the recipe's limitations.
 2. Record framework and dependency revisions, dataset preparation, split ids, and seed adapter.
 3. Verify the acting model and learner model separately, including reasoning settings, tool budgets, and endpoint prices.
 4. Run the recipe's smoke configuration or prepared prefix. Inspect task outputs, judge feedback, and usage.
@@ -29,7 +29,7 @@ Evaluate no adapter, the seed, and the learned adapter using the same acting pip
 Validation selection is part of training; test data must not become a checkpoint-selection set.
 For streams, use the benchmark's time/window semantics rather than replacing them with one final-adapter test.
 
-Preserve `steps.jsonl`, evaluation summaries and per-task records, adapter commit, `CARD.md`, and model-usage
+Preserve `steps.jsonl`, evaluation summaries and per-task records, adapter commit, `.hermit/CARD.md`, and model-usage
 ledgers. Report errors and unknown cost. A changed hosted model or external dataset revision can prevent an exact
 reproduction even with the same framework commit.
 

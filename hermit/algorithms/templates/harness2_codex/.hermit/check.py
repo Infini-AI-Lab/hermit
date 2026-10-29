@@ -32,7 +32,7 @@ RESERVED_SCRIPTS = frozenset({"read_doc.py", "pack.py", "unpack.py"})       # up
 GRADER_VERDICT_MARKERS = ("deterministic_eval_summary", "deterministic_eval_result", "judge_scope_and_deterministic_status",
                           "Judge findings on the rendered result", '"passed_count"', '"pass_rate"', '"test_pass_rate"')
 # The framework's and the template's own files, and upstream's placeholder READMEs: not part of the harness tree.
-OWN = frozenset({"ADAPTER.md", "adapter.yaml", "CARD.md", "check.py", "EVOLVER.md", "README.md"})
+OWN = frozenset({"ADAPTER.md", "exports.yaml", "README.md"})          # and everything under .hermit/
 STUBS = frozenset({"scripts/README.md", "sub_agents/README.md", ".codex/README.md", ".agents/skills/README.md"})
 NAME = r"[a-z0-9][a-z0-9_\-]*"
 RX = {"skill": re.compile(rf"\.agents/skills/({NAME})/SKILL\.md"),
@@ -54,7 +54,7 @@ def read_tree(adapter: Path) -> tuple[dict[str, str], list[str]]:
         if not p.is_file() or "__pycache__" in p.parts or ".git" in p.parts or p.suffix == ".pyc":
             continue
         rel = p.relative_to(adapter).as_posix()
-        if rel in OWN or rel in STUBS:
+        if rel in OWN or rel in STUBS or rel.startswith(".hermit/"):
             continue
         if allowed(rel):
             tree[rel] = p.read_text(encoding="utf-8", errors="replace")

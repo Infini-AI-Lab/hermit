@@ -1,8 +1,9 @@
 """check_spec: does an adapter conform to its template's specification and deploy?  And the Trainer's repair.
 
 Checks 1–5 are the framework library; check 6 is the template's own function (`check: file.py:function` in
-adapter.yaml). Checks 5 and 6 run the adapter's and the template's modules, so they run in a strict sandbox
-(read-only, no network, no keys) when the run's sandbox is on, and unconfined when it is off. The template function
+.hermit/adapter.yaml, the path relative to the adapter root). Checks 5 and 6 run the adapter's and the template's
+modules, so they run in a strict sandbox (read-only, no network, no keys) when the run's sandbox is on, and unconfined
+when it is off. The template function
 receives the adapter path and returns a list of issues ({path, problem}) or {"passed": bool, "issues": [...]}.
 """
 from __future__ import annotations
@@ -17,7 +18,7 @@ import sys
 
 import yaml
 
-from hermit.adapter.manifest import (CONTEXT, FIXED_SECTIONS, FRAMEWORK_FILES, MANIFEST, files_of, read_manifest,
+from hermit.adapter.manifest import (CARD, EXPORTS, MANIFEST, files_of, is_meta, read_exports, read_meta,
                                              structure_of)
 
 DEPLOY_TIMEOUT = 60
@@ -44,42 +45,52 @@ def _digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def library_checks(adapter: Path, root: Path, *, deploy: bool = True, python: str | None = None) -> list[Issue]:
-    """Checks 1–5. `root` is a copy of the tree's root (the template) used as the reference."""
+def _content(path: Path) -> bytes | None:
+    return path.read_bytes() if path.is_file() else None
+
+
+def library_checks(adapter: Path, root: Path, *, deploy: bool = True, python: str | None = None,
+                   parent: Path | None = None) -> list[Issue]:
+    """Checks 1–5. `root` is a copy of the tree's root (the template) used as the reference; `parent`, when given, is
+    the version the learner started from, against which `.hermit/CARD.md` is compared."""
     adapter, root = Path(adapter), Path(root)
     issues: list[Issue] = []
     try:
-        reference = read_manifest(root)
-    except ValueError as exc:
-        return [Issue(MANIFEST, 3, f"the template's own manifest is invalid: {exc}")]
-    structure = structure_of(reference)
-    # 3. the manifest parses and its fixed sections equal the root's.
-    try:
-        manifest = read_manifest(adapter)
-        for section in FIXED_SECTIONS:
-            if manifest.get(section) != reference.get(section):
-                issues.append(Issue(MANIFEST, 3, f"section `{section}` differs from the template's"))
+        reference = read_meta(root)
     except (ValueError, yaml.YAMLError) as exc:
-        issues.append(Issue(MANIFEST, 3, f"adapter.yaml does not parse: {exc}"))
+        return [Issue(MANIFEST, 3, f"the template's own metadata is invalid: {exc}")]
+    structure = structure_of(reference)
     have = set(files_of(adapter))
     root_files = set(files_of(root))
-    if CONTEXT not in have:
-        issues.append(Issue(CONTEXT, 3, f"{CONTEXT} is missing: every adapter has one, its context for the agent"))
-    # 1. fixed parts unchanged.
+    # 1. the metadata (.hermit/) as the root has it, the card as the parent has it; then the template's fixed files.
+    for rel in sorted(rel for rel in have | root_files if is_meta(rel) and rel != CARD):
+        if rel not in have:
+            issues.append(Issue(rel, 1, "metadata file is missing: .hermit/ is not the learner's to change"))
+        elif rel not in root_files:
+            issues.append(Issue(rel, 1, "file added under .hermit/: it holds the metadata, not the learner's"))
+        elif _digest(adapter / rel) != _digest(root / rel):
+            issues.append(Issue(rel, 1, "metadata file was changed: .hermit/ is not the learner's to change"))
+    if parent is not None and _content(adapter / CARD) != _content(Path(parent) / CARD):
+        issues.append(Issue(CARD, 1, "the card was changed: only the Trainer and `hermit eval` write it"))
     for rel in sorted(root_files):
-        if rel in FRAMEWORK_FILES or not structure.is_fixed(rel):
+        if is_meta(rel) or not structure.is_fixed(rel):
             continue
         if rel not in have:
             issues.append(Issue(rel, 1, "fixed file is missing"))
         elif _digest(adapter / rel) != _digest(root / rel):
             issues.append(Issue(rel, 1, "fixed file was changed"))
-    # 2. every file lies in a learnable path (or is a fixed file of the template).
-    for rel in sorted(have - set(FRAMEWORK_FILES)):
+    # 2. every other file lies in a learnable path (or is a fixed file of the template).
+    for rel in sorted(rel for rel in have if not is_meta(rel)):
         if structure.is_fixed(rel):
             if rel not in root_files:
                 issues.append(Issue(rel, 2, "file added under a fixed path"))
         elif structure.learnable_for(rel) is None:
             issues.append(Issue(rel, 2, "file outside every learnable path"))
+    # 3. exports.yaml parses (an adapter without one exports its context only).
+    try:
+        read_exports(adapter)
+    except (ValueError, yaml.YAMLError) as exc:
+        issues.append(Issue(EXPORTS, 3, f"{EXPORTS} does not parse: {exc}"))
     # 4. learnable parts follow their formats.
     counts: dict[str, int] = {}
     for rel in sorted(have):
@@ -108,8 +119,9 @@ def library_checks(adapter: Path, root: Path, *, deploy: bool = True, python: st
     for item in structure.learnable:
         if item.format.get("max_files") is not None and counts.get(item.path, 0) > int(item.format["max_files"]):
             issues.append(Issue(item.path, 4, f"{counts[item.path]} files exceed max_files {item.format['max_files']}"))
-    # 5. deploys: context renders, tool entry points import, roles convert. Only when the manifest itself is sound.
-    if deploy and not any(i.check == 3 for i in issues):
+    # 5. deploys: context renders, tool entry points import, roles convert. Only when the metadata and the exports
+    # are sound.
+    if deploy and not any(i.check == 3 or is_meta(i.path) for i in issues):
         issues.extend(_deploy_check(adapter, python or sys.executable))
     return issues
 
@@ -166,7 +178,7 @@ def _path_in(adapter: Path, text: str) -> str:
 
 def template_check(adapter: Path, root: Path, python: str | None = None) -> list[Issue]:
     """Check 6: the template's own function, if declared; run without network when bubblewrap is available."""
-    manifest = read_manifest(root)
+    manifest = read_meta(root)
     declaration = manifest.get("check")
     if not declaration:
         return []
@@ -192,9 +204,10 @@ def template_check(adapter: Path, root: Path, python: str | None = None) -> list
     return [Issue(str(i.get("path", "")), 6, str(i.get("problem", i))) for i in raw or []]
 
 
-def check_spec(adapter: Path, root: Path, *, deploy: bool = True, python: str | None = None) -> CheckResult:
-    issues = library_checks(adapter, root, deploy=deploy, python=python)
-    if not any(i.check == 3 for i in issues):
+def check_spec(adapter: Path, root: Path, *, deploy: bool = True, python: str | None = None,
+               parent: Path | None = None) -> CheckResult:
+    issues = library_checks(adapter, root, deploy=deploy, python=python, parent=parent)
+    if not any(i.check == 3 or is_meta(i.path) for i in issues):
         issues.extend(template_check(adapter, root, python))
     return CheckResult(not issues, issues)
 
@@ -203,23 +216,22 @@ def repair(adapter: Path, root: Path, parent: Path, *, python: str | None = None
            max_rounds: int = 20) -> tuple[CheckResult, list[dict]]:
     """Make the adapter conform with the smallest change; return the final result and what was repaired.
 
-    fixed file → root's version; learnable file in a wrong format → parent's version (removed if new); file outside
-    every path → removed; deploy / template-check failure → the named file to the parent's version, otherwise every
-    file changed since the parent. The worst case is the parent unchanged.
+    metadata or fixed file → root's version (the card: the parent's); exports.yaml that does not parse → parent's
+    version; learnable file in a wrong format → parent's version (removed if new); file outside every path → removed;
+    deploy / template-check failure → the named file to the parent's version, otherwise every file changed since the
+    parent. The worst case is the parent unchanged.
     """
     adapter, root, parent = Path(adapter), Path(root), Path(parent)
     repaired: list[dict] = []
-    result = check_spec(adapter, root, python=python)
+    result = check_spec(adapter, root, python=python, parent=parent)
     rounds = 0
     while not result.passed and rounds < max_rounds:
         rounds += 1
         targets: dict[str, tuple[str, str]] = {}
         for issue in result.issues:
             rel = issue.path
-            if rel == CONTEXT and not (adapter / CONTEXT).exists():
-                targets[rel] = ("parent", issue.problem)
-            elif issue.check == 3 or rel == MANIFEST:
-                targets[MANIFEST] = ("root", issue.problem)
+            if issue.check == 3 or rel == EXPORTS or rel == CARD:
+                targets[rel or EXPORTS] = ("parent", issue.problem)
             elif issue.check == 1:
                 targets[rel] = ("root", issue.problem)
             elif issue.check == 2:
@@ -234,13 +246,13 @@ def repair(adapter: Path, root: Path, parent: Path, *, python: str | None = None
         for rel, (source, why) in targets.items():
             _restore(adapter, root if source == "root" else parent, rel)
             repaired.append({"path": rel, "restored_from": source, "reason": why})
-        result = check_spec(adapter, root, python=python)
+        result = check_spec(adapter, root, python=python, parent=parent)
     if not result.passed:
         # Last resort: the parent itself (always valid: it was committed only after passing).
         for rel in _changed(adapter, parent):
             _restore(adapter, parent, rel)
             repaired.append({"path": rel, "restored_from": "parent", "reason": "repair did not converge"})
-        result = check_spec(adapter, root, python=python)
+        result = check_spec(adapter, root, python=python, parent=parent)
     return result, repaired
 
 

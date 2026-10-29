@@ -1,0 +1,12 @@
+template:
+  id: prompt-only
+  version: "1.0"
+  contract: "2"
+  name: Prompt only
+structure:
+  learnable:
+    - exports.yaml
+    - path: ADAPTER.md
+      format: {text: true, max_bytes: 40000}
+  fixed:
+    - README.md

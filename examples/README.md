@@ -22,7 +22,7 @@ examples/<task>/
 
 Each of these runs a task end to end and reports a number: its README gives the commands, the result table and
 how the number was measured, and the method folders hold the trained adapters where they are included, each with
-a `CARD.md`.
+a `.hermit/CARD.md`.
 
 | Folder | Task | Agent | Methods |
 |---|---|---|---|

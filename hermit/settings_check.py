@@ -7,7 +7,7 @@ import shutil
 import tempfile
 import time
 
-from hermit.adapter.manifest import read_manifest
+from hermit.adapter.manifest import MANIFEST, read_manifest
 from hermit.backends import bindings_of, list_models, probe as probe_model, problems_of, registry, warnings_of
 from hermit.config import Config
 from hermit.evolver.loader import find, instantiate, load_class
@@ -38,7 +38,7 @@ def run_check(config: Config, *, probe: bool = True, log=print) -> bool:
         template_dir = config.template_dir()
         start = config.path(d["start_from"]) if d.get("start_from") else template_dir
         problems = []
-        if start is not None and (start / "adapter.yaml").is_file():
+        if start is not None and (start / MANIFEST).is_file():
             result = check_spec(start, template_dir)
             problems = [f"{i.path or '-'}: check {i.check}: {i.problem}" for i in result.issues]
         report("template", problems, f"{read_manifest(template_dir)['template']}")

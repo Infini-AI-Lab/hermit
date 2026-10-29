@@ -1,0 +1,28 @@
+context: ADAPTER.md
+tools:
+- name: wm
+  description: 'The world model — knowledge maintained between episodes from earlier graded episodes. name: one
+    of memory, recall, trace, search, read, run, delegate, list, or an admitted tool''s name; args: an object
+    per that name (see the ''Reaching the world model'' section). Calls are free. wm reaches the world model only,
+    never the environment.'
+  entrypoint: interface.py:wm
+  input_schema:
+    type: object
+    properties:
+      name:
+        type: string
+      args:
+        type: object
+    required:
+    - name
+    additionalProperties: false
+  output_schema:
+    type: object
+  annotations:
+    readOnlyHint: true
+    destructiveHint: false
+    idempotentHint: true
+    openWorldHint: false
+agents:
+  entrypoint: interface.py:agent_definitions
+

@@ -82,7 +82,7 @@ utils/agent/        OfficeQAAgent (agent.py): SkillOpt's rollout, direct or Code
 utils/prepare.py    tasks.jsonl, the splits, data.json and seed_adapter/      utils/judge.py   SkillOpt's exact match
 utils/task-info/    the task for the learner
 gepa/ skillopt/     smoke.yaml and run.yaml per method, smoke_codex.yaml and run_codex.yaml for the Codex harness;
-                    adapter/ is the skill run.yaml trained (direct chat), with its CARD.md
+                    adapter/ is the skill run.yaml trained (direct chat), with its .hermit/CARD.md
 harness2_stream/    Harness² under the paper's protocol, by the upstream code, with Codex as the acting agent
                     (run_codex.yaml, slots_codex.yaml; utils/agent/codex_agent.py and codex_session.py; the
                     harness2-codex template); launch.sh starts a stream

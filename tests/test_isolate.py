@@ -534,11 +534,11 @@ def test_the_adapters_code_runs_outside_the_workers_process(tmp_path):
     config = Config.load(sandboxed_task(tmp_path), [])
     (tmp_path / "pipeline.py").write_text(PIPELINE_WITH_ADAPTER)
     adapter = adapter_copy(tmp_path / "runs" / "r")
-    manifest = yaml.safe_load((adapter / "adapter.yaml").read_text())
-    manifest["exports"]["tools"].append({"name": "evil", "description": "x", "entrypoint": "tools.py:evil",
+    exports = yaml.safe_load((adapter / "exports.yaml").read_text())
+    exports["tools"].append({"name": "evil", "description": "x", "entrypoint": "tools.py:evil",
                                          "input_schema": {"type": "object"},
                                          "output_schema": {"type": "object", "properties": {"text": {"type": "string"}}}})
-    (adapter / "adapter.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (adapter / "exports.yaml").write_text(yaml.safe_dump(exports, sort_keys=False))
     (adapter / "tools.py").write_text((adapter / "tools.py").read_text() + ADAPTER_EVIL)
     agent = SandboxedAgent(config, "rollout", records=None)
     try:

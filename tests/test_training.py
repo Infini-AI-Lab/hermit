@@ -43,7 +43,7 @@ class Toy(Evolver):
         if mode == "learn":
             (ctx.workspace.adapter / "ADAPTER.md").write_text("Always add the numbers.\\n")
         elif mode == "break":
-            (ctx.workspace.adapter / "EVOLVER.md").write_text("changed a fixed file\\n")
+            (ctx.workspace.adapter / ".hermit" / "EVOLVER.md").write_text("changed the metadata\\n")
             (ctx.workspace.adapter / "stray.txt").write_text("outside every learnable path\\n")
             (ctx.workspace.adapter / "ADAPTER.md").write_text("Always add the numbers.\\n")
         elif mode == "nothing":
@@ -104,10 +104,10 @@ def test_train_commits_tags_and_records(tmp_path):
     tree = Path(summary["tree"])
     tags = git(tree, "tag").splitlines()
     assert {"root", "toy-run/final", "toy-run/ckpt-step-1", "toy-run/ckpt-epoch-1", "toy-run/ckpt-epoch-2"} <= set(tags)
-    final = git(tree, "show", "toy-run/final:CARD.md")
+    final = git(tree, "show", "toy-run/final:.hermit/CARD.md")
     assert "Adapter card: toy-run" in final
-    origin = yaml.safe_load(git(tree, "show", "toy-run/final:adapter.yaml"))["origin"]
-    assert origin == {"template": "prompt-only", "version": "1.0"}
+    meta = git(tree, "show", "toy-run/final:.hermit/adapter.yaml")
+    assert meta == (TEMPLATE / ".hermit" / "adapter.yaml").read_text().strip()   # the metadata is the template's
     material = run / "learning_material"
     assert (material / "current").resolve().name == "step_0004"
     assert len((material / "index.jsonl").read_text().splitlines()) == 4
@@ -129,10 +129,10 @@ def test_failed_check_commits_then_repairs(tmp_path):
     assert any(line.startswith("repair step 1") for line in log)
     files = git(tree, "ls-tree", "-r", "--name-only", "toy-run/final").splitlines()
     assert "stray.txt" not in files
-    assert git(tree, "show", "toy-run/final:EVOLVER.md") == (TEMPLATE / "EVOLVER.md").read_text().strip()
+    assert git(tree, "show", "toy-run/final:.hermit/EVOLVER.md") == (TEMPLATE / ".hermit" / "EVOLVER.md").read_text().strip()
     assert "add the numbers" in git(tree, "show", "toy-run/final:ADAPTER.md")   # the valid part is kept
     feedback = json.loads((tmp_path / "runs/toy-run/learning_material/step_0002/check_feedback.json").read_text())
-    assert {f["path"] for f in feedback} >= {"EVOLVER.md", "stray.txt"}
+    assert {f["path"] for f in feedback} >= {".hermit/EVOLVER.md", "stray.txt"}
 
 
 def test_resume_after_crash(tmp_path):
@@ -190,7 +190,7 @@ def test_eval_final_root_none(tmp_path):
     assert evaluate(cfg, "root", log=lambda *_: None)["mean_score"] == 0.0
     assert evaluate(cfg, "none", log=lambda *_: None)["mean_score"] == 0.0
     tree = tmp_path / "runs" / "trees" / "prompt-only"
-    assert "| final | 3 |" in git(tree, "show", "toy-run/final:CARD.md")
+    assert "| final | 3 |" in git(tree, "show", "toy-run/final:.hermit/CARD.md")
 
 
 def test_start_from_a_checkpoint(tmp_path):

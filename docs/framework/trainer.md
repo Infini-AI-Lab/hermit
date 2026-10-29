@@ -124,7 +124,8 @@ Failures affect different boundaries:
 ### When the binding check fails
 
 The Trainer records the invalid candidate in Git, restores offending files, checks again, and records the repair.
-Fixed files return to the template version; invalid learnable files return to the previous adapter's version.
+Files under `.hermit/` and fixed files return to the template version (`.hermit/CARD.md` to the previous adapter's);
+an `exports.yaml` that does not parse and invalid learnable files return to the previous adapter's version.
 New disallowed files are removed. If a failure cannot be attributed to particular files, repair can revert all
 changes. The previous accepted adapter is the fallback.
 
@@ -203,4 +204,4 @@ Outputs go under `.demo/interface-example/interface-demo/`. A completed run is n
 
 The adapter tree defaults to `<output_dir>/trees/<template id>`. Runs use branches; checkpoints and finals use tags
 such as `<run>/ckpt-step-5`, `<run>/ckpt-epoch-1`, and `<run>/final`. Checkpoint frequency is controlled by
-`trainer.save_freq`. The final adapter receives a `CARD.md` describing the experiment.
+`trainer.save_freq`. The final adapter receives a `.hermit/CARD.md` describing the experiment.

@@ -15,11 +15,13 @@ CONTRACT.md                The learner's contract, rendered by the Evolver every
 ADAPTER.md                 The host package, rendered by the Evolver after every adopted session
 .mwm/edit_times.json       Per-file session times, the catalog's ordering key (written by the Evolver)
 interface.py, mwm_core/    The serving code: the push package, the wm tool, the code channel
-check.py                   The template check: the host package still renders
-adapter.yaml               The manifest: exports, structure (learnable / fixed), check
+exports.yaml               The exports: the wm tool, roles, context
+.hermit/adapter.yaml       The metadata: identity, structure (learnable / fixed), check
+.hermit/check.py           The template check: the host package still renders
+.hermit/EVOLVER.md         The learner's guide to this layout
 ```
 
-The serving code is fixed by the template (`structure.fixed` in adapter.yaml); the Trainer restores it, and the MWM
+The serving code is fixed by the template (`structure.fixed` in .hermit/adapter.yaml); the Trainer restores it, and the MWM
 Evolver discards a session that changes it (contract rule 3). Hosts receive the five-part package: framing, briefing,
 open questions, memory catalog, and how to reach the model. A task's own pipeline renders it live with
 `interface.context()` and the venue's host settings; a host that reads the context file gets ADAPTER.md. Learned

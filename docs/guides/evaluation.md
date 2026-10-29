@@ -53,7 +53,7 @@ solved rate; use the benchmark's own definition and raw scores. It is also disti
 
 ## Preserve the artifact and evidence
 
-With the literal `--adapter final`, evaluation updates `CARD.md` and may make a new card commit and move the
+With the literal `--adapter final`, evaluation updates `.hermit/CARD.md` and may make a new card commit and move the
 final tag. Preserve the evaluation summary's `commit`: it identifies the version used for that measurement.
 A directory selector records no Git commit, so record its revision or content separately.
 

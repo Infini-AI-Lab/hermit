@@ -52,7 +52,7 @@ Use the same run name for training and evaluation. Unknown configuration keys ar
 | `agent.concurrency` | Maximum concurrent task executions during rollout and evaluation. |
 | `agent.params` | The agent's settings: for a built-in agent its model, prompt and tools; for the task's own agent whatever it reads. |
 | `judge.path`, `judge.name` | Scoring module/file and function name; the default name is `score`. |
-| `template` | Built-in template such as `prompt-only@1.0`, or a directory with `adapter.yaml`. |
+| `template` | Built-in template such as `prompt-only@1.0`, or a directory with `.hermit/adapter.yaml`. |
 | `start_from` | Optional tag, commit, or adapter directory from the same template; defaults to the root. |
 | `evolver.name` | Built-in name or a path to an Evolver definition. |
 | `evolver.params` | Parameters layered over that Evolver's defaults. |

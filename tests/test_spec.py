@@ -44,31 +44,69 @@ def test_violations_are_found_and_repaired(tmp_path):
     assert not (adapter / "skills" / "big").exists()
 
 
-def test_manifest_section_change_is_restored(tmp_path):
+def test_metadata_change_is_restored_from_the_root(tmp_path):
     root = TEMPLATES / "prompt_only"
     adapter = copy(root, tmp_path / "adapter")
-    text = (adapter / "adapter.yaml").read_text().replace("max_bytes: 40000", "max_bytes: 99999")
-    (adapter / "adapter.yaml").write_text(text)
+    meta = adapter / ".hermit" / "adapter.yaml"
+    meta.write_text(meta.read_text().replace("max_bytes: 40000", "max_bytes: 99999"))   # loosen its own limit
+    (adapter / ".hermit" / "notes.md").write_text("added\n")
     result = check_spec(adapter, root)
-    assert not result.passed and any(i.check == 3 for i in result.issues)
+    assert {(i.path, i.check) for i in result.issues} >= {(".hermit/adapter.yaml", 1), (".hermit/notes.md", 1)}
     final, _ = repair(adapter, root, root)
-    assert final.passed
+    assert final.passed and meta.read_text() == (root / ".hermit" / "adapter.yaml").read_text()
+    assert not (adapter / ".hermit" / "notes.md").exists()
 
 
-def test_adapter_md_is_required(tmp_path):
+def test_the_card_is_compared_with_the_parent(tmp_path):
+    root = TEMPLATES / "prompt_only"
+    parent = copy(root, tmp_path / "parent")
+    (parent / ".hermit" / "CARD.md").write_text("# Adapter card: earlier run\n")
+    adapter = copy(parent, tmp_path / "adapter")
+    assert check_spec(adapter, root, parent=parent).passed               # the Trainer's card is not the root's
+    (adapter / ".hermit" / "CARD.md").write_text("# Adapter card: rewritten by the learner\n")
+    result = check_spec(adapter, root, parent=parent)
+    assert not result.passed and (".hermit/CARD.md", 1) in {(i.path, i.check) for i in result.issues}
+    final, _ = repair(adapter, root, parent)
+    assert final.passed and (adapter / ".hermit" / "CARD.md").read_text() == "# Adapter card: earlier run\n"
+
+
+def test_exports_are_learnable_and_restored_when_they_do_not_parse(tmp_path):
+    from hermit.adapter.loader import load_manifest
+    root = Path(__file__).resolve().parents[1] / "docs" / "_examples" / "file_adapter"
+    parent = copy(root, tmp_path / "parent")
+    exports = parent / "exports.yaml"
+    exports.write_text(exports.read_text().replace("Count whitespace-separated words in text.", "Count the words."))
+    assert check_spec(parent, root).passed                                 # a tool description is content
+    assert load_manifest(parent)["tools"][0]["description"] == "Count the words."
+    adapter = copy(parent, tmp_path / "adapter")
+    (adapter / "exports.yaml").write_text("tools: [unclosed\n")
+    result = check_spec(adapter, root)
+    assert not result.passed and ("exports.yaml", 3) in {(i.path, i.check) for i in result.issues}
+    final, _ = repair(adapter, root, parent)
+    assert final.passed and (adapter / "exports.yaml").read_text() == exports.read_text()
+
+
+def test_adapter_md_may_be_removed(tmp_path):
+    from hermit.adapter.loader import Adapter
     root = TEMPLATES / "prompt_only"
     adapter = copy(root, tmp_path / "adapter")
     (adapter / "ADAPTER.md").unlink()
-    result = check_spec(adapter, root)
-    assert not result.passed and any(i.path == "ADAPTER.md" and i.check == 3 for i in result.issues)
-    final, _ = repair(adapter, root, root)
-    assert final.passed and (adapter / "ADAPTER.md").exists()
+    assert check_spec(adapter, root).passed, check_spec(adapter, root).issues
+    assert Adapter(adapter).context() == ""
+
+
+def test_no_structure_means_every_file_is_learnable():
+    from hermit.adapter.manifest import structure_of
+    structure = structure_of({})
+    assert structure.learnable_for("a/b/tool.py") and structure.learnable_for("ADAPTER.md")
+    assert structure.learnable_for(".hermit/adapter.yaml") is None         # the metadata never is
 
 
 def test_context_name_is_fixed(tmp_path):
     import pytest
     from hermit.adapter.manifest import read_manifest
-    a = tmp_path / "a"; a.mkdir()
-    (a / "adapter.yaml").write_text("template: {id: x, version: '1'}\nexports: {context: OTHER.md}\nstructure: {}\n")
+    a = tmp_path / "a"; (a / ".hermit").mkdir(parents=True)
+    (a / ".hermit" / "adapter.yaml").write_text("template: {id: x, version: '1'}\n")
+    (a / "exports.yaml").write_text("context: OTHER.md\n")
     with pytest.raises(ValueError, match="always ADAPTER.md"):
         read_manifest(a)

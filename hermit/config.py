@@ -8,6 +8,7 @@ import re
 
 import yaml
 
+from hermit.adapter.manifest import MANIFEST
 from hermit.backends import normalize_config
 
 DEFAULTS = Path(__file__).with_name("defaults.yaml")
@@ -114,16 +115,16 @@ class Config:
         """`template` is a path to a template directory, or `id@version` / `id` of a built-in template."""
         value = str(self.data["template"])
         as_path = self.path(value)
-        if as_path is not None and (as_path / "adapter.yaml").is_file():
+        if as_path is not None and (as_path / MANIFEST).is_file():
             return as_path
         ident, _, version = value.partition("@")
         for candidate in sorted(TEMPLATES.iterdir()) if TEMPLATES.is_dir() else []:
-            manifest = candidate / "adapter.yaml"
+            manifest = candidate / MANIFEST
             if manifest.is_file():
                 tmpl = (yaml.safe_load(manifest.read_text()) or {}).get("template", {})
                 if tmpl.get("id") == ident and (not version or tmpl.get("version") == version):
                     return candidate
-        raise ValueError(f"No template {value!r} (neither a directory with adapter.yaml nor a built-in id@version)")
+        raise ValueError(f"No template {value!r} (neither a directory with {MANIFEST} nor a built-in id@version)")
 
     def run_name(self) -> str:
         if self.data["trainer"]["run_name"]:

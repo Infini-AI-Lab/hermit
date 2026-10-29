@@ -22,15 +22,18 @@ The simplest adapter uses the built-in `prompt-only@1.0` template:
 
 ```text
 adapter/
-  adapter.yaml    declares the exports and which files may change
+  .hermit/
+    adapter.yaml  template identity and which files may change
+    EVOLVER.md    explains the editable structure to the learner
+    CARD.md       provenance and evaluation results, added at the end of training
+  exports.yaml    declares the exports (here the context only)
   ADAPTER.md      instructions given to the acting agent
-  EVOLVER.md      explains the editable structure to the learner
-  README.md      instructions for people
-  CARD.md        provenance and evaluation results, added at the end of training
+  README.md       instructions for people
 ```
 
-`ADAPTER.md` is every adapter's context for the acting agent (a fixed, required file). `EVOLVER.md` guides the learner; `CARD.md` records
-where the adapter came from. Neither is automatically included in the acting agent's prompt.
+`ADAPTER.md` is the adapter's context for the acting agent (a fixed name; without it the context is empty).
+`.hermit/EVOLVER.md` guides the learner; `.hermit/CARD.md` records where the adapter came from. Neither is
+automatically included in the acting agent's prompt.
 
 For example, `ADAPTER.md` might say “check the unit and scale of each source figure before calculating.” This affects
 behavior when the pipeline makes the text available to the agent. The file has no effect just by existing on disk.
@@ -93,27 +96,25 @@ and provides a baseline.
 
 ### The template defines the scope of learning
 
-For `prompt-only@1.0`, the relevant manifest declarations are:
+For `prompt-only@1.0`, `exports.yaml` is `context: ADAPTER.md` and `.hermit/adapter.yaml` declares:
 
 ```yaml
-exports:
-  context: ADAPTER.md
 structure:
   learnable:
+    - exports.yaml
     - path: ADAPTER.md
       format: {text: true, max_bytes: 40000}
   fixed:
-    - EVOLVER.md
     - README.md
 ```
 
-The Evolver can rewrite the instruction file. It cannot change the export declaration, edit fixed files, or add
-files outside the learnable paths. The template remains the reference for checking later versions.
+The Evolver can rewrite the instruction file and `exports.yaml`. It cannot change `.hermit/`, edit fixed files, or
+add files outside the learnable paths. The template remains the reference for checking later versions.
 
 The template contains the starting instructions and their rules. An evolved adapter contains later instructions
-plus the same fixed files. Training can start from the template or a previous adapter.
+plus the same `.hermit/` and fixed files. Training can start from the template or a previous adapter.
 
-In `lean-collab@1.0`, instructions and skills are learnable while collaboration code stays fixed. A different template
+In `lean-collab@1.0`, instructions, skills and `exports.yaml` are learnable while the collaboration code stays fixed. A different template
 could allow code edits and provide corresponding checks. “Training the harness” has a specific scope for each
 template.
 
@@ -156,7 +157,7 @@ next batch would run with it. This is an illustrative update, not a measured Off
 
 ## Acceptance is different from improvement
 
-`check_spec` checks fixed files, allowed paths, formats, export loading, and template-specific requirements. It does
+`check_spec` checks `.hermit/` and fixed files, allowed paths, that `exports.yaml` parses, formats, export loading, and template-specific requirements. It does
 not measure task performance. A valid edit can lower the score; the Trainer does not reject it for that reason.
 The Evolver may validate candidates itself. The prompt-only method (a Codex session per step) does not test its
 rewrite before returning it.
@@ -178,7 +179,7 @@ highest-scoring checkpoint.” The framework does not automatically evaluate the
 | Results and logs | `learning_material/` and run records | Learning, inspection, and experiment accounting. |
 | Acting runtime state | Location chosen by the pipeline or adapter runtime | One execution's working data, such as a shared lemma library. |
 
-A final adapter includes `CARD.md` with provenance and recorded evaluation results. Deployment needs the adapter
+A final adapter includes `.hermit/CARD.md` with provenance and recorded evaluation results. Deployment needs the adapter
 and the environment its exports depend on; it does not need the Evolver or its state. Starting a new training run
 from that adapter starts fresh learner state. Resuming an unfinished run restores its saved state and progress.
 

@@ -5,9 +5,9 @@ framework's example of an adapter that **needs a standalone service**: its tools
 share, its calls run for minutes and must not block one another, and it can decide to interrupt or resume an
 agent. This page shows what the adapter contains, how it is used today, and how that use maps onto the
 consumption-end design in [What is a harness adapter?](../framework/what-is-a-harness-adapter.md) and the
-`serve` section of the [adapter.yaml reference](../framework/adapter-manifest.md#serve-design-not-implemented).
+`serve` section of the [adapter metadata reference](../framework/adapter-manifest.md#serve-design-not-implemented).
 
-A finished adapter of this template, v12.5, is in `examples/lean_swarm/`; its `CARD.md` records how it
+A finished adapter of this template, v12.5, is in `examples/lean_swarm/`; its `.hermit/CARD.md` records how it
 was obtained and how it performs. The template and the host deployment are in this branch; the multi-agent
 launcher and the grader are not yet a pipeline of this framework, so there is no end-to-end training recipe here.
 Use [OfficeQA](officeqa.md) for one.
@@ -16,13 +16,16 @@ Use [OfficeQA](officeqa.md) for one.
 
 ```text
 hermit/algorithms/templates/lean_collab/
-  adapter.yaml     template, exports (context, five tools, reactions, concurrent_tool_calls, skills), structure
+  .hermit/
+    adapter.yaml   template identity and structure
+    EVOLVER.md     the learner's guide
+  exports.yaml     learnable: context, five tools, reactions, concurrent_tool_calls, skills
   ADAPTER.md       learnable instructions every agent reads
   skills/          learnable skills (good-map, good-leaf, kernel-check, lean-workflow, solving-together)
   collab.py        fixed: the five tools — check, pull, refute, say, plan
   assembly.py      fixed: proof assembly
   reactions.py     fixed: the reaction handler
-  EVOLVER.md, README.md
+  README.md
 ```
 
 The exports are the plugin-shaped part: context, skills and tools, usable by any host that reads an instruction
@@ -94,4 +97,5 @@ The current integration uses the explicit service and run-script steps above. Ge
 Provide a pipeline that launches the agents with the adapter and collects a proof, a judge that checks the result,
 and task data and splits. The framework calls those through the same [task interface](../framework/task.md) used
 by OfficeQA. Select `lean-collab@1.0` as the template and a compatible Evolver. Its permitted edits cover
-instructions and skills; the collaboration implementation (`collab.py`, `assembly.py`, `reactions.py`) is fixed.
+instructions, skills and `exports.yaml` (the tool declarations, reactions entrypoint, concurrency and skills directory); the
+collaboration implementation (`collab.py`, `assembly.py`, `reactions.py`) is fixed.

@@ -11,7 +11,7 @@ against the config file's directory. A shared adapter tree stores versions for r
 | `<run>/learning_material/step_NNNN/` | Inputs, outputs, feedback, and available trajectories supplied to the learner |
 | `<run>/step_NNNN/` | Saved step records and learner-state snapshots |
 | `<run>/checkout/ADAPTER.md` | Current or finalized instructions |
-| `<run>/checkout/CARD.md` | Provenance and recorded final evaluation |
+| `<run>/checkout/.hermit/CARD.md` | Provenance and recorded final evaluation |
 | `<run>/summary.json` | Final selection, stop reason, and checkpoints |
 | `<run>/eval/<selector>/` | Separate evaluation summaries and per-attempt results |
 | `<output_dir>/trees/<template-id>/` | Default Git tree location; configurable with `trainer.tree_dir` |

@@ -35,7 +35,7 @@ import importlib.util
 # Ported from metaworld mwm/gates.py (22b67ea). The architecture modules a gate
 # needs (clbench_recall, capabilities, wm_tools) are imported from the
 # framework's own copy of the mwm architecture, never from the candidate: the
-# candidate's mwm_core is a fixed path of the template (templates/mwm/adapter.yaml;
+# candidate's mwm_core is a fixed path of the template (templates/mwm/.hermit/adapter.yaml;
 # the Trainer's spec check restores it), so the framework copy IS the code that will serve, and no
 # learner-written file is executed in the wrapper's process.
 CAPTEST = 'captest'   # the native command, on the learner's PATH (evolvers/mwm/bin/captest)

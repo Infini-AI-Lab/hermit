@@ -166,7 +166,7 @@ The generated `AGENTS.md` contains the learned rule. Start Codex in that workspa
 
 #### Harness Evolution Recipes
 
-Train and evaluate harness adapters on benchmarks using different evolution methods. Each task's README reports results; each included adapter's `CARD.md` records evaluation details.
+Train and evaluate harness adapters on benchmarks using different evolution methods. Each task's README reports results; each included adapter's `.hermit/CARD.md` records evaluation details.
 
 <table align="center">
 <thead>

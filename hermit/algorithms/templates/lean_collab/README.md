@@ -3,7 +3,7 @@
 Migrated from the Lean collab adapter `final_v12_5` (fc_collab_auto). Its initial learnable content (ADAPTER.md,
 skills/) is v12.5's. Usage: `docs/recipes/lean-collaboration.md`.
 
-Deployment: the exports in `adapter.yaml` (context, the five tools, `reactions`, `concurrent_tool_calls`, `skills`)
+Deployment: the exports in `exports.yaml` (context, the five tools, `reactions`, `concurrent_tool_calls`, `skills`)
 are served per run by `hermit.runtime.service` (one MCP endpoint per agent) and deployed into each Codex
 workspace with `hermit deploy` / `hermit.hosts.codex.prepare`; skills land in the workspace's
 `.codex/skills/` (copy them to the agent's CODEX_HOME/skills if your Codex reads only that). Supported host: Codex.

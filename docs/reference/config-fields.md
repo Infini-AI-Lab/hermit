@@ -48,7 +48,7 @@ Task row fields become training material, so private labels require judge-owned 
 
 | Field | Type / default | Meaning and constraints |
 |---|---|---|
-| `template` | string / null; required | Built-in id, `id@version`, or directory containing `adapter.yaml` |
+| `template` | string / null; required | Built-in id, `id@version`, or directory containing `.hermit/adapter.yaml` |
 | `start_from` | string / null | Initial adapter tag, commit, or compatible directory; does not restore learner state |
 | `evolver.name` | string / null; required | Built-in method or directory containing its Evolver definition |
 | `evolver.resume` | boolean / false | Request learner-session continuation; method must support it |
@@ -58,7 +58,7 @@ Task row fields become training material, so private labels require judge-owned 
 | `evolver_access.send_material_out` | boolean / false | Consent declaration checked for methods requesting that need; not a network filter |
 
 The template defines what is editable. Method selection does not change those rules. See
-[adapter.yaml](../framework/adapter-manifest.md) for exports, learnable files, and checkers.
+[adapter metadata reference](../framework/adapter-manifest.md) for exports, learnable files, and checkers.
 
 ## Models and backends
 

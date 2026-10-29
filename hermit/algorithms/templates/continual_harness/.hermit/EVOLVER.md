@@ -10,7 +10,7 @@ reads from its workspace root:
 | `.agents/skills/<name>/SKILL.md` (+ `scripts/`) | K, a skill, frontmatter `description:` | name and description always; the body when the agent opens it; a helper when it runs `python3 .agents/skills/<name>/scripts/<file>` |
 | `memory/NOTES.md` | M, notes under `## <topic>` headings | in the workspace, read and written by the agent during a task |
 
-- Learnable: the paths above, and `ADAPTER.md`, which must be a copy of `AGENTS.md` (`check.py` enforces it).
+- Learnable: the paths above, and `ADAPTER.md`, which must be a copy of `AGENTS.md` (`.hermit/check.py` enforces it).
 - A skill needs a `description:`; a sub-agent needs a `description:`; every `.py` must compile; a helper a skill or
   `AGENTS.md` invokes must be in the tree; `AGENTS.md` is never empty; `memory/NOTES.md` is always present.
-- Fixed: `check.py`, this guide, `README.md`, and the placeholder READMEs of the on-demand directories.
+- Fixed: `.hermit/` (this guide and `check.py`), `README.md`, and the placeholder READMEs of the on-demand directories.
