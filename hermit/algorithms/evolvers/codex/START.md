@@ -4,7 +4,7 @@ learning material, within the adapter's specification.
 
 {message}
 How to work:
-1. Read the task description ({task_info}/README.md) and the adapter's guide ({adapter}/EVOLVER.md): it says which
+1. Read the task description ({task_info}/README.md) and the adapter's guide ({adapter}/.hermit/EVOLVER.md): it says which
    files you may change and in what format.
 2. Read the learning material of this step ({learning_material}/current/): each task's input, the agent's output, the
    judge's score and feedback, and the full trajectory. Earlier steps are next to it; index.jsonl shows the trend.

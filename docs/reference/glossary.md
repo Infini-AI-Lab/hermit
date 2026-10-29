@@ -3,7 +3,7 @@
 | Term | Meaning |
 |---|---|
 | Acting agent / actor | The system attempting tasks; implemented by your pipeline |
-| Adapter | A directory of context, skills, roles, or tools, with a manifest defining its training contract |
+| Adapter | A directory of context, skills, roles, or tools, with metadata in `.hermit/` defining its training contract |
 | Template / seed | The starting adapter structure and its fixed/learnable rules; a seed can already contain useful behavior |
 | Host | An agent application or custom loop consuming an adapter |
 | Pipeline | Your `run(task, adapter)` function that executes one task |

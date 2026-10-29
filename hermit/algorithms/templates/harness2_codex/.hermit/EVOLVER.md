@@ -11,7 +11,7 @@ workspace root (google-research/harness2, `CodexSubstrate`):
 | `sub_agents/<name>/AGENT.md` | c5 a delegated role, frontmatter `description:` | when the agent spawns it; it answers in text |
 | `.codex/hooks.json` | c8 lifecycle hooks (Claude Code hook schema) | inside the tool loop, on every matching call |
 
-- Learnable: the paths above, and `ADAPTER.md`, which must be a copy of `AGENTS.md` (`check.py` enforces it).
+- Learnable: the paths above, and `ADAPTER.md`, which must be a copy of `AGENTS.md` (`.hermit/check.py` enforces it).
 - Every skill's directory name must appear in `AGENTS.md`; a helper a skill invokes must be in its `scripts/`;
   every `.py` must compile; `AGENTS.md` is never empty. These are upstream's validators (`harness2.core.tree`).
-- Fixed: `check.py`, this guide, `README.md`, and the four placeholder READMEs that name the on-demand levers.
+- Fixed: `.hermit/` (this guide and `check.py`), `README.md`, and the four placeholder READMEs that name the on-demand levers.

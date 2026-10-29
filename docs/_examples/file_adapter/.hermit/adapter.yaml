@@ -1,0 +1,16 @@
+template:
+  id: file-example
+  version: "1.0"
+  contract: "2"
+structure:
+  learnable:
+    - exports.yaml
+    - path: ADAPTER.md
+      format: {text: true, max_bytes: 4000}
+    - path: agents/*.md
+      format: {text: true, max_bytes: 4000, frontmatter: [name, description]}
+    - path: skills/**
+      format: {text: true, max_bytes: 4000, max_files: 8}
+  fixed:
+    - tools.py
+    - README.md

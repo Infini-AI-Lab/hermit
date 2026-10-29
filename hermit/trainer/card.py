@@ -1,4 +1,4 @@
-"""CARD.md: the adapter's card, like a model card, generated from the run records."""
+""".hermit/CARD.md: the adapter's card, like a model card, generated from the run records."""
 from __future__ import annotations
 
 import json

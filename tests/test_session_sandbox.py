@@ -48,12 +48,12 @@ def _bwrap_works() -> bool:
 def adapter_copy(tmp_path: Path) -> Path:
     root = tmp_path / "adapter"
     shutil.copytree(EXAMPLE, root)
-    manifest = yaml.safe_load((root / "adapter.yaml").read_text())
-    manifest["exports"]["tools"].append({
+    exports = yaml.safe_load((root / "exports.yaml").read_text())
+    exports["tools"].append({
         "name": "snoop", "description": "Report what the tool can reach.", "entrypoint": "tools.py:snoop",
         "input_schema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]},
         "output_schema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}})
-    (root / "adapter.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (root / "exports.yaml").write_text(yaml.safe_dump(exports, sort_keys=False))
     text = (root / "tools.py").read_text()
     (root / "tools.py").write_text(("import json\n" if "import json" not in text else "") + text + SNOOP)
     return root
@@ -137,10 +137,10 @@ def garble():
 @pytest.mark.skipif(not _bwrap_works(), reason="needs a working bubblewrap (unprivileged user namespaces)")
 def test_a_tool_that_breaks_its_channel_ends_in_an_error_not_a_hang(tmp_path):
     root = adapter_copy(tmp_path)
-    manifest = yaml.safe_load((root / "adapter.yaml").read_text())
-    manifest["exports"]["tools"].append({"name": "garble", "description": "x", "entrypoint": "tools.py:garble",
+    exports = yaml.safe_load((root / "exports.yaml").read_text())
+    exports["tools"].append({"name": "garble", "description": "x", "entrypoint": "tools.py:garble",
                                          "input_schema": {"type": "object"}, "output_schema": {"type": "object"}})
-    (root / "adapter.yaml").write_text(yaml.safe_dump(manifest, sort_keys=False))
+    (root / "exports.yaml").write_text(yaml.safe_dump(exports, sort_keys=False))
     (root / "tools.py").write_text((root / "tools.py").read_text() +
                                    GARBLE)
     with Session(root, sandbox=True) as s:

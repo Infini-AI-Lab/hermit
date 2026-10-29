@@ -54,7 +54,8 @@ include = ["hermit*"]
 
 [tool.setuptools.package-data]
 hermit = ["defaults.yaml", "backends.yaml", "algorithms/evolvers/**/*", "algorithms/templates/**/*",
-          "algorithms/templates/**/.agents/**/*", "algorithms/templates/**/.codex/**/*"]   # globs skip dot-directories
+          "algorithms/templates/**/.agents/**/*", "algorithms/templates/**/.codex/**/*",
+          "algorithms/templates/**/.hermit/**/*"]   # globs skip dot-directories
 
 [tool.setuptools.exclude-package-data]
 "*" = ["**/__pycache__/*", "**/*.pyc", "**/*.pyo"]

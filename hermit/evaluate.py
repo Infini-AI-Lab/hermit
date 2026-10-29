@@ -6,7 +6,7 @@ from pathlib import Path
 import tempfile
 import time
 
-from hermit.adapter.manifest import MANIFEST
+from hermit.adapter.manifest import CARD, MANIFEST
 from hermit.config import Config
 from hermit.isolate import agent_pipeline
 from hermit.task import TaskData, load_callable
@@ -81,7 +81,7 @@ def _update_card(tree: Tree, run_name: str, run_dir: Path, summary: dict) -> Non
     checkout = run_dir / "checkout"
     if not checkout.exists():
         return
-    card = checkout / "CARD.md"
+    card = checkout / CARD
     if not card.exists():
         return
     text = card.read_text()

@@ -25,7 +25,7 @@ working model configuration. Use [Installation](../get-started/installation.md) 
 
 ## Update contract
 
-The learner edits the working adapter using the step's learning material and `EVOLVER.md`. The Trainer owns
+The learner edits the working adapter using the step's learning material and `.hermit/EVOLVER.md`. The Trainer owns
 acceptance and Git history. Files outside the learnable rules are rejected or repaired. For a performance gate,
 the method must explicitly evaluate and select candidates; file checks alone do not provide one.
 

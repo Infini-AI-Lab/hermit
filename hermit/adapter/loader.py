@@ -1,4 +1,5 @@
-"""Load an adapter's exports (adapter.yaml) and its Python tools, without MCP dependencies.
+"""Load an adapter's exports (exports.yaml, with the identity in .hermit/adapter.yaml) and its Python tools, without
+MCP dependencies.
 
 An adapter is trusted executable code. Path and schema validation here are not
 an OS sandbox. Evolution workspace isolation is enforced separately by the framework.
@@ -7,6 +8,7 @@ import contextlib
 import importlib.util
 import inspect
 import json
+import os
 from pathlib import Path
 import re
 import sys
@@ -24,11 +26,12 @@ def inside(root: Path, relative: str) -> Path:
 
 
 def load_manifest(root: Path) -> dict:
-    """The adapter's exports with its identity (id, name, version), validated; read from adapter.yaml."""
+    """The adapter's exports with its identity (id, name, version), validated."""
     from hermit.adapter.manifest import flatten, read_manifest
     root = root.resolve()
     manifest = flatten(read_manifest(root))
-    inside(root, manifest["context"])     # ADAPTER.md must exist
+    if os.path.lexists(root / manifest["context"]):
+        inside(root, manifest["context"])     # ADAPTER.md is optional; when present it is a file inside the adapter
     if manifest.get("agents"):
         agents = manifest["agents"]
         if isinstance(agents, str):
@@ -154,6 +157,8 @@ class Adapter:
             return fn(**kwargs)
 
     def context(self):
+        if not os.path.lexists(Path(self.root) / self.manifest["context"]):
+            return ""                                           # a learner may remove ADAPTER.md: no context
         return inside(self.root, self.manifest["context"]).read_text()
 
     def agent_definitions(self):

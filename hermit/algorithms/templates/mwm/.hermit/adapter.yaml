@@ -1,0 +1,39 @@
+# The MWM adapter: the world model a learner maintains and hosts reach through one wm tool.
+template:
+  id: mwm
+  version: '2.0'
+  contract: '2'
+  name: 'MetaWorld Model (MWM V2 default: docket on, hypothesis off)'
+structure:
+  learnable:
+  - path: exports.yaml
+  - path: ADAPTER.md
+    format:
+      text: true
+  - path: CONTRACT.md
+    format:
+      text: true
+  - path: consumption/**
+    format:
+      text: true
+  - path: memory/**
+    format:
+      text: true
+  - path: examples/**
+    format:
+      text: true
+  - path: meta/**
+    format:
+      text: true
+  - path: tools/**
+  - path: agents/**
+    format:
+      text: true
+  - path: .mwm/**
+    format:
+      text: true
+  fixed:
+  - interface.py
+  - mwm_core
+  - README.md
+check: .hermit/check.py:check

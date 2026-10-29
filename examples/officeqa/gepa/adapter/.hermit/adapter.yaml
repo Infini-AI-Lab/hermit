@@ -1,14 +1,13 @@
 template:
   id: prompt-only
   version: "1.0"
-  contract: "1"
+  contract: "2"
   name: Prompt only
-exports:
-  context: ADAPTER.md
 structure:
   learnable:
     - path: ADAPTER.md
       format: {text: true, max_bytes: 40000}
   fixed:
-    - EVOLVER.md
+    - exports.yaml
     - README.md
+check: .hermit/check.py:check

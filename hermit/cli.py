@@ -7,6 +7,17 @@ from pathlib import Path
 import sys
 
 
+def _loads(adapter: Path, command: str) -> bool:
+    """Whether the adapter's metadata and exports load; if not, say why in one line (a 0.1 layout is named)."""
+    from hermit.adapter.loader import load_manifest
+    try:
+        load_manifest(adapter)
+    except (OSError, ValueError) as error:
+        print(f"hermit {command}: {error}", file=sys.stderr)
+        return False
+    return True
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="hermit", description="Train harness adapters.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -47,6 +58,9 @@ def main(argv=None) -> int:
         from hermit.backends import main as backends_main
         return backends_main(list(argv[1:]))
     args = parser.parse_args(argv)
+
+    if args.command in ("serve", "deploy") and not _loads(args.adapter, args.command):
+        return 2
 
     if args.command == "serve":
         from hermit import __version__

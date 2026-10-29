@@ -29,7 +29,7 @@ from pathlib import Path
 
 import yaml
 
-from hermit.adapter.manifest import MANIFEST, files_of, read_manifest
+from hermit.adapter.manifest import CARD, MANIFEST, files_of, read_manifest
 from hermit.backends import bindings_of, problems_of, registry
 from hermit.config import Config
 from hermit.evolver.base import (Access, Context, Evolver, FinalResult, Progress, StepContext, StepResult, Usage,
@@ -109,15 +109,6 @@ def _copy_dir(src: Path, dst: Path) -> None:
         shutil.copytree(src, dst, symlinks=True)
     else:
         dst.mkdir(parents=True)
-
-
-def _set_origin(adapter: Path, template: dict) -> None:
-    path = adapter / MANIFEST
-    data = yaml.safe_load(path.read_text())
-    origin = {"template": template["id"], "version": template["version"]}
-    if data.get("origin") != origin:
-        data["origin"] = origin
-        path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True))
 
 
 class Trainer:
@@ -549,9 +540,6 @@ class Trainer:
         adapter = self.ws.adapter
         parent_copy = self.tree.export(parent, self.run_dir / "parent_adapter")
         Tree.sync(adapter, self.checkout)
-        if self._dirty():               # the Evolver changed something: the committed adapter names its origin
-            _set_origin(adapter, self.template)
-            Tree.sync(adapter, self.checkout)
         message = (f"{label} [{self.spec.name}]: {result.summary}\n\n"
                    f"run: {self.run_name}\nevolver: {self.spec.name}\nrecords: {self.run_dir}/step_{progress.step:04d}\n")
         if (self.ws.output / "report.md").exists():
@@ -560,13 +548,12 @@ class Trainer:
             message += f"\n{result.rationale.strip()[:2000]}\n"
         if not self._dirty():
             return [], [], {"passed": True, "note": "adapter unchanged"}
-        check = check_spec(adapter, self.run_dir / "root", python=self.python)
+        check = check_spec(adapter, self.run_dir / "root", python=self.python, parent=parent_copy)
         if check.passed:
             commit = Tree.commit(self.checkout, message)
             return [commit] if commit else [], [], check.to_dict()
         invalid = Tree.commit(self.checkout, message + f"\n{INVALID_MARK}\n")
         final, repaired = repair(adapter, self.run_dir / "root", parent_copy, python=self.python)
-        _set_origin(adapter, self.template)
         Tree.sync(adapter, self.checkout)
         lines = "\n".join(f"- {r['path']}: restored from {r['restored_from']} ({r['reason']})" for r in repaired)
         fixed = Tree.commit(self.checkout, f"repair {label}: {len(repaired)} file(s)\n\n{lines}\n")
@@ -623,7 +610,8 @@ class Trainer:
                                "sandbox": d["sandbox"], "evolver_access": d["evolver_access"],
                                "validation_given": bool(d["data"].get("val"))},
                            warnings=self.warnings, summary=note, report=report)
-        (self.ws.adapter / "CARD.md").write_text(text)
+        (self.ws.adapter / CARD).parent.mkdir(parents=True, exist_ok=True)
+        (self.ws.adapter / CARD).write_text(text)
         Tree.sync(self.ws.adapter, self.checkout)
         Tree.commit(self.checkout, f"final: {self.run_name}\n\n{note}\n")
         final_commit = Tree.head(self.checkout)

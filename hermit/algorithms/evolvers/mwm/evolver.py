@@ -75,7 +75,7 @@ WORK = "/w"                       # the learner's working directory: the world m
 EDIT_TIMES = ".mwm/edit_times.json"
 # Contract rules 2 and 3: the wrapper's files and the code that serves the world model. A session that changes any
 # of them is not adopted (the rules say the session is discarded; natively and in the old port it was).
-PROTECTED = ("CONTRACT.md", "EVOLVER.md", "adapter.yaml", "interface.py", "check.py", "mwm_core/")
+PROTECTED = ("CONTRACT.md", ".hermit/", "interface.py", "mwm_core/")
 SKIP = ("__pycache__", ".git")
 ACTIONS = ("command_execution", "file_change", "mcp_tool_call")     # codex items that act on something
 

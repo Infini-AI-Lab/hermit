@@ -45,10 +45,11 @@ def test_pi(tmp_path):
 def subagent_adapter(tmp_path):
     a = tmp_path / "adapter"
     (a / "agents").mkdir(parents=True)
-    (a / "adapter.yaml").write_text(
+    (a / ".hermit").mkdir()
+    (a / ".hermit" / "adapter.yaml").write_text(
         "template: {id: sub-example, version: '1'}\n"
-        "exports: {context: ADAPTER.md, agents: agents}\n"
-        "structure: {learnable: [ADAPTER.md, agents/*.md]}\n")
+        "structure: {learnable: [exports.yaml, ADAPTER.md, agents/*.md]}\n")
+    (a / "exports.yaml").write_text("{context: ADAPTER.md, agents: agents}\n")
     (a / "ADAPTER.md").write_text("Check the units.\n")
     (a / "agents" / "reviewer.md").write_text(
         "---\nname: reviewer\ndescription: Check a result against the task requirements.\n---\n\nRead the task, then the result.\n")

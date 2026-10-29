@@ -144,6 +144,8 @@ class Session:
 
     def context(self) -> str:
         """The adapter's context, ADAPTER.md exactly as written after the last adopted step."""
+        if not os.path.lexists(Path(self.root) / self.manifest["context"]):
+            return ""                                           # a learner may remove ADAPTER.md: no context
         return inside(self.root, self.manifest["context"]).read_text()
 
     def agents(self) -> list[dict]:

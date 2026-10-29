@@ -49,7 +49,7 @@ costs four executions and four sessions (two editors, the composer, the reflecto
 The `harness2-codex` template is the paper's Codex harness as an adapter, in the layout Codex reads from its
 workspace root: `AGENTS.md` (the one always-on file, at most 8,000 characters), `.agents/skills/<name>/SKILL.md`
 with the helpers under its `scripts/`, `scripts/<name>.py`, `sub_agents/<name>/AGENT.md` and `.codex/hooks.json`.
-`ADAPTER.md` is kept equal to `AGENTS.md`; the template's `check.py` restates upstream's validator (a trigger line in
+`ADAPTER.md` is kept equal to `AGENTS.md`; the template's `.hermit/check.py` restates upstream's validator (a trigger line in
 `AGENTS.md` for every skill, scripts that compile, a helper a skill invokes travels with it, the hook schema, the
 grader-verdict tripwire). The editor sessions see upstream's Codex surface text, so skills on demand, scripts,
 subagents and hooks are all levers.

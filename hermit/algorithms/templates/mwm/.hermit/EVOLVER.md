@@ -16,7 +16,7 @@ A world model of an external environment: scoped and dated knowledge, its ground
 - meta/cases/: unresolved investigations that persist until settled.
 - meta/journal.md and its archive: session records with separate rolling behavior.
 - interface.py and mwm_core/: method-specific consumption and dispatch code.
-- adapter.yaml: the template's manifest; hosts use a single wm(name, args) tool.
+- exports.yaml: the exports; hosts use a single wm(name, args) tool. It may change, but the wm tool must stay, with entrypoint interface.py:wm.
 - .mwm/edit_times.json: written by the Evolver after each session (the catalog's ordering key); not yours to edit.
 
 ## Evidence and evolution
@@ -25,4 +25,4 @@ The evidence store is mounted read-only at /evidence; its README.md defines the 
 
 When using the MWM Evolver, read the full method contract, agenda, and referenced skills/patterns. Repair old claims before acquiring new ones; only increase last_confirmed_t when observations support the claim. Preserve historical validity and uncertainty. Maintain the docket separately from journal entries. Update the briefing and verify every promised access path.
 
-The world-model artifacts may evolve; the serving code (adapter.yaml, interface.py, check.py, mwm_core/) and this guide may not — CONTRACT.md rules 2 and 3. What this run can reach of the environment is listed in /environment/README.md; this document cannot expand it. An unavailable sandbox is not a passing executable admission test.
+The world-model artifacts may evolve; the serving code (interface.py, .hermit/check.py, mwm_core/) and this guide may not — CONTRACT.md rules 2 and 3. What this run can reach of the environment is listed in /environment/README.md; this document cannot expand it. An unavailable sandbox is not a passing executable admission test.

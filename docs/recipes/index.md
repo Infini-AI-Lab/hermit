@@ -24,7 +24,7 @@ under `utils/task-info/mwm/`, with a configurable deployment path.
 ## What counts as a result
 
 The offline tutorial has constructed scores. A smoke config checks integration on a small subset. A trained
-adapter's `CARD.md` records its experiment and measured evaluation. These provide different kinds of evidence.
+adapter's `.hermit/CARD.md` records its experiment and measured evaluation. These provide different kinds of evidence.
 
 When reproducing, preserve the framework revision, benchmark revision, model identifiers, task splits, complete
 config, seed adapter, and scorer. Endpoint availability and model behavior can change independently of the code.

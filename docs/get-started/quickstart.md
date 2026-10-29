@@ -62,7 +62,7 @@ For a real agent, the pipeline passes adapter context and tools to a model. See
 
 ```bash
 cat .demo/first-training/first-training/checkout/ADAPTER.md
-cat .demo/first-training/first-training/checkout/CARD.md
+cat .demo/first-training/first-training/checkout/.hermit/CARD.md
 cat .demo/first-training/first-training/eval/final/summary.json
 hermit deploy \
   --adapter .demo/first-training/first-training/checkout \

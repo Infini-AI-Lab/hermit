@@ -10,7 +10,7 @@ checkout (MW_METAWORLD, default ~/code/metaworld) is absent. Surfaces compared:
 3. the review-session prompt body (native session.review_prompt vs prompt.build_prompt);
 4. the venue environment READMEs (native env_surface.readme; the query channel is the sql tool here);
 5. the wm run sandbox module, byte for byte, and its result shape;
-6. the wm tool description and schema (native TOOL_SPEC vs adapter.yaml).
+6. the wm tool description and schema (native TOOL_SPEC vs exports.yaml).
 """
 from __future__ import annotations
 
@@ -193,7 +193,7 @@ class ToolSpecParity(unittest.TestCase):
     def test_wm_tool_matches_native(self):
         native = json.loads(_native("import json; from mwm import wm_iface; "
                                     "print(json.dumps(wm_iface.TOOL_SPEC['function']))"))
-        tool = yaml.safe_load((TEMPLATE / "adapter.yaml").read_text())["exports"]["tools"][0]
+        tool = yaml.safe_load((TEMPLATE / "exports.yaml").read_text())["tools"][0]
         self.assertEqual(tool["name"], native["name"])
         self.assertEqual(tool["description"], native["description"])
         self.assertEqual(tool["input_schema"]["properties"], native["parameters"]["properties"])

@@ -1,0 +1,23 @@
+template:
+  id: lean-collab
+  version: '1.0'
+  contract: '2'
+  name: Lean asynchronous collaboration (shared plan, lemma library, channel)
+structure:
+  learnable:
+  - path: exports.yaml
+  - path: ADAPTER.md
+    format:
+      text: true
+      max_bytes: 60000
+  - path: skills/**
+    format:
+      text: true
+      max_bytes: 40000
+      max_files: 40
+  fixed:
+  - collab.py
+  - assembly.py
+  - reactions.py
+  - README.md
+check: .hermit/check.py:check

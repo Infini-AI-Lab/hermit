@@ -1,0 +1,13 @@
+template:
+  id: prompt-only
+  version: "1.0"
+  contract: "2"
+  name: Prompt only
+structure:
+  learnable:
+    - path: ADAPTER.md
+      format: {text: true, max_bytes: 40000}
+  fixed:
+    - exports.yaml
+    - README.md
+check: .hermit/check.py:check

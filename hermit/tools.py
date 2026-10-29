@@ -1,6 +1,6 @@
 """The Evolver's tools: declaration, assembly from three sources (template, task, run), metering, delivery.
 
-check_spec is always present. Template tools come from adapter.yaml `evolver_tools`, task tools from the run config's
+check_spec is always present. Template tools come from .hermit/adapter.yaml `evolver_tools`, task tools from the run config's
 `evolver_access.tools`, run tools are `budget` and (when the run config has an `llm` section) `llm`. Every call is
 logged to the run's tool log. Delivery: in-process (`ctx.tools`) for class Evolvers, and an HTTP endpoint that the
 MCP proxy (`python -m hermit.tools_mcp`) and external programs use.

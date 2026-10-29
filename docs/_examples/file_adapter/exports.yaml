@@ -1,0 +1,19 @@
+agents: agents
+skills: skills
+tools:
+  - name: count_words
+    description: Count whitespace-separated words in text.
+    entrypoint: tools.py:count_words
+    input_schema:
+      type: object
+      properties:
+        text: {type: string}
+      required: [text]
+      additionalProperties: false
+    output_schema:
+      type: object
+      properties:
+        count: {type: integer}
+      required: [count]
+      additionalProperties: false
+

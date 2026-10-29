@@ -59,7 +59,7 @@ hermit eval --config run.yaml --adapter none          # no harness adapter: a pu
 | Deployment and scoring | The same pipeline and judge as the training rollouts |
 | Repeats | `eval.repeats`; reports the mean and the share of tasks solved at least once |
 | Records | Per-task score, cost, time and API speed under `<run>/eval/<adapter>/`; the summary counts runs that errored |
-| `CARD.md` | With the literal `--adapter final` selector, the results are written into the run's final card |
+| `.hermit/CARD.md` | With the literal `--adapter final` selector, the results are written into the run's final card |
 
 `eval` evaluates exactly what it is given and runs no baseline by itself. A baseline is one more `eval`, run when the
 user chooses: `--adapter none` runs the acting agent with no harness adapter at all (the pipeline receives
@@ -103,8 +103,8 @@ names the machine that produced it.
 | Roles | `agents/` | refused | refused | refused |
 
 A part the target's plugin format cannot carry is refused: `convert` exits 2 and names every such part before writing
-anything. Since every adapter has an `ADAPTER.md`, a non-empty context makes Codex and Pi refuse, and a context over
-4,000 characters makes Hermes refuse. `--allow-lossy` emits the plugin without those parts and lists them under
+anything. A non-empty context (`ADAPTER.md`) makes Codex and Pi refuse, and a context over 4,000 characters makes
+Hermes refuse. `--allow-lossy` emits the plugin without those parts and lists them under
 `omitted` in the result.
 
 Why the refusals:

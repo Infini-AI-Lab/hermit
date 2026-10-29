@@ -86,13 +86,15 @@ independent single agents; the shared-notes team shares one notes file.
 
 ```text
 adapter/
-  adapter.yaml        template, exports (context, five team tools, reactions, skills), structure, origin
+  .hermit/            adapter.yaml (template identity, structure), EVOLVER.md, and CARD.md: how the adapter
+                      was obtained and evaluated
+  exports.yaml        context, five team tools, reactions, concurrent_tool_calls, skills (learnable)
   ADAPTER.md          context every agent reads (learnable)
   skills/             good-map, good-leaf, kernel-check, lean-workflow, solving-together (learnable)
   collab.py           the five tools: check, pull, refute, say, plan (fixed)
   assembly.py         assembling the proof from the verified parts (fixed)
   reactions.py        the service's interrupt and resume decisions (fixed)
-  CARD.md             how the adapter was obtained and evaluated; EVOLVER.md, README.md
+  README.md
 launch.sh, launch.py  the all-in-one run: service, workspaces, jailed agents, reactions, judge
 ```
 

@@ -6,12 +6,11 @@
 template:
   id: continual-harness
   version: "1.0"
-  contract: "1"
+  contract: "2"
   name: Continual Harness (policy, sub-agents, skills, memory) for Codex
-exports:
-  context: ADAPTER.md
 structure:
   learnable:
+    - exports.yaml
     - path: ADAPTER.md                         # p, as the framework exports it: a copy of AGENTS.md
       format: {text: true, max_bytes: 32000}
     - path: AGENTS.md                          # p: the base policy, the one always-on file
@@ -25,9 +24,7 @@ structure:
     - path: memory/NOTES.md                    # M: notes under `## <topic>` headings
       format: {text: true, max_bytes: 40000}
   fixed:
-    - check.py
-    - EVOLVER.md
     - README.md
     - .agents/skills/README.md
     - sub_agents/README.md
-check: check.py:check
+check: .hermit/check.py:check

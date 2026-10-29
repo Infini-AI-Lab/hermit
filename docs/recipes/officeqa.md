@@ -101,7 +101,7 @@ it into a separate generated workspace:
 
 ```bash
 cat examples/officeqa/gepa/runs/smoke-gepa/checkout/ADAPTER.md
-cat examples/officeqa/gepa/runs/smoke-gepa/checkout/CARD.md
+cat examples/officeqa/gepa/runs/smoke-gepa/checkout/.hermit/CARD.md
 hermit deploy --adapter examples/officeqa/gepa/runs/smoke-gepa/checkout \
   --workspace .demo/officeqa-codex --host codex
 ```
@@ -254,7 +254,7 @@ A run's records are under `examples/officeqa/<method>/runs/<run name>/` (`<run>`
 
 | Path | Contents |
 |---|---|
-| `<run>/checkout/` | the current adapter: `ADAPTER.md` and `CARD.md` |
+| `<run>/checkout/` | the current adapter: `ADAPTER.md` and `.hermit/CARD.md` |
 | `<run>/steps.jsonl` | scores, changes, costs and commit IDs per step |
 | `<run>/learning_material/` | results and available logs shown to the learner |
 | `<run>/workspace/state/` | the method's candidates and records, saved per step in `step_NNNN/state/` |
@@ -294,8 +294,8 @@ one container per session). Learner: GLM 5.3 (medium). Test: 172 questions, thre
 |---|---|---|
 | none: the agent without an adapter | 0.415 | 0.543 |
 | SkillOpt's initial skill (`utils/seed_adapter/`) | 0.465 | 0.564 |
-| GEPA's trained skill | 0.564 ([card](https://github.com/Infini-AI-Lab/hermit/blob/main/examples/officeqa/gepa/adapter/CARD.md)) | 0.595 |
-| SkillOpt's trained skill | 0.576 ([card](https://github.com/Infini-AI-Lab/hermit/blob/main/examples/officeqa/skillopt/adapter/CARD.md)) | 0.628 |
+| GEPA's trained skill | 0.564 ([card](https://github.com/Infini-AI-Lab/hermit/blob/main/examples/officeqa/gepa/adapter/.hermit/CARD.md)) | 0.595 |
+| SkillOpt's trained skill | 0.576 ([card](https://github.com/Infini-AI-Lab/hermit/blob/main/examples/officeqa/skillopt/adapter/.hermit/CARD.md)) | 0.628 |
 
 Paired differences in points of accuracy, with 95% bootstrap intervals over questions; bold where the interval lies
 above zero. In direct chat, the trained skills' wins over the initial skill were reported without their intervals,

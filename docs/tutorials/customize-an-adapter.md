@@ -12,12 +12,13 @@ mkdir -p .demo
 cp -R hermit/algorithms/templates/prompt_only .demo/my_template
 ```
 
-`.demo/my_template/` holds `adapter.yaml` (the manifest), `ADAPTER.md` (the instructions), `EVOLVER.md` (how a
-learner should edit) and `README.md`.
+`.demo/my_template/` holds `.hermit/adapter.yaml` (the template's metadata), `.hermit/EVOLVER.md` (how a learner
+should edit), `exports.yaml` (what the agent receives), `ADAPTER.md` (the instructions) and `README.md`. A learner
+never changes `.hermit/`; you, as the template author, do.
 
 ## Change the starting instructions
 
-Edit `ADAPTER.md`. This needs no manifest change: the learner starts from your text.
+Edit `ADAPTER.md`. This needs no metadata change: the learner starts from your text.
 
 ```bash
 cat > .demo/my_template/ADAPTER.md <<'EOF'
@@ -29,7 +30,8 @@ EOF
 
 ## Add a skill, and let the learner edit skills
 
-Add a skill file and declare the `skills/` export and the learnable path:
+Add a skill file, declare the `skills/` export in `exports.yaml`, and add the learnable path to
+`.hermit/adapter.yaml`:
 
 ```bash
 mkdir -p .demo/my_template/skills/check-input
@@ -42,35 +44,40 @@ Read the whole input, then read it again, then answer.
 EOF
 ```
 
-In `.demo/my_template/adapter.yaml`:
+In `.demo/my_template/exports.yaml`:
+
+```yaml
+context: ADAPTER.md
+skills: skills
+```
+
+In `.demo/my_template/.hermit/adapter.yaml`:
 
 ```yaml
 template:
   id: my-template            # a new id: this is not prompt-only any more
   version: "1.0"
-  contract: "1"
+  contract: "2"
   name: My template
-exports:
-  context: ADAPTER.md
-  skills: skills
 structure:
   learnable:
+    - exports.yaml
     - path: ADAPTER.md
       format: {text: true, max_bytes: 40000}
     - path: skills/**
       format: {text: true, max_bytes: 4000, max_files: 8}
   fixed:
-    - EVOLVER.md
     - README.md
 ```
 
-`learnable` is what the learner may change, with limits; `fixed` is what must stay as shipped. Every file in the
-adapter must be one or the other. The learner reads `EVOLVER.md` to know how to edit: say there that skills exist
-and what one looks like.
+`learnable` is what the learner may change, with limits; `fixed` is what must stay as shipped. Every file outside
+`.hermit/` must be one or the other. Here `exports.yaml` is learnable (prompt-only fixes it); list it under `fixed`
+instead to keep the exports as you wrote them. The learner reads `.hermit/EVOLVER.md` to know how to edit: say there
+that skills exist and what one looks like.
 
 ## Add a tool
 
-A tool is Python inside the adapter, declared in the manifest; the host sees it as an MCP tool.
+A tool is Python inside the adapter, declared in `exports.yaml`; the host sees it as an MCP tool.
 
 ```bash
 cat > .demo/my_template/tools.py <<'EOF'
@@ -80,37 +87,41 @@ EOF
 ```
 
 ```yaml
-exports:
-  context: ADAPTER.md
-  skills: skills
-  tools:
-    - name: count_words
-      description: Count whitespace-separated words in text.
-      entrypoint: tools.py:count_words
-      input_schema: {type: object, properties: {text: {type: string}}, required: [text], additionalProperties: false}
-      output_schema: {type: object, properties: {count: {type: integer}}, required: [count], additionalProperties: false}
+context: ADAPTER.md
+skills: skills
+tools:
+  - name: count_words
+    description: Count whitespace-separated words in text.
+    entrypoint: tools.py:count_words
+    input_schema: {type: object, properties: {text: {type: string}}, required: [text], additionalProperties: false}
+    output_schema: {type: object, properties: {count: {type: integer}}, required: [count], additionalProperties: false}
 ```
 
-and `tools.py` under `fixed`, so the learner cannot change it. `docs/_examples/file_adapter/` is a complete
+and `tools.py` under `fixed` in `.hermit/adapter.yaml`, so the learner cannot change it. `docs/_examples/file_adapter/` is a complete
 adapter with a skill, a role and this tool.
 
 ## Add a checker
 
-A rule of your own that every candidate must pass, run after the built-in checks:
+A rule of your own that every candidate must pass, run after the built-in checks. It lives in `.hermit/`, which
+the learner cannot change:
 
 ```bash
-cat > .demo/my_template/check.py <<'EOF'
+cat > .demo/my_template/.hermit/check.py <<'EOF'
+from pathlib import Path
+
 def check(adapter_path) -> list:
-    text = (adapter_path / "ADAPTER.md").read_text()
+    text = (Path(adapter_path) / "ADAPTER.md").read_text()
     return [] if "Repeat the input" in text else [{"path": "ADAPTER.md", "problem": "the rule about repeating the input is gone"}]
 EOF
 ```
 
+and in `.hermit/adapter.yaml`:
+
 ```yaml
-check: check.py:check
+check: .hermit/check.py:check
 ```
 
-with `check.py` under `fixed`.
+The path is relative to the adapter root; the checker is always loaded from the template root.
 
 ## Run it
 
@@ -126,9 +137,9 @@ Paths in overrides are relative to the config file. `check` loads your template 
 (a file that is neither learnable nor fixed, a schema error, a checker that fails on the template itself). The
 train run's tree is created under the template's new id, so it never mixes with prompt-only's.
 
-Two rules to keep in mind: the manifest's first five sections are the template's identity, fixed across every
-adapter trained from it, so change them in the template before training, not in a trained adapter; and if the
-manifest changes, give the copy its own `template.id` or a new `version`. The fields are in the
-[adapter.yaml reference](../framework/adapter-manifest.md).
+Two rules to keep in mind: `.hermit/` is the template's and every trained adapter carries it unchanged, so change
+it in the template before training, not in a trained adapter; and if `.hermit/adapter.yaml` or `exports.yaml`
+changes, give the copy its own `template.id` or a new `version`. The fields are in the
+[adapter metadata reference](../framework/adapter-manifest.md).
 
 Next: [Write your own Evolver](custom-evolver.md).
