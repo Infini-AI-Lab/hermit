@@ -3,7 +3,7 @@
 [ACE](https://arxiv.org/abs/2510.04618) (Zhang et al., ICLR 2026; [code](https://github.com/ace-agent/ace)) on
 OfficeQA in the SkillOpt paper's setting, offline: the [`ace`](../../../docs/methods/ace.md) Evolver grows a playbook
 on the 50 training questions, keeps the playbook with the best score on the 24 validation questions, and the fixed
-final adapter is evaluated once on the 172 test questions. The adapter is SkillOpt's initial skill followed by ACE's
+final adapter is evaluated on the 172 test questions. The adapter is SkillOpt's initial skill followed by ACE's
 playbook ([`ace`](../../../hermit/algorithms/templates/ace/) template); the acting agent, its Codex harness and the
 models (GLM 5.3 Flash acting and learning, medium effort) are those of the all-Flash GEPA and SkillOpt runs, so the
 three methods compare on one row of settings.
@@ -37,6 +37,7 @@ hermit check --config examples/officeqa/ace/smoke_codex_login.yaml
 hermit train --config examples/officeqa/ace/smoke_codex_login.yaml
 hermit train --config examples/officeqa/ace/run_codex_login.yaml
 hermit eval  --config examples/officeqa/ace/run_codex_login.yaml --adapter final
+hermit eval  --config examples/officeqa/ace/run_codex_login.yaml --adapter runs/login-codex-ace/workspace/state/last_adapter
 hermit eval  --config examples/officeqa/ace/run_codex_login.yaml --adapter seed_adapter
 hermit eval  --config examples/officeqa/ace/run_codex_login.yaml --adapter none
 ```
@@ -58,6 +59,24 @@ The smoke is not a measurement; it shows whether each of ACE's levers works in a
 - the steps' `output/calls/`: every Reflector and Curator prompt and reply;
 - `checkout/ADAPTER.md`: the skill unchanged at the top, the bullets under their sections, counters above zero;
 - the training rollouts' Codex traces: that the agent read the skill and named bullets in its reasoning.
+
+## The evaluation protocol
+
+The split is the SkillOpt paper's (50 / 24 / 172), kept so that ACE joins the other methods' table. Two of its
+sizes shape what a run can show:
+
+- 24 validation questions: one question is 4.2 points, the standard error of a validation score about 10 points,
+  so choosing between two epochs' playbooks on it is mostly noise. Both the best-validation playbook (`final`) and
+  the last one (`workspace/state/last_adapter`, saved by finalize) are evaluated.
+- 172 test questions: an accuracy's standard error is about 3.7 points, and the 95% interval of a paired difference
+  about ±7 (from the Continual Harness stream's wins and losses). Each adapter is evaluated with three passes
+  (`eval.repeats: 3`), which reduces the sessions' own variance but not the sampling of the questions; a gain of a
+  few points needs repeated trainings (another `trainer.run_name` and `data.shuffle_seed`) to be told apart.
+- 50 training questions are few for a playbook method (the paper's finance tasks train on 500 to 1,000): a small
+  gain says as much about the data as about the method.
+
+Report each adapter's paired difference to the starting adapter with its 95% bootstrap interval over questions:
+a positive difference is a sign of an effect; a lower bound above zero, a significant one.
 
 ## Settings and differences
 

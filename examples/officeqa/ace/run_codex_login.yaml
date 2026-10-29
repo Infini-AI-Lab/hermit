@@ -53,4 +53,4 @@ trainer:
   budget: {usd: null, hours: 24}
   call_timeout_min: 240
 eval:
-  repeats: 1
+  repeats: 3                 # three passes over the 172 test questions: less rollout noise per question

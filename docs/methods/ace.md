@@ -49,6 +49,8 @@ asked to name the bullet ids it uses. Then, for each rollout in turn (`ACE._trai
 
 The updated playbook must pass the template check, or the step is rolled back. With `val_every`, the playbook is
 scored on validation and the best is kept; `finalize` hands it back. No validation: the current playbook is final.
+Either way finalize also saves the playbook as training left it, as a complete adapter in `state/last_adapter`, so
+it can be evaluated beside `final` when the validation split is too small to select on.
 `state/ace.json` records every sample (named bullets, tags, retry scores, the Curator's outcome, bullets added) and
 the playbook's size per step; `output/calls/` holds every prompt and reply.
 

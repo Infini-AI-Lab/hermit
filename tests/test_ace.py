@@ -372,6 +372,9 @@ def test_validation_keeps_the_best_playbook_for_finalize(tmp_path):
     assert "second" in playbook_of(adapter)
     final = ev.finalize(context(tmp_path, adapter, llm, validation=val))
     assert playbook_of(adapter) == best and "0.500" in final.summary
+    last = tmp_path / "state" / "last_adapter"                       # the last playbook, kept for evaluation
+    assert "second" in playbook_of(last) and check_spec(last, TEMPLATE, deploy=False).passed
+    assert not (last / ".git").exists()
     state = json.loads((tmp_path / "state" / "ace.json").read_text())
     assert [v["score"] for v in state["validations"]] == [0.5, 0.25] and state["epoch_sizes"] == {"1": 1}
 
@@ -550,6 +553,9 @@ def test_ace_learns_the_rules_through_the_trainer(tmp_path):
     assert any(p["helpful"] > 0 for p in map(pb.parse_playbook_line, book.split("\n")) if p)
     assert evaluate(config, "final", log=lambda *_: None)["mean_score"] == 1.0
     assert evaluate(config, "root", log=lambda *_: None)["mean_score"] == 0.0
+    last = run / "workspace" / "state" / "last_adapter"
+    assert evaluate(config, str(last), log=lambda *_: None)["mean_score"] == 1.0
+    assert (run / "eval" / "last_adapter" / "results.jsonl").is_file()
 
 
 # ---------- the user's own Codex login: the learner as `codex exec`, the acting agent's sessions ----------

@@ -211,6 +211,7 @@ class ACEEvolver(Evolver):
         state = self._state(ws)
         f = ws.adapter / ADAPTER
         best_file = ws.state / "best_playbook.md"
+        self._keep_last(ws)
         if not state.get("validations") or not f.is_file():
             return FinalResult(adapter=ws.adapter, summary="no validation ran: the current playbook")
         prefix, _, suffix = pb.split_adapter(f.read_text(encoding="utf-8"))
@@ -222,6 +223,17 @@ class ACEEvolver(Evolver):
         return FinalResult(adapter=ws.adapter, summary=f"the best validation playbook ({best['source'] or 'initial'}, "
                            f"validation {best['score']:.3f}; {len(state['validations'])} validation(s))",
                            extra={"best": best})
+
+    @staticmethod
+    def _keep_last(ws) -> None:
+        """The adapter as training left it, before finalize picks the best validation playbook: a complete adapter
+        directory (state/last_adapter) that `hermit eval --adapter <path>` can evaluate beside `final`. With a
+        validation split as small as OfficeQA's 24 questions, selecting on it is mostly noise, so both are worth
+        evaluating."""
+        last = ws.state / "last_adapter"
+        if last.exists():
+            shutil.rmtree(last)
+        shutil.copytree(ws.adapter, last, symlinks=True, ignore=shutil.ignore_patterns(".git", "__pycache__"))
 
     # ---------- one sample: ACE._train_single_sample after its first generation ----------
 
