@@ -12,7 +12,7 @@ numbers alone may not distinguish unreleased changes.
 | Context-only workspace generation | macOS and Linux |
 | Sandboxed learner programs | Linux with bubblewrap and permitted namespaces |
 | Built-in methods | Prompt-only (the Codex learner on the prompt-only template), Codex, Claude, GEPA, SkillOpt, MWM |
-| Workspace deployment | Codex, Claude Code, and Pi |
+| Workspace deployment | Codex, Claude Code, Pi, and OpenCode |
 | Native plugin conversion | Claude Code, Codex, Pi, Hermes, with export restrictions |
 | Stdio tool server | `hermit serve DIR`; normally started by the host |
 | Generic manifest-driven standalone service lifecycle | Proposed; not implemented |

@@ -74,7 +74,7 @@ Python 3.14; install `gepa` and `skillopt` separately there.
 |---|---|
 | [Offline first training](quickstart.md) | None beyond the core install |
 | [First real-model training](first-model.md) | `python -m pip install -e . --group gepa`, a compatible chat-completions endpoint, model id, and credential; data is included |
-| Generate a Codex / Claude Code / Pi workspace | No host CLI is needed until you start the host |
+| Generate a Codex / Claude Code / Pi / OpenCode workspace | No host CLI is needed until you start the host |
 | Run an acting host | Installed and authenticated host, plus adapter tool dependencies |
 | Prompt-only learner | The Codex CLI, Linux with bubblewrap, and a learner backend that serves the Responses API |
 | GEPA | `python -m pip install -e . --group gepa`, learner endpoint, validation split |
