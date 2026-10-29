@@ -35,7 +35,7 @@ def render_exports(adapter, python):
 def retire_roles(output, previous, current):
     """Move stale generated roles out of host discovery; keep their contents."""
     active = {Path(p).resolve() for p in current.values()}
-    allowed = [(output / '.codex/agents').resolve(), (output / '.claude/agents').resolve()]
+    allowed = [(output / folder).resolve() for folder in ('.codex/agents', '.claude/agents', '.opencode/agents')]
     for value in previous.get('roles', {}).values():
         path = Path(value).resolve()
         if path in active or not path.is_file():

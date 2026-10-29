@@ -71,6 +71,7 @@ user chooses: `--adapter none` runs the acting agent with no harness adapter at 
 hermit deploy --adapter DIR --workspace WORKSPACE --host codex
 hermit deploy --adapter DIR --workspace WORKSPACE --host claude-code
 hermit deploy --adapter DIR --workspace WORKSPACE --host pi
+hermit deploy --adapter DIR --workspace WORKSPACE --host opencode
 ```
 
 This generates host instruction files, role/skill files, and tool configuration. It does not launch the acting
@@ -78,6 +79,11 @@ agent. Pi has no subagents, so `--host pi` refuses an adapter that exports roles
 load once the user trusts the project in Pi, while `AGENTS.md` needs no trust. It is the per-project way to use an adapter; the per-agent way, `convert`, and how the two compare are in
 [What is a harness adapter?](what-is-a-harness-adapter.md#two-ways-to-use-an-adapter). The workspace must be an empty directory or one previously generated for the same host, separate from
 the adapter directory. See the [file mapping](adapter.md#acting-interface) for exact paths and update behavior.
+
+OpenCode reads the generated `AGENTS.md`, `opencode.json` local MCP entry, `.opencode/agents/` subagents and
+`.opencode/skills/` skills. Start OpenCode from the generated workspace, with its providers configured separately.
+The MCP entry uses the selected Python interpreter and the adapter's absolute source path; both must remain
+available. This is workspace deployment only, not an OpenCode acting-agent or Evolver backend for `train`/`eval`.
 
 ## convert
 
@@ -160,7 +166,7 @@ It is not an HTTP preview server or the proposed standalone-service launcher. `-
 
 - `check` also verifies that every `sandbox.read` path exists. It does not check the pipeline's host: adapters are meant to
   be usable by any acting agent, and each pipeline deploys the exports (context, tools, roles, skills) in its own way.
-- `hermit deploy --adapter DIR --workspace WORKSPACE --host codex|claude-code|pi` deploys an adapter's exports into
+- `hermit deploy --adapter DIR --workspace WORKSPACE --host codex|claude-code|pi|opencode` deploys an adapter's exports into
   a host workspace (context block, MCP tools, native roles, skills).
 - `hermit convert --adapter DIR --output OUT --target ...` emits a plugin in the host's native format instead,
   and exits 2 naming every part the target's plugin cannot carry.
