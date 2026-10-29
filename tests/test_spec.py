@@ -156,6 +156,27 @@ def test_template_checks_keep_the_exported_wiring(tmp_path):
         assert final.passed and changed is kept, (name, edit.__name__)
 
 
+def test_template_checks_restore_a_deleted_exports_file(tmp_path):
+    for name in ("lean_collab", "mwm"):
+        root = TEMPLATES / name
+        parent = copy(root, tmp_path / name / "parent")
+        adapter = copy(root, tmp_path / name / "adapter")
+        (adapter / "exports.yaml").unlink()                                  # no exports: no tools, no reactions
+        assert ("exports.yaml", 6) in {(i.path, i.check) for i in check_spec(adapter, root, deploy=False).issues}
+        final, _ = repair(adapter, root, parent)
+        assert final.passed and (adapter / "exports.yaml").read_text() == (root / "exports.yaml").read_text()
+
+
+def test_deploy_and_serve_name_the_0_1_layout_in_one_line(tmp_path, capsys):
+    from hermit.cli import main
+    adapter = copy(TEMPLATES / "prompt_only", tmp_path / "adapter")
+    shutil.move(adapter / ".hermit" / "adapter.yaml", adapter / "adapter.yaml")
+    for argv in (["deploy", "--adapter", str(adapter), "--workspace", str(tmp_path / "ws")], ["serve", str(adapter)]):
+        assert main(argv) == 2
+        err = capsys.readouterr().err
+        assert "Hermit 0.1 layout" in err and "Traceback" not in err
+
+
 def test_the_0_1_layout_is_named(tmp_path):
     import pytest
     from hermit.adapter.manifest import read_manifest

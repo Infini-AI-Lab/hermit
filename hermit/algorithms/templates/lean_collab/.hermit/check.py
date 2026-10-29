@@ -15,10 +15,11 @@ REACTIONS = "reactions.py:react"
 
 
 def check(adapter_path: str) -> list[dict]:
-    try:
-        exports = yaml.safe_load((Path(adapter_path) / "exports.yaml").read_text(encoding="utf-8")) or {}
+    path = Path(adapter_path) / "exports.yaml"
+    try:                                                # a missing exports.yaml exports nothing: the wiring is gone
+        exports = (yaml.safe_load(path.read_text(encoding="utf-8")) or {}) if path.is_file() else {}
     except (OSError, yaml.YAMLError):
-        return []                                       # a missing or broken exports.yaml is the library's check
+        return []                                       # a broken exports.yaml is the library's check
     if not isinstance(exports, dict):
         return []
     declared = {t.get("name"): t.get("entrypoint") for t in exports.get("tools") or [] if isinstance(t, dict)}

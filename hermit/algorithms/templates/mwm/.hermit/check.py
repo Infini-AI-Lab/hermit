@@ -45,10 +45,11 @@ def _path_in(adapter: Path, text: str) -> str:
 
 def _wm_tool(adapter: Path) -> str:
     """Why the candidate's exports no longer serve the wm tool, or "" when they do."""
-    try:
-        exports = yaml.safe_load((adapter / "exports.yaml").read_text(encoding="utf-8")) or {}
+    path = adapter / "exports.yaml"
+    try:                                                # a missing exports.yaml exports nothing: no wm tool
+        exports = (yaml.safe_load(path.read_text(encoding="utf-8")) or {}) if path.is_file() else {}
     except (OSError, yaml.YAMLError):
-        return ""                                       # a missing or broken exports.yaml is the library's check
+        return ""                                       # a broken exports.yaml is the library's check
     tools = exports.get("tools") if isinstance(exports, dict) else None
     wm = [t for t in tools or [] if isinstance(t, dict) and t.get("name") == "wm"]
     if not wm:
