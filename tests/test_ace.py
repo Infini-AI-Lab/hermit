@@ -550,3 +550,172 @@ def test_ace_learns_the_rules_through_the_trainer(tmp_path):
     assert any(p["helpful"] > 0 for p in map(pb.parse_playbook_line, book.split("\n")) if p)
     assert evaluate(config, "final", log=lambda *_: None)["mean_score"] == 1.0
     assert evaluate(config, "root", log=lambda *_: None)["mean_score"] == 0.0
+
+
+# ---------- the user's own Codex login: the learner as `codex exec`, the acting agent's sessions ----------
+
+FAKE_CODEX = r'''#!/usr/bin/env python3
+"""A stand-in for `codex exec`: answers ACE's prompts as the scripted model does, from stdin."""
+import json, os, sys
+from pathlib import Path
+args = sys.argv[1:]
+prompt = sys.stdin.read()
+home = Path(os.environ["CODEX_HOME"])
+log = Path(os.environ["FAKE_CODEX_LOG"])
+with open(log, "a") as f:
+    f.write(json.dumps({"args": args, "stdin_chars": len(prompt), "auth": (home / "auth.json").is_file(),
+                        "auth_mode": oct((home / "auth.json").stat().st_mode & 0o777)
+                        if (home / "auth.json").is_file() else None}) + "\n")
+if os.environ.get("FAKE_CODEX_FAIL"):
+    print("error: 401 Unauthorized", flush=True)
+    sys.exit(1)
+if "master curator" in prompt:
+    reply = json.dumps({"reasoning": "add", "operations": [{"type": "ADD", "section": "OTHERS", "content": "via codex"}]})
+else:
+    reply = json.dumps({"reasoning": "r", "bullet_tags": [{"id": "calc-00002", "tag": "helpful"}]})
+Path(args[args.index("-o") + 1]).write_text(reply)
+print(json.dumps({"type": "thread.started", "thread_id": "t1"}))
+print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 100, "cached_input_tokens": 40,
+                                                      "output_tokens": 7}}))
+'''
+
+
+@pytest.fixture
+def fake_codex(tmp_path, monkeypatch):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "codex").write_text(FAKE_CODEX)
+    (bin_dir / "codex").chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("FAKE_CODEX_LOG", str(tmp_path / "codex_calls.jsonl"))
+    auth = tmp_path / "auth.json"
+    auth.write_text(json.dumps({"tokens": {"access_token": "a"}, "last_refresh": "2026-10-01T00:00:00Z"}))
+    return auth
+
+
+def codex_calls(tmp_path) -> list[dict]:
+    return [json.loads(l) for l in (tmp_path / "codex_calls.jsonl").read_text().splitlines()]
+
+
+def test_the_codex_learner_runs_exec_under_the_login(tmp_path, fake_codex):
+    adapter = seed(tmp_path)
+    material(tmp_path, [record("UID1", 1.0, cites="Applying [calc-00002].")])
+    ctx = context(tmp_path, adapter, llm=None, params={"learner": "codex", "learner_auth": str(fake_codex),
+                                                         "learner_model": "gpt-x", "learner_effort": "medium"})
+    ctx = StepContext(workspace=ctx.workspace, access=ctx.access,
+                      tools={k: v for k, v in ctx.tools.items() if k != "llm"}, params=ctx.params, progress=ctx.progress)
+    ev = E.ACEEvolver()
+    result = ev.step(ctx)
+    assert result.status == "done", result.summary
+    book = playbook_of(adapter)
+    assert "[calc-00002] helpful=4 harmful=1 ::" in book and ":: via codex" in book
+    calls = codex_calls(tmp_path)
+    assert len(calls) == 2 and all(c["auth"] and c["auth_mode"] == "0o600" for c in calls)
+    args = calls[0]["args"]
+    assert args[:2] == ["exec", "--json"] and args[-1] == "-" and "read-only" in args
+    assert args[args.index("-m") + 1] == "gpt-x" and 'model_reasoning_effort="medium"' in args
+    prompt = (tmp_path / "output" / "calls").glob("*.reflect.prompt.md").__next__().read_text()
+    assert calls[0]["stdin_chars"] == len(prompt)                     # the prompt goes on stdin, not argv
+    assert [(u.input_tokens, u.cached_input_tokens, u.output_tokens, u.calls) for u in result.usage] == \
+        [(100, 40, 7, 1), (100, 40, 7, 1)]
+    home = tmp_path / "agent_home"                                    # ws.state.parent / agent_home
+    assert (home / "auth.json").is_file()
+    ev.finalize(ctx)
+    assert not (home / "auth.json").exists() and fake_codex.is_file()   # the run's copy goes, the user's stays
+
+
+def test_a_failing_codex_learner_skips_the_call(tmp_path, fake_codex, monkeypatch):
+    monkeypatch.setenv("FAKE_CODEX_FAIL", "1")
+    adapter = seed(tmp_path)
+    material(tmp_path, [record("UID1", 1.0)])
+    before = playbook_of(adapter)
+    result = E.ACEEvolver().step(context(tmp_path, adapter, scripted(),
+                                         {"learner": "codex", "learner_auth": str(fake_codex)}))
+    assert result.status == "done" and playbook_of(adapter) == before
+    errors = sorted((tmp_path / "output" / "calls").glob("*.error.txt"))
+    assert errors and "401 Unauthorized" in errors[0].read_text()
+
+
+def test_the_codex_learner_without_a_login_says_so(tmp_path, fake_codex):
+    adapter = seed(tmp_path)
+    material(tmp_path, [record("UID1", 1.0)])
+    E.ACEEvolver().step(context(tmp_path, adapter, scripted(),
+                                {"learner": "codex", "learner_auth": str(tmp_path / "missing.json")}))
+    errors = sorted((tmp_path / "output" / "calls").glob("*.error.txt"))
+    assert errors and "codex login" in errors[0].read_text()
+
+
+def test_an_unknown_learner_fails_the_step(tmp_path):
+    adapter = seed(tmp_path)
+    material(tmp_path, [record("UID1", 1.0)])
+    assert E.ACEEvolver().step(context(tmp_path, adapter, scripted(), {"learner": "gpt"})).status == "failed"
+
+
+def officeqa_agent(tmp_path):
+    """examples/officeqa/utils/agent/agent.py, imported from a copy beside a data.json of its own (prepare.py writes
+    the real one)."""
+    import importlib.util
+    import sys
+    utils = tmp_path / "utils"
+    (utils / "agent").mkdir(parents=True)
+    shutil.copy(ROOT / "examples" / "officeqa" / "utils" / "agent" / "agent.py", utils / "agent" / "agent.py")
+    (utils / "data.json").write_text(json.dumps({"answers": "x", "docs": str(tmp_path / "docs")}))
+    spec = importlib.util.spec_from_file_location(f"officeqa_agent_{id(tmp_path)}", utils / "agent" / "agent.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_officeqa_agent_binds_a_login_without_provider_settings(tmp_path):
+    A = officeqa_agent(tmp_path)
+    A._bind({"harness": "codex", "login": "chatgpt", "model": "gpt-x"})
+    assert A._binding.model == "gpt-x" and A._binding.price is None
+    assert A._binding.codex_args() == ["-c", 'forced_login_method = "chatgpt"']
+    A._bind({"harness": "codex", "login": "chatgpt"})
+    assert A._binding.model == "" and A._binding.ref == "codex-login/default"
+    with pytest.raises(ValueError, match="model name"):
+        A._bind({"harness": "codex", "login": "chatgpt", "model": "fireworks/glm"})
+    with pytest.raises(ValueError, match="harness: codex"):
+        A._harness({"login": "chatgpt"})
+    with pytest.raises(ValueError, match="chatgpt or absent"):
+        A._login({"login": "apikey"})
+    assert A._harness({"harness": "codex"}) == "codex" and not A._login({})
+
+
+@pytest.mark.parametrize("session_refresh, expect_written", [("2026-10-29T00:00:00Z", True),
+                                                             ("2026-09-01T00:00:00Z", False)])
+def test_a_refreshed_session_login_becomes_the_runs_copy(tmp_path, session_refresh, expect_written):
+    A = officeqa_agent(tmp_path)
+    params = {"codex_dir": str(tmp_path / "codex")}
+    master = A._login_master(params)
+    master.parent.mkdir(parents=True)
+    master.write_text(json.dumps({"tokens": {"refresh_token": "old"}, "last_refresh": "2026-10-01T00:00:00Z"}))
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / "auth.json").write_text(json.dumps({"tokens": {"refresh_token": "new"}, "last_refresh": session_refresh}))
+    A._keep_refreshed(params, home)
+    written = json.loads(master.read_text())["tokens"]["refresh_token"] == "new"
+    assert written == expect_written
+    if written:
+        assert oct(master.stat().st_mode & 0o777) == "0o600"
+
+
+def test_each_codex_session_home_gets_the_login(tmp_path):
+    import sys
+    sys.path.insert(0, str(ROOT / "examples" / "officeqa" / "utils" / "agent"))
+    import codex_sandbox as S
+    auth = tmp_path / "auth.json"
+    auth.write_text('{"tokens": {}}')
+    home = tmp_path / "rollout" / "codex_home"
+    home.parent.mkdir()
+    S.prepare_home(home, 'forced_login_method = "chatgpt"\n', str(auth))
+    assert (home / "auth.json").read_text() == '{"tokens": {}}' and oct((home / "auth.json").stat().st_mode & 0o777) == "0o600"
+    assert 'forced_login_method = "chatgpt"' in (home / "config.toml").read_text()
+    (home / "auth.json").write_text('{"refreshed": true}')
+    S.prepare_home(home, "", str(auth))                       # a later session keeps what Codex refreshed
+    assert (home / "auth.json").read_text() == '{"refreshed": true}'
+    other = tmp_path / "rollout2" / "codex_home"
+    other.parent.mkdir()
+    S.prepare_home(other, "", None)                          # without a login: no auth.json, as before
+    assert not (other / "auth.json").exists()

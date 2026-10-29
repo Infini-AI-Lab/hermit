@@ -4,7 +4,8 @@ description: ACE, Agentic Context Engineering (Zhang et al., ICLR 2026, arXiv:25
   attempt and tags the bullets the agent named; a wrong answer is reflected on and run again with the reflection
   (run_agent) for up to max_num_rounds rounds; the counters are updated without a model; the Curator adds bullets
   (ADD only, as upstream) every curator_frequency samples. Validation (val_every) keeps the best playbook, which
-  finalize hands back. Uses the run's `llm` tool; data.step_size 1 is upstream's per-sample loop.
+  finalize hands back. Uses the run's `llm` tool, or (learner codex) the user's Codex login; data.step_size 1
+  is upstream's per-sample loop.
 class: evolver.py:ACEEvolver
 needs: []
 params:
@@ -22,5 +23,11 @@ params:
   embedding_model: all-mpnet-base-v2
   trace_chars: 12000                 # characters of a trajectory shown to the Reflector (the middle is cut)
   question_chars: 6000               # characters of the task shown to the Reflector and the Curator
+  learner: llm                       # llm: the run's `llm` tool; codex: each Reflector/Curator/merge call is one
+                                     # `codex exec` session under the user's Codex login (no `llm` needed)
+  learner_model: null                # codex: the model (-m); null: the login's default
+  learner_effort: null               # codex: model_reasoning_effort (low | medium | high); null: Codex's default
+  learner_auth: ~/.codex/auth.json   # codex: the login copied into the run's own Codex home
+  learner_timeout_s: 900             # codex: one session's wall clock
   max_tokens: 32000                  # upstream: 4096, for a non-reasoning model
   temperature: null                  # null: the endpoint's default (upstream: 0.0)

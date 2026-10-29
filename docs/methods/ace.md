@@ -20,6 +20,12 @@ data:
 llm: {model: <backend>/<model>}   # the Reflector's and the Curator's model
 ```
 
+With `learner: codex` the Reflector, the Curator and the merges are `codex exec` sessions under the user's own
+Codex login (a ChatGPT account, `codex login`) instead of the `llm` tool: read-only, the prompt on stdin, the reply
+Codex's last message, the login copied into the run's own Codex home (removed at finalize). The learner's sandbox must
+let the provider through (`sandbox.allow: [chatgpt.com, auth.openai.com]`); `temperature` and `max_tokens` do not
+apply, and a subscription's cost is recorded as unknown.
+
 The template's `ADAPTER.md` is the acting agent's context: any text the adapter started with (for example a task
 skill), then the generator instructions and the playbook between markers. Starting from an adapter without a
 playbook, the Evolver's bootstrap appends the empty one. The de-duplication option needs
@@ -65,6 +71,7 @@ the playbook's size per step; `output/calls/` holds every prompt and reply.
 | De-duplication | Off by default; faiss-normalised embeddings, threshold 0.90, LLM merge (temperature 0.3) keeping what the model wrote | Same grouping and prompt; the merged line keeps the first id and the summed counts | Decision: an id can never repeat |
 | Selection | Validation every `eval_steps` samples (default 100, which never fires on 50 training questions); best starts as the initial playbook at 0 | `val_every: epoch` by default (or every N samples); same best rule; `score_initial` optional | Decision |
 | Models and budgets | DeepSeek-V3.1 for all roles, temperature 0, 4,096 tokens | The run's `llm` (OfficeQA: GLM 5.3 Flash, medium effort), endpoint temperature, 32,000 tokens | Task row: the other methods' settings |
+| The learner's endpoint | An OpenAI-compatible client (SambaNova, Together, OpenAI) | The `llm` tool, or `codex exec` under a Codex login (`learner: codex`) | Decision: a run on a ChatGPT login, no API key |
 | Epochs, rounds | Code 1 epoch, 3 rounds; paper up to 5 and 5 | Config; OfficeQA: 2 epochs, 3 rounds | Decision |
 | Not ported | Post-curation generation (tracking only), online mode's windows, `ACEBatch` (post-paper), JSON mode, the AppWorld prompts | — | Online ACE is a streaming config of this Evolver, not yet provided |
 

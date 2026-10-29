@@ -23,6 +23,9 @@ The session's shell gets only Codex's core environment variables (no API key, no
     OFFICEQA_CODEX_NETWORK  the internal network (default oq-sandbox)
     OFFICEQA_CODEX_PROXY    the egress proxy (default http://oq-egress:3128)
 CODEX_HOME names the home whose config.toml (the provider settings) each rollout's home starts from.
+    OFFICEQA_CODEX_AUTH     a Codex login (auth.json) copied into each rollout's home: the user's ChatGPT login
+                            (agent.params.login: chatgpt); the proxy must then let chatgpt.com:443 and
+                            auth.openai.com:443 through
 `codex_sandbox.py --check` reports what is missing (agent.py runs it before the first session).
 """
 from __future__ import annotations
@@ -59,6 +62,17 @@ def settings(template: str) -> str:
                       'exclude = ["*KEY*", "*TOKEN*", "*SECRET*"]', ""])
 
 
+def prepare_home(home: Path, template: str, auth: str | None) -> None:
+    """A rollout's Codex home: the settings, and with a login (OFFICEQA_CODEX_AUTH) its copy. A rollout's later
+    sessions keep the copy they have, with whatever Codex refreshed in it."""
+    home.mkdir(exist_ok=True)
+    if not (home / "config.toml").exists():
+        (home / "config.toml").write_text(settings(template))
+    if auth and not (home / "auth.json").exists():
+        shutil.copy2(auth, home / "auth.json")
+        os.chmod(home / "auth.json", 0o600)
+
+
 def mount(path: Path, readonly: bool = False) -> list[str]:
     """The folder at the path Codex is given (links resolved only on the machine's side)."""
     return ["--mount", f"type=bind,src={path.resolve()},dst={path}" + (",readonly" if readonly else "")]
@@ -72,7 +86,9 @@ def check() -> list[str]:
     inspect = lambda *a: subprocess.run([docker, *a], capture_output=True).returncode == 0
     template = (Path(os.environ["CODEX_HOME"]) / "config.toml").read_text()
     corpus = Path(os.environ["OFFICEQA_CODEX_CORPUS"])
-    return ([f"no image {IMAGE} (docker/Dockerfile)"] * (not inspect("image", "inspect", IMAGE))
+    auth = os.environ.get("OFFICEQA_CODEX_AUTH")
+    return ([f"no Codex login at {auth}"] * bool(auth and not Path(auth).is_file())
+            + [f"no image {IMAGE} (docker/Dockerfile)"] * (not inspect("image", "inspect", IMAGE))
             + [f"no network {NETWORK} (docker network create --internal {NETWORK})"]
             * (not inspect("network", "inspect", NETWORK))
             + [f"{k} is not set" for k in re.findall(r'env_key\s*=\s*"([^"]+)"', template) if not os.environ.get(k)]
@@ -87,10 +103,8 @@ def main() -> None:
     work = Path(os.path.abspath(args[args.index("-C") + 1]))
     rollout = work.parents[2]                                 # <rollout>/predictions/<id>/codex_exec
     home = rollout / "codex_home"
-    home.mkdir(exist_ok=True)
     template = (Path(os.environ["CODEX_HOME"]) / "config.toml").read_text()
-    if not (home / "config.toml").exists():
-        (home / "config.toml").write_text(settings(template))
+    prepare_home(home, template, os.environ.get("OFFICEQA_CODEX_AUTH"))
     corpus = Path(os.path.abspath(os.environ["OFFICEQA_CODEX_CORPUS"]))
     keys = sorted(set(re.findall(r'env_key\s*=\s*"([^"]+)"', template)))    # passed by name: not on the command line
     docker = shutil.which("docker")

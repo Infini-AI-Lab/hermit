@@ -29,10 +29,15 @@ Training State: `state/ace.json` (sample counters, the next bullet id, one recor
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import shutil
+import signal
+import subprocess
+import time
 
-from hermit.evolver.base import Evolver, FinalResult, StepContext, StepResult
+from hermit.evolver.agent import parse_log
+from hermit.evolver.base import Evolver, FinalResult, StepContext, StepResult, Usage
 from hermit.evolver.dependencies import missing_dependency
 from hermit.trainer.budget import BudgetExceeded
 
@@ -123,6 +128,7 @@ def reasoning_trace(record: dict, traj: Path | None) -> str:
 class ACEEvolver(Evolver):
     def __init__(self) -> None:
         self._embedder = None
+        self._usage: list[Usage] = []      # the codex learner's sessions (the llm tool meters its own calls)
 
     def bootstrap(self, ctx: StepContext) -> StepResult | None:
         """A starting adapter without a playbook (for example a task skill) gets ACE's empty playbook after it."""
@@ -135,8 +141,15 @@ class ACEEvolver(Evolver):
 
     def step(self, ctx: StepContext) -> StepResult:
         ws = ctx.workspace
-        if "llm" not in ctx.tools:
-            return StepResult("failed", "ace needs the run's llm tool: set `llm` in the run config")
+        self._usage = []
+        learner = ctx.params.get("learner") or "llm"
+        if learner == "llm" and "llm" not in ctx.tools:
+            return StepResult("failed", "ace needs the run's llm tool: set `llm` in the run config "
+                                        "(or evolver.params.learner: codex)")
+        if learner == "codex" and not shutil.which("codex"):
+            return StepResult("failed", "learner: codex needs the codex CLI on PATH")
+        if learner not in ("llm", "codex"):
+            return StepResult("failed", f"unknown learner {learner!r}: llm or codex")
         f = ws.adapter / ADAPTER
         text = f.read_text(encoding="utf-8") if f.is_file() else ""
         problems = pb.playbook_problems(text)
@@ -158,7 +171,7 @@ class ACEEvolver(Evolver):
         calls = {"n": 0}
         for record, traj in records:
             if ctx.cancel is not None and ctx.cancel.is_set():
-                return StepResult("failed", "stopped by the Trainer")
+                return StepResult("failed", "stopped by the Trainer", usage=self._usage)
             state["index"] += 1
             sample = self._sample(ctx, record, traj, playbook, prefix, suffix, state, calls)
             playbook = sample.pop("playbook")
@@ -172,7 +185,7 @@ class ACEEvolver(Evolver):
             issues = [i.get("problem", str(i))[:200] for i in check.get("issues", [])[:3]]
             step_record["outcome"] = "rolled back: the updated playbook failed the template check: " + "; ".join(issues)
             self._save(ws, state, step_record)
-            return StepResult("failed", step_record["outcome"][:300])
+            return StepResult("failed", step_record["outcome"][:300], usage=self._usage)
 
         step_record |= {"bullets_after": len(pb.bullet_ids_of(playbook)), "chars_after": len(playbook),
                         "stats": pb.get_playbook_stats(playbook)}
@@ -187,11 +200,14 @@ class ACEEvolver(Evolver):
                                   + (f"; validation {val['score']:.3f}" + (" (new best)" if val["best"] else "")
                                      if val is not None else ""))
         self._save(ws, state, step_record)
-        return StepResult("done", step_record["outcome"][:300],
+        return StepResult("done", step_record["outcome"][:300], usage=self._usage,
                           extra={"added": added, "bullets": step_record["bullets_after"], "llm_calls": calls["n"]})
 
     def finalize(self, ctx) -> FinalResult:
         ws = ctx.workspace
+        auth = ws.state.parent / "agent_home" / "auth.json"
+        if auth.is_file():                     # the codex learner's copy of the login, as AgentEvolver.finalize
+            auth.unlink()
         state = self._state(ws)
         f = ws.adapter / ADAPTER
         best_file = ws.state / "best_playbook.md"
@@ -414,19 +430,23 @@ class ACEEvolver(Evolver):
 
     # ---------- the model, the records, the state ----------
 
-    @staticmethod
-    def _ask(ctx, prompt: str, name: str, calls: dict, temperature: float | None = None) -> str:
+    def _ask(self, ctx, prompt: str, name: str, calls: dict, temperature: float | None = None) -> str:
+        """One Reflector, Curator or merge call: the run's `llm` tool, or (`learner: codex`) one `codex exec`
+        session. A failed call returns "" and the caller skips, as upstream."""
         p = ctx.params
-        sampling = {k: p[k] for k in ("max_tokens", "temperature") if p.get(k) is not None}
-        if temperature is not None:
-            sampling["temperature"] = temperature
         out = ctx.workspace.output / "calls"
         out.mkdir(parents=True, exist_ok=True)
         (out / f"{name}.prompt.md").write_text(prompt, encoding="utf-8")
         calls["n"] += 1
         try:
-            reply = ctx.tools["llm"](messages=[{"role": "user", "content": prompt}], **sampling)
-            text = str(reply.get("content") or "")
+            if (p.get("learner") or "llm") == "codex":
+                text = self._codex(ctx, prompt, out / name)
+            else:
+                sampling = {k: p[k] for k in ("max_tokens", "temperature") if p.get(k) is not None}
+                if temperature is not None:
+                    sampling["temperature"] = temperature
+                reply = ctx.tools["llm"](messages=[{"role": "user", "content": prompt}], **sampling)
+                text = str(reply.get("content") or "")
         except BudgetExceeded:
             raise
         except Exception as exc:                          # noqa: BLE001 — as upstream, the call's step is skipped
@@ -434,6 +454,63 @@ class ACEEvolver(Evolver):
             (out / f"{name}.error.txt").write_text(f"{type(exc).__name__}: {exc}", encoding="utf-8")
         (out / f"{name}.reply.md").write_text(text, encoding="utf-8")
         return text
+
+    def _codex(self, ctx, prompt: str, stem: Path) -> str:
+        """The prompt as one `codex exec` session under the user's Codex login (a ChatGPT account): read-only, in
+        an empty directory, the prompt on stdin (a playbook can pass the length an argument may have), the reply
+        Codex's last message. The login is copied once into the run's own Codex home and stays there, so a token
+        Codex refreshes is the one the next call uses; finalize removes it. Temperature and max_tokens do not apply."""
+        p, ws = ctx.params, ctx.workspace
+        home = ws.state.parent / "agent_home"
+        home.mkdir(parents=True, exist_ok=True)
+        source = Path(os.path.expanduser(str(p.get("learner_auth") or "~/.codex/auth.json")))
+        if not (home / "auth.json").is_file():
+            if not source.is_file():
+                raise FileNotFoundError(f"no Codex login at {source}: run `codex login` (or set learner_auth)")
+            shutil.copy2(source, home / "auth.json")
+            os.chmod(home / "auth.json", 0o600)
+        work = ws.scratch / "codex_learner"
+        work.mkdir(parents=True, exist_ok=True)
+        last = Path(f"{stem}.last.txt")
+        log = Path(f"{stem}.codex.jsonl")
+        command = ["codex", "exec", "--json", "--skip-git-repo-check", "--ignore-user-config", "-s", "read-only",
+                   "-C", str(work), "-o", str(last)]
+        if p.get("learner_model"):
+            command += ["-m", str(p["learner_model"])]
+        if p.get("learner_effort"):
+            command += ["-c", f'model_reasoning_effort="{p["learner_effort"]}"']
+        command.append("-")
+        env = dict(os.environ)
+        env["CODEX_HOME"] = str(home)
+        if ctx.sandbox is not None:
+            command, env = ctx.sandbox.wrap(command, writable=[home, work, stem.parent], env=env, home=home,
+                                            keep=["CODEX_HOME"])
+        timeout = float(p.get("learner_timeout_s") or 900)
+        with open(log, "w") as out:
+            proc = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=out, stderr=subprocess.STDOUT, env=env,
+                                    cwd=str(work), start_new_session=True)
+            try:
+                proc.stdin.write(prompt.encode("utf-8"))
+                proc.stdin.close()
+            except BrokenPipeError:
+                pass
+            started = time.monotonic()
+            while proc.poll() is None:
+                if (ctx.cancel is not None and ctx.cancel.is_set()) or time.monotonic() - started > timeout:
+                    os.killpg(proc.pid, signal.SIGTERM)
+                    try:
+                        proc.wait(15)
+                    except subprocess.TimeoutExpired:
+                        os.killpg(proc.pid, signal.SIGKILL)
+                    break
+                time.sleep(0.5)
+            code = proc.wait()
+        _, usage = parse_log(log, "codex", str(p.get("learner_model") or "codex"))
+        self._usage += usage
+        if code != 0:
+            tail = log.read_text(errors="replace")[-600:] if log.is_file() else ""
+            raise RuntimeError(f"codex exec exited with {code}: {tail}")
+        return last.read_text(encoding="utf-8", errors="replace") if last.is_file() else ""
 
     @staticmethod
     def _records(material: Path) -> list[tuple[dict, Path | None]]:

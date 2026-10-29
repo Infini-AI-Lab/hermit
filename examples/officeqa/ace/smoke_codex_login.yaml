@@ -1,0 +1,51 @@
+# Smoke on the user's own Codex login (as run_codex_login.yaml): 4 training questions one at a time, 2 validation
+# questions, 4 test questions, one epoch, one retry round. Shows that the login reaches the acting sessions and the
+# learner, and that ACE's levers work (bullets named, counters moving, bullets added); not a measurement.
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/smoke_train.txt
+  val: ../utils/splits/smoke_val.txt
+  test: ../utils/splits/smoke_test.txt
+  step_size: 1
+  shuffle_seed: 42
+task_info: ../utils/task-info/
+agent:
+  name: ../utils/agent/agent.py:OfficeQAAgent
+  params:
+    harness: codex
+    login: chatgpt
+    model: null
+    codex_dir: ~/.cache/hermit/officeqa-ace-login
+  concurrency: 2
+judge:
+  path: ../utils/judge.py
+template: ace@1.0
+start_from: seed_adapter
+evolver:
+  name: ace
+  params:
+    learner: codex
+    learner_model: null
+    learner_effort: medium
+    feedback: true
+    max_num_rounds: 1
+    total_samples: 4
+    val_every: epoch
+    score_initial: true
+sandbox:
+  enabled: true
+  network: restricted
+  allow: [chatgpt.com, auth.openai.com]
+  read: []
+  env: []
+  profiles:
+    rollout: {enabled: false}
+trainer:
+  run_name: smoke-login-ace
+  output_dir: runs
+  tree_dir: runs/trees/smoke-login-ace
+  epochs: 1
+  budget: {usd: null, hours: 2}
+  call_timeout_min: 90
+eval:
+  repeats: 1

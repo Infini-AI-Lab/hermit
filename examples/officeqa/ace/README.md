@@ -18,6 +18,35 @@ hermit eval  --config examples/officeqa/ace/run_codex_flash.yaml --adapter final
 hermit eval  --config examples/officeqa/ace/run_codex_flash.yaml --adapter seed_adapter   # the starting adapter
 ```
 
+## On your own Codex login (ChatGPT account)
+
+`smoke_codex_login.yaml` and `run_codex_login.yaml` run everything on the Codex login of the machine (`codex login`
+with a ChatGPT account; no API key): each acting session's container gets a copy of the login
+(`agent.params.login: chatgpt`), and ACE's Reflector and Curator are `codex exec` sessions under it
+(`evolver.params.learner: codex`). The model is the login's default unless `agent.params.model` and
+`evolver.params.learner_model` name one.
+
+```bash
+codex login                                              # once, on this machine
+# the Codex sessions' proxy must reach ChatGPT instead of Fireworks (or start a second proxy and set OFFICEQA_CODEX_PROXY)
+docker rm -f oq-egress
+docker run -d --name oq-egress --restart unless-stopped --read-only --network bridge "$OFFICEQA_CODEX_IMAGE" \
+  python3 -u /opt/egress_proxy.py 3128 chatgpt.com:443 auth.openai.com:443
+docker network connect oq-sandbox oq-egress
+hermit check --config examples/officeqa/ace/smoke_codex_login.yaml
+hermit train --config examples/officeqa/ace/smoke_codex_login.yaml
+hermit train --config examples/officeqa/ace/run_codex_login.yaml
+hermit eval  --config examples/officeqa/ace/run_codex_login.yaml --adapter final
+hermit eval  --config examples/officeqa/ace/run_codex_login.yaml --adapter seed_adapter
+hermit eval  --config examples/officeqa/ace/run_codex_login.yaml --adapter none
+```
+
+The image's Codex must know the model your login uses (build it with your Codex version if 0.162.0 does not). The
+recipe's numbers are for GLM 5.3 Flash: on another model, the comparison is against `seed_adapter` and `none`
+evaluated with this same config. The login's copy for the run is under `codex_dir/login/`; a session that
+refreshes its token writes it back there, never to `~/.codex`. A plan's usage limits apply to every session: a
+session refused for its limit is retried, then recorded as an error, so keep `agent.concurrency` modest.
+
 ## What to read after the smoke
 
 The smoke is not a measurement; it shows whether each of ACE's levers works in a real session. In
