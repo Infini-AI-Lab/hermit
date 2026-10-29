@@ -14,7 +14,7 @@ agent:
   params:
     harness: codex
     login: chatgpt
-    model: null
+    model: gpt-6-luna
     codex_dir: ~/.cache/hermit/officeqa-ace-login
   concurrency: 2
 judge:
@@ -25,7 +25,7 @@ evolver:
   name: ace
   params:
     learner: codex
-    learner_model: null
+    learner_model: gpt-6-luna
     learner_effort: medium
     feedback: true
     max_num_rounds: 1
@@ -34,6 +34,7 @@ evolver:
     score_initial: true
 sandbox:
   enabled: true
+  enforce: best_effort                 # macOS: no bubblewrap; acting sessions stay in Docker
   network: restricted
   allow: [chatgpt.com, auth.openai.com]
   read: []
