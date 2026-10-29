@@ -1,0 +1,48 @@
+# Smoke: 4 training questions one at a time, 2 validation questions, 4 test questions, one epoch, one retry round.
+# Confirms ACE runs end to end on the Codex harness (check -> train -> eval) and that its levers show in the records
+# (bullets named by the agent, counters moving, bullets added); not a measurement. The full run is run_codex_flash.yaml.
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/smoke_train.txt
+  val: ../utils/splits/smoke_val.txt
+  test: ../utils/splits/smoke_test.txt
+  step_size: 1
+  shuffle_seed: 42
+task_info: ../utils/task-info/
+agent:
+  name: ../utils/agent/agent.py:OfficeQAAgent
+  params:
+    harness: codex
+  concurrency: 4
+judge:
+  path: ../utils/judge.py
+template: ace@1.0
+start_from: seed_adapter
+evolver:
+  name: ace
+  params:
+    feedback: true
+    max_num_rounds: 1
+    total_samples: 4
+    val_every: epoch
+    score_initial: true
+llm:
+  model: fireworks/accounts/fireworks/models/glm-5p3-flash
+  extra_body: {reasoning_effort: medium}
+sandbox:
+  enabled: true
+  network: restricted
+  allow: []
+  read: []
+  env: []
+  profiles:
+    rollout: {enabled: false}
+trainer:
+  run_name: smoke-codex-ace
+  output_dir: runs
+  tree_dir: runs/trees/smoke-codex-ace
+  epochs: 1
+  budget: {usd: 3, hours: 2}
+  call_timeout_min: 60
+eval:
+  repeats: 1

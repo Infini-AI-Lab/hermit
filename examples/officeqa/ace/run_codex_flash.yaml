@@ -1,0 +1,53 @@
+# OfficeQA in the SkillOpt paper's setting (its 50 / 24 / 172 split, exact match) with the ACE Evolver, offline:
+# ACE learns on the 50 training questions, keeps the playbook with the best validation score (24 questions, at
+# each epoch's end) and the fixed final playbook is evaluated once on the 172 test questions. The acting agent, its
+# harness and the models are those of the all-Flash GEPA and SkillOpt runs (../gepa/run_codex_flash.yaml,
+# ../skillopt/run_codex_flash.yaml): GLM 5.3 Flash at medium effort acts in SkillOpt's Codex harness (the skill as
+# SKILL.md, the whole corpus under docs/; Codex image 0.162.0: OFFICEQA_CODEX_IMAGE=officeqa-codex:0.162.0) and
+# reflects and curates. The adapter starts from SkillOpt's initial skill followed by an empty playbook (make_seed.py).
+# data.step_size 1 is ACE's per-sample loop (generate, reflect, curate, next sample); two epochs (ACE's code
+# defaults to one, the paper uses up to five; GEPA and SkillOpt ran four).
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/train.txt
+  val: ../utils/splits/val.txt
+  test: ../utils/splits/test.txt
+  step_size: 1
+  shuffle_seed: 42
+task_info: ../utils/task-info/
+agent:
+  name: ../utils/agent/agent.py:OfficeQAAgent
+  params:
+    harness: codex
+  concurrency: 8                       # validation and evaluation run in parallel; training runs one task at a time
+judge:
+  path: ../utils/judge.py
+template: ace@1.0
+start_from: seed_adapter               # make_seed.py writes it from ../utils/seed_adapter
+evolver:
+  name: ace
+  params:
+    feedback: true                     # the judge's verdict (it names the expected answer): ACE with labels
+    max_num_rounds: 3                  # ACE's code default (the paper: 5)
+    total_samples: 50
+    val_every: epoch
+llm:                                   # Reflector, Curator: GLM 5.3 Flash at medium effort, the acting model
+  model: fireworks/accounts/fireworks/models/glm-5p3-flash
+  extra_body: {reasoning_effort: medium}
+sandbox:
+  enabled: true
+  network: restricted
+  allow: []                  # the Evolver's own model endpoint is always reachable
+  read: []
+  env: []                    # the Evolver's model key variable is always passed; nothing else is
+  profiles:                  # the agent's role runs unconfined: it drives Docker (the daemon's socket, the sessions'
+    rollout: {enabled: false}   # homes under ~/.cache); each Codex session is in a container of its own (codex_sandbox.py)
+trainer:
+  run_name: flash-codex-ace
+  output_dir: runs
+  tree_dir: runs/trees/flash-codex-ace
+  epochs: 2
+  budget: {usd: 40, hours: null}   # a cap: the run is estimated at well under this (see README)
+  call_timeout_min: 180      # a step can hold three retry sessions and, at an epoch's end, the validation
+eval:
+  repeats: 1                 # one pass over the test questions, as the Flash row

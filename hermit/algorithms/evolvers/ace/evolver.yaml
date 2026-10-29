@@ -1,0 +1,26 @@
+description: ACE, Agentic Context Engineering (Zhang et al., ICLR 2026, arXiv:2510.04618; ace-agent/ace) on the `ace`
+  template. The playbook (bullets with helpful/harmful counters under sections, in ADAPTER.md) grows by incremental
+  deltas. Each step, for each rollout in turn - the acting agent is ACE's Generator - the Reflector diagnoses the
+  attempt and tags the bullets the agent named; a wrong answer is reflected on and run again with the reflection
+  (run_agent) for up to max_num_rounds rounds; the counters are updated without a model; the Curator adds bullets
+  (ADD only, as upstream) every curator_frequency samples. Validation (val_every) keeps the best playbook, which
+  finalize hands back. Uses the run's `llm` tool; data.step_size 1 is upstream's per-sample loop.
+class: evolver.py:ACEEvolver
+needs: []
+params:
+  feedback: true                     # the judge's verdict is the Reflector's environment feedback and gates the
+                                     # retry rounds (labels); false: label-free, the run's own status only, no retry
+  success_score: 1.0                 # a judge score at or above this is a right answer
+  max_num_rounds: 3                  # reflect -> run again rounds for a wrong answer (upstream code: 3; paper: 5)
+  curator_frequency: 1               # run the Curator every N samples
+  playbook_token_budget: 80000       # shown to the Curator, not enforced (as upstream)
+  total_samples: null                # the Curator's "Sample k out of N"; null: the first epoch's size once known
+  val_every: epoch                   # validate at each epoch's end, every N samples (an integer), or never (0)
+  score_initial: false               # also score the starting playbook on validation (upstream does not)
+  use_bulletpoint_analyzer: false    # embedding de-duplication with model merges (upstream default: off)
+  bulletpoint_analyzer_threshold: 0.90
+  embedding_model: all-mpnet-base-v2
+  trace_chars: 12000                 # characters of a trajectory shown to the Reflector (the middle is cut)
+  question_chars: 6000               # characters of the task shown to the Reflector and the Curator
+  max_tokens: 32000                  # upstream: 4096, for a non-reasoning model
+  temperature: null                  # null: the endpoint's default (upstream: 0.0)

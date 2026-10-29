@@ -33,10 +33,14 @@ skillopt = [
 harness2 = [
     "harness2 @ git+https://github.com/google-research/harness2@1cfe254e8d25b15f37048c3730134686abe60335",
 ]
+ace = [
+    "sentence-transformers>=2.2.0",
+]
 all = [
     { include-group = "gepa" },
     { include-group = "skillopt" },
     { include-group = "harness2" },
+    { include-group = "ace" },
 ]
 
 [project.scripts]
