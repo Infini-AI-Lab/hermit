@@ -101,15 +101,17 @@ For `prompt-only@1.0`, `exports.yaml` is `context: ADAPTER.md` and `.hermit/adap
 ```yaml
 structure:
   learnable:
-    - exports.yaml
     - path: ADAPTER.md
       format: {text: true, max_bytes: 40000}
   fixed:
+    - exports.yaml
     - README.md
+check: .hermit/check.py:check
 ```
 
-The Evolver can rewrite the instruction file and `exports.yaml`. It cannot change `.hermit/`, edit fixed files, or
-add files outside the learnable paths. The template remains the reference for checking later versions.
+The Evolver can rewrite the instruction file, and only that: the template's check keeps `ADAPTER.md` in place. It
+cannot change `.hermit/`, edit fixed files such as `exports.yaml`, or add files outside the learnable paths. The
+template remains the reference for checking later versions.
 
 The template contains the starting instructions and their rules. An evolved adapter contains later instructions
 plus the same `.hermit/` and fixed files. Training can start from the template or a previous adapter.

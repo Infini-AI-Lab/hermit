@@ -4,6 +4,18 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ## Unreleased
 
+### Breaking
+
+- The adapter layout changed: a learner may change every file of an adapter except `.git/` and the metadata, and
+  every other limit comes from the template (`structure`, `check`) or the Evolver. The metadata moved into `.hermit/`
+  (`adapter.yaml`, `EVOLVER.md`, `CARD.md`, the template's check file), the exports moved from the manifest's
+  `exports` section into `exports.yaml` at the adapter root, learnable unless the template fixes it, and the
+  `origin` section is gone. Hermit no longer loads an adapter in the 0.1 layout (`adapter.yaml` at the root),
+  including the one a 0.1 `hermit convert` plugin embeds; it names the layout and the steps instead. Migrate with
+  the steps in
+  [Migrating from Hermit 0.1](https://infini-ai-lab.github.io/hermit/docs/framework/adapter-manifest.html#migrating-from-hermit-0-1),
+  then rebuild converted plugins. The built-in templates' `contract` is `"2"`.
+
 ### Changed
 
 - Hermit requires Python 3.12+ (was 3.11+): the upstream Harness² package of the `harness2` group supports Python

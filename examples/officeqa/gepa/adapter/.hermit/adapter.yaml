@@ -5,8 +5,9 @@ template:
   name: Prompt only
 structure:
   learnable:
-    - exports.yaml
     - path: ADAPTER.md
       format: {text: true, max_bytes: 40000}
   fixed:
+    - exports.yaml
     - README.md
+check: .hermit/check.py:check

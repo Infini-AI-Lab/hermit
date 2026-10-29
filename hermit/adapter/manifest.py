@@ -35,6 +35,12 @@ def read_meta(root: Path) -> dict:
     """.hermit/adapter.yaml, validated."""
     path = Path(root) / MANIFEST
     if not path.is_file():
+        if (Path(root) / "adapter.yaml").is_file():
+            raise ValueError(f"{root} has the Hermit 0.1 layout (adapter.yaml at the root). Move it to {MANIFEST} "
+                             f"and EVOLVER.md, CARD.md and the check file into {META}/; in the moved file, move the "
+                             f"exports section into {EXPORTS} at the root, delete the origin section and point check "
+                             f"into {META}/. See https://infini-ai-lab.github.io/hermit/docs/framework/"
+                             "adapter-manifest.html#migrating-from-hermit-0-1")
         raise ValueError(f"Missing {MANIFEST} in {root}")
     data = yaml.safe_load(path.read_text())
     if not isinstance(data, dict):
@@ -103,7 +109,8 @@ class Structure:
     def learnable_for(self, rel: str) -> Learnable | None:
         if self.is_fixed(rel):
             return None
-        return next((item for item in self.learnable if matches(rel, item.path)), None)
+        item = next((item for item in self.learnable if matches(rel, item.path)), None)
+        return item or (Learnable(EXPORTS) if rel == EXPORTS else None)   # exports.yaml: learnable unless fixed
 
 
 FORMAT_KEYS = {"max_bytes", "max_files", "text", "frontmatter"}

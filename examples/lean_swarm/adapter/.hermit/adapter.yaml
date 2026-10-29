@@ -20,3 +20,4 @@ structure:
   - assembly.py
   - reactions.py
   - README.md
+check: .hermit/check.py:check

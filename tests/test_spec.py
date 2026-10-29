@@ -88,11 +88,81 @@ def test_exports_are_learnable_and_restored_when_they_do_not_parse(tmp_path):
 
 def test_adapter_md_may_be_removed(tmp_path):
     from hermit.adapter.loader import Adapter
-    root = TEMPLATES / "prompt_only"
+    root = TEMPLATES.parents[2] / "docs" / "_examples" / "file_adapter"     # a template without a check of its own
     adapter = copy(root, tmp_path / "adapter")
     (adapter / "ADAPTER.md").unlink()
     assert check_spec(adapter, root).passed, check_spec(adapter, root).issues
     assert Adapter(adapter).context() == ""
+
+
+def test_prompt_only_keeps_adapter_md(tmp_path):
+    root = TEMPLATES / "prompt_only"
+    parent = copy(root, tmp_path / "parent")
+    adapter = copy(root, tmp_path / "adapter")
+    (adapter / "ADAPTER.md").unlink()
+    assert ("ADAPTER.md", 6) in {(i.path, i.check) for i in check_spec(adapter, root).issues}
+    final, _ = repair(adapter, root, parent)
+    assert final.passed and (adapter / "ADAPTER.md").read_text() == (root / "ADAPTER.md").read_text()
+
+
+def test_prompt_only_learns_its_prompt_only(tmp_path):
+    root = TEMPLATES / "prompt_only"
+    adapter = copy(root, tmp_path / "adapter")
+    (adapter / "exports.yaml").write_text("context: ADAPTER.md\nskills: skills\n")
+    (adapter / "notes.md").write_text("a stray file\n")
+    checks = {(i.path, i.check) for i in check_spec(adapter, root).issues}
+    assert ("exports.yaml", 1) in checks and ("notes.md", 2) in checks
+
+
+def test_exports_are_learnable_without_a_learnable_entry(tmp_path):
+    import yaml
+    from hermit.adapter.manifest import MANIFEST
+    root = copy(TEMPLATES / "prompt_only", tmp_path / "root")
+    meta = yaml.safe_load((root / MANIFEST).read_text())
+    meta["structure"]["fixed"].remove("exports.yaml")                     # in neither list
+    (root / MANIFEST).write_text(yaml.safe_dump(meta, sort_keys=False))
+    adapter = copy(root, tmp_path / "adapter")
+    (adapter / "exports.yaml").write_text("context: ADAPTER.md\nskills: skills\n")
+    assert check_spec(root, root).passed and check_spec(adapter, root).passed
+    meta["structure"]["fixed"].append("exports.yaml")                     # listed under fixed: no longer learnable
+    (root / MANIFEST).write_text(yaml.safe_dump(meta, sort_keys=False))
+    shutil.copy(root / MANIFEST, adapter / MANIFEST)
+    assert ("exports.yaml", 1) in {(i.path, i.check) for i in check_spec(adapter, root).issues}
+
+
+def _edit_exports(adapter, edit):
+    import yaml
+    exports = yaml.safe_load((adapter / "exports.yaml").read_text())
+    edit(exports)
+    (adapter / "exports.yaml").write_text(yaml.safe_dump(exports, sort_keys=False))
+
+
+def test_template_checks_keep_the_exported_wiring(tmp_path):
+    def describe(e): e["tools"][0]["description"] = "A learned description."
+    def drop_tools(e): e["tools"] = []
+    def drop_reactions(e): e.pop("reactions")
+    def rename_wm(e): e["tools"][0]["name"] = "world"
+    for name, edit, kept in (("lean_collab", describe, True), ("lean_collab", drop_tools, False),
+                             ("lean_collab", drop_reactions, False), ("mwm", describe, True),
+                             ("mwm", rename_wm, False)):
+        case = tmp_path / f"{name}-{edit.__name__}"
+        root = TEMPLATES / name
+        parent = copy(root, case / "parent")
+        adapter = copy(root, case / "adapter")
+        _edit_exports(adapter, edit)
+        assert check_spec(adapter, root, deploy=False).passed is kept, (name, edit.__name__)
+        final, _ = repair(adapter, root, parent)
+        changed = (adapter / "exports.yaml").read_text() != (root / "exports.yaml").read_text()
+        assert final.passed and changed is kept, (name, edit.__name__)
+
+
+def test_the_0_1_layout_is_named(tmp_path):
+    import pytest
+    from hermit.adapter.manifest import read_manifest
+    adapter = copy(TEMPLATES / "prompt_only", tmp_path / "adapter")
+    shutil.move(adapter / ".hermit" / "adapter.yaml", adapter / "adapter.yaml")
+    with pytest.raises(ValueError, match="Hermit 0.1 layout"):
+        read_manifest(adapter)
 
 
 def test_no_structure_means_every_file_is_learnable():

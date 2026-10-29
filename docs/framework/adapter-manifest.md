@@ -105,7 +105,7 @@ Identity of the template this adapter belongs to. Required.
 | `id` | yes | lowercase slug: `[a-z][a-z0-9-]{0,63}`. Names the template in `run.yaml` (`template: prompt-only@1.0`), in the deployment's managed block and MCP server name, and in the tree |
 | `version` | yes | nonempty string. With `id` it makes the `id@version` reference |
 | `name` | no | display name; defaults to `id` |
-| `contract` | no | the metadata contract this file follows; `"1"` today. Not validated, carried for forward compatibility |
+| `contract` | no | the metadata contract this file follows; `"2"` today, for the `.hermit/` layout. Not validated, carried for forward compatibility |
 
 ## `structure`
 
@@ -140,9 +140,10 @@ A file may be changed, added or deleted only if it matches a learnable path and 
 **`fixed`**: paths (files or directories) that must exist exactly as in the template root; changing, deleting or
 adding a file under one fails the check. `.hermit/` is always fixed and needs no entry.
 
-When `structure` is present, every file outside `.hermit/` must be either fixed or covered by a learnable entry. A file
-outside both is a check failure, and the Trainer removes it when it repairs a candidate. See
-[How does the specification limit edits?](adapter.md#how-does-the-specification-limit-edits).
+When `structure` is present, every file outside `.hermit/` must be either fixed or covered by a learnable entry;
+`exports.yaml` is the exception, learnable unless `fixed` lists it. A file outside both is a check failure, and the
+Trainer removes it when it repairs a candidate. See [How does the specification limit
+edits?](adapter.md#how-does-the-specification-limit-edits).
 
 ## `check`
 
@@ -175,8 +176,8 @@ the acting agent.
 
 `exports.yaml` at the adapter root: what the acting agent receives, as a top-level mapping. Optional: an adapter
 without it, or with an empty one, exports its context only. It is ordinary adapter content, learnable unless the
-template's `structure` fixes it; check 3 of the specification check requires it to parse, and repair restores it
-from the parent.
+template's `structure` lists it under `fixed`, whether or not a learnable entry names it; check 3 of the specification
+check requires it to parse, and repair restores it from the parent.
 
 | Key | Value | Rule |
 |---|---|---|
@@ -234,6 +235,25 @@ pipeline that supplies them; the agent cannot pass it.
 per-session stdio MCP tool server, normally launched by a generated host entry. Generic standalone startup,
 health checks, discovery, and relay lifecycle remain a [design proposal](../developer/service-design.md).
 Do not add the proposed fields or flags to a working configuration.
+
+## Migrating from Hermit 0.1
+
+In Hermit 0.1 the metadata and the exports were one file, `adapter.yaml`, at the adapter root; Hermit now refuses
+that layout and names it. To migrate an adapter or a template, in its directory:
+
+```bash
+mkdir .hermit
+git mv adapter.yaml .hermit/adapter.yaml
+git mv EVOLVER.md .hermit/EVOLVER.md        # each of these three only if present
+git mv CARD.md .hermit/CARD.md
+git mv check.py .hermit/check.py
+```
+
+Then edit `.hermit/adapter.yaml`: move the `exports` section into a new `exports.yaml` at the root (its contents
+become the file's top level), delete the `origin` section, and point `check` to `.hermit/check.py`. A template that
+lists `adapter.yaml`, `EVOLVER.md` or `check.py` under `fixed` drops those entries: `.hermit/` is always fixed. Every
+adapter of a tree must carry the template's `.hermit/` byte for byte, so migrate the template and its adapters
+together, and rebuild plugins made by `hermit convert` from the migrated adapter.
 
 ## What is not in the metadata or the exports
 

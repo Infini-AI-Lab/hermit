@@ -98,4 +98,5 @@ Provide a pipeline that launches the agents with the adapter and collects a proo
 and task data and splits. The framework calls those through the same [task interface](../framework/task.md) used
 by OfficeQA. Select `lean-collab@1.0` as the template and a compatible Evolver. Its permitted edits cover
 instructions, skills and `exports.yaml` (the tool declarations, reactions entrypoint, concurrency and skills directory); the
-collaboration implementation (`collab.py`, `assembly.py`, `reactions.py`) is fixed.
+collaboration implementation (`collab.py`, `assembly.py`, `reactions.py`) is fixed, and the template's check keeps
+the five tools and the reactions entrypoint wired to it.

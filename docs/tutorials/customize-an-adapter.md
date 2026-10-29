@@ -71,7 +71,7 @@ structure:
 ```
 
 `learnable` is what the learner may change, with limits; `fixed` is what must stay as shipped. Every file outside
-`.hermit/` must be one or the other. Here `exports.yaml` is learnable, as in prompt-only; list it under `fixed`
+`.hermit/` must be one or the other. Here `exports.yaml` is learnable (prompt-only fixes it); list it under `fixed`
 instead to keep the exports as you wrote them. The learner reads `.hermit/EVOLVER.md` to know how to edit: say there
 that skills exist and what one looks like.
 
