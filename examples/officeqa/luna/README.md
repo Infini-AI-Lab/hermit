@@ -54,3 +54,15 @@ report and `plan.jsonl` every report. The runs set no cap of their own: sessions
 `~/albz/officeqa-luna/PAUSE` exists, or after a session was refused for the plan's limit, until the plan's window
 resets (a number in `~/albz/officeqa-luna/MAX_USED` sets a cap in percent, read while runs go on). A session refused
 for the plan's limit is run again after the wait; it is never scored as a wrong answer.
+
+The login is also rate-limited, and the limit outlasts the load that tripped it. With the eight trainings side by
+side (about sixty sessions at once) its backend answered 429 Too Many Requests and the first model reply of a session
+took a median 100-400 s instead of about 50; Codex's retries outlasted SkillOpt's 180 s sessions, and 25-67% of the
+training rollouts timed out against 2% in the reference evaluations (45% at 14 slots, 30% at 8, while the account was
+still throttled). Those three batches were discarded (`~/albz/officeqa-luna/aborted-429*`). The runs behind the
+results: every SkillOpt-harness rollout and relay call holds one of the machine's slots
+(`~/albz/officeqa-luna/SLOTS`, read at every try; codex_login.slot), the three streams' own sessions take none, and
+`slots_ctl.py` sets the number every two minutes from the last ten minutes (two fewer when more than 6% of the
+training rollouts timed out or more than 30% of the logged sessions saw a 429; one more after ten quiet minutes),
+starting from 2 after the account had recovered. A rollout takes its slot before its first session starts, so no
+session's 180 s is spent waiting for one. The slots decide only how many sessions run at once.
