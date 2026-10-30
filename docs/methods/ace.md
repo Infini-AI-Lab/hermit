@@ -5,7 +5,8 @@ ACE, Agentic Context Engineering ([Zhang et al., ICLR 2026](https://arxiv.org/ab
 instead of being rewritten: bullets `[id] helpful=N harmful=N :: content` under sections, tagged by a Reflector and
 extended by a Curator. Choose it when the adapter is a context document, you have the judge's feedback on training
 tasks, and you want the accumulated detail kept rather than compressed (the paper's "brevity bias" and "context
-collapse").
+collapse"). The framework narrows the method: ACE's Generator, an LLM call of its own, is here the task's fixed acting
+agent, which reads the playbook as its context; only the adapter is learned.
 
 ## Setup
 
@@ -34,7 +35,7 @@ playbook, the Evolver's bootstrap appends the empty one. The de-duplication opti
 ## One framework step
 
 The acting agent is ACE's Generator: the Trainer's rollouts are its attempts with the playbook as context, and it is
-asked to name the bullet ids it uses. Then, for each rollout in turn (`ACE._train_single_sample`):
+asked to name the bullet ids it used on a `bullet_ids:` line of its final message. Then, for each rollout in turn (`ACE._train_single_sample`):
 
 1. the ids the agent named are collected (the Generator's regular-expression fallback; a copy of a playbook line,
    id followed by its counters, is not a citation);
@@ -46,6 +47,20 @@ asked to name the bullet ids it uses. Then, for each rollout in turn (`ACE._trai
    playbook deterministically (new ids, a section that does not exist goes to OTHERS);
 4. with `use_bulletpoint_analyzer`, bullets whose embeddings are at least `bulletpoint_analyzer_threshold` similar are
    merged by a model call.
+
+```mermaid
+flowchart TD
+  R[rollout: the agent answers with the playbook,<br/>names bullet_ids] --> C[collect the named ids]
+  C --> J{judge: right?}
+  J -- wrong --> RF[Reflector: diagnose, tag bullets] --> U1[update counters] --> A[run the agent again<br/>with the reflection]
+  A --> J2{right, or max_num_rounds?}
+  J2 -- no --> RF
+  J2 -- yes --> CU
+  J -- right --> RT[Reflector: tag bullets] --> U2[update counters] --> CU
+  CU[Curator, every curator_frequency samples:<br/>ADD bullets] --> CK{template check}
+  CK -- fails --> RB[roll the step back]
+  CK -- passes --> V[val_every: score on validation,<br/>keep the best] --> F[finalize: final = best,<br/>state/last_adapter = last]
+```
 
 The updated playbook must pass the template check, or the step is rolled back. With `val_every`, the playbook is
 scored on validation and the best is kept; `finalize` hands it back. No validation: the current playbook is final.
@@ -62,6 +77,12 @@ the playbook's size per step; `output/calls/` holds every prompt and reply.
 
 ## The authors' implementation against this one
 
+The authors' code is not called: it cannot be imported as a library (no build configuration; top-level modules named
+`utils`, `llm` and `logger` that pull in its API clients), so `evolver.py` and `playbook.py` port it function by
+function, each naming the upstream function it follows, with the prompts verbatim.
+`prompt-only` was not used: it has no place for the playbook's sections and counters or a check that keeps them
+parseable.
+
 | Dimension | ace-agent/ace (82709de) | This Evolver | Why |
 |---|---|---|---|
 | When learning happens | Per sample: generate, reflect (with retries), curate | Per step, over the step's rollouts one by one; `step_size: 1` is the same loop | Framework (a step is a batch of rollouts) |
@@ -72,7 +93,7 @@ the playbook's size per step; `output/calls/` holds every prompt and reply.
 | The update | ADD only; counters; content written as given | Same; a newline inside content becomes a space so a bullet stays one line | Decision |
 | De-duplication | Off by default; faiss-normalised embeddings, threshold 0.90, LLM merge (temperature 0.3) keeping what the model wrote | Same grouping and prompt; the merged line keeps the first id and the summed counts | Decision: an id can never repeat |
 | Selection | Validation every `eval_steps` samples (default 100, which never fires on 50 training questions); best starts as the initial playbook at 0 | `val_every: epoch` by default (or every N samples); same best rule; `score_initial` optional | Decision |
-| Models and budgets | DeepSeek-V3.1 for all roles, temperature 0, 4,096 tokens | The run's `llm` (OfficeQA: GLM 5.3 Flash, medium effort), endpoint temperature, 32,000 tokens | Task row: the other methods' settings |
+| Models and budgets | DeepSeek-V3.1 for all roles, temperature 0, 4,096 tokens | The run's `llm` (OfficeQA: GLM 5.3 Flash, medium effort, the Flash row) or the Codex login's model (OfficeQA's run: `gpt-6-luna`, medium); endpoint temperature, 32,000 tokens | Task row: the other methods' settings |
 | The learner's endpoint | An OpenAI-compatible client (SambaNova, Together, OpenAI) | The `llm` tool, or `codex exec` under a Codex login (`learner: codex`) | Decision: a run on a ChatGPT login, no API key |
 | Epochs, rounds | Code 1 epoch, 3 rounds; paper up to 5 and 5 | Config; OfficeQA: 2 epochs, 3 rounds | Decision |
 | Not ported | Post-curation generation (tracking only), online mode's windows, `ACEBatch` (post-paper), JSON mode, the AppWorld prompts | — | Online ACE is a streaming config of this Evolver, not yet provided |
@@ -80,5 +101,6 @@ the playbook's size per step; `output/calls/` holds every prompt and reply.
 ## What it is not
 
 The playbook token budget is shown to the Curator but not enforced, as upstream; the template caps `ADAPTER.md` at
-400,000 bytes, and a step that would pass it is rolled back. The Curator only adds: without de-duplication the
+400,000 bytes, and a step that would pass it is rolled back, so learning stops there while the run goes on. The
+Curator only adds: without de-duplication the
 playbook grows monotonically, as in the authors' code.

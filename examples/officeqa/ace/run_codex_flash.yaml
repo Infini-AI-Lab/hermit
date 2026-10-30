@@ -1,8 +1,8 @@
 # OfficeQA in the SkillOpt paper's setting (its 50 / 24 / 172 split, exact match) with the ACE Evolver, offline:
 # ACE learns on the 50 training questions, keeps the playbook with the best validation score (24 questions, at
 # each epoch's end); the best-validation playbook (final) and the last one (workspace/state/last_adapter) are each
-# evaluated with three passes over the 172 test questions (the GEPA and SkillOpt Flash runs: one pass). The acting agent, its
-# harness and the models are those of the all-Flash GEPA and SkillOpt runs (../gepa/run_codex_flash.yaml,
+# evaluated with one pass over the 172 test questions, as the row. The acting agent, its harness and the models
+# are those of the all-Flash GEPA and SkillOpt runs (../gepa/run_codex_flash.yaml,
 # ../skillopt/run_codex_flash.yaml): GLM 5.3 Flash at medium effort acts in SkillOpt's Codex harness (the skill as
 # SKILL.md, the whole corpus under docs/; Codex image 0.162.0: OFFICEQA_CODEX_IMAGE=officeqa-codex:0.162.0) and
 # reflects and curates. The adapter starts from SkillOpt's initial skill followed by an empty playbook (make_seed.py).
@@ -48,7 +48,7 @@ trainer:
   output_dir: runs
   tree_dir: runs/trees/flash-codex-ace
   epochs: 2
-  budget: {usd: 40, hours: null}   # a cap: the run is estimated at well under this (see README)
+  budget: {usd: 40, hours: null}   # a cap
   call_timeout_min: 180      # a step can hold three retry sessions and, at an epoch's end, the validation
 eval:
-  repeats: 3                 # three passes over the 172 test questions: less rollout noise per question
+  repeats: 1                 # one pass over the test questions, as the row

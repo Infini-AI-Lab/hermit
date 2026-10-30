@@ -155,9 +155,16 @@ def _harness(params: dict | None) -> str:
 
 def _login_master(params: dict | None) -> Path:
     """This run's copy of the user's Codex login, which every session's home starts from (codex_sandbox.py) and a
-    token a session refreshed is written back to (_keep_refreshed). The user's own file is copied once per process
-    and never written."""
+    token a session refreshed is written back to (_keep_refreshed). The user's own file is copied in when it is newer
+    (a later `codex login`) and never written."""
     return _codex_dir(params) / "login" / "auth.json"
+
+
+def _last_refresh(path: Path) -> str:
+    try:
+        return str(json.loads(path.read_text()).get("last_refresh") or "")
+    except (OSError, ValueError):
+        return ""
 
 
 def _keep_refreshed(params: dict | None, home: Path) -> None:
@@ -217,7 +224,7 @@ def _setup_codex(params: dict | None) -> None:
             master = _login_master(params)
             master.parent.mkdir(parents=True, exist_ok=True)
             os.chmod(master.parent, 0o700)
-            if not master.is_file():
+            if not master.is_file() or _last_refresh(source) > _last_refresh(master):
                 shutil.copy2(source, master)
                 os.chmod(master, 0o600)
             os.environ["OFFICEQA_CODEX_AUTH"] = str(master)        # codex_sandbox.py puts it in each session's home
@@ -286,6 +293,10 @@ class OfficeQAAgent(Agent):
                                      data_dirs=[DATA["docs"]])
             finally:
                 _usage.totals = None
+                if codex:
+                    if _login(self.params):
+                        _keep_refreshed(self.params, out_root / "codex_home")
+                    shutil.rmtree(out_root / "codex_home", ignore_errors=True)    # codex_sandbox.py's per-rollout CODEX_HOME
             failure = result["fail_reason"]
             if UNAVAILABLE not in failure and not (codex and failure.startswith("error: codex exec failed")
                                                    and CODEX_UNAVAILABLE.search(failure)):
@@ -298,9 +309,6 @@ class OfficeQAAgent(Agent):
         if codex:
             for link in (pred_dir / "codex_exec" / "docs").glob("root_*"):
                 link.unlink()                               # the corpus stays out of the run's log
-            if _login(self.params):
-                _keep_refreshed(self.params, out_root / "codex_home")
-            shutil.rmtree(out_root / "codex_home", ignore_errors=True)    # codex_sandbox.py's per-rollout CODEX_HOME
             summary = pred_dir / "codex_trace_summary.txt"
             if summary.is_file():                           # what SkillOpt's analyst reads besides the replies
                 messages.append({"role": "user", "content": summary.read_text()})

@@ -43,8 +43,8 @@ hermit eval  --config examples/officeqa/ace/run_codex_login.yaml --adapter none
 ```
 
 The image's Codex must know the model your login uses (build it with your Codex version if 0.162.0 does not). The
-recipe's numbers are for GLM 5.3 Flash: on another model, the comparison is against `seed_adapter` and `none`
-evaluated with this same config. The login's copy for the run is under `codex_dir/login/`; a session that
+comparison is against `seed_adapter` and `none` evaluated with this same config, not against the Flash row. The
+login's copy for the run is under `codex_dir/login/`, copied again when `~/.codex/auth.json` is newer; a session that
 refreshes its token writes it back there, never to `~/.codex`. A plan's usage limits apply to every session: a
 session refused for its limit is retried, then recorded as an error, so keep `agent.concurrency` modest.
 
@@ -69,8 +69,9 @@ sizes shape what a run can show:
   so choosing between two epochs' playbooks on it is mostly noise. Both the best-validation playbook (`final`) and
   the last one (`workspace/state/last_adapter`, saved by finalize) are evaluated.
 - 172 test questions: an accuracy's standard error is about 3.7 points, and the 95% interval of a paired difference
-  about ±7 (from the Continual Harness stream's wins and losses). Each adapter is evaluated with three passes
-  (`eval.repeats: 3`), which reduces the sessions' own variance but not the sampling of the questions; a gain of a
+  about ±7 (from the Continual Harness stream's wins and losses). `run_codex_flash.yaml` evaluates once, as
+  the row; `run_codex_login.yaml` three times (`eval.repeats: 3`), which reduces the sessions' own variance but not
+  the sampling of the questions; a gain of a
   few points needs repeated trainings (another `trainer.run_name` and `data.shuffle_seed`) to be told apart.
 - 50 training questions are few for a playbook method (the paper's finance tasks train on 500 to 1,000): a small
   gain says as much about the data as about the method.
@@ -80,18 +81,8 @@ a positive difference is a sign of an effect; a lower bound above zero, a signif
 
 ## Result
 
-One training (`run_codex_login.yaml`, `gpt-6-luna`, seed 42), 172 test questions, three passes; the interval is the
-95% bootstrap over questions. Logs: `runs/login-codex-ace-v2.*`.
-
-| Adapter | Score | Paired difference to `seed_adapter` |
-|---|---|---|
-| `none` | 0.223 | -9.1 [-13.2, -5.0] |
-| `seed_adapter` | 0.314 | |
-| `final` (best validation, 37 bullets) | 0.440 | +12.6 [+7.6, +18.0] |
-| `last_adapter` (50 bullets) | 0.519 | +20.5 [+14.3, +26.9] |
-
-Both playbooks beat the starting adapter, and the last one beats the validation choice (-7.9 [-12.2, -3.5]), as the
-24 validation questions predict. This is one training: it shows the effect is there, not its size across seeds.
+The `run_codex_login.yaml` run on `gpt-6-luna`, against the initial skill and no adapter, is in the
+[recipe](../../../docs/recipes/officeqa.md#on-a-codex-login).
 
 ## Settings and differences
 

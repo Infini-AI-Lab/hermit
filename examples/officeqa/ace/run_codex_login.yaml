@@ -20,7 +20,7 @@ agent:
   params:
     harness: codex
     login: chatgpt                     # the user's Codex login (~/.codex/auth.json, or auth_file)
-    model: gpt-6-luna                       # GPT-6-Luna (not the login default, gpt-6-astra)
+    model: gpt-6-luna                # GPT-6-Luna (not the login default, gpt-6-astra)
     codex_dir: ~/.cache/hermit/officeqa-ace-login
   concurrency: 4                       # sessions side by side on one account: mind its rate limits
 judge:
@@ -31,7 +31,7 @@ evolver:
   name: ace
   params:
     learner: codex                     # Reflector and Curator through the same Codex login
-    learner_model: gpt-6-luna               # GPT-6-Luna, as the acting agent
+    learner_model: gpt-6-luna        # GPT-6-Luna, as the acting agent
     learner_effort: medium
     feedback: true
     max_num_rounds: 3
