@@ -167,7 +167,7 @@ section 4):
   the paper uses its own decision-agent prompt and each task's native metric. Ranking is by cosine, a choice the
   paper leaves open.
 - Code: the authors publish none; the Evolver follows the paper's equations and Figure 5 prompts, verbatim.
-- Revision of the tree: the database runs were made from `<COMMIT>` with clbench fork `2cc7eef`.
+- Revision of the tree: the database runs were made from `4f7946e` with clbench fork `2cc7eef`.
 
 Hosted models can change independently of the code, so the same commit need not give the same numbers.
 
