@@ -370,8 +370,7 @@ Codex, three passes).
   `adcc7f3` (uncommitted then).
 - Spending: a subscription has no per-token price. Training 1.4 h: 1.70 M tokens of training sessions, 3.57 M of
   Reflector and Curator sessions, 2.12 M of retry and validation sessions. The evaluations, 0.5–0.6 h each, ran
-  within nine hours; the last playbook's was run again after a ChatGPT connection failure had made 47 of its 516
-  sessions errors.
+  within nine hours.
 
 | Adapter | accuracy, three passes | − the initial skill, points |
 |---|---|---|
