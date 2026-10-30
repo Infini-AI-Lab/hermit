@@ -351,20 +351,14 @@ adds bullets ([ACE](../methods/ace.md) has its controls and its differences from
 `seed_adapter/`) on the `ace` template, with `data.step_size: 1`, two epochs over the 50 training questions and
 validation at each epoch's end; `final` is the playbook with the best validation score.
 
-| Config | Acting and learning | Epochs | `run_name` | The number |
-|---|---|---|---|---|
-| `ace/smoke_codex.yaml` | GLM 5.3 Flash | 1 | `smoke-codex-ace` | none: a smoke, 4 training questions |
-| `ace/run_codex_flash.yaml` | GLM 5.3 Flash | 2 | `flash-codex-ace` | `mean_score` in `ace/runs/flash-codex-ace/eval/final/summary.json` |
-| `ace/smoke_codex_login.yaml` | the Codex login's model | 1 | `smoke-login-ace` | none: a smoke |
-| `ace/run_codex_login.yaml` | the Codex login's model | 2 | `login-codex-ace` | `mean_score` in `ace/runs/login-codex-ace/eval/final/summary.json` |
+| Config | Epochs | `run_name` | The number |
+|---|---|---|---|
+| `ace/smoke_codex_login.yaml` | 1 | `smoke-login-ace` | none: a smoke, 4 training questions |
+| `ace/run_codex_login.yaml` | 2 | `login-codex-ace` | `mean_score` in `ace/runs/login-codex-ace/eval/final/summary.json` |
 
-`run_codex_flash.yaml` is on the Flash row's settings and has not been run yet. `run_codex_login.yaml` runs the
-acting sessions and the Reflector and Curator on a ChatGPT Codex login, no API key (the example's
-[README](https://github.com/Infini-AI-Lab/hermit/tree/main/examples/officeqa/ace#on-your-own-codex-login-chatgpt-account)).
-
-### On a Codex login
-
-Not on the Flash row: another model, another Codex, three passes. One training, every number of one day.
+Both run the acting sessions and the Reflector and Curator on a ChatGPT Codex login, no API key (the example's
+[README](https://github.com/Infini-AI-Lab/hermit/tree/main/examples/officeqa/ace)). The run below is one training,
+every number of one day; it is not on [the Flash row](#the-flash-row) (another model, another Codex, three passes).
 
 - Models: `gpt-6-luna` acting and learning, reasoning effort medium, on a ChatGPT login.
 - Harness: Codex 0.165.0 (`officeqa-codex:0.165.0`), a container per session, four side by side.

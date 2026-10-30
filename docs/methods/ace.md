@@ -93,7 +93,7 @@ parseable.
 | The update | ADD only; counters; content written as given | Same; a newline inside content becomes a space so a bullet stays one line | Decision |
 | De-duplication | Off by default; faiss-normalised embeddings, threshold 0.90, LLM merge (temperature 0.3) keeping what the model wrote | Same grouping and prompt; the merged line keeps the first id and the summed counts | Decision: an id can never repeat |
 | Selection | Validation every `eval_steps` samples (default 100, which never fires on 50 training questions); best starts as the initial playbook at 0 | `val_every: epoch` by default (or every N samples); same best rule; `score_initial` optional | Decision |
-| Models and budgets | DeepSeek-V3.1 for all roles, temperature 0, 4,096 tokens | The run's `llm` (OfficeQA: GLM 5.3 Flash, medium effort, the Flash row) or the Codex login's model (OfficeQA's run: `gpt-6-luna`, medium); endpoint temperature, 32,000 tokens | Task row: the other methods' settings |
+| Models and budgets | DeepSeek-V3.1 for all roles, temperature 0, 4,096 tokens | The run's `llm`, or the Codex login's model (OfficeQA: `gpt-6-luna`, medium effort); endpoint temperature, 32,000 tokens | Decision: OfficeQA's evaluation setting |
 | The learner's endpoint | An OpenAI-compatible client (SambaNova, Together, OpenAI) | The `llm` tool, or `codex exec` under a Codex login (`learner: codex`) | Decision: a run on a ChatGPT login, no API key |
 | Epochs, rounds | Code 1 epoch, 3 rounds; paper up to 5 and 5 | Config; OfficeQA: 2 epochs, 3 rounds | Decision |
 | Not ported | Post-curation generation (tracking only), online mode's windows, `ACEBatch` (post-paper), JSON mode, the AppWorld prompts | — | Online ACE is a streaming config of this Evolver, not yet provided |

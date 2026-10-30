@@ -1,4 +1,4 @@
-# OfficeQA with ACE, offline (as run_codex_flash.yaml), everything on the user's own Codex login (a ChatGPT account,
+# OfficeQA with ACE, offline, everything on the user's own Codex login (a ChatGPT account,
 # `codex login`; no API key): the acting agent is SkillOpt's Codex harness with the login copied into each session's
 # container (agent.params.login: chatgpt), and ACE's Reflector and Curator are `codex exec` sessions under the same
 # login (evolver.params.learner: codex). The model is the login's default unless agent.params.model and
