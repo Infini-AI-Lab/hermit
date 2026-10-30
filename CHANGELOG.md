@@ -18,6 +18,15 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Added
 
+- The ACE method (Zhang et al., ICLR 2026, arXiv:2510.04618): the `ace` Evolver, ACE's per-sample loop of
+  Reflector and Curator over a playbook of bullets with helpful and harmful counters, retry rounds on a wrong answer,
+  ADD-only curation and validation-based selection, with ACE's prompts verbatim (the Generator's adapted for an
+  acting agent); the Reflector and Curator run through the run's `llm` tool or, with `learner: codex`, `codex exec`
+  under the user's Codex login; documented in
+  `docs/methods/ace.md`.
+- The `ace` adapter template: an `ADAPTER.md` whose playbook section holds the bullets, after the skill.
+- ACE on OfficeQA: `examples/officeqa/ace/`, on a ChatGPT Codex login (`run_codex_login.yaml`); the OfficeQA Codex
+  agent runs on a Codex login (`agent.params.login: chatgpt`), each session's container with a copy of it.
 - The ReHarness method (Xiao et al., arXiv:2610.12668): the `reharness` Evolver, one step per instance of an ordered
   stream, revising the retrieved reflections from their source trajectories and writing the instance's reflection
   through the run's `llm` tool, with Qwen3-Embedding-8B or BM25 retrieval; `feedback: false` keeps the judge's verdict

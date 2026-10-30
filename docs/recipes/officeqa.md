@@ -341,6 +341,55 @@ acting sessions are containers of their own, as for the other Codex-harness meth
 `<run>/workspace/state/evolution_summary.jsonl` lists every candidate with its hypothesis, base and mean on the
 search set. The result is in [the Flash row](#the-flash-row).
 
+## ACE
+
+[ACE](https://arxiv.org/abs/2510.04618) (Zhang et al., ICLR 2026) grows a playbook of bullets with helpful and
+harmful counters, one training question at a time: the acting agent names the bullets it used, a Reflector tags
+them and diagnoses the attempt (a wrong answer is run again with the reflection, up to three rounds), and a Curator
+adds bullets ([ACE](../methods/ace.md) has its controls and its differences from the authors' code).
+`examples/officeqa/ace/` starts from SkillOpt's initial skill followed by an empty playbook (`make_seed.py` writes
+`seed_adapter/`) on the `ace` template, with `data.step_size: 1`, two epochs over the 50 training questions and
+validation at each epoch's end; `final` is the playbook with the best validation score.
+
+| Config | Epochs | `run_name` | The number |
+|---|---|---|---|
+| `ace/smoke_codex_login.yaml` | 1 | `smoke-login-ace` | none: a smoke, 4 training questions |
+| `ace/run_codex_login.yaml` | 2 | `login-codex-ace` | `mean_score` in `ace/runs/login-codex-ace/eval/final/summary.json` |
+
+Both run the acting sessions and the Reflector and Curator on a ChatGPT Codex login, no API key (the example's
+[README](https://github.com/Infini-AI-Lab/hermit/tree/main/examples/officeqa/ace)). The run below is one training
+with its four evaluations; its numbers do not compare with [the Flash row](#the-flash-row) (another model, another
+Codex, three passes).
+
+- Models: `gpt-6-luna` acting and learning, reasoning effort medium, on a ChatGPT login.
+- Harness: Codex 0.165.0 (`officeqa-codex:0.165.0`), a container per session, four side by side.
+- Data: the 50 / 24 / 172 split of SkillOpt `79124b3`, `data.shuffle_seed: 42`; `officeqa_full.csv` with SHA-256
+  `b5eb1ce0cb34…`, eight items drifted from the split ([Reproduction limits](#reproduction-limits)).
+- Run: `run_codex_login.yaml` with `trainer.run_name=login-codex-ace-v2` and
+  `trainer.tree_dir=runs/trees/login-codex-ace-v2`, made from `b0d9629` with the playbook instructions of
+  `71e2330` (uncommitted then).
+- Spending: a subscription has no per-token price. Training 1.4 h: 1.70 M tokens of training sessions, 3.57 M of
+  Reflector and Curator sessions, 2.12 M of retry and validation sessions. The evaluations, 0.5–0.6 h each, ran
+  within nine hours.
+
+| Adapter | accuracy, three passes | − the initial skill, points |
+|---|---|---|
+| none | 0.223 | −9.1 [−13.2, −5.0] |
+| the initial skill: SkillOpt's, with ACE's empty playbook (`seed_adapter`) | 0.314 | |
+| `final`, best validation (epoch 1, 37 bullets) | 0.440 | **+12.6** [+7.6, +18.0] |
+| the last playbook (`workspace/state/last_adapter`, 50 bullets) | 0.519 | **+20.5** [+14.3, +26.9] |
+
+Paired per question, 95% bootstrap intervals; bold where the interval lies above zero.
+
+- The last playbook beats the validation choice by 7.9 [3.5, 12.2] points: 24 validation questions do not
+  separate two epochs' playbooks.
+- The agent names the bullets it used on one line of its final message: 71 of the 100 training samples named at least
+  one, 28 wrote `none`, one named an id the playbook did not have. One bullet (a calculation rule) has 29 of the
+  80 citations.
+- A day earlier, under the previous wording of the playbook's instructions, the initial skill scored 0.231 and no
+  adapter 0.188. No adapter reads no instructions, and it moved +3.5 [+0.6, +6.4] points: the service drifts, so
+  only evaluations made together are compared.
+
 ## Outputs and scoring
 
 A run's records are under `examples/officeqa/<method>/runs/<run name>/` (`<run>` below):

@@ -1,0 +1,7 @@
+prompts.py holds prompt text from ace-agent/ace (https://github.com/ace-agent/ace, commit
+82709de050e1db6e6ef2f07bcb0393560b94992a): ace/prompts/reflector.py, ace/prompts/curator.py and the merge prompt of
+ace/core/bulletpoint_analyzer.py, verbatim, and GENERATOR_INSTRUCTIONS adapted from ace/prompts/generator.py.
+playbook.py reimplements, function by function, playbook_utils.py, utils.get_section_slug, the Reflector's and
+Curator's reply parsing (ace/core/reflector.py, ace/core/curator.py) and the BulletpointAnalyzer's grouping and
+merging (ace/core/bulletpoint_analyzer.py). The ACE code is Copyright the ACE authors (Zhang et al., "Agentic Context
+Engineering", arXiv:2510.04618), licensed under the Apache License, Version 2.0.

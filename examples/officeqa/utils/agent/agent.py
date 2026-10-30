@@ -35,6 +35,7 @@ import subprocess
 import tempfile
 import threading
 import time
+from dataclasses import dataclass
 
 from hermit.agents import Agent
 from hermit.task import RunOutput
@@ -60,9 +61,39 @@ _binding = None
 _codex_home = None
 
 
+@dataclass
+class _Login:
+    """The user's own Codex login (`agent.params.login: chatgpt`): no provider settings, no key, no price. `model` is
+    passed to Codex as given."""
+    model: str
+    price: dict | None = None
+
+    @property
+    def ref(self) -> str:
+        return f"codex-login/{self.model}"
+
+    def codex_args(self) -> list[str]:
+        return ["-c", 'forced_login_method = "chatgpt"']
+
+
+def _login(params: dict | None) -> bool:
+    login = (params or {}).get("login")
+    if login not in (None, "chatgpt"):
+        raise ValueError(f"agent.params.login is chatgpt or absent, not {login!r}")
+    return login == "chatgpt"
+
+
 def _bind(params: dict | None):
-    """The target model: agent.params.model (resolved by the framework into a binding), else the default."""
+    """The target model: agent.params.model (resolved by the framework into a binding), else the default; with
+    `login: chatgpt`, the model name for the user's own Codex login."""
     global _binding
+    if _login(params):
+        model = (params or {}).get("model")
+        if not model or isinstance(model, dict) or "/" in str(model):
+            raise ValueError("with login: chatgpt, agent.params.model is a Codex model name (SkillOpt's harness "
+                             "always passes one), not empty or a <backend>/<model> reference")
+        _binding = _Login(str(model))
+        return
     from hermit.backends import Binding, registry, resolve
     model = (params or {}).get("model")
     _binding = Binding.from_spec(model) if isinstance(model, dict) else resolve(model or DEFAULT_MODEL, registry())
@@ -117,7 +148,59 @@ def _harness(params: dict | None) -> str:
     harness = (params or {}).get("harness") or "direct"
     if harness not in ("direct", "codex"):
         raise ValueError(f"agent.params.harness is direct or codex, not {harness!r}")
+    if harness == "direct" and _login(params):
+        raise ValueError("login: chatgpt runs Codex: set agent.params.harness: codex")
     return harness
+
+
+def _login_master(params: dict | None) -> Path:
+    """This run's copy of the user's Codex login, which every session's home starts from (codex_sandbox.py) and a
+    token a session refreshed is written back to (_keep_refreshed). The user's own file is copied in when it is newer
+    (a later `codex login`) and never written."""
+    return _codex_dir(params) / "login" / "auth.json"
+
+
+def _last_refresh(path: Path) -> str:
+    try:
+        return str(json.loads(path.read_text()).get("last_refresh") or "")
+    except (OSError, ValueError):
+        return ""
+
+
+def _copy_login(source: Path, master: Path) -> None:
+    """The user's login becomes the run's copy when the copy is missing or older (a later `codex login`)."""
+    import fcntl
+    with open(master.parent / ".lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if not master.is_file() or _last_refresh(source) > _last_refresh(master):
+            tmp = master.with_suffix(".tmp")
+            shutil.copy2(source, tmp)
+            os.chmod(tmp, 0o600)
+            os.replace(tmp, master)
+
+
+def _keep_refreshed(params: dict | None, home: Path) -> None:
+    """A session's login, if Codex refreshed it (a later last_refresh), becomes the run's copy, so the next session
+    does not start from a token its refresh has replaced."""
+    import fcntl
+    master, mine = _login_master(params), home / "auth.json"
+    if not mine.is_file() or not master.is_file():
+        return
+    try:
+        new = json.loads(mine.read_text())
+    except ValueError:
+        return
+    with open(master.parent / ".lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            old = json.loads(master.read_text())
+        except ValueError:
+            old = {}
+        if str(new.get("last_refresh") or "") > str(old.get("last_refresh") or ""):
+            tmp = master.with_suffix(".tmp")
+            tmp.write_text(json.dumps(new))
+            os.chmod(tmp, 0o600)
+            os.replace(tmp, master)
 
 
 def _codex_dir(params: dict | None) -> Path:
@@ -146,6 +229,15 @@ def _setup_codex(params: dict | None) -> None:
         args = _binding.codex_args()                      # pairs of -c and key=value: TOML lines as they are
         (home / "config.toml").write_text("".join(f"{args[i + 1]}\n" for i in range(0, len(args), 2)))
         os.environ["CODEX_HOME"] = str(home)
+        if _login(params):
+            source = Path(os.path.expanduser(str((params or {}).get("auth_file") or "~/.codex/auth.json")))
+            if not source.is_file():
+                raise RuntimeError(f"login: chatgpt needs a Codex login at {source}: run `codex login`")
+            master = _login_master(params)
+            master.parent.mkdir(parents=True, exist_ok=True)
+            os.chmod(master.parent, 0o700)
+            _copy_login(source, master)
+            os.environ["OFFICEQA_CODEX_AUTH"] = str(master)        # codex_sandbox.py puts it in each session's home
         backend_config.set_target_backend("codex_exec")
         os.environ["OFFICEQA_CODEX_CORPUS"] = DATA["docs"]     # the corpus: what codex_sandbox.py mounts read-only
         ready = subprocess.run([str(HERE / "codex_sandbox.py"), "--check"], capture_output=True, text=True)
@@ -211,6 +303,12 @@ class OfficeQAAgent(Agent):
                                      data_dirs=[DATA["docs"]])
             finally:
                 _usage.totals = None
+                if codex:
+                    try:
+                        if _login(self.params):
+                            _keep_refreshed(self.params, out_root / "codex_home")
+                    finally:
+                        shutil.rmtree(out_root / "codex_home", ignore_errors=True)   # codex_sandbox.py's CODEX_HOME
             failure = result["fail_reason"]
             if UNAVAILABLE not in failure and not (codex and failure.startswith("error: codex exec failed")
                                                    and CODEX_UNAVAILABLE.search(failure)):
@@ -223,7 +321,6 @@ class OfficeQAAgent(Agent):
         if codex:
             for link in (pred_dir / "codex_exec" / "docs").glob("root_*"):
                 link.unlink()                               # the corpus stays out of the run's log
-            shutil.rmtree(out_root / "codex_home", ignore_errors=True)    # codex_sandbox.py's per-rollout CODEX_HOME
             summary = pred_dir / "codex_trace_summary.txt"
             if summary.is_file():                           # what SkillOpt's analyst reads besides the replies
                 messages.append({"role": "user", "content": summary.read_text()})
