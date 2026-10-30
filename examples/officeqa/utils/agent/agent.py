@@ -16,7 +16,10 @@ The adapter's ADAPTER.md is the skill; adapter=None runs without one. The run's 
 The target model (`agent.params.model`, a `<backend>/<model>` reference, see hermit.backends; default GLM 5.3
 Flash on Fireworks, FIREWORKS_API_KEY) answers at medium reasoning effort, as the paper runs its student: SkillOpt's
 chat_target_messages calls it directly, Codex through the backend's Responses API with the provider settings in a
-CODEX_HOME of its own (no user configuration or instructions). Codex's workspaces are under `agent.params.codex_dir`,
+CODEX_HOME of its own (no user configuration or instructions). A model on a ChatGPT login (codex_login.py: a backend
+at ChatGPT's Codex endpoint) runs in the Codex harness only, on Codex's built-in provider with a copy of the login in
+each rollout's CODEX_HOME; a rollout waits while the plan's usage is at its cap, and one refused for the plan's limit
+is run again, never scored. Codex's workspaces are under `agent.params.codex_dir`,
 outside any checkout: Codex reads the instructions of the repository it runs in. A rollout the API could not serve
 raises, so it is recorded as an error rather than a wrong answer (so does a question whose parsed pages SkillOpt cannot find under data.json's docs: without them the rollout is not the paper's setting); a Codex session past its 180 s is a failed answer,
 as in SkillOpt.
@@ -29,6 +32,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -37,6 +41,9 @@ from hermit.agents import Agent
 from hermit.task import RunOutput
 
 HERE = Path(__file__).resolve().parent
+if str(HERE) not in sys.path:
+    sys.path.insert(0, str(HERE))
+import codex_login  # noqa: E402  (beside this file)
 DATA = json.loads((HERE.parent / "data.json").read_text())
 DEFAULT_MODEL = "fireworks/accounts/fireworks/models/glm-5p3-flash"
 EFFORT = "medium"                                                 # paper p.8: teacher and student at medium
@@ -140,8 +147,13 @@ def _setup_codex(params: dict | None) -> None:
             return
         home = _codex_dir(params) / f"home-{os.getpid()}"     # one per process: runs side by side share none
         home.mkdir(parents=True, exist_ok=True)
-        args = _binding.codex_args()                      # pairs of -c and key=value: TOML lines as they are
-        (home / "config.toml").write_text("".join(f"{args[i + 1]}\n" for i in range(0, len(args), 2)))
+        if codex_login.is_login(_binding):                # the built-in provider; codex_sandbox.py copies the login
+            lines = codex_login.config_lines()
+            os.environ["OFFICEQA_CODEX_LOGIN"] = "1"
+        else:
+            args = _binding.codex_args()                  # pairs of -c and key=value: TOML lines as they are
+            lines = [args[i + 1] for i in range(0, len(args), 2)]
+        (home / "config.toml").write_text("".join(f"{line}\n" for line in lines))
         os.environ["CODEX_HOME"] = str(home)
         backend_config.set_target_backend("codex_exec")
         os.environ["OFFICEQA_CODEX_CORPUS"] = DATA["docs"]     # the corpus: what codex_sandbox.py mounts read-only
@@ -188,6 +200,9 @@ class OfficeQAAgent(Agent):
         session = self.session(adapter)
         skill = session.context().strip() if session is not None else ""
         codex = _harness(self.params) == "codex"
+        login = codex_login.is_login(_binding)
+        if login and not codex:
+            raise ValueError(f"{_binding.ref} is a ChatGPT login, which only Codex can use: agent.params.harness: codex")
         logs = _codex_dir(self.params) / "rollouts" if codex else HERE / ".logs"
         logs.mkdir(parents=True, exist_ok=True)
         item = {"id": task["id"], "question": task["question"], "task_type": task.get("category", "officeqa"),
@@ -197,7 +212,11 @@ class OfficeQAAgent(Agent):
                                                  resolve_docs_roots([DATA["docs"]])):   # cached: the rollout rereads them
             raise RuntimeError(f"no parsed pages for {task['id']} under {DATA['docs']}: see utils/prepare.py")
         started = time.time()
-        for attempt in range(3):            # the API was unavailable: run the whole rollout again later
+        attempt = 0
+        while True:                         # the API was unavailable: run the whole rollout again later
+            if login:                       # the plan's usage at its cap: wait for its window to reset
+                codex_login.wait_for_plan(log=lambda m: print(f"officeqa {task['id']}: {m}", file=sys.stderr,
+                                                               flush=True))
             out_root = Path(tempfile.mkdtemp(prefix=f"{task['id']}-", dir=logs))
             _usage.totals = totals = {"calls": 0, "cut_off": 0, "prompt_tokens": 0, "cached_tokens": 0,
                                       "completion_tokens": 0}
@@ -208,10 +227,17 @@ class OfficeQAAgent(Agent):
             finally:
                 _usage.totals = None
             failure = result["fail_reason"]
+            if login:
+                codex_login.note_usage(out_root / "codex_home")
+                if failure.startswith("error: codex exec failed") and codex_login.limit_hit(failure):
+                    codex_login.hold_for_limit()      # refused for the plan's limit: not an answer, run it again
+                    shutil.rmtree(out_root, ignore_errors=True)
+                    continue
             if UNAVAILABLE not in failure and not (codex and failure.startswith("error: codex exec failed")
                                                    and CODEX_UNAVAILABLE.search(failure)):
                 break
-            if attempt == 2:
+            attempt += 1
+            if attempt == 3:
                 raise RuntimeError(failure[:4000])
             time.sleep(120)
         pred_dir = out_root / "predictions" / task["id"]

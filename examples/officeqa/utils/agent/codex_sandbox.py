@@ -22,7 +22,9 @@ The session's shell gets only Codex's core environment variables (no API key, no
     OFFICEQA_CODEX_IMAGE    the image (default officeqa-codex:0.134.0)
     OFFICEQA_CODEX_NETWORK  the internal network (default oq-sandbox)
     OFFICEQA_CODEX_PROXY    the egress proxy (default http://oq-egress:3128)
-CODEX_HOME names the home whose config.toml (the provider settings) each rollout's home starts from.
+CODEX_HOME names the home whose config.toml (the provider settings) each rollout's home starts from. With
+OFFICEQA_CODEX_LOGIN set (agent.py, for a model on a ChatGPT login) each session's home also gets a fresh copy of the
+login (codex_login.py); agent.py removes the rollout's home when the rollout ends.
 `codex_sandbox.py --check` reports what is missing (agent.py runs it before the first session).
 """
 from __future__ import annotations
@@ -72,10 +74,18 @@ def check() -> list[str]:
     inspect = lambda *a: subprocess.run([docker, *a], capture_output=True).returncode == 0
     template = (Path(os.environ["CODEX_HOME"]) / "config.toml").read_text()
     corpus = Path(os.environ["OFFICEQA_CODEX_CORPUS"])
+    login = []
+    if os.environ.get("OFFICEQA_CODEX_LOGIN"):
+        import codex_login
+        try:
+            codex_login.auth_status()
+        except (OSError, ValueError) as exc:
+            login = [f"no ChatGPT login at {codex_login.AUTH} ({exc})"]
     return ([f"no image {IMAGE} (docker/Dockerfile)"] * (not inspect("image", "inspect", IMAGE))
             + [f"no network {NETWORK} (docker network create --internal {NETWORK})"]
             * (not inspect("network", "inspect", NETWORK))
             + [f"{k} is not set" for k in re.findall(r'env_key\s*=\s*"([^"]+)"', template) if not os.environ.get(k)]
+            + login
             + [f"{corpus} lacks {d}/" for d in ("transformed", "jsons") if not (corpus / d).is_dir()])
 
 
@@ -91,6 +101,9 @@ def main() -> None:
     template = (Path(os.environ["CODEX_HOME"]) / "config.toml").read_text()
     if not (home / "config.toml").exists():
         (home / "config.toml").write_text(settings(template))
+    if os.environ.get("OFFICEQA_CODEX_LOGIN"):
+        import codex_login
+        codex_login.install_auth(home)                        # taken fresh for each session
     corpus = Path(os.path.abspath(os.environ["OFFICEQA_CODEX_CORPUS"]))
     keys = sorted(set(re.findall(r'env_key\s*=\s*"([^"]+)"', template)))    # passed by name: not on the command line
     docker = shutil.which("docker")
