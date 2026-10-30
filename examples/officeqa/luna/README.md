@@ -60,9 +60,12 @@ side (about sixty sessions at once) its backend answered 429 Too Many Requests a
 took a median 100-400 s instead of about 50; Codex's retries outlasted SkillOpt's 180 s sessions, and 25-67% of the
 training rollouts timed out against 2% in the reference evaluations (45% at 14 slots, 30% at 8, while the account was
 still throttled). Those three batches were discarded (`~/albz/officeqa-luna/aborted-429*`). The runs behind the
-results: every SkillOpt-harness rollout and relay call holds one of the machine's slots
-(`~/albz/officeqa-luna/SLOTS`, read at every try; codex_login.slot), the three streams' own sessions take none, and
-`slots_ctl.py` sets the number every two minutes from the last ten minutes (two fewer when more than 6% of the
-training rollouts timed out or more than 30% of the logged sessions saw a 429; one more after ten quiet minutes),
-starting from 2 after the account had recovered. A rollout takes its slot before its first session starts, so no
-session's 180 s is spent waiting for one. The slots decide only how many sessions run at once.
+results: every SkillOpt-harness rollout and every learner call of the trainings (their relay, port 3672) holds one
+of the machine's slots (`~/albz/officeqa-luna/SLOTS`, read at every try; codex_login.slot); the three streams'
+sessions take none, and their learner calls go through a relay of their own (port 3671, at most six at once,
+OFFICEQA_CODEX_NO_SLOTS). `slots_ctl.py` sets the number every two minutes from the last ten minutes (two fewer when
+more than 6% of the training rollouts timed out or more than 30% of the logged sessions saw a 429, at most once in six
+minutes; one more after ten quiet minutes), starting from 2 after the account had recovered. A rollout takes its slot
+before its first session starts, so no session's 180 s is spent waiting for one. The slots decide only how many
+sessions run at once. A session that ends on "Selected model is at capacity" (the backend's, now and then) is run
+again later, as one the provider could not serve; it is never scored.
