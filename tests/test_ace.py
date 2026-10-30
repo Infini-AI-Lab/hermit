@@ -679,10 +679,10 @@ def test_the_officeqa_agent_binds_a_login_without_provider_settings(tmp_path):
     A._bind({"harness": "codex", "login": "chatgpt", "model": "gpt-x"})
     assert A._binding.model == "gpt-x" and A._binding.price is None
     assert A._binding.codex_args() == ["-c", 'forced_login_method = "chatgpt"']
-    A._bind({"harness": "codex", "login": "chatgpt"})
-    assert A._binding.model == "" and A._binding.ref == "codex-login/default"
-    with pytest.raises(ValueError, match="model name"):
-        A._bind({"harness": "codex", "login": "chatgpt", "model": "fireworks/glm"})
+    assert A._binding.ref == "codex-login/gpt-x"
+    for model in (None, "", "fireworks/glm"):
+        with pytest.raises(ValueError, match="model name"):
+            A._bind({"harness": "codex", "login": "chatgpt", "model": model})
     with pytest.raises(ValueError, match="harness: codex"):
         A._harness({"login": "chatgpt"})
     with pytest.raises(ValueError, match="chatgpt or absent"):

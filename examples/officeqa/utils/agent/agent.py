@@ -64,13 +64,13 @@ _codex_home = None
 @dataclass
 class _Login:
     """The user's own Codex login (`agent.params.login: chatgpt`): no provider settings, no key, no price. `model` is
-    passed to Codex as given; empty, Codex uses the login's default model."""
+    passed to Codex as given."""
     model: str
     price: dict | None = None
 
     @property
     def ref(self) -> str:
-        return f"codex-login/{self.model or 'default'}"
+        return f"codex-login/{self.model}"
 
     def codex_args(self) -> list[str]:
         return ["-c", 'forced_login_method = "chatgpt"']
@@ -89,10 +89,10 @@ def _bind(params: dict | None):
     global _binding
     if _login(params):
         model = (params or {}).get("model")
-        if isinstance(model, dict) or "/" in str(model or ""):
-            raise ValueError("with login: chatgpt, agent.params.model is a Codex model name (or null), not a "
-                             "<backend>/<model> reference")
-        _binding = _Login(str(model or ""))
+        if not model or isinstance(model, dict) or "/" in str(model):
+            raise ValueError("with login: chatgpt, agent.params.model is a Codex model name (SkillOpt's harness "
+                             "always passes one), not empty or a <backend>/<model> reference")
+        _binding = _Login(str(model))
         return
     from hermit.backends import Binding, registry, resolve
     model = (params or {}).get("model")
