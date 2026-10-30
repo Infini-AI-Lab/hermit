@@ -29,6 +29,7 @@ as in SkillOpt.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -217,17 +218,20 @@ class OfficeQAAgent(Agent):
             raise RuntimeError(f"no parsed pages for {task['id']} under {DATA['docs']}: see utils/prepare.py")
         started = time.time()
         attempt = 0
+        say = lambda m: print(f"officeqa {task['id']}: {m}", file=sys.stderr, flush=True)
         while True:                         # the API was unavailable: run the whole rollout again later
             if login:                       # paused, or the plan refused a session: wait (codex_login.py)
-                codex_login.wait_for_plan(log=lambda m: print(f"officeqa {task['id']}: {m}", file=sys.stderr,
-                                                               flush=True))
+                codex_login.wait_for_plan(log=say)
             out_root = Path(tempfile.mkdtemp(prefix=f"{task['id']}-", dir=logs))
             _usage.totals = totals = {"calls": 0, "cut_off": 0, "prompt_tokens": 0, "cached_tokens": 0,
                                       "completion_tokens": 0}
             try:
-                result = process_one(item, str(out_root), skill, max_tool_turns=MAX_TURNS,
-                                     max_completion_tokens=MAX_TOKENS, search_mode="offline", use_local_tools=True,
-                                     data_dirs=[DATA["docs"]])
+                # On a login the rollout holds one of the machine's session slots for all its sessions, taken before
+                # the first starts: the wait is not a session's, whose 180 s it would otherwise spend on 429 retries.
+                with codex_login.slot(log=say) if login else contextlib.nullcontext():
+                    result = process_one(item, str(out_root), skill, max_tool_turns=MAX_TURNS,
+                                         max_completion_tokens=MAX_TOKENS, search_mode="offline", use_local_tools=True,
+                                         data_dirs=[DATA["docs"]])
             finally:
                 _usage.totals = None
             failure = result["fail_reason"]

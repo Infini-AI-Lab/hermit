@@ -17,7 +17,8 @@ workspace and a fresh CODEX_HOME (codex_login.py's settings and a copy of the lo
 The system messages are the session's developer instructions; the user message is the prompt (several turns are
 written out as a transcript), given on stdin. The reply is the session's final message, with the session's token
 usage. Sampling settings Codex has no setting for (max_tokens, temperature) are recorded, not applied. A session waits
-while the runs are paused, and one refused for the plan's limit is run again. GET /health answers ok.
+while the runs are paused, and one refused for the plan's limit is run again; it holds one of the machine's Codex
+session slots while it runs (codex_login.slot). GET /health answers ok.
 Each call's request, settings, events and reply stay under --log-dir.
 
     OFFICEQA_CODEX_IMAGE / OFFICEQA_CODEX_NETWORK / OFFICEQA_CODEX_PROXY    as for codex_session.py
@@ -111,7 +112,8 @@ class Relay:
                 tomllib.loads(text)
                 (home / "config.toml").write_text(text)
                 codex_login.install_auth(home)
-                code, timed_out, wall = self._run(call, work, home, model, effort, root)
+                with codex_login.slot(log=lambda m: print(f"codex_chat {call}: {m}", flush=True)):
+                    code, timed_out, wall = self._run(call, work, home, model, effort, root)
                 codex_login.note_usage(home)
                 codex_login.remove_auth(home)
                 events = []

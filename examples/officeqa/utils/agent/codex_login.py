@@ -20,12 +20,22 @@ only while the file named by OFFICEQA_CODEX_PAUSE exists (default ~/albz/officeq
 refused for the plan's limit (until the plan's window resets), or, if one is set, while the report is at or above
 `max_used()` percent of the plan's window (the file MAX_USED beside it, else OFFICEQA_CODEX_MAX_USED). A session
 refused for the plan's limit is reported by `limit_hit` and is run again after the wait, never scored.
+
+The login also has a rate limit: past some number of sessions at once its backend answers 429, and Codex retries
+with backoff. A session of SkillOpt's harness has 180 s, so those waits become timeouts and wrong answers. `slot()`
+holds one of the machine's Codex session slots: SLOTS beside PLAN (a number, read at every try; else
+OFFICEQA_CODEX_SLOTS; 0 or none: no limit), shared by every process that takes one (a lock file each under slots/,
+released when its holder ends, however it ends). It decides only how many sessions run at once, not what any of them
+does.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
+import fcntl
 import json
 import os
 from pathlib import Path
+import random
 import re
 import sys
 import threading
@@ -57,6 +67,45 @@ def max_used() -> float:
 def is_login(binding) -> bool:
     """Whether a backend binding names ChatGPT's Codex endpoint (the Codex plan) rather than an API."""
     return str(getattr(binding, "base_url", "") or "").rstrip("/") == LOGIN_URL
+
+
+def slot_count() -> int:
+    """How many Codex sessions may run at once on this machine: the file SLOTS beside PLAN, else OFFICEQA_CODEX_SLOTS;
+    0: no limit."""
+    try:
+        return int((PLAN.parent / "SLOTS").read_text().strip())
+    except (OSError, ValueError):
+        return int(os.environ.get("OFFICEQA_CODEX_SLOTS", "0") or 0)
+
+
+@contextmanager
+def slot(log=None):
+    """Hold one of the machine's Codex session slots while the block runs (none when there is no limit)."""
+    told = False
+    while True:
+        n = slot_count()
+        if n <= 0:
+            yield None
+            return
+        locks = PLAN.parent / "slots"
+        locks.mkdir(parents=True, exist_ok=True)
+        for i in random.sample(range(n), n):
+            fd = os.open(locks / f"{i}.lock", os.O_RDWR | os.O_CREAT, 0o600)
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                os.close(fd)
+                continue
+            try:
+                yield i
+            finally:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+                os.close(fd)
+            return
+        if not told and log is not None:
+            log(f"waiting for one of the {n} Codex session slots")
+            told = True
+        time.sleep(2 + random.random() * 2)
 
 
 def config_lines() -> list[str]:
