@@ -14,7 +14,8 @@
 #     h2                     the Harness² stream (harness2_stream/run_codex.yaml, run luna-h2-s0)
 #
 # MODEL (gpt-5.6-luna), LUNA (~/albz/officeqa-luna: the pinned Codex, workspaces, the relay's records, plan.json and
-# PAUSE, see ../utils/agent/codex_login.py), CODEX_PIN ($LUNA/codex-pin/0.164.0), RELAY_PORT (3671),
+# PAUSE, see ../utils/agent/codex_login.py), CODEX_PIN ($LUNA/codex-pin/0.164.0), RELAY_PORT (3671), RELAY_CONCURRENCY
+# (32 Codex sessions at a time for all learners together),
 # OFFICEQA_CODEX_IMAGE (officeqa-codex:0.164.0), OFFICEQA_CODEX_PROXY (http://oq-egress-chatgpt:3128, a proxy that lets
 # through chatgpt.com only: ../utils/agent/docker/egress_proxy.py with chatgpt.com:443).
 set -eu -o pipefail
@@ -44,7 +45,7 @@ LEARNER=("llm.model=codexrelay/$MODEL" "llm.timeout=3600")       # extra_body (r
 relay() {
   if curl -s -m 2 "http://127.0.0.1:$RELAY_PORT/health" > /dev/null; then return; fi
   setsid nohup "$PY" "$OQA/utils/agent/codex_chat.py" --port "$RELAY_PORT" --log-dir "$LUNA/relay" \
-    >> "$LUNA/logs/relay.log" 2>&1 < /dev/null &
+    --concurrency "${RELAY_CONCURRENCY:-32}" >> "$LUNA/logs/relay.log" 2>&1 < /dev/null &
   for _ in $(seq 30); do curl -s -m 2 "http://127.0.0.1:$RELAY_PORT/health" > /dev/null && return; sleep 1; done
   echo "REFUSING: the learner relay did not start (see $LUNA/logs/relay.log)"; exit 1
 }
@@ -58,7 +59,7 @@ case "$what" in
   none|initial)
     adapter=$([ "$what" = none ] && echo none || echo ../utils/seed_adapter)
     hermit eval --config "$OQA/skillopt/run_codex_flash.yaml" --adapter "$adapter" trainer.run_name=luna-reference \
-      "agent.params.codex_dir=$LUNA/cache/luna-reference" "${COMMON[@]}" "${LEARNER[@]}" "$@" ;;
+      "agent.params.codex_dir=$LUNA/cache/luna-reference-$what" "${COMMON[@]}" "${LEARNER[@]}" "$@" ;;
   gepa|skillopt)
     n=${1:?training number 1-4}
     shift
@@ -85,8 +86,8 @@ case "$what" in
       || { echo "REFUSING: the Harness² stream differs from the Continual Harness stream's order"; exit 1; }
     absent=$("$PY" -c "import json; from pathlib import Path; d = json.load(open('../utils/data.json'));
 print(json.dumps([str(Path(d['answers']).parent), d['csv']]))")
-    hermit train --config run_codex.yaml trainer.run_name=luna-h2-s0 data.train=stream_s0.txt \
-      "agent.params.codex_dir=$LUNA/cache/luna-h2-s0" "${COMMON[@]}" \
+    hermit train --config run_codex.yaml trainer.run_name=luna-h2-s0 trainer.tree_dir=runs/trees/luna-h2-s0 \
+      data.train=stream_s0.txt "agent.params.codex_dir=$LUNA/cache/luna-h2-s0" "${COMMON[@]}" \
       evolver.params.backend=codex "evolver.params.model=codexplan/$MODEL" \
       evolver.params.proposer=codex_proposer.py:CodexProposer "evolver.params.claude_bin=$CODEX_PIN/bin/codex" \
       "evolver.params.probe_absent=$absent" "sandbox.allow=[chatgpt.com]" "$@" ;;
