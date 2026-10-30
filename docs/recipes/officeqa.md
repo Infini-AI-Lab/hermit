@@ -310,28 +310,29 @@ an empty bank, which retrieves nothing). An interrupted stream is resumed in pla
 The Codex-harness configurations are `reharness/stream_codex.yaml` and `reharness/run_codex_flash.yaml`; the
 stream's number is in [the Flash row](#the-flash-row).
 
-## Meta-Harness
+## Meta-Harness Adapter
 
-[Meta-Harness](https://arxiv.org/abs/2603.28052) (Lee et al., 2026) searches over whole adapters: a coding-agent
-proposer reads every earlier candidate's files, scores and full trajectories and writes new candidates, each is
-evaluated on a fixed search set, and the best there is kept ([Meta-Harness](../methods/meta_harness.md) has its
-controls). `examples/officeqa/meta_harness/` runs it on the Flash row's settings: the 50 training questions are the
-search set (`data.step_size: 50`, so one step evaluates one candidate), the proposer is Codex with GLM 5.3 Flash at
-medium effort, and the acting agent is `utils/agent/codex_agent.py` with `deploy: adapter` (`ADAPTER.md` as the
-session's `AGENTS.md`, every other file of the adapter in its workspace). It starts from SkillOpt's initial skill
-(`make_seed.py` writes `seed_adapter/`) on the `meta-harness` template, whose files outside `.hermit/` are all the
-proposer's to write.
+Meta-Harness Adapter is the outer loop of [Meta-Harness](https://arxiv.org/abs/2603.28052) (Lee et al., 2026) with the
+search confined to the adapter: the acting agent stays fixed, where Meta-Harness also rewrites the agent's own loop. A
+coding-agent proposer reads every earlier candidate's files, scores and full trajectories and writes new candidates,
+each is evaluated on a fixed search set, and the best there is kept ([Meta-Harness
+Adapter](../methods/meta_harness_adapter.md) has its controls). `examples/officeqa/meta_harness_adapter/` runs it on
+the Flash row's settings: the 50 training questions are the search set (`data.step_size: 50`, so one step evaluates
+one candidate), the proposer is Codex with GLM 5.3 Flash at medium effort, and the acting agent is
+`utils/agent/codex_agent.py` with `deploy: adapter` (`ADAPTER.md` as the session's `AGENTS.md`, every other file of
+the adapter in its workspace). It starts from SkillOpt's initial skill (`make_seed.py` writes `seed_adapter/`) on the
+`meta-harness-adapter` template, whose files outside `.hermit/` are all the proposer's to write.
 
 | Config | Rounds × candidates | Epochs | `run_name` | The number |
 |---|---|---|---|---|
-| `meta_harness/demo.yaml` | 1 × 2 | 3 | `mh-demo` | none: a demo, no test evaluation |
-| `meta_harness/run.yaml` | 6 × 2 | 13 | `mh-flash` | `mean_score` in `meta_harness/runs/mh-flash/eval/final/summary.json` |
+| `meta_harness_adapter/demo.yaml` | 1 × 2 | 3 | `mh-demo` | none: a demo, no test evaluation |
+| `meta_harness_adapter/run.yaml` | 6 × 2 | 13 | `mh-flash` | `mean_score` in `meta_harness_adapter/runs/mh-flash/eval/final/summary.json` |
 
 ```bash
-python examples/officeqa/meta_harness/make_seed.py
+python examples/officeqa/meta_harness_adapter/make_seed.py
 export OFFICEQA_CODEX_IMAGE=officeqa-codex:0.162.0
-hermit train --config examples/officeqa/meta_harness/run.yaml
-hermit eval  --config examples/officeqa/meta_harness/run.yaml --adapter final
+hermit train --config examples/officeqa/meta_harness_adapter/run.yaml
+hermit eval  --config examples/officeqa/meta_harness_adapter/run.yaml --adapter final
 ```
 
 The proposer runs in the run's sandbox, with read access to the corpus and no network but its model's endpoint; the
@@ -460,8 +461,8 @@ test questions are evaluated **once** (`eval.repeats: 1`, a standard error of ab
 learner's spending is recorded (Codex sessions record only tokens). Not comparable with the table above (Codex
 0.134, GLM 5.3 as the learner, three passes). GEPA and SkillOpt were each trained four times from the same config
 (`gepa/run_codex_flash.yaml`, `skillopt/run_codex_flash.yaml`; run names `flash-codex-gepa`, `-r2`, `-r3`, `-r4`
-and `flash-codex-skillopt`, `-r2`, `-r3`, `-r4`), each `final` evaluated once; Meta-Harness was trained once
-(`meta_harness/run.yaml`, run `mh-flash`) and its `final` evaluated once; Harness² and Continual Harness are
+and `flash-codex-skillopt`, `-r2`, `-r3`, `-r4`), each `final` evaluated once; Meta-Harness Adapter was trained once
+(`meta_harness_adapter/run.yaml`, run `mh-flash`) and its `final` evaluated once; Harness² and Continual Harness are
 one stream each over the same 172 questions in the same order
 ([`harness2_stream/`](https://github.com/Infini-AI-Lab/hermit/tree/main/examples/officeqa/harness2_stream#result),
 [`continual_harness/`](https://github.com/Infini-AI-Lab/hermit/tree/main/examples/officeqa/continual_harness#result)), which answer each question once while learning and are therefore not
@@ -473,7 +474,7 @@ evaluations of a frozen adapter.
 | SkillOpt's initial skill | one pass | 0.576 | |
 | GEPA, `final` | train on 50 / select on 24 / test on 172 | **0.580** (sd 0.031) | 0.541, 0.610, 0.599, 0.570 |
 | SkillOpt, `final` | train on 50 / select on 24 / test on 172 | **0.600** (sd 0.003) | 0.599, 0.605, 0.599, 0.599 |
-| Meta-Harness, `final` | search on 50 / test on 172 | **0.640** | one training |
+| Meta-Harness Adapter, `final` | search on 50 / test on 172 | **0.640** | one training |
 | Continual Harness, the stream's answers | stream over the 172, no training split, no judge verdict | **0.634** | one stream (the same seed-0 order) |
 | ReHarness, the stream's answers | stream over the 172, no training split, no judge verdict | **0.634** | one stream (the same seed-0 order) |
 | Harness², deliverable | stream over the 172, no training split, no judge verdict | **0.651** | one stream (seed 0); its reference execution of the initial skill: 0.576 |
@@ -492,9 +493,9 @@ Paired per question, 95% bootstrap intervals; a method's four runs are averaged 
 | Continual Harness − Harness²'s reference execution | +5.8 [−1.2, +12.8] |
 | Continual Harness − Harness² deliverable | −1.7 [−7.6, +4.1] |
 | ReHarness stream − Harness²'s reference execution | +5.8 [−1.2, +13.4] |
-| Meta-Harness − Harness²'s reference execution | **+6.4** [+1.2, +11.6] |
-| Meta-Harness − Continual Harness | +0.6 [−5.8, +7.0] |
-| Meta-Harness − ReHarness stream | +0.6 [−5.2, +6.4] |
+| Meta-Harness Adapter − Harness²'s reference execution | **+6.4** [+1.2, +11.6] |
+| Meta-Harness Adapter − Continual Harness | +0.6 [−5.8, +7.0] |
+| Meta-Harness Adapter − ReHarness stream | +0.6 [−5.2, +6.4] |
 
 - GEPA's four trainings spread over 7 points of test accuracy for the same validation score (its `final` was
   candidate 3 of 21, 1 of 11, 9 of 23 and 12 of 23, validation means 0.708, 0.708, 0.750, 0.792; the initial
@@ -502,20 +503,20 @@ Paired per question, 95% bootstrap intervals; a method's four runs are averaged 
   skills (its best skill from steps 1, 6, 2, 1; validation 0.750, 0.792, 0.750, 0.750) are different texts of
   3.2–13.9 KB that differ on 27–39 questions each while landing on the same total. Report the means, never one run.
 - The learned skills quote training questions' answers and particulars (bare-number examples, a month count, a table's
-  row label; Meta-Harness's `final` quotes two as bare-number examples); no `final` skill quotes a test answer (one
-  quoted training answer, 2.916, is also a test question's).
+  row label; Meta-Harness Adapter's `final` quotes two as bare-number examples); no `final` skill quotes a test answer
+  (one quoted training answer, 2.916, is also a test question's).
 - Of each evaluation's 172 sessions, 1–4 reached the harness's 180 s cap and scored 0 (4 without a skill);
   about one session in ten tried the network or searched the host's file system before answering, and found
   neither (the container holds the workspace and the read-only corpus; the session's commands have no network).
 - Learner spending and training time, at the backend's prices: GEPA USD 0.09, 0.07, 0.06, 0.08 in 3.2, 2.5, 2.9,
   3.1 h; SkillOpt USD 0.15, 0.17, 0.15, 0.14 in 1.4, 1.3, 1.2, 1.3 h; Harness² USD 25.86 of editor sessions and
   USD 1.62 of executions in 20.5 h, about 0.16 USD per question against GEPA's and SkillOpt's 0.01 (the executions'
-  Codex tokens are not priced); Continual Harness USD 3.67 of Refiner calls and USD 2.81 of executions in 8.6 h,
-  about 0.04 USD per question; Meta-Harness USD 8.39 of search-set sessions (650: 13 candidates × 50 questions) and
+  Codex tokens are not priced); Continual Harness USD 3.67 of Refiner calls and USD 2.81 of executions in 8.6 h, about
+  0.04 USD per question; Meta-Harness Adapter USD 8.39 of search-set sessions (650: 13 candidates × 50 questions) and
   USD 0.17 of proposer sessions in 1.5 h, and USD 1.82 for its test evaluation.
-- Meta-Harness's proposer wrote six rounds of two candidates; the starting skill scored 0.60 on the search set, the
-  candidates 0.64–0.72; `final` was 12 points above the starting skill there (0.72) and 6.4 above it on the test
-  questions, the best of 13 candidates on 50 questions being an optimistic estimate. Every candidate changed
+- Meta-Harness Adapter's proposer wrote six rounds of two candidates; the starting skill scored 0.60 on the search
+  set, the candidates 0.64–0.72; `final` was 12 points above the starting skill there (0.72) and 6.4 above it on the
+  test questions, the best of 13 candidates on 50 questions being an optimistic estimate. Every candidate changed
   `ADAPTER.md` alone; no script or other file was written.
 - ReHarness's stream (`stream_codex.yaml`, `feedback: false`, Codex's `AGENTS.md` limit raised to 200 KiB) scores
   0.640 on the first half and 0.628 on the second; 10.0 h, USD 2.43 of sessions and USD 4.81 of reflection and

@@ -1,7 +1,0 @@
-# Meta-Harness (Lee et al., arXiv:2603.28052): the adapter is the whole harness the proposer searches over. No
-# `structure`: every file outside .hermit/ is learnable, in any layout.
-template:
-  id: meta-harness
-  version: "1.0"
-  contract: "2"
-  name: Meta-Harness adapter

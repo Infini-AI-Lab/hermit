@@ -17,6 +17,13 @@ Evolver the reproduction adds.
   if the method's skills are executable, the template carries them as files the acting agent can run (for Codex, a
   `SKILL.md` with a `scripts/` directory), not as prose about skills. A method whose harness is more than one text
   file does not fit `prompt-only`.
+- Use an existing template where one fits. A new template says which existing ones were considered and why none
+  fits (their structure, their fixed paths, what reaches the acting agent).
+- Draw the Evolver's step as a flow chart: what it reads, what it calls (the learner, the tools, the rollouts), what
+  it writes, and how the final adapter is chosen. The method page carries it
+  ([Meta-Harness Adapter](../methods/meta_harness_adapter.md) has one).
+- When the framework narrows what the method may change (the acting agent is fixed, only the adapter changes), the
+  method's name says so, and the method page states the difference from the paper in its first paragraph.
 - A reproduction changes only three places: `hermit/algorithms/templates/<name>/`,
   `hermit/algorithms/evolvers/<name>/` and an example under `examples/<task>/<name>/`. Anything else in `hermit/`
   is the core and stays untouched; a reproduction that seems to need a core change opens a separate discussion
@@ -111,17 +118,21 @@ differences against the starting adapter, not only accuracies.
 - Open it as a draft until the first evaluation has run and its row is in the description.
 - The description carries the table of section 2, the protocol of section 3, the settings and result of section 4,
   the list of application-side changes, and what is left out. No attribution lines.
-- The description answers five questions, each in a few sentences, with links to the files, runs and records it
+- The description answers six questions, each in a few sentences, with links to the files, runs and records it
   rests on:
   1. **Core changes.** Does the pull request change the core (anything in `hermit/` outside the method's template
      and Evolver)? If so, what changes, and why can the method not work without it? (Section 1.)
-  2. **Adapter template.** Which template does the method use or add? What may the learner change, what is fixed,
-     and what reaches the acting agent? (Section 1.)
-  3. **Evolver.** Which Evolver does the method add? What does one step do, what does the learner read, and how
-     is the final adapter chosen? (Section 1.)
+  2. **Adapter template.** Does the pull request add a new adapter template, or use an existing one? Which one, and
+     if it is new, why does no existing template fit? What may the learner change, what is fixed, and what reaches
+     the acting agent? (Section 1.)
+  3. **Evolver.** Does the pull request add a new Evolver, or use an existing one? Draw one step as a flow chart (a
+     mermaid diagram in the description is enough): what the Evolver reads, what it calls (the learner, the tools,
+     the rollouts), what it writes, and how the final adapter is chosen. (Section 1.)
   4. **Experiments.** What was run, and on what? The benchmark and its data (split or stream), the protocol, the
      acting agent and its model, the Evolver and its model, the budgets, the number of runs, and the results
      against the baselines measured on the same settings. (Sections 3 and 4.)
   5. **Documentation.** Which documents were added or changed to match (method page, recipe, example README,
      method index, changelog)? (Section 5, step 5.)
+  6. **This description.** Have you read it end to end, and does every path, name, number and claim in it match the
+     code and the run records it links to?
 - Any core change is a separate pull request, discussed before it is written.

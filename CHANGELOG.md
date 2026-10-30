@@ -39,15 +39,16 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   adapters declare a `context_tool` must set it; the `reharness` template does.
 - `UPSTREAM_KEY_ENV` for the wire meter: a request that arrives without an `Authorization` header is signed with
   that variable's key, for a sandboxed reader that holds none.
-- The Meta-Harness method (Lee et al., arXiv:2603.28052): the `meta_harness` Evolver, one candidate per step, a
+- The Meta-Harness Adapter method: the outer loop of Meta-Harness (Lee et al., arXiv:2603.28052) with the search
+  confined to the adapter (the acting agent is fixed). The `meta_harness_adapter` Evolver, one candidate per step, a
   Codex or Claude Code proposer that reads every earlier candidate's files, scores and trajectories and writes k new
   adapters per round, and `finalize` handing back the best mean on the search set; documented in
-  `docs/methods/meta_harness.md`.
-- The `meta-harness` adapter template: every file outside `.hermit/` is learnable; `.hermit/EVOLVER.md` says only
-  what an adapter is and that `ADAPTER.md` always reaches the acting agent.
-- Meta-Harness on OfficeQA: `examples/officeqa/meta_harness/` (the Flash row, six rounds of two candidates); the
-  OfficeQA Codex agent takes `deploy: adapter`, which deploys `ADAPTER.md` as the session's `AGENTS.md` and every
-  other adapter file at the same path in the workspace.
+  `docs/methods/meta_harness_adapter.md`.
+- The `meta-harness-adapter` adapter template: every file outside `.hermit/` is learnable; `.hermit/EVOLVER.md` says
+  only what an adapter is and that `ADAPTER.md` always reaches the acting agent.
+- Meta-Harness Adapter on OfficeQA: `examples/officeqa/meta_harness_adapter/` (the Flash row, six rounds of two
+  candidates); the OfficeQA Codex agent takes `deploy: adapter`, which deploys `ADAPTER.md` as the session's
+  `AGENTS.md` and every other adapter file at the same path in the workspace.
 - `docs/framework/adapter.md` states what every adapter can rely on: `.hermit/` is fixed and `ADAPTER.md` reaches
   the acting agent.
 - `docker/offline.sh`: the examples in a container whose only route out is an egress proxy to the model provider.

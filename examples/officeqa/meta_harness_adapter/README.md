@@ -1,19 +1,21 @@
-# OfficeQA with Meta-Harness
+# OfficeQA with Meta-Harness Adapter
 
-[Meta-Harness](https://arxiv.org/abs/2603.28052) (Lee et al. 2026; [code](https://github.com/stanford-iris-lab/meta-harness))
-on OfficeQA in the SkillOpt paper's setting, with Codex as the acting agent: the
-[`meta_harness`](../../../docs/methods/meta_harness.md) Evolver runs a Codex proposer that reads every earlier
-candidate's files, scores and trajectories and writes two new adapters per round; each is evaluated on the 50
+The outer loop of [Meta-Harness](https://arxiv.org/abs/2603.28052) (Lee et al. 2026;
+[code](https://github.com/stanford-iris-lab/meta-harness)) with the search confined to the adapter, on OfficeQA in the
+SkillOpt paper's setting, with Codex as the acting agent. Meta-Harness also rewrites the acting agent's own loop; here
+the agent is fixed and only the adapter changes. The
+[`meta_harness_adapter`](../../../docs/methods/meta_harness_adapter.md) Evolver runs a Codex proposer that reads every
+earlier candidate's files, scores and trajectories and writes two new adapters per round; each is evaluated on the 50
 training questions (the search set), and the best there is evaluated once on the 172 test questions. The adapter is
-the [`meta-harness`](../../../hermit/algorithms/templates/meta_harness/) template: every file outside `.hermit/` is
-the proposer's to write.
+the [`meta-harness-adapter`](../../../hermit/algorithms/templates/meta_harness_adapter/) template: every file outside
+`.hermit/` is the proposer's to write.
 
 ```bash
-python examples/officeqa/meta_harness/make_seed.py                  # ADAPTER.md = SkillOpt's initial skill
+python examples/officeqa/meta_harness_adapter/make_seed.py                  # ADAPTER.md = SkillOpt's initial skill
 export OFFICEQA_CODEX_IMAGE=officeqa-codex:0.162.0
-hermit train --config examples/officeqa/meta_harness/demo.yaml       # one round: the seed and two candidates
-hermit train --config examples/officeqa/meta_harness/run.yaml        # six rounds of two, 13 epochs
-hermit eval  --config examples/officeqa/meta_harness/run.yaml --adapter final
+hermit train --config examples/officeqa/meta_harness_adapter/demo.yaml       # one round: the seed and two candidates
+hermit train --config examples/officeqa/meta_harness_adapter/run.yaml        # six rounds of two, 13 epochs
+hermit eval  --config examples/officeqa/meta_harness_adapter/run.yaml --adapter final
 ```
 
 The acting agent is `../utils/agent/codex_agent.py` with `deploy: adapter`: `ADAPTER.md` becomes the session's
@@ -43,14 +45,14 @@ pass, so each accuracy carries a standard error of about 3.7 points.
 | Test (172) | accuracy |
 |---|---|
 | Harness², reference execution of the initial skill (the adapter the search starts from) | 0.576 |
-| **Meta-Harness, final adapter** | **0.640** |
+| **Meta-Harness Adapter, final adapter** | **0.640** |
 | Continual Harness, the stream's answers | 0.634 |
 | ReHarness, the stream's answers | 0.634 |
 
-Paired per question with 95% bootstrap intervals: Meta-Harness − initial skill **+6.4** [+1.2, +11.6] (17
-questions won, 6 lost); Meta-Harness − Continual Harness +0.6 [−5.8, +7.0] (17 won, 16 lost); Meta-Harness −
-ReHarness +0.6 [−5.2, +6.4] (13 won, 12 lost). The streams learn on the test questions themselves; Meta-Harness
-searched on the training questions and was tested once.
+Paired per question with 95% bootstrap intervals: Meta-Harness Adapter − initial skill **+6.4** [+1.2, +11.6] (17
+questions won, 6 lost); Meta-Harness Adapter − Continual Harness +0.6 [−5.8, +7.0] (17 won, 16 lost); Meta-Harness
+Adapter − ReHarness +0.6 [−5.2, +6.4] (13 won, 12 lost). The streams learn on the test questions themselves;
+Meta-Harness Adapter searched on the training questions and was tested once.
 
 Every candidate changed `ADAPTER.md` alone. The final one (5.7 KB) is the starting skill rewritten into an answer
 contract (count, order, sign, precision, no unrequested units), an evidence plan with an exact-source lock (operands

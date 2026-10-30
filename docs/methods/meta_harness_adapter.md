@@ -1,19 +1,26 @@
-# Meta-Harness
+# Meta-Harness Adapter
 
-Meta-Harness (Lee et al., 2026, [arXiv:2603.28052](https://arxiv.org/abs/2603.28052);
-[code](https://github.com/stanford-iris-lab/meta-harness)) is an outer loop that searches over whole harnesses. A
-coding agent, the proposer, reads a filesystem holding every earlier candidate's files, scores and full execution
-traces, and writes k new candidates; each is evaluated on a fixed search set and logged to the same filesystem; the
-best on the search set is selected. Choose it when you have a labelled training split to search on, an acting
-agent you will not change, and a budget for evaluating every candidate on the whole search set.
+Meta-Harness Adapter is the outer loop of Meta-Harness (Lee et al., 2026,
+[arXiv:2603.28052](https://arxiv.org/abs/2603.28052); [code](https://github.com/stanford-iris-lab/meta-harness))
+with the search confined to the adapter. A coding agent, the proposer, reads a filesystem holding every earlier
+candidate's files, scores and full execution traces, and writes k new candidates; each is evaluated on a fixed
+search set and logged to the same filesystem; the best on the search set is selected. Choose it when you have a
+labelled training split to search on, an acting agent you will not change, and a budget for evaluating every
+candidate on the whole search set.
+
+**What it is not.** Meta-Harness searches over the whole harness program, the acting agent's loop included: how it
+calls the model, runs commands and decides it is done. Here the acting agent and its host are fixed, and the
+proposer changes only the adapter: `ADAPTER.md`, which the agent reads as its instructions, and any other files it
+adds, which reach the agent as the agent's own deployment allows. Results of this method are results of adapter
+search under a fixed agent, not of Meta-Harness itself.
 
 ## Setup
 
 ```yaml
-template: meta-harness
+template: meta-harness-adapter
 start_from: seed_adapter         # the starting adapter, the first candidate
 evolver:
-  name: meta_harness
+  name: meta_harness_adapter
   params:
     model: fireworks/accounts/fireworks/models/glm-5p3-flash   # the proposer's model
     k: 2                         # candidates per proposal round
@@ -37,15 +44,22 @@ This fragment belongs in a complete [run config](../framework/configuration.md).
 
 ## The template
 
-`meta-harness` fixes only `.hermit/`: its manifest and the proposer's guide, `EVOLVER.md`. Every other file of the
-adapter may be added, changed or removed, and the template declares no structure, no check of its own and no
-exports. The guide says what an adapter is, that `ADAPTER.md` is the agent's instructions at the start of every
-task, and that anything else reaches the agent only if `ADAPTER.md` tells it what is there; what the adapter
-contains and how it is organised is left to the proposer.
+`meta-harness-adapter` fixes only `.hermit/`: its manifest and the proposer's guide, `EVOLVER.md`. Every other file of
+the adapter may be added, changed or removed, and the template declares no structure, no check of its own and no
+exports. The guide says what an adapter is, that `ADAPTER.md` is the agent's instructions at the start of every task,
+and that anything else reaches the agent only if `ADAPTER.md` tells it what is there; what the adapter contains and
+how it is organised is left to the proposer.
 
 ## One framework step
 
 One step evaluates one candidate (`data.step_size` covers the search set, so a step is an epoch):
+
+```{figure} ../../assets/meta_harness_adapter_step.svg
+:alt: One Meta-Harness Adapter step. The Trainer's rollouts on the search set evaluate the handed-back candidate; the Evolver records the scores, runs a proposal round when nothing is queued, validates and stores the candidates, and hands back the next one. The proposer reads the whole filesystem D; finalize picks the best mean on the search set.
+:width: 100%
+
+One step: the rollouts evaluate the candidate handed back last; a proposal round runs only when nothing is queued.
+```
 
 1. The step's rollouts are the evaluation of the candidate handed back last time (the starting adapter, `seed`, on
    the first step). The Evolver records their per-task scores against that candidate.
@@ -73,7 +87,7 @@ candidates, do not run the evaluation.
 
 ## Parameters and defaults
 
-```{literalinclude} ../../hermit/algorithms/evolvers/meta_harness/evolver.yaml
+```{literalinclude} ../../hermit/algorithms/evolvers/meta_harness_adapter/evolver.yaml
 :language: yaml
 ```
 
@@ -104,7 +118,7 @@ The rollout cost is (1 + R x k) x |search set| rollouts for R rounds, plus one p
 |---|---|
 | `step_NNNN/output/report.md` | The candidate the step evaluated and its mean, the round's queued and rejected candidates, the one handed back |
 | `step_NNNN/output/proposer_prompt.md`, `proposer_report.md`, `agent-codex.jsonl` | On a proposal step: the round's prompt, the proposer's own account of its candidates (when it wrote one) and its session |
-| `workspace/state/meta_harness.json` | Every candidate: round, hypothesis, base, status, each evaluation's step and per-task scores; the queue |
+| `workspace/state/meta_harness_adapter.json` | Every candidate: round, hypothesis, base, status, each evaluation's step and per-task scores; the queue |
 | `workspace/state/evolution_summary.jsonl` | The proposer's view: one line per candidate |
 | `workspace/state/candidates/<id>/adapter/` | Each candidate's files |
 
@@ -113,6 +127,6 @@ is compared with.
 
 ## Example
 
-`examples/officeqa/meta_harness/` runs it on OfficeQA's Flash row: the 50 training questions as the search set, six
-rounds of two candidates, GLM 5.3 Flash acting and proposing through Codex; see its README and the
-[OfficeQA recipe](../recipes/officeqa.md).
+`examples/officeqa/meta_harness_adapter/` runs it on OfficeQA's Flash row: the 50 training questions as the search
+set, six rounds of two candidates, GLM 5.3 Flash acting and proposing through Codex; see its README and the [OfficeQA
+recipe](../recipes/officeqa.md).

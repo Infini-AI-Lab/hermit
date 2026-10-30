@@ -1,6 +1,6 @@
-"""Meta-Harness: the meta-harness template, the Codex agent's `deploy: adapter` mode and the Evolver's loop over
-steps (record the evaluated candidate, propose k, validate, queue, hand back, select) with a scripted proposer (no
-model, no Docker, no network)."""
+"""Meta-Harness Adapter: the meta-harness-adapter template, the Codex agent's `deploy: adapter` mode and the Evolver's
+loop over steps (record the evaluated candidate, propose k, validate, queue, hand back, select) with a scripted
+proposer (no model, no Docker, no network)."""
 import json
 import os
 from pathlib import Path
@@ -10,12 +10,12 @@ import tempfile
 
 import pytest
 
-from hermit.algorithms.evolvers.meta_harness import evolver as E
+from hermit.algorithms.evolvers.meta_harness_adapter import evolver as E
 from hermit.evolver.base import Access, Progress, StepContext, StepResult, Workspace
 from hermit.spec import check_spec
 
 ROOT = Path(__file__).resolve().parents[1]
-TEMPLATE = ROOT / "hermit" / "algorithms" / "templates" / "meta_harness"
+TEMPLATE = ROOT / "hermit" / "algorithms" / "templates" / "meta_harness_adapter"
 AGENT_DIR = ROOT / "examples" / "officeqa" / "utils" / "agent"
 
 
@@ -123,7 +123,7 @@ def context(ws: Workspace, step: int, **params) -> StepContext:
 
 def evolver(proposals: list[list[dict]]):
     """The Evolver with a scripted proposer: each session writes the next round's candidates and pending file."""
-    ev = E.MetaHarnessEvolver()
+    ev = E.MetaHarnessAdapterEvolver()
     ev.directory = Path(E.__file__).resolve().parent
     calls = []
 

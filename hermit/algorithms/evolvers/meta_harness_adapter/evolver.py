@@ -1,11 +1,11 @@
-"""MetaHarnessEvolver: Meta-Harness (Lee et al., arXiv:2603.28052; github.com/stanford-iris-lab/meta-harness), its
-outer loop on the Trainer.
+"""MetaHarnessAdapterEvolver: the outer loop of Meta-Harness (Lee et al., arXiv:2603.28052;
+github.com/stanford-iris-lab/meta-harness) on the Trainer, with the search confined to the adapter.
 
 The paper's loop (Algorithm 1): a coding-agent proposer reads a filesystem holding every earlier candidate's code,
 scores and execution traces, and writes k new harnesses; each that passes interface validation is evaluated on the
 search set and logged to the filesystem; after N iterations the best harness on the search set is selected. Here the
-harness is the whole adapter (template meta-harness: every file outside .hermit/ is learnable) and the acting agent
-is fixed.
+harness is the whole adapter (template meta-harness-adapter: every file outside .hermit/ is learnable) and the acting
+agent is fixed, where the paper's proposer also rewrites the agent's own loop.
 
 Mapping onto the Trainer, one candidate per step (data.step_size covers the training split, which is the search set):
 
@@ -21,7 +21,7 @@ Mapping onto the Trainer, one candidate per step (data.step_size covers the trai
 finalize hands back the candidate with the best mean score on the search set. The proposer never runs evaluations,
 and sees no validation or test results.
 
-Training State: state/meta_harness.json (every candidate: round, hypothesis, base, where its files are, each
+Training State: state/meta_harness_adapter.json (every candidate: round, hypothesis, base, where its files are, each
 evaluation's step and per-task scores; the queue) and state/evolution_summary.jsonl (one line per candidate, the
 paper's summary file, rewritten every step), state/candidates/<id>/ (each candidate's files).
 """
@@ -36,7 +36,7 @@ import shutil
 from hermit.evolver.agent import AgentEvolver
 from hermit.evolver.base import FinalResult, StepContext, StepResult
 
-STATE = "meta_harness.json"
+STATE = "meta_harness_adapter.json"
 SUMMARY = "evolution_summary.jsonl"
 CANDIDATES = "candidates"
 PENDING = "pending_eval.json"
@@ -71,7 +71,7 @@ def _install(candidate: Path, adapter: Path) -> None:
             shutil.copy2(entry, target)
 
 
-class MetaHarnessEvolver(AgentEvolver):
+class MetaHarnessAdapterEvolver(AgentEvolver):
     supports_resume = False             # the paper's proposer starts each iteration afresh, reading the filesystem
 
     # ---------- state ----------
@@ -122,7 +122,7 @@ class MetaHarnessEvolver(AgentEvolver):
                                           "status": "queued"}
             state["order"].append("seed")
             state["handed_back"] = "seed"
-        lines = [f"# Meta-Harness step {n}", ""]
+        lines = [f"# Meta-Harness Adapter step {n}", ""]
 
         # 1. The step's rollouts evaluated the candidate handed back last time.
         evaluated = state["handed_back"]
