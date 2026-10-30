@@ -15,4 +15,5 @@ params:
   tools: [check_spec]        # the only Trainer tools the proposer may use: it does not run evaluations
   hide: null                 # paths hidden from the proposer besides examples/tests/docs/.git
   k: 2                       # new candidates per proposal round (the paper: 2-3; its TerminalBench-2 run: 1)
-  max_rounds: null           # proposal rounds; null: a new round whenever every proposed candidate was evaluated
+  max_rounds: null           # proposal rounds; null: a new round whenever every proposed candidate was evaluated,
+                             # the last step's too (its candidates are never evaluated): set it to (epochs - 1) / k

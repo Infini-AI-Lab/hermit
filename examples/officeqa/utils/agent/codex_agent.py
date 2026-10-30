@@ -147,14 +147,16 @@ def deploy_harness(adapter: Path | None, work: Path, context: str | None = None)
     return out
 
 
-RESERVED = ("AGENTS.md", "task.md", "docs", ".last_message.txt")    # what the session itself puts in the workspace
+RESERVED = ("AGENTS.md", "task.md", "docs", ".last_message.txt",    # what the session itself puts in the workspace
+            ".codex")                                                # Codex's project configuration and hooks
 SKIP = (".hermit", ".git", "ADAPTER.md", "__pycache__")
 
 
 def deploy_adapter(adapter: Path | None, work: Path, context: str | None = None) -> dict:
     """The adapter as it is (`deploy: adapter`): ADAPTER.md becomes AGENTS.md, the instructions Codex reads, and
     every other file outside `.hermit/` is copied to the same relative path in the workspace. An adapter file under a
-    name the session itself uses is refused, so that a rollout never runs on a silently different adapter. When
+    name the session itself uses, or `.codex/` (Codex's own project configuration and hooks, which would change the
+    agent rather than give it something), is refused, so that a rollout never runs on a silently different adapter. When
     `context` is given (the Session's context for this question: ADAPTER.md and what a context tool renders), it is
     the AGENTS.md."""
     out: dict = {"agents_md": False, "files": [], "sub_agents": [], "memory": False}
@@ -174,7 +176,7 @@ def deploy_adapter(adapter: Path | None, work: Path, context: str | None = None)
         out["agents_md"] = True
     for src in entries:
         if src.is_dir():
-            shutil.copytree(src, work / src.name, ignore=shutil.ignore_patterns(*SKIP, "*.pyc"))
+            shutil.copytree(src, work / src.name, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
         else:
             shutil.copy2(src, work / src.name)
     out["files"] = sorted(str(p.relative_to(work)) for p in work.rglob("*") if p.is_file() and p.name != "AGENTS.md")

@@ -70,6 +70,8 @@ def test_deploy_adapter_gives_adapter_md_as_agents_md_and_every_other_file(tmp_p
     adapter = seed(tmp_path)
     (adapter / "scripts").mkdir()
     (adapter / "scripts" / "find.py").write_text("print('x')\n")
+    (adapter / "skills" / "x").mkdir(parents=True)
+    (adapter / "skills" / "x" / "ADAPTER.md").write_text("a nested file of that name is the adapter's own\n")
     (adapter / "exports.yaml").write_text("{}\n")
     work = tmp_path / "work"
     work.mkdir()
@@ -77,7 +79,8 @@ def test_deploy_adapter_gives_adapter_md_as_agents_md_and_every_other_file(tmp_p
     assert (work / "AGENTS.md").read_text() == (adapter / "ADAPTER.md").read_text()
     assert (work / "scripts" / "find.py").is_file() and (work / "exports.yaml").is_file()
     assert not (work / ".hermit").exists() and not (work / "ADAPTER.md").exists()
-    assert out["agents_md"] and out["files"] == ["exports.yaml", "scripts/find.py"] and out["sub_agents"] == []
+    assert out["agents_md"] and out["sub_agents"] == []
+    assert out["files"] == ["exports.yaml", "scripts/find.py", "skills/x/ADAPTER.md"]
 
 
 def test_deploy_adapter_refuses_a_name_the_session_uses(tmp_path):
@@ -88,6 +91,18 @@ def test_deploy_adapter_refuses_a_name_the_session_uses(tmp_path):
     work.mkdir()
     with pytest.raises(ValueError, match="task.md"):
         codex_agent.deploy_adapter(adapter, work)
+
+
+def test_deploy_adapter_refuses_codex_configuration(tmp_path):
+    codex_agent = _codex_agent()
+    adapter = seed(tmp_path)
+    (adapter / ".codex").mkdir()
+    (adapter / ".codex" / "hooks.json").write_text("{}\n")
+    work = tmp_path / "work"
+    work.mkdir()
+    with pytest.raises(ValueError, match=".codex"):
+        codex_agent.deploy_adapter(adapter, work)
+    assert not (work / ".codex").exists()
 
 
 # ---------- the Evolver ----------
@@ -194,7 +209,7 @@ def test_invalid_candidates_are_recorded_and_never_handed_back(tmp_path, monkeyp
     r = ev.step(context(ws, 1))
     state = json.loads((ws.state / E.STATE).read_text())
     statuses = {cid: c["status"] for cid, c in state["candidates"].items()}
-    assert statuses == {"seed": "evaluated", "r01_invalid_1": "invalid", "r01_broken": "invalid"}
+    assert statuses == {"seed": "evaluated", "r01_invalid#1": "invalid", "r01_broken": "invalid"}
     assert state["candidates"]["r01_broken"]["problems"] and r.extra["next"] == "seed"
     assert "rejected" in (ws.output / "report.md").read_text()
     assert (ws.output / "proposer_report.md").read_text() == "why these candidates\n"
@@ -237,3 +252,77 @@ def test_a_name_that_already_carries_a_round_is_not_prefixed_twice(tmp_path, mon
     r = ev.step(context(ws, 1, k=1))
     assert r.extra["next"] == "r01_tight"
     assert (ws.state / E.CANDIDATES / "r01_tight" / "adapter" / "ADAPTER.md").read_text() == "z\n"
+
+
+def test_an_invalid_proposal_never_takes_a_valid_candidates_id(tmp_path, monkeypatch):
+    ws = workspace(tmp_path)
+    ev, session = evolver([[{"name": "invalid_2", "hypothesis": "a valid name", "files": {"ADAPTER.md": "v\n"}},
+                            {"name": "Bad Name", "hypothesis": "x", "files": {"ADAPTER.md": "x\n"}}]])
+    monkeypatch.setattr(E.AgentEvolver, "step", session)
+    material(ws, 1, {"q1": 1.0})
+    r = ev.step(context(ws, 1))
+    state = json.loads((ws.state / E.STATE).read_text())
+    assert state["order"] == ["seed", "r01_invalid_2", "r01_invalid#2"]
+    assert state["candidates"]["r01_invalid_2"]["status"] == "queued" and r.extra["next"] == "r01_invalid_2"
+    assert state["candidates"]["r01_invalid#2"]["status"] == "invalid"
+
+
+def test_a_candidate_changed_in_place_is_never_handed_back(tmp_path, monkeypatch):
+    ws = workspace(tmp_path)
+    ev, session = evolver([
+        [{"name": "alpha", "hypothesis": "a", "files": {"ADAPTER.md": "alpha\n"}}],
+        [{"name": "beta", "hypothesis": "b", "files": {"ADAPTER.md": "beta\n"}}],
+    ])
+
+    def editing_session(self, ctx):
+        if len(ev.calls) == 1:              # the second round edits the scored alpha in place
+            (ctx.workspace.state / E.CANDIDATES / "r01_alpha" / "adapter" / "ADAPTER.md").write_text("EDITED\n")
+        return session(self, ctx)
+    monkeypatch.setattr(E.AgentEvolver, "step", editing_session)
+    material(ws, 1, {"q1": 0.0})
+    assert ev.step(context(ws, 1, k=1, max_rounds=2)).extra["next"] == "r01_alpha"
+    material(ws, 2, {"q1": 1.0})                                    # alpha scores 1.0, then is edited
+    assert ev.step(context(ws, 2, k=1, max_rounds=2)).extra["next"] == "r02_beta"
+    material(ws, 3, {"q1": 0.5})
+    r = ev.step(context(ws, 3, k=1, max_rounds=2))
+    state = json.loads((ws.state / E.STATE).read_text())
+    assert state["candidates"]["r01_alpha"]["status"] == "tampered" and r.extra["next"] == "r02_beta"
+    assert "r01_alpha skipped" in (ws.output / "report.md").read_text()
+    monkeypatch.setattr(E.AgentEvolver, "finalize", lambda self, ctx: None)
+    final = ev.finalize(context(ws, 3))
+    assert "r02_beta" in final.summary and (ws.adapter / "ADAPTER.md").read_text() == "beta\n"
+
+
+def test_a_candidate_directory_that_is_a_link_is_rejected_and_its_target_untouched(tmp_path, monkeypatch):
+    ws = workspace(tmp_path)
+    outside = tmp_path / "outside"
+    (outside / ".hermit").mkdir(parents=True)
+    (outside / ".hermit" / "keep.txt").write_text("not the proposer's\n")
+    (outside / "ADAPTER.md").write_text("outside\n")
+    ev, session = evolver([[]])
+
+    def linking_session(self, ctx):
+        result = session(self, ctx)
+        (ctx.workspace.scratch / E.CANDIDATES / "link").symlink_to(outside, target_is_directory=True)
+        (ctx.workspace.scratch / E.PENDING).write_text(json.dumps({"candidates": [{"name": "link", "hypothesis": "z"}]}))
+        return result
+    monkeypatch.setattr(E.AgentEvolver, "step", linking_session)
+    material(ws, 1, {"q1": 1.0})
+    r = ev.step(context(ws, 1, k=1))
+    state = json.loads((ws.state / E.STATE).read_text())
+    assert state["candidates"]["r01_link"]["status"] == "invalid" and r.extra["next"] == "seed"
+    assert (outside / ".hermit" / "keep.txt").read_text() == "not the proposer's\n"
+
+
+def test_the_proposer_reads_a_summary_with_this_steps_scores(tmp_path, monkeypatch):
+    ws = workspace(tmp_path)
+    ev, session = evolver([[{"name": "alpha", "hypothesis": "a", "files": {"ADAPTER.md": "alpha\n"}}]])
+    seen = []
+
+    def reading_session(self, ctx):
+        seen.append([json.loads(l) for l in (ctx.workspace.state / E.SUMMARY).read_text().splitlines()])
+        return session(self, ctx)
+    monkeypatch.setattr(E.AgentEvolver, "step", reading_session)
+    material(ws, 1, {"q1": 1.0, "q2": 0.0})
+    ev.step(context(ws, 1, k=1))
+    assert seen == [[{**seen[0][0], "id": "seed", "mean_score": 0.5, "status": "evaluated"}]]

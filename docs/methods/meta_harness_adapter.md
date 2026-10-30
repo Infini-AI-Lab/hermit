@@ -63,15 +63,19 @@ One step: the rollouts evaluate the candidate handed back last; a proposal round
 
 1. The step's rollouts are the evaluation of the candidate handed back last time (the starting adapter, `seed`, on
    the first step). The Evolver records their per-task scores against that candidate.
-2. When no proposed candidate is waiting, a proposal round starts: a proposer session, with `check_spec` as its only
-   tool, writes k candidates. Each must be a complete adapter in its own directory; a candidate with a bad name, a
-   symbolic link or a failing `check_spec` is rejected and recorded with its problems. Its `.hermit/` is always
-   replaced with the template's. Valid candidates are stored and queued.
+2. When no proposed candidate is waiting, a proposal round starts: the summary is brought up to date with this
+   step's scores, and a proposer session, with `check_spec` as its only tool, writes k candidates. Each must be a
+   complete adapter in a real directory of its own; a candidate with a bad name, a symbolic link (its directory
+   included) or a failing `check_spec` is rejected and recorded with its problems. Its `.hermit/` is always
+   replaced with the template's. Valid candidates are stored, with a digest of their files, and queued.
 3. The next queued candidate is handed back, so the next step's rollouts evaluate it. With nothing queued
    (`max_rounds` reached, or no valid candidate), the best candidate so far is handed back and evaluated again; its
-   score becomes the mean over all its evaluations.
+   score becomes the mean over all its evaluations. The proposer's sandbox can write `state/`, so before a stored
+   candidate is handed back its files are checked against their digest: one changed since it was stored is marked
+   `tampered` and never handed back, its scores no longer describing its files.
 
-`finalize` hands back the candidate with the best mean score on the search set; on a tie, the one evaluated first.
+`finalize` hands back the intact candidate with the best mean score on the search set; on a tie, the one evaluated
+first.
 
 | Paper (Algorithm 1) | Framework |
 |---|---|
@@ -94,7 +98,7 @@ candidates, do not run the evaluation.
 | Parameter | Values / default | Effect |
 |---|---|---|
 | `k` | Positive integer / 2 | Candidates per proposal round (the paper: 2-3; its TerminalBench-2 run: 1) |
-| `max_rounds` | Integer or null / null | Proposal rounds; null starts a new round whenever every proposed candidate was evaluated. With `max_rounds` R, `trainer.epochs` = 1 + R x k evaluates each candidate once; more epochs re-evaluate the best |
+| `max_rounds` | Integer or null / null | Proposal rounds; null starts a new round whenever every proposed candidate was evaluated, including on the run's last step, whose candidates are then never evaluated. With `max_rounds` R, `trainer.epochs` = 1 + R x k evaluates each candidate once; more epochs re-evaluate the best |
 | `backend`, `model`, `args` | `codex` or `claude`; `<backend>/<model id>`; CLI arguments | The proposer and its model, as for the built-in [agent Evolvers](agent.md) |
 | `tools` | List / `[check_spec]` | The Trainer tools the proposer may call; `run_agent` is left out on purpose: the evaluation is the Trainer's |
 | `prompt` | File name / `PROPOSE.md` | The round's prompt; its placeholders (`{round}`, `{k}`, the paths) are filled per round |
@@ -110,7 +114,7 @@ The rollout cost is (1 + R x k) x |search set| rollouts for R rounds, plus one p
 | Parent selection | None fixed: the proposer chooses what to build on | The same: each candidate names its `base`, or none | matched |
 | Proposer | Claude Code with Claude Opus 4.6 at maximum effort | Codex or Claude Code with the run's choice of model | a setting |
 | Interface validation | The candidate imports | `check_spec` against the template | forced by the framework |
-| Isolation | — | The proposer runs in the run's sandbox; candidates with symbolic links are rejected, since they are copied outside it | the reproduction's |
+| Isolation | — | The proposer runs in the run's sandbox; candidates with symbolic links are rejected, since they are copied outside it; a stored candidate changed in place is never handed back | the reproduction's |
 
 ## Records to read after a run
 
@@ -118,7 +122,7 @@ The rollout cost is (1 + R x k) x |search set| rollouts for R rounds, plus one p
 |---|---|
 | `step_NNNN/output/report.md` | The candidate the step evaluated and its mean, the round's queued and rejected candidates, the one handed back |
 | `step_NNNN/output/proposer_prompt.md`, `proposer_report.md`, `agent-codex.jsonl` | On a proposal step: the round's prompt, the proposer's own account of its candidates (when it wrote one) and its session |
-| `workspace/state/meta_harness_adapter.json` | Every candidate: round, hypothesis, base, status, each evaluation's step and per-task scores; the queue |
+| `workspace/state/meta_harness_adapter.json` | Every candidate: round, hypothesis, base, status (`queued`, `evaluated`, `invalid`, `tampered`), the digest of its stored files, each evaluation's step and per-task scores; the queue |
 | `workspace/state/evolution_summary.jsonl` | The proposer's view: one line per candidate |
 | `workspace/state/candidates/<id>/adapter/` | Each candidate's files |
 

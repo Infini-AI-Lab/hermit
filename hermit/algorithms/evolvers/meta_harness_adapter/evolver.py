@@ -28,6 +28,7 @@ paper's summary file, rewritten every step), state/candidates/<id>/ (each candid
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -49,10 +50,24 @@ def _mean(scores: dict) -> float | None:
 
 
 def _copy_tree(source: Path, target: Path) -> None:
-    """`source`'s files at `target`, without .git, .hermit/ or byte code."""
+    """`source`'s files at `target`, without its root's .git and .hermit/, or byte code anywhere."""
     if target.exists():
         shutil.rmtree(target)
-    shutil.copytree(source, target, symlinks=False, ignore=shutil.ignore_patterns(*KEEP, "__pycache__", "*.pyc"))
+
+    def ignore(directory, names):
+        skip = {"__pycache__", *(n for n in names if n.endswith(".pyc"))}
+        return skip | ({n for n in names if n in KEEP} if Path(directory) == source else set())
+    shutil.copytree(source, target, symlinks=False, ignore=ignore)
+
+
+def _digest(tree: Path) -> str:
+    """The content of a stored candidate: every file's relative path and bytes."""
+    h = hashlib.sha256()
+    for path in sorted(p for p in tree.rglob("*") if p.is_file() or p.is_symlink()):
+        h.update(path.relative_to(tree).as_posix().encode() + b"\0")
+        h.update(b"link:" + str(path.readlink()).encode() if path.is_symlink() else path.read_bytes())
+        h.update(b"\0")
+    return h.hexdigest()
 
 
 def _install(candidate: Path, adapter: Path) -> None:
@@ -107,8 +122,28 @@ class MetaHarnessAdapterEvolver(AgentEvolver):
 
     def _best(self, state: dict) -> str | None:
         scored = [(self._score(state["candidates"][cid]), -i, cid) for i, cid in enumerate(state["order"])
-                  if self._score(state["candidates"][cid]) is not None]
+                  if self._score(state["candidates"][cid]) is not None
+                  and state["candidates"][cid]["status"] != "tampered"]
         return max(scored)[2] if scored else None
+
+    @staticmethod
+    def _intact(ctx, state: dict, cid: str) -> bool:
+        """Whether a stored candidate's files are still the ones it was stored (and scored) with. The proposer's
+        sandbox can write state/, so a candidate changed in place is marked tampered and never handed back."""
+        c = state["candidates"][cid]
+        if "digest" not in c:
+            return True
+        if _digest(ctx.workspace.state / CANDIDATES / cid / "adapter") == c["digest"]:
+            return True
+        c["status"] = "tampered"
+        c.setdefault("problems", []).append("its stored files changed after it was stored")
+        return False
+
+    def _next_best(self, ctx, state: dict) -> str | None:
+        """The best candidate whose stored files are intact."""
+        while (best := self._best(state)) is not None and not self._intact(ctx, state, best):
+            pass
+        return best
 
     # ---------- the Trainer's calls ----------
     def step(self, ctx: StepContext) -> StepResult:
@@ -119,7 +154,7 @@ class MetaHarnessAdapterEvolver(AgentEvolver):
         if not state["order"]:                        # the starting adapter is the first candidate
             _copy_tree(ctx.workspace.adapter, store / "seed" / "adapter")
             state["candidates"]["seed"] = {"round": 0, "hypothesis": "the starting adapter", "base": None,
-                                          "status": "queued"}
+                                          "status": "queued", "digest": _digest(store / "seed" / "adapter")}
             state["order"].append("seed")
             state["handed_back"] = "seed"
         lines = [f"# Meta-Harness Adapter step {n}", ""]
@@ -145,6 +180,7 @@ class MetaHarnessAdapterEvolver(AgentEvolver):
         limit = ctx.params.get("max_rounds")
         if not state["queue"] and (limit is None or state["rounds"] < int(limit)):
             state["rounds"] += 1
+            self._save(ctx, state)                    # the proposer reads the summary with this step's scores
             result, queued = self._propose(ctx, state, n)
             usage = result.usage
             if ctx.cancel is not None and ctx.cancel.is_set():
@@ -159,13 +195,25 @@ class MetaHarnessAdapterEvolver(AgentEvolver):
                 if c["round"] == state["rounds"] and c["status"] == "invalid":
                     lines.append(f"- {cid} rejected: {'; '.join(c.get('problems') or [])[:300]}")
 
-        # 3. Hand back the next candidate, or the best so far.
-        if state["queue"]:
-            nxt = state["queue"].pop(0)
-            why = "the next proposed candidate"
-        else:
-            nxt = self._best(state) or state["handed_back"]
+        # 3. Hand back the next candidate, or the best so far; a stored candidate changed since it was stored is
+        # marked tampered and skipped.
+        nxt = None
+        while state["queue"] and nxt is None:
+            cid = state["queue"].pop(0)
+            nxt = cid if self._intact(ctx, state, cid) else None
+        why = "the next proposed candidate"
+        if nxt is None:
+            nxt = self._next_best(ctx, state)
             why = "nothing left to evaluate: the best candidate so far, evaluated again"
+        if nxt is None and state["handed_back"] and self._intact(ctx, state, state["handed_back"]):
+            nxt = state["handed_back"]                # nothing scored yet: the same candidate again
+        if nxt is None:
+            return StepResult("failed", "no stored candidate is intact; the working copy is left as it was")
+        for cid in state["order"]:
+            c = state["candidates"][cid]
+            if c["status"] == "tampered" and not c.get("reported"):
+                lines.append(f"- {cid} skipped: {'; '.join(c['problems'])}")
+                c["reported"] = True
         _install(store / nxt / "adapter", ctx.workspace.adapter)
         state["handed_back"] = nxt
         self._save(ctx, state)
@@ -179,7 +227,8 @@ class MetaHarnessAdapterEvolver(AgentEvolver):
 
     def finalize(self, ctx) -> FinalResult:
         state = self._load(ctx)
-        best = self._best(state)
+        best = self._next_best(ctx, state)
+        self._save(ctx, state)
         if best is None:
             super().finalize(ctx)
             return FinalResult(adapter=ctx.workspace.adapter, summary="no candidate was evaluated; current adapter")
@@ -214,6 +263,10 @@ class MetaHarnessAdapterEvolver(AgentEvolver):
             report.rename(ctx.workspace.output / "proposer_report.md")
         queued = []
         proposals = []
+        # The candidates' directory and each candidate's root must be real directories inside the scratch
+        # directory: the checks and copies below run outside the proposer's sandbox and would follow a link.
+        scratch = ctx.workspace.scratch.resolve()
+        out_ok = not out.is_symlink() and out.resolve() == scratch / CANDIDATES
         if pending.is_file():
             try:
                 proposals = json.loads(pending.read_text()).get("candidates") or []
@@ -232,8 +285,10 @@ class MetaHarnessAdapterEvolver(AgentEvolver):
                 problems.append(f"{cid} exists already")
             elif not (out / name).is_dir():
                 problems.append(f"no directory {out / name}")
+            source = out / name
+            if not problems and (not out_ok or source.is_symlink() or source.resolve().parent != scratch / CANDIDATES):
+                problems.append(f"{source} is a symbolic link or resolves outside {scratch / CANDIDATES}")
             if not problems:
-                source = out / name
                 # This copy runs outside the proposer's sandbox: a link would bring in whatever it points at.
                 links = sorted(str(p.relative_to(source)) for p in source.rglob("*") if p.is_symlink())
                 if links:
@@ -244,14 +299,16 @@ class MetaHarnessAdapterEvolver(AgentEvolver):
                 check = ctx.tools["check_spec"](path=str(source))
                 if check.get("passed"):
                     _copy_tree(source, ctx.workspace.state / CANDIDATES / cid / "adapter")
+                    digest = _digest(ctx.workspace.state / CANDIDATES / cid / "adapter")
                 else:
                     problems += [f"{p.get('path')}: {p.get('problem')}" for p in check.get("issues") or []][:5]
+            # An invalid proposal's key has a '#', which no candidate id can have.
             key = cid if NAME.fullmatch(name) and cid not in state["candidates"] \
-                else f"r{state['rounds']:02d}_invalid_{i + 1}"
+                else f"r{state['rounds']:02d}_invalid#{i + 1}"
             state["candidates"][key] = {"round": state["rounds"], "hypothesis": str(item.get("hypothesis") or ""),
                                         "base": item.get("base"), "proposed_at_step": n,
                                         "status": "invalid" if problems else "queued",
-                                        **({"problems": problems} if problems else {})}
+                                        **({"problems": problems} if problems else {"digest": digest})}
             state["order"].append(key)
             if not problems:
                 state["queue"].append(key)
