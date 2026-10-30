@@ -33,6 +33,7 @@ export OFFICEQA_CODEX_PLAN=${OFFICEQA_CODEX_PLAN:-$LUNA/plan.json}
 export OFFICEQA_CODEX_PAUSE=${OFFICEQA_CODEX_PAUSE:-$LUNA/PAUSE}
 export TMPDIR=$LUNA/tmp
 export PYTHONPATH=$FRAMEWORK${PYTHONPATH:+:$PYTHONPATH}
+export PYTHONUNBUFFERED=1                    # a run's log shows its progress as it goes
 mkdir -p "$TMPDIR" "$LUNA/cache" "$LUNA/logs"
 [ -x "$CODEX_PIN/bin/codex" ] || { echo "REFUSING: no Codex at $CODEX_PIN/bin/codex"; exit 1; }
 "$PY" "$OQA/utils/agent/codex_login.py" > /dev/null || { echo "REFUSING: no ChatGPT login for Codex"; exit 1; }
