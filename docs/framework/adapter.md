@@ -48,6 +48,19 @@ These declarations connect the subagent and skill directories to the loader:
 :end-before: tools:
 ```
 
+## What an adapter can rely on
+
+Two things hold for every adapter, whatever the template, the learner or the acting agent:
+
+- `.hermit/` is fixed. It holds the template's metadata and the learner's guide; a learner cannot change it (the
+  check restores it from the template root), and it never reaches the acting agent.
+- `ADAPTER.md` reaches the acting agent as its instructions at the start of every task. The built-in agents and the
+  hosts do this; a task's own acting agent must do it too.
+
+Everything else depends on the acting agent: the hosts and the built-in agents deliver what `exports.yaml`
+declares, a task's own agent may deliver more or less. A learner's guide that needs more than these two facts says
+where the rest is described.
+
 ## Acting interface
 
 ### Which files are written into the host?

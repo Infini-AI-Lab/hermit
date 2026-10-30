@@ -1,0 +1,51 @@
+# OfficeQA with the Meta-Harness Evolver, a demo of one proposal round: the 50 training questions are the search set
+# (data.step_size covers them, so a step is an epoch and evaluates one candidate), k = 2 candidates, three epochs:
+# the starting adapter, then each candidate in turn; finalize hands back the best mean on the search set. The acting
+# agent is Codex 0.162.0 in a container per question (../utils/agent/codex_agent.py, OFFICEQA_CODEX_IMAGE=
+# officeqa-codex:0.162.0) with the adapter deployed as it is (`deploy: adapter`); GLM 5.3 Flash acts and proposes,
+# at medium effort. No test evaluation in the demo.
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/train.txt     # the search set
+  test: ../utils/splits/test.txt
+  step_size: 50                        # the whole search set per step: each step evaluates one candidate
+  shuffle: false
+task_info: task-info/
+agent:
+  name: ../utils/agent/codex_agent.py:OfficeQACodexAgent
+  concurrency: 8
+  params:
+    model: fireworks/accounts/fireworks/models/glm-5p3-flash
+    effort: medium
+    timeout_s: 3600
+    codex_dir: ~/.cache/hermit/officeqa-mh-codex
+    deploy: adapter                    # ADAPTER.md as AGENTS.md, every other adapter file in the workspace
+judge:
+  path: ../utils/judge.py
+template: meta-harness@1.0
+start_from: seed_adapter               # make_seed.py writes it from ../utils/seed_adapter
+evolver:
+  name: meta_harness
+  params:
+    model: fireworks/accounts/fireworks/models/glm-5p3-flash   # the proposer: Codex with the acting model
+    args: ["-c", 'model_reasoning_effort="medium"']
+    home: []                           # no login files: the provider key is the backend's variable
+    k: 2
+    max_rounds: 1                      # the demo: one proposal round
+sandbox:
+  enabled: true
+  network: restricted
+  allow: []                  # the Evolver's own model endpoint is always reachable
+  read: [../utils/documents] # the proposer may read the corpus the agent searches (read only)
+  env: []                    # the Evolver's model key variable is always passed; nothing else is
+  profiles:                  # the agent's role runs unconfined: it drives Docker (the daemon's socket, the sessions'
+    rollout: {enabled: false}   # homes under ~/.cache); each Codex session is in a container of its own (codex_session.py)
+trainer:
+  run_name: mh-demo
+  output_dir: runs
+  tree_dir: runs/trees/mh-demo
+  epochs: 3                            # the seed, then the round's two candidates
+  budget: {usd: 30, hours: 12}
+  call_timeout_min: 75                 # the proposer's session (about an hour) and its checks
+eval:
+  repeats: 1

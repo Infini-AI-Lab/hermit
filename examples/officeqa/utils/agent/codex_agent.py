@@ -19,6 +19,8 @@ provider; Codex's workspace-write sandbox runs inside it, so the session's comma
         docs: null                     # the corpus; default ../data.json's docs (utils/prepare.py)
         project_doc_max_bytes: null    # Codex's cap on AGENTS.md, past which it silently drops the rest; null: Codex's
                                        # default (32 KiB in 0.162.0)
+        deploy: tree                   # tree: the Codex tree above; adapter: ADAPTER.md as AGENTS.md and every other
+                                       # file of the adapter at the same relative path in the workspace
 
 An adapter that is context rather than a Codex tree (`ADAPTER.md` and no `AGENTS.md`: the prompt-only and reharness
 templates) is deployed as `AGENTS.md` holding its context for this question, `Session.context(query=question,
@@ -145,6 +147,40 @@ def deploy_harness(adapter: Path | None, work: Path, context: str | None = None)
     return out
 
 
+RESERVED = ("AGENTS.md", "task.md", "docs", ".last_message.txt")    # what the session itself puts in the workspace
+SKIP = (".hermit", ".git", "ADAPTER.md", "__pycache__")
+
+
+def deploy_adapter(adapter: Path | None, work: Path, context: str | None = None) -> dict:
+    """The adapter as it is (`deploy: adapter`): ADAPTER.md becomes AGENTS.md, the instructions Codex reads, and
+    every other file outside `.hermit/` is copied to the same relative path in the workspace. An adapter file under a
+    name the session itself uses is refused, so that a rollout never runs on a silently different adapter. When
+    `context` is given (the Session's context for this question: ADAPTER.md and what a context tool renders), it is
+    the AGENTS.md."""
+    out: dict = {"agents_md": False, "files": [], "sub_agents": [], "memory": False}
+    if adapter is None:
+        return out
+    adapter = Path(adapter)
+    entries = sorted(p for p in adapter.iterdir() if p.name not in SKIP)
+    taken = [p.name for p in entries if p.name in RESERVED]
+    if taken:
+        raise ValueError(f"the adapter has {', '.join(taken)} at its root, a name the session uses: rename it")
+    doc = adapter / "ADAPTER.md"
+    if context and context.strip():
+        (work / "AGENTS.md").write_text(context.rstrip("\n") + "\n", encoding="utf-8")
+        out["agents_md"] = True
+    elif doc.is_file() and doc.read_text(encoding="utf-8").strip():
+        shutil.copy2(doc, work / "AGENTS.md")
+        out["agents_md"] = True
+    for src in entries:
+        if src.is_dir():
+            shutil.copytree(src, work / src.name, ignore=shutil.ignore_patterns(*SKIP, "*.pyc"))
+        else:
+            shutil.copy2(src, work / src.name)
+    out["files"] = sorted(str(p.relative_to(work)) for p in work.rglob("*") if p.is_file() and p.name != "AGENTS.md")
+    return out
+
+
 def write_home(home: Path, binding, sub_agents: list[dict], project_doc_max_bytes: int | None = None) -> list[str]:
     """CODEX_HOME/config.toml: the provider (the binding's Codex settings), no shell snapshot, the session's shell
     given only Codex's core variables (no key, no proxy), no network for its commands, the adapter's sub_agents as
@@ -246,7 +282,10 @@ class OfficeQACodexAgent(Agent):
             for d in (work, home, log):
                 shutil.rmtree(d, ignore_errors=True)
                 d.mkdir(parents=True)
-            deployed = deploy_harness(adapter, work, context)
+            mode = str(self.params.get("deploy") or "tree")
+            if mode not in ("tree", "adapter"):
+                raise ValueError(f"deploy: {mode!r} is neither tree nor adapter")
+            deployed = (deploy_adapter if mode == "adapter" else deploy_harness)(adapter, work, context)
             keys = write_home(home, binding, deployed["sub_agents"], self.params.get("project_doc_max_bytes"))
             prompt = PROMPT + ("\n" + MEMORY_NOTE if deployed["memory"] else "")
             (work / "task.md").write_text(text, encoding="utf-8")
