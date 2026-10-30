@@ -366,8 +366,8 @@ Codex, three passes).
 - Data: the 50 / 24 / 172 split of SkillOpt `79124b3`, `data.shuffle_seed: 42`; `officeqa_full.csv` with SHA-256
   `b5eb1ce0cb34…`, eight items drifted from the split ([Reproduction limits](#reproduction-limits)).
 - Run: `run_codex_login.yaml` with `trainer.run_name=login-codex-ace-v2` and
-  `trainer.tree_dir=runs/trees/login-codex-ace-v2`, made from `8424dce` with the playbook instructions of
-  `adcc7f3` (uncommitted then).
+  `trainer.tree_dir=runs/trees/login-codex-ace-v2`, made from `b0d9629` with the playbook instructions of
+  `71e2330` (uncommitted then).
 - Spending: a subscription has no per-token price. Training 1.4 h: 1.70 M tokens of training sessions, 3.57 M of
   Reflector and Curator sessions, 2.12 M of retry and validation sessions. The evaluations, 0.5–0.6 h each, ran
   within nine hours.
