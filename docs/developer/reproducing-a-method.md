@@ -126,7 +126,7 @@ These rules apply to a pull request that reproduces a published method; other pu
 - Open it as a draft until the first evaluation has run and its row is in the description.
 - The description carries the table of section 2, the protocol of section 3, the settings and result of section 4,
   the list of application-side changes, and what is left out. No attribution lines.
-- The description answers six questions, each in a few sentences, with links to the files, runs and records it
+- The description answers seven questions, each in a few sentences, with links to the files, runs and records it
   rests on:
   1. **Core changes.** Does the pull request change the core (anything in `hermit/` outside the method's template
      and Evolver)? If so, what changes, and why can the method not work without it? (Section 1.)
@@ -143,4 +143,6 @@ These rules apply to a pull request that reproduces a published method; other pu
      method index, changelog)? (Section 5, step 5.)
   6. **This description.** Have you read it end to end, and does every path, name, number and claim in it match the
      code and the run records it links to?
+  7. **Independent review.** Has an independent agent (a separate session, not the one that wrote the change)
+     reviewed the pull request for code quality and potential issues? Say what it found and what was changed.
 - Any core change is a separate pull request, discussed before it is written.
