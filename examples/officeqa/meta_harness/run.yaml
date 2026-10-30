@@ -1,10 +1,10 @@
 # OfficeQA with the Meta-Harness Evolver on the recipe's Flash row: the 50 training questions are the search set
 # (data.step_size covers them, so a step is an epoch and evaluates one candidate), six proposal rounds of k = 2
-# candidates, thirteen epochs: the starting adapter, then each candidate in turn (650 rollouts, the GEPA and SkillOpt
-# runs' budget on this row); finalize hands back the best mean on the search set, and `hermit eval` scores it once on
-# the 172 test questions. The acting agent is Codex 0.162.0 in a container per question (../utils/agent/codex_agent.py,
-# OFFICEQA_CODEX_IMAGE=officeqa-codex:0.162.0) with the adapter deployed as it is (`deploy: adapter`); GLM 5.3 Flash
-# acts and proposes, at medium effort.
+# candidates, thirteen epochs: the starting adapter, then each candidate in turn (650 rollouts, between the SkillOpt and
+# GEPA runs on this row, about 610 and 860 each); finalize hands back the best mean on the search set, and `hermit eval`
+# scores it once on the 172 test questions. The acting agent is Codex 0.162.0 in a container per question
+# (../utils/agent/codex_agent.py, OFFICEQA_CODEX_IMAGE=officeqa-codex:0.162.0) with the adapter deployed as it is
+# (`deploy: adapter`); GLM 5.3 Flash acts and proposes, at medium effort.
 data:
   tasks: ../utils/tasks.jsonl
   train: ../utils/splits/train.txt     # the search set
