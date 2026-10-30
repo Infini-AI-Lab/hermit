@@ -58,7 +58,7 @@ The smoke is not a measurement; it shows whether each of ACE's levers works in a
   retry scores), `curator` (`applied` or why it was skipped) and `added`;
 - the steps' `output/calls/`: every Reflector and Curator prompt and reply;
 - `checkout/ADAPTER.md`: the skill unchanged at the top, the bullets under their sections, counters above zero;
-- the training rollouts' Codex traces: that the agent read the skill and named bullets in its reasoning.
+- the training rollouts' Codex traces: that the agent read the skill and wrote a `bullet_ids:` line in its final message (Codex does not record its reasoning).
 
 ## The evaluation protocol
 
@@ -77,6 +77,21 @@ sizes shape what a run can show:
 
 Report each adapter's paired difference to the starting adapter with its 95% bootstrap interval over questions:
 a positive difference is a sign of an effect; a lower bound above zero, a significant one.
+
+## Result
+
+One training (`run_codex_login.yaml`, `gpt-6-luna`, seed 42), 172 test questions, three passes; the interval is the
+95% bootstrap over questions. Logs: `runs/login-codex-ace-v2.*`.
+
+| Adapter | Score | Paired difference to `seed_adapter` |
+|---|---|---|
+| `none` | 0.223 | -9.1 [-13.2, -5.0] |
+| `seed_adapter` | 0.314 | |
+| `final` (best validation, 37 bullets) | 0.440 | +12.6 [+7.6, +18.0] |
+| `last_adapter` (50 bullets) | 0.519 | +20.5 [+14.3, +26.9] |
+
+Both playbooks beat the starting adapter, and the last one beats the validation choice (-7.9 [-12.2, -3.5]), as the
+24 validation questions predict. This is one training: it shows the effect is there, not its size across seeds.
 
 ## Settings and differences
 

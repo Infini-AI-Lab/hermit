@@ -261,7 +261,8 @@ Do NOT include any explanation, just output the merged bulletpoint."""
 
 # ADAPTED from GENERATOR_PROMPT (ace/prompts/generator.py): its instructions about the playbook, for an acting agent
 # whose own prompt and answer format the adapter cannot change. Upstream the Generator returns `bullet_ids` in a JSON
-# field; here the agent is asked to name the ids it uses in its reasoning, and the Evolver collects them with the
+# field; here the agent is asked to write them as one `bullet_ids:` line of its final message (a Codex session's
+# reasoning is not recorded, so a request to name them in it is never seen), and the Evolver collects them with the
 # Generator's own fallback, a regular expression over the reply.
 GENERATOR_INSTRUCTIONS = """# Playbook
 
@@ -269,8 +270,9 @@ The playbook below is a curated set of strategies and insights for these tasks.
 
 - Read the playbook carefully and apply relevant strategies, formulas, and insights
 - Pay attention to common mistakes listed in the playbook and avoid them
-- Each line in the playbook has a bullet_id in brackets, such as [slug-00001]. When a bullet is relevant and helpful
-  for the task, name its bullet_id in your reasoning or messages (for example "Applying [slug-00001]: ...")
+- Each line in the playbook has a bullet_id in brackets, such as [slug-00001]. Before your final answer, write one line
+  `bullet_ids: [slug-00001], [slug-00002]` naming every bullet you used (`bullet_ids: none` if no bullet applied)
+  in your final message, outside the answer tags: the answer itself keeps the format the task asks for
 - If the playbook contains relevant code snippets or formulas, use them appropriately
 - Double-check your calculations and logic before providing the final answer
 - Your final answer keeps the format the task asks for
