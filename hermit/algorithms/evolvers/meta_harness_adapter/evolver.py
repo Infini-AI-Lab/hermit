@@ -30,6 +30,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -61,13 +62,53 @@ def _copy_tree(source: Path, target: Path) -> None:
 
 
 def _digest(tree: Path) -> str:
-    """The content of a stored candidate: every file's relative path and bytes."""
+    """The content of a stored candidate: every file's relative path, whether it is executable, and its bytes."""
     h = hashlib.sha256()
     for path in sorted(p for p in tree.rglob("*") if p.is_file() or p.is_symlink()):
         h.update(path.relative_to(tree).as_posix().encode() + b"\0")
-        h.update(b"link:" + str(path.readlink()).encode() if path.is_symlink() else path.read_bytes())
+        if path.is_symlink():
+            h.update(b"link:" + str(path.readlink()).encode())
+        else:
+            h.update(b"x:" if path.stat().st_mode & 0o111 else b"-:")
+            h.update(path.read_bytes())
         h.update(b"\0")
     return h.hexdigest()
+
+
+def _real(path: Path, root: Path) -> bool:
+    """Whether `path` lies under `root` through real directories only: no component below `root` is a link."""
+    try:
+        rel = path.relative_to(root)
+    except ValueError:
+        return False
+    current = root
+    for part in rel.parts:
+        current = current / part
+        if current.is_symlink():
+            return False
+    return path.resolve().is_relative_to(root.resolve())
+
+
+def _write(path: Path, text: str) -> None:
+    """Write a file the proposer's sandbox could have replaced with a link, without following one."""
+    if path.is_symlink():
+        path.unlink()
+    elif path.is_dir():
+        shutil.rmtree(path)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o644)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(text)
+
+
+def _store(ctx) -> Path:
+    """state/candidates/ as a real directory. The proposer's sandbox can write state/, and everything done to the
+    store happens outside that sandbox: a store replaced by a link (or a file) is removed and made afresh, and the
+    candidates it held then fail their digest."""
+    store = ctx.workspace.state / CANDIDATES
+    if store.is_symlink() or (store.exists() and not store.is_dir()):
+        store.unlink()
+    store.mkdir(parents=True, exist_ok=True)
+    return store
 
 
 def _install(candidate: Path, adapter: Path) -> None:
@@ -99,7 +140,7 @@ class MetaHarnessAdapterEvolver(AgentEvolver):
 
     @staticmethod
     def _save(ctx, state: dict) -> None:
-        (ctx.workspace.state / STATE).write_text(json.dumps(state, ensure_ascii=False, indent=1))
+        _write(ctx.workspace.state / STATE, json.dumps(state, ensure_ascii=False, indent=1))
         lines = []
         for cid in state["order"]:
             c = state["candidates"][cid]
@@ -113,7 +154,7 @@ class MetaHarnessAdapterEvolver(AgentEvolver):
                           "files": str(ctx.workspace.state / CANDIDATES / cid / "adapter")
                           if c["status"] != "invalid" else None,
                           **({"problems": c["problems"]} if c.get("problems") else {})})
-        (ctx.workspace.state / SUMMARY).write_text("".join(json.dumps(l, ensure_ascii=False) + "\n" for l in lines))
+        _write(ctx.workspace.state / SUMMARY, "".join(json.dumps(l, ensure_ascii=False) + "\n" for l in lines))
 
     @staticmethod
     def _score(c: dict) -> float | None:
@@ -133,7 +174,8 @@ class MetaHarnessAdapterEvolver(AgentEvolver):
         c = state["candidates"][cid]
         if "digest" not in c:
             return True
-        if _digest(ctx.workspace.state / CANDIDATES / cid / "adapter") == c["digest"]:
+        files = _store(ctx) / cid / "adapter"
+        if _real(files, ctx.workspace.state) and files.is_dir() and _digest(files) == c["digest"]:
             return True
         c["status"] = "tampered"
         c.setdefault("problems", []).append("its stored files changed after it was stored")
@@ -149,8 +191,7 @@ class MetaHarnessAdapterEvolver(AgentEvolver):
     def step(self, ctx: StepContext) -> StepResult:
         state = self._load(ctx)
         n = ctx.progress.step if ctx.progress else 0
-        store = ctx.workspace.state / CANDIDATES
-        store.mkdir(parents=True, exist_ok=True)
+        store = _store(ctx)
         if not state["order"]:                        # the starting adapter is the first candidate
             _copy_tree(ctx.workspace.adapter, store / "seed" / "adapter")
             state["candidates"]["seed"] = {"round": 0, "hypothesis": "the starting adapter", "base": None,
@@ -214,11 +255,11 @@ class MetaHarnessAdapterEvolver(AgentEvolver):
             if c["status"] == "tampered" and not c.get("reported"):
                 lines.append(f"- {cid} skipped: {'; '.join(c['problems'])}")
                 c["reported"] = True
-        _install(store / nxt / "adapter", ctx.workspace.adapter)
+        _install(_store(ctx) / nxt / "adapter", ctx.workspace.adapter)
         state["handed_back"] = nxt
         self._save(ctx, state)
         lines += ["", f"Handed back {nxt} ({why})."]
-        (ctx.workspace.output / "report.md").write_text("\n".join(lines) + "\n")
+        _write(ctx.workspace.output / "report.md", "\n".join(lines) + "\n")
         best = self._best(state)
         summary = f"next: {nxt}; best so far: {best} ({self._score(state['candidates'][best]):.3f})" if best \
             else f"next: {nxt}"
@@ -232,7 +273,7 @@ class MetaHarnessAdapterEvolver(AgentEvolver):
         if best is None:
             super().finalize(ctx)
             return FinalResult(adapter=ctx.workspace.adapter, summary="no candidate was evaluated; current adapter")
-        _install(ctx.workspace.state / CANDIDATES / best / "adapter", ctx.workspace.adapter)
+        _install(_store(ctx) / best / "adapter", ctx.workspace.adapter)
         super().finalize(ctx)
         evaluated = [cid for cid in state["order"] if self._score(state["candidates"][cid]) is not None]
         return FinalResult(adapter=ctx.workspace.adapter,
@@ -244,7 +285,9 @@ class MetaHarnessAdapterEvolver(AgentEvolver):
     def _propose(self, ctx: StepContext, state: dict, n: int) -> tuple[StepResult, list[str]]:
         k = int(ctx.params.get("k", 2))
         out = ctx.workspace.scratch / CANDIDATES
-        if out.exists():
+        if out.is_symlink() or out.is_file():
+            out.unlink()
+        elif out.exists():
             shutil.rmtree(out)
         out.mkdir(parents=True)
         pending = ctx.workspace.scratch / PENDING
@@ -255,7 +298,7 @@ class MetaHarnessAdapterEvolver(AgentEvolver):
         for key, value in values.items():
             text = text.replace("{" + key + "}", str(value))
         prompt = ctx.workspace.scratch / "propose_prompt.md"
-        prompt.write_text(text)
+        _write(prompt, text)
         result = super().step(dataclasses.replace(ctx, params={**ctx.params, "prompt": str(prompt)},
                                                   session=None))
         report = ctx.workspace.output / "report.md"
@@ -267,6 +310,10 @@ class MetaHarnessAdapterEvolver(AgentEvolver):
         # directory: the checks and copies below run outside the proposer's sandbox and would follow a link.
         scratch = ctx.workspace.scratch.resolve()
         out_ok = not out.is_symlink() and out.resolve() == scratch / CANDIDATES
+        # Each candidate gets the template's .hermit/ from the working copy, which the proposer could also write.
+        hermit_dir = ctx.workspace.adapter / ".hermit"
+        hermit_ok = (_real(hermit_dir, ctx.workspace.adapter) and hermit_dir.is_dir()
+                     and not any(p.is_symlink() for p in hermit_dir.rglob("*")))
         if pending.is_file():
             try:
                 proposals = json.loads(pending.read_text()).get("candidates") or []
@@ -293,13 +340,20 @@ class MetaHarnessAdapterEvolver(AgentEvolver):
                 links = sorted(str(p.relative_to(source)) for p in source.rglob("*") if p.is_symlink())
                 if links:
                     problems.append(f"symbolic links are not allowed in a candidate: {', '.join(links[:5])}")
+            if not problems and not hermit_ok:
+                problems.append("the working copy's .hermit/ is not a real directory of real files")
             if not problems:
                 shutil.rmtree(source / ".hermit", ignore_errors=True)       # the template's, never the proposer's
                 shutil.copytree(ctx.workspace.adapter / ".hermit", source / ".hermit")
                 check = ctx.tools["check_spec"](path=str(source))
                 if check.get("passed"):
-                    _copy_tree(source, ctx.workspace.state / CANDIDATES / cid / "adapter")
-                    digest = _digest(ctx.workspace.state / CANDIDATES / cid / "adapter")
+                    dest = _store(ctx) / cid                 # a new id: whatever the proposer left there goes
+                    if dest.is_symlink() or dest.is_file():
+                        dest.unlink()
+                    elif dest.exists():
+                        shutil.rmtree(dest)
+                    _copy_tree(source, dest / "adapter")
+                    digest = _digest(dest / "adapter")
                 else:
                     problems += [f"{p.get('path')}: {p.get('problem')}" for p in check.get("issues") or []][:5]
             # An invalid proposal's key has a '#', which no candidate id can have.
@@ -313,5 +367,5 @@ class MetaHarnessAdapterEvolver(AgentEvolver):
             if not problems:
                 state["queue"].append(key)
                 queued.append(key)
-        (ctx.workspace.output / "proposer_prompt.md").write_text(text)
+        _write(ctx.workspace.output / "proposer_prompt.md", text)
         return result, queued

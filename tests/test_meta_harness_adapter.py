@@ -326,3 +326,95 @@ def test_the_proposer_reads_a_summary_with_this_steps_scores(tmp_path, monkeypat
     material(ws, 1, {"q1": 1.0, "q2": 0.0})
     ev.step(context(ws, 1, k=1))
     assert seen == [[{**seen[0][0], "id": "seed", "mean_score": 0.5, "status": "evaluated"}]]
+
+
+def test_a_store_replaced_by_a_link_is_never_written_through(tmp_path, monkeypatch):
+    ws = workspace(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "keep.txt").write_text("not the proposer's\n")
+    ev, session = evolver([[{"name": "alpha", "hypothesis": "a", "files": {"ADAPTER.md": "alpha\n"}}]])
+
+    def relinking_session(self, ctx):
+        store = ctx.workspace.state / E.CANDIDATES
+        shutil.rmtree(store)
+        store.symlink_to(outside, target_is_directory=True)
+        return session(self, ctx)
+    monkeypatch.setattr(E.AgentEvolver, "step", relinking_session)
+    material(ws, 1, {"q1": 1.0})
+    r = ev.step(context(ws, 1, k=1))
+    assert sorted(p.name for p in outside.iterdir()) == ["keep.txt"]
+    assert (outside / "keep.txt").read_text() == "not the proposer's\n"
+    store = ws.state / E.CANDIDATES
+    assert not store.is_symlink() and (store / "r01_alpha" / "adapter" / "ADAPTER.md").read_text() == "alpha\n"
+    assert r.extra["next"] == "r01_alpha"
+    state = json.loads((ws.state / E.STATE).read_text())
+    assert state["candidates"]["seed"]["status"] == "evaluated"
+    assert not ev._intact(context(ws, 1), state, "seed")        # its files went with the replaced store
+
+
+def test_a_changed_executable_bit_makes_a_candidate_tampered(tmp_path, monkeypatch):
+    ws = workspace(tmp_path)
+    ev, session = evolver([
+        [{"name": "alpha", "hypothesis": "a", "files": {"ADAPTER.md": "run look.py\n", "look.py": "print(1)\n"}}],
+        [{"name": "beta", "hypothesis": "b", "files": {"ADAPTER.md": "beta\n"}}],
+    ])
+
+    def chmod_session(self, ctx):
+        script = ctx.workspace.state / E.CANDIDATES / "r01_alpha" / "adapter" / "look.py"
+        if len(ev.calls) == 0:
+            result = session(self, ctx)
+            (ctx.workspace.scratch / E.CANDIDATES / "alpha" / "look.py").chmod(0o755)
+            return result
+        script.chmod(0o644)                     # the second round makes the scored script non-executable
+        return session(self, ctx)
+    monkeypatch.setattr(E.AgentEvolver, "step", chmod_session)
+    material(ws, 1, {"q1": 0.0})
+    assert ev.step(context(ws, 1, k=1, max_rounds=2)).extra["next"] == "r01_alpha"
+    material(ws, 2, {"q1": 1.0})
+    assert ev.step(context(ws, 2, k=1, max_rounds=2)).extra["next"] == "r02_beta"
+    material(ws, 3, {"q1": 0.5})
+    ev.step(context(ws, 3, k=1, max_rounds=2))
+    state = json.loads((ws.state / E.STATE).read_text())
+    assert state["candidates"]["r01_alpha"]["status"] == "tampered"
+
+
+def test_files_the_proposer_replaced_with_links_are_never_written_through(tmp_path, monkeypatch):
+    ws = workspace(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    for name in ("state.json", "summary.jsonl", "prompt.md"):
+        (outside / name).write_text("not the proposer's\n")
+    ev, session = evolver([[{"name": "alpha", "hypothesis": "a", "files": {"ADAPTER.md": "alpha\n"}}]])
+
+    def linking_session(self, ctx):
+        for path, target in ((ctx.workspace.state / E.STATE, "state.json"), (ctx.workspace.state / E.SUMMARY,
+                             "summary.jsonl"), (ctx.workspace.output / "proposer_prompt.md", "prompt.md")):
+            path.unlink(missing_ok=True)
+            path.symlink_to(outside / target)
+        return session(self, ctx)
+    monkeypatch.setattr(E.AgentEvolver, "step", linking_session)
+    material(ws, 1, {"q1": 1.0})
+    assert ev.step(context(ws, 1, k=1)).extra["next"] == "r01_alpha"
+    assert all((outside / n).read_text() == "not the proposer's\n" for n in ("state.json", "summary.jsonl", "prompt.md"))
+    assert not (ws.state / E.STATE).is_symlink() and json.loads((ws.state / E.STATE).read_text())["handed_back"] == "r01_alpha"
+
+
+def test_a_working_hermit_replaced_by_a_link_is_never_copied_into_a_candidate(tmp_path, monkeypatch):
+    ws = workspace(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("42\n")
+    ev, session = evolver([[{"name": "alpha", "hypothesis": "a", "files": {"ADAPTER.md": "alpha\n"}}]])
+
+    def linking_session(self, ctx):
+        hermit = ctx.workspace.adapter / ".hermit"
+        shutil.rmtree(hermit)
+        hermit.symlink_to(outside, target_is_directory=True)
+        return session(self, ctx)
+    monkeypatch.setattr(E.AgentEvolver, "step", linking_session)
+    material(ws, 1, {"q1": 1.0})
+    ev.step(context(ws, 1, k=1))
+    state = json.loads((ws.state / E.STATE).read_text())
+    assert state["candidates"]["r01_alpha"]["status"] == "invalid"
+    assert not list((ws.state / E.CANDIDATES).rglob("secret.txt")) and not list(ws.scratch.rglob("secret.txt"))

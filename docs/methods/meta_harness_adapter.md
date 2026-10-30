@@ -114,7 +114,7 @@ The rollout cost is (1 + R x k) x |search set| rollouts for R rounds, plus one p
 | Parent selection | None fixed: the proposer chooses what to build on | The same: each candidate names its `base`, or none | matched |
 | Proposer | Claude Code with Claude Opus 4.6 at maximum effort | Codex or Claude Code with the run's choice of model | a setting |
 | Interface validation | The candidate imports | `check_spec` against the template | forced by the framework |
-| Isolation | — | The proposer runs in the run's sandbox; candidates with symbolic links are rejected, since they are copied outside it; a stored candidate changed in place is never handed back | the reproduction's |
+| Isolation | — | The proposer runs in the run's sandbox; candidates with symbolic links are rejected, since they are copied outside it; a stored candidate changed in place (content or executable bit) is never handed back; the Evolver's own writes after a round never follow a link the proposer left | the reproduction's |
 
 ## Records to read after a run
 
