@@ -5,7 +5,8 @@ of the examples under the settings the other methods use, and documents how it d
 code. This page is the contribution guide for that work: what to settle before writing code, what the pull request
 must contain, and in which order to verify. It is written from the reproductions already in the repository
 ([GEPA](../methods/gepa.md), [SkillOpt](../methods/skillopt.md), [Harness²](../methods/harness2.md),
-[Continual Harness](../methods/continual_harness.md)).
+[Continual Harness](../methods/continual_harness.md), [ReHarness](../methods/reharness.md),
+[Meta-Harness Adapter](../methods/meta_harness_adapter.md)).
 
 ## 1. What the adapter is and what the Evolver is
 
@@ -79,6 +80,10 @@ the learner sees of it (with the judge's feedback the stream is online supervisi
 
 ## 4. The first evaluation's settings
 
+We recommend running at least one experiment with GLM 5.3 Flash
+(`fireworks/accounts/fireworks/models/glm-5p3-flash`) in both roles, acting and learning: it is cheap enough to
+repeat, and it puts the method on the rows the other methods already have.
+
 The first evaluation of a reproduced method runs on the row of settings the other methods already use on the same
 example, so that it joins their table. For OfficeQA, as of 2026-10-24:
 
@@ -111,7 +116,10 @@ differences against the starting adapter, not only accuracies.
    what the reproduction is not; a row in `docs/methods/index.md`, the example's `README.md`, and the results in
    the example's recipe.
 
-## 6. The pull request
+## 6. The reproduction's pull request
+
+These rules apply to a pull request that reproduces a published method; other pull requests follow
+[CONTRIBUTING.md](https://github.com/Infini-AI-Lab/hermit/blob/main/CONTRIBUTING.md) alone.
 
 - Rebase on the current `main` before opening it and after any later change to `main`; resolve conflicts on the
   branch; run the test suite after the rebase.
