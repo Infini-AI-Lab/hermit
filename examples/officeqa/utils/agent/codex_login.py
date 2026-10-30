@@ -52,6 +52,9 @@ OFF = ("apps", "plugins", "remote_plugin", "browser_use", "browser_use_external"
        "skill_mcp_dependency_install")
 # Codex's own words for a refusal on the plan's limit ("You've hit your usage limit. ..."), and the error's codes
 LIMIT = re.compile(r"hit your usage limit|usage_limit_reached|usageLimitExceeded", re.I)
+# the backend out of room for the model for a while ("Selected model is at capacity. Please try a different model."):
+# not the session's doing, so a session that ends on it is run again later, never scored
+CAPACITY = re.compile(r"model is at capacity|server_is_overloaded|server is overloaded", re.I)
 _lock = threading.Lock()
 
 
@@ -80,10 +83,11 @@ def slot_count() -> int:
 
 @contextmanager
 def slot(log=None):
-    """Hold one of the machine's Codex session slots while the block runs (none when there is no limit)."""
+    """Hold one of the machine's Codex session slots while the block runs (none when there is no limit, or in a
+    process started with OFFICEQA_CODEX_NO_SLOTS set: one with a pool of its own, as the streams' relay)."""
     told = False
     while True:
-        n = slot_count()
+        n = 0 if os.environ.get("OFFICEQA_CODEX_NO_SLOTS") else slot_count()
         if n <= 0:
             yield None
             return

@@ -47,7 +47,8 @@ from codex_session import IMAGE, NETWORK, PROXY, SECURITY, mount  # noqa: E402
 EFFORTS = ("minimal", "low", "medium", "high", "xhigh", "max", "ultra")
 UNAVAILABLE = ("unexpected status 429", "unexpected status 5", "exceeded retry limit", "stream disconnected",
                "error sending request", "too many requests", "service unavailable", "bad gateway",
-               "error response from daemon", "cannot connect to the docker daemon")
+               "error response from daemon", "cannot connect to the docker daemon", "model is at capacity",
+               "server is overloaded")
 
 
 def text_of(content) -> str:

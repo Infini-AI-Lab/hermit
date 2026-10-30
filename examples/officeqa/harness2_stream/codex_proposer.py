@@ -42,12 +42,19 @@ class CodexProposer(FrameworkProposer):
 
     def _claude_cli(self, cwd: Path, mission: str, system: str, wall: int) -> tuple[str, float, str]:
         say = lambda m: print(f"harness2 codex editor: {m}", file=sys.stderr, flush=True)
+        busy = 0
         while True:
             codex_login.wait_for_plan(log=say)
             text, problem, refused = self._codex(Path(cwd), mission, system, wall)
-            if not refused:
-                return text, 0.0, problem
-            codex_login.hold_for_limit(log=say)          # refused for the plan's limit: run the session again
+            if refused:
+                codex_login.hold_for_limit(log=say)      # refused for the plan's limit: run the session again
+                continue
+            if not text.strip() and codex_login.CAPACITY.search(problem) and busy < 20:
+                busy += 1                                # the model was at capacity: not the session's doing
+                say(f"the model is at capacity; the session runs again in 60 s ({busy}/20)")
+                time.sleep(60)
+                continue
+            return text, 0.0, problem
 
     def _codex(self, cwd: Path, mission: str, system: str, wall: int) -> tuple[str, str, bool]:
         home = cwd / ".codex-home"

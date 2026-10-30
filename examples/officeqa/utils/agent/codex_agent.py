@@ -69,7 +69,7 @@ CORPUS_NOTE = ("The full OfficeQA document corpus is available under `docs/`. Th
 UNAVAILABLE = re.compile(r"unexpected status (?:429|5\d\d)|exceeded retry limit|stream disconnected|"
                          r"error sending request|too many requests|service unavailable|bad gateway|"
                          r"officeqa: corpus not mounted|error response from daemon|"
-                         r"cannot connect to the docker daemon", re.I)
+                         r"cannot connect to the docker daemon|model is at capacity|server is overloaded", re.I)
 
 
 def task_text(task: dict, docs: str) -> tuple[str, list[str]]:
