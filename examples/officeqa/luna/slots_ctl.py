@@ -2,8 +2,10 @@
 
 Every 2 minutes, over the last 10: the share of finished sessions whose log shows a 429 (the streams' Codex sessions
 and the relays' calls, which keep their whole event stream) and the share of SkillOpt-harness rollouts that timed out
-(an empty codex_raw.txt: SkillOpt keeps no output of a session past its 180 s). Too many of either: two slots fewer
-(not below MIN). Both rare for ten minutes since the last change: one slot more (not above MAX). Every change is a line
+(an empty codex_raw.txt: SkillOpt keeps no output of a session past its 180 s). The timeouts decide: more than 6%
+of the training rollouts, or 429s in more than half of the logged sessions (the streams', which only slow down):
+two slots fewer (not below MIN, at most once in six minutes). At most 3% timed out and 429s in at most 35% of the
+logged sessions for five minutes since the last change: one slot more (not above MAX). Every change is a line
 in logs/slots.log and on stdout.
 
     python slots_ctl.py [--min 2] [--max 16]
@@ -16,7 +18,7 @@ from pathlib import Path
 
 LUNA = Path(os.path.expanduser(os.environ.get("LUNA", "~/albz/officeqa-luna")))
 SLOTS = LUNA / "SLOTS"
-WINDOW, EVERY, SETTLE, DOWN_SETTLE = 600, 120, 600, 360
+WINDOW, EVERY, SETTLE, DOWN_SETTLE = 600, 120, 300, 360
 
 
 def recent(pattern: str, since: float) -> list[str]:
@@ -60,10 +62,10 @@ def main() -> None:
         f429 = s429 / sessions if sessions >= 5 else None
         ftime = timed_out / rollouts if rollouts >= 10 else None
         new = slots
-        if ((ftime is not None and ftime > 0.06) or (f429 is not None and f429 > 0.30)) \
+        if ((ftime is not None and ftime > 0.06) or (f429 is not None and f429 > 0.50)) \
                 and time.time() - changed >= DOWN_SETTLE:          # not twice for the same events in the window
             new = max(args.min, slots - 2)
-        elif ((ftime is None or ftime <= 0.03) and (f429 is None or f429 <= 0.10)
+        elif ((ftime is None or ftime <= 0.03) and (f429 is None or f429 <= 0.35)
               and time.time() - changed >= SETTLE):
             new = min(args.max, slots + 1)
         line = (f"{time.strftime('%Y-%m-%d %H:%M:%S')} slots {slots} -> {new}  (last 10 min: {s429}/{sessions} "
