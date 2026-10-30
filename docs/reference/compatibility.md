@@ -11,7 +11,7 @@ numbers alone may not distinguish unreleased changes.
 | Local deterministic Quick Start | No model account, GPU, external dataset, or host CLI |
 | Context-only workspace generation | macOS and Linux |
 | Sandboxed learner programs | Linux with bubblewrap and permitted namespaces |
-| Built-in methods | Prompt-only (the Codex learner on the prompt-only template), Codex, Claude, GEPA, SkillOpt, MWM, ReHarness |
+| Built-in methods | Prompt-only (the Codex learner on the prompt-only template), Codex, Claude, GEPA, SkillOpt, MWM, ReHarness, Meta-Harness |
 | Workspace deployment | Codex, Claude Code, and Pi |
 | Native plugin conversion | Claude Code, Codex, Pi, Hermes, with export restrictions |
 | Stdio tool server | `hermit serve DIR`; normally started by the host |

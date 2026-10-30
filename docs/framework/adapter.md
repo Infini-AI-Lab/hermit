@@ -57,6 +57,10 @@ Two things hold for every adapter, whatever the template, the learner or the act
 - `ADAPTER.md` reaches the acting agent as its instructions at the start of every task. The built-in agents and the
   hosts do this; a task's own acting agent must do it too.
 
+Both hold wherever the adapter is used. Where that can be is the template's call: a template that sets
+[`plugin-portable: false`](adapter-manifest.md#plugin-portable) keeps its adapters inside hermit runs, and `hermit
+deploy` and `hermit convert` refuse them.
+
 Everything else depends on the acting agent: the hosts and the built-in agents deliver what `exports.yaml`
 declares, a task's own agent may deliver more or less. A learner's guide that needs more than these two facts says
 where the rest is described.

@@ -4,10 +4,10 @@
 answers are figures found in the bulletins, often after a computation. This example runs OfficeQA Full (246
 questions) as the [SkillOpt paper](https://arxiv.org/abs/2605.23904) does: its 50 / 24 / 172 train / validation /
 test split, each question's parsed source pages in the prompt, and exact match. It trains the agent's skill, the
-adapter's `ADAPTER.md`, with the GEPA and SkillOpt methods, and with ReHarness a bank of reflections retrieved below
-that skill (direct chat only), and compares them with no skill and with SkillOpt's initial skill, in both of the
-paper's harnesses: direct chat, with read and grep tools limited to the question's source files, and Codex, a
-`codex exec` session with the whole corpus.
+adapter's `ADAPTER.md`, with the GEPA and SkillOpt methods, with ReHarness a bank of reflections retrieved below that
+skill, and with Meta-Harness whole adapters written by a coding-agent proposer (Codex harness only), and compares them
+with no skill and with SkillOpt's initial skill, in both of the paper's harnesses: direct chat, with read and grep
+tools limited to the question's source files, and Codex, a `codex exec` session with the whole corpus.
 
 ## Setup
 
@@ -38,6 +38,9 @@ hermit eval  --config examples/officeqa/skillopt/run.yaml --adapter ../utils/see
 FIREWORKS_API_KEY=... WM_PORT=3601 examples/officeqa/reharness/launch.sh run        # ReHarness: the 50 as one stream
 FIREWORKS_API_KEY=... WM_PORT=3601 examples/officeqa/reharness/launch.sh run eval   # its bank on the 172, three passes
 FIREWORKS_API_KEY=... WM_PORT=3601 examples/officeqa/reharness/launch.sh stream     # the paper's protocol: the 172 as one stream
+python examples/officeqa/meta_harness/make_seed.py              # Meta-Harness, Codex harness only
+hermit train --config examples/officeqa/meta_harness/run.yaml   # six rounds of two candidates
+hermit eval  --config examples/officeqa/meta_harness/run.yaml --adapter final
 ```
 
 An adapter's accuracy is `mean_score` in `<method>/runs/<run name>/eval/<selector>/summary.json` (172 test
@@ -53,7 +56,9 @@ ReHarness runs through its launcher: it puts the embedding model behind a loopba
 check and smoke. `run.yaml` is evaluated like the other methods (`reharness/runs/paper-reharness/eval/final/`);
 `stream.yaml` has no test split, and its number is the mean of `rollout.mean_score` over the steps of
 `reharness/runs/stream-reharness/steps.jsonl` (step 0, the bootstrap, has none). The
-[recipe](../../docs/recipes/officeqa.md#reharness) explains the two protocols.
+[recipe](../../docs/recipes/officeqa.md#reharness) explains the two protocols. Meta-Harness runs in the Codex harness
+only (`OFFICEQA_CODEX_IMAGE` set as for the other Codex configs); [`meta_harness/`](meta_harness/) describes its
+configs and records.
 
 ## Results
 
@@ -66,6 +71,7 @@ Each evaluation makes one pass over the 172 test questions.
 | initial skill | 0.576 |
 | **GEPA** | 0.580 |
 | **SkillOpt** | 0.600 |
+| **Meta-Harness** | 0.640 |
 | **Continual Harness** | 0.634 |
 | **ReHarness** | 0.634 |
 | **Harness²** | 0.651 |
@@ -77,7 +83,10 @@ Results use two settings:
   and evaluate the fixed final adapter on 172 test questions. Accuracies are means of four independent
   trainings, with one evaluation pass per final adapter. Configs:
   [`gepa/run_codex_flash.yaml`](gepa/run_codex_flash.yaml) and
-  [`skillopt/run_codex_flash.yaml`](skillopt/run_codex_flash.yaml).
+  [`skillopt/run_codex_flash.yaml`](skillopt/run_codex_flash.yaml). [Meta-Harness](../../docs/methods/meta_harness.md)
+  searches on the 50 training questions alone (no validation questions) and evaluates its best candidate once on
+  the 172; one training, in the Codex harness the streams use
+  ([`meta_harness/run.yaml`](meta_harness/run.yaml), [result](meta_harness/#result)).
 - **Test streaming:** [Continual Harness](../../docs/methods/continual_harness.md) and
   [Harness²](../../docs/methods/harness2.md) each process the 172 test questions once in the same order,
   updating the adapter as they go, without a separate training split or access to judge verdicts. These

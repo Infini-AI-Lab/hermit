@@ -111,4 +111,17 @@ differences against the starting adapter, not only accuracies.
 - Open it as a draft until the first evaluation has run and its row is in the description.
 - The description carries the table of section 2, the protocol of section 3, the settings and result of section 4,
   the list of application-side changes, and what is left out. No attribution lines.
+- The description answers five questions, each in a few sentences, with links to the files, runs and records it
+  rests on:
+  1. **Core changes.** Does the pull request change the core (anything in `hermit/` outside the method's template
+     and Evolver)? If so, what changes, and why can the method not work without it? (Section 1.)
+  2. **Adapter template.** Which template does the method use or add? What may the learner change, what is fixed,
+     and what reaches the acting agent? (Section 1.)
+  3. **Evolver.** Which Evolver does the method add? What does one step do, what does the learner read, and how
+     is the final adapter chosen? (Section 1.)
+  4. **Experiments.** What was run, and on what? The benchmark and its data (split or stream), the protocol, the
+     acting agent and its model, the Evolver and its model, the budgets, the number of runs, and the results
+     against the baselines measured on the same settings. (Sections 3 and 4.)
+  5. **Documentation.** Which documents were added or changed to match (method page, recipe, example README,
+     method index, changelog)? (Section 5, step 5.)
 - Any core change is a separate pull request, discussed before it is written.
