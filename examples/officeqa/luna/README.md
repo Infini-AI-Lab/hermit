@@ -47,7 +47,8 @@ examples/officeqa/luna/launch.sh ch            # continual_harness/runs/luna-ch-
 examples/officeqa/luna/launch.sh h2            # harness2_stream/runs/luna-h2-s0
 ```
 
-The plan's usage is shared with everything else on the account. Sessions wait while the latest report of the plan's
-usage is at or above 90% of its window (`~/albz/officeqa-luna/MAX_USED` changes the cap while runs go on;
-`~/albz/officeqa-luna/plan.json` holds the report), or while `~/albz/officeqa-luna/PAUSE` exists. A session refused
+The plan's usage is shared with everything else on the account; `~/albz/officeqa-luna/plan.json` holds its latest
+report and `plan.jsonl` every report. The runs set no cap of their own: sessions wait only while
+`~/albz/officeqa-luna/PAUSE` exists, or after a session was refused for the plan's limit, until the plan's window
+resets (a number in `~/albz/officeqa-luna/MAX_USED` sets a cap in percent, read while runs go on). A session refused
 for the plan's limit is run again after the wait; it is never scored as a wrong answer.
