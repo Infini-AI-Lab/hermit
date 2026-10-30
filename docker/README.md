@@ -25,9 +25,10 @@ Fireworks key, required by `check`, `run` and `shell`. The container gets the ke
 mode-600 env file that exists only while the container is created; the key is never on a command line and never
 written under the checkout. The script has no default for the key file.
 
-`run` returns when the command and everything it left running have ended. The CL-Bench launchers start their wire
-meters and `hermit train` in the background and return at once; `run` waits for the trainings (it says what it is
-waiting for) and then stops the meters, which write their ledgers on SIGTERM. Ctrl-C ends the container and all of
+`run` returns when the command and everything it left running have ended. The CL-Bench and ServeLearnBench launchers
+start their wire meters and `hermit train` in the background; `run` sets `MW_WAIT=1`, with which a launcher waits for
+its trainings and exits non-zero when one of them failed, so `run`'s status is the trainings' outcome. `run` then
+waits for anything else left running and stops the meters, which write their ledgers on SIGTERM. Ctrl-C ends the container and all of
 it. Containers are named `hermit-<subcommand>-<timestamp>-<pid>` and removed when they exit; `docker ps` lists the
 live ones, `docker stop <name>` ends one. Runs in separate containers do not share ports: the same `WM_PORT` in two
 containers does not collide.

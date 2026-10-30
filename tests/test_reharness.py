@@ -581,3 +581,24 @@ def test_a_signing_relay_listens_on_the_loopback_only(tmp_path):
     finally:
         proc.terminate()
         proc.wait(timeout=10)
+
+
+# ---------- the embedding model: bound against the run's backends ----------
+
+def test_the_embedding_reference_resolves_against_the_runs_backends():
+    from hermit.backends import registry
+    from hermit.evolver.loader import find, instantiate
+    spec = find("reharness")
+    declared = {"my_embed": {"base_url": "http://127.0.0.1:9/v1", "api_key_env": "MY_EMBED_KEY", "apis": ["chat"]},
+                "fireworks": {"base_url": "http://127.0.0.1:8/relay/v1"}}     # a run moving a built-in backend
+    backends = registry(declared, user_file=None)
+    ev, params = instantiate(spec, {"embedding": "my_embed/qwen3-embedding-8b"}, backends=backends)
+    assert params["embedding"]["base_url"] == "http://127.0.0.1:9/v1"
+    assert params["embedding"]["model"] == "qwen3-embedding-8b" and params["embedding"]["api_key_env"] == "MY_EMBED_KEY"
+    client = ev._embedder(params)
+    assert client.base_url == "http://127.0.0.1:9/v1" and client.model == "qwen3-embedding-8b"
+    _, params = instantiate(spec, {"embedding": "fireworks/accounts/fireworks/models/qwen3-embedding-8b"},
+                            backends=backends)
+    assert params["embedding"]["base_url"] == "http://127.0.0.1:8/relay/v1"
+    _, params = instantiate(spec, {"embedding": None}, backends=backends)          # BM25: nothing to bind
+    assert params["embedding"] is None

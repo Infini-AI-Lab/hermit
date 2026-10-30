@@ -132,7 +132,7 @@ EVOLVER=$(sed -n '/^evolver:/,/^[a-z]/p' "$CONFIG" | grep -E '^\s+name:' | head 
 echo "=== setting stamp: scenario=$SCENARIO method=$METHOD framework=$HEAD servelearnbench=$SLB_VERSION" \
      "host_model=$HOST_MODEL host_effort=$EFFORT evolver=$EVOLVER evolver_model=$EVOLVER_MODEL evolver_effort=$EFFORT" \
      "meter=$WM_PORT/$META_PORT shuffle=false train=${MW_TRAIN_SPLIT:-splits/serving.txt} ===" > "$LOG"
-setsid nohup "$PY" -m hermit.cli train --config "$CONFIG" \
+setsid -w nohup "$PY" -m hermit.cli train --config "$CONFIG" \
     "trainer.run_name=$TAG" "trainer.output_dir=$RUNS/$TAG" \
     ${MW_TRAIN_SPLIT:+"data.train=$MW_TRAIN_SPLIT"} \
     "backends.learner=$LEARNER" "evolver.params.model=learner/$EVOLVER_MODEL_ID" \
@@ -141,8 +141,16 @@ setsid nohup "$PY" -m hermit.cli train --config "$CONFIG" \
 TRAIN_PID=$!
 echo "train -> pid $TRAIN_PID log $LOG"
 # The tests follow the training on their own: this waiter runs `test` when the Trainer exits.
-setsid nohup bash -c "while kill -0 $TRAIN_PID 2>/dev/null; do sleep 60; done; \
+setsid -w nohup bash -c "while kill -0 $TRAIN_PID 2>/dev/null; do sleep 60; done; \
   MW_TAG=$TAG WM_PORT=$WM_PORT MW_RUNS=$RUNS MW_METHOD=$METHOD MW_MODEL=$MODEL MW_HOST_MODEL=$HOST_MODEL MW_EVOLVER_MODEL=$EVOLVER_MODEL \
   MW_SMOKE=${MW_TRAIN_SPLIT:+1} exec \"$0\" \"$SCENARIO\" test" > "$RUNS/$TAG/test.log" 2>&1 < /dev/null &
+TEST_PID=$!
 echo "tests -> after training, log $RUNS/$TAG/test.log"
 echo "run directory: $RUNS/$TAG   (progress: $RUNS/$TAG/$TAG/steps.jsonl; scores: $RUNS/$TAG/test.log)"
+
+# MW_WAIT=1 (docker/offline.sh run sets it): wait for the training and the tests and exit non-zero when one failed, so
+# the caller sees their outcome, not only this launcher's.
+if [ "${MW_WAIT:-0}" = 1 ]; then
+  wait "$TRAIN_PID" || { echo "the training failed: see its log" >&2; wait "$TEST_PID"; exit 1; }
+  wait "$TEST_PID" || { echo "the tests failed: see $RUNS/$TAG/test.log" >&2; exit 1; }
+fi

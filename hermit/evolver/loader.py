@@ -69,13 +69,23 @@ def instantiate(spec: EvolverSpec, params: dict, *, backends: dict | None = None
                 default_model=None) -> tuple[Evolver, dict]:
     """The Evolver instance and its effective params (manifest defaults overridden by the run config). An Evolver
     that is a Codex or Claude Code agent (`backend` in its params) gets its model bound: a `<backend>/<model>`
-    reference in `model` (or the run's default) becomes the provider settings in `args` or `env`."""
+    reference in `model` (or the run's default) becomes the provider settings in `args` or `env`. A param the
+    Evolver class lists in `model_params` that holds a reference becomes that model's resolved spec."""
     merged = {**spec.params, **(params or {})}
     if merged.get("backend") in ("codex", "claude") and (merged.get("model") or default_model) is not None:
         from hermit.backends import bind_agent_params, registry
         merged = bind_agent_params(merged, merged["backend"], backends if backends is not None else registry(),
                                    default_model)
     cls = load_class(spec)
+    # Other model references the Evolver declares (`model_params`, an embedding model for one) are bound the same
+    # way, against the run's backends: the Evolver receives the resolved spec, never a name it would look up alone.
+    if getattr(cls, "model_params", ()):
+        from hermit.backends import _spec_of, as_binding, registry
+        known = backends if backends is not None else registry()
+        for name in cls.model_params:
+            binding = as_binding(merged.get(name), known)
+            if binding is not None:
+                merged[name] = _spec_of(merged[name], binding)
     evolver = cls()
     evolver.directory = spec.directory      # lets built-ins find their prompt files
     return evolver, merged

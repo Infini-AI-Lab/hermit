@@ -11,7 +11,8 @@
 #   docker/offline.sh check               OFFLINE: prove the isolation, PASS or FAIL per item
 #   docker/offline.sh run <command...>    OFFLINE: a command in the hermit checkout; leading VAR=value words set its
 #                                         variables (as `env` takes them); returns when the command and everything it
-#                                         left running have ended
+#                                         left running have ended, with the command's status; MW_WAIT=1 makes the
+#                                         examples' launchers wait for their trainings and fail when one does
 #   docker/offline.sh shell               OFFLINE: an interactive shell
 #
 #   HERMIT_DIR          the hermit checkout (default: the one holding this script); read-write
@@ -55,7 +56,7 @@ TTY=(-i); [ -t 0 ] && [ -t 1 ] && TTY=(-it)
 # for every process but the wire meters (and this shell's own helpers), then stop the meters, which write their
 # ledgers on SIGTERM.
 WRAP='
-env "$@"; status=$?
+env MW_WAIT=1 "$@"; status=$?
 told=
 while :; do
   work=(); meters=()

@@ -93,6 +93,7 @@ start_meter $META_PORT "$EVOLVER_ORIGIN" "$RUNS/$TAG/meta_wire_ledger.json" "$RU
 stamp() { echo "$(git -C "$1" rev-parse --short HEAD)$([ -n "$(git -C "$1" status --porcelain)" ] && echo -dirty || true)"; }
 HEAD=$(stamp "$FRAMEWORK"); CLB_HEAD=$(stamp "$CLBENCH"); MW_HEAD=$(stamp "$METAWORLD")
 
+PIDS=()
 for i in ${MW_ORDERS:-0}; do
   WD="$RUNS/$TAG/order$i/task"
   [ -e "$RUNS/$TAG/$TAG-o$i" ] && { echo "REFUSING: $RUNS/$TAG/$TAG-o$i exists"; exit 1; }
@@ -110,12 +111,21 @@ for i in ${MW_ORDERS:-0}; do
        "host_model=$HOST_MODEL host_effort=$EFFORT evolver=codex evolver_model=$EVOLVER_MODEL evolver_effort=$EFFORT" \
        "meter=$META_PORT shuffle=false bucket=${TAG}_o$i ===" > "$LOG"
   MWM_TASK_WORKDIR="$WD" CLB_API_BASE="http://127.0.0.1:$WM_PORT/${TAG}_o$i$HOST_PATH" \
-    setsid nohup "$PY" -m hermit.cli train --config "$HERE/run.yaml" \
+    setsid -w nohup "$PY" -m hermit.cli train --config "$HERE/run.yaml" \
       "trainer.run_name=$TAG-o$i" "trainer.output_dir=$RUNS/$TAG" \
       "data.train=${MW_TRAIN_SPLIT:-$TASKDIR/splits/order$i.txt}" \
       "backends.learner=$LEARNER" "evolver.params.model=learner/$EVOLVER_MODEL_ID" \
       "evolver.params.args=$EVOLVER_ARGS" \
       >> "$LOG" 2>&1 < /dev/null &
+  PIDS+=("$!")
   echo "order $i -> pid $! log $LOG"
   sleep 3
 done
+
+# MW_WAIT=1 (docker/offline.sh run sets it): wait for every training started above and exit non-zero when one failed,
+# so the caller sees the trainings' outcome, not only this launcher's.
+if [ "${MW_WAIT:-0}" = 1 ]; then
+  failed=0
+  for pid in "${PIDS[@]}"; do wait "$pid" || failed=$((failed + 1)); done
+  [ "$failed" = 0 ] || { echo "$failed of ${#PIDS[@]} training run(s) failed: see each order's run.log" >&2; exit 1; }
+fi

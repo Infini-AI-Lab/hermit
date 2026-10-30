@@ -138,6 +138,7 @@ def _safe(text: str) -> str:
 
 
 class ReHarnessEvolver(Evolver):
+    model_params = ("embedding",)      # bound by the loader against the run's backends, like any model reference
     def __init__(self):
         self._client = None          # the embedding client, or None for BM25
         self._client_for = None      # the params it was built from
@@ -152,6 +153,8 @@ class ReHarnessEvolver(Evolver):
         if not spec:
             return None
         from hermit.backends import Binding, as_binding, registry
+        # In a run the loader has bound the reference already (a spec with base_url); a reference left as is (the
+        # Evolver built outside a run) resolves against the built-in backends and the user's file.
         binding = as_binding(spec, registry()) if not (isinstance(spec, dict) and spec.get("base_url")) else None
         if binding is None:
             if isinstance(spec, dict) and spec.get("base_url") and spec.get("model"):
