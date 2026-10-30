@@ -8,6 +8,7 @@ numbers alone may not distinguish unreleased changes.
 | Capability | Current support |
 |---|---|
 | Core package | Python 3.12+ and Git |
+| Adapter layout | `.hermit/adapter.yaml` for the template's metadata; `exports.yaml` at the adapter root for the exports |
 | Local deterministic Quick Start | No model account, GPU, external dataset, or host CLI |
 | Context-only workspace generation | macOS and Linux |
 | Sandboxed learner programs | Linux with bubblewrap and permitted namespaces |
@@ -31,6 +32,10 @@ framework's stdio server. Neither command guarantees that arbitrary tool depende
 
 ## Known limitations
 
+- An adapter in the pre-0.1 layout (`adapter.yaml` at the adapter root, with the exports in a section of that file)
+  no longer loads: `hermit` refuses it and names the layout, and `deploy` and `serve` exit 2. Migrate it with
+  [Migrating from Hermit 0.1](../framework/adapter-manifest.md#migrating-from-hermit-01), then rebuild the plugins
+  `hermit convert` made from it; `CHANGELOG.md` records the change as breaking.
 - `agent.name` is the current acting-agent selector. Legacy `pipeline.run` settings remain supported when no agent is named; function-based agents receive `params` and `base` when their signatures declare those keywords.
 - Trainer acceptance checks structure; performance selection belongs to the Evolver or your experiment protocol.
 - The sandbox covers launched learner programs, not the whole Python process or the acting pipeline.
