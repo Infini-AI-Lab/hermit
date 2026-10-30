@@ -70,7 +70,7 @@ Compatibility does not guarantee the same performance on a different model, harn
 <details class="ha-faq" id="which-harness-evolution-methods-can-i-use">
 <summary>Which Harness Evolution Methods Can I Use?</summary>
 
-Hermit includes GEPA, SkillOpt, MetaWorld Model (MWM), Harness², Continual Harness, and ReHarness, along with Codex/Claude coding-agent learners and a prompt-only baseline. They share the Trainer interface, but have different data requirements and compatible adapter templates.
+Hermit includes GEPA, SkillOpt, MetaWorld Model (MWM), Harness², Continual Harness, ReHarness, and Meta-Harness Adapter, along with Codex/Claude coding-agent learners and a prompt-only baseline. They share the Trainer interface, but have different data requirements and compatible adapter templates.
 
 Use the [method selection guide](methods/index.md) to choose a method and the [recipe catalog](recipes/index.md) for runnable benchmark setups. Methods labeled **Coming Soon** in the README are planned integrations.
 

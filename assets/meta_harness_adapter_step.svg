@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 700" width="960" height="700" role="img" aria-label="One Meta-Harness Adapter step: the Trainer's rollouts evaluate the handed-back candidate, the Evolver records the scores, runs a proposal round when nothing is queued, validates and stores the candidates, and hands back the next one; the proposer reads the whole filesystem D.">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#3a3f47"/>
+    </marker>
+    <marker id="arrowAccent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#2f6f73"/>
+    </marker>
+  </defs>
+  <g font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <rect x="0" y="0" width="960" height="700" rx="14" fill="#fbfaf7"/>
+
+  <!-- lane labels -->
+  <text x="40" y="30" font-size="11" font-weight="700" letter-spacing="1.2" fill="#5b6470">TRAINER</text>
+  <text x="170" y="140" font-size="11" font-weight="700" letter-spacing="1.2" fill="#5b6470">EVOLVER.STEP</text>
+  <text x="630" y="30" font-size="11" font-weight="700" letter-spacing="1.2" fill="#2f6f73">FILESYSTEM D · READ BY THE PROPOSER</text>
+
+  <!-- Trainer: rollouts -->
+  <rect x="40" y="44" width="430" height="56" rx="8" fill="#ffffff" stroke="#2b2f36" stroke-width="1.25"/>
+  <text x="56" y="67" font-size="13" font-weight="700" fill="#1f2329">Rollouts on the search set</text>
+  <text x="56" y="86" font-size="11.5" fill="#5b6470">the handed-back candidate, all 50 training questions</text>
+
+  <!-- D frame -->
+  <rect x="630" y="44" width="300" height="496" rx="10" fill="#e7f1f1" stroke="#2f6f73" stroke-width="1.5"/>
+  <rect x="646" y="58" width="268" height="88" rx="6" fill="#ffffff" stroke="#2f6f73" stroke-width="1"/>
+  <text x="660" y="80" font-size="12.5" font-weight="700" fill="#1f2329" font-family="ui-monospace, Menlo, Consolas, monospace">learning_material/step_*/</text>
+  <text x="660" y="100" font-size="11.5" fill="#5b6470">per task: input, output, score,</text>
+  <text x="660" y="117" font-size="11.5" fill="#5b6470">judge feedback, full trajectory</text>
+  <text x="660" y="134" font-size="11.5" fill="#5b6470">(every step so far)</text>
+
+  <rect x="646" y="166" width="268" height="56" rx="6" fill="#ffffff" stroke="#2f6f73" stroke-width="1"/>
+  <text x="660" y="188" font-size="12.5" font-weight="700" fill="#1f2329" font-family="ui-monospace, Menlo, Consolas, monospace">meta_harness_adapter.json</text>
+  <text x="660" y="207" font-size="11.5" fill="#5b6470">per-task scores of each candidate; the queue</text>
+
+  <rect x="646" y="250" width="268" height="72" rx="6" fill="#ffffff" stroke="#2f6f73" stroke-width="1"/>
+  <text x="660" y="272" font-size="12.5" font-weight="700" fill="#1f2329" font-family="ui-monospace, Menlo, Consolas, monospace">evolution_summary.jsonl</text>
+  <text x="660" y="291" font-size="11.5" fill="#5b6470">one line per candidate: hypothesis,</text>
+  <text x="660" y="308" font-size="11.5" fill="#5b6470">base, mean score, where its files are</text>
+
+  <rect x="646" y="470" width="268" height="56" rx="6" fill="#ffffff" stroke="#2f6f73" stroke-width="1"/>
+  <text x="660" y="492" font-size="12.5" font-weight="700" fill="#1f2329" font-family="ui-monospace, Menlo, Consolas, monospace">candidates/&lt;id&gt;/adapter/</text>
+  <text x="660" y="511" font-size="11.5" fill="#5b6470">every candidate's files, as proposed</text>
+
+  <!-- Evolver: record -->
+  <rect x="170" y="150" width="300" height="56" rx="8" fill="#ffffff" stroke="#2b2f36" stroke-width="1.25"/>
+  <text x="186" y="173" font-size="13" font-weight="700" fill="#1f2329">1 · Record the scores</text>
+  <text x="186" y="192" font-size="11.5" fill="#5b6470">against the candidate just evaluated</text>
+
+  <!-- decision -->
+  <polygon points="320,230 450,264 320,298 190,264" fill="#ffffff" stroke="#2b2f36" stroke-width="1.25"/>
+  <text x="320" y="260" font-size="11.5" text-anchor="middle" fill="#1f2329">nothing queued and</text>
+  <text x="320" y="276" font-size="11.5" text-anchor="middle" fill="#1f2329">rounds &lt; max_rounds?</text>
+
+  <!-- proposer in sandbox -->
+  <rect x="170" y="320" width="300" height="118" rx="10" fill="none" stroke="#8a8f98" stroke-width="1.25" stroke-dasharray="5 4"/>
+  <text x="182" y="336" font-size="10.5" fill="#8a8f98">the run's sandbox</text>
+  <rect x="186" y="344" width="268" height="82" rx="8" fill="#ffffff" stroke="#2b2f36" stroke-width="1.25"/>
+  <text x="200" y="367" font-size="13" font-weight="700" fill="#1f2329">2 · Proposal round</text>
+  <text x="200" y="386" font-size="11.5" fill="#5b6470">Codex or Claude Code; its one tool: check_spec</text>
+  <text x="200" y="403" font-size="11.5" fill="#5b6470">writes k complete adapters,</text>
+  <text x="200" y="419" font-size="11.5" fill="#5b6470">each with a hypothesis and a base</text>
+
+  <!-- validate -->
+  <rect x="170" y="470" width="300" height="72" rx="8" fill="#ffffff" stroke="#2b2f36" stroke-width="1.25"/>
+  <text x="186" y="492" font-size="13" font-weight="700" fill="#1f2329">Validate each candidate</text>
+  <text x="186" y="511" font-size="11.5" fill="#5b6470">a valid name, no symbolic link, check_spec;</text>
+  <text x="186" y="528" font-size="11.5" fill="#5b6470">.hermit/ replaced; an invalid one is dropped</text>
+
+  <!-- hand back -->
+  <rect x="170" y="572" width="300" height="56" rx="8" fill="#ffffff" stroke="#2b2f36" stroke-width="1.25"/>
+  <text x="186" y="595" font-size="13" font-weight="700" fill="#1f2329">3 · Hand back</text>
+  <text x="186" y="614" font-size="11.5" fill="#5b6470">the next queued candidate; if none, the best so far</text>
+
+  <!-- finalize -->
+  <rect x="630" y="572" width="300" height="56" rx="8" fill="#ffffff" stroke="#2b2f36" stroke-width="1.25" stroke-dasharray="5 4"/>
+  <text x="646" y="595" font-size="13" font-weight="700" fill="#1f2329">finalize, after the last epoch</text>
+  <text x="646" y="614" font-size="11.5" fill="#5b6470">best mean on the search set; earliest on a tie</text>
+
+  <!-- arrows -->
+  <g fill="none" stroke="#3a3f47" stroke-width="1.4">
+    <line x1="470" y1="72" x2="644" y2="72" marker-end="url(#arrow)"/>
+    <polyline points="646,112 440,112 440,148" marker-end="url(#arrow)"/>
+    <line x1="470" y1="194" x2="644" y2="194" marker-end="url(#arrow)"/>
+    <line x1="320" y1="206" x2="320" y2="228" marker-end="url(#arrow)"/>
+    <line x1="320" y1="298" x2="320" y2="342" marker-end="url(#arrow)"/>
+    <line x1="320" y1="426" x2="320" y2="468" marker-end="url(#arrow)"/>
+    <line x1="320" y1="542" x2="320" y2="570" marker-end="url(#arrow)"/>
+    <line x1="470" y1="498" x2="644" y2="498" marker-end="url(#arrow)"/>
+    <polyline points="190,264 120,264 120,600 168,600" marker-end="url(#arrow)"/>
+    <polyline points="320,628 320,662 24,662 24,72 38,72" marker-end="url(#arrow)"/>
+    <line x1="780" y1="540" x2="780" y2="570" marker-end="url(#arrow)"/>
+  </g>
+  <line x1="630" y1="385" x2="472" y2="385" stroke="#2f6f73" stroke-width="2" marker-end="url(#arrowAccent)"/>
+
+  <!-- arrow labels -->
+  <g font-size="11" fill="#3a3f47">
+    <text x="557" y="64" text-anchor="middle">writes</text>
+    <text x="452" y="134">scores</text>
+    <text x="557" y="186" text-anchor="middle">records</text>
+    <text x="330" y="318">yes</text>
+    <text x="330" y="455">k candidates</text>
+    <text x="330" y="561">valid: queued</text>
+    <text x="557" y="490" text-anchor="middle">stores</text>
+    <text x="150" y="256" text-anchor="middle">no</text>
+    <text x="790" y="560">picks from</text>
+    <text x="40" y="684">the working adapter becomes the candidate: the next step's rollouts evaluate it</text>
+  </g>
+  <text x="543" y="377" font-size="11" font-weight="700" fill="#2f6f73" text-anchor="middle">reads all of D</text>
+  </g>
+</svg>
