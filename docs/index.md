@@ -68,6 +68,7 @@ methods/skillopt
 methods/mwm
 methods/harness2
 methods/continual_harness
+methods/reharness
 ```
 
 ```{toctree}

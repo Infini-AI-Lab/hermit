@@ -4,6 +4,7 @@ from __future__ import annotations
 from importlib import import_module
 from pathlib import Path
 
+from hermit.adapter.loader import load_manifest, not_portable
 from hermit.plugins.common import Unsupported
 
 EMITTERS = {"claude-code": "claude_plugin", "codex": "codex_plugin", "pi": "pi_package", "hermes": "hermes_plugin"}
@@ -13,6 +14,9 @@ TARGETS = tuple(EMITTERS)
 def build(target: str, adapter: Path, output: Path, python: str, *, allow_lossy: bool = False) -> dict:
     if target not in EMITTERS:
         raise ValueError(f"Unknown target: {target}")
+    refused = not_portable(load_manifest(Path(adapter).resolve()), f"A {target} plugin")
+    if refused:
+        raise Unsupported(refused)
     module = import_module(f"hermit.plugins.{EMITTERS[target]}")
     return module.build(adapter, output, python, allow_lossy=allow_lossy)
 

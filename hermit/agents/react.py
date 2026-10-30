@@ -15,8 +15,10 @@ A task names it as its agent and writes no loop:
         max_output_tokens: 65536             # stop after this many output tokens in total
         answer_tag: FINAL_ANSWER             # optional: ask once more, without tools, if the tag is missing
 
-The system prompt is the file's text with the adapter's context (ADAPTER.md) substituted for `{context}`, or
-appended under a heading when the file has no placeholder; with no adapter the placeholder becomes empty. The
+The system prompt is the file's text with the adapter's context substituted for `{context}`, or appended under a
+heading when the file has no placeholder; with no adapter the placeholder becomes empty. The context is ADAPTER.md,
+and below it what the adapter's `context_tool` renders for this task's user message when its manifest declares one
+(`Session.context(query=..., task=...)`); that tool's result is recorded in the output's `extra["context_tool"]`. The
 user message is `user` formatted with the task's fields, or the task's `prompt`, `question`, `instruction` or
 `input` field, in that order. Tool calls the model makes are answered in turn: the task's tools by calling the
 function, the adapter's by `Session.respond`. The output is the final assistant message; the whole exchange is the
@@ -106,9 +108,12 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path) -> RunOutpu
     chat_kwargs = {"max_tokens": max_tokens, **({"temperature": temperature} if temperature is not None else {})}
     tag = params.get("answer_tag")
 
-    messages = [{"role": "system", "content": system_prompt(_text(params.get("prompt", ""), base),
-                                                            session.context() if session else "")},
-                {"role": "user", "content": user_message(task, params.get("user"))}]
+    user = user_message(task, params.get("user"))
+    # The adapter's context for this task: ADAPTER.md, plus what its context tool renders for the task's input (an
+    # adapter without one gets the static context).
+    context = session.context(query=user, task=task) if session else ""
+    messages = [{"role": "system", "content": system_prompt(_text(params.get("prompt", ""), base), context)},
+                {"role": "user", "content": user}]
     started, model_s, answer, turns, tool_calls = time.time(), 0.0, "", 0, 0
     for _ in range(max_turns):
         t = time.time()
@@ -149,8 +154,10 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path) -> RunOutpu
     log.write_text(json.dumps({"task": task.get("id"), "model": model["model"], "adapter": str(adapter) if adapter else None,
                                "messages": messages}, ensure_ascii=False, indent=1))
     total = client.total
+    extra = {"turns": turns, "tool_calls": tool_calls}
+    if session is not None and session.last_context is not None:
+        extra["context_tool"] = session.last_context         # what the adapter's context tool rendered for this task
     return RunOutput(output=answer, log=log, cost_usd=total.cost_usd, wall_s=round(time.time() - started, 1),
                      api_speed={"output_tokens_per_s": round(total.output_tokens / model_s, 1) if model_s else None,
                                 "model_calls": total.calls},
-                     messages=messages, tokens=total.input_tokens + total.output_tokens,
-                     extra={"turns": turns, "tool_calls": tool_calls})
+                     messages=messages, tokens=total.input_tokens + total.output_tokens, extra=extra)

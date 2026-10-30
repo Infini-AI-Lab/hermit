@@ -1,0 +1,5 @@
+# Only what docker/Dockerfile copies enters the build context; the hermit checkout is mounted at run time, not copied.
+*
+!pyproject.toml
+!docker/hermit_dist.py
+!examples/officeqa/utils/agent/docker/egress_proxy.py

@@ -11,7 +11,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-from hermit.adapter.loader import load_manifest
+from hermit.adapter.loader import agent_tools, load_manifest, not_portable
 from hermit.hosts.context import PROJECT_CONTEXT, START, append_context
 from hermit.hosts.inputs import (MARKER, PACKAGE_ROOT, check_workspace, copy_skills, render_exports, server_name,
                                          source_label)
@@ -19,6 +19,9 @@ from hermit.hosts.inputs import (MARKER, PACKAGE_ROOT, check_workspace, copy_ski
 
 def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path | None = None) -> dict:
     adapter, output = adapter.resolve(), output.resolve()
+    refused = not_portable(load_manifest(adapter), "A Pi workspace")   # before anything is written
+    if refused:
+        raise ValueError(refused)
     check_workspace(adapter, output, "pi")
     manifest = load_manifest(adapter)
     exports = render_exports(adapter, python)
@@ -26,7 +29,7 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
         names = ", ".join(r["name"] for r in exports["agents"])
         raise ValueError(f"Pi has no subagents, so this adapter's roles cannot be deployed ({names}); "
                          "deploy with --host codex or --host claude-code")
-    has_tools = bool(manifest.get("tools"))
+    has_tools = bool(agent_tools(manifest))     # the context tool is the harness's, not served
     if has_tools:
         subprocess.run([python, "-c", "import mcp.server"], check=True, capture_output=True)
     output.mkdir(parents=True, exist_ok=True)

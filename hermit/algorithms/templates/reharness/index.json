@@ -1,0 +1,6 @@
+{
+ "k": 5,
+ "retrieval": "bm25",
+ "embedding_model": null,
+ "dim": null
+}

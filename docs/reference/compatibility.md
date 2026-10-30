@@ -11,7 +11,7 @@ numbers alone may not distinguish unreleased changes.
 | Local deterministic Quick Start | No model account, GPU, external dataset, or host CLI |
 | Context-only workspace generation | macOS and Linux |
 | Sandboxed learner programs | Linux with bubblewrap and permitted namespaces |
-| Built-in methods | Prompt-only (the Codex learner on the prompt-only template), Codex, Claude, GEPA, SkillOpt, MWM |
+| Built-in methods | Prompt-only (the Codex learner on the prompt-only template), Codex, Claude, GEPA, SkillOpt, MWM, ReHarness |
 | Workspace deployment | Codex, Claude Code, and Pi |
 | Native plugin conversion | Claude Code, Codex, Pi, Hermes, with export restrictions |
 | Stdio tool server | `hermit serve DIR`; normally started by the host |
@@ -38,7 +38,7 @@ framework's stdio server. Neither command guarantees that arbitrary tool depende
 - Budget observation can overshoot with in-flight work; missing usage remains unknown.
 - Crash recovery restores the last completed framework step, not arbitrary external service state.
 - The evaluator's `solved_once` threshold is fixed at score 1.0.
-- Dynamic per-call adapter context requires a custom consuming pipeline; ordinary exported instructions are static.
+- Per-task adapter context comes only through `exports.yaml`'s `context_tool`, consumed by `Session` and the `react` agent; its template must declare `plugin-portable: false`, and `deploy` and `convert` refuse such adapters.
 - The proposed manifest `serve` section, health checks, standalone startup, and relay lifecycle are not supported.
 
 ## Earlier command interfaces

@@ -41,8 +41,21 @@ Dialects: OpenAI chat completions (prompt_tokens includes cached) and
 Anthropic messages (input_tokens excludes cache components — added back),
 same normalisation as the original.
 
-Env: PORT (default 3129), UPSTREAM (default https://api.fireworks.ai),
+Env: PORT (default 3129), BIND (default 127.0.0.1; 0.0.0.0 for a sidecar
+that other containers call), UPSTREAM (default https://api.fireworks.ai),
 PROXY (e.g. http://mw-egress-meta:3128), LEDGER (json path), FLUSH_S.
+
+UPSTREAM_KEY_ENV names the variable holding the upstream's key: a request that
+arrives without an Authorization header gets `Bearer <that key>` (2026-10-25).
+GET /health reports it as "signs": true, so a launcher can refuse to reuse a
+relay that does not sign.
+For a client that cannot carry the key itself: an adapter's tools run in a
+sandbox that has no keys and reaches only 127.0.0.1 endpoints (hermit's
+Session, #11), so the ReHarness reader embeds through this relay on the
+loopback and the relay signs the request. A signing relay listens on the
+loopback only (it refuses another BIND) and refuses to start when the
+variable is empty; any local process that can reach the port can then
+spend the key.
 
 REWRITE_DEVELOPER_ROLE=1 additionally rewrites message role "developer" to
 "system" in request bodies (both `input` items of the Responses API and
@@ -96,6 +109,10 @@ REPAIR_TOOL_ARGS = os.environ.get("REWRITE_REPAIR_TOOL_ARGS", "") not in ("", "0
 # DUMP_REJECTED=<dir>: write each request the upstream answered with 400 to
 # <dir>/<utc>-<bucket>.json (request body + response) for diagnosis.
 DUMP_REJECTED = os.environ.get("DUMP_REJECTED", "")
+UPSTREAM_KEY_ENV = os.environ.get("UPSTREAM_KEY_ENV", "")
+# BIND (default 127.0.0.1): every launcher and hermit's sandbox bridge reach a meter at 127.0.0.1:<PORT>; a sidecar
+# deployment sets BIND=0.0.0.0. A relay that signs requests (UPSTREAM_KEY_ENV) refuses any address but the loopback.
+BIND = os.environ.get("BIND", "127.0.0.1")
 _REPAIR_NOTE = ("[relay] the arguments of this tool call were not valid JSON and "
                 "were replaced by {} so the conversation could continue; the call "
                 "did not run — repeat it with well-formed JSON arguments.")
@@ -142,6 +159,15 @@ _health = {"errors": 0, "no_usage": 0, "non_2xx": 0, "client_aborts": 0,
 PROXY_RETRIES = int(os.environ.get("PROXY_RETRIES", "8"))
 PROXY_RETRY_CAP_S = float(os.environ.get("PROXY_RETRY_CAP_S", "60"))
 _NAN_400 = b"Floating point NaN"
+
+
+def _authorize(hdrs: dict) -> None:
+    """Sign a request that carries no Authorization with the upstream's key (UPSTREAM_KEY_ENV), when configured."""
+    if not UPSTREAM_KEY_ENV or any(k.lower() == "authorization" for k in hdrs):
+        return
+    key = os.environ.get(UPSTREAM_KEY_ENV)
+    if key:
+        hdrs["Authorization"] = f"Bearer {key}"
 
 
 def norm_usage(u: dict) -> dict:
@@ -399,7 +425,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/health":          # the upstream too: a launcher refuses a port whose meter faces elsewhere
             with _lock:
-                body = json.dumps({**_health, "upstream": UPSTREAM}).encode()
+                body = json.dumps({**_health, "upstream": UPSTREAM,
+                                   "signs": bool(UPSTREAM_KEY_ENV and os.environ.get(UPSTREAM_KEY_ENV))}).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
@@ -420,6 +447,7 @@ class Handler(BaseHTTPRequestHandler):
         _, path = split_bucket(self.path)
         hdrs = {k: v for k, v in self.headers.items() if k.lower() not in _DROP_REQ}
         hdrs["Accept-Encoding"] = "identity"
+        _authorize(hdrs)
         try:
             conn = _upstream_conn()
             conn.request("GET", path, headers=hdrs)
@@ -456,6 +484,7 @@ class Handler(BaseHTTPRequestHandler):
                 if k.lower() not in _DROP_REQ}
         hdrs["Content-Length"] = str(len(body))
         hdrs["Accept-Encoding"] = "identity"
+        _authorize(hdrs)
 
         buf = bytearray()
         status = 0
@@ -616,7 +645,13 @@ class Server(ThreadingHTTPServer):
 
 
 def main():
-    srv = Server(("0.0.0.0", PORT), Handler)
+    if UPSTREAM_KEY_ENV and not os.environ.get(UPSTREAM_KEY_ENV):
+        sys.exit(f"wire meter: UPSTREAM_KEY_ENV names {UPSTREAM_KEY_ENV}, which is empty or unset here: the relay "
+                 "could not sign requests")
+    if UPSTREAM_KEY_ENV and BIND not in ("127.0.0.1", "localhost", "::1"):
+        sys.exit(f"wire meter: a relay that signs requests (UPSTREAM_KEY_ENV) listens on the loopback only; refusing "
+                 f"BIND={BIND}")
+    srv = Server((BIND, PORT), Handler)
 
     def _bye(sig, frame):
         _flush()
@@ -631,7 +666,7 @@ def main():
             _flush()
 
     threading.Thread(target=_flusher, daemon=True).start()
-    print(f"wire meter on :{PORT} upstream={UPSTREAM} "
+    print(f"wire meter on {BIND}:{PORT} upstream={UPSTREAM} "
           f"proxy={PROXY or 'direct'} ledger={LEDGER_PATH or 'off'}",
           flush=True)
     srv.serve_forever()

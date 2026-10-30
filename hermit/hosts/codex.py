@@ -11,7 +11,7 @@ import subprocess
 import sys
 import tomllib
 
-from hermit.adapter.loader import load_manifest
+from hermit.adapter.loader import agent_tools, load_manifest, not_portable
 from hermit.hosts.context import PROJECT_CONTEXT, append_context
 from hermit.hosts.inputs import (MARKER, PACKAGE_ROOT, _adapter_sandbox_env, check_workspace, copy_skills, render_exports, retire_roles,
                                          role_body, server_name, source_label)
@@ -25,6 +25,9 @@ def _toml(value) -> str:
 
 def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path | None = None) -> dict:
     adapter, output = adapter.resolve(), output.resolve()
+    refused = not_portable(load_manifest(adapter), "A Codex workspace")   # before anything is written
+    if refused:
+        raise ValueError(refused)
     previous = check_workspace(adapter, output, "codex")
     output.mkdir(parents=True, exist_ok=True)
     manifest = load_manifest(adapter)
@@ -41,7 +44,7 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
     existing = context_path.read_text() if context_path.exists() else PROJECT_CONTEXT
     context_text = append_context(existing, context, source=source_label(manifest), version=manifest["version"],
                                   adapter_id=manifest["id"])
-    has_tools = bool(manifest.get("tools"))
+    has_tools = bool(agent_tools(manifest))     # the context tool is the harness's, not served
     if has_tools:
         subprocess.run([python, "-c", "import mcp.server"], check=True, capture_output=True)
     agents_dir = output / ".codex" / "agents"

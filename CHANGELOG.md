@@ -16,6 +16,31 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   [Migrating from Hermit 0.1](https://infini-ai-lab.github.io/hermit/docs/framework/adapter-manifest.html#migrating-from-hermit-0-1),
   then rebuild converted plugins. The built-in templates' `contract` is `"2"`.
 
+### Added
+
+- The ReHarness method (Xiao et al., arXiv:2610.12668): the `reharness` Evolver, one step per instance of an ordered
+  stream, revising the retrieved reflections from their source trajectories and writing the instance's reflection
+  through the run's `llm` tool, with Qwen3-Embedding-8B or BM25 retrieval; `feedback: false` keeps the judge's verdict
+  out of what the agents read, for a stream on the label-free footing; documented in `docs/methods/reharness.md`.
+- The `reharness` adapter template: a bank of reflections with a reader that retrieves the top-k for each instance as
+  the adapter's per-task context.
+- ReHarness on the CL-Bench examples: `examples/clbench_database/reharness/` and `examples/clbench_poker/reharness/`
+  (host, learner and embedding meters; one run per order); the hosts read the adapter's context per instance, record
+  what the context tool retrieved, and fall back to `ADAPTER.md` when it fails.
+- ReHarness on OfficeQA: `examples/officeqa/reharness/` (direct chat, and the Flash row's `stream_codex.yaml` and
+  `run_codex_flash.yaml`); the OfficeQA Codex agent deploys a context adapter as the session's `AGENTS.md`, the
+  Session's context for the question, and records what the adapter's context tool retrieved.
+- `context_tool` in `exports.yaml`: a declared tool the harness calls once per task with `{query, task}`,
+  whose text is appended to the context (`Session.context(query=..., task=...)`, `session.last_context`); hidden from
+  the agent's tools, called by the deploy check with an empty query, refused by the CLI agents; the `react` agent
+  records its result as `RunOutput.extra["context_tool"]`.
+- `plugin-portable` in `.hermit/adapter.yaml`: a template that sets it to `false` keeps its adapters inside hermit;
+  `hermit deploy` and `hermit convert` refuse them, with the reason, before writing anything. A template whose
+  adapters declare a `context_tool` must set it; the `reharness` template does.
+- `UPSTREAM_KEY_ENV` for the wire meter: a request that arrives without an `Authorization` header is signed with
+  that variable's key, for a sandboxed reader that holds none.
+- `docker/offline.sh`: the examples in a container whose only route out is an egress proxy to the model provider.
+
 ### Changed
 
 - Hermit requires Python 3.12+ (was 3.11+): the upstream Harness² package of the `harness2` group supports Python
@@ -26,6 +51,8 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   `pip install hermit-harness` installs only the core.
 - An Evolver whose dependencies are missing names both the group command and the pinned requirements, so a user
   without a checkout can install them.
+- The wire meter listens on `BIND` (default `127.0.0.1`; it listened on every interface before), and a relay that
+  signs requests refuses any other address.
 
 ### Removed
 
@@ -39,6 +66,8 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   extras bring (`cryptography` through mcp's `pyjwt[crypto]`), so in an environment with only the core installed,
   `hermit.tools_mcp` and `hermit.runtime.mcp_server` failed to import inside the sandbox: the Codex and Claude
   Evolvers' tool server and a sandboxed `Session`'s adapter server did not start.
+- The sandbox failed to bind uv's version-alias link when the managed interpreter lives inside a granted checkout.
+- The sandboxed adapter server lost its channel on a tool result over asyncio's 64 KiB line default.
 
 ## 0.1.0 - 2026-10-25
 

@@ -24,7 +24,12 @@ MANIFEST = f"{META}/adapter.yaml"     # the template's identity, structure, chec
 CARD = f"{META}/CARD.md"              # the adapter's card: written by the Trainer and `hermit eval` only
 EXPORTS = "exports.yaml"               # what the acting agent receives: content, learnable unless the template fixes it
 CONTEXT = "ADAPTER.md"                 # the acting agent's context: a fixed name, always exported, optional
-SECTIONS = ("template", "structure", "check", "evolver_tools")
+# exports.yaml's context_tool: a declared tool the harness calls once per task, before the agent's first model call,
+# with {query, task}; the `text` it returns is appended to the context for that task (per-task context, such as the
+# retrieval of ReHarness). It is the harness's tool, never offered to the agent.
+CONTEXT_TOOL = "context_tool"
+PORTABLE = "plugin-portable"           # false: the template's adapters work only through hermit, never as a workspace or plugin
+SECTIONS = ("template", "structure", "check", "evolver_tools", PORTABLE)
 
 
 def is_meta(rel: str) -> bool:
@@ -55,6 +60,8 @@ def read_meta(root: Path) -> dict:
         raise ValueError("template.id must be a lowercase slug")
     if not isinstance(template.get("version"), str) or not template["version"].strip():
         raise ValueError("template.version must be a nonempty string")
+    if not isinstance(data.get(PORTABLE, True), bool):
+        raise ValueError(f"{PORTABLE} must be true or false")
     structure_of(data)
     if data.get("check") is not None and not re.fullmatch(r"[\w./-]+\.py:[A-Za-z_]\w*", str(data["check"])):
         raise ValueError("check must be 'file.py:function'")
@@ -89,6 +96,7 @@ def flatten(data: dict) -> dict:
     out["id"] = template["id"]
     out["name"] = template.get("name", template["id"])
     out["version"] = template["version"]
+    out[PORTABLE] = data.get(PORTABLE, True)
     return out
 
 

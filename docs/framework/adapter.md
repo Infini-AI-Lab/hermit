@@ -138,6 +138,19 @@ An independent service is another integration option. The framework service can 
 and reaction logic with its own lifecycle. The pipeline must start it and integrate any control channel with the
 acting host. Ordinary `deploy` does not start that service.
 
+### Per-task context
+
+`exports.yaml` may name one of its declared tools as `context_tool`. That tool is the harness's: it is called
+once per task, before the agent's first model call, with `{query, task}` (the task's input text and its row), and
+the `text` it returns is appended below `ADAPTER.md` for that task. The agent is never offered it: `Session.tools`,
+`tool_specs` and `respond` leave it out. `Session.context(query=..., task=...)` makes the call; the built-in `react`
+agent passes the task's user message as the query and records the tool's whole result in
+`RunOutput.extra["context_tool"]`, so the learning material says what the agent read. A workspace or a plugin is
+installed once and has no per-task moment, so a template whose adapters declare a context tool sets
+[`plugin-portable: false`](adapter-manifest.md#plugin-portable), and `deploy` and `convert` refuse them. The `reharness` template
+retrieves reflections this way ([ReHarness](../methods/reharness.md)); the declaration is in the
+[manifest reference](adapter-manifest.md#per-task-context).
+
 ### Custom acting pipelines
 
 A program that runs its own agent uses an adapter through `Session`, the Python counterpart of `deploy` and
@@ -147,7 +160,7 @@ A program that runs its own agent uses an adapter through `Session`, the Python 
 from hermit import Session
 
 session = Session("docs/_examples/file_adapter")
-system_prompt = base_prompt + session.context()          # ADAPTER.md as the Evolver last wrote it
+system_prompt = base_prompt + session.context(query=question, task=task)   # ADAPTER.md, plus a context_tool's text
 tools = task_tools + session.tool_specs("openai")        # or "anthropic"; the adapter's tools beside the task's
 ...
 for call in message["tool_calls"]:                       # a chat-completions turn
@@ -155,6 +168,9 @@ for call in message["tool_calls"]:                       # a chat-completions tu
         messages.append(session.respond(call))            # the tool message; errors come back as text
 ```
 
+`session.context()` without arguments is `ADAPTER.md` alone, as `deploy` renders it; with `query` and `task`, an
+adapter whose manifest names a [`context_tool`](#per-task-context) gets that tool's text appended, and
+`session.last_context` holds the tool's whole result for `RunOutput.extra["context_tool"]`.
 `session.call(name, arguments)` runs one tool synchronously (also inside a running event loop), `acall` is the
 coroutine, `agents()` and `skills()` give the other exports. Resources a tool may receive through its reserved
 `_resources` parameter are bound at construction: `deployment=` (a host.json or its dict), `learning_material=`,

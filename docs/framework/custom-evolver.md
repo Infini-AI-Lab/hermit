@@ -42,7 +42,11 @@ evolver:
 
 Use `needs` to declare required resources: `validation_data`, `environment`, or `send_material_out`. The Trainer
 checks them against the run settings before starting. Set `supports_resume = True` if the method understands the
-previous session handle; this is independent of storing files in `state/`.
+previous session handle; this is independent of storing files in `state/`. A param that names a model other than
+the run's `llm` (an embedding model, for one) is listed in the class's `model_params`, for example
+`model_params = ("embedding",)`: the loader binds a `<backend>/<model id>` reference there against the run's backends,
+as it binds every other model, and the Evolver receives the resolved spec (`base_url`, `model`, `api_key_env`,
+`price`).
 
 ## Run the interface example
 

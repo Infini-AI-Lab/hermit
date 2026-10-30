@@ -59,6 +59,7 @@ adapters with their cards are under `examples/`. What you want to change decides
 |---|---|---|
 | Different starting instructions, skills or roles | the learnable files themselves: `ADAPTER.md`, `skills/`, `agents/` | no metadata change; the learner starts from your text |
 | A new tool for the acting agent | add its Python to the directory and declare it | [`tools` in `exports.yaml`](#tool-declaration); list the file under `fixed` to keep it as written, or as learnable to let the learner change it |
+| Context chosen per task (a retrieval, a lookup) | a tool declaration the harness calls, not the agent | [`context_tool` in `exports.yaml`](#per-task-context) |
 | Let the learner edit more, or less | the list of learnable paths and their limits (size, file count, frontmatter) | [`structure`](#structure) |
 | Keep a file exactly as shipped | list it under `fixed` | [`structure`](#structure) |
 | Keep the exports as shipped | list `exports.yaml` under `fixed` | [`structure`](#structure) |
@@ -172,6 +173,18 @@ with the entrypoint resolved against the template root. They join `check_spec` (
 `evolver_access.tools` and the run's `budget` / `llm` on the Evolver's tool endpoint; they are never exported to
 the acting agent.
 
+## `plugin-portable`
+
+```yaml
+plugin-portable: false
+```
+
+Optional, `true` or `false`; without it, `true`. Whether the template's adapters can leave hermit: `false` makes
+`hermit deploy` (a host workspace) and `hermit convert` (a plugin) refuse them, with the reason, before writing
+anything, so that an adapter that works only through hermit (training, evaluation, a `Session`) is never installed
+without the part that needs hermit. A template whose adapters declare a [context tool](#per-task-context) must set
+it to `false`: such an adapter does not load otherwise. The `reharness` template does.
+
 ## Exports
 
 `exports.yaml` at the adapter root: what the acting agent receives, as a top-level mapping. Optional: an adapter
@@ -187,6 +200,7 @@ check requires it to parse, and repair restores it from the parent.
 | `skills` | a directory | skill folders copied to the host as they are (`skills/<name>/SKILL.md`) |
 | `reactions` | `{entrypoint: file.py:function}` | service integration only: a function the framework service calls on events; `deploy` ignores it |
 | `concurrent_tool_calls` | boolean | service integration only: run the adapter's tool calls concurrently instead of one at a time |
+| `context_tool` | the name of one declared tool | [per-task context](#per-task-context): the harness calls that tool once per task with `{query, task}` and appends the `text` it returns below `ADAPTER.md`; hidden from the agent's tools; the deploy check calls it once with an empty query; the template must declare [`plugin-portable: false`](#plugin-portable) |
 
 All paths are relative to the adapter root and must stay inside it.
 
@@ -228,6 +242,39 @@ instruction file and nothing else. How each export reaches Codex or Claude Code 
 Schemas may use local `$ref`s only; remote and dynamic references are rejected. A tool function may declare a
 reserved `_resources` parameter to receive framework bindings (the evidence store, deployment settings) from a
 pipeline that supplies them; the agent cannot pass it.
+
+### Per-task context
+
+```yaml
+# exports.yaml
+tools:
+  - name: reflections
+    description: The top-k reflections of the bank for an instance's input.
+    entrypoint: interface.py:reflections
+    input_schema:
+      type: object
+      properties: {query: {type: string}, task: {type: object}}
+      additionalProperties: false
+    output_schema:
+      type: object
+      properties: {text: {type: string}}
+      required: [text]
+context_tool: reflections
+```
+
+`context_tool` names one of the declared tools as the harness's. The harness, not the agent, calls it once per
+task, before the agent's first model call, with `query` (the task's input text) and `task` (its row), and appends
+the `text` of the result below `ADAPTER.md` for that task. `Session.context(query=..., task=...)` makes the call
+and keeps the whole result in `session.last_context`; the built-in `react` agent does both and records the result as
+`RunOutput.extra["context_tool"]`. The tool is left out of `Session.tools`, `tool_specs` and the hosts' tool
+servers, and `respond` refuses it: the agent cannot call it. A manifest that names an undeclared tool does not load.
+
+The specification check's load check (check 5) calls the tool once with an empty query and an empty task, in a
+run's sandbox (strict, without network or keys, when the sandbox is on; unconfined when `sandbox.enabled` is false), so the tool must answer that call without an endpoint (with no query there is
+nothing to retrieve) and return an object with a `text` string. A host workspace or plugin has no per-task context,
+so an adapter that names a context tool loads only when its template declares
+[`plugin-portable: false`](#plugin-portable), and `deploy` and `convert` refuse it. The `reharness` template retrieves reflections this way
+([ReHarness](../methods/reharness.md)).
 
 ## `serve` (design, not implemented)
 
