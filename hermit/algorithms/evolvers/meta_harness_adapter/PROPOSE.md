@@ -15,8 +15,9 @@ What you have:
 
 What you deliver:
 - Exactly {k} new candidates, each a complete adapter in its own directory {candidates_dir}/<name>/ (name: lowercase
-  letters, digits, '_' and '-'). A candidate may start from a copy of any earlier one or from nothing; it must not
-  depend on files outside its own directory. Its `.hermit/` is replaced with the template's.
+  letters, digits, '_' and '-'). A candidate may start from a copy of any earlier one, made in
+  {candidates_dir}/<name>/ first, or from nothing; never change the files under {store}. It must not depend on files
+  outside its own directory. Its `.hermit/` is replaced with the template's.
 - Call `check_spec` with each candidate's path and fix what it reports.
 - {pending}: {"candidates": [{"name": "<name>", "hypothesis": "<a falsifiable claim about what the candidate
   changes and why it should score higher>", "base": "<the id of the candidate it builds on, or null>"}]}
