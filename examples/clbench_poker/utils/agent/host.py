@@ -2,9 +2,12 @@
 
 CL-Bench owns the loop: it asks the system for one environment action per turn (`run_action_turn`) and executes it
 on its own side. This host is that system with an adapter plugged in through `hermit.Session` and nothing
-else: the adapter's context is the system prompt, its tools are offered beside the task's, a call to one of them
-runs through the Session. Ported from metaworld's host (mwm/seat.py and the clbench systems built on it), reduced
-to the host side; sub-agents were already off in the framework's runs. Behaviour kept as it was:
+else: the adapter's context is the system prompt, computed once per instance from the instance's first prompt
+(ADAPTER.md, plus what the adapter's context tool renders for that prompt when its manifest declares one, as the
+ReHarness template's retrieved reflections; without one, ADAPTER.md alone) and kept for every turn of the instance,
+the tool's whole result in `context_info` for the runner's record; its tools are offered beside the task's, a call
+to one of them runs through the Session. Ported from metaworld's host (mwm/seat.py and the clbench systems built on
+it), reduced to the host side; sub-agents were already off in the framework's runs. Behaviour kept as it was:
 
 - one bare chat call per environment action, the wm call cap per episode (100) with the same notice;
 - every assistant reply recorded as turn records in the native shape (the venue's evidence writer groups them);
@@ -63,10 +66,12 @@ class AdapterHost(ContinualLearningSystem):
     supports_baseline = False
     parallel_safe = False
 
-    def __init__(self, session: Session, *, model: str, workspace: Path, venue: str, name: str = "harness_adapter"):
+    def __init__(self, session: Session, *, model: str, workspace: Path, venue: str, name: str = "harness_adapter",
+                 task_row: Optional[dict] = None):
         if venue not in ("database", "poker"):
             raise ValueError(f"venue must be database or poker, not {venue!r}")
         self.session, self.model, self.venue, self._name = session, model, venue, name
+        self._task_row = task_row          # the instance's task row, handed to the adapter's context tool beside x_t
         ws = Path(workspace)
         ws.mkdir(parents=True, exist_ok=True)
         self.cost_log, self.uptake_log = ws / "cost.jsonl", ws / "uptake.jsonl"
@@ -80,6 +85,8 @@ class AdapterHost(ContinualLearningSystem):
         self._tokens = {"input": 0, "cached": 0, "output": 0}
         self._pending_call_id = None          # the task tool call awaiting the environment
         self._wm_calls = 0
+        self._context: Optional[str] = None   # the adapter's context for the current instance (the system message)
+        self.context_info: Optional[dict] = None   # the context tool's whole result for it; None without such a tool
 
     # ----------------------------------------------------------------------------------------------- one turn
     def respond(self, query: Query) -> Response:
@@ -89,6 +96,21 @@ class AdapterHost(ContinualLearningSystem):
             self._messages = []
             self._wm_calls = 0
             self._pending_call_id = None
+            # The adapter's context for this instance, once: ADAPTER.md, and below it what the adapter's context tool
+            # renders for the instance's first prompt (x_t) and its task row when its manifest declares one; an
+            # adapter without one gets ADAPTER.md alone, and `last_context` stays None. A context tool that fails
+            # (the embedding relay unreachable past its retries) leaves ADAPTER.md alone and `retrieval: error: ...`
+            # in context_info, so the Evolver revises nothing for the instance, rather than failing it: on poker a
+            # failed hand never reaches outcomes.jsonl and every later hand of the order would fail.
+            try:
+                self._context = self.session.context(query=query.prompt, task=self._task_row)
+                self.context_info = self.session.last_context
+            except Exception as exc:                   # noqa: BLE001 — the reader's failure is not the instance's
+                logger.warning("context tool failed (%s); ADAPTER.md alone for this instance", exc)
+                self._context = self.session.context()
+                self.context_info = ({"text": "", "retrieved": [], "query": query.prompt or "",
+                                      "retrieval": f"error: {type(exc).__name__}: {exc}"[:300]}
+                                     if self.session.context_tool else None)
         self._messages.append({"role": "user", "content": query.prompt if query.prompt else "(no content)"})
         try:
             turn = self._turn(query)
@@ -111,7 +133,7 @@ class AdapterHost(ContinualLearningSystem):
             calls_of_reply[:] = list(msg.get("tool_calls") or [])
 
         turn = native_tools.run_action_turn(
-            self.model, [{"role": "system", "content": self.session.context()}], self._messages,
+            self.model, [{"role": "system", "content": self._context}], self._messages,
             list(query.tools or []), query.response_schema,
             extra_tools=self.session.tool_specs("openai"), extra_handler=self._adapter_tool,
             on_usage=self._on_usage, on_reply=_reply)
@@ -239,6 +261,7 @@ class AdapterHost(ContinualLearningSystem):
     # ----------------------------------------------------------------------------------------------- protocol
     def reset(self) -> None:
         self._messages, self._turns, self._current_instance = [], [], None
+        self._context, self.context_info = None, None
         self._tokens = {"input": 0, "cached": 0, "output": 0}
 
     @property

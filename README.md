@@ -48,11 +48,11 @@ Many harnesses are black boxes; even open-source ones have carefully designed co
 <tbody>
 <tr>
 <td>✅ <strong>Supported</strong></td>
-<td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/gepa.html">GEPA</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/skillopt.html">SkillOpt</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/mwm.html">MetaWorld Model</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/harness2.html">Harness²</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/continual_harness.html">Continual Harness</a></td>
+<td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/gepa.html">GEPA</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/skillopt.html">SkillOpt</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/mwm.html">MetaWorld Model</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/harness2.html">Harness²</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/continual_harness.html">Continual Harness</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/reharness.html">ReHarness</a></td>
 </tr>
 <tr>
 <td>🚧 <strong>Coming Soon</strong></td>
-<td><a href="https://github.com/ace-agent/ace">ACE</a> · <a href="https://arxiv.org/abs/2610.12668">ReHarness</a></td>
+<td><a href="https://github.com/ace-agent/ace">ACE</a></td>
 </tr>
 </tbody>
 </table>
@@ -179,6 +179,10 @@ Train and evaluate harness adapters on benchmarks using different evolution meth
 <tr>
 <td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/mwm.html">MWM</a></td>
 <td><a href="examples/clbench_database/mwm/">CL-Bench database</a> · <a href="examples/clbench_poker/mwm/">CL-Bench poker</a> · <a href="examples/servelearnbench/mwm/">ServeLearnBench</a></td>
+</tr>
+<tr>
+<td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/reharness.html">ReHarness</a></td>
+<td><a href="examples/clbench_database/reharness/">CL-Bench database</a> · <a href="examples/clbench_poker/reharness/">CL-Bench poker</a> · <a href="examples/officeqa/reharness/">OfficeQA</a></td>
 </tr>
 <tr>
 <td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/skillopt.html">SkillOpt</a></td>

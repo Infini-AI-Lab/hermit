@@ -24,8 +24,12 @@ class CLBenchPokerAgent(Agent):
             raise ValueError("this agent serves an adapter")
         result, log, wall = run_host("poker_runner.py", task, adapter, self.params)
         tokens = result.get("tokens") or {}
+        extra = {"reward_bb": result["reward_bb"], "settled_without_host": result["settled_without_host"],
+                 "settled_reward_bb": result["settled_reward_bb"], "host_tokens": tokens,
+                 "mwm": {"unit": "hands", "number": result["hand_num"], "entry": result["entry"]}}
+        if result.get("context_tool") is not None:
+            # what the adapter's context tool rendered for the hand (the Trainer keeps it as pipeline_extra; the
+            # ReHarness Evolver revises exactly the reflections it names)
+            extra["context_tool"] = result["context_tool"]
         return RunOutput(output=result["delta"], log=log, wall_s=wall,
-                         tokens=(tokens.get("input_tokens", 0) + tokens.get("output_tokens", 0)) or None,
-                         extra={"reward_bb": result["reward_bb"], "settled_without_host": result["settled_without_host"],
-                                "settled_reward_bb": result["settled_reward_bb"], "host_tokens": tokens,
-                                "mwm": {"unit": "hands", "number": result["hand_num"], "entry": result["entry"]}})
+                         tokens=(tokens.get("input_tokens", 0) + tokens.get("output_tokens", 0)) or None, extra=extra)

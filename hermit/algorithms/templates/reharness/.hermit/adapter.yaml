@@ -1,0 +1,26 @@
+# The ReHarness adapter (Xiao et al., arXiv:2610.12668): the textual harness state h_t, a bank of reflections, one
+# per past instance of the stream, each with the embedding of the instance's input. Before every instance the
+# harness retrieves the top-k reflections for the instance's input and gives them to the decision agent below
+# ADAPTER.md (Eq. 1); after it, the Evolver revises the retrieved reflections and writes a new one (Eqs. 2-3).
+template:
+  id: reharness
+  version: "1.0"
+  contract: "2"
+  name: ReHarness
+structure:
+  learnable:
+    - path: ADAPTER.md                 # the decision agent's instructions above the retrieved reflections
+      format: {text: true, max_bytes: 40000}
+    - path: index.json                 # k, the retrieval (embedding model or bm25); written by the Evolver's bootstrap
+      format: {text: true, max_bytes: 4000}
+    - path: reflections/*.json         # the bank: one reflection per past instance, with its input's embedding
+      format: {text: true, max_bytes: 400000}
+  fixed:
+    - exports.yaml                     # the reader's wiring: the context tool must stay
+    - interface.py
+    - reharness_core
+    - README.md
+check: .hermit/check.py:check
+# The reader adds the retrieved reflections per task, before the agent's first model call; a workspace or a plugin
+# is installed once and has no such moment, so `hermit deploy` and `hermit convert` refuse these adapters.
+plugin-portable: false

@@ -96,7 +96,12 @@ def main(argv=None) -> int:
             from hermit.hosts.pi import prepare
         else:
             from hermit.hosts.claude_code import prepare
-        print(json.dumps(prepare(args.adapter, args.workspace, str(Path(args.python).absolute())), indent=2))
+        try:
+            result = prepare(args.adapter, args.workspace, str(Path(args.python).absolute()))
+        except ValueError as error:
+            print(f"hermit deploy: {error}", file=sys.stderr)
+            return 2
+        print(json.dumps(result, indent=2))
         return 0
     from hermit.config import Config
     config = Config.load(args.config, args.overrides)

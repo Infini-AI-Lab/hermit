@@ -110,6 +110,13 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path) -> RunOutpu
     workspace = root / f"{task.get('id', 'task')}-{uuid.uuid4().hex[:8]}"
     workspace.mkdir(parents=True)
     if adapter is not None:
+        from hermit.adapter.loader import load_manifest
+        tool = load_manifest(Path(adapter)).get("context_tool")
+        if tool:
+            raise ValueError(f"agent {backend}: the CLI agents deploy ADAPTER.md alone, and this adapter declares a "
+                             f"context_tool ({tool}) whose per-task context would never reach the agent; use the react "
+                             "agent or an Agent that calls Session.context(query=..., task=...) and records "
+                             "session.last_context in RunOutput.extra['context_tool']")
         deploy(Path(adapter), workspace, backend)
     for item in params.get("files") or []:
         source = Path(base) / item
