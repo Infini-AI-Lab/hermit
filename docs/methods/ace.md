@@ -5,8 +5,8 @@ ACE, Agentic Context Engineering ([Zhang et al., ICLR 2026](https://arxiv.org/ab
 instead of being rewritten: bullets `[id] helpful=N harmful=N :: content` under sections, tagged by a Reflector and
 extended by a Curator. Choose it when the adapter is a context document, you have the judge's feedback on training
 tasks, and you want the accumulated detail kept rather than compressed (the paper's "brevity bias" and "context
-collapse"). As in the paper, only the context is learned; ACE's Generator, an LLM call of its own, is here the task's
-acting agent, which reads the playbook as its context.
+collapse"). The answers come from the task's own acting agent, which reads the playbook as part of its instructions,
+where the authors' code makes a separate LLM call; as in the paper, only the playbook is learned.
 
 ## Setup
 
