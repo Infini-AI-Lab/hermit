@@ -17,6 +17,13 @@ provider; Codex's workspace-write sandbox runs inside it, so the session's comma
         timeout_s: 3600                # one session's wall clock (the paper's cap; its 200-turn cap is no Codex setting)
         codex_dir: ~/.cache/hermit/officeqa-h2-codex   # workspaces, homes and logs, outside any checkout
         docs: null                     # the corpus; default ../data.json's docs (utils/prepare.py)
+        project_doc_max_bytes: null    # Codex's cap on AGENTS.md, past which it silently drops the rest; null: Codex's
+                                       # default (32 KiB in 0.162.0)
+
+An adapter that is context rather than a Codex tree (`ADAPTER.md` and no `AGENTS.md`: the prompt-only and reharness
+templates) is deployed as `AGENTS.md` holding its context for this question, `Session.context(query=question,
+task=row)`: `ADAPTER.md` and, when the manifest declares a context tool, what that tool renders for the question
+(ReHarness's retrieved reflections; the tool's whole result is recorded in the output's `extra["context_tool"]`).
 
 The answer is the text inside the last `<answer>...</answer>` of Codex's final message; a session that ends without
 one answers nothing, and `fail_reason` says why. A session the provider could not serve (429, 5xx) is run again
@@ -107,10 +114,13 @@ def frontmatter(text: str) -> tuple[dict[str, str], str]:
     return head, body[body.find("\n") + 1:] if "\n" in body else ""
 
 
-def deploy_harness(adapter: Path | None, work: Path) -> dict:
+def deploy_harness(adapter: Path | None, work: Path, context: str | None = None) -> dict:
     """The adapter's Codex tree into the workspace root, as upstream installs it; the sub_agents are returned for
-    the home's config (name, description, instructions). Without an adapter the workspace carries no harness."""
-    out: dict = {"agents_md": False, "skills": [], "scripts": [], "hooks": False, "sub_agents": [], "memory": False}
+    the home's config (name, description, instructions). An adapter without an `AGENTS.md` is deployed as one
+    holding `context` (the Session's context for this question) when that is given. Without an adapter the
+    workspace carries no harness."""
+    out: dict = {"agents_md": False, "skills": [], "scripts": [], "hooks": False, "sub_agents": [], "memory": False,
+                 "context": False}
     if adapter is None:
         return out
     adapter = Path(adapter)
@@ -121,6 +131,9 @@ def deploy_harness(adapter: Path | None, work: Path) -> dict:
                             ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
         elif src.is_file():
             shutil.copy2(src, work / entry)
+    if not (work / "AGENTS.md").is_file() and context and context.strip():
+        (work / "AGENTS.md").write_text(context.rstrip("\n") + "\n", encoding="utf-8")
+        out["context"] = True
     out["agents_md"] = (work / "AGENTS.md").is_file()
     out["skills"] = sorted(p.parent.name for p in (work / ".agents" / "skills").glob("*/SKILL.md"))
     out["scripts"] = sorted(p.name for p in (work / "scripts").glob("*.py"))
@@ -134,11 +147,11 @@ def deploy_harness(adapter: Path | None, work: Path) -> dict:
     return out
 
 
-def write_home(home: Path, binding, sub_agents: list[dict]) -> list[str]:
+def write_home(home: Path, binding, sub_agents: list[dict], project_doc_max_bytes: int | None = None) -> list[str]:
     """CODEX_HOME/config.toml: the provider (the binding's Codex settings; for a ChatGPT login, Codex's built-in
     provider, codex_login.py), no shell snapshot, the session's shell given only Codex's core variables (no key, no
-    proxy), no network for its commands, and the adapter's sub_agents as agent roles. Returns the key variables the
-    container must receive, by name."""
+    proxy), no network for its commands, the adapter's sub_agents as agent roles, and Codex's AGENTS.md cap when one
+    is given. Returns the key variables the container must receive, by name."""
     import codex_login
     login = codex_login.is_login(binding)
     if login:
@@ -147,6 +160,8 @@ def write_home(home: Path, binding, sub_agents: list[dict]) -> list[str]:
         args = binding.codex_args()
         lines = [args[i + 1] for i in range(0, len(args), 2)]        # Codex's -c pairs are TOML lines
     lines += ["features.shell_snapshot = false", "sandbox_workspace_write.network_access = false"]
+    if project_doc_max_bytes:
+        lines.append(f"project_doc_max_bytes = {int(project_doc_max_bytes)}")
     if sub_agents:
         lines.append("features.multi_agent = true")
     lines += ["", "[shell_environment_policy]", 'inherit = "core"', 'exclude = ["*KEY*", "*TOKEN*", "*SECRET*"]']
@@ -218,6 +233,16 @@ class OfficeQACodexAgent(Agent):
         corpus = Path(docs).resolve()
         self._ready(corpus)
         text, roots = task_text(task, docs)
+        # A context adapter (no AGENTS.md of its own): its context for this question, retrieved once here, before the
+        # session, and deployed as the session's AGENTS.md; a Codex tree keeps its own AGENTS.md.
+        context, context_tool = None, None
+        if adapter is not None and not (Path(adapter) / "AGENTS.md").is_file() and (Path(adapter) / ".hermit" / "adapter.yaml").is_file():
+            session = self.session(adapter)
+            try:
+                context = session.context(query=task["question"], task=task)
+                context_tool = session.last_context
+            finally:
+                session.close()
         effort = str(self.params.get("effort") or EFFORT)
         timeout_s = float(self.params.get("timeout_s") or TIMEOUT_S)
         rollouts = Path(os.path.expanduser(str(self.params.get("codex_dir") or CODEX_DIR))) / "rollouts"
@@ -234,8 +259,8 @@ class OfficeQACodexAgent(Agent):
             for d in (work, home, log):
                 shutil.rmtree(d, ignore_errors=True)
                 d.mkdir(parents=True)
-            deployed = deploy_harness(adapter, work)
-            keys = write_home(home, binding, deployed["sub_agents"])
+            deployed = deploy_harness(adapter, work, context)
+            keys = write_home(home, binding, deployed["sub_agents"], self.params.get("project_doc_max_bytes"))
             if login:
                 codex_login.install_auth(home)
             prompt = PROMPT + ("\n" + MEMORY_NOTE if deployed["memory"] else "")
@@ -293,7 +318,8 @@ class OfficeQACodexAgent(Agent):
             shutil.copytree(work / "memory", log / "memory", dirs_exist_ok=True)
         (log / "last_message.txt").write_text(last, encoding="utf-8")
         (log / "harness.json").write_text(json.dumps({**deployed, "sub_agents": [r["name"] for r in
-                                                                                  deployed["sub_agents"]]}, indent=1))
+                                                                                  deployed["sub_agents"]],
+                                                      "context_tool": context_tool}, indent=1, default=str))
         shutil.rmtree(work / "docs", ignore_errors=True)       # the mount point and any links: the corpus stays out
         _, usage = parse_log(log / "agent-codex.jsonl", "codex", binding.ref)
         u = usage[0] if usage else None
@@ -310,4 +336,5 @@ class OfficeQACodexAgent(Agent):
                                 "turns": u.calls if u else 0, "actions": actions, "exit_code": code,
                                 "session_timed_out": timed_out, "workspace": str(work),
                                 "deployed": {k: v for k, v in deployed.items() if k != "sub_agents"}
-                                | {"sub_agents": [r["name"] for r in deployed["sub_agents"]]}})
+                                | {"sub_agents": [r["name"] for r in deployed["sub_agents"]]}}
+                              | ({"context_tool": context_tool} if context_tool is not None else {}))

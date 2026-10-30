@@ -1,0 +1,57 @@
+# ReHarness in the train/test split of the recipe's Flash row (the setting of ../gepa/run_codex_flash.yaml and
+# ../skillopt/run_codex_flash.yaml): the bank is written from the 50 training questions as one stream (one question
+# per step, in the split's order, the judge's feedback in each trajectory as GEPA's and SkillOpt's learners see it),
+# then frozen and evaluated once on the 172 test questions. ReHarness selects nothing: there is no validation split
+# and `final` is the bank after the stream. Each question is answered by Codex 0.162.0 in a container of its own
+# (../utils/agent/codex_agent.py, OFFICEQA_CODEX_IMAGE=officeqa-codex:0.162.0, 3,600 s wall clock; GEPA's and
+# SkillOpt's Flash runs use SkillOpt's own Codex harness with its 180 s sessions) with SkillOpt's initial skill and the
+# five reflections retrieved for the question as its AGENTS.md. GLM 5.3 Flash acts, reflects and revises at medium
+# effort. Run four times (trainer.run_name=flash-codex-reharness, -r2, -r3, -r4, each with its own tree_dir) and
+# report the mean, as the row's GEPA and SkillOpt numbers are. Started by launch.sh.
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/train.txt     # the 50 training questions, the stream
+  test: ../utils/splits/test.txt       # the 172 test questions, evaluated once with the frozen bank
+  step_size: 1                         # one question per step: one ReHarness instance (read, revise, write)
+  shuffle: false                       # the split's own order
+task_info: ../utils/task-info/
+agent:
+  name: ../utils/agent/codex_agent.py:OfficeQACodexAgent
+  concurrency: 4                       # the eval; the stream itself is one question at a time
+  params:
+    model: fireworks/accounts/fireworks/models/glm-5p3-flash
+    effort: medium
+    timeout_s: 3600
+    codex_dir: ~/.cache/hermit/officeqa-rh-codex
+    project_doc_max_bytes: 204800           # 200 KiB: five retrieved reflections exceed Codex's default 32 KiB,
+                                             # past which it silently drops the rest of AGENTS.md
+judge:
+  path: ../utils/judge.py
+template: reharness
+start_from: seed_adapter               # make_seed.py: SkillOpt's initial skill over the reharness template, an empty bank
+evolver:
+  name: reharness
+  params:
+    k: 5
+    embedding: fireworks/accounts/fireworks/models/qwen3-embedding-8b   # launch.sh binds it to its loopback relay
+    feedback: true                     # the training questions' verdicts reach the agents, as in the row's other trainings
+llm:
+  model: fireworks/accounts/fireworks/models/glm-5p3-flash
+  extra_body: {reasoning_effort: medium}
+sandbox:
+  enabled: true
+  network: restricted
+  allow: []
+  read: []
+  env: []
+  profiles:
+    rollout: {enabled: false}          # the agent drives Docker; each Codex session is in a container of its own
+trainer:
+  run_name: flash-codex-reharness
+  output_dir: runs
+  tree_dir: runs/trees/flash-codex-reharness
+  epochs: 1                            # one pass over the 50
+  budget: {usd: 60, hours: null}
+  call_timeout_min: 120
+eval:
+  repeats: 1                           # one pass over the test questions, as the row

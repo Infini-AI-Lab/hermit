@@ -12,9 +12,11 @@ ones. A hand the opponent ends before the host acts is settled by the task witho
 it is folded into the previous hand's final observation and never reaches the host or counts toward a block. So a
 task is one hand the host plays (prepare.py lists them); the hands settled on the way are recorded here too.
 
-The host is `host.AdapterHost` over the adapter's
-package. Afterwards the hand's turns go into the evidence store in the native layout (blockNNN/hNNN.json and the
-per-hand entry), and every outcome the task produced is appended to outcomes.jsonl. One JSON line on stdout.
+The host is `host.AdapterHost` over the adapter, its context for the hand (ADAPTER.md, plus what its context tool
+renders for the hand's first prompt when it has one: ReHarness's retrieved reflections) as the system prompt.
+Afterwards the hand's turns go into the evidence store in the native layout (blockNNN/hNNN.json and the per-hand
+entry), and every outcome the task produced is appended to outcomes.jsonl. One JSON line on stdout, with the context
+tool's whole result (`context_tool`, null without such a tool) for the learning material.
 """
 from __future__ import annotations
 
@@ -71,7 +73,8 @@ def main() -> None:
     task = Poker(schedule="default", run_index=order)
     task.prepare_run(order)
     session = Session(Path(args.adapter), evidence=evidence_dir, deployment=deployment or None)
-    system = AdapterHost(session, model=args.model, workspace=host_ws, venue="poker", name="mwm_framework_poker")
+    system = AdapterHost(session, model=args.model, workspace=host_ws, venue="poker", name="mwm_framework_poker",
+                         task_row=row)
     system.reset()
     task.reset()
     task.fast_forward(graded)
@@ -115,7 +118,8 @@ def main() -> None:
     print(json.dumps({"hand_num": hand_num, "delta": hands[0]["delta"], "reward_bb": float(new[mine]["reward"]),
                       "settled_without_host": [o["instance_id"] for o in settled],
                       "settled_reward_bb": sum(float(o["reward"]) for o in settled),
-                      "raw_path": paths[hand_num], "entry": entry, "tokens": tokens, "wall_s": round(wall, 1)}))
+                      "raw_path": paths[hand_num], "entry": entry, "context_tool": system.context_info,
+                      "tokens": tokens, "wall_s": round(wall, 1)}))
 
 
 if __name__ == "__main__":

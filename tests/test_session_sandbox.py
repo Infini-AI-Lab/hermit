@@ -147,3 +147,20 @@ def test_a_tool_that_breaks_its_channel_ends_in_an_error_not_a_hang(tmp_path):
         s._remote.call_timeout = 5
         with pytest.raises(ToolError, match="no answer"):
             s.call("garble", {})
+
+
+@pytest.mark.skipif(not _bwrap_works(), reason="needs a working bubblewrap (unprivileged user namespaces)")
+def test_a_large_tool_result_crosses_the_channel(tmp_path):
+    """One MCP message is one line of the server's stdout: a result far above asyncio's default 64 KiB line limit
+    (a reader rendering several long reflections, sent as text and as structured content) must still arrive."""
+    root = adapter_copy(tmp_path)
+    exports = yaml.safe_load((root / "exports.yaml").read_text())
+    exports["tools"].append({
+        "name": "big", "description": "A text of n characters.", "entrypoint": "tools.py:big",
+        "input_schema": {"type": "object", "properties": {"n": {"type": "integer"}}, "required": ["n"]},
+        "output_schema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}})
+    (root / "exports.yaml").write_text(yaml.safe_dump(exports, sort_keys=False))
+    (root / "tools.py").write_text((root / "tools.py").read_text() + "\n\ndef big(n):\n    return {\"text\": \"x\" * n}\n")
+    with Session(root, sandbox=True) as s:
+        assert len(s.call("big", {"n": 300_000})["text"]) == 300_000
+        assert s.call("count_words", {"text": "a b"}) == {"count": 2}          # the channel is still fine afterwards

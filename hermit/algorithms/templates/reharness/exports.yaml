@@ -1,0 +1,29 @@
+# What the acting agent receives: ADAPTER.md as its context and, below it for every instance, what the reader
+# `reflections` retrieves (context_tool: the harness calls it once per instance, never the agent).
+context: ADAPTER.md
+tools:
+  - name: reflections
+    description: 'The harness''s retrieval: the top-k reflections of the bank for an instance''s input, rendered as [RANKED REFLECTIONS]. Called by the harness once per instance (context_tool in exports.yaml), never by the agent; an empty query retrieves nothing.'
+    entrypoint: interface.py:reflections
+    input_schema:
+      type: object
+      properties:
+        query: {type: string}
+        task: {type: object}
+      additionalProperties: false
+    output_schema:
+      type: object
+      properties:
+        text: {type: string}
+        retrieved: {type: array}
+        query: {type: string}
+        k: {type: integer}
+        bank_size: {type: integer}
+        retrieval: {type: string}
+      required: [text, retrieved, k, bank_size, retrieval]
+    annotations:
+      readOnlyHint: true
+      destructiveHint: false
+      idempotentHint: true
+      openWorldHint: false
+context_tool: reflections

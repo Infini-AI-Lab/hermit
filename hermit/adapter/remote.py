@@ -17,6 +17,9 @@ import tempfile
 import threading
 
 
+LINE_LIMIT = 64 * 1024 * 1024        # bytes per MCP message on the server's stdout (a whole tool result)
+
+
 class ToolError(RuntimeError):
     """A tool call the sandboxed server answered with an error (its text is the message)."""
 
@@ -86,9 +89,12 @@ class SandboxedServer:
         proc = None
         reader = None
         try:
+            # One MCP message is one line: a tool's result (its text twice, as content and as structured content)
+            # must fit, and asyncio's default limit is 64 KiB. A reader rendering several long reflections passes
+            # that; the limit here is far above any declared tool's max_bytes.
             proc = await asyncio.create_subprocess_exec(*self.args, stdin=asyncio.subprocess.PIPE,
                                                         stdout=asyncio.subprocess.PIPE, stderr=self._errlog,
-                                                        env=self.env, cwd=str(self.work))
+                                                        env=self.env, cwd=str(self.work), limit=LINE_LIMIT)
             self._proc = proc
             reader = asyncio.ensure_future(self._read(proc.stdout))
             from hermit import __version__

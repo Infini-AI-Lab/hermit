@@ -5,7 +5,8 @@ program that runs the agent loads the adapter itself. A Session gives that progr
 give a host, in the shapes a model API takes:
 
     session = Session(adapter_dir)
-    system_prompt = base + session.context()                 # ADAPTER.md as the Evolver last wrote it
+    system_prompt = base + session.context(query=question, task=task)   # ADAPTER.md, plus the adapter's per-task
+                                                             # context when its manifest declares a context_tool
     tools = task_tools + session.tool_specs("openai")        # the adapter's tools beside the task's own
     ...
     if session.has_tool(call["function"]["name"]):           # a tool call from the model
@@ -31,7 +32,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from hermit.adapter.loader import Adapter, inside, load_manifest, subagent_files
+from hermit.adapter.loader import Adapter, agent_tools, inside, join_context, load_manifest, subagent_files
 from hermit.adapter.resources import EvidenceStore, LearningMaterial
 
 
@@ -59,6 +60,7 @@ class Session:
                  audit_log: Path | str | None = None, sandbox=None):
         self._remote = None
         self._sandboxed = False
+        self.last_context: dict | None = None     # the context tool's whole result from the last context(query=...)
         if sandbox is None and os.environ.get(ENV_SANDBOX) == "1":
             sandbox = _adapter_sandbox()
             owned = True
@@ -142,11 +144,28 @@ class Session:
             raise AttributeError("a sandboxed Session's resources are bound in its server, not in this process")
         return self.adapter.resources
 
-    def context(self) -> str:
-        """The adapter's context, ADAPTER.md exactly as written after the last adopted step."""
+    def context(self, query: str | None = None, task: dict | None = None) -> str:
+        """The adapter's context: ADAPTER.md exactly as written after the last adopted step. With `query` (the
+        instance's input text) or `task` (its row), an adapter whose manifest declares a `context_tool` also gets
+        that tool's `text` for this task appended (the harness calls it once, before the agent's first model call);
+        the tool's whole result is kept in `last_context`. Without a context tool, `query` and `task` change
+        nothing. A call without them is the static context alone, as `deploy` renders it."""
+        self.last_context = None
         if not os.path.lexists(Path(self.root) / self.manifest["context"]):
-            return ""                                           # a learner may remove ADAPTER.md: no context
-        return inside(self.root, self.manifest["context"]).read_text()
+            text = ""                                           # a learner may remove ADAPTER.md: no static context
+        else:
+            text = inside(self.root, self.manifest["context"]).read_text()
+        name = self.manifest.get("context_tool")
+        if not name or (query is None and task is None):
+            return text
+        result = self.call(name, {"query": query or "", "task": dict(task or {})})
+        self.last_context = result if isinstance(result, dict) else {"result": result}
+        return join_context(text, result)
+
+    @property
+    def context_tool(self) -> str | None:
+        """The name of the declared tool that renders per-task context, if any."""
+        return self.manifest.get("context_tool")
 
     def agents(self) -> list[dict]:
         """The exported subagents: name, description, instructions path, body."""
@@ -173,7 +192,13 @@ class Session:
     # --- tools --------------------------------------------------------------------------------------------------
     @property
     def tools(self) -> list[dict]:
-        """The tool declarations: name, description, input_schema, output_schema, annotations."""
+        """The tool declarations offered to the agent: name, description, input_schema, output_schema, annotations.
+        The manifest's context tool is the harness's and is left out (`declared_tools` has every declaration)."""
+        return agent_tools(self.manifest)
+
+    @property
+    def declared_tools(self) -> list[dict]:
+        """Every tool the manifest declares, the context tool included."""
         return list(self.manifest.get("tools", []))
 
     @property
@@ -182,6 +207,9 @@ class Session:
 
     def has_tool(self, name: str) -> bool:
         return name in self.tool_names
+
+    def _declared(self, name: str) -> bool:
+        return any(t["name"] == name for t in self.declared_tools)
 
     def tool_specs(self, style: str = "openai") -> list[dict]:
         """The tools in a model API's format: "openai" (chat completions `tools`), "anthropic" (Messages `tools`)
@@ -204,7 +232,7 @@ class Session:
         try:
             if not self._sandboxed:
                 result = await self.adapter.call(name, arguments)
-            elif not self.has_tool(name) or self._remote is None:
+            elif not self._declared(name) or self._remote is None:
                 raise ValueError(f"Unknown tool: {name}")
             else:
                 result = await self._remote.acall(name, arguments)
@@ -239,6 +267,8 @@ class Session:
         function = tool_call.get("function") or {}
         name = function.get("name", "")
         try:
+            if not self.has_tool(name):            # the context tool included: it is the harness's, not the agent's
+                raise ValueError(f"Unknown tool: {name}")
             raw = function.get("arguments") or "{}"
             arguments = json.loads(raw) if isinstance(raw, str) else dict(raw)
             if not isinstance(arguments, dict):

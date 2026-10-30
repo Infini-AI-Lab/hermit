@@ -2,8 +2,8 @@
 
 The `database_exploration` venue of [CL-Bench](https://github.com/pgasawa/continual-learning-bench) ([site](https://continual-learning-bench.com/), [paper](https://arxiv.org/abs/2606.05661)): a stream of 40 questions about an undocumented SQLite database whose
 schema drifts partway through; the host explores with SQL and answers, and the stream's score is accuracy.
-This example trains an adapter on the stream with the mwm and prompt-only methods and compares them with the
-benchmark's own baselines.
+This example trains an adapter on the stream with the mwm, prompt-only and ReHarness methods and compares them with
+the benchmark's own baselines.
 
 ## Setup
 
@@ -13,7 +13,9 @@ Install the framework first ([Installation](../../docs/get-started/installation.
 the runs use). Also needed: the Codex CLI on PATH, bubblewrap, and the key of the models' backend: for the default
 (GLM 5.3 Flash on Fireworks) `FIREWORKS_API_KEY` or the key file `~/code/metaworld/.fireworks`. Host and learner
 take any backend reference, `MW_MODEL=<backend>/<model id>` (or `MW_HOST_MODEL` / `MW_EVOLVER_MODEL`); the
-learner's backend must serve the Responses API, which Codex speaks. A local server:
+learner's backend must serve the Responses API, which Codex speaks (ReHarness needs no Codex: its learner is the
+run's `llm` tool, chat completions, and its embedding model is `MW_EMBED_MODEL`, default Qwen3-Embedding-8B on
+Fireworks). A local server:
 `MW_MODEL=vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8 VLLM_BASE_URL=http://127.0.0.1:8000/v1`
 ([Model backends](../../docs/guides/model-backends.md)).
 
@@ -24,30 +26,37 @@ python examples/clbench_database/utils/prepare.py --clbench ~/code/clbench      
 
 ## Run
 
-One `hermit train` per order, in the background, with the host's and the learner's wire meters; logs and
-results under `$MW_RUNS/<tag>/`.
+One `hermit train` per order, in the background, with the host's and the learner's wire meters (ReHarness adds
+an embedding relay on `WM_PORT+2`); logs and results under `$MW_RUNS/<tag>/`.
 
 ```bash
 MW_TAG=db_mwm WM_PORT=3401 MW_ORDERS="0 1 2 3 4" examples/clbench_database/mwm/launch.sh            # MWM
 MW_TAG=db_prompt_only WM_PORT=3441 MW_ORDERS="0 1 2 3 4" examples/clbench_database/prompt_only/launch.sh   # prompt-only
+MW_TAG=db_reharness WM_PORT=3481 MW_ORDERS="0 1 2 3 4" examples/clbench_database/reharness/launch.sh    # ReHarness
 ```
 
 An order's accuracy is the mean score in its run's `steps.jsonl`. A smoke on the first N
-questions of one order: `MW_TRAIN_SPLIT=<file with those ids> MW_ORDERS=0 ... launch.sh`. The stateless and ICL
-baselines are clbench's own systems, run with the same model and settings.
+questions of one order: `MW_TRAIN_SPLIT=<file with those ids> MW_ORDERS=0 ... launch.sh`. `MW_EFFORT` (default
+`high`) sets the host's and the learner's reasoning effort. The stateless and ICL baselines are clbench's own
+systems, run with the same model and settings.
 
 ## Results
 
 Host: GLM 5.3 Flash (reasoning effort high), unlimited queries, five orders of the stream, one run per order.
 
-Two methods are compared with the benchmark's own baselines. **prompt-only** ([`prompt_only/`](prompt_only/)):
+Three methods are compared with the benchmark's own baselines. **prompt-only** ([`prompt_only/`](prompt_only/)):
 the adapter is one instruction file served to the host as its context; after every question a Codex session
 with GLM 5.3 Flash reads the trajectories and feedback and rewrites it (the built-in
 [Codex Evolver](../../docs/methods/codex.md) on the prompt-only template).
 **MWM** ([`mwm/`](mwm/), [method](../../docs/methods/mwm.md)): the adapter is a world model of the venue, dated
 knowledge, worked examples, a briefing and tested programs, which the host consults through one `wm` tool;
 after every question a Codex session with GLM 5.3 Flash reads what the host did and revises it under a fixed
-contract.
+contract. **ReHarness** ([`reharness/`](reharness/), [Xiao et al.](https://arxiv.org/abs/2610.12668),
+[method](../../docs/methods/reharness.md)): the adapter is a bank of reflections, one per
+past question; before a question the harness retrieves the five whose questions are closest to it
+(Qwen3-Embedding-8B, cosine) and appends them to the host's context; after it, GLM 5.3 Flash revises each
+retrieved reflection from its own source trajectory, with the new trajectory as feedback, and writes the
+question's reflection with the revised ones as examples. One pass over the stream, no validation set, no Codex.
 
 | Method | accuracy (mean) |
 |---|---|
@@ -55,6 +64,17 @@ contract.
 | ICL: clbench's in-context baseline | 0.580 |
 | **prompt-only** (`prompt_only/`) | 0.470 |
 | **MWM** (`mwm/`) | 0.795 |
+| **ReHarness** (`reharness/`) | 0.780 |
+
+ReHarness, one run per order (order 0 on 2026-10-27, orders 1 to 4 on 2026-10-29), inside the offline container of
+[`docker/`](../../docker/) (Fireworks the only reachable service; clbench fork at `2cc7eef`; the embedding model
+`accounts/fireworks/models/qwen3-embedding-8b`), starting from the template's `ADAPTER.md` over an empty bank:
+accuracies 0.725, 0.800, 0.800, 0.825 and 0.750 over the five orders (sd 0.041, a standard error of about 0.018 on
+the mean), 32 to 38 minutes per order, USD 0.40 to 0.47 of reflection and revision calls per order at the backend's
+prices, no rollout errors. No paired differences: the stateless and ICL rows are clbench's own systems, whose
+per-question results the repository does not hold. Each run's card is `$MW_RUNS/<tag>/<tag>-o<order>/checkout/CARD.md`;
+no bank is included in the repository, because the reflections quote the questions' correct answers, which the
+venue's observation names after each answer.
 
 ## Code
 
@@ -63,6 +83,8 @@ utils/agent/        CLBenchDatabaseAgent (agent.py) starts database_runner.py in
                     clbench_host.py; host.py is the acting host, built over hermit.Session
 utils/prepare.py    tasks.jsonl and one ordered split per order      utils/judge.py   the venue's score and feedback
 utils/task-info/    the task for the learner; task-info/mwm/ is what MWM needs to know about the venue
-utils/tests/        golden tests of the MWM texts (both venues) and the host test
+utils/tests/        golden tests of the MWM texts (both venues) and the host test, which runs under clbench's own
+                    interpreter: PYTHONPATH=<hermit> MWM_CLBENCH=<clbench> <clbench>/.venv/bin/python -m pytest utils/tests/test_host.py
 mwm/ prompt_only/   run.yaml and launch.sh per method; mwm/sql_tool.py is the learner's SQL channel
+reharness/          run.yaml and launch.sh for ReHarness; its template and Evolver are the framework's built-ins
 ```
