@@ -21,8 +21,8 @@ Flash on Fireworks, FIREWORKS_API_KEY) answers at medium reasoning effort, as th
 chat_target_messages calls it directly, Codex through the backend's Responses API with the provider settings in a
 CODEX_HOME of its own (no user configuration or instructions). A model on a ChatGPT login (codex_login.py: a backend
 at ChatGPT's Codex endpoint) runs in the Codex harness only, on Codex's built-in provider with a copy of the login in
-each rollout's CODEX_HOME; a rollout waits while the plan's usage is at its cap, and one refused for the plan's limit
-is run again, never scored. Codex's workspaces are under `agent.params.codex_dir`,
+each rollout's CODEX_HOME; a rollout waits while the runs are paused, and one refused for the plan's limit is run
+again once the plan's window resets, never scored. Codex's workspaces are under `agent.params.codex_dir`,
 outside any checkout: Codex reads the instructions of the repository it runs in. A rollout the API could not serve
 raises, so it is recorded as an error rather than a wrong answer (so does a question whose parsed pages SkillOpt cannot find under data.json's docs: without them the rollout is not the paper's setting); a Codex session past its 180 s is a failed answer,
 as in SkillOpt.
@@ -218,7 +218,7 @@ class OfficeQAAgent(Agent):
         started = time.time()
         attempt = 0
         while True:                         # the API was unavailable: run the whole rollout again later
-            if login:                       # the plan's usage at its cap: wait for its window to reset
+            if login:                       # paused, or the plan refused a session: wait (codex_login.py)
                 codex_login.wait_for_plan(log=lambda m: print(f"officeqa {task['id']}: {m}", file=sys.stderr,
                                                                flush=True))
             out_root = Path(tempfile.mkdtemp(prefix=f"{task['id']}-", dir=logs))

@@ -29,7 +29,7 @@ The answer is the text inside the last `<answer>...</answer>` of Codex's final m
 one answers nothing, and `fail_reason` says why. A session the provider could not serve (429, 5xx) is run again
 later, up to three times; a container that could not start raises. A model on a ChatGPT login (codex_login.py) runs on
 Codex's built-in provider with a copy of the login in the session's home for the session only; a session waits while
-the plan's usage is at its cap, and one refused for the plan's limit is run again, never scored. The rollout's log is a directory:
+the runs are paused, and one refused for the plan's limit is run again once the plan's window resets, never scored. The rollout's log is a directory:
 `agent-codex.jsonl` (the `codex exec --json` event stream, the trajectory), `task.md`, `prompt.txt`,
 `last_message.txt` and `harness.json` (what the adapter deployed). The workspace stays beside it for inspection,
 without its links into the corpus.
@@ -253,7 +253,7 @@ class OfficeQACodexAgent(Agent):
         started = time.time()
         attempt = 0
         while True:                         # the provider was unavailable: run the whole session again later
-            if login:                       # the plan's usage at its cap: wait for its window to reset
+            if login:                       # paused, or the plan refused a session: wait (codex_login.py)
                 codex_login.wait_for_plan(log=lambda m: print(f"officeqa {task['id']}: {m}", file=sys.stderr,
                                                                flush=True))
             for d in (work, home, log):

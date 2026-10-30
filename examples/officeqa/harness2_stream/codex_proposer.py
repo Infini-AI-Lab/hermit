@@ -17,7 +17,7 @@ the session directory at the reasoning effort upstream asks for, Codex's own san
 Code's permissions are skipped there), the system text as Codex's developer instructions, and a fresh CODEX_HOME in
 the session directory with codex_login's settings and a copy of the login, removed when the session ends. The reply
 is the session's final message. Its usage is recorded unpriced (a plan has no per-token price). A session waits while
-the plan's usage is at its cap, and one refused for the plan's limit is run again.
+the runs are paused, and one refused for the plan's limit is run again.
 """
 from __future__ import annotations
 

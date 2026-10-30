@@ -1,22 +1,23 @@
 # The Flash row with Codex + GPT-5.6-Luna
 
-The six methods of the [Flash row](../../../docs/recipes/officeqa.md#the-flash-row) (no skill, SkillOpt's initial
-skill, GEPA, SkillOpt, Continual Harness, Harness²) with Codex and GPT-5.6-Luna (reasoning effort medium) both
-acting and learning, on a machine's own Codex and its ChatGPT login (a Codex plan) instead of GLM 5.3 Flash on
-Fireworks. Every other setting is the Flash row's config; `launch.sh` changes only:
+The seven methods of the [Flash row](../README.md#results) (no skill, SkillOpt's initial skill, GEPA, SkillOpt,
+Continual Harness, ReHarness, Harness²) with Codex and GPT-5.6-Luna (reasoning effort medium) both acting and
+learning, on a machine's own Codex and its ChatGPT login (a Codex plan) instead of GLM 5.3 Flash on Fireworks. Every
+other setting is the Flash row's config; `launch.sh` changes only:
 
 | Setting | Flash row | Here |
 |---|---|---|
 | acting model | `fireworks/accounts/fireworks/models/glm-5p3-flash` | `codexplan/gpt-5.6-luna` (Codex's built-in provider on the ChatGPT login) |
-| learner (`llm`: GEPA, SkillOpt, Continual Harness) | the same GLM on Fireworks | `codexrelay/gpt-5.6-luna`: each call is one Codex session (`../utils/agent/codex_chat.py`) |
+| learner (`llm`: GEPA, SkillOpt, Continual Harness, ReHarness's reflection and revision agents) | the same GLM on Fireworks | `codexrelay/gpt-5.6-luna`: each call is one Codex session (`../utils/agent/codex_chat.py`) |
 | Harness² editors | Claude Code (`claude -p`) on GLM through a wire meter | Codex sessions (`../harness2_stream/codex_proposer.py`) |
 | Codex | 0.162.0 (npm package), image `officeqa-codex:0.162.0` | the machine's standalone 0.164.0, pinned, image `officeqa-codex:0.164.0` (`../utils/agent/docker/Dockerfile.standalone`) |
 | egress | `oq-egress`: api.fireworks.ai:443 only | `oq-egress-chatgpt`: chatgpt.com:443 only |
 | run names, workspaces | `flash-codex-*`, `~/.cache/hermit/...` | `luna-*`, `~/albz/officeqa-luna/cache/...` |
 
 Reasoning effort (medium), the harnesses and their limits (SkillOpt's 180 s × 24 sessions; the 3,600 s Codex session
-of Continual Harness and Harness²), the split, the seed skill, the evolvers' parameters, concurrency, one test pass
-and the judge are the Flash row's.
+of Continual Harness, ReHarness and Harness²), the split, the seed skill, the evolvers' parameters, ReHarness's
+embedding model (Qwen3-Embedding-8B on Fireworks, behind its launcher's wire meter: the plan serves no embeddings),
+concurrency, one test pass and the judge are the Flash row's.
 
 ## Setup (once)
 
@@ -45,6 +46,7 @@ examples/officeqa/luna/launch.sh gepa 1        # ... gepa 4: gepa/runs/luna-gepa
 examples/officeqa/luna/launch.sh skillopt 1    # ... skillopt 4
 examples/officeqa/luna/launch.sh ch            # continual_harness/runs/luna-ch-s0 (steps.jsonl: the stream)
 examples/officeqa/luna/launch.sh h2            # harness2_stream/runs/luna-h2-s0
+MW_KEY_FILE=... WM_PORT=3691 examples/officeqa/luna/launch.sh rh   # reharness/runs/luna-rh-s0 (embeddings: Fireworks)
 ```
 
 The plan's usage is shared with everything else on the account; `~/albz/officeqa-luna/plan.json` holds its latest

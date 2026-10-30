@@ -12,6 +12,9 @@
 #                            then the evaluation of its final adapter
 #     ch                     the Continual Harness stream (continual_harness/stream_codex.yaml, run luna-ch-s0)
 #     h2                     the Harness² stream (harness2_stream/run_codex.yaml, run luna-h2-s0)
+#     rh                     the ReHarness stream (reharness/stream_codex.yaml through reharness/launch.sh, run
+#                            luna-rh-s0); its embedding model stays Qwen3-Embedding-8B on Fireworks behind a wire meter:
+#                            WM_PORT and the key (FIREWORKS_API_KEY, or the file MW_KEY_FILE names) as that launcher
 #
 # MODEL (gpt-5.6-luna), LUNA (~/albz/officeqa-luna: the pinned Codex, workspaces, the relay's records, plan.json and
 # PAUSE, see ../utils/agent/codex_login.py), CODEX_PIN ($LUNA/codex-pin/0.164.0), RELAY_PORT (3671), RELAY_CONCURRENCY
@@ -52,7 +55,7 @@ relay() {
 }
 
 hermit() { "$PY" -m hermit.cli "$@"; }
-what=${1:?usage: launch.sh relay|none|initial|gepa N|skillopt N|ch|h2 [overrides...]}
+what=${1:?usage: launch.sh relay|none|initial|gepa N|skillopt N|ch|h2|rh [overrides...]}
 shift
 case "$what" in
   relay)
@@ -92,6 +95,10 @@ print(json.dumps([str(Path(d['answers']).parent), d['csv']]))")
       evolver.params.backend=codex "evolver.params.model=codexplan/$MODEL" \
       evolver.params.proposer=codex_proposer.py:CodexProposer "evolver.params.claude_bin=$CODEX_PIN/bin/codex" \
       "evolver.params.probe_absent=$absent" "sandbox.allow=[chatgpt.com]" "$@" ;;
+  rh)
+    relay
+    "$OQA/reharness/launch.sh" stream_codex trainer.run_name=luna-rh-s0 trainer.tree_dir=runs/trees/luna-rh-s0 \
+      "agent.params.codex_dir=$LUNA/cache/luna-rh-s0" "${COMMON[@]}" "${LEARNER[@]}" "$@" ;;
   *)
     echo "unknown: $what"; exit 1 ;;
 esac
