@@ -357,18 +357,21 @@ validation at each epoch's end; `final` is the playbook with the best validation
 | `ace/run_codex_login.yaml` | 2 | `login-codex-ace` | `mean_score` in `ace/runs/login-codex-ace/eval/final/summary.json` |
 
 Both run the acting sessions and the Reflector and Curator on a ChatGPT Codex login, no API key (the example's
-[README](https://github.com/Infini-AI-Lab/hermit/tree/main/examples/officeqa/ace)). The run below is one training,
-every number of one day; it is not on [the Flash row](#the-flash-row) (another model, another Codex, three passes).
+[README](https://github.com/Infini-AI-Lab/hermit/tree/main/examples/officeqa/ace)). The run below is one training
+with its four evaluations; its numbers do not compare with [the Flash row](#the-flash-row) (another model, another
+Codex, three passes).
 
 - Models: `gpt-6-luna` acting and learning, reasoning effort medium, on a ChatGPT login.
 - Harness: Codex 0.165.0 (`officeqa-codex:0.165.0`), a container per session, four side by side.
-- Data: the 50 / 24 / 172 split, `data.shuffle_seed: 42`, the latest dataset revision ([Reproduction
-  limits](#reproduction-limits)).
+- Data: the 50 / 24 / 172 split of SkillOpt `79124b3`, `data.shuffle_seed: 42`; `officeqa_full.csv` with SHA-256
+  `b5eb1ce0cb34…`, eight items drifted from the split ([Reproduction limits](#reproduction-limits)).
 - Run: `run_codex_login.yaml` with `trainer.run_name=login-codex-ace-v2` and
   `trainer.tree_dir=runs/trees/login-codex-ace-v2`, made from `8424dce` with the playbook instructions of
   `adcc7f3` (uncommitted then).
-- Spending: a subscription has no per-token price; 1.70 M tokens of training sessions and 5.69 M of Reflector and
-  Curator sessions. Training 1.4 h; each evaluation 0.5–0.6 h.
+- Spending: a subscription has no per-token price. Training 1.4 h: 1.70 M tokens of training sessions, 3.57 M of
+  Reflector and Curator sessions, 2.12 M of retry and validation sessions. The evaluations, 0.5–0.6 h each, ran
+  within nine hours; the last playbook's was run again after a ChatGPT connection failure had made 47 of its 516
+  sessions errors.
 
 | Adapter | accuracy, three passes | − the initial skill, points |
 |---|---|---|
@@ -384,8 +387,9 @@ Paired per question, 95% bootstrap intervals; bold where the interval lies above
 - The agent names the bullets it used on one line of its final message: 71 of the 100 training samples named at least
   one, 28 wrote `none`, one named an id the playbook did not have. One bullet (a calculation rule) has 29 of the
   80 citations.
-- The initial skill scored 0.231 and no adapter 0.188 a day earlier under the previous wording of the playbook's
-  instructions, so only numbers of one day are compared.
+- A day earlier, under the previous wording of the playbook's instructions, the initial skill scored 0.231 and no
+  adapter 0.188. No adapter reads no instructions, and it moved +3.5 [+0.6, +6.4] points: the service drifts, so
+  only evaluations made together are compared.
 
 ## Outputs and scoring
 

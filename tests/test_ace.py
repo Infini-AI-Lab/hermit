@@ -638,6 +638,7 @@ def test_a_failing_codex_learner_skips_the_call(tmp_path, fake_codex, monkeypatc
     result = E.ACEEvolver().step(context(tmp_path, adapter, scripted(),
                                          {"learner": "codex", "learner_auth": str(fake_codex)}))
     assert result.status == "done" and playbook_of(adapter) == before
+    assert "learner call(s) failed" in result.summary
     errors = sorted((tmp_path / "output" / "calls").glob("*.error.txt"))
     assert errors and "401 Unauthorized" in errors[0].read_text()
 
@@ -705,6 +706,24 @@ def test_a_refreshed_session_login_becomes_the_runs_copy(tmp_path, session_refre
     assert written == expect_written
     if written:
         assert oct(master.stat().st_mode & 0o777) == "0o600"
+
+
+@pytest.mark.parametrize("user_refresh, expect_copied", [("2026-10-29T00:00:00Z", True),
+                                                         ("2026-09-01T00:00:00Z", False)])
+def test_a_newer_user_login_replaces_the_runs_copy(tmp_path, user_refresh, expect_copied):
+    A = officeqa_agent(tmp_path)
+    master = A._login_master({"codex_dir": str(tmp_path / "codex")})
+    master.parent.mkdir(parents=True)
+    master.write_text(json.dumps({"tokens": {"refresh_token": "run"}, "last_refresh": "2026-10-01T00:00:00Z"}))
+    source = tmp_path / "auth.json"
+    source.write_text(json.dumps({"tokens": {"refresh_token": "user"}, "last_refresh": user_refresh}))
+    A._copy_login(source, master)
+    copied = json.loads(master.read_text())["tokens"]["refresh_token"] == "user"
+    assert copied == expect_copied
+    if copied:
+        assert oct(master.stat().st_mode & 0o777) == "0o600"
+    A._copy_login(source, tmp_path / "codex" / "login" / "missing.json")
+    assert (tmp_path / "codex" / "login" / "missing.json").is_file()
 
 
 def test_each_codex_session_home_gets_the_login(tmp_path):

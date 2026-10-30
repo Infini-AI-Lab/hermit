@@ -28,9 +28,9 @@ hermit eval  --config examples/officeqa/ace/run_codex_login.yaml --adapter none
 ```
 
 The image's Codex must know the model (build it with your Codex version if it does not). The login's copy for the
-run is under `codex_dir/login/`, copied again when `~/.codex/auth.json` is newer; a session that refreshes its token
-writes it back there, never to `~/.codex`. A plan's usage limits apply to every session: a session refused for its
-limit is retried, then recorded as an error, so keep `agent.concurrency` modest.
+run is under `codex_dir/login/` and stays there; each run copies `~/.codex/auth.json` in again when it is newer, and
+a session that refreshes its token writes it back there, never to `~/.codex`. A plan's usage limits apply to every
+session: a session refused for its limit is retried, then recorded as an error, so keep `agent.concurrency` modest.
 
 ## What to read after the smoke
 
@@ -42,7 +42,8 @@ The smoke is not a measurement; it shows whether each of ACE's levers works in a
   retry scores), `curator` (`applied` or why it was skipped) and `added`;
 - the steps' `output/calls/`: every Reflector and Curator prompt and reply;
 - `checkout/ADAPTER.md`: the skill unchanged at the top, the bullets under their sections, counters above zero;
-- the training rollouts' Codex traces: that the agent read the skill and wrote a `bullet_ids:` line in its final message (Codex does not record its reasoning).
+- the training rollouts' Codex traces: that the agent read the skill and wrote a `bullet_ids:` line in its final
+  message (Codex does not record its reasoning).
 
 ## The evaluation protocol
 

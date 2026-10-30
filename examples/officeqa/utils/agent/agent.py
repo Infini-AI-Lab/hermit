@@ -167,6 +167,18 @@ def _last_refresh(path: Path) -> str:
         return ""
 
 
+def _copy_login(source: Path, master: Path) -> None:
+    """The user's login becomes the run's copy when the copy is missing or older (a later `codex login`)."""
+    import fcntl
+    with open(master.parent / ".lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if not master.is_file() or _last_refresh(source) > _last_refresh(master):
+            tmp = master.with_suffix(".tmp")
+            shutil.copy2(source, tmp)
+            os.chmod(tmp, 0o600)
+            os.replace(tmp, master)
+
+
 def _keep_refreshed(params: dict | None, home: Path) -> None:
     """A session's login, if Codex refreshed it (a later last_refresh), becomes the run's copy, so the next session
     does not start from a token its refresh has replaced."""
@@ -224,9 +236,7 @@ def _setup_codex(params: dict | None) -> None:
             master = _login_master(params)
             master.parent.mkdir(parents=True, exist_ok=True)
             os.chmod(master.parent, 0o700)
-            if not master.is_file() or _last_refresh(source) > _last_refresh(master):
-                shutil.copy2(source, master)
-                os.chmod(master, 0o600)
+            _copy_login(source, master)
             os.environ["OFFICEQA_CODEX_AUTH"] = str(master)        # codex_sandbox.py puts it in each session's home
         backend_config.set_target_backend("codex_exec")
         os.environ["OFFICEQA_CODEX_CORPUS"] = DATA["docs"]     # the corpus: what codex_sandbox.py mounts read-only
@@ -294,9 +304,11 @@ class OfficeQAAgent(Agent):
             finally:
                 _usage.totals = None
                 if codex:
-                    if _login(self.params):
-                        _keep_refreshed(self.params, out_root / "codex_home")
-                    shutil.rmtree(out_root / "codex_home", ignore_errors=True)    # codex_sandbox.py's per-rollout CODEX_HOME
+                    try:
+                        if _login(self.params):
+                            _keep_refreshed(self.params, out_root / "codex_home")
+                    finally:
+                        shutil.rmtree(out_root / "codex_home", ignore_errors=True)   # codex_sandbox.py's CODEX_HOME
             failure = result["fail_reason"]
             if UNAVAILABLE not in failure and not (codex and failure.startswith("error: codex exec failed")
                                                    and CODEX_UNAVAILABLE.search(failure)):

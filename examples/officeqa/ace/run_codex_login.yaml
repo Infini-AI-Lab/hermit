@@ -1,8 +1,8 @@
 # OfficeQA with ACE, offline, everything on the user's own Codex login (a ChatGPT account,
 # `codex login`; no API key): the acting agent is SkillOpt's Codex harness with the login copied into each session's
 # container (agent.params.login: chatgpt), and ACE's Reflector and Curator are `codex exec` sessions under the same
-# login (evolver.params.learner: codex). The model is the login's default unless agent.params.model and
-# evolver.params.learner_model name one (for example on the command line: agent.params.model=<name>).
+# login (evolver.params.learner: codex). Both use gpt-6-luna (agent.params.model, evolver.params.learner_model);
+# with neither set, the login's default model.
 # The egress proxy must let chatgpt.com:443 and auth.openai.com:443 through (README). A subscription has no
 # per-token price: costs are recorded as unknown, so the hard budget is in hours.
 # Compare against the starting adapter and no adapter evaluated with this same config (same model):

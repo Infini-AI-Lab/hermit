@@ -20,8 +20,9 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 - The ACE method (Zhang et al., ICLR 2026, arXiv:2510.04618): the `ace` Evolver, ACE's per-sample loop of
   Reflector and Curator over a playbook of bullets with helpful and harmful counters, retry rounds on a wrong answer,
-  ADD-only curation and validation-based selection, with ACE's prompts verbatim (the Generator's adapted for an acting agent); the Reflector and Curator run
-  through the run's `llm` tool or, with `learner: codex`, `codex exec` under the user's Codex login; documented in
+  ADD-only curation and validation-based selection, with ACE's prompts verbatim (the Generator's adapted for an
+  acting agent); the Reflector and Curator run through the run's `llm` tool or, with `learner: codex`, `codex exec`
+  under the user's Codex login; documented in
   `docs/methods/ace.md`.
 - The `ace` adapter template: an `ADAPTER.md` whose playbook section holds the bullets, after the skill.
 - ACE on OfficeQA: `examples/officeqa/ace/`, on a ChatGPT Codex login (`run_codex_login.yaml`); the OfficeQA Codex

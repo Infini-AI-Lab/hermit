@@ -5,8 +5,8 @@ ACE, Agentic Context Engineering ([Zhang et al., ICLR 2026](https://arxiv.org/ab
 instead of being rewritten: bullets `[id] helpful=N harmful=N :: content` under sections, tagged by a Reflector and
 extended by a Curator. Choose it when the adapter is a context document, you have the judge's feedback on training
 tasks, and you want the accumulated detail kept rather than compressed (the paper's "brevity bias" and "context
-collapse"). The framework narrows the method: ACE's Generator, an LLM call of its own, is here the task's fixed acting
-agent, which reads the playbook as its context; only the adapter is learned.
+collapse"). As in the paper, only the context is learned; ACE's Generator, an LLM call of its own, is here the task's
+acting agent, which reads the playbook as its context.
 
 ## Setup
 
@@ -35,7 +35,8 @@ playbook, the Evolver's bootstrap appends the empty one. The de-duplication opti
 ## One framework step
 
 The acting agent is ACE's Generator: the Trainer's rollouts are its attempts with the playbook as context, and it is
-asked to name the bullet ids it used on a `bullet_ids:` line of its final message. Then, for each rollout in turn (`ACE._train_single_sample`):
+asked to name the bullet ids it used on a `bullet_ids:` line of its final message. Then, for each rollout in turn
+(`ACE._train_single_sample`):
 
 1. the ids the agent named are collected (the Generator's regular-expression fallback; a copy of a playbook line,
    id followed by its counters, is not a citation);
@@ -79,9 +80,10 @@ the playbook's size per step; `output/calls/` holds every prompt and reply.
 
 The authors' code is not called: it cannot be imported as a library (no build configuration; top-level modules named
 `utils`, `llm` and `logger` that pull in its API clients), so `evolver.py` and `playbook.py` port it function by
-function, each naming the upstream function it follows, with the prompts verbatim.
+function, each naming the upstream function it follows, with the prompts verbatim (the Generator's adapted).
 `prompt-only` was not used: it has no place for the playbook's sections and counters or a check that keeps them
-parseable.
+parseable. Every difference below is acceptable for the offline setting measured here; online ACE, not ported, is
+the one left open.
 
 | Dimension | ace-agent/ace (82709de) | This Evolver | Why |
 |---|---|---|---|
@@ -93,7 +95,7 @@ parseable.
 | The update | ADD only; counters; content written as given | Same; a newline inside content becomes a space so a bullet stays one line | Decision |
 | De-duplication | Off by default; faiss-normalised embeddings, threshold 0.90, LLM merge (temperature 0.3) keeping what the model wrote | Same grouping and prompt; the merged line keeps the first id and the summed counts | Decision: an id can never repeat |
 | Selection | Validation every `eval_steps` samples (default 100, which never fires on 50 training questions); best starts as the initial playbook at 0 | `val_every: epoch` by default (or every N samples); same best rule; `score_initial` optional | Decision |
-| Models and budgets | DeepSeek-V3.1 for all roles, temperature 0, 4,096 tokens | The run's `llm`, or the Codex login's model (OfficeQA: `gpt-6-luna`, medium effort); endpoint temperature, 32,000 tokens | Decision: OfficeQA's evaluation setting |
+| Models and budgets | DeepSeek-V3.1 for all roles, temperature 0, 4,096 tokens | The run's `llm` (endpoint temperature, 32,000 tokens), or the Codex login's model, to which neither applies (OfficeQA: `gpt-6-luna`, medium effort) | Decision: OfficeQA's evaluation setting |
 | The learner's endpoint | An OpenAI-compatible client (SambaNova, Together, OpenAI) | The `llm` tool, or `codex exec` under a Codex login (`learner: codex`) | Decision: a run on a ChatGPT login, no API key |
 | Epochs, rounds | Code 1 epoch, 3 rounds; paper up to 5 and 5 | Config; OfficeQA: 2 epochs, 3 rounds | Decision |
 | Not ported | Post-curation generation (tracking only), online mode's windows, `ACEBatch` (post-paper), JSON mode, the AppWorld prompts | — | Online ACE is a streaming config of this Evolver, not yet provided |
@@ -102,5 +104,4 @@ parseable.
 
 The playbook token budget is shown to the Curator but not enforced, as upstream; the template caps `ADAPTER.md` at
 400,000 bytes, and a step that would pass it is rolled back, so learning stops there while the run goes on. The
-Curator only adds: without de-duplication the
-playbook grows monotonically, as in the authors' code.
+Curator only adds: without de-duplication the playbook grows monotonically, as in the authors' code.

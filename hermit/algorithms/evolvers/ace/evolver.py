@@ -51,6 +51,14 @@ WRONG = "Predicted answer does not match ground truth"
 
 # ---------- reading a rollout ----------
 
+def _last_refresh(path: Path) -> str:
+    """A Codex login's last_refresh, to tell the newer of two copies."""
+    try:
+        return str(json.loads(path.read_text()).get("last_refresh") or "")
+    except (OSError, ValueError):
+        return ""
+
+
 def clip_middle(text: str, limit: int) -> str:
     """Keep the beginning (the approach) and the end (how it finished)."""
     if limit <= 0 or len(text) <= limit:
@@ -168,7 +176,7 @@ class ACEEvolver(Evolver):
         records = self._records(ws.learning_material)
         step_record = {"step": progress.step if progress else 0, "epoch": epoch, "samples": [],
                        "bullets_before": len(pb.bullet_ids_of(playbook)), "chars_before": len(playbook)}
-        calls = {"n": 0}
+        calls = {"n": 0, "failed": 0}
         for record, traj in records:
             if ctx.cancel is not None and ctx.cancel.is_set():
                 return StepResult("failed", "stopped by the Trainer", usage=self._usage)
@@ -198,7 +206,8 @@ class ACEEvolver(Evolver):
         step_record["outcome"] = (f"{len(records)} sample(s), {right} right before reflection; {added} bullet(s) added;"
                                   f" playbook {step_record['bullets_before']} -> {step_record['bullets_after']} bullets"
                                   + (f"; validation {val['score']:.3f}" + (" (new best)" if val["best"] else "")
-                                     if val is not None else ""))
+                                     if val is not None else "")
+                                  + (f"; {calls['failed']} learner call(s) failed" if calls["failed"] else ""))
         self._save(ws, state, step_record)
         return StepResult("done", step_record["outcome"][:300], usage=self._usage,
                           extra={"added": added, "bullets": step_record["bullets_after"], "llm_calls": calls["n"]})
@@ -463,6 +472,7 @@ class ACEEvolver(Evolver):
             raise
         except Exception as exc:                          # noqa: BLE001 — as upstream, the call's step is skipped
             text = ""
+            calls["failed"] = calls.get("failed", 0) + 1
             (out / f"{name}.error.txt").write_text(f"{type(exc).__name__}: {exc}", encoding="utf-8")
         (out / f"{name}.reply.md").write_text(text, encoding="utf-8")
         return text
@@ -471,14 +481,15 @@ class ACEEvolver(Evolver):
         """The prompt as one `codex exec` session under the user's Codex login (a ChatGPT account): read-only, in
         an empty directory, the prompt on stdin (a playbook can pass the length an argument may have), the reply
         Codex's last message. The login is copied once into the run's own Codex home and stays there, so a token
-        Codex refreshes is the one the next call uses; finalize removes it. Temperature and max_tokens do not apply."""
+        Codex refreshes is the one the next call uses, unless the user's own login is newer; finalize removes it. Temperature and max_tokens do not apply."""
         p, ws = ctx.params, ctx.workspace
         home = ws.state.parent / "agent_home"
         home.mkdir(parents=True, exist_ok=True)
         source = Path(os.path.expanduser(str(p.get("learner_auth") or "~/.codex/auth.json")))
-        if not (home / "auth.json").is_file():
-            if not source.is_file():
-                raise FileNotFoundError(f"no Codex login at {source}: run `codex login` (or set learner_auth)")
+        if not source.is_file() and not (home / "auth.json").is_file():
+            raise FileNotFoundError(f"no Codex login at {source}: run `codex login` (or set learner_auth)")
+        if source.is_file() and (not (home / "auth.json").is_file()
+                                 or _last_refresh(source) > _last_refresh(home / "auth.json")):
             shutil.copy2(source, home / "auth.json")
             os.chmod(home / "auth.json", 0o600)
         work = ws.scratch / "codex_learner"
