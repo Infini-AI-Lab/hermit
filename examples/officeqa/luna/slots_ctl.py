@@ -1,11 +1,12 @@
 """Keep the machine's Codex session slots (SLOTS, see codex_login.slot) below the login's rate limit.
 
-Every 2 minutes, over the last 10: the share of finished sessions whose log shows a 429 (the streams' Codex sessions
-and the relays' calls, which keep their whole event stream) and the share of SkillOpt-harness rollouts that timed out
-(an empty codex_raw.txt: SkillOpt keeps no output of a session past its 180 s). The timeouts decide: more than 6%
-of the training rollouts, or 429s in more than half of the logged sessions (the streams', which only slow down):
-two slots fewer (not below MIN, at most once in six minutes). At most 3% timed out and 429s in at most 35% of the
-logged sessions for five minutes since the last change: one slot more (not above MAX). Every change is a line
+Every 2 minutes: the share of the last 10 minutes' finished sessions whose log shows a 429 (the streams' Codex
+sessions and the relays' calls, which keep their whole event stream) and the share of the last 30 minutes'
+SkillOpt-harness rollouts that timed out (an empty codex_raw.txt: SkillOpt keeps no output of a session past its
+180 s). The timeouts decide: at least two and more than 6% of the training rollouts, or 429s in more than half of the
+logged sessions (the streams', which only slow down): two slots fewer (not below MIN, at most once in six minutes).
+At most 3% timed out (or one of fewer than 40) and 429s in at most 35% of the logged sessions, five minutes after
+the last change: one slot more (not above MAX). Every change is a line
 in logs/slots.log and on stdout.
 
     python slots_ctl.py [--min 2] [--max 16]
@@ -18,7 +19,7 @@ from pathlib import Path
 
 LUNA = Path(os.path.expanduser(os.environ.get("LUNA", "~/albz/officeqa-luna")))
 SLOTS = LUNA / "SLOTS"
-WINDOW, EVERY, SETTLE, DOWN_SETTLE = 600, 120, 300, 360
+WINDOW, ROLLOUT_WINDOW, EVERY, SETTLE, DOWN_SETTLE = 600, 1800, 120, 300, 360
 
 
 def recent(pattern: str, since: float) -> list[str]:
@@ -42,7 +43,8 @@ def measure() -> tuple[int, int, int, int]:
             n429 += "Too Many Requests" in open(f, errors="replace").read()
         except OSError:
             pass
-    raws = recent(str(LUNA / "cache/luna-[gs]*/rollouts/*/predictions/*/codex_raw.txt"), since)
+    raws = recent(str(LUNA / "cache/luna-[gs]*/rollouts/*/predictions/*/codex_raw.txt"),
+                  time.time() - ROLLOUT_WINDOW)
     timed_out = sum(1 for f in raws if os.path.getsize(f) == 0)
     return len(logs), n429, len(raws), timed_out
 
@@ -61,15 +63,17 @@ def main() -> None:
         sessions, s429, rollouts, timed_out = measure()
         f429 = s429 / sessions if sessions >= 5 else None
         ftime = timed_out / rollouts if rollouts >= 10 else None
+        many = timed_out >= 2 and ftime is not None and ftime > 0.06       # one timeout in a few rollouts is noise
+        few = ftime is None or ftime <= 0.03 or (timed_out <= 1 and rollouts < 40)
         new = slots
-        if ((ftime is not None and ftime > 0.06) or (f429 is not None and f429 > 0.50)) \
+        if (many or (f429 is not None and f429 > 0.50)) \
                 and time.time() - changed >= DOWN_SETTLE:          # not twice for the same events in the window
             new = max(args.min, slots - 2)
-        elif ((ftime is None or ftime <= 0.03) and (f429 is None or f429 <= 0.35)
+        elif (few and (f429 is None or f429 <= 0.35)
               and time.time() - changed >= SETTLE):
             new = min(args.max, slots + 1)
         line = (f"{time.strftime('%Y-%m-%d %H:%M:%S')} slots {slots} -> {new}  (last 10 min: {s429}/{sessions} "
-                f"sessions with 429, {timed_out}/{rollouts} rollouts timed out)")
+                f"sessions with 429; last 30 min: {timed_out}/{rollouts} rollouts timed out)")
         if new != slots:
             SLOTS.write_text(f"{new}\n")
             changed = time.time()
