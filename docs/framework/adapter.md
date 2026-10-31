@@ -71,12 +71,12 @@ where the rest is described.
 
 The connector reads `exports.yaml` and renders or copies its exports into a **separate host workspace**:
 
-| Adapter source | Deployment operation | Codex output | Claude Code output | Pi output |
-|---|---|---|---|---|
-| `ADAPTER.md` (always exported) | Insert its text into a managed instruction block. | `AGENTS.md` | `CLAUDE.md` | `AGENTS.md` |
-| `skills/verify-output/` | Copy the skill directory. | `.codex/skills/verify-output/` | `.claude/skills/verify-output/` | `.pi/skills/verify-output/` |
-| `agents/reviewer.md`, through `agents` in `exports.yaml` | Convert the subagent into native host files: frontmatter gives name and description, the body becomes its instructions. | `.codex/agents/reviewer.toml`, registered in `.codex/config.toml` | `.claude/agents/reviewer.md` | refused: Pi has no subagents |
-| `tools.py`, through `tools` in `exports.yaml` | Configure a framework MCP server that loads the source adapter. | `.codex/config.toml` | `.mcp.json` | `.pi/mcp.json` |
+| Adapter source | Deployment operation | Codex output | Claude Code output | Pi output | mini-swe-agent output |
+|---|---|---|---|---|---|
+| `ADAPTER.md` (always exported) | Insert its text into a managed instruction block. | `AGENTS.md` | `CLAUDE.md` | `AGENTS.md` | the system template in `mini-swe-agent.yaml` |
+| `skills/verify-output/` | Copy the skill directory. | `.codex/skills/verify-output/` | `.claude/skills/verify-output/` | `.pi/skills/verify-output/` | `.hermit/skills/verify-output/`, listed in the system template |
+| `agents/reviewer.md`, through `agents` in `exports.yaml` | Convert the subagent into native host files: frontmatter gives name and description, the body becomes its instructions. | `.codex/agents/reviewer.toml`, registered in `.codex/config.toml` | `.claude/agents/reviewer.md` | refused: Pi has no subagents | refused: mini-swe-agent has no subagents |
+| `tools.py`, through `tools` in `exports.yaml` | Configure a framework MCP server that loads the source adapter. | `.codex/config.toml` | `.mcp.json` | `.pi/mcp.json` | the `hermit-tool` bash command, through Hermit's environment class in `mini-swe-agent.yaml` (no MCP server) |
 
 This is how the adapter reaches the acting system. The host reads the generated instruction, skill, and role files;
 tool configuration makes the declared tools available through its tool interface. Merely placing the adapter

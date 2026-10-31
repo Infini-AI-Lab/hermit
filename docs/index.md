@@ -55,6 +55,7 @@ guides/troubleshooting
 tutorials/your-own-task
 tutorials/customize-an-adapter
 tutorials/deploy-an-adapter
+tutorials/mini-swe-agent
 ```
 
 ```{toctree}

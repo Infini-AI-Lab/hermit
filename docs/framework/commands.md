@@ -71,11 +71,14 @@ user chooses: `--adapter none` runs the acting agent with no harness adapter at 
 hermit deploy --adapter DIR --workspace WORKSPACE --host codex
 hermit deploy --adapter DIR --workspace WORKSPACE --host claude-code
 hermit deploy --adapter DIR --workspace WORKSPACE --host pi
+hermit deploy --adapter DIR --workspace WORKSPACE --host mini-swe-agent
 ```
 
 This generates host instruction files, role/skill files, and tool configuration. It does not launch the acting
 agent. Pi has no subagents, so `--host pi` refuses an adapter that exports roles; its `.pi/` files (tools, skills)
-load once the user trusts the project in Pi, while `AGENTS.md` needs no trust. It is the per-project way to use an adapter; the per-agent way, `convert`, and how the two compare are in
+load once the user trusts the project in Pi, while `AGENTS.md` needs no trust. `--host mini-swe-agent` writes one
+`mini-swe-agent.yaml` with the context in its system template, the tools as the bash command `hermit-tool` and the
+skills under `.hermit/skills/`, and refuses roles too ([mini-swe-agent](../tutorials/mini-swe-agent.md)). It is the per-project way to use an adapter; the per-agent way, `convert`, and how the two compare are in
 [What is a harness adapter?](what-is-a-harness-adapter.md#two-ways-to-use-an-adapter). The workspace must be an empty directory or one previously generated for the same host, separate from
 the adapter directory. See the [file mapping](adapter.md#acting-interface) for exact paths and update behavior.
 
@@ -160,7 +163,7 @@ It is not an HTTP preview server or the proposed standalone-service launcher. `-
 
 - `check` also verifies that every `sandbox.read` path exists. It does not check the pipeline's host: adapters are meant to
   be usable by any acting agent, and each pipeline deploys the exports (context, tools, roles, skills) in its own way.
-- `hermit deploy --adapter DIR --workspace WORKSPACE --host codex|claude-code|pi` deploys an adapter's exports into
+- `hermit deploy --adapter DIR --workspace WORKSPACE --host codex|claude-code|pi|mini-swe-agent` deploys an adapter's exports into
   a host workspace (context block, MCP tools, native roles, skills).
 - `hermit convert --adapter DIR --output OUT --target ...` emits a plugin in the host's native format instead,
   and exits 2 naming every part the target's plugin cannot carry.

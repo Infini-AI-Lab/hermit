@@ -1,0 +1,36 @@
+# mini-swe-agent as the acting agent: nine questions about a CSV file, answered with bash commands. See
+# docs/tutorials/mini-swe-agent.md. One model, a `<backend>/<model id>` reference (hermit backends), acts and learns.
+model: deepseek/deepseek-flash
+data:
+  tasks: tasks.jsonl
+  train: train.txt
+  val: val.txt
+  test: test.txt
+  step_size: 3
+  shuffle: false
+task_info: task-info
+judge:
+  path: judge.py
+template: prompt-only@1.0
+evolver:
+  name: gepa
+  params:
+    max_tokens: 4096
+sandbox:
+  enabled: false
+  network: none
+  env: []
+trainer:
+  run_name: mini-swe-agent
+  output_dir: runs
+  epochs: 1
+  budget:
+    tokens: 600000
+    hours: 0.5
+  call_timeout_min: 10
+agent:
+  name: mini-swe-agent
+  concurrency: 3
+  params:
+    files: [environment/inventory.csv]
+    timeout_s: 300

@@ -87,6 +87,7 @@ agent:
 |---|---|---|
 | `react` | a chat-completions tool-calling loop over the task's tools and the adapter's tools | `model`, `prompt`, `tools`, `user`, `max_turns`, `max_output_tokens`, `max_tokens`, `temperature`, `answer_tag`, `tool_result_chars`, `logs` |
 | `codex`, `claude-code` | Codex or Claude Code run in a fresh workspace the adapter is deployed into, as `deploy` does | `model`, `prompt`, `files`, `args`, `price`, `timeout_s`, `workspaces` |
+| `mini-swe-agent` | [mini-swe-agent](../tutorials/mini-swe-agent.md) in a fresh workspace, with the messages `deploy --host mini-swe-agent` writes; the adapter's tools are the bash command `hermit-tool` | `model`, `model_class`, `config`, `user`, `files`, `env`, `timeout_s`, `workspaces` |
 
 Every agent has the same interface, the task's own included:
 

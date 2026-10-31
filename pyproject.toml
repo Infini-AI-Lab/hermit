@@ -20,7 +20,7 @@ dependencies = [
 [project.optional-dependencies]
 test = ["pytest"]
 
-# Source-only method dependencies: groups are not included in PyPI package metadata.
+# Source-only method and agent dependencies: groups are not included in PyPI package metadata.
 # From the checkout root, use pip >=25.1: python -m pip install -e . --group <method>.
 [dependency-groups]
 gepa = [
@@ -33,10 +33,14 @@ skillopt = [
 harness2 = [
     "harness2 @ git+https://github.com/google-research/harness2@1cfe254e8d25b15f37048c3730134686abe60335",
 ]
+mini-swe-agent = [
+    "mini-swe-agent==2.4.6",
+]
 all = [
     { include-group = "gepa" },
     { include-group = "skillopt" },
     { include-group = "harness2" },
+    { include-group = "mini-swe-agent" },
 ]
 
 [project.scripts]
@@ -53,8 +57,8 @@ Changelog = "https://github.com/Infini-AI-Lab/hermit/blob/main/CHANGELOG.md"
 include = ["hermit*"]
 
 [tool.setuptools.package-data]
-hermit = ["defaults.yaml", "backends.yaml", "algorithms/evolvers/**/*", "algorithms/templates/**/*",
-          "algorithms/templates/**/.agents/**/*", "algorithms/templates/**/.codex/**/*",
+hermit = ["defaults.yaml", "backends.yaml", "hosts/mini_swe_agent.yaml", "algorithms/evolvers/**/*",
+          "algorithms/templates/**/*", "algorithms/templates/**/.agents/**/*", "algorithms/templates/**/.codex/**/*",
           "algorithms/templates/**/.hermit/**/*"]   # globs skip dot-directories
 
 [tool.setuptools.exclude-package-data]

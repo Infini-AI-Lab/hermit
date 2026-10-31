@@ -114,13 +114,13 @@ def test_the_cli_agents_refuse_an_adapter_with_a_context_tool(adapter, tmp_path)
 # ---------- plugin-portable: whether a template's adapters can be deployed or converted ----------
 
 def test_a_template_that_is_not_plugin_portable_is_refused_by_deploy_and_convert(adapter, tmp_path):
-    from hermit.hosts import claude_code, codex, pi
+    from hermit.hosts import claude_code, codex, mini_swe_agent, pi
     from hermit.plugins import TARGETS, Unsupported, build
     for target in TARGETS:
         with pytest.raises(Unsupported, match="plugin-portable: false"):
             build(target, adapter, tmp_path / f"plugin-{target}", sys.executable)
         assert not (tmp_path / f"plugin-{target}").exists()
-    for host in (codex, claude_code, pi):
+    for host in (codex, claude_code, pi, mini_swe_agent):
         workspace = tmp_path / f"ws-{host.__name__.rsplit('.', 1)[-1]}"
         with pytest.raises(ValueError, match="plugin-portable: false"):
             host.prepare(adapter, workspace, sys.executable)

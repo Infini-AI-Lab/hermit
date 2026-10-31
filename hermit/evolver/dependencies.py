@@ -1,4 +1,4 @@
-"""The pinned upstream packages of the optional Evolvers, and the error an Evolver raises when they are missing.
+"""The pinned upstream packages of the optional Evolvers and agents, and the error one raises when they are missing.
 
 `pyproject.toml` declares the same requirements as dependency groups, which pip installs only from a checkout
 (`python -m pip install -e . --group <name>`, pip 25.1+). The groups are not in the published wheel's metadata, so
@@ -14,12 +14,15 @@ METHOD_REQUIREMENTS = {
         "json_repair>=0.61.0",
     ),
     "harness2": ("harness2 @ git+https://github.com/google-research/harness2@1cfe254e8d25b15f37048c3730134686abe60335",),
+    # The mini-swe-agent acting agent and deploy host.
+    "mini-swe-agent": ("mini-swe-agent==2.4.6",),
 }
 
 
-def missing_dependency(evolver: str, needs: str, group: str) -> RuntimeError:
-    """The error for an Evolver whose dependency group `group` is not installed; `needs` names what is missing."""
+def missing_dependency(evolver: str, needs: str, group: str, *, kind: str = "Evolver") -> RuntimeError:
+    """The error for an Evolver (or an agent: `kind`) whose dependency group `group` is not installed; `needs` names
+    what is missing."""
     requirements = " ".join(f"'{r}'" for r in METHOD_REQUIREMENTS[group])
     return RuntimeError(
-        f"the {evolver} Evolver needs {needs}. From a Hermit checkout (pip 25.1+): "
+        f"the {evolver} {kind} needs {needs}. From a Hermit checkout (pip 25.1+): "
         f"python -m pip install -e . --group {group}. Without a checkout: python -m pip install {requirements}")

@@ -52,6 +52,13 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 - `docs/framework/adapter.md` states what every adapter can rely on: `.hermit/` is fixed and `ADAPTER.md` reaches
   the acting agent.
 - `docker/offline.sh`: the examples in a container whose only route out is an egress proxy to the model provider.
+- mini-swe-agent (https://mini-swe-agent.com) as an acting agent and a deployment host. `agent.name: mini-swe-agent`
+  runs mini-swe-agent's own loop in a fresh workspace per task, through litellm at the run's backend; the adapter's
+  context goes into the system message (with its `context_tool`'s per-task context), its tools are the bash command
+  `hermit-tool <name> '<JSON>'`, answered through a Session, and its skills are copied to `.hermit/skills/`.
+  `hermit deploy --host mini-swe-agent` writes the same messages into `mini-swe-agent.yaml` and refuses roles. The
+  `mini-swe-agent` dependency group pins mini-swe-agent 2.4.6; documented in `docs/tutorials/mini-swe-agent.md`, with
+  the `docs/_examples/mini_swe_agent/` example.
 
 ### Changed
 
