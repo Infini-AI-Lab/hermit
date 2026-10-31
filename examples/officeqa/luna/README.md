@@ -1,27 +1,17 @@
-# The Flash row with Codex + GPT-5.6-Luna
+# The Flash row with GPT-5.6-Luna: the runs
 
-The seven methods of the [Flash row](../README.md#results) (no skill, SkillOpt's initial skill, GEPA, SkillOpt,
-Continual Harness, ReHarness, Harness²) with Codex and GPT-5.6-Luna (reasoning effort medium) both acting and
-learning, on a machine's own Codex and its ChatGPT login (a Codex plan) instead of GLM 5.3 Flash on Fireworks. The
-data, split, seed skill, judge, evolvers' parameters, reasoning effort, session limits (SkillOpt's 180 s × 24
-sessions; 3,600 s for the streams), configured concurrency, ReHarness's embedding model (Qwen3-Embedding-8B on
-Fireworks behind its launcher's wire meter: the plan serves no embeddings) and one test pass are the Flash row's. The
-first six ran from `worktree-officeqa-luna` (base 2056e43), ReHarness from this branch, which merges main (0d3df08).
-What differs:
-
-| Setting | Flash row | Here |
-|---|---|---|
-| acting model | `fireworks/accounts/fireworks/models/glm-5p3-flash` through a Codex custom provider | `codexplan/gpt-5.6-luna`: Codex's built-in provider on a per-session copy of the ChatGPT login |
-| Codex's tools and prompt for the model | GLM is not in Codex's model catalog: default function tools (`exec_command`), the 20,751-character fallback prompt | Codex fetches gpt-5.6-luna's catalog entry from chatgpt.com at each session start: code mode only (a JavaScript `exec` tool that calls `exec_command`), a 17,730-character base prompt, verbosity low, tool output cut at 10,000 tokens; it stayed the same throughout the runs |
-| learner (`llm`: GEPA, SkillOpt, Continual Harness, ReHarness's reflection and revision agents) | a chat completion to the same GLM (system prompt as such, `max_tokens` applied, 600 s timeout) | `codexrelay/gpt-5.6-luna`: each call is one `codex exec` in a container (`../utils/agent/codex_chat.py`), with Codex's base prompt and the call's system text as developer instructions; `max_tokens` is recorded, not applied (no reply came near one); `llm.timeout` 3,600 s |
-| Harness² editors | Claude Code (`claude -p`) on GLM through a wire meter | Codex sessions (`../harness2_stream/codex_proposer.py`) in hermit's sandbox, `sandbox.allow: [chatgpt.com]`, `evolver.params.backend: codex`, a tree of its own |
-| Codex | 0.162.0 (npm package), image `officeqa-codex:0.162.0` | the machine's standalone 0.164.0, pinned, image `officeqa-codex:0.164.0` (`../utils/agent/docker/Dockerfile.standalone`) |
-| egress | `oq-egress`: api.fireworks.ai:443 only | `oq-egress-chatgpt`: chatgpt.com:443 only |
-| concurrency on the machine | each run's own | each SkillOpt-harness rollout and each training learner call also holds one of the machine's session slots (below) |
-| run names, workspaces | `flash-codex-gepa`/`-skillopt{,-r2,-r3,-r4}`, `ch-stream-s0`, `rh-stream-s0`, `h2-codex-s0`; `~/.cache/hermit/...` | `luna-gepa`/`-skillopt{,-r2,-r3,-r4}`, `luna-ch-s0`, `luna-rh-s0`, `luna-h2-s0`, `luna-reference`; `~/albz/officeqa-luna/cache/...` |
-
-The model change cannot be separated from the second, third and fourth rows: they come with running GPT-5.6-Luna in
-Codex on the plan.
+The launcher and the record of the second row of the example's [Results](../README.md#results): the seven methods
+of the Flash row (no skill, SkillOpt's initial skill, GEPA, SkillOpt, Continual Harness, ReHarness, Harness²) with
+Codex 0.164.0 and GPT-5.6-Luna (reasoning effort medium) acting and learning on the machine's own Codex and its
+ChatGPT login (a Codex plan) instead of GLM 5.3 Flash on Fireworks. `launch.sh` runs each method's Flash-row config
+with the models changed (the acting model `codexplan/gpt-5.6-luna`; each learner call answered by one Codex session
+through `../utils/agent/codex_chat.py`, with `llm.timeout` 3,600 s; Harness²'s editors as Codex sessions,
+`../harness2_stream/codex_proposer.py`), the Codex image and egress proxy, the run names and where the sessions'
+workspaces go. What differs from
+the GLM row, the numbers with their intervals, the paired differences, the check of the answers and the trainings'
+selections are in the [recipe](../../../docs/recipes/officeqa.md#the-flash-row-with-gpt-56-luna); this page is how
+the runs were made. The first six methods ran from `worktree-officeqa-luna` (base 2056e43), ReHarness from this
+branch, which merges main (0d3df08).
 
 ## Setup (once)
 
@@ -75,10 +65,10 @@ refused and the credits balance did not change.
 The login is rate-limited, and its slow state outlasted the load that tripped it. From the first evaluations
 (01:18) until about 13:40 the first model reply of a session took a median 33-54 s; afterwards 1.4-2.1 s. The two
 reference evaluations ran in the slow state: 4 and 3 of their sessions hit the 180 s cap and score 0 (at most -2.3
-and -1.7 points, most likely about -0.6 each). With the eight trainings side by side and no limit (about sixty
-sessions at once) the backend answered 429 Too Many Requests, first replies took a median 100-400 s, and 32-45% of
-the training rollouts of three successive batches timed out (25-67% per run in the first); those batches were
-discarded (`~/albz/officeqa-luna/aborted-429*`).
+and -1.7 points; by the cells' own rates about -0.7 and -0.6). With the eight trainings side by side and no limit
+(about sixty sessions at once) the backend answered 429 Too Many Requests, first replies took a median 100-400 s, and
+32-45% of the training rollouts of three successive batches timed out (25-67% per run in the first); those batches
+were discarded (`~/albz/officeqa-luna/aborted-429*`).
 
 The trainings behind the results: from 03:17 every SkillOpt-harness rollout and every training learner call (relay
 3672) held one of the machine's session slots (`~/albz/officeqa-luna/SLOTS`, read at every try; codex_login.slot); a

@@ -63,6 +63,15 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 - Meta-Harness Adapter on OfficeQA: `examples/officeqa/meta_harness_adapter/` (the Flash row, six rounds of two
   candidates); the OfficeQA Codex agent takes `deploy: adapter`, which deploys `ADAPTER.md` as the session's
   `AGENTS.md` and every other adapter file at the same path in the workspace.
+- The OfficeQA Flash row with GPT-5.6-Luna: the seven methods run again with Codex 0.164.0 and GPT-5.6-Luna acting
+  and learning on a ChatGPT login (a Codex plan), a second table under the Flash row's in `examples/officeqa/README.md`
+  and the recipe. `examples/officeqa/luna/` (the launcher, the session-slot controller, the record of the runs);
+  `utils/agent/codex_login.py` (a model on the login: per-session copies of `auth.json`, the plan's usage, a pause
+  file, a session refused for the plan's limit run again, machine-wide session slots); `codex_chat.py` (a
+  chat-completions relay whose every reply is one Codex session, for the learners); `harness2_stream/codex_proposer.py`
+  (Harness²'s editors as Codex sessions); `utils/agent/docker/Dockerfile.standalone` (the image with a machine's
+  standalone Codex);
+  the OfficeQA Codex agents run a session again when the model was at capacity.
 - `docs/framework/adapter.md` states what every adapter can rely on: `.hermit/` is fixed and `ADAPTER.md` reaches
   the acting agent.
 - `docker/offline.sh`: the examples in a container whose only route out is an egress proxy to the model provider.
