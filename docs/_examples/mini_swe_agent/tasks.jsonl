@@ -1,0 +1,9 @@
+{"id":"train-001","prompt":"How many units of bolt are there across all warehouses in inventory.csv?"}
+{"id":"train-002","prompt":"How many units are stored in the east warehouse in inventory.csv?"}
+{"id":"train-003","prompt":"How many rows of inventory.csv have fewer than 25 units?"}
+{"id":"val-001","prompt":"How many units of nut are there across all warehouses in inventory.csv?"}
+{"id":"val-002","prompt":"How many units are stored in the south warehouse in inventory.csv?"}
+{"id":"val-003","prompt":"How many distinct items does inventory.csv list?"}
+{"id":"test-001","prompt":"How many units of hinge are there across all warehouses in inventory.csv?"}
+{"id":"test-002","prompt":"How many units are stored in the north warehouse in inventory.csv?"}
+{"id":"test-003","prompt":"How many rows of inventory.csv have more than 60 units?"}

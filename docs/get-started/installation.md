@@ -53,14 +53,16 @@ python -m pip install -e . --group gepa
 # Other methods:
 python -m pip install -e . --group skillopt
 python -m pip install -e . --group harness2
-# Or all method dependencies:
+# The mini-swe-agent acting agent and deploy host:
+python -m pip install -e . --group mini-swe-agent
+# Or all of them:
 python -m pip install -e . --group all
 ```
 
 To combine methods, repeat the option, for example `--group skillopt --group gepa` for OfficeQA.
 uv reads the same groups: `uv pip install -e . --group gepa`.
-Each group retains its tested upstream Git commit. `all` includes the three method groups; it does not
-install host CLIs, datasets, or system tools. Groups are not published as package extras, so
+Each method group retains its tested upstream Git commit, and `mini-swe-agent` its tested release. `all` includes
+every group; it does not install host CLIs, datasets, or system tools. Groups are not published as package extras, so
 `pip install hermit-harness` still installs only the core; `hermit-harness[gepa]` is not supported.
 Without a checkout, install a method's pinned requirements from its group in `pyproject.toml` directly; the
 Evolver's missing-dependency error prints them. Documentation build dependencies are in `docs/requirements.txt`.
@@ -76,6 +78,7 @@ Python 3.14; install `gepa` and `skillopt` separately there.
 | [First real-model training](first-model.md) | `python -m pip install -e . --group gepa`, a compatible chat-completions endpoint, model id, and credential; data is included |
 | Generate a Codex / Claude Code / Pi workspace | No host CLI is needed until you start the host |
 | Run an acting host | Installed and authenticated host, plus adapter tool dependencies |
+| [mini-swe-agent](../tutorials/mini-swe-agent.md) as the acting agent or deploy host | `python -m pip install -e . --group mini-swe-agent` and a chat-completions endpoint litellm can call |
 | Prompt-only learner | The Codex CLI, Linux with bubblewrap, and a learner backend that serves the Responses API |
 | GEPA | `python -m pip install -e . --group gepa`, learner endpoint, validation split |
 | SkillOpt | `python -m pip install -e . --group skillopt`, learner endpoint, validation split |
