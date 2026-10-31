@@ -15,6 +15,7 @@
 #     rh                     the ReHarness stream (reharness/stream_codex.yaml through reharness/launch.sh, run
 #                            luna-rh-s0); its embedding model stays Qwen3-Embedding-8B on Fireworks behind a wire meter:
 #                            WM_PORT and the key (FIREWORKS_API_KEY, or the file MW_KEY_FILE names) as that launcher
+#     sweep                  after the runs: delete the copies of the login that sessions killed mid-run left in $LUNA
 #
 # MODEL (gpt-5.6-luna), LUNA (~/albz/officeqa-luna: the pinned Codex, workspaces, the relay's records, plan.json and
 # PAUSE, see ../utils/agent/codex_login.py), CODEX_PIN ($LUNA/codex-pin/0.164.0), RELAY_PORT (3671), RELAY_CONCURRENCY
@@ -55,11 +56,16 @@ relay() {
 }
 
 hermit() { "$PY" -m hermit.cli "$@"; }
-what=${1:?usage: launch.sh relay|none|initial|gepa N|skillopt N|ch|h2|rh [overrides...]}
+what=${1:?usage: launch.sh relay|none|initial|gepa N|skillopt N|ch|h2|rh|sweep [overrides...]}
 shift
 case "$what" in
   relay)
     relay ;;
+  sweep)
+    if [ -n "$(docker ps -q --filter label=officeqa-codex=1)" ] || pgrep -f "codex_chat.py --port" > /dev/null; then
+      echo "REFUSING: Codex sessions or relays are still running"; exit 1
+    fi
+    echo "removed $(find "$LUNA" -name auth.json -type f -print -delete | wc -l) copies of the login from $LUNA" ;;
   none|initial)
     adapter=$([ "$what" = none ] && echo none || echo ../utils/seed_adapter)
     hermit eval --config "$OQA/skillopt/run_codex_flash.yaml" --adapter "$adapter" trainer.run_name=luna-reference \

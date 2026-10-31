@@ -171,6 +171,14 @@ def _setup_codex(params: dict | None) -> None:
         _codex_home = home
 
 
+def _codex_errors(pred_dir: Path) -> str:
+    """Codex's own ERROR lines in a rollout's raw output (its refusals: the plan's limit, a model at capacity, a
+    provider it could not reach), not the session's text."""
+    raw = pred_dir / "codex_raw.txt"
+    text = raw.read_text(errors="replace") if raw.is_file() else ""
+    return "\n".join(line for line in text.splitlines() if line.startswith("ERROR:"))
+
+
 def _codex_tokens(pred_dir: Path) -> int:
     """The tokens Codex reports for the run's sessions."""
     raw = pred_dir / "codex_raw.txt"
@@ -235,14 +243,17 @@ class OfficeQAAgent(Agent):
             finally:
                 _usage.totals = None
             failure = result["fail_reason"]
+            failed = codex and failure.startswith("error: codex exec failed")
+            # SkillOpt keeps the first 4,000 characters of a failed session's output in fail_reason; Codex prints why
+            # it stopped at the end, so its own ERROR lines are read from the rollout's raw output too
+            said = failure + "\n" + _codex_errors(out_root / "predictions" / task["id"]) if failed else failure
             if login:
                 codex_login.note_usage(out_root / "codex_home")
-                if failure.startswith("error: codex exec failed") and codex_login.limit_hit(failure):
+                if failed and codex_login.limit_hit(said):
                     codex_login.hold_for_limit()      # refused for the plan's limit: not an answer, run it again
                     shutil.rmtree(out_root, ignore_errors=True)
                     continue
-            if UNAVAILABLE not in failure and not (codex and failure.startswith("error: codex exec failed")
-                                                   and CODEX_UNAVAILABLE.search(failure)):
+            if UNAVAILABLE not in failure and not (failed and CODEX_UNAVAILABLE.search(said)):
                 break
             attempt += 1
             if attempt == 3:
