@@ -76,7 +76,7 @@ def test_agent_evolver_with_a_fake_codex(tmp_path, monkeypatch):
     (evolver / "START.md").write_text("start {message}")
     (evolver / "RESUME.md").write_text("resume {message}")
     (evolver / "evolver.yaml").write_text("class: hermit.agent.evolver.agent:AgentEvolver\n"
-                                          "params: {backend: codex, prompt: START.md, resume_prompt: RESUME.md, home: [],\n"
+                                          "params: {backend: codex, web_search: false, prompt: START.md, resume_prompt: RESUME.md, home: [],\n"
                                           "         price: {input: 1.0, cached_input: 0.5, output: 10.0}}\n")
     monkeypatch.setenv("PATH", f"{evolver}{os.pathsep}{os.environ['PATH']}")
     assert shutil.which("codex") == str(evolver / "codex")

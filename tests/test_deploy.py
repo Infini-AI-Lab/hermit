@@ -272,5 +272,5 @@ def test_the_codex_cli_agent_trusts_the_deployed_hooks(tmp_path, monkeypatch, ho
         return 0, False, False
     monkeypatch.setattr(base_cli, "run_process", fake_run)
     a = tree_adapter(tmp_path, hooks=hooks)
-    cli._run({"id": "t1", "prompt": "hi"}, a, {"backend": "codex", "prompt": "{prompt}"}, tmp_path)
+    cli._run({"id": "t1", "prompt": "hi"}, a, {"backend": "codex", "web_search": False, "prompt": "{prompt}"}, tmp_path)
     assert ("--dangerously-bypass-hook-trust" in seen["argv"]) is hooks

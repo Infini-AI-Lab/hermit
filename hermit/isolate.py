@@ -38,6 +38,7 @@ import threading
 from urllib.parse import urlparse
 import uuid
 
+from hermit.agent.base import login as codex_login
 from hermit.sandbox import FRAMEWORK, PACKAGE, AllowlistProxy, Sandbox, framework_env, network_mode
 from hermit.task import RunOutput
 
@@ -358,12 +359,17 @@ class SandboxedAgent:
         from hermit.adapter.session import ENV_ENFORCE
         env = framework_env({ENV_ENFORCE: self.enforce})
         keep = [*self.keys, ENV_ENFORCE]
+        chatgpt = self.cli == "codex" and self.params.get("login") == "chatgpt"
+        if chatgpt:          # inside, the agent keeps this call's copy in its workspaces; the shared one is out here
+            params["login_root"] = str(work / "workspaces")
         if self.cli:                                     # a CLI agent signs in with a copy of the user's login only
             folder, var, login = CLI_HOMES[self.cli]
             agent_home = home / folder
             agent_home.mkdir()
             source = Path.home() / folder / login
-            if source.is_file():
+            if chatgpt:
+                codex_login.prepare(codex_login.ROOT, agent_home)      # the shared copy, refreshed by earlier calls
+            elif source.is_file():
                 shutil.copy2(source, agent_home / login)
                 os.chmod(agent_home / login, 0o600)
             env[var] = str(agent_home)
@@ -382,7 +388,8 @@ class SandboxedAgent:
         finally:
             if self.cli:                                 # the login copy does not outlive the call
                 (home / CLI_HOMES[self.cli][0] / CLI_HOMES[self.cli][2]).unlink(missing_ok=True)
-                # nor the agent's run copy of a ChatGPT login (hermit.agent.base.login), kept under its workspaces
+                if chatgpt:      # a token the call refreshed goes back to the shared copy, then its own copy goes
+                    codex_login.keep_refreshed(codex_login.ROOT, work / "workspaces" / "login")
                 shutil.rmtree(work / "workspaces" / "login", ignore_errors=True)
         rec = payload["output"]
         # The log is copied into the learner's material outside any sandbox: it must lie where this call could

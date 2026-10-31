@@ -127,10 +127,13 @@ What the agent does for every task:
   `container` (or `HERMIT_CODEX_IMAGE`, `HERMIT_CODEX_NETWORK`, `HERMIT_CODEX_PROXY`) names them. The agent checks the
   image and the network before its first session. Without a container a mount is a link.
 - **Sign in.** A `<backend>/<model>` reference binds Codex to that backend's key; `login: chatgpt` uses the user's
-  own ChatGPT login (`codex login`; `model` is then a Codex model name, the cost unknown, the hosted web search off),
-  copied into each session's home, with a refreshed token written back for the next session; a model that is no
-  reference uses the user's own Codex sign-in as it is. Each session has a home of its own: none of the user's
-  Codex settings apply, and the session's commands see only Codex's core variables.
+  own ChatGPT login (`codex login`; `model` is then a Codex model name, the cost unknown), from one shared copy
+  (`~/.cache/hermit/codex-login/`, outside every run's directory) that each session's refreshed token is written back
+  to, the rollout sandbox's sessions included; a model that is no reference uses the user's own Codex sign-in as it
+  is. Each session has a home of its own: none of the user's Codex or Claude Code settings apply, and the session's
+  commands see only Codex's core variables (`shell_env: all` passes every variable).
+- **Web search.** `web_search` must be set, `true` or `false`: Codex's hosted search runs at the provider, past any
+  sandbox or proxy, so it is never left to a default. Claude Code's `WebSearch` and `WebFetch` follow it too.
 - **Stop and retry.** One session per run, stopped at `timeout_s`. A session the provider could not serve (429, 5xx,
   a container that did not start) runs again after `retry_wait_s`, up to `retries`; then the run is an error, not a
   wrong answer.

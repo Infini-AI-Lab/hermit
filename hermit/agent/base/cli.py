@@ -7,8 +7,8 @@ The CLI's event stream is kept unchanged (`Result.log`) and read into the trajec
 Settings (given once; `configured(...)` for a call's own):
   model             the CLI's model (absent: its default); with `binding`, the provider settings are in `args`/`env`
   binding           the resolved `<backend>/<model>` reference (hermit.agent.model.backends), for the key and price
-  login             chatgpt: Codex with the user's ChatGPT sign-in (hermit.agent.base.login), the run's copy kept
-                    under `login_root`
+  login             chatgpt: Codex with the user's ChatGPT sign-in (hermit.agent.base.login), from the copy kept
+                    under `login_root` (default: the shared one)
   effort            Codex's model_reasoning_effort
   web_search        the CLI's web search, on or off (required: set either way)
   isolation         none: the CLI on this machine; sandbox: inside `sandbox` (the run's hermit.sandbox.Sandbox);
@@ -236,7 +236,7 @@ class CliAgent(BaseAgent):
         """The session's sign-in in its home; the files to remove after the call."""
         s = self.settings
         if s.get("login") == "chatgpt":
-            codex_login.prepare(Path(s.get("login_root") or home.parent), home)
+            codex_login.prepare(Path(s.get("login_root") or codex_login.ROOT), home)
             return [home / codex_login.FILE]
         if s.get("binding"):
             return []
@@ -262,7 +262,7 @@ class CliAgent(BaseAgent):
             raise Unsupported(f"{self.name} works in a workspace")
         if not isinstance(prompt, str):
             raise Unsupported(f"{self.name} takes a prompt, not chat messages")
-        if "web_search" not in self.settings:
+        if not isinstance(self.settings.get("web_search"), bool):
             raise ValueError(f"{self.name}: set web_search, true or false")
         s, limits = self.settings, limits or Limits()
         workspace = Path(workspace).resolve()
@@ -327,7 +327,7 @@ class CliAgent(BaseAgent):
             if server is not None:
                 server.close()
             if s.get("login") == "chatgpt":
-                codex_login.keep_refreshed(Path(s.get("login_root") or home.parent), home)
+                codex_login.keep_refreshed(Path(s.get("login_root") or codex_login.ROOT), home)
             for path in copied:
                 path.unlink(missing_ok=True)                              # the sign-in does not outlive the call
             if failed and fresh:

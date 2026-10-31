@@ -72,9 +72,11 @@ def _base_agent():
             from hermit.agent.base.interface import make
             from hermit.agent.model.llm import ChatClient
             # One request as SkillOpt's own client sent it: its tools as they are, a tool_choice only when it gives
-            # one, its retries (attempts) on a request the endpoint did not serve.
+            # one, and its retries of a request the endpoint did not serve: 5 attempts, waiting 4 s, 8 s, 16 s, 32 s
+            # (doubling, at most 60 s).
             spec = {**_binding.spec(), "extra_body": {"reasoning_effort": EFFORT}}
-            _agent = make("direct", {"tool_choice": None}, ChatClient.from_spec(spec, max_retries=4))
+            _agent = make("direct", {"tool_choice": None},
+                          ChatClient.from_spec(spec, max_retries=4, retry_wait=4.0, retry_wait_max=60.0))
         return _agent
 
 

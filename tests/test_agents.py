@@ -121,7 +121,7 @@ def test_cli_agent_with_fake_cli(tmp_path, monkeypatch, backend, script, answer)
     exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
     (tmp_path / "prompt.md").write_text("Solve {question} in this workspace.")
-    params = {"backend": backend, "prompt": "prompt.md", "price": {"input": 1, "cached_input": 0.5, "output": 2},
+    params = {"backend": backend, "web_search": False, "prompt": "prompt.md", "price": {"input": 1, "cached_input": 0.5, "output": 2},
               "workspaces": "ws", "model": "m1"}
     run = load_pipeline("hermit.agent.acting.workspace:run", tmp_path, params)
     out = run({"id": "q7", "question": "6*7"}, EXAMPLE)

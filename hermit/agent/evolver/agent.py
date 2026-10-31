@@ -3,8 +3,8 @@
 AgentEvolver params:
   backend: codex | claude
   model: the model passed to the agent (optional: the agent's default); with `login: chatgpt`, Codex's model name
-         under the user's ChatGPT sign-in (a refreshed copy of it is kept in ~/.cache/hermit/evolver-login, outside
-         the run's directory). A `<backend>/<model>` reference (see
+         under the user's ChatGPT sign-in (the shared copy of it, hermit.agent.base.login, outside the run's
+         directory). A `<backend>/<model>` reference (see
          hermit.agent.model.backends) binds it to that backend: the provider settings go into `args` (Codex) or `env`
          (Claude Code) and `price` is taken from the backend
   env: environment variables set for the agent; a `$NAME` value is expanded from the environment at launch (Claude
@@ -80,6 +80,8 @@ class AgentEvolver(Evolver):
         backend = params.get("backend", "codex")
         if backend not in ("codex", "claude"):
             return StepResult("failed", f"unknown backend {backend!r}")
+        if not isinstance(params.get("web_search"), bool):
+            return StepResult("failed", "evolver.params.web_search must be set, true or false")
         directory = Path(getattr(self, "directory", "."))
         allowed = params.get("tools")
         tools = [t for name, t in ctx.tools.items() if allowed is None or name in allowed]
@@ -120,12 +122,10 @@ class AgentEvolver(Evolver):
                "PYTHONPATH": str(Path(__file__).resolve().parents[3]) + os.pathsep + os.environ.get("PYTHONPATH", "")}
         return {**{k: params[k] for k in ("model", "binding", "login", "args", "price", "effort")
                    if params.get(k) is not None},
-                "web_search": bool(params.get("web_search")), "env": env,
+                "web_search": params["web_search"], "env": env,
                 "isolation": "sandbox" if ctx.sandbox is not None else "none", "sandbox": ctx.sandbox,
                 "codex_sandbox": "danger-full-access", "shell_env": "all",
                 "home": ctx.workspace.state.parent / "agent_home", "home_files": params.get("home"),
-                # The run's copy of a ChatGPT login stays out of the run's directory, which is shared as a record.
-                "login_root": Path.home() / ".cache" / "hermit" / "evolver-login",
                 "log": ctx.workspace.output / f"agent-{backend}.jsonl", "timeout_s": None, "cancel": ctx.cancel,
                 "tools_name": "evolver_tools"}
 

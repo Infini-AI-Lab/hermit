@@ -234,6 +234,9 @@ def _check(backend: str, params: dict) -> str:
     for key, allowed in (("deploy", DEPLOYS), ("isolation", ISOLATIONS)):
         if params.get(key) is not None and params[key] not in allowed:
             raise ValueError(f"agent.params.{key} must be one of {allowed}, not {params[key]!r}")
+    if not isinstance(params.get("web_search"), bool):
+        raise ValueError("agent.params.web_search must be set, true or false: Codex's hosted search runs at the "
+                         "provider, past any sandbox or proxy, so it is never left to a default")
     if params.get("login") not in (None, "chatgpt"):
         raise ValueError(f"agent.params.login is chatgpt or absent, not {params['login']!r}")
     if params.get("login") and backend != "codex":
@@ -255,7 +258,7 @@ def base_agent(backend: str, params: dict) -> BaseAgent:
                 if params.get(k) is not None}
     if params.get("claude_permission_mode"):
         settings["permission_mode"] = params["claude_permission_mode"]
-    return make(backend, {**settings, "web_search": bool(params.get("web_search"))})
+    return make(backend, {**settings, "web_search": params["web_search"]})
 
 
 def _run(task: dict, adapter: Path | None, params: dict, base: Path) -> RunOutput:
@@ -266,7 +269,8 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path) -> RunOutpu
     root = (root if root.is_absolute() else Path(base) / root).resolve()
     run_dir = root / f"{re.sub(r'[^A-Za-z0-9_.-]', '_', str(task.get('id', 'task')))[:80]}-{uuid.uuid4().hex[:8]}"
     work, home, log = run_dir / "work", run_dir / "home", run_dir / "log"
-    agent = agent.configured(home=home, log=log / f"agent-{backend}.jsonl", login_root=root)
+    agent = agent.configured(home=home, log=log / f"agent-{backend}.jsonl",
+                             **({"login_root": params["login_root"]} if params.get("login_root") else {}))
     timeout_s = float(params.get("timeout_s", 3600))
     retries = max(1, int(params.get("retries", 3)))
     started = time.time()
@@ -312,7 +316,7 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path) -> RunOutpu
     if usage:
         cost, tokens = usage[0].cost_usd, usage[0].input_tokens + usage[0].output_tokens
     extra = {"backend": backend, "model": params.get("model"), "effort": params.get("effort"),
-             "web_search": bool(params.get("web_search")),
+             "web_search": params["web_search"],
              "deploy": deployed.get("mode"), "isolation": params.get("isolation") or "none",
              "deployed": {k: v for k, v in deployed.items() if k != "mode"} | (
                  {"sub_agents": [r["name"] for r in deployed["sub_agents"]]} if deployed.get("sub_agents") else {}),

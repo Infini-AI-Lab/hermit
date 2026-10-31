@@ -187,3 +187,18 @@ def test_codex_sub_agent_calls_are_steps():
     [step] = codex_steps([spawn])
     assert step.kind == "tool_call" and json.loads(step.text)["tool"] == "spawn_agent"
     assert json.loads(step.text)["prompt"] == "verify 507" and "pending" in step.output
+
+
+def test_the_chat_client_waits_as_told_between_retries(monkeypatch):
+    import urllib.error
+    from hermit.agent.model import llm
+    waits = []
+    monkeypatch.setattr(llm.time, "sleep", waits.append)
+
+    def unavailable(request, timeout=None):
+        raise urllib.error.HTTPError(request.full_url, 503, "busy", {}, None)
+    monkeypatch.setattr(llm.urllib.request, "urlopen", unavailable)
+    client = llm.ChatClient("http://x/v1", "m", max_retries=4, retry_wait=4.0, retry_wait_max=60.0)
+    with pytest.raises(RuntimeError, match="HTTP 503"):
+        client.chat([{"role": "user", "content": "hi"}])
+    assert waits == [4.0, 8.0, 16.0, 32.0]                 # SkillOpt's own client: 4 * 2**attempt, at most 60

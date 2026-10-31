@@ -95,7 +95,7 @@ def test_a_run_with_the_tasks_hooks_records_the_hosts_log(fake):
     corpus = tmp_path / "corpus"
     corpus.mkdir()
     (corpus / "bulletin.txt").write_text("receipts")
-    params = {"prompt": "prompt.md", "prepare": "hooks.py:prepare", "answer": "hooks.py:answer",
+    params = {"web_search": False, "prompt": "prompt.md", "prepare": "hooks.py:prepare", "answer": "hooks.py:answer",
               "collect": "hooks.py:collect", "deploy": "tree", "effort": "medium", "workspaces": "ws",
               "model": "m1", "flavour": "plain", "corpus": str(corpus), "price": {"input": 1, "output": 2}}
     out = cli.run({"id": "q1", "question": "receipts"}, seed(tmp_path), params=params, base=tmp_path)
@@ -119,7 +119,7 @@ def test_a_run_with_the_tasks_hooks_records_the_hosts_log(fake):
 
 def test_the_answer_pattern_and_why_there_is_none(fake):
     tmp_path = fake
-    params = {"prompt": "go", "answer": "<answer>(.*?)</answer>", "workspaces": "ws"}
+    params = {"web_search": False, "prompt": "go", "answer": "<answer>(.*?)</answer>", "workspaces": "ws"}
     out = cli.run({"id": "q1"}, None, params=params, base=tmp_path)
     assert out.output == {"answer": "44,463", "fail_reason": ""}
     out = cli._output("no tags", {}, {"answer": "<answer>(.*?)</answer>"}, tmp_path, 0, False, 60)
@@ -131,12 +131,12 @@ def test_the_answer_pattern_and_why_there_is_none(fake):
 def test_a_provider_that_could_not_serve_is_run_again(fake, monkeypatch):
     tmp_path = fake
     monkeypatch.setenv("FAKE_UNAVAILABLE", "1")
-    out = cli.run({"id": "q1"}, None, params={"prompt": "go", "workspaces": "ws", "retry_wait_s": 0}, base=tmp_path)
+    out = cli.run({"id": "q1"}, None, params={"web_search": False, "prompt": "go", "workspaces": "ws", "retry_wait_s": 0}, base=tmp_path)
     assert out.extra["attempts"] == 2 and out.output.endswith("<answer>44,463</answer>")
     monkeypatch.setenv("FAKE_UNAVAILABLE", "9")
     (tmp_path / "calls").unlink()
     with pytest.raises(RuntimeError, match="could not be served after 2 attempts"):
-        cli.run({"id": "q2"}, None, params={"prompt": "go", "workspaces": "ws", "retries": 2, "retry_wait_s": 0},
+        cli.run({"id": "q2"}, None, params={"web_search": False, "prompt": "go", "workspaces": "ws", "retries": 2, "retry_wait_s": 0},
                 base=tmp_path)
 
 
@@ -144,7 +144,7 @@ def test_a_cli_that_never_started_is_an_error_not_a_wrong_answer(fake, monkeypat
     tmp_path = fake
     (tmp_path / "bin" / "codex").write_text(f"#!{sys.executable}\nimport sys\nprint('Error finding codex home')\nsys.exit(1)\n")
     with pytest.raises(RuntimeError, match="before starting a session: Error finding codex home"):
-        cli.run({"id": "q1"}, None, params={"prompt": "go", "workspaces": "ws", "answer": "x(.)"}, base=tmp_path)
+        cli.run({"id": "q1"}, None, params={"web_search": False, "prompt": "go", "workspaces": "ws", "answer": "x(.)"}, base=tmp_path)
 
 
 def test_the_chatgpt_login_is_copied_refreshed_back_and_removed(fake, monkeypatch):
@@ -153,14 +153,14 @@ def test_the_chatgpt_login_is_copied_refreshed_back_and_removed(fake, monkeypatc
     user.mkdir()
     (user / "auth.json").write_text(json.dumps({"auth_mode": "chatgpt", "last_refresh": "2026-10-01T00:00:00Z"}))
     monkeypatch.setenv("CODEX_HOME", str(user))
-    params = {"prompt": "go", "workspaces": "ws", "login": "chatgpt", "model": "gpt-6-luna"}
+    params = {"web_search": False, "prompt": "go", "workspaces": "ws", "login": "chatgpt", "model": "gpt-6-luna"}
     out = cli.run({"id": "q1"}, None, params=params, base=tmp_path)
     home = Path(out.extra["workspace"]).parent / "home"
     seen = json.loads((home / "seen.json").read_text())
     assert "auth.json" in seen["home"] and not (home / "auth.json").exists()      # it does not outlive the run
     config = (home / "config.toml").read_text()
     assert 'forced_login_method = "chatgpt"' in config and 'web_search = "disabled"' in config
-    master = json.loads((tmp_path / "ws" / "login" / "auth.json").read_text())
+    master = json.loads(login.master().read_text())                               # the shared copy
     assert master["last_refresh"] == "2099-01-01T00:00:00Z"                       # the session's refresh came back
     assert json.loads((user / "auth.json").read_text())["last_refresh"] == "2026-10-01T00:00:00Z"   # never written
     assert out.cost_usd is None
@@ -177,7 +177,7 @@ def test_web_search_is_set_explicitly_either_way(fake, tmp_path):
         home.mkdir()
         base_cli.write_home(home, {"web_search": enabled}, [])
         assert f'web_search = "{value}"' in (home / "config.toml").read_text()
-    out = cli.run({"id": "q1"}, None, params={"prompt": "go", "workspaces": "ws"}, base=fake)
+    out = cli.run({"id": "q1"}, None, params={"web_search": False, "prompt": "go", "workspaces": "ws"}, base=fake)
     assert out.extra["web_search"] is False
     assert "--disallowedTools" in base_cli.Claude({"web_search": False}).command("p", fake, fake / "last")
 
@@ -191,7 +191,10 @@ def test_what_does_not_combine_is_refused(tmp_path):
                           ({"deploy": "adapter"}, "deploy must be one of"),
                           ({"isolation": "container", "container": {"img": "x"}}, "unknown keys")]:
         with pytest.raises(ValueError, match=match):
-            cli._check("codex", params)
+            cli._check("codex", {"web_search": False, **params})
+    for value in (None, "no"):                         # web search is set explicitly, never left to a default
+        with pytest.raises(ValueError, match="web_search must be set"):
+            cli._check("codex", {} if value is None else {"web_search": value})
     with pytest.raises(ValueError, match="takes deploy: host"):
         cli._deploy({}, seed(tmp_path), tmp_path, "claude", {"deploy": "tree"})
 
@@ -227,7 +230,7 @@ def test_a_container_session_binds_the_workspace_the_home_and_the_mounts(tmp_pat
     monkeypatch.setenv("FW_KEY", "secret-value")
     corpus = tmp_path / "corpus"
     corpus.mkdir()
-    params = {"prompt": "go", "workspaces": "ws", "isolation": "container", "answer": "<answer>(.*?)</answer>",
+    params = {"web_search": False, "prompt": "go", "workspaces": "ws", "isolation": "container", "answer": "<answer>(.*?)</answer>",
               "container": {"image": "img:1", "network": "net", "proxy": "http://px:3128"},
               "mounts": [{"source": str(corpus), "at": "docs"}, {"source": str(corpus)}],
               "binding": {"backend": "fw", "model": "m", "base_url": "https://x/v1", "api_key_env": "FW_KEY",
@@ -264,7 +267,7 @@ def test_without_a_container_a_mount_is_a_link(tmp_path):
 
 
 def test_a_task_id_is_a_safe_directory_name(fake):
-    out = cli.run({"id": "a/b c"}, None, params={"prompt": "go", "workspaces": "ws"}, base=fake)
+    out = cli.run({"id": "a/b c"}, None, params={"web_search": False, "prompt": "go", "workspaces": "ws"}, base=fake)
     assert out.log.parent.name.startswith("a_b_c-") and out.log.parent.parent == (fake / "ws").resolve()
 
 

@@ -30,7 +30,8 @@ class ChatClient:
                    extra_body=spec.get("extra_body"), **kwargs)
 
     def __init__(self, base_url: str, model: str, *, api_key_env: str | None = None, price: dict | None = None,
-                 timeout: float = 600, max_retries: int = 4, extra_body: dict | None = None):
+                 timeout: float = 600, max_retries: int = 4, extra_body: dict | None = None,
+                 retry_wait: float = 2.0, retry_wait_max: float | None = None):
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.extra_body = dict(extra_body or {})     # sent with every request, e.g. {"reasoning_effort": "medium"}
@@ -38,6 +39,7 @@ class ChatClient:
         self.price = price
         self.timeout = timeout
         self.max_retries = max_retries
+        self.retry_wait, self.retry_wait_max = retry_wait, retry_wait_max   # the first wait, doubled up to the cap
         self._lock = threading.Lock()
         self.total = Usage(model=model, cost_usd=0.0 if price else None)
 
@@ -58,7 +60,7 @@ class ChatClient:
                 raise RuntimeError(f"Environment variable {self.api_key_env} is not set")
             headers["Authorization"] = f"Bearer {key}"
         data = json.dumps(body).encode()
-        delay = 2.0
+        delay = self.retry_wait
         for attempt in range(self.max_retries + 1):
             request = urllib.request.Request(self.base_url + "/chat/completions", data=data, headers=headers)
             try:
@@ -74,7 +76,7 @@ class ChatClient:
                 if attempt == self.max_retries:
                     raise RuntimeError(f"chat/completions failed: {exc}") from None
             time.sleep(delay)
-            delay *= 2
+            delay = delay * 2 if self.retry_wait_max is None else min(delay * 2, self.retry_wait_max)
         u = payload.get("usage") or {}
         prompt = int(u.get("prompt_tokens", 0))
         cached = int((u.get("prompt_tokens_details") or {}).get("cached_tokens", 0) or 0)

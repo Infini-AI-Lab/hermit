@@ -1,10 +1,12 @@
 """The user's own Codex login (`agent.params.login: chatgpt`): a ChatGPT account signed in with `codex login`, no API
 key and no per-token price.
 
-The run keeps a copy of the login (`<workspaces>/login/auth.json`); every session's home starts from it, and a token a
-session refreshed is written back to it under a lock, so that the next session does not start from a token the
-refresh has replaced. The user's own file is read, never written: it replaces the run's copy when it is newer (a
-later `codex login`). Inside the run's rollout sandbox the user's file is the call's copy (CODEX_HOME).
+One copy of the login is kept for every session, acting and learning alike (`ROOT/login/auth.json`, outside any
+run's directory); every session's home starts from it, and a token a session refreshed is written back to it under a
+lock, so that no session starts from a token a refresh has replaced (ChatGPT rotates its refresh tokens). The user's
+own file is read, never written: it replaces the copy when it is newer (a later `codex login`). A session in the
+rollout sandbox, which cannot write that copy, gets it from the sandbox's caller and hands its refresh back the same
+way (hermit.isolate).
 """
 from __future__ import annotations
 
@@ -15,6 +17,7 @@ from pathlib import Path
 import shutil
 
 FILE = "auth.json"
+ROOT = Path.home() / ".cache" / "hermit" / "codex-login"      # the shared copy: ROOT/login/auth.json
 
 
 def source() -> Path:
@@ -47,6 +50,10 @@ def prepare(root: Path, home: Path, user_file: Path | None = None) -> None:
         if not master.is_file():
             raise RuntimeError(f"login: chatgpt, but there is no Codex login at {user_file} (run `codex login`)")
         _replace(master, Path(home) / FILE)
+
+
+def master(root: Path | None = None) -> Path:
+    return Path(root or ROOT) / "login" / FILE
 
 
 def keep_refreshed(root: Path, home: Path) -> None:

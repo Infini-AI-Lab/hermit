@@ -625,3 +625,39 @@ def test_a_cli_deploy_renders_the_adapter_in_a_sandbox(tmp_path, monkeypatch):
     import json as _json
     toml = (tmp_path / "ws" / ".codex" / "config.toml")
     assert "HA_ADAPTER_SANDBOX" in toml.read_text()
+
+
+def test_a_sandboxed_codex_call_takes_the_shared_login_and_hands_its_refresh_back(tmp_path, monkeypatch, shared_login):
+    """A call in the rollout sandbox cannot write the shared copy of a ChatGPT login: it gets the copy from outside,
+    and a token it refreshed goes back to the copy, so the next call does not start from a rotated-out token."""
+    import json as _json
+    import hermit.isolate as isolate
+    from hermit.agent.base import login
+    user = tmp_path / "user-codex"
+    user.mkdir()
+    (user / "auth.json").write_text(_json.dumps({"last_refresh": "2026-10-01T00:00:00Z"}))
+    monkeypatch.setenv("CODEX_HOME", str(user))
+    config = Config.load(sandboxed_task(tmp_path), ["agent.name=codex", "agent.params.login=chatgpt",
+                                                    "agent.params.model=gpt-6-luna", "agent.params.web_search=false"])
+    seen = {}
+
+    def worker(sandbox, job, work, *, home, **kw):
+        seen["home"] = _json.loads((home / ".codex" / "auth.json").read_text())
+        seen["login_root"] = job["params"]["login_root"]
+        inner = work / "workspaces" / "login"                    # what the agent inside leaves: its refreshed copy
+        inner.mkdir(parents=True)
+        (inner / "auth.json").write_text(_json.dumps({"last_refresh": "2099-01-01T00:00:00Z"}))
+        return {"output": {"output": "ok"}}
+    monkeypatch.setattr(isolate, "_run_worker", worker)
+    agent = SandboxedAgent(config, "rollout", records=None)
+    try:
+        agent({"id": "t1"}, None)
+        first = dict(seen)
+        agent({"id": "t2"}, None)
+    finally:
+        agent.close()
+    assert first["home"]["last_refresh"] == "2026-10-01T00:00:00Z"        # the first call: the user's login
+    assert seen["home"]["last_refresh"] == "2099-01-01T00:00:00Z"         # the next: the first call's refresh
+    assert _json.loads(login.master().read_text())["last_refresh"] == "2099-01-01T00:00:00Z"
+    assert not list(agent.work_root.glob("*/workspaces/login"))           # no call keeps its copy
+    assert not list(agent.work_root.glob("*/home/.codex/auth.json"))

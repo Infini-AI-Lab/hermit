@@ -40,6 +40,11 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   `--ignore-user-config`), and an Evolver's copied sign-in is removed after each call rather than at the end.
 - The `claude-code` acting agent runs with a Claude Code home of its own (`CLAUDE_CONFIG_DIR`, the user's
   `.credentials.json` copied in for the session), so the user's Claude Code settings no longer apply, as for Codex.
+- The `codex` and `claude-code` acting agents and the agent Evolvers refuse to run without `web_search` set to
+  `true` or `false` (it was off when absent); the built-in Evolvers' defaults set it.
+- A ChatGPT login (`login: chatgpt`) has one shared copy for every session, `~/.cache/hermit/codex-login/`, instead
+  of one per run's workspaces; sessions in the rollout sandbox get it from outside and hand their refreshed token
+  back, so a rotated refresh token reaches the next session.
 - OfficeQA configs that use the Codex agent are written in the per-layer form; a command-line override of the flat
   `agent.params.model`, `login`, `effort`, `web_search`, `timeout_s`, `isolation` or `container` on them is refused
   as set twice. Override `agent.model.*` and `agent.codex.*` instead.
@@ -55,7 +60,8 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   ReHarness and Continual Harness call it; the `llm` tool calls the same agent.
 - The per-layer form of `agent` and `evolver` in the run config: `base`, `model` and a section named after the base
   (`codex: {...}`), read into the flat form, which still works.
-- OfficeQA's direct chat makes each of SkillOpt's model calls through the `direct` Base Agent.
+- OfficeQA's direct chat makes each of SkillOpt's model calls through the `direct` Base Agent, with SkillOpt's own
+  retry waits (`ChatClient` takes `retry_wait` and `retry_wait_max`).
 - `hermit deploy` copies the whole adapter (every file but `.hermit/` and `.git/`) to `hermit/<adapter id>/` in the
   workspace, and the context block says so, with paths in `ADAPTER.md` relative to that folder; what `exports.yaml`
   declares is connected to the host as before. A redeployment replaces the copy, and refuses when a copied file was

@@ -96,7 +96,7 @@ def test_agent_evolver_gates_the_tools(tmp_path, monkeypatch):
     (evolver / "codex").chmod(0o755)
     (evolver / "START.md").write_text("output={output}\n{message}")
     (evolver / "evolver.yaml").write_text("class: hermit.agent.evolver.agent:AgentEvolver\n"
-                                          "params: {backend: codex, prompt: START.md, home: [], tools: [check_spec]}\n")
+                                          "params: {backend: codex, web_search: false, prompt: START.md, home: [], tools: [check_spec]}\n")
     monkeypatch.setenv("PATH", f"{evolver}{os.pathsep}{os.environ['PATH']}")
     cfg = Config.load(path, ["evolver.name=gated", "trainer.epochs=1", "data.step_size=6"])
     Trainer(cfg, log=lambda *_: None).train()
