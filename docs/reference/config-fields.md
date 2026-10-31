@@ -119,12 +119,12 @@ Checkpoint frequency controls tags; completed steps still have records and accep
 | Field | Type / default | Meaning |
 |---|---|---|
 | `sandbox.enabled` | boolean / true | Sandbox learner programs launched through the framework |
-| `sandbox.network` | string / `restricted` | `none`, `restricted`, or `open` |
-| `sandbox.allow` | list / [] | Allowed endpoints for the restricted-mode proxy; the Evolver's own model endpoint is always among them |
+| `sandbox.network` | string / `isolated` | `isolated` or `open`; the older `restricted` means `isolated`, and `none` means `isolated` without the proxy |
+| `sandbox.allow` | list / [] | Allowed endpoints for the allowlist proxy; the Evolver's own model endpoint is always among them |
 | `sandbox.read` | list / [] | Additional readable filesystem paths |
 | `sandbox.env` | list or null / null | Passed environment variables; null inherits the environment, [] requests none beyond required runtime settings; the Evolver's model key variable is always passed |
 
-The backend is Linux/bubblewrap. The restricted proxy is not a mandatory network firewall. The sandbox does
+The backend is Linux/bubblewrap. The allowlist proxy is not a mandatory network firewall. The sandbox does
 not isolate user pipelines or arbitrary in-process Python Evolvers. Read
 [the boundary description](../framework/configuration.md#sandbox-network-and-warnings) before granting resources.
 
