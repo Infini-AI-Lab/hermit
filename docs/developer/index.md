@@ -66,4 +66,5 @@ component contracts are described in [Adapter](../framework/adapter.md), [Evolve
 
 Describe the user-visible behavior, the affected contract, how you verified it, and any environment requirements.
 Include a small reproducer for failures. Update commands, defaults, and docs together; do not describe a proposed
-feature as available. The generic [service lifecycle proposal](service-design.md) is kept separately from supported usage.
+feature as available. The generic [service lifecycle proposal](service-design.md) and the
+[proposal for one acting agent per host](acting-agent-design.md) are kept separately from supported usage.
