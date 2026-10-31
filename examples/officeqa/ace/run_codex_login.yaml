@@ -1,7 +1,8 @@
 # OfficeQA with ACE, offline, everything on the user's own Codex login (a ChatGPT account,
 # `codex login`; no API key): the acting agent is SkillOpt's Codex harness with the login copied into each session's
 # container (agent.params.login: chatgpt), and ACE's Reflector and Curator are `codex exec` sessions under the same
-# login (evolver.params.learner: codex). Both use gpt-6-luna: agent.params.model is required with a login,
+# login (evolver.params.learner: codex), each learner session in a container of its own (learner_container).
+# Both use gpt-5.6-luna at medium effort: agent.params.model is required with a login,
 # evolver.params.learner_model may be null for the login's default.
 # The egress proxy must let chatgpt.com:443 and auth.openai.com:443 through (README). A subscription has no
 # per-token price: costs are recorded as unknown, so the hard budget is in hours.
@@ -20,7 +21,8 @@ agent:
   params:
     harness: codex
     login: chatgpt                     # the user's Codex login (~/.codex/auth.json, or auth_file)
-    model: gpt-6-luna                # GPT-6-Luna (not the login default, gpt-6-astra)
+    model: gpt-5.6-luna              # GPT-5.6-Luna (not the login default); medium effort (agent.py)
+    unavailable_attempts: 20           # a network outage: try again for about 40 minutes
     codex_dir: ~/.cache/hermit/officeqa-ace-login
   concurrency: 4                       # sessions side by side on one account: mind its rate limits
 judge:
@@ -31,8 +33,13 @@ evolver:
   name: ace
   params:
     learner: codex                     # Reflector and Curator through the same Codex login
-    learner_model: gpt-6-luna        # GPT-6-Luna, as the acting agent
+    learner_model: gpt-5.6-luna      # GPT-5.6-Luna, as the acting agent
     learner_effort: medium
+    learner_unavailable_attempts: 20   # a network outage: try again for about 40 minutes
+    learner_container:                 # each learner session in a container: no file of this machine but its
+      image: officeqa-codex:0.165.0    # empty directory and Codex home, the acting sessions' network and proxy
+      network: oq-sandbox
+      proxy: http://oq-egress:3128
     feedback: true
     max_num_rounds: 3
     total_samples: 50
@@ -41,7 +48,7 @@ sandbox:
   enabled: true
   enforce: best_effort                 # macOS: no bubblewrap; acting sessions stay in Docker
   network: restricted
-  allow: [chatgpt.com, auth.openai.com]      # the learner's Codex reaches its provider through the allowlist proxy
+  allow: []
   read: []
   env: []
   profiles:

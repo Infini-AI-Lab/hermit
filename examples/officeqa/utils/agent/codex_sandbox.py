@@ -43,9 +43,16 @@ PROXY = os.environ.get("OFFICEQA_CODEX_PROXY", "http://oq-egress:3128")
 # Docker's default capabilities less three the sessions do not need, plus what bubblewrap needs to make namespaces
 SECURITY = ["--cap-drop", "NET_RAW", "--cap-drop", "MKNOD", "--cap-drop", "AUDIT_WRITE", "--cap-add", "SYS_ADMIN",
             "--security-opt", "seccomp=unconfined", "--security-opt", "apparmor=unconfined"]
+# Codex's home lives in the container's memory (/codex-home), seeded from the rollout's codex_home: what Codex writes
+# there (its plugin catalog, its databases, tens of MB a session) never reaches the machine's disk, where Docker
+# Desktop's file sharing keeps a deleted file's space held. Its session record and a refreshed login come back.
+CODEX_HOME_IN = "/codex-home"
 # fails the run rather than letting a session search an empty corpus
-CHECK = ('test -d "$1/transformed" && test -d "$1/jsons" || { echo "officeqa: corpus not mounted: $1" >&2; exit 75; }; '
-         'shift; exec codex "$@"')
+CHECK = ('seed="$1"; shift; '
+         'test -d "$1/transformed" && test -d "$1/jsons" || { echo "officeqa: corpus not mounted: $1" >&2; exit 75; }; '
+         'shift; cp -a "$seed"/. /codex-home/ || exit 75; codex "$@"; rc=$?; '
+         'mkdir -p "$seed/sessions" && cp -a /codex-home/sessions/. "$seed/sessions/" 2>/dev/null; '
+         'test -f /codex-home/auth.json && cp -p /codex-home/auth.json "$seed/auth.json"; exit $rc')
 
 
 def settings(template: str) -> str:
@@ -118,9 +125,10 @@ def main() -> None:
            "--read-only", "--tmpfs", "/tmp:size=4g", "--pids-limit", "2048", "--memory", "6g", *SECURITY,
            "--user", f"{os.getuid()}:{os.getgid()}",
            *mount(work), *mount(home), *mount(corpus, readonly=True), "-w", str(work),
-           "-e", f"HOME={home}", "-e", f"CODEX_HOME={home}", "-e", f"HTTPS_PROXY={PROXY}",
+           "--tmpfs", f"{CODEX_HOME_IN}:size=1g,mode=0700,uid={os.getuid()},gid={os.getgid()}",
+           "-e", f"HOME={CODEX_HOME_IN}", "-e", f"CODEX_HOME={CODEX_HOME_IN}", "-e", f"HTTPS_PROXY={PROXY}",
            *(a for k in keys for a in ("-e", k)),
-           IMAGE, "sh", "-c", CHECK, "sh", str(corpus), *args]
+           IMAGE, "sh", "-c", CHECK, "sh", str(home), str(corpus), *args]
 
     # The watcher holds the read end of a pipe whose write end only `docker run` keeps; when that ends, however it
     # ends, the read returns and the container goes too. It holds none of the outputs SkillOpt waits on.

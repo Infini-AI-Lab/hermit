@@ -14,7 +14,8 @@ agent:
   params:
     harness: codex
     login: chatgpt
-    model: gpt-6-luna
+    model: gpt-5.6-luna
+    unavailable_attempts: 20           # a network outage: try again for about 40 minutes
     codex_dir: ~/.cache/hermit/officeqa-ace-login
   concurrency: 2
 judge:
@@ -25,8 +26,13 @@ evolver:
   name: ace
   params:
     learner: codex
-    learner_model: gpt-6-luna
+    learner_model: gpt-5.6-luna
     learner_effort: medium
+    learner_unavailable_attempts: 20   # a network outage: try again for about 40 minutes
+    learner_container:                 # each learner session in a container: no file of this machine but its
+      image: officeqa-codex:0.165.0    # empty directory and Codex home, the acting sessions' network and proxy
+      network: oq-sandbox
+      proxy: http://oq-egress:3128
     feedback: true
     max_num_rounds: 1
     total_samples: 4
@@ -36,7 +42,7 @@ sandbox:
   enabled: true
   enforce: best_effort                 # macOS: no bubblewrap; acting sessions stay in Docker
   network: restricted
-  allow: [chatgpt.com, auth.openai.com]
+  allow: []
   read: []
   env: []
   profiles:

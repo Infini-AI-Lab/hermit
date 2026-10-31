@@ -7,7 +7,9 @@ final adapter is evaluated on the 172 test questions. The adapter is SkillOpt's 
 playbook ([`ace`](../../../hermit/algorithms/templates/ace/) template). Everything runs on the Codex login of the
 machine (`codex login` with a ChatGPT account; no API key): the acting agent is SkillOpt's Codex harness, each
 session's container with a copy of the login (`agent.params.login: chatgpt`), and ACE's Reflector and Curator are
-`codex exec` sessions under it (`evolver.params.learner: codex`). Both use `gpt-6-luna` at medium effort.
+`codex exec` sessions under it (`evolver.params.learner: codex`), each in a container of its own that sees an
+empty directory and a Codex home holding only the login (`evolver.params.learner_container`). Both use
+`gpt-5.6-luna` at medium effort.
 
 ```bash
 python examples/officeqa/ace/make_seed.py                # SkillOpt's initial skill + an empty playbook

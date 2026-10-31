@@ -29,20 +29,20 @@ Training State: `state/ace.json` (sample counters, the next bullet id, one recor
 from __future__ import annotations
 
 import json
-import os
-from pathlib import Path
 import shutil
-import signal
-import subprocess
-import time
+from pathlib import Path
 
-from hermit.evolver.agent import parse_log
+from hermit.algorithms.evolvers.ace import playbook as pb
+from hermit.algorithms.evolvers.ace.prompts import (
+    CURATOR_PROMPT,
+    CURATOR_PROMPT_NO_GT,
+    MERGE_PROMPT,
+    REFLECTOR_PROMPT_NO_GT,
+)
+from hermit.evolver import codex_learner
 from hermit.evolver.base import Evolver, FinalResult, StepContext, StepResult, Usage
 from hermit.evolver.dependencies import missing_dependency
 from hermit.trainer.budget import BudgetExceeded
-
-from hermit.algorithms.evolvers.ace import playbook as pb
-from hermit.algorithms.evolvers.ace.prompts import CURATOR_PROMPT, CURATOR_PROMPT_NO_GT, MERGE_PROMPT, REFLECTOR_PROMPT_NO_GT
 
 ADAPTER = "ADAPTER.md"
 CORRECT = "Predicted answer matches ground truth"           # _train_single_sample's environment feedback
@@ -50,14 +50,6 @@ WRONG = "Predicted answer does not match ground truth"
 
 
 # ---------- reading a rollout ----------
-
-def _last_refresh(path: Path) -> str:
-    """A Codex login's last_refresh, to tell the newer of two copies."""
-    try:
-        return str(json.loads(path.read_text()).get("last_refresh") or "")
-    except (OSError, ValueError):
-        return ""
-
 
 def clip_middle(text: str, limit: int) -> str:
     """Keep the beginning (the approach) and the end (how it finished)."""
@@ -154,8 +146,11 @@ class ACEEvolver(Evolver):
         if learner == "llm" and "llm" not in ctx.tools:
             return StepResult("failed", "ace needs the run's llm tool: set `llm` in the run config "
                                         "(or evolver.params.learner: codex)")
-        if learner == "codex" and not shutil.which("codex"):
+        if learner == "codex" and not (ctx.params.get("learner_container") or {}).get("image") \
+                and not shutil.which("codex"):
             return StepResult("failed", "learner: codex needs the codex CLI on PATH")
+        if learner == "codex" and codex_learner.unconfined(ctx):
+            return StepResult("failed", codex_learner.unconfined(ctx))
         if learner not in ("llm", "codex"):
             return StepResult("failed", f"unknown learner {learner!r}: llm or codex")
         f = ws.adapter / ADAPTER
@@ -478,62 +473,11 @@ class ACEEvolver(Evolver):
         return text
 
     def _codex(self, ctx, prompt: str, stem: Path) -> str:
-        """The prompt as one `codex exec` session under the user's Codex login (a ChatGPT account): read-only, in
-        an empty directory, the prompt on stdin (a playbook can pass the length an argument may have), the reply
-        Codex's last message. The login is copied once into the run's own Codex home and stays there, so a token
-        Codex refreshes is the one the next call uses, unless the user's own login is newer; finalize removes it. Temperature and max_tokens do not apply."""
-        p, ws = ctx.params, ctx.workspace
-        home = ws.state.parent / "agent_home"
-        home.mkdir(parents=True, exist_ok=True)
-        source = Path(os.path.expanduser(str(p.get("learner_auth") or "~/.codex/auth.json")))
-        if not source.is_file() and not (home / "auth.json").is_file():
-            raise FileNotFoundError(f"no Codex login at {source}: run `codex login` (or set learner_auth)")
-        if source.is_file() and (not (home / "auth.json").is_file()
-                                 or _last_refresh(source) > _last_refresh(home / "auth.json")):
-            shutil.copy2(source, home / "auth.json")
-            os.chmod(home / "auth.json", 0o600)
-        work = ws.scratch / "codex_learner"
-        work.mkdir(parents=True, exist_ok=True)
-        last = Path(f"{stem}.last.txt")
-        log = Path(f"{stem}.codex.jsonl")
-        command = ["codex", "exec", "--json", "--skip-git-repo-check", "--ignore-user-config", "-s", "read-only",
-                   "-C", str(work), "-o", str(last)]
-        if p.get("learner_model"):
-            command += ["-m", str(p["learner_model"])]
-        if p.get("learner_effort"):
-            command += ["-c", f'model_reasoning_effort="{p["learner_effort"]}"']
-        command.append("-")
-        env = dict(os.environ)
-        env["CODEX_HOME"] = str(home)
-        if ctx.sandbox is not None:
-            command, env = ctx.sandbox.wrap(command, writable=[home, work, stem.parent], env=env, home=home,
-                                            keep=["CODEX_HOME"])
-        timeout = float(p.get("learner_timeout_s") or 900)
-        with open(log, "w") as out:
-            proc = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=out, stderr=subprocess.STDOUT, env=env,
-                                    cwd=str(work), start_new_session=True)
-            try:
-                proc.stdin.write(prompt.encode("utf-8"))
-                proc.stdin.close()
-            except BrokenPipeError:
-                pass
-            started = time.monotonic()
-            while proc.poll() is None:
-                if (ctx.cancel is not None and ctx.cancel.is_set()) or time.monotonic() - started > timeout:
-                    os.killpg(proc.pid, signal.SIGTERM)
-                    try:
-                        proc.wait(15)
-                    except subprocess.TimeoutExpired:
-                        os.killpg(proc.pid, signal.SIGKILL)
-                    break
-                time.sleep(0.5)
-            code = proc.wait()
-        _, usage = parse_log(log, "codex", str(p.get("learner_model") or "codex"))
+        """The prompt as one confined `codex exec` session under the user's Codex login (hermit.evolver.codex_learner).
+        Temperature and max_tokens do not apply."""
+        text, usage = codex_learner.ask(ctx, prompt, stem)
         self._usage += usage
-        if code != 0:
-            tail = log.read_text(errors="replace")[-600:] if log.is_file() else ""
-            raise RuntimeError(f"codex exec exited with {code}: {tail}")
-        return last.read_text(encoding="utf-8", errors="replace") if last.is_file() else ""
+        return text
 
     @staticmethod
     def _records(material: Path) -> list[tuple[dict, Path | None]]:

@@ -21,7 +21,7 @@ Flash on Fireworks, FIREWORKS_API_KEY) answers at medium reasoning effort, as th
 chat_target_messages calls it directly, Codex through the backend's Responses API with the provider settings in a
 CODEX_HOME of its own (no user configuration or instructions). Codex's workspaces are under `agent.params.codex_dir`,
 outside any checkout: Codex reads the instructions of the repository it runs in. A rollout the API could not serve
-raises, so it is recorded as an error rather than a wrong answer (so does a question whose parsed pages SkillOpt cannot find under data.json's docs: without them the rollout is not the paper's setting); a Codex session past its 180 s is a failed answer,
+is run again 120 s later, `agent.params.unavailable_attempts` times in all (default 3), then raises, so it is recorded as an error rather than a wrong answer (so does a question whose parsed pages SkillOpt cannot find under data.json's docs: without them the rollout is not the paper's setting); a Codex session past its 180 s is a failed answer,
 as in SkillOpt.
 """
 from __future__ import annotations
@@ -51,6 +51,7 @@ CODEX_DIR = "~/.cache/hermit/officeqa-codex-actor"         # the codex harness's
 # not start (codex_sandbox.py), not the session's text
 CODEX_UNAVAILABLE = re.compile(r"unexpected status (?:429|5\d\d)|exceeded retry limit|stream disconnected|"
                                r"error sending request|too many requests|service unavailable|bad gateway|"
+                               r"routing discovery failed|"
                                r"officeqa: corpus not mounted|error response from daemon|"
                                r"cannot connect to the docker daemon", re.I)
 
@@ -293,7 +294,8 @@ class OfficeQAAgent(Agent):
                                                  resolve_docs_roots([DATA["docs"]])):   # cached: the rollout rereads them
             raise RuntimeError(f"no parsed pages for {task['id']} under {DATA['docs']}: see utils/prepare.py")
         started = time.time()
-        for attempt in range(3):            # the API was unavailable: run the whole rollout again later
+        attempts = max(1, int(self.params.get("unavailable_attempts") or 3))
+        for attempt in range(attempts):     # the API was unavailable: run the whole rollout again later, 120 s apart
             out_root = Path(tempfile.mkdtemp(prefix=f"{task['id']}-", dir=logs))
             _usage.totals = totals = {"calls": 0, "cut_off": 0, "prompt_tokens": 0, "cached_tokens": 0,
                                       "completion_tokens": 0}
@@ -313,7 +315,7 @@ class OfficeQAAgent(Agent):
             if UNAVAILABLE not in failure and not (codex and failure.startswith("error: codex exec failed")
                                                    and CODEX_UNAVAILABLE.search(failure)):
                 break
-            if attempt == 2:
+            if attempt == attempts - 1:
                 raise RuntimeError(failure[:4000])
             time.sleep(120)
         pred_dir = out_root / "predictions" / task["id"]

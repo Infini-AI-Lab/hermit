@@ -29,5 +29,11 @@ params:
   learner_effort: null               # codex: model_reasoning_effort (low | medium | high); null: Codex's default
   learner_auth: ~/.codex/auth.json   # codex: the login copied into the run's own Codex home
   learner_timeout_s: 900             # codex: one session's wall clock
+  learner_unavailable_attempts: 1    # codex: a session the provider could not serve runs again, this many
+                                     # times in all
+  learner_unavailable_wait_s: 120    # codex: seconds between those attempts
+  learner_container: null            # codex: {image, network, proxy}: each session in a container of that image,
+                                     # which must have codex on PATH; required where the sandbox cannot confine
+                                     # (no bubblewrap): a session runs commands, and read-only does not limit reads
   max_tokens: 32000                  # upstream: 4096, for a non-reasoning model
   temperature: null                  # null: the endpoint's default (upstream: 0.0)

@@ -1,6 +1,7 @@
 """ACE: the playbook port (against upstream's behaviour), the `ace` template, the Evolver's step with a scripted model
 and a scripted run_agent (reflection, retry rounds, curation, rollback, validation, de-duplication), and the whole
 loop through the Trainer on a toy task (no model, no network)."""
+import dataclasses
 import json
 import os
 from pathlib import Path
@@ -575,11 +576,22 @@ with open(log, "a") as f:
 if os.environ.get("FAKE_CODEX_FAIL"):
     print("error: 401 Unauthorized", flush=True)
     sys.exit(1)
+flaky = os.environ.get("FAKE_CODEX_FLAKY")
+if flaky and not Path(flaky).exists():
+    Path(flaky).write_text("failed once")
+    print(json.dumps({"type": "error", "message": "stream disconnected before completion"}), flush=True)
+    sys.exit(1)
 if "master curator" in prompt:
     reply = json.dumps({"reasoning": "add", "operations": [{"type": "ADD", "section": "OTHERS", "content": "via codex"}]})
 else:
     reply = json.dumps({"reasoning": "r", "bullet_tags": [{"id": "calc-00002", "tag": "helpful"}]})
 Path(args[args.index("-o") + 1]).write_text(reply)
+if os.environ.get("FAKE_CODEX_REFRESH"):
+    auth = json.loads((home / "auth.json").read_text())
+    auth["last_refresh"] = os.environ["FAKE_CODEX_REFRESH"]
+    (home / "auth.json").write_text(json.dumps(auth))
+(home / "sessions").mkdir(exist_ok=True)
+(home / "sessions" / f"{len(os.listdir(home / 'sessions'))}.jsonl").write_text(prompt)
 print(json.dumps({"type": "thread.started", "thread_id": "t1"}))
 print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 100, "cached_input_tokens": 40,
                                                       "output_tokens": 7}}))
@@ -744,3 +756,103 @@ def test_each_codex_session_home_gets_the_login(tmp_path):
     other.parent.mkdir()
     S.prepare_home(other, "", None)                          # without a login: no auth.json, as before
     assert not (other / "auth.json").exists()
+
+
+FAKE_DOCKER = r'''#!/usr/bin/env python3
+"""A stand-in for `docker run`: records its arguments, then runs what follows the image as the fake codex would."""
+import json, os, sys
+args = sys.argv[1:]
+with open(os.environ["FAKE_DOCKER_LOG"], "a") as f:
+    f.write(json.dumps(args) + "\n")
+image = args.index(os.environ["FAKE_DOCKER_IMAGE"])
+inside = os.environ["FAKE_DOCKER_TMPFS"]                 # the container's in-memory /codex-home, on the host
+os.makedirs(inside, exist_ok=True)
+for f in os.listdir(inside):
+    os.remove(os.path.join(inside, f)) if os.path.isfile(os.path.join(inside, f)) else None
+env = dict(os.environ)
+for i, a in enumerate(args[:image]):
+    if a == "-e" and args[i + 1].startswith("CODEX_HOME="):
+        env["CODEX_HOME"] = args[i + 1].split("=", 1)[1].replace("/codex-home", inside)
+rest = [a.replace("/codex-home", inside) for a in args[image + 1:]]
+os.execvpe(rest[0], rest, env)
+'''
+
+
+class _Unconfining:
+    """A sandbox that is on but would run commands unconfined (best_effort without bubblewrap)."""
+    enabled = True
+
+    def wrap(self, command, **kw):
+        return command, kw.get("env")
+
+
+def test_a_codex_learner_the_sandbox_cannot_confine_is_refused(tmp_path, fake_codex, monkeypatch):
+    monkeypatch.setattr(shutil, "which", lambda name, *a, **k: None if name == "bwrap" else "/usr/bin/" + name)
+    adapter = seed(tmp_path)
+    material(tmp_path, [record("UID1", 1.0)])
+    ctx = context(tmp_path, adapter, scripted(), {"learner": "codex", "learner_auth": str(fake_codex)})
+    ctx = dataclasses.replace(ctx, sandbox=_Unconfining())
+    result = E.ACEEvolver().step(ctx)
+    assert result.status == "failed" and "learner_container" in result.summary
+    assert not (tmp_path / "codex_calls.jsonl").exists()
+
+
+def test_a_codex_learner_in_a_container_sees_only_its_home_and_an_empty_directory(tmp_path, fake_codex, monkeypatch):
+    bin_dir = tmp_path / "bin"
+    (bin_dir / "docker").write_text(FAKE_DOCKER)
+    (bin_dir / "docker").chmod(0o755)
+    monkeypatch.setenv("FAKE_DOCKER_LOG", str(tmp_path / "docker_calls.jsonl"))
+    monkeypatch.setenv("FAKE_DOCKER_IMAGE", "learner:1")
+    monkeypatch.setenv("FAKE_DOCKER_TMPFS", str(tmp_path / "container_codex_home"))
+    adapter = seed(tmp_path)
+    material(tmp_path, [record("UID1", 1.0, cites="Applying [calc-00002].")])
+    ctx = context(tmp_path, adapter, scripted(), {
+        "learner": "codex", "learner_auth": str(fake_codex),
+        "learner_container": {"image": "learner:1", "network": "box", "proxy": "http://egress:3128"}})
+    ctx = dataclasses.replace(ctx, sandbox=_Unconfining())
+    result = E.ACEEvolver().step(ctx)
+    assert result.status == "done", result.summary
+    runs = [json.loads(l) for l in (tmp_path / "docker_calls.jsonl").read_text().splitlines()]
+    assert len(runs) == 2 and len(codex_calls(tmp_path)) == 2
+    args = runs[0]
+    image = args.index("learner:1")
+    assert args[0] == "run" and args[args.index("--network") + 1] == "box" and "--read-only" in args
+    assert "HTTPS_PROXY=http://egress:3128" in args and "CODEX_HOME=/codex-home" in args
+    assert args[image + 1:image + 3] == ["sh", "-c"] and args[image + 6:image + 8] == ["codex", "exec"]
+    assert any(a.startswith("/codex-home:") for a in args[:image])     # Codex's home in the container's memory
+    sessions = (tmp_path / "scratch" / "codex_learner").resolve()
+    mounted = []
+    for run in runs:
+        mounts = [Path(run[i + 1].split("dst=")[1]) for i, a in enumerate(run[:run.index("learner:1")])
+                  if a == "--mount"]
+        assert [m.name for m in mounts] == ["home", "work"] and all(m.parent.parent == sessions for m in mounts)
+        mounted.append(mounts[0].parent)
+    # A new home and working directory per session, removed after it: no file of the machine, no earlier history
+    assert mounted[0] != mounted[1] and not any(sessions.iterdir())
+    assert sorted(p.name for p in (tmp_path / "agent_home").iterdir()) == ["auth.json"]
+    assert "[calc-00002] helpful=4 harmful=1 ::" in playbook_of(adapter)
+
+
+def test_a_codex_learner_session_the_provider_could_not_serve_runs_again(tmp_path, fake_codex, monkeypatch):
+    monkeypatch.setenv("FAKE_CODEX_FLAKY", str(tmp_path / "flaky"))
+    adapter = seed(tmp_path)
+    material(tmp_path, [record("UID1", 1.0, cites="Applying [calc-00002].")])
+    result = E.ACEEvolver().step(context(tmp_path, adapter, scripted(), {
+        "learner": "codex", "learner_auth": str(fake_codex),
+        "learner_unavailable_attempts": 3, "learner_unavailable_wait_s": 0.01}))
+    assert result.status == "done" and "failed" not in result.summary
+    assert len(codex_calls(tmp_path)) == 3                            # the reflection twice, then the curator
+    assert "[calc-00002] helpful=4 harmful=1 ::" in playbook_of(adapter)
+
+
+def test_each_codex_learner_session_has_a_fresh_home_and_a_refreshed_token_is_kept(tmp_path, fake_codex, monkeypatch):
+    monkeypatch.setenv("FAKE_CODEX_REFRESH", "2026-11-01T00:00:00Z")
+    adapter = seed(tmp_path)
+    material(tmp_path, [record("UID1", 1.0, cites="Applying [calc-00002].")])
+    ev = E.ACEEvolver()
+    assert ev.step(context(tmp_path, adapter, scripted(), {"learner": "codex",
+                                                            "learner_auth": str(fake_codex)})).status == "done"
+    home = tmp_path / "agent_home"
+    assert sorted(p.name for p in home.iterdir()) == ["auth.json"]    # no session's history is kept
+    assert json.loads((home / "auth.json").read_text())["last_refresh"] == "2026-11-01T00:00:00Z"
+    assert json.loads(fake_codex.read_text())["last_refresh"] == "2026-10-01T00:00:00Z"   # the user's is untouched
