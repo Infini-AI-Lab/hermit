@@ -361,34 +361,35 @@ Both run the acting sessions and the Reflector and Curator on a ChatGPT Codex lo
 with its four evaluations; its numbers do not compare with [the Flash row](#the-flash-row) (another model, another
 Codex, three passes).
 
-- Models: `gpt-6-luna` acting and learning, reasoning effort medium, on a ChatGPT login.
-- Harness: Codex 0.165.0 (`officeqa-codex:0.165.0`), a container per session, four side by side.
+- Models: `gpt-5.6-luna` acting and learning, reasoning effort medium, on a ChatGPT login.
+- Harness: Codex 0.165.0 (`officeqa-codex:0.165.0`), a container per session, four side by side; each Reflector
+  and Curator session in a container of its own (`learner_container`).
 - Data: the 50 / 24 / 172 split of SkillOpt `79124b3`, `data.shuffle_seed: 42`; `officeqa_full.csv` with SHA-256
   `b5eb1ce0cb34…`, eight items drifted from the split ([Reproduction limits](#reproduction-limits)).
-- Run: `run_codex_login.yaml` with `trainer.run_name=login-codex-ace-v2` and
-  `trainer.tree_dir=runs/trees/login-codex-ace-v2`, made from `b0d9629` with the playbook instructions of
-  `71e2330` (uncommitted then).
-- Spending: a subscription has no per-token price. Training 1.4 h: 1.70 M tokens of training sessions, 3.57 M of
-  Reflector and Curator sessions, 2.12 M of retry and validation sessions. The evaluations, 0.5–0.6 h each, ran
-  within nine hours.
+- Run: `run_codex_login.yaml` of `25f33d5` with `trainer.run_name=login-codex-ace-luna56`,
+  `trainer.tree_dir=runs/trees/login-codex-ace-luna56` and `agent.params.codex_dir=~/.cache/hermit/officeqa-ace-luna56`.
+  The training's acting sessions kept Codex's home on disk, the evaluations' in the container's memory, as in that
+  commit. The training stopped once on a full disk and resumed after step 86 (`trainer.resume_mode: auto`).
+- Spending: a subscription has no per-token price. Training 1.6 h: 2.47 M tokens of training sessions, 5.22 M of
+  Reflector and Curator sessions, 2.61 M of retry and validation sessions. The evaluations, about 1 h each, ran one
+  after another within four hours, beside another run on the same login.
 
 | Adapter | accuracy, three passes | − the initial skill, points |
 |---|---|---|
-| none | 0.223 | −9.1 [−13.2, −5.0] |
-| the initial skill: SkillOpt's, with ACE's empty playbook (`seed_adapter`) | 0.314 | |
-| `final`, best validation (epoch 1, 37 bullets) | 0.440 | **+12.6** [+7.6, +18.0] |
-| the last playbook (`workspace/state/last_adapter`, 50 bullets) | 0.519 | **+20.5** [+14.3, +26.9] |
+| none | 0.310 | −7.4 [−11.2, −3.7] |
+| the initial skill: SkillOpt's, with ACE's empty playbook (`seed_adapter`) | 0.384 | |
+| `final`, best validation (epoch 1, 91 bullets) | 0.521 | **+13.8** [+8.5, +19.0] |
+| the last playbook (`workspace/state/last_adapter`, 109 bullets) | 0.529 | **+14.5** [+10.1, +19.2] |
 
 Paired per question, 95% bootstrap intervals; bold where the interval lies above zero.
 
-- The last playbook beats the validation choice by 7.9 [3.5, 12.2] points: 24 validation questions do not
-  separate two epochs' playbooks.
-- The agent names the bullets it used on one line of its final message: 71 of the 100 training samples named at least
-  one, 28 wrote `none`, one named an id the playbook did not have. One bullet (a calculation rule) has 29 of the
-  80 citations.
-- A day earlier, under the previous wording of the playbook's instructions, the initial skill scored 0.231 and no
-  adapter 0.188. No adapter reads no instructions, and it moved +3.5 [+0.6, +6.4] points: the service drifts, so
-  only evaluations made together are compared.
+- The last playbook and the validation choice are level: +0.8 [−2.7, +4.5] points, 22 questions better and 22
+  worse. Validation scored 0.583 after epoch 1 and 0.500 after epoch 2: 24 questions do not separate them.
+- The agent names the bullets it used on one line of its final message: 46 of the 100 training samples named at
+  least one, 54 wrote `none`; the 63 citations all name bullets the playbook had, no bullet more than three times.
+- An earlier run on `gpt-6-luna` (`login-codex-ace-v2`, 29 October) scored 0.223 without an adapter, 0.314 with the
+  initial skill, 0.440 `final` and 0.519 with the last playbook. Another model and another day: the service drifts,
+  so only evaluations made together are compared.
 
 ## Outputs and scoring
 
