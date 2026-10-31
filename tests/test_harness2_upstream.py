@@ -263,3 +263,19 @@ def test_a_session_is_one_call_of_the_claude_base_agent(tmp_path, monkeypatch):
     assert seen["config_dir"] == str((cwd / ".claude-home").resolve()) and seen["dropped"] is None
     assert seen["quiet"] == "1"
     assert proposer.usages[0].input_tokens == 140 and cost == pytest.approx((100 * 1.0 + 40 * 0.5 + 7 * 10.0) / 1e6)
+
+
+def test_a_session_that_fails_is_a_problem_not_a_reply(tmp_path, monkeypatch):
+    """A CLI that writes only an error to stderr and exits 1 gives no text and the problem (upstream then retries the
+    session and caches nothing), as before the session ran on the Base Agent."""
+    from harness2.core.spec import ChannelSpec
+    from hermit.agent.evolver.methods.harness2_upstream.channel import FrameworkProposer
+    exe = tmp_path / "claude"
+    exe.write_text("#!/bin/sh\ncat > /dev/null\necho 'Error: Invalid API key' >&2\nexit 1\n")
+    exe.chmod(0o755)
+    proposer = FrameworkProposer(spec=ChannelSpec(kind="claude_cli", model="claude-x"),
+                                 params={"claude_bin": str(exe), "model": "claude-x"})
+    cwd = tmp_path / "session"
+    cwd.mkdir()
+    text, cost, problem = proposer._claude_cli(cwd, "the mission", "", wall=60)
+    assert text == "" and problem.startswith("rc=1:") and "Invalid API key" in problem and cost == 0.0

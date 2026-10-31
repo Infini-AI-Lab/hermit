@@ -108,10 +108,10 @@ def test_the_tool_server_serves_mcp_and_json_behind_its_token():
                 names = [t.name for t in (await session.list_tools()).tools]
                 good = await session.call_tool("add", {"a": 1, "b": 2})
                 bad = await session.call_tool("add", {"a": "x", "b": 2})
-                return names, good.structured_content, bad.is_error
+                return names, (good.content[0].text, good.structured_content), bad.is_error
 
     with ToolServer([ADD]) as server:
-        assert asyncio.run(over_mcp(server.mcp_url)) == (["add"], {"sum": 3}, True)
+        assert asyncio.run(over_mcp(server.mcp_url)) == (["add"], ('{"sum": 3}', None), True)
         tools = json.loads(urllib.request.urlopen(server.url + "/tools").read())
         assert [t["name"] for t in tools] == ["add"]
         request = urllib.request.Request(server.url + "/call/add", data=b'{"a": 4, "b": 5}')
@@ -197,7 +197,8 @@ def test_the_chat_client_waits_as_told_between_retries(monkeypatch):
 
     def unavailable(request, timeout=None):
         raise urllib.error.HTTPError(request.full_url, 503, "busy", {}, None)
-    monkeypatch.setattr(llm.urllib.request, "urlopen", unavailable)
+    import types
+    monkeypatch.setattr(llm.urllib.request, "build_opener", lambda *a: types.SimpleNamespace(open=unavailable))
     client = llm.ChatClient("http://x/v1", "m", max_retries=4, retry_wait=4.0, retry_wait_max=60.0)
     with pytest.raises(RuntimeError, match="HTTP 503"):
         client.chat([{"role": "user", "content": "hi"}])
@@ -264,6 +265,7 @@ def test_the_chat_endpoint_streams_a_whole_reply_as_chunks(monkeypatch):
     from hermit.agent.base import endpoint as module
     from hermit.agent.model.llm import ChatClient
     monkeypatch.setattr(module, "KEEPALIVE_S", 0.1)
+    monkeypatch.setattr(module, "HEADER_WAIT_S", 0.1)               # the stream starts while the model works
     seen = []
 
     class Upstream(http.server.BaseHTTPRequestHandler):
@@ -313,3 +315,100 @@ def test_the_chat_endpoint_streams_a_whole_reply_as_chunks(monkeypatch):
                                                  stream=True):
                 pass
     up.shutdown()
+
+
+
+class _Upstream:
+    """A local chat-completions server whose replies a test scripts by the request's model name."""
+
+    def __init__(self, reply):
+        import http.server
+        import threading
+        self.seen, self.closed = [], threading.Event()
+        upstream = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_POST(self):
+                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                upstream.seen.append(body)
+                reply(self, body, upstream)
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}/v1"
+
+
+def _answer(handler, status: int, body: bytes, headers: dict | None = None):
+    handler.send_response(status)
+    for k, v in (headers or {}).items():
+        handler.send_header(k, v)
+    handler.send_header("Content-Length", str(len(body)))
+    handler.end_headers()
+    handler.wfile.write(body)
+
+
+def test_the_chat_endpoint_passes_errors_on_as_the_upstream_gave_them():
+    """A quick error keeps its status even for a streamed request (a client tells a context overflow from an outage
+    by it), its whole body and its Retry-After; a reply cut off upstream is no answer here either."""
+    import openai
+    from hermit.agent.base.endpoint import ChatEndpoint
+    from hermit.agent.model.llm import ChatClient
+    long_message = "This model's maximum context length is 131072 tokens. " + "x" * 900
+
+    def reply(handler, body, upstream):
+        if body["model"] == "overflow":
+            _answer(handler, 400, json.dumps({"error": {"message": long_message}}).encode())
+        elif body["model"] == "busy":
+            _answer(handler, 429, b'{"error": {"message": "slow down"}}', {"Retry-After": "7"})
+        else:                                                         # a reply cut off mid-body
+            handler.send_response(200)
+            handler.send_header("Content-Length", "1000")
+            handler.end_headers()
+            handler.wfile.write(b'{"id": "r"')
+            handler.wfile.flush()
+            handler.connection.shutdown(2)
+    up = _Upstream(reply)
+    with ChatEndpoint(make("direct", {}, ChatClient(up.url, "x", max_retries=0))) as endpoint:
+        sdk = openai.OpenAI(base_url=endpoint.url + "/v1", api_key="k", max_retries=0)
+        messages = [{"role": "user", "content": "q"}]
+        for stream in (False, True):
+            with pytest.raises(openai.BadRequestError) as err:
+                out = sdk.chat.completions.create(model="overflow", messages=messages, stream=stream)
+                list(out) if stream else None
+            assert err.value.status_code == 400 and long_message in str(err.value.body)
+        with pytest.raises(openai.RateLimitError) as err:
+            sdk.chat.completions.create(model="busy", messages=messages)
+        assert err.value.response.headers.get("retry-after") == "7"
+        with pytest.raises(openai.APIConnectionError):                # no answer, as from the upstream itself
+            sdk.chat.completions.create(model="cut", messages=messages)
+    up.server.shutdown()
+
+
+def test_a_client_that_hangs_up_gives_the_call_up_upstream():
+    import socket
+    import time
+    from hermit.agent.base.endpoint import ChatEndpoint
+    from hermit.agent.model.llm import ChatClient
+
+    def reply(handler, body, upstream):
+        handler.connection.settimeout(10)
+        try:
+            data = handler.connection.recv(1)                        # waits: b"" once the relay closes its side
+        except OSError:
+            data = b""
+        if data == b"":
+            upstream.closed.set()
+    up = _Upstream(reply)
+    with ChatEndpoint(make("direct", {}, ChatClient(up.url, "x", max_retries=0))) as endpoint:
+        body = json.dumps({"model": "slow", "messages": [{"role": "user", "content": "q"}], "stream": True}).encode()
+        client = socket.create_connection(("127.0.0.1", endpoint.port))
+        client.sendall(f"POST /{endpoint.token}/v1/chat/completions HTTP/1.1\r\nHost: x\r\n"
+                       f"Content-Type: application/json\r\nContent-Length: {len(body)}\r\n\r\n".encode() + body)
+        deadline = time.time() + 5
+        while not up.seen and time.time() < deadline:
+            time.sleep(0.05)
+        client.close()                                                # the client's own watchdog gives up
+        assert up.closed.wait(5)                                      # and the relay hangs up upstream
+    up.server.shutdown()

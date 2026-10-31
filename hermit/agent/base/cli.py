@@ -33,6 +33,7 @@ Settings (given once; `configured(...)` for a call's own):
   tools_env         a variable that gets the tools' JSON entrance (GET <url>/tools, POST <url>/call/<name>)
   mcp_tools         the tools offered over MCP (default: all of them; the JSON entrance has all)
   stdin             true: the prompt is given on stdin, not on the command line (a long one)
+  stderr_log        the CLI's stderr in a file of its own (default: in the event stream, after stdout's lines)
   writable          more paths the session may write inside the run's sandbox (besides its home)
   env_drop          variables of this process's environment the session does not get
   Claude Code only: output_format (stream-json, or json: one result object), allowed_tools (its --tools),
@@ -55,6 +56,7 @@ import shutil
 import signal
 import subprocess
 import tempfile
+import threading
 import time
 from typing import Any, Sequence
 
@@ -140,20 +142,24 @@ def served(backend: str, raw: str) -> bool:
 
 
 def run_process(command: list[str], *, env: dict, cwd: Path, stream: Path, timeout: float | None,
-                cancel=None, stdin: str | None = None) -> tuple[int, bool, bool]:
-    """A process group with stdout and stderr to `stream`; (exit code, timed out, cancelled). Its stdin is `stdin`
-    and then closed, or empty: a CLI given a prompt still reads a non-terminal stdin to its end as more prompt, and an
-    inherited one (a shell's socket, a pipe that never closes) would hang the session."""
+                cancel=None, stdin: str | None = None, stderr: Path | None = None) -> tuple[int, bool, bool]:
+    """A process group with stdout to `stream` and stderr there too, or to `stderr`; (exit code, timed out,
+    cancelled). Its stdin is `stdin`, written by a thread of its own (a CLI that does not read it cannot hold the
+    clock up) and then closed, or empty: a CLI given a prompt still reads a non-terminal stdin to its end as more
+    prompt, and an inherited one (a shell's socket, a pipe that never closes) would hang the session."""
     deadline = time.time() + timeout if timeout else None
-    with open(stream, "w") as out:
+    with open(stream, "w") as out, open(stderr or os.devnull, "w") as err:
         proc = subprocess.Popen(command, stdin=subprocess.DEVNULL if stdin is None else subprocess.PIPE, stdout=out,
-                                stderr=subprocess.STDOUT, env=env, cwd=str(cwd), start_new_session=True, text=True)
+                                stderr=err if stderr else subprocess.STDOUT, env=env, cwd=str(cwd),
+                                start_new_session=True, text=True)
         if stdin is not None:
-            try:
-                proc.stdin.write(stdin)
-                proc.stdin.close()
-            except BrokenPipeError:
-                pass
+            def feed():
+                try:
+                    proc.stdin.write(stdin)
+                    proc.stdin.close()
+                except (BrokenPipeError, OSError, ValueError):
+                    pass
+            threading.Thread(target=feed, daemon=True).start()
         timed_out = cancelled = False
         try:
             while proc.poll() is None:
@@ -369,7 +375,8 @@ class CliAgent(BaseAgent):
                                           "paths or limit the network")
                 code, timed_out, cancelled = run_process(command, env=full_env, cwd=workspace, stream=stream,
                                                          timeout=timeout, cancel=s.get("cancel"),
-                                                         stdin=prompt if s.get("stdin") else None)
+                                                         stdin=prompt if s.get("stdin") else None,
+                                                         stderr=Path(s["stderr_log"]) if s.get("stderr_log") else None)
             wall_s = time.time() - started
             failed = False
         finally:

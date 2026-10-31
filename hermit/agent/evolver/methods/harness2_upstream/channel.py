@@ -51,12 +51,14 @@ class FrameworkProposer(Proposer):
         if system and len(system) > SYSTEM_ARG_MAX:
             stdin = f"# SYSTEM INSTRUCTIONS\n\n{system}\n\n# END\n\n{mission}"
             system = "Follow the SYSTEM INSTRUCTIONS block at the top of the message."
-        own = {k: os.path.expandvars(str(v)) for k, v in (self.params.get("env") or {}).items()}
+        own = {k: str(v) for k, v in (self.params.get("env") or {}).items()}   # the Base Agent expands $NAME
+        err = Path(cwd) / ".session.err"
         settings = {"web_search": False, "bin": self.params.get("claude_bin") or "claude", "stdin": True,
                     "output_format": "json", "effort": self.spec.effort, "persist_session": False,
                     "allowed_tools": str(self.params.get("tools") or "Read,Write,Edit,Glob,Grep,Bash").split(","),
                     "append_system_prompt": system or None, "home": home, "home_files": [],
-                    "log": Path(cwd) / ".session.out", "env": {**QUIET, **own}, "env_drop": sorted(_DROP_ENV),
+                    "log": Path(cwd) / ".session.out", "stderr_log": err, "env": {**QUIET, **own},
+                    "env_drop": sorted(_DROP_ENV),
                     "isolation": "sandbox" if self.sandbox is not None else "none", "sandbox": self.sandbox,
                     "writable": [Path(cwd)], "timeout_s": wall, "cancel": self.cancel}
         result = make("claude", settings).run(stdin, workspace=Path(cwd))
@@ -71,7 +73,7 @@ class FrameworkProposer(Proposer):
             problem = f"CLI error: {payload.get('subtype')} {str(text)[:200]}"
             text = ""
         elif result.exit_code != 0 and not text.strip():
-            problem = f"rc={result.exit_code}: {result.extra['output_tail'][-300:]}"
+            problem = f"rc={result.exit_code}: {err.read_text(errors='replace')[-300:] if err.is_file() else ''}"
         usage = self._usage(payload)
         return text, float(usage.cost_usd or 0.0) if usage else 0.0, problem
 

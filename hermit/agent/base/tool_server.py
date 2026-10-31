@@ -60,8 +60,9 @@ class ToolServer:
                 result = await asyncio.to_thread(lambda: tool(**(params.arguments or {})))
             except Exception as exc:
                 return CallToolResult(content=[TextContent(text=f"{type(exc).__name__}: {exc}")], isError=True)
-            return CallToolResult(content=[TextContent(text=tool.render(result))],
-                                  structuredContent=result if isinstance(result, dict) else None)
+            # The rendered text only: a client that prefers structured content would show a model the raw object
+            # where the tool means its text (a result {"text": ...} reads as that text).
+            return CallToolResult(content=[TextContent(text=tool.render(result))])
 
         async def describe(request: Request):
             return JSONResponse([t.describe() for t in tools.values()])

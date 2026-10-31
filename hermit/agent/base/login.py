@@ -10,6 +10,7 @@ way (hermit.isolate).
 """
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 import fcntl
 import json
 import os
@@ -24,11 +25,22 @@ def source() -> Path:
     return Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex") / FILE
 
 
-def _last_refresh(path: Path) -> str:
+def _last_refresh(path: Path):
+    """When the login in `path` was refreshed, or None for a file that is no login: not a JSON object, or a
+    last_refresh that does not parse or lies ahead (a session that could write the file must not pin the copy)."""
     try:
-        return str(json.loads(path.read_text()).get("last_refresh") or "")
-    except (OSError, ValueError, AttributeError):
-        return ""
+        data = json.loads(Path(path).read_text())
+        when = datetime.fromisoformat(str(data["last_refresh"]).replace("Z", "+00:00"))
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return when if when <= datetime.now(timezone.utc) + timedelta(hours=1) else None
+
+
+def _newer(candidate: Path, than: Path) -> bool:
+    mine, theirs = _last_refresh(candidate), _last_refresh(than) if Path(than).is_file() else None
+    return mine is not None and (theirs is None or mine > theirs)
 
 
 def _replace(src: Path, dst: Path) -> None:
@@ -45,7 +57,7 @@ def prepare(root: Path, home: Path, user_file: Path | None = None) -> None:
     master.parent.mkdir(parents=True, exist_ok=True)
     with open(master.parent / ".lock", "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        if user_file.is_file() and (not master.is_file() or _last_refresh(user_file) > _last_refresh(master)):
+        if user_file.is_file() and _newer(user_file, master):
             _replace(user_file, master)
         if not master.is_file():
             raise RuntimeError(f"login: chatgpt, but there is no Codex login at {user_file} (run `codex login`)")
@@ -57,11 +69,16 @@ def master(root: Path | None = None) -> Path:
 
 
 def keep_refreshed(root: Path, home: Path) -> None:
-    """The session's login, if Codex refreshed it (a later last_refresh), becomes the run's copy."""
-    master, mine = Path(root) / "login" / FILE, Path(home) / FILE
-    if not mine.is_file() or not master.is_file():
+    """The session's login, if Codex refreshed it (a later last_refresh), becomes the shared copy."""
+    take_back(root, Path(home) / FILE)
+
+
+def take_back(root: Path, path: Path) -> None:
+    """A login file a session left: the shared copy if it is a later refresh of it."""
+    master = Path(root) / "login" / FILE
+    if not Path(path).is_file() or not master.is_file():
         return
     with open(master.parent / ".lock", "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        if _last_refresh(mine) > _last_refresh(master):
-            _replace(mine, master)
+        if _newer(path, master):
+            _replace(path, master)

@@ -388,8 +388,16 @@ class SandboxedAgent:
         finally:
             if self.cli:                                 # the login copy does not outlive the call
                 (home / CLI_HOMES[self.cli][0] / CLI_HOMES[self.cli][2]).unlink(missing_ok=True)
-                if chatgpt:      # a token the call refreshed goes back to the shared copy, then its own copy goes
-                    codex_login.keep_refreshed(codex_login.ROOT, work / "workspaces" / "login")
+                if chatgpt:
+                    # Every copy the call left: its run copy, and a session's own when the worker was stopped before
+                    # it could hand that back (a timeout kills it). The latest refresh goes back to the shared copy;
+                    # then none of them is kept.
+                    left = [work / "workspaces" / "login" / codex_login.FILE,
+                            *work.glob(f"workspaces/*/home/{codex_login.FILE}")]
+                    for path in left:
+                        codex_login.take_back(codex_login.ROOT, path)
+                    for path in left:
+                        path.unlink(missing_ok=True)
                 shutil.rmtree(work / "workspaces" / "login", ignore_errors=True)
         rec = payload["output"]
         # The log is copied into the learner's material outside any sandbox: it must lie where this call could

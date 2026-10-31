@@ -644,9 +644,13 @@ def test_a_sandboxed_codex_call_takes_the_shared_login_and_hands_its_refresh_bac
     def worker(sandbox, job, work, *, home, **kw):
         seen["home"] = _json.loads((home / ".codex" / "auth.json").read_text())
         seen["login_root"] = job["params"]["login_root"]
-        inner = work / "workspaces" / "login"                    # what the agent inside leaves: its refreshed copy
+        if job["task"]["id"] == "t1":                             # the agent inside handed its refresh back
+            inner = work / "workspaces" / "login"
+        else:                                                     # killed first: the session's own copy is left
+            inner = work / "workspaces" / "t2-abc" / "home"
         inner.mkdir(parents=True)
-        (inner / "auth.json").write_text(_json.dumps({"last_refresh": "2099-01-01T00:00:00Z"}))
+        stamp = "2026-10-30T12:00:00Z" if job["task"]["id"] == "t1" else "2026-10-30T13:00:00Z"
+        (inner / "auth.json").write_text(_json.dumps({"last_refresh": stamp}))
         return {"output": {"output": "ok"}}
     monkeypatch.setattr(isolate, "_run_worker", worker)
     agent = SandboxedAgent(config, "rollout", records=None)
@@ -657,7 +661,8 @@ def test_a_sandboxed_codex_call_takes_the_shared_login_and_hands_its_refresh_bac
     finally:
         agent.close()
     assert first["home"]["last_refresh"] == "2026-10-01T00:00:00Z"        # the first call: the user's login
-    assert seen["home"]["last_refresh"] == "2099-01-01T00:00:00Z"         # the next: the first call's refresh
-    assert _json.loads(login.master().read_text())["last_refresh"] == "2099-01-01T00:00:00Z"
-    assert not list(agent.work_root.glob("*/workspaces/login"))           # no call keeps its copy
+    assert seen["home"]["last_refresh"] == "2026-10-30T12:00:00Z"         # the next: the first call's refresh
+    assert _json.loads(login.master().read_text())["last_refresh"] == "2026-10-30T13:00:00Z"   # the second's too
+    assert not list(agent.work_root.glob("*/workspaces/login"))           # no call keeps a copy
+    assert not list(agent.work_root.glob("*/workspaces/*/home/auth.json"))
     assert not list(agent.work_root.glob("*/home/.codex/auth.json"))

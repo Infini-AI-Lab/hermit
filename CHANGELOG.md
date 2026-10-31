@@ -44,7 +44,8 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   `true` or `false` (it was off when absent); the built-in Evolvers' defaults set it.
 - A ChatGPT login (`login: chatgpt`) has one shared copy for every session, `~/.cache/hermit/codex-login/`, instead
   of one per run's workspaces; sessions in the rollout sandbox get it from outside and hand their refreshed token
-  back, so a rotated refresh token reaches the next session.
+  back (also when the call was stopped), so a rotated refresh token reaches the next session. The copy takes only a
+  later refresh of a login: a file with a `last_refresh` ahead of now, or no login at all, is left out.
 - OfficeQA configs that use the Codex agent are written in the per-layer form; a command-line override of the flat
   `agent.params.model`, `login`, `effort`, `web_search`, `timeout_s`, `isolation` or `container` on them is refused
   as set twice. Override `agent.model.*` and `agent.codex.*` instead.
@@ -62,7 +63,9 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   (`codex: {...}`), read into the flat form, which still works.
 - Every method and benchmark runs on the layers. CL-Bench's runner and ServeLearnBench's agent reach their model
   through a local endpoint over `direct` (`hermit/agent/base/endpoint.py`), which relays each request unchanged to
-  the meter or backend it would have reached (a streamed request is asked whole and streamed back). MWM's learner is
+  the meter or backend it would have reached (a streamed request is asked whole and streamed back; an error keeps its
+  status, whole body and Retry-After, also for a stream that has not started; an upstream that gave no answer leaves
+  none; a client that hangs up has its call given up upstream). MWM's learner is
   one call of the `codex` Base Agent with MWM's native mounts as its sandbox; each Harness² session is one call of the
   `claude` Base Agent. The tool gate (`hermit.agent.evolver.gate`) and MWM's stdio `learner_tools.py` are gone: the
   call's tool server serves the allowed tools over MCP and as JSON (`MW_TOOLSRV`).

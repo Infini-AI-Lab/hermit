@@ -14,6 +14,40 @@ import urllib.request
 from hermit.agent.model.usage import Usage
 
 
+class ChatHTTPError(RuntimeError):
+    """An error status from the endpoint, with its whole body and headers (a relay passes them on as they are)."""
+
+    def __init__(self, code: int, body: bytes, headers: dict):
+        self.code, self.body, self.headers = code, body, headers
+        super().__init__(f"chat/completions HTTP {code}: {body.decode(errors='replace')[:500]}")
+
+
+class ChatAborted(RuntimeError):
+    """The caller gave the call up (`abort`) while it was in flight; its connection was closed."""
+
+
+def _opener(connections: list):
+    """A urllib opener (proxies from the environment as usual) that keeps the connections it opens, so that a call
+    can be given up by closing its socket."""
+    import http.client
+
+    def tracked(cls):
+        def make(*args, **kwargs):
+            conn = cls(*args, **kwargs)
+            connections.append(conn)
+            return conn
+        return make
+
+    class Plain(urllib.request.HTTPHandler):
+        def http_open(self, req):
+            return self.do_open(tracked(http.client.HTTPConnection), req)
+
+    class Secure(urllib.request.HTTPSHandler):
+        def https_open(self, req):
+            return self.do_open(tracked(http.client.HTTPSConnection), req, context=self._context)
+    return urllib.request.build_opener(Plain, Secure)
+
+
 class ChatClient:
     @classmethod
     def from_spec(cls, spec: dict, **kwargs) -> "ChatClient":
@@ -51,11 +85,14 @@ class ChatClient:
                 + completion * p.get("output", 0)) / 1e6
 
     def chat(self, messages: list[dict], **kwargs) -> tuple[dict, Usage]:
-        """POST /chat/completions; returns the response message and this call's usage. Two keyword arguments are not
-        request fields: `extra_headers` (sent as they are; an Authorization among them replaces the key) and
-        `return_response` (the whole response body is put in the message as `_response`)."""
+        """POST /chat/completions; returns the response message and this call's usage. Three keyword arguments are not
+        request fields: `extra_headers` (sent as they are; an Authorization among them replaces the key),
+        `return_response` (the whole response body is put in the message as `_response`) and `abort` (a
+        threading.Event: once set, the call in flight is given up, its connection closed, and ChatAborted raised).
+        An error status the endpoint gave last raises ChatHTTPError; no answer at all, RuntimeError."""
         extra_headers = dict(kwargs.pop("extra_headers", None) or {})
         return_response = bool(kwargs.pop("return_response", False))
+        abort = kwargs.pop("abort", None)
         body = {"model": self.model, "messages": messages, **self.extra_body, **kwargs}
         headers = {"Content-Type": "application/json", **extra_headers}
         if self.api_key_env and not any(k.lower() == "authorization" for k in extra_headers):
@@ -65,20 +102,31 @@ class ChatClient:
             headers["Authorization"] = f"Bearer {key}"
         data = json.dumps(body).encode()
         delay = self.retry_wait
+        import http.client
         for attempt in range(self.max_retries + 1):
             request = urllib.request.Request(self.base_url + "/chat/completions", data=data, headers=headers)
+            connections: list = []
+            watcher = _abort_watcher(abort, connections) if abort is not None else None
             try:
-                with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                opener = _opener(connections) if abort is not None else urllib.request.build_opener()
+                with opener.open(request, timeout=self.timeout) as response:
                     payload = json.loads(response.read())
                 break
             except urllib.error.HTTPError as exc:
+                if abort is not None and abort.is_set():
+                    raise ChatAborted("the call was given up") from None
                 retriable = exc.code in (408, 409, 429, 500, 502, 503, 504)
-                detail = exc.read().decode(errors="replace")[:500]
+                body = exc.read()
                 if not retriable or attempt == self.max_retries:
-                    raise RuntimeError(f"chat/completions HTTP {exc.code}: {detail}") from None
-            except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+                    raise ChatHTTPError(exc.code, body, dict(exc.headers or {})) from None
+            except (urllib.error.URLError, TimeoutError, ConnectionError, http.client.HTTPException, OSError) as exc:
+                if abort is not None and abort.is_set():
+                    raise ChatAborted("the call was given up") from None
                 if attempt == self.max_retries:
-                    raise RuntimeError(f"chat/completions failed: {exc}") from None
+                    raise RuntimeError(f"chat/completions failed: {type(exc).__name__}: {exc}") from None
+            finally:
+                if watcher is not None:
+                    watcher.set()
             time.sleep(delay)
             delay = delay * 2 if self.retry_wait_max is None else min(delay * 2, self.retry_wait_max)
         u = payload.get("usage") or {}
@@ -97,3 +145,22 @@ class ChatClient:
         if return_response:
             message["_response"] = payload
         return message, usage
+
+
+def _abort_watcher(abort, connections: list):
+    """A thread that closes the call's connections once `abort` is set; set the returned event when the call ends."""
+    import socket
+    done = threading.Event()
+
+    def watch():
+        while not done.is_set():
+            if abort.wait(0.2):
+                for conn in list(connections):
+                    try:
+                        if conn.sock is not None:
+                            conn.sock.shutdown(socket.SHUT_RDWR)
+                    except OSError:
+                        pass
+                return
+    threading.Thread(target=watch, daemon=True).start()
+    return done

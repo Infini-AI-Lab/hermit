@@ -47,7 +47,7 @@ if calls < int(os.environ.get("FAKE_UNAVAILABLE", "0")):
     sys.exit(1)
 if (home / "auth.json").exists():
     auth = json.loads((home / "auth.json").read_text())
-    auth["last_refresh"] = "2099-01-01T00:00:00Z"
+    auth["last_refresh"] = "2026-10-30T12:00:00Z"
     (home / "auth.json").write_text(json.dumps(auth))
 for e in json.loads({json.dumps(json.dumps(EVENTS))}):
     print(json.dumps(e))
@@ -161,7 +161,7 @@ def test_the_chatgpt_login_is_copied_refreshed_back_and_removed(fake, monkeypatc
     config = (home / "config.toml").read_text()
     assert 'forced_login_method = "chatgpt"' in config and 'web_search = "disabled"' in config
     master = json.loads(login.master().read_text())                               # the shared copy
-    assert master["last_refresh"] == "2099-01-01T00:00:00Z"                       # the session's refresh came back
+    assert master["last_refresh"] == "2026-10-30T12:00:00Z"                       # the session's refresh came back
     assert json.loads((user / "auth.json").read_text())["last_refresh"] == "2026-10-01T00:00:00Z"   # never written
     assert out.cost_usd is None
 
@@ -327,3 +327,19 @@ def test_skillopt_and_gepa_read_a_host_agents_log(tmp_path):
     assert codex_trace(record, tmp_path) == "SkillOpt's own"
     text = trajectory_text({"trajectory": "trajectories/q1"}, tmp_path)
     assert text.startswith("[reasoning] Find the 1944 bulletin.") and '"type"' not in text   # steps, not raw JSON
+
+
+def test_a_login_file_from_the_future_or_no_login_is_not_taken(tmp_path):
+    """The shared copy takes a later refresh only: a file a session could write with a last_refresh ahead of now (it
+    would pin the copy against a later `codex login`), or one that is no login, is left out."""
+    master = login.master(tmp_path)
+    master.parent.mkdir(parents=True)
+    master.write_text(json.dumps({"last_refresh": "2026-10-01T00:00:00Z"}))
+    for content in ({"last_refresh": "2999-01-01T00:00:00Z"}, {"last_refresh": "soon"}, ["no", "login"]):
+        left = tmp_path / "left.json"
+        left.write_text(json.dumps(content))
+        login.take_back(tmp_path, left)
+        assert json.loads(master.read_text())["last_refresh"] == "2026-10-01T00:00:00Z"
+    left.write_text(json.dumps({"last_refresh": "2026-10-30T12:00:00Z"}))
+    login.take_back(tmp_path, left)
+    assert json.loads(master.read_text())["last_refresh"] == "2026-10-30T12:00:00Z"
