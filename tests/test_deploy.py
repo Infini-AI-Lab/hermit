@@ -166,6 +166,17 @@ def test_a_redeployment_replaces_the_copy(tmp_path):
     assert not (copy / "notes.md").exists() and (copy / "scripts/new.py").is_file()
 
 
+def test_a_copied_file_replaced_by_a_directory_stops_the_redeployment(tmp_path):
+    a = tree_adapter(tmp_path)
+    codex_prepare(a, tmp_path / "w", sys.executable)
+    notes = tmp_path / "w" / "hermit" / "tree-example" / "notes.md"
+    notes.unlink()
+    notes.mkdir()
+    with pytest.raises(ValueError, match="notes.md is no longer the file the last deployment copied"):
+        codex_prepare(a, tmp_path / "w", sys.executable)
+    assert notes.is_dir() and not any(notes.iterdir())     # refused before writing
+
+
 def test_a_changed_copy_or_a_foreign_file_stops_the_redeployment(tmp_path):
     a = tree_adapter(tmp_path)
     codex_prepare(a, tmp_path / "w", sys.executable)

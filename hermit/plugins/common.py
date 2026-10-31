@@ -15,7 +15,7 @@ import json
 import shutil
 
 from hermit import __version__ as FRAMEWORK_VERSION
-from hermit.adapter.loader import agent_tools, load_manifest
+from hermit.adapter.loader import agent_tools, hook_definitions, load_manifest
 from hermit.hosts.inputs import (copy_skills as _copy_skills, render_exports, role_body, server_name,
                                          subagent_markdown, subagent_name)
 
@@ -41,6 +41,7 @@ class Bundle:
     manifest: dict
     context: str
     roles: list
+    hooks: dict | None
 
     @property
     def id(self) -> str:
@@ -71,17 +72,22 @@ def load(adapter: Path, python: str) -> Bundle:
     adapter = adapter.resolve()
     manifest = load_manifest(adapter)
     exports = render_exports(adapter, python)
-    return Bundle(adapter, manifest, exports["context"], list(exports["agents"]))
+    return Bundle(adapter, manifest, exports["context"], list(exports["agents"]), hook_definitions(adapter, manifest))
 
 
 def refuse(bundle: Bundle, target: str, reasons: dict[str, str], *, allow_lossy: bool) -> list[str]:
     """Fail on every part in `reasons` (part -> why the target cannot carry it), or with --allow-lossy return them
-    as the parts the plugin leaves out."""
+    as the parts the plugin leaves out. Hooks are added for every target: no plugin carries them yet."""
+    if bundle.hooks:
+        events = ", ".join(bundle.hooks["hooks"])
+        reasons = {**reasons, "hooks": (f"no plugin carries an adapter's hooks yet ({events}); `hermit deploy --host "
+                                        "codex` or `--host claude-code` connects them in a workspace")}
     if reasons and not allow_lossy:
         lines = "\n".join(f"- {part}: {why}" for part, why in reasons.items())
+        other = ("Convert with --target claude-code, whose plugins carry context, skills, tools and roles, or pass"
+                 if target != "Claude Code" else "Pass")
         raise Unsupported(f"A {target} plugin cannot carry these parts of the {bundle.id} adapter:\n{lines}\n"
-                          "Convert with --target claude-code, whose plugins carry every part, or pass --allow-lossy "
-                          "to emit the plugin without them.")
+                          f"{other} --allow-lossy to emit the plugin without them.")
     return sorted(reasons)
 
 

@@ -150,7 +150,8 @@ and preserves project text outside it. Existing adapter headings are nested unde
 The deployment command prepares a workspace; it does not launch the agent. Its output must be empty or a workspace
 previously generated for the same host. The source adapter and output workspace cannot contain one another.
 A redeployment replaces the copy under `hermit/<id>/`: files the new version no longer has are removed. It refuses,
-before writing anything, when a copied file was changed since the last deployment or another file is in the way, and
+before writing anything, when a copied file was changed or replaced (by a directory or a link) since the last
+deployment or another file is in the way, and
 names the file; an adapter link that leads outside the adapter is refused too.
 The generated `.codex/config.toml`, `.mcp.json` or `.pi/mcp.json` is rewritten on deployment; it is not a general configuration
 merger. Global host configuration is not modified.

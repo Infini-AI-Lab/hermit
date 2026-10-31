@@ -101,11 +101,13 @@ names the machine that produced it.
 | Skills | `skills/` | `skills/` | `skills/` | `ctx.register_skill` |
 | Tools | `.mcp.json` | `mcp.json` | generated extension, `pi.registerMcpServer` | `ctx.register_tool`, forwarding to `hermit serve` |
 | Roles | `agents/` | refused | refused | refused |
+| Hooks | refused | refused | refused | refused |
 
 A part the target's plugin format cannot carry is refused: `convert` exits 2 and names every such part before writing
 anything. A non-empty context (`ADAPTER.md`) makes Codex and Pi refuse, and a context over 4,000 characters makes
-Hermes refuse. `--allow-lossy` emits the plugin without those parts and lists them under
-`omitted` in the result.
+Hermes refuse. Hooks make every target refuse: no plugin carries them yet, and `deploy --host codex` or
+`--host claude-code` connects them in a workspace. `--allow-lossy` emits the plugin without those parts and lists them
+under `omitted` in the result.
 
 Why the refusals:
 

@@ -148,7 +148,7 @@ def _in_copy_area(output: Path, rel: str) -> bool:
 def adapter_files(adapter: Path, output: Path, manifest: dict, previous: dict) -> dict:
     """The adapter's files as the deployment will copy them, {workspace path: digest}, checked before anything is
     written: no link may lead outside the adapter, no file the previous deployment copied may have been changed
-    since (a redeployment replaces them), and no other file may be in the way."""
+    or replaced since (a redeployment replaces them), and no other file may be in the way."""
     adapter = adapter.resolve()
     folder = adapter_folder(output, manifest)
     files = {}
@@ -176,7 +176,9 @@ def adapter_files(adapter: Path, output: Path, manifest: dict, previous: dict) -
                              "remove it, then deploy again")
     for rel, digest in earlier.items():
         path = output / rel
-        if path.is_file() and not path.is_symlink() and _digest(path) != digest:
+        if path.is_symlink() or (path.exists() and not path.is_file()):
+            raise ValueError(f"{rel} is no longer the file the last deployment copied; remove it, then deploy again")
+        if path.is_file() and _digest(path) != digest:
             raise ValueError(f"{rel} was changed since the last deployment; move the change elsewhere or remove the "
                              "file, then deploy again")
     for rel in files:
