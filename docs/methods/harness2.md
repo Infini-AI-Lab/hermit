@@ -63,7 +63,10 @@ container per session ([example](https://github.com/Infini-AI-Lab/hermit/tree/ma
 --json` event stream, rendered by upstream's own Codex renderer. On OfficeQA's 172 test questions as one stream, with
 GLM 5.3 Flash as executor and editors, the deliverable scores 0.651 against 0.576 for the initial skill it starts
 from, +7.6 [+1.7, +13.4] paired ([the example's result](https://github.com/Infini-AI-Lab/hermit/tree/main/examples/officeqa/harness2_stream#result), [the
-recipe's Flash row](../recipes/officeqa.md#the-flash-row)).
+recipe's Flash row](../recipes/officeqa.md#the-flash-row)). With Codex and GPT-5.6-Luna as executor and editors on
+a ChatGPT login ([the Flash row with GPT-5.6-Luna](../recipes/officeqa.md#the-flash-row-with-gpt-56-luna)) the
+deliverable scores 0.611 against 0.390, +22.1 [+15.7, +29.1], almost all of it the answer's form, which the editors
+are told.
 
 ## Continuing a stream
 

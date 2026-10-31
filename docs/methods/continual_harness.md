@@ -66,3 +66,8 @@ paper's own protocol (one stream over the test questions, `feedback: false`): on
 the same order as the Harness² stream it scores 0.634, against 0.576 for the initial skill it starts from (+5.8
 [−1.2, +12.8] paired) and 0.651 for Harness² (−1.7 [−7.6, +4.1]), at about a quarter of Harness²'s cost
 ([the example's result](https://github.com/Infini-AI-Lab/hermit/tree/main/examples/officeqa/continual_harness#result), [the recipe's Flash row](../recipes/officeqa.md#the-flash-row)).
+With Codex and GPT-5.6-Luna acting and refining on a ChatGPT login
+([the Flash row with GPT-5.6-Luna](../recipes/officeqa.md#the-flash-row-with-gpt-56-luna)) the same stream scores
+0.477 against 0.390 for the initial skill (+8.7 [+1.7, +15.7]) and 0.611 for Harness² (−13.4 [−20.3, −6.4]): what
+that model gets wrong is mostly the answer's form, which leaves a clean trajectory, so without the verdict the
+Refiner has little to see.

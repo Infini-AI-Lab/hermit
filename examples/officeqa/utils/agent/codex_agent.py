@@ -29,7 +29,9 @@ task=row)`: `ADAPTER.md` and, when the manifest declares a context tool, what th
 
 The answer is the text inside the last `<answer>...</answer>` of Codex's final message; a session that ends without
 one answers nothing, and `fail_reason` says why. A session the provider could not serve (429, 5xx) is run again
-later, up to three times; a container that could not start raises. The rollout's log is a directory:
+later, up to three times; a container that could not start raises. A model on a ChatGPT login (codex_login.py) runs on
+Codex's built-in provider with a copy of the login in the session's home for the session only; a session waits while
+the runs are paused, and one refused for the plan's limit is run again once the plan's window resets, never scored. The rollout's log is a directory:
 `agent-codex.jsonl` (the `codex exec --json` event stream, the trajectory), `task.md`, `prompt.txt`,
 `last_message.txt` and `harness.json` (what the adapter deployed). The workspace stays beside it for inspection,
 without its links into the corpus.
@@ -69,7 +71,7 @@ CORPUS_NOTE = ("The full OfficeQA document corpus is available under `docs/`. Th
 UNAVAILABLE = re.compile(r"unexpected status (?:429|5\d\d)|exceeded retry limit|stream disconnected|"
                          r"error sending request|too many requests|service unavailable|bad gateway|"
                          r"officeqa: corpus not mounted|error response from daemon|"
-                         r"cannot connect to the docker daemon", re.I)
+                         r"cannot connect to the docker daemon|model is at capacity|server is overloaded", re.I)
 
 
 def task_text(task: dict, docs: str) -> tuple[str, list[str]]:
@@ -184,12 +186,17 @@ def deploy_adapter(adapter: Path | None, work: Path, context: str | None = None)
 
 
 def write_home(home: Path, binding, sub_agents: list[dict], project_doc_max_bytes: int | None = None) -> list[str]:
-    """CODEX_HOME/config.toml: the provider (the binding's Codex settings), no shell snapshot, the session's shell
-    given only Codex's core variables (no key, no proxy), no network for its commands, the adapter's sub_agents as
-    agent roles, and Codex's AGENTS.md cap when one is given. Returns the key variables the container must receive,
-    by name."""
-    args = binding.codex_args()
-    lines = [args[i + 1] for i in range(0, len(args), 2)]            # Codex's -c pairs are TOML lines
+    """CODEX_HOME/config.toml: the provider (the binding's Codex settings; for a ChatGPT login, Codex's built-in
+    provider, codex_login.py), no shell snapshot, the session's shell given only Codex's core variables (no key, no
+    proxy), no network for its commands, the adapter's sub_agents as agent roles, and Codex's AGENTS.md cap when one
+    is given. Returns the key variables the container must receive, by name."""
+    import codex_login
+    login = codex_login.is_login(binding)
+    if login:
+        lines = codex_login.config_lines()
+    else:
+        args = binding.codex_args()
+        lines = [args[i + 1] for i in range(0, len(args), 2)]        # Codex's -c pairs are TOML lines
     lines += ["features.shell_snapshot = false", "sandbox_workspace_write.network_access = false"]
     if project_doc_max_bytes:
         lines.append(f"project_doc_max_bytes = {int(project_doc_max_bytes)}")
@@ -208,7 +215,7 @@ def write_home(home: Path, binding, sub_agents: list[dict], project_doc_max_byte
     text = "\n".join(lines) + "\n"
     tomllib.loads(text)
     (home / "config.toml").write_text(text, encoding="utf-8")
-    key_env = binding.key_env_if_set()
+    key_env = None if login else binding.key_env_if_set()
     return [key_env] if key_env else []
 
 
@@ -254,10 +261,12 @@ class OfficeQACodexAgent(Agent):
         import sys
         if str(HERE) not in sys.path:
             sys.path.insert(0, str(HERE))
+        import codex_login
         import codex_session
         from hermit.evolver.agent import parse_log
 
         binding = self._binding()
+        login = codex_login.is_login(binding)
         docs = self._docs()
         corpus = Path(docs).resolve()
         self._ready(corpus)
@@ -280,7 +289,11 @@ class OfficeQACodexAgent(Agent):
         ws = Path(tempfile.mkdtemp(prefix=f"{task['id']}-", dir=rollouts)).resolve()
         work, home, log = ws / "work", ws / "home", ws / "log"
         started = time.time()
-        for attempt in range(3):            # the provider was unavailable: run the whole session again later
+        attempt = 0
+        while True:                         # the provider was unavailable: run the whole session again later
+            if login:                       # paused, or the plan refused a session: wait (codex_login.py)
+                codex_login.wait_for_plan(log=lambda m: print(f"officeqa {task['id']}: {m}", file=sys.stderr,
+                                                               flush=True))
             for d in (work, home, log):
                 shutil.rmtree(d, ignore_errors=True)
                 d.mkdir(parents=True)
@@ -289,6 +302,8 @@ class OfficeQACodexAgent(Agent):
                 raise ValueError(f"deploy: {mode!r} is neither tree nor adapter")
             deployed = (deploy_adapter if mode == "adapter" else deploy_harness)(adapter, work, context)
             keys = write_home(home, binding, deployed["sub_agents"], self.params.get("project_doc_max_bytes"))
+            if login:
+                codex_login.install_auth(home)
             prompt = PROMPT + ("\n" + MEMORY_NOTE if deployed["memory"] else "")
             (work / "task.md").write_text(text, encoding="utf-8")
             # The corpus is bound into docs/root_1 by the container (a real directory there, so `find docs` and
@@ -304,12 +319,21 @@ class OfficeQACodexAgent(Agent):
             code, timed_out = codex_session.run(args, work=work, home=home, corpus=corpus, keys=keys,
                                                 timeout=timeout_s, stdout=log / "agent-codex.jsonl",
                                                 corpus_at=(Path(roots[0]), work / "docs" / "root_1"))
+            if login:
+                codex_login.note_usage(home)
+                codex_login.remove_auth(home)
             events = events_of(log / "agent-codex.jsonl")
             served = any(e.get("type") == "turn.completed" for e in events)
             raw = (log / "agent-codex.jsonl").read_text(encoding="utf-8", errors="replace")
+            refusals = " ".join(str(e.get("message") or (e.get("error") or {}).get("message") or "") for e in events
+                                if e.get("type") in ("error", "turn.failed"))
+            if login and not served and codex_login.limit_hit(refusals):
+                codex_login.hold_for_limit()          # refused for the plan's limit: not an answer, run it again
+                continue
             if served or timed_out or not UNAVAILABLE.search(raw):
                 break
-            if attempt == 2:
+            attempt += 1
+            if attempt == 3:
                 raise RuntimeError(f"codex exec could not be served: {raw[-2000:]}")
             time.sleep(120)
         last_file = work / ".last_message.txt"

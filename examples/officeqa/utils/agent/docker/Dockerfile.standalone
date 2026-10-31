@@ -1,0 +1,26 @@
+# The Codex harness's container with the standalone Codex a machine installs for itself instead of the npm package:
+# `codex` keeps it under ~/.codex/packages/standalone/releases/<version>-<target>/ (bin/codex, codex-path/rg,
+# codex-resources/bwrap). Copy that directory into ./codex-standalone first:
+#
+#   cp -a ~/.codex/packages/standalone/releases/0.164.0-x86_64-unknown-linux-musl codex-standalone
+#   docker build -f Dockerfile.standalone -t officeqa-codex:0.164.0 .
+#
+# Otherwise as Dockerfile: Ubuntu 24.04, python3 (for the session's scripts), Codex and ripgrep on every PATH.
+ARG BASE=ubuntu:24.04
+FROM ${BASE}
+RUN (command -v python3 && test -s /etc/ssl/certs/ca-certificates.crt) >/dev/null \
+    || (apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends python3 \
+        ca-certificates && rm -rf /var/lib/apt/lists/*)
+COPY codex-standalone /opt/codex
+# codex and ripgrep on every PATH, a login shell's included (Codex runs commands with `bash -lc`, and /etc/profile
+# resets PATH); the package's bubblewrap too, which Codex otherwise takes from codex-resources/ with a warning in
+# every session's output
+RUN ln -s /opt/codex/bin/codex /usr/local/bin/codex \
+    && ln -s /opt/codex/codex-path/rg /usr/local/bin/rg \
+    && ln -s /opt/codex/codex-resources/bwrap /usr/local/bin/bwrap
+ENV PATH=/opt/codex/codex-path:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+    PYTHONDONTWRITEBYTECODE=1
+COPY egress_proxy.py /opt/egress_proxy.py
+ENTRYPOINT []
+CMD ["codex", "--version"]
