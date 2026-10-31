@@ -259,10 +259,11 @@ class Trainer:
             self.material.truncate(0)     # leftovers of a step that never completed
         last_feedback = done[-1].get("check_feedback_next") if done else None
         self._last_rollout_commit = done[-1]["parent"] if done and not done[-1].get("bootstrap") else None
-        ctx = self._context()
+        cancel = threading.Event()
+        ctx = self._context(cancel)
         if not done:
             box, stopped, _ = self._call("setup", lambda: self.evolver.setup(ctx), progress=None,
-                                         timeout_s=float(d["trainer"]["call_timeout_min"]) * 60)
+                                         timeout_s=float(d["trainer"]["call_timeout_min"]) * 60, cancel=cancel)
             if "error" in box or stopped:
                 raise SystemExit(f"the Evolver's setup failed: {box.get('error') or stopped}")
         step = done[-1]["step"] if done else 0
@@ -320,10 +321,10 @@ class Trainer:
         self.budget = Budget(**{k: self.config["trainer"]["budget"].get(k) for k in ("usd", "tokens", "hours")},
                              spent=spent)
 
-    def _context(self) -> Context:
-        tools = self._tools(None)
+    def _context(self, cancel: threading.Event | None = None) -> Context:
+        tools = self._tools(cancel)
         return Context(workspace=self.ws, access=self.access, tools=tools, params=self.params, base=self.config.base,
-                       message=self._message(None, tools), sandbox=self.sandbox)
+                       message=self._message(None, tools), sandbox=self.sandbox, cancel=cancel)
 
     def _tools(self, cancel: threading.Event | None, metered: list | None = None) -> dict:
         tools = assemble(adapter=self.ws.adapter, root=self.run_dir / "root",
@@ -584,9 +585,10 @@ class Trainer:
         self.log(f"finishing: {reason}")
         head = Tree.head(self.checkout)
         self.tree.export(head, self.ws.adapter, history=True)
-        ctx = self._context()
+        cancel = threading.Event()
+        ctx = self._context(cancel)
         box, stopped, _ = self._call("finalize", lambda: self.evolver.finalize(ctx), progress=None,
-                                     timeout_s=float(d["trainer"]["call_timeout_min"]) * 60)
+                                     timeout_s=float(d["trainer"]["call_timeout_min"]) * 60, cancel=cancel)
         final: FinalResult | None = box.get("value") if isinstance(box.get("value"), FinalResult) else None
         note = final.summary if final else f"finalize failed ({box.get('error') or stopped}); the last adapter is final"
         if final and Path(final.adapter).resolve() != self.ws.adapter.resolve():

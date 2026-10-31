@@ -1,7 +1,9 @@
 """End-to-end tests of the Trainer on a toy task (no network, no model)."""
 import json
+import os
 from pathlib import Path
 import subprocess
+import sys
 import textwrap
 
 import pytest
@@ -163,6 +165,42 @@ def test_budget_stops_the_run(tmp_path):
     summary = Trainer(cfg, log=lambda *_: None).train()
     assert summary["stop_reason"].startswith("hard budget")
     assert summary["spending"]["usd"]["rollout"] >= 0.05
+
+
+EVOLVER_SETUP_WAITS = '''
+import time
+
+from hermit.evolver.base import Evolver, StepResult
+
+class SetupWaits(Evolver):
+    def setup(self, ctx):
+        # A long-running setup polls the Trainer's cancel event, as the built-in Evolvers do between operations.
+        while ctx.cancel is None or not ctx.cancel.is_set():
+            time.sleep(0.1)
+
+    def step(self, ctx):
+        return StepResult("done", "unreachable: setup only ends when the Trainer cancels the call")
+'''
+
+
+def test_call_timeout_stops_the_setup(tmp_path):
+    """A setup that waits on ctx.cancel stops at call_timeout_min instead of hanging the run. The call runs in a
+    subprocess: while the timeout could not reach the context, this test would hang rather than fail."""
+    make_task(tmp_path, trainer__call_timeout_min=0.2, trainer__epochs=1)
+    (tmp_path / "toy" / "evolver.py").write_text(EVOLVER_SETUP_WAITS)
+    (tmp_path / "toy" / "evolver.yaml").write_text("class: evolver.py:SetupWaits\nneeds: []\nparams: {}\n")
+    command = [sys.executable, "-c",
+               "import sys\n"
+               "from hermit.config import Config\n"
+               "from hermit.trainer.trainer import Trainer\n"
+               "Trainer(Config.load(sys.argv[1], []), log=lambda *_: None).train()", str(tmp_path / "run.yaml")]
+    env = {**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1])}
+    try:
+        result = subprocess.run(command, cwd=str(tmp_path), env=env, capture_output=True, text=True, timeout=90)
+    except subprocess.TimeoutExpired:
+        pytest.fail("the run hung: the setup call ignored trainer.call_timeout_min")
+    assert result.returncode != 0
+    assert "the Evolver's setup failed: timeout" in result.stderr
 
 
 def test_needs_are_enforced(tmp_path):
