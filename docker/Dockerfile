@@ -52,7 +52,7 @@ RUN if getent passwd "$UID" >/dev/null; then userdel -r "$(getent passwd "$UID" 
     && (getent group "$GID" >/dev/null || groupadd -g "$GID" hermit) \
     && useradd -m -u "$UID" -g "$GID" -s /bin/bash hermit
 
-COPY examples/officeqa/utils/agent/docker/egress_proxy.py /opt/egress_proxy.py
+COPY docker/codex/egress_proxy.py /opt/egress_proxy.py
 ENV PATH=/opt/venv/bin:/usr/local/lib/codex/vendor/x86_64-unknown-linux-musl/codex-path:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \

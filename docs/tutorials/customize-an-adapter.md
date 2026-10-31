@@ -9,7 +9,7 @@ offline with the echo task of tutorial 3.
 
 ```bash
 mkdir -p .demo
-cp -R hermit/algorithms/templates/prompt_only .demo/my_template
+cp -R hermit/adapter/templates/prompt_only .demo/my_template
 ```
 
 `.demo/my_template/` holds `.hermit/adapter.yaml` (the template's metadata), `.hermit/EVOLVER.md` (how a learner

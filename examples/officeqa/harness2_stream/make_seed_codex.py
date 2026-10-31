@@ -13,7 +13,7 @@ import hermit
 from hermit.spec import check_spec
 
 HERE = Path(__file__).resolve().parent
-TEMPLATE = Path(hermit.__file__).resolve().parent / "algorithms" / "templates" / "harness2_codex"
+TEMPLATE = Path(hermit.__file__).resolve().parent / "adapter" / "templates" / "harness2_codex"
 seed = (HERE.parent / "utils" / "seed_adapter" / "ADAPTER.md").read_text()
 out = HERE / "seed_adapter_codex"
 if out.exists():

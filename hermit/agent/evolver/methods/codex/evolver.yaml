@@ -1,0 +1,14 @@
+description: A Codex agent improves the adapter from the step's learning material.
+class: hermit.agent.evolver.agent:AgentEvolver
+needs: []
+params:
+  backend: codex
+  prompt: START.md
+  resume_prompt: RESUME.md
+  args: []
+  model: null                # the agent's model; null: its default
+  price: null                # USD per million tokens {input, cached_input, output}
+  home: [auth.json, .credentials.json]   # files of the agent's home copied into the run's
+  tools: null                # the only Trainer tools the agent may use, e.g. [check_spec]; null: all
+  web_search: false          # web search, set explicitly: Codex's hosted search runs at the provider, past the sandbox
+  hide: null                 # paths hidden from the agent besides examples/tests/docs/.git; null: nothing hidden

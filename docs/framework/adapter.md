@@ -243,7 +243,7 @@ The learner's path is `ctx.workspace.adapter`. A scripted Evolver can use normal
 can edit the same files through its file tools. For example, this method appends a predefined instruction:
 
 ```python
-from hermit.evolver.base import StepContext, StepResult
+from hermit.agent.evolver.base import StepContext, StepResult
 
 def step(self, ctx: StepContext) -> StepResult:
     path = ctx.workspace.adapter / "ADAPTER.md"

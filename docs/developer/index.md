@@ -16,12 +16,12 @@ Start with the extension boundary you need. A task integration normally requires
 | Location | Responsibility |
 |---|---|
 | `hermit/cli.py`, `config.py` | Command parsing and config resolution |
-| `hermit/agents/` | Built-in acting agents and the Agent/function interface |
+| `hermit/agent/` | The [agent layers](../framework/agent-layers.md): `model/` (Layer 1), `base/` (Layer 2, the Base Agents), `acting/` and `evolver/` (Layer 3) |
+| `hermit/agent/acting/` | The Acting Agent interface and the built-in acting agents |
+| `hermit/agent/evolver/` | The Evolver interface and the agent Evolver; `methods/` holds the built-in learning methods |
 | `hermit/task.py` | Task records, callable loading, pipeline/judge types |
 | `hermit/adapter/` | Manifest loading and acting consumption |
-| `hermit/algorithms/templates/` | Built-in adapter seeds and specifications |
-| `hermit/algorithms/evolvers/` | Built-in learning methods and defaults |
-| `hermit/evolver/` | Shared learner contracts and program/agent execution |
+| `hermit/adapter/templates/` | Built-in adapter seeds and specifications |
 | `hermit/trainer/` | Training loop, rollouts, material, budgets, recovery |
 | `hermit/runtime/` | Tool serving, sandboxing, and runtime support |
 | `examples/<task>/utils/` | Task integrations and benchmark-owned acting/scoring logic |

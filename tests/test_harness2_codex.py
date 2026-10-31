@@ -5,7 +5,6 @@ import json
 import os
 from pathlib import Path
 import shutil
-import sys
 import tempfile
 from types import SimpleNamespace
 
@@ -19,8 +18,7 @@ from test_training import make_task
 pytest.importorskip("harness2.core.schedule")
 
 ROOT = Path(__file__).resolve().parents[1]
-TEMPLATE = ROOT / "hermit" / "algorithms" / "templates" / "harness2_codex"
-AGENT_DIR = ROOT / "examples" / "officeqa" / "utils" / "agent"
+TEMPLATE = ROOT / "hermit" / "adapter" / "templates" / "harness2_codex"
 SKILL = "---\ndescription: reading a table of a bulletin\n---\nRun `python3 .agents/skills/tables/scripts/sum.py`.\n"
 HOOKS = {"hooks": {"PostToolUse": [{"matcher": "Bash", "hooks": [{"type": "command",
                                                                   "command": "python3 scripts/check.py"}]}]}}
@@ -57,7 +55,7 @@ def test_template_root_and_seed_pass_the_check(tmp_path):
 
 def test_codex_layout_round_trip_and_validators(tmp_path):
     from harness2.core import tree as T
-    from hermit.algorithms.evolvers.harness2_upstream import surface as U
+    from hermit.agent.evolver.methods.harness2_upstream import surface as U
     layout = U.layout_of(TEMPLATE)
     assert type(layout).__name__ == "CodexLayout" and layout.name == "cx" and layout.allow_subagents
     assert layout.from_adapter(TEMPLATE) == {"AGENTS.md": (TEMPLATE / "AGENTS.md").read_text()}   # stubs are not the tree
@@ -81,18 +79,18 @@ def test_codex_layout_round_trip_and_validators(tmp_path):
         assert expected in problems, (expected, problems)
     assert layout.off_surface(tree) == []
     with pytest.raises(ValueError):                                          # only the Codex template is trained
-        U.layout_of(ROOT / "hermit" / "algorithms" / "templates" / "prompt_only")
+        U.layout_of(ROOT / "hermit" / "adapter" / "templates" / "prompt_only")
 
 
 def test_codex_agent_deploys_the_tree_and_writes_the_home(tmp_path):
-    sys.path.insert(0, str(AGENT_DIR))
-    import codex_agent
-    from hermit.algorithms.evolvers.harness2_upstream import surface as U
+    from hermit.agent.acting import deploy
+    from hermit.agent.base import cli
+    from hermit.agent.evolver.methods.harness2_upstream import surface as U
     adapter = tmp_path / "adapter"
     U.layout_of(TEMPLATE).to_adapter(full_tree(), TEMPLATE, adapter)
     work, home = tmp_path / "work", tmp_path / "home"
     work.mkdir(), home.mkdir()
-    deployed = codex_agent.deploy_harness(adapter, work)
+    deployed = deploy.tree(adapter, work)
     assert (work / "AGENTS.md").read_text() == full_tree()["AGENTS.md"]
     assert (work / ".agents" / "skills" / "tables" / "scripts" / "sum.py").is_file()
     assert (work / "scripts" / "check.py").is_file() and (work / ".codex" / "hooks.json").is_file()
@@ -100,26 +98,30 @@ def test_codex_agent_deploys_the_tree_and_writes_the_home(tmp_path):
     assert deployed["skills"] == ["tables"] and deployed["scripts"] == ["check.py"] and deployed["hooks"]
     assert [r["name"] for r in deployed["sub_agents"]] == ["reader"]
     assert deployed["sub_agents"][0]["instructions"] == "Summarise what you read."
-    binding = SimpleNamespace(codex_args=lambda: ["-c", 'model_provider="fw"', "-c", 'model_providers.fw.env_key="FW_KEY"'],
-                              key_env_if_set=lambda: "FW_KEY")
-    assert codex_agent.write_home(home, binding, deployed["sub_agents"]) == ["FW_KEY"]
+    cli.write_home(home, {"project_doc_max_bytes": 65536}, deployed["sub_agents"])
     import tomllib
     config = tomllib.loads((home / "config.toml").read_text())
-    assert config["model_provider"] == "fw" and config["features"] == {"shell_snapshot": False, "multi_agent": True}
+    assert config["features"] == {"shell_snapshot": False, "multi_agent": True} and config["approval_policy"] == "never"
+    assert config["project_doc_max_bytes"] == 65536 and "forced_login_method" not in config
+    assert config["web_search"] == "disabled"
     assert config["shell_environment_policy"]["inherit"] == "core"
     assert config["agents"]["reader"] == {"description": "reads long files", "config_file": "agents/reader.toml"}
     role = tomllib.loads((home / "agents" / "reader.toml").read_text())
     assert role["developer_instructions"] == "Summarise what you read."
     work2 = tmp_path / "work2"
     work2.mkdir()
-    assert codex_agent.deploy_harness(None, work2) == {"agents_md": False, "skills": [], "scripts": [], "hooks": False,
-                                                       "sub_agents": [], "memory": False}
-    assert "multi_agent" not in (codex_agent.write_home(tmp_path / "home2", binding, []), (tmp_path / "home2" / "config.toml").read_text())[1]
+    assert deploy.tree(None, work2) == {"agents_md": False, "skills": [], "scripts": [], "hooks": False,
+                                        "sub_agents": [], "memory": False, "context": False}
+    (tmp_path / "home2").mkdir()
+    cli.write_home(tmp_path / "home2", {"login": "chatgpt"}, [])
+    config = tomllib.loads((tmp_path / "home2" / "config.toml").read_text())
+    assert "multi_agent" not in config["features"] and config["forced_login_method"] == "chatgpt"
+    assert config["web_search"] == "disabled"                 # the hosted search would reach past the proxy
 
 
 def test_bench_reads_a_codex_session(tmp_path):
     """The bench renders a Codex session's event stream as the trajectory and task.md as the task prompt."""
-    from hermit.algorithms.evolvers.harness2_upstream.bench import FrameworkBench
+    from hermit.agent.evolver.methods.harness2_upstream.bench import FrameworkBench
     from harness2.core.spec import BenchPrompts, ChannelSpec
     seed = tmp_path / "seed"
     shutil.copytree(TEMPLATE, seed, ignore=shutil.ignore_patterns("__pycache__"))
@@ -160,7 +162,7 @@ PROPOSER = r'''
 import json, shutil, tempfile
 from pathlib import Path
 from harness2.core.proposer import Reply
-from hermit.algorithms.evolvers.harness2_upstream.channel import FrameworkProposer
+from hermit.agent.evolver.methods.harness2_upstream.channel import FrameworkProposer
 
 LEAKS = ("expected the sum", '"score"', '"judge"', '"feedback"')
 

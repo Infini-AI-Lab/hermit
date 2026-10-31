@@ -735,8 +735,9 @@ class HidingSandbox:
 
     def wrap(self, command, **kw):
         args, env = self.inner.wrap(command, **kw)
-        if args and args[0] == "bwrap" and "--" in args:
-            cut = args.index("--")
+        start = next((i for i, a in enumerate(args) if Path(a).name == "bwrap"), None)   # after an audit's strace
+        if start is not None and "--" in args[start:]:
+            cut = args.index("--", start)
             cover = []
             for p in self.hidden:
                 p = p.resolve()

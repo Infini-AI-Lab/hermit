@@ -27,7 +27,7 @@ A slow update can make the last step of an epoch substantially more expensive th
 
 ## Parameters and defaults
 
-```{literalinclude} ../../hermit/algorithms/evolvers/skillopt/evolver.yaml
+```{literalinclude} ../../hermit/agent/evolver/methods/skillopt/evolver.yaml
 :language: yaml
 ```
 

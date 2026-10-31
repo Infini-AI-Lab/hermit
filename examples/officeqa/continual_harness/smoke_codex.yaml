@@ -8,13 +8,23 @@ data:
   shuffle_seed: 42
 task_info: ../utils/task-info/
 agent:
-  name: ../utils/agent/codex_agent.py:OfficeQACodexAgent
+  base: codex                          # Layer 2: Codex as a Base Agent (hermit/agent/base/cli.py)
   concurrency: 2
-  params:
-    model: fireworks/accounts/fireworks/models/glm-5p3-flash
+  params:                              # Layer 3: the Acting Agent with OfficeQA's task functions
+    prompt: ../utils/prompt.md
+    prepare: ../utils/task.py:prepare  # task.md and the corpus under docs/
+    answer: ../utils/task.py:answer    # the last <answer>...</answer>
+    collect: ../utils/task.py:collect  # task.md into the log
+    deploy: tree                       # the skill (or the context tool's context) as AGENTS.md; a Codex tree as is
+    workspaces: ~/.cache/hermit/officeqa-ch-codex
+  model:                               # Layer 1
+    ref: fireworks/accounts/fireworks/models/glm-5p3-flash
     effort: medium
+  codex:                               # Layer 2: how Codex runs
+    web_search: false                  # set explicitly: Codex's hosted search runs past the container
     timeout_s: 1800
-    codex_dir: ~/.cache/hermit/officeqa-ch-codex
+    isolation: container               # each session in a container of its own (hermit/agent/base/container.py)
+    container: {image: "officeqa-codex:0.162.0", network: oq-sandbox, proxy: "http://oq-egress:3128"}
 judge:
   path: ../utils/judge.py
 template: continual-harness@1.0

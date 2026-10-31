@@ -224,6 +224,17 @@ class Session:
             return [dict(t) for t in self.tools]
         raise ValueError(f"Unknown tool spec style: {style}")
 
+    def as_tools(self) -> list:
+        """The adapter's tools (the context tool not among them) as Tools a Base Agent offers; a result reads as
+        `text`. The adapter validates the arguments itself."""
+        from hermit.agent.base.tool import Tool
+        return [Tool(t["name"], t["description"], self._caller(t["name"]),
+                     source="adapter", input_schema=t["input_schema"], output_schema={}, validate=False,
+                     render=self.text) for t in self.tools]
+
+    def _caller(self, name: str):
+        return lambda **arguments: self.call(name, arguments)
+
     async def acall(self, name: str, arguments: dict | None = None) -> Any:
         """Run one tool; the validated result. Raises on an unknown tool, invalid arguments or a tool error."""
         arguments = arguments if arguments is not None else {}

@@ -3,13 +3,12 @@
 [Continual Harness](https://arxiv.org/abs/2605.09998) (Karten et al. 2026; [code](https://github.com/sethkarten/continual-harness))
 on OfficeQA in the SkillOpt paper's setting, with Codex as the acting agent: the harness is Codex's own tree
 (`AGENTS.md` as the base policy, `sub_agents/`, `.agents/skills/` with executable helpers, `memory/NOTES.md`; the
-[`continual-harness`](../../../hermit/algorithms/templates/continual_harness/) template), and the
+[`continual-harness`](../../../hermit/adapter/templates/continual_harness/) template), and the
 [`continual_harness`](../../../docs/methods/continual_harness.md) Evolver refines its four components in place every
 training step, from the step's trajectories and the judge's feedback, with no validation gate.
 
 ```bash
 python examples/officeqa/continual_harness/make_seed.py                    # AGENTS.md = SkillOpt's initial skill
-export OFFICEQA_CODEX_IMAGE=officeqa-codex:0.162.0
 hermit check --config examples/officeqa/continual_harness/smoke_codex.yaml
 hermit train --config examples/officeqa/continual_harness/smoke_codex.yaml  # 4 questions, 2 steps, then eval 4
 hermit train --config examples/officeqa/continual_harness/run_codex.yaml    # 50 training questions, 4 epochs

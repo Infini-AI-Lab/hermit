@@ -49,7 +49,7 @@ questions, three passes each), where `<selector>` is `final`, `none`, `adapter` 
 `seed_adapter`; `--adapter adapter` evaluates the trained adapter included in the folder. A smoke on a few
 questions: the folder's `smoke.yaml`, after `hermit check --config ...`
 ([walkthrough](../../docs/recipes/officeqa.md#check-train-evaluate)). The Codex harness: the same commands with
-`run_codex.yaml` and `smoke_codex.yaml`, the folder's configs with `agent.params.harness: codex` and no budget.
+`run_codex.yaml` and `smoke_codex.yaml`, the folder's configs with the framework's Codex agent (`agent.name: codex` with `utils/task.py`'s hooks) and no budget.
 
 ReHarness runs through its launcher: it puts the embedding model behind a loopback relay for the adapter's reader
 (whose sandbox has no keys), writes `reharness/seed_adapter/` and starts `hermit train`, `eval` or `check` on
@@ -58,7 +58,7 @@ check and smoke. `run.yaml` is evaluated like the other methods (`reharness/runs
 `stream.yaml` has no test split, and its number is the mean of `rollout.mean_score` over the steps of
 `reharness/runs/stream-reharness/steps.jsonl` (step 0, the bootstrap, has none). The
 [recipe](../../docs/recipes/officeqa.md#reharness) explains the two protocols. Meta-Harness Adapter runs in the Codex
-harness only (`OFFICEQA_CODEX_IMAGE` set as for the other Codex configs);
+harness only;
 [`meta_harness_adapter/`](meta_harness_adapter/) describes its configs and records.
 
 ## Results
@@ -96,7 +96,7 @@ Results use two settings:
 **ReHarness** ([`reharness/`](reharness/), [method](../../docs/methods/reharness.md)) keeps the initial skill as
 the harness's text and learns a bank of reflections below it, five retrieved per question by Qwen3-Embedding-8B and
 revised after it, with the acting model as its reflection and revision agents. Each session is Codex in a container
-of its own through [`utils/agent/codex_agent.py`](utils/agent/codex_agent.py) (3,600 s wall clock, as the two
+of its own through the framework's Codex agent (3,600 s wall clock, as the two
 streams; GEPA's and SkillOpt's trainings used SkillOpt's own Codex harness with 180 s sessions), which deploys the
 skill and the question's retrieved reflections as the session's `AGENTS.md`. Five retrieved reflections run past
 Codex's default limit on `AGENTS.md`, 32 KiB, beyond which Codex silently drops the rest, so the ReHarness configs
@@ -119,14 +119,15 @@ The earlier direct-chat runs (`run.yaml`, `stream.yaml`: SkillOpt's rollout, thr
 ## Code
 
 ```text
-utils/agent/        OfficeQAAgent (agent.py): SkillOpt's rollout, direct or Codex, with ADAPTER.md as the skill;
-                    codex_sandbox.py and docker/ are the Codex harness's container, image and egress proxy
+utils/agent/        OfficeQAAgent (agent.py): SkillOpt's rollout in direct chat, with ADAPTER.md as the skill
+utils/task.py       OfficeQA's task functions for the framework's Codex agent (task.md, the corpus, the answer), with
+                    utils/prompt.md; docker/codex/ builds the agent's image and egress proxy
 utils/prepare.py    tasks.jsonl, the splits, data.json and seed_adapter/      utils/judge.py   SkillOpt's exact match
 utils/task-info/    the task for the learner
 gepa/ skillopt/     smoke.yaml and run.yaml per method, smoke_codex.yaml and run_codex.yaml for the Codex harness;
                     adapter/ is the skill run.yaml trained (direct chat), with its .hermit/CARD.md
 harness2_stream/    Harness² under the paper's protocol, by the upstream code, with Codex as the acting agent
-                    (run_codex.yaml, slots_codex.yaml; utils/agent/codex_agent.py and codex_session.py; the
+                    (run_codex.yaml, slots_codex.yaml; the framework's Codex agent with utils/task.py; the
                     harness2-codex template); launch.sh starts a stream
 reharness/          ReHarness: stream_codex.yaml (the 172 test questions as one stream, Codex as the acting agent),
                     run_codex_flash.yaml (the 50 as one stream, then the frozen bank on the 172), the direct-chat

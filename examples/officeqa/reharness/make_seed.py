@@ -16,7 +16,7 @@ from hermit.spec import check_spec
 import skillopt
 
 HERE = Path(__file__).resolve().parent
-TEMPLATE = Path(hermit.__file__).resolve().parent / "algorithms" / "templates" / "reharness"
+TEMPLATE = Path(hermit.__file__).resolve().parent / "adapter" / "templates" / "reharness"
 SKILL = Path(skillopt.__file__).resolve().parent / "envs" / "officeqa" / "skills" / "initial.md"
 out = HERE / "seed_adapter"
 if out.exists():

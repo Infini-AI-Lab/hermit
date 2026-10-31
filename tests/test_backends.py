@@ -10,11 +10,11 @@ import threading
 import pytest
 import yaml
 
-from hermit import backends
-from hermit.backends import (Binding, bind_agent_params, bindings_of, is_ref, normalize_config, probe,
+from hermit.agent.model import backends
+from hermit.agent.model.backends import (Binding, bind_agent_params, bindings_of, is_ref, normalize_config, probe,
                                      problems_of, registry, resolve, shell_lines)
 from hermit.config import Config
-from hermit.llm import ChatClient
+from hermit.agent.model.llm import ChatClient
 
 ROOT = Path(__file__).resolve().parents[1]
 GLM = "accounts/fireworks/models/glm-5p3-flash"
@@ -195,8 +195,8 @@ def test_bind_agent_params(monkeypatch):
 
 
 def test_claude_cost_counts_only_on_anthropic():
-    from hermit.evolver.agent import price_usage
-    from hermit.evolver.base import Usage
+    from hermit.agent.base.records import price_usage
+    from hermit.agent.evolver.base import Usage
     r = reg()
     reported = lambda: [Usage(model="q", input_tokens=2_000_000, output_tokens=1_000_000, calls=3, cost_usd=3.6)]
     local = bind_agent_params({"backend": "claude", "model": {"model": "vllm/q", "price": {"input": 0, "output": 0}}},
@@ -325,7 +325,7 @@ def test_shell_lines_and_cli(capsys, monkeypatch):
 # ---- the Evolver side, the check command, the CLI dispatch and the meter -----------------------------------------------
 
 def test_instantiate_binds_an_agent_evolver(monkeypatch):
-    from hermit.evolver.loader import find, instantiate
+    from hermit.agent.evolver.loader import find, instantiate
     monkeypatch.setenv("FIREWORKS_API_KEY", "fw-key")
     _, params = instantiate(find("codex"), {"model": f"fireworks/{GLM}", "args": ["-c", "x=1"]}, backends=reg())
     assert params["model"] == GLM and params["args"][1] == 'model_provider="fireworks"' and params["args"][-1] == "x=1"

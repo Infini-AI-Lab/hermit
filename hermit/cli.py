@@ -49,13 +49,13 @@ def main(argv=None) -> int:
     srv = sub.add_parser("serve", help="run the adapter's MCP tool server on stdio, for a host session")
     srv.add_argument("adapter", type=Path)
     srv.add_argument("--audit-log", type=Path, help="append every tool call to this JSONL file")
-    # `backends` has its own parser (hermit.backends): list the backends, resolve or check a model reference.
+    # `backends` has its own parser (hermit.agent.model.backends): list the backends, resolve or check a model reference.
     sub.add_parser("backends", help="list the model backends; show, shell or check a <backend>/<model> reference",
                    add_help=False)
     if argv is None:
         argv = sys.argv[1:]
     if argv and argv[0] == "backends":
-        from hermit.backends import main as backends_main
+        from hermit.agent.model.backends import main as backends_main
         return backends_main(list(argv[1:]))
     args = parser.parse_args(argv)
 

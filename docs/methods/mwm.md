@@ -40,7 +40,7 @@ before that window's checkpoint is tested.
 
 ## Parameters and defaults
 
-```{literalinclude} ../../hermit/algorithms/evolvers/mwm/evolver.yaml
+```{literalinclude} ../../hermit/agent/evolver/methods/mwm/evolver.yaml
 :language: yaml
 ```
 

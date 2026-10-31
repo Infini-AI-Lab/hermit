@@ -5,7 +5,7 @@ import shutil
 from hermit.adapter.manifest import matches
 from hermit.spec import check_spec, repair
 
-TEMPLATES = Path(__file__).resolve().parents[1] / "hermit" / "algorithms" / "templates"
+TEMPLATES = Path(__file__).resolve().parents[1] / "hermit" / "adapter" / "templates"
 
 
 def copy(src, dst):

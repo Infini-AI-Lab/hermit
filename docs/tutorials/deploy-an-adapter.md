@@ -9,9 +9,9 @@ From the repository root:
 
 ```bash
 mkdir -p .demo
-cp -R hermit/algorithms/templates/prompt_only .demo/deploy-adapter
+cp -R hermit/adapter/templates/prompt_only .demo/deploy-adapter
 python -c 'from pathlib import Path; Path(".demo/deploy-adapter/ADAPTER.md").write_text("# Working rules\n\nCheck units before doing arithmetic.\n")'
-python -m hermit.spec .demo/deploy-adapter --root hermit/algorithms/templates/prompt_only
+python -m hermit.spec .demo/deploy-adapter --root hermit/adapter/templates/prompt_only
 ```
 
 Use a fresh destination for the copy. You can instead use a trained `<run>/checkout/` with its compatible template.

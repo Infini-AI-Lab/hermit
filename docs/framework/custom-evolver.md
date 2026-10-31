@@ -71,12 +71,12 @@ You can reuse a launcher instead of implementing a new Python learning loop:
 
 | Class | What you supply | How it hands back an adapter |
 |---|---|---|
-| `hermit.evolver.agent:AgentEvolver` | Backend, prompt files, model selection, and host arguments. | The learner agent edits the working directory. |
-| `hermit.evolver.agent:CommandEvolver` | An external command and optional environment values. | The program edits the working directory and may write a result file. |
+| `hermit.agent.evolver.agent:AgentEvolver` | Backend, prompt files, model selection, and host arguments. | The learner agent edits the working directory. |
+| `hermit.agent.evolver.agent:CommandEvolver` | An external command and optional environment values. | The program edits the working directory and may write a result file. |
 
 `AgentEvolver` supports `codex` and `claude`. Its parameters include `backend`, `prompt`, `resume_prompt`, `model`,
 `args`, and `home`. Prompt placeholders include the workspace paths, `message`, `epoch`, and `step`.
-The bundled definitions are under `hermit/algorithms/evolvers/`.
+The bundled definitions are under `hermit/agent/evolver/methods/`.
 
 `CommandEvolver` supplies `HA_CONTEXT`, a path to JSON describing the workspace, access, progress, session, and
 parameters, plus `HA_TOOL_URL` for the tool endpoint. A program may write `output/step_result.json` using the
@@ -106,51 +106,51 @@ semantics and intended access boundaries.
 
 ### Lifecycle
 
-```{literalinclude} ../../hermit/evolver/base.py
+```{literalinclude} ../../hermit/agent/evolver/base.py
 :language: python
 :pyobject: Evolver
 ```
 
 ### Workspace and context
 
-```{literalinclude} ../../hermit/evolver/base.py
+```{literalinclude} ../../hermit/agent/evolver/base.py
 :language: python
 :pyobject: Workspace
 ```
 
-```{literalinclude} ../../hermit/evolver/base.py
+```{literalinclude} ../../hermit/agent/evolver/base.py
 :language: python
 :pyobject: Access
 ```
 
-```{literalinclude} ../../hermit/evolver/base.py
+```{literalinclude} ../../hermit/agent/evolver/base.py
 :language: python
 :pyobject: Context
 ```
 
-```{literalinclude} ../../hermit/evolver/base.py
+```{literalinclude} ../../hermit/agent/evolver/base.py
 :language: python
 :pyobject: Progress
 ```
 
-```{literalinclude} ../../hermit/evolver/base.py
+```{literalinclude} ../../hermit/agent/evolver/base.py
 :language: python
 :pyobject: StepContext
 ```
 
 ### Results and usage
 
-```{literalinclude} ../../hermit/evolver/base.py
+```{literalinclude} ../../hermit/agent/evolver/base.py
 :language: python
 :pyobject: StepResult
 ```
 
-```{literalinclude} ../../hermit/evolver/base.py
+```{literalinclude} ../../hermit/agent/evolver/base.py
 :language: python
 :pyobject: FinalResult
 ```
 
-```{literalinclude} ../../hermit/evolver/base.py
+```{literalinclude} ../../hermit/agent/model/usage.py
 :language: python
 :pyobject: Usage
 ```

@@ -9,8 +9,8 @@
 #   FIREWORKS_API_KEY=... WM_PORT=3601 examples/officeqa/reharness/launch.sh <config> [train|eval|check] [hermit arguments...]
 #
 #   config: smoke, run, stream (direct chat: SkillOpt's rollout), stream_codex, run_codex_flash (Codex 0.162.0 in a
-#   container per session, the recipe's Flash row; needs the image, the network and the egress proxy of
-#   ../utils/agent/codex_session.py, OFFICEQA_CODEX_IMAGE default officeqa-codex:0.162.0)
+#   container per session, the recipe's Flash row; needs the image, the network and the egress proxy the
+#   config names, built by docker/codex/; the Codex agent checks them before its first session)
 #
 #   ... launch.sh smoke check --no-probe          # hermit check on smoke.yaml (--no-probe skips its one model call)
 #   ... launch.sh smoke                           # hermit train on smoke.yaml
@@ -43,10 +43,6 @@ cd "$HERE"
 [ -f ../utils/tasks.jsonl ] || { echo "REFUSING: run ../utils/prepare.py first"; exit 1; }
 case "$CONFIG" in stream|stream_codex) [ "$COMMAND" != eval ] \
   || { echo "REFUSING: $CONFIG.yaml has no test split; its number is the mean of rollout.mean_score over the run's steps.jsonl"; exit 1; };; esac
-case "$CONFIG" in *codex*)           # the Codex harness: its image, internal network and egress proxy must be there
-  export OFFICEQA_CODEX_IMAGE=${OFFICEQA_CODEX_IMAGE:-officeqa-codex:0.162.0}
-  "$PY" ../utils/agent/codex_session.py --check "$("$PY" -c "import json; print(json.load(open('../utils/data.json'))['docs'])")" \
-    || { echo "REFUSING: the Codex harness's container is not ready (see ../utils/agent/codex_session.py)"; exit 1; };; esac
 # hermit's options (--adapter, --no-probe) go before its overrides (key=value), whatever order they were given in.
 OPTS=() OVERRIDES=()
 while [ $# -gt 0 ]; do
@@ -59,10 +55,10 @@ done
 if [ "$COMMAND" = eval ]; then
   case " ${OPTS[*]-} " in *" --adapter "*) ;; *) OPTS+=(--adapter final);; esac
 fi
-# The embedding model the config names, resolved on its backend (the shell form of hermit.backends): the meter's
+# The embedding model the config names, resolved on its backend (the shell form of hermit.agent.model.backends): the meter's
 # upstream (EMBED_ORIGIN), the metered URL's tail (EMBED_PATH), the model's id and its key variable.
 EMBED_REF=$("$PY" -c "import sys, yaml; print(yaml.safe_load(open(sys.argv[1]))['evolver']['params']['embedding'])" "$CONFIG.yaml")
-eval "$("$PY" -m hermit.backends shell "$EMBED_REF" | sed 's/^HA_/EMBED_/')"
+eval "$("$PY" -m hermit.agent.model.backends shell "$EMBED_REF" | sed 's/^HA_/EMBED_/')"
 [ -n "${EMBED_MODEL_ID:-}" ] || { echo "REFUSING: cannot resolve $EMBED_REF"; exit 1; }
 # The embedding backend's key variable (none for a keyless server): from the environment, else MW_KEY_FILE; required
 # unless the backend says not, as the CL-Bench launchers' need_key has it.

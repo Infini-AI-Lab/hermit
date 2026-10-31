@@ -7,18 +7,17 @@ the agent is fixed and only the adapter changes. The
 [`meta_harness_adapter`](../../../docs/methods/meta_harness_adapter.md) Evolver runs a Codex proposer that reads every
 earlier candidate's files, scores and trajectories and writes two new adapters per round; each is evaluated on the 50
 training questions (the search set), and the best there is evaluated once on the 172 test questions. The adapter is
-the [`meta-harness-adapter`](../../../hermit/algorithms/templates/meta_harness_adapter/) template: every file outside
+the [`meta-harness-adapter`](../../../hermit/adapter/templates/meta_harness_adapter/) template: every file outside
 `.hermit/` is the proposer's to write.
 
 ```bash
 python examples/officeqa/meta_harness_adapter/make_seed.py                  # ADAPTER.md = SkillOpt's initial skill
-export OFFICEQA_CODEX_IMAGE=officeqa-codex:0.162.0
 hermit train --config examples/officeqa/meta_harness_adapter/demo.yaml       # one round: the seed and two candidates
 hermit train --config examples/officeqa/meta_harness_adapter/run.yaml        # six rounds of two, 13 epochs
 hermit eval  --config examples/officeqa/meta_harness_adapter/run.yaml --adapter final
 ```
 
-The acting agent is `../utils/agent/codex_agent.py` with `deploy: adapter`: `ADAPTER.md` becomes the session's
+The acting agent is the framework's Codex agent with `deploy: files`: `ADAPTER.md` becomes the session's
 `AGENTS.md` and every other file of the adapter is copied to the same path in the session's workspace, so a
 candidate may bring scripts or notes along with its instructions (`task-info/README.md` tells the proposer so). The
 Codex image, the models (GLM 5.3 Flash acts and proposes, medium effort), the 3,600 s session limit and the one-pass

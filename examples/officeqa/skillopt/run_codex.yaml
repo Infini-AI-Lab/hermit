@@ -1,8 +1,10 @@
 # OfficeQA in the SkillOpt paper's setting (arXiv 2605.23904): its 50/24/172 split, oracle pages with file tools, exact
 # match, and its SkillOpt hyperparameters: 4 epochs of batches of 40 (2 steps each), minibatch 8, merge 8, learning
 # rate 4 decaying to 2, validation gate, gated slow update, meta skill. GLM 5.3 Flash acts.
-# Codex harness: as skillopt/run.yaml, but GLM 5.3 Flash acts in SkillOpt's Codex harness (codex exec in a
-# workspace-write sandbox, the skill as SKILL.md, the whole corpus under docs/; utils/agent/agent.py).
+# Codex harness: as skillopt/run.yaml, but GLM 5.3 Flash acts in the framework's Codex agent (codex exec in a
+# workspace-write sandbox in a container per session, the skill as AGENTS.md, the whole corpus under docs/, 3,600 s
+# per session). The published Codex-harness numbers were made with SkillOpt's own Codex harness (the skill as
+# SKILL.md, 180 s sessions), which this replaces.
 data:
   tasks: ../utils/tasks.jsonl
   train: ../utils/splits/train.txt
@@ -12,10 +14,23 @@ data:
   shuffle_seed: 42
 task_info: ../utils/task-info/
 agent:
-  name: ../utils/agent/agent.py:OfficeQAAgent
-  params:
-    harness: codex
+  base: codex                          # Layer 2: Codex as a Base Agent (hermit/agent/base/cli.py)
   concurrency: 8
+  params:                              # Layer 3: the Acting Agent with OfficeQA's task functions
+    prompt: ../utils/prompt.md
+    prepare: ../utils/task.py:prepare  # task.md and the corpus under docs/
+    answer: ../utils/task.py:answer    # the last <answer>...</answer>
+    collect: ../utils/task.py:collect  # task.md into the log
+    deploy: tree                       # the skill (or the context tool's context) as AGENTS.md; a Codex tree as is
+    workspaces: ~/.cache/hermit/officeqa-codex-actor
+  model:                               # Layer 1
+    ref: fireworks/accounts/fireworks/models/glm-5p3-flash
+    effort: medium
+  codex:                               # Layer 2: how Codex runs
+    web_search: false                  # set explicitly: Codex's hosted search runs past the container
+    timeout_s: 3600
+    isolation: container               # each session in a container of its own (hermit/agent/base/container.py)
+    container: {image: "officeqa-codex:0.134.0", network: oq-sandbox, proxy: "http://oq-egress:3128"}
 judge:
   path: ../utils/judge.py
 template: prompt-only@1.0
@@ -47,7 +62,7 @@ sandbox:
   read: []
   env: []                    # the Evolver's model key variable is always passed; nothing else is
   profiles:                  # the agent's role runs unconfined: it drives Docker (the daemon's socket, the sessions'
-    rollout: {enabled: false}   # homes under ~/.cache); each Codex session is in a container of its own (codex_sandbox.py)
+    rollout: {enabled: false}   # homes under ~/.cache); each Codex session is in a container of its own (hermit/agent/base/container.py)
 trainer:
   run_name: codex-skillopt
   output_dir: runs

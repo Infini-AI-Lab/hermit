@@ -18,7 +18,7 @@ What it does, in order:
      result.json holds the outcome, times, tokens and cost per agent.
 
 Environment: the key variable of the model's backend (FIREWORKS_API_KEY for the default model; `--model` is a
-`<backend>/<model id>` reference, see hermit.backends, and the backend must serve the Responses API, which
+`<backend>/<model id>` reference, see hermit.agent.model.backends, and the backend must serve the Responses API, which
 Codex speaks); COLLAB_REPO (default ~/code/formal-conjectures) and COLLAB_LAKE (default ~/.elan/bin/lake) for the
 Lean checkout and toolchain; LEAN_SWARM_RUNS (default ~/code/lean-swarm-runs) for where runs go. Needs codex, bwrap
 and socat on PATH. `--dry-run` prepares everything and starts the service, but no agent.
@@ -399,7 +399,7 @@ def main() -> None:
     a = ap.parse_args()
 
     sys.path.insert(0, str(FRAMEWORK))
-    from hermit.backends import problems_of, registry, resolve
+    from hermit.agent.model.backends import problems_of, registry, resolve
     try:
         binding = resolve(a.model, registry())
     except ValueError as exc:

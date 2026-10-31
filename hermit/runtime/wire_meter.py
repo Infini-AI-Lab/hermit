@@ -7,7 +7,7 @@ for a Codex learner, rewrites what the provider needs rewritten (REWRITE_* below
 
 UPSTREAM is the backend's origin (scheme://host[:port]; http for a local vLLM or SGLang server); clients use
 http://127.0.0.1:<PORT>/<bucket><path of the backend's base URL> (/inference/v1 for Fireworks, /v1 for a local
-server, nothing for a backend served at its origin): `python -m hermit.backends shell <ref>` prints both
+server, nothing for a backend served at its origin): `python -m hermit.agent.model.backends shell <ref>` prints both
 as HA_ORIGIN and HA_PATH. The first path segment is the bucket unless it is an API root (v1, inference, ...).
 
 Copied from metaworld's mwm/wire_meter.py (2026-10-14); the notes below are its own.

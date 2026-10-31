@@ -103,12 +103,25 @@ def test_the_deploy_check_calls_the_tool_with_an_empty_query(adapter):
     assert out.returncode != 0 and "must return an object with a `text` string" in out.stderr
 
 
-def test_the_cli_agents_refuse_an_adapter_with_a_context_tool(adapter, tmp_path):
-    """The CLI agents deploy ADAPTER.md once; a per-task context would never reach them, so they refuse the adapter."""
-    from hermit.agents import cli
-    with pytest.raises(ValueError, match="context_tool"):
-        cli.run({"id": "t1", "prompt": "x"}, adapter, params={"backend": "codex"}, base=tmp_path)
-    assert not list((tmp_path / ".logs" / "workspaces").glob("*/AGENTS.md"))         # nothing was deployed
+def test_the_codex_agent_gives_each_task_its_own_context(adapter, tmp_path):
+    """The Codex agent renders the context tool for each task into the session's AGENTS.md (deploy: tree or files) and
+    records what it rendered; `hermit deploy`'s deployment (deploy: host) refuses an adapter that is not portable."""
+    from hermit.agent.acting import workspace as cli
+    for mode in ("tree", "files"):
+        work = tmp_path / f"work-{mode}"
+        work.mkdir()
+        deployed, record = cli._deploy({"id": "t1", "question": "net receipts"}, adapter, work, "codex",
+                                       {"deploy": mode})
+        text = (work / "AGENTS.md").read_text()
+        assert text.startswith("# Static instructions") and "[NOTES FOR t1]\nNET RECEIPTS" in text, mode
+        assert record["retrieved"] == ["t1"] and deployed["mode"] == mode
+    work = tmp_path / "work-query"
+    work.mkdir()
+    cli._deploy({"id": "t2", "question": "q", "topic": "bonds"}, adapter, work, "codex",
+                {"deploy": "tree", "context_query": "topic"})
+    assert "BONDS" in (work / "AGENTS.md").read_text()
+    with pytest.raises(ValueError, match="plugin-portable: false"):
+        cli._deploy({"id": "t1", "question": "x"}, adapter, tmp_path / "work-host", "codex", {"deploy": "host"})
 
 
 # ---------- plugin-portable: whether a template's adapters can be deployed or converted ----------

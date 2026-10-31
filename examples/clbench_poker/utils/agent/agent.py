@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 
-from hermit.agents import Agent
+from hermit.agent.acting import Agent
 from hermit.task import RunOutput
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))

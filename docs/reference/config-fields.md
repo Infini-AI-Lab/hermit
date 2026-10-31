@@ -35,6 +35,9 @@ guarantee that their consumer supports arbitrary fields.
 | `agent.name` | string / null; required | Built-in `react`, `codex`, `claude-code`, an Agent class, or a `file.py:function` / `module:function` |
 | `agent.concurrency` | integer / 4 | Maximum concurrent rollout/evaluation task executions; use a positive value |
 | `agent.params` | mapping / {} | Passed to Agent constructors; plain functions receive it when they declare a `params` argument |
+| `agent.base` | string / null | Layer 2 in the per-layer form ([Agent layers](../framework/agent-layers.md#settings-by-layer)): `codex`, `claude`, `react`, or `direct` (with `agent.name`, a task's own loop); sets `agent.name` when unset |
+| `agent.model` | string / mapping / null | Layer 1: a `<backend>/<model>` reference, or `{ref` or `name, login, effort, price, ...}`; read into `agent.params` |
+| `agent.codex`, `agent.claude`, `agent.react`, `agent.direct` | mapping / null | Layer 2's settings for that Base Agent (the one `agent.base` names); read into `agent.params`. A key set in two layers is refused |
 | `pipeline.run` | string / null | Legacy alias for `agent.name`, applied only when `agent.name` is unset |
 | `pipeline.concurrency` | integer / null | Legacy concurrency override when the legacy pipeline alias is used |
 | `pipeline.params` | mapping / {} | Legacy parameters merged into `agent.params` when the pipeline alias is used |
@@ -53,6 +56,9 @@ Task row fields become training material, so private labels require judge-owned 
 | `evolver.name` | string / null; required | Built-in method or directory containing its Evolver definition |
 | `evolver.resume` | boolean / false | Request learner-session continuation; method must support it |
 | `evolver.params` | mapping / {} | Overrides merged with the chosen method's defaults |
+| `evolver.base` | string / null | Layer 2 the method runs on: `codex` or `claude` (an agent Evolver: sets `evolver.params.backend`) or `direct` |
+| `evolver.model` | string / mapping / null | Layer 1, as `agent.model`; with `evolver.base: direct` it is the run's `llm` |
+| `evolver.codex`, `evolver.claude`, `evolver.direct` | mapping / null | Layer 2's settings, read into `evolver.params` |
 | `evolver_access.environment` | list / [] | Granted environment resources; required for MWM's evidence integration |
 | `evolver_access.tools` | list / [] | Task tool declarations offered to the learner |
 | `evolver_access.send_material_out` | boolean / false | Consent declaration checked for methods requesting that need; not a network filter |

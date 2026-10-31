@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 
 from hermit import Session
-from hermit.llm import ChatClient
+from hermit.agent.model.llm import ChatClient
 from hermit.task import RunOutput
 
 

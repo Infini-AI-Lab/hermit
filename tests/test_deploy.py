@@ -10,7 +10,7 @@ from hermit.hosts.claude_code import prepare as claude_prepare
 from hermit.hosts.codex import prepare as codex_prepare
 from hermit.hosts.pi import prepare as pi_prepare
 
-LEAN = Path(__file__).resolve().parents[1] / "hermit" / "algorithms" / "templates" / "lean_collab"
+LEAN = Path(__file__).resolve().parents[1] / "hermit" / "adapter" / "templates" / "lean_collab"
 
 
 def test_codex(tmp_path):
@@ -228,7 +228,7 @@ def test_a_tree_subagent_loads_as_its_harness_reads_it(tmp_path):
 @pytest.mark.parametrize("template", ["continual_harness", "harness2_codex"])
 def test_the_codex_tree_templates_declare_their_skills_and_roles(template):
     from hermit.adapter.loader import load_manifest
-    root = Path(__file__).resolve().parents[1] / "hermit" / "algorithms" / "templates" / template
+    root = Path(__file__).resolve().parents[1] / "hermit" / "adapter" / "templates" / template
     manifest = load_manifest(root)
     assert manifest["skills"] == ".agents/skills" and manifest["agents"] == "sub_agents"
     assert manifest.get("hooks") == (".codex/hooks.json" if template == "harness2_codex" else None)
@@ -262,16 +262,15 @@ def test_a_linked_copy_folder_is_refused(tmp_path):
 def test_the_codex_cli_agent_trusts_the_deployed_hooks(tmp_path, monkeypatch, hooks):
     """`codex exec` skips a project's hooks it cannot ask the user to trust; the CLI agent trusts the ones the
     deployment wrote for the task, and only then."""
-    import subprocess
-    from hermit.agents import cli
-    seen, real_run = {}, subprocess.run
+    from hermit.agent.acting import workspace as cli
+    from hermit.agent.base import cli as base_cli
+    seen = {}
 
-    def fake_run(argv, **kwargs):
-        if argv[0] != "codex":
-            return real_run(argv, **kwargs)
+    def fake_run(argv, *, stream, **kwargs):
         seen["argv"] = argv
-        return subprocess.CompletedProcess(argv, 0)
-    monkeypatch.setattr(cli.subprocess, "run", fake_run)
+        stream.write_text("")
+        return 0, False, False
+    monkeypatch.setattr(base_cli, "run_process", fake_run)
     a = tree_adapter(tmp_path, hooks=hooks)
     cli._run({"id": "t1", "prompt": "hi"}, a, {"backend": "codex", "prompt": "{prompt}"}, tmp_path)
     assert ("--dangerously-bypass-hook-trust" in seen["argv"]) is hooks

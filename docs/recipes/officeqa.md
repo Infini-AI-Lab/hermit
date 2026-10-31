@@ -142,7 +142,7 @@ sessions are slower, so `run_codex.yaml` allows more. `gepa/run.yaml` uses GEPA'
 hyperparameters: 4 epochs of batches of 40 (2 steps each), minibatch 8, merge 8, learning rate 4 decaying to 2,
 validation gate, gated slow update, and meta skill, with `prompt_env: officeqa` and `trajectory_view: paper`.
 The two `run_codex_flash.yaml` configs are `run_codex.yaml` with GLM 5.3 Flash as the learner too, one evaluation
-pass, and the Codex 0.162.0 image (`OFFICEQA_CODEX_IMAGE=officeqa-codex:0.162.0`): the settings of
+pass, and the Codex 0.162.0 image (`officeqa-codex:0.162.0`): the settings of
 [the Flash row](#the-flash-row), shared with the Harness² stream.
 [Harness²](../methods/harness2.md) has no training run: it processes the test questions as one stream, with Codex as
 the acting agent; see [`harness2_stream/`](https://github.com/Infini-AI-Lab/hermit/tree/main/examples/officeqa/harness2_stream) for its protocol and result.
@@ -173,23 +173,32 @@ setup below.
 
 ## Run in the Codex harness
 
-The SkillOpt paper also runs its OfficeQA agent in a Codex harness: each rollout is a `codex exec` session in a
-workspace-write sandbox without network or web search, in a fresh workspace with the skill as
-`.agents/skills/skillopt-target/SKILL.md`, the question with its parsed source pages as `task.md`, and the whole
-corpus under `docs/`. A session has 180 s; one that ends without an `<answer>` is run again with its reply, up to
-24 sessions. SkillOpt's analyst also reads the summary SkillOpt writes of each rollout's sessions
-(`codex_trace_summary.txt`). Each method folder has `smoke_codex.yaml` and `run_codex.yaml`, its `smoke.yaml` and
-`run.yaml` with `agent.params.harness: codex` and no budget (and, in `run_codex.yaml`, a longer
-`call_timeout_min`). Codex reaches the acting model through its backend's Responses API, with the provider settings
-in a `CODEX_HOME` of its own and none of your Codex configuration or instructions.
+The SkillOpt paper also runs its OfficeQA agent in a Codex harness. Here every Codex run, of every method, is the
+framework's Codex agent (`agent.name: codex`, [A coding-agent CLI as the acting agent](../framework/task.md#a-coding-agent-cli-as-the-acting-agent))
+with OfficeQA's task functions (`utils/task.py`, `utils/prompt.md`): each rollout is one `codex exec` session in a
+workspace-write sandbox without network or web search, in a fresh workspace with the adapter's context as
+`AGENTS.md` (`deploy: tree`; a Codex tree as it is), the question with its parsed source pages as `task.md`, and the
+whole corpus under `docs/`; one session of up to 3,600 s, whose last `<answer>...</answer>` is the answer. Each
+method folder has `smoke_codex.yaml` and `run_codex.yaml`, its `smoke.yaml` and `run.yaml` with that agent and no
+budget (and, in `run_codex.yaml`, a longer `call_timeout_min`). Codex reaches the acting model through its
+backend's Responses API (or a ChatGPT login, `login: chatgpt`), with a home of its own and none of your Codex
+configuration or instructions.
 
-Each Codex session runs in a Docker container of its own (`examples/officeqa/utils/agent/codex_sandbox.py`):
+The Codex-harness numbers published below for no skill, the initial skill, GEPA and SkillOpt (the Codex column of
+[Results](#results) and those rows of [the Flash row](#the-flash-row)) were made with SkillOpt's own Codex harness,
+which this agent replaced: the skill as `.agents/skills/skillopt-target/SKILL.md` with a prompt line asking Codex to
+use it, 180 s sessions, a session without an `<answer>` run again with its reply up to 24 times, and SkillOpt's own
+trace summary for its analyst. Harness², Continual Harness, ReHarness's Codex stream and Meta-Harness Adapter were
+made with this agent's deployment and session (formerly `utils/agent/codex_agent.py`, now removed). Compare rows made with one
+harness; SkillOpt's Evolver now builds its Codex trace summary from the session's event stream.
+
+Each Codex session runs in a Docker container of its own (`isolation: container`, `hermit/agent/base/container.py`):
 
 - Files: only its workspace, a fresh Codex home and the corpus (read-only), with a private `/tmp`.
 - Network: the containers sit on an internal Docker network with no route out; their only way out is an HTTPS proxy
-  (`utils/agent/docker/egress_proxy.py`) that opens connections to the model provider's API, refuses the rest, and
+  (`docker/codex/egress_proxy.py`) that opens connections to the model provider's API, refuses the rest, and
   logs each decision.
-- Codex's sandbox: Codex's own workspace-write sandbox runs inside the container, as SkillOpt asks. The session's
+- Codex's sandbox: Codex's own workspace-write sandbox runs inside the container. The session's
   commands write only the workspace, `/tmp` and parts of the fresh Codex home, have no network at all, and run in
   user, mount and network namespaces of their own. Docker allows a container those namespaces only with `SYS_ADMIN`
   and without its seccomp and AppArmor profiles, so the container runs that way.
@@ -202,7 +211,7 @@ Build the image (Ubuntu 24.04 with python3 and Codex 0.134.0 for Linux arm64; on
 `--build-arg TRIPLE=x86_64-unknown-linux-musl`), create the network and start the proxy once:
 
 ```bash
-cd examples/officeqa/utils/agent/docker
+cd docker/codex
 npm pack @openai/codex@0.134.0-linux-arm64 && mkdir -p codex
 tar -xzf openai-codex-0.134.0-linux-arm64.tgz --strip-components 1 -C codex
 docker build -t officeqa-codex:0.134.0 .
@@ -213,12 +222,14 @@ docker network connect oq-sandbox oq-egress
 cd -    # back to the repository root
 ```
 
-`OFFICEQA_CODEX_IMAGE`, `OFFICEQA_CODEX_NETWORK` and `OFFICEQA_CODEX_PROXY` name others (defaults
-`officeqa-codex:0.134.0`, `oq-sandbox` and `http://oq-egress:3128`). The proxy above lets through only Fireworks:
-for another backend, start it with that backend's `host:port` (a plain-HTTP or local endpoint cannot be reached from
-the network). `docker logs oq-egress` lists every connection the sessions' Codex made or was refused. The agent
-checks the image, the network, the provider's key and the corpus before its first session and stops if one is
-missing.
+Each config names its image, network and proxy in `agent.codex.container` (`run_codex.yaml` and `smoke_codex.yaml`
+`officeqa-codex:0.134.0`, the Flash row's configs `officeqa-codex:0.162.0`; build that one the same way); override
+them on the command line (`agent.codex.container.image=...`). The proxy above lets through only Fireworks: for
+another backend, start one with that backend's `host:port` (a plain-HTTP or local endpoint cannot be reached from the
+network); for a ChatGPT login, with `chatgpt.com:443 auth.openai.com:443`, and the model named by the login
+(`agent.model.ref=null agent.model.name=gpt-6-luna agent.model.login=chatgpt`).
+`docker logs oq-egress` lists every connection the sessions' Codex made or was refused. The agent checks the image
+and the network before its first session, the task's `prepare` the corpus, and they stop if one is missing.
 
 Eight rollouts at a time per run start eight containers; give Docker's VM enough CPUs and memory for every run you start
 side by side (the Codex-harness runs behind [Results](#results) were four side by side on 12 CPUs and 24 GB). The
@@ -236,9 +247,9 @@ hermit eval --config examples/officeqa/skillopt/run_codex.yaml --adapter none
 hermit eval --config examples/officeqa/skillopt/run_codex.yaml --adapter ../utils/seed_adapter
 ```
 
-Codex's workspaces are under `~/.cache/hermit/officeqa-codex-actor/` (`agent.params.codex_dir`), outside the
-checkout, so no repository instructions reach the session; each rollout's commands are in its `codex_raw.txt`, except
-for a session that timed out, whose `codex_raw.txt` SkillOpt leaves empty.
+Codex's workspaces are under `~/.cache/hermit/officeqa-codex-actor/` (`agent.params.workspaces`), outside the
+checkout, so no repository instructions reach the session; each rollout's events, commands included, are in its
+`log/agent-codex.jsonl`, which the learning material copies.
 
 ### What the isolation stopped
 
@@ -319,8 +330,8 @@ each is evaluated on a fixed search set, and the best there is kept ([Meta-Harne
 Adapter](../methods/meta_harness_adapter.md) has its controls). `examples/officeqa/meta_harness_adapter/` runs it on
 the Flash row's settings: the 50 training questions are the search set (`data.step_size: 50`, so one step evaluates
 one candidate), the proposer is Codex with GLM 5.3 Flash at medium effort, and the acting agent is
-`utils/agent/codex_agent.py` with `deploy: adapter` (`ADAPTER.md` as the session's `AGENTS.md`, every other file of
-the adapter in its workspace). It starts from SkillOpt's initial skill (`make_seed.py` writes `seed_adapter/`) on the
+the framework's Codex agent with `deploy: files` (`ADAPTER.md` as the session's `AGENTS.md`, every other file of the
+adapter in its workspace). It starts from SkillOpt's initial skill (`make_seed.py` writes `seed_adapter/`) on the
 `meta-harness-adapter` template, whose files outside `.hermit/` are all the proposer's to write.
 
 | Config | Rounds × candidates | Epochs | `run_name` | The number |
@@ -330,7 +341,6 @@ the adapter in its workspace). It starts from SkillOpt's initial skill (`make_se
 
 ```bash
 python examples/officeqa/meta_harness_adapter/make_seed.py
-export OFFICEQA_CODEX_IMAGE=officeqa-codex:0.162.0
 hermit train --config examples/officeqa/meta_harness_adapter/run.yaml
 hermit eval  --config examples/officeqa/meta_harness_adapter/run.yaml --adapter final
 ```
@@ -357,7 +367,7 @@ A run's records are under `examples/officeqa/<method>/runs/<run name>/` (`<run>`
 | `<run>/eval/<selector>/results.jsonl` | per attempt: the judge's score and feedback, `tokens`, `wall_s`, log path |
 | `examples/officeqa/<method>/runs/trees/<run name>/` | Git history of the adapter versions |
 | `examples/officeqa/utils/agent/.logs/` | direct-chat rollouts: SkillOpt's prediction files |
-| `~/.cache/hermit/officeqa-codex-actor/rollouts/` | Codex-harness rollouts, with `codex_raw.txt` |
+| `~/.cache/hermit/officeqa-*-codex*/<task>-<id>/` | Codex-harness runs: `work/` (the workspace), `log/` (the session's `agent-codex.jsonl`, prompt, last message, deployment, `task.md`) |
 | `docker logs oq-egress` | every connection the Codex sessions made or were refused |
 
 `<selector>` is `final`, `none`, `adapter`, or a directory's name such as `seed_adapter`; re-evaluating a selector

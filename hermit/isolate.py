@@ -182,7 +182,7 @@ def _agent_logs(name: str, base: Path) -> list[Path]:
 
 def _model_access(data: dict) -> tuple[list[str], list[str], list[int]]:
     """The agent's model endpoints (allowed through the proxy), its key variables, and loopback ports to forward."""
-    from hermit.backends import bindings_of
+    from hermit.agent.model.backends import bindings_of
     allow, keys, ports = [], [], []
     for who, binding, _ in bindings_of(data):
         if not who.startswith("agent"):
@@ -343,7 +343,7 @@ class SandboxedAgent:
                                probe_absent=list(HOME_SECRETS))
 
     def _cli_kind(self) -> str | None:
-        from hermit.backends import CLI_AGENTS
+        from hermit.agent.model.backends import CLI_AGENTS
         kind = CLI_AGENTS.get(str(self.name))
         if kind is None and str(self.name) == "cli":
             kind = {"claude-code": "claude"}.get(self.params.get("backend", "codex"), self.params.get("backend", "codex"))
@@ -382,6 +382,8 @@ class SandboxedAgent:
         finally:
             if self.cli:                                 # the login copy does not outlive the call
                 (home / CLI_HOMES[self.cli][0] / CLI_HOMES[self.cli][2]).unlink(missing_ok=True)
+                # nor the agent's run copy of a ChatGPT login (hermit.agent.base.login), kept under its workspaces
+                shutil.rmtree(work / "workspaces" / "login", ignore_errors=True)
         rec = payload["output"]
         # The log is copied into the learner's material outside any sandbox: it must lie where this call could
         # write (its work directory, the agent's logs, the role's write grants), never a file it merely names.
@@ -401,7 +403,7 @@ class SandboxedAgent:
 def agent_pipeline(config, role: str, *, records: Path | None, work_root: Path | None = None):
     """(pipeline, close): the agent in the role's sandbox, or in this process when that role's sandbox is off."""
     if not profile(config.data["sandbox"], role)["enabled"]:
-        from hermit.agents.base import load_agent
+        from hermit.agent.acting.agent import load_agent
         d = config.data
         return load_agent(d["agent"]["name"], d["agent"].get("params"), config.base).run, (lambda: None)
     agent = SandboxedAgent(config, role, records=records, work_root=work_root)

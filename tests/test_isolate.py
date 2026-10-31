@@ -593,7 +593,7 @@ def test_a_session_in_a_process_the_agent_starts_is_sandboxed_too(tmp_path):
 def test_an_adapter_without_tools_starts_no_server(tmp_path, monkeypatch):
     from hermit import Session
     adapter = tmp_path / "adapter"
-    shutil.copytree(Path(__file__).resolve().parents[1] / "hermit/algorithms/templates/prompt_only", adapter)
+    shutil.copytree(Path(__file__).resolve().parents[1] / "hermit/adapter/templates/prompt_only", adapter)
     monkeypatch.setenv("HA_ADAPTER_SANDBOX", "1")
     s = Session(adapter)
     assert s.sandboxed and s._remote is None and s.context() is not None

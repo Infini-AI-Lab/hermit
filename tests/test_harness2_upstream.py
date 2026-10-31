@@ -14,7 +14,7 @@ from test_training import make_task
 
 pytest.importorskip("harness2.core.schedule")
 
-TEMPLATE = Path(__file__).resolve().parents[1] / "hermit" / "algorithms" / "templates" / "harness2_codex"
+TEMPLATE = Path(__file__).resolve().parents[1] / "hermit" / "adapter" / "templates" / "harness2_codex"
 
 # The scripted channel: the INV and DOM editors add a triggered skill, the composer writes the rule the toy pipeline
 # needs into AGENTS.md, the reflector writes a lesson. Every session fails the test if its evidence carries the
@@ -23,7 +23,7 @@ PROPOSER = r'''
 import json, shutil, tempfile
 from pathlib import Path
 from harness2.core.proposer import ProposerError, Reply
-from hermit.algorithms.evolvers.harness2_upstream.channel import FrameworkProposer
+from hermit.agent.evolver.methods.harness2_upstream.channel import FrameworkProposer
 
 LEAKS = ("expected the sum", '"score"', '"judge"', '"feedback"')
 
