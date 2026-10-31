@@ -196,16 +196,17 @@ check requires it to parse, and repair restores it from the parent.
 |---|---|---|
 | `context` | `ADAPTER.md` | optional and fixed: the context is always the file `ADAPTER.md` at the adapter root; without it the context is empty. Naming any other file is an error |
 | `tools` | list of [tool declarations](#tool-declaration) | names unique; each tool's code lives inside the adapter |
-| `agents` | a directory, or `{entrypoint: file.py:function}` | roles (subagents). A directory holds one Markdown file per role, YAML frontmatter with `name` and `description`, the body its instructions. An exporter function returns that list instead |
-| `skills` | a directory | skill folders copied to the host as they are (`skills/<name>/SKILL.md`) |
+| `agents` | a directory, or `{entrypoint: file.py:function}` | roles (subagents). A directory holds one Markdown file per role, `<name>.md` with YAML frontmatter `name` and `description`, or `<name>/AGENT.md`, the layout of the Codex-tree templates, read as their harnesses read it (named by its directory, its `description` from its frontmatter, else its name); the body is its instructions, and a `README.md` there is not a role. An exporter function returns that list instead |
+| `skills` | a directory | skill folders copied to the host as they are (`<directory>/<name>/SKILL.md`) |
+| `hooks` | a JSON file | lifecycle hooks in Claude Code's hook schema, `{"hooks": {"<Event>": [{"matcher": ..., "hooks": [{"type": "command", "command": ...}]}]}}`, which Codex reads too; deployed with each command run from the adapter's copy. The file may be missing (a learner may add it); a deployment refuses one that does not parse |
 | `reactions` | `{entrypoint: file.py:function}` | service integration only: a function the framework service calls on events; `deploy` ignores it |
 | `concurrent_tool_calls` | boolean | service integration only: run the adapter's tool calls concurrently instead of one at a time |
 | `context_tool` | the name of one declared tool | [per-task context](#per-task-context): the harness calls that tool once per task with `{query, task}` and appends the `text` it returns below `ADAPTER.md`; hidden from the agent's tools; the deploy check calls it once with an empty query; the template must declare [`plugin-portable: false`](#plugin-portable) |
 
 All paths are relative to the adapter root and must stay inside it.
 
-Only declared exports produce anything on the acting side: an adapter without `exports.yaml` deploys as an
-instruction file and nothing else. How each export reaches Codex or Claude Code is in
+Only declared exports are connected to the host: an adapter without `exports.yaml` deploys as an instruction file
+and a copy of its files under `hermit/<id>/`. How each export reaches Codex or Claude Code is in
 [Acting interface](adapter.md#acting-interface). The example's `exports.yaml`:
 
 ```{literalinclude} ../_examples/file_adapter/exports.yaml

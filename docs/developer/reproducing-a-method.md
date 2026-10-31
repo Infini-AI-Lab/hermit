@@ -5,7 +5,8 @@ of the examples under the settings the other methods use, and documents how it d
 code. This page is the contribution guide for that work: what to settle before writing code, what the pull request
 must contain, and in which order to verify. It is written from the reproductions already in the repository
 ([GEPA](../methods/gepa.md), [SkillOpt](../methods/skillopt.md), [Harness²](../methods/harness2.md),
-[Continual Harness](../methods/continual_harness.md)).
+[Continual Harness](../methods/continual_harness.md), [ReHarness](../methods/reharness.md),
+[Meta-Harness Adapter](../methods/meta_harness_adapter.md)).
 
 ## 1. What the adapter is and what the Evolver is
 
@@ -17,6 +18,13 @@ Evolver the reproduction adds.
   if the method's skills are executable, the template carries them as files the acting agent can run (for Codex, a
   `SKILL.md` with a `scripts/` directory), not as prose about skills. A method whose harness is more than one text
   file does not fit `prompt-only`.
+- Use an existing template where one fits. A new template says which existing ones were considered and why none
+  fits (their structure, their fixed paths, what reaches the acting agent).
+- Draw the Evolver's step as a flow chart: what it reads, what it calls (the learner, the tools, the rollouts), what
+  it writes, and how the final adapter is chosen. The method page carries it
+  ([Meta-Harness Adapter](../methods/meta_harness_adapter.md) has one).
+- When the framework narrows what the method may change (the acting agent is fixed, only the adapter changes), the
+  method's name says so, and the method page states the difference from the paper in its first paragraph.
 - A reproduction changes only three places: `hermit/algorithms/templates/<name>/`,
   `hermit/algorithms/evolvers/<name>/` and an example under `examples/<task>/<name>/`. Anything else in `hermit/`
   is the core and stays untouched; a reproduction that seems to need a core change opens a separate discussion
@@ -72,6 +80,10 @@ the learner sees of it (with the judge's feedback the stream is online supervisi
 
 ## 4. The first evaluation's settings
 
+We recommend running at least one experiment with GLM 5.3 Flash
+(`fireworks/accounts/fireworks/models/glm-5p3-flash`) in both roles, acting and learning: it is cheap enough to
+repeat, and it puts the method on the rows the other methods already have.
+
 The first evaluation of a reproduced method runs on the row of settings the other methods already use on the same
 example, so that it joins their table. For OfficeQA, as of 2026-10-24:
 
@@ -104,11 +116,33 @@ differences against the starting adapter, not only accuracies.
    what the reproduction is not; a row in `docs/methods/index.md`, the example's `README.md`, and the results in
    the example's recipe.
 
-## 6. The pull request
+## 6. The reproduction's pull request
+
+These rules apply to a pull request that reproduces a published method; other pull requests follow
+[CONTRIBUTING.md](https://github.com/Infini-AI-Lab/hermit/blob/main/CONTRIBUTING.md) alone.
 
 - Rebase on the current `main` before opening it and after any later change to `main`; resolve conflicts on the
   branch; run the test suite after the rebase.
 - Open it as a draft until the first evaluation has run and its row is in the description.
 - The description carries the table of section 2, the protocol of section 3, the settings and result of section 4,
   the list of application-side changes, and what is left out. No attribution lines.
+- The description answers seven questions, each in a few sentences, with links to the files, runs and records it
+  rests on:
+  1. **Core changes.** Does the pull request change the core (anything in `hermit/` outside the method's template
+     and Evolver)? If so, what changes, and why can the method not work without it? (Section 1.)
+  2. **Adapter template.** Does the pull request add a new adapter template, or use an existing one? Which one, and
+     if it is new, why does no existing template fit? What may the learner change, what is fixed, and what reaches
+     the acting agent? (Section 1.)
+  3. **Evolver.** Does the pull request add a new Evolver, or use an existing one? Draw one step as a flow chart (a
+     mermaid diagram in the description is enough): what the Evolver reads, what it calls (the learner, the tools,
+     the rollouts), what it writes, and how the final adapter is chosen. (Section 1.)
+  4. **Experiments.** What was run, and on what? The benchmark and its data (split or stream), the protocol, the
+     acting agent and its model, the Evolver and its model, the budgets, the number of runs, and the results
+     against the baselines measured on the same settings. (Sections 3 and 4.)
+  5. **Documentation.** Which documents were added or changed to match (method page, recipe, example README,
+     method index, changelog)? (Section 5, step 5.)
+  6. **This description.** Have you read it end to end, and does every path, name, number and claim in it match the
+     code and the run records it links to?
+  7. **Independent review.** Has an independent agent (a separate session, not the one that wrote the change)
+     reviewed the pull request for code quality and potential issues? Say what it found and what was changed.
 - Any core change is a separate pull request, discussed before it is written.

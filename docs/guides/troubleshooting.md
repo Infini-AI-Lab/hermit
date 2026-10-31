@@ -24,7 +24,7 @@ can make paid calls.
 | Timeout at epoch end | SkillOpt slow update or long agent session | Inspect method work and align per-session and Trainer timeouts |
 | Run already finished | `summary.json` | Choose a new run name; do not expect a completed run to resume |
 | Wrong run evaluated | Run-name/output overrides | Use the same overrides on train and eval; inspect the returned commit |
-| Plugin conversion refuses context or roles | Target capability and `omitted` report | Use a supported host or workspace deployment; use `--allow-lossy` only if omitting those exports is intended |
+| Plugin conversion refuses context, roles or hooks | Target capability and `omitted` report | Use a supported host or workspace deployment; use `--allow-lossy` only if omitting those exports is intended |
 | Host cannot find adapter tools | Generated command, Python, source directory | Keep workspace deployment's source paths available; check the host's MCP logs and tool imports |
 | Streaming result differs from an aggregate eval | Window order and checkpoint selection | Use the recipe's evaluator and benchmark metric |
 

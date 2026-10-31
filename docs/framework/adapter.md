@@ -48,28 +48,57 @@ These declarations connect the subagent and skill directories to the loader:
 :end-before: tools:
 ```
 
+## What an adapter can rely on
+
+Two things hold for every adapter, whatever the template, the learner or the acting agent:
+
+- `.hermit/` is fixed. It holds the template's metadata and the learner's guide; a learner cannot change it (the
+  check restores it from the template root), and it never reaches the acting agent.
+- `ADAPTER.md` reaches the acting agent as its instructions at the start of every task. The built-in agents and the
+  hosts do this; a task's own acting agent must do it too.
+
+Both hold wherever the adapter is used. Where that can be is the template's call: a template that sets
+[`plugin-portable: false`](adapter-manifest.md#plugin-portable) keeps its adapters inside hermit runs, and `hermit
+deploy` and `hermit convert` refuse them.
+
+Everything else depends on the acting agent: the hosts and the built-in agents deliver what `exports.yaml`
+declares, a task's own agent may deliver more or less. A learner's guide that needs more than these two facts says
+where the rest is described.
+
 ## Acting interface
 
 ### Which files are written into the host?
 
-The connector reads `exports.yaml` and renders or copies its exports into a **separate host workspace**:
+A deployment writes into a **separate host workspace** in two parts. The whole adapter, every file but `.hermit/`
+and `.git/`, is copied as it is to `hermit/<adapter id>/`, and the context block tells the agent so: "This adapter's
+files are in `hermit/<adapter id>/`. Paths in the instructions below are relative to that folder." Then everything
+`exports.yaml` declares is connected to the host's own places, so that the host loads it:
 
 | Adapter source | Deployment operation | Codex output | Claude Code output | Pi output |
 |---|---|---|---|---|
-| `ADAPTER.md` (always exported) | Insert its text into a managed instruction block. | `AGENTS.md` | `CLAUDE.md` | `AGENTS.md` |
-| `skills/verify-output/` | Copy the skill directory. | `.codex/skills/verify-output/` | `.claude/skills/verify-output/` | `.pi/skills/verify-output/` |
-| `agents/reviewer.md`, through `agents` in `exports.yaml` | Convert the subagent into native host files: frontmatter gives name and description, the body becomes its instructions. | `.codex/agents/reviewer.toml`, registered in `.codex/config.toml` | `.claude/agents/reviewer.md` | refused: Pi has no subagents |
+| Every file but `.hermit/` and `.git/` | Copy it as it is. | `hermit/<id>/` | `hermit/<id>/` | `hermit/<id>/` |
+| `ADAPTER.md` (always exported) | Insert the line above and its text into a managed instruction block. | `AGENTS.md` | `CLAUDE.md` | `AGENTS.md` |
+| `skills/verify-output/`, through `skills` in `exports.yaml` | Copy the skill directory. | `.codex/skills/verify-output/` | `.claude/skills/verify-output/` | `.pi/skills/verify-output/` |
+| `agents/reviewer.md` (or `agents/reviewer/AGENT.md`), through `agents` in `exports.yaml` | Convert the subagent into native host files: frontmatter gives name and description, the body becomes its instructions. | `.codex/agents/reviewer.toml`, registered in `.codex/config.toml` | `.claude/agents/reviewer.md` | refused: Pi has no subagents |
 | `tools.py`, through `tools` in `exports.yaml` | Configure a framework MCP server that loads the source adapter. | `.codex/config.toml` | `.mcp.json` | `.pi/mcp.json` |
+| a hooks file, through `hooks` in `exports.yaml` | Write the hooks with each command run from `hermit/<id>/`. | `.codex/hooks.json` | `hooks` in `.claude/settings.json` | refused: Pi reads no hook file |
 
-This is how the adapter reaches the acting system. The host reads the generated instruction, skill, and role files;
-tool configuration makes the declared tools available through its tool interface. Merely placing the adapter
-directory next to a task does not make an agent use it.
+This is how the adapter reaches the acting system. The host reads the generated instruction, skill, role and hook
+files; tool configuration makes the declared tools available through its tool interface. What the adapter does not
+declare reaches the agent as files under `hermit/<id>/`, for `ADAPTER.md` to say how to use them. A hook runs in the
+directory the session started in, so the deployment prefixes each command with `cd hermit/<id>` (its absolute path):
+a hook finds the files it names where it found them in training. Interactive Codex asks the user to trust the
+project's hooks before they run, and `codex exec` skips hooks nobody trusted, so the built-in Codex agent passes
+`--dangerously-bypass-hook-trust` when its task's deployment wrote hooks; `claude -p` runs a project's hooks as they
+are.
 
 For the example above, the generated workspaces contain:
 
 ```text
 codex-workspace/
   AGENTS.md
+  hermit/file-example/
+    ADAPTER.md  exports.yaml  tools.py  agents/  skills/  README.md
   .codex/
     config.toml
     agents/reviewer.toml
@@ -80,6 +109,8 @@ codex-workspace/
 ```text
 claude-workspace/
   CLAUDE.md
+  hermit/file-example/
+    ADAPTER.md  exports.yaml  tools.py  agents/  skills/  README.md
   .mcp.json
   .claude/
     agents/reviewer.md
@@ -90,14 +121,17 @@ claude-workspace/
 ```text
 pi-workspace/            # only for an adapter without roles
   AGENTS.md
+  hermit/file-example/
+    ADAPTER.md  exports.yaml  tools.py  skills/  README.md
   .pi/
     mcp.json
     skills/verify-output/SKILL.md
   .hermit-deploy.json
 ```
 
-Only declared exports produce corresponding content. A prompt-only adapter has no tool-server entry, skills, or
-roles to install. The generated deployment report identifies the actual paths and role names.
+Only declared exports are connected; every file is copied. A prompt-only adapter has no tool-server entry, skills,
+roles or hooks to install, and its copy holds `ADAPTER.md`, `exports.yaml` and `README.md`. The generated deployment
+report identifies the actual paths and role names, and lists every copied file with its digest.
 
 ### Context is inserted into project instructions
 
@@ -115,6 +149,10 @@ and preserves project text outside it. Existing adapter headings are nested unde
 
 The deployment command prepares a workspace; it does not launch the agent. Its output must be empty or a workspace
 previously generated for the same host. The source adapter and output workspace cannot contain one another.
+A redeployment replaces the copy under `hermit/<id>/`: files the new version no longer has are removed. It refuses,
+before writing anything, when a copied file was changed or replaced (by a directory or a link) since the last
+deployment or another file is in the way, and
+names the file; an adapter link that leads outside the adapter is refused too.
 The generated `.codex/config.toml`, `.mcp.json` or `.pi/mcp.json` is rewritten on deployment; it is not a general configuration
 merger. Global host configuration is not modified.
 

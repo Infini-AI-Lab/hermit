@@ -101,11 +101,13 @@ names the machine that produced it.
 | Skills | `skills/` | `skills/` | `skills/` | `ctx.register_skill` |
 | Tools | `.mcp.json` | `mcp.json` | generated extension, `pi.registerMcpServer` | `ctx.register_tool`, forwarding to `hermit serve` |
 | Roles | `agents/` | refused | refused | refused |
+| Hooks | refused | refused | refused | refused |
 
 A part the target's plugin format cannot carry is refused: `convert` exits 2 and names every such part before writing
 anything. A non-empty context (`ADAPTER.md`) makes Codex and Pi refuse, and a context over 4,000 characters makes
-Hermes refuse. `--allow-lossy` emits the plugin without those parts and lists them under
-`omitted` in the result.
+Hermes refuse. Hooks make every target refuse: no plugin carries them yet, and `deploy --host codex` or
+`--host claude-code` connects them in a workspace. `--allow-lossy` emits the plugin without those parts and lists them
+under `omitted` in the result.
 
 Why the refusals:
 
@@ -160,7 +162,8 @@ It is not an HTTP preview server or the proposed standalone-service launcher. `-
 
 - `check` also verifies that every `sandbox.read` path exists. It does not check the pipeline's host: adapters are meant to
   be usable by any acting agent, and each pipeline deploys the exports (context, tools, roles, skills) in its own way.
-- `hermit deploy --adapter DIR --workspace WORKSPACE --host codex|claude-code|pi` deploys an adapter's exports into
-  a host workspace (context block, MCP tools, native roles, skills).
+- `hermit deploy --adapter DIR --workspace WORKSPACE --host codex|claude-code|pi` copies an adapter to
+  `hermit/<id>/` in a host workspace and connects its exports there (context block, MCP tools, native roles, skills,
+  hooks).
 - `hermit convert --adapter DIR --output OUT --target ...` emits a plugin in the host's native format instead,
   and exits 2 naming every part the target's plugin cannot carry.

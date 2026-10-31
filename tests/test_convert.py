@@ -253,3 +253,16 @@ def test_refuses_a_foreign_package_with_the_hosts_own_marker(tmp_path, target, m
     with pytest.raises(ValueError, match="did not create"):
         build(target, variant(tmp_path, roles=False, context=False), out, sys.executable)
     assert (out / "skills").is_dir()
+
+
+@pytest.mark.parametrize("target", ["claude-code", "codex", "pi", "hermes"])
+def test_hooks_are_refused_by_every_target(tmp_path, target):
+    """No plugin carries hooks yet: converting an adapter that has them fails, or with --allow-lossy reports them."""
+    a = variant(tmp_path, roles=False, context=False)
+    (a / "hooks.json").write_text(json.dumps({"hooks": {"PostToolUse": [
+        {"matcher": "Bash", "hooks": [{"type": "command", "command": "true"}]}]}}))
+    (a / "exports.yaml").write_text((a / "exports.yaml").read_text() + "hooks: hooks.json\n")
+    with pytest.raises(Unsupported, match="- hooks: no plugin carries an adapter's hooks yet \\(PostToolUse\\)"):
+        build(target, a, tmp_path / "x", sys.executable)
+    assert not (tmp_path / "x").exists()
+    assert build(target, a, tmp_path / "y", sys.executable, allow_lossy=True)["omitted"] == ["hooks"]

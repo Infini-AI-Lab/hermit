@@ -1,0 +1,19 @@
+description: The outer loop of Meta-Harness (Lee et al., arXiv:2603.28052) on the Trainer, confined to the adapter (the
+  acting agent is fixed). A coding-agent proposer reads
+  every earlier candidate's files, scores and trajectories and writes k new whole adapters; each is handed back in
+  turn, so the next step's rollouts on the training tasks (the search set) evaluate it. finalize hands back the
+  candidate with the best mean score on the search set.
+class: evolver.py:MetaHarnessAdapterEvolver
+needs: []
+params:
+  backend: codex             # the proposer: codex or claude (the paper: Claude Code)
+  prompt: PROPOSE.md         # the round's prompt (placeholders filled per round)
+  args: []                   # extra arguments for the proposer's CLI, e.g. codex `-c model_reasoning_effort="medium"`
+  model: null                # the proposer's model, `<backend>/<model id>`; null: the agent's default
+  price: null                # USD per million tokens {input, cached_input, output}
+  home: [auth.json, .credentials.json]   # files of the agent's home copied into the run's
+  tools: [check_spec]        # the only Trainer tools the proposer may use: it does not run evaluations
+  hide: null                 # paths hidden from the proposer besides examples/tests/docs/.git
+  k: 2                       # new candidates per proposal round (the paper: 2-3; its TerminalBench-2 run: 1)
+  max_rounds: null           # proposal rounds; null: a new round whenever every proposed candidate was evaluated,
+                             # the last step's too (its candidates are never evaluated): set it to (epochs - 1) / k
