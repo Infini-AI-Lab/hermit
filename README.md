@@ -23,6 +23,11 @@
 
 Hermit is a framework for training, evaluating, and deploying harness adapters, with support for multiple harness evolution algorithms. It adapts your agent to new tasks by evolving an external adapter while keeping your existing model and harness unchanged.
 
+## News
+
+- **[2026/10]** New harness evolution supported: **[Meta-Harness Adapter](https://infini-ai-lab.github.io/hermit/docs/methods/meta_harness_adapter.html)**, **[ReHarness](https://infini-ai-lab.github.io/hermit/docs/methods/reharness.html)**, and **[Harness²](https://infini-ai-lab.github.io/hermit/docs/methods/harness2.html)**.
+- **[2026/10]** **Hermit v0.1.0** released — the first public release for training, evaluating, and deploying harness adapters. See the [release post](https://x.com/haizhong_zheng/status/2114768121705775463).
+
 ## What Is a Harness Adapter?
 
 A **harness adapter** is a **trainable external harness** (like a plugin with built-in training support). Just as a **model adapter** adapts a model, a harness adapter adapts an existing agent to new scenarios **without modifying its original harness or model.**
