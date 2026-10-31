@@ -224,3 +224,42 @@ def test_a_continuation_refuses_what_would_not_continue_the_stream(tmp_path):
     assert steps[1]["evolver"]["status"] == "done"
     with pytest.raises(SystemExit, match="is this run"):                  # resume_mode=disable moved the stream away
         cont("h2u", "runs/h2u", "rest.txt", "trainer.resume_mode=disable")
+
+
+FAKE_CLAUDE = r'''#!/usr/bin/env python3
+import json, os, sys
+from pathlib import Path
+seen = {"args": sys.argv[1:], "stdin": sys.stdin.read(), "config_dir": os.environ.get("CLAUDE_CONFIG_DIR"),
+        "dropped": os.environ.get("ANTHROPIC_AUTH_TOKEN"), "quiet": os.environ.get("DISABLE_TELEMETRY")}
+Path(os.environ["FAKE_SEEN"]).write_text(json.dumps(seen))
+print(json.dumps({"type": "result", "subtype": "success", "is_error": False, "result": "edited", "num_turns": 3,
+                  "session_id": "s1", "usage": {"input_tokens": 100, "output_tokens": 7, "cache_read_input_tokens": 40}}))
+'''
+
+
+def test_a_session_is_one_call_of_the_claude_base_agent(tmp_path, monkeypatch):
+    """Upstream's session command, run by the `claude` Base Agent: the mission on stdin, upstream's flags, its own
+    config directory, upstream's dropped variables, one JSON result read back with its usage."""
+    from harness2.core.spec import ChannelSpec
+    from hermit.agent.evolver.methods.harness2_upstream.channel import FrameworkProposer
+    exe = tmp_path / "claude"
+    exe.write_text(FAKE_CLAUDE)
+    exe.chmod(0o755)
+    monkeypatch.setenv("FAKE_SEEN", str(tmp_path / "seen.json"))
+    monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "the user's own")
+    proposer = FrameworkProposer(spec=ChannelSpec(kind="claude_cli", model="claude-x", effort="max"),
+                                 params={"claude_bin": str(exe), "tools": "Read,Edit", "model": "claude-x",
+                                         "price": {"input": 1.0, "cached_input": 0.5, "output": 10.0}})
+    cwd = tmp_path / "session"
+    cwd.mkdir()
+    text, cost, problem = proposer._claude_cli(cwd, "the mission", "be brief", wall=60)
+    seen = json.loads((tmp_path / "seen.json").read_text())
+    assert (text, problem) == ("edited", "") and seen["stdin"] == "the mission"
+    args = seen["args"]
+    assert args[:3] == ["-p", "--output-format", "json"] and "--verbose" not in args
+    assert args[args.index("--effort") + 1] == "max" and args[args.index("--tools") + 1] == "Read,Edit"
+    assert "--no-session-persistence" in args and args[args.index("--append-system-prompt") + 1] == "be brief"
+    assert "--disallowedTools" in args                      # web search off, as the Base Agent always says
+    assert seen["config_dir"] == str((cwd / ".claude-home").resolve()) and seen["dropped"] is None
+    assert seen["quiet"] == "1"
+    assert proposer.usages[0].input_tokens == 140 and cost == pytest.approx((100 * 1.0 + 40 * 0.5 + 7 * 10.0) / 1e6)

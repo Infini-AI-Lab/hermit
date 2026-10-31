@@ -1,52 +1,14 @@
-"""AgentEvolver `tools` and `hide`: the tool gate serves only the allowed tools, the hiding sandbox covers paths,
-and a Codex run sees the gate, not the endpoint."""
-from http.server import BaseHTTPRequestHandler, HTTPServer
+"""AgentEvolver `tools` and `hide`: the session's tool server serves only the allowed tools, the hiding sandbox
+covers paths, and a Codex run sees no Trainer endpoint."""
 import json
 import os
-import threading
-import urllib.request
 
 import pytest
 
 from hermit.config import Config
-from hermit.agent.evolver.gate import ToolGate
 from hermit.sandbox import FRAMEWORK, HidingSandbox, hidden_paths
 from hermit.trainer.trainer import Trainer
 from test_training import make_task
-
-
-def fake_endpoint():
-    class Handler(BaseHTTPRequestHandler):
-        def log_message(self, *args):
-            pass
-
-        def do_GET(self):
-            body = json.dumps([{"name": "check_spec"}, {"name": "run_agent"}, {"name": "llm"}]).encode()
-            self.send_response(200); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
-
-        def do_POST(self):
-            self.rfile.read(int(self.headers.get("Content-Length", 0)))
-            body = json.dumps({"result": {"called": self.path}}).encode()
-            self.send_response(200); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
-    server = HTTPServer(("127.0.0.1", 0), Handler)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    return server, f"http://127.0.0.1:{server.server_port}"
-
-
-def test_tool_gate_passes_only_allowed_tools():
-    upstream, url = fake_endpoint()
-    gate = ToolGate(url, ["check_spec"])
-    try:
-        tools = json.loads(urllib.request.urlopen(gate.url + "/tools").read())
-        assert [t["name"] for t in tools] == ["check_spec"]
-        ok = urllib.request.urlopen(urllib.request.Request(gate.url + "/call/check_spec", data=b"{}",
-                                                           headers={"Content-Type": "application/json"})).read()
-        assert json.loads(ok)["result"]["called"] == "/call/check_spec"
-        with pytest.raises(urllib.error.HTTPError) as err:
-            urllib.request.urlopen(urllib.request.Request(gate.url + "/call/run_agent", data=b"{}"))
-        assert err.value.code == 404
-    finally:
-        gate.close(); upstream.shutdown()
 
 
 def test_hidden_paths_and_hiding_sandbox(tmp_path):

@@ -5,8 +5,9 @@ benchmark's own loop. Tools in a call are offered to the model, and the calls it
 `Result.tool_calls`, not run: the caller runs them and calls `direct` again with the results and the session. A tool
 is a Tool, or a tool spec as the chat-completions API takes it (a benchmark's own, offered as it is).
 
-Settings: the request's sampling (`max_tokens`, `temperature`, `top_p`, `seed`, `stop`, `response_format`) and
-`tool_choice` (default auto; None sends none). The model is a resolved model reference (hermit.agent.model.backends), a ChatClient, or anything with
+Settings: the request's sampling (`max_tokens`, `temperature`, `top_p`, `seed`, `stop`, `response_format`),
+`tool_choice` (default auto; None sends none), and `request`: more request fields sent as they are (a relay's
+whole request; with the model's client, also `extra_headers` and `return_response`). The model is a resolved model reference (hermit.agent.model.backends), a ChatClient, or anything with
 the ChatClient's `chat(messages, **kwargs) -> (message, usage)`.
 """
 from __future__ import annotations
@@ -69,6 +70,7 @@ class Direct(BaseAgent):
         # direct reads, writes and connects to nothing but the model, so every other limit holds.
         messages = [*(session or []), *as_messages(prompt)]
         kwargs = {k: self.settings[k] for k in SAMPLING if self.settings.get(k) is not None}
+        kwargs.update(self.settings.get("request") or {})
         if tools:
             kwargs["tools"] = [t.openai_spec() if isinstance(t, Tool) else t for t in tools]
             choice = self.settings.get("tool_choice", "auto")
@@ -79,4 +81,5 @@ class Direct(BaseAgent):
                               | {"role": message.get("role") or "assistant"}]
         return Result(reply=message.get("content") or "", trajectory=message_steps(message), usage=[usage],
                       session=history, tool_calls=list(message.get("tool_calls") or []),
-                      finish_reason=message.get("finish_reason"), reasoning=message.get("reasoning_content") or "")
+                      finish_reason=message.get("finish_reason"), reasoning=message.get("reasoning_content") or "",
+                      extra={"message": message})

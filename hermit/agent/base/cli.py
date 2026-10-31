@@ -27,6 +27,16 @@ Settings (given once; `configured(...)` for a call's own):
   timeout_s         the session's wall clock (default 3600); Limits.timeout_s overrides it
   cancel            a threading.Event: the session is stopped once it is set
   tools_name        the MCP server's name for the call's tools (default hermit_tools)
+  bin               the CLI's program (default codex / claude)
+  cwd               Codex: the working directory it is told, when the isolation shows the workspace under another
+                    path (MWM's /w)
+  tools_env         a variable that gets the tools' JSON entrance (GET <url>/tools, POST <url>/call/<name>)
+  mcp_tools         the tools offered over MCP (default: all of them; the JSON entrance has all)
+  stdin             true: the prompt is given on stdin, not on the command line (a long one)
+  writable          more paths the session may write inside the run's sandbox (besides its home)
+  env_drop          variables of this process's environment the session does not get
+  Claude Code only: output_format (stream-json, or json: one result object), allowed_tools (its --tools),
+  persist_session (false: --no-session-persistence), append_system_prompt, effort, permission_mode
 
 Limits are enforced by the isolation, or the call is refused (Unsupported):
 
@@ -130,14 +140,20 @@ def served(backend: str, raw: str) -> bool:
 
 
 def run_process(command: list[str], *, env: dict, cwd: Path, stream: Path, timeout: float | None,
-                cancel=None) -> tuple[int, bool, bool]:
-    """A process group with stdout and stderr to `stream`; (exit code, timed out, cancelled). Its stdin is empty: a
-    CLI given a prompt still reads a non-terminal stdin to its end as more prompt, and an inherited one (a shell's
-    socket, a pipe that never closes) would hang the session."""
+                cancel=None, stdin: str | None = None) -> tuple[int, bool, bool]:
+    """A process group with stdout and stderr to `stream`; (exit code, timed out, cancelled). Its stdin is `stdin`
+    and then closed, or empty: a CLI given a prompt still reads a non-terminal stdin to its end as more prompt, and an
+    inherited one (a shell's socket, a pipe that never closes) would hang the session."""
     deadline = time.time() + timeout if timeout else None
     with open(stream, "w") as out:
-        proc = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, env=env,
-                                cwd=str(cwd), start_new_session=True)
+        proc = subprocess.Popen(command, stdin=subprocess.DEVNULL if stdin is None else subprocess.PIPE, stdout=out,
+                                stderr=subprocess.STDOUT, env=env, cwd=str(cwd), start_new_session=True, text=True)
+        if stdin is not None:
+            try:
+                proc.stdin.write(stdin)
+                proc.stdin.close()
+            except BrokenPipeError:
+                pass
         timed_out = cancelled = False
         try:
             while proc.poll() is None:
@@ -155,14 +171,39 @@ def run_process(command: list[str], *, env: dict, cwd: Path, stream: Path, timeo
 
 
 def _stop(proc) -> None:
-    try:
-        os.killpg(proc.pid, signal.SIGTERM)
+    """The process, its group and every process below it: a sandbox starts its program in a session of its own,
+    which a group kill does not reach."""
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        for target in _descendants(proc.pid):
+            try:
+                os.kill(target, sig)
+            except ProcessLookupError:
+                pass
+        try:
+            os.killpg(proc.pid, sig)
+        except ProcessLookupError:
+            return
         try:
             proc.wait(15)
+            return
         except subprocess.TimeoutExpired:
-            os.killpg(proc.pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
+            continue
+
+
+def _descendants(pid: int) -> list[int]:
+    children: dict[int, list[int]] = {}
+    for stat in Path("/proc").glob("[0-9]*/stat"):
+        try:
+            fields = stat.read_text().rsplit(")", 1)[1].split()
+        except (OSError, IndexError):
+            continue
+        children.setdefault(int(fields[1]), []).append(int(stat.parent.name))
+    out, todo = [], [pid]
+    while todo:
+        for child in children.get(todo.pop(), []):
+            out.append(child)
+            todo.append(child)
+    return out
 
 
 def _user_home(backend: str) -> Path:
@@ -210,6 +251,8 @@ class CliAgent(BaseAgent):
             return isolation, None, sandbox
         if self.backend != "codex":
             raise Unsupported("isolation: container runs Codex; Claude Code takes isolation none or sandbox")
+        if s.get("stdin"):
+            raise Unsupported("a container session takes its prompt on the command line, not on stdin")
         shown = [workspace, *(m.source for m in limits.readable)]
         for path in limits.hidden:
             if any(Path(path).resolve().is_relative_to(Path(p).resolve()) for p in shown):
@@ -286,9 +329,12 @@ class CliAgent(BaseAgent):
             copied = self._sign_in(home)
             if tools:
                 from hermit.agent.base.tool_server import ToolServer
-                server = ToolServer(tools, host=container.gateway(conf) if conf else "127.0.0.1").start()
+                server = ToolServer(tools, host=container.gateway(conf) if conf else "127.0.0.1",
+                                    mcp_only=s.get("mcp_tools")).start()
             name = s.get("tools_name") or "hermit_tools"
             own = {k: os.path.expandvars(str(v)) for k, v in (s.get("env") or {}).items()}   # $KEY_VAR -> the key
+            if server is not None and s.get("tools_env"):
+                own[s["tools_env"]] = server.url                  # the tools' JSON entrance, for the session's shell
             env = dict(own)
             if self.backend == "codex":
                 write_home(home, s, roles, server.mcp_url if server else None, name)
@@ -310,9 +356,11 @@ class CliAgent(BaseAgent):
             else:
                 if isolation == "none":
                     _link(mounts)
-                full_env = {**os.environ, **env}
+                drop = set(s.get("env_drop") or ())
+                full_env = {**{k: v for k, v in os.environ.items() if k not in drop}, **env}
                 if sandbox is not None:
-                    command, full_env = sandbox.wrap(command, writable=[home], env=full_env, home=home, keep=own,
+                    command, full_env = sandbox.wrap(command, writable=[home, *map(Path, s.get("writable") or ())],
+                                                     env=full_env, home=home, keep=own,
                                                      forward=[server.port] if server else [],
                                                      readable=[m.source for m in mounts])
                     if (limits.hidden or limits.network is not None) and \
@@ -320,7 +368,8 @@ class CliAgent(BaseAgent):
                         raise Unsupported("the run's sandbox did not isolate the call (no bubblewrap): it cannot hide "
                                           "paths or limit the network")
                 code, timed_out, cancelled = run_process(command, env=full_env, cwd=workspace, stream=stream,
-                                                         timeout=timeout, cancel=s.get("cancel"))
+                                                         timeout=timeout, cancel=s.get("cancel"),
+                                                         stdin=prompt if s.get("stdin") else None)
             wall_s = time.time() - started
             failed = False
         finally:
@@ -361,13 +410,14 @@ class Codex(CliAgent):
         s = self.settings
         effort = s.get("effort")
         hooks = (workspace / ".codex" / "hooks.json").is_file()     # the deployment's hooks, trusted as deployed
-        return ["codex", "exec", "--json", "--skip-git-repo-check", "-C", str(workspace),
+        return [str(s.get("bin") or "codex"), "exec", "--json", "--skip-git-repo-check",
+                "-C", str(s.get("cwd") or workspace),
                 "-s", s.get("codex_sandbox") or "workspace-write", "-o", str(last_file),
                 *(["-m", s["model"]] if s.get("model") else []),
                 *(["-c", f'model_reasoning_effort="{effort}"'] if effort else []),
                 *(["--dangerously-bypass-hook-trust"] if hooks else []),
                 *(["--enable", "multi_agent"] if roles else []), *(s.get("args") or []),
-                *(["resume", str(session)] if session else []), prompt]
+                *(["resume", str(session)] if session else []), *(["-"] if s.get("stdin") else [prompt])]
 
 
 class Claude(CliAgent):
@@ -378,9 +428,15 @@ class Claude(CliAgent):
         s = self.settings
         mcp = {"mcpServers": {s.get("tools_name") or "hermit_tools": {"type": "http", "url": tools_url}}}
         agents = {r["name"]: {"description": r["description"], "prompt": r["instructions"]} for r in roles}
-        return ["claude", "-p", prompt, "--output-format", "stream-json", "--verbose",
+        stream = (s.get("output_format") or "stream-json") == "stream-json"
+        return [str(s.get("bin") or "claude"), "-p", *([] if s.get("stdin") else [prompt]),
+                "--output-format", s.get("output_format") or "stream-json", *(["--verbose"] if stream else []),
                 "--permission-mode", s.get("permission_mode") or "bypassPermissions",
                 *(["--model", s["model"]] if s.get("model") else []),
+                *(["--effort", s["effort"]] if s.get("effort") else []),
+                *(["--tools", ",".join(s["allowed_tools"])] if s.get("allowed_tools") else []),
+                *(["--no-session-persistence"] if s.get("persist_session") is False else []),
+                *(["--append-system-prompt", s["append_system_prompt"]] if s.get("append_system_prompt") else []),
                 *web_search_args("claude", bool(s.get("web_search"))),
                 *(["--mcp-config", json.dumps(mcp)] if tools_url else []),
                 *(["--agents", json.dumps(agents, ensure_ascii=False)] if agents else []),

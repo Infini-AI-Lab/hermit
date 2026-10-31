@@ -1,6 +1,7 @@
 """Upstream Harness²'s session channel (harness2.core.proposer.Proposer, `claude_cli`) on a framework-bound model.
 
-Upstream starts `claude -p` with Vertex settings and no sandbox. Here the session talks to the bound backend's
+Upstream starts `claude -p` with Vertex settings and no sandbox. Here the session is one call of the `claude` Base
+Agent (Layer 2): it talks to the bound backend's
 Messages API (the binding's Claude Code environment: base URL, key, model for every alias), gets a fresh config
 directory, sees only its own copy of the evidence (the run's sandbox: system files, the Claude install, the session
 directory; the network only through the forwarded model endpoint), and its cost is priced from its token usage at the
@@ -14,15 +15,14 @@ import os
 from pathlib import Path
 import re
 import shutil
-import signal
 import subprocess
 import tempfile
 import threading
-import time
 from typing import Any
 
 from harness2.core.proposer import SYSTEM_ARG_MAX, Proposer, _DROP_ENV, _parse_json
 
+from hermit.agent.base.interface import make
 from hermit.agent.base.records import price_usage
 from hermit.agent.evolver.base import Usage
 
@@ -43,50 +43,35 @@ class FrameworkProposer(Proposer):
         return {**{k: v for k, v in os.environ.items() if k not in _DROP_ENV}, **QUIET, **own}
 
     def _claude_cli(self, cwd: Path, mission: str, system: str, wall: int) -> tuple[str, float, str]:
+        """One upstream session as one call of the `claude` Base Agent (docs/framework/agent-layers.md): upstream's
+        command (stdin mission, its system prompt, one JSON result, its tools, no session kept), its own config
+        directory, in the run's sandbox with the session directory writable, stopped at `wall` or by the Trainer."""
         home = Path(cwd) / ".claude-home"
-        home.mkdir(parents=True, exist_ok=True)
-        env = self.env()
-        env["CLAUDE_CONFIG_DIR"] = str(home)
-        cmd = [str(self.params.get("claude_bin") or "claude"), "--dangerously-skip-permissions", "-p",
-               "--output-format", "json", "--effort",
-               self.spec.effort, "--tools", str(self.params.get("tools") or "Read,Write,Edit,Glob,Grep,Bash"),
-               "--no-session-persistence"]
         stdin = mission
-        if system:
-            if len(system) > SYSTEM_ARG_MAX:
-                stdin = f"# SYSTEM INSTRUCTIONS\n\n{system}\n\n# END\n\n{mission}"
-                cmd += ["--append-system-prompt", "Follow the SYSTEM INSTRUCTIONS block at the top of the message."]
-            else:
-                cmd += ["--append-system-prompt", system]
-        if self.sandbox is not None:
-            keep = [*(self.params.get("env") or {}), *QUIET, "CLAUDE_CONFIG_DIR"]
-            cmd, env = self.sandbox.wrap(cmd, writable=[Path(cwd)], env=env, home=home, keep=keep)
-        out_path, err_path = Path(cwd) / ".session.out", Path(cwd) / ".session.err"
-        with open(out_path, "w") as out, open(err_path, "w") as err, \
-                subprocess.Popen(cmd, cwd=cwd, env=env, stdin=subprocess.PIPE, stdout=out, stderr=err, text=True,
-                                 start_new_session=True) as proc:
-            try:
-                proc.stdin.write(stdin)
-                proc.stdin.close()
-            except BrokenPipeError:
-                pass
-            started = time.time()
-            while proc.poll() is None:
-                stop = self.cancel is not None and self.cancel.is_set()
-                if stop or time.time() - started > wall:
-                    _kill(proc)
-                    if stop:
-                        raise RuntimeError("the session was stopped by the Trainer (budget or timeout)")
-                    raise subprocess.TimeoutExpired(cmd, wall)
-                time.sleep(1)
-        payload = _parse_json(out_path.read_text(errors="replace"))
+        if system and len(system) > SYSTEM_ARG_MAX:
+            stdin = f"# SYSTEM INSTRUCTIONS\n\n{system}\n\n# END\n\n{mission}"
+            system = "Follow the SYSTEM INSTRUCTIONS block at the top of the message."
+        own = {k: os.path.expandvars(str(v)) for k, v in (self.params.get("env") or {}).items()}
+        settings = {"web_search": False, "bin": self.params.get("claude_bin") or "claude", "stdin": True,
+                    "output_format": "json", "effort": self.spec.effort, "persist_session": False,
+                    "allowed_tools": str(self.params.get("tools") or "Read,Write,Edit,Glob,Grep,Bash").split(","),
+                    "append_system_prompt": system or None, "home": home, "home_files": [],
+                    "log": Path(cwd) / ".session.out", "env": {**QUIET, **own}, "env_drop": sorted(_DROP_ENV),
+                    "isolation": "sandbox" if self.sandbox is not None else "none", "sandbox": self.sandbox,
+                    "writable": [Path(cwd)], "timeout_s": wall, "cancel": self.cancel}
+        result = make("claude", settings).run(stdin, workspace=Path(cwd))
+        if result.extra["cancelled"]:
+            raise RuntimeError("the session was stopped by the Trainer (budget or timeout)")
+        if result.timed_out:
+            raise subprocess.TimeoutExpired(["claude"], wall)
+        payload = _parse_json(Path(result.log).read_text(errors="replace"))
         text = str(payload.get("result") or payload.get("text") or "")
         problem = ""
         if payload.get("is_error") or payload.get("subtype") not in (None, "success"):
             problem = f"CLI error: {payload.get('subtype')} {str(text)[:200]}"
             text = ""
-        elif proc.returncode != 0 and not text.strip():
-            problem = f"rc={proc.returncode}: {err_path.read_text(errors='replace')[-300:]}"
+        elif result.exit_code != 0 and not text.strip():
+            problem = f"rc={result.exit_code}: {result.extra['output_tail'][-300:]}"
         usage = self._usage(payload)
         return text, float(usage.cost_usd or 0.0) if usage else 0.0, problem
 
@@ -125,40 +110,3 @@ class FrameworkProposer(Proposer):
         with self._usage_lock:
             self.usages.append(usage)
         return usage
-
-
-def _descendants(pid: int) -> list[int]:
-    """Every process below `pid`: the sandbox starts its program in a session of its own, which a process-group kill
-    does not reach."""
-    children: dict[int, list[int]] = {}
-    for stat in Path("/proc").glob("[0-9]*/stat"):
-        try:
-            fields = stat.read_text().rsplit(")", 1)[1].split()
-        except (OSError, IndexError):
-            continue
-        children.setdefault(int(fields[1]), []).append(int(stat.parent.name))
-    out, todo = [], [pid]
-    while todo:
-        for child in children.get(todo.pop(), []):
-            out.append(child)
-            todo.append(child)
-    return out
-
-
-def _kill(proc: subprocess.Popen) -> None:
-    below = _descendants(proc.pid)
-    for sig in (signal.SIGTERM, signal.SIGKILL):
-        for target in below:
-            try:
-                os.kill(target, sig)
-            except ProcessLookupError:
-                pass
-        try:
-            os.killpg(proc.pid, sig)
-        except ProcessLookupError:
-            return
-        try:
-            proc.wait(timeout=10)
-            return
-        except subprocess.TimeoutExpired:
-            continue

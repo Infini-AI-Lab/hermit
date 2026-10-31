@@ -60,6 +60,12 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   ReHarness and Continual Harness call it; the `llm` tool calls the same agent.
 - The per-layer form of `agent` and `evolver` in the run config: `base`, `model` and a section named after the base
   (`codex: {...}`), read into the flat form, which still works.
+- Every method and benchmark runs on the layers. CL-Bench's runner and ServeLearnBench's agent reach their model
+  through a local endpoint over `direct` (`hermit/agent/base/endpoint.py`), which relays each request unchanged to
+  the meter or backend it would have reached (a streamed request is asked whole and streamed back). MWM's learner is
+  one call of the `codex` Base Agent with MWM's native mounts as its sandbox; each Harness² session is one call of the
+  `claude` Base Agent. The tool gate (`hermit.agent.evolver.gate`) and MWM's stdio `learner_tools.py` are gone: the
+  call's tool server serves the allowed tools over MCP and as JSON (`MW_TOOLSRV`).
 - OfficeQA's direct chat makes each of SkillOpt's model calls through the `direct` Base Agent, with SkillOpt's own
   retry waits (`ChatClient` takes `retry_wait` and `retry_wait_max`).
 - `hermit deploy` copies the whole adapter (every file but `.hermit/` and `.git/`) to `hermit/<adapter id>/` in the

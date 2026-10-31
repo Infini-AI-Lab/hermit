@@ -7,9 +7,11 @@ The native MetaWorld Model learner (V2 default: docket on, hypothesis off) on th
   native bootstrap session; with `block_size` set, a shorter final block gets no session.
 - Before the session: maintenance (`maintenance/`: journal roll, docket caps, gate advice) and the contract
   (`materials/core.md` + `agenda.md` + the venue's slots from the `deployment` directory (`params.deployment`, default `task-info/mwm/`; the method's own slots are in `deployment.py`)), by `prompt.py`.
-- The session: one Codex run with the native prompt, in the adapter directory, with `/evidence`, `/environment`,
-  `/skills`, `/patterns` and `/world-model` mounted (`mounts.py`), the Trainer's other areas hidden, in its own network
-  namespace. Only the model meter and a gate onto the venue's channels are forwarded (`_ToolGate`); every session
+- The session: one call of the `codex` Base Agent (docs/framework/agent-layers.md) with the native prompt, in the
+  adapter directory (told `/w`), with `/evidence`, `/environment`, `/skills`, `/patterns` and `/world-model` mounted
+  (`mounts.py`, as the Base Agent's sandbox, `NativeMounts`), the Trainer's other areas hidden, in its own network
+  namespace. Only the model meter and the session's tool server are forwarded: the venue's channels and nothing else
+  of the Trainer's, over MCP (`learner_tools`) and as JSON for the venue's shell client (`MW_TOOLSRV`); every session
   measures that first and does not start if it fails. `bin/captest` is the native tool-test command.
 - After it: adopted if it exited cleanly, took an action, and left the serving code alone; then every tool's own
   test runs and failures are parked in `tools/_rejected/`. Otherwise the adapter is restored; a session that took no

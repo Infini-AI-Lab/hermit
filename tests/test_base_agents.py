@@ -202,3 +202,114 @@ def test_the_chat_client_waits_as_told_between_retries(monkeypatch):
     with pytest.raises(RuntimeError, match="HTTP 503"):
         client.chat([{"role": "user", "content": "hi"}])
     assert waits == [4.0, 8.0, 16.0, 32.0]                 # SkillOpt's own client: 4 * 2**attempt, at most 60
+
+
+def test_the_chat_endpoint_relays_a_request_as_it_is():
+    """A benchmark's own client reaches the model through `direct` at a local URL: body, Authorization header and the
+    upstream's response pass unchanged; an upstream error keeps its status; streaming is refused."""
+    import http.server
+    import threading
+    import urllib.error
+    import urllib.request
+    from hermit.agent.base.endpoint import ChatEndpoint
+    from hermit.agent.model.llm import ChatClient
+    seen = []
+
+    class Upstream(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_POST(self):
+            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            seen.append((body, self.headers.get("Authorization")))
+            if body.get("model") == "busy":
+                out, status = b'{"error": "busy"}', 429
+            else:
+                out, status = json.dumps({"id": "r1", "object": "chat.completion", "model": body["model"],
+                                          "choices": [{"index": 0, "finish_reason": "stop",
+                                                       "message": {"role": "assistant", "content": "hi",
+                                                                   "reasoning_content": "r"}}],
+                                          "usage": {"prompt_tokens": 3, "completion_tokens": 1}}).encode(), 200
+            self.send_response(status)
+            self.send_header("Content-Length", str(len(out)))
+            self.end_headers()
+            self.wfile.write(out)
+    up = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Upstream)
+    threading.Thread(target=up.serve_forever, daemon=True).start()
+    client = ChatClient(f"http://127.0.0.1:{up.server_address[1]}/v1", "ignored", max_retries=0)
+
+    def post(url, body, auth="Bearer k1"):
+        request = urllib.request.Request(url + "/v1/chat/completions", data=json.dumps(body).encode(),
+                                         headers={"Content-Type": "application/json", "Authorization": auth})
+        return json.loads(urllib.request.urlopen(request).read())
+    with ChatEndpoint(make("direct", {}, client)) as endpoint:
+        body = {"model": "fw/glm", "messages": [{"role": "user", "content": "q"}], "max_tokens": 7,
+                "reasoning_effort": "high", "tools": [{"type": "function", "function": {"name": "f", "parameters": {}}}]}
+        reply = post(endpoint.url, body)
+        assert reply["choices"][0]["message"]["content"] == "hi" and reply["id"] == "r1"
+        assert seen[0] == (body, "Bearer k1")                       # the same body, no tool_choice added
+        with pytest.raises(urllib.error.HTTPError) as err:
+            post(endpoint.url, {**body, "model": "busy"})
+        assert err.value.code == 429 and len(seen) == 2             # passed back, not retried
+    up.shutdown()
+
+
+def test_the_chat_endpoint_streams_a_whole_reply_as_chunks(monkeypatch):
+    """ServeLearnBench's client streams: the relay asks upstream for the whole reply (keeping the client's read
+    timeout alive meanwhile) and streams it back; the openai SDK reassembles content, tool calls and usage."""
+    import http.server
+    import threading
+    import time
+    import openai
+    from hermit.agent.base import endpoint as module
+    from hermit.agent.model.llm import ChatClient
+    monkeypatch.setattr(module, "KEEPALIVE_S", 0.1)
+    seen = []
+
+    class Upstream(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_POST(self):
+            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            seen.append(body)
+            time.sleep(0.5)                                          # several keep-alives meanwhile
+            if body["model"] == "down":
+                out, status = b'{"error": {"message": "overloaded"}}', 503
+            else:
+                call = {"id": "c1", "type": "function", "function": {"name": "lookup", "arguments": '{"q": 1}'}}
+                out, status = json.dumps({"id": "r2", "model": body["model"], "choices": [
+                    {"index": 0, "finish_reason": "tool_calls", "message": {
+                        "role": "assistant", "content": "thinking aloud", "reasoning_content": "r",
+                        "tool_calls": [call]}}], "usage": {"prompt_tokens": 9, "completion_tokens": 4,
+                                                           "total_tokens": 13}}).encode(), 200
+            self.send_response(status)
+            self.send_header("Content-Length", str(len(out)))
+            self.end_headers()
+            self.wfile.write(out)
+    up = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Upstream)
+    threading.Thread(target=up.serve_forever, daemon=True).start()
+    client = ChatClient(f"http://127.0.0.1:{up.server_address[1]}/v1", "ignored", max_retries=0)
+    with module.ChatEndpoint(make("direct", {}, client)) as endpoint:
+        sdk = openai.OpenAI(base_url=endpoint.url + "/v1", api_key="k", max_retries=0)
+        tools = [{"type": "function", "function": {"name": "lookup", "parameters": {"type": "object"}}}]
+        stream = sdk.chat.completions.create(model="fw/glm", messages=[{"role": "user", "content": "q"}], stream=True,
+                                             stream_options={"include_usage": True}, tools=tools,
+                                             parallel_tool_calls=False, extra_body={"reasoning_effort": "high"})
+        content, calls, finish, usage = [], {}, None, None
+        for chunk in stream:
+            usage = chunk.usage or usage
+            for choice in chunk.choices:
+                finish = choice.finish_reason or finish
+                content.append(choice.delta.content or "")
+                for tc in choice.delta.tool_calls or []:
+                    calls[tc.index] = (tc.id, tc.function.name, tc.function.arguments)
+        assert "".join(content) == "thinking aloud" and calls == {0: ("c1", "lookup", '{"q": 1}')}
+        assert finish == "tool_calls" and usage.total_tokens == 13
+        assert "stream" not in seen[0] and "stream_options" not in seen[0]           # asked upstream whole
+        assert seen[0]["reasoning_effort"] == "high" and seen[0]["parallel_tool_calls"] is False
+        with pytest.raises(openai.APIError, match="overloaded"):
+            for _ in sdk.chat.completions.create(model="down", messages=[{"role": "user", "content": "q"}],
+                                                 stream=True):
+                pass
+    up.shutdown()

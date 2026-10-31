@@ -81,7 +81,12 @@ def _setup(scenario: str, params: dict | None = None) -> dict:
         for w in windows["windows"]:
             for tid in w["serving"] + w["test"]:
                 window_of[tid] = w["window"]
-        cfg = llm.ModelConfig(model=os.environ.get("SLB_MODEL", model), base_url=os.environ.get("SLB_BASE_URL", base_url),
+        # The benchmark's loop (Layer 3) makes each model call through the `direct` Base Agent (Layer 2): its client
+        # is given a local relay (hermit.agent.base.endpoint) that sends each request on to the endpoint it would
+        # have reached, as it made it.
+        from hermit.agent.base.endpoint import relay
+        cfg = llm.ModelConfig(model=os.environ.get("SLB_MODEL", model),
+                              base_url=relay(os.environ.get("SLB_BASE_URL", base_url)),
                               reasoning_effort=os.environ.get("SLB_REASONING_EFFORT", "high") or None)
         _state.update({"scenario": scenario, "bundle": bundle, "tasks": tasks, "window_of": window_of,
                        "model": llm.LLM(cfg), "model_name": cfg.model})

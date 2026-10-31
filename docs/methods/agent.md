@@ -56,9 +56,10 @@ external calls are not automatically accounted for merely because the Trainer la
 ## Learner tool access
 
 Agent-backed learners can set `evolver.params.tools` to an allowlist such as `[check_spec]`; null exposes all
-Trainer endpoint tools. The gate refuses calls outside that list. Inspect the selected method's defaults and
-`hermit/agent/evolver/gate.py`. This controls the learner's Trainer-tool endpoint, separately from the acting
-agent's task/adapter tools. It does not make arbitrary shell commands safe or impose a mandatory check order.
+Trainer tools. The session's tool server (started by the Base Agent for the call) serves only the allowed ones, and
+the task message then names no Trainer endpoint. Inspect the selected method's defaults and
+`hermit/agent/evolver/agent.py`. This controls the learner's Trainer tools, separately from the acting agent's
+task/adapter tools. It does not make arbitrary shell commands safe or impose a mandatory check order.
 
 For a complete task-specific Codex configuration, see `examples/clbench_poker/prompt_only/run.yaml`. Acting agents are configured under `agent`; `evolver.name: codex` selects the
 learner, not the acting host.

@@ -33,7 +33,7 @@ Parameters (evolver.params):
   evidence                     the run's evidence store (required; must be among evolver_access.environment)
   deployment                   the venue's texts for MWM, relative to the run config (default: task-info/mwm)
   learner_tools                task tools the learner also gets as MCP tools (default: all); every task tool is served
-                               through the gate either way (MW_TOOLSRV, for a venue's shell client)
+                               as JSON either way (MW_TOOLSRV, for a venue's shell client)
   bootstrap                    run the bootstrap session in the first step (default true)
   session_timeout_s            per session (default 1800, the native evolver timeout)
   retry_wait_s                 wait before the infrastructure retry (default 30)
@@ -49,15 +49,12 @@ import json
 import os
 from pathlib import Path
 import shutil
-import signal
-import subprocess
 import sys
 import tempfile
 import time
 import uuid
 
-from hermit.agent.base.cli import web_search_args
-from hermit.agent.base.records import parse_log
+from hermit.agent.base.interface import make
 from hermit.agent.evolver.base import Context, Evolver, FinalResult, StepContext, StepResult, Usage
 
 HERE = Path(__file__).resolve().parent
@@ -180,7 +177,47 @@ class _Relay:
                 pass
 
 
-from hermit.agent.evolver.gate import ToolGate as _ToolGate   # the venue's channels are the learner's only tools
+class NativeMounts:
+    """The learner's isolation, as the `codex` Base Agent's sandbox: the run's sandbox, and inside it the mount
+    launcher (mounts.py) that shows the native mount names (/w, /evidence, /environment, /skills, /patterns,
+    /world-model), covers the areas the native learner never saw and, with `net`, puts the session in a network
+    namespace of its own that reaches only the forwarded ports (relayed over Unix sockets in `net`)."""
+    enabled = True
+
+    def __init__(self, inner, mounts: list[str], net: Path | None, ports: list[int]):
+        self.inner, self.mounts, self.net, self.ports = inner, list(mounts), net, list(ports)
+        self.network = getattr(inner, "network", "isolated")
+        self.allow = getattr(inner, "allow", [])
+        self.relay = None
+
+    def wrap(self, command, *, writable=(), env=None, home=None, keep=(), forward=(), readable=()):
+        ports = sorted(set(self.ports) | set(forward))
+        mounts = list(self.mounts)
+        if self.net is not None:
+            self.relay = _Relay(self.net, ports)
+            mounts += ["--netns", *[a for port in ports for a in ("--forward", f"{port}={self.net / str(port)}")],
+                       "--probe", str(self.net / "probe.json")]
+        mounts.append("--")
+        if self.inner is None:
+            return mounts + list(command), env
+        wrapped, env = self.inner.wrap(command, writable=[*writable, *([self.net] if self.net else [])], env=env,
+                                       home=home, keep=keep, forward=forward, readable=readable)
+        if "--" in wrapped and Path(wrapped[0]).name == "bwrap":
+            # The outer sandbox was built for codex (its installation is visible); run it through the mount launcher
+            # inside that sandbox.
+            cut = wrapped.index("--")
+            return wrapped[:cut + 1] + mounts + wrapped[cut + 1:], env
+        return mounts + wrapped, env
+
+    def close(self) -> None:
+        if self.relay is not None:
+            self.relay.close()
+
+
+def _native_text(result) -> str:
+    if isinstance(result, dict) and set(result) == {"text"}:
+        return str(result["text"])
+    return json.dumps(result, ensure_ascii=False, default=str)
 
 
 class MwmEvolver(Evolver):
@@ -274,67 +311,31 @@ class MwmEvolver(Evolver):
         return allowed if only is None else [n for n in only if n in allowed]
 
     @staticmethod
-    def _forward_ports(ctx: StepContext, gate_url: str | None) -> list[int]:
-        """Host loopback ports the learner needs: its tool gate and any 127.0.0.1 URL in the agent arguments (the
-        model meter). The Trainer's own tool endpoint is never forwarded."""
+    def _forward_ports(ctx: StepContext) -> list[int]:
+        """Host loopback ports the learner needs besides its tool server's: any 127.0.0.1 URL in the agent arguments
+        (the model meter). The Trainer's own tool endpoint is never forwarded."""
         import re
-        from urllib.parse import urlparse
         ports = set()
-        if gate_url:
-            ports.add(urlparse(gate_url).port)
         for arg in ctx.params.get("args", []):
             ports.update(int(p) for p in re.findall(r"https?://(?:127\.0\.0\.1|localhost):(\d+)", str(arg)))
         return sorted(p for p in ports if p)
 
-    def _command(self, ctx: StepContext, session: Path, evidence: Path, prompt_text: str, home: Path,
-                 net: Path | None = None, gate_url: str | None = None) -> tuple:
-        params = ctx.params
-        adapter = ctx.workspace.adapter.resolve()
-        only = self._mcp_tools(ctx)
-        tools = [sys.executable, str(HERE / "learner_tools.py"), "--url", gate_url or "",
-                 *[a for n in only for a in ("--only", n)]]
-        codex = shutil.which("codex") or "codex"
+    def _mounts(self, ctx: StepContext, session: Path, evidence: Path) -> list[str]:
+        """The mount launcher's arguments (mounts.py): the native mount names, the hidden areas, the working
+        directory /w."""
         if not shutil.which("bwrap"):
             raise RuntimeError("the mwm Evolver needs bubblewrap (bwrap): the learner runs under the native mount names")
-        # The session's working directory is /w, the native mount of the world model (mwm/cx_session.py), so that
-        # `../evidence` and the other native relative paths resolve; /world-model is the read-only alias, as natively.
-        codex_cmd = [codex, "exec", "--json", "--skip-git-repo-check", "--ignore-user-config",
-                     "-s", "danger-full-access", "-C", WORK,
-                     "-c", f"mcp_servers.evolver_tools.command={json.dumps(tools[0])}",
-                     "-c", f"mcp_servers.evolver_tools.args={json.dumps(tools[1:])}",
-                     "-c", "mcp_servers.evolver_tools.tool_timeout_sec=1800",
-                     *(["-m", params["model"]] if params.get("model") else []),
-                     *web_search_args("codex", bool(params.get("web_search"))), *params.get("args", []), prompt_text]
-        env = dict(os.environ)
-        env["CODEX_HOME"] = str(home)
-        env["PYTHONPATH"] = str(Path(__file__).resolve().parents[5]) + os.pathsep + env.get("PYTHONPATH", "")
-        env["PATH"] = str(HERE / "bin") + os.pathsep + env.get("PATH", "")
+        adapter = ctx.workspace.adapter.resolve()
         environment = session / "deployment" / "environment"
         if not environment.is_dir():
             environment.mkdir(parents=True)
-        mounts = [sys.executable, str(HERE / "mounts.py"),
-                  "--ro", f"{evidence}:/evidence", "--ro", f"{environment}:/environment",
-                  "--ro", f"{session / 'method' / 'skills'}:/skills",
-                  "--ro", f"{session / 'method' / 'patterns'}:/patterns",
-                  "--bind", f"{adapter}:{WORK}", "--ro", f"{adapter}:/world-model",
-                  *[a for path in self._hidden(ctx) for a in ("--hide", str(path))],
-                  "--chdir", WORK]
-        if net is not None:
-            mounts += ["--netns", *[a for port in self._forward_ports(ctx, gate_url)
-                                    for a in ("--forward", f"{port}={net / str(port)}")],
-                       "--probe", str(net / "probe.json")]
-        mounts.append("--")
-        if gate_url:
-            env["MW_TOOLSRV"] = gate_url                # the venue's channel client (/environment/bin/task-env)
-        if ctx.sandbox is not None:
-            wrapped, env = ctx.sandbox.wrap(codex_cmd, writable=[home, *([net] if net else [])], env=env, home=home)
-            if "--" in wrapped and wrapped[0] == "bwrap":
-                # The outer sandbox was built for codex (its installation is visible); run it through the
-                # mount launcher inside that sandbox.
-                cut = wrapped.index("--")
-                return wrapped[:cut + 1] + mounts + wrapped[cut + 1:], env
-            return mounts + wrapped, env
-        return mounts + codex_cmd, env
+        return [sys.executable, str(HERE / "mounts.py"),
+                "--ro", f"{evidence}:/evidence", "--ro", f"{environment}:/environment",
+                "--ro", f"{session / 'method' / 'skills'}:/skills",
+                "--ro", f"{session / 'method' / 'patterns'}:/patterns",
+                "--bind", f"{adapter}:{WORK}", "--ro", f"{adapter}:/world-model",
+                *[a for path in self._hidden(ctx) for a in ("--hide", str(path))],
+                "--chdir", WORK]
 
     @staticmethod
     def _hidden(ctx: StepContext) -> list[Path]:
@@ -359,26 +360,33 @@ class MwmEvolver(Evolver):
                 hidden.append(Path(item).expanduser())
         return hidden
 
-    def _run(self, command: list[str], env: dict, ctx: StepContext, log: Path, cwd: Path, timeout: float) -> dict:
-        start = time.time()
-        timed_out = False
-        with open(log, "w") as out:
-            proc = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, env=env,
-                                    cwd=str(cwd), start_new_session=True)   # an empty stdin: codex reads it to its end
-            while proc.poll() is None:
-                cancelled = ctx.cancel is not None and ctx.cancel.is_set()
-                timed_out = time.time() - start > timeout
-                if cancelled or timed_out:
-                    os.killpg(proc.pid, signal.SIGTERM)
-                    try:
-                        proc.wait(15)
-                    except subprocess.TimeoutExpired:
-                        os.killpg(proc.pid, signal.SIGKILL)
-                    break
-                time.sleep(1)
-            code = proc.wait()
-        return {"exit_code": code, "timed_out": timed_out, "wall_s": round(time.time() - start, 1),
-                "cancelled": bool(ctx.cancel is not None and ctx.cancel.is_set())}
+    def _settings(self, ctx: StepContext, home: Path, log: Path, box) -> dict:
+        """The `codex` Base Agent's settings for one learner session: Codex as natively (its own sandbox off, every
+        variable for its commands, a fresh home, the session's clock), inside the native mounts, told /w as its
+        working directory, the channels' JSON entrance as MW_TOOLSRV (the venue's shell client)."""
+        params = ctx.params
+        if not isinstance(params.get("web_search"), bool):
+            raise ValueError("evolver.params.web_search must be set, true or false")
+        return {**{k: params[k] for k in ("model", "binding", "args") if params.get(k) is not None},
+                "web_search": params["web_search"], "isolation": "sandbox", "sandbox": box,
+                "codex_sandbox": "danger-full-access", "shell_env": "all", "home": home,
+                "home_files": params.get("home", []), "log": log, "cancel": ctx.cancel,
+                "timeout_s": float(params.get("session_timeout_s", 1800)), "cwd": WORK,
+                "tools_name": "evolver_tools", "tools_env": "MW_TOOLSRV", "mcp_tools": self._mcp_tools(ctx),
+                "env": {"PYTHONPATH": str(Path(__file__).resolve().parents[5]) + os.pathsep
+                        + os.environ.get("PYTHONPATH", ""),
+                        "PATH": str(HERE / "bin") + os.pathsep + os.environ.get("PATH", "")}}
+
+    def _learner_tools(self, ctx: StepContext) -> list:
+        """The venue's channels (the task's tools, never the Trainer's own), each answering as the native broker did:
+        a result that is only {"text": ...} reads as that text."""
+        from hermit.agent.base.tool import Tool
+        out = []
+        for name in self._channel_tools(ctx):
+            tool = ctx.tools[name]
+            out.append(Tool(name, tool.description, tool, source="task", input_schema=tool.input_schema,
+                            output_schema={}, validate=False, render=_native_text))
+        return out
 
     def _home(self, ctx: Context) -> Path:
         """A throwaway CODEX_HOME per session, as natively (mwm/cx_session.py): the credentials named by `home`,
@@ -417,24 +425,23 @@ class MwmEvolver(Evolver):
         # The forward sockets need a short path (AF_UNIX); /tmp is private inside the sandbox, so the directory is
         # bound in explicitly.
         net = Path(tempfile.mkdtemp(prefix="mwm-", dir="/tmp")) if ctx.params.get("network_isolation", True) else None
-        gate = _ToolGate(ctx.tool_url, self._channel_tools(ctx)) if ctx.tool_url else None
-        gate_url = gate.url if gate else None
-        command, env = self._command(ctx, session, self._evidence(ctx, block == 0), text, home, net, gate_url)
         log = ctx.workspace.output / f"{label}.codex.jsonl"
-        relay = _Relay(net, self._forward_ports(ctx, gate_url)) if net is not None else None
+        box = NativeMounts(ctx.sandbox, self._mounts(ctx, session, self._evidence(ctx, block == 0)), net,
+                           self._forward_ports(ctx))
+        started = time.time()
         try:
-            run = self._run(command, env, ctx, log, adapter, float(ctx.params.get("session_timeout_s", 1800)))
+            result = make("codex", self._settings(ctx, home, log, box)).run(text, workspace=adapter,
+                                                                           tools=self._learner_tools(ctx))
         finally:
-            if relay is not None:
-                relay.close()
-            if gate is not None:
-                gate.close()
+            box.close()
+        run = {"exit_code": result.exit_code, "timed_out": result.timed_out, "wall_s": round(time.time() - started, 1),
+               "cancelled": bool(ctx.cancel is not None and ctx.cancel.is_set())}
         if net is not None:
             probe = net / "probe.json"
             record["isolation"] = json.loads(probe.read_text()) if probe.exists() else {"passed": False,
                                                                                          "error": "no probe result"}
             shutil.rmtree(net, ignore_errors=True)
-        session_id, usage = parse_log(log, "codex", ctx.params.get("model") or "codex")
+        session_id, usage = result.session, result.usage
         events = [json.loads(l) for l in log.read_text(errors="replace").splitlines() if l.startswith("{")] \
             if log.exists() else []
         record.update(run, session=session_id, usage=[u.__dict__ for u in usage],

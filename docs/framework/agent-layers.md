@@ -95,7 +95,12 @@ What the Base Agent is used for. Two kinds:
 
 What is specific to a task belongs to Layer 3: its environment, rules, turns, scoring, workspace and tools. A
 benchmark that defines its own steps keeps its loop in Layer 3 unchanged and makes every model call through Layer
-2's `direct`: the SkillOpt paper's chat loop for OfficeQA does (`examples/officeqa/utils/agent/agent.py`).
+2's `direct`: the SkillOpt paper's chat loop for OfficeQA calls it in the process
+(`examples/officeqa/utils/agent/agent.py`). Code that only takes a base URL, a benchmark's own client in this process
+or another, is given a local endpoint instead (`hermit/agent/base/endpoint.py`): each request is one `direct` call,
+relayed to the URL it would have reached with its body, key and reply unchanged (a streamed request is answered as a
+stream). CL-Bench's runner and ServeLearnBench's agent reach their model this way, through the launcher's meter as
+before.
 
 ## Tools
 
@@ -197,12 +202,9 @@ accepted; a key given in two layers is refused. On the command line a layer's se
 | GEPA, SkillOpt, ReHarness, Continual Harness | Evolver Agent | `direct` (`ctx.agent`) |
 | Meta-Harness Adapter, `codex` and `claude` Evolvers | Evolver Agent | `codex` or `claude` |
 
-Not yet on the layers:
-
-- CL-Bench and ServeLearnBench: the benchmark's own client, in its own process, calls the model through the wire
-  meter (`hermit/runtime/wire_meter.py`) that their launchers start.
-- MWM's learner: Codex under the native mount names (`/w`, `/evidence`), started by MWM's own launcher.
-- Harness²: its upstream channel runs Codex itself.
+| CL-Bench, ServeLearnBench | Acting Agent running the benchmark's loop | `direct`, per call, through the local endpoint |
+| MWM | Evolver Agent | `codex`, in MWM's native mounts (`NativeMounts` as the sandbox, told `/w`) |
+| Harness² | Evolver Agent: upstream's proposer | `claude`, one call per upstream session |
 
 ## Outside the layers
 
@@ -217,6 +219,7 @@ The layers moved `hermit/backends.py`, `hermit/llm.py`, `hermit/trajectory.py`, 
 `hermit/agent/evolver/methods/`, and the adapter templates from `hermit/algorithms/templates/` to
 `hermit/adapter/templates/`. The old import paths (`hermit.backends`, `hermit.llm`, `hermit.trajectory`,
 `hermit.agents`, `hermit.evolver`) forward to the new ones for one release and warn when used; `hermit.algorithms`
-is gone, and so is `hermit.tools_mcp` (an agent Evolver's tools are served over MCP by the tool server).
+is gone, and so are `hermit.tools_mcp` and the tool gate `hermit.agent.evolver.gate` (an agent Evolver's tools are
+served over MCP and JSON by the call's tool server).
 Configurations that name an agent, an Evolver or a template (`agent.name: codex`, `evolver.name: gepa`,
 `template: prompt-only@1.0`) are unchanged.

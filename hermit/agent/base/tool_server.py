@@ -21,8 +21,11 @@ from hermit.agent.base.tool import Tool
 
 
 class ToolServer:
-    def __init__(self, tools: Iterable[Tool] | dict[str, Tool], host: str = "127.0.0.1"):
+    def __init__(self, tools: Iterable[Tool] | dict[str, Tool], host: str = "127.0.0.1",
+                 mcp_only: Iterable[str] | None = None):
         self.tools = dict(tools) if isinstance(tools, dict) else {t.name: t for t in tools}
+        # The MCP entrance may offer fewer tools than the JSON one (a learner whose shell client reaches them all)
+        self.mcp_tools = {n: t for n, t in self.tools.items() if mcp_only is None or n in set(mcp_only)}
         self.host = host
         self.token = secrets.token_hex(16)
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -43,14 +46,14 @@ class ToolServer:
         from starlette.requests import Request
         from starlette.responses import JSONResponse
         from starlette.routing import Route
-        tools = self.tools
+        tools, mcp_tools = self.tools, self.mcp_tools
 
         async def list_tools(context, params):
             return ListToolsResult(tools=[McpTool(name=t.name, description=t.description, inputSchema=t.input_schema)
-                                          for t in tools.values()])
+                                          for t in mcp_tools.values()])
 
         async def call_tool(context, params):
-            tool = tools.get(params.name)
+            tool = mcp_tools.get(params.name)
             if tool is None:
                 return CallToolResult(content=[TextContent(text=f"unknown tool {params.name}")], isError=True)
             try:

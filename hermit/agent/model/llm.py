@@ -51,10 +51,14 @@ class ChatClient:
                 + completion * p.get("output", 0)) / 1e6
 
     def chat(self, messages: list[dict], **kwargs) -> tuple[dict, Usage]:
-        """POST /chat/completions; returns the response message and this call's usage."""
+        """POST /chat/completions; returns the response message and this call's usage. Two keyword arguments are not
+        request fields: `extra_headers` (sent as they are; an Authorization among them replaces the key) and
+        `return_response` (the whole response body is put in the message as `_response`)."""
+        extra_headers = dict(kwargs.pop("extra_headers", None) or {})
+        return_response = bool(kwargs.pop("return_response", False))
         body = {"model": self.model, "messages": messages, **self.extra_body, **kwargs}
-        headers = {"Content-Type": "application/json"}
-        if self.api_key_env:
+        headers = {"Content-Type": "application/json", **extra_headers}
+        if self.api_key_env and not any(k.lower() == "authorization" for k in extra_headers):
             key = os.environ.get(self.api_key_env)
             if not key:
                 raise RuntimeError(f"Environment variable {self.api_key_env} is not set")
@@ -90,4 +94,6 @@ class ChatClient:
         choice = (payload.get("choices") or [{}])[0]
         message = dict(choice.get("message") or {})
         message["finish_reason"] = choice.get("finish_reason")
+        if return_response:
+            message["_response"] = payload
         return message, usage
