@@ -64,12 +64,16 @@ def deploy(adapter: Path, workspace: Path, backend: str) -> dict:
     return prepare(adapter, workspace, sys.executable)
 
 
-def command(backend: str, prompt: str, workspace: Path, params: dict, last_message: Path) -> list[str]:
+def command(backend: str, prompt: str, workspace: Path, params: dict, last_message: Path,
+            hooks: bool = False) -> list[str]:
     model = params.get("model")
     args = list(params.get("args") or [])
     if backend == "codex":
+        # `codex exec` cannot ask the user to trust a project's hooks, so it skips them; the deployment's own hooks
+        # (the adapter's, in a workspace made for this task) are trusted here, as `claude -p` runs a project's hooks.
         return ["codex", "exec", "--json", "--skip-git-repo-check", "-C", str(workspace),
                 "-s", params.get("codex_sandbox", "workspace-write"), "-o", str(last_message),
+                *(["--dangerously-bypass-hook-trust"] if hooks else []),
                 *(["-m", model] if model else []), *args, prompt]
     return ["claude", "-p", prompt, "--output-format", "stream-json", "--verbose",
             "--permission-mode", params.get("claude_permission_mode", "bypassPermissions"),
@@ -109,15 +113,17 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path) -> RunOutpu
     root = Path(base) / params.get("workspaces", ".logs/workspaces")
     workspace = root / f"{task.get('id', 'task')}-{uuid.uuid4().hex[:8]}"
     workspace.mkdir(parents=True)
+    deployed = {}
     if adapter is not None:
         from hermit.adapter.loader import load_manifest
         tool = load_manifest(Path(adapter)).get("context_tool")
         if tool:
-            raise ValueError(f"agent {backend}: the CLI agents deploy ADAPTER.md alone, and this adapter declares a "
-                             f"context_tool ({tool}) whose per-task context would never reach the agent; use the react "
+            raise ValueError(f"agent {backend}: the CLI agents deploy the adapter as `hermit deploy` does, and this "
+                             f"adapter declares a context_tool ({tool}) whose per-task context would never reach the "
+                             "agent; use the react "
                              "agent or an Agent that calls Session.context(query=..., task=...) and records "
                              "session.last_context in RunOutput.extra['context_tool']")
-        deploy(Path(adapter), workspace, backend)
+        deployed = deploy(Path(adapter), workspace, backend)
     for item in params.get("files") or []:
         source = Path(base) / item
         target = workspace / source.name
@@ -130,7 +136,8 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path) -> RunOutpu
         try:
             # An empty stdin: the CLI reads a non-terminal stdin to its end as more prompt, and an inherited one
             # (a shell's socket, an open pipe) may never end.
-            proc = subprocess.run(command(backend, prompt, workspace, params, last), cwd=str(workspace), env=env,
+            argv = command(backend, prompt, workspace, params, last, hooks=bool(deployed.get("hooks")))
+            proc = subprocess.run(argv, cwd=str(workspace), env=env,
                                   stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
                                   timeout=float(params.get("timeout_s", 3600)))
             code = proc.returncode

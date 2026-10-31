@@ -1,2 +1,5 @@
 context: ADAPTER.md
-
+# What a deployment connects to the host's own places; the rest of the tree is deployed as files.
+skills: .agents/skills
+agents: sub_agents
+hooks: .codex/hooks.json
