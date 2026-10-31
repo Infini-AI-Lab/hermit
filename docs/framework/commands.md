@@ -86,12 +86,17 @@ hermit convert --adapter DIR --output OUT --target claude-code
 hermit convert --adapter DIR --output OUT --target codex
 hermit convert --adapter DIR --output OUT --target pi
 hermit convert --adapter DIR --output OUT --target hermes
+hermit convert --adapter DIR --output OUT --target opencode
 ```
 
 `deploy` prepares a workspace you work in; `convert` emits a plugin in the host's native format, installed once and
 available in every project. The adapter is copied into the plugin, and its MCP entry runs `hermit serve` on
 that copy, so `hermit` must be installed and on PATH wherever the plugin is used. Nothing in the plugin
 names the machine that produced it.
+
+`opencode` is the one target read from a project rather than installed once: OpenCode takes `opencode.json`,
+the `.opencode/` tree and the instruction file from the project it is opened in, so that output is copied into a
+project's root and applies there.
 
 ### What each host's plugin carries
 
