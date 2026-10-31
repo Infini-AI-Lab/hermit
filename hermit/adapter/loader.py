@@ -49,6 +49,10 @@ def load_manifest(root: Path) -> dict:
         skills = (root / manifest["skills"]).resolve()
         if not skills.is_relative_to(root):
             raise ValueError("skills must be a directory inside the adapter")
+    hooks = manifest.get("hooks")             # its file is read when deploying (hook_definitions)
+    if hooks is not None and (not isinstance(hooks, str) or Path(hooks).is_absolute()
+                              or not (root / hooks).resolve().is_relative_to(root)):
+        raise ValueError("hooks must name a JSON file inside the adapter")
     tools = manifest.get("tools", [])
     if not isinstance(tools, list):
         raise ValueError("tools must be a list")
@@ -78,6 +82,39 @@ def load_manifest(root: Path) -> dict:
     return manifest
 
 
+def hook_definitions(root: Path, manifest: dict) -> dict | None:
+    """The declared lifecycle hooks: `hooks` names a JSON file inside the adapter in Claude Code's hook schema,
+    {"hooks": {"<Event>": [{"matcher": ..., "hooks": [{"type": "command", "command": ...}]}]}}, which Codex reads
+    too. None when nothing is declared or the file does not exist (yet: a learner may add it)."""
+    declared = manifest.get("hooks")
+    if declared is None:
+        return None
+    if not isinstance(declared, str) or Path(declared).is_absolute():
+        raise ValueError("hooks must name a JSON file inside the adapter")
+    path = (Path(root) / declared).resolve()
+    if not path.is_relative_to(Path(root).resolve()):
+        raise ValueError("hooks must name a JSON file inside the adapter")
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text())
+    except ValueError as exc:
+        raise ValueError(f"{declared} is not JSON: {exc}") from None
+    events = data.get("hooks") if isinstance(data, dict) else None
+    if not isinstance(events, dict):
+        raise ValueError(f'{declared} needs a top-level {{"hooks": {{"<Event>": [...]}}}} object')
+    for event, groups in events.items():
+        if not isinstance(groups, list) or not all(isinstance(g, dict) and isinstance(g.get("hooks"), list)
+                                                   for g in groups):
+            raise ValueError(f'{declared}: {event} must be a list of {{"hooks": [...]}} groups')
+        for hook in (h for g in groups for h in g["hooks"]):
+            if not isinstance(hook, dict) or not isinstance(hook.get("type"), str):
+                raise ValueError(f"{declared}: every {event} hook is an object with a type")
+            if hook["type"] == "command" and not (isinstance(hook.get("command"), str) and hook["command"].strip()):
+                raise ValueError(f"{declared}: a command hook of {event} needs a command")
+    return data
+
+
 def agent_tools(manifest: dict) -> list[dict]:
     """The declared tools an agent (or a host's tool server) is offered: every declaration but the context tool,
     which the harness calls itself once per task."""
@@ -105,12 +142,37 @@ def join_context(text: str, result) -> str:
     return text.rstrip() + "\n\n" + extra.strip() + "\n"
 
 
+def _lenient_frontmatter(text: str) -> tuple[dict, str]:
+    """A file's frontmatter read line by line, as the Codex-tree harnesses read an AGENT.md ({} without one), and
+    its body: such a file never fails to load, so the deploy check accepts every subagent their own checks accept."""
+    if not text.startswith("---\n") or text.find("\n---", 4) < 0:
+        return {}, text
+    end = text.find("\n---", 4)
+    head = {}
+    for line in text[4:end].splitlines():
+        key, sep, value = line.partition(":")
+        if sep and re.fullmatch(r"[A-Za-z_][\w-]*", key.strip()):
+            value = value.strip()
+            if value.startswith('"') and value.endswith('"') and len(value) >= 2:     # a double-quoted YAML scalar
+                try:
+                    value = str(json.loads(value))
+                except ValueError:
+                    value = value.strip('"')
+            else:
+                value = value.strip("\"'")
+            head[key.strip()] = value
+    return head, text[end + 4:].lstrip("-").lstrip("\n")
+
+
 def subagent_files(root: Path, directory: str) -> list:
-    """One Markdown file per subagent: YAML frontmatter with name and description, the body is its instructions
-    (the same format as Claude Code's subagent files)."""
+    """One Markdown file per subagent. `<directory>/<name>.md`: YAML frontmatter with name and description, the body
+    is its instructions (the same format as Claude Code's subagent files). `<directory>/<name>/AGENT.md`, the
+    Codex-tree templates' layout, read as their harnesses read it: named by its directory, its description from its
+    frontmatter (else its name). A README.md beside them documents the directory and is not a subagent."""
     import yaml
     out = []
-    for path in sorted((root / directory).glob("*.md")):
+    base = root / directory
+    for path in sorted(p for p in base.glob("*.md") if p.name != "README.md"):
         text = path.read_text()
         if not text.startswith("---\n") or "\n---" not in text[4:]:
             raise ValueError(f"{path.relative_to(root)}: a subagent file starts with YAML frontmatter")
@@ -120,6 +182,11 @@ def subagent_files(root: Path, directory: str) -> list:
         if not isinstance(head, dict) or not head.get("name") or not head.get("description"):
             raise ValueError(f"{path.relative_to(root)}: frontmatter needs name and description")
         out.append({"name": str(head["name"]), "description": str(head["description"]),
+                    "instructions": path.relative_to(root).as_posix(), "body": body})
+    for path in sorted(base.glob("*/AGENT.md")):
+        head, body = _lenient_frontmatter(path.read_text(errors="replace"))
+        name = path.parent.name
+        out.append({"name": name, "description": head.get("description") or name,
                     "instructions": path.relative_to(root).as_posix(), "body": body})
     return out
 

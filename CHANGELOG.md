@@ -18,6 +18,20 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Added
 
+- `hermit deploy` copies the whole adapter (every file but `.hermit/` and `.git/`) to `hermit/<adapter id>/` in the
+  workspace, and the context block says so, with paths in `ADAPTER.md` relative to that folder; what `exports.yaml`
+  declares is connected to the host as before. A redeployment replaces the copy, and refuses when a copied file was
+  changed or replaced since or another file is in the way. Training with the built-in Codex and Claude Code agents deploys the
+  same way.
+- A `hooks` export: a JSON file in Claude Code's hook schema, deployed to `.codex/hooks.json` or the `hooks` of
+  `.claude/settings.json`, each command run from the adapter's copy; Pi refuses it. The built-in Codex agent trusts
+  the hooks its task's deployment wrote (`codex exec` skips untrusted project hooks without a word). No plugin
+  carries hooks yet: `hermit convert` refuses an adapter that has them, or with `--allow-lossy` lists them under
+  `omitted`.
+- `agents` also reads `<name>/AGENT.md` subagents (named by their directory). The `continual-harness` and
+  `harness2-codex` templates declare their skills and subagents, and `harness2-codex` its hooks, so a deployment
+  connects them.
+
 - The ReHarness method (Xiao et al., arXiv:2610.12668): the `reharness` Evolver, one step per instance of an ordered
   stream, revising the retrieved reflections from their source trajectories and writing the instance's reflection
   through the run's `llm` tool, with Qwen3-Embedding-8B or BM25 retrieval; `feedback: false` keeps the judge's verdict

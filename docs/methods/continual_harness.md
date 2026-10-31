@@ -24,6 +24,8 @@ is its copy), `sub_agents/<name>/AGENT.md` (G, installed as Codex agent roles), 
 with executable helpers under `scripts/` (K) and `memory/NOTES.md` (M, notes under `## <topic>` headings that the
 acting agent reads and writes during a task). The acting agent deploys the tree into its workspace and hands the
 memory it wrote back with its trajectory ([`codex_agent.py`](../../examples/officeqa/utils/agent/codex_agent.py)).
+The template's `exports.yaml` declares the skills and the subagents, so `hermit deploy` connects them to the host;
+the rest of the tree, the memory included, is in the workspace's copy under `hermit/continual-harness/`.
 
 ## The step
 

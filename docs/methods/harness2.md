@@ -56,7 +56,9 @@ subagents and hooks are all levers.
 
 An acting agent deploys the tree itself: `AGENTS.md`, `.agents/`, `scripts/` and `.codex/` are copied to the
 workspace root (upstream's `codex_root` install), `sub_agents/` become agent roles in the session's `CODEX_HOME`, and
-the session runs with `--dangerously-bypass-hook-trust` so the hooks fire. The OfficeQA agent does this in a Docker
+the session runs with `--dangerously-bypass-hook-trust` so the hooks fire. The template's `exports.yaml` declares
+the skills, the subagents and the hooks, so `hermit deploy` connects them to the host, each hook's command run from
+the workspace's copy of the tree under `hermit/harness2-codex/`; there the user trusts the hooks before they run. The OfficeQA agent does this in a Docker
 container per session ([example](https://github.com/Infini-AI-Lab/hermit/tree/main/examples/officeqa/harness2_stream)); the trajectory is the `codex exec
 --json` event stream, rendered by upstream's own Codex renderer. On OfficeQA's 172 test questions as one stream, with
 GLM 5.3 Flash as executor and editors, the deliverable scores 0.651 against 0.576 for the initial skill it starts
