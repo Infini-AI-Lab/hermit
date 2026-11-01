@@ -186,8 +186,9 @@ whose manifest names a [`context_tool`](adapter.md#per-task-context), such a loo
 ## Benchmarks
 
 A benchmark enters Hermit as a task set in [Harbor](https://github.com/laude-institute/harbor)'s format: that is the
-one protocol every benchmark whose agent works in a container (a coding or terminal benchmark, a corpus the agent
-searches with shell tools) is connected by, instead of Docker code of its own. The format (`task.toml`,
+one protocol for every task, whether its agent works inside the container (a coding or terminal benchmark, a corpus
+searched with shell tools) or only answers (a question stream whose state the environment keeps), instead of Docker
+code or a loop of the benchmark's own. The format (`task.toml`,
 `instruction.md`, `environment/` with a Dockerfile or a prebuilt `docker_image`, `tests/test.sh` writing
 `/logs/verifier/reward.txt`) is what Terminal-Bench, SWE-bench and the datasets on the Harbor hub share, and the
 built-in `harbor` agent makes one rollout one Harbor trial:
@@ -257,10 +258,13 @@ checked without a model by running it with the scripted agent (`acting_agent: {i
 harborside.scripted:ScriptedAgent, kwargs: {script: "echo 42 > /app/answer.txt"}}`): a script that produces the
 right answer must score 1 and a wrong one 0 (`tests/test_harbor_smoke.py` does this against Docker).
 
-Limits: an adapter whose context comes from a `context_tool` is refused, as the CLI agents refuse it (its per-task
-context would never reach the agent in the container); the adapter's tools are not served in the container (no
-Hermit there; the config's `mcp_servers` are dropped with a log line); `hermit eval` on a Harbor dataset still
-needs the training-only config keys.
+Limits, each a piece still to build rather than a boundary of the protocol: an adapter whose context comes from a
+`context_tool` is refused, as the CLI agents refuse it (its per-task context would never reach the agent in the
+container); the adapter's tools are not served in the container (no Hermit there; the config's `mcp_servers` are
+dropped with a log line); what an agent writes into the adapter's copy in the container (a memory file) does not
+come back; a benchmark whose acting model only answers (CL-Bench's host, OfficeQA's direct harness) needs a
+host-side acting agent whose tools run in the task's environment, which does not exist yet, so those examples
+still run their own loops; `hermit eval` on a task set still needs the training-only config keys.
 
 ## What the task owner provides
 
