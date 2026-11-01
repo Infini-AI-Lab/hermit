@@ -111,8 +111,10 @@ class ToolServer:
         self._thread = threading.Thread(target=serve, daemon=True, name="hermit-tool-server")
         self._thread.start()
         if not self._started.wait(30):
+            self.close()
             raise RuntimeError("the tool server did not start")
         if self._failure:
+            self._sock.close()
             raise RuntimeError(f"the tool server did not start: {self._failure}")
         return self
 

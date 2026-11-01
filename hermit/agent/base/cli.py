@@ -237,7 +237,8 @@ class CliAgent(BaseAgent):
                                   "container")
             for m in limits.readable:                 # linked into the workspace: nothing is left outside it
                 target = _target(m, workspace)
-                if target.resolve() != Path(m.source).resolve() and not target.is_relative_to(workspace):
+                placed = target.parent.resolve() / target.name     # `..` and linked folders on the way resolved
+                if target.resolve() != Path(m.source).resolve() and not placed.is_relative_to(workspace):
                     raise Unsupported(f"{self.name} without isolation links data into the workspace, not at {target}: "
                                       "use a relative target, or isolation sandbox or container")
             return isolation, None, None

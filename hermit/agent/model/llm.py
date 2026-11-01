@@ -27,10 +27,11 @@ class ChatAborted(RuntimeError):
 
 
 def _opener(sockets: list, abort):
-    """A urllib opener (proxies from the environment as usual) that keeps the sockets its connections open, so that
-    a call can be given up by shutting them. The socket, not the connection: once the headers are in, urllib hands
-    the socket to the response and clears the connection's, and the body is read from it. A call given up before
-    its connection is made sends nothing."""
+    """A urllib opener (proxies from the environment as usual) that keeps a duplicate of every TCP socket its
+    connections open, from the moment it is made, so that a call can be given up by shutting it: shutting a duplicate
+    ends the connection itself, during a proxy's CONNECT, the TLS handshake (which takes the socket over) or the body
+    (which urllib reads from the response, having cleared the connection's socket). The caller closes the
+    duplicates. A call given up before its connection is made sends nothing."""
     import http.client
     import socket
 
@@ -39,11 +40,17 @@ def _opener(sockets: list, abort):
             def connect(self):
                 if abort.is_set():
                     raise ConnectionAbortedError("the call was given up")
+                create = self._create_connection
+
+                def recorded(*args, **kwargs):
+                    sock = create(*args, **kwargs)
+                    sockets.append(sock.dup())
+                    if abort.is_set():                  # given up while connecting: the watcher may have missed it
+                        sock.close()
+                        raise ConnectionAbortedError("the call was given up")
+                    return sock
+                self._create_connection = recorded
                 super().connect()
-                sockets.append(self.sock)
-                if abort.is_set():                      # given up while connecting: the watcher may have missed it
-                    self.sock.shutdown(socket.SHUT_RDWR)
-                    raise ConnectionAbortedError("the call was given up")
         return Tracked
 
     class Plain(urllib.request.HTTPHandler):
@@ -138,6 +145,8 @@ class ChatClient:
             finally:
                 if watcher is not None:
                     watcher.set()
+                for sock in sockets:
+                    sock.close()
             time.sleep(delay)
             delay = delay * 2 if self.retry_wait_max is None else min(delay * 2, self.retry_wait_max)
         u = payload.get("usage") or {}

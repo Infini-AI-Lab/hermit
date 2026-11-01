@@ -525,3 +525,36 @@ def test_the_sandbox_places_a_relative_target_under_the_workspace(tmp_path, monk
     with pytest.raises(Unsupported, match="its own path"):
         make("codex", {"web_search": False, "isolation": "sandbox", "sandbox": Box()}).run(
             "go", workspace=tmp_path / "work", limits=Limits(readable=[Mount(data, Path("data"))]))
+
+
+def test_a_call_given_up_while_a_proxy_holds_its_connect_stops(monkeypatch):
+    import socket
+    import threading
+    import time
+    from hermit.agent.model.llm import ChatAborted, ChatClient
+    proxy = socket.socket()
+    proxy.bind(("127.0.0.1", 0))
+    proxy.listen()
+    held = []
+    threading.Thread(target=lambda: held.append(proxy.accept()), daemon=True).start()   # accepts, never answers
+    for name in ("https_proxy", "HTTPS_PROXY"):
+        monkeypatch.setenv(name, f"http://127.0.0.1:{proxy.getsockname()[1]}")
+    for name in ("no_proxy", "NO_PROXY"):
+        monkeypatch.delenv(name, raising=False)
+    abort = threading.Event()
+    threading.Timer(0.5, abort.set).start()
+    started = time.time()
+    with pytest.raises(ChatAborted):
+        ChatClient("https://api.example.com/v1", "x", max_retries=0, timeout=10).chat(
+            [{"role": "user", "content": "q"}], abort=abort)
+    assert time.time() - started < 3
+    proxy.close()
+
+
+def test_without_isolation_a_target_cannot_climb_out_of_the_workspace(tmp_path):
+    (tmp_path / "data").mkdir()
+    (tmp_path / "work").mkdir()
+    with pytest.raises(Unsupported, match="links data into the workspace"):
+        make("codex", {"web_search": False}).run(
+            "go", workspace=tmp_path / "work", limits=Limits(readable=[Mount(tmp_path / "data", Path("../escaped"))]))
+    assert not (tmp_path / "escaped").exists()
