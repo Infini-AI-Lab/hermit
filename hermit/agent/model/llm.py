@@ -26,17 +26,25 @@ class ChatAborted(RuntimeError):
     """The caller gave the call up (`abort`) while it was in flight; its connection was closed."""
 
 
-def _opener(connections: list):
-    """A urllib opener (proxies from the environment as usual) that keeps the connections it opens, so that a call
-    can be given up by closing its socket."""
+def _opener(sockets: list, abort):
+    """A urllib opener (proxies from the environment as usual) that keeps the sockets its connections open, so that
+    a call can be given up by shutting them. The socket, not the connection: once the headers are in, urllib hands
+    the socket to the response and clears the connection's, and the body is read from it. A call given up before
+    its connection is made sends nothing."""
     import http.client
+    import socket
 
     def tracked(cls):
-        def make(*args, **kwargs):
-            conn = cls(*args, **kwargs)
-            connections.append(conn)
-            return conn
-        return make
+        class Tracked(cls):
+            def connect(self):
+                if abort.is_set():
+                    raise ConnectionAbortedError("the call was given up")
+                super().connect()
+                sockets.append(self.sock)
+                if abort.is_set():                      # given up while connecting: the watcher may have missed it
+                    self.sock.shutdown(socket.SHUT_RDWR)
+                    raise ConnectionAbortedError("the call was given up")
+        return Tracked
 
     class Plain(urllib.request.HTTPHandler):
         def http_open(self, req):
@@ -64,7 +72,7 @@ class ChatClient:
                    extra_body=spec.get("extra_body"), **kwargs)
 
     def __init__(self, base_url: str, model: str, *, api_key_env: str | None = None, price: dict | None = None,
-                 timeout: float = 600, max_retries: int = 4, extra_body: dict | None = None,
+                 timeout: float | None = 600, max_retries: int = 4, extra_body: dict | None = None,
                  retry_wait: float = 2.0, retry_wait_max: float | None = None):
         self.base_url = base_url.rstrip("/")
         self.model = model
@@ -105,12 +113,15 @@ class ChatClient:
         import http.client
         for attempt in range(self.max_retries + 1):
             request = urllib.request.Request(self.base_url + "/chat/completions", data=data, headers=headers)
-            connections: list = []
-            watcher = _abort_watcher(abort, connections) if abort is not None else None
+            sockets: list = []
+            watcher = _abort_watcher(abort, sockets) if abort is not None else None
             try:
-                opener = _opener(connections) if abort is not None else urllib.request.build_opener()
+                opener = _opener(sockets, abort) if abort is not None else urllib.request.build_opener()
                 with opener.open(request, timeout=self.timeout) as response:
-                    payload = json.loads(response.read())
+                    raw = response.read()
+                if abort is not None and abort.is_set():
+                    raise ChatAborted("the call was given up")
+                payload = json.loads(raw)
                 break
             except urllib.error.HTTPError as exc:
                 if abort is not None and abort.is_set():
@@ -147,18 +158,18 @@ class ChatClient:
         return message, usage
 
 
-def _abort_watcher(abort, connections: list):
-    """A thread that closes the call's connections once `abort` is set; set the returned event when the call ends."""
+def _abort_watcher(abort, sockets: list):
+    """A thread that shuts the call's sockets once `abort` is set (a read blocked on one returns); set the returned
+    event when the call ends."""
     import socket
     done = threading.Event()
 
     def watch():
         while not done.is_set():
             if abort.wait(0.2):
-                for conn in list(connections):
+                for sock in list(sockets):
                     try:
-                        if conn.sock is not None:
-                            conn.sock.shutdown(socket.SHUT_RDWR)
+                        sock.shutdown(socket.SHUT_RDWR)
                     except OSError:
                         pass
                 return

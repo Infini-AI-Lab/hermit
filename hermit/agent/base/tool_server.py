@@ -97,13 +97,23 @@ class ToolServer:
                 task = asyncio.create_task(self._server.serve(sockets=[self._sock]))
                 while not self._server.started and not task.done():
                     await asyncio.sleep(0.01)
+                if not self._server.started:            # it ended before serving: say so, not a dead URL
+                    self._failure = repr(task.exception()) if not task.cancelled() and task.exception() else \
+                        "it stopped before serving"
                 self._started.set()
                 await task
-            asyncio.run(main())
+            try:
+                asyncio.run(main())
+            except BaseException as exc:                # noqa: BLE001 - reported by start()
+                self._failure = self._failure or repr(exc)
+                self._started.set()
+        self._failure = ""
         self._thread = threading.Thread(target=serve, daemon=True, name="hermit-tool-server")
         self._thread.start()
         if not self._started.wait(30):
             raise RuntimeError("the tool server did not start")
+        if self._failure:
+            raise RuntimeError(f"the tool server did not start: {self._failure}")
         return self
 
     def close(self) -> None:

@@ -21,7 +21,9 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   login (`login: chatgpt`), retries of runs the provider could not serve, and a fixed record: `RunOutput.log` is the
   run's `log/` (the host's event stream unchanged, the prompt, the last message, the deployment), the workspace is
   `work/` beside it, and `RunOutput.extra` has the same keys for every task (`timed_out`, not `session_timed_out`).
-  A Codex session has a home of its own, so the user's Codex settings no longer apply. OfficeQA's two Codex wrappers
+  A Codex session has a home of its own, so the user's Codex settings no longer apply, and its commands see only
+  Codex's core variables (no `PYTHONPATH`, no proxy, no keys) unless `shell_env: all`; the generic CLI agent passed
+  every variable before. OfficeQA's two Codex wrappers
   are gone: `agent.params.harness: codex` (SkillOpt's own Codex harness: the skill as `SKILL.md`, 180 s sessions,
   up to 24) and `utils/agent/codex_agent.py`, with `codex_sandbox.py` and `codex_session.py`; every OfficeQA Codex
   config is the Codex agent with `utils/task.py`'s task functions, one session of up to 3,600 s with the skill as

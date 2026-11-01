@@ -235,6 +235,11 @@ class CliAgent(BaseAgent):
             if network is not None:
                 raise Unsupported(f"{self.name} without isolation cannot limit the network: use isolation sandbox or "
                                   "container")
+            for m in limits.readable:                 # linked into the workspace: nothing is left outside it
+                target = _target(m, workspace)
+                if target.resolve() != Path(m.source).resolve() and not target.is_relative_to(workspace):
+                    raise Unsupported(f"{self.name} without isolation links data into the workspace, not at {target}: "
+                                      "use a relative target, or isolation sandbox or container")
             return isolation, None, None
         if network:
             raise Unsupported(f"{self.name} under isolation {isolation} reaches its model only; it cannot be given "
@@ -249,7 +254,7 @@ class CliAgent(BaseAgent):
                 raise Unsupported("the run's sandbox lets more than the model through (an open network or "
                                   "sandbox.allow): it cannot limit the network to the model")
             for m in limits.readable:
-                if Path(m.target).resolve() != Path(m.source).resolve():
+                if _target(m, workspace).resolve() != Path(m.source).resolve():
                     raise Unsupported(f"the run's sandbox shows data at its own path, not at {m.target}")
             if limits.hidden:
                 from hermit.sandbox import HidingSandbox
@@ -259,7 +264,9 @@ class CliAgent(BaseAgent):
             raise Unsupported("isolation: container runs Codex; Claude Code takes isolation none or sandbox")
         if s.get("stdin"):
             raise Unsupported("a container session takes its prompt on the command line, not on stdin")
-        shown = [workspace, *(m.source for m in limits.readable)]
+        shown = [workspace, *(m.source for m in limits.readable)]         # every mount the container is given
+        if s.get("home"):                         # a fresh home is a new directory: nothing hidden lies in it
+            shown.append(Path(os.path.expanduser(str(s["home"]))))
         for path in limits.hidden:
             if any(Path(path).resolve().is_relative_to(Path(p).resolve()) for p in shown):
                 raise Unsupported(f"{path} is to be hidden but lies in what the container is given")
@@ -328,8 +335,7 @@ class CliAgent(BaseAgent):
         last_file.unlink(missing_ok=True)
         timeout = limits.timeout_s or s.get("timeout_s", 3600)       # None: no clock (the caller cancels)
         timeout = float(timeout) if timeout else None
-        mounts = [Mount(Path(m.source), Path(m.target) if Path(m.target).is_absolute() else workspace / m.target,
-                        m.readonly) for m in limits.readable]
+        mounts = [Mount(Path(m.source), _target(m, workspace), m.readonly) for m in limits.readable]
         server, copied, failed = None, [], True
         try:
             copied = self._sign_in(home)
@@ -463,9 +469,19 @@ def _this_call(home: Path, handle: str, reported, resumed: bool):
                  calls=reported.calls, cost_usd=None if before else reported.cost_usd)
 
 
+def _target(m: Mount, workspace: Path) -> Path:
+    """Where a mount is seen: its target, under the workspace when relative."""
+    return Path(m.target) if Path(m.target).is_absolute() else workspace / m.target
+
+
 def _link(mounts: list[Mount]) -> None:
-    """Without isolation, a mount inside the workspace is a link to its source."""
+    """Without isolation, a mount inside the workspace is a link to its source (a link left from an earlier call is
+    replaced)."""
     for m in mounts:
-        if m.target != m.source and not m.target.exists():
+        if m.target.resolve() == Path(m.source).resolve():
+            continue
+        if m.target.is_symlink():
+            m.target.unlink()
+        if not m.target.exists():
             m.target.parent.mkdir(parents=True, exist_ok=True)
             m.target.symlink_to(m.source)

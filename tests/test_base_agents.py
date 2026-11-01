@@ -43,18 +43,15 @@ def test_direct_offers_tools_and_returns_the_calls_unrun():
 class Scripted:
     """A chat client that asks for one tool call, then answers with what the tool returned."""
 
-    def __init__(self):
-        from hermit.agent.model.usage import Usage
-        self.total, self.model = Usage("m"), "m"
+    model = "m"
 
     def chat(self, messages, **kwargs):
         from hermit.agent.model.usage import Usage
-        self.total.calls += 1
-        self.total.output_tokens += 1
+        usage = Usage("m", output_tokens=1, calls=1)                       # this call's usage, as ChatClient's
         if messages[-1]["role"] != "tool":
             call = {"id": "c1", "type": "function", "function": {"name": "add", "arguments": '{"a": 2, "b": 3}'}}
-            return {"role": "assistant", "content": None, "tool_calls": [call], "finish_reason": "tool_calls"}, Usage("m")
-        return {"role": "assistant", "content": f"got {messages[-1]['content']}", "finish_reason": "stop"}, Usage("m")
+            return {"role": "assistant", "content": None, "tool_calls": [call], "finish_reason": "tool_calls"}, usage
+        return {"role": "assistant", "content": f"got {messages[-1]['content']}", "finish_reason": "stop"}, usage
 
 
 def test_react_runs_the_tools_until_the_model_answers():
@@ -93,6 +90,10 @@ def test_claude_takes_no_container_and_a_container_hides_nothing_it_is_given(tmp
         make("codex", {"web_search": False, "isolation": "container"}).run(
             "go", workspace=tmp_path / "work", limits=Limits(readable=[Mount(data, Path("docs"))],
                                                              hidden=[data / "answers"]))
+    home = tmp_path / "home"                                               # the session's home is bound in too
+    with pytest.raises(Unsupported, match="lies in what the container is given"):
+        make("codex", {"web_search": False, "isolation": "container", "home": home}).run(
+            "go", workspace=tmp_path / "work", limits=Limits(hidden=[home / "secret"]))
 
 
 def test_the_tool_server_serves_mcp_and_json_behind_its_token():
@@ -386,6 +387,47 @@ def test_the_chat_endpoint_passes_errors_on_as_the_upstream_gave_them():
     up.server.shutdown()
 
 
+def test_a_call_given_up_after_the_headers_stops_reading_the_body():
+    import threading
+    import time
+    from hermit.agent.model.llm import ChatAborted, ChatClient
+
+    def reply(handler, body, upstream):                              # the headers now, the body much later
+        payload = json.dumps({"choices": [{"message": {"role": "assistant", "content": "late"}}]}).encode()
+        handler.send_response(200)
+        handler.send_header("Content-Type", "application/json")
+        handler.send_header("Content-Length", str(len(payload)))
+        handler.end_headers()
+        handler.wfile.flush()
+        upstream.closed.wait(3)
+        try:
+            handler.wfile.write(payload)
+        except OSError:
+            pass
+    up = _Upstream(reply)
+    abort, box = threading.Event(), {}
+
+    def call():
+        try:
+            box["result"] = ChatClient(up.url, "x", max_retries=0).chat([{"role": "user", "content": "q"}],
+                                                                        abort=abort)
+        except Exception as exc:                                     # noqa: BLE001
+            box["error"] = exc
+    worker = threading.Thread(target=call, daemon=True)
+    worker.start()
+    deadline = time.time() + 5
+    while not up.seen and time.time() < deadline:
+        time.sleep(0.05)
+    time.sleep(0.3)                                                  # the headers are in; the body is awaited
+    started = time.time()
+    abort.set()
+    worker.join(2)
+    up.closed.set()
+    assert not worker.is_alive() and time.time() - started < 2
+    assert isinstance(box.get("error"), ChatAborted), box
+    up.server.shutdown()
+
+
 def test_a_client_that_hangs_up_gives_the_call_up_upstream():
     import socket
     import time
@@ -412,3 +454,74 @@ def test_a_client_that_hangs_up_gives_the_call_up_upstream():
         client.close()                                                # the client's own watchdog gives up
         assert up.closed.wait(5)                                      # and the relay hangs up upstream
     up.server.shutdown()
+
+
+def test_react_counts_its_own_calls_on_any_model_with_chat():
+    def reply(messages, **_):
+        return {"content": "hi", "finish_reason": "stop"}
+    result = make("react", {}, FunctionModel(reply)).run("say hi")          # a model with chat() and no `total`
+    assert result.reply == "hi" and result.usage[0].calls == 1
+
+
+def test_a_tool_server_that_cannot_serve_fails_at_start(monkeypatch):
+    import uvicorn
+
+    async def broken(self, sockets=None):
+        raise OSError("no socket")
+    monkeypatch.setattr(uvicorn.Server, "serve", broken)
+    with pytest.raises(RuntimeError, match="did not start.*no socket"):
+        ToolServer([ADD]).start()
+
+
+def test_a_declared_tool_with_an_empty_output_schema_returns_an_object(tmp_path):
+    from hermit.tools import declared
+    (tmp_path / "t.py").write_text("def f():\n    return 'text'\n")
+    tool = declared({"name": "f", "description": "d", "entrypoint": "t.py:f", "output_schema": {}}, tmp_path, "task", {})
+    assert tool.output_schema == {"type": "object"} and tool.answer("{}").startswith("Error: ToolError")
+
+
+def test_the_relay_waits_as_long_as_the_upstream_and_keeps_each_timeout_apart():
+    from hermit.agent.base.endpoint import _relays, relay
+    url = "http://127.0.0.1:9/v1"
+    plain, short = relay(url), relay(url, timeout=5)
+    assert plain != short and relay(url) == plain
+    assert _relays[f"{url} None"].agent.model.timeout is None and _relays[f"{url} 5"].agent.model.timeout == 5
+
+
+def test_a_call_given_up_before_it_connects_sends_nothing():
+    import threading
+    from hermit.agent.model.llm import ChatAborted, ChatClient
+    up = _Upstream(lambda handler, body, upstream: _answer(handler, 200, b"{}"))
+    abort = threading.Event()
+    abort.set()
+    with pytest.raises(ChatAborted):
+        ChatClient(up.url, "x", max_retries=0).chat([{"role": "user", "content": "q"}], abort=abort)
+    assert up.seen == []
+    up.server.shutdown()
+
+
+def test_without_isolation_data_is_linked_inside_the_workspace_only(tmp_path):
+    from hermit.agent.base.cli import _link
+    old, new, work = tmp_path / "old", tmp_path / "new", tmp_path / "work"
+    for d in (old, new, work):
+        d.mkdir()
+    agent = make("codex", {"web_search": False})
+    with pytest.raises(Unsupported, match="links data into the workspace"):
+        agent.run("go", workspace=work, limits=Limits(readable=[Mount(new, tmp_path / "elsewhere")]))
+    (work / "docs").symlink_to(old)                                        # left by an earlier call
+    _link([Mount(new, work / "docs")])
+    assert (work / "docs").resolve() == new
+
+
+def test_the_sandbox_places_a_relative_target_under_the_workspace(tmp_path, monkeypatch):
+    class Box:
+        enabled, network, allow = True, "isolated", []
+
+        def wrap(self, command, **kw):
+            return command, kw["env"]
+    data = tmp_path / "data"
+    data.mkdir()
+    monkeypatch.chdir(tmp_path)                                           # "data" from here is the source itself
+    with pytest.raises(Unsupported, match="its own path"):
+        make("codex", {"web_search": False, "isolation": "sandbox", "sandbox": Box()}).run(
+            "go", workspace=tmp_path / "work", limits=Limits(readable=[Mount(data, Path("data"))]))

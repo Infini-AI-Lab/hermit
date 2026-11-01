@@ -214,13 +214,16 @@ _relays: dict[str, ChatEndpoint] = {}
 _relays_lock = threading.Lock()
 
 
-def relay(upstream: str, *, timeout: float = 900) -> str:
+def relay(upstream: str, *, timeout: float | None = None) -> str:
     """The base URL to give a client in place of `upstream`: a relay endpoint over the `direct` Base Agent, one per
-    upstream for the process (started on first use). The relay retries nothing: the client retries as it did."""
+    upstream and timeout for the process (started on first use). The relay retries nothing and, by default, waits
+    as long as the upstream takes: the client's own timeout and retries hold, as they did (a client that gives up
+    hangs up, and the relay gives the call up)."""
+    key = f"{upstream} {timeout}"
     with _relays_lock:
-        if upstream not in _relays:
+        if key not in _relays:
             from hermit.agent.base.interface import make
             from hermit.agent.model.llm import ChatClient
             client = ChatClient(upstream.rstrip("/"), "relay", max_retries=0, timeout=timeout)
-            _relays[upstream] = ChatEndpoint(make("direct", {}, client)).start()
-        return _relays[upstream].url
+            _relays[key] = ChatEndpoint(make("direct", {}, client)).start()
+        return _relays[key].url

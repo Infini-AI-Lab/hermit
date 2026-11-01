@@ -41,13 +41,14 @@ class React(BaseAgent):
                        **({"temperature": s["temperature"]} if s.get("temperature") is not None else {})}
         messages = [*(session or []), *as_messages(prompt)]
         steps: list[Step] = []
-        start_total = _snapshot(client)
+        usages = []                               # this run's own calls (a client may be shared)
         model_s, answer, turns, calls_made, finish = 0.0, "", 0, 0, None
         for _ in range(max_turns):
             t = time.time()
-            message, _usage = client.chat(messages, **({"tools": specs, "tool_choice": "auto"} if specs else {}),
+            message, usage = client.chat(messages, **({"tools": specs, "tool_choice": "auto"} if specs else {}),
                                           **chat_kwargs)
             model_s += time.time() - t
+            usages.append(usage)
             turns += 1
             finish = message.get("finish_reason")
             messages.append({k: v for k, v in message.items() if k in ("role", "content", "tool_calls")})
@@ -65,24 +66,17 @@ class React(BaseAgent):
                 messages.append({"role": "tool", "tool_call_id": call.get("id"), "content": content})
                 steps.append(Step("tool_call", json.dumps({"tool": name, "arguments": arguments}, ensure_ascii=False),
                                   output=content))
-            if max_output and client.total.output_tokens - start_total["output"] >= max_output:
+            if max_output and sum(u.output_tokens for u in usages) >= max_output:
                 break
-        return Result(reply=answer, trajectory=steps, usage=[_delta(client, start_total)], session=messages,
+        return Result(reply=answer, trajectory=steps, usage=[_total(client, usages)], session=messages,
                       finish_reason=finish, extra={"turns": turns, "tool_calls": calls_made, "model_s": model_s})
 
 
-def _snapshot(client) -> dict:
-    t = getattr(client, "total", None)
-    return {"input": getattr(t, "input_tokens", 0), "cached": getattr(t, "cached_input_tokens", 0),
-            "output": getattr(t, "output_tokens", 0), "calls": getattr(t, "calls", 0),
-            "cost": getattr(t, "cost_usd", None)}
-
-
-def _delta(client, start: dict):
-    """The usage of this run: the client's total now, less what it had at the start."""
+def _total(client, usages: list):
+    """The usage of this run: the sum of its calls' usage."""
     from hermit.agent.model.usage import Usage
-    t = client.total
-    cost = None if t.cost_usd is None else t.cost_usd - (start["cost"] or 0.0)
-    return Usage(model=getattr(client, "model", ""), input_tokens=t.input_tokens - start["input"],
-                 cached_input_tokens=t.cached_input_tokens - start["cached"], output_tokens=t.output_tokens - start["output"],
-                 calls=t.calls - start["calls"], cost_usd=cost)
+    costs = [u.cost_usd for u in usages]
+    return Usage(model=getattr(client, "model", ""), input_tokens=sum(u.input_tokens for u in usages),
+                 cached_input_tokens=sum(u.cached_input_tokens for u in usages),
+                 output_tokens=sum(u.output_tokens for u in usages), calls=sum(u.calls for u in usages),
+                 cost_usd=None if not costs or any(c is None for c in costs) else sum(costs))

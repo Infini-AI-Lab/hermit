@@ -36,7 +36,8 @@ def _load_entry(entrypoint: str, base: Path) -> Callable:
 
 
 def declared(decl: dict, base: Path, source: str, bound: dict, runner=None) -> FunctionTool:
-    """A tool declared like an adapter tool: name, description, entrypoint, input_schema, output_schema.
+    """A tool declared like an adapter tool: name, description, entrypoint, input_schema, output_schema (none, or
+    an empty one, asks for a JSON object back).
     Keyword arguments the function declares among `bound` (for example `_adapter`) are filled by the framework.
     With a `runner` (the `tool` role's sandbox, isolate.ToolRunner) the code is never imported here: every call runs
     in a sandboxed worker."""
@@ -44,7 +45,7 @@ def declared(decl: dict, base: Path, source: str, bound: dict, runner=None) -> F
         def call(**arguments):
             return runner(decl["entrypoint"], base, arguments, bound)
         return FunctionTool(decl["name"], decl["description"], call, source=source,
-                            input_schema=decl.get("input_schema"), output_schema=decl.get("output_schema"))
+                            input_schema=decl.get("input_schema"), output_schema=decl.get("output_schema") or None)
     fn = _load_entry(decl["entrypoint"], base)
     params = inspect.signature(fn).parameters
     extra = {k: v for k, v in bound.items() if k in params}
@@ -52,7 +53,7 @@ def declared(decl: dict, base: Path, source: str, bound: dict, runner=None) -> F
     def call(**arguments):
         return fn(**arguments, **extra)
     return FunctionTool(decl["name"], decl["description"], call, source=source,
-                        input_schema=decl.get("input_schema"), output_schema=decl.get("output_schema"))
+                        input_schema=decl.get("input_schema"), output_schema=decl.get("output_schema") or None)
 
 
 class MeteredModel:
