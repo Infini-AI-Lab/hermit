@@ -24,7 +24,7 @@ import traceback
 def _run(job: dict) -> dict:
     if job["kind"] == "agent":
         from hermit.adapter.session import ENV_PYTHON, ENV_SANDBOX
-        from hermit.agents.base import load_agent
+        from hermit.agent.acting.agent import load_agent
         from hermit.task import RunOutput, output_record
         # The adapter's tools never run in this process, nor in any it starts (inherited through the environment).
         os.environ[ENV_SANDBOX] = "1"

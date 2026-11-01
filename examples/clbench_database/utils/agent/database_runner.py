@@ -80,7 +80,7 @@ def main() -> None:
     from src.tasks.database_exploration import task as dbtask
     from host import AdapterHost
     from hermit import Session
-    from hermit.algorithms.evolvers.mwm.evidence import clbench as clbench_evidence, readme as evidence_readme
+    from hermit.agent.evolver.methods.mwm.evidence import clbench as clbench_evidence, readme as evidence_readme
 
     row = json.loads(args.task)
     order, position = int(row["order"]), int(row["position"])
@@ -88,7 +88,7 @@ def main() -> None:
     evidence_dir = workdir / "evidence"
     host_ws = workdir / "host"
     host_ws.mkdir(parents=True, exist_ok=True)
-    from hermit.algorithms.evolvers.mwm import deployment as _dep
+    from hermit.agent.evolver.methods.mwm import deployment as _dep
     venue_texts = TASKS / "task-info" / "mwm"
     deployment = _dep.host_settings(venue_texts)
 

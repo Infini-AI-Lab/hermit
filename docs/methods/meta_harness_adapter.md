@@ -91,7 +91,7 @@ candidates, do not run the evaluation.
 
 ## Parameters and defaults
 
-```{literalinclude} ../../hermit/algorithms/evolvers/meta_harness_adapter/evolver.yaml
+```{literalinclude} ../../hermit/agent/evolver/methods/meta_harness_adapter/evolver.yaml
 :language: yaml
 ```
 

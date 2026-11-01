@@ -14,7 +14,7 @@ def _packaged() -> set[str]:
 
 
 def test_package_data_covers_every_template_file():
-    templates = PACKAGE / "algorithms" / "templates"
+    templates = PACKAGE / "adapter" / "templates"
     files = {p.relative_to(PACKAGE).as_posix() for p in templates.rglob("*")
              if p.is_file() and "__pycache__" not in p.parts and p.suffix not in (".pyc", ".pyo")}
     missing = sorted(files - _packaged())
@@ -23,6 +23,6 @@ def test_package_data_covers_every_template_file():
 
 def test_every_template_ships_its_metadata():
     packaged = _packaged()
-    for template in (PACKAGE / "algorithms" / "templates").iterdir():
+    for template in (PACKAGE / "adapter" / "templates").iterdir():
         if template.is_dir() and (template / ".hermit").is_dir():
-            assert f"algorithms/templates/{template.name}/.hermit/adapter.yaml" in packaged, template.name
+            assert f"adapter/templates/{template.name}/.hermit/adapter.yaml" in packaged, template.name

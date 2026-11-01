@@ -2,4 +2,4 @@
 *
 !pyproject.toml
 !docker/hermit_dist.py
-!examples/officeqa/utils/agent/docker/egress_proxy.py
+!docker/codex/egress_proxy.py

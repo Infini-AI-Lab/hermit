@@ -91,6 +91,7 @@ recipes/lean-collaboration
 developer/index
 developer/reproducing-a-method
 developer/service-design
+framework/agent-layers
 tutorials/custom-evolver
 framework/custom-evolver
 framework/adapter

@@ -53,9 +53,9 @@ Changelog = "https://github.com/Infini-AI-Lab/hermit/blob/main/CHANGELOG.md"
 include = ["hermit*"]
 
 [tool.setuptools.package-data]
-hermit = ["defaults.yaml", "backends.yaml", "algorithms/evolvers/**/*", "algorithms/templates/**/*",
-          "algorithms/templates/**/.agents/**/*", "algorithms/templates/**/.codex/**/*",
-          "algorithms/templates/**/.hermit/**/*"]   # globs skip dot-directories
+hermit = ["defaults.yaml", "agent/model/backends.yaml", "agent/evolver/methods/**/*", "adapter/templates/**/*",
+          "adapter/templates/**/.agents/**/*", "adapter/templates/**/.codex/**/*",
+          "adapter/templates/**/.hermit/**/*"]   # globs skip dot-directories
 
 [tool.setuptools.exclude-package-data]
 "*" = ["**/__pycache__/*", "**/*.pyc", "**/*.pyo"]

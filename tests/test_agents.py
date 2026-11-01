@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 EXAMPLE = ROOT / "docs" / "_examples" / "file_adapter"
 
 TOOLS_PY = '''
-from hermit.agents import tool
+from hermit.agent.acting import tool
 
 @tool("Add two integers.", {"type": "object", "properties": {"a": {"type": "integer"}, "b": {"type": "integer"}},
       "required": ["a", "b"]})
@@ -70,7 +70,7 @@ def test_react_loop(tmp_path):
     params = {"model": {"base_url": server.url, "model": "m", "price": {"input": 1, "output": 2}},
               "prompt": "prompt.md", "tools": "tools.py", "user": "Q: {question}", "answer_tag": "FINAL_ANSWER",
               "logs": "logs"}
-    run = load_pipeline("hermit.agents.react:run", tmp_path, params)
+    run = load_pipeline("hermit.agent.acting.react:run", tmp_path, params)
     out = run({"id": "t1", "question": "2+3?"}, EXAMPLE)
 
     first = server.requests[0]
@@ -88,7 +88,7 @@ def test_react_loop(tmp_path):
 
 def test_react_without_adapter_or_tools(tmp_path):
     server = Scripted([{"role": "assistant", "content": "hello"}])
-    run = load_pipeline("hermit.agents.react:run", tmp_path, {"model": {"base_url": server.url, "model": "m"},
+    run = load_pipeline("hermit.agent.acting.react:run", tmp_path, {"model": {"base_url": server.url, "model": "m"},
                                                                        "prompt": "Be brief."})
     out = run({"id": "t2", "prompt": "hi"}, None)
     assert out.output == "hello" and out.cost_usd is None and "tools" not in server.requests[0]
@@ -121,18 +121,19 @@ def test_cli_agent_with_fake_cli(tmp_path, monkeypatch, backend, script, answer)
     exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
     (tmp_path / "prompt.md").write_text("Solve {question} in this workspace.")
-    params = {"backend": backend, "prompt": "prompt.md", "price": {"input": 1, "cached_input": 0.5, "output": 2},
+    params = {"backend": backend, "web_search": False, "prompt": "prompt.md", "price": {"input": 1, "cached_input": 0.5, "output": 2},
               "workspaces": "ws", "model": "m1"}
-    run = load_pipeline("hermit.agents.cli:run", tmp_path, params)
+    run = load_pipeline("hermit.agent.acting.workspace:run", tmp_path, params)
     out = run({"id": "q7", "question": "6*7"}, EXAMPLE)
 
-    ws = out.log
-    assert ws.parent == tmp_path / "ws" and ws.name.startswith("q7-") and out.output == answer
-    context_file = ws / ("AGENTS.md" if backend == "codex" else "CLAUDE.md")
+    log, work = out.log, Path(out.extra["workspace"])
+    assert log.parent.parent == tmp_path / "ws" and log.parent.name.startswith("q7-") and out.output == answer
+    context_file = work / ("AGENTS.md" if backend == "codex" else "CLAUDE.md")
     assert "hermit:file-example:start" in context_file.read_text()     # the adapter was deployed
-    args = (ws / ".args").read_text()
+    args = (work.parent / ("home" if backend == "codex" else "work") / ".args").read_text()
     assert "Solve 6*7 in this workspace." in args and "m1" in args
-    assert (ws / f"agent-{'codex' if backend == 'codex' else 'claude'}.jsonl").is_file()
+    assert (log / f"agent-{'codex' if backend == 'codex' else 'claude'}.jsonl").is_file()
+    assert (log / "prompt.txt").read_text() == "Solve 6*7 in this workspace." and (log / "last_message.txt").is_file()
     if backend == "codex":
         assert out.tokens == 1050 and out.cost_usd == pytest.approx((800 * 1 + 200 * 0.5 + 50 * 2) / 1e6)
     else:
@@ -151,15 +152,15 @@ def test_load_pipeline_binds_only_what_is_asked(tmp_path):
 
 
 def test_load_agent_builtin_class_function_and_alias(tmp_path):
-    from hermit.agents import Agent, FunctionAgent, load_agent
-    from hermit.agents.react import ReactAgent
-    from hermit.agents.cli import CliAgent
+    from hermit.agent.acting import Agent, FunctionAgent, load_agent
+    from hermit.agent.acting.react import ReactAgent
+    from hermit.agent.acting.workspace import CliAgent
     from hermit.config import Config
     assert isinstance(load_agent("react", {"model": {}}, tmp_path), ReactAgent)
     claude = load_agent("claude-code", {"model": "m"}, tmp_path)
     assert isinstance(claude, CliAgent) and claude.params["backend"] == "claude" and claude.base == tmp_path.resolve()
     (tmp_path / "agent.py").write_text(
-        "from hermit.agents import Agent\nfrom hermit.task import RunOutput\n"
+        "from hermit.agent.acting import Agent\nfrom hermit.task import RunOutput\n"
         "class Mine(Agent):\n    def run(self, task, adapter):\n        return RunOutput(output=(self.params['k'], str(self.base.name), adapter))\n"
         "def plain(task, adapter):\n    return RunOutput(output='plain')\n")
     mine = load_agent("agent.py:Mine", {"k": 1}, tmp_path)

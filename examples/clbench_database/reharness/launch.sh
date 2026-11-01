@@ -11,7 +11,7 @@
 #   MW_MODEL=vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8 VLLM_BASE_URL=http://127.0.0.1:8102/v1 \
 #     MW_TAG=rh_poker_local WM_PORT=3511 MW_ORDERS="0" ./launch.sh                # a local vLLM server
 #
-# Models are backend references, <backend>/<model id> (`hermit backends list`; hermit/backends.py):
+# Models are backend references, <backend>/<model id> (`hermit backends list`; hermit/agent/model/backends.py):
 # MW_MODEL names the host's and the learner's model alike, MW_HOST_MODEL and MW_EVOLVER_MODEL either alone (default
 # GLM 5.3 Flash on Fireworks; the paper runs every agent on one backbone). MW_EMBED_MODEL names the embedding model
 # (default Qwen3-Embedding-8B on Fireworks, the paper's; its backend must serve /embeddings). Each backend's key
@@ -51,8 +51,8 @@ EMBED_PORT=$((WM_PORT+2))
 TASKDIR=$FRAMEWORK/examples/clbench_database/utils
 export PYTHONPATH=$FRAMEWORK${PYTHONPATH:+:$PYTHONPATH}
 
-# The three models resolved on their backends (the shell form of hermit.backends: HOST_*, EVOLVER_* and EMBED_*).
-resolve() { "$PY" -m hermit.backends shell "$2" | sed "s/^HA_/$1_/"; }
+# The three models resolved on their backends (the shell form of hermit.agent.model.backends: HOST_*, EVOLVER_* and EMBED_*).
+resolve() { "$PY" -m hermit.agent.model.backends shell "$2" | sed "s/^HA_/$1_/"; }
 # HOST_MODEL stays the reference; HOST_MODEL_ID is the model's id on its backend (same for EVOLVER_* and EMBED_*).
 eval "$(resolve HOST "$HOST_MODEL")"; [ -n "${HOST_MODEL_ID:-}" ] || { echo "REFUSING: cannot resolve $HOST_MODEL"; exit 1; }
 eval "$(resolve EVOLVER "$EVOLVER_MODEL")"; [ -n "${EVOLVER_MODEL_ID:-}" ] || { echo "REFUSING: cannot resolve $EVOLVER_MODEL"; exit 1; }
@@ -130,7 +130,7 @@ for i in ${MW_ORDERS:-0}; do
   # The task directory keeps MWM's layout (current_db, the evidence README; the database's first question
   # registered), as ../mwm/launch.sh writes it, because the host runners are MWM's; ReHarness's learner reads the
   # framework's learning material, none of this.
-  "$PY" -m hermit.algorithms.evolvers.mwm.evidence.readme --evidence "$WD/evidence" --from "$HERE/../utils/task-info/mwm/contract/env_evidence.md"
+  "$PY" -m hermit.agent.evolver.methods.mwm.evidence.readme --evidence "$WD/evidence" --from "$HERE/../utils/task-info/mwm/contract/env_evidence.md"
   if [ "$VENUE" = database ]; then
     "$CLBENCH/.venv/bin/python" "$FRAMEWORK/examples/clbench_database/utils/agent/database_runner.py" --register-first $i \
       --workdir "$WD" --clbench "$CLBENCH" --framework "$FRAMEWORK"

@@ -12,7 +12,13 @@ agent:
   name: null                  # react | codex | claude-code, or file.py:Class / file.py:function of the task's own
   concurrency: 4
   timeout_min: null           # a sandboxed task call that runs longer is stopped and recorded as an error; null: none
-  params: {}
+  params: {}                  # Layer 3: the Acting Agent's own settings (docs/framework/agent-layers.md)
+  base: null                  # Layer 2: codex | claude | react | direct; its settings go in a section of its name
+  model: null                 # Layer 1: a <backend>/<model> reference, or {ref | name, login, effort, price, ...}
+  codex: null
+  claude: null
+  react: null
+  direct: null
 pipeline:                     # the older spelling of `agent`: run -> name
   run: null
   concurrency: null
@@ -25,7 +31,12 @@ start_from: null
 evolver:
   name: null
   resume: false
-  params: {}
+  params: {}                  # Layer 3: the method's settings
+  base: null                  # Layer 2: codex | claude | direct (the Base Agent the method runs on)
+  model: null                 # Layer 1: as agent.model; with direct it is the run's `llm`
+  codex: null
+  claude: null
+  direct: null
 evolver_access:
   environment: []
   tools: []

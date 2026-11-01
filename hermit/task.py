@@ -57,7 +57,7 @@ def load_callable(spec: str, base: Path) -> Callable:
 
 def load_pipeline(spec: str, base: Path, params: dict | None = None) -> Callable:
     """A `run(task, adapter)` callable with `agent.params` and the config directory bound when its signature asks
-    for them (keyword parameters named `params` and `base`); `hermit.agents.FunctionAgent` is the Agent form."""
+    for them (keyword parameters named `params` and `base`); `hermit.agent.acting.FunctionAgent` is the Agent form."""
     import functools
     import inspect
     fn = load_callable(spec, base)

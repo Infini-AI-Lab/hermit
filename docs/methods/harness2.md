@@ -13,7 +13,7 @@ the test tasks are processed as one stream.
 template: harness2-codex@1.0
 data: {train: stream.txt, step_size: 1, shuffle: false}   # one task per step, in the stream's order
 trainer: {epochs: 1}
-agent: {name: ../utils/agent/codex_agent.py:OfficeQACodexAgent}   # an agent that runs `codex exec` with the tree deployed
+agent: {name: codex, params: {deploy: tree}}                      # Codex with the tree deployed in its workspace
 evolver:
   name: harness2_upstream
   params: {model: <backend>/<model>, effort: medium, k: 1, slots: slots.yaml}
@@ -75,7 +75,7 @@ An interrupted run is instead resumed in place, as any run ([runs guide](../guid
 
 ## Parameters and defaults
 
-```{literalinclude} ../../hermit/algorithms/evolvers/harness2_upstream/evolver.yaml
+```{literalinclude} ../../hermit/agent/evolver/methods/harness2_upstream/evolver.yaml
 :language: yaml
 ```
 

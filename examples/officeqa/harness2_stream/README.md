@@ -2,7 +2,7 @@
 
 [Harness²](https://arxiv.org/abs/2610.14224) as its paper runs it, by its own code
 ([google-research/harness2](https://github.com/google-research/harness2), the `harness2` dependency group) through the
-[`harness2_upstream`](../../../hermit/algorithms/evolvers/harness2_upstream/) Evolver, with Codex as the acting
+[`harness2_upstream`](../../../hermit/agent/evolver/methods/harness2_upstream/) Evolver, with Codex as the acting
 agent. The 172 test questions are one stream, in upstream's seeded order, one question per step. Every question
 starts from SkillOpt's initial skill as `AGENTS.md` (H0; `make_seed_codex.py` writes it as a `harness2-codex`
 adapter, so Harness² starts from the text GEPA and SkillOpt start from):
@@ -16,10 +16,10 @@ adapter, so Harness² starts from the text GEPA and SkillOpt start from):
 The adapter never changes. The harness is Codex's own tree (the `harness2-codex` template: `AGENTS.md`,
 `.agents/skills/`, `scripts/`, `sub_agents/`, `.codex/hooks.json`), so the editors see upstream's Codex surface and
 skills on demand, scripts, subagents and hooks are all levers. Every execution is one `codex exec` session in a
-Docker container of its own (`../utils/agent/codex_agent.py`, `codex_session.py`): the workspace holds `task.md` (the
+Docker container of its own (the framework's Codex agent, `deploy: tree`): the workspace holds `task.md` (the
 question with its parsed pages and source files, as SkillOpt's Codex harness writes it) and the whole corpus under
 `docs/`; the container reaches only the model provider through the egress proxy, and Codex's workspace-write sandbox
-inside it gives the session's commands no network at all. A session has `agent.params.timeout_s` seconds (3,600,
+inside it gives the session's commands no network at all. A session has `agent.codex.timeout_s` seconds (3,600,
 the paper's cap; its 200-turn cap is not a setting Codex has, and upstream enforces none on Codex) and answers inside
 `<answer>...</answer>`; one that ends without an answer scores 0.
 
@@ -32,7 +32,7 @@ benchmarks state their deliverables.
 
 ## Run
 
-Prepare `../utils/` first (`../README.md`), build the Codex harness's container once (`../utils/agent/docker/`:
+Prepare `../utils/` first (`../README.md`), build the Codex agent's container once (`docker/codex/`:
 Codex 0.162.0 for Linux, the image `officeqa-codex:0.162.0`, the internal network `oq-sandbox` and the proxy
 `oq-egress`, as the [OfficeQA recipe](../../../docs/recipes/officeqa.md#run-in-the-codex-harness) describes for its
 own Codex harness), then, from the repository root (dependency groups need pip 25.1+):

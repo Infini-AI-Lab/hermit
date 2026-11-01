@@ -66,7 +66,7 @@ reflection and revision agents; bind `llm` to the acting model.
 
 ## Parameters and defaults
 
-```{literalinclude} ../../hermit/algorithms/evolvers/reharness/evolver.yaml
+```{literalinclude} ../../hermit/agent/evolver/methods/reharness/evolver.yaml
 :language: yaml
 ```
 
@@ -120,7 +120,7 @@ The relay listens on the loopback only, but every local process that reaches its
 on a shared machine, run inside the offline container (`docker/offline.sh`) or another private network namespace.
 
 The examples' `launch.sh` start this relay (the CL-Bench ones beside their host and learner meters, the OfficeQA
-one alone, its models calling the provider directly) and resolve the paths with `python -m hermit.backends shell
+one alone, its models calling the provider directly) and resolve the paths with `python -m hermit.agent.model.backends shell
 <ref>`. `setup` embeds one word through the Evolver's client before the first
 step, so a wrong endpoint fails at startup rather than at the first instance. Outside a sandbox the reader can send
 a key itself: `REHARNESS_EMBED_API_KEY_ENV` names the variable that holds it. `hermit eval` needs the same
@@ -154,7 +154,7 @@ the k revision calls per instance; the step records show the difference.
 - **The decision agent's prompt.** The acting pipeline owns its system prompt and action format, so pi_D's prompt is
   the venue's own; the template's `ADAPTER.md` carries the paper's framing of the retrieved memory above the
   `[RANKED REFLECTIONS]` block. The reflection and revision prompts are the paper's, verbatim
-  (`hermit/algorithms/evolvers/reharness/prompts.py`), with the input laid out as they say.
+  (`hermit/agent/evolver/methods/reharness/prompts.py`), with the input laid out as they say.
 - **The bank.** Retrieval ranks every reflection of the stream so far, one per past instance, whatever its kind. A
   memory id is the task id (`<task id>.s<step>` when a task recurs). The template starts with an empty bank; a seed
   adapter may carry one.
@@ -206,7 +206,7 @@ Evaluate the final adapter against `root` and `none` on the held-out split with 
 `examples/clbench_database/reharness/`, `examples/clbench_poker/reharness/` and `examples/officeqa/reharness/` run
 this method on the three tasks; their `launch.sh` start the embedding relay (the CL-Bench ones beside the host and
 learner meters), set the reader's variable and bind the models that go through a meter. On OfficeQA the Codex configs (`stream_codex.yaml`, `run_codex_flash.yaml`)
-act through `utils/agent/codex_agent.py`, which deploys a context adapter as the session's `AGENTS.md`: the
+act through the framework's Codex agent (`deploy: tree`), which deploys a context adapter as the session's `AGENTS.md`: the
 Session's context for the question, `ADAPTER.md` and the retrieved reflections below it, retrieved once before
 the session starts. The [CL-Bench](../recipes/clbench.md) and [OfficeQA](../recipes/officeqa.md) recipes describe the tasks'
 data, models and scoring.

@@ -13,7 +13,7 @@ from hermit.settings_check import run_check
 from hermit.trainer.trainer import Trainer
 from hermit.tree import INVALID_MARK, git
 
-TEMPLATE = Path(__file__).resolve().parents[1] / "hermit" / "algorithms" / "templates" / "prompt_only"
+TEMPLATE = Path(__file__).resolve().parents[1] / "hermit" / "adapter" / "templates" / "prompt_only"
 
 PIPELINE = '''
 from pathlib import Path
@@ -33,7 +33,7 @@ def score(task, output):
     return {"score": float(ok), "feedback": "correct" if ok else f"expected the sum of {task['a']} and {task['b']}"}
 '''
 EVOLVER = '''
-from hermit.evolver.base import Evolver, StepResult
+from hermit.agent.evolver.base import Evolver, StepResult
 
 class Toy(Evolver):
     def step(self, ctx):
@@ -250,7 +250,7 @@ def test_shuffle_must_be_boolean(tmp_path):
 
 BOOT_EVOLVER = '''
 import subprocess
-from hermit.evolver.base import Evolver, StepResult
+from hermit.agent.evolver.base import Evolver, StepResult
 
 class Boot(Evolver):
     def bootstrap(self, ctx):

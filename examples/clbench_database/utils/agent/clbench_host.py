@@ -9,6 +9,11 @@ Settings come from the environment the launcher prepares, or from agent.params:
                      reference (resolved by the framework into a binding: the litellm id, the endpoint and the key
                      variable are taken from it). Default: GLM 5.3 Flash on Fireworks.
   plus clbench's own: CLB_SCORING, CLB_QUERY_BUDGET, CLB_API_BASE, CLB_REASONING_EFFORT, the API key, MW_META_SQL
+
+The runner's model calls are the benchmark's own loop (Layer 3) calling the `direct` Base Agent (Layer 2) once per
+call (docs/framework/agent-layers.md): clbench's litellm is given a local endpoint (hermit.agent.base.endpoint) as its
+CLB_API_BASE, which relays each request, as clbench made it, to the endpoint it would have reached (the launcher's
+meter, or the backend's URL).
 """
 from __future__ import annotations
 
@@ -30,12 +35,12 @@ def host_model(params: dict) -> tuple[str, dict]:
     if not model:
         if os.environ.get("MWM_HOST_MODEL"):
             return os.environ["MWM_HOST_MODEL"], {}      # a litellm id, as the launcher sets it; never a reference
-        from hermit.backends import registry, resolve
+        from hermit.agent.model.backends import registry, resolve
         model = resolve(DEFAULT_MODEL, registry()).spec()
     if isinstance(model, str):
-        from hermit.backends import registry, resolve
+        from hermit.agent.model.backends import registry, resolve
         model = resolve(model, registry()).spec()
-    from hermit.backends import Binding
+    from hermit.agent.model.backends import Binding
     binding = Binding.from_spec(model)
     if binding.backend.key_required and binding.api_key_env and not binding.key():
         raise RuntimeError(f"{binding.api_key_env} is not set (the key of backend {binding.backend.name!r})")
@@ -62,6 +67,9 @@ def run_host(runner: str, task: dict, adapter: Path, params: dict | None = None)
                "--task", json.dumps(task), "--adapter", str(Path(adapter).resolve()), "--workdir", str(workdir),
                "--model", model, "--clbench", str(clbench), "--framework", str(FRAMEWORK)]
     env = {**os.environ, **model_env}
+    if env.get("CLB_API_BASE"):                    # clbench's model calls through `direct`, to the same endpoint
+        from hermit.agent.base.endpoint import relay
+        env["CLB_API_BASE"] = relay(env["CLB_API_BASE"])
     t0 = time.time()
     for attempt in (1, 2):
         # One retry after a crash (the seat already retries model calls and cools down 120 s once). A stream

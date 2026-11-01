@@ -1,22 +1,20 @@
-"""Meta-Harness Adapter: the meta-harness-adapter template, the Codex agent's `deploy: adapter` mode and the Evolver's
+"""Meta-Harness Adapter: the meta-harness-adapter template, the Codex agent's `deploy: files` mode and the Evolver's
 loop over steps (record the evaluated candidate, propose k, validate, queue, hand back, select) with a scripted
 proposer (no model, no Docker, no network)."""
 import json
 import os
 from pathlib import Path
 import shutil
-import sys
 import tempfile
 
 import pytest
 
-from hermit.algorithms.evolvers.meta_harness_adapter import evolver as E
-from hermit.evolver.base import Access, Progress, StepContext, StepResult, Workspace
+from hermit.agent.evolver.methods.meta_harness_adapter import evolver as E
+from hermit.agent.evolver.base import Access, Progress, StepContext, StepResult, Workspace
 from hermit.spec import check_spec
 
 ROOT = Path(__file__).resolve().parents[1]
-TEMPLATE = ROOT / "hermit" / "algorithms" / "templates" / "meta_harness_adapter"
-AGENT_DIR = ROOT / "examples" / "officeqa" / "utils" / "agent"
+TEMPLATE = ROOT / "hermit" / "adapter" / "templates" / "meta_harness_adapter"
 
 
 @pytest.fixture
@@ -56,17 +54,15 @@ def test_any_file_in_any_layout_is_learnable_but_hermit_is_not(tmp_path):
     assert not result.passed and any(".hermit" in i.path for i in result.issues)
 
 
-# ---------- the Codex agent's `deploy: adapter` ----------
+# ---------- the Codex agent's `deploy: files` ----------
 
-def _codex_agent():
-    if str(AGENT_DIR) not in sys.path:
-        sys.path.insert(0, str(AGENT_DIR))
-    import codex_agent
-    return codex_agent
+def _deploy():
+    from hermit.agent.acting import deploy
+    return deploy
 
 
 def test_deploy_adapter_gives_adapter_md_as_agents_md_and_every_other_file(tmp_path):
-    codex_agent = _codex_agent()
+    deploy = _deploy()
     adapter = seed(tmp_path)
     (adapter / "scripts").mkdir()
     (adapter / "scripts" / "find.py").write_text("print('x')\n")
@@ -75,7 +71,7 @@ def test_deploy_adapter_gives_adapter_md_as_agents_md_and_every_other_file(tmp_p
     (adapter / "exports.yaml").write_text("{}\n")
     work = tmp_path / "work"
     work.mkdir()
-    out = codex_agent.deploy_adapter(adapter, work)
+    out = deploy.files(adapter, work)
     assert (work / "AGENTS.md").read_text() == (adapter / "ADAPTER.md").read_text()
     assert (work / "scripts" / "find.py").is_file() and (work / "exports.yaml").is_file()
     assert not (work / ".hermit").exists() and not (work / "ADAPTER.md").exists()
@@ -84,24 +80,24 @@ def test_deploy_adapter_gives_adapter_md_as_agents_md_and_every_other_file(tmp_p
 
 
 def test_deploy_adapter_refuses_a_name_the_session_uses(tmp_path):
-    codex_agent = _codex_agent()
+    deploy = _deploy()
     adapter = seed(tmp_path)
     (adapter / "task.md").write_text("mine\n")
     work = tmp_path / "work"
     work.mkdir()
     with pytest.raises(ValueError, match="task.md"):
-        codex_agent.deploy_adapter(adapter, work)
+        deploy.files(adapter, work, reserved=("task.md", "docs"))
 
 
 def test_deploy_adapter_refuses_codex_configuration(tmp_path):
-    codex_agent = _codex_agent()
+    deploy = _deploy()
     adapter = seed(tmp_path)
     (adapter / ".codex").mkdir()
     (adapter / ".codex" / "hooks.json").write_text("{}\n")
     work = tmp_path / "work"
     work.mkdir()
     with pytest.raises(ValueError, match=".codex"):
-        codex_agent.deploy_adapter(adapter, work)
+        deploy.files(adapter, work)
     assert not (work / ".codex").exists()
 
 

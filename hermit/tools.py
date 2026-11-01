@@ -2,69 +2,25 @@
 
 check_spec is always present. Template tools come from .hermit/adapter.yaml `evolver_tools`, task tools from the run config's
 `evolver_access.tools`, run tools are `budget` and (when the run config has an `llm` section) `llm`. Every call is
-logged to the run's tool log. Delivery: in-process (`ctx.tools`) for class Evolvers, and an HTTP endpoint that the
-MCP proxy (`python -m hermit.tools_mcp`) and external programs use.
+logged to the run's tool log. The run's model reaches an Evolver as a Base Agent too (`ctx.agent`, a metered
+`direct`; hermit.agent.evolver.base.ask), and the `llm` tool is that agent for programs outside the process. Delivery: in-process (`ctx.tools`) for class Evolvers, and an HTTP endpoint that the
+CLI agents (MCP) and external programs (JSON) use: hermit.agent.base.tool_server.
 """
 from __future__ import annotations
 
 from datetime import datetime, timezone
-import http.server
-import secrets
 import importlib.util
 import inspect
 import json
 from pathlib import Path
-import threading
-from typing import Any, Callable
+from typing import Callable
 
-from jsonschema import Draft202012Validator
-
-
-LOG_LIMIT = 4000
+from hermit.agent.base.tool import Tool, ToolError, _clip   # noqa: F401 (ToolError: raised by the Trainer's tools)
+from hermit.agent.evolver.base import ask
+from hermit.agent.base.tool_server import ToolServer   # noqa: F401 (the Trainer's endpoint)
 
 
-class ToolError(RuntimeError):
-    pass
-
-
-class FunctionTool:
-    def __init__(self, name: str, description: str, fn: Callable[..., dict], *, source: str,
-                 input_schema: dict | None = None, output_schema: dict | None = None):
-        self.name, self.description, self.fn, self.source = name, description, fn, source
-        self.input_schema = input_schema or {"type": "object"}
-        self.output_schema = output_schema or {"type": "object"}
-        Draft202012Validator.check_schema(self.input_schema)
-        self.log_path: Path | None = None
-        self.cancel = None
-
-    def describe(self) -> dict:
-        return {"name": self.name, "description": self.description, "source": self.source,
-                "input_schema": self.input_schema, "output_schema": self.output_schema}
-
-    def __call__(self, **arguments: Any) -> dict:
-        record = {"time": datetime.now(timezone.utc).isoformat(), "tool": self.name, "source": self.source,
-                  "arguments": _clip(arguments)}
-        try:
-            if self.cancel is not None and self.cancel.is_set():
-                raise ToolError("the call was stopped by the Trainer (budget or timeout)")
-            Draft202012Validator(self.input_schema).validate(arguments)
-            result = self.fn(**arguments)
-            if not isinstance(result, dict):
-                raise ToolError(f"tool {self.name} returned {type(result).__name__}, not an object")
-            record.update(status="ok", result=_clip(result))
-            return result
-        except Exception as exc:
-            record.update(status="error", error=f"{type(exc).__name__}: {exc}")
-            raise
-        finally:
-            if self.log_path is not None:
-                with open(self.log_path, "a") as stream:
-                    stream.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
-
-
-def _clip(value):
-    text = json.dumps(value, ensure_ascii=False, default=str)
-    return value if len(text) <= LOG_LIMIT else text[:LOG_LIMIT] + "…"
+FunctionTool = Tool          # the Trainer's tools are ordinary Tools (hermit.agent.base.tool)
 
 
 def _load_entry(entrypoint: str, base: Path) -> Callable:
@@ -80,7 +36,8 @@ def _load_entry(entrypoint: str, base: Path) -> Callable:
 
 
 def declared(decl: dict, base: Path, source: str, bound: dict, runner=None) -> FunctionTool:
-    """A tool declared like an adapter tool: name, description, entrypoint, input_schema, output_schema.
+    """A tool declared like an adapter tool: name, description, entrypoint, input_schema, output_schema (none, or
+    an empty one, asks for a JSON object back).
     Keyword arguments the function declares among `bound` (for example `_adapter`) are filled by the framework.
     With a `runner` (the `tool` role's sandbox, isolate.ToolRunner) the code is never imported here: every call runs
     in a sandboxed worker."""
@@ -88,7 +45,7 @@ def declared(decl: dict, base: Path, source: str, bound: dict, runner=None) -> F
         def call(**arguments):
             return runner(decl["entrypoint"], base, arguments, bound)
         return FunctionTool(decl["name"], decl["description"], call, source=source,
-                            input_schema=decl.get("input_schema"), output_schema=decl.get("output_schema"))
+                            input_schema=decl.get("input_schema"), output_schema=decl.get("output_schema") or None)
     fn = _load_entry(decl["entrypoint"], base)
     params = inspect.signature(fn).parameters
     extra = {k: v for k, v in bound.items() if k in params}
@@ -96,14 +53,62 @@ def declared(decl: dict, base: Path, source: str, bound: dict, runner=None) -> F
     def call(**arguments):
         return fn(**arguments, **extra)
     return FunctionTool(decl["name"], decl["description"], call, source=source,
-                        input_schema=decl.get("input_schema"), output_schema=decl.get("output_schema"))
+                        input_schema=decl.get("input_schema"), output_schema=decl.get("output_schema") or None)
+
+
+class MeteredModel:
+    """The run's model as the Evolver's Base Agent calls it: every call is refused once the Trainer stops the
+    Evolver (`cancel`) or the budget is spent, charged to the budget's evolver share, kept in `metered` and logged
+    to `log_path` as an `llm` call."""
+
+    def __init__(self, client, budget, metered: list | None = None, cancel=None, log_path: Path | None = None):
+        self.client, self.budget, self.metered, self.cancel, self.log_path = client, budget, metered, cancel, log_path
+
+    @property
+    def model(self) -> str:
+        return self.client.model
+
+    @property
+    def total(self):
+        return self.client.total
+
+    def chat(self, messages: list, **kwargs):
+        record = {"time": datetime.now(timezone.utc).isoformat(), "tool": "llm", "source": "run",
+                  "arguments": _clip({"messages": messages, **kwargs})}
+        try:
+            if self.cancel is not None and self.cancel.is_set():
+                raise ToolError("the call was stopped by the Trainer (budget or timeout)")
+            self.budget.check()
+            message, usage = self.client.chat(messages, **kwargs)
+            self.budget.add("evolver", usage)
+            if self.metered is not None:
+                self.metered.append(usage)
+            record.update(status="ok", result=_clip({"content": message.get("content") or "",
+                                                     "reasoning": message.get("reasoning_content") or "",
+                                                     "finish_reason": message.get("finish_reason"),
+                                                     "usage": usage.__dict__}))
+            return message, usage
+        except Exception as exc:
+            record.update(status="error", error=f"{type(exc).__name__}: {exc}")
+            raise
+        finally:
+            if self.log_path is not None:
+                with open(self.log_path, "a") as stream:
+                    stream.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+
+
+def evolver_agent(client, budget, metered: list | None = None, cancel=None, log_path: Path | None = None):
+    """The Evolver's `direct` Base Agent (`ctx.agent`): the run's model, metered."""
+    from hermit.agent.base.direct import Direct
+    return Direct({}, MeteredModel(client, budget, metered, cancel, log_path))
 
 
 def assemble(*, adapter: Path, root: Path, template_decls: list, task_decls: list, task_base: Path,
-             budget, llm_client=None, python: str | None = None,
-             metered: list | None = None, runner=None, within: list[Path] = ()) -> dict[str, FunctionTool]:
+             budget, agent=None, python: str | None = None, runner=None,
+             within: list[Path] = ()) -> dict[str, FunctionTool]:
     """One toolset for one call. `adapter` is the workspace copy the tools act on; `root` the template's files;
-    `within` are the learner's other writable directories (scratch, state), where an Evolver keeps a candidate."""
+    `within` are the learner's other writable directories (scratch, state), where an Evolver keeps a candidate.
+    `agent` is the call's metered `direct` Base Agent (evolver_agent); the `llm` tool calls it."""
     from hermit.spec import check_spec
     tools: dict[str, FunctionTool] = {}
     checkable = [Path(p).resolve() for p in (adapter, *within)]
@@ -130,79 +135,13 @@ def assemble(*, adapter: Path, root: Path, template_decls: list, task_decls: lis
     tools["budget"] = FunctionTool("budget", "The run's remaining hard budget (usd, tokens, hours) and spending so far.",
                                    remaining, source="run",
                                    input_schema={"type": "object", "additionalProperties": False})
-    if llm_client is not None:
+    if agent is not None:
         def llm(messages: list, max_tokens: int | None = None, temperature: float | None = None) -> dict:
-            budget.check()
-            kwargs = {k: v for k, v in (("max_tokens", max_tokens), ("temperature", temperature)) if v is not None}
-            message, usage = llm_client.chat(messages, **kwargs)
-            budget.add("evolver", usage)
-            if metered is not None:
-                metered.append(usage)
-            return {"content": message.get("content") or "", "reasoning": message.get("reasoning_content") or "",
-                    "finish_reason": message.get("finish_reason"), "usage": usage.__dict__}
+            return ask(agent, messages, max_tokens=max_tokens, temperature=temperature)
         tools["llm"] = FunctionTool(
-            "llm", f"Call the run's model ({llm_client.model}) with chat messages; metered against the budget.", llm,
+            "llm", f"Call the run's model ({agent.model.model}) with chat messages; metered against the budget.", llm,
             source="run", input_schema={"type": "object", "required": ["messages"], "additionalProperties": False,
                                         "properties": {"messages": {"type": "array"},
                                                        "max_tokens": {"type": "integer"},
                                                        "temperature": {"type": "number"}}})
     return tools
-
-
-class ToolServer:
-    """Serve a toolset over HTTP on 127.0.0.1 for agents (through the MCP proxy) and external programs.
-    GET /tools → [tool descriptions]; POST /call/<name> with a JSON object → {"result": ...} or {"error": ...}."""
-
-    def __init__(self, tools: dict[str, FunctionTool]):
-        self.tools = tools
-        self.token = secrets.token_hex(16)     # the URL carries it: other local processes cannot call the tools
-        outer = self
-
-        class Handler(http.server.BaseHTTPRequestHandler):
-            def log_message(self, *args):
-                pass
-
-            def _send(self, code, payload):
-                body = json.dumps(payload, ensure_ascii=False, default=str).encode()
-                self.send_response(code)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-
-            def _route(self):
-                prefix = f"/{outer.token}"
-                return self.path[len(prefix):] if self.path.startswith(prefix + "/") else None
-
-            def do_GET(self):
-                if self._route() == "/tools":
-                    self._send(200, [t.describe() for t in outer.tools.values()])
-                else:
-                    self._send(404, {"error": "not found"})
-
-            def do_POST(self):
-                route = self._route()
-                if route is None or not route.startswith("/call/"):
-                    return self._send(404, {"error": "not found"})
-                name = route[len("/call/"):]
-                tool = outer.tools.get(name)
-                if tool is None:
-                    return self._send(404, {"error": f"unknown tool {name}"})
-                try:
-                    length = int(self.headers.get("Content-Length", 0))
-                    arguments = json.loads(self.rfile.read(length) or b"{}")
-                    self._send(200, {"result": tool(**arguments)})
-                except Exception as exc:
-                    self._send(200, {"error": f"{type(exc).__name__}: {exc}"})
-
-        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-        self.url = f"http://127.0.0.1:{self.server.server_address[1]}/{self.token}"
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
-
-    def __enter__(self):
-        self.thread.start()
-        return self
-
-    def __exit__(self, *exc):
-        self.server.shutdown()
-        self.server.server_close()

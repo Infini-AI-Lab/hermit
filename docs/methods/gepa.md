@@ -32,7 +32,7 @@ Keep validation separate from test; repeated validation selection is part of tra
 
 ## Parameters and defaults
 
-```{literalinclude} ../../hermit/algorithms/evolvers/gepa/evolver.yaml
+```{literalinclude} ../../hermit/agent/evolver/methods/gepa/evolver.yaml
 :language: yaml
 ```
 

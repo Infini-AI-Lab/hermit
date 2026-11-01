@@ -14,7 +14,8 @@
 # Fireworks for the editor sessions (bucket TAG; ledger runs/TAG.wire_ledger.json), and trains with the editor model
 # bound to the meter. Needs the `harness2` and `skillopt` dependency groups (python -m pip install -e . --group harness2
 # --group skillopt), the Claude Code CLI, bubblewrap and the Codex
-# harness's container (../utils/agent/codex_session.py --check names what is missing; docker/ builds it).
+# agent's container (the image, the network and the egress proxy of run_codex.yaml; docker/codex/ builds them; the
+# agent names what is missing before its first session).
 set -eu -o pipefail
 if [ -n "${LIBRARY_FROM:-}" ]; then          # a continuation names what differs from the stream it continues
   for v in TAG SPLITS STREAM CLAUDE_BIN; do
@@ -43,8 +44,6 @@ if [ -n "$LIBRARY_FROM" ]; then
 fi
 mkdir -p runs
 "$PY" make_seed_codex.py
-"$PY" ../utils/agent/codex_session.py --check "$("$PY" -c "import json; print(json.load(open('../utils/data.json'))['docs'])")" \
-  || { echo "REFUSING: the Codex harness's container is not ready (see ../utils/agent/codex_session.py)"; exit 1; }
 "$PY" stream.py --seed "$SEED" --split $SPLITS --out "$STREAM" ${MAX_TASKS:+--max "$MAX_TASKS"} ${SKIP_TASKS:+--skip "$SKIP_TASKS"}
 # The meter restarts if it dies; each start keeps its own ledger (sum runs/$TAG.wire_ledger-*.json for the bill).
 if ! curl -s -m 2 "http://127.0.0.1:$WM_PORT/health" > /dev/null; then

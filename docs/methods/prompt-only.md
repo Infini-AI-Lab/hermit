@@ -43,7 +43,7 @@ structurally valid update can reduce task performance. The final adapter is the 
 
 ## Parameters and defaults
 
-```{literalinclude} ../../hermit/algorithms/evolvers/codex/evolver.yaml
+```{literalinclude} ../../hermit/agent/evolver/methods/codex/evolver.yaml
 :language: yaml
 :start-at: params:
 ```

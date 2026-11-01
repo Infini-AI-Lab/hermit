@@ -73,13 +73,13 @@ filesystem grants and execution isolation.
 | Status and usage | Returned `StepResult` | Trainer control flow and accounting. |
 | Reports | `workspace.output` | Saved run records. |
 
-```{literalinclude} ../../hermit/evolver/base.py
+```{literalinclude} ../../hermit/agent/evolver/base.py
 :language: python
 :pyobject: StepResult
 ```
 
-`Usage` reports model calls, token counts, and cost when known. Calls through the run's metered `llm` tool are already
-accounted for; do not report the same usage again in `StepResult`.
+`Usage` reports model calls, token counts, and cost when known. Calls through the run's metered model (`ctx.agent`, or
+the `llm` tool) are already accounted for; do not report the same usage again in `StepResult`.
 
 ### Status handling
 
@@ -107,7 +107,7 @@ For selection guidance, setup, and the complete parameter defaults, use [Choose 
 | `meta_harness_adapter` | [Meta-Harness Adapter](../methods/meta_harness_adapter.md), with `template: meta-harness-adapter`: one candidate per step. Each step's rollouts evaluate the candidate handed back last; when none is waiting, a Codex or Claude Code proposer reads every earlier candidate's files, scores and trajectories and writes k new adapters, which pass `check_spec` before they are queued; no validation data. | The proposer CLI, `data.step_size` covering the training split (the search set) |
 
 Change a parameter with `evolver.params` in the run config; each Evolver's `evolver.yaml` under
-`hermit/algorithms/evolvers/` lists them with their defaults. For `gepa`, `data.step_size` is the reflection
+`hermit/agent/evolver/methods/` lists them with their defaults. For `gepa`, `data.step_size` is the reflection
 minibatch; for `skillopt`, it is the batch size and `trainer.epochs` the number of epochs. Both select from candidates
 they keep in `state/`, and `finalize` hands back the one with the best validation score. For `reharness` it is 1, one
 instance of the stream per step, and `finalize` hands back the bank as it stands. For `meta_harness_adapter` it covers

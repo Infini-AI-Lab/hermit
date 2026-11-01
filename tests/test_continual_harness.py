@@ -9,13 +9,15 @@ import tempfile
 
 import pytest
 
-from hermit.algorithms.evolvers.continual_harness import evolver as E
-from hermit.evolver.base import Progress, StepContext, Workspace, Access
+from fakes import agent_of
+from hermit.agent.base import trajectory
+
+from hermit.agent.evolver.methods.continual_harness import evolver as E
+from hermit.agent.evolver.base import Progress, StepContext, Workspace, Access
 from hermit.spec import check_spec
 
 ROOT = Path(__file__).resolve().parents[1]
-TEMPLATE = ROOT / "hermit" / "algorithms" / "templates" / "continual_harness"
-AGENT_DIR = ROOT / "examples" / "officeqa" / "utils" / "agent"
+TEMPLATE = ROOT / "hermit" / "adapter" / "templates" / "continual_harness"
 
 
 @pytest.fixture
@@ -82,8 +84,8 @@ def context(tmp: Path, adapter: Path, llm, params: dict | None = None) -> StepCo
         result = check_spec(Path(path), TEMPLATE, deploy=False)
         return {"passed": result.passed, "issues": [i.__dict__ for i in result.issues]}
 
-    tools = {"llm": llm, "check_spec": check_spec_tool}
-    return StepContext(workspace=ws, access=Access(), tools=tools,
+    tools = {"check_spec": check_spec_tool}
+    return StepContext(workspace=ws, access=Access(), tools=tools, agent=agent_of(llm),
                        params={"feedback": True, "trace_chars": 4000, "components": E.PASSES, **(params or {})},
                        progress=Progress(1, 1, False))
 
@@ -133,7 +135,7 @@ def test_check_rejects_off_surface_files_and_bad_entries(tmp_path):
 def test_codex_trajectory_and_failure_signatures(tmp_path):
     root = material(tmp_path, [RECORD])
     record, traj = E.read_records(root)[0]
-    text = E.codex_trajectory(E.codex_events(traj / "agent-codex.jsonl"))
+    text = E.codex_trajectory(trajectory.log_steps(traj))
     assert "[reasoning] Find the 1944 bulletin." in text
     assert "[command exit 1] python3 .agents/skills/sum/scripts/sum.py" in text
     assert "[assistant] <answer>44,463</answer>" in text
@@ -248,23 +250,19 @@ def test_feedback_off_shows_no_verdict(tmp_path):
 
 
 def test_codex_agent_deploys_and_collects_the_memory(tmp_path):
-    import sys
-    sys.path.insert(0, str(AGENT_DIR))
-    import codex_agent as A
+    from hermit.agent.acting import workspace as cli, deploy
     adapter = seed(tmp_path)
     work = tmp_path / "work"
     work.mkdir()
-    deployed = A.deploy_harness(adapter, work)
+    deployed = deploy.tree(adapter, work)
     assert deployed["memory"] and (work / "memory" / "NOTES.md").is_file()
-    assert "memory/NOTES.md" in A.MEMORY_NOTE and "memory" in A.ROOT_ENTRIES
-    assert not A.deploy_harness(ROOT / "hermit" / "algorithms" / "templates" / "harness2_codex", tmp_path / "w2")["memory"] \
-        if (tmp_path / "w2").mkdir() is None else True
+    assert "memory/NOTES.md" in cli.MEMORY_NOTE and "memory" in deploy.TREE_ENTRIES
+    (tmp_path / "w2").mkdir()
+    assert not deploy.tree(ROOT / "hermit" / "adapter" / "templates" / "harness2_codex", tmp_path / "w2")["memory"]
 
 
 def test_frontmatter_round_trip_survives_colons_and_quotes(tmp_path):
-    import sys
-    sys.path.insert(0, str(AGENT_DIR))
-    import codex_agent as A
+    from hermit.agent.acting import deploy as A
     description = 'Delegate when figures (e.g., "tendered" vs received: gross vs net) could match'
     text = E.with_frontmatter(description, "Compare them.")
     assert E.frontmatter(text) == ({"description": description}, "Compare them.\n")

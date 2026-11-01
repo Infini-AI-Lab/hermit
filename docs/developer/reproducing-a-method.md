@@ -25,8 +25,8 @@ Evolver the reproduction adds.
   ([Meta-Harness Adapter](../methods/meta_harness_adapter.md) has one).
 - When the framework narrows what the method may change (the acting agent is fixed, only the adapter changes), the
   method's name says so, and the method page states the difference from the paper in its first paragraph.
-- A reproduction changes only three places: `hermit/algorithms/templates/<name>/`,
-  `hermit/algorithms/evolvers/<name>/` and an example under `examples/<task>/<name>/`. Anything else in `hermit/`
+- A reproduction changes only three places: `hermit/adapter/templates/<name>/`,
+  `hermit/agent/evolver/methods/<name>/` and an example under `examples/<task>/<name>/`. Anything else in `hermit/`
   is the core and stays untouched; a reproduction that seems to need a core change opens a separate discussion
   first, and that change lands on its own, before the reproduction.
 - Task-side adaptations of an acting agent (for example, deploying a memory file into a Codex workspace and
@@ -34,7 +34,7 @@ Evolver the reproduction adds.
   request.
 - Where the authors publish their code, use it: pin it to a Git commit in a dependency group of `pyproject.toml`
   (`[dependency-groups]`), add the group to `all`, add the same requirements to `METHOD_REQUIREMENTS` in
-  `hermit/evolver/dependencies.py` so the missing-dependency error names them, and call the code at its seam, as
+  `hermit/agent/evolver/dependencies.py` so the missing-dependency error names them, and call the code at its seam, as
   `harness2_upstream` does. When the code cannot be used as is, say so and name, per component, which upstream file
   and function the reimplementation follows.
 

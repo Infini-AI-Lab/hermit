@@ -37,7 +37,7 @@ containers does not collide.
 
 The offline containers sit on `hermit-offline`, a Docker network created with `--internal`: no route out and no
 resolution of outside names, so a direct connection fails before it starts. Their one way out is `hermit-egress`,
-a container on that network and on the default one, running `examples/officeqa/utils/agent/docker/egress_proxy.py`
+a container on that network and on the default one, running `docker/codex/egress_proxy.py`
 (the Codex harness's): an HTTP CONNECT proxy that opens tunnels to `api.fireworks.ai:443` and answers `403` to any
 other target. Every client in the container is pointed at it: `HTTPS_PROXY` and `HTTP_PROXY` (the agents' and
 Evolvers' HTTP clients, clbench's litellm, curl), `PROXY` (the wire meters read it and reach their upstream through
@@ -68,12 +68,12 @@ before the offline runs; running it again re-syncs the clbench venv, so not whil
 hermit runs every agent, learner and adapter tool in a bubblewrap sandbox of its own (`hermit/sandbox.py`): user,
 mount, PID and network namespaces, a fresh `/proc` and `/dev`, a positive allowlist of paths. Docker allows an
 unprivileged process to make namespaces only with `--cap-add SYS_ADMIN`, `--security-opt seccomp=unconfined` and
-`--security-opt apparmor=unconfined`, the list of `codex_sandbox.py`, which runs Codex's bubblewrap the same way. One
+`--security-opt apparmor=unconfined`, the list of `hermit/agent/base/container.py`, which runs Codex's bubblewrap the same way. One
 more is needed for hermit's `--proc /proc`: `--security-opt systempaths=unconfined` lifts the masks Docker lays over
 `/proc` (`/proc/kcore`, `/proc/keys`, ...), without which a fresh `/proc` cannot be mounted in a namespace
 (`bwrap: Can't mount proc on /newroot/proc: Operation not permitted`). The container's user is unprivileged, so what
 the masks hid stays root's (`/proc/kcore` is mode 0400, `/proc/sys` is read-only to it). `NET_RAW`, `MKNOD` and
-`AUDIT_WRITE` are dropped as `codex_sandbox.py` drops them, and `label=disable` keeps an SELinux host from refusing
+`AUDIT_WRITE` are dropped as `hermit/agent/base/container.py` drops them, and `label=disable` keeps an SELinux host from refusing
 the bind mounts. The containers are not privileged, have no Docker socket and are not on the host network.
 `prepare` gets none of the sandbox additions.
 

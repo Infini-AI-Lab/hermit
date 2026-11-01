@@ -38,6 +38,7 @@ import threading
 from urllib.parse import urlparse
 import uuid
 
+from hermit.agent.base import login as codex_login
 from hermit.sandbox import FRAMEWORK, PACKAGE, AllowlistProxy, Sandbox, framework_env, network_mode
 from hermit.task import RunOutput
 
@@ -182,7 +183,7 @@ def _agent_logs(name: str, base: Path) -> list[Path]:
 
 def _model_access(data: dict) -> tuple[list[str], list[str], list[int]]:
     """The agent's model endpoints (allowed through the proxy), its key variables, and loopback ports to forward."""
-    from hermit.backends import bindings_of
+    from hermit.agent.model.backends import bindings_of
     allow, keys, ports = [], [], []
     for who, binding, _ in bindings_of(data):
         if not who.startswith("agent"):
@@ -343,7 +344,7 @@ class SandboxedAgent:
                                probe_absent=list(HOME_SECRETS))
 
     def _cli_kind(self) -> str | None:
-        from hermit.backends import CLI_AGENTS
+        from hermit.agent.model.backends import CLI_AGENTS
         kind = CLI_AGENTS.get(str(self.name))
         if kind is None and str(self.name) == "cli":
             kind = {"claude-code": "claude"}.get(self.params.get("backend", "codex"), self.params.get("backend", "codex"))
@@ -358,12 +359,17 @@ class SandboxedAgent:
         from hermit.adapter.session import ENV_ENFORCE
         env = framework_env({ENV_ENFORCE: self.enforce})
         keep = [*self.keys, ENV_ENFORCE]
+        chatgpt = self.cli == "codex" and self.params.get("login") == "chatgpt"
+        if chatgpt:          # inside, the agent keeps this call's copy in its workspaces; the shared one is out here
+            params["login_root"] = str(work / "workspaces")
         if self.cli:                                     # a CLI agent signs in with a copy of the user's login only
             folder, var, login = CLI_HOMES[self.cli]
             agent_home = home / folder
             agent_home.mkdir()
             source = Path.home() / folder / login
-            if source.is_file():
+            if chatgpt:
+                codex_login.prepare(codex_login.ROOT, agent_home)      # the shared copy, refreshed by earlier calls
+            elif source.is_file():
                 shutil.copy2(source, agent_home / login)
                 os.chmod(agent_home / login, 0o600)
             env[var] = str(agent_home)
@@ -382,6 +388,17 @@ class SandboxedAgent:
         finally:
             if self.cli:                                 # the login copy does not outlive the call
                 (home / CLI_HOMES[self.cli][0] / CLI_HOMES[self.cli][2]).unlink(missing_ok=True)
+                if chatgpt:
+                    # Every copy the call left: its run copy, and a session's own when the worker was stopped before
+                    # it could hand that back (a timeout kills it). The latest refresh goes back to the shared copy;
+                    # then none of them is kept.
+                    left = [work / "workspaces" / "login" / codex_login.FILE,
+                            *work.glob(f"workspaces/*/home/{codex_login.FILE}")]
+                    for path in left:
+                        codex_login.take_back(codex_login.ROOT, path)
+                    for path in left:
+                        path.unlink(missing_ok=True)
+                shutil.rmtree(work / "workspaces" / "login", ignore_errors=True)
         rec = payload["output"]
         # The log is copied into the learner's material outside any sandbox: it must lie where this call could
         # write (its work directory, the agent's logs, the role's write grants), never a file it merely names.
@@ -401,7 +418,7 @@ class SandboxedAgent:
 def agent_pipeline(config, role: str, *, records: Path | None, work_root: Path | None = None):
     """(pipeline, close): the agent in the role's sandbox, or in this process when that role's sandbox is off."""
     if not profile(config.data["sandbox"], role)["enabled"]:
-        from hermit.agents.base import load_agent
+        from hermit.agent.acting.agent import load_agent
         d = config.data
         return load_agent(d["agent"]["name"], d["agent"].get("params"), config.base).run, (lambda: None)
     agent = SandboxedAgent(config, role, records=records, work_root=work_root)

@@ -17,15 +17,16 @@ import urllib.request
 import pytest
 import yaml
 
+from fakes import agent_of
 from hermit import Session
 from hermit.adapter.loader import load_manifest
 from hermit.config import Config
 from hermit.evaluate import evaluate
-from hermit.evolver.base import Usage
+from hermit.agent.evolver.base import Usage
 from hermit.spec import check_spec, repair
 from hermit.trainer.trainer import Trainer
 
-TEMPLATE = Path(__file__).resolve().parents[1] / "hermit" / "algorithms" / "templates" / "reharness"
+TEMPLATE = Path(__file__).resolve().parents[1] / "hermit" / "adapter" / "templates" / "reharness"
 KINDS = {"ALPHA": "alpha: sort the numbers ascending", "BETA": "beta: reverse the letters of the word"}
 
 PIPELINE = '''
@@ -334,7 +335,7 @@ def test_sandboxed_rollout_reads_through_the_loopback_relay(workdir, embeddings,
 # ---------- the agents' replies and the bank's ids ----------
 
 def test_the_agents_json_is_parsed_leniently_and_ids_stay_distinct():
-    from hermit.algorithms.evolvers.reharness.evolver import extract_field, parse_json_field
+    from hermit.agent.evolver.methods.reharness.evolver import extract_field, parse_json_field
     import sys as _sys
     _sys.path.insert(0, str(TEMPLATE))
     from reharness_core import bank
@@ -369,7 +370,7 @@ def test_the_agents_json_is_parsed_leniently_and_ids_stay_distinct():
 
 def test_a_cut_off_reply_gets_a_larger_budget_and_a_wrong_one_a_reminder():
     import types
-    from hermit.algorithms.evolvers.reharness.evolver import ReHarnessEvolver
+    from hermit.agent.evolver.methods.reharness.evolver import ReHarnessEvolver
     calls = []
 
     def cut_then_fine(messages, **sampling):
@@ -378,7 +379,7 @@ def test_a_cut_off_reply_gets_a_larger_budget_and_a_wrong_one_a_reminder():
             return {"content": '{"reflection":"a long reflection that', "finish_reason": "length"}
         return {"content": '{"reflection":"done"}', "finish_reason": "stop"}
 
-    ctx = types.SimpleNamespace(tools={"llm": cut_then_fine})
+    ctx = types.SimpleNamespace(agent=agent_of(cut_then_fine))
     value, meta = ReHarnessEvolver()._chat(ctx, "system", "user", {"max_tokens": 8192}, "reflection")
     assert value == "done" and meta["calls"] == 2 and calls[1] == (2, {"max_tokens": 16384})   # the same request
     assert meta["parse"] == "json after a larger budget" and meta["note"] == "the reply was cut off at max_tokens"
@@ -390,14 +391,14 @@ def test_a_cut_off_reply_gets_a_larger_budget_and_a_wrong_one_a_reminder():
         return {"content": "I would rather explain." if len(calls) == 1 else '{"reflection":"done"}',
                 "finish_reason": "stop"}
 
-    ctx = types.SimpleNamespace(tools={"llm": prose_then_fine})
+    ctx = types.SimpleNamespace(agent=agent_of(prose_then_fine))
     value, meta = ReHarnessEvolver()._chat(ctx, "system", "user", {"max_tokens": 8192}, "reflection")
     assert value == "done" and calls == [2, 4] and meta["parse"] == "json after a reminder" and "note" not in meta
 
     def prose_twice(messages, **sampling):
         return {"content": "Just prose, twice.", "finish_reason": "stop"}
 
-    value, meta = ReHarnessEvolver()._chat(types.SimpleNamespace(tools={"llm": prose_twice}), "s", "u", {}, "reflection")
+    value, meta = ReHarnessEvolver()._chat(types.SimpleNamespace(agent=agent_of(prose_twice)), "s", "u", {}, "reflection")
     assert value == "Just prose, twice." and meta["parse"] == "raw text (no JSON in two replies)"
 
 
@@ -405,7 +406,7 @@ def test_a_trajectory_without_feedback_and_a_codex_event_stream(tmp_path):
     """`feedback: false` keeps the judge's verdict out of tau_t; a Codex session's event stream is rendered as its
     items, not as raw JSON, and the log directory's static files are left out."""
     import json
-    from hermit.algorithms.evolvers.reharness import trajectory
+    from hermit.agent.evolver.methods.reharness import trajectory
     log = tmp_path / "trajectories" / "q1"
     log.mkdir(parents=True)
     events = [{"type": "thread.started", "thread_id": "t"},
@@ -431,29 +432,26 @@ def test_a_trajectory_without_feedback_and_a_codex_event_stream(tmp_path):
 
 
 def test_the_codex_agent_deploys_a_context_adapter_as_agents_md(tmp_path):
-    """The OfficeQA Codex agent writes AGENTS.md from the Session's context for an adapter that is context rather than
+    """The Codex agent's tree deployment writes AGENTS.md from the Session's context for an adapter that is context rather than
     a Codex tree (the reharness template), and leaves a tree's own AGENTS.md alone."""
-    import sys as _sys
-    agent_dir = Path(__file__).resolve().parents[1] / "examples" / "officeqa" / "utils" / "agent"
-    _sys.path.insert(0, str(agent_dir))
-    import codex_agent
+    from hermit.agent.acting import deploy
     adapter = tmp_path / "adapter"
     shutil.copytree(TEMPLATE, adapter, ignore=shutil.ignore_patterns("__pycache__"))
     work = tmp_path / "work"
     work.mkdir()
-    deployed = codex_agent.deploy_harness(adapter, work, "# Skill\n\n[RANKED REFLECTIONS]\n[RANK 1 OF 1 REFLECTION]\nx\n")
+    deployed = deploy.tree(adapter, work, "# Skill\n\n[RANKED REFLECTIONS]\n[RANK 1 OF 1 REFLECTION]\nx\n")
     assert deployed["context"] and deployed["agents_md"]
     assert (work / "AGENTS.md").read_text().startswith("# Skill") and "[RANK 1 OF 1 REFLECTION]" in (work / "AGENTS.md").read_text()
     assert not (work / "ADAPTER.md").exists() and not (work / "reflections").exists()     # the bank stays out of the session
     work2 = tmp_path / "work2"
     work2.mkdir()
-    assert not codex_agent.deploy_harness(adapter, work2)["agents_md"]                  # no context given: no harness
+    assert not deploy.tree(adapter, work2)["agents_md"]                  # no context given: no harness
     tree = tmp_path / "tree"
     tree.mkdir()
     (tree / "AGENTS.md").write_text("the tree's own")
     work3 = tmp_path / "work3"
     work3.mkdir()
-    deployed = codex_agent.deploy_harness(tree, work3, "context that must not replace it")
+    deployed = deploy.tree(tree, work3, "context that must not replace it")
     assert (work3 / "AGENTS.md").read_text() == "the tree's own" and not deployed["context"]
 
 
@@ -481,7 +479,7 @@ def test_a_stopped_step_leaves_no_record_and_no_orphan_trajectory(tmp_path):
     Training State keeps no record of it and the trajectory stored for its memory is removed."""
     import threading
     import types
-    from hermit.algorithms.evolvers.reharness.evolver import ReHarnessEvolver
+    from hermit.agent.evolver.methods.reharness.evolver import ReHarnessEvolver
     config = make_run(tmp_path, {"k": 2})
     trainer = Trainer(config, log=lambda *_: None)
     trainer.llm = ScriptedModel()
@@ -495,7 +493,7 @@ def test_a_stopped_step_leaves_no_record_and_no_orphan_trajectory(tmp_path):
         cancel.set()                                   # the Trainer stopped the run during this call
         return {"content": json.dumps({"reflection": "- strategy: x"}), "finish_reason": "stop"}
 
-    ctx = types.SimpleNamespace(workspace=ws, params={"k": 2}, tools={"llm": llm},
+    ctx = types.SimpleNamespace(workspace=ws, params={"k": 2}, agent=agent_of(llm),
                                 progress=types.SimpleNamespace(step=99), cancel=cancel, sandbox=None)
     result = ReHarnessEvolver().step(ctx)
     assert result.status == "failed" and "not committed" in result.summary
@@ -586,8 +584,8 @@ def test_a_signing_relay_listens_on_the_loopback_only(tmp_path):
 # ---------- the embedding model: bound against the run's backends ----------
 
 def test_the_embedding_reference_resolves_against_the_runs_backends():
-    from hermit.backends import registry
-    from hermit.evolver.loader import find, instantiate
+    from hermit.agent.model.backends import registry
+    from hermit.agent.evolver.loader import find, instantiate
     spec = find("reharness")
     declared = {"my_embed": {"base_url": "http://127.0.0.1:9/v1", "api_key_env": "MY_EMBED_KEY", "apis": ["chat"]},
                 "fireworks": {"base_url": "http://127.0.0.1:8/relay/v1"}}     # a run moving a built-in backend

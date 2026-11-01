@@ -15,7 +15,7 @@ Use [OfficeQA](officeqa.md) for one.
 ## What the adapter contains
 
 ```text
-hermit/algorithms/templates/lean_collab/
+hermit/adapter/templates/lean_collab/
   .hermit/
     adapter.yaml   template identity and structure
     EVOLVER.md     the learner's guide

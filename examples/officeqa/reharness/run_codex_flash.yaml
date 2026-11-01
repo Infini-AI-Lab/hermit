@@ -3,8 +3,8 @@
 # per step, in the split's order, the judge's feedback in each trajectory as GEPA's and SkillOpt's learners see it),
 # then frozen and evaluated once on the 172 test questions. ReHarness selects nothing: there is no validation split
 # and `final` is the bank after the stream. Each question is answered by Codex 0.162.0 in a container of its own
-# (../utils/agent/codex_agent.py, OFFICEQA_CODEX_IMAGE=officeqa-codex:0.162.0, 3,600 s wall clock; GEPA's and
-# SkillOpt's Flash runs use SkillOpt's own Codex harness with its 180 s sessions) with SkillOpt's initial skill and the
+# (the framework's Codex agent, image officeqa-codex:0.162.0, 3,600 s wall clock; GEPA's and SkillOpt's
+# published Flash runs used SkillOpt's own Codex harness with its 180 s sessions) with SkillOpt's initial skill and the
 # five reflections retrieved for the question as its AGENTS.md. GLM 5.3 Flash acts, reflects and revises at medium
 # effort. Run four times (trainer.run_name=flash-codex-reharness, -r2, -r3, -r4, each with its own tree_dir) and
 # report the mean, as the row's GEPA and SkillOpt numbers are. Started by launch.sh.
@@ -16,15 +16,25 @@ data:
   shuffle: false                       # the split's own order
 task_info: ../utils/task-info/
 agent:
-  name: ../utils/agent/codex_agent.py:OfficeQACodexAgent
+  base: codex                          # Layer 2: Codex as a Base Agent (hermit/agent/base/cli.py)
   concurrency: 4                       # the eval; the stream itself is one question at a time
-  params:
-    model: fireworks/accounts/fireworks/models/glm-5p3-flash
-    effort: medium
-    timeout_s: 3600
-    codex_dir: ~/.cache/hermit/officeqa-rh-codex
-    project_doc_max_bytes: 204800           # 200 KiB: five retrieved reflections exceed Codex's default 32 KiB,
+  params:                              # Layer 3: the Acting Agent with OfficeQA's task functions
+    prompt: ../utils/prompt.md
+    prepare: ../utils/task.py:prepare  # task.md and the corpus under docs/
+    answer: ../utils/task.py:answer    # the last <answer>...</answer>
+    collect: ../utils/task.py:collect  # task.md into the log
+    deploy: tree                       # the skill (or the context tool's context) as AGENTS.md; a Codex tree as is
                                              # past which it silently drops the rest of AGENTS.md
+    workspaces: ~/.cache/hermit/officeqa-rh-codex
+  model:                               # Layer 1
+    ref: fireworks/accounts/fireworks/models/glm-5p3-flash
+    effort: medium
+  codex:                               # Layer 2: how Codex runs
+    web_search: false                  # set explicitly: Codex's hosted search runs past the container
+    timeout_s: 3600
+    project_doc_max_bytes: 204800           # 200 KiB: five retrieved reflections exceed Codex's default 32 KiB,
+    isolation: container               # each session in a container of its own (hermit/agent/base/container.py)
+    container: {image: "officeqa-codex:0.162.0", network: oq-sandbox, proxy: "http://oq-egress:3128"}
 judge:
   path: ../utils/judge.py
 template: reharness

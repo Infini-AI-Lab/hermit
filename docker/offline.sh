@@ -1,6 +1,6 @@
 #!/bin/bash
 # The examples offline: hermit check, train and eval in a container with no route to the internet but the Fireworks
-# API, reached through an egress proxy (examples/officeqa/utils/agent/docker/egress_proxy.py, the Codex harness's).
+# API, reached through an egress proxy (docker/codex/egress_proxy.py, the Codex agent's).
 # The hermit checkout, the clbench checkout, the OfficeQA dataset and a scratch home are bind-mounted at their host
 # paths, so a path means the same inside and outside (a venv's interpreter, data.json, a run's log).
 #
@@ -38,7 +38,7 @@ EGRESS=hermit-egress
 PROXY_URL=http://$EGRESS:3128
 USER_IDS=$(id -u):$(id -g)
 STAMP=$(date +%Y%m%d-%H%M%S)-$$
-# Docker's default capabilities less three the runs do not need (codex_sandbox.py's list); label=disable keeps an
+# Docker's default capabilities less three the runs do not need (hermit/agent/base/container.py's list); label=disable keeps an
 # SELinux host from refusing the mounts. SANDBOX adds what hermit's bubblewrap sandboxes need: SYS_ADMIN with seccomp
 # and AppArmor off to make namespaces, and Docker's masks over /proc lifted (systempaths), without which a fresh
 # /proc cannot be mounted in a namespace ("Can't mount proc on /newroot/proc"); the user is unprivileged, so what the

@@ -5,7 +5,7 @@ from dataclasses import asdict
 import threading
 import time
 
-from hermit.evolver.base import Usage
+from hermit.agent.evolver.base import Usage
 
 
 class BudgetExceeded(RuntimeError):

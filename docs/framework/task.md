@@ -77,7 +77,7 @@ agent:
   params:
     model: fireworks/accounts/fireworks/models/glm-5p3-flash   # <backend>/<model id>; or {base_url, model, api_key_env, price}
     prompt: utils/agent/prompt.md      # system prompt; `{context}` marks where ADAPTER.md goes (else appended)
-    tools: utils/tools.py              # the task's tools: functions marked with @hermit.agents.tool
+    tools: utils/tools.py              # the task's tools: functions marked with @hermit.agent.acting.tool
     user: "{question}"                 # the first user message from the task's fields
     max_turns: 24
     answer_tag: FINAL_ANSWER           # optional: one more call without tools when the tag is missing
@@ -86,12 +86,73 @@ agent:
 | `agent.name` | Agent | Settings |
 |---|---|---|
 | `react` | a chat-completions tool-calling loop over the task's tools and the adapter's tools | `model`, `prompt`, `tools`, `user`, `max_turns`, `max_output_tokens`, `max_tokens`, `temperature`, `answer_tag`, `tool_result_chars`, `logs` |
-| `codex`, `claude-code` | Codex or Claude Code run in a fresh workspace the adapter is deployed into, as `deploy` does | `model`, `prompt`, `files`, `args`, `price`, `timeout_s`, `workspaces` |
+| `codex`, `claude-code` | Codex or Claude Code run in a fresh workspace the adapter is deployed into | `model`, `login`, `effort`, `prompt`, `files`, `mounts`, `prepare`, `answer`, `collect`, `deploy`, `reserved`, `context_query`, `isolation`, `container`, `project_doc_max_bytes`, `args`, `env`, `price`, `timeout_s`, `retries`, `retry_wait_s`, `workspaces` |
+
+### A coding-agent CLI as the acting agent
+
+`codex` and `claude-code` are the framework's one way to act with a coding-agent CLI: a task gives what is its own,
+in configuration and, where its workspace is built in code, in functions it names (`file.py:function`); the agent
+does the rest. OfficeQA's Codex runs are one such configuration (`examples/officeqa/utils/task.py`):
+
+```yaml
+agent:
+  name: codex
+  params:
+    model: fireworks/accounts/fireworks/models/glm-5p3-flash   # or a Codex model name with `login: chatgpt`
+    effort: medium
+    prompt: ../utils/prompt.md            # a template of the task's fields, or file.py:function (task) -> prompt
+    prepare: ../utils/task.py:prepare     # (task, workspace[, params, base]) -> mounts: writes the task's files
+    answer: ../utils/task.py:answer       # (last message, task) -> the output; or a pattern, the last match
+    collect: ../utils/task.py:collect     # (task, workspace, log) -> facts: the task's own artifacts into the log
+    deploy: tree                          # host (as `hermit deploy`) | tree (a Codex tree) | files (the adapter as is)
+    isolation: container                  # none | container: a Docker container per session
+    container: {image: "officeqa-codex:0.162.0", network: oq-sandbox, proxy: "http://oq-egress:3128"}
+    timeout_s: 3600
+    workspaces: ~/.cache/hermit/officeqa-codex     # outside any checkout: Codex reads a repository's instructions
+```
+
+What the agent does for every task:
+
+- **Deploy.** `host` writes what `hermit deploy` writes: the whole adapter under `hermit/<adapter id>/` and what it
+  declares connected (its tools are served on this machine, so not in a container). `tree` copies a Codex tree (`AGENTS.md`, `.agents/`, `scripts/`, `.codex/`, `memory/`, and
+  `sub_agents/` as roles in the session's home); an adapter without `AGENTS.md` gets its context there. `files`
+  puts the context in `AGENTS.md` and every other adapter file at its path, refusing `AGENTS.md`, `.codex/` and the
+  `reserved` names at the adapter's root. With `tree` or `files`, an adapter's
+  [`context_tool`](adapter.md#per-task-context) is rendered for each task (the field `context_query`, else the
+  task's question or prompt) and recorded in `RunOutput.extra["context_tool"]`; `host` refuses such an adapter, as
+  `hermit deploy` does (it is not portable).
+- **Isolate.** With `isolation: container`, Codex runs in a container of its own: the workspace and the session's home
+  read-write, the mounts read-only at their targets, an internal network whose only way out is an egress proxy to
+  the provider's hosts, and Codex's workspace-write sandbox inside. `docker/codex/` builds the image and the proxy;
+  `container` (or `HERMIT_CODEX_IMAGE`, `HERMIT_CODEX_NETWORK`, `HERMIT_CODEX_PROXY`) names them. The agent checks the
+  image and the network before its first session. Without a container a mount is a link.
+- **Sign in.** A `<backend>/<model>` reference binds Codex to that backend's key; `login: chatgpt` uses the user's
+  own ChatGPT login (`codex login`; `model` is then a Codex model name, the cost unknown), from one shared copy
+  (`~/.cache/hermit/codex-login/`, outside every run's directory) that each session's refreshed token is written back
+  to, the rollout sandbox's sessions included; a model that is no reference uses the user's own Codex sign-in as it
+  is. Each session has a home of its own: none of the user's Codex or Claude Code settings apply, and the session's
+  commands see only Codex's core variables (`shell_env: all` passes every variable).
+- **Web search.** `web_search` must be set, `true` or `false`: Codex's hosted search runs at the provider, past any
+  sandbox or proxy, so it is never left to a default. Claude Code's `WebSearch` and `WebFetch` follow it too.
+- **Stop and retry.** One session per run, stopped at `timeout_s`. A session the provider could not serve (429, 5xx,
+  a container that did not start) runs again after `retry_wait_s`, up to `retries`; then the run is an error, not a
+  wrong answer.
+- **Record.** The run's directory holds `work/` (the workspace, kept for inspection without its links out),
+  `home/` and `log/`. `RunOutput.log` is `log/`: the host's event stream unchanged (`agent-codex.jsonl`,
+  `agent-claude.jsonl`), `prompt.txt`, `last_message.txt`, `deployment.json`, and what `collect` added. The output
+  is what `answer` returned, with `fail_reason` when there is no answer; without `answer`, the last message.
+  `RunOutput.extra` has the same keys for every task: `backend`, `model`, `effort`, `deploy`, `isolation`,
+  `deployed`, `exit_code`, `timed_out`, `attempts`, `workspace`, and `context_tool` and `task` when there are any.
+
+The agent records; the Evolver interprets. Every Evolver reads a host's stream through `hermit.agent.base.trajectory`
+(`read(record, step_dir)` gives the run's steps: messages, reasoning, commands with their exit codes and output,
+file changes, tool calls, errors) and renders what its learner needs: SkillOpt rebuilds its Codex trace summary,
+GEPA a text of the steps. A hook adds to the record, never replaces it, so every Evolver sees the same run.
 
 Every agent has the same interface, the task's own included:
 
 ```python
-from hermit.agents import Agent
+from hermit.agent.acting import Agent
 
 class MyAgent(Agent):                     # agent.name: agent/agent.py:MyAgent
     def run(self, task, adapter):         # self.params, self.base (the config's directory), self.session(adapter)
@@ -103,7 +164,7 @@ A plain `run(task, adapter)` function is accepted too (`agent.name: agent/pipeli
 `params` and `base` when its signature names them. A task tool is a plain function:
 
 ```python
-from hermit.agents import tool
+from hermit.agent.acting import tool
 
 @tool("Read lines of one bulletin file.", {"type": "object", "properties": {
       "filename": {"type": "string"}, "start_line": {"type": "integer"}}, "required": ["filename"]})

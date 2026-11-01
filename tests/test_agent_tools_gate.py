@@ -1,53 +1,14 @@
-"""AgentEvolver `tools` and `hide`: the tool gate serves only the allowed tools, the hiding sandbox covers paths,
-and a Codex run sees the gate, not the endpoint."""
-from http.server import BaseHTTPRequestHandler, HTTPServer
+"""AgentEvolver `tools` and `hide`: the session's tool server serves only the allowed tools, the hiding sandbox
+covers paths, and a Codex run sees no Trainer endpoint."""
 import json
 import os
-from pathlib import Path
-import threading
-import urllib.request
 
 import pytest
 
 from hermit.config import Config
-from hermit.evolver.gate import ToolGate
 from hermit.sandbox import FRAMEWORK, HidingSandbox, hidden_paths
 from hermit.trainer.trainer import Trainer
 from test_training import make_task
-
-
-def fake_endpoint():
-    class Handler(BaseHTTPRequestHandler):
-        def log_message(self, *args):
-            pass
-
-        def do_GET(self):
-            body = json.dumps([{"name": "check_spec"}, {"name": "run_agent"}, {"name": "llm"}]).encode()
-            self.send_response(200); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
-
-        def do_POST(self):
-            self.rfile.read(int(self.headers.get("Content-Length", 0)))
-            body = json.dumps({"result": {"called": self.path}}).encode()
-            self.send_response(200); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
-    server = HTTPServer(("127.0.0.1", 0), Handler)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    return server, f"http://127.0.0.1:{server.server_port}"
-
-
-def test_tool_gate_passes_only_allowed_tools():
-    upstream, url = fake_endpoint()
-    gate = ToolGate(url, ["check_spec"])
-    try:
-        tools = json.loads(urllib.request.urlopen(gate.url + "/tools").read())
-        assert [t["name"] for t in tools] == ["check_spec"]
-        ok = urllib.request.urlopen(urllib.request.Request(gate.url + "/call/check_spec", data=b"{}",
-                                                           headers={"Content-Type": "application/json"})).read()
-        assert json.loads(ok)["result"]["called"] == "/call/check_spec"
-        with pytest.raises(urllib.error.HTTPError) as err:
-            urllib.request.urlopen(urllib.request.Request(gate.url + "/call/run_agent", data=b"{}"))
-        assert err.value.code == 404
-    finally:
-        gate.close(); upstream.shutdown()
 
 
 def test_hidden_paths_and_hiding_sandbox(tmp_path):
@@ -75,15 +36,14 @@ FAKE_CODEX = r'''#!/usr/bin/env python3
 """A codex stand-in: lists the tools its MCP server was pointed at and reports them through report.md."""
 import json, re, sys, urllib.request
 args = sys.argv[1:]
-url = None
-for a in args:
-    if a.startswith("mcp_servers.evolver_tools.args="):
-        tool_args = json.loads(a.split("=", 1)[1])
-        url = tool_args[tool_args.index("--url") + 1]
+import os, tomllib
+server = tomllib.load(open(os.environ["CODEX_HOME"] + "/config.toml", "rb"))["mcp_servers"]["evolver_tools"]
+url = server["url"][:-len("/mcp")]                  # the tool server's JSON entrance beside its MCP one
 prompt = args[-1]
 output = re.search(r"output=(\S+)", prompt).group(1)
 tools = [t["name"] for t in json.loads(urllib.request.urlopen(url + "/tools").read())]
-gated = "127.0.0.1" in url and "Tools: check_spec (template)" in prompt
+gated = (server["default_tools_approval_mode"] == "approve" and "Tools: check_spec (template)" in prompt
+         and "http://" not in prompt)
 open(output + "/report.md", "w").write(f"tools={','.join(tools)} gated={gated}\n")
 print(json.dumps({"type": "thread.started", "thread_id": "sess-1"}))
 print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "cached_input_tokens": 0, "output_tokens": 2}}))
@@ -97,8 +57,8 @@ def test_agent_evolver_gates_the_tools(tmp_path, monkeypatch):
     (evolver / "codex").write_text(FAKE_CODEX)
     (evolver / "codex").chmod(0o755)
     (evolver / "START.md").write_text("output={output}\n{message}")
-    (evolver / "evolver.yaml").write_text("class: hermit.evolver.agent:AgentEvolver\n"
-                                          "params: {backend: codex, prompt: START.md, home: [], tools: [check_spec]}\n")
+    (evolver / "evolver.yaml").write_text("class: hermit.agent.evolver.agent:AgentEvolver\n"
+                                          "params: {backend: codex, web_search: false, prompt: START.md, home: [], tools: [check_spec]}\n")
     monkeypatch.setenv("PATH", f"{evolver}{os.pathsep}{os.environ['PATH']}")
     cfg = Config.load(path, ["evolver.name=gated", "trainer.epochs=1", "data.step_size=6"])
     Trainer(cfg, log=lambda *_: None).train()

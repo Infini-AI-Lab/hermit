@@ -38,7 +38,7 @@ framework's stdio server. Neither command guarantees that arbitrary tool depende
 - Budget observation can overshoot with in-flight work; missing usage remains unknown.
 - Crash recovery restores the last completed framework step, not arbitrary external service state.
 - The evaluator's `solved_once` threshold is fixed at score 1.0.
-- Per-task adapter context comes only through `exports.yaml`'s `context_tool`, consumed by `Session` and the `react` agent; its template must declare `plugin-portable: false`, and `deploy` and `convert` refuse such adapters.
+- Per-task adapter context comes only through `exports.yaml`'s `context_tool`, consumed by `Session`, the `react` agent and the `codex` agent (`deploy: tree` or `files`); its template must declare `plugin-portable: false`, and `deploy` and `convert` refuse such adapters.
 - The proposed manifest `serve` section, health checks, standalone startup, and relay lifecycle are not supported.
 
 ## Earlier command interfaces

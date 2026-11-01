@@ -58,8 +58,8 @@ if ! grep -q "\"scenario\": \"$SCENARIO\"" "$TASKDIR/tasks.jsonl" 2>/dev/null; t
   "$PY" "$TASKDIR/prepare.py" --scenario "$SCENARIO" --block "${BLOCK:-12}"
 fi
 
-# The two models resolved on their backends (the shell form of hermit.backends: HOST_* and EVOLVER_*).
-resolve() { "$PY" -m hermit.backends shell "$2" | sed "s/^HA_/$1_/"; }
+# The two models resolved on their backends (the shell form of hermit.agent.model.backends: HOST_* and EVOLVER_*).
+resolve() { "$PY" -m hermit.agent.model.backends shell "$2" | sed "s/^HA_/$1_/"; }
 # HOST_MODEL stays the reference; HOST_MODEL_ID is the model's id on its backend (same for EVOLVER_*).
 eval "$(resolve HOST "$HOST_MODEL")"; [ -n "${HOST_MODEL_ID:-}" ] || { echo "REFUSING: cannot resolve $HOST_MODEL"; exit 1; }
 eval "$(resolve EVOLVER "$EVOLVER_MODEL")"; [ -n "${EVOLVER_MODEL_ID:-}" ] || { echo "REFUSING: cannot resolve $EVOLVER_MODEL"; exit 1; }

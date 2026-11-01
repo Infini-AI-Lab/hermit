@@ -59,13 +59,18 @@ back every learner-state update.
 
 ## Use metered tools
 
-With a complete `llm` section in the run config, a learner can call:
+With a complete `llm` section in the run config, the run's model reaches the learner as `ctx.agent`, a `direct`
+Base Agent ([Agent layers](../framework/agent-layers.md)) metered against the budget:
 
 ```python
-reply = ctx.tools["llm"](messages=[{"role": "user", "content": prompt}])
+from hermit.agent.evolver.base import ask
+
+reply = ask(ctx.agent, [{"role": "user", "content": prompt}], max_tokens=4096)
+reply["content"], reply["finish_reason"]
 ```
 
-The framework accounts for this tool's usage. Report calls made outside metered tools through
+The `llm` tool (`ctx.tools["llm"]`, and the tool endpoint for an external program) calls the same agent. The
+framework accounts for this usage. Report calls made outside metered tools through
 `StepResult.usage`, and avoid double counting.
 
 For candidate tests:

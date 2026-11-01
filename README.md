@@ -277,7 +277,7 @@ The finished [Lean collaboration adapter](examples/lean_swarm/) coordinates five
 
 ```bash
 mkdir -p .demo
-cp -R hermit/algorithms/templates/prompt_only .demo/adapter
+cp -R hermit/adapter/templates/prompt_only .demo/adapter
 hermit deploy --adapter .demo/adapter --workspace .demo/codex-workspace --host codex
 cat .demo/codex-workspace/AGENTS.md
 ```

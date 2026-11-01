@@ -593,7 +593,7 @@ def test_a_session_in_a_process_the_agent_starts_is_sandboxed_too(tmp_path):
 def test_an_adapter_without_tools_starts_no_server(tmp_path, monkeypatch):
     from hermit import Session
     adapter = tmp_path / "adapter"
-    shutil.copytree(Path(__file__).resolve().parents[1] / "hermit/algorithms/templates/prompt_only", adapter)
+    shutil.copytree(Path(__file__).resolve().parents[1] / "hermit/adapter/templates/prompt_only", adapter)
     monkeypatch.setenv("HA_ADAPTER_SANDBOX", "1")
     s = Session(adapter)
     assert s.sandboxed and s._remote is None and s.context() is not None
@@ -625,3 +625,44 @@ def test_a_cli_deploy_renders_the_adapter_in_a_sandbox(tmp_path, monkeypatch):
     import json as _json
     toml = (tmp_path / "ws" / ".codex" / "config.toml")
     assert "HA_ADAPTER_SANDBOX" in toml.read_text()
+
+
+def test_a_sandboxed_codex_call_takes_the_shared_login_and_hands_its_refresh_back(tmp_path, monkeypatch, shared_login):
+    """A call in the rollout sandbox cannot write the shared copy of a ChatGPT login: it gets the copy from outside,
+    and a token it refreshed goes back to the copy, so the next call does not start from a rotated-out token."""
+    import json as _json
+    import hermit.isolate as isolate
+    from hermit.agent.base import login
+    user = tmp_path / "user-codex"
+    user.mkdir()
+    (user / "auth.json").write_text(_json.dumps({"last_refresh": "2026-10-01T00:00:00Z"}))
+    monkeypatch.setenv("CODEX_HOME", str(user))
+    config = Config.load(sandboxed_task(tmp_path), ["agent.name=codex", "agent.params.login=chatgpt",
+                                                    "agent.params.model=gpt-6-luna", "agent.params.web_search=false"])
+    seen = {}
+
+    def worker(sandbox, job, work, *, home, **kw):
+        seen["home"] = _json.loads((home / ".codex" / "auth.json").read_text())
+        seen["login_root"] = job["params"]["login_root"]
+        if job["task"]["id"] == "t1":                             # the agent inside handed its refresh back
+            inner = work / "workspaces" / "login"
+        else:                                                     # killed first: the session's own copy is left
+            inner = work / "workspaces" / "t2-abc" / "home"
+        inner.mkdir(parents=True)
+        stamp = "2026-10-30T12:00:00Z" if job["task"]["id"] == "t1" else "2026-10-30T13:00:00Z"
+        (inner / "auth.json").write_text(_json.dumps({"last_refresh": stamp}))
+        return {"output": {"output": "ok"}}
+    monkeypatch.setattr(isolate, "_run_worker", worker)
+    agent = SandboxedAgent(config, "rollout", records=None)
+    try:
+        agent({"id": "t1"}, None)
+        first = dict(seen)
+        agent({"id": "t2"}, None)
+    finally:
+        agent.close()
+    assert first["home"]["last_refresh"] == "2026-10-01T00:00:00Z"        # the first call: the user's login
+    assert seen["home"]["last_refresh"] == "2026-10-30T12:00:00Z"         # the next: the first call's refresh
+    assert _json.loads(login.master().read_text())["last_refresh"] == "2026-10-30T13:00:00Z"   # the second's too
+    assert not list(agent.work_root.glob("*/workspaces/login"))           # no call keeps a copy
+    assert not list(agent.work_root.glob("*/workspaces/*/home/auth.json"))
+    assert not list(agent.work_root.glob("*/home/.codex/auth.json"))

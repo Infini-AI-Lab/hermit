@@ -22,9 +22,9 @@ hermit train --config run.yaml model=vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8  
 
 | Setting | Who calls the model | Dialect it speaks |
 |---|---|---|
-| `llm` | the run's `llm` tool: the `gepa` and `skillopt` Evolvers | chat completions |
-| `agent.params.model` with `agent.name: react` | the built-in tool-calling agent | chat completions |
-| `agent.params.model` with `agent.name: codex` / `claude-code` | the CLI acting agent | Responses API / Messages API |
+| `llm` (or `evolver.model` with `evolver.base: direct`) | the Evolver's `direct` agent and the run's `llm` tool: the `gepa`, `skillopt`, `reharness` and `continual_harness` Evolvers | chat completions |
+| `agent.params.model` (or `agent.model`) with `agent.name: react` | the built-in tool-calling agent | chat completions |
+| `agent.params.model` (or `agent.model`) with `agent.name: codex` / `claude-code` | the CLI acting agent | Responses API / Messages API |
 | `evolver.params.model` of the `codex`, `claude` and `mwm` Evolvers | the learner's CLI session | Responses API / Messages API |
 | `model` (top level) | the default for all of the above when they name none | |
 | the examples' task agents (`agent.params.model`, or the launchers' `MW_MODEL`) | CL-Bench's litellm host, ServeLearnBench's loop, the SkillOpt rollout | chat completions |
@@ -54,7 +54,7 @@ Three layers, each overriding the one below by name:
 1. **the run config's `backends:` section**, or `backends.<name>.<field>=...` on the command line;
 2. **your own file**, `~/.config/hermit/backends.yaml` (or the file `HA_BACKENDS` names): the place for
    the servers you run, declared once for every example and run;
-3. **the framework's built-ins**, `hermit/backends.yaml`: `fireworks`, `openai`, `anthropic`, `deepseek`,
+3. **the framework's built-ins**, `hermit/agent/model/backends.yaml`: `fireworks`, `openai`, `anthropic`, `deepseek`,
    `vllm` (`http://127.0.0.1:8000/v1`), `sglang` (`http://127.0.0.1:30000/v1`) and `ollama`.
 
 `<NAME>_BASE_URL` in the environment moves a backend without a file: `VLLM_BASE_URL=http://gpu-box:8000/v1`. The
@@ -175,7 +175,7 @@ The examples' launchers take the same references: `MW_MODEL=vllm/qwen3 VLLM_BASE
 for both the host and the learner, `MW_HOST_MODEL` / `MW_EVOLVER_MODEL` for either alone
 ([CL-Bench](../recipes/clbench.md), [ServeLearnBench](../recipes/servelearnbench.md)); `--model vllm/qwen3` for
 the Lean swarm (`examples/lean_swarm/launch.sh`). Their wire meters sit in front of whichever backend the
-reference names: `python -m hermit.backends shell <ref>` prints a backend's origin and path for the meter,
+reference names: `python -m hermit.agent.model.backends shell <ref>` prints a backend's origin and path for the meter,
 and a `backends.learner={from: <backend>, base_url: <the meter's URL>}` override binds the learner through it.
 
 Prices: a hosted backend's models have prices in the built-in table; a local model has none, so its cost is

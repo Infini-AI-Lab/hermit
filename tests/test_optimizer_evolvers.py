@@ -11,12 +11,13 @@ import re
 import pytest
 import yaml
 
+from fakes import agent_of
 from hermit.config import Config
 from hermit.evaluate import evaluate
-from hermit.evolver.base import Usage
+from hermit.agent.evolver.base import Usage
 from hermit.trainer.trainer import Trainer
 
-TEMPLATE = Path(__file__).resolve().parents[1] / "hermit" / "algorithms" / "templates" / "prompt_only"
+TEMPLATE = Path(__file__).resolve().parents[1] / "hermit" / "adapter" / "templates" / "prompt_only"
 KINDS = ("ALPHA", "BETA", "GAMMA", "DELTA")
 
 PIPELINE = '''
@@ -171,7 +172,7 @@ def test_gepa_never_takes_a_cut_off_reply(tmp_path):
 
 def test_skillopt_retries_a_cut_off_reply_with_more_room():
     pytest.importorskip("skillopt")
-    from hermit.evolver.loader import find, load_class
+    from hermit.agent.evolver.loader import find, load_class
     import sys
     module = sys.modules[load_class(find("skillopt")).__module__]
     asked = []
@@ -180,7 +181,7 @@ def test_skillopt_retries_a_cut_off_reply_with_more_room():
         asked.append(max_tokens)
         cut = len(asked) == 1
         return {"content": '{"a": 1' if cut else '{"a": 1}', "finish_reason": "length" if cut else "stop", "usage": {}}
-    with module.skillopt_model(llm, {}):
+    with module.skillopt_model(agent_of(llm), {}):
         from skillopt.model import chat_optimizer
         text, _ = chat_optimizer("system", "user", max_completion_tokens=100)
     assert text == '{"a": 1}' and asked == [100, 200]
@@ -202,7 +203,7 @@ def test_run_agent_names_logs_of_training_tasks_only(tmp_path):
 
 def test_skillopt_reads_skillopt_prediction_files_and_the_paper_view(tmp_path):
     pytest.importorskip("skillopt")
-    from hermit.evolver.loader import find, load_class
+    from hermit.agent.evolver.loader import find, load_class
     import sys
     module = sys.modules[load_class(find("skillopt")).__module__]
     log = tmp_path / "log"
@@ -222,7 +223,7 @@ def test_skillopt_reads_skillopt_prediction_files_and_the_paper_view(tmp_path):
 
 def test_skillopt_shows_the_analyst_a_codex_trace_summary(tmp_path):
     pytest.importorskip("skillopt")
-    from hermit.evolver.loader import find, load_class
+    from hermit.agent.evolver.loader import find, load_class
     from skillopt.gradient.reflect import fmt_minibatch_trajectories
     import sys
     module = sys.modules[load_class(find("skillopt")).__module__]
@@ -236,9 +237,9 @@ def test_skillopt_shows_the_analyst_a_codex_trace_summary(tmp_path):
     module.write_prediction(tmp_path / "predictions" / "t1", *module.paper_view(*view),
                             codex_summary=module.codex_trace(record, tmp_path))
     item = {"id": "t1", "task_description": "Q"}
-    with module.skillopt_model(lambda **kw: None, {}):
+    with module.skillopt_model(agent_of(lambda **kw: None), {}):
         shown = fmt_minibatch_trajectories([item], str(tmp_path / "predictions"))
-    with module.skillopt_model(lambda **kw: None, {"codex_trace_to_optimizer": False}):
+    with module.skillopt_model(agent_of(lambda **kw: None), {"codex_trace_to_optimizer": False}):
         hidden = fmt_minibatch_trajectories([item], str(tmp_path / "predictions"))
     assert "#### Codex Trace Summary\nCodex Trace Summary\n- read SKILL.md: success" in shown
     assert "Codex Trace Summary" not in hidden
@@ -247,7 +248,7 @@ def test_skillopt_shows_the_analyst_a_codex_trace_summary(tmp_path):
 def test_missing_dependency_requirements_match_pyproject_groups():
     import tomllib
 
-    from hermit.evolver.dependencies import METHOD_REQUIREMENTS, missing_dependency
+    from hermit.agent.evolver.dependencies import METHOD_REQUIREMENTS, missing_dependency
 
     groups = tomllib.loads((Path(__file__).resolve().parents[1] / "pyproject.toml").read_text())["dependency-groups"]
     assert {name: tuple(reqs) for name, reqs in groups.items() if name != "all"} == METHOD_REQUIREMENTS

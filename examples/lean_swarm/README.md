@@ -29,7 +29,7 @@ proved the lemma.
 Install the framework first ([Installation](../../docs/get-started/installation.md)). Check the adapter against its template:
 
 ```bash
-python -m hermit.spec examples/lean_swarm/adapter --root hermit/algorithms/templates/lean_collab
+python -m hermit.spec examples/lean_swarm/adapter --root hermit/adapter/templates/lean_collab
 ```
 
 Also needed: the Codex CLI, bubblewrap and socat on PATH, the key of the model's backend (`FIREWORKS_API_KEY` for

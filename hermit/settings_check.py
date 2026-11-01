@@ -8,11 +8,11 @@ import tempfile
 import time
 
 from hermit.adapter.manifest import MANIFEST, read_manifest
-from hermit.backends import bindings_of, list_models, probe as probe_model, problems_of, registry, warnings_of
+from hermit.agent.model.backends import bindings_of, list_models, probe as probe_model, problems_of, registry, warnings_of
 from hermit.config import Config
-from hermit.evolver.loader import find, instantiate, load_class
+from hermit.agent.evolver.loader import find, instantiate, load_class
 from hermit.spec import check_spec
-from hermit.agents.base import load_agent
+from hermit.agent.acting.agent import load_agent
 from hermit.isolate import ROLES, agent_pipeline, config_paths, profile, validate as validate_profiles
 from hermit.task import TaskData, load_callable
 from hermit.trainer.rollout import run_one

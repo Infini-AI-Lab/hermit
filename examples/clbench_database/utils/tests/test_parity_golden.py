@@ -1,4 +1,4 @@
-"""Golden parity: the framework's mwm (algorithms/templates/mwm + algorithms/evolvers/mwm) renders the same texts as native metaworld.
+"""Golden parity: the framework's mwm (adapter/templates/mwm + agent/evolver/methods/mwm) renders the same texts as native metaworld.
 
 Ported from the old port's tasks/CLBench/tests/test_parity_golden.py to the current layout. Skipped when the native
 checkout (MW_METAWORLD, default ~/code/metaworld) is absent. Surfaces compared:
@@ -29,8 +29,8 @@ import yaml
 
 TASKS = Path(__file__).resolve().parents[2]                 # examples/clbench_database/utils/agent
 FRAMEWORK = TASKS.parents[1]
-TEMPLATE = FRAMEWORK / "hermit/algorithms/templates/mwm"
-EVOLVER = FRAMEWORK / "hermit/algorithms/evolvers/mwm"
+TEMPLATE = FRAMEWORK / "hermit/adapter/templates/mwm"
+EVOLVER = FRAMEWORK / "hermit/agent/evolver/methods/mwm"
 METAWORLD = Path(os.environ.get("MW_METAWORLD", str(Path.home() / "code/metaworld")))
 VENUES = {"clbench": TASKS, "poker": TASKS.parent / "clbench_poker"}
 sys.path.insert(0, str(FRAMEWORK))
@@ -111,7 +111,7 @@ class PackageParity(unittest.TestCase):
             native = _native("from mwm import wm_iface; "
                              f"i=wm_iface.WorldModelInterface({str(wrepo)!r}, {str(evidence)!r}, delegation='none', "
                              "code_channel=True); print(i.package(wm_iface.transport_note()), end='')")
-            from hermit.algorithms.evolvers.mwm import deployment as _dep
+            from hermit.agent.evolver.methods.mwm import deployment as _dep
             host = _dep.host_settings(TASKS / "utils/task-info/mwm")
             # The pipeline reads ADAPTER.md as the Evolver wrote it after an adopted step; write it the same way
             # first (interface.context with the venue's host.json), since no step has run on this copy.

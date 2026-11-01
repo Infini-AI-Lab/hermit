@@ -12,7 +12,7 @@ Settings come from the environment (the launcher sets them) or, for the model, f
                          test binds a snapshot of what the adapter had been trained on (windows.py)
   SLB_MODEL              the host model, as the endpoint names it (default GLM 5.3 flash on Fireworks)
   SLB_BASE_URL           the endpoint (default Fireworks; a wire meter in the examples). The launcher sets both
-                         from a backend reference (MW_MODEL, hermit.backends)
+                         from a backend reference (MW_MODEL, hermit.agent.model.backends)
   SLB_API_KEY            the key (ServeLearnBench's own variable; the launcher takes it from the backend's)
   SLB_REASONING_EFFORT   default high (the paper's setting)
 
@@ -29,7 +29,7 @@ import threading
 import time
 
 from hermit import Session
-from hermit.agents import Agent
+from hermit.agent.acting import Agent
 from hermit.task import RunOutput
 
 HERE = Path(__file__).resolve().parent
@@ -38,7 +38,7 @@ UTILS = HERE.parent
 MWM = HERE.parent / "task-info" / "mwm"     # the venue's texts for MWM
 
 
-from hermit.algorithms.evolvers.mwm.evidence import servelearnbench as evidence   # the MWM learner's records
+from hermit.agent.evolver.methods.mwm.evidence import servelearnbench as evidence   # the MWM learner's records
 
 WM_CALL_CAP = 100
 CAP_NOTICE = f"wm call limit reached for this episode ({WM_CALL_CAP}); act on the environment."
@@ -46,7 +46,7 @@ DEFAULT_MODEL = "fireworks/accounts/fireworks/models/glm-5p3-flash"      # a bac
 
 
 def _default_endpoint() -> tuple[str, str]:
-    from hermit.backends import registry, resolve
+    from hermit.agent.model.backends import registry, resolve
     binding = resolve(DEFAULT_MODEL, registry())
     return binding.model, binding.base_url
 
@@ -62,7 +62,7 @@ def _setup(scenario: str, params: dict | None = None) -> dict:
         model, base_url = _default_endpoint()
         spec = (params or {}).get("model")
         if isinstance(spec, dict) and spec.get("base_url") and spec.get("model"):     # agent.params.model, resolved
-            from hermit.backends import Binding
+            from hermit.agent.model.backends import Binding
             binding = Binding.from_spec(spec)
             model, base_url = binding.model, binding.base_url
             if binding.key() and not os.environ.get("SLB_API_KEY"):
@@ -81,7 +81,12 @@ def _setup(scenario: str, params: dict | None = None) -> dict:
         for w in windows["windows"]:
             for tid in w["serving"] + w["test"]:
                 window_of[tid] = w["window"]
-        cfg = llm.ModelConfig(model=os.environ.get("SLB_MODEL", model), base_url=os.environ.get("SLB_BASE_URL", base_url),
+        # The benchmark's loop (Layer 3) makes each model call through the `direct` Base Agent (Layer 2): its client
+        # is given a local relay (hermit.agent.base.endpoint) that sends each request on to the endpoint it would
+        # have reached, as it made it.
+        from hermit.agent.base.endpoint import relay
+        cfg = llm.ModelConfig(model=os.environ.get("SLB_MODEL", model),
+                              base_url=relay(os.environ.get("SLB_BASE_URL", base_url)),
                               reasoning_effort=os.environ.get("SLB_REASONING_EFFORT", "high") or None)
         _state.update({"scenario": scenario, "bundle": bundle, "tasks": tasks, "window_of": window_of,
                        "model": llm.LLM(cfg), "model_name": cfg.model})
@@ -89,7 +94,7 @@ def _setup(scenario: str, params: dict | None = None) -> dict:
 
 
 def _deployment() -> dict:
-    from hermit.algorithms.evolvers.mwm import deployment as _dep
+    from hermit.agent.evolver.methods.mwm import deployment as _dep
     return _dep.host_settings(MWM)
 
 
