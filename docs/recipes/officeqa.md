@@ -259,6 +259,30 @@ Codex's workspaces are under `~/.cache/hermit/officeqa-codex-actor/` (`agent.par
 checkout, so no repository instructions reach the session; each rollout's events, commands included, are in its
 `log/agent-codex.jsonl`, which the learning material copies.
 
+### Through Harbor
+
+The same Codex harness runs through [Harbor](../framework/task.md#harbor-benchmarks) instead of
+`codex_sandbox.py`: each question is a Harbor task, and Harbor starts the container, installs Codex, deploys the
+skill and runs the judge inside, after the session. Build the task set once (private: it holds the answers), then
+run a method's `run_codex_harbor.yaml` with the corpus mounted where the tasks expect it:
+
+```bash
+python -m pip install --group skillopt                  # the task text is rendered by SkillOpt's own code
+python examples/officeqa/utils/harbor/build_tasks.py    # utils/.private/harbor_tasks/<UID>/, tasks.jsonl, MOUNTS.json
+export OFFICEQA_DOCS_ROOT=...                           # the mount the build prints: the corpus at /app/docs/root_1
+hermit check --config examples/officeqa/gepa/run_codex_harbor.yaml
+hermit train --config examples/officeqa/gepa/run_codex_harbor.yaml
+hermit eval  --config examples/officeqa/gepa/run_codex_harbor.yaml --adapter final
+```
+
+What differs from the Codex route above: the container is Harbor's (`ubuntu:24.04` with python3 and ripgrep;
+`build_tasks.py --base-image` takes one with Codex installed, which saves Harbor's install per trial), its network
+is the task's (no egress proxy: the model's endpoint and key reach Codex through Harbor), the question and its
+parsed pages are the instruction rather than a `task.md`, and the judge
+(`utils/harbor/judge.py`, SkillOpt's exact match) reads the `<answer>` from the session's final message, or
+`/app/answer.txt`, inside the container. The scores of this route are not in the results table: a run through it is
+a different setting and is reported as one.
+
 ### What the isolation stopped
 
 GLM sessions look for data the question lacks (exchange rates, price indexes) outside their workspace and on the

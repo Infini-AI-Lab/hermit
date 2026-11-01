@@ -4,6 +4,21 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ## Unreleased
 
+### Added
+
+- Harbor benchmarks: `agent.name: harbor` runs any task set in [Harbor](https://github.com/laude-institute/harbor)'s
+  format (`task.toml`, `environment/`, `tests/test.sh` writing the reward) as the acting pipeline. One rollout is
+  one Harbor trial: Harbor starts the task's container, installs the acting agent (Codex by default, with the
+  adapter deployed into the container as `hermit deploy` lays it out: context, skills, roles, hooks), runs the
+  instruction and the task's own verifier; `judge.path: hermit.harbor.judge` reads the reward. A multi-step task
+  (one environment through many steps, each with its instruction and verifier) is a stream: a driver keeps the
+  environment between the Trainer's steps so a learner acts between them, and `harbor run` evaluates the whole
+  stream with a frozen adapter. `python -m hermit.harbor.dataset` downloads a dataset, indexes task directories
+  into `tasks.jsonl` rows (per task, per rollout, per step), writes splits and a content lock. The container-side
+  half (`hermit/harbor/harborside/`: the Codex agent, a scripted agent for smoke tests, the stream driver) runs
+  under Harbor's own venv. Streams need the rollout role unconfined (`sandbox.profiles.rollout.enabled: false`)
+  for now, as every Docker-driving agent does.
+
 ### Changed
 
 - The tests are in groups: `tests/core/` for the framework and `tests/methods/<name>/` for each method

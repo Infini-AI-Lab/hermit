@@ -81,10 +81,13 @@ def builtin(name: str):
         if backend is None:
             return CliAgent
         return lambda params, base: CliAgent({"backend": backend, **(params or {})}, base)
+    if name == "harbor":
+        from hermit.harbor.runner import HarborAgent
+        return HarborAgent
     return None
 
 
-BUILTIN_NAMES = ("react", "codex", "claude-code", "cli")
+BUILTIN_NAMES = ("react", "codex", "claude-code", "cli", "harbor")
 
 
 def load_agent(name: str, params: dict | None, base: Path) -> Agent:
