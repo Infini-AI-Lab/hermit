@@ -1,4 +1,4 @@
-"""Harbor benchmarks in Hermit: one acting agent for every task set in Harbor's format.
+"""Benchmarks in Hermit: one acting agent for every task set in Harbor's format, the protocol a benchmark enters by.
 
     agent:
       name: harbor

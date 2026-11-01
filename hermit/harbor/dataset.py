@@ -1,4 +1,4 @@
-"""A Harbor task set as Hermit data: the rows of `tasks.jsonl`, a lock of the tasks' contents, splits, a download.
+"""A benchmark's task set (Harbor's format) as Hermit data: the rows of `tasks.jsonl`, a lock of the tasks' contents, splits, a download.
 
 A Harbor task is a directory: `task.toml`, `instruction.md`, `environment/` (a Dockerfile or a prebuilt
 `docker_image`), `tests/test.sh` writing `/logs/verifier/reward.txt`. A multi-step task adds `[[steps]]` to task.toml
@@ -202,7 +202,7 @@ def download(ref: str, output: Path, *, harbor: str, repo: str | None = None, re
 # ---- command line ------------------------------------------------------------------------------------------------
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description="A Harbor task set as Hermit data.")
+    parser = argparse.ArgumentParser(description="A benchmark's task set (Harbor's format) as Hermit data.")
     sub = parser.add_subparsers(dest="command", required=True)
     p = sub.add_parser("download", help="harbor datasets download <ref> into --output")
     p.add_argument("ref")

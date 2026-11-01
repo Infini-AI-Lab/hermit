@@ -1,4 +1,4 @@
-"""The judge of a Harbor benchmark: the verifier's reward, as the container wrote it.
+"""The judge of a benchmark run through Harbor: the verifier's reward, as the container wrote it.
 
     judge:
       path: hermit.harbor.judge        # name: score (the default)

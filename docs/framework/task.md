@@ -183,10 +183,11 @@ whose manifest names a [`context_tool`](adapter.md#per-task-context), such a loo
 `session.context(query=<the instance's input>, task=<the row>)` and records `session.last_context` in
 `RunOutput.extra["context_tool"]`, as `react` does, so the Evolver knows what the agent read.
 
-## Harbor benchmarks
+## Benchmarks
 
-A benchmark whose agent works in a container (a coding or terminal benchmark, a corpus the agent searches with shell
-tools) is run through [Harbor](https://github.com/laude-institute/harbor): its task format (`task.toml`,
+A benchmark enters Hermit as a task set in [Harbor](https://github.com/laude-institute/harbor)'s format: that is the
+one protocol every benchmark whose agent works in a container (a coding or terminal benchmark, a corpus the agent
+searches with shell tools) is connected by, instead of Docker code of its own. The format (`task.toml`,
 `instruction.md`, `environment/` with a Dockerfile or a prebuilt `docker_image`, `tests/test.sh` writing
 `/logs/verifier/reward.txt`) is what Terminal-Bench, SWE-bench and the datasets on the Harbor hub share, and the
 built-in `harbor` agent makes one rollout one Harbor trial:

@@ -6,7 +6,7 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Added
 
-- Harbor benchmarks: `agent.name: harbor` runs any task set in [Harbor](https://github.com/laude-institute/harbor)'s
+- Benchmarks through one protocol: `agent.name: harbor` runs any task set in [Harbor](https://github.com/laude-institute/harbor)'s
   format (`task.toml`, `environment/`, `tests/test.sh` writing the reward) as the acting pipeline. One rollout is
   one Harbor trial: Harbor starts the task's container, installs the acting agent (Codex by default, with the
   adapter deployed into the container as `hermit deploy` lays it out: context, skills, roles, hooks), runs the

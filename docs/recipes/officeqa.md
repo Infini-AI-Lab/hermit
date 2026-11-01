@@ -261,7 +261,7 @@ checkout, so no repository instructions reach the session; each rollout's events
 
 ### Through Harbor
 
-The same Codex harness runs through [Harbor](../framework/task.md#harbor-benchmarks) instead of
+The same Codex harness runs through [Harbor](../framework/task.md#benchmarks) instead of
 `codex_sandbox.py`: each question is a Harbor task, and Harbor starts the container, installs Codex, deploys the
 skill and runs the judge inside, after the session. Build the task set once (private: it holds the answers), then
 run a method's `run_codex_harbor.yaml` with the corpus mounted where the tasks expect it:

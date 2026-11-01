@@ -72,11 +72,11 @@ SGLang server with one override, `model=vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP
   `utils/task-info/README.md` (see [Task integration](../docs/framework/task.md) and the
   [built-in agents](../docs/framework/task.md#built-in-agents)), and a row in the table above.
 - A benchmark whose agent works in a container (a coding or terminal benchmark, a corpus the agent searches with
-  shell tools) comes as a Harbor task set, not as its own Docker code: `utils/prepare.py` downloads or builds the
+  shell tools) comes as a task set in Harbor's format, the benchmark protocol, not as its own Docker code: `utils/prepare.py` downloads or builds the
   task directories (`task.toml`, `environment/`, `tests/test.sh` writing the reward) and indexes them into
   `tasks.jsonl`, the configs name `agent.name: harbor` and `judge.path: hermit.harbor.judge`, and a benchmark whose
   tasks carry state from one to the next is one multi-step task per stream. See
-  [Harbor benchmarks](../docs/framework/task.md#harbor-benchmarks). A benchmark that owns its loop around a model
+  [Benchmarks](../docs/framework/task.md#benchmarks). A benchmark that owns its loop around a model
   that only answers (CL-Bench, ServeLearnBench) keeps its own `Agent` subclass; no example drives Docker itself.
 - A method on an existing task: `<method>/smoke.yaml` and `run.yaml` (a stream's launcher may take a prefix split in
   place of a smoke config, `MW_TRAIN_SPLIT=...`, as the CL-Bench folders do), and a row in `docs/methods/<method>.md`.
