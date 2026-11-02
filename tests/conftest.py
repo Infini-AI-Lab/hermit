@@ -14,4 +14,5 @@ def shared_login(tmp_path_factory, monkeypatch):
     root = tmp_path_factory.mktemp("codex-login")
     monkeypatch.setattr(login, "ROOT", root)
     monkeypatch.setattr(login, "PLAN", root / "plan")         # and its plan
+    monkeypatch.setenv("HERMIT_HOMES", str(root / "homes"))   # and the CLI homes, never the user's ~/.cache
     return root

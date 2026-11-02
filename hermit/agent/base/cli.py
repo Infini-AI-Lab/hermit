@@ -22,8 +22,8 @@ Settings (given once; `configured(...)` for a call's own):
   project_doc_max_bytes   Codex's cap on AGENTS.md
   home              the CLI's home (CODEX_HOME, CLAUDE_CONFIG_DIR); kept between calls, so a session can be resumed.
                     Absent: a fresh directory per call, under $HERMIT_HOMES (default ~/.cache/hermit/homes; not the
-                    temporary directory, where Codex makes no helper programs for its sandbox, nor a noexec mount
-                    such as /dev/shm, where they cannot run: either way no command of the session runs)
+                    temporary directory, where Codex makes no helper programs for its sandbox and no command of the
+                    session runs)
   home_files        files of the user's CLI home copied into `home` for the call, when there is no login and no
                     binding (default: auth.json for Codex, .credentials.json for Claude Code); removed after it
   log               the event stream's path (default: agent-<backend>.jsonl in `home`)
@@ -180,9 +180,13 @@ def run_process(command: list[str], *, env: dict, cwd: Path, stream: Path, timeo
             def feed():
                 try:
                     proc.stdin.write(stdin)
-                    proc.stdin.close()
                 except (BrokenPipeError, OSError, ValueError):
                     pass
+                finally:                  # closed however the write went: the CLI reads its stdin to the end
+                    try:
+                        proc.stdin.close()
+                    except (BrokenPipeError, OSError, ValueError):
+                        pass
             threading.Thread(target=feed, daemon=True).start()
         timed_out = cancelled = False
         try:
@@ -355,9 +359,9 @@ class CliAgent(BaseAgent):
             waited = codex_login.wait(plan, cancel, say, None if deadline is None else max(0.0, deadline - time.time()))
             if waited:
                 return self._not_run(waited, max_s)
-            with codex_login.slot(plan, cancel, say) as free:
-                if not free:
-                    return self._not_run("cancelled", max_s)
+            with codex_login.slot(plan, cancel, say, deadline) as got:
+                if got is not True:
+                    return self._not_run(got, max_s)
                 if codex_login.held(plan):           # paused or held while it waited for a slot: wait again
                     continue
                 result = self._session(prompt, workspace=workspace, tools=tools, limits=limits, session=session,

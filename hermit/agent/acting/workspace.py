@@ -276,9 +276,10 @@ def _check(backend: str, params: dict) -> str:
 
 def base_agent(backend: str, params: dict) -> BaseAgent:
     """The Base Agent (Layer 2) these params describe: the CLI and how it is run, nothing of the task."""
-    settings = {k: params[k] for k in ("model", "binding", "login", "effort", "isolation", "container",
-                                       "codex_sandbox", "shell_env", "project_doc_max_bytes", "args", "env", "price")
-                if params.get(k) is not None}
+    settings = {k: params[k] for k in ("model", "binding", "login", "plan_dir", "plan_max_wait_s", "effort",
+                                       "isolation", "container", "codex_sandbox", "shell_env", "project_doc_max_bytes",
+                                       "args", "env", "price")
+                if k in params and (params[k] is not None or k == "plan_max_wait_s")}
     if params.get("claude_permission_mode"):
         settings["permission_mode"] = params["claude_permission_mode"]
     return make(backend, {**settings, "web_search": params["web_search"]})

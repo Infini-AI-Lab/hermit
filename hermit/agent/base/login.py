@@ -162,8 +162,9 @@ def held(plan: Path | str | None = None) -> str:
     live = [(used, resets) for used, resets in _windows(report, made) if resets > now]
     over = [w for w in live if limit is not None and w[0] >= limit]
     refused = report.get("rate_limit_reached_type")
-    if refused:              # the plan said no: the windows that are full, or (none known) the one the hold set
-        over += [w for w in live if w[0] >= 100] or live[:1]
+    if refused:              # the plan said no: until the hold's own end, else while a window it fills is live
+        until = float(report.get("held_until") or 0)
+        over += [(100.0, until)] if until > now else [w for w in live if w[0] >= 100]
     if not over:
         return ""
     used, resets = max(over, key=lambda w: w[1])
@@ -190,9 +191,9 @@ def wait(plan: Path | str | None = None, cancel=None, log=None, max_s: float | N
 
 
 @contextmanager
-def slot(plan: Path | str | None = None, cancel=None, log=None):
-    """Hold one of the machine's session slots while the block runs (none without a SLOTS limit). Yields False when
-    `cancel` was set while waiting for one."""
+def slot(plan: Path | str | None = None, cancel=None, log=None, deadline: float | None = None):
+    """Hold one of the machine's session slots while the block runs (none without a SLOTS limit). Yields True, or
+    "cancelled" when `cancel` was set while waiting for one, "timeout" past `deadline` (a time.time())."""
     d, told = plan_dir(plan), False
     while True:
         n = int(_number(d / "SLOTS") or 0)
@@ -216,11 +217,17 @@ def slot(plan: Path | str | None = None, cancel=None, log=None):
         if not told and log is not None:
             log(f"waiting for one of the {n} session slots")
             told = True
-        if cancel is not None and cancel.wait(2 + random.random() * 2):
-            yield False
+        if deadline is not None and time.time() >= deadline:
+            yield "timeout"
+            return
+        pause = 2 + random.random() * 2
+        if deadline is not None:
+            pause = max(0.0, min(pause, deadline - time.time()))
+        if cancel is not None and cancel.wait(pause):
+            yield "cancelled"
             return
         if cancel is None:
-            time.sleep(2 + random.random() * 2)
+            time.sleep(pause)
 
 
 def usage_of(home: Path) -> dict | None:
@@ -300,8 +307,8 @@ def _hold(plan: Path | str | None = None) -> None:
             current = json.loads((d / "plan.json").read_text())
         except (OSError, ValueError):
             current = {}
+        now = time.time()
+        full = [resets for used, resets in _windows(current) if used >= 100 and resets > now]
         current["rate_limit_reached_type"] = current.get("rate_limit_reached_type") or "session_refused"
-        window = current.setdefault("primary", {})
-        if not window.get("resets_at") or float(window["resets_at"]) < time.time():
-            window["resets_at"] = time.time() + 3600
+        current["held_until"] = max(full) if full else now + 3600       # the full window's reset, else an hour
         (d / "plan.json").write_text(json.dumps(current, indent=1))

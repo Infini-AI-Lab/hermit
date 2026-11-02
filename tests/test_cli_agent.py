@@ -408,7 +408,7 @@ def test_a_session_waiting_for_a_slot_waits_again_if_paused_meanwhile(fake, monk
                            "plan_dir": str(plan)})
     result = agent.run("go", workspace=tmp_path / "w")
     assert calls["held"] == 2 and result.reply.endswith("<answer>44,463</answer>")
-    assert (plan / L.LOCKS).is_dir() and not (plan / "slots").exists()      # SLOTS and its locks never share a name
+    assert (plan / "SLOTS").is_file() and [p.name for p in plan.iterdir() if p.is_dir()] == [L.LOCKS]   # apart
 
 
 def test_the_plan_holds_sessions_after_a_refusal_and_counts_slots(tmp_path):
@@ -417,7 +417,7 @@ def test_the_plan_holds_sessions_after_a_refusal_and_counts_slots(tmp_path):
     L.hold(tmp_path)
     assert "refused" in L.held(tmp_path)                                   # held for the window (an hour)
     report = json.loads((L.plan_dir(tmp_path) / "plan.json").read_text())
-    report["primary"]["resets_at"] = time.time() - 1
+    report["held_until"] = time.time() - 1
     (L.plan_dir(tmp_path) / "plan.json").write_text(json.dumps(report))
     assert L.held(tmp_path) == ""                                          # the window reset
     (L.plan_dir(tmp_path) / "MAX_USED").write_text("50")
@@ -431,7 +431,9 @@ def test_the_plan_holds_sessions_after_a_refusal_and_counts_slots(tmp_path):
         stop = threading.Event()
         threading.Timer(0.3, stop.set).start()
         with L.slot(tmp_path, cancel=stop) as second:                     # the only slot is taken
-            assert second is False
+            assert second == "cancelled"
+        with L.slot(tmp_path, deadline=time.time() + 0.05) as third:       # nor within the session's longest wait
+            assert third == "timeout"
     home = tmp_path / "home" / "sessions" / "2026"
     home.mkdir(parents=True)
     (home / "s.jsonl").write_text(json.dumps({"timestamp": "2026-11-02T00:00:00Z", "payload": {
@@ -479,9 +481,9 @@ def test_a_fresh_home_is_not_in_the_temporary_directory(tmp_path, monkeypatch):
     home, fresh = make("codex", {"web_search": False})._home()
     assert fresh and home.parent == (tmp_path / "homes").resolve()
     monkeypatch.delenv("HERMIT_HOMES")
+    monkeypatch.setenv("HOME", str(tmp_path / "user"))                    # the default, in a home of the test's own
     home, _ = make("codex", {"web_search": False})._home()
-    assert home.parent == Path.home().joinpath(".cache", "hermit", "homes").resolve()
-    home.rmdir()
+    assert home.parent == (tmp_path / "user" / ".cache" / "hermit" / "homes").resolve()
 
 
 def test_a_cli_session_that_cannot_run_answers_the_client_with_why(tmp_path):
@@ -542,3 +544,39 @@ def test_the_longest_wait_counts_over_every_wait_of_a_session(fake, monkeypatch)
     (tmp_path / "w").mkdir()
     result = agent.run("go", workspace=tmp_path / "w")
     assert result.extra["unavailable"] and given[0] <= 1000 and given[1] < given[0] + 1 and given[1] <= 1000
+
+
+def test_a_stdin_that_cannot_be_written_is_closed_all_the_same(tmp_path):
+    """A prompt the CLI stops reading part-way (its write fails) still closes its stdin, so a CLI that reads stdin to
+    the end is not left waiting until its clock runs out."""
+    import time
+    cli = tmp_path / "cli"
+    cli.write_text("#!/bin/sh\nhead -c 10 > /dev/null\nexec 0<&-\nsleep 0.2\necho done\n")
+    cli.chmod(0o755)
+    started = time.time()
+    code, timed_out, _ = base_cli.run_process([str(cli)], env=dict(os.environ), cwd=tmp_path,
+                                              stream=tmp_path / "out", timeout=20, stdin="x" * 5_000_000)
+    assert code == 0 and not timed_out and time.time() - started < 10
+
+
+def test_the_plan_settings_reach_the_base_agent(tmp_path):
+    agent = cli.base_agent("codex", {"web_search": False, "login": "chatgpt", "model": "gpt-x",
+                                     "plan_dir": str(tmp_path / "plan"), "plan_max_wait_s": None})
+    assert agent.settings["plan_dir"] == str(tmp_path / "plan") and agent.settings["plan_max_wait_s"] is None
+
+
+def test_a_refusal_holds_until_its_own_window_resets_not_another(tmp_path):
+    import time
+    from hermit.agent.base import login as L
+    now = time.time()
+    (tmp_path / "MAX_USED").write_text("70")
+    (tmp_path / "plan.json").write_text(json.dumps({                     # Codex's own report of a refusal
+        "rate_limit_reached_type": "primary", "primary": {"used_percent": 100, "resets_at": now - 10},
+        "secondary": {"used_percent": 20, "resets_at": now + 5 * 86400}}))
+    assert L.held(tmp_path) == ""                                         # the full window reset: the week is fine
+    L.hold(tmp_path)                                                      # refused again, no window full: an hour
+    held_until = json.loads((tmp_path / "plan.json").read_text())["held_until"]
+    assert "refused" in L.held(tmp_path) and now + 3500 < held_until < now + 3700
+    (tmp_path / "plan.json").write_text(json.dumps({"secondary": {"used_percent": 100, "resets_at": now + 7200}}))
+    L.hold(tmp_path)                                                      # refused with the week full: its reset
+    assert json.loads((tmp_path / "plan.json").read_text())["held_until"] == pytest.approx(now + 7200)

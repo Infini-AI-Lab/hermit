@@ -99,9 +99,13 @@ def run(command: list[str], *, conf: dict[str, str], work: Path, home: Path, mou
             def feed():
                 try:
                     proc.stdin.write(stdin)
-                    proc.stdin.close()
                 except (BrokenPipeError, OSError, ValueError):
                     pass
+                finally:                  # closed however the write went: the CLI reads its stdin to the end
+                    try:
+                        proc.stdin.close()
+                    except (BrokenPipeError, OSError, ValueError):
+                        pass
             threading.Thread(target=feed, daemon=True).start()
         timed_out = cancelled = False
         try:
