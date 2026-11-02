@@ -338,7 +338,14 @@ class SandboxedAgent:
             from hermit.sandbox import program_paths
             readable += program_paths(self.cli)
         own = {p.resolve() for p in self.logs}
-        self.box = RoleSandbox(config, role, records=records, readable=readable, writable=self.logs,
+        # A Codex agent on a ChatGPT login waits for the login's plan with every session on the machine: the plan's
+        # directory (its PAUSE, MAX_USED, SLOTS and report) is the one outside, shared into every call.
+        self.plan = codex_login.plan_dir(self.params.get("plan_dir")) \
+            if self.cli == "codex" and self.params.get("login") == "chatgpt" else None
+        if self.plan is not None:
+            self.plan.mkdir(parents=True, exist_ok=True)
+        self.box = RoleSandbox(config, role, records=records, readable=readable,
+                               writable=[*self.logs, *([self.plan] if self.plan is not None else [])],
                                allow=allow, env_keys=self.keys,
                                masked=[m for m in run_secrets(config) if m.resolve() not in own],
                                probe_absent=list(HOME_SECRETS))
@@ -362,6 +369,7 @@ class SandboxedAgent:
         chatgpt = self.cli == "codex" and self.params.get("login") == "chatgpt"
         if chatgpt:          # inside, the agent keeps this call's copy in its workspaces; the shared one is out here
             params["login_root"] = str(work / "workspaces")
+            params["plan_dir"] = str(self.plan)                     # the machine's plan, not this call's copy
         if self.cli:                                     # a CLI agent signs in with a copy of the user's login only
             folder, var, login = CLI_HOMES[self.cli]
             agent_home = home / folder

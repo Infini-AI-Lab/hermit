@@ -406,6 +406,12 @@ def normalize_config(data: dict) -> None:
     llm = data.get("llm")
     if llm is None and default is not None and resolve(default, backends).serves("chat"):
         llm = default           # a backend that cannot speak chat completions (Anthropic) makes no `llm` tool
+    if isinstance(llm, dict) and llm.get("cli"):           # a model reached through a CLI (llm_endpoint)
+        if llm["cli"] != "codex":
+            raise ValueError(f"llm.cli must be codex (in a container of its own), not {llm['cli']!r}")
+        data["llm"] = bind_agent_params(dict(llm), llm["cli"], backends) if is_ref(llm.get("model"), backends) \
+            else dict(llm)
+        llm = None
     binding = as_binding(llm, backends) if llm is not None else None
     if binding is not None:
         data["llm"] = _spec_of(llm, binding)

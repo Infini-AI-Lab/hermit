@@ -72,6 +72,26 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Added
 
+- A ChatGPT login's plan, for every Codex session on it (`hermit/agent/base/login.py`): files under
+  `~/.cache/hermit/codex-login/plan/` pause new sessions (`PAUSE`), hold them past a usage threshold (`MAX_USED`) and
+  cap the sessions at once on the machine (`SLOTS`); each session's report of the plan's usage is kept (`plan.json`);
+  a session the plan refused is run again once the window resets, never scored; "model is at capacity" is a session
+  the provider could not serve. A session on the login also runs without apps, plugins or browsers. Each window
+  that has not reset counts on its own; a session takes a slot and then checks the plan again; one held back past
+  `plan_max_wait_s` (12 h) is unavailable rather than waiting on; the plan directory is the machine's one
+  (`plan_dir`), shared into the rollout sandbox.
+- `llm: {cli: codex, isolation: container, ...}`: the run's model reached through Codex, for a model only it serves (a
+  ChatGPT login). The Trainer answers each chat call with one session of that Base Agent behind a `ChatEndpoint`
+  (`hermit/agent/base/endpoint.py`: system messages as instructions, the rest on stdin, the last message as the reply
+  with its usage). A container session takes its prompt on stdin too.
+- Harness²'s editors on Codex: `evolver.params.backend: codex` (with `login: chatgpt` for a model on the login); the
+  editors are sessions of the `codex` Base Agent (Claude Code's effort `max` is Codex's `xhigh`), and `claude_bin`
+  pins either CLI. Codex instructions too long for one command-line argument go at the top of the prompt.
+- The OfficeQA Flash row with GPT-5.6-Luna: the seven methods with Codex 0.164.0 and GPT-5.6-Luna acting and learning
+  on a ChatGPT login, a second column of the results table in `examples/officeqa/README.md` and a section of the
+  recipe. Each method's `run_codex_luna.yaml` / `stream_codex_luna.yaml` is its Flash-row config with the models
+  changed; `docker/codex/Dockerfile.standalone` builds the image with a machine's standalone Codex;
+  `harness2_stream/launch.sh` takes `CONFIG=run_codex_luna.yaml`. (Ported from PR #54 onto the agent layers.)
 - The Base Agent API (`hermit.agent.base.interface`): `make(name, settings, model).run(prompt, workspace, tools,
   limits, session, roles) -> Result`, `configured(**settings)`, `Tool` and the tool server, and `Limits`, which a
   Base Agent enforces or refuses (`Unsupported`). The `react` agent's loop is the `react` Base Agent; the `codex` and
@@ -164,6 +184,9 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Fixed
 
+- A CLI call without a `home` setting gets a fresh home under `$HERMIT_HOMES` (default `~/.cache/hermit/homes`), not
+  in the temporary directory: Codex makes no helper programs for its sandbox in a home there, and no command of such
+  a session ran.
 - A resumed Codex session (the `codex` Evolver with `evolver.resume: true`) was charged its earlier steps again:
   Codex reports a thread's running total, which was counted as the step's usage. Each step now counts only what it
   added.

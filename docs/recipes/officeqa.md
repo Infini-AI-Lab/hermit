@@ -117,10 +117,11 @@ SkillOpt its best skill, handed back as is (`promote_final: false`).
 
 ## Full runs
 
-Each method folder has four configs, each with its own run name and adapter tree, so runs can train side by side;
-do not mix their run-name or tree settings. All use the `prompt-only@1.0` template, start from
-`../utils/seed_adapter` and evaluate three passes per test question. The full runs run eight rollouts at a time, the
-smoke runs four.
+Each method folder has six configs, each with its own run name and adapter tree, so runs can train side by side;
+do not mix their run-name or tree settings. All use the `prompt-only@1.0` template and start from
+`../utils/seed_adapter`; all but the Flash-row and GPT-5.6-Luna configs (`run_codex_flash.yaml`,
+`run_codex_luna.yaml`: one pass) evaluate three passes per test question. The full runs run eight rollouts at a
+time, the smoke runs four.
 
 | Config | Harness | Train / val / test | `step_size` | Epochs | Budget | `call_timeout_min` | `run_name` |
 |---|---|---|---|---|---|---|---|
@@ -134,6 +135,8 @@ smoke runs four.
 | `skillopt/run_codex.yaml` | Codex | 50 / 24 / 172 | 40 | 4 | none | 360 | `codex-skillopt` |
 | `gepa/run_codex_flash.yaml` | Codex 0.162 | 50 / 24 / 172 | 3 | 4 | none | 180 | `flash-codex-gepa` |
 | `skillopt/run_codex_flash.yaml` | Codex 0.162 | 50 / 24 / 172 | 40 | 4 | none | 360 | `flash-codex-skillopt` |
+| `gepa/run_codex_luna.yaml` | Codex 0.164, ChatGPT login | 50 / 24 / 172 | 3 | 4 | none | 180 | `luna-gepa` |
+| `skillopt/run_codex_luna.yaml` | Codex 0.164, ChatGPT login | 50 / 24 / 172 | 40 | 4 | none | 360 | `luna-skillopt` |
 
 `call_timeout_min` is the time, in minutes, the Trainer allows each Evolver call (setup, a step, finalize); Codex
 sessions are slower, so `run_codex.yaml` allows more. `gepa/run.yaml` uses GEPA's default reflection minibatch of 3
@@ -143,7 +146,11 @@ hyperparameters: 4 epochs of batches of 40 (2 steps each), minibatch 8, merge 8,
 validation gate, gated slow update, and meta skill, with `prompt_env: officeqa` and `trajectory_view: paper`.
 The two `run_codex_flash.yaml` configs are `run_codex.yaml` with GLM 5.3 Flash as the learner too, one evaluation
 pass, and the Codex 0.162.0 image (`officeqa-codex:0.162.0`): the settings of
-[the Flash row](#the-flash-row), shared with the Harness² stream.
+[the Flash row](#the-flash-row), shared with the Harness² stream. The two `run_codex_luna.yaml` configs are
+`run_codex_flash.yaml` with the models changed (`gpt-5.6-luna` acting on a ChatGPT login, `login: chatgpt`, and
+learning as one Codex session per chat call, `llm: {cli: codex, ...}` with `llm.timeout` 3,600 s) and the Codex
+0.164.0 image: [the Flash row with GPT-5.6-Luna](#the-flash-row-with-gpt-56-luna); Continual Harness's and
+ReHarness's `stream_codex_luna.yaml` likewise.
 [Harness²](../methods/harness2.md) has no training run: it processes the test questions as one stream, with Codex as
 the acting agent; see [`harness2_stream/`](https://github.com/Infini-AI-Lab/hermit/tree/main/examples/officeqa/harness2_stream) for its protocol and result.
 `skillopt/smoke.yaml` runs 4 training questions in 2 epochs of 2 steps. Run it first, then the full configs:
@@ -260,6 +267,30 @@ transcripts; a session that times out leaves none), about 200 tried the network 
 310 looked outside their workspace. None got anything: names did not resolve, the image has no curl or wget, and the
 container holds nothing else. The proxy let through only connections to the model provider and refused Codex's own
 to chatgpt.com, ab.chatgpt.com and api.github.com.
+
+### A model on a ChatGPT login
+
+For a model the ChatGPT login serves ([the Flash row with GPT-5.6-Luna](#the-flash-row-with-gpt-56-luna)) the image
+carries the machine's own standalone Codex and the egress proxy lets through chatgpt.com and auth.openai.com. `codex
+login` on the machine once: the Codex agent (`login: chatgpt`) gives each session a copy of the login from one shared
+copy (`~/.cache/hermit/codex-login/`), to which each session's refreshed token is written back, so a rotated token
+reaches the next session. The learners' calls (`llm: {cli: codex, ...}`) are each one Codex session with the same
+login, image and proxy, started by the Trainer itself; Harness²'s editors are Codex sessions in the run's sandbox
+(`evolver.params.backend: codex`). Sessions on the login share its plan, and files under
+`~/.cache/hermit/codex-login/plan/` steer every running session: `PAUSE` holds new sessions back, a number in
+`MAX_USED` holds them while the plan's fullest window is at or above that percent, a number in `SLOTS` caps how many
+run at once on the machine; the plan's latest report is `plan.json` there. A session the plan refuses is run again
+when its window resets, never scored; one that met "model is at capacity" is run again later.
+
+```bash
+cd docker/codex
+cp -a ~/.codex/packages/standalone/releases/0.164.0-x86_64-unknown-linux-musl codex-standalone
+docker build -f Dockerfile.standalone -t officeqa-codex:0.164.0 .
+docker run -d --name oq-egress-login --restart unless-stopped --read-only --network bridge officeqa-codex:0.164.0 \
+  python3 -u /opt/egress_proxy.py 3128 chatgpt.com:443 auth.openai.com:443
+docker network connect oq-sandbox oq-egress-login
+cd -
+```
 
 ## ReHarness
 
@@ -540,6 +571,135 @@ Paired per question, 95% bootstrap intervals; a method's four runs are averaged 
 - Of the misses in each evaluation, about nine are the right number in the wrong form, mostly a missing `%` where
   the reference answer carries one (13 of the 172 do, and the reference answers are not consistent about it);
   the judge keeps `%` and strips commas, `$` and `million`.
+
+### The Flash row with GPT-5.6-Luna
+
+The seven methods of the Flash row once more, with Codex 0.164.0 and GPT-5.6-Luna (reasoning effort medium) acting
+**and** learning on a machine's own ChatGPT login (a Codex plan) instead of GLM 5.3 Flash on Fireworks. The
+[example's results](https://github.com/Infini-AI-Lab/hermit/tree/main/examples/officeqa#results) have the table and
+what it shows; each method's `run_codex_luna.yaml` (`stream_codex_luna.yaml` for the Continual Harness and ReHarness
+streams) is its Flash-row config with the models changed, run with the same commands
+([Run](https://github.com/Infini-AI-Lab/hermit/tree/main/examples/officeqa#run); the image, the proxy and the
+login: [A model on a ChatGPT login](#a-model-on-a-chatgpt-login)). The data, the split, the seed skill, the
+judge, the
+Evolvers' parameters, the session limits (SkillOpt's 180 s × 24 sessions for the trainings and the reference
+evaluations, 3,600 s for the streams), the configured concurrency, ReHarness's embedding model (Qwen3-Embedding-8B on
+Fireworks behind its launcher's wire meter: the plan serves no embeddings) and the one test pass are the Flash row's;
+Meta-Harness Adapter was not run. What differs:
+
+| Setting | The Flash row | With GPT-5.6-Luna |
+|---|---|---|
+| acting model | `fireworks/accounts/fireworks/models/glm-5p3-flash` through a Codex custom provider | `gpt-5.6-luna` with `login: chatgpt`: Codex's built-in provider on a per-session copy of the ChatGPT login (`hermit/agent/base/login.py`) |
+| Codex's tools and prompt for the model | GLM is not in Codex's model catalog: default function tools (`exec_command`), the 20,751-character fallback prompt | Codex fetches gpt-5.6-luna's catalog entry from chatgpt.com at each session start: code mode only (a JavaScript `exec` tool that calls `exec_command`), a 17,730-character base prompt, verbosity low, tool output cut at 10,000 tokens; it stayed the same throughout the runs |
+| learner (`llm`: GEPA, SkillOpt, Continual Harness, ReHarness's reflection and revision agents) | a chat completion to the same GLM (system prompt as such, `max_tokens` applied, 600 s timeout) | `llm: {cli: codex, model: gpt-5.6-luna, login: chatgpt}`: each call is one `codex exec` in a container (`hermit/agent/base/endpoint.py`), with Codex's base prompt and the call's system text as developer instructions; `max_tokens` is recorded, not applied (no reply came near one); `llm.timeout` 3,600 s |
+| Harness² editors | Claude Code (`claude -p`) on GLM through a wire meter | Codex sessions in hermit's sandbox (`evolver.params.backend: codex`), `sandbox.allow: [chatgpt.com, auth.openai.com]`, a tree of its own |
+| Codex | 0.162.0 (npm package), image `officeqa-codex:0.162.0` | the machine's standalone 0.164.0, pinned, image `officeqa-codex:0.164.0` (`docker/codex/Dockerfile.standalone`) |
+| egress | `oq-egress`: api.fireworks.ai:443 only | `oq-egress-login`: chatgpt.com:443 and auth.openai.com:443 |
+| concurrency on the machine | each run's own | each session on the login, acting or learning, holds one of the machine's session slots (`hermit/agent/base/login.py`: a number in the file `SLOTS`, read at every try) |
+| run names, workspaces | `flash-codex-gepa`/`-skillopt{,-r2,-r3,-r4}`, `ch-stream-s0`, `rh-stream-s0`, `h2-codex-s0`; `~/.cache/hermit/...` | `luna-gepa`/`-skillopt{,-r2,-r3,-r4}` (the two reference evaluations under `luna-skillopt`), `luna-ch-s0`, `luna-rh-s0`, `luna-h2-s0`; `~/.cache/hermit/officeqa-codex-actor-luna` for the trainings and the reference evaluations, `officeqa-{ch,rh,h2}-codex-luna` for the streams |
+
+The model change cannot be separated from the second, third and fourth rows: they come with running GPT-5.6-Luna in
+Codex on the plan.
+
+| Method | Protocol | accuracy [95% bootstrap interval over questions] | Runs |
+|---|---|---|---|
+| none: the agent without an adapter | one pass | 0.308 [0.238, 0.378] | 4 sessions at the 180 s cap, scored 0 |
+| SkillOpt's initial skill | one pass | 0.360 [0.291, 0.430] | 3 at the cap |
+| GEPA, `final` | train on 50 / select on 24 / test on 172 | **0.600** [0.533, 0.666] (sd 0.017) | 0.593, 0.605, 0.622, 0.581 |
+| SkillOpt, `final` | train on 50 / select on 24 / test on 172 | **0.546** [0.481, 0.612] (sd 0.035) | 0.529, 0.523, 0.599, 0.535 |
+| Continual Harness, the stream's answers | stream over the 172, no training split, no judge verdict | **0.477** [0.401, 0.552] | one stream (the seed-0 order) |
+| ReHarness, the stream's answers | stream over the 172, no training split, no judge verdict | **0.517** [0.442, 0.593] | one stream (the seed-0 order) |
+| Harness², deliverable | stream over the 172, no training split, no judge verdict | **0.611** [0.535, 0.680] | one stream (seed 0); its reference execution of the initial skill: 0.390 [0.320, 0.465] |
+
+Paired per question, 95% bootstrap intervals, a method's four runs averaged per question first; bold where the
+interval excludes zero; the Flash row's GLM intervals beside them:
+
+| Difference | GPT-5.6-Luna | won / lost | GLM 5.3 Flash |
+|---|---|---|---|
+| initial skill − none | +5.2 [−0.6, +11.0] | 18 / 9 | +3.5 [−2.3, +9.9] |
+| GEPA − none | **+29.2** [+22.1, +36.5] | 73 / 16 | +3.9 [−2.3, +10.5] |
+| SkillOpt − none | **+23.8** [+17.6, +30.2] | 65 / 14 | +6.0 [−0.3, +12.4] |
+| GEPA − initial skill | **+24.0** [+16.7, +31.1] | 67 / 17 | +0.4 [−5.4, +6.2] |
+| SkillOpt − initial skill | **+18.6** [+12.1, +25.1] | 57 / 19 | +2.5 [−3.6, +8.6] |
+| SkillOpt − GEPA | **−5.4** [−9.4, −1.5] | 26 / 44 | +2.0 [−1.0, +5.1] |
+| Harness² deliverable − its reference execution | **+22.1** [+15.7, +29.1] | 41 / 3 | **+7.6** [+1.7, +13.4] |
+| Continual Harness − Harness²'s reference execution | **+8.7** [+1.7, +15.7] | 28 / 13 | +5.8 [−1.2, +12.8] |
+| ReHarness − Harness²'s reference execution | **+12.8** [+5.8, +20.3] | 32 / 10 | +5.8 [−1.2, +13.4] |
+| Continual Harness − Harness² deliverable | **−13.4** [−20.3, −6.4] | 9 / 32 | −1.7 [−7.6, +4.1] |
+| ReHarness − Harness² deliverable | **−9.3** [−15.7, −2.9] | 8 / 24 | |
+| ReHarness − Continual Harness | +4.1 [−2.3, +10.5] | 19 / 12 | |
+
+The differences against no skill and the initial skill are a little high: those two evaluations lost 4 and 3
+sessions to the login's rate limit (at most 2.3 and 1.7 points; by the cells' own rates about 0.7 and 0.6, by those
+questions' scores in the other nine one-pass evaluations about 1.1 and 0.7). Continual Harness's and ReHarness's
+gains over the reference execution overlap GLM's intervals: they cannot be called larger than GLM's.
+
+- **Where the points go.** Every answer was checked one by one (2,408: 172 per cell, 688 for GEPA's and SkillOpt's
+  four trainings together) for whether its value is right and whether its form is the one the judge accepts:
+
+  | Cell | exact match | right value, other form | wrong value | no answer (timed out) | right value |
+  |---|---|---|---|---|---|
+  | no skill | 53 | 62 | 53 | 4 | 0.669 |
+  | initial skill | 62 | 56 | 51 | 3 | 0.686 |
+  | GEPA, four trainings | 413 | 53 | 222 | 0 | 0.677 |
+  | SkillOpt, four trainings | 376 | 77 | 235 | 0 | 0.658 |
+  | Continual Harness | 82 | 36 | 54 | 0 | 0.686 |
+  | ReHarness | 89 | 26 | 57 | 0 | 0.669 |
+  | Harness², deliverable | 105 | 17 | 50 | 0 | 0.709 |
+  | Harness², reference execution | 67 | 55 | 50 | 0 | 0.709 |
+
+  Paired on the value alone, GEPA − initial skill is −0.9 [−5.7, +3.8], SkillOpt − initial skill −2.8 [−7.7, +2.0],
+  Harness² − its reference execution 0.0 [−4.7, +4.7], Continual Harness − the reference execution −2.3 [−7.6, +2.9]
+  and ReHarness − the reference execution −4.1 [−9.9, +1.7]: the learned adapters turn "right value, other form" into
+  exact matches and little else. Two automatic readings (the reference answer at the start of the answer; anywhere in
+  it) never pass a wrong answer but miss many right values (a `%` the reference answer has or lacks, 109 answers;
+  list separators 23; a final period 22; trailing zeros 20; a U+2212 minus sign in the reference answer 17), hence
+  the check by hand. Six reference answers contradict the form their question asks for (UID0160, 0225, 0089, 0013,
+  0196, 0120): about 3.5 points no method can take. GLM writes the bare value by default: a GLM 5.3 Flash evaluation
+  of the same initial skill in the same harness on this machine (run `flash-codex-initial-skill`, 0.564; not the
+  Flash row's run) has 19 rejected answers that contain the normalised reference value, against 54 with
+  GPT-5.6-Luna (56 by hand).
+- **What was learned.** The initial skill says nothing about form ("Copy the final answer from a checked value, not
+  from an unverified intermediate guess"). Afterwards the skill from GEPA's first training says "Output only the
+  requested answer. Do not include explanations, labels, citations, Markdown, XML/HTML tags, JSON wrappers, ..." and
+  the other three carry a line to the same effect ("Return only the requested answer ..."); 17 of the 21 harnesses
+  in Harness²'s library carry such a line; Continual Harness's `AGENTS.md` says "Put only the normalized answer value
+  and any required unit words inside the tags", the unit words leaving one answer in ten in a form the judge
+  rejects; ReHarness's `ADAPTER.md` is unchanged and its advice is spread over the 172 retrieved reflections, at
+  times contradictory. Bare-value answers: 94–98% of GEPA's, 79–94% of SkillOpt's, 83% of Harness²'s, 65% of
+  ReHarness's, 52% of Continual Harness's, 37–44% in the three cells without a learned skill.
+- **Selection.** SkillOpt's four `final` skills are its best by validation, from steps 2, 7, 4 and 1 (validation
+  means 0.667, 0.708, 0.708, 0.667); GEPA's from 46, 46, 44 and 44 candidates. GEPA's four finals spread 0.581–0.622
+  (sd 0.017), SkillOpt's 0.523–0.599 (sd 0.035): SkillOpt's best training (0.599) is above GEPA's worst (0.581), and
+  over trainings SkillOpt − GEPA is marginal (p ≈ 0.05) where the per-question interval excludes zero.
+- **Time and the login.** The first wave of trainings (`luna-gepa`, `-r2`, `luna-skillopt`, `-r2`) trained 11–15 h
+  while the login was in a slow state (first replies a median 33–54 s, against 1.4–2.1 s afterwards) and learned
+  from 0.8–2.1% timed-out rollouts; the second wave (`-r3`, `-r4`) from 0–3 timeouts; the eight evaluations of
+  trained skills ran after the recovery with no timeouts. Two seed-validation rollouts of `luna-gepa` were lost to
+  "Selected model is at capacity" and scored as wrong, before the agents learned to run such a session again. With
+  the eight trainings side by side and no limit (about sixty sessions at once) the backend answered 429 Too Many
+  Requests, first replies took a median 100–400 s and 32–45% of three successive batches' training rollouts timed
+  out; those batches were discarded. The runs behind the results held every SkillOpt-harness rollout and every
+  training learner call to one of a machine-wide number of session slots (`hermit/agent/base/login.py`, the file `SLOTS`), set by a
+  controller (not in the repository) that cut two slots on timeouts and added one after quiet minutes; the slots
+  kept the overload from returning but did not lower the timeout rate while the login was slow (4.4% at 2 slots,
+  4.6% at 3–5): its recovery did.
+- **Tokens, no prices** (the plan bills none; a session's count is Codex's input, cached included, plus output):
+  3.4–4.0 M per 172-question evaluation; per training 4.1–4.5 M of training rollouts, 0.6–1.1 M of learner calls
+  (GEPA 0.6–0.7 M, SkillOpt 1.0–1.1 M) and, the bulk of a training, the sessions the Evolver runs to score its
+  candidates on the validation questions and its minibatches: GEPA 20–23 M, SkillOpt 7.2–7.7 M; per stream 46 M of
+  sessions and 11 M of learner calls for Continual Harness, 29 M and 25 M for ReHarness, and for Harness² 27 M of
+  reference executions, 83 M of candidate executions (three per question, the deliverable among them) and 197 M of
+  editor sessions. All runs together took the plan's weekly window from 29% to 38% (whole percents, account-wide: an
+  upper bound on their share); no session was refused for the plan's limit and the credits balance did not change.
+- **Two defects of the ports**, found on this row and not fixed here, which touch the GLM row too:
+  `utils/task-info/README.md` tells the learner the judge removes "unit words", where `normalize_answer` removes
+  million, billion, dollar and nominal and keeps `%`, thousand and trillion; only Continual Harness's Refiner reads
+  it, and it wrote "required unit words" into its policy (steps 2–172; "any required unit words" from step 5). The
+  Continual Harness Evolver counts Codex's own notices (the hook-trust warning `codex_agent.py` always causes,
+  reconnects) as failure signatures in every step, where upstream sends tool failures to its sub-agent and skill
+  passes only; the Refiner never sees the acting prompt, and from step 84 its policy banned the note writing that
+  prompt asks for (the agent wrote notes in 83 of 83 sessions before, 8 of 89 after).
 
 ## Included adapters
 

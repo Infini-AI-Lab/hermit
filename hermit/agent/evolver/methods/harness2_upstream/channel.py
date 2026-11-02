@@ -43,9 +43,13 @@ class FrameworkProposer(Proposer):
         return {**{k: v for k, v in os.environ.items() if k not in _DROP_ENV}, **QUIET, **own}
 
     def _claude_cli(self, cwd: Path, mission: str, system: str, wall: int) -> tuple[str, float, str]:
-        """One upstream session as one call of the `claude` Base Agent (docs/framework/agent-layers.md): upstream's
-        command (stdin mission, its system prompt, one JSON result, its tools, no session kept), its own config
-        directory, in the run's sandbox with the session directory writable, stopped at `wall` or by the Trainer."""
+        """One upstream session as one call of a CLI Base Agent (docs/framework/agent-layers.md): `claude` by default,
+        upstream's command (stdin mission, its system prompt, one JSON result, its tools, no session kept); `codex`
+        with `params.backend: codex` (a model only Codex reaches: a ChatGPT login), the mission on stdin, the system
+        text as its developer instructions, its own sandbox off inside the run's. Either has its own config directory,
+        runs in the run's sandbox with the session directory writable, and is stopped at `wall` or by the Trainer."""
+        if self.params.get("backend") == "codex":
+            return self._codex_cli(cwd, mission, system, wall)
         home = Path(cwd) / ".claude-home"
         stdin = mission
         if system and len(system) > SYSTEM_ARG_MAX:
@@ -76,6 +80,40 @@ class FrameworkProposer(Proposer):
             problem = f"rc={result.exit_code}: {err.read_text(errors='replace')[-300:] if err.is_file() else ''}"
         usage = self._usage(payload)
         return text, float(usage.cost_usd or 0.0) if usage else 0.0, problem
+
+    def _codex_cli(self, cwd: Path, mission: str, system: str, wall: int) -> tuple[str, float, str]:
+        """The session on Codex: the `codex` Base Agent, which on a ChatGPT login also waits for the plan and runs a
+        refused session again (hermit.agent.base.login). (Ported from examples/officeqa/harness2_stream/
+        codex_proposer.py, PR #54.)"""
+        from hermit.agent.base.cli import EFFORTS, codex_instructions
+        own = {k: str(v) for k, v in (self.params.get("env") or {}).items()}
+        err = Path(cwd) / ".session.err"
+        extra, mission = codex_instructions(system, mission)
+        settings = {"web_search": False, "bin": self.params.get("claude_bin") or "codex", "stdin": True,
+                    "effort": EFFORTS.get(self.spec.effort, self.spec.effort),     # Claude Code's max is Codex's xhigh
+                    "model": self.params.get("model") or self.spec.model,
+                    "login": self.params.get("login"), "login_root": self.params.get("login_root"),
+                    "binding": self.params.get("binding"), "price": self.params.get("price"),
+                    "args": [*(self.params.get("args") or []), *extra],
+                    "codex_sandbox": "danger-full-access",      # the run's sandbox is the boundary, as for Claude Code
+                    "home": Path(cwd) / ".codex-home", "home_files": [], "log": Path(cwd) / ".session.out",
+                    "stderr_log": err, "env": {**QUIET, **own}, "env_drop": sorted(_DROP_ENV),
+                    "isolation": "sandbox" if self.sandbox is not None else "none", "sandbox": self.sandbox,
+                    "writable": [Path(cwd)], "timeout_s": wall, "cancel": self.cancel}
+        result = make("codex", {k: v for k, v in settings.items() if v is not None}).run(mission, workspace=Path(cwd))
+        if result.extra["cancelled"]:
+            raise RuntimeError("the session was stopped by the Trainer (budget or timeout)")
+        if result.timed_out:
+            raise subprocess.TimeoutExpired(["codex"], wall)
+        if not result.extra["served"] or not result.reply.strip():
+            tail = (err.read_text(errors="replace") if err.is_file() else result.extra.get("output_tail", ""))[-300:]
+            return "", 0.0, f"rc={result.exit_code}: {tail}"
+        cost = 0.0
+        for usage in result.usage:
+            with self._usage_lock:
+                self.usages.append(usage)
+            cost += float(usage.cost_usd or 0.0)
+        return result.reply, cost, ""
 
     def _harvest(self, tmp: Path, sub: str, label: str, cache_key: str = "") -> Path | None:
         """Upstream's harvest, without following links: the session wrote this tree, and the harvest runs outside its

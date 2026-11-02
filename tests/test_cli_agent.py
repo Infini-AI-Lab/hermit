@@ -13,6 +13,7 @@ from hermit.agent.base import trajectory
 from hermit.agent.acting import workspace as cli
 from hermit.agent.base import cli as base_cli
 from hermit.agent.base import container, login
+from hermit.agent.base.interface import make
 
 ROOT = Path(__file__).resolve().parents[1]
 PROMPT_ONLY = ROOT / "hermit" / "adapter" / "templates" / "prompt_only"
@@ -344,3 +345,238 @@ def test_a_login_file_from_the_future_or_no_login_is_not_taken(tmp_path):
     left.write_text(json.dumps({"last_refresh": "2026-10-30T12:00:00Z"}))
     login.take_back(tmp_path, left)
     assert json.loads(master.read_text())["last_refresh"] == "2026-10-30T12:00:00Z"
+
+
+def test_a_login_session_waits_for_the_plan_and_runs_again_when_refused(fake, monkeypatch):
+    """On a ChatGPT login a session first waits for the plan, and one the plan refused is run again (its refusal is
+    never the answer) after every session is held back (hermit.agent.base.login)."""
+    from hermit.agent.base import login as L
+    tmp_path = fake
+    root = tmp_path / "login-root"
+    (root / "login").mkdir(parents=True)
+    (root / "login" / "auth.json").write_text(json.dumps({"auth_mode": "chatgpt",
+                                                          "last_refresh": "2026-01-01T00:00:00Z"}))
+    seen = {"waits": 0, "sessions": 0, "holds": 0}
+    monkeypatch.setattr(L, "wait", lambda plan=None, cancel=None, log=None, max_s=None:
+                        seen.__setitem__("waits", seen["waits"] + 1) or "")
+    monkeypatch.setattr(L, "hold", lambda plan=None: seen.__setitem__("holds", seen["holds"] + 1))
+    agent = make("codex", {"web_search": False, "login": "chatgpt", "model": "gpt-x", "login_root": str(root),
+                           "plan_dir": str(tmp_path / "plan")})
+    real = type(agent)._session
+
+    def session(self, prompt, **kw):
+        seen["sessions"] += 1
+        result = real(self, prompt, **kw)
+        if seen["sessions"] == 1:                                      # the plan refuses the first one
+            result.extra.update(served=False, output_tail="ERROR: You've hit your usage limit. Try again later.")
+        return result
+    monkeypatch.setattr(type(agent), "_session", session)
+    (tmp_path / "w").mkdir()
+    result = agent.run("go", workspace=tmp_path / "w")
+    assert seen == {"waits": 2, "sessions": 2, "holds": 1} and result.reply.endswith("<answer>44,463</answer>")
+
+
+def test_a_long_window_still_over_holds_after_the_short_one_resets(tmp_path):
+    import time
+    from hermit.agent.base import login as L
+    (tmp_path / "MAX_USED").write_text("70")
+    (tmp_path / "plan.json").write_text(json.dumps({"primary": {"used_percent": 90, "resets_at": time.time() - 5},
+                                                    "secondary": {"used_percent": 80, "resets_at": time.time() + 900}}))
+    assert "80%" in L.held(tmp_path)
+    assert L.wait(tmp_path, max_s=0) == "timeout"                        # past the longest wait: unavailable
+
+
+def test_a_session_waiting_for_a_slot_waits_again_if_paused_meanwhile(fake, monkeypatch):
+    from hermit.agent.base import login as L
+    tmp_path = fake
+    root, plan = tmp_path / "login-root", tmp_path / "plan"
+    (root / "login").mkdir(parents=True)
+    (root / "login" / "auth.json").write_text(json.dumps({"auth_mode": "chatgpt",
+                                                          "last_refresh": "2026-01-01T00:00:00Z"}))
+    plan.mkdir()
+    (plan / "SLOTS").write_text("1")
+    calls = {"held": 0}
+    real_held = L.held
+
+    def held(p=None):                       # PAUSE appears while the session waits for its slot, then goes again
+        calls["held"] += 1
+        return "paused" if calls["held"] == 1 else real_held(p)
+    monkeypatch.setattr(L, "held", held)
+    monkeypatch.setattr(L, "wait", lambda plan=None, cancel=None, log=None, max_s=None: "")
+    (tmp_path / "w").mkdir()
+    agent = make("codex", {"web_search": False, "login": "chatgpt", "model": "gpt-x", "login_root": str(root),
+                           "plan_dir": str(plan)})
+    result = agent.run("go", workspace=tmp_path / "w")
+    assert calls["held"] == 2 and result.reply.endswith("<answer>44,463</answer>")
+    assert (plan / "SLOTS").is_file() and [p.name for p in plan.iterdir() if p.is_dir()] == [L.LOCKS]   # apart
+
+
+def test_the_plan_holds_sessions_after_a_refusal_and_counts_slots(tmp_path):
+    import time
+    from hermit.agent.base import login as L
+    L.hold(tmp_path)
+    assert "refused" in L.held(tmp_path)                                   # held for the window (an hour)
+    report = json.loads((L.plan_dir(tmp_path) / "plan.json").read_text())
+    report["held_until"] = time.time() - 1
+    (L.plan_dir(tmp_path) / "plan.json").write_text(json.dumps(report))
+    assert L.held(tmp_path) == ""                                          # the window reset
+    (L.plan_dir(tmp_path) / "MAX_USED").write_text("50")
+    (L.plan_dir(tmp_path) / "plan.json").write_text(json.dumps(
+        {"primary": {"used_percent": 70, "resets_at": time.time() + 600}}))
+    assert "70%" in L.held(tmp_path)
+    (L.plan_dir(tmp_path) / "SLOTS").write_text("1")
+    with L.slot(tmp_path) as first:
+        assert first
+        import threading
+        stop = threading.Event()
+        threading.Timer(0.3, stop.set).start()
+        with L.slot(tmp_path, cancel=stop) as second:                     # the only slot is taken
+            assert second == "cancelled"
+        with L.slot(tmp_path, deadline=time.time() + 0.05) as third:       # nor within the session's longest wait
+            assert third == "timeout"
+    home = tmp_path / "home" / "sessions" / "2026"
+    home.mkdir(parents=True)
+    (home / "s.jsonl").write_text(json.dumps({"timestamp": "2026-11-02T00:00:00Z", "payload": {
+        "rate_limits": {"primary": {"used_percent": 12, "resets_at": 1}}}}) + "\n")
+    assert L.note_usage(tmp_path, tmp_path / "home")["primary"]["used_percent"] == 12
+    assert json.loads((L.plan_dir(tmp_path) / "plan.json").read_text())["primary"]["used_percent"] == 12
+
+
+def test_a_cli_answers_chat_requests_for_code_that_calls_a_chat_api(fake):
+    """`llm: {cli: codex, ...}`: each chat request is one session; the system messages are its developer instructions,
+    the rest its prompt on stdin, the effort the request's; the reply is the session's last message with its usage.
+    The learner is an agent that can run commands: only a container of its own is accepted."""
+    from hermit.agent.base.endpoint import ChatEndpoint, cli_model, split_messages
+    from hermit.agent.model.llm import ChatClient
+    for spec in ({"cli": "codex", "model": "gpt-x", "web_search": False},
+                 {"cli": "codex", "isolation": "sandbox", "web_search": False}):
+        with pytest.raises(ValueError, match="isolation: container"):
+            cli_model(spec)
+    endpoint = ChatEndpoint(make("codex", {"model": "gpt-x", "web_search": False})).start()   # the answering path
+    client = ChatClient(endpoint.url, "gpt-x")
+    message, usage = client.chat([{"role": "system", "content": "Be terse."}, {"role": "user", "content": "Sum it."}],
+                                 reasoning_effort="high")
+    assert message["content"].endswith("<answer>44,463</answer>") and usage.input_tokens == 1000
+    assert split_messages([{"role": "user", "content": "a"}, {"role": "assistant", "content": "b"},
+                           {"role": "user", "content": "c"}])[1].endswith("[assistant]\nb\n\n[user]\nc")
+
+
+def test_a_cli_llm_is_left_to_the_trainer_and_bound_when_its_model_is_a_reference():
+    from hermit.agent.model.backends import normalize_config
+    data = {"llm": {"cli": "codex", "model": "gpt-5.6-luna", "login": "chatgpt", "web_search": False}, "agent": {}}
+    normalize_config(data)
+    assert data["llm"] == {"cli": "codex", "model": "gpt-5.6-luna", "login": "chatgpt", "web_search": False}
+    data = {"llm": {"cli": "codex", "model": "fireworks/accounts/fireworks/models/glm-5p3-flash",
+                    "web_search": False}, "agent": {}}
+    normalize_config(data)
+    assert data["llm"]["binding"] and any("model_provider" in a for a in data["llm"]["args"])
+    with pytest.raises(ValueError, match="llm.cli must be codex"):
+        normalize_config({"llm": {"cli": "pi"}, "agent": {}})
+
+
+def test_a_fresh_home_is_not_in_the_temporary_directory(tmp_path, monkeypatch):
+    """Codex makes no helper programs for its sandbox in a home under the temporary directory, and then no command of
+    the session runs: a fresh home is made under $HERMIT_HOMES (default ~/.cache/hermit/homes)."""
+    monkeypatch.setenv("HERMIT_HOMES", str(tmp_path / "homes"))
+    home, fresh = make("codex", {"web_search": False})._home()
+    assert fresh and home.parent == (tmp_path / "homes").resolve()
+    monkeypatch.delenv("HERMIT_HOMES")
+    monkeypatch.setenv("HOME", str(tmp_path / "user"))                    # the default, in a home of the test's own
+    home, _ = make("codex", {"web_search": False})._home()
+    assert home.parent == (tmp_path / "user" / ".cache" / "hermit" / "homes").resolve()
+
+
+def test_a_cli_session_that_cannot_run_answers_the_client_with_why(tmp_path):
+    """A CLI session that raises (a missing setting, a container not ready) is an error response with its reason, not
+    a dropped connection the client retries blind."""
+    from hermit.agent.base.endpoint import ChatEndpoint
+    from hermit.agent.model.llm import ChatClient, ChatHTTPError
+    endpoint = ChatEndpoint(make("codex", {"model": "gpt-x"})).start()           # web_search not set: refused
+    with pytest.raises(ChatHTTPError) as err:
+        ChatClient(endpoint.url, "gpt-x", max_retries=0).chat([{"role": "user", "content": "hi"}])
+    assert err.value.code == 400 and b"web_search" in err.value.body
+
+
+def test_long_instructions_go_on_stdin_not_in_one_argument():
+    from hermit.agent.base.cli import ARG_MAX, codex_instructions
+    args, prompt = codex_instructions("be brief", "go")
+    assert args == ["-c", 'developer_instructions="be brief"'] and prompt == "go"
+    args, prompt = codex_instructions("x" * (ARG_MAX + 1), "go")
+    assert len(args[1].encode()) < 200 and prompt.startswith("# SYSTEM INSTRUCTIONS") and prompt.endswith("go")
+
+
+def test_a_window_without_a_reset_time_does_not_hold_forever(tmp_path):
+    import time
+    from datetime import datetime, timezone
+    from hermit.agent.base import login as L
+    (tmp_path / "MAX_USED").write_text("50")
+    old = datetime.fromtimestamp(time.time() - 7200, timezone.utc).isoformat()
+    (tmp_path / "plan.json").write_text(json.dumps({"time": old, "primary": {"used_percent": 90}}))
+    assert L.held(tmp_path) == ""                            # an hour after the report it counts as reset
+    (tmp_path / "plan.json").write_text(json.dumps({"time": old, "primary": {"used_percent": 90,
+                                                                             "resets_in_seconds": 10800}}))
+    assert "90%" in L.held(tmp_path)                         # resets three hours after the report: one to go
+
+
+def test_the_longest_wait_counts_over_every_wait_of_a_session(fake, monkeypatch):
+    from hermit.agent.base import login as L
+    tmp_path = fake
+    root = tmp_path / "login-root"
+    (root / "login").mkdir(parents=True)
+    (root / "login" / "auth.json").write_text(json.dumps({"auth_mode": "chatgpt",
+                                                          "last_refresh": "2026-01-01T00:00:00Z"}))
+    given = []
+
+    def wait(plan=None, cancel=None, log=None, max_s=None):
+        given.append(max_s)
+        return "" if len(given) == 1 else "timeout"
+    monkeypatch.setattr(L, "wait", wait)
+    monkeypatch.setattr(L, "hold", lambda plan=None: None)
+    agent = make("codex", {"web_search": False, "login": "chatgpt", "model": "gpt-x", "login_root": str(root),
+                           "plan_dir": str(tmp_path / "plan"), "plan_max_wait_s": 1000})
+    real = type(agent)._session
+
+    def refused(self, prompt, **kw):
+        result = real(self, prompt, **kw)
+        result.extra.update(served=False, output_tail="You've hit your usage limit")
+        return result
+    monkeypatch.setattr(type(agent), "_session", refused)
+    (tmp_path / "w").mkdir()
+    result = agent.run("go", workspace=tmp_path / "w")
+    assert result.extra["unavailable"] and given[0] <= 1000 and given[1] < given[0] + 1 and given[1] <= 1000
+
+
+def test_a_stdin_that_cannot_be_written_is_closed_all_the_same(tmp_path):
+    """A prompt the CLI stops reading part-way (its write fails) still closes its stdin, so a CLI that reads stdin to
+    the end is not left waiting until its clock runs out."""
+    import time
+    cli = tmp_path / "cli"
+    cli.write_text("#!/bin/sh\nhead -c 10 > /dev/null\nexec 0<&-\nsleep 0.2\necho done\n")
+    cli.chmod(0o755)
+    started = time.time()
+    code, timed_out, _ = base_cli.run_process([str(cli)], env=dict(os.environ), cwd=tmp_path,
+                                              stream=tmp_path / "out", timeout=20, stdin="x" * 5_000_000)
+    assert code == 0 and not timed_out and time.time() - started < 10
+
+
+def test_the_plan_settings_reach_the_base_agent(tmp_path):
+    agent = cli.base_agent("codex", {"web_search": False, "login": "chatgpt", "model": "gpt-x",
+                                     "plan_dir": str(tmp_path / "plan"), "plan_max_wait_s": None})
+    assert agent.settings["plan_dir"] == str(tmp_path / "plan") and agent.settings["plan_max_wait_s"] is None
+
+
+def test_a_refusal_holds_until_its_own_window_resets_not_another(tmp_path):
+    import time
+    from hermit.agent.base import login as L
+    now = time.time()
+    (tmp_path / "MAX_USED").write_text("70")
+    (tmp_path / "plan.json").write_text(json.dumps({                     # Codex's own report of a refusal
+        "rate_limit_reached_type": "primary", "primary": {"used_percent": 100, "resets_at": now - 10},
+        "secondary": {"used_percent": 20, "resets_at": now + 5 * 86400}}))
+    assert L.held(tmp_path) == ""                                         # the full window reset: the week is fine
+    L.hold(tmp_path)                                                      # refused again, no window full: an hour
+    held_until = json.loads((tmp_path / "plan.json").read_text())["held_until"]
+    assert "refused" in L.held(tmp_path) and now + 3500 < held_until < now + 3700
+    (tmp_path / "plan.json").write_text(json.dumps({"secondary": {"used_percent": 100, "resets_at": now + 7200}}))
+    L.hold(tmp_path)                                                      # refused with the week full: its reset
+    assert json.loads((tmp_path / "plan.json").read_text())["held_until"] == pytest.approx(now + 7200)
