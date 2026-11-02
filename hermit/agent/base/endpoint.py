@@ -140,6 +140,8 @@ class ChatEndpoint:
     def answer(self, request: dict, authorization: str | None, abort: threading.Event | None = None):
         """One request (its JSON body, not streamed): (status, response body, headers to pass on), or _DROP when the
         upstream gave no answer."""
+        if self.agent.name in ("codex", "claude"):
+            return cli_answer(self.agent, request, abort)
         from hermit.agent.model.llm import ChatAborted, ChatHTTPError
         try:
             request = dict(request)
@@ -210,6 +212,71 @@ def _chunks(status: int, reply: bytes, model, include_usage: bool):
         yield json.dumps({**head, "choices": [], "usage": response["usage"]}).encode()
 
 
+def _text(content) -> str:
+    """A message's text: a string, or the text parts of a list of parts."""
+    if isinstance(content, list):
+        return "\n".join(str(p.get("text") or "") for p in content
+                         if isinstance(p, dict) and p.get("type") in ("text", "input_text", "output_text"))
+    return "" if content is None else str(content)
+
+
+def split_messages(messages: list[dict]) -> tuple[str, str]:
+    """(instructions, prompt): the system and developer messages, and the rest: the one user message as it is, or
+    several turns written out as a transcript that ends with the turn to answer."""
+    system = "\n\n".join(_text(m.get("content")) for m in messages if m.get("role") in ("system", "developer"))
+    rest = [m for m in messages if m.get("role") not in ("system", "developer")]
+    if len(rest) == 1 and rest[0].get("role") == "user":
+        return system, _text(rest[0].get("content"))
+    turns = [f"[{m.get('role')}]\n{_text(m.get('content'))}" for m in rest]
+    return system, ("The conversation so far, oldest first; answer its last user turn as the assistant.\n\n"
+                    + "\n\n".join(turns))
+
+
+def cli_answer(agent: BaseAgent, request: dict, abort: threading.Event | None = None):
+    """A chat-completions request answered by one session of a CLI Base Agent (`codex`, `claude`): a model reachable
+    only through the CLI (a ChatGPT login) for code that calls a chat API (an Evolver's `llm`). The system messages
+    are the session's instructions, the rest its prompt (split_messages), given on stdin; the session works in an
+    empty workspace of its own, and its last message is the reply, with its token usage. `reasoning_effort` is the
+    session's effort; sampling settings a CLI has none for (max_tokens, temperature) are not applied. A session the
+    provider could not serve answers 503 (the client retries), one past its clock 504, one without a reply 502."""
+    import shutil
+    import tempfile
+    from pathlib import Path
+    messages = request.get("messages")
+    if not isinstance(messages, list) or not messages:
+        return 400, json.dumps({"error": {"message": "messages: a non-empty list"}}).encode(), {}
+    system, prompt = split_messages(messages)
+    own = {"stdin": True, **({"cancel": abort} if abort is not None else {})}
+    if request.get("reasoning_effort"):
+        own["effort"] = str(request["reasoning_effort"])
+    if system and agent.name == "codex":
+        own["args"] = [*(agent.settings.get("args") or []), "-c", f"developer_instructions={json.dumps(system)}"]
+    elif system:
+        own["append_system_prompt"] = system
+    work = Path(tempfile.mkdtemp(prefix=f"hermit-chat-{agent.name}-"))
+    try:
+        result = agent.configured(**own).run(prompt, workspace=work)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    if result.extra.get("cancelled"):
+        return _DROP
+    if not result.extra.get("served") or not result.reply.strip():
+        why = "timed out" if result.timed_out else f"exit {result.exit_code}"
+        status = 504 if result.timed_out else 503 if result.extra.get("unavailable") else 502
+        return status, json.dumps({"error": {"message": f"the {agent.name} session gave no reply ({why}): "
+                                             f"{result.extra.get('output_tail', '')[-600:]}"}}).encode(), {}
+    u = result.usage[0] if result.usage else None
+    prompt_tokens, completion = (u.input_tokens, u.output_tokens) if u else (0, 0)
+    body = {"id": f"chatcmpl-{secrets.token_hex(6)}", "object": "chat.completion", "created": int(time.time()),
+            "model": request.get("model") or agent.settings.get("model"),
+            "choices": [{"index": 0, "message": {"role": "assistant", "content": result.reply},
+                         "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": prompt_tokens, "completion_tokens": completion,
+                      "total_tokens": prompt_tokens + completion,
+                      "prompt_tokens_details": {"cached_tokens": u.cached_input_tokens if u else 0}}}
+    return 200, json.dumps(body, ensure_ascii=False).encode(), {}
+
+
 _relays: dict[str, ChatEndpoint] = {}
 _relays_lock = threading.Lock()
 
@@ -227,3 +294,19 @@ def relay(upstream: str, *, timeout: float | None = None) -> str:
             client = ChatClient(upstream.rstrip("/"), "relay", max_retries=0, timeout=timeout)
             _relays[key] = ChatEndpoint(make("direct", {}, client)).start()
         return _relays[key].url
+
+
+def cli_model(spec: dict):
+    """The run's `llm` when it names a CLI (`llm: {cli: codex, model: ..., login: chatgpt, ...}`): a chat client over
+    a ChatEndpoint that answers each request with one session of that CLI Base Agent (cli_answer), for a model only
+    the CLI reaches. Every key but `cli` and `timeout` is the Base Agent's setting (hermit.agent.base.cli); `web_search`
+    must be given, and a Codex learner's commands may only read (codex_sandbox read-only) unless the spec says
+    otherwise."""
+    from hermit.agent.base.interface import make
+    from hermit.agent.model.llm import ChatClient
+    settings = {k: v for k, v in spec.items() if k not in ("cli", "timeout")}
+    if spec["cli"] == "codex":
+        settings.setdefault("codex_sandbox", "read-only")
+    endpoint = ChatEndpoint(make(spec["cli"], settings)).start()
+    return ChatClient(endpoint.url, str(settings.get("model") or spec["cli"]), price=settings.get("price"),
+                      timeout=float(spec.get("timeout", 3600)))

@@ -13,6 +13,7 @@ from hermit.agent.base import trajectory
 from hermit.agent.acting import workspace as cli
 from hermit.agent.base import cli as base_cli
 from hermit.agent.base import container, login
+from hermit.agent.base.interface import make
 
 ROOT = Path(__file__).resolve().parents[1]
 PROMPT_ONLY = ROOT / "hermit" / "adapter" / "templates" / "prompt_only"
@@ -344,3 +345,85 @@ def test_a_login_file_from_the_future_or_no_login_is_not_taken(tmp_path):
     left.write_text(json.dumps({"last_refresh": "2026-10-30T12:00:00Z"}))
     login.take_back(tmp_path, left)
     assert json.loads(master.read_text())["last_refresh"] == "2026-10-30T12:00:00Z"
+
+
+def test_a_login_session_waits_for_the_plan_and_runs_again_when_refused(fake, monkeypatch):
+    """On a ChatGPT login a session first waits for the plan, and one the plan refused is run again (its refusal is
+    never the answer) after every session is held back (hermit.agent.base.login)."""
+    from hermit.agent.base import login as L
+    tmp_path = fake
+    root = tmp_path / "login-root"
+    (root / "login").mkdir(parents=True)
+    (root / "login" / "auth.json").write_text(json.dumps({"auth_mode": "chatgpt",
+                                                          "last_refresh": "2026-01-01T00:00:00Z"}))
+    seen = {"waits": 0, "sessions": 0, "holds": 0}
+    monkeypatch.setattr(L, "wait", lambda root=None, cancel=None, log=None: seen.__setitem__("waits", seen["waits"] + 1)
+                        or True)
+    monkeypatch.setattr(L, "hold", lambda root=None: seen.__setitem__("holds", seen["holds"] + 1))
+    agent = make("codex", {"web_search": False, "login": "chatgpt", "model": "gpt-x", "login_root": str(root)})
+    real = type(agent)._session
+
+    def session(self, prompt, **kw):
+        seen["sessions"] += 1
+        result = real(self, prompt, **kw)
+        if seen["sessions"] == 1:                                      # the plan refuses the first one
+            result.extra.update(served=False, output_tail="ERROR: You've hit your usage limit. Try again later.")
+        return result
+    monkeypatch.setattr(type(agent), "_session", session)
+    (tmp_path / "w").mkdir()
+    result = agent.run("go", workspace=tmp_path / "w")
+    assert seen == {"waits": 2, "sessions": 2, "holds": 1} and result.reply.endswith("<answer>44,463</answer>")
+
+
+def test_the_plan_holds_sessions_after_a_refusal_and_counts_slots(tmp_path):
+    import time
+    from hermit.agent.base import login as L
+    L.hold(tmp_path)
+    assert "refused" in L.held(tmp_path)                                   # held for the window (an hour)
+    report = json.loads((L.plan_dir(tmp_path) / "plan.json").read_text())
+    report["primary"]["resets_at"] = time.time() - 1
+    (L.plan_dir(tmp_path) / "plan.json").write_text(json.dumps(report))
+    assert L.held(tmp_path) == ""                                          # the window reset
+    (L.plan_dir(tmp_path) / "MAX_USED").write_text("50")
+    (L.plan_dir(tmp_path) / "plan.json").write_text(json.dumps(
+        {"primary": {"used_percent": 70, "resets_at": time.time() + 600}}))
+    assert "70%" in L.held(tmp_path)
+    (L.plan_dir(tmp_path) / "SLOTS").write_text("1")
+    with L.slot(tmp_path) as first:
+        assert first
+        import threading
+        stop = threading.Event()
+        threading.Timer(0.3, stop.set).start()
+        with L.slot(tmp_path, cancel=stop) as second:                     # the only slot is taken
+            assert second is False
+    home = tmp_path / "home" / "sessions" / "2026"
+    home.mkdir(parents=True)
+    (home / "s.jsonl").write_text(json.dumps({"timestamp": "2026-11-02T00:00:00Z", "payload": {
+        "rate_limits": {"primary": {"used_percent": 12, "resets_at": 1}}}}) + "\n")
+    assert L.note_usage(tmp_path, tmp_path / "home")["primary"]["used_percent"] == 12
+    assert json.loads((L.plan_dir(tmp_path) / "plan.json").read_text())["primary"]["used_percent"] == 12
+
+
+def test_a_cli_answers_chat_requests_for_code_that_calls_a_chat_api(fake):
+    """`llm: {cli: codex, ...}`: each chat request is one session; the system messages are its developer instructions,
+    the rest its prompt on stdin, the effort the request's; the reply is the session's last message with its usage."""
+    from hermit.agent.base.endpoint import cli_model, split_messages
+    client = cli_model({"cli": "codex", "model": "gpt-x", "web_search": False})
+    message, usage = client.chat([{"role": "system", "content": "Be terse."}, {"role": "user", "content": "Sum it."}],
+                                 reasoning_effort="high")
+    assert message["content"].endswith("<answer>44,463</answer>") and usage.input_tokens == 1000
+    assert split_messages([{"role": "user", "content": "a"}, {"role": "assistant", "content": "b"},
+                           {"role": "user", "content": "c"}])[1].endswith("[assistant]\nb\n\n[user]\nc")
+
+
+def test_a_cli_llm_is_left_to_the_trainer_and_bound_when_its_model_is_a_reference():
+    from hermit.agent.model.backends import normalize_config
+    data = {"llm": {"cli": "codex", "model": "gpt-5.6-luna", "login": "chatgpt", "web_search": False}, "agent": {}}
+    normalize_config(data)
+    assert data["llm"] == {"cli": "codex", "model": "gpt-5.6-luna", "login": "chatgpt", "web_search": False}
+    data = {"llm": {"cli": "codex", "model": "fireworks/accounts/fireworks/models/glm-5p3-flash",
+                    "web_search": False}, "agent": {}}
+    normalize_config(data)
+    assert data["llm"]["binding"] and any("model_provider" in a for a in data["llm"]["args"])
+    with pytest.raises(ValueError, match="llm.cli must be codex or claude"):
+        normalize_config({"llm": {"cli": "pi"}, "agent": {}})

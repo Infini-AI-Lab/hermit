@@ -135,7 +135,11 @@ class Trainer:
         self.evolver, self.params = instantiate(self.spec, d["evolver"]["params"],
                                                 backends=registry(d.get("backends")), default_model=d.get("model"))
         self.budget = Budget(**{k: d["trainer"]["budget"].get(k) for k in ("usd", "tokens", "hours")})
-        self.llm = ChatClient.from_spec(d["llm"]) if d.get("llm") else None
+        if isinstance(d.get("llm"), dict) and d["llm"].get("cli"):     # a model only a CLI reaches
+            from hermit.agent.base.endpoint import cli_model
+            self.llm = cli_model(d["llm"])
+        else:
+            self.llm = ChatClient.from_spec(d["llm"]) if d.get("llm") else None
         self.warnings = warnings_for(config, val_given=True)
 
     # ---------- setup ----------

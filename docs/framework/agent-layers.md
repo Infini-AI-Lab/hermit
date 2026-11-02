@@ -34,7 +34,10 @@ or a model name with a login (`login: chatgpt`), the reasoning effort and the pr
 
 API: `chat(messages, **request) → (message, usage)`, the chat-completions call of `hermit.agent.model.llm.ChatClient`
 (`request` holds the sampling and the tools). The Codex and Claude Code CLIs reach their model themselves; for them
-Layer 1 is the settings they are given (the binding, the login, the effort).
+Layer 1 is the settings they are given (the binding, the login, the effort). Every Codex session on a ChatGPT login
+draws on the login's plan: it waits while the files under `~/.cache/hermit/codex-login/plan/` hold sessions back
+(`PAUSE`, a usage threshold in `MAX_USED`), takes one of the machine's session slots (`SLOTS`), keeps the plan's
+usage report, and is run again when the plan refused it (`hermit/agent/base/login.py`).
 
 ## Layer 2: Base Agent
 
@@ -100,7 +103,10 @@ benchmark that defines its own steps keeps its loop in Layer 3 unchanged and mak
 or another, is given a local endpoint instead (`hermit/agent/base/endpoint.py`): each request is one `direct` call,
 relayed to the URL it would have reached with its body, key and reply unchanged (a streamed request is answered as a
 stream). CL-Bench's runner and ServeLearnBench's agent reach their model this way, through the launcher's meter as
-before.
+before. The same endpoint over a CLI Base Agent answers each request with one session of it (the system messages
+as its instructions, the rest as its prompt, its last message as the reply): `llm: {cli: codex, model: ...,
+login: chatgpt, ...}` makes the run's model one only the CLI reaches, such as a model on a ChatGPT login, for the
+Evolvers that call `ctx.agent` and the `llm` tool.
 
 ## Tools
 

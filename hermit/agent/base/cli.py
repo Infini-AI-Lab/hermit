@@ -55,6 +55,7 @@ import re
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -71,6 +72,7 @@ ISOLATIONS = ("none", "sandbox", "container")
 # could not start, not the session's text
 UNAVAILABLE = re.compile(r"unexpected status (?:429|5\d\d)|exceeded retry limit|stream disconnected|"
                          r"error sending request|too many requests|service unavailable|bad gateway|overloaded|"
+                         r"model is at capacity|"
                          r"error response from daemon|cannot connect to the docker daemon|"
                          + re.escape(container.MISSING), re.I)
 CODEX_HOME_SETTINGS = ["features.shell_snapshot = false",          # a snapshot would bring back the whole environment
@@ -99,7 +101,7 @@ def write_home(home: Path, settings: dict, roles: Sequence[dict] = (), tools_url
         lines.append(f"project_doc_max_bytes = {int(settings['project_doc_max_bytes'])}")
     lines.append(f'web_search = "{'live' if settings.get('web_search') else 'disabled'}"')   # set either way
     if settings.get("login") == "chatgpt":
-        lines.append('forced_login_method = "chatgpt"')
+        lines += ['forced_login_method = "chatgpt"', *codex_login.config_lines()]
     if roles:
         lines.append("features.multi_agent = true")
     lines += ["", "[shell_environment_policy]", f'inherit = "{settings.get("shell_env") or "core"}"',
@@ -263,8 +265,6 @@ class CliAgent(BaseAgent):
             return isolation, None, sandbox
         if self.backend != "codex":
             raise Unsupported("isolation: container runs Codex; Claude Code takes isolation none or sandbox")
-        if s.get("stdin"):
-            raise Unsupported("a container session takes its prompt on the command line, not on stdin")
         shown = [workspace, *(m.source for m in limits.readable)]         # every mount the container is given
         if s.get("home"):                         # a fresh home is a new directory: nothing hidden lies in it
             shown.append(Path(os.path.expanduser(str(s["home"]))))
@@ -315,6 +315,35 @@ class CliAgent(BaseAgent):
     # ---------- one call ----------
     def run(self, prompt, *, workspace=None, tools: Sequence[Tool] = (), limits: Limits | None = None,
             session: Any = None, roles: Sequence[dict] = ()) -> Result:
+        """One session. On a ChatGPT login it first waits while the plan holds sessions back, runs in one of the
+        machine's session slots, and is run again when the plan refused it (hermit.agent.base.login's plan)."""
+        s = self.settings
+        if s.get("login") != "chatgpt":
+            return self._session(prompt, workspace=workspace, tools=tools, limits=limits, session=session,
+                                 roles=roles)
+        root, cancel = Path(s.get("login_root") or codex_login.ROOT), s.get("cancel")
+        say = lambda m: print(f"hermit {self.name}: {m}", file=sys.stderr, flush=True)
+        while True:
+            if not codex_login.wait(root, cancel, say):
+                return self._stopped(workspace)
+            with codex_login.slot(root, cancel, say) as free:
+                if not free:
+                    return self._stopped(workspace)
+                result = self._session(prompt, workspace=workspace, tools=tools, limits=limits, session=session,
+                                       roles=roles)
+            if result.extra.get("served") or not codex_login.refused(result.extra.get("output_tail", "")):
+                return result
+            codex_login.hold(root)                  # never ran: no answer; every session waits for the window
+            say("a session was refused for the plan's usage limit; it runs again once the plan allows")
+
+    def _stopped(self, workspace) -> Result:
+        """A session stopped by its caller before it started (waiting on the plan)."""
+        return Result(reply="", exit_code=-1, extra={"served": False, "unavailable": False, "started": False,
+                                                     "cancelled": True, "isolation": self.settings.get("isolation")
+                                                     or "none", "wall_s": 0.0, "output_tail": ""})
+
+    def _session(self, prompt, *, workspace=None, tools: Sequence[Tool] = (), limits: Limits | None = None,
+                 session: Any = None, roles: Sequence[dict] = ()) -> Result:
         if workspace is None:
             raise Unsupported(f"{self.name} works in a workspace")
         if not isinstance(prompt, str):
@@ -365,7 +394,8 @@ class CliAgent(BaseAgent):
                 keys = {**env, **({key_env: os.environ.get(key_env, "")} if key_env else {})}
                 code, timed_out, cancelled = container.run(command, conf=conf, work=workspace, home=home,
                                                            mounts=mounts, env=keys, timeout=timeout, stdout=stream,
-                                                           cancel=s.get("cancel"))
+                                                           cancel=s.get("cancel"),
+                                                           stdin=prompt if s.get("stdin") else None)
             else:
                 if isolation == "none":
                     _link(mounts)
@@ -391,6 +421,7 @@ class CliAgent(BaseAgent):
                 server.close()
             if s.get("login") == "chatgpt":
                 codex_login.keep_refreshed(Path(s.get("login_root") or codex_login.ROOT), home)
+                codex_login.note_usage(Path(s.get("login_root") or codex_login.ROOT), home)
             for path in copied:
                 path.unlink(missing_ok=True)                              # the sign-in does not outlive the call
             if failed and fresh:
