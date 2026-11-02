@@ -1,0 +1,77 @@
+/* Agent layers: three bands joined by one API seam each (docs/_includes/agent-layers-interactive.html). */
+.ha-layers {
+  --layers-text: #202c3c;
+  --layers-muted: #536174;
+  --layers-line: #b8c4d2;
+  --layers-surface: #fff;
+  --layers-code: #eef1f5;
+  --layers-l3: #426f9e;
+  --layers-l3-soft: #eef4fb;
+  --layers-l3-border: #a8bfda;
+  --layers-l2: #1f7a62;
+  --layers-l2-soft: #ebf6f1;
+  --layers-l2-border: #9fcdbd;
+  --layers-l1: #9a6430;
+  --layers-l1-soft: #fbf3ea;
+  --layers-l1-border: #d9b48e;
+  margin: 1.5rem 0;
+  color: var(--layers-text);
+  font-size: 14px;
+  line-height: 1.5;
+}
+html.dark .ha-layers {
+  --layers-text: #e5eaf1;
+  --layers-muted: #bbc5d3;
+  --layers-line: #526173;
+  --layers-surface: #171c24;
+  --layers-code: #10151c;
+  --layers-l3: #8ab6e4;
+  --layers-l3-soft: #1d2836;
+  --layers-l3-border: #567493;
+  --layers-l2: #6cc9ab;
+  --layers-l2-soft: #172b26;
+  --layers-l2-border: #3f7a68;
+  --layers-l1: #e0a96e;
+  --layers-l1-soft: #30261b;
+  --layers-l1-border: #8a6844;
+}
+.ha-layers [hidden] { display: none !important; }
+.ha-layers code { font-size: 0.92em; font-weight: 400; color: inherit; background: none; padding: 0; border: 0; }
+.ha-layers-paths { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
+.ha-layers-paths span { color: var(--layers-muted); margin-right: 2px; }
+.ha-layers-paths button {
+  flex: none; width: auto; font: inherit; font-size: 13px; color: inherit; cursor: pointer;
+  background: transparent; border: 1px solid var(--layers-line); border-radius: 999px; padding: 5px 12px;
+}
+.ha-layers-paths button[aria-pressed="true"] { background: var(--layers-text); color: var(--layers-surface); border-color: var(--layers-text); }
+.ha-layers-paths button:focus-visible { outline: 3px solid var(--layers-l3); outline-offset: 2px; }
+.ha-layers-band { border: 1px solid; border-radius: 10px; padding: 14px 16px 16px; display: grid; gap: 10px; margin: 0; }
+.ha-layers-band > * { margin: 0; }
+.ha-layers-l3 { --tone: var(--layers-l3); background: var(--layers-l3-soft); border-color: var(--layers-l3-border); }
+.ha-layers-l2 { --tone: var(--layers-l2); background: var(--layers-l2-soft); border-color: var(--layers-l2-border); }
+.ha-layers-l1 { --tone: var(--layers-l1); background: var(--layers-l1-soft); border-color: var(--layers-l1-border); }
+.ha-layers-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 14px; }
+.ha-layers-head strong { color: var(--tone); font-size: 17px; }
+.ha-layers-head span { color: var(--layers-muted); font-size: 13px; min-width: 0; }
+.ha-layers-cells { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; }
+.ha-layers-two { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.ha-layers-cell {
+  min-width: 0; display: grid; gap: 2px; align-content: start;
+  background: var(--layers-surface); border: 1px solid var(--layers-line); border-radius: 8px; padding: 8px 12px;
+  transition: opacity .2s, box-shadow .2s, border-color .2s;
+}
+.ha-layers-cell b { font-size: 14px; }
+.ha-layers-cell small { color: var(--layers-muted); font-size: 12.5px; line-height: 1.45; }
+.ha-layers-filtered .ha-layers-cell { opacity: .38; }
+.ha-layers-filtered .ha-layers-cell.ha-layers-on { opacity: 1; border-color: var(--tone); box-shadow: 0 0 0 1px var(--tone); }
+.ha-layers-seam { display: flex; align-items: stretch; gap: 12px; padding: 8px 0; }
+.ha-layers-seam > div:last-child { display: grid; gap: 3px; min-width: 0; padding: 2px 0; }
+.ha-layers-line { flex: 0 0 2px; background: var(--layers-text); margin-left: 22px; min-height: 28px; }
+.ha-layers .ha-layers-api {
+  color: var(--layers-text); justify-self: start; max-width: 100%; overflow-wrap: anywhere; background: var(--layers-surface);
+  border: 1px solid var(--layers-line); border-radius: 6px; padding: 3px 8px;
+}
+.ha-layers-seam span { color: var(--layers-muted); font-size: 12.5px; }
+.ha-layers-note { margin-top: 12px; color: var(--layers-muted); font-size: 13.5px; min-height: 1.5em; }
+@media (max-width: 520px) { .ha-layers-band { padding: 12px; } .ha-layers-line { margin-left: 10px; } }
+@media (prefers-reduced-motion: reduce) { .ha-layers-cell { transition: none; } }

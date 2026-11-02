@@ -38,8 +38,8 @@ html_theme = "shibuya"
 html_title = f"{project} {version}"
 html_baseurl = "https://infini-ai-lab.github.io/hermit/docs/"
 html_static_path = ["_static", "../assets"]
-html_css_files = ["css/custom.css", "css/overview-diagrams.css"]
-html_js_files = ["js/component-explorer.js", "js/overview-diagrams.js", "js/faq.js"]
+html_css_files = ["css/custom.css", "css/overview-diagrams.css", "css/agent-layers.css"]
+html_js_files = ["js/component-explorer.js", "js/overview-diagrams.js", "js/faq.js", "js/agent-layers.js"]
 html_favicon = "../assets/logo.svg"
 html_theme_options = {
     "accent_color": "orange",

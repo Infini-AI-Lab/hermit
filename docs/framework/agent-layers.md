@@ -3,12 +3,8 @@
 Every agent in Hermit, the one that answers a task and the one that learns an adapter alike, is built from three
 layers. Each layer uses the one below it through a single API and treats it as a black box.
 
-```text
-Layer 3  Agent         Acting Agent: answers a task        Evolver Agent: learns a new adapter
-            │  run(prompt, workspace, tools, limits, session, roles) → reply + trajectory + usage + session
-Layer 2  Base Agent    direct · react · codex · claude
-            │  chat(messages, **request) → message + usage
-Layer 1  Model         a model and how to reach it
+```{raw} html
+:file: ../_includes/agent-layers-interactive.html
 ```
 
 The code follows the layers:
@@ -200,7 +196,6 @@ accepted; a key given in two layers is refused. On the command line a layer's se
 | OfficeQA in direct chat | Acting Agent running SkillOpt's chat loop | `direct`, per turn |
 | GEPA, SkillOpt, ReHarness, Continual Harness | Evolver Agent | `direct` (`ctx.agent`) |
 | Meta-Harness Adapter, `codex` and `claude` Evolvers | Evolver Agent | `codex` or `claude` |
-
 | CL-Bench, ServeLearnBench | Acting Agent running the benchmark's loop | `direct`, per call, through the local endpoint |
 | MWM | Evolver Agent | `codex`, in MWM's native mounts (`NativeMounts` as the sandbox, told `/w`) |
 | Harness² | Evolver Agent: upstream's proposer | `claude`, one call per upstream session |

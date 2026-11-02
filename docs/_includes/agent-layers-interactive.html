@@ -1,0 +1,38 @@
+<figure class="ha-layers" aria-label="The three agent layers and the API between them">
+<div class="ha-layers-paths" role="group" aria-label="Highlight one call path" hidden>
+<span>Follow a path:</span>
+<button type="button" data-path="all" aria-pressed="true">All</button>
+<button type="button" data-path="officeqa" aria-pressed="false">Acting · OfficeQA × Codex</button>
+<button type="button" data-path="clbench" aria-pressed="false">Acting · CL-Bench × direct</button>
+<button type="button" data-path="gepa" aria-pressed="false">Learning · GEPA × direct</button>
+<button type="button" data-path="mha" aria-pressed="false">Learning · Meta-Harness Adapter × Codex</button>
+<button type="button" data-path="harness2" aria-pressed="false">Learning · Harness² × Claude Code</button>
+</div>
+<div class="ha-layers-stack">
+<div class="ha-layers-band ha-layers-l3" aria-label="Layer 3: Agent">
+<div class="ha-layers-head"><strong>Layer 3 · Agent</strong><span>What the agent is used for: the task, or the learning method · <code>hermit/agent/acting/</code>, <code>hermit/agent/evolver/</code></span></div>
+<div class="ha-layers-cells ha-layers-two">
+<div class="ha-layers-cell" data-on="officeqa clbench"><b>Acting Agent</b><small>Answers a task: places the task and the adapter in the workspace, calls a Base Agent, reads the answer from the reply. A benchmark with its own loop (CL-Bench) runs that loop here.</small></div>
+<div class="ha-layers-cell" data-on="gepa mha harness2"><b>Evolver Agent</b><small>Learns: reads the acting runs' trajectories and writes a new adapter. GEPA, SkillOpt, Meta-Harness Adapter, Harness² and the other methods.</small></div>
+</div>
+</div>
+<div class="ha-layers-seam"><div class="ha-layers-line" aria-hidden="true"></div><div><code class="ha-layers-api">run(prompt, workspace, tools, limits, session, roles) → reply + trajectory + usage + session</code><span>The Base Agent's one API. The caller cannot tell which Base Agent is below; passing the session back continues the same agent.</span></div></div>
+<div class="ha-layers-band ha-layers-l2" aria-label="Layer 2: Base Agent">
+<div class="ha-layers-head"><strong>Layer 2 · Base Agent</strong><span>How a model takes steps; only the framework's agents · <code>hermit/agent/base/</code></span></div>
+<div class="ha-layers-cells">
+<div class="ha-layers-cell" data-on="clbench gepa"><b>direct</b><small>One model call. Tools in the request come back as tool calls; direct never runs them.</small></div>
+<div class="ha-layers-cell"><b>react</b><small>The framework's tool loop: call the model, run the tools it asks for, call it again.</small></div>
+<div class="ha-layers-cell" data-on="officeqa mha"><b>codex</b><small>The Codex CLI, working in a workspace.</small></div>
+<div class="ha-layers-cell" data-on="harness2"><b>claude</b><small>The Claude Code CLI, working in a workspace.</small></div>
+</div>
+</div>
+<div class="ha-layers-seam"><div class="ha-layers-line" aria-hidden="true"></div><div><code class="ha-layers-api">chat(messages, **request) → message + usage</code><span>The Model's one API. Codex and Claude Code reach their model themselves, from the settings they are given.</span></div></div>
+<div class="ha-layers-band ha-layers-l1" aria-label="Layer 1: Model">
+<div class="ha-layers-head"><strong>Layer 1 · Model</strong><span>A model and the way to reach it · <code>hermit/agent/model/</code></span></div>
+<div class="ha-layers-cells">
+<div class="ha-layers-cell" data-on="officeqa clbench gepa mha harness2"><b>Model</b><small>A <code>&lt;backend&gt;/&lt;model&gt;</code> reference, or a model name with a login (<code>login: chatgpt</code>); the reasoning effort; the price.</small></div>
+</div>
+</div>
+</div>
+<figcaption class="ha-layers-note" aria-live="polite">Every agent goes through all three layers. A method that decides every step in its own code still has a Base Agent: the simplest one, direct.</figcaption>
+</figure>
