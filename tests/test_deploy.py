@@ -399,6 +399,11 @@ def test_an_exported_roles_instructions_may_not_be_internal(tmp_path):
     with pytest.raises(Exception, match="instructions private/role.md are internal"):
         codex_prepare(a, tmp_path / "w", sys.executable)
     assert not (tmp_path / "w" / ".codex" / "agents" / "reviewer.toml").exists()
+    (a / "public").mkdir()
+    (a / "roles.py").write_text("def export():\n    return [{'name': 'reviewer', 'description': 'Review.', "
+                                "'instructions': 'public/../private/role.md'}]\n")       # the same file, spelled around
+    with pytest.raises(Exception, match="are internal"):
+        codex_prepare(a, tmp_path / "w2", sys.executable)
     root = tmp_path / "root"
     import shutil
     shutil.copytree(a, root)

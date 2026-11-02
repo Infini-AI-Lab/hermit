@@ -34,10 +34,10 @@ def is_internal(rel: str, manifest: dict) -> bool:
 
 
 def _plain(rel: str) -> str:
-    """An adapter path as written relative to its root, without a leading `./`."""
-    while rel.startswith("./"):
-        rel = rel[2:]
-    return rel
+    """An adapter path relative to its root as one name: `./` and `..` resolved (`a/../b` is `b`)."""
+    import posixpath
+    rel = posixpath.normpath(str(rel).replace("\\", "/"))
+    return "" if rel == "." else rel
 
 
 def load_manifest(root: Path) -> dict:
@@ -314,7 +314,9 @@ class Adapter:
             if not isinstance(role.get("name"), str) or role["name"] in names or not role.get("description"):
                 raise ValueError("Invalid or duplicate exported role")
             names.add(role["name"])
-            if isinstance(role.get("instructions"), str) and is_internal(role["instructions"], self.manifest):
+            if isinstance(role.get("instructions"), str) and is_internal(
+                    inside(self.root, role["instructions"]).relative_to(Path(self.root).resolve()).as_posix(),
+                    self.manifest):                     # the file it is, however its path is written
                 raise ValueError(f"role {role['name']}'s instructions {role['instructions']} are internal: a "
                                  "deployment connects a role's instructions, so they may not be the harness's own")
             if "body" not in role:
