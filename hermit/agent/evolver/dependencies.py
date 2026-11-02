@@ -15,6 +15,7 @@ METHOD_REQUIREMENTS = {
     ),
     "harness2": ("harness2 @ git+https://github.com/google-research/harness2@1cfe254e8d25b15f37048c3730134686abe60335",),
     "ace": ("sentence-transformers>=2.2.0",),       # only for use_bulletpoint_analyzer
+    "coevoskills": ("coevoskills @ git+https://github.com/Zhang-Henry/CoEvoSkills@4380d4bff673dd6e1d58e5babeb2aaa0fe527119",),
 }
 
 

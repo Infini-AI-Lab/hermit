@@ -36,11 +36,15 @@ harness2 = [
 ace = [
     "sentence-transformers>=2.2.0",
 ]
+coevoskills = [
+    "coevoskills @ git+https://github.com/Zhang-Henry/CoEvoSkills@4380d4bff673dd6e1d58e5babeb2aaa0fe527119",
+]
 all = [
     { include-group = "gepa" },
     { include-group = "skillopt" },
     { include-group = "harness2" },
     { include-group = "ace" },
+    { include-group = "coevoskills" },
 ]
 
 [project.scripts]

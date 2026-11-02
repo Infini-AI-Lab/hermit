@@ -1,0 +1,21 @@
+context: ADAPTER.md
+tools:
+  - name: selected_skills
+    description: Read-only fixed retrieval of reusable learned Skills for the public question.
+    entrypoint: interface.py:skills
+    input_schema:
+      type: object
+      properties:
+        query: {type: string}
+        task: {type: object}
+      additionalProperties: false
+    output_schema:
+      type: object
+      properties:
+        text: {type: string}
+        retrieved: {type: array}
+        bank_size: {type: integer}
+        k: {type: integer}
+      required: [text, retrieved, bank_size, k]
+    annotations: {readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false}
+context_tool: selected_skills

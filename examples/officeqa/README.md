@@ -114,6 +114,7 @@ container per session. Each evaluation makes one pass over the 172 test question
 <tr><td><b>ReHarness</b></td><td>0.634</td><td>0.517</td></tr>
 <tr><td><b>Harness²</b></td><td>0.651</td><td>0.611</td></tr>
 <tr><td><b>ACE</b></td><td>not run</td><td>0.640</td></tr>
+<tr><td><b>CoEvoSkills</b></td><td>not run</td><td>0.640</td></tr>
 </tbody>
 </table>
 
@@ -132,6 +133,13 @@ Results use two settings:
   updating the adapter as they go, without a separate training split or access to judge verdicts. These
   scores measure performance during adaptation. See [`continual_harness/`](continual_harness/) and
   [`harness2_stream/`](harness2_stream/) for their protocols.
+
+**CoEvoSkills** ([`coevoskills/`](coevoskills/), [method](../../docs/methods/coevoskills.md)) learns on the
+50 training questions without validation selection, then evaluates the frozen Skill bank once on the 172 test
+questions. Its Luna-only run has its own matched baselines: no adapter **40/172 (23.26%)**, the starting seed
+**62/172 (36.05%)**, and final **110/172 (63.95%)**, a paired **+27.91 points** over the seed.
+The [result record](coevoskills/#result) gives the settings and comparison; this is a separate run from the
+methods measured in both columns.
 
 **ReHarness** ([`reharness/`](reharness/), [method](../../docs/methods/reharness.md)) keeps the initial skill as
 the harness's text and learns a bank of reflections below it, five retrieved per question by Qwen3-Embedding-8B and
@@ -185,4 +193,7 @@ reharness/          ReHarness: stream_codex.yaml (the 172 test questions as one 
 ace/                ACE: run_codex_luna.yaml and smoke_codex_luna.yaml in the GPT-5.6-Luna setting; make_seed.py
                     writes seed_adapter/, the initial skill with ACE's empty playbook; adapter/ is the measured
                     run's final playbook, with its .hermit/CARD.md
+coevoskills/        CoEvoSkills: prepare.py and prepare_seed.py stage training fixtures and the seed; launch.py
+                    runs fresh baselines, training and frozen evaluation; run_codex_luna.yaml uses ChatGPT login,
+                    run_codex.yaml an API backend; comparison.json holds the paired test results
 ```

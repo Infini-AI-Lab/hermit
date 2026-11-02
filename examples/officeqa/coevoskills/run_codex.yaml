@@ -1,0 +1,58 @@
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/train.txt
+  val: ../utils/splits/val.txt
+  test: ../utils/splits/test.txt
+  step_size: 1
+  shuffle: false
+task_info: ../utils/task-info
+agent:
+  base: codex
+  concurrency: 1
+  params:
+    prompt: ../utils/prompt.md
+    prepare: ../utils/task.py:prepare
+    answer: ../utils/task.py:answer
+    collect: ../utils/task.py:collect
+    workspaces: ~/.cache/hermit/officeqa-coevoskills
+    env:
+      NO_PROXY: 127.0.0.1,localhost
+  model:
+    ref: openai/gpt-5.6-luna
+    effort: medium
+  codex:
+    web_search: false
+    timeout_s: 3600
+    project_doc_max_bytes: 65536
+    isolation: container
+    container:
+      image: hermit-codex:0.162.0
+      network: none
+judge:
+  path: ../utils/judge.py
+template: coevoskills@1.0
+start_from: common_seed
+evolver:
+  name: coevoskills
+  params:
+    max_iterations: 5
+    max_episodes: 120
+    task_timeout_s: 7200
+    completion_timeout_s: 600
+sandbox:
+  enabled: true
+  network: isolated
+  env: []
+  profiles:
+    rollout:
+      enabled: false
+trainer:
+  run_name: coevoskills-run
+  output_dir: runs
+  tree_dir: runs/trees/coevoskills-run
+  epochs: 1
+  budget:
+    hours: 72
+  call_timeout_min: 180
+eval:
+  repeats: 1

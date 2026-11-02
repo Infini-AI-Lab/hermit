@@ -424,6 +424,57 @@ Paired per question, 95% bootstrap intervals; bold where the interval lies above
 - The agent names the bullets it used on one line of its final message: 81 of the 100 training samples named at
   least one, 142 citations in all.
 
+## CoEvoSkills
+
+[CoEvoSkills](../methods/coevoskills.md) learns executable Skill packages through the pinned upstream
+Generator/Verifier loop. Fresh training probes call the existing OfficeQA Codex actor and private judge through
+`run_agent`. The actor, task hooks and scoring stay fixed. The seed is SkillOpt's original OfficeQA skill;
+a fixed reader supplies up to three relevant manifests and the actor can read their deployed files.
+
+Prepare the [OfficeQA data](#prepare-the-data), install the `coevoskills` and `skillopt` dependency groups, and
+keep an unmodified checkout at CoEvoSkills commit `4380d4bff673dd6e1d58e5babeb2aaa0fe527119`.
+The [example](https://github.com/Infini-AI-Lab/hermit/tree/main/examples/officeqa/coevoskills) describes the
+Codex image and API-backend setup. With native ChatGPT login:
+
+```bash
+export COEVOSKILLS_ROOT=/path/to/CoEvoSkills
+python -m pip install -e . --group coevoskills --group skillopt
+python examples/officeqa/coevoskills/prepare.py
+python examples/officeqa/coevoskills/prepare_seed.py
+python examples/officeqa/coevoskills/launch.py \
+  --config examples/officeqa/coevoskills/run_codex_luna.yaml \
+  --output examples/officeqa/coevoskills/runs/luna-coevoskills \
+  --train-workers 4 --eval-concurrency 4
+```
+
+The launcher evaluates fresh `none` and `common_seed` baselines, trains on the 50 training questions, assembles
+the independent streams' packages in training-ID order, then freezes and evaluates the bank on the 172 test
+questions. The 24 validation questions are unused. Containers have Docker network none and a model-only relay;
+prepare images and dependencies before execution. Use a new output directory for each run.
+
+The measured run was one training with one test pass per arm:
+
+- Models: `gpt-5.6-luna` acting and learning, medium effort, native ChatGPT login.
+- Harness: the Codex actor, image `hermit-codex:0.162.0`; four training workers and four concurrent evaluations.
+- Data: `databricks/officeqa@763a8366abf2a3605c381d53586d844dc60fa756`, SkillOpt `79124b3`'s
+  50 / 24 / 172 split. Eight items' source fields differ from the split revision; all arms use the same prepared
+  revision ([data preparation](#prepare-the-data)).
+- Run: `run_codex_luna.yaml` at framework revision `2a674b1ac300544dcc617d7c0489b10cfca98b13`.
+- Spending: a ChatGPT subscription has no per-token dollar price. Each evaluation took about 20–25 minutes.
+
+| Adapter | Correct / test questions | Accuracy | Execution errors |
+|---|---|---|---|
+| No adapter | 40/172 | 23.26% | 0 |
+| Original seed | 62/172 | 36.05% | 0 |
+| Frozen final bank | 110/172 | 63.95% | 0 |
+
+Paired final minus seed: **+27.91 percentage points** (54 wins, 6 losses); final minus no adapter:
+**+40.70 points** (71 wins, 1 loss). The final accuracy's one-pass binomial standard error is 3.66 points.
+The launcher writes `<output>/comparison.json` and
+`<output>/coevoskills/eval/{none,common_seed,final}/{results.jsonl,summary.json}`; with parallel training,
+the frozen adapter is `<output>/frozen/final/`. The measured protocol is frozen transfer from training to test,
+which differs from the authors' task-local adaptation and from the streaming rows on this page.
+
 ## Outputs and scoring
 
 A run's records are under `examples/officeqa/<method>/runs/<run name>/` (`<run>` below):
