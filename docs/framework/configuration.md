@@ -58,7 +58,7 @@ Use the same run name for training and evaluation. Unknown configuration keys ar
 | `evolver.params` | Parameters layered over that Evolver's defaults. |
 | `evolver.resume` | Request a continued learner session between steps; the Evolver must support it. |
 | `evolver_access` | Additional task resources and tools given to the learner. |
-| `llm` | Optional model endpoint, model ID, key environment variable, prices, and `extra_body` (fields added to every request, such as `reasoning_effort`) for the run's `llm` tool; or `cli: codex` (or `claude`) with that Base Agent's settings (`model`, `login`, `effort`, `web_search`, `isolation`, `container`, ...) and `timeout`, for a model only the CLI reaches: each call is one session ([Agent layers](agent-layers.md#layer-3-agent)). |
+| `llm` | Optional model endpoint, model ID, key environment variable, prices, and `extra_body` (fields added to every request, such as `reasoning_effort`) for the run's `llm` tool; or `cli: codex` with that Base Agent's settings (`model`, `login`, `effort`, `web_search`, `container`, ...), `isolation: container` (required: the learner is an agent that can run commands) and `timeout`, for a model only Codex reaches: each call is one session in a container of its own ([Agent layers](agent-layers.md#layer-3-agent)). |
 | `trainer` | Run name and directories, epochs, budgets, checkpoint frequency, and recovery mode. |
 | `eval.repeats` | Repetitions per test task in the separate evaluation command. |
 

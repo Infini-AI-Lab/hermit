@@ -300,13 +300,17 @@ def cli_model(spec: dict):
     """The run's `llm` when it names a CLI (`llm: {cli: codex, model: ..., login: chatgpt, ...}`): a chat client over
     a ChatEndpoint that answers each request with one session of that CLI Base Agent (cli_answer), for a model only
     the CLI reaches. Every key but `cli` and `timeout` is the Base Agent's setting (hermit.agent.base.cli); `web_search`
-    must be given, and a Codex learner's commands may only read (codex_sandbox read-only) unless the spec says
-    otherwise."""
+    must be given. The model is an agent that can run commands, and Codex's own read-only sandbox still reads the whole
+    machine (the test answers, the keys), so the session must run in a container of its own (`isolation:
+    container`), where its commands may only read (codex_sandbox read-only) unless the spec says otherwise."""
     from hermit.agent.base.interface import make
     from hermit.agent.model.llm import ChatClient
+    if spec["cli"] != "codex" or spec.get("isolation") != "container":
+        raise ValueError("llm.cli: the learner's model is a Codex agent that can run commands; it needs cli: codex "
+                         "and isolation: container (with container: {image, network, proxy}), which shows it only "
+                         "its empty workspace")
     settings = {k: v for k, v in spec.items() if k not in ("cli", "timeout")}
-    if spec["cli"] == "codex":
-        settings.setdefault("codex_sandbox", "read-only")
+    settings.setdefault("codex_sandbox", "read-only")
     endpoint = ChatEndpoint(make(spec["cli"], settings)).start()
     return ChatClient(endpoint.url, str(settings.get("model") or spec["cli"]), price=settings.get("price"),
                       timeout=float(spec.get("timeout", 3600)))

@@ -357,10 +357,11 @@ def test_a_login_session_waits_for_the_plan_and_runs_again_when_refused(fake, mo
     (root / "login" / "auth.json").write_text(json.dumps({"auth_mode": "chatgpt",
                                                           "last_refresh": "2026-01-01T00:00:00Z"}))
     seen = {"waits": 0, "sessions": 0, "holds": 0}
-    monkeypatch.setattr(L, "wait", lambda root=None, cancel=None, log=None: seen.__setitem__("waits", seen["waits"] + 1)
-                        or True)
-    monkeypatch.setattr(L, "hold", lambda root=None: seen.__setitem__("holds", seen["holds"] + 1))
-    agent = make("codex", {"web_search": False, "login": "chatgpt", "model": "gpt-x", "login_root": str(root)})
+    monkeypatch.setattr(L, "wait", lambda plan=None, cancel=None, log=None, max_s=None:
+                        seen.__setitem__("waits", seen["waits"] + 1) or "")
+    monkeypatch.setattr(L, "hold", lambda plan=None: seen.__setitem__("holds", seen["holds"] + 1))
+    agent = make("codex", {"web_search": False, "login": "chatgpt", "model": "gpt-x", "login_root": str(root),
+                           "plan_dir": str(tmp_path / "plan")})
     real = type(agent)._session
 
     def session(self, prompt, **kw):
@@ -373,6 +374,41 @@ def test_a_login_session_waits_for_the_plan_and_runs_again_when_refused(fake, mo
     (tmp_path / "w").mkdir()
     result = agent.run("go", workspace=tmp_path / "w")
     assert seen == {"waits": 2, "sessions": 2, "holds": 1} and result.reply.endswith("<answer>44,463</answer>")
+
+
+def test_a_long_window_still_over_holds_after_the_short_one_resets(tmp_path):
+    import time
+    from hermit.agent.base import login as L
+    (tmp_path / "MAX_USED").write_text("70")
+    (tmp_path / "plan.json").write_text(json.dumps({"primary": {"used_percent": 90, "resets_at": time.time() - 5},
+                                                    "secondary": {"used_percent": 80, "resets_at": time.time() + 900}}))
+    assert "80%" in L.held(tmp_path)
+    assert L.wait(tmp_path, max_s=0) == "timeout"                        # past the longest wait: unavailable
+
+
+def test_a_session_waiting_for_a_slot_waits_again_if_paused_meanwhile(fake, monkeypatch):
+    from hermit.agent.base import login as L
+    tmp_path = fake
+    root, plan = tmp_path / "login-root", tmp_path / "plan"
+    (root / "login").mkdir(parents=True)
+    (root / "login" / "auth.json").write_text(json.dumps({"auth_mode": "chatgpt",
+                                                          "last_refresh": "2026-01-01T00:00:00Z"}))
+    plan.mkdir()
+    (plan / "SLOTS").write_text("1")
+    calls = {"held": 0}
+    real_held = L.held
+
+    def held(p=None):                       # PAUSE appears while the session waits for its slot, then goes again
+        calls["held"] += 1
+        return "paused" if calls["held"] == 1 else real_held(p)
+    monkeypatch.setattr(L, "held", held)
+    monkeypatch.setattr(L, "wait", lambda plan=None, cancel=None, log=None, max_s=None: "")
+    (tmp_path / "w").mkdir()
+    agent = make("codex", {"web_search": False, "login": "chatgpt", "model": "gpt-x", "login_root": str(root),
+                           "plan_dir": str(plan)})
+    result = agent.run("go", workspace=tmp_path / "w")
+    assert calls["held"] == 2 and result.reply.endswith("<answer>44,463</answer>")
+    assert (plan / L.LOCKS).is_dir() and not (plan / "slots").exists()      # SLOTS and its locks never share a name
 
 
 def test_the_plan_holds_sessions_after_a_refusal_and_counts_slots(tmp_path):
@@ -406,9 +442,16 @@ def test_the_plan_holds_sessions_after_a_refusal_and_counts_slots(tmp_path):
 
 def test_a_cli_answers_chat_requests_for_code_that_calls_a_chat_api(fake):
     """`llm: {cli: codex, ...}`: each chat request is one session; the system messages are its developer instructions,
-    the rest its prompt on stdin, the effort the request's; the reply is the session's last message with its usage."""
-    from hermit.agent.base.endpoint import cli_model, split_messages
-    client = cli_model({"cli": "codex", "model": "gpt-x", "web_search": False})
+    the rest its prompt on stdin, the effort the request's; the reply is the session's last message with its usage.
+    The learner is an agent that can run commands: only a container of its own is accepted."""
+    from hermit.agent.base.endpoint import ChatEndpoint, cli_model, split_messages
+    from hermit.agent.model.llm import ChatClient
+    for spec in ({"cli": "codex", "model": "gpt-x", "web_search": False},
+                 {"cli": "codex", "isolation": "sandbox", "web_search": False}):
+        with pytest.raises(ValueError, match="isolation: container"):
+            cli_model(spec)
+    endpoint = ChatEndpoint(make("codex", {"model": "gpt-x", "web_search": False})).start()   # the answering path
+    client = ChatClient(endpoint.url, "gpt-x")
     message, usage = client.chat([{"role": "system", "content": "Be terse."}, {"role": "user", "content": "Sum it."}],
                                  reasoning_effort="high")
     assert message["content"].endswith("<answer>44,463</answer>") and usage.input_tokens == 1000
@@ -425,5 +468,17 @@ def test_a_cli_llm_is_left_to_the_trainer_and_bound_when_its_model_is_a_referenc
                     "web_search": False}, "agent": {}}
     normalize_config(data)
     assert data["llm"]["binding"] and any("model_provider" in a for a in data["llm"]["args"])
-    with pytest.raises(ValueError, match="llm.cli must be codex or claude"):
+    with pytest.raises(ValueError, match="llm.cli must be codex"):
         normalize_config({"llm": {"cli": "pi"}, "agent": {}})
+
+
+def test_a_fresh_home_is_not_in_the_temporary_directory(tmp_path, monkeypatch):
+    """Codex makes no helper programs for its sandbox in a home under the temporary directory, and then no command of
+    the session runs: a fresh home is made under $HERMIT_HOMES (default ~/.cache/hermit/homes)."""
+    monkeypatch.setenv("HERMIT_HOMES", str(tmp_path / "homes"))
+    home, fresh = make("codex", {"web_search": False})._home()
+    assert fresh and home.parent == (tmp_path / "homes").resolve()
+    monkeypatch.delenv("HERMIT_HOMES")
+    home, _ = make("codex", {"web_search": False})._home()
+    assert home.parent == Path.home().joinpath(".cache", "hermit", "homes").resolve()
+    home.rmdir()

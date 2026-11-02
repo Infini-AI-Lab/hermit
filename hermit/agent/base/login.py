@@ -89,15 +89,19 @@ def take_back(root: Path, path: Path) -> None:
 
 
 # ---- the plan: what a ChatGPT login allows, shared by every session on this machine -------------------------------
-# A login's sessions draw on its plan's usage windows and its rate limit. Under ROOT/plan/ (`plan_dir`) a person can
-# steer every running session through files, read again before each session:
+# A login's sessions draw on its plan's usage windows and its rate limit. One plan directory (PLAN, `plan_dir` to name
+# another) steers every session on the machine, whatever login copy a session signs in with (a rollout sandbox's
+# included: it is given this directory), through files read again before each session:
 #   PAUSE       while it exists, no session starts
-#   MAX_USED    a number: no session starts while the plan's fullest window is at or above that percent
+#   MAX_USED    a number: no session starts while a window of the plan that has not reset is at or above that percent
 #   SLOTS       a number: at most that many sessions run at once on this machine (past some number at once the
 #               login's backend answers 429 and a short session spends its clock waiting); 0 or none: no limit
 # and the sessions keep the plan's latest report there (plan.json, and every report in plan.jsonl). A session the plan
 # refused for its usage limit holds every session back until the window resets, and is run again: it never ran, so it
 # is no answer. (Ported from the OfficeQA GPT-5.6-Luna work, examples/officeqa/utils/agent/codex_login.py in PR #54.)
+PLAN = ROOT / "plan"
+LOCKS = ".slot-locks"                     # not "slots": SLOTS and slots/ are one name on a case-insensitive disk
+MAX_WAIT_S = 12 * 3600                    # how long a session waits for the plan before it gives up (unavailable)
 LIMIT = re.compile(r"hit your usage limit|usage_limit_reached|usageLimitExceeded", re.I)
 OFF = ("apps", "plugins", "remote_plugin", "browser_use", "browser_use_external", "computer_use", "in_app_browser",
        "skill_mcp_dependency_install")      # what reaches past the workspace on a login: connectors, plugins, browsers
@@ -110,8 +114,8 @@ def config_lines() -> list[str]:
             *(f"features.{name} = false" for name in OFF)]
 
 
-def plan_dir(root: Path | None = None) -> Path:
-    return Path(root or ROOT) / "plan"
+def plan_dir(plan: Path | str | None = None) -> Path:
+    return Path(plan) if plan else PLAN
 
 
 def _number(path: Path) -> float | None:
@@ -121,60 +125,66 @@ def _number(path: Path) -> float | None:
         return None
 
 
-def _used(report: dict) -> tuple[float, float]:
-    """(percent used, reset time) of the report's fullest window."""
-    windows = [w for w in (report.get("primary"), report.get("secondary")) if isinstance(w, dict)]
-    if not windows:
-        return 0.0, 0.0
-    w = max(windows, key=lambda w: float(w.get("used_percent") or 0))
-    return float(w.get("used_percent") or 0), float(w.get("resets_at") or 0)
+def _windows(report: dict) -> list[tuple[float, float]]:
+    """(percent used, reset time) of each of the report's windows."""
+    return [(float(w.get("used_percent") or 0), float(w.get("resets_at") or 0))
+            for w in (report.get("primary"), report.get("secondary")) if isinstance(w, dict)]
 
 
-def held(root: Path | None = None) -> str:
-    """Why no session may start now ("" when one may)."""
-    d = plan_dir(root)
+def held(plan: Path | str | None = None) -> str:
+    """Why no session may start now ("" when one may). Each window that has not reset counts on its own: a short
+    window's reset does not lift a long window that is still over."""
+    d = plan_dir(plan)
     if (d / "PAUSE").exists():
         return f"paused ({d / 'PAUSE'} exists)"
     try:
         report = json.loads((d / "plan.json").read_text())
     except (OSError, ValueError):
         return ""
-    used, resets = _used(report)
-    limit = _number(d / "MAX_USED")
+    now, limit = time.time(), _number(d / "MAX_USED")
+    live = [(used, resets) for used, resets in _windows(report) if not resets or resets > now]
+    over = [w for w in live if limit is not None and w[0] >= limit]
     refused = report.get("rate_limit_reached_type")
-    if (refused or (limit is not None and used >= limit)) and not (resets and time.time() >= resets):
-        return (f"plan usage {used:.0f}%{f' (limit {limit:.0f}%)' if limit is not None else ''}"
-                f"{', refused' if refused else ''} until {time.strftime('%Y-%m-%d %H:%M', time.localtime(resets))}")
+    if refused:              # the plan said no: the windows that are full, or (none known) the one the hold set
+        over += [w for w in live if w[0] >= 100] or [w for w in live if w[1]][:1]
+    if not over:
+        return ""
+    used, resets = max(over, key=lambda w: w[1])
+    until = time.strftime("%Y-%m-%d %H:%M", time.localtime(resets)) if resets else "a report says otherwise"
+    return (f"plan usage {used:.0f}%{f' (limit {limit:.0f}%)' if limit is not None else ''}"
+            f"{', refused' if refused else ''} until {until}")
+
+
+def wait(plan: Path | str | None = None, cancel=None, log=None, max_s: float | None = MAX_WAIT_S) -> str:
+    """Block while `held`; "" once a session may start, "cancelled" when `cancel` was set, "timeout" past `max_s`
+    seconds (None: no limit). Says why at the start and every half hour."""
+    started, told = time.time(), 0.0
+    while (reason := held(plan)):
+        if log is not None and time.time() - told >= 1800:
+            log(f"sessions on the login held back: {reason} (waiting {(time.time() - started) / 3600:.1f} h)")
+            told = time.time()
+        if max_s is not None and time.time() - started >= max_s:
+            return "timeout"
+        if cancel is not None and cancel.wait(30):
+            return "cancelled"
+        if cancel is None:
+            time.sleep(30)
     return ""
 
 
-def wait(root: Path | None = None, cancel=None, log=None) -> bool:
-    """Block while `held`; False when `cancel` was set meanwhile."""
-    told = False
-    while (reason := held(root)):
-        if not told and log is not None:
-            log(f"sessions on the login held back: {reason}")
-            told = True
-        if cancel is not None and cancel.wait(30):
-            return False
-        if cancel is None:
-            time.sleep(30)
-    return True
-
-
 @contextmanager
-def slot(root: Path | None = None, cancel=None, log=None):
+def slot(plan: Path | str | None = None, cancel=None, log=None):
     """Hold one of the machine's session slots while the block runs (none without a SLOTS limit). Yields False when
     `cancel` was set while waiting for one."""
-    d, told = plan_dir(root), False
+    d, told = plan_dir(plan), False
     while True:
         n = int(_number(d / "SLOTS") or 0)
         if n <= 0:
             yield True
             return
-        (d / "slots").mkdir(parents=True, exist_ok=True)
+        (d / LOCKS).mkdir(parents=True, exist_ok=True)
         for i in random.sample(range(n), n):
-            fd = os.open(d / "slots" / f"{i}.lock", os.O_RDWR | os.O_CREAT, 0o600)
+            fd = os.open(d / LOCKS / f"{i}.lock", os.O_RDWR | os.O_CREAT, 0o600)
             try:
                 fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except OSError:
@@ -216,22 +226,23 @@ def usage_of(home: Path) -> dict | None:
     return None
 
 
-def note_usage(root: Path | None, home: Path) -> dict | None:
+def note_usage(plan: Path | str | None, home: Path) -> dict | None:
     """Keep a session's report of the plan's usage as plan.json when it is newer, and append it to plan.jsonl. A
     record that cannot be written (a full disk) is skipped: it never fails the session."""
     try:
-        return _note_usage(root, home)
+        return _note_usage(plan, home)
     except OSError:
         return None
 
 
-def _note_usage(root: Path | None, home: Path) -> dict | None:
+def _note_usage(plan: Path | str | None, home: Path) -> dict | None:
     seen = usage_of(home)
     if not seen:
         return None
-    d = plan_dir(root)
+    d = plan_dir(plan)
     d.mkdir(parents=True, exist_ok=True)
-    used, resets = _used(seen)
+    windows = _windows(seen)
+    used, resets = max(windows, key=lambda w: w[0]) if windows else (0.0, 0.0)
     with open(d / "plan.jsonl", "a") as out:
         out.write(json.dumps({"time": seen.get("time"), "used_percent": used, "resets_at": resets,
                               "reached": seen.get("rate_limit_reached_type")}) + "\n")
@@ -253,18 +264,18 @@ def refused(output: str) -> bool:
     return bool(LIMIT.search(output or ""))
 
 
-def hold(root: Path | None = None) -> None:
+def hold(plan: Path | str | None = None) -> None:
     """A session was refused for the plan's limit: hold every session back until a report says otherwise (or for an
     hour, when no report says when the window resets). If the hold cannot be written, this session waits five minutes
     itself rather than ask again at once."""
     try:
-        _hold(root)
+        _hold(plan)
     except OSError:
         time.sleep(300)
 
 
-def _hold(root: Path | None = None) -> None:
-    d = plan_dir(root)
+def _hold(plan: Path | str | None = None) -> None:
+    d = plan_dir(plan)
     d.mkdir(parents=True, exist_ok=True)
     with open(d / ".lock", "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)

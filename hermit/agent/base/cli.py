@@ -8,7 +8,10 @@ Settings (given once; `configured(...)` for a call's own):
   model             the CLI's model (absent: its default); with `binding`, the provider settings are in `args`/`env`
   binding           the resolved `<backend>/<model>` reference (hermit.agent.model.backends), for the key and price
   login             chatgpt: Codex with the user's ChatGPT sign-in (hermit.agent.base.login), from the copy kept
-                    under `login_root` (default: the shared one)
+                    under `login_root` (default: the shared one); its sessions wait for the login's plan
+  plan_dir          the plan's directory the sessions on a login share (default: the machine's one, login.PLAN)
+  plan_max_wait_s   how long a session on a login waits for the plan before it is unavailable (default 12 h;
+                    None: no limit)
   effort            Codex's model_reasoning_effort
   web_search        the CLI's web search, on or off (required: set either way)
   isolation         none: the CLI on this machine; sandbox: inside `sandbox` (the run's hermit.sandbox.Sandbox);
@@ -18,7 +21,9 @@ Settings (given once; `configured(...)` for a call's own):
   shell_env         Codex's shell_environment_policy.inherit for the session's commands (default core: no keys)
   project_doc_max_bytes   Codex's cap on AGENTS.md
   home              the CLI's home (CODEX_HOME, CLAUDE_CONFIG_DIR); kept between calls, so a session can be resumed.
-                    Absent: a fresh directory per call
+                    Absent: a fresh directory per call, under $HERMIT_HOMES (default ~/.cache/hermit/homes; not the
+                    temporary directory, where Codex makes no helper programs for its sandbox, nor a noexec mount
+                    such as /dev/shm, where they cannot run: either way no command of the session runs)
   home_files        files of the user's CLI home copied into `home` for the call, when there is no login and no
                     binding (default: auth.json for Codex, .credentials.json for Claude Code); removed after it
   log               the event stream's path (default: agent-<backend>.jsonl in `home`)
@@ -287,7 +292,11 @@ class CliAgent(BaseAgent):
             home = Path(os.path.expanduser(str(s["home"]))).resolve()
             home.mkdir(parents=True, exist_ok=True)
             return home, False
-        return Path(tempfile.mkdtemp(prefix=f"hermit-{self.backend}-")).resolve(), True
+        # Not under the temporary directory: Codex makes no helper programs for its sandbox in a home there, and
+        # without them no command of the session runs.
+        homes = Path(os.path.expanduser(os.environ.get("HERMIT_HOMES", "~/.cache/hermit/homes")))
+        homes.mkdir(parents=True, exist_ok=True)
+        return Path(tempfile.mkdtemp(prefix=f"{self.backend}-", dir=homes)).resolve(), True
 
     def _sign_in(self, home: Path) -> list[Path]:
         """The session's sign-in in its home; the files to remove after the call."""
@@ -321,26 +330,33 @@ class CliAgent(BaseAgent):
         if s.get("login") != "chatgpt":
             return self._session(prompt, workspace=workspace, tools=tools, limits=limits, session=session,
                                  roles=roles)
-        root, cancel = Path(s.get("login_root") or codex_login.ROOT), s.get("cancel")
+        plan, cancel = codex_login.plan_dir(s.get("plan_dir")), s.get("cancel")
+        max_s = s.get("plan_max_wait_s", codex_login.MAX_WAIT_S)
         say = lambda m: print(f"hermit {self.name}: {m}", file=sys.stderr, flush=True)
         while True:
-            if not codex_login.wait(root, cancel, say):
-                return self._stopped(workspace)
-            with codex_login.slot(root, cancel, say) as free:
+            waited = codex_login.wait(plan, cancel, say, max_s)
+            if waited:
+                return self._not_run(waited, max_s)
+            with codex_login.slot(plan, cancel, say) as free:
                 if not free:
-                    return self._stopped(workspace)
+                    return self._not_run("cancelled", max_s)
+                if codex_login.held(plan):           # paused or held while it waited for a slot: wait again
+                    continue
                 result = self._session(prompt, workspace=workspace, tools=tools, limits=limits, session=session,
                                        roles=roles)
             if result.extra.get("served") or not codex_login.refused(result.extra.get("output_tail", "")):
                 return result
-            codex_login.hold(root)                  # never ran: no answer; every session waits for the window
+            codex_login.hold(plan)                  # never ran: no answer; every session waits for the window
             say("a session was refused for the plan's usage limit; it runs again once the plan allows")
 
-    def _stopped(self, workspace) -> Result:
-        """A session stopped by its caller before it started (waiting on the plan)."""
-        return Result(reply="", exit_code=-1, extra={"served": False, "unavailable": False, "started": False,
-                                                     "cancelled": True, "isolation": self.settings.get("isolation")
-                                                     or "none", "wall_s": 0.0, "output_tail": ""})
+    def _not_run(self, why: str, max_s) -> Result:
+        """A session that never started: its caller stopped it, or the plan held it back past `plan_max_wait_s` (a
+        provider that could not serve, for the caller to retry or report; no answer)."""
+        tail = "" if why == "cancelled" else f"hermit: the plan held the session back for {max_s} s"
+        return Result(reply="", exit_code=-1, extra={"served": False, "unavailable": why == "timeout", "started": False,
+                                                     "cancelled": why == "cancelled", "isolation":
+                                                     self.settings.get("isolation") or "none", "wall_s": 0.0,
+                                                     "output_tail": tail})
 
     def _session(self, prompt, *, workspace=None, tools: Sequence[Tool] = (), limits: Limits | None = None,
                  session: Any = None, roles: Sequence[dict] = ()) -> Result:
@@ -421,7 +437,7 @@ class CliAgent(BaseAgent):
                 server.close()
             if s.get("login") == "chatgpt":
                 codex_login.keep_refreshed(Path(s.get("login_root") or codex_login.ROOT), home)
-                codex_login.note_usage(Path(s.get("login_root") or codex_login.ROOT), home)
+                codex_login.note_usage(codex_login.plan_dir(s.get("plan_dir")), home)
             for path in copied:
                 path.unlink(missing_ok=True)                              # the sign-in does not outlive the call
             if failed and fresh:
