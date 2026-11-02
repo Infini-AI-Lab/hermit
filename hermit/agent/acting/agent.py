@@ -81,10 +81,13 @@ def builtin(name: str):
         if backend is None:
             return CliAgent
         return lambda params, base: CliAgent({"backend": backend, **(params or {})}, base)
+    if name == "openclaw":
+        from hermit.agent.acting.openclaw import OpenClawAgent
+        return OpenClawAgent
     return None
 
 
-BUILTIN_NAMES = ("react", "codex", "claude-code", "cli")
+BUILTIN_NAMES = ("react", "codex", "claude-code", "cli", "openclaw")
 
 
 def load_agent(name: str, params: dict | None, base: Path) -> Agent:

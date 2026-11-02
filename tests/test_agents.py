@@ -177,3 +177,10 @@ def test_load_agent_builtin_class_function_and_alias(tmp_path):
         "judge: {path: judge.py}\ntemplate: prompt-only@1.0\nevolver: {name: gepa}\n")
     cfg = Config.load(tmp_path / "run.yaml", [])
     assert cfg["agent"] == {"name": "agent.py:plain", "concurrency": 2, "timeout_min": None, "params": {"x": 1}}
+
+
+def test_openclaw_agent_builtin(tmp_path):
+    from hermit.agent.acting import load_agent
+    from hermit.agent.acting.openclaw import OpenClawAgent
+    oc = load_agent("openclaw", {"model": "m1"}, tmp_path)
+    assert isinstance(oc, OpenClawAgent) and oc.params["model"] == "m1"
