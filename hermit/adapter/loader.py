@@ -314,6 +314,9 @@ class Adapter:
             if not isinstance(role.get("name"), str) or role["name"] in names or not role.get("description"):
                 raise ValueError("Invalid or duplicate exported role")
             names.add(role["name"])
+            if isinstance(role.get("instructions"), str) and is_internal(role["instructions"], self.manifest):
+                raise ValueError(f"role {role['name']}'s instructions {role['instructions']} are internal: a "
+                                 "deployment connects a role's instructions, so they may not be the harness's own")
             if "body" not in role:
                 role["body"] = inside(self.root, role["instructions"]).read_text()
         return result

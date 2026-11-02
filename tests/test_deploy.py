@@ -386,3 +386,21 @@ def test_an_adapter_only_hermit_runs_is_deployed_by_the_acting_agent(tmp_path):
         codex_prepare(a, tmp_path / "u", sys.executable)                  # no installed workspace
     deployed, _ = cli._deploy({"id": "t", "question": "q"}, a, tmp_path / "w", "codex", {})
     assert "Check the units." in (tmp_path / "w" / "AGENTS.md").read_text() and deployed["roles"]
+
+
+def test_an_exported_roles_instructions_may_not_be_internal(tmp_path):
+    from hermit.spec import check_spec
+    a = subagent_adapter(tmp_path)
+    (a / "private").mkdir()
+    (a / "private" / "role.md").write_text("secret steps\n")
+    (a / "roles.py").write_text("def export():\n    return [{'name': 'reviewer', 'description': 'Review.', "
+                                "'instructions': 'private/role.md'}]\n")
+    (a / "exports.yaml").write_text("context: ADAPTER.md\nagents: {entrypoint: roles.py:export}\ninternal: [private/]\n")
+    with pytest.raises(Exception, match="instructions private/role.md are internal"):
+        codex_prepare(a, tmp_path / "w", sys.executable)
+    assert not (tmp_path / "w" / ".codex" / "agents" / "reviewer.toml").exists()
+    root = tmp_path / "root"
+    import shutil
+    shutil.copytree(a, root)
+    result = check_spec(a, root)
+    assert not result.passed and any(i.check == 5 for i in result.issues)          # refused when submitted too
