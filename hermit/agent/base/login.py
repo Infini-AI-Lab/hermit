@@ -125,10 +125,21 @@ def _number(path: Path) -> float | None:
         return None
 
 
-def _windows(report: dict) -> list[tuple[float, float]]:
-    """(percent used, reset time) of each of the report's windows."""
-    return [(float(w.get("used_percent") or 0), float(w.get("resets_at") or 0))
-            for w in (report.get("primary"), report.get("secondary")) if isinstance(w, dict)]
+def _windows(report: dict, at: float | None = None) -> list[tuple[float, float]]:
+    """(percent used, reset time) of each of the report's windows. A window without `resets_at` resets
+    `resets_in_seconds` after the report (`at`: when it was made), or, saying neither, an hour after it: a window
+    that never resets would hold every session, and none would run to report again."""
+    if at is None:
+        try:
+            at = datetime.fromisoformat(str(report.get("time")).replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            at = time.time()
+    out = []
+    for w in (report.get("primary"), report.get("secondary")):
+        if isinstance(w, dict):
+            resets = w.get("resets_at") or (at + float(w["resets_in_seconds"]) if w.get("resets_in_seconds") else 0)
+            out.append((float(w.get("used_percent") or 0), float(resets or at + 3600)))
+    return out
 
 
 def held(plan: Path | str | None = None) -> str:
@@ -139,18 +150,24 @@ def held(plan: Path | str | None = None) -> str:
         return f"paused ({d / 'PAUSE'} exists)"
     try:
         report = json.loads((d / "plan.json").read_text())
+        made = (d / "plan.json").stat().st_mtime
     except (OSError, ValueError):
         return ""
     now, limit = time.time(), _number(d / "MAX_USED")
-    live = [(used, resets) for used, resets in _windows(report) if not resets or resets > now]
+    try:
+        datetime.fromisoformat(str(report.get("time")).replace("Z", "+00:00"))
+        made = None                              # the report says when it was made
+    except ValueError:
+        pass
+    live = [(used, resets) for used, resets in _windows(report, made) if resets > now]
     over = [w for w in live if limit is not None and w[0] >= limit]
     refused = report.get("rate_limit_reached_type")
     if refused:              # the plan said no: the windows that are full, or (none known) the one the hold set
-        over += [w for w in live if w[0] >= 100] or [w for w in live if w[1]][:1]
+        over += [w for w in live if w[0] >= 100] or live[:1]
     if not over:
         return ""
     used, resets = max(over, key=lambda w: w[1])
-    until = time.strftime("%Y-%m-%d %H:%M", time.localtime(resets)) if resets else "a report says otherwise"
+    until = time.strftime("%Y-%m-%d %H:%M", time.localtime(resets))
     return (f"plan usage {used:.0f}%{f' (limit {limit:.0f}%)' if limit is not None else ''}"
             f"{', refused' if refused else ''} until {until}")
 

@@ -670,4 +670,15 @@ def test_a_sandboxed_codex_call_takes_the_shared_login_and_hands_its_refresh_bac
     # The login's plan is the machine's one, shared into every call (its PAUSE, MAX_USED and SLOTS hold inside too),
     # while each call signs in with a copy of its own.
     assert seen["plan_dir"] == str(login.plan_dir()) and seen["login_root"] != str(login.ROOT)
+    mine = tmp_path / "my-plan"                                           # a plan_dir the config names is the one
+    (tmp_path / "second").mkdir()
+    config = Config.load(sandboxed_task(tmp_path / "second"), ["agent.name=codex", "agent.params.login=chatgpt",
+                                                    "agent.params.model=gpt-6-luna", "agent.params.web_search=false",
+                                                    f"agent.params.plan_dir={mine}"])
+    other = SandboxedAgent(config, "rollout", records=None)
+    try:
+        other({"id": "t3"}, None)
+    finally:
+        other.close()
+    assert seen["plan_dir"] == str(mine) and mine in [Path(w) for w in other.box.sandbox.writable]
     assert login.plan_dir() in [Path(w) for w in agent.box.sandbox.writable]

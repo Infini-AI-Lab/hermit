@@ -482,3 +482,63 @@ def test_a_fresh_home_is_not_in_the_temporary_directory(tmp_path, monkeypatch):
     home, _ = make("codex", {"web_search": False})._home()
     assert home.parent == Path.home().joinpath(".cache", "hermit", "homes").resolve()
     home.rmdir()
+
+
+def test_a_cli_session_that_cannot_run_answers_the_client_with_why(tmp_path):
+    """A CLI session that raises (a missing setting, a container not ready) is an error response with its reason, not
+    a dropped connection the client retries blind."""
+    from hermit.agent.base.endpoint import ChatEndpoint
+    from hermit.agent.model.llm import ChatClient, ChatHTTPError
+    endpoint = ChatEndpoint(make("codex", {"model": "gpt-x"})).start()           # web_search not set: refused
+    with pytest.raises(ChatHTTPError) as err:
+        ChatClient(endpoint.url, "gpt-x", max_retries=0).chat([{"role": "user", "content": "hi"}])
+    assert err.value.code == 400 and b"web_search" in err.value.body
+
+
+def test_long_instructions_go_on_stdin_not_in_one_argument():
+    from hermit.agent.base.cli import ARG_MAX, codex_instructions
+    args, prompt = codex_instructions("be brief", "go")
+    assert args == ["-c", 'developer_instructions="be brief"'] and prompt == "go"
+    args, prompt = codex_instructions("x" * (ARG_MAX + 1), "go")
+    assert len(args[1].encode()) < 200 and prompt.startswith("# SYSTEM INSTRUCTIONS") and prompt.endswith("go")
+
+
+def test_a_window_without_a_reset_time_does_not_hold_forever(tmp_path):
+    import time
+    from datetime import datetime, timezone
+    from hermit.agent.base import login as L
+    (tmp_path / "MAX_USED").write_text("50")
+    old = datetime.fromtimestamp(time.time() - 7200, timezone.utc).isoformat()
+    (tmp_path / "plan.json").write_text(json.dumps({"time": old, "primary": {"used_percent": 90}}))
+    assert L.held(tmp_path) == ""                            # an hour after the report it counts as reset
+    (tmp_path / "plan.json").write_text(json.dumps({"time": old, "primary": {"used_percent": 90,
+                                                                             "resets_in_seconds": 10800}}))
+    assert "90%" in L.held(tmp_path)                         # resets three hours after the report: one to go
+
+
+def test_the_longest_wait_counts_over_every_wait_of_a_session(fake, monkeypatch):
+    from hermit.agent.base import login as L
+    tmp_path = fake
+    root = tmp_path / "login-root"
+    (root / "login").mkdir(parents=True)
+    (root / "login" / "auth.json").write_text(json.dumps({"auth_mode": "chatgpt",
+                                                          "last_refresh": "2026-01-01T00:00:00Z"}))
+    given = []
+
+    def wait(plan=None, cancel=None, log=None, max_s=None):
+        given.append(max_s)
+        return "" if len(given) == 1 else "timeout"
+    monkeypatch.setattr(L, "wait", wait)
+    monkeypatch.setattr(L, "hold", lambda plan=None: None)
+    agent = make("codex", {"web_search": False, "login": "chatgpt", "model": "gpt-x", "login_root": str(root),
+                           "plan_dir": str(tmp_path / "plan"), "plan_max_wait_s": 1000})
+    real = type(agent)._session
+
+    def refused(self, prompt, **kw):
+        result = real(self, prompt, **kw)
+        result.extra.update(served=False, output_tail="You've hit your usage limit")
+        return result
+    monkeypatch.setattr(type(agent), "_session", refused)
+    (tmp_path / "w").mkdir()
+    result = agent.run("go", workspace=tmp_path / "w")
+    assert result.extra["unavailable"] and given[0] <= 1000 and given[1] < given[0] + 1 and given[1] <= 1000

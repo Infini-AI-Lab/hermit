@@ -85,15 +85,16 @@ class FrameworkProposer(Proposer):
         """The session on Codex: the `codex` Base Agent, which on a ChatGPT login also waits for the plan and runs a
         refused session again (hermit.agent.base.login). (Ported from examples/officeqa/harness2_stream/
         codex_proposer.py, PR #54.)"""
-        import json
+        from hermit.agent.base.cli import EFFORTS, codex_instructions
         own = {k: str(v) for k, v in (self.params.get("env") or {}).items()}
         err = Path(cwd) / ".session.err"
+        extra, mission = codex_instructions(system, mission)
         settings = {"web_search": False, "bin": self.params.get("claude_bin") or "codex", "stdin": True,
-                    "effort": self.spec.effort, "model": self.params.get("model") or self.spec.model,
+                    "effort": EFFORTS.get(self.spec.effort, self.spec.effort),     # Claude Code's max is Codex's xhigh
+                    "model": self.params.get("model") or self.spec.model,
                     "login": self.params.get("login"), "login_root": self.params.get("login_root"),
                     "binding": self.params.get("binding"), "price": self.params.get("price"),
-                    "args": [*(self.params.get("args") or []),
-                             *(["-c", f"developer_instructions={json.dumps(system)}"] if system else [])],
+                    "args": [*(self.params.get("args") or []), *extra],
                     "codex_sandbox": "danger-full-access",      # the run's sandbox is the boundary, as for Claude Code
                     "home": Path(cwd) / ".codex-home", "home_files": [], "log": Path(cwd) / ".session.out",
                     "stderr_log": err, "env": {**QUIET, **own}, "env_drop": sorted(_DROP_ENV),

@@ -141,7 +141,13 @@ class ChatEndpoint:
         """One request (its JSON body, not streamed): (status, response body, headers to pass on), or _DROP when the
         upstream gave no answer."""
         if self.agent.name in ("codex", "claude"):
-            return cli_answer(self.agent, request, abort)
+            from hermit.agent.base.interface import Unsupported
+            try:
+                return cli_answer(self.agent, request, abort)
+            except (ValueError, Unsupported) as exc:            # the session's settings: the client reads why
+                return 400, json.dumps({"error": {"message": f"{type(exc).__name__}: {exc}"}}).encode(), {}
+            except Exception as exc:                            # noqa: BLE001 - the session failed to run
+                return 502, json.dumps({"error": {"message": f"{type(exc).__name__}: {exc}"}}).encode(), {}
         from hermit.agent.model.llm import ChatAborted, ChatHTTPError
         try:
             request = dict(request)
@@ -250,7 +256,9 @@ def cli_answer(agent: BaseAgent, request: dict, abort: threading.Event | None = 
     if request.get("reasoning_effort"):
         own["effort"] = str(request["reasoning_effort"])
     if system and agent.name == "codex":
-        own["args"] = [*(agent.settings.get("args") or []), "-c", f"developer_instructions={json.dumps(system)}"]
+        from hermit.agent.base.cli import codex_instructions
+        extra, prompt = codex_instructions(system, prompt)
+        own["args"] = [*(agent.settings.get("args") or []), *extra]
     elif system:
         own["append_system_prompt"] = system
     work = Path(tempfile.mkdtemp(prefix=f"hermit-chat-{agent.name}-"))

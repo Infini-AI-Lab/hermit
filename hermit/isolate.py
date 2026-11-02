@@ -340,7 +340,8 @@ class SandboxedAgent:
         own = {p.resolve() for p in self.logs}
         # A Codex agent on a ChatGPT login waits for the login's plan with every session on the machine: the plan's
         # directory (its PAUSE, MAX_USED, SLOTS and report) is the one outside, shared into every call.
-        self.plan = codex_login.plan_dir() if self.cli == "codex" and self.params.get("login") == "chatgpt" else None
+        self.plan = codex_login.plan_dir(self.params.get("plan_dir")) \
+            if self.cli == "codex" and self.params.get("login") == "chatgpt" else None
         if self.plan is not None:
             self.plan.mkdir(parents=True, exist_ok=True)
         self.box = RoleSandbox(config, role, records=records, readable=readable,

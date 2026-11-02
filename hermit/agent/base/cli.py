@@ -148,6 +148,23 @@ def served(backend: str, raw: str) -> bool:
     return marker in raw.replace(" ", "")
 
 
+ARG_MAX = 120_000            # bytes of one command-line argument to stay under (Linux allows 128 KiB per argument)
+EFFORTS = {"max": "xhigh"}   # an effort another CLI names (Claude Code's --effort) as Codex's model_reasoning_effort
+
+
+def codex_instructions(system: str, prompt: str) -> tuple[list[str], str]:
+    """Codex's developer instructions for a session: (its -c arguments, the prompt). Instructions too long for one
+    argument go at the top of the prompt instead, as a marked block the short instruction points at."""
+    if not system:
+        return [], prompt
+    arg = f"developer_instructions={json.dumps(system)}"
+    if len(arg.encode()) <= ARG_MAX:
+        return ["-c", arg], prompt
+    pointer = "Follow the SYSTEM INSTRUCTIONS block at the top of the message."
+    return (["-c", f"developer_instructions={json.dumps(pointer)}"],
+            f"# SYSTEM INSTRUCTIONS\n\n{system}\n\n# END\n\n{prompt}")
+
+
 def run_process(command: list[str], *, env: dict, cwd: Path, stream: Path, timeout: float | None,
                 cancel=None, stdin: str | None = None, stderr: Path | None = None) -> tuple[int, bool, bool]:
     """A process group with stdout to `stream` and stderr there too, or to `stderr`; (exit code, timed out,
@@ -332,9 +349,10 @@ class CliAgent(BaseAgent):
                                  roles=roles)
         plan, cancel = codex_login.plan_dir(s.get("plan_dir")), s.get("cancel")
         max_s = s.get("plan_max_wait_s", codex_login.MAX_WAIT_S)
+        deadline = None if max_s is None else time.time() + float(max_s)    # over every wait of this session
         say = lambda m: print(f"hermit {self.name}: {m}", file=sys.stderr, flush=True)
         while True:
-            waited = codex_login.wait(plan, cancel, say, max_s)
+            waited = codex_login.wait(plan, cancel, say, None if deadline is None else max(0.0, deadline - time.time()))
             if waited:
                 return self._not_run(waited, max_s)
             with codex_login.slot(plan, cancel, say) as free:

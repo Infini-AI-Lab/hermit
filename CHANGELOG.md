@@ -85,7 +85,8 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   (`hermit/agent/base/endpoint.py`: system messages as instructions, the rest on stdin, the last message as the reply
   with its usage). A container session takes its prompt on stdin too.
 - Harness²'s editors on Codex: `evolver.params.backend: codex` (with `login: chatgpt` for a model on the login); the
-  editors are sessions of the `codex` Base Agent, and `claude_bin` pins either CLI.
+  editors are sessions of the `codex` Base Agent (Claude Code's effort `max` is Codex's `xhigh`), and `claude_bin`
+  pins either CLI. Codex instructions too long for one command-line argument go at the top of the prompt.
 - The OfficeQA Flash row with GPT-5.6-Luna: the seven methods with Codex 0.164.0 and GPT-5.6-Luna acting and learning
   on a ChatGPT login, a second column of the results table in `examples/officeqa/README.md` and a section of the
   recipe. Each method's `run_codex_luna.yaml` / `stream_codex_luna.yaml` is its Flash-row config with the models

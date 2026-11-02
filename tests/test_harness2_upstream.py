@@ -317,3 +317,8 @@ def test_a_session_on_codex_is_one_call_of_the_codex_base_agent(tmp_path, monkey
     assert args[args.index("-s") + 1] == "danger-full-access" and args[args.index("-m") + 1] == "gpt-x"
     assert seen["home"] == str((cwd / ".codex-home").resolve())
     assert proposer.usages[0].input_tokens == 100 and cost == 0.0
+    proposer.spec = ChannelSpec(kind="claude_cli", model="gpt-x", effort="max")      # Claude Code's word for it
+    proposer._claude_cli(cwd, "the mission", "x" * 200_000, wall=60)                # past one argument's room
+    seen = json.loads((tmp_path / "seen.json").read_text())
+    assert 'model_reasoning_effort="xhigh"' in seen["args"] and seen["stdin"].startswith("# SYSTEM INSTRUCTIONS")
+    assert max(len(a) for a in seen["args"]) < 1000
