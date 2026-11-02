@@ -8,7 +8,9 @@ question's parsed source pages in the prompt, and exact match. It trains the age
 `ADAPTER.md`, with the GEPA and SkillOpt methods, with ReHarness a bank of reflections retrieved below that skill, and
 with Meta-Harness Adapter whole adapters written by a coding-agent proposer (Codex harness only), and compares them
 with no skill and with SkillOpt's initial skill, in both of the paper's harnesses: direct chat, with read and grep
-tools limited to the question's source files, and Codex, a `codex exec` session with the whole corpus.
+tools limited to the question's source files, and Codex, a `codex exec` session with the whole corpus. The same
+methods, Meta-Harness Adapter aside, are run a second time with Codex and GPT-5.6-Luna acting and learning on a
+ChatGPT login, the second column of the [Results](#results) table.
 
 ## Setup
 
@@ -61,21 +63,54 @@ check and smoke. `run.yaml` is evaluated like the other methods (`reharness/runs
 harness only;
 [`meta_harness_adapter/`](meta_harness_adapter/) describes its configs and records.
 
+#### GPT-5.6-Luna on a ChatGPT login
+
+Each method's `run_codex_luna.yaml` or `stream_codex_luna.yaml` is its Flash-row config (`run_codex_flash.yaml`,
+`stream_codex.yaml`, `run_codex.yaml`) with the models changed and nothing else. GPT-5.6-Luna acts through the Codex
+agent on the machine's ChatGPT login (`login: chatgpt`; `codex login` once, no API key), learns as one Codex session
+per chat call (`llm: {cli: codex, ...}`), and Harness²'s editors are Codex sessions too (`evolver.params.backend:
+codex`). The image holds the machine's standalone Codex (`docker/codex/Dockerfile.standalone`) and the egress proxy
+lets through chatgpt.com and auth.openai.com: the recipe's [A model on a ChatGPT
+login](../../docs/recipes/officeqa.md#a-model-on-a-chatgpt-login).
+
+```bash
+hermit train --config examples/officeqa/gepa/run_codex_luna.yaml                                         # GEPA
+hermit train --config examples/officeqa/skillopt/run_codex_luna.yaml                                     # SkillOpt
+hermit eval  --config examples/officeqa/gepa/run_codex_luna.yaml     --adapter final                     # GEPA's skill
+hermit eval  --config examples/officeqa/skillopt/run_codex_luna.yaml --adapter final                     # SkillOpt's skill
+hermit eval  --config examples/officeqa/skillopt/run_codex_luna.yaml --adapter none                      # no skill
+hermit eval  --config examples/officeqa/skillopt/run_codex_luna.yaml --adapter ../utils/seed_adapter     # initial skill
+python examples/officeqa/continual_harness/make_seed.py                                                  # Continual Harness
+hermit train --config examples/officeqa/continual_harness/stream_codex_luna.yaml                         # the 172 as one stream
+FIREWORKS_API_KEY=... WM_PORT=3601 examples/officeqa/reharness/launch.sh stream_codex_luna               # ReHarness (embeddings on Fireworks)
+CONFIG=run_codex_luna.yaml examples/officeqa/harness2_stream/launch.sh                                   # Harness²: the editors as Codex sessions
+```
+
+Sessions on the login share its plan; the files under `~/.cache/hermit/codex-login/plan/` steer every running session:
+`PAUSE` holds new ones back, `MAX_USED` caps the plan's usage (percent of its window), `SLOTS` caps the sessions at once
+on the machine. A session the plan refused is run again once the window resets, never scored.
+
 ## Results
 
-Agent and learner: GLM 5.3 Flash (reasoning effort medium), with Codex CLI 0.162.0 and one container per session.
-Each evaluation makes one pass over the 172 test questions.
+Agent and learner: GLM 5.3 Flash or GPT-5.6-Luna (reasoning effort medium), with Codex CLI 0.162.0 or 0.164.0 and one
+container per session. Each evaluation makes one pass over the 172 test questions.
 
-| Method | accuracy |
-|---|---|
-| no skill | 0.541 |
-| initial skill | 0.576 |
-| **GEPA** | 0.580 |
-| **SkillOpt** | 0.600 |
-| **Meta-Harness Adapter** | 0.640 |
-| **Continual Harness** | 0.634 |
-| **ReHarness** | 0.634 |
-| **Harness²** | 0.651 |
+<table>
+<thead>
+<tr><th rowspan="2">Method</th><th colspan="2">Accuracy</th></tr>
+<tr><th>GLM 5.3 Flash</th><th>GPT-5.6-Luna</th></tr>
+</thead>
+<tbody>
+<tr><td>no skill</td><td>0.541</td><td>0.308</td></tr>
+<tr><td>initial skill</td><td>0.576</td><td>0.360</td></tr>
+<tr><td><b>GEPA</b></td><td>0.580</td><td>0.600</td></tr>
+<tr><td><b>SkillOpt</b></td><td>0.600</td><td>0.546</td></tr>
+<tr><td><b>Meta-Harness Adapter</b></td><td>0.640</td><td>not run</td></tr>
+<tr><td><b>Continual Harness</b></td><td>0.634</td><td>0.477</td></tr>
+<tr><td><b>ReHarness</b></td><td>0.634</td><td>0.517</td></tr>
+<tr><td><b>Harness²</b></td><td>0.651</td><td>0.611</td></tr>
+</tbody>
+</table>
 
 Results use two settings:
 
@@ -113,6 +148,14 @@ raise it to 200 KiB (`project_doc_max_bytes: 204800`); no session's `AGENTS.md` 
 Paired differences with 95% intervals, each run's selection and cost, the Codex sessions' isolation and the
 differences from the paper: the [recipe](../../docs/recipes/officeqa.md#the-flash-row).
 
+The GPT-5.6-Luna column is the same methods with the model changed and nothing else of the protocol: GPT-5.6-Luna
+acting and learning on the machine's ChatGPT login instead of GLM 5.3 Flash on Fireworks, the same data, split, seed
+skill, judge, parameters, stream order and one pass (Meta-Harness Adapter was not run). It starts 22–23 points lower
+and gains more from every method, most from GEPA, SkillOpt and Harness², and almost all of the gain is the answer's
+form: a check of every answer finds the share with the right value at 0.66–0.71 in every cell of the column. What
+differs from the GLM column, the intervals, the paired differences and the check: the
+[recipe](../../docs/recipes/officeqa.md#the-flash-row-with-gpt-56-luna).
+
 The earlier direct-chat runs (`run.yaml`, `stream.yaml`: SkillOpt's rollout, three passes) are in the recipe's
 [direct-chat table](../../docs/recipes/officeqa.md#results); they are not on this row.
 
@@ -124,7 +167,8 @@ utils/task.py       OfficeQA's task functions for the framework's Codex agent (t
                     utils/prompt.md; docker/codex/ builds the agent's image and egress proxy
 utils/prepare.py    tasks.jsonl, the splits, data.json and seed_adapter/      utils/judge.py   SkillOpt's exact match
 utils/task-info/    the task for the learner
-gepa/ skillopt/     smoke.yaml and run.yaml per method, smoke_codex.yaml and run_codex.yaml for the Codex harness;
+gepa/ skillopt/     smoke.yaml and run.yaml per method, smoke_codex.yaml and run_codex.yaml for the Codex harness,
+                    run_codex_flash.yaml and run_codex_luna.yaml for the two columns of Results;
                     adapter/ is the skill run.yaml trained (direct chat), with its .hermit/CARD.md
 harness2_stream/    Harness² under the paper's protocol, by the upstream code, with Codex as the acting agent
                     (run_codex.yaml, slots_codex.yaml; the framework's Codex agent with utils/task.py; the

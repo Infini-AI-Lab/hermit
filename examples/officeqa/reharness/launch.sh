@@ -10,7 +10,9 @@
 #
 #   config: smoke, run, stream (direct chat: SkillOpt's rollout), stream_codex, run_codex_flash (Codex 0.162.0 in a
 #   container per session, the recipe's Flash row; needs the image, the network and the egress proxy the
-#   config names, built by docker/codex/; the Codex agent checks them before its first session)
+#   config names, built by docker/codex/; the Codex agent checks them before its first session), stream_codex_luna
+#   (the Flash row with GPT-5.6-Luna: acting and learning on the machine's ChatGPT login, `codex login` first; the
+#   standalone Codex image docker/codex/Dockerfile.standalone and the login's egress proxy, as the config names them)
 #
 #   ... launch.sh smoke check --no-probe          # hermit check on smoke.yaml (--no-probe skips its one model call)
 #   ... launch.sh smoke                           # hermit train on smoke.yaml
@@ -20,6 +22,7 @@
 #   ... launch.sh stream_codex                    # the same stream on the Flash row (Codex, no verdict to the learner)
 #   ... launch.sh stream_codex evolver.params.feedback=true trainer.run_name=rh-stream-s0-fb trainer.tree_dir=runs/trees/rh-stream-s0-fb
 #   ... launch.sh run_codex_flash && ... launch.sh run_codex_flash eval      # the Flash row's split: 50 as a stream, then the 172 once
+#   ... launch.sh stream_codex_luna               # the stream with GPT-5.6-Luna on the ChatGPT login (the README's second column)
 #   ... launch.sh run trainer.run_name=paper-reharness-2    # overrides and options go to hermit as they are
 #
 # The key: FIREWORKS_API_KEY in the environment, else the file MW_KEY_FILE names (as the CL-Bench launchers read it);
@@ -31,9 +34,10 @@ set -eu -o pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 FRAMEWORK=$(cd "$HERE/../../.." && pwd)
 PY=${MW_FRAMEWORK_PYTHON:-$FRAMEWORK/.venv/bin/python}
-CONFIG=${1:?usage: launch.sh <smoke|run|stream|stream_codex|run_codex_flash> [train|eval|check] [hermit arguments...]}
-case "$CONFIG" in smoke|run|stream|stream_codex|run_codex_flash) ;;
-  *) echo "REFUSING: the config is smoke, run, stream, stream_codex or run_codex_flash, not '$CONFIG'"; exit 1;; esac
+CONFIG=${1:?usage: launch.sh <smoke|run|stream|stream_codex|run_codex_flash|stream_codex_luna> [train|eval|check] [hermit arguments...]}
+case "$CONFIG" in smoke|run|stream|stream_codex|run_codex_flash|stream_codex_luna) ;;
+  *) echo "REFUSING: the config is smoke, run, stream, stream_codex, run_codex_flash or stream_codex_luna, not '$CONFIG'"
+     exit 1;; esac
 shift
 COMMAND=train
 case "${1:-}" in train|eval|check) COMMAND=$1; shift;; esac
@@ -41,7 +45,7 @@ WM_PORT=${WM_PORT:?set WM_PORT, the port of the wire meter (3601, say)}
 export PYTHONPATH=$FRAMEWORK${PYTHONPATH:+:$PYTHONPATH}
 cd "$HERE"
 [ -f ../utils/tasks.jsonl ] || { echo "REFUSING: run ../utils/prepare.py first"; exit 1; }
-case "$CONFIG" in stream|stream_codex) [ "$COMMAND" != eval ] \
+case "$CONFIG" in stream|stream_codex|stream_codex_luna) [ "$COMMAND" != eval ] \
   || { echo "REFUSING: $CONFIG.yaml has no test split; its number is the mean of rollout.mean_score over the run's steps.jsonl"; exit 1; };; esac
 # hermit's options (--adapter, --no-probe) go before its overrides (key=value), whatever order they were given in.
 OPTS=() OVERRIDES=()
