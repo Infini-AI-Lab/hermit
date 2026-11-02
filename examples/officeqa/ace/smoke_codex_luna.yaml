@@ -1,0 +1,68 @@
+# Smoke of run_codex_luna.yaml: 4 training questions one at a time, 2 validation questions, 4 test questions, one
+# epoch, one retry round; shows that ACE's levers work (bullets named, counters moving, bullets added).
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/smoke_train.txt
+  val: ../utils/splits/smoke_val.txt
+  test: ../utils/splits/smoke_test.txt
+  step_size: 1                         # upstream's per-sample loop
+  shuffle_seed: 42
+task_info: ../utils/task-info/
+agent:
+  base: codex                          # Layer 2: Codex as a Base Agent (hermit/agent/base/cli.py)
+  concurrency: 2
+  params:                              # Layer 3: the Acting Agent with OfficeQA's task functions
+    prompt: ../utils/prompt.md
+    prepare: ../utils/task.py:prepare  # task.md and the corpus under docs/
+    answer: ../utils/task.py:answer    # the last <answer>...</answer>
+    collect: ../utils/task.py:collect  # task.md into the log
+    workspaces: ~/.cache/hermit/officeqa-ace-luna
+  model:                               # Layer 1
+    name: gpt-5.6-luna                 # a Codex model on the machine's ChatGPT login
+    login: chatgpt
+    effort: medium
+  codex:                               # Layer 2: how Codex runs
+    web_search: false                  # set explicitly: Codex's hosted search runs past the container
+    timeout_s: 3600
+    project_doc_max_bytes: 409600      # 400 KiB, the ace template's limit: the skill with a growing playbook; past
+                                       # Codex's default 32 KiB it would cut AGENTS.md (deploy refuses that)
+    isolation: container               # each session in a container of its own (hermit/agent/base/container.py)
+    container: {image: "officeqa-codex:0.164.0", network: oq-sandbox, proxy: "http://oq-egress-login:3128"}
+judge:
+  path: ../utils/judge.py
+template: ace@1.0
+start_from: seed_adapter               # make_seed.py writes it from ../utils/seed_adapter
+evolver:
+  name: ace
+  params:
+    feedback: true
+    max_num_rounds: 1
+    total_samples: 4
+    val_every: epoch
+    score_initial: true
+llm:                                   # the Reflector and the Curator: GPT-5.6-Luna at medium effort, the acting model
+  cli: codex                           # only Codex reaches the model: one session per chat call (base/endpoint.py)
+  model: gpt-5.6-luna
+  login: chatgpt
+  effort: medium
+  web_search: false
+  isolation: container
+  container: {image: "officeqa-codex:0.164.0", network: oq-sandbox, proxy: "http://oq-egress-login:3128"}
+  timeout: 3600                        # a Codex session answers more slowly than a chat completion
+sandbox:
+  enabled: true
+  network: restricted
+  allow: []                  # the Evolver's own model endpoint is always reachable
+  read: []
+  env: []                    # the Evolver's model key variable is always passed; nothing else is
+  profiles:                  # the agent's role runs unconfined: it drives Docker (the daemon's socket, the sessions'
+    rollout: {enabled: false}   # homes under ~/.cache); each Codex session is in a container of its own (hermit/agent/base/container.py)
+trainer:
+  run_name: smoke-luna-ace
+  output_dir: runs
+  tree_dir: runs/trees/smoke-luna-ace
+  epochs: 1
+  budget: {usd: null, hours: 2}
+  call_timeout_min: 90
+eval:
+  repeats: 1

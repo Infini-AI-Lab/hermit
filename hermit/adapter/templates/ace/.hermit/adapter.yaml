@@ -1,0 +1,16 @@
+# The ACE adapter (Zhang et al., arXiv:2510.04618): ADAPTER.md is the acting agent's context, holding ACE's playbook
+# between markers after the generator instructions; text before the playbook (for example a task skill the adapter
+# started from) is kept as it is. The ace Evolver edits the playbook only.
+template:
+  id: ace
+  version: "1.0"
+  contract: "2"
+  name: ACE playbook
+structure:
+  learnable:
+    - path: ADAPTER.md
+      format: {text: true, max_bytes: 400000}     # ACE's playbook grows; about 100k tokens
+  fixed:
+    - exports.yaml
+    - README.md
+check: .hermit/check.py:check
