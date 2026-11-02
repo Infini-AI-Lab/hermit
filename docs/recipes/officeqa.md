@@ -383,6 +383,47 @@ acting sessions are containers of their own, as for the other Codex-harness meth
 `<run>/workspace/state/evolution_summary.jsonl` lists every candidate with its hypothesis, base and mean on the
 search set. The result is in [the Flash row](#the-flash-row).
 
+## ACE
+
+[ACE](https://arxiv.org/abs/2510.04618) (Zhang et al., ICLR 2026) grows a playbook of bullets with helpful and
+harmful counters, one training question at a time: the acting agent names the bullets it used, a Reflector tags
+them and diagnoses the attempt (a wrong answer is run again with the reflection, up to three rounds), and a Curator
+adds bullets ([ACE](../methods/ace.md) has its controls and its differences from the authors' code).
+`examples/officeqa/ace/` starts from SkillOpt's initial skill followed by an empty playbook (`make_seed.py` writes
+`seed_adapter/`) on the `ace` template, with `data.step_size: 1`, two epochs over the 50 training questions and
+validation at each epoch's end; `final` is the playbook with the best validation score.
+
+| Config | Epochs | `run_name` | The number |
+|---|---|---|---|
+| `ace/smoke_codex_luna.yaml` | 1 | `smoke-luna-ace` | none: a smoke, 4 training questions |
+| `ace/run_codex_luna.yaml` | 2 | `luna-ace` | `mean_score` in `ace/runs/luna-ace/eval/final/summary.json` |
+
+Both are in [the GPT-5.6-Luna setting](#the-flash-row-with-gpt-56-luna): the acting sessions on the machine's ChatGPT
+login, the Reflector and Curator one Codex session per call (`llm: {cli: codex}`). The run below is one training with its four
+evaluations, one pass each.
+
+- Models: `gpt-5.6-luna` acting and learning, reasoning effort medium, on a ChatGPT login.
+- Harness: the Codex agent, a container per session (`officeqa-codex:0.165.0`), four side by side.
+- Data: the 50 / 24 / 172 split of SkillOpt `79124b3`, `data.shuffle_seed: 42`; `officeqa_full.csv` with SHA-256
+  `b5eb1ce0cb34…`, eight items drifted from the split ([Reproduction limits](#reproduction-limits)).
+- Run: `run_codex_luna.yaml` of `527b130`, run `luna-ace`.
+- Spending: a subscription has no per-token price. Training 1.45 h: 18.5 M tokens of training sessions, 18.5 M of
+  Reflector, Curator, retry and validation sessions. Each evaluation about 15 min.
+
+| Adapter | accuracy | − the initial skill, points |
+|---|---|---|
+| none | 0.233 | −14.5 [−20.9, −8.1] |
+| the initial skill: SkillOpt's, with ACE's empty playbook (`seed_adapter`) | 0.378 | |
+| `final`, best validation (epoch 1, 79 bullets; [card](https://github.com/Infini-AI-Lab/hermit/blob/main/examples/officeqa/ace/adapter/.hermit/CARD.md)) | 0.640 | **+26.2** [+18.6, +33.7] |
+| the last playbook (`workspace/state/last_adapter`, 106 bullets) | 0.593 | **+21.5** [+13.4, +29.7] |
+
+Paired per question, 95% bootstrap intervals; bold where the interval lies above zero.
+
+- `final` against the last playbook: +4.7 [−0.6, +10.5] points, 16 questions better and 8 worse. Validation scored
+  0.708 after both epochs, so the first is kept.
+- The agent names the bullets it used on one line of its final message: 81 of the 100 training samples named at
+  least one, 142 citations in all.
+
 ## Outputs and scoring
 
 A run's records are under `examples/officeqa/<method>/runs/<run name>/` (`<run>` below):
@@ -704,11 +745,14 @@ gains over the reference execution overlap GLM's intervals: they cannot be calle
 ## Included adapters
 
 `examples/officeqa/gepa/adapter/` and `examples/officeqa/skillopt/adapter/` are the skills `gepa/run.yaml` and
-`skillopt/run.yaml` trained in direct chat. Evaluate them with a directory selector:
+`skillopt/run.yaml` trained in direct chat. `examples/officeqa/ace/adapter/` is the `final` playbook of
+`ace/run_codex_luna.yaml`'s measured run ([ACE](#ace)), its card with the run's settings and test score. Evaluate them with a
+directory selector:
 
 ```bash
 hermit eval --config examples/officeqa/gepa/run.yaml --adapter adapter
 hermit eval --config examples/officeqa/skillopt/run.yaml --adapter adapter
+hermit eval --config examples/officeqa/ace/run_codex_luna.yaml --adapter adapter
 ```
 
 Numbers they copied from training answers are replaced by made-up numbers of the same form, so their cards' scores

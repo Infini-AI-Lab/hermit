@@ -70,6 +70,7 @@ methods/harness2
 methods/continual_harness
 methods/reharness
 methods/meta_harness_adapter
+methods/ace
 ```
 
 ```{toctree}
