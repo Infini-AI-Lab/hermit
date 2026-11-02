@@ -34,7 +34,7 @@ def main(argv=None) -> int:
     dep.add_argument("--adapter", type=Path, required=True)
     dep.add_argument("--workspace", "--output", dest="workspace", type=Path, required=True,
                      help="the project directory the agent will work in (--output is the older spelling)")
-    dep.add_argument("--host", choices=["codex", "claude-code", "pi"], default="codex")
+    dep.add_argument("--host", choices=["codex", "claude-code", "pi", "openclaw"], default="codex")
     dep.add_argument("--python", default=sys.executable)
     dep.add_argument("--context-limit", type=int, default=None,
                      help="codex: the project_doc_max_bytes your Codex config sets (default 32768, Codex's own); "
@@ -42,7 +42,7 @@ def main(argv=None) -> int:
     con = sub.add_parser("convert", help="convert an adapter into a plugin in a host's native format")
     con.add_argument("--adapter", type=Path, required=True)
     con.add_argument("--output", type=Path, required=True)
-    con.add_argument("--target", choices=["claude-code", "codex", "pi", "hermes"], required=True)
+    con.add_argument("--target", "--to", dest="target", choices=["claude-code", "codex", "pi", "hermes", "openclaw"], required=True)
     con.add_argument("--allow-lossy", action="store_true",
                      help="leave out the parts the target cannot carry instead of failing; listed under `omitted`")
     con.add_argument("--python", default=sys.executable)
@@ -97,6 +97,8 @@ def main(argv=None) -> int:
             from hermit.hosts.codex import prepare
         elif args.host == "pi":
             from hermit.hosts.pi import prepare
+        elif args.host == "openclaw":
+            from hermit.hosts.openclaw import prepare
         else:
             from hermit.hosts.claude_code import prepare
         try:

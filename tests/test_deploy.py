@@ -409,3 +409,18 @@ def test_an_exported_roles_instructions_may_not_be_internal(tmp_path):
     shutil.copytree(a, root)
     result = check_spec(a, root)
     assert not result.passed and any(i.check == 5 for i in result.issues)          # refused when submitted too
+
+
+def test_openclaw_deploy_core(tmp_path):
+    from hermit.hosts.openclaw import prepare as openclaw_prepare
+    result = openclaw_prepare(LEAN, tmp_path / "oc", sys.executable)
+    assert result["host"] == "openclaw"
+    assert (tmp_path / "oc" / "AGENTS.md").is_file()
+    assert (tmp_path / "oc" / "openclaw.run.json").is_file()
+    assert (tmp_path / "oc" / "skills" / "good-map" / "SKILL.md").is_file()
+    assert "good-map" in result["skills"]
+    assert "hermit:lean-collab:start" in (tmp_path / "oc" / "AGENTS.md").read_text()
+    openclaw_prepare(LEAN, tmp_path / "oc", sys.executable)
+    assert (tmp_path / "oc" / "AGENTS.md").read_text().count("hermit:lean-collab:start") == 1
+    with pytest.raises(ValueError, match="generated for another host"):
+        codex_prepare(LEAN, tmp_path / "oc", sys.executable)
