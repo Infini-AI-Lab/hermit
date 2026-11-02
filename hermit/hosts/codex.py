@@ -32,11 +32,14 @@ def _toml(value) -> str:
 
 
 def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path | None = None,
-            context: str | None = None, context_limit: int | None = DOC_BYTES, approve_tools: bool = False) -> dict:
+            context: str | None = None, context_limit: int | None = DOC_BYTES, approve_tools: bool = False,
+            serve_tools: bool = True) -> dict:
     """`context`: the adapter's context for one task, which the harness computed (training and evaluation), in place
     of the one rendered here; an adapter whose context is per task deploys only so. `context_limit`: the
     project_doc_max_bytes of the session, past which AGENTS.md is refused (None: not checked). `approve_tools`: the
-    adapter's tools are called without asking (a session nobody attends; a person approves them otherwise)."""
+    adapter's tools are called without asking (a session nobody attends; a person approves them otherwise).
+    `serve_tools`: false when the caller serves the adapter's tools to the session itself (a container session,
+    which cannot start a server on this machine): the workspace then names no server for them."""
     adapter, output = adapter.resolve(), output.resolve()
     refused = not_portable(load_manifest(adapter), "A Codex workspace")   # before anything is written
     if refused and context is None:
@@ -63,7 +66,7 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
     context_text = append_context(existing, context, source=source_label(manifest), version=manifest["version"],
                                   adapter_id=manifest["id"])
     check_context_size(context_path, context_text, context_limit, "Codex's project_doc_max_bytes")
-    has_tools = bool(agent_tools(manifest))     # the context tool is the harness's, not served
+    has_tools = bool(agent_tools(manifest)) and serve_tools     # the context tool is the harness's, not served
     if has_tools:
         subprocess.run([python, "-c", "import mcp.server"], check=True, capture_output=True)
     agents_dir = output / ".codex" / "agents"

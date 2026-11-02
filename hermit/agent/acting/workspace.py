@@ -129,14 +129,14 @@ def _context(task: dict, adapter: Path, params: dict) -> tuple[str, dict | None]
 
 
 def deploy(adapter: Path, workspace: Path, backend: str, *, context: str | None = None,
-           context_limit: int | None = None, approve_tools: bool = False) -> dict:
+           context_limit: int | None = None, approve_tools: bool = False, serve_tools: bool = True) -> dict:
     """`hermit deploy`'s deployment into a workspace; `context` is this task's, for an adapter whose context is per
     task, `context_limit` Codex's project_doc_max_bytes for the session (None: Codex's default), `approve_tools` the
     adapter's tools called without asking."""
     if backend == "codex":
         from hermit.hosts.codex import DOC_BYTES, prepare
         return prepare(adapter, workspace, sys.executable, context=context, context_limit=context_limit or DOC_BYTES,
-                       approve_tools=approve_tools)
+                       approve_tools=approve_tools, serve_tools=serve_tools)
     from hermit.hosts.claude_code import prepare
     return prepare(adapter, workspace, sys.executable, context=context)
 
@@ -147,16 +147,17 @@ def _deploy(task: dict, adapter: Path | None, work: Path, backend: str, params: 
         return {"mode": "host"}, None
     adapter = Path(adapter)
     from hermit.adapter.loader import agent_tools, load_manifest
+    from hermit.adapter.manifest import PORTABLE
     manifest = load_manifest(adapter)
-    if params.get("isolation") == "container" and agent_tools(manifest):
-        raise ValueError("the adapter's tools are served by an MCP server on this machine, which a container "
-                         "session cannot start: use isolation: none")
-    # A context tool adds context per task, which an installed workspace has no moment for (`hermit deploy` refuses
-    # such an adapter); here the task is known, so its context is deployed.
-    context, record = _context(task, adapter, params) if manifest.get("context_tool") else (None, None)
+    # A container session cannot start the tools' server on this machine: the session's own tool server (the Base
+    # Agent's, which a container reaches) serves them instead.
+    harness_tools = params.get("isolation") == "container" and bool(agent_tools(manifest))
+    # An adapter only hermit runs (not plugin-portable: a context tool's per-task context, say) has no installed
+    # workspace, so `hermit deploy` refuses it; here the task is known, so its context is deployed.
+    context, record = _context(task, adapter, params) if not manifest.get(PORTABLE, True) else (None, None)
     deployed = deploy(adapter, work, backend, context=context, context_limit=params.get("project_doc_max_bytes"),
-                      approve_tools=True)                   # nobody is there to approve a call
-    return {"mode": "host", **deployed}, record
+                      approve_tools=True, serve_tools=not harness_tools)   # nobody is there to approve a call
+    return {"mode": "host", **deployed, **({"harness_tools": manifest["id"]} if harness_tools else {})}, record
 
 
 def _session_args(backend: str, deployed: dict, work: Path) -> list[str]:
@@ -301,7 +302,9 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path) -> RunOutpu
             shutil.rmtree(d, ignore_errors=True)
             d.mkdir(parents=True)
         deployed, context_tool = _deploy(task, adapter, work, backend, params)
-        session = agent.configured(args=[*(agent.settings.get("args") or []), *_session_args(backend, deployed, work)])
+        session = agent.configured(args=[*(agent.settings.get("args") or []), *_session_args(backend, deployed, work)],
+                                   **({"tools_name": deployed["harness_tools"].replace("-", "_")}
+                                      if deployed.get("harness_tools") else {}))
         memory = _memory(work, deployed)
         for item in params.get("files") or []:
             source = Path(base) / item
@@ -312,7 +315,14 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path) -> RunOutpu
             "\n" + MEMORY_NOTE.format(path=memory.relative_to(work).as_posix()) if memory else "")
         (log / "prompt.txt").write_text(prompt, encoding="utf-8")
         (log / "deployment.json").write_text(json.dumps(deployed, indent=1, default=str))
-        result = session.run(prompt, workspace=work, limits=Limits(readable=mounts, timeout_s=timeout_s))
+        from hermit.adapter.session import Session
+        served = Session(adapter) if deployed.get("harness_tools") else None
+        try:
+            result = session.run(prompt, workspace=work, limits=Limits(readable=mounts, timeout_s=timeout_s),
+                                 tools=served.as_tools() if served else ())
+        finally:
+            if served is not None:
+                served.close()
         if result.extra["served"] or result.timed_out:
             break
         if not result.extra["unavailable"]:

@@ -252,15 +252,23 @@ def frontmatter(text: str) -> tuple[dict[str, str], str]:
 
 
 def _summary(path: Path) -> str:
-    """One line about a file: its frontmatter description, or its first line of text."""
+    """One line about a file, from what its author wrote for a reader: the frontmatter description, a Markdown or text
+    file's first line of prose (comments left out), a Python file's docstring or leading comment; else nothing (the
+    first line of code says nothing about the file)."""
     try:
         with open(path, encoding="utf-8") as f:
             text = f.read(4000)
     except (OSError, UnicodeDecodeError):
         return ""
     head, body = frontmatter(text)
-    line = head.get("description") or next((s.strip() for s in body.splitlines() if s.strip()), "")
-    line = re.sub(r"^(?:[#>*\-\s]+|[rbuf]?\"\"\"|''')+|[`]|\"\"\"$", "", line).strip()
+    line = head.get("description", "")
+    if not line and path.suffix in (".md", ".txt", ""):
+        prose = re.sub(r"<!--.*?(-->|$)", "", body, flags=re.S)
+        line = next((s.strip() for s in prose.splitlines() if s.strip()), "")
+    elif not line and path.suffix == ".py":
+        doc = re.match(r'\s*(?:#![^\n]*\n\s*)?(?:[rRuU]?("""|\'\'\')\s*(?P<doc>[^\n]*)|#\s*(?P<comment>[^\n]*))', text)
+        line = (doc.group("doc") or doc.group("comment") or "") if doc else ""
+    line = re.sub(r'^[#>*\-\s]+|[`]|("""|\'\'\')$', "", line).strip()
     return line[:117] + "..." if len(line) > 120 else line
 
 
@@ -326,9 +334,11 @@ def resources(adapter: Path, output: Path, manifest: dict, exports: dict, hooks:
         if "agents" not in native:
             lines = []
             for role in exports["agents"]:
-                where = (f"its instructions: `{rel}/{role['instructions']}`" if role.get("instructions")
-                         else f"its instructions:\n\n{role.get('body', '').strip()}\n")
-                lines.append(f"- `{role['name']}`: {role.get('description', '')}; {where}")
+                description = role.get("description", "").strip()
+                if role.get("instructions"):
+                    lines.append(f"- `{role['name']}`: {description} (instructions: `{rel}/{role['instructions']}`)")
+                else:
+                    lines.append(f"- `{role['name']}`: {description} Instructions:\n\n{role.get('body', '').strip()}\n")
             sections.append("Roles (this agent starts no sub-agents: when a step fits a role, do it yourself as its "
                             "instructions say):\n" + "\n".join(lines))
     if hooks and hooks.get("hooks"):

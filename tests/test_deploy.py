@@ -61,8 +61,8 @@ def test_pi_has_no_subagents_so_a_role_is_named_in_the_context(tmp_path):
     result = pi_prepare(a, tmp_path / "p", sys.executable)
     text = (tmp_path / "p" / "AGENTS.md").read_text()
     assert result["placed"] == {"agents": "files"} and result["roles"] == {}
-    assert "`reviewer`: Check a result against the task requirements.; its instructions: " \
-           "`hermit/sub-example/agents/reviewer.md`" in text
+    assert "`reviewer`: Check a result against the task requirements. (instructions: " \
+           "`hermit/sub-example/agents/reviewer.md`)" in text
     assert (tmp_path / "p" / "hermit/sub-example/agents/reviewer.md").is_file()
 
 
@@ -166,7 +166,7 @@ def test_the_context_names_the_files_no_export_connects(tmp_path):
     text = (tmp_path / "w" / "AGENTS.md").read_text()
     assert result["placed"] == {"skills": "native", "agents": "native", "hooks": "native"}
     assert "- `hermit/tree-example/notes.md`: undeclared material" in text
-    assert "- `hermit/tree-example/scripts/stamp.py`: print('stamped')" in text
+    assert "- `hermit/tree-example/scripts/stamp.py`\n" in text                  # code is no description
     assert "SKILL.md`" not in text and "AGENT.md`" not in text and "hooks.json`" not in text   # connected natively
     assert "`hermit/tree-example/ADAPTER.md`" not in text and "exports.yaml`" not in text      # the context itself
 
@@ -366,3 +366,23 @@ def test_a_hook_type_the_host_does_not_run_is_done_from_the_context_or_refused(t
     (a / ".codex/hooks.json").write_text(json.dumps({"hooks": {"Stop": [{"hooks": [{"type": "http", "url": "x"}]}]}}))
     with pytest.raises(ValueError, match="'http' hook of Stop"):
         pi_prepare(a, tmp_path / "q", sys.executable)
+
+
+def test_a_container_session_gets_the_adapters_tools_from_its_own_tool_server(tmp_path):
+    from hermit.agent.acting import workspace as cli
+    a = Path(__file__).resolve().parents[1] / "docs" / "_examples" / "file_adapter"
+    deployed, _ = cli._deploy({"id": "t"}, a, tmp_path / "w", "codex", {"isolation": "container"})
+    assert deployed["harness_tools"] == "file-example" and deployed["server_name"] is None
+    assert "mcp_servers" not in tomllib.loads((tmp_path / "w" / ".codex" / "config.toml").read_text())
+
+
+def test_an_adapter_only_hermit_runs_is_deployed_by_the_acting_agent(tmp_path):
+    from hermit.agent.acting import workspace as cli
+    a = subagent_adapter(tmp_path)
+    (a / ".hermit" / "adapter.yaml").write_text(
+        "template: {id: sub-example, version: '1'}\nplugin-portable: false\n"
+        "structure: {learnable: [exports.yaml, ADAPTER.md, agents/*.md]}\n")
+    with pytest.raises(ValueError, match="plugin-portable: false"):
+        codex_prepare(a, tmp_path / "u", sys.executable)                  # no installed workspace
+    deployed, _ = cli._deploy({"id": "t", "question": "q"}, a, tmp_path / "w", "codex", {})
+    assert "Check the units." in (tmp_path / "w" / "AGENTS.md").read_text() and deployed["roles"]

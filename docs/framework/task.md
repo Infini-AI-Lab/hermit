@@ -115,10 +115,12 @@ What the agent does for every task:
 
 - **Deploy.** The adapter is deployed as `hermit deploy` deploys it ([Acting interface](adapter.md#acting-interface)):
   the whole adapter under `hermit/<adapter id>/` but its [`internal`](adapter-manifest.md#internal) files, each
-  export connected to the CLI's own place (its tools are served on this machine, so not in a container), and the
-  context naming the rest. An adapter's [`context_tool`](adapter-manifest.md#per-task-context) is rendered for each
+  export connected to the CLI's own place, and the context naming the rest. Its tools are served by an MCP server
+  on this machine; a container session, which cannot start one, gets them from the session's own tool server, which
+  the container reaches. An adapter's [`context_tool`](adapter-manifest.md#per-task-context) is rendered for each
   task (the field `context_query`, else the task's question or prompt), deployed into the context and recorded in
-  `RunOutput.extra["context_tool"]`; `hermit deploy` alone refuses such an adapter (it is not portable). The session
+  `RunOutput.extra["context_tool"]`; so is the context of any adapter whose template is not
+  [`plugin-portable`](adapter-manifest.md#plugin-portable), which `hermit deploy` alone refuses. The session
   calls the adapter's tools without approvals and may start its sub-agents. An adapter with `memory/NOTES.md` (the
   continual-harness template) is told so in the prompt, and the notes the session leaves come back in the log
   (`log/memory/`). The context must fit `project_doc_max_bytes` (Codex reads no further): a longer one is refused.
