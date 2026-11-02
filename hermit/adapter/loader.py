@@ -95,10 +95,14 @@ def load_manifest(root: Path) -> dict:
         raise ValueError("internal must be a list of paths or globs inside the adapter")
     if any(is_internal(name, manifest) for name in ("ADAPTER.md", "exports.yaml")):
         raise ValueError("internal may not cover ADAPTER.md or exports.yaml: the agent's context comes from them")
-    used = [_plain(manifest[key]).rstrip("/") for key in ("skills", "agents", "hooks") if isinstance(manifest.get(key), str)]
+    used = [_plain(manifest[key]).rstrip("/") for key in ("skills", "agents", "hooks")
+            if isinstance(manifest.get(key), str)]
     inner = [_plain(p).rstrip("/") for p in internal]
+    exported = [p.relative_to(root).as_posix() for u in used for p in ([root / u] if (root / u).is_file() else
+                                                                       sorted((root / u).rglob("*")))
+                if p.is_file() and "__pycache__" not in p.parts]       # what a deployment copies as the export
     if any(is_internal(u, manifest) or is_internal(u + "/x", manifest) or any(p.startswith(u + "/") for p in inner)
-           for u in used):
+           for u in used) or any(is_internal(rel, manifest) for rel in exported):
         raise ValueError("internal may not cover what skills, agents or hooks export: a deployment connects it")
     context_tool = manifest.get("context_tool")
     if context_tool is not None and (not isinstance(context_tool, str) or context_tool not in names):

@@ -201,7 +201,7 @@ check requires it to parse, and repair restores it from the parent.
 | `hooks` | a JSON file | lifecycle hooks in Claude Code's hook schema, `{"hooks": {"<Event>": [{"matcher": ..., "hooks": [{"type": "command", "command": ...}]}]}}`, which Codex reads too; deployed with each command run from the adapter's copy. The file may be missing (a learner may add it); a deployment refuses one that does not parse |
 | `reactions` | `{entrypoint: file.py:function}` | service integration only: a function the framework service calls on events; `deploy` ignores it |
 | `concurrent_tool_calls` | boolean | service integration only: run the adapter's tool calls concurrently instead of one at a time |
-| `internal` | list of paths or globs (a directory covers its files) | [the harness's own files](#internal): what a context tool or a tool reads and the agent never receives; a deployment neither copies nor names them. May not cover `ADAPTER.md` or `exports.yaml` |
+| `internal` | list of paths or globs (a directory covers its files) | [the harness's own files](#internal): what a context tool or a tool reads and the agent never receives; a deployment neither copies nor names them. May not cover `ADAPTER.md`, `exports.yaml` or a file that `skills`, `agents` or `hooks` exports |
 | `context_tool` | the name of one declared tool | [per-task context](#per-task-context): the harness calls that tool once per task with `{query, task}` and appends the `text` it returns below `ADAPTER.md`; hidden from the agent's tools; the deploy check calls it once with an empty query; the template must declare [`plugin-portable: false`](#plugin-portable) |
 
 All paths are relative to the adapter root and must stay inside it.
@@ -291,7 +291,8 @@ code behind it. `internal` lists them. A deployment copies every other file into
 context, so that nothing reaches the agent by surprise and nothing it should have is missing; an internal file is
 neither copied nor named, and reaches the agent only through what the harness renders from it (the retrieved
 reflections). Tools still run from the adapter itself, so their code may be internal. The `reharness` template marks
-its bank and its retrieval this way; a learner may not change it there (`exports.yaml` is fixed).
+its bank and its retrieval this way; a learner may not change it there (`exports.yaml` is fixed). An `internal` that
+covers a file an export copies (a skill's, a role's, the hooks file) does not load: the host would receive it anyway.
 
 ## `serve` (design, not implemented)
 

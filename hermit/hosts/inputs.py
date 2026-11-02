@@ -277,11 +277,38 @@ def _skill_entries(adapter: Path, manifest: dict) -> list[tuple[str, str, str]]:
     return out
 
 
+def native_hooks(hooks: dict | None, types: set[str]) -> dict | None:
+    """The hooks the host runs itself: those of the `types` it has (a host skips a type it does not run)."""
+    if not hooks:
+        return None
+    out = {}
+    for event, groups in hooks["hooks"].items():
+        kept = [{**g, "hooks": [h for h in g["hooks"] if h.get("type") in types]} for g in groups]
+        kept = [g for g in kept if g["hooks"]]
+        if kept:
+            out[event] = kept
+    return {"hooks": out} if out else None
+
+
+def _hook_line(when: str, hook: dict, rel: str) -> str:
+    """A hook the host does not run, as the agent can do it: a command to run, a check to make (a prompt or agent
+    hook). A type with neither cannot be done from the context and is refused."""
+    if hook.get("type") == "command" and "\n" in hook["command"].strip():
+        body = "\n".join("  " + line for line in hook["command"].strip().splitlines())
+        return f"- On {when}: run from `{rel}`:\n\n  ```sh\n{body}\n  ```"
+    if hook.get("type") == "command":
+        return f"- On {when}: run `cd {rel} && {hook['command'].strip()}`"
+    if isinstance(hook.get("prompt"), str) and hook["prompt"].strip():
+        return f"- On {when}: check this yourself before you go on: {' '.join(hook['prompt'].split())}"
+    raise ValueError(f"a {hook.get('type')!r} hook of {when.strip('`')} can neither run on this host nor be done "
+                     "by the agent from the context: deploy to a host that runs it, or remove it")
+
+
 def resources(adapter: Path, output: Path, manifest: dict, exports: dict, hooks: dict | None,
-              native: set[str]) -> tuple[str, dict]:
+              native: set[str], hook_types: set[str] = frozenset()) -> tuple[str, dict]:
     """The part of the context that names what the host does not connect (`native`: the exports it does, of
-    skills, agents, hooks) and the adapter's other files, with paths in the workspace; and the record of where each
-    export went ({export: "native" | "files"})."""
+    skills and agents; `hook_types`: the hook types it runs) and the adapter's other files, with paths in the
+    workspace; and the record of where each export went ({export: "native" | "files" | "native and files"})."""
     adapter = adapter.resolve()
     rel = adapter_folder(output, manifest).relative_to(output).as_posix()
     sections, record, covered = [], {}, {manifest.get("context") or "ADAPTER.md", "exports.yaml"}
@@ -305,21 +332,20 @@ def resources(adapter: Path, output: Path, manifest: dict, exports: dict, hooks:
             sections.append("Roles (this agent starts no sub-agents: when a step fits a role, do it yourself as its "
                             "instructions say):\n" + "\n".join(lines))
     if hooks and hooks.get("hooks"):
-        record["hooks"] = "native" if "hooks" in native else "files"
+        lines, ran = [], False
+        for event, groups in hooks["hooks"].items():
+            for group in groups:
+                when = f"`{event}`" + (f" for `{group['matcher']}`" if group.get("matcher") else "")
+                for hook in group["hooks"]:
+                    if hook.get("type") in hook_types:
+                        ran = True
+                    else:
+                        lines.append(_hook_line(when, hook, rel))
+        record["hooks"] = "native and files" if ran and lines else "native" if ran else "files"
         covered |= {_plain(manifest["hooks"])}
-        if "hooks" not in native:
-            lines = []
-            for event, groups in hooks["hooks"].items():
-                for group in groups:
-                    when = f"`{event}`" + (f" for `{group['matcher']}`" if group.get("matcher") else "")
-                    for hook in group["hooks"]:
-                        if hook.get("type") == "command" and "\n" in hook["command"].strip():
-                            body = "\n".join("  " + line for line in hook["command"].strip().splitlines())
-                            lines.append(f"- On {when}: run from `{rel}`:\n\n  ```sh\n{body}\n  ```")
-                        elif hook.get("type") == "command":
-                            lines.append(f"- On {when}: run `cd {rel} && {hook['command'].strip()}`")
-            sections.append("Hooks (this agent runs none by itself: at each of these moments, run the command "
-                            "yourself):\n" + "\n".join(lines))
+        if lines:
+            sections.append(f"Hooks this agent does not run by itself (from `{rel}/{_plain(manifest['hooks'])}`): "
+                            "at each of these moments, do it yourself:\n" + "\n".join(lines))
     doc = adapter / (manifest.get("context") or "ADAPTER.md")
     context = doc.read_bytes() if doc.is_file() else None
     others = []

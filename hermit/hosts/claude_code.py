@@ -12,11 +12,12 @@ import sys
 from hermit.adapter.loader import agent_tools, hook_definitions, load_manifest, not_portable
 from hermit.hosts.context import PROJECT_CONTEXT, START, append_context
 from hermit.hosts.inputs import (MARKER, PACKAGE_ROOT, _adapter_sandbox_env, adapter_files, adapter_folder,
-                                 check_workspace, copy_adapter, copy_skills, folder_note, hook_commands, render_exports,
-                                 resources, retire_roles, role_body, server_name, source_label, subagent_markdown,
-                                 subagent_name)
+                                 check_workspace, copy_adapter, copy_skills, folder_note, hook_commands, native_hooks,
+                                 render_exports, resources, retire_roles, role_body, server_name, source_label,
+                                 subagent_markdown, subagent_name)
 
-NATIVE = {"skills", "agents", "hooks"}
+NATIVE = {"skills", "agents"}
+HOOK_TYPES = {"command", "prompt"}
 
 
 def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path | None = None,
@@ -42,7 +43,8 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
         converted.append((role, subagent_name(role["name"]), role_body(adapter, role)))
     if len({name for _, name, _ in converted}) != len(converted):
         raise ValueError("Role names collide after native name conversion")
-    listed, placed = resources(adapter, output, manifest, exports, hooks, NATIVE)
+    listed, placed = resources(adapter, output, manifest, exports, hooks, NATIVE, HOOK_TYPES)
+    hooks = native_hooks(hooks, HOOK_TYPES)
     context = "\n\n".join(t for t in (folder_note(output, manifest),
                                        exports["context"] if context is None else context, listed) if t)
     for role, native, _ in converted:

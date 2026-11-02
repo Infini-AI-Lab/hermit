@@ -334,3 +334,35 @@ def test_internal_files_stay_out_and_may_not_hide_an_export(tmp_path):
         (a / "exports.yaml").write_text(f"context: ADAPTER.md\nskills: .agents/skills\ninternal: ['{hidden}']\n")
         with pytest.raises(ValueError, match="internal may not cover what skills"):
             load_manifest(a)
+
+
+def test_internal_may_not_cover_a_file_an_export_copies(tmp_path):
+    a = tree_adapter(tmp_path)
+    (a / ".agents/skills/unit-check/private.txt").write_text("secret\n")
+    (a / "exports.yaml").write_text("context: ADAPTER.md\nskills: .agents/skills\ninternal: ['.agents/**/private.txt']\n")
+    with pytest.raises(ValueError, match="internal may not cover what skills"):
+        codex_prepare(a, tmp_path / "w", sys.executable)
+    assert not (tmp_path / "w" / ".codex" / "skills" / "unit-check" / "private.txt").exists()
+
+
+def test_a_hook_type_the_host_does_not_run_is_done_from_the_context_or_refused(tmp_path):
+    a = tree_adapter(tmp_path)
+    (a / ".codex/hooks.json").write_text(json.dumps({"hooks": {
+        "Stop": [{"hooks": [{"type": "prompt", "prompt": "Check the answer has units."}]}],
+        "PostToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "python3 scripts/stamp.py"}]}]}}))
+    result = codex_prepare(a, tmp_path / "c", sys.executable)                 # Codex runs command hooks only
+    hooks = json.loads((tmp_path / "c" / ".codex/hooks.json").read_text())["hooks"]
+    text = (tmp_path / "c" / "AGENTS.md").read_text()
+    assert set(hooks) == {"PostToolUse"} and result["placed"]["hooks"] == "native and files"
+    assert "On `Stop`: check this yourself before you go on: Check the answer has units." in text
+    assert "hermit/tree-example/.codex/hooks.json" in text
+    result = claude_prepare(a, tmp_path / "d", sys.executable)                # Claude Code runs both
+    assert set(json.loads((tmp_path / "d" / ".claude/settings.json").read_text())["hooks"]) == {"Stop", "PostToolUse"}
+    assert result["placed"]["hooks"] == "native"
+    (a / "exports.yaml").write_text("context: ADAPTER.md\nhooks: .codex/hooks.json\n")
+    result = pi_prepare(a, tmp_path / "p", sys.executable)                    # Pi runs none
+    text = (tmp_path / "p" / "AGENTS.md").read_text()
+    assert result["placed"] == {"hooks": "files"} and "Check the answer has units." in text and "stamp.py" in text
+    (a / ".codex/hooks.json").write_text(json.dumps({"hooks": {"Stop": [{"hooks": [{"type": "http", "url": "x"}]}]}}))
+    with pytest.raises(ValueError, match="'http' hook of Stop"):
+        pi_prepare(a, tmp_path / "q", sys.executable)

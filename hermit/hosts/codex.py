@@ -17,11 +17,12 @@ from hermit.adapter.loader import agent_tools, hook_definitions, load_manifest, 
 from hermit.hosts.context import PROJECT_CONTEXT, append_context
 from hermit.hosts.inputs import (MARKER, PACKAGE_ROOT, _adapter_sandbox_env, adapter_files, adapter_folder,
                                  check_context_size, check_workspace, copy_adapter, copy_skills, folder_note,
-                                 hook_commands, render_exports, resources, retire_roles, role_body, server_name,
-                                 source_label)
+                                 hook_commands, native_hooks, render_exports, resources, retire_roles, role_body,
+                                 server_name, source_label)
 
 DOC_BYTES = 32 * 1024                     # Codex's project_doc_max_bytes when the user's config does not set it
-NATIVE = {"skills", "agents", "hooks"}
+NATIVE = {"skills", "agents"}
+HOOK_TYPES = {"command"}                  # Codex 0.162: prompt and agent hooks "are not supported yet"
 
 
 def _toml(value) -> str:
@@ -46,7 +47,8 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
     files = adapter_files(adapter, output, manifest, previous)
     hooks = hook_definitions(adapter, manifest)
     exports = render_exports(adapter, python)
-    listed, placed = resources(adapter, output, manifest, exports, hooks, NATIVE)
+    listed, placed = resources(adapter, output, manifest, exports, hooks, NATIVE, HOOK_TYPES)
+    hooks = native_hooks(hooks, HOOK_TYPES)
     context = "\n\n".join(t for t in (folder_note(output, manifest),
                                        exports["context"] if context is None else context, listed) if t)
     roles = [{**r, "name": r["name"].replace("-", "_")} for r in exports["agents"]]
