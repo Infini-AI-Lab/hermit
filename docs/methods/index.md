@@ -10,8 +10,8 @@ template–method combinations meaningful.
 | Let a coding agent edit several files, skills, or code | [Codex / Claude](agent.md) | A template with the intended learnable paths | Authenticated learner CLI |
 | Search text candidates with validation-based selection | [GEPA](gepa.md) | Start with prompt-only | Validation split and the `gepa` dependency group |
 | Make bounded skill edits with a validation gate | [SkillOpt](skillopt.md) | Start with prompt-only or the paper seed | Validation split and the `skillopt` dependency group |
-| Refine a harness per task from trajectories without labels, with a library of adopted harnesses | [Harness²](harness2.md) | `harness2-codex@1.0` | Learner model endpoint, Codex, the `harness2` dependency group |
-| Refine a policy, sub-agents, skills and memory in place from each step's trajectories, without a gate | [Continual Harness](continual_harness.md) | `continual-harness@1.0` | Learner model endpoint, Codex |
+| Refine a harness per task from trajectories without labels, with a library of adopted harnesses | [Harness²](harness2.md) | `harness2-codex@1.1` | Learner model endpoint, Codex, the `harness2` dependency group |
+| Refine a policy, sub-agents, skills and memory in place from each step's trajectories, without a gate | [Continual Harness](continual_harness.md) | `continual-harness@1.1` | Learner model endpoint, Codex |
 | Build a persistent world model from an ordered environment stream | [MWM](mwm.md) | `mwm` | Evidence store, deployment description, tools, Linux learner environment |
 | Learn a bank of reflections online, retrieved per instance of an ordered stream | [ReHarness](reharness.md) | `reharness` | The run's `llm`, an embedding endpoint (or BM25), an agent that reads the adapter through `Session.context(query, task)` |
 | Search whole adapters with a coding-agent proposer that reads every earlier candidate's files, scores and trajectories | [Meta-Harness Adapter](meta_harness_adapter.md) | `meta-harness-adapter` | A training split (the search set), a proposer CLI (Codex or Claude Code), an acting agent that delivers the adapter |

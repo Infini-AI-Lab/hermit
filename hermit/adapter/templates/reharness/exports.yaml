@@ -27,3 +27,6 @@ tools:
       idempotentHint: true
       openWorldHint: false
 context_tool: reflections
+# The reader's own files: the bank, its index and the retrieval code. The agent receives the retrieved reflections
+# in its context, never the bank, so a deployment neither copies these into its workspace nor names them.
+internal: [reflections/, index.json, interface.py, reharness_core/]

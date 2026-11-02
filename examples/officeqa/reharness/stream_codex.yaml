@@ -24,8 +24,6 @@ agent:
     prepare: ../utils/task.py:prepare  # task.md and the corpus under docs/
     answer: ../utils/task.py:answer    # the last <answer>...</answer>
     collect: ../utils/task.py:collect  # task.md into the log
-    deploy: tree                       # the skill (or the context tool's context) as AGENTS.md; a Codex tree as is
-                                             # past which it silently drops the rest of AGENTS.md
     workspaces: ~/.cache/hermit/officeqa-rh-codex
   model:                               # Layer 1
     ref: fireworks/accounts/fireworks/models/glm-5p3-flash
@@ -34,6 +32,7 @@ agent:
     web_search: false                  # set explicitly: Codex's hosted search runs past the container
     timeout_s: 3600
     project_doc_max_bytes: 204800           # 200 KiB: five retrieved reflections exceed Codex's default 32 KiB,
+                                       # past which it silently drops the rest of AGENTS.md
     isolation: container               # each session in a container of its own (hermit/agent/base/container.py)
     container: {image: "officeqa-codex:0.162.0", network: oq-sandbox, proxy: "http://oq-egress:3128"}
 judge:

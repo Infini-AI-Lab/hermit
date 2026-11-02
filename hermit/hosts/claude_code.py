@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Deploy an adapter into a Claude Code workspace: the whole adapter under hermit/<id>/, and its exports connected to
-Claude Code's own places: CLAUDE.md context, .mcp.json tools, roles, skills, and hooks in .claude/settings.json."""
+Claude Code's own places: CLAUDE.md context, .mcp.json tools, roles, skills, and hooks in .claude/settings.json.
+Claude Code has a place for every export; the adapter's other files are named in CLAUDE.md
+(hermit.hosts.inputs.resources)."""
 import argparse
 import json
 from pathlib import Path
@@ -10,14 +12,21 @@ import sys
 from hermit.adapter.loader import agent_tools, hook_definitions, load_manifest, not_portable
 from hermit.hosts.context import PROJECT_CONTEXT, START, append_context
 from hermit.hosts.inputs import (MARKER, PACKAGE_ROOT, _adapter_sandbox_env, adapter_files, adapter_folder,
-                                 check_workspace, copy_adapter, copy_skills, folder_note, hook_commands, render_exports,
-                                 retire_roles, role_body, server_name, source_label, subagent_markdown, subagent_name)
+                                 check_workspace, copy_adapter, copy_skills, folder_note, hook_commands, native_hooks,
+                                 render_exports, resources, retire_roles, role_body, server_name, source_label,
+                                 subagent_markdown, subagent_name)
+
+NATIVE = {"skills", "agents"}
+HOOK_TYPES = {"command", "prompt"}
 
 
-def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path | None = None) -> dict:
+def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path | None = None,
+            context: str | None = None) -> dict:
+    """`context`: the adapter's context for one task, which the harness computed (training and evaluation), in place
+    of the one rendered here; an adapter whose context is per task deploys only so."""
     adapter, output = adapter.resolve(), output.resolve()
     refused = not_portable(load_manifest(adapter), "A Claude Code workspace")   # before anything is written
-    if refused:
+    if refused and context is None:
         raise ValueError(refused)
     previous = check_workspace(adapter, output, "claude-code")
     output.mkdir(parents=True, exist_ok=True)
@@ -34,7 +43,10 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
         converted.append((role, subagent_name(role["name"]), role_body(adapter, role)))
     if len({name for _, name, _ in converted}) != len(converted):
         raise ValueError("Role names collide after native name conversion")
-    context = folder_note(output, manifest) + "\n\n" + exports["context"]
+    listed, placed = resources(adapter, output, manifest, exports, hooks, NATIVE, HOOK_TYPES)
+    hooks = native_hooks(hooks, HOOK_TYPES)
+    context = "\n\n".join(t for t in (folder_note(output, manifest),
+                                       exports["context"] if context is None else context, listed) if t)
     for role, native, _ in converted:
         context = context.replace(f"`{role['name']}`", f"`{native}`")
     context_path = output / "CLAUDE.md"
@@ -80,7 +92,7 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
               "role_name_map": name_map, "skills_dir": str(output / ".claude" / "skills") if skills else None,
               "skills": skills, "hooks": str(settings_path) if hooks else None,
               "audit_log": str(audit) if has_tools else None,
-              "adapter_dir": str(adapter_folder(output, manifest)), "files": files}
+              "adapter_dir": str(adapter_folder(output, manifest)), "files": files, "placed": placed}
     (output / MARKER).write_text(json.dumps(result, indent=2) + "\n")
     return result
 

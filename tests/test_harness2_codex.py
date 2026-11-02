@@ -83,22 +83,27 @@ def test_codex_layout_round_trip_and_validators(tmp_path):
 
 
 def test_codex_agent_deploys_the_tree_and_writes_the_home(tmp_path):
-    from hermit.agent.acting import deploy
+    import tomllib
+    from hermit.agent.acting import workspace as acting
     from hermit.agent.base import cli
     from hermit.agent.evolver.methods.harness2_upstream import surface as U
     adapter = tmp_path / "adapter"
     U.layout_of(TEMPLATE).to_adapter(full_tree(), TEMPLATE, adapter)
     work, home = tmp_path / "work", tmp_path / "home"
-    work.mkdir(), home.mkdir()
-    deployed = deploy.tree(adapter, work)
-    assert (work / "AGENTS.md").read_text() == full_tree()["AGENTS.md"]
-    assert (work / ".agents" / "skills" / "tables" / "scripts" / "sum.py").is_file()
-    assert (work / "scripts" / "check.py").is_file() and (work / ".codex" / "hooks.json").is_file()
-    assert not (work / "sub_agents").exists() and not (work / "ADAPTER.md").exists()   # roles go to the home; no framework files
-    assert deployed["skills"] == ["tables"] and deployed["scripts"] == ["check.py"] and deployed["hooks"]
-    assert [r["name"] for r in deployed["sub_agents"]] == ["reader"]
-    assert deployed["sub_agents"][0]["instructions"] == "Summarise what you read."
-    cli.write_home(home, {"project_doc_max_bytes": 65536}, deployed["sub_agents"])
+    home.mkdir()
+    deployed, _ = acting._deploy({"id": "t1"}, adapter, work, "codex", {})
+    assert full_tree()["AGENTS.md"].splitlines()[0] in (work / "AGENTS.md").read_text()
+    assert (work / ".codex" / "skills" / "tables" / "scripts" / "sum.py").is_file()       # Codex's own places
+    assert (work / ".codex" / "hooks.json").is_file() and (work / ".codex" / "agents" / "reader.toml").is_file()
+    copy = work / "hermit" / "harness2-codex"
+    assert (copy / "scripts" / "check.py").is_file() and (copy / "sub_agents" / "reader" / "AGENT.md").is_file()
+    assert deployed["skills"] == ["tables"] and set(deployed["roles"]) == {"reader"} and deployed["hooks"]
+    assert deployed["placed"] == {"skills": "native", "agents": "native", "hooks": "native"}
+    assert "--enable" in acting._session_args("codex", deployed, work)               # the roles are spawned
+    role = tomllib.loads((work / ".codex" / "agents" / "reader.toml").read_text())
+    assert role["developer_instructions"].strip() == "Summarise what you read."
+    roles = [{"name": "reader", "description": "reads long files", "instructions": "Summarise what you read."}]
+    cli.write_home(home, {"project_doc_max_bytes": 65536}, roles)
     import tomllib
     config = tomllib.loads((home / "config.toml").read_text())
     assert config["features"] == {"shell_snapshot": False, "multi_agent": True} and config["approval_policy"] == "never"
@@ -108,10 +113,7 @@ def test_codex_agent_deploys_the_tree_and_writes_the_home(tmp_path):
     assert config["agents"]["reader"] == {"description": "reads long files", "config_file": "agents/reader.toml"}
     role = tomllib.loads((home / "agents" / "reader.toml").read_text())
     assert role["developer_instructions"] == "Summarise what you read."
-    work2 = tmp_path / "work2"
-    work2.mkdir()
-    assert deploy.tree(None, work2) == {"agents_md": False, "skills": [], "scripts": [], "hooks": False,
-                                        "sub_agents": [], "memory": False, "context": False}
+    assert acting._deploy({}, None, tmp_path / "work2", "codex", {}) == ({"mode": "host"}, None)   # no adapter
     (tmp_path / "home2").mkdir()
     cli.write_home(tmp_path / "home2", {"login": "chatgpt"}, [])
     config = tomllib.loads((tmp_path / "home2" / "config.toml").read_text())

@@ -206,7 +206,8 @@ Evaluate the final adapter against `root` and `none` on the held-out split with 
 `examples/clbench_database/reharness/`, `examples/clbench_poker/reharness/` and `examples/officeqa/reharness/` run
 this method on the three tasks; their `launch.sh` start the embedding relay (the CL-Bench ones beside the host and
 learner meters), set the reader's variable and bind the models that go through a meter. On OfficeQA the Codex configs (`stream_codex.yaml`, `run_codex_flash.yaml`)
-act through the framework's Codex agent (`deploy: tree`), which deploys a context adapter as the session's `AGENTS.md`: the
-Session's context for the question, `ADAPTER.md` and the retrieved reflections below it, retrieved once before
-the session starts. The [CL-Bench](../recipes/clbench.md) and [OfficeQA](../recipes/officeqa.md) recipes describe the tasks'
+act through the framework's Codex agent, which deploys the adapter with the Session's context for the question as
+the session's `AGENTS.md`: `ADAPTER.md` and the retrieved reflections below it, retrieved once before the session
+starts. The bank and the retrieval code are [`internal`](../framework/adapter-manifest.md#internal): the session
+gets the retrieved reflections, never the bank. The [CL-Bench](../recipes/clbench.md) and [OfficeQA](../recipes/officeqa.md) recipes describe the tasks'
 data, models and scoring.

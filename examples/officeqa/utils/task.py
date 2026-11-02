@@ -7,7 +7,6 @@
         prepare: ../utils/task.py:prepare      # task.md and the corpus
         answer: ../utils/task.py:answer        # the last <answer>...</answer>
         collect: ../utils/task.py:collect      # task.md into the log
-        reserved: [task.md, docs]              # deploy: files: names an adapter may not use
 
 The workspace holds the question as `task.md` (the question with its oracle parsed pages and its source files as
 hints: the text SkillOpt's own Codex harness writes) and the whole corpus under `docs/` (read-only). The corpus is

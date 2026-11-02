@@ -96,7 +96,7 @@ def test_a_run_with_the_tasks_hooks_records_the_hosts_log(fake):
     corpus.mkdir()
     (corpus / "bulletin.txt").write_text("receipts")
     params = {"web_search": False, "prompt": "prompt.md", "prepare": "hooks.py:prepare", "answer": "hooks.py:answer",
-              "collect": "hooks.py:collect", "deploy": "tree", "effort": "medium", "workspaces": "ws",
+              "collect": "hooks.py:collect", "effort": "medium", "workspaces": "ws",
               "model": "m1", "flavour": "plain", "corpus": str(corpus), "price": {"input": 1, "output": 2}}
     out = cli.run({"id": "q1", "question": "receipts"}, seed(tmp_path), params=params, base=tmp_path)
     log, work = out.log, Path(out.extra["workspace"])
@@ -104,14 +104,15 @@ def test_a_run_with_the_tasks_hooks_records_the_hosts_log(fake):
     assert seen["task"] == "Q: receipts (plain)" and seen["docs"] == ["root_1"] and seen["cwd"] == str(work)
     assert "-m" in seen["args"] and 'model_reasoning_effort="medium"' in seen["args"]
     assert seen["args"][-1] == "Read task.md about receipts."                     # the template, its newline gone
-    assert (work / "AGENTS.md").read_text() == "# Skill\n\nAnswer with the bare number.\n"   # deploy: tree
+    agents_md = (work / "AGENTS.md").read_text()                             # as `hermit deploy` writes it
+    assert "This adapter's files are in `hermit/prompt-only/`." in agents_md and "Answer with the bare number." in agents_md
     assert out.output == {"answer": "44,463", "id": "q1", "fail_reason": ""}
     assert sorted(p.name for p in log.iterdir()) == ["agent-codex.jsonl", "deployment.json", "last_message.txt",
                                                      "prompt.txt", "task.md"]
     assert not (work / "docs").exists()                                    # the mount's link does not outlive the run
     extra = out.extra
     assert (extra["backend"], extra["deploy"], extra["isolation"], extra["exit_code"], extra["timed_out"],
-            extra["attempts"], extra["task"]) == ("codex", "tree", "none", 0, False, 1, {"collected": True})
+            extra["attempts"], extra["task"]) == ("codex", "host", "none", 0, False, 1, {"collected": True})
     assert out.tokens == 1050 and out.cost_usd == pytest.approx((1000 * 1 + 50 * 2) / 1e6)   # cached at the input price
     steps = trajectory.log_steps(log)
     assert [s.kind for s in steps] == ["reasoning", "command", "command", "message"]
@@ -189,14 +190,14 @@ def test_what_does_not_combine_is_refused(tmp_path):
                           ({"backend": "claude-code", "login": "chatgpt", "model": "m"}, "Codex's sign-in"),
                           ({"backend": "claude-code", "isolation": "container"}, "runs Codex"),
                           ({"deploy": "adapter"}, "deploy must be one of"),
+                          ({"deploy": "tree"}, "deploy: tree is gone"),
+                          ({"deploy": "files"}, "deploy: files is gone"),
                           ({"isolation": "container", "container": {"img": "x"}}, "unknown keys")]:
         with pytest.raises(ValueError, match=match):
             cli._check("codex", {"web_search": False, **params})
     for value in (None, "no"):                         # web search is set explicitly, never left to a default
         with pytest.raises(ValueError, match="web_search must be set"):
             cli._check("codex", {} if value is None else {"web_search": value})
-    with pytest.raises(ValueError, match="takes deploy: host"):
-        cli._deploy({}, seed(tmp_path), tmp_path, "claude", {"deploy": "tree"})
 
 
 def test_login_without_a_login_is_an_error(tmp_path):

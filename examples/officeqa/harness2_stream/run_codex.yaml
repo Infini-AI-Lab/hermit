@@ -2,7 +2,7 @@
 # as the acting agent, as the paper runs it: the harness is Codex's own tree (AGENTS.md, .agents/skills/, scripts/,
 # sub_agents/, .codex/hooks.json; the harness2-codex template), every question starts from SkillOpt's initial skill as
 # AGENTS.md (H0, where GEPA and SkillOpt start too), and each execution is one `codex exec` session in a container of
-# its own (the framework's Codex agent, deploy: tree) with the paper's wall clock (3,600 s; the paper's 200-turn cap is not a
+# its own (the framework's Codex agent) with the paper's wall clock (3,600 s; the paper's 200-turn cap is not a
 # setting Codex has, and upstream does not enforce one on Codex either). Executor and editors are both GLM 5.3 Flash
 # at medium effort: the executor as GEPA's and SkillOpt's, the editors as Claude Code sessions (`claude -p`).
 # Started by launch.sh.
@@ -20,7 +20,6 @@ agent:
     prepare: ../utils/task.py:prepare  # task.md and the corpus under docs/
     answer: ../utils/task.py:answer    # the last <answer>...</answer>
     collect: ../utils/task.py:collect  # task.md into the log
-    deploy: tree                       # the skill (or the context tool's context) as AGENTS.md; a Codex tree as is
     workspaces: ~/.cache/hermit/officeqa-h2-codex
   model:                               # Layer 1
     ref: fireworks/accounts/fireworks/models/glm-5p3-flash
@@ -28,11 +27,13 @@ agent:
   codex:                               # Layer 2: how Codex runs
     web_search: false                  # set explicitly: Codex's hosted search runs past the container
     timeout_s: 3600
+    project_doc_max_bytes: 65536       # 64 KiB: the skill (up to 40 KB) with the deployment's notes; past
+                                       # Codex's default 32 KiB it would cut AGENTS.md (deploy refuses that)
     isolation: container               # each session in a container of its own (hermit/agent/base/container.py)
     container: {image: "officeqa-codex:0.162.0", network: oq-sandbox, proxy: "http://oq-egress:3128"}
 judge:
   path: ../utils/judge.py
-template: harness2-codex@1.0
+template: harness2-codex@1.1
 start_from: seed_adapter_codex         # H0 (launch.sh runs make_seed_codex.py)
 evolver:
   name: harness2_upstream

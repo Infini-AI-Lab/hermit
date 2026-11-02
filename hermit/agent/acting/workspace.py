@@ -22,9 +22,6 @@ They are the framework's one way to act with a coding-agent CLI; a task adds onl
                                              # `file.py:function` (last message, task) -> the output; absent: the
                                              # last message is the output
         collect: utils/task.py:collect       # optional: (task, workspace, log) -> facts, after the run
-        deploy: host                         # host: as `hermit deploy`; tree: a Codex tree; files: the adapter as
-                                             # it is (hermit.agent.acting.deploy)
-        reserved: [task.md]                  # deploy: files: root names the task writes, refused in an adapter
         context_query: question              # the task field an adapter's context tool retrieves for
         isolation: none                      # none: where the Trainer runs the agent; container: Codex in a
         container: {image: ..., network: ..., proxy: ...}   # Docker container of its own (hermit.agent.base.container)
@@ -41,7 +38,10 @@ They are the framework's one way to act with a coding-agent CLI; a task adds onl
         workspaces: .logs/workspaces         # one fresh directory per task, beside the config (`~` is expanded)
 
 For every task a new directory holds the workspace (`work/`), the CLI's home (`home/`, Codex) and the log (`log/`).
-The adapter is deployed into the workspace, the task's files and mounts are added, the prompt is given to the CLI in
+The adapter is deployed into the workspace as `hermit deploy` deploys it (hermit.hosts): the whole adapter under
+`hermit/<id>/`, each export connected to the CLI's own place, and the context naming the rest; an adapter whose
+context is per task (a context tool) gets this task's context, and the session gets the deployment's tools without
+approvals and its sub-agents. Then the task's files and mounts are added, the prompt is given to the CLI in
 print mode, and the answer is read from the agent's last message. The log is what the run records: the host's own
 event stream unchanged (`agent-codex.jsonl`, `agent-claude.jsonl`), the prompt, the last message, the deployment
 and what `collect` adds; Evolvers read it (hermit.agent.base.trajectory). `RunOutput.extra` has the same keys for every task:
@@ -60,19 +60,19 @@ import sys
 import time
 import uuid
 
-from hermit.agent.acting import deploy as deployments
 from hermit.agent.acting.agent import Agent
 from hermit.agent.base import container
 from hermit.agent.base.interface import BaseAgent, Limits, Mount, make
 from hermit.task import RunOutput, load_callable
 
 BACKENDS = ("codex", "claude")
-DEPLOYS = ("host", "tree", "files")
+DEPLOYS = ("host",)
 ISOLATIONS = ("none", "container")
 INPUT_FIELDS = ("question", "prompt", "instruction", "input", "query")
-MEMORY_NOTE = ("`memory/NOTES.md` is your memory across questions: read it first, and record under a `## <topic>` "
+MEMORY = Path("memory") / "NOTES.md"     # an adapter's notes the agent keeps across tasks (continual-harness)
+MEMORY_NOTE = ("`{path}` is your memory across questions: read it first, and record under a `## <topic>` "
                "heading anything worth keeping for later questions (where figures live, how a source is laid out, "
-               "a pitfall).")                                     # a deployed tree with a memory (deploy: tree)
+               "a pitfall).")
 
 
 def _format(template: str, task: dict) -> str:
@@ -128,37 +128,53 @@ def _context(task: dict, adapter: Path, params: dict) -> tuple[str, dict | None]
         session.close()
 
 
-def deploy(adapter: Path, workspace: Path, backend: str) -> dict:
-    """`hermit deploy`'s deployment into a workspace."""
+def deploy(adapter: Path, workspace: Path, backend: str, *, context: str | None = None,
+           context_limit: int | None = None, approve_tools: bool = False, serve_tools: bool = True) -> dict:
+    """`hermit deploy`'s deployment into a workspace; `context` is this task's, for an adapter whose context is per
+    task, `context_limit` Codex's project_doc_max_bytes for the session (None: Codex's default), `approve_tools` the
+    adapter's tools called without asking."""
     if backend == "codex":
-        from hermit.hosts.codex import prepare
-    else:
-        from hermit.hosts.claude_code import prepare
-    return prepare(adapter, workspace, sys.executable)
+        from hermit.hosts.codex import DOC_BYTES, prepare
+        return prepare(adapter, workspace, sys.executable, context=context, context_limit=context_limit or DOC_BYTES,
+                       approve_tools=approve_tools, serve_tools=serve_tools)
+    from hermit.hosts.claude_code import prepare
+    return prepare(adapter, workspace, sys.executable, context=context)
 
 
 def _deploy(task: dict, adapter: Path | None, work: Path, backend: str, params: dict) -> tuple[dict, dict | None]:
-    """The adapter in the workspace by `deploy`; (what was deployed, the context tool's record or None)."""
-    mode = params.get("deploy") or "host"
+    """The adapter in the workspace; (what was deployed, the context tool's record or None)."""
     if adapter is None:
-        return {"mode": mode}, None
+        return {"mode": "host"}, None
     adapter = Path(adapter)
     from hermit.adapter.loader import agent_tools, load_manifest
+    from hermit.adapter.manifest import PORTABLE
     manifest = load_manifest(adapter)
-    if mode == "host":
-        if params.get("isolation") == "container" and agent_tools(manifest):
-            raise ValueError("the adapter's tools are served by an MCP server on this machine, which a container "
-                             "session cannot start: use isolation: none")
-        # An adapter with a context tool is not portable, so `hermit deploy` refuses it: its per-task context is for
-        # deploy: tree or files.
-        return {"mode": mode, **deploy(adapter, work, backend)}, None
-    if backend != "codex":
-        raise ValueError(f"deploy: {mode} deploys a Codex workspace; agent {backend} takes deploy: host")
-    if mode == "tree":
-        context, record = (None, None) if (adapter / "AGENTS.md").is_file() else _context(task, adapter, params)
-        return {"mode": mode, **deployments.tree(adapter, work, context)}, record
-    context, record = _context(task, adapter, params)
-    return {"mode": mode, **deployments.files(adapter, work, context, tuple(params.get("reserved") or ()))}, record
+    # A container session cannot start the tools' server on this machine: the session's own tool server (the Base
+    # Agent's, which a container reaches) serves them instead.
+    harness_tools = params.get("isolation") == "container" and bool(agent_tools(manifest))
+    # An adapter only hermit runs (not plugin-portable: a context tool's per-task context, say) has no installed
+    # workspace, so `hermit deploy` refuses it; here the task is known, so its context is deployed.
+    context, record = _context(task, adapter, params) if not manifest.get(PORTABLE, True) else (None, None)
+    deployed = deploy(adapter, work, backend, context=context, context_limit=params.get("project_doc_max_bytes"),
+                      approve_tools=True, serve_tools=not harness_tools)   # nobody is there to approve a call
+    return {"mode": "host", **deployed, **({"harness_tools": manifest["id"]} if harness_tools else {})}, record
+
+
+def _session_args(backend: str, deployed: dict, work: Path) -> list[str]:
+    """What the session needs to use what the deployment connected: the workspace's own Codex configuration (its
+    tools, roles and hooks) trusted, as a person trusts a deployed project, and its sub-agents enabled."""
+    if backend == "codex":
+        return ["-c", f'projects={{"{work}" = {{ trust_level = "trusted" }} }}',
+                *(["--enable", "multi_agent"] if deployed.get("roles") else [])]
+    return ["--mcp-config", str(work / ".mcp.json")] if deployed.get("server_name") else []
+
+
+def _memory(work: Path, deployed: dict) -> Path | None:
+    """The adapter's memory file in the workspace, when it has one."""
+    if not deployed.get("adapter_dir"):
+        return None
+    path = Path(deployed["adapter_dir"]) / MEMORY
+    return path if path.is_file() else None
 
 
 def _mounts(task: dict, work: Path, params: dict, base: Path) -> list[Mount]:
@@ -231,6 +247,13 @@ def _check(backend: str, params: dict) -> str:
     backend = "claude" if backend == "claude-code" else backend
     if backend not in BACKENDS:
         raise ValueError(f"agent.params.backend must be one of {BACKENDS}")
+    if params.get("reserved") is not None:
+        raise ValueError("agent.params.reserved is gone: the adapter is deployed under hermit/<id>/, apart from the "
+                         "task's files; remove the line")
+    if params.get("deploy") in ("tree", "files"):
+        raise ValueError(f"agent.params.deploy: {params['deploy']} is gone: every adapter is deployed as `hermit "
+                         "deploy` deploys it (its exports connected, its other files named in the context); remove "
+                         "the line")
     for key, allowed in (("deploy", DEPLOYS), ("isolation", ISOLATIONS)):
         if params.get(key) is not None and params[key] not in allowed:
             raise ValueError(f"agent.params.{key} must be one of {allowed}, not {params[key]!r}")
@@ -279,17 +302,27 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path) -> RunOutpu
             shutil.rmtree(d, ignore_errors=True)
             d.mkdir(parents=True)
         deployed, context_tool = _deploy(task, adapter, work, backend, params)
+        session = agent.configured(args=[*(agent.settings.get("args") or []), *_session_args(backend, deployed, work)],
+                                   **({"tools_name": deployed["harness_tools"].replace("-", "_")}
+                                      if deployed.get("harness_tools") else {}))
+        memory = _memory(work, deployed)
         for item in params.get("files") or []:
             source = Path(base) / item
             target = work / source.name
             shutil.copytree(source, target) if source.is_dir() else shutil.copy2(source, target)
         mounts = _mounts(task, work, params, base)
-        prompt = _prompt(params, base, task) + ("\n" + MEMORY_NOTE if deployed.get("memory") else "")
+        prompt = _prompt(params, base, task) + (
+            "\n" + MEMORY_NOTE.format(path=memory.relative_to(work).as_posix()) if memory else "")
         (log / "prompt.txt").write_text(prompt, encoding="utf-8")
-        (log / "deployment.json").write_text(json.dumps(
-            {**deployed, "sub_agents": [r["name"] for r in deployed.get("sub_agents") or []]}, indent=1, default=str))
-        result = agent.run(prompt, workspace=work, limits=Limits(readable=mounts, timeout_s=timeout_s),
-                           roles=deployed.get("sub_agents") or [])
+        (log / "deployment.json").write_text(json.dumps(deployed, indent=1, default=str))
+        from hermit.adapter.session import Session
+        served = Session(adapter) if deployed.get("harness_tools") else None
+        try:
+            result = session.run(prompt, workspace=work, limits=Limits(readable=mounts, timeout_s=timeout_s),
+                                 tools=served.as_tools() if served else ())
+        finally:
+            if served is not None:
+                served.close()
         if result.extra["served"] or result.timed_out:
             break
         if not result.extra["unavailable"]:
@@ -304,8 +337,8 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path) -> RunOutpu
         time.sleep(float(params.get("retry_wait_s", 120)))
     code, timed_out, last, usage = result.exit_code, result.timed_out, result.reply, result.usage
     (log / "last_message.txt").write_text(last, encoding="utf-8")
-    if deployed.get("memory") and (work / "memory").is_dir():          # the notes the session left
-        shutil.copytree(work / "memory", log / "memory", dirs_exist_ok=True)
+    if memory is not None and memory.parent.is_dir():                  # the notes the session left
+        shutil.copytree(memory.parent, log / "memory", dirs_exist_ok=True)
     output = _output(last, task, params, base, code, timed_out, timeout_s)
     facts = None
     fn = _task_function(params.get("collect"), base)
@@ -318,8 +351,7 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path) -> RunOutpu
     extra = {"backend": backend, "model": params.get("model"), "effort": params.get("effort"),
              "web_search": params["web_search"],
              "deploy": deployed.get("mode"), "isolation": params.get("isolation") or "none",
-             "deployed": {k: v for k, v in deployed.items() if k != "mode"} | (
-                 {"sub_agents": [r["name"] for r in deployed["sub_agents"]]} if deployed.get("sub_agents") else {}),
+             "deployed": {k: v for k, v in deployed.items() if k not in ("mode", "files")},
              "exit_code": code, "timed_out": timed_out, "attempts": attempt, "workspace": str(work)}
     if context_tool is not None:
         extra["context_tool"] = context_tool

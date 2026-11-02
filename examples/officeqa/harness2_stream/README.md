@@ -16,7 +16,8 @@ adapter, so Harness² starts from the text GEPA and SkillOpt start from):
 The adapter never changes. The harness is Codex's own tree (the `harness2-codex` template: `AGENTS.md`,
 `.agents/skills/`, `scripts/`, `sub_agents/`, `.codex/hooks.json`), so the editors see upstream's Codex surface and
 skills on demand, scripts, subagents and hooks are all levers. Every execution is one `codex exec` session in a
-Docker container of its own (the framework's Codex agent, `deploy: tree`): the workspace holds `task.md` (the
+Docker container of its own (the framework's Codex agent, the adapter deployed as `hermit deploy` deploys it: the
+skills, subagents and hooks in Codex's own places, the rest under `hermit/harness2-codex/`): the workspace holds `task.md` (the
 question with its parsed pages and source files, as SkillOpt's Codex harness writes it) and the whole corpus under
 `docs/`; the container reaches only the model provider through the egress proxy, and Codex's workspace-write sandbox
 inside it gives the session's commands no network at all. A session has `agent.codex.timeout_s` seconds (3,600,

@@ -16,7 +16,7 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   [Migrating from Hermit 0.1](https://infini-ai-lab.github.io/hermit/docs/framework/adapter-manifest.html#migrating-from-hermit-0-1),
   then rebuild converted plugins. The built-in templates' `contract` is `"2"`.
 - One acting agent per coding-agent CLI: the `codex` and `claude-code` agents (`hermit/agent/acting/workspace.py`)
-  take a task's functions (`prepare`, `prompt`, `answer`, `collect`, as `file.py:function`), deploy modes (`host`, `tree`, `files`), a
+  take a task's functions (`prepare`, `prompt`, `answer`, `collect`, as `file.py:function`), a
   container per session (`isolation: container`; `docker/codex/` builds the image and the egress proxy), a ChatGPT
   login (`login: chatgpt`), retries of runs the provider could not serve, and a fixed record: `RunOutput.log` is the
   run's `log/` (the host's event stream unchanged, the prompt, the last message, the deployment), the workspace is
@@ -51,6 +51,24 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 - OfficeQA configs that use the Codex agent are written in the per-layer form; a command-line override of the flat
   `agent.params.model`, `login`, `effort`, `web_search`, `timeout_s`, `isolation` or `container` on them is refused
   as set twice. Override `agent.model.*` and `agent.codex.*` instead.
+
+- One deployment for every acting agent: the `codex` and `claude-code` agents deploy an adapter as `hermit deploy`
+  does, and `agent.params.deploy: tree` and `files` are gone (a config that sets them is refused; remove the line),
+  with `agent.params.reserved` and `hermit/agent/acting/deploy.py`. Each export goes to the host's own place when the
+  host has one; an export it has none for stays a file of the adapter's copy under `hermit/<id>/` and the context
+  names it (Pi's roles and hooks, which `--host pi` used to refuse), and the context lists the copy's other files,
+  so nothing an adapter holds is out of the agent's reach. An adapter whose context is per task (a `context_tool`) is
+  deployed with the task's context; the session calls the deployment's tools without approvals and may start its
+  sub-agents. Paths change with it: the adapter's files are under `hermit/<id>/` rather than at the workspace root
+  (the context says so), Codex finds skills in `.codex/skills/` and roles in `.codex/agents/`, and Continual
+  Harness's memory is `hermit/continual-harness/memory/NOTES.md`. OfficeQA's Codex numbers published before this
+  were made with the old deployments. `exports.yaml` takes `internal`: the harness's own files (ReHarness's bank and
+  retrieval), neither copied nor named. The `continual-harness`, `harness2-codex` and `reharness` templates are 1.1
+  (their fixed files changed): a tree made from 1.0 refuses them, so a new run of these templates needs a new
+  `trainer.tree_dir` (or `output_dir`).
+- The Codex deployment refuses an `AGENTS.md` longer than Codex reads (`project_doc_max_bytes`, 32 KiB unless set),
+  which Codex would cut without a word; `hermit deploy --context-limit` and the agent's `project_doc_max_bytes` set
+  the limit, and the OfficeQA Codex configs set 64 KiB.
 
 ### Added
 

@@ -249,20 +249,23 @@ def test_feedback_off_shows_no_verdict(tmp_path):
     assert "judged" not in llm.seen[0] and "expected" not in llm.seen[0]
 
 
-def test_codex_agent_deploys_and_collects_the_memory(tmp_path):
-    from hermit.agent.acting import workspace as cli, deploy
+def test_codex_agent_deploys_and_finds_the_memory(tmp_path):
+    from hermit.agent.acting import workspace as cli
     adapter = seed(tmp_path)
     work = tmp_path / "work"
-    work.mkdir()
-    deployed = deploy.tree(adapter, work)
-    assert deployed["memory"] and (work / "memory" / "NOTES.md").is_file()
-    assert "memory/NOTES.md" in cli.MEMORY_NOTE and "memory" in deploy.TREE_ENTRIES
-    (tmp_path / "w2").mkdir()
-    assert not deploy.tree(ROOT / "hermit" / "adapter" / "templates" / "harness2_codex", tmp_path / "w2")["memory"]
+    deployed, _ = cli._deploy({"id": "t1"}, adapter, work, "codex", {})
+    memory = cli._memory(work, deployed)
+    assert memory == work / "hermit" / "continual-harness" / "memory" / "NOTES.md" and memory.is_file()
+    assert "`hermit/continual-harness/memory/NOTES.md` is your memory" in \
+        cli.MEMORY_NOTE.format(path=memory.relative_to(work).as_posix())
+    other = tmp_path / "w2"
+    deployed, _ = cli._deploy({"id": "t1"}, ROOT / "hermit" / "adapter" / "templates" / "harness2_codex", other,
+                              "codex", {})
+    assert cli._memory(other, deployed) is None
 
 
 def test_frontmatter_round_trip_survives_colons_and_quotes(tmp_path):
-    from hermit.agent.acting import deploy as A
+    from hermit.hosts import inputs as A
     description = 'Delegate when figures (e.g., "tendered" vs received: gross vs net) could match'
     text = E.with_frontmatter(description, "Compare them.")
     assert E.frontmatter(text) == ({"description": description}, "Compare them.\n")

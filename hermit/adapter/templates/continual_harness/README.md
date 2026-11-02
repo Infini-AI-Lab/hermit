@@ -4,7 +4,8 @@ The harness state of Continual Harness (Karten et al. 2026, arXiv:2605.09998), H
 the layout Codex reads from its workspace root: `AGENTS.md` (p, the base policy), `sub_agents/<name>/AGENT.md`
 (G, delegated roles), `.agents/skills/<name>/SKILL.md` with `scripts/` (K, skills with executable helpers) and
 `memory/NOTES.md` (M, notes the acting agent writes during a task and reads in the next). An acting agent that runs
-`codex exec` deploys these files into its workspace (the framework's Codex agent with `deploy: tree`, `hermit/agent/acting/deploy.py`) and hands the
+`codex exec` deploys the adapter into its workspace as `hermit deploy` does (the framework's Codex agent: skills and
+sub-agents in Codex's own places, the rest under `hermit/continual-harness/`) and hands the
 memory it wrote back with its trajectory; `ADAPTER.md` is the framework's context export and is kept equal to
 `AGENTS.md`. Refined by the `continual_harness` Evolver: four passes per step, one per component, from the step's
 trajectories, applied in place without a validation gate.
