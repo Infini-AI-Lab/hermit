@@ -279,3 +279,41 @@ def test_a_session_that_fails_is_a_problem_not_a_reply(tmp_path, monkeypatch):
     cwd.mkdir()
     text, cost, problem = proposer._claude_cli(cwd, "the mission", "", wall=60)
     assert text == "" and problem.startswith("rc=1:") and "Invalid API key" in problem and cost == 0.0
+
+
+FAKE_CODEX = r'''#!/usr/bin/env python3
+import json, os, sys
+from pathlib import Path
+args = sys.argv[1:]
+Path(os.environ["FAKE_SEEN"]).write_text(json.dumps({"args": args, "stdin": sys.stdin.read(),
+                                                     "home": os.environ.get("CODEX_HOME")}))
+for e in ({"type": "thread.started", "thread_id": "t1"},
+          {"type": "item.completed", "item": {"type": "agent_message", "text": "edited"}},
+          {"type": "turn.completed", "usage": {"input_tokens": 100, "cached_input_tokens": 40, "output_tokens": 7}}):
+    print(json.dumps(e))
+Path(args[args.index("-o") + 1]).write_text("edited")
+'''
+
+
+def test_a_session_on_codex_is_one_call_of_the_codex_base_agent(tmp_path, monkeypatch):
+    """`backend: codex`: the mission on stdin, the system text as Codex's developer instructions, upstream's effort,
+    Codex's own sandbox off inside the run's, a home of its own in the session directory; the reply and its usage.
+    (The editors of a model only Codex reaches, a ChatGPT login: PR #54's codex_proposer.py.)"""
+    from harness2.core.spec import ChannelSpec
+    from hermit.agent.evolver.methods.harness2_upstream.channel import FrameworkProposer
+    exe = tmp_path / "codex"
+    exe.write_text(FAKE_CODEX)
+    exe.chmod(0o755)
+    monkeypatch.setenv("FAKE_SEEN", str(tmp_path / "seen.json"))
+    proposer = FrameworkProposer(spec=ChannelSpec(kind="claude_cli", model="gpt-x", effort="high"),
+                                 params={"backend": "codex", "claude_bin": str(exe), "model": "gpt-x"})
+    cwd = tmp_path / "session"
+    cwd.mkdir()
+    text, cost, problem = proposer._claude_cli(cwd, "the mission", "be brief", wall=60)
+    seen = json.loads((tmp_path / "seen.json").read_text())
+    args = seen["args"]
+    assert (text, problem) == ("edited", "") and seen["stdin"] == "the mission" and args[-1] == "-"
+    assert 'developer_instructions="be brief"' in args and 'model_reasoning_effort="high"' in args
+    assert args[args.index("-s") + 1] == "danger-full-access" and args[args.index("-m") + 1] == "gpt-x"
+    assert seen["home"] == str((cwd / ".codex-home").resolve())
+    assert proposer.usages[0].input_tokens == 100 and cost == 0.0

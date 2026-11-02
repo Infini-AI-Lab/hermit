@@ -88,8 +88,9 @@ class Harness2UpstreamEvolver(Evolver):
 
     def setup(self, ctx) -> None:
         context = _upstream()[0]
-        if ctx.params.get("proposer") is None and ctx.params.get("backend") != "claude":
-            raise ValueError("harness2_upstream runs its sessions as Claude Code: set params.backend: claude")
+        if ctx.params.get("proposer") is None and ctx.params.get("backend") not in ("claude", "codex"):
+            raise ValueError("harness2_upstream runs its sessions as Claude Code or Codex: set params.backend: claude "
+                             "or codex")
         if ctx.params.get("library_from"):
             _markers(context, ctx.params.get("verdict_markers"))
             self._import_library(_path(ctx.params["library_from"], ctx.base), ctx.workspace, ctx.params, ctx.base,
@@ -124,7 +125,7 @@ class Harness2UpstreamEvolver(Evolver):
                                name=str(params.get("name") or "task"), obs_trunc=int(params.get("obs_trunc") or 50000),
                                leak_globs=tuple(params.get("leak_globs") or ()),
                                sources=_load(params.get("sources"), ctx.base), layout=layout)
-        sandbox, claude = self._sandbox(ctx), self._claude(ws)
+        sandbox, claude = self._sandbox(ctx), self._claude(ws, params.get("backend"))
         if sandbox is not None:
             self._assert_hidden(sandbox, claude, [ws.learning_material.parent, *(params.get("probe_absent") or [])])
         prop = (_load(params.get("proposer"), ctx.base) or FrameworkProposer)(
@@ -203,16 +204,17 @@ class Harness2UpstreamEvolver(Evolver):
             time.sleep(10)
         return reason or "stopped"
 
-    def _claude(self, ws) -> str:
-        """The Claude Code binary, pinned for the whole run (it updates itself): `params.claude_bin` (a copy the
-        launcher made), else its versioned path, kept in state."""
+    def _claude(self, ws, backend: str | None = None) -> str:
+        """The sessions' CLI binary (Claude Code, or Codex with `backend: codex`), pinned for the whole run (it updates
+        itself): `params.claude_bin` (a copy the launcher made), else its versioned path, kept in state."""
         if self._pinned_bin:
             return self._pinned_bin
         pin = ws.state / "claude_bin.txt"
         if pin.is_file() and Path(pin.read_text().strip()).is_file():
             return pin.read_text().strip()
-        found = shutil.which("claude")
-        path = os.path.realpath(found) if found else "claude"
+        program = "codex" if backend == "codex" else "claude"
+        found = shutil.which(program)
+        path = os.path.realpath(found) if found else program
         pin.write_text(path + "\n")
         return path
 
@@ -304,7 +306,8 @@ class Harness2UpstreamEvolver(Evolver):
             if not (a and b and a.is_file() and b.is_file() and filecmp.cmp(a, b, shallow=False)):
                 differ.append(key)
         pin = run / "workspace" / "state" / "claude_bin.txt"
-        mine = params.get("claude_bin") or os.path.realpath(shutil.which("claude") or "claude")
+        program = "codex" if params.get("backend") == "codex" else "claude"
+        mine = params.get("claude_bin") or os.path.realpath(shutil.which(program) or program)
         other = theirs.get("claude_bin") or (pin.read_text().strip() if pin.is_file() else "")
         if mine != other and not (Path(mine).is_file() and Path(other).is_file()
                                   and filecmp.cmp(mine, other, shallow=False)):
