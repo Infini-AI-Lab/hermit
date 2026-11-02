@@ -176,9 +176,10 @@ setup below.
 The SkillOpt paper also runs its OfficeQA agent in a Codex harness. Here every Codex run, of every method, is the
 framework's Codex agent (`agent.name: codex`, [A coding-agent CLI as the acting agent](../framework/task.md#a-coding-agent-cli-as-the-acting-agent))
 with OfficeQA's task functions (`utils/task.py`, `utils/prompt.md`): each rollout is one `codex exec` session in a
-workspace-write sandbox without network or web search, in a fresh workspace with the adapter's context as
-`AGENTS.md` (`deploy: tree`; a Codex tree as it is), the question with its parsed source pages as `task.md`, and the
-whole corpus under `docs/`; one session of up to 3,600 s, whose last `<answer>...</answer>` is the answer. Each
+workspace-write sandbox without network or web search, in a fresh workspace with the adapter deployed as `hermit
+deploy` deploys it (its context in `AGENTS.md`, its files under `hermit/<id>/`, named there; up to 64 KiB of
+`AGENTS.md`, `project_doc_max_bytes`), the question with its parsed source pages as `task.md`, and the whole corpus
+under `docs/`; one session of up to 3,600 s, whose last `<answer>...</answer>` is the answer. Each
 method folder has `smoke_codex.yaml` and `run_codex.yaml`, its `smoke.yaml` and `run.yaml` with that agent and no
 budget (and, in `run_codex.yaml`, a longer `call_timeout_min`). Codex reaches the acting model through its
 backend's Responses API (or a ChatGPT login, `login: chatgpt`), with a home of its own and none of your Codex
@@ -330,8 +331,8 @@ each is evaluated on a fixed search set, and the best there is kept ([Meta-Harne
 Adapter](../methods/meta_harness_adapter.md) has its controls). `examples/officeqa/meta_harness_adapter/` runs it on
 the Flash row's settings: the 50 training questions are the search set (`data.step_size: 50`, so one step evaluates
 one candidate), the proposer is Codex with GLM 5.3 Flash at medium effort, and the acting agent is
-the framework's Codex agent with `deploy: files` (`ADAPTER.md` as the session's `AGENTS.md`, every other file of the
-adapter in its workspace). It starts from SkillOpt's initial skill (`make_seed.py` writes `seed_adapter/`) on the
+the framework's Codex agent (`ADAPTER.md` in the session's `AGENTS.md`, every other file of the adapter in its
+workspace under `hermit/meta-harness-adapter/` and named in `AGENTS.md`). It starts from SkillOpt's initial skill (`make_seed.py` writes `seed_adapter/`) on the
 `meta-harness-adapter` template, whose files outside `.hermit/` are all the proposer's to write.
 
 | Config | Rounds × candidates | Epochs | `run_name` | The number |

@@ -36,6 +36,9 @@ def main(argv=None) -> int:
                      help="the project directory the agent will work in (--output is the older spelling)")
     dep.add_argument("--host", choices=["codex", "claude-code", "pi"], default="codex")
     dep.add_argument("--python", default=sys.executable)
+    dep.add_argument("--context-limit", type=int, default=None,
+                     help="codex: the project_doc_max_bytes your Codex config sets (default 32768, Codex's own); "
+                          "a longer AGENTS.md is refused, as Codex would cut it. 0: not checked")
     con = sub.add_parser("convert", help="convert an adapter into a plugin in a host's native format")
     con.add_argument("--adapter", type=Path, required=True)
     con.add_argument("--output", type=Path, required=True)
@@ -97,7 +100,9 @@ def main(argv=None) -> int:
         else:
             from hermit.hosts.claude_code import prepare
         try:
-            result = prepare(args.adapter, args.workspace, str(Path(args.python).absolute()))
+            limit = {} if args.host != "codex" or args.context_limit is None else \
+                {"context_limit": args.context_limit or None}
+            result = prepare(args.adapter, args.workspace, str(Path(args.python).absolute()), **limit)
         except ValueError as error:
             print(f"hermit deploy: {error}", file=sys.stderr)
             return 2

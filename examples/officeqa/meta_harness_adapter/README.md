@@ -17,9 +17,10 @@ hermit train --config examples/officeqa/meta_harness_adapter/run.yaml        # s
 hermit eval  --config examples/officeqa/meta_harness_adapter/run.yaml --adapter final
 ```
 
-The acting agent is the framework's Codex agent with `deploy: files`: `ADAPTER.md` becomes the session's
-`AGENTS.md` and every other file of the adapter is copied to the same path in the session's workspace, so a
-candidate may bring scripts or notes along with its instructions (`task-info/README.md` tells the proposer so). The
+The acting agent is the framework's Codex agent, which deploys a candidate as `hermit deploy` does: `ADAPTER.md`
+goes into the session's `AGENTS.md`, and every other file of the adapter is copied under `hermit/meta-harness-adapter/`
+in the session's workspace and named in `AGENTS.md`, so a candidate may bring scripts or notes along with its
+instructions (`task-info/README.md` tells the proposer so). The
 Codex image, the models (GLM 5.3 Flash acts and proposes, medium effort), the 3,600 s session limit and the one-pass
 evaluation are those of the Continual Harness and Harness² streams (`../continual_harness/`,
 `../harness2_stream/`). The proposer runs in the run's sandbox, with read access to the corpus and no network but its

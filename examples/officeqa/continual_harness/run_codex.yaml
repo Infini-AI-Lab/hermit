@@ -2,7 +2,7 @@
 # the harness is Codex's own tree (AGENTS.md as the base policy, sub_agents/, .agents/skills/ with executable
 # helpers, memory/NOTES.md; the continual-harness template), starting from SkillOpt's initial skill as AGENTS.md
 # (where the GEPA, SkillOpt and Harness² runs start too). Each rollout is one `codex exec` session in a container of
-# its own (the framework's Codex agent, deploy: tree, image officeqa-codex:0.162.0). Every
+# its own (the framework's Codex agent, image officeqa-codex:0.162.0). Every
 # training step the Refiner reads the step's trajectories and the judge's feedback and refines the four components in
 # place; no validation gate. GLM 5.3 Flash acts and refines, at medium effort; one evaluation pass, as the all-Flash
 # GEPA and SkillOpt runs (gepa/run_codex_flash.yaml, skillopt/run_codex_flash.yaml).
@@ -21,7 +21,6 @@ agent:
     prepare: ../utils/task.py:prepare  # task.md and the corpus under docs/
     answer: ../utils/task.py:answer    # the last <answer>...</answer>
     collect: ../utils/task.py:collect  # task.md into the log
-    deploy: tree                       # the skill (or the context tool's context) as AGENTS.md; a Codex tree as is
     workspaces: ~/.cache/hermit/officeqa-ch-codex
   model:                               # Layer 1
     ref: fireworks/accounts/fireworks/models/glm-5p3-flash
@@ -29,11 +28,13 @@ agent:
   codex:                               # Layer 2: how Codex runs
     web_search: false                  # set explicitly: Codex's hosted search runs past the container
     timeout_s: 3600
+    project_doc_max_bytes: 65536       # 64 KiB: the skill (up to 40 KB) with the deployment's notes; past
+                                       # Codex's default 32 KiB it would cut AGENTS.md (deploy refuses that)
     isolation: container               # each session in a container of its own (hermit/agent/base/container.py)
     container: {image: "officeqa-codex:0.162.0", network: oq-sandbox, proxy: "http://oq-egress:3128"}
 judge:
   path: ../utils/judge.py
-template: continual-harness@1.0
+template: continual-harness@1.1
 start_from: seed_adapter               # make_seed.py writes it from ../utils/seed_adapter
 evolver:
   name: continual_harness

@@ -4,7 +4,8 @@ own places: AGENTS.md context, .pi/mcp.json tools, .pi/skills.
 
 Pi reads AGENTS.md from the working directory and its parents without any trust prompt; the project `.pi/`
 configuration (mcp.json, skills) loads only after the user trusts the project in Pi. Pi has no subagents and reads
-no hook file, so an adapter that exports roles or hooks is refused. Global Pi settings (~/.pi/agent) are never changed.
+no hook file: an adapter's roles and hooks stay files of its copy, which AGENTS.md names with what to do with them
+(hermit.hosts.inputs.resources), as it names the other files. Global Pi settings (~/.pi/agent) are never changed.
 """
 import argparse
 import json
@@ -15,25 +16,24 @@ import sys
 from hermit.adapter.loader import agent_tools, hook_definitions, load_manifest, not_portable
 from hermit.hosts.context import PROJECT_CONTEXT, START, append_context
 from hermit.hosts.inputs import (MARKER, PACKAGE_ROOT, adapter_files, adapter_folder, check_workspace, copy_adapter,
-                                 copy_skills, folder_note, render_exports, server_name, source_label)
+                                 copy_skills, folder_note, render_exports, resources, server_name, source_label)
+
+NATIVE = {"skills"}
 
 
-def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path | None = None) -> dict:
+def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path | None = None,
+            context: str | None = None) -> dict:
+    """`context`: the adapter's context for one task, which the harness computed, in place of the one rendered
+    here; an adapter whose context is per task deploys only so."""
     adapter, output = adapter.resolve(), output.resolve()
     refused = not_portable(load_manifest(adapter), "A Pi workspace")   # before anything is written
-    if refused:
+    if refused and context is None:
         raise ValueError(refused)
     previous = check_workspace(adapter, output, "pi")
     manifest = load_manifest(adapter)
     files = adapter_files(adapter, output, manifest, previous)
-    if (hook_definitions(adapter, manifest) or {}).get("hooks"):
-        raise ValueError(f"Pi reads no hook file, so this adapter's hooks ({manifest['hooks']}) cannot be deployed; "
-                         "deploy with --host codex or --host claude-code")
     exports = render_exports(adapter, python)
-    if exports["agents"]:
-        names = ", ".join(r["name"] for r in exports["agents"])
-        raise ValueError(f"Pi has no subagents, so this adapter's roles cannot be deployed ({names}); "
-                         "deploy with --host codex or --host claude-code")
+    listed, placed = resources(adapter, output, manifest, exports, hook_definitions(adapter, manifest), NATIVE)
     has_tools = bool(agent_tools(manifest))     # the context tool is the harness's, not served
     if has_tools:
         subprocess.run([python, "-c", "import mcp.server"], check=True, capture_output=True)
@@ -42,7 +42,9 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
     existing = context_path.read_text() if context_path.exists() else PROJECT_CONTEXT
     if existing.startswith(START):
         existing = PROJECT_CONTEXT + "\n\n" + existing
-    context_text = append_context(existing, folder_note(output, manifest) + "\n\n" + exports["context"],
+    context_text = append_context(existing, "\n\n".join(t for t in (
+                                      folder_note(output, manifest),
+                                      exports["context"] if context is None else context, listed) if t),
                                   source=source_label(manifest),
                                   version=manifest["version"], adapter_id=manifest["id"])
     audit = output / "tool-calls.jsonl"
@@ -64,7 +66,7 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
               "server_name": server_name(manifest) if has_tools else None, "server": server, "roles": {},
               "role_name_map": {}, "skills_dir": str(output / ".pi" / "skills") if skills else None,
               "skills": skills, "hooks": None, "audit_log": str(audit) if has_tools else None,
-              "adapter_dir": str(adapter_folder(output, manifest)), "files": files}
+              "adapter_dir": str(adapter_folder(output, manifest)), "files": files, "placed": placed}
     (output / MARKER).write_text(json.dumps(result, indent=2) + "\n")
     return result
 

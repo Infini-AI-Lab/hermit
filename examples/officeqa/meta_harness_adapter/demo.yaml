@@ -2,7 +2,7 @@
 # search set (data.step_size covers them, so a step is an epoch and evaluates one candidate), k = 2 candidates, three
 # epochs: the starting adapter, then each candidate in turn; finalize hands back the best mean on the search set. The
 # acting agent is Codex 0.162.0 in a container per question (the framework's Codex agent, image
-# officeqa-codex:0.162.0) with the adapter deployed as it is (`deploy: files`); GLM 5.3 Flash acts and proposes, at
+# officeqa-codex:0.162.0) with the whole adapter deployed in its workspace; GLM 5.3 Flash acts and proposes, at
 # medium effort. No test evaluation in the demo.
 data:
   tasks: ../utils/tasks.jsonl
@@ -19,8 +19,6 @@ agent:
     prepare: ../utils/task.py:prepare  # task.md and the corpus under docs/
     answer: ../utils/task.py:answer    # the last <answer>...</answer>
     collect: ../utils/task.py:collect  # task.md into the log
-    deploy: files                      # ADAPTER.md as AGENTS.md, every other adapter file in the workspace
-    reserved: [task.md, docs]          # the names the task's files take
     workspaces: ~/.cache/hermit/officeqa-mh-codex
   model:                               # Layer 1
     ref: fireworks/accounts/fireworks/models/glm-5p3-flash
@@ -28,6 +26,8 @@ agent:
   codex:                               # Layer 2: how Codex runs
     web_search: false                  # set explicitly: Codex's hosted search runs past the container
     timeout_s: 3600
+    project_doc_max_bytes: 65536       # 64 KiB: the skill (up to 40 KB) with the deployment's notes; past
+                                       # Codex's default 32 KiB it would cut AGENTS.md (deploy refuses that)
     isolation: container               # each session in a container of its own (hermit/agent/base/container.py)
     container: {image: "officeqa-codex:0.162.0", network: oq-sandbox, proxy: "http://oq-egress:3128"}
 judge:

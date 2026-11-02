@@ -10,9 +10,9 @@ retire deltas on named entries; the memory pass is conservative, because the age
 ## Setup
 
 ```yaml
-template: continual-harness@1.0
+template: continual-harness@1.1
 data: {train: train.txt, step_size: 3}                              # the Refiner's window: a step's rollouts
-agent: {name: codex, params: {deploy: tree}}                         # Codex with the tree deployed in its workspace
+agent: {name: codex}                                                # Codex with the adapter deployed in its workspace
 evolver:
   name: continual_harness
   params: {feedback: true}
@@ -22,11 +22,12 @@ llm: {model: <backend>/<model>}                                     # the Refine
 The template is the harness state in the layout Codex reads from its workspace root: `AGENTS.md` (p; `ADAPTER.md`
 is its copy), `sub_agents/<name>/AGENT.md` (G, installed as Codex agent roles), `.agents/skills/<name>/SKILL.md`
 with executable helpers under `scripts/` (K) and `memory/NOTES.md` (M, notes under `## <topic>` headings that the
-acting agent reads and writes during a task). The acting agent deploys the tree into its workspace and hands the
-memory it wrote back with its trajectory (the framework's Codex agent, `deploy: tree`:
+acting agent reads and writes during a task). The acting agent deploys the adapter as `hermit deploy` does and
+hands the memory it wrote back with its trajectory (the framework's Codex agent:
 [A coding-agent CLI as the acting agent](../framework/task.md#a-coding-agent-cli-as-the-acting-agent)).
-The template's `exports.yaml` declares the skills and the subagents, so `hermit deploy` connects them to the host;
-the rest of the tree, the memory included, is in the workspace's copy under `hermit/continual-harness/`.
+The template's `exports.yaml` declares the skills and the subagents, so the deployment connects them to the host;
+the rest of the tree, the memory included, is in the workspace's copy under `hermit/continual-harness/`, which
+`AGENTS.md` names, and the prompt points the agent at `hermit/continual-harness/memory/NOTES.md`.
 
 ## The step
 

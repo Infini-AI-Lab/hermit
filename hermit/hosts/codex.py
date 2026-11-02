@@ -2,7 +2,8 @@
 """Deploy an adapter into a Codex workspace: the whole adapter under hermit/<id>/, and its exports connected to
 Codex's own places: AGENTS.md context, MCP tools, native roles, skills, hooks.
 
-Global Codex settings are never changed; everything goes into the workspace (.codex/).
+Global Codex settings are never changed; everything goes into the workspace (.codex/). Codex has a place for every
+export; the adapter's other files are named in AGENTS.md (hermit.hosts.inputs.resources).
 """
 import argparse
 import json
@@ -15,8 +16,12 @@ import tomllib
 from hermit.adapter.loader import agent_tools, hook_definitions, load_manifest, not_portable
 from hermit.hosts.context import PROJECT_CONTEXT, append_context
 from hermit.hosts.inputs import (MARKER, PACKAGE_ROOT, _adapter_sandbox_env, adapter_files, adapter_folder,
-                                 check_workspace, copy_adapter, copy_skills, folder_note, hook_commands, render_exports,
-                                 retire_roles, role_body, server_name, source_label)
+                                 check_context_size, check_workspace, copy_adapter, copy_skills, folder_note,
+                                 hook_commands, render_exports, resources, retire_roles, role_body, server_name,
+                                 source_label)
+
+DOC_BYTES = 32 * 1024                     # Codex's project_doc_max_bytes when the user's config does not set it
+NATIVE = {"skills", "agents", "hooks"}
 
 
 def _toml(value) -> str:
@@ -25,10 +30,15 @@ def _toml(value) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
-def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path | None = None) -> dict:
+def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path | None = None,
+            context: str | None = None, context_limit: int | None = DOC_BYTES, approve_tools: bool = False) -> dict:
+    """`context`: the adapter's context for one task, which the harness computed (training and evaluation), in place
+    of the one rendered here; an adapter whose context is per task deploys only so. `context_limit`: the
+    project_doc_max_bytes of the session, past which AGENTS.md is refused (None: not checked). `approve_tools`: the
+    adapter's tools are called without asking (a session nobody attends; a person approves them otherwise)."""
     adapter, output = adapter.resolve(), output.resolve()
     refused = not_portable(load_manifest(adapter), "A Codex workspace")   # before anything is written
-    if refused:
+    if refused and context is None:
         raise ValueError(refused)
     previous = check_workspace(adapter, output, "codex")
     output.mkdir(parents=True, exist_ok=True)
@@ -36,7 +46,9 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
     files = adapter_files(adapter, output, manifest, previous)
     hooks = hook_definitions(adapter, manifest)
     exports = render_exports(adapter, python)
-    context = folder_note(output, manifest) + "\n\n" + exports["context"]
+    listed, placed = resources(adapter, output, manifest, exports, hooks, NATIVE)
+    context = "\n\n".join(t for t in (folder_note(output, manifest),
+                                       exports["context"] if context is None else context, listed) if t)
     roles = [{**r, "name": r["name"].replace("-", "_")} for r in exports["agents"]]
     role_name_map = {r["name"]: r["name"].replace("-", "_") for r in exports["agents"]}
     if any(k != v for k, v in role_name_map.items()):
@@ -48,6 +60,7 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
     existing = context_path.read_text() if context_path.exists() else PROJECT_CONTEXT
     context_text = append_context(existing, context, source=source_label(manifest), version=manifest["version"],
                                   adapter_id=manifest["id"])
+    check_context_size(context_path, context_text, context_limit, "Codex's project_doc_max_bytes")
     has_tools = bool(agent_tools(manifest))     # the context tool is the harness's, not served
     if has_tools:
         subprocess.run([python, "-c", "import mcp.server"], check=True, capture_output=True)
@@ -60,7 +73,8 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
         server = {"command": python, "args": ["-m", "hermit.runtime.mcp_server", "--adapter", str(adapter),
                                               "--audit-log", str(audit)],
                   "env": {"PYTHONPATH": PACKAGE_ROOT, **_adapter_sandbox_env(python)},
-                  "startup_timeout_sec": 20, "tool_timeout_sec": 120, "required": True}
+                  "startup_timeout_sec": 20, "tool_timeout_sec": 120, "required": True,
+                  **({"default_tools_approval_mode": "approve"} if approve_tools else {})}
         if learning_material is not None:
             server["args"].extend(["--learning-material", str(Path(learning_material).resolve())])
         config.append(f"[mcp_servers.{server_name(manifest)}]")
@@ -94,7 +108,7 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
               "role_name_map": role_name_map, "skills_dir": str(output / ".codex" / "skills") if skills else None,
               "skills": skills, "hooks": str(hooks_path) if hooks else None,
               "audit_log": str(audit) if has_tools else None,
-              "adapter_dir": str(adapter_folder(output, manifest)), "files": files}
+              "adapter_dir": str(adapter_folder(output, manifest)), "files": files, "placed": placed}
     (output / MARKER).write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
     return result
 
@@ -104,6 +118,9 @@ if __name__ == "__main__":
     parser.add_argument("--adapter", type=Path, required=True)
     parser.add_argument("--workspace", "--output", dest="workspace", type=Path, required=True)
     parser.add_argument("--python", default=sys.executable)
+    parser.add_argument("--context-limit", type=int, default=DOC_BYTES,
+                        help="Codex's project_doc_max_bytes for this workspace (0: not checked)")
     args = parser.parse_args()
     # Keep a venv interpreter's path; resolve() would follow its symlink out of the venv.
-    print(json.dumps(prepare(args.adapter, args.workspace, str(Path(args.python).absolute())), ensure_ascii=False, indent=2))
+    print(json.dumps(prepare(args.adapter, args.workspace, str(Path(args.python).absolute()),
+                             context_limit=args.context_limit or None), ensure_ascii=False, indent=2))

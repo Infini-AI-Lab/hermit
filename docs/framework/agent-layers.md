@@ -159,7 +159,6 @@ Each layer's settings are written apart: `params` is Layer 3's, `base` and the s
 agent:
   base: codex                                          # Layer 2
   params:                                              # Layer 3: the Acting Agent with the task's functions
-    deploy: tree
     prompt: ../utils/prompt.md
     prepare: ../utils/task.py:prepare
     answer: ../utils/task.py:answer

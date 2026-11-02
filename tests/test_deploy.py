@@ -56,11 +56,14 @@ def subagent_adapter(tmp_path):
     return a
 
 
-def test_pi_refuses_roles(tmp_path):
+def test_pi_has_no_subagents_so_a_role_is_named_in_the_context(tmp_path):
     a = subagent_adapter(tmp_path)
-    with pytest.raises(ValueError, match="reviewer"):
-        pi_prepare(a, tmp_path / "p", sys.executable)
-    assert not (tmp_path / "p").exists()
+    result = pi_prepare(a, tmp_path / "p", sys.executable)
+    text = (tmp_path / "p" / "AGENTS.md").read_text()
+    assert result["placed"] == {"agents": "files"} and result["roles"] == {}
+    assert "`reviewer`: Check a result against the task requirements.; its instructions: " \
+           "`hermit/sub-example/agents/reviewer.md`" in text
+    assert (tmp_path / "p" / "hermit/sub-example/agents/reviewer.md").is_file()
 
 
 def test_one_file_subagent(tmp_path):
@@ -148,12 +151,44 @@ def test_a_redeployment_drops_hooks_no_longer_declared_and_keeps_other_settings(
     assert not (tmp_path / "w" / ".codex/hooks.json").exists()
 
 
-def test_pi_refuses_hooks(tmp_path):
+def test_pi_reads_no_hook_file_so_a_hook_is_named_in_the_context(tmp_path):
     a = tree_adapter(tmp_path)
     (a / "exports.yaml").write_text("context: ADAPTER.md\nhooks: .codex/hooks.json\n")
-    with pytest.raises(ValueError, match="hook"):
-        pi_prepare(a, tmp_path / "p", sys.executable)
-    assert not (tmp_path / "p").exists()
+    result = pi_prepare(a, tmp_path / "p", sys.executable)
+    text = (tmp_path / "p" / "AGENTS.md").read_text()
+    assert result["placed"] == {"hooks": "files"} and result["hooks"] is None
+    assert "On `PostToolUse` for `Bash`: run `cd hermit/tree-example && python3 scripts/stamp.py`" in text
+
+
+def test_the_context_names_the_files_no_export_connects(tmp_path):
+    a = tree_adapter(tmp_path)
+    result = codex_prepare(a, tmp_path / "w", sys.executable)
+    text = (tmp_path / "w" / "AGENTS.md").read_text()
+    assert result["placed"] == {"skills": "native", "agents": "native", "hooks": "native"}
+    assert "- `hermit/tree-example/notes.md`: undeclared material" in text
+    assert "- `hermit/tree-example/scripts/stamp.py`: print('stamped')" in text
+    assert "SKILL.md`" not in text and "AGENT.md`" not in text and "hooks.json`" not in text   # connected natively
+    assert "`hermit/tree-example/ADAPTER.md`" not in text and "exports.yaml`" not in text      # the context itself
+
+
+def test_a_context_codex_would_cut_is_refused(tmp_path):
+    a = subagent_adapter(tmp_path)
+    (a / "ADAPTER.md").write_text("x" * 40000)
+    with pytest.raises(ValueError, match="project_doc_max_bytes"):
+        codex_prepare(a, tmp_path / "w", sys.executable)
+    codex_prepare(a, tmp_path / "v", sys.executable, context_limit=65536)
+    codex_prepare(a, tmp_path / "u", sys.executable, context_limit=None)
+
+
+def test_a_per_task_context_is_deployed_only_when_the_harness_gives_it(tmp_path):
+    a = subagent_adapter(tmp_path)
+    (a / ".hermit" / "adapter.yaml").write_text(
+        "template: {id: sub-example, version: '1'}\nplugin-portable: false\n"
+        "structure: {learnable: [exports.yaml, ADAPTER.md, agents/*.md]}\n")
+    with pytest.raises(ValueError, match="plugin-portable: false"):
+        codex_prepare(a, tmp_path / "w", sys.executable)
+    codex_prepare(a, tmp_path / "v", sys.executable, context="For this task: check the units twice.")
+    assert "For this task: check the units twice." in (tmp_path / "v" / "AGENTS.md").read_text()
 
 
 def test_a_redeployment_replaces_the_copy(tmp_path):
@@ -274,3 +309,28 @@ def test_the_codex_cli_agent_trusts_the_deployed_hooks(tmp_path, monkeypatch, ho
     a = tree_adapter(tmp_path, hooks=hooks)
     cli._run({"id": "t1", "prompt": "hi"}, a, {"backend": "codex", "web_search": False, "prompt": "{prompt}"}, tmp_path)
     assert ("--dangerously-bypass-hook-trust" in seen["argv"]) is hooks
+
+
+def test_an_unattended_session_calls_the_adapters_tools_without_asking(tmp_path):
+    from hermit.agent.acting import workspace as cli
+    a = Path(__file__).resolve().parents[1] / "docs" / "_examples" / "file_adapter"
+    user = codex_prepare(a, tmp_path / "u", sys.executable)
+    assert "default_tools_approval_mode" not in (tmp_path / "u" / ".codex" / "config.toml").read_text()
+    deployed, _ = cli._deploy({"id": "t"}, a, tmp_path / "w", "codex", {})
+    config = tomllib.loads((tmp_path / "w" / ".codex" / "config.toml").read_text())
+    assert config["mcp_servers"][user["server_name"]]["default_tools_approval_mode"] == "approve"
+    args = cli._session_args("codex", deployed, tmp_path / "w")
+    assert any("trust_level" in arg and str(tmp_path / "w") in arg for arg in args)    # its own config is read
+    assert not any(arg.startswith("mcp_servers.") for arg in args)   # a partial server would not load
+
+
+def test_internal_files_stay_out_and_may_not_hide_an_export(tmp_path):
+    from hermit.adapter.loader import load_manifest
+    a = tree_adapter(tmp_path)
+    (a / "exports.yaml").write_text("context: ADAPTER.md\nskills: .agents/skills\ninternal: [./notes.md]\n")
+    result = codex_prepare(a, tmp_path / "w", sys.executable)
+    assert "hermit/tree-example/notes.md" not in result["files"] and "notes.md" not in (tmp_path / "w" / "AGENTS.md").read_text()
+    for hidden in (".agents/skills/", ".agents", "./.agents/skills/unit-check/"):
+        (a / "exports.yaml").write_text(f"context: ADAPTER.md\nskills: .agents/skills\ninternal: ['{hidden}']\n")
+        with pytest.raises(ValueError, match="internal may not cover what skills"):
+            load_manifest(a)

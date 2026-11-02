@@ -10,7 +10,7 @@ import shutil
 import subprocess
 import uuid
 
-from hermit.adapter.loader import inside
+from hermit.adapter.loader import _plain, inside, is_internal
 from hermit.sandbox import FRAMEWORK, framework_env, run_in_strict_sandbox
 
 MARKER = ".hermit-deploy.json"
@@ -124,7 +124,8 @@ def adapter_folder(output: Path, manifest: dict) -> Path:
 def folder_note(output: Path, manifest: dict) -> str:
     """The line above the adapter's context that tells the agent where the adapter's files are."""
     rel = adapter_folder(output, manifest).relative_to(output).as_posix()
-    return f"This adapter's files are in `{rel}/`. Paths in the instructions below are relative to that folder."
+    return (f"This adapter's files are in `{rel}/`. Paths in the instructions below, and in the adapter's skills and "
+            f"roles, are relative to that folder: run a command they give from there (`cd {rel} && ...`).")
 
 
 def _digest(path: Path) -> str:
@@ -163,6 +164,8 @@ def adapter_files(adapter: Path, output: Path, manifest: dict, previous: dict) -
             source = here / name
             if name.endswith(".pyc"):
                 continue
+            if is_internal(source.relative_to(adapter).as_posix(), manifest):
+                continue                          # the harness's own: not the agent's
             if not source.resolve().is_relative_to(adapter) or not source.resolve().is_file():
                 raise ValueError(f"{source.relative_to(adapter)} leads outside the adapter or to no file")
             rel = (folder / source.relative_to(adapter)).relative_to(output).as_posix()
@@ -215,3 +218,132 @@ def hook_commands(hooks: dict, folder: Path) -> dict:
             if hook.get("type") == "command":
                 hook["command"] = f"cd {shlex.quote(str(folder))} || exit 1\n{hook['command']}"
     return out
+
+
+# ---- what the host cannot connect: the adapter's files, named in the context -------------------------------------
+# A deployment connects each export to the host's own place when the host has one; an export it has no place for is
+# still in the adapter's copy, and the context names it, so that nothing the adapter holds is out of the agent's
+# reach. The other files of the copy are listed too.
+LISTED_FILES = 60                         # the most files the context lists; the rest are counted
+
+
+def frontmatter(text: str) -> tuple[dict[str, str], str]:
+    """A Markdown file's YAML-ish frontmatter as strings, and its body ({} without one)."""
+    if not text.startswith("---\n"):
+        return {}, text
+    end = text.find("\n---", 4)
+    if end < 0:
+        return {}, text
+    head: dict[str, str] = {}
+    for line in text[4:end].splitlines():
+        key, sep, value = line.partition(":")
+        if sep and re.fullmatch(r"[A-Za-z_][\w-]*", key.strip()):
+            value = value.strip()
+            if value.startswith('"') and value.endswith('"') and len(value) >= 2:   # a double-quoted YAML scalar
+                try:
+                    value = str(json.loads(value))
+                except ValueError:
+                    value = value.strip('"')
+            else:
+                value = value.strip("\"'")
+            head[key.strip()] = value
+    body = text[end + 4:]
+    return head, body[body.find("\n") + 1:] if "\n" in body else ""
+
+
+def _summary(path: Path) -> str:
+    """One line about a file: its frontmatter description, or its first line of text."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            text = f.read(4000)
+    except (OSError, UnicodeDecodeError):
+        return ""
+    head, body = frontmatter(text)
+    line = head.get("description") or next((s.strip() for s in body.splitlines() if s.strip()), "")
+    line = re.sub(r"^(?:[#>*\-\s]+|[rbuf]?\"\"\"|''')+|[`]|\"\"\"$", "", line).strip()
+    return line[:117] + "..." if len(line) > 120 else line
+
+
+def _skill_entries(adapter: Path, manifest: dict) -> list[tuple[str, str, str]]:
+    """(name, description, path in the adapter) of every skill in the `skills` export."""
+    if not manifest.get("skills"):
+        return []
+    source = (adapter / manifest["skills"]).resolve()
+    out = []
+    for child in sorted(source.iterdir()) if source.is_dir() else []:
+        if (child / "SKILL.md").is_file():
+            out.append((child.name, _summary(child / "SKILL.md"),
+                        (child / "SKILL.md").relative_to(adapter.resolve()).as_posix()))
+    return out
+
+
+def resources(adapter: Path, output: Path, manifest: dict, exports: dict, hooks: dict | None,
+              native: set[str]) -> tuple[str, dict]:
+    """The part of the context that names what the host does not connect (`native`: the exports it does, of
+    skills, agents, hooks) and the adapter's other files, with paths in the workspace; and the record of where each
+    export went ({export: "native" | "files"})."""
+    adapter = adapter.resolve()
+    rel = adapter_folder(output, manifest).relative_to(output).as_posix()
+    sections, record, covered = [], {}, {manifest.get("context") or "ADAPTER.md", "exports.yaml"}
+    skills = _skill_entries(adapter, manifest)
+    if skills:
+        record["skills"] = "native" if "skills" in native else "files"
+        covered |= {f"{_plain(manifest['skills']).rstrip('/')}/"}
+        if "skills" not in native:
+            sections.append("Skills (this agent does not load them itself: read a skill's SKILL.md before you use "
+                            "it):\n" + "\n".join(f"- `{n}`: {d} (`{rel}/{p}`)" for n, d, p in skills))
+    if exports.get("agents"):
+        record["agents"] = "native" if "agents" in native else "files"
+        if isinstance(manifest.get("agents"), str):
+            covered |= {f"{_plain(manifest['agents']).rstrip('/')}/"}
+        if "agents" not in native:
+            lines = []
+            for role in exports["agents"]:
+                where = (f"its instructions: `{rel}/{role['instructions']}`" if role.get("instructions")
+                         else f"its instructions:\n\n{role.get('body', '').strip()}\n")
+                lines.append(f"- `{role['name']}`: {role.get('description', '')}; {where}")
+            sections.append("Roles (this agent starts no sub-agents: when a step fits a role, do it yourself as its "
+                            "instructions say):\n" + "\n".join(lines))
+    if hooks and hooks.get("hooks"):
+        record["hooks"] = "native" if "hooks" in native else "files"
+        covered |= {_plain(manifest["hooks"])}
+        if "hooks" not in native:
+            lines = []
+            for event, groups in hooks["hooks"].items():
+                for group in groups:
+                    when = f"`{event}`" + (f" for `{group['matcher']}`" if group.get("matcher") else "")
+                    for hook in group["hooks"]:
+                        if hook.get("type") == "command" and "\n" in hook["command"].strip():
+                            body = "\n".join("  " + line for line in hook["command"].strip().splitlines())
+                            lines.append(f"- On {when}: run from `{rel}`:\n\n  ```sh\n{body}\n  ```")
+                        elif hook.get("type") == "command":
+                            lines.append(f"- On {when}: run `cd {rel} && {hook['command'].strip()}`")
+            sections.append("Hooks (this agent runs none by itself: at each of these moments, run the command "
+                            "yourself):\n" + "\n".join(lines))
+    doc = adapter / (manifest.get("context") or "ADAPTER.md")
+    context = doc.read_bytes() if doc.is_file() else None
+    others = []
+    for path in sorted(p for p in adapter.rglob("*") if p.is_file()):
+        if context is not None and path.stat().st_size == len(context) and path.read_bytes() == context:
+            continue                              # a copy of the context (a tree's AGENTS.md): already in it
+        name = path.relative_to(adapter).as_posix()
+        if (name.split("/")[0] in NOT_COPIED or any(part in CACHES for part in path.parts) or name.endswith(".pyc")
+                or name in covered or any(name.startswith(c) for c in covered if c.endswith("/"))
+                or is_internal(name, manifest)):
+            continue
+        others.append(name)
+    if others:
+        listed = [f"- `{rel}/{n}`" + (f": {s}" if (s := _summary(adapter / n)) else "") for n in others[:LISTED_FILES]]
+        if len(others) > LISTED_FILES:
+            listed.append(f"- and {len(others) - LISTED_FILES} more files under `{rel}/`")
+        sections.append("Other files of this adapter (read one when it is relevant):\n" + "\n".join(listed))
+    text = ("### Adapter resources\n\n" + "\n\n".join(sections)) if sections else ""
+    return text, record
+
+
+def check_context_size(path: Path, text: str, limit: int | None, setting: str) -> None:
+    """Refuse a context the host would cut: past `limit` bytes the host reads no further, silently."""
+    size = len(text.encode("utf-8"))
+    if limit and size > limit:
+        raise ValueError(f"{path.name} would be {size} bytes, past the {limit} bytes the host reads ({setting}); "
+                         f"the rest would be cut without a word. Raise {setting} and deploy with that limit")

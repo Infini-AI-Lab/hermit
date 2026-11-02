@@ -1,6 +1,6 @@
 template:
   id: harness2-codex
-  version: "1.0"
+  version: "1.1"
   contract: "2"
   name: Harness² execution harness for Codex
 structure:

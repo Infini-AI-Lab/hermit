@@ -86,7 +86,7 @@ agent:
 | `agent.name` | Agent | Settings |
 |---|---|---|
 | `react` | a chat-completions tool-calling loop over the task's tools and the adapter's tools | `model`, `prompt`, `tools`, `user`, `max_turns`, `max_output_tokens`, `max_tokens`, `temperature`, `answer_tag`, `tool_result_chars`, `logs` |
-| `codex`, `claude-code` | Codex or Claude Code run in a fresh workspace the adapter is deployed into | `model`, `login`, `effort`, `prompt`, `files`, `mounts`, `prepare`, `answer`, `collect`, `deploy`, `reserved`, `context_query`, `isolation`, `container`, `project_doc_max_bytes`, `args`, `env`, `price`, `timeout_s`, `retries`, `retry_wait_s`, `workspaces` |
+| `codex`, `claude-code` | Codex or Claude Code run in a fresh workspace the adapter is deployed into | `model`, `login`, `effort`, `prompt`, `files`, `mounts`, `prepare`, `answer`, `collect`, `context_query`, `isolation`, `container`, `project_doc_max_bytes`, `args`, `env`, `price`, `timeout_s`, `retries`, `retry_wait_s`, `workspaces` |
 
 ### A coding-agent CLI as the acting agent
 
@@ -104,7 +104,7 @@ agent:
     prepare: ../utils/task.py:prepare     # (task, workspace[, params, base]) -> mounts: writes the task's files
     answer: ../utils/task.py:answer       # (last message, task) -> the output; or a pattern, the last match
     collect: ../utils/task.py:collect     # (task, workspace, log) -> facts: the task's own artifacts into the log
-    deploy: tree                          # host (as `hermit deploy`) | tree (a Codex tree) | files (the adapter as is)
+    project_doc_max_bytes: 65536          # Codex's cap on AGENTS.md; a deployment past it is refused
     isolation: container                  # none | container: a Docker container per session
     container: {image: "officeqa-codex:0.162.0", network: oq-sandbox, proxy: "http://oq-egress:3128"}
     timeout_s: 3600
@@ -113,14 +113,15 @@ agent:
 
 What the agent does for every task:
 
-- **Deploy.** `host` writes what `hermit deploy` writes: the whole adapter under `hermit/<adapter id>/` and what it
-  declares connected (its tools are served on this machine, so not in a container). `tree` copies a Codex tree (`AGENTS.md`, `.agents/`, `scripts/`, `.codex/`, `memory/`, and
-  `sub_agents/` as roles in the session's home); an adapter without `AGENTS.md` gets its context there. `files`
-  puts the context in `AGENTS.md` and every other adapter file at its path, refusing `AGENTS.md`, `.codex/` and the
-  `reserved` names at the adapter's root. With `tree` or `files`, an adapter's
-  [`context_tool`](adapter.md#per-task-context) is rendered for each task (the field `context_query`, else the
-  task's question or prompt) and recorded in `RunOutput.extra["context_tool"]`; `host` refuses such an adapter, as
-  `hermit deploy` does (it is not portable).
+- **Deploy.** The adapter is deployed as `hermit deploy` deploys it ([Acting interface](adapter.md#acting-interface)):
+  the whole adapter under `hermit/<adapter id>/` but its [`internal`](adapter-manifest.md#internal) files, each
+  export connected to the CLI's own place (its tools are served on this machine, so not in a container), and the
+  context naming the rest. An adapter's [`context_tool`](adapter-manifest.md#per-task-context) is rendered for each
+  task (the field `context_query`, else the task's question or prompt), deployed into the context and recorded in
+  `RunOutput.extra["context_tool"]`; `hermit deploy` alone refuses such an adapter (it is not portable). The session
+  calls the adapter's tools without approvals and may start its sub-agents. An adapter with `memory/NOTES.md` (the
+  continual-harness template) is told so in the prompt, and the notes the session leaves come back in the log
+  (`log/memory/`). The context must fit `project_doc_max_bytes` (Codex reads no further): a longer one is refused.
 - **Isolate.** With `isolation: container`, Codex runs in a container of its own: the workspace and the session's home
   read-write, the mounts read-only at their targets, an internal network whose only way out is an egress proxy to
   the provider's hosts, and Codex's workspace-write sandbox inside. `docker/codex/` builds the image and the proxy;

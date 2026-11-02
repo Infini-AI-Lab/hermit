@@ -69,23 +69,34 @@ where the rest is described.
 
 ### Which files are written into the host?
 
-A deployment writes into a **separate host workspace** in two parts. The whole adapter, every file but `.hermit/`
-and `.git/`, is copied as it is to `hermit/<adapter id>/`, and the context block tells the agent so: "This adapter's
-files are in `hermit/<adapter id>/`. Paths in the instructions below are relative to that folder." Then everything
-`exports.yaml` declares is connected to the host's own places, so that the host loads it:
+A deployment writes into a **separate host workspace** in two parts. The whole adapter, every file but `.hermit/`,
+`.git/` and what `exports.yaml` marks [`internal`](adapter-manifest.md#internal), is copied as it is to
+`hermit/<adapter id>/`, and the context block tells the agent so: "This adapter's files are in `hermit/<adapter
+id>/`. Paths in the instructions below, and in the adapter's skills and roles, are relative to that folder: run a
+command they give from there." Then each export `exports.yaml` declares is
+connected to the host's own place when the host has one, so that the host loads it; an export the host has no place
+for stays a file of the copy, and the context names it with what to do with it. The rule is the same for every
+host, and for the built-in `codex` and `claude-code` acting agents, which deploy as `hermit deploy` does: an adapter
+is deployed as far as the host can take it, and nothing it holds is out of the agent's reach.
 
 | Adapter source | Deployment operation | Codex output | Claude Code output | Pi output |
 |---|---|---|---|---|
 | Every file but `.hermit/` and `.git/` | Copy it as it is. | `hermit/<id>/` | `hermit/<id>/` | `hermit/<id>/` |
 | `ADAPTER.md` (always exported) | Insert the line above and its text into a managed instruction block. | `AGENTS.md` | `CLAUDE.md` | `AGENTS.md` |
 | `skills/verify-output/`, through `skills` in `exports.yaml` | Copy the skill directory. | `.codex/skills/verify-output/` | `.claude/skills/verify-output/` | `.pi/skills/verify-output/` |
-| `agents/reviewer.md` (or `agents/reviewer/AGENT.md`), through `agents` in `exports.yaml` | Convert the subagent into native host files: frontmatter gives name and description, the body becomes its instructions. | `.codex/agents/reviewer.toml`, registered in `.codex/config.toml` | `.claude/agents/reviewer.md` | refused: Pi has no subagents |
+| `agents/reviewer.md` (or `agents/reviewer/AGENT.md`), through `agents` in `exports.yaml` | Convert the subagent into native host files: frontmatter gives name and description, the body becomes its instructions. | `.codex/agents/reviewer.toml`, registered in `.codex/config.toml` | `.claude/agents/reviewer.md` | named in `AGENTS.md` (Pi has no subagents): name, description, the path of its instructions |
 | `tools.py`, through `tools` in `exports.yaml` | Configure a framework MCP server that loads the source adapter. | `.codex/config.toml` | `.mcp.json` | `.pi/mcp.json` |
-| a hooks file, through `hooks` in `exports.yaml` | Write the hooks with each command run from `hermit/<id>/`. | `.codex/hooks.json` | `hooks` in `.claude/settings.json` | refused: Pi reads no hook file |
+| a hooks file, through `hooks` in `exports.yaml` | Write the hooks with each command run from `hermit/<id>/`. | `.codex/hooks.json` | `hooks` in `.claude/settings.json` | named in `AGENTS.md` (Pi reads no hook file): each event with the command to run then |
+| every other file of the copy | Name it, with its frontmatter description or first line, under "Adapter resources" in the context (up to 60 files; the rest are counted). | `AGENTS.md` | `CLAUDE.md` | `AGENTS.md` |
 
 This is how the adapter reaches the acting system. The host reads the generated instruction, skill, role and hook
 files; tool configuration makes the declared tools available through its tool interface. What the adapter does not
-declare reaches the agent as files under `hermit/<id>/`, for `ADAPTER.md` to say how to use them. A hook runs in the
+declare, or the host cannot load, reaches the agent as files under `hermit/<id>/`, which the context names. An
+export placed as files keeps its information but not its mechanism (a hook named in the context runs only if the
+agent runs it), and the deployment record (`.hermit-deploy.json`, `placed`) says which exports went where. The
+context must fit what the host reads: Codex reads `AGENTS.md` up to its `project_doc_max_bytes` (32 KiB unless set)
+and drops the rest without a word, so the Codex deployment refuses a longer `AGENTS.md` (`hermit deploy
+--context-limit`, the acting agent's `project_doc_max_bytes`). A hook runs in the
 directory the session started in, so the deployment prefixes each command with `cd hermit/<id>` (its absolute path):
 a hook finds the files it names where it found them in training. Interactive Codex asks the user to trust the
 project's hooks before they run, and `codex exec` skips hooks nobody trusted, so the built-in Codex agent passes

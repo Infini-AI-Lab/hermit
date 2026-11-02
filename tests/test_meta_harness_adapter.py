@@ -1,4 +1,4 @@
-"""Meta-Harness Adapter: the meta-harness-adapter template, the Codex agent's `deploy: files` mode and the Evolver's
+"""Meta-Harness Adapter: the meta-harness-adapter template, a candidate in the Codex agent's workspace and the Evolver's
 loop over steps (record the evaluated candidate, propose k, validate, queue, hand back, select) with a scripted
 proposer (no model, no Docker, no network)."""
 import json
@@ -54,51 +54,26 @@ def test_any_file_in_any_layout_is_learnable_but_hermit_is_not(tmp_path):
     assert not result.passed and any(".hermit" in i.path for i in result.issues)
 
 
-# ---------- the Codex agent's `deploy: files` ----------
+# ---------- a candidate in the Codex agent's workspace ----------
 
-def _deploy():
-    from hermit.agent.acting import deploy
-    return deploy
-
-
-def test_deploy_adapter_gives_adapter_md_as_agents_md_and_every_other_file(tmp_path):
-    deploy = _deploy()
+def test_a_candidate_is_deployed_whole_and_its_files_are_named_in_agents_md(tmp_path):
+    """Any layout a proposer writes reaches the session: ADAPTER.md as the context, every other file in the copy and
+    named in AGENTS.md; a file that is Codex configuration in the workspace root stays a file of the copy."""
+    from hermit.agent.acting import workspace as cli
     adapter = seed(tmp_path)
     (adapter / "scripts").mkdir()
-    (adapter / "scripts" / "find.py").write_text("print('x')\n")
-    (adapter / "skills" / "x").mkdir(parents=True)
-    (adapter / "skills" / "x" / "ADAPTER.md").write_text("a nested file of that name is the adapter's own\n")
-    (adapter / "exports.yaml").write_text("{}\n")
-    work = tmp_path / "work"
-    work.mkdir()
-    out = deploy.files(adapter, work)
-    assert (work / "AGENTS.md").read_text() == (adapter / "ADAPTER.md").read_text()
-    assert (work / "scripts" / "find.py").is_file() and (work / "exports.yaml").is_file()
-    assert not (work / ".hermit").exists() and not (work / "ADAPTER.md").exists()
-    assert out["agents_md"] and out["sub_agents"] == []
-    assert out["files"] == ["exports.yaml", "scripts/find.py", "skills/x/ADAPTER.md"]
-
-
-def test_deploy_adapter_refuses_a_name_the_session_uses(tmp_path):
-    deploy = _deploy()
-    adapter = seed(tmp_path)
-    (adapter / "task.md").write_text("mine\n")
-    work = tmp_path / "work"
-    work.mkdir()
-    with pytest.raises(ValueError, match="task.md"):
-        deploy.files(adapter, work, reserved=("task.md", "docs"))
-
-
-def test_deploy_adapter_refuses_codex_configuration(tmp_path):
-    deploy = _deploy()
-    adapter = seed(tmp_path)
+    (adapter / "scripts" / "find.py").write_text("# Find a table's page.\nprint('x')\n")
     (adapter / ".codex").mkdir()
     (adapter / ".codex" / "hooks.json").write_text("{}\n")
+    (adapter / "task.md").write_text("mine\n")
     work = tmp_path / "work"
-    work.mkdir()
-    with pytest.raises(ValueError, match=".codex"):
-        deploy.files(adapter, work)
-    assert not (work / ".codex").exists()
+    deployed, _ = cli._deploy({"id": "t1"}, adapter, work, "codex", {})
+    text = (work / "AGENTS.md").read_text()
+    copy = work / "hermit" / "meta-harness-adapter"
+    assert (adapter / "ADAPTER.md").read_text().strip().splitlines()[-1] in text
+    assert "- `hermit/meta-harness-adapter/scripts/find.py`: Find a table's page." in text
+    assert (copy / "scripts" / "find.py").is_file() and (copy / "task.md").read_text() == "mine\n"
+    assert not (work / ".codex" / "hooks.json").exists() and not (work / "task.md").exists()
 
 
 # ---------- the Evolver ----------

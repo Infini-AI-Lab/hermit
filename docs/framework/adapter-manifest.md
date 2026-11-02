@@ -201,12 +201,13 @@ check requires it to parse, and repair restores it from the parent.
 | `hooks` | a JSON file | lifecycle hooks in Claude Code's hook schema, `{"hooks": {"<Event>": [{"matcher": ..., "hooks": [{"type": "command", "command": ...}]}]}}`, which Codex reads too; deployed with each command run from the adapter's copy. The file may be missing (a learner may add it); a deployment refuses one that does not parse |
 | `reactions` | `{entrypoint: file.py:function}` | service integration only: a function the framework service calls on events; `deploy` ignores it |
 | `concurrent_tool_calls` | boolean | service integration only: run the adapter's tool calls concurrently instead of one at a time |
+| `internal` | list of paths or globs (a directory covers its files) | [the harness's own files](#internal): what a context tool or a tool reads and the agent never receives; a deployment neither copies nor names them. May not cover `ADAPTER.md` or `exports.yaml` |
 | `context_tool` | the name of one declared tool | [per-task context](#per-task-context): the harness calls that tool once per task with `{query, task}` and appends the `text` it returns below `ADAPTER.md`; hidden from the agent's tools; the deploy check calls it once with an empty query; the template must declare [`plugin-portable: false`](#plugin-portable) |
 
 All paths are relative to the adapter root and must stay inside it.
 
 Only declared exports are connected to the host: an adapter without `exports.yaml` deploys as an instruction file
-and a copy of its files under `hermit/<id>/`. How each export reaches Codex or Claude Code is in
+and a copy of its files under `hermit/<id>/`, which the instruction file names. How each export reaches Codex or Claude Code is in
 [Acting interface](adapter.md#acting-interface). The example's `exports.yaml`:
 
 ```{literalinclude} ../_examples/file_adapter/exports.yaml
@@ -267,7 +268,8 @@ context_tool: reflections
 task, before the agent's first model call, with `query` (the task's input text) and `task` (its row), and appends
 the `text` of the result below `ADAPTER.md` for that task. `Session.context(query=..., task=...)` makes the call
 and keeps the whole result in `session.last_context`; the built-in `react` agent does both and records the result as
-`RunOutput.extra["context_tool"]`. The tool is left out of `Session.tools`, `tool_specs` and the hosts' tool
+`RunOutput.extra["context_tool"]`, and so do the built-in `codex` and `claude-code` agents, which deploy this task's
+context into the session's `AGENTS.md` or `CLAUDE.md`. The tool is left out of `Session.tools`, `tool_specs` and the hosts' tool
 servers, and `respond` refuses it: the agent cannot call it. A manifest that names an undeclared tool does not load.
 
 The specification check's load check (check 5) calls the tool once with an empty query and an empty task, in a
@@ -276,6 +278,20 @@ nothing to retrieve) and return an object with a `text` string. A host workspace
 so an adapter that names a context tool loads only when its template declares
 [`plugin-portable: false`](#plugin-portable), and `deploy` and `convert` refuse it. The `reharness` template retrieves reflections this way
 ([ReHarness](../methods/reharness.md)).
+
+### Internal
+
+```yaml
+# exports.yaml
+internal: [reflections/, index.json, interface.py, reharness_core/]
+```
+
+Some files of an adapter are the harness's, not the agent's: the reflection bank a context tool retrieves from, the
+code behind it. `internal` lists them. A deployment copies every other file into the workspace and names it in the
+context, so that nothing reaches the agent by surprise and nothing it should have is missing; an internal file is
+neither copied nor named, and reaches the agent only through what the harness renders from it (the retrieved
+reflections). Tools still run from the adapter itself, so their code may be internal. The `reharness` template marks
+its bank and its retrieval this way; a learner may not change it there (`exports.yaml` is fixed).
 
 ## `serve` (design, not implemented)
 

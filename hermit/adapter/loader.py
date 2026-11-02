@@ -25,6 +25,21 @@ def inside(root: Path, relative: str) -> Path:
     return path
 
 
+def is_internal(rel: str, manifest: dict) -> bool:
+    """Whether an adapter file is the harness's own (exports.yaml's `internal`: what its context tool or tools read,
+    such as ReHarness's reflection bank): a deployment neither copies it into the agent's workspace nor names it."""
+    from hermit.adapter.manifest import matches
+    rel = _plain(rel)
+    return any(matches(rel, _plain(pattern)) for pattern in manifest.get("internal") or [])
+
+
+def _plain(rel: str) -> str:
+    """An adapter path as written relative to its root, without a leading `./`."""
+    while rel.startswith("./"):
+        rel = rel[2:]
+    return rel
+
+
 def load_manifest(root: Path) -> dict:
     """The adapter's exports with its identity (id, name, version), validated."""
     from hermit.adapter.manifest import flatten, read_manifest
@@ -73,6 +88,18 @@ def load_manifest(root: Path) -> dict:
         for field in ("input_schema", "output_schema"):
             if not isinstance(tool.get(field), dict) or tool[field].get("type") != "object":
                 raise ValueError(f"Tool {name} requires an object {field}")
+    internal = manifest.get("internal", [])
+    if not isinstance(internal, list) or not all(
+            isinstance(p, str) and p.strip() and not Path(p).is_absolute() and ".." not in Path(p).parts
+            for p in internal):
+        raise ValueError("internal must be a list of paths or globs inside the adapter")
+    if any(is_internal(name, manifest) for name in ("ADAPTER.md", "exports.yaml")):
+        raise ValueError("internal may not cover ADAPTER.md or exports.yaml: the agent's context comes from them")
+    used = [_plain(manifest[key]).rstrip("/") for key in ("skills", "agents", "hooks") if isinstance(manifest.get(key), str)]
+    inner = [_plain(p).rstrip("/") for p in internal]
+    if any(is_internal(u, manifest) or is_internal(u + "/x", manifest) or any(p.startswith(u + "/") for p in inner)
+           for u in used):
+        raise ValueError("internal may not cover what skills, agents or hooks export: a deployment connects it")
     context_tool = manifest.get("context_tool")
     if context_tool is not None and (not isinstance(context_tool, str) or context_tool not in names):
         raise ValueError(f"context_tool must name one of the declared tools, not {context_tool!r}")
