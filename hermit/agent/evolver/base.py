@@ -33,6 +33,7 @@ class Progress:
     epoch: int
     step: int
     is_epoch_end: bool
+    remaining: tuple[str, ...] = ()   # for an Evolver that chooses_tasks: the epoch's training tasks not yet run
 
 
 class Tool(Protocol):
@@ -87,6 +88,7 @@ class StepResult:
     session: str | None = None                           # handle for resuming next time, if any
     usage: list[Usage] = field(default_factory=list)     # model usage of this call
     extra: dict[str, Any] = field(default_factory=dict)  # recorded unchanged
+    next_tasks: list[str] | None = None                  # chooses_tasks: the next step's tasks, of progress.remaining
 
 
 @dataclass
@@ -100,6 +102,9 @@ class FinalResult:
 
 class Evolver(ABC):
     supports_resume: bool = False
+    # True: the Evolver chooses the next step's tasks (StepResult.next_tasks); only then does it see the epoch's
+    # remaining training tasks (Progress.remaining, and in the call's message).
+    chooses_tasks: bool = False
 
     def setup(self, ctx: Context) -> None:
         """Optional: before the first step (for example, initialise Training State)."""

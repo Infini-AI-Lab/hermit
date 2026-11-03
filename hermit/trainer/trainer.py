@@ -271,26 +271,30 @@ class Trainer:
                 raise SystemExit(f"the Evolver's setup failed: {box.get('error') or stopped}")
         step = done[-1]["step"] if done else 0
         session = done[-1].get("session") if done else None
+        wanted = done[-1].get("next_tasks") if done else None
         if not done and type(self.evolver).bootstrap is not Evolver.bootstrap:
             record = self._bootstrap()
             session = record.get("session") or session
+            wanted = record.get("next_tasks")
         step_size = int(d["data"]["step_size"])
-        train_ids = list(self.data.splits["train"])
         epochs = int(d["trainer"]["epochs"])
         stop_reason = None
         try:
             for epoch in range(1, epochs + 1):
-                order = list(train_ids)
-                if d["data"]["shuffle"]:
-                    random.Random(int(d["data"]["shuffle_seed"]) + epoch).shuffle(order)
-                chunks = [order[i:i + step_size] for i in range(0, len(order), step_size)]
-                for index, chunk in enumerate(chunks):
-                    number = (epoch - 1) * len(chunks) + index + 1
-                    if number <= step:
-                        continue
-                    progress = Progress(epoch, number, is_epoch_end=index == len(chunks) - 1)
-                    record = self._step(progress, chunk, last_feedback, session)
-                    step = number
+                # An epoch runs every training task once: the tasks of its steps already recorded are done.
+                ran = [t for r in done if r["epoch"] == epoch and not r.get("bootstrap") for t in r["tasks"]]
+                remaining = _without(self._order(epoch), ran)
+                while remaining:
+                    # The Evolver's accepted request (checked when it was made), else the order's next tasks.
+                    chosen = wanted is not None and not _without(wanted, remaining)
+                    chunk = list(wanted) if chosen else remaining[:step_size]
+                    remaining = _without(remaining, chunk)
+                    step += 1
+                    progress = Progress(epoch, step, is_epoch_end=not remaining,
+                                        remaining=tuple(remaining) if self.evolver.chooses_tasks else ())
+                    record = self._step(progress, chunk, last_feedback, session,
+                                        {"chosen_by": "evolver"} if chosen else None)
+                    wanted = record.get("next_tasks")
                     last_feedback = record.get("check_feedback_next")
                     session = record.get("session") or session
                     self._checkpoint(record)
@@ -301,6 +305,14 @@ class Trainer:
         except BudgetExceeded as exc:
             stop_reason = f"hard budget: {exc}"
         return self._finish(stop_reason or "completed all epochs")
+
+    def _order(self, epoch: int) -> list[str]:
+        """The epoch's training tasks in the order the Trainer takes them: the split's, reshuffled per epoch unless
+        data.shuffle is false."""
+        order = list(self.data.splits["train"])
+        if self.config.data["data"]["shuffle"]:
+            random.Random(int(self.config.data["data"]["shuffle_seed"]) + epoch).shuffle(order)
+        return order
 
     def _completed_steps(self) -> list[dict]:
         path = self.run_dir / "steps.jsonl"
@@ -403,6 +415,9 @@ class Trainer:
         if progress:
             lines.append(f"Epoch {progress.epoch}, step {progress.step}"
                          + (" (last step of the epoch)." if progress.is_epoch_end else "."))
+            if progress.remaining:            # only an Evolver that chooses_tasks is given them
+                shown = ", ".join(progress.remaining[:50]) + (" ..." if len(progress.remaining) > 50 else "")
+                lines.append(f"Training tasks this epoch has still to run ({len(progress.remaining)}): {shown}")
         lines += [f"Adapter (your working copy, read/write): {self.ws.adapter}",
                   f"Learning material (read-only): {self.ws.learning_material} — start with README.md and current/",
                   f"Task description (read-only): {self.ws.task_info} — start with README.md",
@@ -446,7 +461,8 @@ class Trainer:
                     cancel.set()
         return box, reason, thread.is_alive()
 
-    def _step(self, progress: Progress, chunk: list[str], feedback: list | None, session: str | None) -> dict:
+    def _step(self, progress: Progress, chunk: list[str], feedback: list | None, session: str | None,
+              selection: dict | None = None) -> dict:
         d = self.config.data
         n = progress.step
         self.budget.check()
@@ -462,19 +478,21 @@ class Trainer:
         self._last_rollout_commit = parent
         # 3. material.
         self.material.write(n, progress.epoch, parent, changed_since_last, results, feedback)
-        return self._evolve("step", progress, parent, chunk, results, rollout_s, session)
+        return self._evolve("step", progress, parent, chunk, results, rollout_s, session, selection)
 
     def _bootstrap(self) -> dict:
         """Step 0 of a fresh run: the Evolver's bootstrap on the starting adapter, before any rollout."""
         self.budget.check()
         self.log("step 0: bootstrap (no rollouts)")
-        record = self._evolve("bootstrap", Progress(0, 0, False), Tree.head(self.checkout), [], [], 0.0, None)
+        remaining = tuple(self._order(1)) if self.evolver.chooses_tasks else ()
+        record = self._evolve("bootstrap", Progress(0, 0, False, remaining=remaining), Tree.head(self.checkout), [],
+                              [], 0.0, None)
         if record["changed"]:
             self.tree.tag(f"{self.run_name}/bootstrap", record["commit"], force=True)
         return record
 
     def _evolve(self, what: str, progress: Progress, parent: str, chunk: list[str], results: list[dict],
-                rollout_s: float, session: str | None) -> dict:
+                rollout_s: float, session: str | None, selection: dict | None = None) -> dict:
         """One Evolver call (`step` or `bootstrap`) on a fresh workspace, then check, repair, commit and record."""
         d = self.config.data
         n = progress.step
@@ -525,6 +543,7 @@ class Trainer:
         _copy_dir(self.ws.state, step_dir / "state")
         (step_dir / "step_result.json").write_text(json.dumps(asdict(result), indent=1, default=str))
         record = {"step": n, "epoch": progress.epoch, "tasks": chunk, **({"bootstrap": True} if what == "bootstrap" else {}),
+                  **(selection or {}), "epoch_end": progress.is_epoch_end, **self._request(progress, result),
                   "rollout": {"mean_score": _mean([r["judge"]["score"] for r in results]),
                               "scores": {r["id"]: r["judge"]["score"] for r in results},
                               "cost_usd": _sum([r["cost_usd"] for r in results]),
@@ -544,6 +563,31 @@ class Trainer:
                  f"; adapter {'changed' if record['changed'] else 'unchanged'}"
                  + (f"; repaired {len(repaired)} file(s)" if repaired else ""))
         return record
+
+    def _request(self, progress: Progress, result: StepResult) -> dict:
+        """The Evolver's choice of the next step's tasks, checked as it is made: {"next_tasks": [...]} when accepted,
+        {"next_tasks_refused": reason} when not, {} without one. Accepted are distinct task ids, at most
+        data.step_size, of progress.remaining, or at an epoch's end (nothing remaining) of the training split, which
+        the next epoch runs again; and only from an Evolver that chooses_tasks."""
+        wanted = result.next_tasks
+        if wanted is None or wanted == []:
+            return {}
+        step_size = int(self.config.data["data"]["step_size"])
+        allowed = progress.remaining or self.data.splits["train"]
+        if not self.evolver.chooses_tasks:
+            problem = "the Evolver does not choose tasks (set chooses_tasks = True on its class)"
+        elif not isinstance(wanted, (list, tuple)) or not all(isinstance(t, str) for t in wanted):
+            problem = "not a list of task ids"
+        elif len(set(wanted)) != len(wanted):
+            problem = "it names a task twice"
+        elif len(wanted) > step_size:
+            problem = f"{len(wanted)} tasks, more than data.step_size ({step_size})"
+        elif any(t not in allowed for t in wanted):
+            problem = f"not training tasks still to run: {[t for t in wanted if t not in allowed][:5]}"
+        else:
+            return {"next_tasks": list(wanted)}
+        self.log(f"step {progress.step}: next_tasks refused, {problem}")
+        return {"next_tasks_refused": f"{wanted!r:.200}: {problem}"}
 
     def _commit_step(self, progress: Progress, result: StepResult, parent: str,
                      label: str | None = None) -> tuple[list[str], list, dict]:
@@ -588,8 +632,7 @@ class Trainer:
         head = Tree.head(self.checkout)
         if freq.get("steps") and n % int(freq["steps"]) == 0:
             self.tree.tag(f"{self.run_name}/ckpt-step-{n}", head, force=True)
-        steps_per_epoch = -(-len(self.data.splits["train"]) // int(self.config["data"]["step_size"]))
-        if freq.get("epochs") and n % steps_per_epoch == 0 and epoch % int(freq["epochs"]) == 0:
+        if freq.get("epochs") and record.get("epoch_end") and epoch % int(freq["epochs"]) == 0:
             self.tree.tag(f"{self.run_name}/ckpt-epoch-{epoch}", head, force=True)
 
     # ---------- the end ----------
@@ -653,6 +696,15 @@ class Trainer:
     def _tags(self, prefix: str) -> list[str]:
         from hermit.tree import git
         return [t for t in git(self.tree.repo, "tag", "--list", f"{prefix}*").splitlines() if t]
+
+
+def _without(tasks: list[str], taken: list[str]) -> list[str]:
+    """`tasks` less one occurrence of each of `taken` (a split may name a task twice)."""
+    left = list(tasks)
+    for t in taken:
+        if t in left:
+            left.remove(t)
+    return left
 
 
 def _fresh(path: Path) -> None:

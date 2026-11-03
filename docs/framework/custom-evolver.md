@@ -80,7 +80,9 @@ The bundled definitions are under `hermit/agent/evolver/methods/`.
 
 `CommandEvolver` supplies `HA_CONTEXT`, a path to JSON describing the workspace, access, progress, session, and
 parameters, plus `HA_TOOL_URL` for the tool endpoint. A program may write `output/step_result.json` using the
-`StepResult` fields. Without that file, the process exit code determines success or failure.
+`StepResult` fields. Without that file, the process exit code determines success or failure. A subclass that sets
+`chooses_tasks = True` also gets `progress.remaining` in the context and may name the next step's tasks as
+`next_tasks` ([Choosing the next tasks](evolver.md#choosing-the-next-tasks)).
 Return a failure status when the program cannot produce a usable result.
 
 The same protocol can wrap an external service. Declare required data access, preserve the adapter's specification,

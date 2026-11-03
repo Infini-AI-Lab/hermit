@@ -1,6 +1,7 @@
 """End-to-end tests of the Trainer on a toy task (no network, no model)."""
 import json
 from pathlib import Path
+import random
 import subprocess
 import textwrap
 
@@ -311,3 +312,186 @@ def test_resume_does_not_repeat_the_bootstrap(tmp_path):
     Trainer(load(tmp_path / "run.yaml", "evolver.name=boot", "trainer.epochs=1"), log=lambda *_: None).train()
     steps = [json.loads(l) for l in (run / "steps.jsonl").read_text().splitlines()]
     assert [s["step"] for s in steps] == [0, 1, 2]
+
+
+# ---------- the Evolver chooses the next step's tasks ----------
+
+PICK_EVOLVER = '''
+import json
+from hermit.agent.evolver.base import Evolver, StepResult
+
+class Pick(Evolver):
+    """Names the last remaining task as the next step's only task (mode `reverse`), or a bad request."""
+    chooses_tasks = True
+
+    def bootstrap(self, ctx):
+        return self.step(ctx)
+
+    def step(self, ctx):
+        p = ctx.progress
+        with open(ctx.workspace.state / "seen.jsonl", "a") as f:
+            f.write(json.dumps({"step": p.step, "remaining": list(p.remaining),
+                                "listed": "still to run" in ctx.message}) + "\\n")
+        mode = ctx.params.get("mode", "reverse")
+        nxt = {"reverse": [p.remaining[-1]] if p.remaining else None, "bad": ["t9"],
+               "twice": ["t0", "t0"], "many": ["t0", "t1", "t2", "t3", "t4"],
+               "boundary": None if p.remaining else ["t3"]}.get(mode)
+        return StepResult("done", f"step {p.step}", next_tasks=nxt)
+
+class Silent(Pick):
+    """The same requests from an Evolver that does not declare chooses_tasks."""
+    chooses_tasks = False
+'''
+
+
+def _pick_task(tmp, mode="reverse", cls="Pick"):
+    path = make_task(tmp)
+    (tmp / "pick").mkdir()
+    (tmp / "pick" / "evolver.py").write_text(PICK_EVOLVER)
+    (tmp / "pick" / "evolver.yaml").write_text(f"class: evolver.py:{cls}\nneeds: []\nparams: {{mode: {mode}}}\n")
+    return path
+
+
+def _steps(tmp):
+    run = tmp / "runs" / "toy-run"
+    return [json.loads(l) for l in (run / "steps.jsonl").read_text().splitlines()]
+
+
+def _seen(tmp):
+    return [json.loads(l) for l in (tmp / "runs" / "toy-run" / "workspace" / "state" / "seen.jsonl")
+            .read_text().splitlines()]
+
+
+def _tags(tmp):
+    return subprocess.run(["git", "-C", str(tmp / "runs" / "trees" / "prompt-only"), "tag"],
+                          capture_output=True, text=True).stdout.split()
+
+
+def test_the_evolver_names_the_next_steps_tasks(tmp_path):
+    cfg = load(_pick_task(tmp_path), "evolver.name=pick", "data.shuffle=false", "trainer.epochs=1")
+    Trainer(cfg, log=lambda *_: None).train()
+    steps = [s for s in _steps(tmp_path) if not s.get("bootstrap")]
+    # the bootstrap names t5; from then on each step takes the last task still to run, one at a time
+    assert [s["tasks"] for s in steps] == [["t5"], ["t4"], ["t3"], ["t2"], ["t1"], ["t0"]]
+    assert all(s["chosen_by"] == "evolver" for s in steps)
+    assert [s["epoch_end"] for s in steps] == [False] * 5 + [True]
+    seen = _seen(tmp_path)
+    assert seen[0] == {"step": 0, "remaining": [f"t{i}" for i in range(6)], "listed": True}
+    assert seen[1] == {"step": 1, "remaining": [f"t{i}" for i in range(5)], "listed": True}
+    assert "toy-run/ckpt-epoch-1" in _tags(tmp_path)
+
+
+def test_an_evolver_that_does_not_choose_sees_nothing_ahead_and_is_refused(tmp_path):
+    cfg = load(_pick_task(tmp_path, "bad", "Silent"), "evolver.name=pick", "data.shuffle=false",
+               "trainer.epochs=1")
+    Trainer(cfg, log=lambda *_: None).train()
+    assert all(s == {**s, "remaining": [], "listed": False} for s in _seen(tmp_path))
+    steps = _steps(tmp_path)
+    assert all("chooses_tasks" in s["next_tasks_refused"] and "next_tasks" not in s for s in steps)
+    assert [s["tasks"] for s in steps if not s.get("bootstrap")] == [["t0", "t1", "t2", "t3"], ["t4", "t5"]]
+
+
+@pytest.mark.parametrize("mode, reason", [("bad", "not training tasks still to run"), ("twice", "twice"),
+                                          ("many", "more than data.step_size")])
+def test_a_bad_request_is_refused_where_it_is_made_and_the_order_runs(tmp_path, mode, reason):
+    cfg = load(_pick_task(tmp_path, mode), "evolver.name=pick", "data.shuffle=false", "trainer.epochs=1")
+    Trainer(cfg, log=lambda *_: None).train()
+    steps = _steps(tmp_path)
+    assert all(reason in s["next_tasks_refused"] and "chosen_by" not in s for s in steps)
+    assert [s["tasks"] for s in steps if not s.get("bootstrap")] == [["t0", "t1", "t2", "t3"], ["t4", "t5"]]
+
+
+def test_the_default_order_is_unchanged(tmp_path):
+    cfg = load(make_task(tmp_path), "trainer.epochs=2", "trainer.save_freq={steps: null, epochs: 2}")
+    Trainer(cfg, log=lambda *_: None).train()
+    steps = _steps(tmp_path)
+    expected = []
+    for epoch in (1, 2):                                          # the order as the Trainer always took it
+        order = [f"t{i}" for i in range(6)]
+        random.Random(epoch).shuffle(order)                       # data.shuffle_seed 0, plus the epoch
+        expected += [order[:4], order[4:]]
+    assert [s["tasks"] for s in steps] == expected
+    assert [s["epoch_end"] for s in steps] == [False, True, False, True]
+    assert not any("chosen_by" in s or "next_tasks" in s or "next_tasks_refused" in s for s in steps)
+    tags = _tags(tmp_path)
+    assert "toy-run/ckpt-epoch-2" in tags and "toy-run/ckpt-epoch-1" not in tags
+
+
+def test_a_split_that_names_a_task_twice_runs_it_twice(tmp_path):
+    path = make_task(tmp_path)
+    (tmp_path / "train.txt").write_text("t0\nt1\nt0\nt2\n")
+    Trainer(load(path, "data.shuffle=false", "trainer.epochs=1", "data.step_size=2"), log=lambda *_: None).train()
+    assert [s["tasks"] for s in _steps(tmp_path)] == [["t0", "t1"], ["t0", "t2"]]
+
+
+def test_resume_of_records_without_the_new_keys(tmp_path):
+    path = make_task(tmp_path)
+    Trainer(load(path), log=lambda *_: None).train()
+    run = tmp_path / "runs" / "toy-run"
+    lines = [json.loads(l) for l in (run / "steps.jsonl").read_text().splitlines()]
+    for record in lines:
+        record.pop("epoch_end")                                   # as the code before this change wrote them
+    (run / "steps.jsonl").write_text("".join(json.dumps(r) + "\n" for r in lines[:3]))   # died after step 3
+    (run / "summary.json").unlink()
+    Trainer(load(path), log=lambda *_: None).train()
+    steps = _steps(tmp_path)
+    assert [s["step"] for s in steps] == [1, 2, 3, 4] and steps[3]["tasks"] == lines[3]["tasks"]
+
+
+def test_resume_keeps_the_evolvers_choice(tmp_path):
+    path = _pick_task(tmp_path)
+    trainer = Trainer(load(path, "evolver.name=pick", "data.shuffle=false"), log=lambda *_: None)
+    calls = {"n": 0}
+    original = trainer._step
+
+    def crash_on_third(*a, **k):
+        calls["n"] += 1
+        if calls["n"] == 3:
+            raise KeyboardInterrupt("simulated crash")
+        return original(*a, **k)
+    trainer._step = crash_on_third
+    with pytest.raises(KeyboardInterrupt):
+        trainer.train()
+    Trainer(load(path, "evolver.name=pick", "data.shuffle=false"), log=lambda *_: None).train()
+    steps = [s for s in _steps(tmp_path) if not s.get("bootstrap")]
+    assert [s["tasks"][0] for s in steps if s["epoch"] == 1] == ["t5", "t4", "t3", "t2", "t1", "t0"]
+    # epoch 1 ends with nothing left to name, so epoch 2 opens with the order's step, then the Evolver picks again
+    assert [s["tasks"] for s in steps if s["epoch"] == 2] == [["t0", "t1", "t2", "t3"], ["t5"], ["t4"]]
+    assert [s["step"] for s in steps] == list(range(1, 10))
+
+
+def test_a_request_at_an_epochs_end_opens_the_next_epoch(tmp_path):
+    cfg = load(_pick_task(tmp_path, "boundary"), "evolver.name=pick", "data.shuffle=false")
+    Trainer(cfg, log=lambda *_: None).train()
+    steps = [s for s in _steps(tmp_path) if not s.get("bootstrap")]
+    assert [(s["epoch"], s["tasks"]) for s in steps] == [(1, ["t0", "t1", "t2", "t3"]), (1, ["t4", "t5"]),
+                                                          (2, ["t3"]), (2, ["t0", "t1", "t2", "t4"]), (2, ["t5"])]
+    assert steps[2]["chosen_by"] == "evolver"
+
+
+COMMAND_EVOLVER = '''
+from hermit.agent.evolver.agent import CommandEvolver
+
+class Picking(CommandEvolver):
+    chooses_tasks = True
+'''
+PROGRAM = '''
+import json, os
+ctx = json.load(open(os.environ["HA_CONTEXT"]))
+remaining = ctx["progress"]["remaining"]
+out = ctx["workspace"]["output"]
+json.dump({"status": "done", "summary": "picked", "next_tasks": remaining[-1:] or None},
+          open(os.path.join(out, "step_result.json"), "w"))
+'''
+
+
+def test_an_external_program_names_the_next_tasks(tmp_path):
+    import sys
+    path = make_task(tmp_path)
+    (tmp_path / "cmd").mkdir()
+    (tmp_path / "cmd" / "evolver.py").write_text(COMMAND_EVOLVER)
+    (tmp_path / "cmd" / "program.py").write_text(PROGRAM)
+    (tmp_path / "cmd" / "evolver.yaml").write_text(
+        f"class: evolver.py:Picking\nneeds: []\nparams: {{command: [{sys.executable}, {tmp_path / 'cmd' / 'program.py'}]}}\n")
+    Trainer(load(path, "evolver.name=cmd", "data.shuffle=false", "trainer.epochs=1"), log=lambda *_: None).train()
+    assert [s["tasks"] for s in _steps(tmp_path)] == [["t0", "t1", "t2", "t3"], ["t5"], ["t4"]]

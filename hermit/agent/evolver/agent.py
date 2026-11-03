@@ -135,7 +135,8 @@ class CommandEvolver(Evolver):
 
     The program gets HA_CONTEXT (a JSON file with the workspace paths, accesses, progress, message, params) and
     HA_TOOL_URL (the tool endpoint: GET /tools, POST /call/<name>). It changes the adapter directory and may write
-    output/step_result.json: {status, summary, rationale, session, usage: [Usage fields...]}.
+    output/step_result.json: {status, summary, rationale, session, usage: [Usage fields...], next_tasks}
+    (next_tasks is taken from a subclass that sets chooses_tasks = True).
     """
     supports_resume = True
 
@@ -143,7 +144,9 @@ class CommandEvolver(Evolver):
         info = {"workspace": {k: str(v) for k, v in ctx.workspace.__dict__.items()},
                 "access": {"validation": str(ctx.access.validation) if ctx.access.validation else None,
                            "environment": [str(p) for p in ctx.access.environment]},
-                "progress": ctx.progress.__dict__ if ctx.progress else None, "session": ctx.session,
+                "progress": ({k: v for k, v in ctx.progress.__dict__.items()
+                              if k != "remaining" or self.chooses_tasks} if ctx.progress else None),
+                "session": ctx.session,
                 "message": ctx.message, "params": {k: v for k, v in ctx.params.items() if k not in ("command", "env")}}
         path = ctx.workspace.scratch / "context.json"
         path.write_text(json.dumps(info, indent=1))
@@ -159,5 +162,6 @@ class CommandEvolver(Evolver):
             data = json.loads(result_file.read_text())
             usage = [Usage(**u) for u in data.get("usage", [])]
             return StepResult(data.get("status", "done" if code == 0 else "failed"), data.get("summary", ""),
-                              data.get("rationale", ""), data.get("session"), usage, data.get("extra", {}))
+                              data.get("rationale", ""), data.get("session"), usage, data.get("extra", {}),
+                              data.get("next_tasks"))
         return StepResult("done" if code == 0 else "failed", f"command exited with {code}")
