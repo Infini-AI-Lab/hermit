@@ -60,11 +60,11 @@ def context(tmp: Path, params: dict) -> StepContext:
 
 # ---------- the configs ----------
 
-@pytest.mark.parametrize("name, train, test, step_size, concurrency", [
-    ("run_codex_luna.yaml", "rows/train_k2.txt", "../utils/splits/test.txt", 100, 8),
-    ("smoke_codex_luna.yaml", "rows/smoke_k2.txt", "../utils/splits/smoke_test.txt", 8, 4)])
+@pytest.mark.parametrize("name, train, test, step_size, concurrency, target", [
+    ("run_codex_luna.yaml", "rows/train_k2.txt", "../utils/splits/test.txt", 100, 8, 0.95),
+    ("smoke_codex_luna.yaml", "rows/smoke_k2.txt", "../utils/splits/smoke_test.txt", 8, 4, 1.01)])
 def test_the_configs_resolve_the_template_and_the_evolver_on_the_luna_row(tmp_path, name, train, test, step_size,
-                                                                           concurrency):
+                                                                           concurrency, target):
     config = Config.load(EXAMPLE / name)
     d = config.data
     assert config.template_dir() == TEMPLATE
@@ -86,6 +86,7 @@ def test_the_configs_resolve_the_template_and_the_evolver_on_the_luna_row(tmp_pa
     assert type(evolver).__name__ == "AHEAdapterEvolver"
     assert p["backend"] == "codex" and {k: p[k] for k in LUNA} == LUNA
     assert (p["task_field"], p["k"], p["rollback"], p["final"]) == ("uid", 2, "auto", "best_ever")
+    assert p["target_pass_rate"] == target and d["trainer"]["allow_early_stop"] is True   # 1.01: no early stop
     ctx = context(tmp_path, p)
     evolver.setup(ctx)                                      # refuses another Base Agent or an unset web_search
     evolve = evolver.settings(ctx, "codex")                 # the Evolve Agent's session ...

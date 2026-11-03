@@ -43,9 +43,10 @@ under another id, with `uid` (by which the Evolver groups them) and `rollout`. `
 question's own row, so a rollout's `task.md`, corpus and score are the question's. The harness is deployed as
 `hermit deploy` deploys it: the system prompt as `AGENTS.md`, skills and sub-agents in Codex's places, the adapter's
 copy under `hermit/ahe-codex/`, and its middleware as Codex hooks (`.codex/hooks.json`) that run the copy's
-`hook_runner.py`. The runner logs every hook call to `.hermit-hooks/hook-calls.jsonl` in the session's workspace and
-each session's state to `.hermit-hooks/hook-state/`; `trials.py:collect` copies both to the rollout's log, beside
-`agent-codex.jsonl` and `task.md`, where the learning material keeps them for the Debugger.
+`hook_runner.py`. The runner gives the middleware the workspace's `task.md` as the task text (`inp.task_text`), logs
+every hook call to `.hermit-hooks/hook-calls.jsonl` in the session's workspace and each session's state to
+`.hermit-hooks/hook-state/`; `trials.py:collect` copies both logs to the rollout's log, beside `agent-codex.jsonl` and
+`task.md`, where the learning material keeps them for the Debugger.
 
 Under `runs/luna-ahe-adapter/`, `workspace/state/` (and each step's copy of it, `step_NNNN/state/`) holds AHE's
 records: `analysis/step_NNNN/` (the Debugger's overview and one answer per question), `queries/` (the Evolve Agent's
@@ -58,6 +59,18 @@ input), `manifests/`, `evaluations/` (the verdicts on the previous step's change
 Pending: no run on this route has finished yet.
 
 An earlier run of the pre-port code through the Harbor interface (`agent.name: harbor`, which is not on main) scored
-0.628 on the 172 test questions. That is not this example's result: its acting agent was Codex through Harbor (the
-question in Harbor's instruction), its Agent Debugger and Evolve Agent ran `codex exec` themselves rather than as
-sessions of the codex Base Agent, and none of its sessions went through the login's plan.
+0.628 on the 172 test questions. That is not this example's result. The earlier run differed in these ways:
+
+- Its acting agent was Codex through Harbor, prompted with Harbor's instruction: an instruction line, then the
+  question with its oracle pages and hints. Here the prompt is `../utils/prompt.md`, which only names `task.md`, and
+  `task.md` in the workspace holds the question with its pages and hints.
+- The middleware's `inp.task_text` was that instruction, passed as the trial's task file (`--task-file`). Here it is
+  the workspace's `task.md`, the same text without the instruction line.
+- The deployed `AGENTS.md`, which Codex injects whole at every turn, had only a short note on the adapter's folder
+  (1,885 bytes for H_0). Main's deployment writes a longer folder note and lists the adapter's other files
+  (`hook_runner.py`, `hermit_hooks.py`, `middleware.py`, `MEMORY.md` and the README placeholders): 2,754 bytes for
+  H_0.
+- Its Agent Debugger and Evolve Agent ran `codex exec` themselves rather than as sessions of the codex Base Agent, in
+  a run sandbox with an open network (`network: open`, no allowlist). Here they reach chatgpt.com and auth.openai.com
+  through the sandbox's allowlist proxy (`network: restricted`).
+- None of its sessions went through the login's plan.
