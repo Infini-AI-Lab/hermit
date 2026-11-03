@@ -25,10 +25,11 @@ Evolver the reproduction adds.
   ([Meta-Harness Adapter](../methods/meta_harness_adapter.md) has one).
 - When the framework narrows what the method may change (the acting agent is fixed, only the adapter changes), the
   method's name says so, and the method page states the difference from the paper in its first paragraph.
-- A reproduction changes only three places: `hermit/adapter/templates/<name>/`,
-  `hermit/agent/evolver/methods/<name>/` and an example under `examples/<task>/<name>/`. Anything else in `hermit/`
-  is the core and stays untouched; a reproduction that seems to need a core change opens a separate discussion
-  first, and that change lands on its own, before the reproduction.
+- Method implementation belongs in `hermit/adapter/templates/<name>/`,
+  `hermit/agent/evolver/methods/<name>/` and an example under `examples/<task>/<name>/`.
+  Dependency registration in `pyproject.toml` and `hermit/agent/evolver/dependencies.py` follows the instructions
+  below. Changes to shared framework behavior need a separate discussion and pull request, which lands before
+  the reproduction.
 - Task-side adaptations of an acting agent (for example, deploying a memory file into a Codex workspace and
   collecting it afterwards) are application code under `examples/` and are allowed, listed separately in the pull
   request.
@@ -126,29 +127,9 @@ These rules apply to a pull request that reproduces a published method; other pu
 - Open it as a draft until the first evaluation has run and its row is in the description.
 - The description carries the table of section 2, the protocol of section 3, the settings and result of section 4,
   the list of application-side changes, and what is left out. No attribution lines.
-- The description answers eight questions, each in a few sentences, with links to the files, runs and records it
-  rests on:
-  1. **Core changes.** Does the pull request change the core (anything in `hermit/` outside the method's template
-     and Evolver)? If so, what changes, and why can the method not work without it? (Section 1.)
-  2. **Adapter template.** Does the pull request add a new adapter template, or use an existing one? Which one, and
-     if it is new, why does no existing template fit? What may the learner change, what is fixed, and what reaches
-     the acting agent? (Section 1.)
-  3. **Evolver.** Does the pull request add a new Evolver, or use an existing one? Draw one step as a flow chart (a
-     mermaid diagram in the description is enough): what the Evolver reads, what it calls (the learner, the tools,
-     the rollouts), what it writes, and how the final adapter is chosen. (Section 1.)
-  4. **Experiments.** What was run, and on what? The benchmark and its data (split or stream), the protocol, the
-     acting agent and its model, the Evolver and its model, the budgets, the number of runs, and the results
-     against the baselines measured on the same settings. (Sections 3 and 4.)
-  5. **Documentation.** Which documents were added or changed to match (method page, recipe, example README,
-     method index, changelog)? (Section 5, step 5.)
-  6. **This description.** Have you read it end to end, and does every path, name, number and claim in it match the
-     code and the run records it links to?
-  7. **Independent review.** Has an independent agent (a separate session, not the one that wrote the change)
-     reviewed the pull request for code quality and potential issues? Say what it found and what was changed.
-  8. **Agent three-layer abstraction.** Does the reproduction follow the current
-     [Model → Base Agent → Acting / Evolver Agent abstraction](../framework/agent-layers.md)? Identify the layers
-     for each acting and learning role, and name the Base Agent and shared API used for each model or CLI call
-     (including the framework's `llm` tool or `ChatEndpoint` where appropriate). Explain how it reuses session,
-     configuration, login-plan, timeout, cancellation and usage-accounting behavior. If a capability is missing,
-     explain how the shared layer should be extended rather than duplicating it in a method-specific caller.
-- Any core change is a separate pull request, discussed before it is written.
+- Complete the [general PR checklist](https://github.com/Infini-AI-Lab/hermit/blob/main/.agents/skills/prepare-pr/references/general-pr-checklist.md)
+  and [method reproduction checklist](https://github.com/Infini-AI-Lab/hermit/blob/main/.agents/skills/reproduce-method/references/reproduction-checklist.md).
+  Give brief answers with links to the supporting files, runs and records.
+- Follow the repository's PR template and [prepare-pr workflow](https://github.com/Infini-AI-Lab/hermit/blob/main/.agents/skills/prepare-pr/SKILL.md)
+  to place the answers under `Change`, `Validation` and `Review`. Answer overlapping items once and reference
+  existing explanations rather than repeating them.
