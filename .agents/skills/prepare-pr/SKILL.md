@@ -40,7 +40,8 @@ template's sections and existing checkboxes:
   Reference answers in `Change` or `Validation` rather than repeating them.
 
 Only mark completed checks as complete; explain inapplicable items. Keep long
-logs in links or collapsible details.
+logs in links or collapsible details. If independent review will run after PR
+creation, leave that item unchecked and state that it is pending.
 
 ## Read back and deliver
 
@@ -50,3 +51,6 @@ that no longer covers the change.
 
 Return the proposed title and body when a preview is requested. Commit, push or
 publish only when included in the user's authorization.
+
+After creating a PR or updating its code, follow
+[post-pr-audit](../post-pr-audit/SKILL.md) for an independent review of the actual PR.

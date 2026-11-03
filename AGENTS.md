@@ -28,4 +28,6 @@ python -m pytest tests/test_training.py tests/test_spec.py tests/test_deploy.py
 - For method reproductions, read the [reproduction guide](docs/developer/reproducing-a-method.md)
   and [reproduce-method skill](.agents/skills/reproduce-method/SKILL.md).
 - Before submitting or updating a PR, follow [prepare-pr](.agents/skills/prepare-pr/SKILL.md)
-  and complete the general and all applicable task-specific checklists.
+  and perform the applicable local checks.
+- After creating a PR or updating its code, use [post-pr-audit](.agents/skills/post-pr-audit/SKILL.md)
+  for independent review against the general and applicable task-specific checklists.
