@@ -9,9 +9,9 @@ question's parsed source pages in the prompt, and exact match. It trains the age
 with Meta-Harness Adapter whole adapters written by a coding-agent proposer (Codex harness only), and compares them
 with no skill and with SkillOpt's initial skill, in both of the paper's harnesses: direct chat, with read and grep
 tools limited to the question's source files, and Codex, a `codex exec` session with the whole corpus. The same
-methods, Meta-Harness Adapter aside, are run a second time with Codex and GPT-5.6-Luna acting and learning on a
-ChatGPT login, the second column of the [Results](#results) table, where [ACE](ace/) also grows a playbook of
-bullets after that skill.
+methods are run a second time with Codex and GPT-5.6-Luna acting and learning on a ChatGPT login, the second column
+of the [Results](#results) table, where RRSI Adapter joins them and [ACE](ace/) also grows a playbook of bullets after
+that skill.
 
 ## Setup
 
@@ -109,7 +109,8 @@ container per session. Each evaluation makes one pass over the 172 test question
 <tr><td>initial skill</td><td>0.576</td><td>0.360</td></tr>
 <tr><td><b>GEPA</b></td><td>0.580</td><td>0.600</td></tr>
 <tr><td><b>SkillOpt</b></td><td>0.600</td><td>0.546</td></tr>
-<tr><td><b>Meta-Harness Adapter</b></td><td>0.640</td><td>not run</td></tr>
+<tr><td><b>Meta-Harness Adapter</b></td><td>0.640</td><td>0.605</td></tr>
+<tr><td><b>RRSI Adapter</b></td><td>not run</td><td>0.616</td></tr>
 <tr><td><b>Continual Harness</b></td><td>0.634</td><td>0.477</td></tr>
 <tr><td><b>ReHarness</b></td><td>0.634</td><td>0.517</td></tr>
 <tr><td><b>Harness²</b></td><td>0.651</td><td>0.611</td></tr>
@@ -127,6 +128,10 @@ Results use two settings:
   Adapter](../../docs/methods/meta_harness_adapter.md) searches on the 50 training questions alone (no validation
   questions) and evaluates its best candidate once on the 172; one training, in the Codex harness the streams use
   ([`meta_harness_adapter/run.yaml`](meta_harness_adapter/run.yaml), [result](meta_harness_adapter/#result)).
+  [RRSI Adapter](../../docs/methods/rrsi_adapter.md) evolves the adapter on the 50 training questions with two trials
+  each (no validation questions), ten rounds of two candidates under RRSI's regularizers, and evaluates the final
+  incumbent once on the 172; the mean of four trainings, GPT-5.6-Luna only, in the same Codex harness
+  ([`rrsi_adapter/run_luna.yaml`](rrsi_adapter/run_luna.yaml), [result](rrsi_adapter/#result)).
 - **Test streaming:** [Continual Harness](../../docs/methods/continual_harness.md) and
   [Harness²](../../docs/methods/harness2.md) each process the 172 test questions once in the same order,
   updating the adapter as they go, without a separate training split or access to judge verdicts. These
@@ -155,10 +160,21 @@ differences from the paper: the [recipe](../../docs/recipes/officeqa.md#the-flas
 
 The GPT-5.6-Luna column is the same methods with the model changed and nothing else of the protocol: GPT-5.6-Luna
 acting and learning on the machine's ChatGPT login instead of GLM 5.3 Flash on Fireworks, the same data, split, seed
-skill, judge, parameters, stream order and one pass (Meta-Harness Adapter was not run). It starts 22–23 points lower
-and gains more from every method, most from GEPA, SkillOpt and Harness², and almost all of the gain is the answer's
-form: a check of every answer finds the share with the right value at 0.66–0.71 in every cell of the column. What
-differs from the GLM column, the intervals, the paired differences and the check: the
+skill, judge, parameters, stream order and one pass (Meta-Harness Adapter's run on this column came later,
+`meta_harness_adapter/run_codex_luna.yaml`; RRSI Adapter and ACE ran on this column only). It starts 22–23 points
+lower and gains more from every method, most from ACE, RRSI Adapter, Harness², Meta-Harness Adapter and GEPA
+(0.600–0.640), and almost all of the gain is the answer's form: a check of every answer finds the share with the
+right value at 0.66–0.71 in every cell of the column it was run on (all but ACE's). Meta-Harness Adapter and RRSI
+Adapter, which search whole adapters in the Codex harness the streams use, reach GEPA and Harness² too, from 0.378 and
+0.355 for their starting adapter, measured in different windows and through different acting agents (0.378 through PR
+#54's OfficeQA Codex agent with `deploy: adapter`, as Meta-Harness Adapter ran; 0.355 through the framework's Codex
+agent, as RRSI Adapter ran on the agent layers; paired, −2.3 [−7.6, +2.9]) (Meta-Harness Adapter − GEPA +0.4
+[−3.9, +4.7]; RRSI Adapter, its four trainings averaged per question, − GEPA +1.6 [−1.6, +4.8], − Meta-Harness Adapter
++1.2 [−2.9, +5.5], − its start +26.2 [+20.1, +32.6], almost all of it the answer's form: checked answer by answer, the
+share with the right value is 0.680 for the start and 0.712 for the four, +3.2 [−0.1, +6.7] on the value alone). A
+Meta-Harness Adapter training used 650 rollouts and 3 M learner tokens, an RRSI Adapter training 2,100 rollouts and
+148–179 M. What differs from the GLM column, the
+intervals, the paired differences and the check: the
 [recipe](../../docs/recipes/officeqa.md#the-flash-row-with-gpt-56-luna).
 
 The earlier direct-chat runs (`run.yaml`, `stream.yaml`: SkillOpt's rollout, three passes) are in the recipe's
@@ -185,4 +201,9 @@ reharness/          ReHarness: stream_codex.yaml (the 172 test questions as one 
 ace/                ACE: run_codex_luna.yaml and smoke_codex_luna.yaml in the GPT-5.6-Luna setting; make_seed.py
                     writes seed_adapter/, the initial skill with ACE's empty playbook; adapter/ is the measured
                     run's final playbook, with its .hermit/CARD.md
+rrsi_adapter/       RRSI Adapter on the GPT-5.6-Luna column: run_luna.yaml and smoke_luna.yaml, rrsi.json (RRSI's
+                    hyperparameters), run_luna_eng.yaml with rrsi_eng.json (the engineering instance's selection
+                    weights), domain.py and texts/ (the benchmark's rules and the roles' texts, adapted from
+                    upstream's), trials.py and make_rows.py (two trials per training question as rows <id>#k),
+                    make_seed.py
 ```

@@ -1,0 +1,132 @@
+config:
+  data:
+    tasks: rows/tasks.jsonl
+    train: rows/train_k2.txt
+    val: null
+    test: ../utils/splits/test.txt
+    step_size: 100
+    shuffle: false
+    shuffle_seed: 0
+  task_info: task-info/
+  agent:
+    name: trials.py:TrialCodexAgent
+    concurrency: 6
+    timeout_min: null
+    params:
+      prompt: ../utils/prompt.md
+      prepare: ../utils/task.py:prepare
+      answer: ../utils/task.py:answer
+      collect: ../utils/task.py:collect
+      workspaces: ~/.cache/hermit/officeqa-rrsi-codex-luna
+      base: codex
+      login: chatgpt
+      effort: medium
+      model: gpt-5.6-luna
+      web_search: false
+      timeout_s: 3600
+      project_doc_max_bytes: 65536
+      isolation: container
+      container:
+        image: officeqa-codex:0.164.0
+        network: oq-sandbox
+        proxy: http://oq-egress-chatgpt:3128
+  pipeline:
+    run: null
+    concurrency: null
+    params: {}
+  judge:
+    path: trials.py
+    name: score
+  template: rrsi-adapter@1.0
+  start_from: seed_adapter
+  evolver:
+    name: rrsi_adapter
+    resume: false
+    params:
+      domain: domain.py:OfficeQADomain
+      rrsi: rrsi_eng.json
+      role_timeout_s: 1800
+      backend: codex
+      login: chatgpt
+      effort: medium
+      model: gpt-5.6-luna
+  evolver_access:
+    environment: []
+    tools: []
+    send_material_out: false
+  sandbox:
+    enabled: true
+    enforce: required
+    network: restricted
+    allow:
+    - chatgpt.com
+    read: []
+    packages: []
+    env: []
+    audit: null
+    profiles:
+      rollout:
+        enabled: false
+  model: null
+  backends: {}
+  llm: null
+  trainer:
+    run_name: luna-rrsi-eng-p
+    output_dir: runs
+    tree_dir: runs/trees/luna-rrsi-eng-p
+    epochs: 30
+    allow_early_stop: true
+    resume_mode: auto
+    save_freq:
+      steps: null
+      epochs: 1
+    budget:
+      usd: null
+      tokens: null
+      hours: null
+    call_timeout_min: 360
+  eval:
+    repeats: 1
+template:
+  id: rrsi-adapter
+  version: '1.0'
+  contract: '2'
+  name: RRSI Adapter
+tree: <checkout>/examples/officeqa/rrsi_adapter/runs/trees/luna-rrsi-eng-p
+branch: luna-rrsi-eng-p
+start: 9754d7cfa5925ef7ea98b8ff28b72c8ac5d6df65
+evolver:
+  name: rrsi_adapter
+  directory: <checkout>/hermit/agent/evolver/methods/rrsi_adapter
+  class: evolver.py:RRSIAdapterEvolver
+  needs: []
+  params:
+    backend: codex
+    prompt: PROPOSE.md
+    args: []
+    model: gpt-5.6-luna
+    login: chatgpt
+    effort: medium
+    price: null
+    home:
+    - auth.json
+    - .credentials.json
+    tools:
+    - check_spec
+    web_search: false
+    hide: null
+    domain: domain.py:OfficeQADomain
+    rrsi: rrsi_eng.json
+    roles: {}
+    role_timeout_s: 1800
+    smoke: true
+    max_failures: 3
+    session_retries: 2
+    session_retry_wait_s: 120
+    stop_file: null
+    halt_file: null
+    halt_wait_min: 240
+warnings:
+- 'sandbox.network is restricted through a proxy (best effort): a program that ignores
+  proxy variables can still reach the network.'
+python: <checkout>-venv/bin/python3

@@ -1,0 +1,7 @@
+# Meta-Harness Adapter, after Meta-Harness (Lee et al., arXiv:2603.28052): the adapter is everything the proposer
+# searches over; the acting agent is fixed. No `structure`: every file outside .hermit/ is learnable, in any layout.
+template:
+  id: meta-harness-adapter
+  version: "1.0"
+  contract: "2"
+  name: Meta-Harness Adapter

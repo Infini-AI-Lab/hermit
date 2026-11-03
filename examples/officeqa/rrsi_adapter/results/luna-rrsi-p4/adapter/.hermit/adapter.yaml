@@ -1,0 +1,8 @@
+# RRSI Adapter, after RRSI (Xia et al., arXiv:2609.24972): the adapter is the harness H the search edits; the acting
+# agent is fixed. As in meta-harness-adapter there is no `structure`: every file outside .hermit/ is learnable, in
+# any layout. EVOLVER.md names RRSI's component vocabulary K and where each component lives in an adapter.
+template:
+  id: rrsi-adapter
+  version: "1.0"
+  contract: "2"
+  name: RRSI Adapter

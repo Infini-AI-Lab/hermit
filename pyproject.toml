@@ -36,11 +36,15 @@ harness2 = [
 ace = [
     "sentence-transformers>=2.2.0",
 ]
+rrsi = [
+    "rrsi @ git+https://github.com/google-research/rrsi@be50316e1db05914068a973f322770ef08ed7ba1",
+]
 all = [
     { include-group = "gepa" },
     { include-group = "skillopt" },
     { include-group = "harness2" },
     { include-group = "ace" },
+    { include-group = "rrsi" },
 ]
 
 [project.scripts]

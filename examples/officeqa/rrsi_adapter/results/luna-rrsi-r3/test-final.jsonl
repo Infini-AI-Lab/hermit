@@ -1,0 +1,172 @@
+{"id": "UID0003", "score": 1.0, "value": "exact", "answered": true, "tokens": 43118, "wall_s": 14.9, "status": "ok", "error": null}
+{"id": "UID0004", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 208280, "wall_s": 36.6, "status": "ok", "error": null}
+{"id": "UID0005", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 241786, "wall_s": 31.0, "status": "ok", "error": null}
+{"id": "UID0006", "score": 1.0, "value": "exact", "answered": true, "tokens": 89999, "wall_s": 20.7, "status": "ok", "error": null}
+{"id": "UID0008", "score": 1.0, "value": "exact", "answered": true, "tokens": 124121, "wall_s": 25.0, "status": "ok", "error": null}
+{"id": "UID0009", "score": 0.0, "value": "right value, other form", "answered": true, "tokens": 132551, "wall_s": 28.7, "status": "ok", "error": null}
+{"id": "UID0010", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 200497, "wall_s": 36.3, "status": "ok", "error": null}
+{"id": "UID0011", "score": 1.0, "value": "exact", "answered": true, "tokens": 93200, "wall_s": 17.7, "status": "ok", "error": null}
+{"id": "UID0012", "score": 1.0, "value": "exact", "answered": true, "tokens": 95263, "wall_s": 37.7, "status": "ok", "error": null}
+{"id": "UID0013", "score": 0.0, "value": "right value, other form", "answered": true, "tokens": 109631, "wall_s": 20.7, "status": "ok", "error": null}
+{"id": "UID0015", "score": 1.0, "value": "exact", "answered": true, "tokens": 110636, "wall_s": 19.3, "status": "ok", "error": null}
+{"id": "UID0016", "score": 1.0, "value": "exact", "answered": true, "tokens": 197848, "wall_s": 30.6, "status": "ok", "error": null}
+{"id": "UID0020", "score": 1.0, "value": "exact", "answered": true, "tokens": 62322, "wall_s": 22.4, "status": "ok", "error": null}
+{"id": "UID0021", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 91926, "wall_s": 17.8, "status": "ok", "error": null}
+{"id": "UID0022", "score": 1.0, "value": "exact", "answered": true, "tokens": 148211, "wall_s": 25.6, "status": "ok", "error": null}
+{"id": "UID0023", "score": 1.0, "value": "exact", "answered": true, "tokens": 76225, "wall_s": 15.6, "status": "ok", "error": null}
+{"id": "UID0024", "score": 1.0, "value": "exact", "answered": true, "tokens": 42798, "wall_s": 11.8, "status": "ok", "error": null}
+{"id": "UID0025", "score": 1.0, "value": "exact", "answered": true, "tokens": 151450, "wall_s": 37.8, "status": "ok", "error": null}
+{"id": "UID0029", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 298186, "wall_s": 88.3, "status": "ok", "error": null}
+{"id": "UID0032", "score": 1.0, "value": "exact", "answered": true, "tokens": 44930, "wall_s": 15.2, "status": "ok", "error": null}
+{"id": "UID0035", "score": 1.0, "value": "exact", "answered": true, "tokens": 161548, "wall_s": 37.3, "status": "ok", "error": null}
+{"id": "UID0036", "score": 0.0, "value": "right value, other form", "answered": true, "tokens": 147544, "wall_s": 39.9, "status": "ok", "error": null}
+{"id": "UID0037", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 468061, "wall_s": 42.6, "status": "ok", "error": null}
+{"id": "UID0038", "score": 1.0, "value": "exact", "answered": true, "tokens": 88209, "wall_s": 20.3, "status": "ok", "error": null}
+{"id": "UID0040", "score": 1.0, "value": "exact", "answered": true, "tokens": 55324, "wall_s": 16.4, "status": "ok", "error": null}
+{"id": "UID0042", "score": 1.0, "value": "exact", "answered": true, "tokens": 133272, "wall_s": 23.8, "status": "ok", "error": null}
+{"id": "UID0043", "score": 1.0, "value": "exact", "answered": true, "tokens": 64400, "wall_s": 22.3, "status": "ok", "error": null}
+{"id": "UID0045", "score": 1.0, "value": "exact", "answered": true, "tokens": 214927, "wall_s": 26.9, "status": "ok", "error": null}
+{"id": "UID0047", "score": 1.0, "value": "exact", "answered": true, "tokens": 118793, "wall_s": 20.5, "status": "ok", "error": null}
+{"id": "UID0048", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 42811, "wall_s": 15.7, "status": "ok", "error": null}
+{"id": "UID0050", "score": 1.0, "value": "exact", "answered": true, "tokens": 116996, "wall_s": 35.2, "status": "ok", "error": null}
+{"id": "UID0051", "score": 1.0, "value": "exact", "answered": true, "tokens": 71890, "wall_s": 27.0, "status": "ok", "error": null}
+{"id": "UID0053", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 176173, "wall_s": 29.7, "status": "ok", "error": null}
+{"id": "UID0054", "score": 1.0, "value": "exact", "answered": true, "tokens": 41006, "wall_s": 19.8, "status": "ok", "error": null}
+{"id": "UID0055", "score": 1.0, "value": "exact", "answered": true, "tokens": 177170, "wall_s": 23.2, "status": "ok", "error": null}
+{"id": "UID0057", "score": 0.0, "value": "right value, other form", "answered": true, "tokens": 213581, "wall_s": 32.2, "status": "ok", "error": null}
+{"id": "UID0058", "score": 1.0, "value": "exact", "answered": true, "tokens": 235714, "wall_s": 32.9, "status": "ok", "error": null}
+{"id": "UID0059", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 52596, "wall_s": 17.7, "status": "ok", "error": null}
+{"id": "UID0060", "score": 0.0, "value": "right value, other form", "answered": true, "tokens": 72444, "wall_s": 19.0, "status": "ok", "error": null}
+{"id": "UID0061", "score": 1.0, "value": "exact", "answered": true, "tokens": 75551, "wall_s": 21.1, "status": "ok", "error": null}
+{"id": "UID0062", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 84146, "wall_s": 25.9, "status": "ok", "error": null}
+{"id": "UID0064", "score": 1.0, "value": "exact", "answered": true, "tokens": 119841, "wall_s": 20.9, "status": "ok", "error": null}
+{"id": "UID0066", "score": 1.0, "value": "exact", "answered": true, "tokens": 172523, "wall_s": 31.5, "status": "ok", "error": null}
+{"id": "UID0067", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 78820, "wall_s": 15.3, "status": "ok", "error": null}
+{"id": "UID0068", "score": 1.0, "value": "exact", "answered": true, "tokens": 157019, "wall_s": 32.8, "status": "ok", "error": null}
+{"id": "UID0069", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 153897, "wall_s": 31.1, "status": "ok", "error": null}
+{"id": "UID0071", "score": 1.0, "value": "exact", "answered": true, "tokens": 436805, "wall_s": 43.2, "status": "ok", "error": null}
+{"id": "UID0074", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 91669, "wall_s": 18.6, "status": "ok", "error": null}
+{"id": "UID0075", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 144717, "wall_s": 34.1, "status": "ok", "error": null}
+{"id": "UID0076", "score": 1.0, "value": "exact", "answered": true, "tokens": 69771, "wall_s": 30.5, "status": "ok", "error": null}
+{"id": "UID0077", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 326089, "wall_s": 68.6, "status": "ok", "error": null}
+{"id": "UID0078", "score": 0.0, "value": "right value, other form", "answered": true, "tokens": 84292, "wall_s": 22.5, "status": "ok", "error": null}
+{"id": "UID0080", "score": 1.0, "value": "exact", "answered": true, "tokens": 77954, "wall_s": 16.8, "status": "ok", "error": null}
+{"id": "UID0081", "score": 1.0, "value": "exact", "answered": true, "tokens": 86770, "wall_s": 25.0, "status": "ok", "error": null}
+{"id": "UID0082", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 119682, "wall_s": 25.2, "status": "ok", "error": null}
+{"id": "UID0084", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 92381, "wall_s": 21.3, "status": "ok", "error": null}
+{"id": "UID0088", "score": 1.0, "value": "exact", "answered": true, "tokens": 91219, "wall_s": 25.2, "status": "ok", "error": null}
+{"id": "UID0089", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 403145, "wall_s": 42.6, "status": "ok", "error": null}
+{"id": "UID0090", "score": 1.0, "value": "exact", "answered": true, "tokens": 58015, "wall_s": 21.7, "status": "ok", "error": null}
+{"id": "UID0093", "score": 1.0, "value": "exact", "answered": true, "tokens": 50669, "wall_s": 10.9, "status": "ok", "error": null}
+{"id": "UID0094", "score": 1.0, "value": "exact", "answered": true, "tokens": 173280, "wall_s": 28.0, "status": "ok", "error": null}
+{"id": "UID0095", "score": 1.0, "value": "exact", "answered": true, "tokens": 68170, "wall_s": 16.7, "status": "ok", "error": null}
+{"id": "UID0096", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 104480, "wall_s": 25.7, "status": "ok", "error": null}
+{"id": "UID0097", "score": 1.0, "value": "exact", "answered": true, "tokens": 73625, "wall_s": 27.7, "status": "ok", "error": null}
+{"id": "UID0099", "score": 1.0, "value": "exact", "answered": true, "tokens": 96289, "wall_s": 20.2, "status": "ok", "error": null}
+{"id": "UID0100", "score": 1.0, "value": "exact", "answered": true, "tokens": 133836, "wall_s": 33.9, "status": "ok", "error": null}
+{"id": "UID0102", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 301953, "wall_s": 37.2, "status": "ok", "error": null}
+{"id": "UID0103", "score": 1.0, "value": "exact", "answered": true, "tokens": 118700, "wall_s": 32.0, "status": "ok", "error": null}
+{"id": "UID0104", "score": 1.0, "value": "exact", "answered": true, "tokens": 165496, "wall_s": 26.6, "status": "ok", "error": null}
+{"id": "UID0105", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 143486, "wall_s": 29.6, "status": "ok", "error": null}
+{"id": "UID0106", "score": 1.0, "value": "exact", "answered": true, "tokens": 95122, "wall_s": 20.2, "status": "ok", "error": null}
+{"id": "UID0107", "score": 1.0, "value": "exact", "answered": true, "tokens": 144153, "wall_s": 43.9, "status": "ok", "error": null}
+{"id": "UID0108", "score": 1.0, "value": "exact", "answered": true, "tokens": 94692, "wall_s": 24.0, "status": "ok", "error": null}
+{"id": "UID0111", "score": 1.0, "value": "exact", "answered": true, "tokens": 193592, "wall_s": 30.5, "status": "ok", "error": null}
+{"id": "UID0112", "score": 1.0, "value": "exact", "answered": true, "tokens": 87432, "wall_s": 18.3, "status": "ok", "error": null}
+{"id": "UID0113", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 160454, "wall_s": 22.4, "status": "ok", "error": null}
+{"id": "UID0114", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 461950, "wall_s": 59.9, "status": "ok", "error": null}
+{"id": "UID0116", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 125296, "wall_s": 45.8, "status": "ok", "error": null}
+{"id": "UID0117", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 222347, "wall_s": 22.7, "status": "ok", "error": null}
+{"id": "UID0118", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 283848, "wall_s": 53.3, "status": "ok", "error": null}
+{"id": "UID0119", "score": 1.0, "value": "exact", "answered": true, "tokens": 85889, "wall_s": 20.7, "status": "ok", "error": null}
+{"id": "UID0120", "score": 0.0, "value": "right value, other form", "answered": true, "tokens": 256270, "wall_s": 26.9, "status": "ok", "error": null}
+{"id": "UID0121", "score": 1.0, "value": "exact", "answered": true, "tokens": 71176, "wall_s": 18.8, "status": "ok", "error": null}
+{"id": "UID0124", "score": 1.0, "value": "exact", "answered": true, "tokens": 216448, "wall_s": 30.7, "status": "ok", "error": null}
+{"id": "UID0125", "score": 1.0, "value": "exact", "answered": true, "tokens": 113686, "wall_s": 20.2, "status": "ok", "error": null}
+{"id": "UID0126", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 278068, "wall_s": 25.4, "status": "ok", "error": null}
+{"id": "UID0127", "score": 1.0, "value": "exact", "answered": true, "tokens": 43114, "wall_s": 22.4, "status": "ok", "error": null}
+{"id": "UID0128", "score": 1.0, "value": "exact", "answered": true, "tokens": 108151, "wall_s": 20.7, "status": "ok", "error": null}
+{"id": "UID0129", "score": 1.0, "value": "exact", "answered": true, "tokens": 109957, "wall_s": 23.0, "status": "ok", "error": null}
+{"id": "UID0130", "score": 1.0, "value": "exact", "answered": true, "tokens": 42614, "wall_s": 12.8, "status": "ok", "error": null}
+{"id": "UID0131", "score": 1.0, "value": "exact", "answered": true, "tokens": 85420, "wall_s": 16.8, "status": "ok", "error": null}
+{"id": "UID0132", "score": 1.0, "value": "exact", "answered": true, "tokens": 63967, "wall_s": 16.2, "status": "ok", "error": null}
+{"id": "UID0134", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 126241, "wall_s": 22.3, "status": "ok", "error": null}
+{"id": "UID0135", "score": 1.0, "value": "exact", "answered": true, "tokens": 323319, "wall_s": 33.2, "status": "ok", "error": null}
+{"id": "UID0136", "score": 1.0, "value": "exact", "answered": true, "tokens": 103923, "wall_s": 28.5, "status": "ok", "error": null}
+{"id": "UID0137", "score": 1.0, "value": "exact", "answered": true, "tokens": 115568, "wall_s": 21.3, "status": "ok", "error": null}
+{"id": "UID0138", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 151258, "wall_s": 21.5, "status": "ok", "error": null}
+{"id": "UID0139", "score": 1.0, "value": "exact", "answered": true, "tokens": 168001, "wall_s": 33.8, "status": "ok", "error": null}
+{"id": "UID0140", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 371403, "wall_s": 51.6, "status": "ok", "error": null}
+{"id": "UID0143", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 120480, "wall_s": 23.5, "status": "ok", "error": null}
+{"id": "UID0146", "score": 1.0, "value": "exact", "answered": true, "tokens": 56512, "wall_s": 15.5, "status": "ok", "error": null}
+{"id": "UID0147", "score": 1.0, "value": "exact", "answered": true, "tokens": 138276, "wall_s": 25.9, "status": "ok", "error": null}
+{"id": "UID0148", "score": 0.0, "value": "right value, other form", "answered": true, "tokens": 93670, "wall_s": 54.4, "status": "ok", "error": null}
+{"id": "UID0149", "score": 1.0, "value": "exact", "answered": true, "tokens": 169949, "wall_s": 30.9, "status": "ok", "error": null}
+{"id": "UID0152", "score": 1.0, "value": "exact", "answered": true, "tokens": 59043, "wall_s": 15.5, "status": "ok", "error": null}
+{"id": "UID0153", "score": 1.0, "value": "exact", "answered": true, "tokens": 55071, "wall_s": 16.4, "status": "ok", "error": null}
+{"id": "UID0155", "score": 1.0, "value": "exact", "answered": true, "tokens": 98583, "wall_s": 30.6, "status": "ok", "error": null}
+{"id": "UID0156", "score": 1.0, "value": "exact", "answered": true, "tokens": 44690, "wall_s": 11.4, "status": "ok", "error": null}
+{"id": "UID0157", "score": 1.0, "value": "exact", "answered": true, "tokens": 58227, "wall_s": 16.9, "status": "ok", "error": null}
+{"id": "UID0158", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 246987, "wall_s": 37.7, "status": "ok", "error": null}
+{"id": "UID0160", "score": 0.0, "value": "right value, other form", "answered": true, "tokens": 86093, "wall_s": 17.7, "status": "ok", "error": null}
+{"id": "UID0164", "score": 1.0, "value": "exact", "answered": true, "tokens": 48658, "wall_s": 14.0, "status": "ok", "error": null}
+{"id": "UID0167", "score": 1.0, "value": "exact", "answered": true, "tokens": 64406, "wall_s": 14.3, "status": "ok", "error": null}
+{"id": "UID0168", "score": 1.0, "value": "exact", "answered": true, "tokens": 229079, "wall_s": 23.7, "status": "ok", "error": null}
+{"id": "UID0171", "score": 1.0, "value": "exact", "answered": true, "tokens": 580536, "wall_s": 56.7, "status": "ok", "error": null}
+{"id": "UID0172", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 180311, "wall_s": 24.0, "status": "ok", "error": null}
+{"id": "UID0173", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 136804, "wall_s": 22.3, "status": "ok", "error": null}
+{"id": "UID0174", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 51502, "wall_s": 13.9, "status": "ok", "error": null}
+{"id": "UID0175", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 191349, "wall_s": 21.7, "status": "ok", "error": null}
+{"id": "UID0176", "score": 1.0, "value": "exact", "answered": true, "tokens": 43486, "wall_s": 13.1, "status": "ok", "error": null}
+{"id": "UID0177", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 257335, "wall_s": 58.0, "status": "ok", "error": null}
+{"id": "UID0178", "score": 1.0, "value": "exact", "answered": true, "tokens": 101578, "wall_s": 19.2, "status": "ok", "error": null}
+{"id": "UID0179", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 135102, "wall_s": 23.1, "status": "ok", "error": null}
+{"id": "UID0180", "score": 1.0, "value": "exact", "answered": true, "tokens": 55310, "wall_s": 11.3, "status": "ok", "error": null}
+{"id": "UID0181", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 102145, "wall_s": 17.2, "status": "ok", "error": null}
+{"id": "UID0182", "score": 1.0, "value": "exact", "answered": true, "tokens": 116625, "wall_s": 16.1, "status": "ok", "error": null}
+{"id": "UID0183", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 675947, "wall_s": 46.0, "status": "ok", "error": null}
+{"id": "UID0184", "score": 1.0, "value": "exact", "answered": true, "tokens": 68419, "wall_s": 15.3, "status": "ok", "error": null}
+{"id": "UID0185", "score": 1.0, "value": "exact", "answered": true, "tokens": 203088, "wall_s": 31.8, "status": "ok", "error": null}
+{"id": "UID0186", "score": 1.0, "value": "exact", "answered": true, "tokens": 108556, "wall_s": 20.5, "status": "ok", "error": null}
+{"id": "UID0187", "score": 1.0, "value": "exact", "answered": true, "tokens": 88305, "wall_s": 17.5, "status": "ok", "error": null}
+{"id": "UID0188", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 203421, "wall_s": 28.4, "status": "ok", "error": null}
+{"id": "UID0191", "score": 1.0, "value": "exact", "answered": true, "tokens": 210954, "wall_s": 26.7, "status": "ok", "error": null}
+{"id": "UID0192", "score": 0.0, "value": "right value, other form", "answered": true, "tokens": 44649, "wall_s": 12.5, "status": "ok", "error": null}
+{"id": "UID0193", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 747604, "wall_s": 43.9, "status": "ok", "error": null}
+{"id": "UID0194", "score": 0.0, "value": "right value, other form", "answered": true, "tokens": 71901, "wall_s": 16.2, "status": "ok", "error": null}
+{"id": "UID0196", "score": 0.0, "value": "right value, other form", "answered": true, "tokens": 481202, "wall_s": 40.1, "status": "ok", "error": null}
+{"id": "UID0197", "score": 1.0, "value": "exact", "answered": true, "tokens": 95630, "wall_s": 14.8, "status": "ok", "error": null}
+{"id": "UID0198", "score": 1.0, "value": "exact", "answered": true, "tokens": 356714, "wall_s": 61.2, "status": "ok", "error": null}
+{"id": "UID0199", "score": 1.0, "value": "exact", "answered": true, "tokens": 119978, "wall_s": 19.8, "status": "ok", "error": null}
+{"id": "UID0200", "score": 1.0, "value": "exact", "answered": true, "tokens": 46697, "wall_s": 11.9, "status": "ok", "error": null}
+{"id": "UID0201", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 101260, "wall_s": 21.3, "status": "ok", "error": null}
+{"id": "UID0203", "score": 1.0, "value": "exact", "answered": true, "tokens": 607839, "wall_s": 66.0, "status": "ok", "error": null}
+{"id": "UID0204", "score": 1.0, "value": "exact", "answered": true, "tokens": 42613, "wall_s": 20.6, "status": "ok", "error": null}
+{"id": "UID0205", "score": 1.0, "value": "exact", "answered": true, "tokens": 731793, "wall_s": 46.3, "status": "ok", "error": null}
+{"id": "UID0206", "score": 0.0, "value": "right value, other form", "answered": true, "tokens": 74712, "wall_s": 16.5, "status": "ok", "error": null}
+{"id": "UID0207", "score": 1.0, "value": "exact", "answered": true, "tokens": 70126, "wall_s": 16.4, "status": "ok", "error": null}
+{"id": "UID0208", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 727632, "wall_s": 74.0, "status": "ok", "error": null}
+{"id": "UID0209", "score": 1.0, "value": "exact", "answered": true, "tokens": 155351, "wall_s": 27.9, "status": "ok", "error": null}
+{"id": "UID0210", "score": 1.0, "value": "exact", "answered": true, "tokens": 82880, "wall_s": 20.6, "status": "ok", "error": null}
+{"id": "UID0211", "score": 1.0, "value": "exact", "answered": true, "tokens": 125609, "wall_s": 19.2, "status": "ok", "error": null}
+{"id": "UID0214", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 117446, "wall_s": 21.5, "status": "ok", "error": null}
+{"id": "UID0215", "score": 1.0, "value": "exact", "answered": true, "tokens": 353041, "wall_s": 37.3, "status": "ok", "error": null}
+{"id": "UID0216", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 473424, "wall_s": 37.6, "status": "ok", "error": null}
+{"id": "UID0218", "score": 1.0, "value": "exact", "answered": true, "tokens": 90755, "wall_s": 30.6, "status": "ok", "error": null}
+{"id": "UID0219", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 117073, "wall_s": 22.2, "status": "ok", "error": null}
+{"id": "UID0221", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 352432, "wall_s": 56.5, "status": "ok", "error": null}
+{"id": "UID0223", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 197935, "wall_s": 45.0, "status": "ok", "error": null}
+{"id": "UID0224", "score": 1.0, "value": "exact", "answered": true, "tokens": 165277, "wall_s": 22.8, "status": "ok", "error": null}
+{"id": "UID0225", "score": 0.0, "value": "right value, other form", "answered": true, "tokens": 83929, "wall_s": 20.2, "status": "ok", "error": null}
+{"id": "UID0226", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 62785, "wall_s": 15.8, "status": "ok", "error": null}
+{"id": "UID0227", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 191407, "wall_s": 28.0, "status": "ok", "error": null}
+{"id": "UID0230", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 59622, "wall_s": 20.9, "status": "ok", "error": null}
+{"id": "UID0231", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 306343, "wall_s": 37.4, "status": "ok", "error": null}
+{"id": "UID0232", "score": 1.0, "value": "exact", "answered": true, "tokens": 157052, "wall_s": 25.4, "status": "ok", "error": null}
+{"id": "UID0236", "score": 1.0, "value": "exact", "answered": true, "tokens": 38660, "wall_s": 14.4, "status": "ok", "error": null}
+{"id": "UID0237", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 192906, "wall_s": 29.4, "status": "ok", "error": null}
+{"id": "UID0242", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 330031, "wall_s": 36.8, "status": "ok", "error": null}
+{"id": "UID0243", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 125404, "wall_s": 17.5, "status": "ok", "error": null}
+{"id": "UID0244", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 716014, "wall_s": 92.2, "status": "ok", "error": null}
+{"id": "UID0245", "score": 0.0, "value": "wrong value", "answered": true, "tokens": 263528, "wall_s": 28.5, "status": "ok", "error": null}
+{"id": "UID0246", "score": 1.0, "value": "exact", "answered": true, "tokens": 239578, "wall_s": 40.1, "status": "ok", "error": null}

@@ -1,0 +1,7 @@
+RRSI Adapter calls the RRSI package (https://github.com/google-research/rrsi, commit
+be50316e1db05914068a973f322770ef08ed7ba1), Copyright 2026 Google LLC and the rrsi Authors, licensed under the Apache
+License, Version 2.0, installed from its own repository (the `rrsi` dependency group); none of its code is copied here.
+
+PROPOSE.md adapts the proposer's system text and done() contract of rrsi/propose.py, and the repair text of
+rrsi/propose.py and rrsi/loop.py, to a Codex or Claude Code session editing an adapter; the examples' SKILL.md,
+PATTERNS.md and briefs.json adapt the domain texts of rrsi/domains/{coding,workspace}/. Each adapted file says so.

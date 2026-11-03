@@ -202,6 +202,7 @@ accepted; a key given in two layers is refused. On the command line a layer's se
 | OfficeQA in direct chat | Acting Agent running SkillOpt's chat loop | `direct`, per turn |
 | GEPA, SkillOpt, ReHarness, Continual Harness | Evolver Agent | `direct` (`ctx.agent`) |
 | Meta-Harness Adapter, `codex` and `claude` Evolvers | Evolver Agent | `codex` or `claude` |
+| RRSI Adapter | Evolver Agent: upstream's rules and roles, the proposer's prompt | `codex` or `claude` for the proposer; `codex`, one call per upstream `generate`, for the analyst, digesters and critic |
 | CL-Bench, ServeLearnBench | Acting Agent running the benchmark's loop | `direct`, per call, through the local endpoint |
 | MWM | Evolver Agent | `codex`, in MWM's native mounts (`NativeMounts` as the sandbox, told `/w`) |
 | Harness² | Evolver Agent: upstream's proposer | `claude`, one call per upstream session |

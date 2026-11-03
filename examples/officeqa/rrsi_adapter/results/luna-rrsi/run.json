@@ -1,0 +1,11 @@
+{
+ "run": "luna-rrsi",
+ "eval": {
+  "adapter": "<checkout>/examples/officeqa/rrsi_adapter/seed_adapter",
+  "tasks": 172,
+  "repeats": 1,
+  "mean_score": 0.37790697674418605,
+  "errors": 0,
+  "wall_s": 528.8
+ }
+}

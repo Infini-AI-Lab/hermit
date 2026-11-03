@@ -1,0 +1,151 @@
+config:
+  data:
+    tasks: ../utils/tasks.jsonl
+    train: ../utils/splits/train.txt
+    val: null
+    test: ../utils/splits/test.txt
+    step_size: 50
+    shuffle: false
+    shuffle_seed: 0
+  task_info: task-info/
+  agent:
+    name: ../utils/agent/codex_agent.py:OfficeQACodexAgent
+    concurrency: 8
+    timeout_min: null
+    params:
+      model:
+        ref: codexplan/gpt-5.6-luna
+        backend: codexplan
+        model: gpt-5.6-luna
+        base_url: https://chatgpt.com/backend-api/codex
+        api_key_env: null
+        key_required: false
+        apis:
+        - chat
+        - responses
+        messages_url: https://chatgpt.com/backend-api/codex
+        litellm: openai/gpt-5.6-luna
+        price: null
+        extra_body: {}
+        context_window: null
+      effort: medium
+      timeout_s: 3600
+      codex_dir: ~/.cache/hermit/officeqa-mh-codex-luna
+      deploy: adapter
+  pipeline:
+    run: null
+    concurrency: null
+    params: {}
+  judge:
+    path: ../utils/judge.py
+    name: score
+  template: meta-harness-adapter@1.0
+  start_from: seed_adapter
+  evolver:
+    name: meta_harness_adapter
+    resume: false
+    params:
+      model: gpt-5.6-luna
+      args: &id001
+      - -c
+      - model_reasoning_effort="medium"
+      - -c
+      - forced_login_method="chatgpt"
+      - -c
+      - cli_auth_credentials_store="file"
+      - -c
+      - web_search="disabled"
+      - -c
+      - check_for_update_on_startup=false
+      - -c
+      - features.apps=false
+      - -c
+      - features.plugins=false
+      - -c
+      - features.remote_plugin=false
+      - -c
+      - features.browser_use=false
+      - -c
+      - features.browser_use_external=false
+      - -c
+      - features.computer_use=false
+      - -c
+      - features.in_app_browser=false
+      home: &id002
+      - auth.json
+      k: 2
+      max_rounds: 6
+  evolver_access:
+    environment: []
+    tools: []
+    send_material_out: false
+  sandbox:
+    enabled: true
+    enforce: required
+    network: restricted
+    allow:
+    - chatgpt.com
+    read:
+    - ../utils/documents
+    packages: []
+    env: []
+    audit: null
+    profiles:
+      rollout:
+        enabled: false
+  model: null
+  backends:
+    codexplan:
+      base_url: https://chatgpt.com/backend-api/codex
+      key_required: false
+      api_key_env: null
+      apis:
+      - chat
+      - responses
+  llm: null
+  trainer:
+    run_name: luna-mh
+    output_dir: runs
+    tree_dir: runs/trees/luna-mh
+    epochs: 13
+    allow_early_stop: false
+    resume_mode: auto
+    save_freq:
+      steps: null
+      epochs: 1
+    budget:
+      usd: null
+      tokens: null
+      hours: null
+    call_timeout_min: 120
+  eval:
+    repeats: 1
+template:
+  id: meta-harness-adapter
+  version: '1.0'
+  contract: '2'
+  name: Meta-Harness Adapter
+tree: <checkout>/examples/officeqa/meta_harness_adapter/runs/trees/luna-mh
+branch: luna-mh
+start: c9f07eb0dff2dfb7b30cfecd5263bbb88a1099c5
+evolver:
+  name: meta_harness_adapter
+  directory: <checkout>/hermit/algorithms/evolvers/meta_harness_adapter
+  class: evolver.py:MetaHarnessAdapterEvolver
+  needs: []
+  params:
+    backend: codex
+    prompt: PROPOSE.md
+    args: *id001
+    model: gpt-5.6-luna
+    price: null
+    home: *id002
+    tools:
+    - check_spec
+    hide: null
+    k: 2
+    max_rounds: 6
+warnings:
+- 'sandbox.network is restricted through a proxy (best effort): a program that ignores
+  proxy variables can still reach the network.'
+python: <checkout>/.venv/bin/python3.12

@@ -1,0 +1,54 @@
+{
+ "run": "luna-rrsi-r2",
+ "stop_reason": "the Evolver stopped the run (allow_early_stop)",
+ "steps": 21,
+ "finalize": "H_T = r06B after 10 rounds (S 0.6100, S* 0.6500, H_0 0.4200; 4 accepted)",
+ "spending": {
+  "usd": {
+   "rollout": 0.0,
+   "evolver": 0.0
+  },
+  "tokens": {
+   "rollout": 464841052,
+   "evolver": 165367002
+  },
+  "unknown_cost_calls": 4158,
+  "seconds": 26218.7
+ },
+ "final_commit": "13ca6ba988ac590c903a855f0c59266b2d855332",
+ "code": [
+  {
+   "framework_commit": "3891bb906d7d959436ef7971dd1d297b322e4a30",
+   "dirty": true,
+   "evolver_sha256": "9aa5c603d030f64a1ea3f8e57904744509372bf0e69b60f746c580fe26d28385",
+   "rrsi_commit": "be50316e1db05914068a973f322770ef08ed7ba1",
+   "step": 1
+  }
+ ],
+ "calibration": {
+  "delta": 0.062886,
+  "z": 2.0,
+  "sd_null": 0.031443,
+  "method": "bootstrap over trials of one base evaluation",
+  "n_evals": 1,
+  "k": 2,
+  "n_tasks": 50,
+  "S_base": 0.42,
+  "C_base": 164096.71
+ },
+ "incumbent": {
+  "t": 7,
+  "cid": "r06B",
+  "S": 0.61,
+  "C": 205255.11
+ },
+ "S_star": 0.65,
+ "eval": {
+  "adapter": "final",
+  "tasks": 172,
+  "repeats": 1,
+  "mean_score": 0.6046511627906976,
+  "errors": 0,
+  "wall_s": 1509.0
+ }
+}

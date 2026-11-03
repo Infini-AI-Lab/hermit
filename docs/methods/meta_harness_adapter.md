@@ -132,5 +132,6 @@ is compared with.
 ## Example
 
 `examples/officeqa/meta_harness_adapter/` runs it on OfficeQA's Flash row: the 50 training questions as the search
-set, six rounds of two candidates, GLM 5.3 Flash acting and proposing through Codex; see its README and the [OfficeQA
+set, six rounds of two candidates, GLM 5.3 Flash acting and proposing through Codex (0.640 on the 172 test
+questions), and the same with GPT-5.6-Luna on a ChatGPT login (0.605); see its README and the [OfficeQA
 recipe](../recipes/officeqa.md).
