@@ -9,7 +9,7 @@ files change. The adapter is the [`ahe-codex`](../../../hermit/adapter/templates
 step is one iteration over the 50 training questions with k = 2 rollouts each (100 rollouts), ten iterations. Each
 step classifies every question by its two rollouts, compares them with the previous iteration and scores the previous
 step's change manifest (EFFECTIVE ... HARMFUL), rolls HARMFUL changes back file by file, runs the Agent Debugger (one
-Codex session per question over its rollouts' trajectories, hook logs and the judge's verdicts), then runs the Evolve
+Codex session per question over its rollouts' trajectories, hook audits and the judge's verdicts), then runs the Evolve
 Agent, a Codex session that edits the harness and writes the next manifest. `finalize` hands back the best-ever
 iteration by training pass rate, which `hermit eval` scores once on the 172 test questions. The harness starts from
 the seed system prompt with SkillOpt's initial skill appended (`make_seed.py`), so H_0 holds the text the other
@@ -45,8 +45,27 @@ question's own row, so a rollout's `task.md`, corpus and score are the question'
 copy under `hermit/ahe-codex/`, and its middleware as Codex hooks (`.codex/hooks.json`) that run the copy's
 `hook_runner.py`. The runner gives the middleware the workspace's `task.md` as the task text (`inp.task_text`), logs
 every hook call to `.hermit-hooks/hook-calls.jsonl` in the session's workspace and each session's state to
-`.hermit-hooks/hook-state/`; `trials.py:collect` copies both logs to the rollout's log, beside `agent-codex.jsonl` and
-`task.md`, where the learning material keeps them for the Debugger.
+`.hermit-hooks/hook-state/`; `trials.py:collect` copies both to the rollout's log, beside `agent-codex.jsonl` and
+`task.md`.
+
+The learners read Codex's own record of a rollout, where upstream's read NexAU's traces. A rollout's log in the
+learning material (`trajectories/<id>/`) holds the session's `codex exec --json` event stream (`agent-codex.jsonl`),
+`prompt.txt`, `task.md`, `last_message.txt` and the two hook logs (`hook-calls.jsonl`, `hook-state/`). For each
+question the Agent Debugger gets a directory with, per rollout i:
+
+- `trace0i.events.jsonl`: the event stream, and `trace0i/NNNN-<kind>.md`: the same rollout one file per step
+  (message, reasoning, command with its exit code and output, file change, tool call, error), the steps
+  [`hermit.agent.base.trajectory`](../../../hermit/agent/base/trajectory.py) reads from the stream;
+- `prompt0i.txt` and `task0i.md`: the prompt and the task file of the session's workspace;
+- `hooks0i.jsonl`: the hook audit, one line per hook call;
+- `verifier_0i.txt`, for a rollout that did not pass: the judge's feedback (`predicted '4957.21' but expected
+  '4962.46'`), which the acting agent never saw.
+
+The hook state is not copied there, since upstream's Debugger read the traces and the verifier output alone; the
+Evolve Agent reads the Debugger's reports and opens the rollouts' logs, `hook-state/` included, in the learning
+material. Upstream's traces carry each message's latency, from which its question gets a timing breakdown for a
+rollout that timed out. Codex's stream has no timestamps, so a timed-out rollout gets none here; no training rollout
+of this run timed out.
 
 Under `runs/luna-ahe-adapter/`, `workspace/state/` (and each step's copy of it, `step_NNNN/state/`) holds AHE's
 records: `analysis/step_NNNN/` (the Debugger's overview and one answer per question), `queries/` (the Evolve Agent's

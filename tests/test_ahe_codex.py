@@ -134,7 +134,8 @@ def test_the_check_imports_the_stdlib_and_the_framework_only_for_the_deployment(
     assert tops(tree.body) <= set(sys.stdlib_module_names)                     # loads with the stdlib alone
     assert tops(ast.walk(tree)) - set(sys.stdlib_module_names) == {"hermit"}
     deploy = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "deployed_size")
-    assert any(isinstance(n, ast.ImportFrom) and n.module == "hermit.hosts.codex" for n in ast.walk(deploy))
+    imported = {n.module for n in ast.walk(deploy) if isinstance(n, ast.ImportFrom)}
+    assert imported == {"hermit.hosts.codex", "hermit.spec"}      # the deployment, and check_spec's rule for its failure
 
 
 def test_the_learner_facing_texts_name_the_deployment_as_it_is():
@@ -311,6 +312,27 @@ def test_the_prompt_cap_is_what_the_framework_deploys(tmp_path):
     from hermit.hosts.codex import prepare
     with pytest.raises(ValueError, match="past the 32768 bytes"):                # what the check spared the rollout
         prepare(adapter, tmp_path / "refused", sys.executable)
+
+
+def test_a_deploy_failure_names_the_file_its_message_names(tmp_path, monkeypatch):
+    """A deployment that refuses the adapter: the issue names the file the refusal names, found as check_spec finds
+    it (hermit.spec._path_in) once the scratch copy's path is taken off, so that repair reverts that file alone; a
+    refusal that names no file names none."""
+    import hermit.hosts.codex as codex
+    adapter = seed(tmp_path)
+
+    def refusing(text):
+        def prepare(copy, workspace, python, **_):
+            raise ValueError(text.format(copy=copy))
+        return prepare
+    for text, said, path in (("cannot install the role {copy}/agents/reader.md",
+                              "cannot install the role agents/reader.md", "agents/reader.md"),
+                             ("Agent names must be unique, lowercase Codex identifiers",
+                              "Agent names must be unique, lowercase Codex identifiers", "")):
+        monkeypatch.setattr(codex, "prepare", refusing(text))
+        found = [(p, t) for p, t in problems(adapter) if "does not deploy to Codex" in t]
+        assert found == [(path, "the adapter does not deploy to Codex, so AGENTS.md cannot be measured as the agent "
+                                f"reads it: ValueError: {said}")], found
 
 
 def test_check_passes_a_grown_tree(tmp_path):

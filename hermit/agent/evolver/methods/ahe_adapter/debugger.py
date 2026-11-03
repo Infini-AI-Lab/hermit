@@ -19,7 +19,9 @@ text when every attempt failed. Here the same three phases run on Hermit's learn
    and `question.md` = DEBUGGER.md's rules + the file list + upstream's query (`queries.debugger_query`,
    byte-for-byte) + where to write the answer. A trial Harbor recorded gives `trace0i.json` (its ATIF trajectory,
    exploded as `trace0i/NNNN-<source>.md`) or its `agent/codex.txt` instead (LOG_FILES: the record's own files
-   first, a Harbor trial's as the fallback).
+   first, a Harbor trial's as the fallback). The middleware's per-session state (`hook-state/` in the log) is not
+   copied: upstream's Debugger read the traces and the verifier output alone, and the Evolve Agent reads the state
+   in the learning material, where START.md and the evolution query name it.
 3. `run_jobs(jobs, ctx, params, base=...)` — each attempt is one call of the codex Base Agent (Layer 2,
    hermit.agent.base): `make("codex", settings).run(question, workspace=job_dir)`, with the Evolve Agent's settings
    (`base`: the run's sandbox as the isolation and Codex's own sandbox off, the login and its plan, web search, the
@@ -64,11 +66,10 @@ SECTIONS = {("debug", False): ["ROOT CAUSE", "PASS vs FAIL", "CRITICAL MISTAKE",
             ("summary", False): ["KEY STRATEGY", "REUSABLE PATTERN", "FRAGILITY RISK"],
             ("summary", True): ["KEY STRATEGY", "SUCCESS FACTORS", "REUSABLE PATTERN"]}
 # Where a rollout's log (the record's `trajectory` directory) keeps each thing: the framework's Codex agent writes the
-# first name of each (the task's collect adds the hook logs), a trial Harbor recorded the others.
+# first name of each (the task's collect adds `task.md` and the hook audit), a trial Harbor recorded the others.
 LOG_FILES = {"atif": ("agent/trajectory.json", "trajectory.json"),
              "harbor_stream": ("agent/codex.txt", "codex.txt"),
              "hooks": ("hook-calls.jsonl", "agent/hook-calls.jsonl"),
-             "hook_state": ("hook-state", "agent/.hermit/hook-state"),
              "verifier": ("verifier/test-stdout.txt", "test-stdout.txt"),
              "prompt": ("prompt.txt",), "task": ("task.md",)}
 
@@ -151,7 +152,7 @@ def log_file(log: Path | None, kind: str) -> Path | None:
         return None
     for name in LOG_FILES[kind]:
         path = log / name
-        if path.is_file() or (kind == "hook_state" and path.is_dir()):
+        if path.is_file():
             return path
     return None
 

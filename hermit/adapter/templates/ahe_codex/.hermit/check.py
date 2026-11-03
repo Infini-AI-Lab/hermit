@@ -143,23 +143,18 @@ def frontmatter(text: str) -> dict[str, str] | None:
     return out
 
 
-def _named_file(adapter: Path, text: str) -> str:
-    """The adapter file an error text names, if any (as check_spec attributes a deploy failure), else ""."""
-    for p in sorted(adapter.rglob("*")):
-        rel = p.relative_to(adapter).as_posix()
-        if p.is_file() and not rel.startswith((".git/", ".hermit/")) and rel in text:
-            return rel
-    return ""
-
-
-def deployed_size(adapter: Path, prompt: str) -> tuple[int | None, str]:
+def deployed_size(adapter: Path, prompt: str) -> tuple[int | None, str, str]:
     """The bytes of the AGENTS.md a deployment writes for this adapter with `prompt` as its AGENTS.md (and so as
     ADAPTER.md, which the Evolver keeps equal to it): a copy of the adapter deployed into a scratch workspace by the
-    framework's own deployment, with no size limit; (None, why) when it does not deploy."""
+    framework's own deployment, with no size limit. When it does not deploy: (None, why, the adapter file `why`
+    names or ""), found by check_spec's own rule for a deploy failure (hermit.spec._path_in), so that repair reverts
+    that file alone. (_path_in also looks under .hermit/, which a deployment names only when a metadata file is at
+    fault; check_spec runs this check only when every one is the template's.)"""
     try:
         from hermit.hosts.codex import prepare
+        from hermit.spec import _path_in
     except ImportError as exc:
-        return None, f"the framework's deployment cannot be imported here ({type(exc).__name__}: {exc})"
+        return None, f"the framework's deployment cannot be imported here ({type(exc).__name__}: {exc})", ""
     with tempfile.TemporaryDirectory(prefix="ahe-codex-check-") as scratch:
         copy, workspace = Path(scratch) / "adapter", Path(scratch) / "workspace"
         shutil.copytree(adapter, copy, symlinks=True, ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc"))
@@ -168,8 +163,9 @@ def deployed_size(adapter: Path, prompt: str) -> tuple[int | None, str]:
         try:
             prepare(copy, workspace, sys.executable, context_limit=None)
         except Exception as exc:                      # noqa: BLE001 - the deployment's own refusal, named
-            return None, f"{type(exc).__name__}: {exc}".replace(str(copy) + "/", "")[:600]
-        return len((workspace / ALWAYS_ON).read_bytes()), ""
+            why = f"{type(exc).__name__}: {exc}".replace(str(copy) + "/", "")[:600]
+            return None, why, _path_in(adapter, why)
+        return len((workspace / ALWAYS_ON).read_bytes()), "", ""
 
 
 def prompt_problems(adapter: Path, tree: dict[str, str]) -> list[tuple[str, str]]:
@@ -180,10 +176,10 @@ def prompt_problems(adapter: Path, tree: dict[str, str]) -> list[tuple[str, str]
         return [(ALWAYS_ON, f"{ALWAYS_ON} is empty: it is the system prompt, the one always-on file, so an empty one "
                             f"is a harness that does not exist")]
     size = len(body.encode("utf-8"))
-    deployed, why = deployed_size(adapter, body)
+    deployed, why, named = deployed_size(adapter, body)
     if deployed is None:
-        errs.append((_named_file(adapter, why), f"the adapter does not deploy to Codex, so {ALWAYS_ON} cannot be "
-                                                f"measured as the agent reads it: {why}"))
+        errs.append((named, f"the adapter does not deploy to Codex, so {ALWAYS_ON} cannot be measured as the agent "
+                            f"reads it: {why}"))
     else:
         overhead = deployed - size
         cap = min(ALWAYS_ON_MAX_BYTES, CODEX_LIMIT_BYTES - overhead)

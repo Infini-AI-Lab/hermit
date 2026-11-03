@@ -67,7 +67,7 @@ Step N is AHE iteration N: step 1 scores the seed, and step N's edits are scored
 2. Stop when pass@1 reaches `target_pass_rate` (with `trainer.allow_early_stop`).
 3. `rollback: auto`: the files of every change judged HARMFUL are restored from before the change (the paper's
    Algorithm 1), undone again if `check_spec` then fails; `rollback: agent` only reports, as the released code.
-4. The Agent Debugger: one Codex session per task over its rollouts' trajectories, hook logs and the judge's verdicts,
+4. The Agent Debugger: one Codex session per task over its rollouts' trajectories, hook audits and the judge's verdicts,
    with upstream's query; a failed attempt is retried, and after `retries` upstream's fallback text stands in. The
    reports and an overview go to `state/analysis/step_N/`.
 5. The Evolve Agent: one Codex session reads the overview, the verdicts and the history (`START.md` and the evolution
@@ -80,7 +80,7 @@ flowchart TD
     S["1. classify, diff against N-1, score manifest N-1,<br/>best-ever (strict >, the commit the rollouts ran)"]
     E{"pass@1 >= target_pass_rate?"}
     B["3. roll back the HARMFUL changes of manifest N-1"]
-    D["4. Agent Debugger: one codex session per task<br/>over its trajectories, hook logs and verdicts"]
+    D["4. Agent Debugger: one codex session per task<br/>over its trajectories, hook audits and verdicts"]
     V["5. Evolve Agent: one codex session edits the adapter<br/>(check_spec), writes manifest N"]
     P["6. archive the manifest, scores, history"]
     F["finalize: final = best_ever (git archive of its commit) or last"]
@@ -119,7 +119,7 @@ this framework's own code.
 | Dimension | AHE (8b2a55d) | This Evolver | Why |
 |---|---|---|---|
 | When learning happens | Once per iteration, after k = 2 rollouts of every task; 10 iterations | The same: a step is every trial row, ten steps | Same |
-| What the learner sees | The Debugger: each task's traces and verifier output; the Evolve Agent: the overview, per-task reports, verdicts, history | The same, with Codex's session logs and the hook logs as the traces and the judge's verdict and feedback as the verifier output | Framework: Codex's trace format |
+| What the learner sees | The Debugger: each task's NexAU traces (with a per-turn timing breakdown for a timed-out rollout) and verifier output; the Evolve Agent: the overview, per-task reports, verdicts, history | The same, with Codex's event stream (whole, and one file per standard step) and the hook audit as the traces and the judge's feedback as the verifier output; no timing breakdown, since the stream has no timestamps | Framework: Codex's trace format |
 | What is learned | NexAU's prompt, tool descriptions and implementations, middleware classes, skills, sub-agents, memory | The adapter's files (the table above); Codex's loop and tools are fixed | Framework: the acting agent is fixed; the reason for the name |
 | The update | Edits plus a manifest of predictions, attributed at the next iteration; Algorithm 1 reverts HARMFUL changes, the released code leaves it to the agent | The same manifest and rules; `rollback: auto` (the paper) or `agent` (the code) | Decision: the paper by default |
 | Final harness | The best iteration by pass@1 | The best-ever commit, the harness its rollouts ran (Algorithm 1 line 15 names the harness after the next edit, which no rollout measured) | Decision |

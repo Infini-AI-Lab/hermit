@@ -291,7 +291,7 @@ def test_a_rollout_brings_the_hook_logs_where_the_debugger_reads_them(tmp_path, 
     assert rec["input"]["uid"] == "UID0002" and rec["trajectory"] == "trajectories/UID0002_2"
     trial_log = step / rec["trajectory"]
     assert D.log_file(trial_log, "hooks") == trial_log / "hook-calls.jsonl"
-    assert D.log_file(trial_log, "hook_state") == trial_log / "hook-state"
+    assert (trial_log / "hook-state" / "sess-1.json").is_file()      # where START.md sends the Evolve Agent
     (job,) = D.build_jobs([rec], {"task_field": "uid"})
     job_dir = D.prepare_job_dir(job, tmp_path / "scratch", D.settings({}))
     assert (job_dir / "hooks01.jsonl").read_text() == (log / "hook-calls.jsonl").read_text()

@@ -228,13 +228,12 @@ def test_load_records_resolves_trajectory(tmp_path):
 def test_the_log_is_read_as_the_codex_agent_keeps_it_then_as_harbor_kept_it(tmp_path):
     main = codex_log(tmp_path, "main")
     assert D.trace_source(main) == (main / "agent-codex.jsonl", "events.jsonl")
-    assert D.log_file(main, "hooks") == main / "hook-calls.jsonl" and D.log_file(main, "hook_state") == main / "hook-state"
+    assert D.log_file(main, "hooks") == main / "hook-calls.jsonl"
     assert D.log_file(main, "atif") is None and D.log_file(main, "verifier") is None
+    assert "hook_state" not in D.LOG_FILES             # the state is the Evolve Agent's to read, in the material
     harbor = harbor_log(tmp_path, "harbor", codex=True, verifier="ok")
-    (harbor / "agent" / ".hermit" / "hook-state").mkdir(parents=True)
     assert D.trace_source(harbor) == (harbor / "agent" / "trajectory.json", "json")
     assert D.log_file(harbor, "hooks") == harbor / "agent" / "hook-calls.jsonl"
-    assert D.log_file(harbor, "hook_state") == harbor / "agent" / ".hermit" / "hook-state"
     (harbor / "agent" / "trajectory.json").unlink()
     assert D.trace_source(harbor) == (harbor / "agent" / "codex.txt", "events.jsonl")
     (harbor / "agent-codex.jsonl").write_text("")                  # a record-root stream comes first
