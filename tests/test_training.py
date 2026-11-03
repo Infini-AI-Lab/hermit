@@ -331,11 +331,11 @@ class Pick(Evolver):
         p = ctx.progress
         with open(ctx.workspace.state / "seen.jsonl", "a") as f:
             f.write(json.dumps({"step": p.step, "remaining": list(p.remaining),
-                                "listed": "still to run" in ctx.message}) + "\\n")
+                                "listed": "have still to run" in ctx.message}) + "\\n")
         mode = ctx.params.get("mode", "reverse")
         nxt = {"reverse": [p.remaining[-1]] if p.remaining else None, "bad": ["t9"],
                "twice": ["t0", "t0"], "many": ["t0", "t1", "t2", "t3", "t4"],
-               "boundary": None if p.remaining else ["t3"]}.get(mode)
+               "boundary": None if p.remaining else ["t3"], "empty": (), "word": "t4"}.get(mode)
         return StepResult("done", f"step {p.step}", next_tasks=nxt)
 
 class Silent(Pick):
@@ -392,7 +392,7 @@ def test_an_evolver_that_does_not_choose_sees_nothing_ahead_and_is_refused(tmp_p
 
 
 @pytest.mark.parametrize("mode, reason", [("bad", "not training tasks still to run"), ("twice", "twice"),
-                                          ("many", "more than data.step_size")])
+                                          ("many", "more than data.step_size"), ("word", "not a list")])
 def test_a_bad_request_is_refused_where_it_is_made_and_the_order_runs(tmp_path, mode, reason):
     cfg = load(_pick_task(tmp_path, mode), "evolver.name=pick", "data.shuffle=false", "trainer.epochs=1")
     Trainer(cfg, log=lambda *_: None).train()
@@ -495,3 +495,11 @@ def test_an_external_program_names_the_next_tasks(tmp_path):
         f"class: evolver.py:Picking\nneeds: []\nparams: {{command: [{sys.executable}, {tmp_path / 'cmd' / 'program.py'}]}}\n")
     Trainer(load(path, "evolver.name=cmd", "data.shuffle=false", "trainer.epochs=1"), log=lambda *_: None).train()
     assert [s["tasks"] for s in _steps(tmp_path)] == [["t0", "t1", "t2", "t3"], ["t5"], ["t4"]]
+
+
+def test_an_empty_request_names_nothing(tmp_path):
+    cfg = load(_pick_task(tmp_path, "empty"), "evolver.name=pick", "data.shuffle=false", "trainer.epochs=1")
+    Trainer(cfg, log=lambda *_: None).train()
+    steps = _steps(tmp_path)
+    assert [s["tasks"] for s in steps if not s.get("bootstrap")] == [["t0", "t1", "t2", "t3"], ["t4", "t5"]]
+    assert not any("next_tasks" in s or "next_tasks_refused" in s or "chosen_by" in s for s in steps)

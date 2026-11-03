@@ -286,7 +286,7 @@ class Trainer:
                 remaining = _without(self._order(epoch), ran)
                 while remaining:
                     # The Evolver's accepted request (checked when it was made), else the order's next tasks.
-                    chosen = wanted is not None and not _without(wanted, remaining)
+                    chosen = bool(wanted) and not _without(wanted, remaining)
                     chunk = list(wanted) if chosen else remaining[:step_size]
                     remaining = _without(remaining, chunk)
                     step += 1
@@ -417,7 +417,8 @@ class Trainer:
                          + (" (last step of the epoch)." if progress.is_epoch_end else "."))
             if progress.remaining:            # only an Evolver that chooses_tasks is given them
                 shown = ", ".join(progress.remaining[:50]) + (" ..." if len(progress.remaining) > 50 else "")
-                lines.append(f"Training tasks this epoch has still to run ({len(progress.remaining)}): {shown}")
+                which = "the first epoch's" if progress.step == 0 else "this epoch's"   # step 0: the bootstrap
+                lines.append(f"Training tasks {which} steps have still to run ({len(progress.remaining)}): {shown}")
         lines += [f"Adapter (your working copy, read/write): {self.ws.adapter}",
                   f"Learning material (read-only): {self.ws.learning_material} — start with README.md and current/",
                   f"Task description (read-only): {self.ws.task_info} — start with README.md",
@@ -570,8 +571,8 @@ class Trainer:
         data.step_size, of progress.remaining, or at an epoch's end (nothing remaining) of the training split, which
         the next epoch runs again; and only from an Evolver that chooses_tasks."""
         wanted = result.next_tasks
-        if wanted is None or wanted == []:
-            return {}
+        if wanted is None or (isinstance(wanted, (list, tuple)) and not wanted):
+            return {}                         # no request: an empty list names nothing
         step_size = int(self.config.data["data"]["step_size"])
         allowed = progress.remaining or self.data.splits["train"]
         if not self.evolver.chooses_tasks:
