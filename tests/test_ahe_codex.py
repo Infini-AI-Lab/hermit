@@ -148,6 +148,7 @@ def test_the_learner_facing_texts_name_the_deployment_as_it_is():
     guide = " ".join(texts[".hermit/EVOLVER.md"].split())
     assert ".hermit-hooks/" in guide and "hook-calls.jsonl" in guide and "hook-state/<session_id>.json" in guide
     assert "empty in `session_start`" in guide and "hermit/ahe-codex/" in guide
+    assert "the text of `task.md` in the session's workspace (`inp.cwd`)" in guide and "(`_prompt`)" in guide
 
 
 def rewrite(adapter: Path, rel: str, old: str, new: str) -> None:
@@ -425,7 +426,8 @@ DENY = ("    state['task_seen'] = inp.task_text\n"
 def test_a_deployed_hook_runs_from_the_copy_through_a_shell(tmp_path):
     """One PreToolUse as Codex 0.164 runs it (the deployed command through a shell, in the session's workspace):
     the deny on stdout, one audit line under the workspace's .hermit-hooks/, the session's state beside it, the task
-    text from the session's UserPromptSubmit, and no byte code written into the copy."""
+    text from the session's UserPromptSubmit or, once the workspace has one, from its task.md (the payload's cwd, not
+    the copy the command runs in), and no byte code written into the copy."""
     from hermit.hosts.codex import prepare
     adapter = seed(tmp_path)
     hook_body(adapter, DENY)
@@ -460,7 +462,11 @@ def test_a_deployed_hook_runs_from_the_copy_through_a_shell(tmp_path):
     (state_file,) = (work / ".hermit-hooks" / "hook-state").iterdir()
     state = json.loads(state_file.read_text())
     assert state_file.name == "s-1.json" and state["start_task"] == "" and state["task_seen"] == "Read task.md and answer."
-    assert state["_task_text"] == "Read task.md and answer."
+    assert state["_prompt"] == "Read task.md and answer."
+    (work / "task.md").write_text("## Question\nWhat changed in FY 1934?\n")
+    assert hook("SessionStart", session_id="s-2").returncode == 0
+    state = json.loads((work / ".hermit-hooks" / "hook-state" / "s-2.json").read_text())
+    assert state["start_task"] == "## Question\nWhat changed in FY 1934?\n" and "_prompt" not in state
     assert not list((work / "hermit").rglob("__pycache__"))
 
 

@@ -1,6 +1,6 @@
 """The ahe-codex template's hook runner and middleware interface (hook_runner.py, hermit_hooks.py, loaded by path):
 every host event through the translation table, the pending-context queue, the per-session state under lock, the task
-text from the session's first prompt, where the logs go, and the fail-open rules (a crashing or slow middleware
+text from the workspace's task.md or the session's first prompt, where the logs go, and the fail-open rules (a crashing or slow middleware
 produces no output, exit 0 and an audit line). Payloads are the real Codex 0.164 / Claude Code wire shapes recorded
 in the WP0 spikes. No bubblewrap: the runner runs where the agent runs, in its workspace or its container."""
 import fcntl
@@ -309,7 +309,7 @@ def test_every_event_through_the_runner(run):
     assert r.state()["started"] is True
     assert call("UserPromptSubmit", {"prompt": "fix the bug"}) is None
     assert call("PreToolUse", SHELL_PRE) is None
-    assert r.state()["task"] == "fix the bug" and r.state()["_task_text"] == "fix the bug"
+    assert r.state()["task"] == "fix the bug" and r.state()["_prompt"] == "fix the bug"      # no task.md in ws/
     assert call("PreToolUse", {"tool_name": "Bash", "tool_input": {"command": "rm -rf / --no-preserve-root"}}) == {
         "hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
                                "permissionDecisionReason": "destructive command", "additionalContext": "use git clean instead"}}
@@ -344,13 +344,39 @@ def test_the_task_text_is_the_sessions_first_prompt(run):
     call("SessionStart")
     assert call("PreToolUse", SHELL_PRE) is None and r.state()["task"] == ""        # before any prompt
     call("UserPromptSubmit", {"prompt": "   "})                                         # a blank prompt is no task
-    assert "_task_text" not in r.state()
+    assert "_prompt" not in r.state()
     call("UserPromptSubmit", {"prompt": "answer the question in task.md"})
     call("UserPromptSubmit", {"prompt": "a later message"})                             # the first one stays
     call("PreToolUse", SHELL_PRE)
     assert r.state()["task"] == "answer the question in task.md"
     call("PreToolUse", payload("PreToolUse", session_id="s-2", **SHELL_PRE))            # another session has its own
     assert r.state("s-2")["task"] == ""
+
+
+def test_the_task_text_is_the_workspaces_task_md(tmp_path, run, monkeypatch):
+    """task.md in the session's workspace, as the earlier run's --task-file: read at every call, from SessionStart on,
+    over the prompt that only names it; without a regular file there, the session's first prompt."""
+    call, r = run()
+    task = r.workspace / "task.md"
+    task.write_text("## Question\nWhat share of outlays, in percent?\n")
+    assert call("SessionStart")["hookSpecificOutput"]["additionalContext"] == (
+        "session s-1 task=## Question\nWhat share of outlays, in percent?")
+    call("UserPromptSubmit", {"prompt": "Read `task.md` and answer."})
+    call("PreToolUse", SHELL_PRE)
+    assert r.state()["task"] == task.read_text() and r.state()["_prompt"] == "Read `task.md` and answer."
+    task.write_bytes(b"## Question\nrevised \xff\n")                       # read anew; a stray byte is no error
+    call("PreToolUse", SHELL_PRE)
+    assert r.state()["task"] == "## Question\nrevised �\n" and r.audit()[-1]["error"] is None
+    task.unlink()
+    for other in (task.mkdir, lambda: os.mkfifo(task)):                    # a directory; a pipe, which would block
+        other()
+        call("PreToolUse", SHELL_PRE)
+        assert r.state()["task"] == "Read `task.md` and answer." and r.audit()[-1]["error"] is None
+        task.rmdir() if task.is_dir() else task.unlink()
+    task.write_text("q?\n")
+    monkeypatch.setenv("HERMIT_HOOK_LOGS", str(tmp_path / "logs"))         # the logs elsewhere: still the workspace's
+    call("PreToolUse", SHELL_PRE)
+    assert json.loads((tmp_path / "logs" / "hook-state" / "s-1.json").read_text())["task"] == "q?\n"
 
 
 def test_the_logs_go_under_the_workspace_or_where_the_environment_says(tmp_path, run, capsys, monkeypatch):

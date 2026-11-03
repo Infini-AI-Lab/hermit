@@ -19,8 +19,11 @@ is covered): the host reads stdout as one JSON document, and a print would corru
 - State: one dict per session in <B>/hook-state/<session_id>.json, held under fcntl.flock from load to save, as a host
   runs tool hooks concurrently and sub-agents share the session id. A state that cannot be written (a non-string key,
   a cycle) leaves the file as it was and is the call's error; the decision the middleware returned alongside is still
-  printed. The prompt of the session's first UserPromptSubmit is kept there (`_task_text`) and is `inp.task_text` of
-  every later call; at SessionStart, which Codex fires before the prompt is submitted, `inp.task_text` is "".
+  printed. The prompt of the session's first UserPromptSubmit is kept there (`_prompt`).
+- Task text: `inp.task_text` is `task.md` in the payload's (absolute) cwd when the session's workspace has one, read
+  at every call: the task's own file, as the earlier run's --task-file was (OfficeQA's prepare writes the question
+  there and the prompt only names it). Else it is the session's first prompt, so "" before that prompt (at
+  SessionStart, which Codex fires before the prompt is submitted).
 - Audit: one line per call, {ts, event, session_id, tool_name, command[:200], decision, reason[:200], context_chars,
   ms, error[:500]}, appended to <B>/hook-calls.jsonl.
 - Timeout: one deadline for the call, signal.alarm(TIMEOUT_S - 2) armed before the wait for the session lock and
@@ -70,7 +73,8 @@ LOGS_ENV = "HERMIT_HOOK_LOGS"                       # the log base, when set
 LOGS_DIR = ".hermit-hooks"                          # else the log base under the session's workspace
 AUDIT = "hook-calls.jsonl"
 STATE = "hook-state"
-TASK = "_task_text"                                 # the runner's key in the session state: the first prompt
+TASK_FILE = "task.md"                               # the task's own file in the session's workspace, when it has one
+PROMPT = "_prompt"                                  # the runner's key in the session state: the session's first prompt
 ERROR_CHARS = 500                                   # an exception text may embed the tool input
 
 
@@ -131,6 +135,21 @@ def log_base(payload: dict) -> Path | None:
         return Path(os.environ[LOGS_ENV])
     cwd = payload.get("cwd")
     return Path(cwd) / LOGS_DIR if isinstance(cwd, str) and Path(cwd).is_absolute() else None
+
+
+def task_text(payload: dict, state: dict) -> str:
+    """`inp.task_text`: `task.md` in the payload's cwd when it is a file there (read now: the task's own text), else
+    the session's first prompt as the state keeps it, else ""."""
+    cwd = payload.get("cwd")
+    if isinstance(cwd, str) and Path(cwd).is_absolute():
+        path = Path(cwd) / TASK_FILE
+        try:
+            if path.is_file():                       # a regular file only: a pipe would block the call
+                return path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            pass
+    prompt = state.get(PROMPT)
+    return prompt if isinstance(prompt, str) else ""
 
 
 def _session_file(state_dir: Path, session_id: str) -> Path:
@@ -236,10 +255,9 @@ def run(event: str, stdin_text: str, *, adapter: Path = ADAPTER, strict: bool = 
         session = SessionState(state_file)
         with session as state:
             prompt = payload.get("prompt")
-            if event == "UserPromptSubmit" and not state.get(TASK) and isinstance(prompt, str) and prompt.strip():
-                state[TASK] = prompt                  # the task instruction, for every later call of the session
-            task_text = state.get(TASK) if isinstance(state.get(TASK), str) else ""
-            inp = hooks.normalise(HOST, payload, str(adapter), task_text, state, event=function or None)
+            if event == "UserPromptSubmit" and not state.get(PROMPT) and isinstance(prompt, str) and prompt.strip():
+                state[PROMPT] = prompt                # the task text of a workspace without task.md, from now on
+            inp = hooks.normalise(HOST, payload, str(adapter), task_text(payload, state), state, event=function or None)
             record["command"] = (inp.command or "")[:200]
             if function == "":
                 error = error or f"unknown event {event!r}"

@@ -73,9 +73,9 @@ class HookInput:
     exit_code: int | None = None          # not on the Codex hook wire; apply_patch: parsed from the leading
     duration_ms: int | None = None        # "Exit code: N" line; otherwise None
     last_message: str | None = None       # stop: last_assistant_message
-    task_text: str = ""                   # the task instruction: the prompt of the session's first UserPromptSubmit,
-                                          # which the runner keeps in the state; "" at session_start (Codex fires
-                                          # SessionStart before the prompt is submitted)
+    task_text: str = ""                   # the task instruction: task.md in the session's workspace (cwd) when it has
+                                          # one, else the prompt of the session's first UserPromptSubmit ("" before
+                                          # it: Codex fires SessionStart before the prompt is submitted)
     raw: dict = field(default_factory=dict)
     state: dict = field(default_factory=dict, repr=False)   # the session state the runner binds (queue_context's target)
 

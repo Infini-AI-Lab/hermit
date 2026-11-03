@@ -243,9 +243,10 @@ last.write_text("<answer>507</answer>")
 
 def test_a_rollout_brings_the_hook_logs_where_the_debugger_reads_them(tmp_path, monkeypatch):
     """The example's acting agent (run_codex_luna.yaml's, in no container and with a task.md file in place of the
-    corpus) on a trial row with the ahe-codex harness deployed: the session's hooks write under .hermit-hooks/ in its
-    workspace, trials.py:collect brings them to the log's root, the learning material copies the log, and the Agent
-    Debugger's job directory gets the audit."""
+    corpus) on a trial row with the ahe-codex harness deployed: the session's hooks get the workspace's task.md as
+    inp.task_text from SessionStart on and write their logs under .hermit-hooks/ in the workspace, trials.py:collect
+    brings the logs to the log's root, the learning material copies the log, and the Agent Debugger's job directory
+    gets the audit."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     (bin_dir / "codex").write_text(FAKE_CODEX.replace("__PYTHON__", sys.executable))
@@ -259,6 +260,10 @@ def test_a_rollout_brings_the_hook_logs_where_the_debugger_reads_them(tmp_path, 
     monkeypatch.delenv("HERMIT_HOOK_LOGS", raising=False)
     adapter = tmp_path / "adapter"
     shutil.copytree(TEMPLATE, adapter, ignore=shutil.ignore_patterns("__pycache__"))
+    seed = (adapter / "middleware.py").read_text()                         # the seed, keeping what it was given
+    (adapter / "middleware.py").write_text(seed.replace("    body = _memory_body(inp.adapter_dir)\n",
+                                                        "    state['start_task'] = inp.task_text\n"
+                                                        "    body = _memory_body(inp.adapter_dir)\n", 1))
     (tmp_path / "task.md").write_text("## Question\nWhat were the expenditures in FY 1934?\n")
     params = dict(Config.load(EXAMPLE / "run_codex_luna.yaml").data["agent"]["params"])
     for key in ("prepare", "container"):
@@ -277,7 +282,8 @@ def test_a_rollout_brings_the_hook_logs_where_the_debugger_reads_them(tmp_path, 
     assert all(a["error"] is None and a["session_id"] == "sess-1" for a in audit), audit
     assert audit[EVENTS.index("PreToolUse")]["command"] == "cat task.md"
     state = json.loads((log / "hook-state" / "sess-1.json").read_text())
-    assert state["_task_text"] == (log / "prompt.txt").read_text()          # inp.task_text: the session's prompt
+    assert state["start_task"] == (log / "task.md").read_text() == (tmp_path / "task.md").read_text()
+    assert state["_prompt"] == (log / "prompt.txt").read_text()            # kept, though task.md is the task text
 
     step = Material(tmp_path / "material").write(1, 1, "c0", False, [record], None)
     (rec,) = D.load_records(step)

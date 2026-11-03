@@ -30,15 +30,15 @@ the model through that middleware:
 
 `middleware.py` defines all five hooks (`hooks.json` starts the runner on the event of each, and the runner calls
 the function; an unused one returns `None`), each `(inp, state) -> HookResult | dict | None`. On the sixth event,
-`UserPromptSubmit`, the runner calls nothing: it keeps the task text and hands queued context over. The runner
-(`hook_runner.py`, which Codex runs from the adapter's copy on every event) loads the module alone, binds the
+`UserPromptSubmit`, the runner calls nothing: it keeps the session's first prompt and hands queued context over. The
+runner (`hook_runner.py`, which Codex runs from the adapter's copy on every event) loads the module alone, binds the
 session's `state`, calls the hook, persists the state and prints the host's wire. Import the interface as
 `from hermit_hooks import HookInput, HookResult` (`hermit_hooks.py`, beside the runner) and otherwise only the
 stdlib: nothing else is installed where the agent runs.
 
 | hook | fires | `inp` carries | return |
 |---|---|---|---|
-| `session_start` | once, before the first model call | `adapter_dir`, `cwd`, `session_id`; `task_text` is still `""` (the prompt is submitted after the session starts) | `HookResult(context=...)`: text the model reads first |
+| `session_start` | once, before the first model call | `adapter_dir`, `cwd`, `session_id`, `task_text` (when the workspace has a `task.md`; else still `""`: the prompt is submitted after the session starts) | `HookResult(context=...)`: text the model reads first |
 | `before_tool` | before every tool call | `tool_kind` (`shell` / `patch` / `read` / `write` / `mcp` / `other`), `tool_name`, `tool_input`, `command` (shell only) | `HookResult(decision="deny", reason=...)`: the command is not run and the model sees the reason; `decision="allow"` or None: runs; `context=` adds a note; `updated_input=` best effort |
 | `after_tool` | after every tool call | the above plus `tool_output` / `output_text` (Codex: a plain string), `exit_code` (apply_patch only; the shell wire has none: parse the output) | `HookResult(context=...)`: a note inserted right before the tool output (AHE's "Execution note:"); `decision="block", reason=...`: the reason REPLACES the tool output |
 | `stop` | when the model wants to finish | `last_message` | `HookResult(decision="block", reason=...)`: the model continues with the reason as a user message, once (the runner ignores a second block in the same turn) |
@@ -47,11 +47,13 @@ stdlib: nothing else is installed where the agent runs.
 - `state` is a dict per session, persisted between calls (`hook-state/<session_id>.json` beside the audit, locked:
   tool calls can run concurrently; sub-agents share the parent's session). Keep counters, emitted-once keys, guard
   targets there; keys starting with `_` are the runner's. Keep it JSON-serialisable.
-- `inp.task_text` is the task instruction (AHE's contract-inference input): the prompt of the session's first
-  `UserPromptSubmit`, which the runner keeps in the state (`_task_text`). It is set from that event on, so it is
-  empty in `session_start`, which Codex fires before the prompt is submitted: read the task in `before_tool`,
-  `after_tool`, `stop` or `before_model`. `inp.adapter_dir` is the adapter's copy in the workspace, where `MEMORY.md`
-  and `scripts/` live; `inp.cwd` is the task's working directory.
+- `inp.task_text` is the task instruction (AHE's contract-inference input): the text of `task.md` in the session's
+  workspace (`inp.cwd`) when it has one, read at every call. A task that writes its question there gives the agent a
+  prompt that only names the file: on OfficeQA the prompt says "Read `task.md`, ...", and `task.md` holds the
+  question, its oracle pages, the corpus note, the candidate files and the source hints. Without a `task.md`, it is
+  the prompt of the session's first `UserPromptSubmit`, which the runner keeps in the state (`_prompt`); it is then
+  empty in `session_start`, which Codex fires before the prompt is submitted. `inp.adapter_dir` is the adapter's copy
+  in the workspace, where `MEMORY.md` and `scripts/` live; `inp.cwd` is the task's working directory.
 - Fail open: an exception or a hook slower than the hook timeout (30 s; the runner's own alarm fires 2 s before
   Codex's) produces no output and an `error` line in the audit log, and the tool call proceeds. A middleware can
   slow every tool call down but never abort a trial. Keep hooks fast: no network, no subprocess, no sleeping on I/O.
