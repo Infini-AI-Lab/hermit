@@ -142,6 +142,22 @@ def test_a_provider_that_could_not_serve_is_run_again(fake, monkeypatch):
                 base=tmp_path)
 
 
+def test_a_line_of_the_clis_own_output_that_parses_as_json_is_not_an_event(fake):
+    """The session's stream carries the CLI's own messages too; a line of a multi-line Codex error that happens to be
+    valid JSON but not an object (a quoted word, a number, a list) is not an event: the run still returns the
+    session's answer and usage."""
+    tmp_path = fake
+    exe = tmp_path / "bin" / "codex"
+    error = ("ERROR codex_core::tools::router: error=apply_patch verification failed: Failed to find expected lines "
+             "in done.json:\n\"UID014\"\n42\n[1, 2]\nnull\n")
+    exe.write_text(FAKE_CODEX.replace("for e in json.loads(",
+                                      f"sys.stderr.write({error!r}); sys.stderr.flush()\nfor e in json.loads(", 1))
+    out = cli.run({"id": "q1"}, None, params={"web_search": False, "prompt": "go", "workspaces": "ws"}, base=tmp_path)
+    assert '"UID014"' in (out.log / "agent-codex.jsonl").read_text()       # the error reached the stream
+    assert out.output.endswith("<answer>44,463</answer>") and out.extra["exit_code"] == 0   # the session's reply
+    assert out.tokens == 1050                                                 # the usage was read past it
+
+
 def test_a_cli_that_never_started_is_an_error_not_a_wrong_answer(fake, monkeypatch):
     tmp_path = fake
     (tmp_path / "bin" / "codex").write_text(f"#!{sys.executable}\nimport sys\nprint('Error finding codex home')\nsys.exit(1)\n")

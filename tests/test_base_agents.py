@@ -180,6 +180,23 @@ def test_a_resumed_codex_thread_reports_only_its_new_usage(tmp_path):
     assert fresh.input_tokens == 90
 
 
+def test_a_logs_lines_that_are_json_but_not_objects_are_not_events(tmp_path):
+    """parse_log reads the session handle and usage past a CLI's own lines that parse as JSON but are no event."""
+    from hermit.agent.base.records import parse_log
+    noise = ['"UID014"', "42", "[1, 2]", "null", "true", "Reading additional input from stdin..."]
+    codex = tmp_path / "agent-codex.jsonl"
+    codex.write_text("\n".join([noise[0], json.dumps({"type": "thread.started", "thread_id": "t1"}), *noise[1:],
+                                json.dumps({"type": "turn.completed",
+                                            "usage": {"input_tokens": 10, "cached_input_tokens": 4, "output_tokens": 3}})]))
+    handle, [usage] = parse_log(codex, "codex", "m")
+    assert handle == "t1" and (usage.input_tokens, usage.cached_input_tokens, usage.output_tokens, usage.calls) == (10, 4, 3, 1)
+    claude = tmp_path / "agent-claude.jsonl"
+    claude.write_text("\n".join([*noise, json.dumps({"type": "result", "session_id": "s1", "num_turns": 2,
+                                                     "usage": {"input_tokens": 5, "output_tokens": 2}})]))
+    handle, [usage] = parse_log(claude, "claude", "m")
+    assert handle == "s1" and (usage.input_tokens, usage.output_tokens, usage.calls) == (5, 2, 2)
+
+
 def test_codex_sub_agent_calls_are_steps():
     from hermit.agent.base.trajectory import codex_steps
     spawn = {"type": "item.completed", "item": {"type": "collab_tool_call", "tool": "spawn_agent",
