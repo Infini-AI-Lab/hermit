@@ -77,8 +77,8 @@ commands, and defaults consistent. Report external requirements and unverified p
 change there, and link it in the pull request. Pull requests without that discussion will be closed.
 
 A pull request that reproduces a published learning method follows
-[Reproduce a published method](docs/developer/reproducing-a-method.md) and answers the questions in its last
-section.
+[Reproduce a published method](docs/developer/reproducing-a-method.md) and completes the general and
+method-specific checklists linked from its PR section.
 
 Use the existing task, adapter, and Evolver interfaces where possible. For the contracts and extension examples,
 see [task integration](docs/tutorials/your-own-task.md), [adapter customization](docs/tutorials/customize-an-adapter.md),
