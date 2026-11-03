@@ -334,7 +334,8 @@ class Pick(Evolver):
                                 "listed": "still to run" in ctx.message}) + "\\n")
         mode = ctx.params.get("mode", "reverse")
         nxt = {"reverse": [p.remaining[-1]] if p.remaining else None, "bad": ["t9"],
-               "twice": ["t0", "t0"], "many": ["t0", "t1", "t2", "t3", "t4"]}.get(mode)
+               "twice": ["t0", "t0"], "many": ["t0", "t1", "t2", "t3", "t4"],
+               "boundary": None if p.remaining else ["t3"]}.get(mode)
         return StepResult("done", f"step {p.step}", next_tasks=nxt)
 
 class Silent(Pick):
@@ -457,3 +458,40 @@ def test_resume_keeps_the_evolvers_choice(tmp_path):
     # epoch 1 ends with nothing left to name, so epoch 2 opens with the order's step, then the Evolver picks again
     assert [s["tasks"] for s in steps if s["epoch"] == 2] == [["t0", "t1", "t2", "t3"], ["t5"], ["t4"]]
     assert [s["step"] for s in steps] == list(range(1, 10))
+
+
+def test_a_request_at_an_epochs_end_opens_the_next_epoch(tmp_path):
+    cfg = load(_pick_task(tmp_path, "boundary"), "evolver.name=pick", "data.shuffle=false")
+    Trainer(cfg, log=lambda *_: None).train()
+    steps = [s for s in _steps(tmp_path) if not s.get("bootstrap")]
+    assert [(s["epoch"], s["tasks"]) for s in steps] == [(1, ["t0", "t1", "t2", "t3"]), (1, ["t4", "t5"]),
+                                                          (2, ["t3"]), (2, ["t0", "t1", "t2", "t4"]), (2, ["t5"])]
+    assert steps[2]["chosen_by"] == "evolver"
+
+
+COMMAND_EVOLVER = '''
+from hermit.agent.evolver.agent import CommandEvolver
+
+class Picking(CommandEvolver):
+    chooses_tasks = True
+'''
+PROGRAM = '''
+import json, os
+ctx = json.load(open(os.environ["HA_CONTEXT"]))
+remaining = ctx["progress"]["remaining"]
+out = ctx["workspace"]["output"]
+json.dump({"status": "done", "summary": "picked", "next_tasks": remaining[-1:] or None},
+          open(os.path.join(out, "step_result.json"), "w"))
+'''
+
+
+def test_an_external_program_names_the_next_tasks(tmp_path):
+    import sys
+    path = make_task(tmp_path)
+    (tmp_path / "cmd").mkdir()
+    (tmp_path / "cmd" / "evolver.py").write_text(COMMAND_EVOLVER)
+    (tmp_path / "cmd" / "program.py").write_text(PROGRAM)
+    (tmp_path / "cmd" / "evolver.yaml").write_text(
+        f"class: evolver.py:Picking\nneeds: []\nparams: {{command: [{sys.executable}, {tmp_path / 'cmd' / 'program.py'}]}}\n")
+    Trainer(load(path, "evolver.name=cmd", "data.shuffle=false", "trainer.epochs=1"), log=lambda *_: None).train()
+    assert [s["tasks"] for s in _steps(tmp_path)] == [["t0", "t1", "t2", "t3"], ["t5"], ["t4"]]

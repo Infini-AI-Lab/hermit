@@ -144,8 +144,9 @@ class CommandEvolver(Evolver):
         info = {"workspace": {k: str(v) for k, v in ctx.workspace.__dict__.items()},
                 "access": {"validation": str(ctx.access.validation) if ctx.access.validation else None,
                            "environment": [str(p) for p in ctx.access.environment]},
-                "progress": ({k: v for k, v in ctx.progress.__dict__.items() if k != "remaining" or v}
-                             if ctx.progress else None), "session": ctx.session,
+                "progress": ({k: v for k, v in ctx.progress.__dict__.items()
+                              if k != "remaining" or self.chooses_tasks} if ctx.progress else None),
+                "session": ctx.session,
                 "message": ctx.message, "params": {k: v for k, v in ctx.params.items() if k not in ("command", "env")}}
         path = ctx.workspace.scratch / "context.json"
         path.write_text(json.dumps(info, indent=1))
