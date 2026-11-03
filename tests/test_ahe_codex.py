@@ -285,6 +285,10 @@ BROKEN = {
         lambda a: rewrite(a, "middleware.py", "    body = _memory_body(inp.adapter_dir)\n",
                           "    _unused = MEMORY_FILE\n    return None\n    body = _memory_body(inp.adapter_dir)\n"),
         "middleware.py", "did not hand that entry to the model"),
+    "session_start reading MEMORY.md but handing over the task": (
+        lambda a: rewrite(a, "middleware.py", "    return HookResult(context=body)\n",
+                          "    return HookResult(context=inp.task_text)\n"),
+        "middleware.py", "did not hand that entry to the model"),
     "script that does not compile": (lambda a: (a / "scripts" / "count.py").write_text("print(\n"),
                                      "scripts/count.py", "does not compile"),
 }
@@ -378,7 +382,7 @@ def test_check_passes_a_grown_tree(tmp_path):
 
 
 def test_a_middleware_that_selects_the_memory_by_the_task_passes_the_memory_run(tmp_path):
-    """The memory run's session has a task that names the probe entry: a session_start that hands over only the
+    """The memory run's session has a task on the probe entry's topic: a session_start that hands over only the
     entries sharing a word with the task keeps the channel and passes."""
     adapter = seed(tmp_path)
     rewrite(adapter, "middleware.py", "    return HookResult(context=body)\n",

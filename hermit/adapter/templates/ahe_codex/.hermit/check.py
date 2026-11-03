@@ -71,8 +71,12 @@ FORBIDDEN_CALLS = frozenset({"__import__", "importlib.import_module", "os.system
 FORBIDDEN_CALL_PREFIXES = ("os.exec", "os.spawn")
 ROOT = Path(__file__).resolve().parents[1]      # the template root this check is loaded from (its fixed files)
 DRY_RUN_TIMEOUT_S = 40                # one hook's dry run: the runner's own alarm (28 s) fires first
-# The memory entry the memory run writes into a copy of the adapter: session_start must hand it to the model.
-MEMORY_PROBE = "ahe-codex check: this entry of MEMORY.md must reach the model at session start"
+# The memory run: one entry in a copy of the adapter's MEMORY.md, carrying a mark found nowhere else, and a task on
+# the entry's topic without the mark. session_start must hand the mark to the model: only the memory holds it, so a
+# hook that echoes the task fails, and one that hands over the entries relevant to the task passes.
+MEMORY_PROBE_MARK = "ahe-codex-memory-probe-3f9c1a"
+MEMORY_PROBE_ENTRY = f"When a table reports a value, check its units before answering. [{MEMORY_PROBE_MARK}]"
+MEMORY_PROBE_TASK = "Read the table that reports the value, and check its units before answering."
 # One hook call as Codex makes it, by the template's runner on the adapter's middleware: argv runner, event, adapter.
 DRY_RUN = ("import importlib.util, sys\n"
            "spec = importlib.util.spec_from_file_location('ahe_codex_hook_runner', sys.argv[1])\n"
@@ -400,9 +404,10 @@ def dry_run_problems(adapter: Path) -> list[tuple[str, str]]:
 
 def memory_run_problems(adapter: Path) -> list[tuple[str, str]]:
     """(5, memory) session_start, called by the template's hook_runner.py on a copy of the adapter whose MEMORY.md
-    holds one entry (MEMORY_PROBE), in a session whose task names that entry, hands the entry to the model as context:
-    the memory channel is what session_start does, not a file name it mentions (a hook that names MEMORY.md and
-    returns None passes the static rule)."""
+    holds one entry (MEMORY_PROBE_ENTRY), in a session whose task is on the entry's topic (MEMORY_PROBE_TASK), hands
+    the entry's mark (MEMORY_PROBE_MARK, in the memory alone) to the model as context: the memory channel is what
+    session_start does, not a file name it mentions (a hook that names MEMORY.md and returns None, or returns the
+    task, passes the static rule)."""
     runner = ROOT / RUNNER if (ROOT / RUNNER).is_file() else adapter / RUNNER
     if not runner.is_file() or not (runner.parent / "hermit_hooks.py").is_file():
         return []                                     # a fixed file is missing: check_spec's check 1 names it
@@ -410,11 +415,11 @@ def memory_run_problems(adapter: Path) -> list[tuple[str, str]]:
     with tempfile.TemporaryDirectory(prefix="ahe-codex-memory-run-") as scratch:
         copy, workspace = Path(scratch) / "adapter", Path(scratch) / "workspace"
         shutil.copytree(adapter, copy, symlinks=True, ignore=shutil.ignore_patterns(".git", ".hermit-hooks"))
-        (copy / MEMORY).write_text(f"{MEMORY_HEADER}\n\n## Agent Added Memories\n- {MEMORY_PROBE}\n", encoding="utf-8")
+        (copy / MEMORY).write_text(f"{MEMORY_HEADER}\n\n## Agent Added Memories\n- {MEMORY_PROBE_ENTRY}\n",
+                                   encoding="utf-8")
         workspace.mkdir()
-        # The session's task names the entry, so a middleware that hands over only the entries relevant to the task
-        # (inp.task_text, the workspace's task.md) hands this one over too.
-        (workspace / "task.md").write_text(f"{MEMORY_PROBE}\n", encoding="utf-8")
+        # The session's task (inp.task_text, the workspace's task.md) shares the entry's topic, not its mark.
+        (workspace / "task.md").write_text(f"{MEMORY_PROBE_TASK}\n", encoding="utf-8")
         try:
             proc = subprocess.run([sys.executable, "-B", "-c", DRY_RUN, str(runner), "SessionStart", str(copy)],
                                   cwd=str(copy), env=env, input=json.dumps(_payload("session_start", workspace)),
@@ -427,7 +432,7 @@ def memory_run_problems(adapter: Path) -> list[tuple[str, str]]:
         except ValueError:
             out = {}
         context = ((out if isinstance(out, dict) else {}).get("hookSpecificOutput") or {}).get("additionalContext")
-        if not isinstance(context, str) or MEMORY_PROBE not in context:
+        if not isinstance(context, str) or MEMORY_PROBE_MARK not in context:
             return [(MIDDLEWARE, f"{MIDDLEWARE}: `session_start`, run through {RUNNER} on a {MEMORY} with one entry, "
                                  f"did not hand that entry to the model (its context: {str(context)[:200]!r}): the "
                                  f"long-term memory reaches the model only through session_start, so the memory "
