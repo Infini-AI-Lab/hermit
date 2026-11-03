@@ -72,6 +72,13 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Added
 
+- An Evolver can choose the next step's tasks: one that sets `chooses_tasks = True` is given the epoch's training
+  tasks still to run (`Progress.remaining`, also listed in the call's message) and names the next step's in
+  `StepResult.next_tasks` (an external program in `output/step_result.json`). An epoch still runs every training task
+  once; a request outside that is refused and recorded, and the next step takes the Trainer's order, which stays the
+  default. Other Evolvers see nothing ahead and get the same steps and messages as before. Every step record now
+  carries `epoch_end`, which the epoch checkpoint follows, and, when a choice was made, `next_tasks` or
+  `next_tasks_refused` and `chosen_by`.
 - A ChatGPT login's plan, for every Codex session on it (`hermit/agent/base/login.py`): files under
   `~/.cache/hermit/codex-login/plan/` pause new sessions (`PAUSE`), hold them past a usage threshold (`MAX_USED`) and
   cap the sessions at once on the machine (`SLOTS`); each session's report of the plan's usage is kept (`plan.json`);

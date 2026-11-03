@@ -44,7 +44,7 @@ evolver.setup()
 adapter = commit(evolver.bootstrap(adapter))                          # optional: step 0, before any rollout
 
 for epoch in range(epochs):
-    for tasks in batches(shuffle(train), step_size):
+    for tasks in batches(shuffle(train), step_size):                  # or the tasks the Evolver named
         results  = [judge(t, pipeline(t, adapter)) for t in tasks]   # rollouts
         material = learning_material(results)
 
@@ -144,14 +144,16 @@ Final evaluation is a separate command.
 
 An epoch is one pass over the training split. Each step takes up to `data.step_size` tasks; the order is reshuffled
 deterministically for each epoch, or kept as the split file gives it when `data.shuffle` is false (an ordered
-stream, such as a continual-learning sequence). The last batch can be smaller. Validation tasks are offered to the Evolver rather
+stream, such as a continual-learning sequence). The last batch can be smaller. An Evolver that declares `chooses_tasks` may
+instead name the next step's tasks from those the epoch has still to run ([Choosing the next tasks](evolver.md#choosing-the-next-tasks));
+the epoch still runs every training task once. Validation tasks are offered to the Evolver rather
 than included in the Trainer's training batches. Test tasks are reserved for `eval`.
 
 ### Resuming after a crash
 
 With `trainer.resume_mode: auto`, an unfinished run resumes from its last completed step. The Trainer restores the
 adapter commit and learner-state snapshot, drops later incomplete material, and recomputes the next batch from the
-seed and progress.
+seed and the tasks the epoch's recorded steps already ran, honouring the last step's `next_tasks`.
 
 Budget accounting also resumes from that step's saved record. Work done after it and before the crash may therefore
 be absent from restored spending. Resuming a learner's external host session additionally depends on that host and

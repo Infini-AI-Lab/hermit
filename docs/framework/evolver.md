@@ -58,7 +58,7 @@ The rest of the context supplies:
 | `tools` | Run, task, and template capabilities available to the method. |
 | `message` | Human-readable description of the call and available resources. |
 | `sandbox`, `cancel`, `tool_url` | Program execution helper, cancellation signal, and tool endpoint. |
-| `progress` | On step calls: epoch, step, and whether the epoch ends here. |
+| `progress` | On step calls: epoch, step, whether the epoch ends here, and, for an Evolver that chooses its tasks, the epoch's training tasks still to run (`remaining`). |
 | `session` | Optional previous learner-session handle when session resume is enabled. |
 
 The learner interface does not supply test tasks. Whether files remain inaccessible also depends on the run's
@@ -80,6 +80,34 @@ filesystem grants and execution isolation.
 
 `Usage` reports model calls, token counts, and cost when known. Calls through the run's metered model (`ctx.agent`, or
 the `llm` tool) are already accounted for; do not report the same usage again in `StepResult`.
+
+### Choosing the next tasks
+
+By default the Trainer takes each step's tasks in order: the next `data.step_size` of the epoch. An Evolver that
+decides what to learn from next (a curriculum) declares it and names the next step's tasks in
+`StepResult.next_tasks`:
+
+```python
+class Curriculum(Evolver):
+    chooses_tasks = True
+
+    def step(self, ctx):
+        ...
+        remaining = ctx.progress.remaining      # the epoch's training tasks still to run, in the Trainer's order
+        return StepResult("done", "...", next_tasks=[pick(remaining)])
+```
+
+Only an Evolver with `chooses_tasks = True` is given `progress.remaining` (also listed in the call's message);
+for every other Evolver it is empty, so a stream's later tasks stay unseen. The request is checked when it is made
+and holds for the next step only. It must be distinct task ids, at most `data.step_size` of them, from
+`progress.remaining`; at the last step of an epoch, where nothing remains, from the training split, which the next
+epoch runs again. A bootstrap may name the first step's tasks the same way (it is given the first epoch's order).
+An epoch still runs every training task once: the tasks the Evolver leaves out come later in the epoch, in the
+Trainer's order. The step's record keeps an accepted request as `next_tasks` and a refused one as
+`next_tasks_refused` with the reason, and the next step then runs the order's tasks; a step that ran the Evolver's
+tasks says `chosen_by: evolver`. A step may hold fewer tasks than `data.step_size`. An external program
+(`CommandEvolver`) names them as `next_tasks` in `output/step_result.json`, from a subclass that sets
+`chooses_tasks = True`.
 
 ### Status handling
 
