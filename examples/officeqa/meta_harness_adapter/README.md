@@ -70,7 +70,7 @@ acting and proposing on the machine's ChatGPT login (the README's second column)
 the search set and the twelve candidates 0.62 to 0.68; `r06_source_cell_guard` (0.68) was handed back and scores
 **0.605** [0.529, 0.674] on the 172 test questions, against 0.378 for the same starting adapter in the same harness
 (RRSI Adapter's evaluation of it before that Evolver's port: paired +22.7 [+15.1, +30.2]), level with GEPA (+0.4
-[−3.9, +4.7]), Harness² (−0.6 [−6.4, +5.2]) and RRSI Adapter's four trainings on the agent layers (−1.2 [−5.5, +3.1])
+[−3.9, +4.7]), Harness² (−0.6 [−6.4, +5.2]) and RRSI Adapter's four trainings on the agent layers (−1.2 [−5.5, +2.9])
 on that column. 650 rollouts, 125 M tokens; the
 proposer 3 M tokens; 0.9 h. The run came before the agent layers: its acting agent was PR #54's OfficeQA Codex agent
 with `deploy: adapter` (`ADAPTER.md` as `AGENTS.md`, every other file at the session's root) behind a proxy that let

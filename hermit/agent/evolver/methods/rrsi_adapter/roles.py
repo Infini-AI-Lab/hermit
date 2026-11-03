@@ -12,9 +12,11 @@ upstream's own `extract_json` cuts the JSON out of it, as upstream's `generate` 
 
 The roles are not calls of the run's model (`ctx.agent`): through the Trainer's chat endpoint a session for a model
 only Codex serves runs in an empty workspace of its own, and a digester there, told its trace is in its working
-directory, finds none and answers so instead of with an action. Everything upstream does with the reply (parsing actions, the digesters' tool loop, the critic's
-three tries) is upstream's code, unchanged. Each call keeps its prompt, events and reply under `log_dir`; its usage
-is the Base Agent's. A session the Trainer stopped, or that the model's plan held back or refused, ends the call
+directory, finds none and answers so instead of with an action. Everything upstream does with the reply (parsing
+actions, the digesters' tool loop, the critic's three tries) is upstream's code, unchanged. Each call keeps its
+prompt, system text, events, reply and meta under `records` (the step's output, kept with the run's records), its home
+and working directory under `log_dir`; its usage is the Base Agent's. A reply counts only from a session that ended
+(exit 0, no timeout). A session the Trainer stopped, or that the model's plan held back or refused, ends the call
 (`Stop`); one the provider could not serve is tried again after a longer pause.
 """
 from __future__ import annotations
@@ -92,14 +94,20 @@ class SandboxedSubprocess:
         if self.sandbox is not None:
             from hermit.sandbox import HidingSandbox
             args, env = HidingSandbox(self.sandbox, self.hide).wrap(args, env=dict(env or os.environ))
+            if self.hide and getattr(self.sandbox, "enabled", False) and \
+                    not any(os.path.basename(str(a)) == "bwrap" for a in args):
+                # the run's sandbox ran unconfined (no bubblewrap, enforce: best_effort): nothing would be covered,
+                # so the command is refused, as the Base Agent refuses a session it cannot hide paths from
+                raise RuntimeError("the digester's shell needs bubblewrap to hide the run's records")
         return subprocess.run(args, cwd=cwd, env=env, **kw)
 
 
 class Roles:
     """`generate` for upstream's one-call roles, each call one session of the `codex` Base Agent with `settings`."""
 
-    def __init__(self, ctx, settings: dict, log_dir: Path, hide: list[Path] = ()):
+    def __init__(self, ctx, settings: dict, log_dir: Path, hide: list[Path] = (), records: Path | None = None):
         self.ctx, self.settings, self.log_dir = ctx, dict(settings), Path(log_dir)
+        self.records = Path(records) if records is not None else self.log_dir
         self.hide = [Path(p) for p in hide]
         self.usage: list[Usage] = []
         self.calls = 0
@@ -107,6 +115,7 @@ class Roles:
         self._count = itertools.count(1)
         self._lock = threading.Lock()
         self.log_dir.mkdir(parents=True, exist_ok=True)
+        self.records.mkdir(parents=True, exist_ok=True)
 
     def sandboxed_subprocess(self) -> SandboxedSubprocess:
         return SandboxedSubprocess(self.ctx.sandbox, self.hide, visible=self.traces)
@@ -141,7 +150,7 @@ class Roles:
             if (not extra.get("started") and extra.get("unavailable")) or \
                     (not extra.get("served") and codex_login.refused(tail)):
                 raise Stop(f"the model's plan did not serve a role's session: {tail[-200:]}")
-            if result.reply.strip():
+            if result.reply.strip() and result.exit_code == 0 and not result.timed_out:
                 return extract_json(result.reply) if json_only else result.reply
             last = tail[-300:] or ("timed out" if result.timed_out else f"exit code {result.exit_code}")
             if self._wait(min(2 ** attempt, 30) * (4 if extra.get("unavailable") else 1)):
@@ -155,25 +164,27 @@ class Roles:
         call = self.log_dir / f"{n:05d}"
         work = call / "work"
         work.mkdir(parents=True, exist_ok=True)
-        (call / "prompt.txt").write_text(prompt)
-        (call / "system.txt").write_text(system)
+        rec = self.records / f"{n:05d}"
+        rec.mkdir(parents=True, exist_ok=True)
+        (rec / "prompt.txt").write_text(prompt)
+        (rec / "system.txt").write_text(system)
         # Upstream's digester reads "the rendered trajectory files in your working directory" through its JSON
         # actions; a Codex session reads its working directory with its own tools as well, so a digester's session
         # runs in the round's rendered traces (Codex's read-only sandbox), and every other role's in an empty one.
         cwd = self.traces if self.traces is not None and "trajectory digester" in system else work
         extra, text = codex_instructions(system, prompt)
-        settings = {**self.settings, "home": call / "home", "log": call / "events.jsonl", "stdin": True,
+        settings = {**self.settings, "home": call / "home", "log": rec / "events.jsonl", "stdin": True,
                     "args": [*(self.settings.get("args") or []), *extra], "cancel": self.ctx.cancel}
         hidden = self.hide if getattr(self.ctx.sandbox, "enabled", False) else []
         started = time.time()
         result = make("codex", settings).run(text, workspace=cwd, limits=Limits(hidden=hidden))
         with self._lock:
             self.usage += result.usage
-        (call / "reply.txt").write_text(result.reply)
+        (rec / "reply.txt").write_text(result.reply)
         meta = {"exit": result.exit_code, "timed_out": result.timed_out, "wall_s": round(time.time() - started, 1),
                 "chars": len(result.reply), **{k: result.extra.get(k) for k in ("served", "unavailable", "started",
                                                                                   "cancelled")}}
-        (call / "meta.json").write_text(json.dumps(meta, indent=1))
+        (rec / "meta.json").write_text(json.dumps(meta, indent=1))
         return result
 
     def total(self) -> list[Usage]:

@@ -68,7 +68,9 @@ Paired per question with 95% bootstrap intervals, the four trainings averaged pe
 averages GEPA's and SkillOpt's four, against the GPT-5.6-Luna column: RRSI Adapter − H_0 **+26.2** [+20.1, +32.6] (63
 won, 13 lost); − GEPA +1.6 [−1.6, +4.8]; − SkillOpt **+7.0** [+3.3, +10.6]; − Harness² +0.6 [−4.2, +5.5]; −
 Meta-Harness Adapter +1.2 [−2.9, +5.5]; − ReHarness **+9.9** [+4.5, +15.6]; − Continual Harness **+14.0** [+8.3,
-+19.6]; the engineering arm − H_0 **+26.7** [+19.8, +33.7] (49 won, 3 lost). Almost all of the gain over H_0 is the
++19.6]; the engineering arm − H_0 **+26.7** [+19.8, +33.7] (49 won, 3 lost). ACE's 0.640 is the column's highest
+cell (no paired difference here: its per-question records are not in this repository, and it keeps the playbook with
+the best validation score). Almost all of the gain over H_0 is the
 answer's form, as in every other cell of the column that was checked (all but ACE's). Every non-exact answer was
 read for whether its value is right (each read as right, or where the reading and an automatic match disagreed, read
 again independently: the same verdict all 43 times; an answer the check of the runs before the port had read, the
@@ -93,15 +95,26 @@ On the evolve set (the 50 training questions, two trials each):
   in the requested shape, unit and precision; in four beside a ledger of the operands' sources, in `luna-rrsi-p2`
   beside a reconciliation of the candidate rows run only when two plausible ones remain); every later acceptance is
   inside the noise band but one, `luna-rrsi-p4`'s `r06A` (0.72, +0.09 over an incumbent admitted inside the band at
-  0.63).
+  0.63). The calibrated band is narrow: H_0's own evaluations across the runs (0.46, 0.41, 0.38, 0.37, 0.43, and
+  0.38 when the engineering arm evaluated it again) have a standard deviation of 0.035, which puts the band for a
+  difference at about 0.10, against a calibrated delta of 0.045–0.061; inside that band `r06A`'s +0.09 is noise too.
+- **The domain's texts name the lever.** OfficeQA's pattern library (`texts/PATTERNS.md`) opens with answer-form
+  mechanisms ("a rule that the content of `<answer>` is the value alone in the form the question asks for"), the
+  analyst's brief calls the answer's form as important as its value and near misses in form high-leverage, and the
+  critic's brief cites "give the value alone in the unit and precision the question names" as acceptable craft;
+  upstream's coding and workspace libraries have no such entry. These texts were written after the column's
+  answer-by-answer check had shown that its gains are the answer's form, so round 0's gate is in part what the texts
+  suggest, and the comparison with the column's other methods, whose learners were given the task's scoring rule but
+  no such library, is of RRSI Adapter with these texts, not of RRSI's search alone. A training without the entry was
+  not run.
 - **The exploration slot works.** Every variant of every round reached evaluation (20 of 20 in each training), and
   each training measured every component the reserved slot may ask for (the domain's five carriers: `prompt`,
   `config`, `client_tool`, `skill`, `memory`; the hooks and roles an `exports.yaml` now connects were never asked
   for). Three final adapters carry more than `ADAPTER.md`, each file admitted inside the band: `luna-rrsi-p1`'s a skill
   (`skills/evidence_recovery/SKILL.md`, a bounded procedure for an operand missing from the text at hand), admitted
   for its novelty (`r08A`, 2.7% more tokens), and a tool (`tools/local_recover.py`, a read-only search for files
-  matching a few terms), for a token saving (`r09A`, 8.5% fewer), which the acting agent opened in 7 and ran in 3 of
-  the 172 test sessions; `luna-rrsi-p4`'s `scripts/stat_calc.sh` (geometric mean, standard deviations, trimmed mean),
+  matching a few terms), for a token saving (`r09A`, 8.5% fewer); the acting agent opened the skill in 7 and ran the
+  tool in 3 of the 172 test sessions; `luna-rrsi-p4`'s `scripts/stat_calc.sh` (geometric mean, standard deviations, trimmed mean),
   for a token saving (`r02B`, 2.8% fewer), run in none; the engineering arm's a tool (`tools/audit_ledger.py`, a check
   of the extracted operands) and a skill (`skills/semantic_check/SKILL.md`, an interpretation card before any
   arithmetic), for their score inside the band (`r01B`, `r02B`), which its weights count, run in 166 and opened in
@@ -137,7 +150,9 @@ ran (an upper bound on their share). All on the Codex plan, no API key. The code
 
 The records are in [`results/`](results/): per run, the final adapter, one record per test question (its score, the
 check's verdict on its value, its tokens and time; no reference answers), the rounds' decisions, the run's facts and
-its config, for the runs above and those below.
+its config, for the runs above and those below. The runs kept no record of the analyst's, the digesters' and the
+critic's sessions (the scratch they were written to is cleared at each step); the Evolver now keeps them in each
+step's output.
 
 ### Before the port
 

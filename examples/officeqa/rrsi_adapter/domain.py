@@ -89,6 +89,14 @@ class OfficeQADomain(AdapterDomain):
                                                                           f"{plain!r}"))
         return out
 
+    def smoke_failure(self, result: dict) -> bool:
+        """Upstream fails its smoke on a trial that ended with an exception, timeouts included. An OfficeQA rollout
+        that ends so (a timeout, the CLI exiting non-zero) comes back with no answer, and the smoke's questions are
+        ones the incumbent answered right in every trial: a smoke rollout without an answer fails the smoke (a wrong
+        answer does not)."""
+        out = result.get("output") if isinstance(result.get("output"), dict) else {}
+        return super().smoke_failure(result) or not str(out.get("answer") or "").strip()
+
     def smoke_ids(self, incumbent_per_task: dict | None = None) -> list[str]:
         """Upstream's coding smoke runs two fixed tasks once each; here the first row of the first two questions the
         incumbent answered right in every trial (else the first two questions)."""

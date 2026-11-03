@@ -248,7 +248,7 @@ class Script:
         sid = session or f"s-{key[0]}{key[1]}"
         self.paths[sid] = (key, cand, done)
         log.write_text(json.dumps({"type": "thread.started", "thread_id": sid}) + "\n")
-        return Result(reply="", session=sid, exit_code=0, log=log, extra=dict(SERVED))
+        return Result(reply="", session=sid, exit_code=int(action.get("exit", 0)), log=log, extra=dict(SERVED))
 
 
 def edit(eid="C1", component="prompt", **kw):
@@ -329,6 +329,7 @@ def test_a_run_baseline_rounds_selection_and_h_t(tmp_path, monkeypatch):
     assert all("floor" in d["reason"] for d in decisions)
     final = ev.finalize(context(ws, 5, dom, tmp_path))
     assert "r00A" in final.summary and "bare number" in (ws.adapter / "ADAPTER.md").read_text()
+    assert final.extra["complete"] is True and final.extra["rounds"] == 2 and "ended early" not in final.summary
     attribution = [json.loads(l) for l in (ws.state / "rrsi" / "attribution.jsonl").read_text().splitlines()]
     assert attribution[0]["predicted_hit"] == ["q1"]
 
@@ -450,6 +451,8 @@ def test_consecutive_failures_stop_the_run(tmp_path, monkeypatch):
     material(ws, 1, rows({"q1": [0, 1], "q2": [1, 0]}))
     statuses = [ev.step(context(ws, i, dom, tmp_path)).status for i in (1, 2, 3)]
     assert statuses == ["failed", "failed", "stop"]
+    final = ev.finalize(context(ws, 3, dom, tmp_path))       # H_0 was measured; no round was ever decided
+    assert final.extra["complete"] is False and "after 0 of 2 rounds: the run ended early" in final.summary
 
 
 def test_the_roles_bridge_rebinds_upstreams_generate_only_while_bound():
@@ -567,6 +570,17 @@ def test_the_diff_reads_every_file_whatever_the_candidates_gitattributes_say(tmp
     assert "+The answer is SECRET-ANSWER." in diff and "Binary files" not in diff
 
 
+def test_the_diff_drops_the_copies_prefixes_on_header_lines_only(tmp_path):
+    base, new = tmp_path / "base", tmp_path / "new"
+    base.mkdir()
+    (base / "run.sh").write_text("-- a/a/old\nkeep\n")
+    shutil.copytree(base, new)
+    (new / "run.sh").write_text("keep\npython a/a/tool.py b/b/x\n")
+    diff = E.diff_of(base, new)
+    assert "diff --git a/run.sh b/run.sh\n" in diff and "\n--- a/run.sh\n" in diff and "\n+++ b/run.sh\n" in diff
+    assert "\n--- a/a/old\n" in diff and "\n+python a/a/tool.py b/b/x\n" in diff       # changed lines as they are
+
+
 def test_a_proposers_directory_or_home_turned_into_a_link_ends_its_draft(tmp_path, monkeypatch):
     ws = workspace(tmp_path)
     dom = domain_files(tmp_path)
@@ -620,6 +634,7 @@ def test_a_workspace_reached_through_a_link_is_refused_when_paths_are_hidden(tmp
     material(ws, 1, rows({"q1": [0, 1], "q2": [1, 0], "q3": [1, 1], "q4": [0, 0]}))
     r = ev.step(context(ws, 1, dom, tmp_path, sandbox=Box()))
     assert r.status == "failed" and "reached through a link" in r.summary and not script.sessions
+    assert not ROLE_CALLS                                      # refused before the analysis, too
     assert state(ws)["failures"] == 1                          # counted: a run so set up stops after three
 
 
@@ -633,6 +648,10 @@ def test_setup_checks_what_every_step_needs(tmp_path):
         ev.setup(context(ws, 1, dom, tmp_path, web_search=None))
     with pytest.raises(Exception):
         ev.setup(context(ws, 1, str(tmp_path / "dom" / "missing.py") + ":ToyDomain", tmp_path))
+    with pytest.raises(ValueError, match="roles.model"):
+        ev.setup(context(ws, 1, dom, tmp_path, roles={"model": "anthropic/claude-x"}))
+    with pytest.raises(ValueError, match="not RRSI hyperparameters"):
+        ev.setup(context(ws, 1, dom, tmp_path, rrsi={"T": 2, "rounds": 3}))
 
 
 def test_a_failed_session_that_mentions_a_429_is_not_retried_as_the_providers(tmp_path, monkeypatch):
@@ -648,10 +667,47 @@ def test_a_failed_session_that_mentions_a_429_is_not_retried_as_the_providers(tm
                                                         "output_tail": "grep found 'unexpected status 429'"})
     monkeypatch.setattr(E, "make", lambda name, settings=None, model=None: Failed(settings))
     material(ws, 1, rows({"q1": [0, 1], "q2": [1, 0], "q3": [1, 1], "q4": [0, 0]}))
-    ev.step(context(ws, 1, dom, tmp_path, session_retry_wait_s=0))
-    prep = json.loads((ws.state / "rrsi" / "r0" / "A" / "prep.json").read_text())
-    # one session per variant (both rounds' variants failed, so round 1 was drafted in the same step), none retried
-    assert len(calls) == 4 and prep["gate_failure"] == "no_proposal"
+    r = ev.step(context(ws, 1, dom, tmp_path, session_retry_wait_s=0))
+    # one session, not retried as the provider's failure; a failed session without a proposal fails the step
+    assert len(calls) == 1 and r.status == "failed" and "failed without a proposal" in r.summary
+    assert not (ws.state / "rrsi" / "r0" / "A" / "prep.json").exists()
+
+
+def test_a_proposer_session_that_fails_without_a_proposal_fails_the_step_and_is_drafted_again(tmp_path,
+                                                                                             monkeypatch):
+    ws = workspace(tmp_path)
+    dom = domain_files(tmp_path)
+    script = Script({
+        (0, "A"): [{"exit": 1}, {"files": {"ADAPTER.md": "# Skill\n\nAnswer with the bare number.\n"},
+                                 "done": {"summary": "form", "edits": [edit()]}}],
+        (0, "B"): [{"files": {"ADAPTER.md": "# Skill\n\nShorter.\n"}, "done": {"summary": "s", "edits": [edit()]}}],
+    })
+    ev = evolver(monkeypatch, script)
+    base = rows({"q1": [0, 1], "q2": [1, 0], "q3": [1, 1], "q4": [0, 0]})
+    material(ws, 1, base)
+    r = ev.step(context(ws, 1, dom, tmp_path))
+    assert r.status == "failed" and "r0A: a proposer session failed without a proposal" in r.summary
+    assert not (ws.state / "rrsi" / "r0" / "A" / "prep.json").exists() and state(ws)["failures"] == 1
+    history = (ws.state / "rrsi" / "history.jsonl").read_text()
+    assert "no_proposal" not in history                     # never recorded as the proposer's choice
+    material(ws, 2, base)                                    # the Trainer kept H_0: its rollouts again
+    r = ev.step(context(ws, 2, dom, tmp_path))
+    assert r.status == "done" and r.extra["next"] == "r00A", r.summary
+    assert [key for key, resumed in script.calls if not resumed] == [(0, "A"), (0, "A"), (0, "B")]
+    assert state(ws)["failures"] == 0
+
+
+def test_officeqa_smoke_fails_a_rollout_without_an_answer():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("oqa_domain", ROOT / "examples/officeqa/rrsi_adapter/domain.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    dom = module.OfficeQADomain()
+    timed_out = {"answer": "", "fail_reason": "session timed out after 3600 s without an answer"}
+    assert dom.smoke_failure({"status": "ok", "output": timed_out})
+    exited = {"answer": "", "fail_reason": "the CLI exited 1 without an answer"}
+    assert dom.smoke_failure({"status": "ok", "output": exited})
+    assert not dom.smoke_failure({"status": "ok", "output": {"answer": "41.5", "fail_reason": ""}})    # wrong is alive
 
 
 def test_officeqa_refuses_python_an_exports_yaml_names_however_it_is_spelled(tmp_path):
@@ -766,6 +822,14 @@ def test_the_digesters_shell_runs_through_the_sandbox_while_bound():
     with R.bound(lambda *a, **k: "{}", Fake()):
         rrsi.digester.subprocess.run("grep x a.txt", shell=True)
     assert calls and rrsi.digester.subprocess is original
+
+
+def test_the_digesters_shell_is_refused_when_the_sandbox_cannot_hide_paths(tmp_path):
+    state = tmp_path / "state"
+    state.mkdir()
+    with pytest.raises(RuntimeError, match="bubblewrap"):
+        R.SandboxedSubprocess(Box(), [state]).run("true", shell=True)       # Box: on, but no bwrap in its command
+    assert R.SandboxedSubprocess(Box(), []).run("true", shell=True).returncode == 0
 
 
 def test_the_digesters_shell_runs_in_the_visible_copy_of_the_traces(tmp_path):
@@ -899,13 +963,45 @@ def test_the_roles_usage_is_reported_with_the_proposers(tmp_path, monkeypatch):
     monkeypatch.setattr(R, "make", lambda name, settings=None, model=None:
                         Role(settings, usage=[Usage("luna", input_tokens=10, output_tokens=2, calls=1)]))
     material(ws, 1, rows({"q1": [0, 1], "q2": [1, 0], "q3": [1, 1], "q4": [0, 0]}))
-    r = ev.step(context(ws, 1, dom, tmp_path, roles={"model": "luna", "effort": "low"}))
+    r = ev.step(context(ws, 1, dom, tmp_path, roles={"model": "luna", "effort": "low"},
+                        binding={"litellm": "anthropic/claude-x"}, price={"input": 15, "output": 75}))
     n = len(ROLE_CALLS)
     assert r.status == "done" and n >= 3                         # the analyst and both critics at least
     assert [(u.model, u.input_tokens, u.calls) for u in r.usage] == [("luna", 10 * n, n)]
     s = ROLE_CALLS[0]["settings"]
     assert s["model"] == "luna" and s["effort"] == "low" and s["codex_sandbox"] == "read-only" and \
         s["timeout_s"] == 1800 and s["cancel"] is None
+    assert "binding" not in s and "price" not in s              # the proposer's model's, not the roles'
+    # each call's record is kept with the step's output; its home (a copy of the sign-in) stays in the scratch
+    rec = ws.output / "rrsi_roles" / "00001"
+    assert s["log"] == rec / "events.jsonl" and (rec / "prompt.txt").is_file() and (rec / "reply.txt").is_file()
+    assert s["home"] == ws.scratch / "rrsi_roles" / "00001" / "home" and not (rec / "home").exists()
+
+
+def test_the_roles_see_neither_the_records_nor_the_proposers_directories(tmp_path, monkeypatch):
+    ws = workspace(tmp_path)
+    dom = domain_files(tmp_path)
+    script = Script({(0, "A"): [{"files": {"ADAPTER.md": "x\n"}, "done": {"summary": "s", "edits": [edit()]}}],
+                     (0, "B"): [{"files": {"ADAPTER.md": "y\n"}, "done": {"summary": "s", "edits": [edit()]}}]})
+    ev = evolver(monkeypatch, script)
+    material(ws, 1, rows({"q1": [0, 1], "q2": [1, 0], "q3": [1, 1], "q4": [0, 0]}))
+    assert ev.step(context(ws, 1, dom, tmp_path, sandbox=Box())).status == "done"
+    hidden = set(ROLE_CALLS[-1]["limits"].hidden)                 # the last critic's, after both drafts
+    assert {ws.learning_material, ws.state, ws.adapter, ws.output, ws.scratch / "rrsi"} <= hidden
+
+
+def test_a_roles_reply_counts_only_from_a_session_that_ended(tmp_path, monkeypatch):
+    replies = []
+
+    class Ended(BaseAgent):                    # the first session timed out after an intermediate message
+        def run(self, prompt, **kw):
+            replies.append(1)
+            first = len(replies) == 1
+            return Result(reply="half a thought" if first else "the answer", exit_code=1 if first else 0,
+                          timed_out=first, extra=dict(SERVED))
+    monkeypatch.setattr(R, "make", lambda name, settings=None, model=None: Ended(settings))
+    monkeypatch.setattr(R.Roles, "_wait", lambda self, seconds: False)
+    assert roles(tmp_path).generate("p", system="s") == "the answer" and len(replies) == 2
 
 
 def test_officeqa_denylist_names_values_and_skips_years_and_round_numbers():

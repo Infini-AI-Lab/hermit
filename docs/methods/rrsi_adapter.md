@@ -143,7 +143,9 @@ A run takes 1 + (evaluated candidates) steps, 1 + T x m when every candidate is 
 give `trainer.epochs` room beyond that. A candidate the critic, the check or the smoke refuses costs no step; a round
 whose candidates all fail is decided at once and the next is opened in the same step. An evaluation with more missing
 trials than `invalid_missing_frac` is run once more, then counted invalid, as upstream does, and a step whose Evolver
-call fails is a step too; three failed steps in a row stop the run, as upstream's driver does.
+call fails is a step too (so is one whose proposer session exits non-zero without a proposal; the variant is drafted
+again at the next step); three failed steps in a row stop the run, as upstream's driver does, and `finalize` then says
+that the run ended before round T.
 
 ## Parameters and defaults
 
@@ -157,14 +159,17 @@ call fails is a step too; three failed steps in a row stop the run, as upstream'
 |---|---|---|---|
 | What the proposer may change | The whole harness program | Every file of the adapter outside `.hermit/`; the acting agent, its loop and the host stay fixed | forced by the framework |
 | The proposer | Claude Opus 4.8 in upstream's JSON-action loop | A session of the `codex` or `claude` Base Agent with `evolver.model`, upstream's system text, context sections and done() contract | a setting |
-| The search roles' model | Claude Opus 4.8 | The proposer's model (or `roles`), one Codex session per call; a digester's runs in the round's rendered traces, which it may read with its own tools as well as through upstream's actions | a setting |
+| The search roles | Claude Opus 4.8, one completion per call; the analyst and the critic answer from the text they are given | The proposer's model (or `roles`), one Codex session per call with Codex's own sandbox read-only: the analyst and the critic in an empty directory, a digester in the round's rendered traces, which it may read with its own tools as well as through upstream's actions; none of them sees the run's records, the step's output or the proposers' directories | a setting |
 | Component vocabulary | Signals in the Terminus-2 source | The same K, with signals for adapter files (`domain.ADAPTER_SIGNALS`) | forced by the framework |
-| delta | Measured from repeated base evaluations (coding: 0.017) | Upstream's `calibrate` on H_0's one evaluation unless the config gives one (its within-task bootstrap reads low by about sqrt(2) with two trials, as upstream's does) | matched to upstream's driver |
+| delta | Measured from repeated base evaluations (coding: 0.017) | Upstream's `calibrate` on H_0's one evaluation unless the config gives one (its within-task bootstrap reads low by about sqrt(2) with two trials, as upstream's does; on OfficeQA the spread of H_0's own evaluations across the runs, sd 0.035, gives a band of about 0.10 for a difference, against a calibrated 0.045–0.061) | matched to upstream's driver |
 | Unexplored components U_t | K minus the components with a measured edit | The same, without the components outside the domain's carriers (`AdapterDomain.carriers`, for what the benchmark's agent cannot carry; OfficeQA's: the five its reported runs could carry, whose deployment connected no hooks and no roles, kept until a run measures the rest): a reserved slot never asks for one | forced by the setting (OfficeQA: a decision, the runs' setting) |
 | The proposer's isolation | Its own worktree; its JSON actions reach only the harness and the round's traces | Its own working directory (the candidate and the round's context) and home; with the run's sandbox on, the learning material, the state, the history, the working copy, the step's logs, the digesters' copy of the traces and every other variant are the call's `Limits.hidden`, which the run's sandbox covers or the Base Agent refuses the call | matched |
 | Candidate files | The worktree's git diff | The diff between the incumbent's stored files and the staged candidate (without byte code, caches, nested repositories and what git would not commit); symbolic links are refused, as in Meta-Harness Adapter | forced by the framework |
 | The critic's precheck | Upstream's patterns and the domain's | The same, plus, for OfficeQA, the training answers the judge's feedback has revealed (whole answers and their longer numbers) and Python an `exports.yaml` names (it would run outside the agent's container) | the reproduction's |
 | The digesters' read-only shell action | Runs on the host, in the round's rendered traces | Runs under the run's sandbox with the workspace's records covered, in the copy of the round's traces the digesters' sessions read | the reproduction's |
+| The liveness smoke | Two fixed tasks once each; any trial that ended with an exception (a timeout included) fails it | `check_spec`, then the domain's smoke tasks through `run_agent`; OfficeQA's: two training questions the incumbent answered right in every trial, failed by a rollout without an answer (a timeout or the CLI failing); a wrong answer passes | the reproduction's |
+| A proposer call that fails | An exception in the proposer's model call stops the driver; a call that ends without edits is `no_proposal` | A session that exits non-zero without a proposal fails the step (counted toward `max_failures`), and the variant is drafted again at the next step; a session that ends without a proposal is `no_proposal` | matched |
+| The domain's texts | The coding and workspace domains' constitution, pattern library and role briefs | OfficeQA's, adapted from them: its pattern library's first entry, the analyst's and the critic's briefs and the constitution name the answer's form (the value alone, in the unit and precision asked) as a lever, which upstream's libraries do not | the reproduction's (see the example's README) |
 
 ## Records to read after a run
 
@@ -172,6 +177,7 @@ call fails is a step too; three failed steps in a row stop the run, as upstream'
 |---|---|
 | `step_NNNN/output/report.md` | The step: the evaluation recorded, the round decided or opened, the candidate handed back |
 | `step_NNNN/output/r<t><v>/session_<n>.jsonl` | The proposer's sessions of a variant |
+| `step_NNNN/output/rrsi_roles/<n>/` | Each call of the analyst, a digester or the critic: its prompt, system text, events, reply and `meta.json` (exit code, timeout, time) |
 | `workspace/state/rrsi/` | Upstream's files: `frontier.json`, `calibration.json`, `history.jsonl` (L_t), `attribution.jsonl`, `r<t>/` (the analysis, `directives.json`, each variant's proposal, critic verdicts, diff, smoke, and `decisions.json`) |
 | `workspace/state/rrsi_adapter.json` | The pump: phase, round, queue, every candidate with its digest and evaluations |
 | `workspace/state/candidates/<id>/adapter/` | Each stored candidate |
@@ -181,8 +187,9 @@ call fails is a step too; three failed steps in a row stop the run, as upstream'
 `examples/officeqa/rrsi_adapter/` runs it on OfficeQA with GPT-5.6-Luna acting and learning through Codex (the luna
 column of the example's results): ten rounds of two candidates on the 50 training questions, two trials each. Over four
 trainings the final incumbent scores 0.616 on the 172 test questions (0.576–0.640), from 0.355 for its starting adapter
-in the same harness: level with GEPA, Meta-Harness Adapter and Harness² on that column and above SkillOpt; as for the
-column's other methods that were checked (all but ACE), almost all of the gain is the answer's form. The runs before
+in the same harness: level with GEPA, Meta-Harness Adapter and Harness² on that column and above SkillOpt (ACE's 0.640,
+the column's highest cell, is not paired with it); as for the column's other methods that were checked (all but ACE),
+almost all of the gain is the answer's form, a lever OfficeQA's domain texts name (the README says how). The runs before
 this Evolver's port onto the agent layers scored 0.602 (paired, the runs on the port − those: +1.5 [−1.9, +4.8]); the
 example's README has both and what the port changed, and its `results/` directory each run's final adapter, per-question
 test records and config.

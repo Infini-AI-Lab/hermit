@@ -24,12 +24,14 @@ is Hermit's:
    upstream's JSON-action agent: it edits a copy of the incumbent adapter in place with its own tools and writes
    done.json, whose contract (budget, tags, reserved slot) is upstream's done() check; an invalid done.json, and
    each critic objection, goes back to the same session (resumed) with upstream's repair text. What it must not
-   see is the call's `Limits.hidden`, which the Base Agent enforces or refuses.
+   see is the call's `Limits.hidden`, which the Base Agent enforces or refuses. A session that fails (exits
+   non-zero) without a proposal fails the step, and the variant is drafted again at the next one.
 3. Candidates are stored as Meta-Harness Adapter stores them (state/candidates/<id>/adapter/ with a digest) and
    checked with check_spec; the smoke is `run_agent` on the domain's smoke tasks.
 
 A run is 1 + (evaluated candidates) steps, at most 1 + T x m; after round T-1 the incumbent is handed back and the
-step returns `stop` (trainer.allow_early_stop ends the run); finalize hands back H_T.
+step returns `stop` (trainer.allow_early_stop ends the run); finalize hands back H_T, and says so when the run
+ended before round T (`max_failures` failed steps, the Trainer's epochs or budget).
 
 Training State: state/rrsi_adapter.json (the pump: phase, round, queue, candidates with their digests and
 evaluations), state/rrsi/ (upstream's files: frontier.json, calibration.json, history.jsonl, attribution.jsonl,
@@ -189,8 +191,23 @@ def diff_of(base: Path, new: Path) -> str:
         out = subprocess.run(["git", "-c", "core.quotepath=off", "diff", "--no-index", "--no-color", "--text",
                               "--no-renames", "--no-ext-diff", "--no-textconv", "--", "a", "b"],
                              cwd=tmp, env=env, capture_output=True, text=True).stdout
-    return out.replace(" a/a/", " a/").replace(" b/b/", " b/").replace("\n--- a/a/", "\n--- a/") \
-        .replace("\n+++ b/b/", "\n+++ b/")
+    return _strip_copy_prefixes(out)
+
+
+def _strip_copy_prefixes(diff: str) -> str:
+    """git's paths `a/a/<file>` and `b/b/<file>` (the copies' directories) as `a/<file>` and `b/<file>`, on a file's
+    header lines only (`diff --git`, `---`, `+++` before its first hunk): a changed line is left as it is."""
+    out, header = [], False
+    for line in diff.splitlines(keepends=True):
+        if line.startswith("diff --git "):
+            header = True
+            line = line.replace(" a/a/", " a/", 1).replace(" b/b/", " b/", 1)
+        elif line.startswith("@@"):
+            header = False
+        elif header and line.startswith(("--- a/a/", "+++ b/b/")):
+            line = line[:6] + line[8:]
+        out.append(line)
+    return "".join(out)
 
 
 class RRSIAdapterEvolver(AgentEvolver):
@@ -204,6 +221,9 @@ class RRSIAdapterEvolver(AgentEvolver):
             path = Path(value) if Path(value).is_absolute() else Path(ctx.base or ".") / value
             return RRSIConfig.load(path)
         known = {f.name for f in dataclasses.fields(RRSIConfig)}
+        unknown = sorted(k for k in value if k not in known and not str(k).startswith("_"))
+        if unknown:
+            raise ValueError(f"evolver.params.rrsi: not RRSI hyperparameters (RRSIConfig fields): {unknown}")
         return RRSIConfig(**{k: v for k, v in value.items() if k in known})
 
     def _domain(self, ctx):
@@ -266,6 +286,10 @@ class RRSIAdapterEvolver(AgentEvolver):
         _require_rrsi()
         if not isinstance(ctx.params.get("web_search"), bool):
             raise ValueError("evolver.params.web_search must be set, true or false")
+        role = ctx.params.get("roles") or {}
+        if "/" in str(role.get("model") or "") and role.get("binding") is None:
+            raise ValueError("evolver.params.roles.model: a Codex model name (with roles.login), or give "
+                             "roles.binding too; a `<backend>/<model>` reference is resolved for the proposer only")
         self._cfg(ctx)
         self._domain(ctx)
 
@@ -340,16 +364,40 @@ class RRSIAdapterEvolver(AgentEvolver):
 
     def _roles(self, ctx) -> Roles:
         """The roles' sessions: the proposer's Base Agent settings for Codex (its model, login and effort unless
-        `roles` gives the roles' own), Codex's own sandbox read-only, `role_timeout_s` each."""
+        `roles` gives the roles' own; with the roles' own model, the proposer's binding and price are not theirs),
+        Codex's own sandbox read-only, `role_timeout_s` each. They do not see the run's records, the step's output
+        or the proposers' directories (upstream's roles see only the text they are given). Each call's prompt,
+        events and reply are kept in the step's output (`rrsi_roles/`), its home and working directory in the
+        scratch."""
         params, ws = ctx.params, ctx.workspace
         role = params.get("roles") or {}
-        settings = {**self.settings(ctx, "codex"),
+        base = self.settings(ctx, "codex")
+        if role.get("model") is not None:
+            base = {k: v for k, v in base.items() if k not in ("binding", "price")}
+        settings = {**base,
                     **{k: role[k] for k in ("model", "binding", "login", "effort", "args", "price")
                        if role.get(k) is not None},
                     "codex_sandbox": "read-only", "timeout_s": float(params.get("role_timeout_s", 1800))}
-        return Roles(ctx, settings, ws.scratch / "rrsi_roles", hide=[ws.learning_material, ws.state, ws.adapter])
+        hide = [ws.learning_material, ws.state, ws.adapter, ws.history, ws.output, ws.scratch / "rrsi"]
+        return Roles(ctx, settings, ws.scratch / "rrsi_roles", hide=hide, records=ws.output / "rrsi_roles")
+
+    @staticmethod
+    def _aliased(ctx) -> str | None:
+        """A workspace area reached through a link, while the run's sandbox is on: the sandbox shows it under the
+        name it is given and under its real one, and covers a hidden path under its real name only."""
+        if not getattr(ctx.sandbox, "enabled", False):
+            return None
+        ws = ctx.workspace
+        aliased = [str(a) for a in (ws.learning_material, ws.state, ws.adapter, ws.output, ws.scratch, ws.history)
+                   if Path(os.path.abspath(a)) != Path(a).resolve()]
+        return aliased[0] if aliased else None
 
     def _advance(self, ctx, st: dict, cfg, dom, n: int, roles: Roles) -> tuple[str, str]:
+        aliased = self._aliased(ctx)
+        if aliased:
+            raise RuntimeError(f"the run's workspace is reached through a link ({aliased}), under which what the "
+                               "roles and the proposer must not see stays visible: give trainer.output_dir as its "
+                               "real path")
         # 1. The step's rollouts evaluated the candidate handed back last time.
         again = self._record(ctx, st, cfg, dom, n)
         if again is not None:
@@ -764,7 +812,8 @@ class RRSIAdapterEvolver(AgentEvolver):
         backend = params.get("backend", "codex")
         home = work / f".{backend}-home"
         if not _owned(work, ctx.workspace.scratch) or not _owned(home, ctx.workspace.scratch):
-            return StepResult("failed", "the proposer's directory or home was replaced by a link or a file")
+            return StepResult("failed", "the proposer's directory or home was replaced by a link or a file",
+                              extra={"proposer_fault": True})
         _write(path, prompt)
         allowed = params.get("tools")
         tools = [t for name, t in ctx.tools.items() if allowed is None or name in allowed]
@@ -774,12 +823,9 @@ class RRSIAdapterEvolver(AgentEvolver):
         hidden = [*self._hidden_from_proposer(ctx, work), *(Path(p).expanduser() for p in params.get("hide") or [])] \
             if getattr(ctx.sandbox, "enabled", False) else []
         ws = ctx.workspace
-        aliased = [str(a) for a in (ws.learning_material, ws.state, ws.adapter, ws.output, ws.scratch, ws.history)
-                   if Path(os.path.abspath(a)) != Path(a).resolve()]
+        aliased = self._aliased(ctx)
         if hidden and aliased:
-            # the run's sandbox shows a workspace area under the name it is given and under its real one, and covers
-            # a hidden path under its real name only
-            raise RuntimeError(f"the run's workspace is reached through a link ({aliased[0]}), under which what the "
+            raise RuntimeError(f"the run's workspace is reached through a link ({aliased}), under which what the "
                                "proposer must not see stays visible: give trainer.output_dir as its real path")
         limits = Limits(hidden=hidden, readable=[Mount(ctx.workspace.task_info, ctx.workspace.task_info)])
         tries = int(params.get("session_retries", 2))
@@ -789,7 +835,8 @@ class RRSIAdapterEvolver(AgentEvolver):
             # link would be bound into the next session read-write, past what is hidden; and the host writes into
             # the home (the sign-in, the settings), so a link left inside it is removed, never followed
             if not _owned(work, ws.scratch) or not _owned(home, ws.scratch):
-                return StepResult("failed", "the proposer's directory or home was replaced by a link or a file")
+                return StepResult("failed", "the proposer's directory or home was replaced by a link or a file",
+                                  extra={"proposer_fault": True})
             _unlink_links(home)
             kept = log if attempt == 0 else log.with_name(f"{log.stem}.retry{attempt}{log.suffix}")
             kept.parent.mkdir(parents=True, exist_ok=True)
@@ -946,7 +993,13 @@ class RRSIAdapterEvolver(AgentEvolver):
                 links, digest = current()
                 prop, problems, final = self._check_done(done, bundle["budget"], reserved, bundle["explore"],
                                                          digest is not None and digest != since, links)
-                if prop is not None or final or result.status != "done" or session is None or attempt == 3:
+                if prop is None and result.status != "done" and not (result.extra or {}).get("proposer_fault"):
+                    # The session failed (it exited non-zero) and left no proposal: no choice of the proposer's.
+                    # Upstream's driver stops on a proposer call that raises; here the step fails (counted toward
+                    # max_failures) and the variant is drafted again at the next step.
+                    raise RuntimeError(f"r{t}{vid}: a proposer session failed without a proposal "
+                                       f"({result.summary})")
+                if prop is not None or final or session is None or attempt == 3:
                     return prop, session, problems, final
                 _remove(done)
                 result = run(f"ERROR: {problems}. Fix them and write {done} again (drop or merge edits if over "
@@ -1098,11 +1151,16 @@ class RRSIAdapterEvolver(AgentEvolver):
                                extra={"incumbent": cid, "intact": False})
         _install(source, ctx.workspace.adapter)
         accepted = [x for x in fr["trajectory"] if x.get("cid") != "h0"]
+        rounds, T = int(st.get("t") or 0), self._cfg(ctx).T
+        complete = rounds >= T
+        # a run the Evolver stopped after failed steps, or that ran out of epochs or budget, ends before round T
+        ended = f"after {rounds} rounds" if complete else f"after {rounds} of {T} rounds: the run ended early"
         return FinalResult(adapter=ctx.workspace.adapter,
-                           summary=f"H_T = {cid} after {st.get('t')} rounds (S {fr['incumbent']['S']:.4f}, S* "
+                           summary=f"H_T = {cid} {ended} (S {fr['incumbent']['S']:.4f}, S* "
                                    f"{fr['S_star']:.4f}, H_0 {fr['trajectory'][0]['S']:.4f}; "
                                    f"{len({x['cid'] for x in accepted})} accepted)",
-                           extra={"incumbent": cid, "S": fr["incumbent"]["S"], "S_star": fr["S_star"]})
+                           extra={"incumbent": cid, "S": fr["incumbent"]["S"], "S_star": fr["S_star"],
+                                  "rounds": rounds, "T": T, "complete": complete})
 
 
 class _Patterns:
