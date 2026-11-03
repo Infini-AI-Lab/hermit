@@ -135,6 +135,13 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   steps. SkillOpt builds its Codex trace summary from them and GEPA a text of them; ReHarness and Continual Harness
   read them instead of parsing Codex's stream each on its own.
 
+- The AHE Adapter method (Lin et al., arXiv:2604.25850): the `ahe_adapter` Evolver, AHE's iteration of k rollouts
+  per task, the attribution of the Evolve Agent's change manifest at the next iteration and the file-wise rollback of
+  HARMFUL changes, with the Agent Debugger and the Evolve Agent as sessions of the `codex` Base Agent and upstream's
+  queries and attribution rules verbatim; documented in `docs/methods/ahe_adapter.md`.
+- The `ahe-codex` adapter template: a system prompt, scripts, a middleware module run as Codex hooks by a fixed hook
+  runner, skills, sub-agents and a long-term memory.
+- AHE Adapter on OfficeQA: `examples/officeqa/ahe_adapter/`, in the GPT-5.6-Luna setting (`run_codex_luna.yaml`).
 - The ACE method (Zhang et al., ICLR 2026, arXiv:2510.04618): the `ace` Evolver, ACE's per-sample loop of
   Reflector and Curator over a playbook of bullets with helpful and harmful counters, retry rounds on a wrong answer,
   ADD-only curation and validation-based selection, with ACE's prompts verbatim (the Generator's adapted for an
