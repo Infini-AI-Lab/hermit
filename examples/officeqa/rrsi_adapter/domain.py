@@ -90,12 +90,17 @@ class OfficeQADomain(AdapterDomain):
         return out
 
     def smoke_failure(self, result: dict) -> bool:
-        """Upstream fails its smoke on a trial that ended with an exception, timeouts included. An OfficeQA rollout
-        that ends so (a timeout, the CLI exiting non-zero) comes back with no answer, and the smoke's questions are
-        ones the incumbent answered right in every trial: a smoke rollout without an answer fails the smoke (a wrong
-        answer does not)."""
+        """Upstream fails its smoke on a trial that ended with an exception, timeouts included: here a rollout that
+        timed out or whose CLI exited non-zero, as the Trainer's `run_agent` reports them (`timed_out`,
+        `exit_code`). A wrong answer, or a session that ended without an `<answer>`, passes. Where `run_agent` does
+        not report them, a rollout without an answer is taken for one that did not finish (the smoke's questions
+        are ones the incumbent answered right in every trial)."""
+        if super().smoke_failure(result):
+            return True
+        if "timed_out" in result or "exit_code" in result:
+            return bool(result.get("timed_out")) or bool(result.get("exit_code"))
         out = result.get("output") if isinstance(result.get("output"), dict) else {}
-        return super().smoke_failure(result) or not str(out.get("answer") or "").strip()
+        return not str(out.get("answer") or "").strip()
 
     def smoke_ids(self, incumbent_per_task: dict | None = None) -> list[str]:
         """Upstream's coding smoke runs two fixed tasks once each; here the first row of the first two questions the

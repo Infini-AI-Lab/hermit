@@ -101,7 +101,9 @@ On the evolve set (the 50 training questions, two trials each):
   mechanisms ("a rule that the content of `<answer>` is the value alone in the form the question asks for"), the
   analyst's brief calls the answer's form as important as its value and near misses in form high-leverage, and the
   critic's brief cites "give the value alone in the unit and precision the question names" as acceptable craft;
-  upstream's coding and workspace libraries have no such entry. These texts were written after the column's
+  upstream's coding and workspace libraries, the ones these adapt, have no such entry (its engineering domain's opens
+  with the analogous "Submission-contract compliance", a design that is right but submitted in the wrong form scores
+  zero). These texts were written after the column's
   answer-by-answer check had shown that its gains are the answer's form, so round 0's gate is in part what the texts
   suggest, and the comparison with the column's other methods, whose learners were given the task's scoring rule but
   no such library, is of RRSI Adapter with these texts, not of RRSI's search alone. A training without the entry was

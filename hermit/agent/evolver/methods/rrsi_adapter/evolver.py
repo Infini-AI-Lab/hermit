@@ -55,7 +55,7 @@ from hermit.agent.base import login as codex_login
 from hermit.agent.base.interface import Limits, Mount, make
 from hermit.agent.evolver.agent import AgentEvolver
 from hermit.agent.evolver.base import FinalResult, StepContext, StepResult, Usage
-from hermit.agent.evolver.methods.meta_harness_adapter.evolver import _copy_tree, _install, _real, _store, _write
+from hermit.agent.evolver.methods.rrsi_adapter.store import _copy_tree, _install, _real, _store, _write
 from hermit.agent.evolver.methods.rrsi_adapter.roles import Roles, Stop, bound
 
 STATE = "rrsi_adapter.json"
@@ -195,16 +195,24 @@ def diff_of(base: Path, new: Path) -> str:
 
 
 def _strip_copy_prefixes(diff: str) -> str:
-    """git's paths `a/a/<file>` and `b/b/<file>` (the copies' directories) as `a/<file>` and `b/<file>`, on a file's
-    header lines only (`diff --git`, `---`, `+++` before its first hunk): a changed line is left as it is."""
+    """git's paths `a/<copy>/<file>` and `b/<copy>/<file>` (the copies' directories, `a` and `b`) as `a/<file>` and
+    `b/<file>`, on a file's header lines only (`diff --git`, `---`, `+++` before its first hunk): a changed line is
+    left as it is. With no renames both paths of a `diff --git` line name the same file, also when it is new (both
+    under `b/`) or deleted (both under `a/`), so the line is split in its middle, whatever spaces the name holds."""
     out, header = [], False
     for line in diff.splitlines(keepends=True):
-        if line.startswith("diff --git "):
+        body = line.rstrip("\n")
+        if body.startswith("diff --git "):
             header = True
-            line = line.replace(" a/a/", " a/", 1).replace(" b/b/", " b/", 1)
-        elif line.startswith("@@"):
+            rest = body[len("diff --git "):]
+            n = (len(rest) - 1) // 2
+            one, two = rest[:n], rest[n + 1:]
+            if len(rest) % 2 == 1 and rest[n] == " " and one[:2] == "a/" and two[:2] == "b/" and \
+                    one[2:4] in ("a/", "b/") and two[2:4] in ("a/", "b/") and one[4:] == two[4:]:
+                line = f"diff --git a/{one[4:]} b/{two[4:]}" + line[len(body):]
+        elif body.startswith("@@"):
             header = False
-        elif header and line.startswith(("--- a/a/", "+++ b/b/")):
+        elif header and body.startswith(("--- a/a/", "--- a/b/", "+++ b/a/", "+++ b/b/")):
             line = line[:6] + line[8:]
         out.append(line)
     return "".join(out)
@@ -217,14 +225,18 @@ class RRSIAdapterEvolver(AgentEvolver):
     def _cfg(self, ctx):
         from rrsi.config import RRSIConfig
         value = ctx.params.get("rrsi") or {}
+        known = {f.name for f in dataclasses.fields(RRSIConfig)} - {"notes"}
+        path = None
         if isinstance(value, str):
             path = Path(value) if Path(value).is_absolute() else Path(ctx.base or ".") / value
-            return RRSIConfig.load(path)
-        known = {f.name for f in dataclasses.fields(RRSIConfig)}
+            value = json.loads(path.read_text())
+        # upstream's RRSIConfig.load keeps an unknown key as a note; a misspelt hyperparameter would then be dropped
+        # silently. Keys starting with "_" are comments.
         unknown = sorted(k for k in value if k not in known and not str(k).startswith("_"))
         if unknown:
-            raise ValueError(f"evolver.params.rrsi: not RRSI hyperparameters (RRSIConfig fields): {unknown}")
-        return RRSIConfig(**{k: v for k, v in value.items() if k in known})
+            raise ValueError(f"evolver.params.rrsi{f' ({path})' if path else ''}: not RRSI hyperparameters "
+                             f"(RRSIConfig fields): {unknown}")
+        return RRSIConfig.load(path) if path else RRSIConfig(**{k: v for k, v in value.items() if k in known})
 
     def _domain(self, ctx):
         spec = ctx.params.get("domain")
@@ -313,8 +325,13 @@ class RRSIAdapterEvolver(AgentEvolver):
         try:
             outcome = self._advance(ctx, st, cfg, dom, n, roles)
         except Stop as exc:
+            # The Trainer's clock or budget ended the step: counted, so that a role or a proposer that keeps hanging
+            # stops the run after max_failures steps. A step the model's plan held back is not the run's doing.
+            if ctx.cancel is not None and ctx.cancel.is_set():
+                st["failures"] = int(st.get("failures") or 0) + 1
             self._save(ctx, st)
-            return self._result(ctx, st, "failed", f"stopped: {exc}", roles)
+            status = "stop" if st.get("failures", 0) >= int(ctx.params.get("max_failures", 3)) else "failed"
+            return self._result(ctx, st, status, f"stopped: {exc}", roles)
         except Exception as exc:                             # a broken step: counted; the next step resumes
             st["failures"] = int(st.get("failures") or 0) + 1
             self._save(ctx, st)
@@ -929,6 +946,10 @@ class RRSIAdapterEvolver(AgentEvolver):
         prep = vdir / "prep.json"
         if prep.is_file():
             return json.loads(prep.read_text())
+        # no prep.json: a draft that failed before it was decided left its files here (its proposal, critic verdicts,
+        # diff); the redraft starts without them
+        shutil.rmtree(vdir)
+        vdir.mkdir()
         ws = ctx.workspace
         root = ws.scratch / "rrsi"
         if not _real(root, ws.scratch) or (root.exists() and not root.is_dir()):
@@ -1096,8 +1117,20 @@ class RRSIAdapterEvolver(AgentEvolver):
                 if any(dom.halted_result(r) for r in results):
                     shutil.rmtree(dest, ignore_errors=True)
                     raise Stop("the smoke's rollouts were refused for the model's plan limit")
-                bad = {str(r.get("id")): str(r.get("output") or r.get("status"))[:300] for r in results
-                       if r.get("status") != "ok" or dom.smoke_failure(r)}
+
+                def failing(rows):
+                    return [r for r in rows if r.get("status") != "ok" or dom.smoke_failure(r)]
+                again = [str(r.get("id")) for r in failing(results)]
+                if again:
+                    # a failed smoke rollout is run once more: one transient failure (a dropped connection, the
+                    # model's output limit) does not refuse a candidate for good
+                    rerun = ctx.tools["run_agent"](task_ids=again, adapter=str(checked)).get("results") or []
+                    if any(dom.halted_result(r) for r in rerun):
+                        shutil.rmtree(dest, ignore_errors=True)
+                        raise Stop("the smoke's rollouts were refused for the model's plan limit")
+                    rerun_ids = {str(r.get("id")) for r in rerun}
+                    results = [r for r in results if str(r.get("id")) not in rerun_ids] + rerun
+                bad = {str(r.get("id")): str(r.get("output") or r.get("status"))[:300] for r in failing(results)}
                 if len(results) < len(ids):
                     bad["missing_trials"] = f"{len(results)}/{len(ids)}"
                 _write(vdir / "smoke.json", json.dumps({"ok": not bad, "stage": "smoke_run", "ids": list(ids),

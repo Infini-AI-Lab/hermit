@@ -481,8 +481,28 @@ def test_smoke_failure_keeps_a_candidate_out(tmp_path, monkeypatch):
     material(ws, 1, rows({"q1": [0, 1], "q2": [1, 0], "q3": [1, 1], "q4": [0, 0]}))
     r = ev.step(context(ws, 1, dom, tmp_path, run_agent=run_agent, smoke=True))
     st = state(ws)
-    assert seen == [(["q3#1"], "checked"), (["q3#1"], "checked")]
+    assert seen == [(["q3#1"], "checked")] * 3                     # B's failed rollout was run once more
     assert st["round"]["variants"]["B"]["gate_failure"] == "smoke_fail" and r.extra["next"] == "r00A"
+
+
+def test_a_smoke_rollout_that_fails_once_is_run_again(tmp_path, monkeypatch):
+    ws = workspace(tmp_path)
+    dom = domain_files(tmp_path)
+    (tmp_path / "dom" / "domain.py").write_text(DOMAIN_PY + "    smoke_tasks = ['q3#1']\n")
+    script = Script({(0, "A"): [{"files": {"ADAPTER.md": "x\n"}, "done": {"summary": "s", "edits": [edit()]}}],
+                     (0, "B"): [{"files": {"ADAPTER.md": "y\n"}, "done": {"summary": "s", "edits": [edit()]}}]})
+    ev = evolver(monkeypatch, script)
+    calls = []
+
+    def run_agent(task_ids, adapter=None):                # A's first smoke rollout fails, as a dropped connection
+        calls.append(task_ids)
+        return {"results": [{"id": t, "status": "error" if len(calls) == 1 else "ok", "output": None}
+                            for t in task_ids]}
+    material(ws, 1, rows({"q1": [0, 1], "q2": [1, 0], "q3": [1, 1], "q4": [0, 0]}))
+    r = ev.step(context(ws, 1, dom, tmp_path, run_agent=run_agent, smoke=True))
+    st = state(ws)
+    assert len(calls) == 3 and st["round"]["variants"]["A"]["cid"] == "r00A" and r.extra["next"] == "r00A"
+    assert json.loads((ws.state / "rrsi" / "r0" / "A" / "smoke.json").read_text())["ok"] is True
 
 
 def test_halted_rollouts_are_never_credited(tmp_path, monkeypatch):
@@ -579,6 +599,12 @@ def test_the_diff_drops_the_copies_prefixes_on_header_lines_only(tmp_path):
     diff = E.diff_of(base, new)
     assert "diff --git a/run.sh b/run.sh\n" in diff and "\n--- a/run.sh\n" in diff and "\n+++ b/run.sh\n" in diff
     assert "\n--- a/a/old\n" in diff and "\n+python a/a/tool.py b/b/x\n" in diff       # changed lines as they are
+    (new / "added file.md").write_text("hi\n")                       # a new file and a deleted one, a space in a name
+    (base / "gone.md").write_text("bye\n")
+    diff = E.diff_of(base, new)
+    assert "diff --git a/added file.md b/added file.md\n" in diff and "\n+++ b/added file.md" in diff
+    assert "diff --git a/gone.md b/gone.md\n" in diff and "\n--- a/gone.md" in diff
+    assert " a/b/" not in diff and " b/a/" not in diff
 
 
 def test_a_proposers_directory_or_home_turned_into_a_link_ends_its_draft(tmp_path, monkeypatch):
@@ -652,6 +678,13 @@ def test_setup_checks_what_every_step_needs(tmp_path):
         ev.setup(context(ws, 1, dom, tmp_path, roles={"model": "anthropic/claude-x"}))
     with pytest.raises(ValueError, match="not RRSI hyperparameters"):
         ev.setup(context(ws, 1, dom, tmp_path, rrsi={"T": 2, "rounds": 3}))
+    (tmp_path / "rrsi.json").write_text(json.dumps({"_doc": "a comment", "T": 2, "beta_1": 10}))
+    with pytest.raises(ValueError, match=r"rrsi\.json.*beta_1"):                 # the file form too
+        ev._cfg(SimpleNamespace(params={"rrsi": "rrsi.json"}, base=tmp_path))
+    (tmp_path / "rrsi.json").write_text(json.dumps({"_doc": "a comment", "T": 2, "beta1": 10}))
+    assert ev._cfg(SimpleNamespace(params={"rrsi": "rrsi.json"}, base=tmp_path)).beta1 == 10
+    for name in ("rrsi.json", "rrsi_eng.json"):                     # the example's own files pass
+        ev._cfg(SimpleNamespace(params={"rrsi": name}, base=ROOT / "examples" / "officeqa" / "rrsi_adapter"))
 
 
 def test_a_failed_session_that_mentions_a_429_is_not_retried_as_the_providers(tmp_path, monkeypatch):
@@ -708,6 +741,11 @@ def test_officeqa_smoke_fails_a_rollout_without_an_answer():
     exited = {"answer": "", "fail_reason": "the CLI exited 1 without an answer"}
     assert dom.smoke_failure({"status": "ok", "output": exited})
     assert not dom.smoke_failure({"status": "ok", "output": {"answer": "41.5", "fail_reason": ""}})    # wrong is alive
+    # where run_agent reports how the session ended, only a timeout or the CLI failing fails the smoke
+    no_tag = {"answer": "", "fail_reason": "no answer in the final message"}
+    assert not dom.smoke_failure({"status": "ok", "output": no_tag, "timed_out": False, "exit_code": 0})
+    assert dom.smoke_failure({"status": "ok", "output": timed_out, "timed_out": True, "exit_code": None})
+    assert dom.smoke_failure({"status": "ok", "output": exited, "timed_out": False, "exit_code": 1})
 
 
 def test_officeqa_refuses_python_an_exports_yaml_names_however_it_is_spelled(tmp_path):
@@ -809,6 +847,7 @@ def test_smoke_rows_with_an_errored_trial_fail_the_smoke():
     assert dom.smoke_failure({"status": "ok", "output": {"status": "timeout"}})
     assert not dom.smoke_failure({"status": "ok", "output": {"status": "ok"}})
     assert not dom.smoke_failure({"status": "ok", "output": {"answer": "42"}})
+    assert dom.smoke_failure({"status": "ok", "output": {"answer": ""}, "timed_out": True})
 
 
 def test_the_digesters_shell_runs_through_the_sandbox_while_bound():
@@ -988,6 +1027,66 @@ def test_the_roles_see_neither_the_records_nor_the_proposers_directories(tmp_pat
     assert ev.step(context(ws, 1, dom, tmp_path, sandbox=Box())).status == "done"
     hidden = set(ROLE_CALLS[-1]["limits"].hidden)                 # the last critic's, after both drafts
     assert {ws.learning_material, ws.state, ws.adapter, ws.output, ws.scratch / "rrsi"} <= hidden
+
+
+def test_a_role_call_whose_session_times_out_twice_fails(tmp_path, monkeypatch):
+    calls = []
+
+    class Hangs(BaseAgent):
+        def run(self, prompt, **kw):
+            calls.append(1)
+            return Result(reply="", exit_code=1, timed_out=True, extra=dict(SERVED))
+    monkeypatch.setattr(R, "make", lambda name, settings=None, model=None: Hangs(settings))
+    monkeypatch.setattr(R.Roles, "_wait", lambda self, seconds: False)
+    with pytest.raises(RuntimeError, match="ran out of role_timeout_s"):
+        roles(tmp_path).generate("p", system="s")
+    assert len(calls) == 2                                      # not max_retries (6) sessions of role_timeout_s each
+
+
+def test_steps_the_trainer_stopped_count_toward_max_failures(tmp_path, monkeypatch):
+    import dataclasses
+    import threading
+    ws = workspace(tmp_path)
+    dom = domain_files(tmp_path)
+    ev = evolver(monkeypatch, Script({}))
+
+    def hangs(self, ctx, *a):
+        raise R.Stop("stopped by the Trainer")
+    monkeypatch.setattr(E.RRSIAdapterEvolver, "_open", hangs)
+    material(ws, 1, rows({"q1": [0, 1], "q2": [1, 0]}))
+    cancel = threading.Event()
+    cancel.set()                                                # the Trainer's clock ended each call
+    statuses = [ev.step(dataclasses.replace(context(ws, i, dom, tmp_path), cancel=cancel)).status for i in (1, 2, 3)]
+    assert statuses == ["failed", "failed", "stop"]
+    held = workspace(tmp_path / "held")                          # a plan's refusal (no cancel) is not counted
+    dom2 = domain_files(tmp_path / "held")
+    material(held, 1, rows({"q1": [0, 1], "q2": [1, 0]}))
+    statuses = [ev.step(context(held, i, dom2, tmp_path / "held")).status for i in (1, 2, 3)]
+    assert statuses == ["failed", "failed", "failed"] and state(held)["failures"] == 0
+
+
+def test_a_redraft_starts_without_the_failed_drafts_files(tmp_path, monkeypatch):
+    ws = workspace(tmp_path)
+    dom = domain_files(tmp_path)
+    leak = {"files": {"ADAPTER.md": "SECRET-ANSWER\n"}, "done": {"summary": "s", "edits": [edit()]}}
+    script = Script({
+        # A: rejected, repaired (still rejected), and the second repair session fails; at the next step a clean draft
+        (0, "A"): [leak, {"files": {"ADAPTER.md": "SECRET-ANSWER, again\n"},
+                          "done": {"summary": "s", "edits": [edit()]}},
+                   {"exit": 1},
+                   {"files": {"ADAPTER.md": "Check the units.\n"}, "done": {"summary": "s", "edits": [edit()]}}],
+        (0, "B"): [{"files": {"ADAPTER.md": "y\n"}, "done": {"summary": "s", "edits": [edit()]}}],
+    })
+    ev = evolver(monkeypatch, script)
+    base = rows({"q1": [0, 1], "q2": [1, 0], "q3": [1, 1], "q4": [0, 0]})
+    material(ws, 1, base)
+    assert ev.step(context(ws, 1, dom, tmp_path)).status == "failed"
+    vdir = ws.state / "rrsi" / "r0" / "A"
+    assert (vdir / "critic_a1.json").is_file() and (vdir / "proposal_r1.json").is_file()
+    material(ws, 2, base)
+    assert ev.step(context(ws, 2, dom, tmp_path)).extra["next"] == "r00A"
+    assert not (vdir / "critic_a1.json").exists() and not (vdir / "proposal_r1.json").exists()
+    assert json.loads((vdir / "critic_a0.json").read_text())["verdict"] == "accept"
 
 
 def test_a_roles_reply_counts_only_from_a_session_that_ended(tmp_path, monkeypatch):

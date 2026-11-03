@@ -28,7 +28,8 @@ params:
                              # their own model (a Codex model name), the proposer's binding and price are not theirs
   role_timeout_s: 1800       # one role session's wall clock
   smoke: true                # run the domain's smoke tasks with each screened candidate (upstream's liveness smoke)
-  max_failures: 3            # consecutive failed steps before the Evolver stops the run (upstream's driver: 3)
+  max_failures: 3            # consecutive failed steps before the Evolver stops the run (upstream's driver: 3); a
+                             # step the Trainer's clock or budget ended counts, one the model's plan held back not
   session_retries: 2         # a proposer session the model's provider could not serve (429, 5xx) is resumed this
   session_retry_wait_s: 120  # often, after this pause times the attempt; then the step stops, never a gate failure
   stop_file: null            # a path; while it exists no new round is opened and the run ends at the next step

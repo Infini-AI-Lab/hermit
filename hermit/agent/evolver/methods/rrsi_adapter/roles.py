@@ -16,8 +16,9 @@ directory, finds none and answers so instead of with an action. Everything upstr
 actions, the digesters' tool loop, the critic's three tries) is upstream's code, unchanged. Each call keeps its
 prompt, system text, events, reply and meta under `records` (the step's output, kept with the run's records), its home
 and working directory under `log_dir`; its usage is the Base Agent's. A reply counts only from a session that ended
-(exit 0, no timeout). A session the Trainer stopped, or that the model's plan held back or refused, ends the call
-(`Stop`); one the provider could not serve is tried again after a longer pause.
+(exit 0, no timeout); a call whose session timed out twice fails. A session the Trainer stopped, or that the model's
+plan held back or refused, ends the call (`Stop`); one the provider could not serve is tried again after a longer
+pause.
 """
 from __future__ import annotations
 
@@ -139,7 +140,7 @@ class Roles:
         from rrsi.llm import _JSON_SUFFIX, extract_json
         system_text = (system or "") + (_JSON_SUFFIX if json_only else "")
         text = f"{cache_prefix}\n\n{prompt}" if cache_prefix else prompt
-        last = ""
+        last, timeouts = "", 0
         for attempt in range(max(1, int(max_retries))):
             if self._cancelled():
                 raise Stop("stopped by the Trainer")
@@ -153,6 +154,11 @@ class Roles:
             if result.reply.strip() and result.exit_code == 0 and not result.timed_out:
                 return extract_json(result.reply) if json_only else result.reply
             last = tail[-300:] or ("timed out" if result.timed_out else f"exit code {result.exit_code}")
+            timeouts += bool(result.timed_out)
+            if timeouts >= 2:
+                # upstream retries a failed API call; a session that ran out of its clock twice (role_timeout_s
+                # each) is no transient error: the call fails, and so does the step (counted toward max_failures)
+                raise RuntimeError(f"generate: two Codex sessions in a row ran out of role_timeout_s: {last}")
             if self._wait(min(2 ** attempt, 30) * (4 if extra.get("unavailable") else 1)):
                 raise Stop("stopped by the Trainer")
         raise RuntimeError(f"generate failed after {max_retries} Codex sessions: {last}")

@@ -102,9 +102,10 @@ class AdapterDomain(Domain):
     def smoke_failure(self, result: dict) -> bool:
         """Whether a smoke rollout (run_agent's result: id, status, output, judge) shows the candidate broken
         although the pipeline returned: upstream fails its smoke on any trial that ended with an exception
-        (timeouts included). Default: an output that carries a status (Harbor's) other than ok."""
+        (timeouts included). Default: an output that carries a status (Harbor's) other than ok, or a rollout
+        `run_agent` reports as timed out."""
         out = result.get("output") if isinstance(result.get("output"), dict) else {}
-        return "status" in out and out.get("status") != "ok"
+        return ("status" in out and out.get("status") != "ok") or bool(result.get("timed_out"))
 
     def halted_result(self, result: dict) -> bool:
         """Whether a smoke rollout was refused for a reason outside the candidate (a plan's usage limit): the

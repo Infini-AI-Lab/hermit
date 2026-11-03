@@ -144,8 +144,9 @@ give `trainer.epochs` room beyond that. A candidate the critic, the check or the
 whose candidates all fail is decided at once and the next is opened in the same step. An evaluation with more missing
 trials than `invalid_missing_frac` is run once more, then counted invalid, as upstream does, and a step whose Evolver
 call fails is a step too (so is one whose proposer session exits non-zero without a proposal; the variant is drafted
-again at the next step); three failed steps in a row stop the run, as upstream's driver does, and `finalize` then says
-that the run ended before round T.
+again at the next step, and so is one the Trainer's clock or budget ended); three failed steps in a row stop the run,
+as upstream's driver does, and `finalize` then says that the run ended before round T. A step the model's plan held
+back is not counted.
 
 ## Parameters and defaults
 
@@ -167,9 +168,9 @@ that the run ended before round T.
 | Candidate files | The worktree's git diff | The diff between the incumbent's stored files and the staged candidate (without byte code, caches, nested repositories and what git would not commit); symbolic links are refused, as in Meta-Harness Adapter | forced by the framework |
 | The critic's precheck | Upstream's patterns and the domain's | The same, plus, for OfficeQA, the training answers the judge's feedback has revealed (whole answers and their longer numbers) and Python an `exports.yaml` names (it would run outside the agent's container) | the reproduction's |
 | The digesters' read-only shell action | Runs on the host, in the round's rendered traces | Runs under the run's sandbox with the workspace's records covered, in the copy of the round's traces the digesters' sessions read | the reproduction's |
-| The liveness smoke | Two fixed tasks once each; any trial that ended with an exception (a timeout included) fails it | `check_spec`, then the domain's smoke tasks through `run_agent`; OfficeQA's: two training questions the incumbent answered right in every trial, failed by a rollout without an answer (a timeout or the CLI failing); a wrong answer passes | the reproduction's |
-| A proposer call that fails | An exception in the proposer's model call stops the driver; a call that ends without edits is `no_proposal` | A session that exits non-zero without a proposal fails the step (counted toward `max_failures`), and the variant is drafted again at the next step; a session that ends without a proposal is `no_proposal` | matched |
-| The domain's texts | The coding and workspace domains' constitution, pattern library and role briefs | OfficeQA's, adapted from them: its pattern library's first entry, the analyst's and the critic's briefs and the constitution name the answer's form (the value alone, in the unit and precision asked) as a lever, which upstream's libraries do not | the reproduction's (see the example's README) |
+| The liveness smoke | Two fixed tasks once each; any trial that ended with an exception (a timeout included) fails it | `check_spec`, then the domain's smoke tasks through `run_agent`, a failed rollout run once more before the candidate is refused; OfficeQA's: two training questions the incumbent answered right in every trial, failed by a rollout that timed out or whose CLI exited non-zero, where `run_agent` reports them, and otherwise by any rollout without an answer (a final message without `<answer>` included); a wrong answer passes | the reproduction's |
+| A proposer call that fails | An exception in the proposer's model call stops the round, and the driver's next rounds stop at once, so three failures end the run quickly; a call that ends without edits is `no_proposal` | A session that exits non-zero without a proposal fails the step (counted toward `max_failures`), and the variant is drafted again at the next step, each retry costing that step's evaluation of the unchanged adapter; a session that ends without a proposal is `no_proposal` | forced by the framework (the Trainer evaluates at every step) |
+| The domain's texts | The coding and workspace domains' constitution, pattern library and role briefs | OfficeQA's, adapted from them: its pattern library's first entry, the analyst's and the critic's briefs and the constitution name the answer's form (the value alone, in the unit and precision asked) as a lever, which upstream's coding and workspace libraries do not (its engineering domain's opens with the analogous "Submission-contract compliance") | the reproduction's (see the example's README) |
 
 ## Records to read after a run
 
