@@ -16,8 +16,6 @@ record per test question, the rounds' decisions, the run's facts and its config.
 The runs on the port recorded commit `859bda9` and a clean tree. The runs before it ran in a local checkout whose
 commit (`3891bb9`) is not published; its Evolver directory had the SHA-256 recorded in `run.json` (`9aa5c603…`),
 the same directory as `c8afc5e`'s, and its acting agent was PR #54's OfficeQA Codex agent (`deploy: adapter`).
-Meta-Harness Adapter's run on the same column is in
-[`../../meta_harness_adapter/results/luna-mh/`](../../meta_harness_adapter/results/luna-mh/).
 
 | File | What it holds |
 |---|---|

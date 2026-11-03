@@ -187,7 +187,7 @@ that the run ended before round T.
 `examples/officeqa/rrsi_adapter/` runs it on OfficeQA with GPT-5.6-Luna acting and learning through Codex (the luna
 column of the example's results): ten rounds of two candidates on the 50 training questions, two trials each. Over four
 trainings the final incumbent scores 0.616 on the 172 test questions (0.576–0.640), from 0.355 for its starting adapter
-in the same harness: level with GEPA, Meta-Harness Adapter and Harness² on that column and above SkillOpt (ACE's 0.640,
+in the same harness: level with GEPA and Harness² on that column and above SkillOpt (ACE's 0.640,
 the column's highest cell, is not paired with it); as for the column's other methods that were checked (all but ACE),
 almost all of the gain is the answer's form, a lever OfficeQA's domain texts name (the README says how). The runs before
 this Evolver's port onto the agent layers scored 0.602 (paired, the runs on the port − those: +1.5 [−1.9, +4.8]); the

@@ -184,10 +184,8 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 - The `rrsi-adapter` adapter template: every file outside `.hermit/` is learnable; `.hermit/EVOLVER.md` names RRSI's
   component vocabulary and what each component's edit must show in the diff.
 - RRSI Adapter on OfficeQA: `examples/officeqa/rrsi_adapter/` (the GPT-5.6-Luna column: ten rounds of two candidates,
-  each training question twice), and Meta-Harness Adapter on the same column
-  (`examples/officeqa/meta_harness_adapter/run_codex_luna.yaml`). RRSI Adapter's numbers were made on the agent
-  layers (four trainings: 0.616 on the 172 test questions); Meta-Harness Adapter's before them, with PR #54's
-  OfficeQA Codex agent (`deploy: adapter`).
+  each training question twice), made on the agent layers (four trainings: 0.616 on the 172 test questions), with
+  each run's final adapter and per-question records in `results/`.
 - `docs/framework/adapter.md` states what every adapter can rely on: `.hermit/` is fixed and `ADAPTER.md` reaches
   the acting agent.
 - `docker/offline.sh`: the examples in a container whose only route out is an egress proxy to the model provider.

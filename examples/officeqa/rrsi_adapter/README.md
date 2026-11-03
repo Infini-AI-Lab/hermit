@@ -67,14 +67,13 @@ carries a standard error of about 3.7 points.
 Paired per question with 95% bootstrap intervals, the four trainings averaged per question first as the column
 averages GEPA's and SkillOpt's four, against the GPT-5.6-Luna column: RRSI Adapter − H_0 **+26.2** [+20.1, +32.6] (63
 won, 13 lost); − GEPA +1.6 [−1.6, +4.8]; − SkillOpt **+7.0** [+3.3, +10.6]; − Harness² +0.6 [−4.2, +5.5]; −
-Meta-Harness Adapter +1.2 [−2.9, +5.5]; − ReHarness **+9.9** [+4.5, +15.6]; − Continual Harness **+14.0** [+8.3,
-+19.6]; the engineering arm − H_0 **+26.7** [+19.8, +33.7] (49 won, 3 lost). ACE's 0.640 is the column's highest
+ReHarness **+9.9** [+4.5, +15.6]; − Continual Harness **+14.0** [+8.3, +19.6]; the engineering arm − H_0 **+26.7** [+19.8, +33.7] (49 won, 3 lost). ACE's 0.640 is the column's highest
 cell (no paired difference here: its per-question records are not in this repository, and it keeps the playbook with
 the best validation score). Almost all of the gain over H_0 is the
 answer's form, as in every other cell of the column that was checked (all but ACE's). Every non-exact answer was
 read for whether its value is right (each read as right, or where the reading and an automatic match disagreed, read
-again independently: the same verdict all 43 times; an answer the check of the runs before the port had read, the
-same answer to the same question, kept that verdict: 116 of the 284 distinct): the share of answers with the right
+again independently: the same verdict all 43 times; an answer an earlier check had read, the same answer to the
+same question, kept that verdict: 116 of the 284 distinct): the share of answers with the right
 value is 0.680 for H_0 and 0.712 over the four trainings (0.692–0.733 each); paired on the value alone, the four
 trainings − H_0 is +3.2 [−0.1, +6.7]. What changes is the form: the answers with the right value in a form the judge
 rejects fall from 56 to 16.5 per training on average. One test session of the 1,032 gave no answer (`luna-rrsi-p3`,

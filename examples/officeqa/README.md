@@ -9,9 +9,9 @@ question's parsed source pages in the prompt, and exact match. It trains the age
 with Meta-Harness Adapter whole adapters written by a coding-agent proposer (Codex harness only), and compares them
 with no skill and with SkillOpt's initial skill, in both of the paper's harnesses: direct chat, with read and grep
 tools limited to the question's source files, and Codex, a `codex exec` session with the whole corpus. The same
-methods are run a second time with Codex and GPT-5.6-Luna acting and learning on a ChatGPT login, the second column
-of the [Results](#results) table, where RRSI Adapter joins them and [ACE](ace/) also grows a playbook of bullets after
-that skill.
+methods, Meta-Harness Adapter aside, are run a second time with Codex and GPT-5.6-Luna acting and learning on a
+ChatGPT login, the second column of the [Results](#results) table, where RRSI Adapter joins them and [ACE](ace/) also
+grows a playbook of bullets after that skill.
 
 ## Setup
 
@@ -109,7 +109,7 @@ container per session. Each evaluation makes one pass over the 172 test question
 <tr><td>initial skill</td><td>0.576</td><td>0.360</td></tr>
 <tr><td><b>GEPA</b></td><td>0.580</td><td>0.600</td></tr>
 <tr><td><b>SkillOpt</b></td><td>0.600</td><td>0.546</td></tr>
-<tr><td><b>Meta-Harness Adapter</b></td><td>0.640</td><td>0.605</td></tr>
+<tr><td><b>Meta-Harness Adapter</b></td><td>0.640</td><td>not run</td></tr>
 <tr><td><b>RRSI Adapter</b></td><td>not run</td><td>0.616</td></tr>
 <tr><td><b>Continual Harness</b></td><td>0.634</td><td>0.477</td></tr>
 <tr><td><b>ReHarness</b></td><td>0.634</td><td>0.517</td></tr>
@@ -160,21 +160,16 @@ differences from the paper: the [recipe](../../docs/recipes/officeqa.md#the-flas
 
 The GPT-5.6-Luna column is the same methods with the model changed and nothing else of the protocol: GPT-5.6-Luna
 acting and learning on the machine's ChatGPT login instead of GLM 5.3 Flash on Fireworks, the same data, split, seed
-skill, judge, parameters, stream order and one pass (Meta-Harness Adapter's run on this column came later,
-`meta_harness_adapter/run_codex_luna.yaml`; RRSI Adapter and ACE ran on this column only). It starts 22–23 points
-lower and gains more from every method, most from ACE, RRSI Adapter, Harness², Meta-Harness Adapter and GEPA
-(0.600–0.640), and almost all of the gain is the answer's form: a check of every answer finds the share with the
-right value at 0.66–0.71 in every cell of the column it was run on (all but ACE's). Meta-Harness Adapter and RRSI
-Adapter, which search whole adapters in the Codex harness the streams use, reach GEPA and Harness² too, from 0.378 and
-0.355 for their starting adapter, measured in different windows and through different acting agents (0.378 through PR
-#54's OfficeQA Codex agent with `deploy: adapter`, as Meta-Harness Adapter ran; 0.355 through the framework's Codex
-agent, as RRSI Adapter ran on the agent layers; paired, −2.3 [−7.6, +2.9]) (Meta-Harness Adapter − GEPA +0.4
-[−3.9, +4.7]; RRSI Adapter, its four trainings averaged per question, − GEPA +1.6 [−1.6, +4.8], − Meta-Harness Adapter
-+1.2 [−2.9, +5.5], − its start +26.2 [+20.1, +32.6], almost all of it the answer's form: checked answer by answer, the
-share with the right value is 0.680 for the start and 0.712 for the four, +3.2 [−0.1, +6.7] on the value alone). A
-Meta-Harness Adapter training used 650 rollouts and 3 M learner tokens, an RRSI Adapter training 2,100 rollouts and
-148–179 M. What differs from the GLM column, the
-intervals, the paired differences and the check: the
+skill, judge, parameters, stream order and one pass (Meta-Harness Adapter was not run; RRSI Adapter and ACE ran on
+this column only). It starts 22–23 points lower and gains more from every method, most from ACE, RRSI Adapter,
+Harness² and GEPA (0.600–0.640), and almost all of the gain is the answer's form: a check of every answer finds the
+share with the right value at 0.66–0.71 in every cell of the column it was run on (all but ACE's). RRSI Adapter, which
+searches whole adapters in the Codex harness the streams use, reaches GEPA and Harness² too, from 0.355 for its
+starting adapter in its own harness and window (its four trainings averaged per question − GEPA +1.6 [−1.6, +4.8], −
+its start +26.2 [+20.1, +32.6], almost all of it the answer's form: checked answer by answer, the share with the right
+value is 0.680 for the start and 0.712 for the four, +3.2 [−0.1, +6.7] on the value alone); an RRSI Adapter training
+used 2,100 rollouts and 148–179 M learner tokens. What differs from the GLM column, the intervals, the paired
+differences and the check: the
 [recipe](../../docs/recipes/officeqa.md#the-flash-row-with-gpt-56-luna).
 
 The earlier direct-chat runs (`run.yaml`, `stream.yaml`: SkillOpt's rollout, three passes) are in the recipe's
