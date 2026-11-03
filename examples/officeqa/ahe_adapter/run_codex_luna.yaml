@@ -10,7 +10,7 @@
 # every trial (step_size 100) and the ten epochs are its ten iterations; HARMFUL changes are rolled back; with no
 # validation split, finalize hands back the best-ever iteration by training pass rate, and `hermit eval` scores it once
 # on the 172 test questions. H_0 is the ahe-codex@1.0 seed harness with SkillOpt's initial skill in its system prompt
-# (make_seed.py). The trainer settings are those of AHE's earlier OfficeQA run: the rows in order (no shuffle), an
+# (make_seed.py). The trainer settings: the rows in order (no shuffle), an
 # early stop at target_pass_rate, call_timeout_min 420 for one step's Debugger and Evolve sessions, a 48 h budget, a
 # checkpoint every step, and workspaces of its own.
 data:
