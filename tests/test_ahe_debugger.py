@@ -211,8 +211,8 @@ def test_build_jobs_rules(tmp_path):
     assert D.build_jobs(recs, {"max_tasks": 2, "task_field": "uid"}) == jobs[:2]
     quiet = {j.task: j for j in D.build_jobs(recs, {"verifier_output": False, "task_field": "uid"})}
     assert quiet["alpha"].verifier_outputs == ["", ""]
-    # the default task field is the row's own id: every row a task of one rollout
-    assert sorted(j.task for j in D.build_jobs(recs, {}))[:2] == ["alpha#1", "alpha#2"]
+    # the default task field (`task`) is absent from these rows: a row is grouped by its id without the #n
+    assert sorted(j.task for j in D.build_jobs(recs, {}))[:2] == ["alpha", "beta"]
 
 
 def test_load_records_resolves_trajectory(tmp_path):

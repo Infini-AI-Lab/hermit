@@ -129,9 +129,10 @@ def read_records(material: Path) -> list[dict]:
 
 def infer_k(records: list[dict], task_field: str) -> int:
     """Trials per task: the largest group sharing the task field (every task has k rows; a short step has fewer)."""
+    from hermit.agent.evolver.methods.ahe_adapter.analysis import task_name_of
     counts: dict[str, int] = {}
     for r in records:
-        task = str((r.get("input") or {}).get(task_field) or r.get("id"))
+        task = task_name_of(r, task_field)
         counts[task] = counts.get(task, 0) + 1
     return max(counts.values()) if counts else 1
 
@@ -263,7 +264,7 @@ class AHEAdapterEvolver(AgentEvolver):
             return StepResult("failed", "no learning material for this step")
         summary = load_json(ws.learning_material / "current" / "summary.json", {}) or {}
         commit = summary.get("adapter_commit")
-        task_field = str(p.get("task_field") or "id")
+        task_field = str(p.get("task_field") or "task")
         k = int(p.get("k") or infer_k(records, task_field))
         state = ws.state
         for sub in STATE_DIRS:

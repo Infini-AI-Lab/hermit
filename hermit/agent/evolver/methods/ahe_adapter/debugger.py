@@ -50,6 +50,7 @@ from hermit.agent.base.interface import make
 from hermit.agent.base.trajectory import STREAMS, log_steps
 from hermit.agent.evolver.base import Usage
 from hermit.agent.evolver.methods.ahe_adapter import trajectory as _trajectory
+from hermit.agent.evolver.methods.ahe_adapter.analysis import task_name_of
 from hermit.isolate import _safe
 
 DEFAULTS = {"enabled": True, "model": None, "effort": None, "bin": None, "args": None, "env": None,
@@ -196,13 +197,12 @@ def verifier_tail(record: dict, log: Path | None, limit: int) -> str:
 def build_jobs(records: list[dict], params: dict, base: Path | None = None) -> list[Job]:
     """One Job per task from the step's records (`_build_adb_jobs`, evolve.py:1216-1315). A record's `trajectory`
     is relative to its step directory: `record["_dir"]` (set by `load_records`) or `base`."""
-    task_field = params.get("task_field", "id")
+    task_field = params.get("task_field", "task")
     limit = int(params.get("verifier_tail_chars", DEFAULTS["verifier_tail_chars"]))
     collect = bool(params.get("verifier_output", True))
     by_task: dict[str, list[dict]] = {}
     for record in records:
-        task = str((record.get("input") or {}).get(task_field) or record.get("id") or "")
-        by_task.setdefault(task, []).append(record)
+        by_task.setdefault(task_name_of(record, task_field), []).append(record)
     jobs: list[Job] = []
     for task, group in by_task.items():
         verdicts = [classify(r) for r in group]

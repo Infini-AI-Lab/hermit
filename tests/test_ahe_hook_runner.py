@@ -438,6 +438,21 @@ def test_sessions_keep_separate_state_and_odd_ids_are_file_safe(run):
 
 # --- failures: fail-open, audited -------------------------------------------------------------------------------
 
+def test_logs_that_cannot_be_written_lose_the_line_not_the_call(tmp_path, run, monkeypatch):
+    call, r = run()
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    locked.chmod(0o500)                                                      # read-only: no audit, no state
+    try:
+        monkeypatch.setenv("HERMIT_HOOK_LOGS", str(locked / "logs"))
+        # The state cannot be kept either: the call fails open as the as-run runner did (no output), and it no
+        # longer dies on the audit line (exit 0: the helper asserts it).
+        assert call("PreToolUse", {"tool_name": "Bash", "tool_input": {"command": "rm -rf / --no-preserve-root"}}) is None
+        assert not (locked / "logs").exists()
+    finally:
+        locked.chmod(0o700)
+
+
 def test_a_crashing_middleware_gives_no_output_exit_0_and_an_error_line(run):
     call, r = run(middleware="def before_tool(inp, state):\n    state['touched'] = 1\n    raise RuntimeError('kaboom')\n")
     assert call("PreToolUse", SHELL_PRE) is None

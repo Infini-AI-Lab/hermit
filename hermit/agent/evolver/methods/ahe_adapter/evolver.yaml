@@ -24,7 +24,8 @@ params:
   tools: [check_spec]              # the Evolve Agent's only Trainer tool (upstream: validate_agent.py)
   web_search: false                # web search, set explicitly: Codex's hosted search runs at the provider, past the sandbox
   hide: null                       # paths hidden from the Evolve Agent besides examples/tests/docs/.git; null: nothing hidden
-  task_field: id                   # the row field naming the benchmark task; rows <task>#1..#k share it (OfficeQA: uid)
+  task_field: task                 # the row field naming the benchmark task, which its k rows <task>#1..#k share
+                                   # (OfficeQA: uid); a row without it: its id without the #n
   k: null                          # rollouts per task; null: inferred from the rows sharing task_field
   evolve_timeout_s: 7200           # the Evolve session's wall clock (upstream: 500 turns, no clock)
   timeout_as: exception            # exception (released code) | fail: a timed-out trial in the diff/attribution; pass@1 counts it 0 either way

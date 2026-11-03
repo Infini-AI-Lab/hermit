@@ -215,11 +215,15 @@ class SessionState:
 
 
 def audit(path: Path | None, record: dict) -> None:
+    """One line on the audit log. A log that cannot be written loses the line, never the call (fail open)."""
     if path is None:
         return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as stream:
-        stream.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+    except OSError as exc:
+        sys.stderr.write(f"hook_runner: no audit line: {_describe(exc)}\n")
 
 
 def _describe(exc: BaseException) -> str:

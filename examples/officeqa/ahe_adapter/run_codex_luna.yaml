@@ -72,6 +72,5 @@ trainer:
   save_freq: {steps: 1}
   call_timeout_min: 420                # one step's Debugger and Evolve sessions
   budget: {hours: 48, tokens: null, usd: null}
-  resume_mode: auto
 eval:
   repeats: 1                           # one pass over the test questions
