@@ -58,7 +58,7 @@ The rest of the context supplies:
 | `tools` | Run, task, and template capabilities available to the method. |
 | `message` | Human-readable description of the call and available resources. |
 | `sandbox`, `cancel`, `tool_url` | Program execution helper, cancellation signal, and tool endpoint. |
-| `progress` | On step calls: epoch, step, whether the epoch ends here, and, for an Evolver that chooses its tasks, the epoch's training tasks still to run (`remaining`). |
+| `progress` | On step and bootstrap calls: epoch, step, whether the epoch ends here, and, for an Evolver that chooses its tasks, the epoch's training tasks still to run (`remaining`). |
 | `session` | Optional previous learner-session handle when session resume is enabled. |
 
 The learner interface does not supply test tasks. Whether files remain inaccessible also depends on the run's
@@ -101,7 +101,10 @@ Only an Evolver with `chooses_tasks = True` is given `progress.remaining` (also 
 for every other Evolver it is empty, so a stream's later tasks stay unseen. The request is checked when it is made
 and holds for the next step only. It must be distinct task ids, at most `data.step_size` of them, from
 `progress.remaining`; at the last step of an epoch, where nothing remains, from the training split, which the next
-epoch runs again. A bootstrap may name the first step's tasks the same way (it is given the first epoch's order).
+epoch runs again; `progress.remaining` is then empty, so an Evolver that chooses at an epoch's end keeps the ids it
+was given earlier (the bootstrap is given the first epoch's whole order, and may name the first step's tasks the
+same way). An empty list names nothing. A request is taken from any step result, a failed step's included; one
+made at the run's last step is recorded and has no step to apply to.
 An epoch still runs every training task once: the tasks the Evolver leaves out come later in the epoch, in the
 Trainer's order. The step's record keeps an accepted request as `next_tasks` and a refused one as
 `next_tasks_refused` with the reason, and the next step then runs the order's tasks; a step that ran the Evolver's
