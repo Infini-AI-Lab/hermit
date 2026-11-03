@@ -52,8 +52,7 @@ from hermit.agent.base.interface import make
 from hermit.agent.base.trajectory import STREAMS, log_steps
 from hermit.agent.evolver.base import Usage
 from hermit.agent.evolver.methods.ahe_adapter import trajectory as _trajectory
-from hermit.agent.evolver.methods.ahe_adapter.analysis import task_name_of
-from hermit.isolate import _safe
+from hermit.agent.evolver.methods.ahe_adapter.analysis import task_file_name, task_name_of
 
 DEFAULTS = {"enabled": True, "model": None, "effort": None, "bin": None, "args": None, "env": None,
             "concurrency": 16, "timeout_s": 600, "retries": 3, "backoff_s": 2.0, "max_tasks": 90,
@@ -279,7 +278,7 @@ def question_for(job: Job, files: list[str], k: int, params: dict, texts=None) -
 def prepare_job_dir(job: Job, scratch: Path, params: dict | None = None, texts=None) -> Path:
     """Lay out `scratch/debugger/<task>/` for one job and return it (an existing directory is replaced)."""
     params = {**DEFAULTS, **(params or {})}
-    job_dir = Path(scratch) / "debugger" / _safe(job.task)
+    job_dir = Path(scratch) / "debugger" / task_file_name(job.task)
     shutil.rmtree(job_dir, ignore_errors=True)
     job_dir.mkdir(parents=True)
     files: list[str] = []
@@ -334,11 +333,20 @@ class Runner:
 
     def agent_settings(self, job: Job, job_dir: Path, attempt: int, timeout_s: float) -> dict:
         """The codex Base Agent's settings for one attempt: the Evolve Agent's (the isolation, the login, web search,
-        the price), the Debugger's model, effort, program and args, its clock, the Trainer's cancel, the question on
-        stdin, the job's own home and the attempt's own stream; the job directory writable."""
-        p, name = self.params, _safe(job.task)
+        the price), the Debugger's model, effort, program and args (after a bound model's provider arguments), its
+        clock, the Trainer's cancel, the question on stdin, the job's own home and the attempt's own stream; the job
+        directory writable."""
+        p, name = self.params, task_file_name(job.task)
+        args = list(p.get("args") or [])
+        if self.base.get("binding"):
+            # A bound model reaches its provider through Codex arguments only (the Evolver's `args` begin with them):
+            # `debugger.args` given in place of the Evolve Agent's must not drop them.
+            from hermit.agent.model.backends import Binding
+            provider = Binding.from_spec(self.base["binding"]).codex_args()
+            if args[:len(provider)] != provider:
+                args = [*provider, *args]
         out = {**self.base, **{k: p[k] for k in ("model", "effort", "bin") if p.get(k) is not None},
-               "args": list(p.get("args") or []), "stdin": True, "timeout_s": timeout_s, "cancel": self.ctx.cancel,
+               "args": args, "stdin": True, "timeout_s": timeout_s, "cancel": self.ctx.cancel,
                "home": self.homes / name, "log": self.logs / f"{name}.{attempt}.jsonl", "writable": [job_dir]}
         if p.get("env"):
             out["env"] = {**(self.base.get("env") or {}), **p["env"]}

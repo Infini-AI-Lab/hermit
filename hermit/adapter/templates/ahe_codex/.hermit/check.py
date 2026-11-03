@@ -21,7 +21,8 @@ The surface:
                                            (`_name`); imports stdlib or hermit_hooks only; none of the network/process
                                            modules, by import or by call; session_start (or a helper it calls) reads
                                            MEMORY.md (the memory channel is never removed); every hook runs once
-                                           through hook_runner.py without an error
+                                           through hook_runner.py without an error; and session_start, run on a
+                                           MEMORY.md holding an entry, hands that entry to the model
     scripts/<name>.py                      a tool implementation; must compile
     .agents/skills/<name>/SKILL.md         frontmatter `description:` required; `name:` optional, must equal the dir
     .agents/skills/<name>/scripts/<file>   a helper carried with its skill; a .py must compile
@@ -70,6 +71,8 @@ FORBIDDEN_CALLS = frozenset({"__import__", "importlib.import_module", "os.system
 FORBIDDEN_CALL_PREFIXES = ("os.exec", "os.spawn")
 ROOT = Path(__file__).resolve().parents[1]      # the template root this check is loaded from (its fixed files)
 DRY_RUN_TIMEOUT_S = 40                # one hook's dry run: the runner's own alarm (28 s) fires first
+# The memory entry the memory run writes into a copy of the adapter: session_start must hand it to the model.
+MEMORY_PROBE = "ahe-codex check: this entry of MEMORY.md must reach the model at session start"
 # One hook call as Codex makes it, by the template's runner on the adapter's middleware: argv runner, event, adapter.
 DRY_RUN = ("import importlib.util, sys\n"
            "spec = importlib.util.spec_from_file_location('ahe_codex_hook_runner', sys.argv[1])\n"
@@ -232,7 +235,8 @@ def _call_name(node: ast.Call) -> str:
 
 def _reads_memory(module: ast.Module) -> bool:
     """Whether `session_start`, or a module-level function it calls (transitively), holds a string constant naming
-    MEMORY.md, directly or through a module-level name bound to such a constant."""
+    MEMORY.md outside its docstring, directly or through a module-level name bound to such a constant. A static
+    first look: memory_run_problems runs session_start to see that the memory reaches the model."""
     functions = {n.name: n for n in module.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
     constants = set()
     for node in module.body:
@@ -247,7 +251,11 @@ def _reads_memory(module: ast.Module) -> bool:
         if name in seen or name not in functions:
             continue
         seen.add(name)
-        for node in ast.walk(functions[name]):
+        body = functions[name].body
+        if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant) \
+                and isinstance(body[0].value.value, str):
+            body = body[1:]                           # a docstring that names the file reads nothing
+        for node in (n for statement in body for n in ast.walk(statement)):
             if isinstance(node, ast.Constant) and isinstance(node.value, str) and MEMORY in node.value:
                 return True
             if isinstance(node, ast.Name) and node.id in constants:
@@ -390,6 +398,44 @@ def dry_run_problems(adapter: Path) -> list[tuple[str, str]]:
     return []
 
 
+def memory_run_problems(adapter: Path) -> list[tuple[str, str]]:
+    """(5, memory) session_start, called by the template's hook_runner.py on a copy of the adapter whose MEMORY.md
+    holds one entry (MEMORY_PROBE), in a session whose task names that entry, hands the entry to the model as context:
+    the memory channel is what session_start does, not a file name it mentions (a hook that names MEMORY.md and
+    returns None passes the static rule)."""
+    runner = ROOT / RUNNER if (ROOT / RUNNER).is_file() else adapter / RUNNER
+    if not runner.is_file() or not (runner.parent / "hermit_hooks.py").is_file():
+        return []                                     # a fixed file is missing: check_spec's check 1 names it
+    env = {k: v for k, v in os.environ.items() if k != "HERMIT_HOOK_LOGS"}
+    with tempfile.TemporaryDirectory(prefix="ahe-codex-memory-run-") as scratch:
+        copy, workspace = Path(scratch) / "adapter", Path(scratch) / "workspace"
+        shutil.copytree(adapter, copy, symlinks=True, ignore=shutil.ignore_patterns(".git", ".hermit-hooks"))
+        (copy / MEMORY).write_text(f"{MEMORY_HEADER}\n\n## Agent Added Memories\n- {MEMORY_PROBE}\n", encoding="utf-8")
+        workspace.mkdir()
+        # The session's task names the entry, so a middleware that hands over only the entries relevant to the task
+        # (inp.task_text, the workspace's task.md) hands this one over too.
+        (workspace / "task.md").write_text(f"{MEMORY_PROBE}\n", encoding="utf-8")
+        try:
+            proc = subprocess.run([sys.executable, "-B", "-c", DRY_RUN, str(runner), "SessionStart", str(copy)],
+                                  cwd=str(copy), env=env, input=json.dumps(_payload("session_start", workspace)),
+                                  capture_output=True, text=True, timeout=DRY_RUN_TIMEOUT_S)
+        except subprocess.TimeoutExpired:
+            return [(MIDDLEWARE, f"{MIDDLEWARE}: `session_start` ran past {DRY_RUN_TIMEOUT_S} s on a {MEMORY} with "
+                                 f"one entry")]
+        try:
+            out = json.loads(proc.stdout) if proc.stdout.strip() else {}
+        except ValueError:
+            out = {}
+        context = ((out if isinstance(out, dict) else {}).get("hookSpecificOutput") or {}).get("additionalContext")
+        if not isinstance(context, str) or MEMORY_PROBE not in context:
+            return [(MIDDLEWARE, f"{MIDDLEWARE}: `session_start`, run through {RUNNER} on a {MEMORY} with one entry, "
+                                 f"did not hand that entry to the model (its context: {str(context)[:200]!r}): the "
+                                 f"long-term memory reaches the model only through session_start, so the memory "
+                                 f"channel was removed; read {MEMORY} from inp.adapter_dir and return its body as "
+                                 f"context")]
+    return []
+
+
 def script_problems(tree: dict[str, str]) -> list[tuple[str, str]]:
     """(6) every .py under scripts/ and a skill's scripts/ compiles; a helper the prompt or a skill invokes exists,
     named as a deployment runs it."""
@@ -476,6 +522,8 @@ def check(adapter_path: str) -> list[dict]:
                                        f"agents/<name>.md, name = [a-z0-9][a-z0-9_-]*)"} for rel in off]
     middleware = middleware_problems(tree)
     dry_run = dry_run_problems(adapter) if not middleware else []    # run only what passes the static rules
+    if not middleware and not dry_run:
+        dry_run = memory_run_problems(adapter)
     for rel, problem in (prompt_problems(adapter, tree) + memory_problems(tree) + middleware + dry_run
                          + script_problems(tree) + skill_and_agent_problems(tree)):
         issues.append({"path": rel, "problem": problem})

@@ -5,6 +5,7 @@ byte, the Debugger's query text and the rendered evolution query (no model, no n
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import tempfile
 
@@ -393,6 +394,19 @@ def test_overview_and_detail_files_are_byte_exact(tmp_path):
     # the default label is the detail directory itself
     _, snippet2 = A.write_debugger_analyse(FIXTURE_RESULTS[:1], tmp_path / "other", 3)
     assert snippet2.endswith(f"Detail per task: `{tmp_path / 'other' / 'detail'}/`")
+
+
+def test_a_task_name_that_is_no_file_name_gets_a_file_of_its_own(tmp_path):
+    """A plain name keeps `<task>.md`; any other gets a slug and a hash: it stays in detail/, two names that slug
+    alike do not collide, and the overview names the file beside the task."""
+    assert A.task_file_name("fix-git") == "fix-git" and A.task_file_name("UID0123") == "UID0123"
+    names = [A.task_file_name(t) for t in ("suite/q-1", "suite_q-1", "../q", ".hidden", "x" * 80)]
+    assert names[1] == "suite_q-1" and len(set(names)) == 5
+    assert all(re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9._-]*", n) for n in names)
+    result = {**FIXTURE_RESULTS[0], "task_name": "suite/q-1"}
+    _, snippet = A.write_debugger_analyse([result], tmp_path / "a", 2)
+    assert [f.name for f in (tmp_path / "a" / "detail").iterdir()] == [names[0] + ".md"]
+    assert f"**suite/q-1** (detail: `{names[0]}.md`)" in snippet
 
 
 def test_extract_one_liner_rules():

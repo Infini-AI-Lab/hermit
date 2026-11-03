@@ -37,7 +37,8 @@ params:
   explore: false                   # the Explore Agent is not ported
   debugger:                        # model, effort, bin, args: null = the Evolve Agent's
     enabled: true
-    model: null
+    model: null                    # another model only on the CLI's own provider (a login) with no price: the
+                                   # Debugger takes the Evolve Agent's binding and price, so setup refuses one
     effort: null
     bin: null
     args: null

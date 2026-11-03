@@ -275,6 +275,16 @@ BROKEN = {
     "AGENTS.md referencing /adapter": (
         lambda a: rewrite(a, "AGENTS.md", "python3 scripts/count.py", "python3 /adapter/scripts/count.py"),
         "AGENTS.md", "invokes `/adapter/scripts/count.py`, but no deployment has /adapter"),
+    "session_start naming MEMORY.md in its docstring only": (
+        lambda a: (a / "middleware.py").write_text(
+            'def session_start(inp, state):\n    """Hands MEMORY.md to the model."""\n    return None\n\n'
+            "def before_tool(inp, state):\n    return None\n\ndef after_tool(inp, state):\n    return None\n\n"
+            "def stop(inp, state):\n    return None\n\ndef before_model(inp, state):\n    return None\n"),
+        "middleware.py", "session_start no longer reads MEMORY.md"),
+    "session_start naming MEMORY.md but handing nothing over": (
+        lambda a: rewrite(a, "middleware.py", "    body = _memory_body(inp.adapter_dir)\n",
+                          "    _unused = MEMORY_FILE\n    return None\n    body = _memory_body(inp.adapter_dir)\n"),
+        "middleware.py", "did not hand that entry to the model"),
     "script that does not compile": (lambda a: (a / "scripts" / "count.py").write_text("print(\n"),
                                      "scripts/count.py", "does not compile"),
 }
@@ -364,6 +374,17 @@ def test_check_passes_a_grown_tree(tmp_path):
     rewrite(adapter, "middleware.py", "from hermit_hooks import HookResult\n",
             "try:\n    from hermit_hooks import HookResult\nexcept ImportError:\n"
             "    from hermit.runtime.hooks import HookResult\n")
+    assert problems(adapter) == []
+
+
+def test_a_middleware_that_selects_the_memory_by_the_task_passes_the_memory_run(tmp_path):
+    """The memory run's session has a task that names the probe entry: a session_start that hands over only the
+    entries sharing a word with the task keeps the channel and passes."""
+    adapter = seed(tmp_path)
+    rewrite(adapter, "middleware.py", "    return HookResult(context=body)\n",
+            "    words = set(inp.task_text.lower().split())\n"
+            "    kept = [l for l in body.splitlines() if l.startswith('- ') and words & set(l.lower().split())]\n"
+            "    return HookResult(context='\\n'.join(kept)) if kept else None\n")
     assert problems(adapter) == []
 
 

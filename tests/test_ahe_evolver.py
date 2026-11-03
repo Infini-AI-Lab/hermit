@@ -338,6 +338,62 @@ def test_an_evolve_session_that_cannot_start_fails_the_step_and_keeps_the_debugg
     assert json.loads((state / "manifests/step_0001.json").read_text())["changes"] == []
 
 
+def test_task_names_that_are_no_file_names_get_their_reports(tmp_path):
+    """A task name the framework allows but no file name can be (`suite/add-1`): the Debugger's directories and the
+    detail reports are named by task_file_name, the overview names the file beside the task, and the step is done
+    with the Debugger's usage in it."""
+    path = _task(tmp_path)
+    rows = [{"id": f"suite/{t}#{r}", "uid": f"suite/{t}", "rollout": r, "a": 2 * i + r, "b": 3 * i + 1}
+            for i, t in enumerate(TASKS) for r in (1, 2)] + [{"id": "held", "uid": "held", "a": 7, "b": 8}]
+    (tmp_path / "tasks.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+    (tmp_path / "train.txt").write_text("".join(f"suite/{t}#{r}\n" for t in TASKS for r in (1, 2)))
+    Trainer(Config.load(path, ["trainer.epochs=1"]), log=lambda *_: None).train()
+    (step,) = _steps(tmp_path)
+    assert step["status"] == "done", step["evolver"]["summary"]
+    assert "debugger" in [u["role"] for u in step["evolver"]["usage"]]
+    from hermit.agent.evolver.methods.ahe_adapter.analysis import task_file_name
+    analysis = _state(tmp_path, 1) / "analysis" / "step_0001"
+    names = {task_file_name(f"suite/{t}") for t in TASKS}
+    assert len(names) == 2 and not any("/" in n for n in names)
+    assert {f.stem for f in (analysis / "detail").iterdir()} == names
+    overview = (analysis / "overview.md").read_text()
+    assert all(f"(detail: `{n}.md`)" in overview for n in names)
+
+
+def test_a_step_that_raises_after_the_debugger_reports_its_usage(tmp_path, monkeypatch):
+    """Whatever raises once the Debugger's sessions ran, the step fails with their usage in it (a step that raised
+    has none), and the history says nothing of it ships."""
+    from hermit.agent.evolver.methods.ahe_adapter import analysis
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("the overview could not be written")
+    monkeypatch.setattr(analysis, "write_debugger_analyse", broken)
+    Trainer(Config.load(_task(tmp_path), ["trainer.epochs=1"]), log=lambda *_: None).train()
+    (step,) = _steps(tmp_path)
+    assert step["status"] == "failed" and not step["changed"]
+    assert "step 1 raised RuntimeError: the overview could not be written" in step["evolver"]["summary"]
+    assert [u["role"] for u in step["evolver"]["usage"]] == ["debugger"] and step["evolver"]["usage"][0]["calls"] == 2
+    assert "nothing of step 1 ships" in (_state(tmp_path, 1) / "evolution_history.md").read_text()
+
+
+def test_a_separate_debugger_model_is_refused_with_a_price_or_a_binding(tmp_path):
+    """The Debugger takes the Evolve Agent's binding and price: under another model its usage would be recorded and
+    priced as the Evolve Agent's, so the setup refuses that; the same model, or no price and no binding, pass."""
+    from types import SimpleNamespace
+    from hermit.agent.evolver.methods.ahe_adapter.evolver import AHEAdapterEvolver
+
+    def setup(params):
+        state = tmp_path / f"state-{len(list(tmp_path.iterdir()))}"
+        AHEAdapterEvolver().setup(SimpleNamespace(params={"web_search": False, "model": "m", **params},
+                                                  workspace=SimpleNamespace(state=state)))
+    for priced in ({"price": {"input": 1.0, "output": 2.0}}, {"binding": {"ref": "fireworks/m", "model": "m"}}):
+        with pytest.raises(ValueError, match="runs on the Evolve Agent's model"):
+            setup({**priced, "debugger": {"model": "other"}})
+        setup({**priced, "debugger": {"model": "m"}})
+        setup({**priced, "debugger": {"model": None}})
+    setup({"login": "chatgpt", "debugger": {"model": "other"}})          # the login's own provider, no price
+
+
 def test_the_setup_refuses_another_base_agent_and_an_unset_web_search(tmp_path):
     (tmp_path / "a").mkdir()
     (tmp_path / "b").mkdir()

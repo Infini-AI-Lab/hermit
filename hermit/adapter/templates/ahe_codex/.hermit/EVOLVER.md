@@ -86,10 +86,11 @@ stdlib: nothing else is installed where the agent runs.
    `multiprocessing`, `pty`, `importlib`, and no call to `__import__`, `importlib.import_module`, `os.system`,
    `os.popen`, `os.fork*`, `os.exec*`, `os.spawn*`, `os.posix_spawn*` (a static check: where the agent runs the
    runner's only guards are its alarm and fail-open); and `session_start`, or a helper it calls, still reads
-   `MEMORY.md` (the memory channel is never removed; a comment does not count). A module that passes these rules is
-   then run: every hook once, through `hook_runner.py` as Codex calls it, on a synthetic event with an empty state;
-   a module that raises there, returns something other than `None`, a `HookResult` or a dict of its keys, or
-   outlasts the runner's alarm fails, with the hook named.
+   `MEMORY.md` (the memory channel is never removed; a comment or docstring does not count). A module that passes
+   these rules is then run: every hook once, through `hook_runner.py` as Codex calls it, on a synthetic event with an
+   empty state; a module that raises there, returns something other than `None`, a `HookResult` or a dict of its
+   keys, or outlasts the runner's alarm fails, with the hook named. Last, `session_start` runs on a copy of the
+   adapter whose `MEMORY.md` holds one entry, and fails the check unless that entry reaches the model as context.
 6. Every `.py` under `scripts/` (`scripts/<name>.py`, any name) and under a skill's `scripts/` compiles; a
    `python3 scripts/<x>.py` (or `python3 hermit/ahe-codex/scripts/<x>.py`) or `.agents/skills/<n>/scripts/<x>` that
    `AGENTS.md` or a `SKILL.md` invokes exists, named as a deployment lets the agent run it.

@@ -402,6 +402,25 @@ def test_settings_fall_back_to_the_evolver_model():
     assert (other["model"], other["effort"], other["args"]) == ("other", "low", [])
 
 
+def test_a_bound_models_provider_arguments_survive_the_debuggers_own_args(tmp_path):
+    """A bound model reaches its provider through Codex arguments only: `debugger.args` given in place of the
+    Evolve Agent's keep them in front, and the Evolve Agent's own args (which begin with them) are not doubled."""
+    from hermit.agent.model.backends import Binding
+    binding = Binding.from_spec({"base_url": "https://llm.example/v1", "model": "m", "api_key_env": "FAKE_KEY"})
+    provider = binding.codex_args()
+    assert provider
+    ctx = context(tmp_path)
+    base = {"web_search": False, "model": "m", "binding": binding.spec(), "args": [*provider, "-c", "e=1"]}
+    for debugger_args, expected in ((None, [*provider, "-c", "e=1"]), (["-c", "d=1"], [*provider, "-c", "d=1"]),
+                                    ([], provider)):
+        params = D.settings({"model": "m", "args": base["args"], "debugger": {"args": debugger_args}})
+        runner = D.Runner(ctx, params, base, ctx.workspace.scratch)
+        assert runner.agent_settings(D.Job(task="t"), tmp_path, 1, 30.0)["args"] == expected, debugger_args
+    unbound = D.Runner(ctx, D.settings({"model": "m", "debugger": {"args": ["-c", "d=1"]}}),
+                       {"web_search": False, "model": "m"}, ctx.workspace.scratch)
+    assert unbound.agent_settings(D.Job(task="t"), tmp_path, 1, 30.0)["args"] == ["-c", "d=1"]
+
+
 def test_run_jobs_answers_with_one_base_agent_call_per_attempt(tmp_path, monkeypatch):
     monkeypatch.setenv("FAKE_CODEX_TIMES", str(tmp_path / "times.jsonl"))
     step, recs = material(tmp_path)
@@ -453,14 +472,15 @@ def test_agent_settings_keep_the_evolve_agents_isolation_and_login_and_give_each
     runner = D.Runner(ctx, D.settings({"model": "gpt-5.6-luna", "effort": "medium",
                                        "debugger": {"effort": "low", "env": {"FAKE": "1"}}}), base,
                       ctx.workspace.scratch)
-    job_dir = ctx.workspace.scratch / "debugger" / "a_b"
+    name = D.task_file_name("a/b")                              # a slug and a hash: no `/` in a file name
+    job_dir = ctx.workspace.scratch / "debugger" / name
     s = runner.agent_settings(D.Job(task="a/b"), job_dir, 2, 30.0)
     assert (s["isolation"], s["sandbox"], s["login"], s["codex_sandbox"], s["web_search"]) == \
         ("sandbox", sandbox, "chatgpt", "danger-full-access", False)
     assert (s["model"], s["effort"], s["timeout_s"], s["cancel"], s["stdin"]) == ("gpt-5.6-luna", "low", 30.0,
                                                                                     ctx.cancel, True)
-    assert s["home"] == ctx.workspace.scratch / "debugger-homes" / "a_b" and s["writable"] == [job_dir]
-    assert s["log"] == ctx.workspace.output / "debugger" / "a_b.2.jsonl" and "tools_name" not in s
+    assert s["home"] == ctx.workspace.scratch / "debugger-homes" / name and s["writable"] == [job_dir]
+    assert s["log"] == ctx.workspace.output / "debugger" / f"{name}.2.jsonl" and "tools_name" not in s
     assert s["env"] == {"PYTHONPATH": "/f", "FAKE": "1"}
 
 

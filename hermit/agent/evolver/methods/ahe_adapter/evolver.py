@@ -241,6 +241,14 @@ class AHEAdapterEvolver(AgentEvolver):
                              f"evolver.params.backend is codex, not {ctx.params.get('backend')!r}")
         if not isinstance(ctx.params.get("web_search"), bool):
             raise ValueError("evolver.params.web_search must be set, true or false")
+        from hermit.agent.evolver.methods.ahe_adapter import debugger as D
+        own = D.settings(ctx.params).get("model")
+        if own != ctx.params.get("model") and (ctx.params.get("binding") or ctx.params.get("price")):
+            # The Debugger's sessions take the Evolve Agent's binding (its provider and key) and price: under another
+            # model their usage would be recorded as the Evolve Agent's model and priced at its price.
+            raise ValueError(f"evolver.params.debugger.model is {own!r}, not the Evolve Agent's model "
+                             f"{ctx.params.get('model')!r}: with a bound model or a price, the Agent Debugger runs on "
+                             f"the Evolve Agent's model (debugger.model: null)")
         state = ctx.workspace.state
         if not (state / "ahe.json").is_file():
             dump_json(state / "ahe.json", {"k": ctx.params.get("k"), "steps": {}})
@@ -254,6 +262,24 @@ class AHEAdapterEvolver(AgentEvolver):
     # ---- one step ----
 
     def step(self, ctx: StepContext) -> StepResult:
+        """One AHE iteration (`_step`). A step that raises fails as a failed session does, with the usage spent so
+        far (the Debugger's sessions are paid for whatever comes after them; a step that raised has no usage)."""
+        usage: list[Usage] = []
+        try:
+            return self._step(ctx, usage)
+        except Exception as exc:                        # noqa: BLE001 - the Trainer would record it as raised
+            n = ctx.progress.step if ctx.progress else 0
+            summary = f"step {n} raised {type(exc).__name__}: {exc}"[:300]
+            rollbacks_file = ctx.workspace.state / "rollbacks" / f"{step_name(n)}.json"
+            rollbacks = load_json(rollbacks_file)
+            warning = (f"WARNING: {summary}; the Trainer discards this step's edits and rollbacks, nothing of step {n} "
+                       f"ships")
+            if isinstance(rollbacks, dict) and not rollbacks.get("discarded"):
+                dump_json(rollbacks_file, {**rollbacks, "discarded": True, "note": warning})
+            append_text(ctx.workspace.state / "evolution_history.md", f"**{warning}**\n\n---\n\n")
+            return StepResult("failed", summary, usage=usage)
+
+    def _step(self, ctx: StepContext, usage: list[Usage]) -> StepResult:
         from hermit.agent.evolver.methods.ahe_adapter import analysis as A
         p, ws = ctx.params, ctx.workspace
         n = ctx.progress.step if ctx.progress else 0
@@ -334,7 +360,6 @@ class AHEAdapterEvolver(AgentEvolver):
             return warning
 
         # 4. the Agent Debugger: one call of the codex Base Agent per attempt, on the Evolve Agent's settings.
-        usage: list[Usage] = []
         overview = None
         analysis_dir = state / "analysis" / name
         from hermit.agent.evolver.methods.ahe_adapter import debugger as D
@@ -343,10 +368,10 @@ class AHEAdapterEvolver(AgentEvolver):
         if dbg.get("enabled", True):
             jobs = D.build_jobs(records, {**dbg, "task_field": task_field}, base=Path(records[0]["_dir"]))
             results, dbg_usage = D.run_jobs(jobs, ctx, dbg, base=self.settings(ctx, "codex"), scratch=ws.scratch)
+            usage.append(role_usage(dbg_usage, "debugger"))
             _, overview = A.write_debugger_analyse(results, analysis_dir, n, detail_label=str(analysis_dir / "detail"))
             dump_json(analysis_dir / "jobs.json", results)
             dump_json(analysis_dir / "usage.json", dataclasses.asdict(dbg_usage))
-            usage.append(role_usage(dbg_usage, "debugger"))
             debugger_info.update({"jobs": len(results), "fallbacks": sum(1 for r in results if r.get("status") == "fallback"),
                                   "debug": sum(1 for r in results if r.get("mode") == "debug"),
                                   "summary": sum(1 for r in results if r.get("mode") == "summary")})

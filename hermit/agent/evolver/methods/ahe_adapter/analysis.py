@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import collections
 from datetime import datetime
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -50,6 +51,17 @@ VERDICTS = ("EFFECTIVE", "PARTIALLY_EFFECTIVE", "MIXED", "INEFFECTIVE", "HARMFUL
 
 
 # ---------- the record adapter ----------
+
+def task_file_name(task: str) -> str:
+    """The file-name stem of a task's own files (its detail report, its Debugger directory, home and logs): the task
+    name itself when it is a plain file name, else a slug of it with a hash of the whole name, so that a task name
+    the framework allows (`suite/question-1`) neither leaves its directory nor collides with another."""
+    task = str(task)
+    if re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9._-]{0,59}", task):
+        return task
+    slug = re.sub(r"[^A-Za-z0-9._-]+", "_", task).strip("._")[:40] or "task"
+    return f"{slug}-{hashlib.sha1(task.encode('utf-8')).hexdigest()[:8]}"
+
 
 def task_name_of(record: dict, task_field: str = "task") -> str:
     """The benchmark task a record belongs to: `input[task_field]`, else the record id without its `#n` suffix."""
@@ -808,9 +820,16 @@ def _reward_label(rv: float | None) -> str:
     return "PASS" if rv is not None and rv >= 1.0 else "FAIL"
 
 
+def _detail_note(task: str) -> str:
+    """Beside a task in the overview: its detail file, when that is not `<task>.md` (see task_file_name)."""
+    name = task_file_name(task)
+    return "" if name == task else f" (detail: `{name}.md`)"
+
+
 def write_debugger_analyse(results: list[dict], analyse_dir: Path, iteration: int,
                            detail_label: str | None = None) -> tuple[Path, str]:
-    """Write overview.md + detail/{task}.md under ``analyse_dir``.
+    """Write overview.md + detail/{task}.md under ``analyse_dir`` (the file name is `task_file_name(task)`, which the
+    overview names beside a task whose name is no plain file name).
 
     Each result is the Debugger's record of one task: task_name, mode ("debug" | "summary"), n_pass, n_fail,
     n_timeout, is_timeout, response, trace_paths, trace_rewards (>= 1 pass, < 0 timeout, else fail),
@@ -849,7 +868,7 @@ def write_debugger_analyse(results: list[dict], analyse_dir: Path, iteration: in
             n_total = r["n_pass"] + r["n_fail"] + n_to
             one_liner = extract_one_liner(r["response"])
             body_lines.append(
-                f"- **{r['task_name']}** ({n_to}/{n_total} timed out): {one_liner}"
+                f"- **{r['task_name']}**{_detail_note(r['task_name'])} ({n_to}/{n_total} timed out): {one_liner}"
             )
         body_lines.append("")
 
@@ -859,12 +878,12 @@ def write_debugger_analyse(results: list[dict], analyse_dir: Path, iteration: in
             n_total = r["n_pass"] + r["n_fail"] + r.get("n_timeout", 0)
             one_liner = extract_one_liner(r["response"])
             body_lines.append(
-                f"- **{r['task_name']}** ({r['n_pass']}/{n_total} pass): {one_liner}"
+                f"- **{r['task_name']}**{_detail_note(r['task_name'])} ({r['n_pass']}/{n_total} pass): {one_liner}"
             )
         body_lines.append("")
 
     if summary_results:
-        names = ", ".join(r["task_name"] for r in summary_results)
+        names = ", ".join(r["task_name"] + _detail_note(r["task_name"]) for r in summary_results)
         body_lines.append(f"### Summary (all pass): {len(summary_results)} tasks\n")
         body_lines.append(f"{names}\n")
         body_lines.append(f"(All rollouts passed — no per-task analysis included. Read `detail/{{task}}.md` if needed.)\n")
@@ -922,7 +941,7 @@ def write_debugger_analyse(results: list[dict], analyse_dir: Path, iteration: in
             detail_lines.append(f"### trace{idx+1:02d} ({label})\n")
             detail_lines.append(f"```\n{vout_show}\n```\n")
 
-        task_path = detail_dir / f"{r['task_name']}.md"
+        task_path = detail_dir / f"{task_file_name(r['task_name'])}.md"
         task_path.write_text("\n".join(detail_lines), encoding="utf-8")
 
     return analyse_dir, query_snippet
@@ -1334,7 +1353,8 @@ def build_evolution_query(ctx_paths: dict, stats: dict, *, step: int, diff: dict
     if adb_overview:
         lines.append(f"\n## 4. Agent Debugger Analysis (LLM-powered root cause analysis)")
         lines.append(adb_overview)
-        lines.append(f"\nFor full per-task analysis: read `{analysis_dir}/detail/{{task_name}}.md`")
+        lines.append(f"\nFor full per-task analysis: read `{analysis_dir}/detail/{{task_name}}.md` (or the detail file "
+                     f"the overview names beside the task)")
         lines.append("For raw traces: see trace paths listed in each detail file.")
 
     # -- 5. Historical Trends --
