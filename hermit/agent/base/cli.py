@@ -133,11 +133,16 @@ def _session_output(path, places) -> None:
     written through, a pipe would block, a directory would stop the write. A path elsewhere is the caller's own (a
     log file, `/dev/stderr`, a collector's pipe) and is opened as it is."""
     given = os.path.abspath(str(path))
-    roots = {n for p in places for n in (os.path.abspath(str(p)), os.path.realpath(str(p)))}   # a place by either name
-    for root in sorted(roots, key=len, reverse=True):
-        if given.startswith(root.rstrip("/") + "/"):
-            current = root
-            for part in Path(given).relative_to(root).parts[:-1]:
+    roots = [os.path.realpath(str(p)) for p in places]
+    parts = Path(given).parts
+    # The first directory on the way, from the top, that lies in a place (under whatever name the path spells it):
+    # nothing above it is the session's, so resolving it follows no link the session left; below it, nothing is
+    # followed.
+    for i in range(1, len(parts)):
+        real = os.path.realpath(os.path.join(*parts[:i]))
+        if any(real == r or real.startswith(r.rstrip("/") + "/") for r in roots):
+            current = os.path.join(*parts[:i])
+            for part in parts[i:-1]:
                 current = os.path.join(current, part)
                 if os.path.islink(current) or (os.path.lexists(current) and not os.path.isdir(current)):
                     os.unlink(current)                  # never followed: the session could have left it

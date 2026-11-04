@@ -884,6 +884,18 @@ def test_what_a_session_left_on_the_way_to_its_log_is_never_followed_by_the_next
                             "writable": [str(tmp_path / "extra-alias")],
                             "log": str(extra / "a" / "b" / "agent-codex.jsonl")}).run("go", workspace=ws)
     assert result.extra["served"] and list(outside.iterdir()) == []
+    real_home = tmp_path / "real-home"                          # a home given by a link's name (macOS's /var and
+    real_home.mkdir()                                           # /private/var), the log below that name
+    (tmp_path / "home-alias").symlink_to(real_home)
+    (real_home / "logs").write_text("left by the last session")
+    (real_home / "deep").mkdir()
+    (real_home / "deep" / "a").symlink_to(outside)
+    for log in ("logs/agent-codex.jsonl", "deep/a/b/agent-codex.jsonl"):
+        result = make("codex", {"web_search": False, "model": "gpt-x", "home_files": [],
+                                "home": str(tmp_path / "home-alias"),
+                                "log": str(tmp_path / "home-alias" / log)}).run("go", workspace=ws)
+        assert result.extra["served"] and (real_home / log).is_file()
+    assert list(outside.iterdir()) == []
 
 
 def test_a_home_the_session_replaced_by_a_link_is_not_read_or_written_through(fake, tmp_path, monkeypatch):
