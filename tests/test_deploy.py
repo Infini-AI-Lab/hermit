@@ -123,6 +123,15 @@ def test_the_whole_adapter_is_copied_and_the_context_says_where(tmp_path):
     assert "This adapter's files are in `hermit/tree-example/`." in text and "scripts/stamp.py" in text
 
 
+def test_a_worktrees_git_pointer_is_not_deployed(tmp_path):
+    a = tree_adapter(tmp_path)
+    (a / ".git").write_text(f"gitdir: {tmp_path / 'tree' / 'worktrees' / 'adapter'}\n")
+    result = codex_prepare(a, tmp_path / "w", sys.executable)
+    assert not (tmp_path / "w" / "hermit" / "tree-example" / ".git").exists()
+    assert "hermit/tree-example/.git" not in result["files"]
+    assert ".git" not in (tmp_path / "w" / "AGENTS.md").read_text()
+
+
 def test_declared_skills_roles_and_hooks_are_connected(tmp_path):
     a = tree_adapter(tmp_path)
     result = codex_prepare(a, tmp_path / "w", sys.executable)

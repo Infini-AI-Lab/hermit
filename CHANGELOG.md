@@ -4,6 +4,11 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ## Unreleased
 
+## 0.2.0 - 2026-11-04
+
+Three-layer agents, unified adapter deployment, Codex plan-backed acting and learning, and six new method
+integrations: ReHarness, Meta-Harness Adapter, ACE, AHE Adapter, RRSI Adapter and EvoSafeHarness.
+
 ### Breaking
 
 - The adapter layout changed: a learner may change every file of an adapter except `.git/` and the metadata, and
@@ -72,6 +77,8 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Added
 
+- A release workflow with Linux core and sandbox checks, distribution builds, an installed-wheel smoke and
+  tag-triggered PyPI Trusted Publishing; `docs/developer/releasing.md` records the repeatable release process.
 - An Evolver can choose the next step's tasks: one that sets `chooses_tasks = True` is given the epoch's training
   tasks still to run (`Progress.remaining`, also listed in the call's message) and names the next step's in
   `StepResult.next_tasks` (an external program in `output/step_result.json`). An epoch still runs every training task
@@ -234,6 +241,11 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Fixed
 
+- Exclude a Git worktree's root `.git` pointer file from workspace deployment, as for a root `.git/` directory.
+- Include MWM's hidden pattern-library resource `.lint_blacklist` in installed packages, and check packaging
+  coverage for every bundled method file as well as adapter templates.
+- EvoSafeHarness's Codex roles no longer require Daybreak by default; it is an explicit opt-in. The AgentDyn
+  documentation clarifies task-dependent utility judging and reports completed episodes and errors.
 - The chat endpoint closed each connection after its reply without saying so (`Connection: close`); an HTTP/1.1
   client kept the connection for its next request and got a dropped connection instead of the answer, now and then
   (`tests/test_base_agents.py`'s error test failed so, about one run in three under load).

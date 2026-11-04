@@ -9,7 +9,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.12%2B-3776AB.svg?logo=python&logoColor=white)](pyproject.toml)
-[![Version](https://img.shields.io/badge/version-0.1.0-C6743C.svg)](pyproject.toml)
+[![Version](https://img.shields.io/badge/version-0.2.0-C6743C.svg)](pyproject.toml)
 [![Website](https://img.shields.io/badge/website-online-C6743C.svg)](https://infini-ai-lab.github.io/hermit/)
 [![Docs](https://img.shields.io/badge/docs-read-1B1D22.svg)](https://infini-ai-lab.github.io/hermit/docs/)
 [![WeChat](https://img.shields.io/badge/WeChat-community-07C160?logo=wechat&logoColor=white)](assets/community/wechat.md)

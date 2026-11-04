@@ -1,4 +1,4 @@
-"""The wheel carries every template file: setuptools expands package-data with glob, which skips dot-directories."""
+"""Bundled templates and methods include their resources, including files skipped by ordinary globs."""
 from glob import glob
 from pathlib import Path
 import tomllib
@@ -26,3 +26,10 @@ def test_every_template_ships_its_metadata():
     for template in (PACKAGE / "adapter" / "templates").iterdir():
         if template.is_dir() and (template / ".hermit").is_dir():
             assert f"adapter/templates/{template.name}/.hermit/adapter.yaml" in packaged, template.name
+
+
+def test_package_data_covers_every_method_file():
+    methods = PACKAGE / "agent" / "evolver" / "methods"
+    files = {p.relative_to(PACKAGE).as_posix() for p in methods.rglob("*")
+             if p.is_file() and "__pycache__" not in p.parts and p.suffix not in (".pyc", ".pyo")}
+    assert not (missing := sorted(files - _packaged())), missing
