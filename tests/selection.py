@@ -1,10 +1,11 @@
 """Which tests a change needs (`python -m pytest --changed`): the test groups whose paths it touches.
 
-A group is tests/core/ (the framework) or tests/methods/<name>/ (one method). A method's group runs when the method's
-own files change: its Evolver, its template, its examples, its tests. The core group runs for any other change to the
-framework. The shared layers every method is built on (the Base Agents, the Evolver base classes, the Trainer, the
-sandbox, the hosts' deployment, the model bindings, the test helpers) run every group, as does any path this table
-does not know. Documentation runs none (docs/build-pages.sh checks it).
+A group is tests/core/ (the framework) or tests/methods/<name>/ (one method). The core group runs for every change but
+documentation: its tests also read every method's template, manifest and packaging. A method's group runs when the
+method's own files change: its Evolver, its template, its examples, its tests. The shared layers every method is
+built on (the Base Agents, the acting agents, the Evolver base classes, the Trainer, the sandbox, the hosts'
+deployment, the model bindings, the test helpers) run every group, as does any path this table does not know.
+Documentation runs none (docs/build-pages.sh checks it), but for docs/_examples/, which the core tests read.
 """
 from __future__ import annotations
 
@@ -16,7 +17,8 @@ import subprocess
 METHODS = {
     "ace": ["hermit/agent/evolver/methods/ace/*", "hermit/adapter/templates/ace/*", "examples/*/ace/*"],
     "ahe": ["hermit/agent/evolver/methods/ahe_adapter/*", "hermit/adapter/templates/ahe/*",
-            "examples/*/ahe_adapter/*", "tests/fixtures/ahe_hosts/*"],
+            "examples/*/ahe_adapter/*", "tests/fixtures/ahe_hosts/*",
+            "docs/methods/ahe_adapter.md"],                    # its capability table, which the hosts' tests hold
     "continual_harness": ["hermit/agent/evolver/methods/continual_harness/*",
                           "hermit/adapter/templates/continual_harness/*", "examples/*/continual_harness/*"],
     "harness2": ["hermit/agent/evolver/methods/harness2_upstream/*", "hermit/adapter/templates/harness2_codex/*",
@@ -31,15 +33,21 @@ METHODS = {
     "rrsi_adapter": ["hermit/agent/evolver/methods/rrsi_adapter/*", "hermit/adapter/templates/rrsi_adapter/*",
                      "examples/*/rrsi_adapter/*"],
 }
-# what every method is built on: a change here runs every group
-SHARED = ["hermit/agent/base/*", "hermit/agent/evolver/*.py", "hermit/agent/model/*", "hermit/trainer/*",
+# group -> the other groups whose tests read its files (tests/core/test_selection.py finds a method's tests naming
+# another group's directory)
+READ_BY = {"optimizers": {"ahe"},                       # the AHE example's configs match GEPA's and SkillOpt's
+           "harness2": {"continual_harness"}}           # Continual Harness deploys with the harness2_codex template
+# what every method is built on: a change here runs every group (tests/core/test_selection.py checks that every
+# framework module these import, or a method's tests import, is here too)
+SHARED = ["hermit/agent/__init__.py", "hermit/agent/base/*", "hermit/agent/acting/*", "hermit/agent/evolver/*.py",
+          "hermit/agent/model/*", "hermit/trainer/*", "hermit/tree.py", "hermit/evaluate.py",
           "hermit/sandbox.py", "hermit/sandbox_relay.py", "hermit/isolate.py", "hermit/spec.py", "hermit/hosts/*",
           "hermit/runtime/*", "hermit/adapter/*.py", "hermit/config.py", "hermit/defaults.yaml", "hermit/tools.py",
           "hermit/task.py", "hermit/__init__.py", "hermit/adapter/templates/prompt_only/*",   # the toy task's
-          "pyproject.toml", "tests/conftest.py", "tests/fakes.py",
+          "pyproject.toml", "conftest.py", "tests/conftest.py", "tests/fakes.py",
           "tests/toy_task.py", "tests/selection.py"]
-# the rest of the framework, and the templates no method group owns: the core group
-CORE = ["hermit/*", "tests/core/*"]
+# the rest of the framework, the templates no method group owns, the documentation's examples: the core group
+CORE = ["hermit/*", "tests/core/*", "docs/_examples/*"]
 # nothing to run: documentation, and files no test reads
 NONE = ["docs/*", "*.md", "LICENSE", "NOTICE", ".github/*", ".agents/*", "assets/*", ".gitignore"]
 
@@ -48,7 +56,7 @@ def groups_for(path: str) -> set[str] | None:
     """The groups a changed path needs; None: every group."""
     for name, patterns in METHODS.items():
         if path.startswith(f"tests/methods/{name}/") or any(fnmatch(path, p) for p in patterns):
-            return {name}
+            return {name, "core", *READ_BY.get(name, ())}
     if any(fnmatch(path, p) for p in SHARED):
         return None
     if path.startswith("examples/") and path.count("/") <= 2 and path.endswith("README.md"):
@@ -85,7 +93,8 @@ def select(paths: list[str]) -> tuple[set[str] | None, dict[str, str]]:
 
 
 class NoBase(Exception):
-    """The merge base with the given ref cannot be found (no such ref, or a shallow clone without it)."""
+    """The changed paths cannot be read: no merge base with the ref (no such ref, a shallow clone without it), or
+    git failed listing them."""
 
 
 def changed_paths(base: str, cwd) -> list[str]:
@@ -98,6 +107,11 @@ def changed_paths(base: str, cwd) -> list[str]:
         raise NoBase(f"no merge base of HEAD and {base!r} ({found.stderr.decode(errors='replace').strip()}): "
                      "fetch it, or name another ref with --base")
     merge_base = found.stdout.decode().strip()
-    out = git("diff", "-z", "--name-only", "--no-renames", merge_base).stdout
-    out += git("ls-files", "-z", "--others", "--exclude-standard").stdout
-    return sorted({p for p in out.decode("utf-8", errors="surrogateescape").split("\0") if p.strip()})
+    out = b""
+    for args in (("diff", "-z", "--name-only", "--no-renames", merge_base), ("ls-files", "-z", "--others",
+                                                                             "--exclude-standard")):
+        listed = git(*args)
+        if listed.returncode != 0:                  # never a partial list: it would skip what it left out
+            raise NoBase(f"git {args[0]} failed: {listed.stderr.decode(errors='replace').strip()}")
+        out += listed.stdout
+    return sorted({p for p in out.decode("utf-8", errors="surrogateescape").split("\0") if p})

@@ -36,8 +36,10 @@ python -m pytest --changed
 ```
 
 `--changed` runs the test groups the branch touches
-([tests/README.md](https://github.com/Infini-AI-Lab/hermit/blob/main/tests/README.md)): the core group for the
-framework, a method's group for its own files, every group for a shared layer. Optimizer tests need the method's dependency group (for example `python -m pip install -e . --group gepa`) and skip
+([tests/README.md](https://github.com/Infini-AI-Lab/hermit/blob/main/tests/README.md)): the core group for every
+change but documentation, a method's group for its own files, every group for a shared layer.
+
+Optimizer tests need the method's dependency group (for example `python -m pip install -e . --group gepa`) and skip
 without it; sandbox and MWM integration
 tests can require Linux, learner CLIs, external packages, or environment fixtures. Inspect their prerequisites
 rather than interpreting every skipped test as coverage.

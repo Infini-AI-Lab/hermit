@@ -389,6 +389,7 @@ def test_a_uv_alias_inside_a_granted_checkout_is_bound_once(tmp_path, monkeypatc
     assert str(alias) not in ro                                   # reached through the checkout, never bound itself
 
 
+@pytest.mark.integration                                          # the CLI installed on the machine
 @pytest.mark.skipif(not _bwrap_works(), reason="needs a working bubblewrap (unprivileged user namespaces)")
 @pytest.mark.parametrize("cli", ["codex", "claude"])
 def test_an_installed_cli_starts_with_only_its_own_paths(cli):

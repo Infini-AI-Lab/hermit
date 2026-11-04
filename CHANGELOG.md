@@ -220,8 +220,8 @@ integrations: ReHarness, Meta-Harness Adapter, ACE, AHE Adapter, RRSI Adapter an
 
 - The tests are in groups: `tests/core/` for the framework and `tests/methods/<name>/` for each method
   (`tests/README.md`). `python -m pytest --changed` runs the groups the branch touches since `origin/main`
-  (`tests/selection.py`: a method's own files its group, the rest of the framework the core group, a shared layer
-  every group); the header says which groups ran and why. Tests that run an agent CLI installed on the machine are
+  (`tests/selection.py`: the core group for every change but documentation, a method's own files its group, a
+  shared layer every group); the header says which groups ran and why. Tests that run an agent CLI installed on the machine are
   marked `integration` and run only with `--integration`. The AHE template's broken-tree cases check the seed once
   (the file's run from 376 s to about 204 s).
 - `run_agent`'s results also say how a session ended when the pipeline reports it (`exit_code`, `timed_out`: the
@@ -254,7 +254,7 @@ integrations: ReHarness, Meta-Harness Adapter, ACE, AHE Adapter, RRSI Adapter an
   documentation clarifies task-dependent utility judging and reports completed episodes and errors.
 - The chat endpoint closed each connection after its reply without saying so (`Connection: close`); an HTTP/1.1
   client kept the connection for its next request and got a dropped connection instead of the answer, now and then
-  (`tests/test_base_agents.py`'s error test failed so, about one run in three under load).
+  (`tests/core/test_base_agents.py`'s error test failed so, about one run in three under load).
 - The Base Agent read and wrote a session's home, and its event stream, through what a session could have left
   there: after a session, a linked `auth.json` with a later refresh became the machine's shared login copy, a linked
   `usage/` received the usage ledger (a pipe there blocked the call), a linked last-message file was read as the

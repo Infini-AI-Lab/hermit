@@ -5,8 +5,8 @@ ones' shape, the runner takes the host and the workspace from the deployment (so
 logs nor the task), runs before_model where Claude Code has no event for it and hands its context over when Codex's
 would be, keeps a sub-agent's queue apart, the capability table EVOLVER.md shows is the module's own, both deployments
 install the hooks that the template check runs, a Pi agent running a hook by hand gets the memory, and the Evolver's
-texts name the acting agent's event stream. With the CLIs installed, both hosts run on a scripted local model (no
-model, no Docker, no network)."""
+texts name the acting agent's event stream. With the CLIs installed and --integration, both hosts run on a scripted
+local model (no model, no Docker, no network)."""
 import importlib.util
 import json
 import os
