@@ -145,7 +145,7 @@ cannot enforce (`Unsupported`) rather than ignore it. For Codex and Claude Code:
 |---|---|---|---|
 | `workspace` (read-write) | mounted read-write | as the sandbox shows it | the working directory |
 | `readable` (data, at its target; a relative target is in the workspace) | mounted read-only | granted read-only for the call, at its own path only (another target is refused); kept visible past `hidden` | linked into the workspace (not made read-only) |
-| `hidden` (paths it must not see) | not mounted (refused inside the workspace or the data) | covered under every name the sandbox shows it by (the given one and the real one, which a link makes differ); the places the call and the sandbox give the session stay visible below it; refused when the sandbox does not isolate the call (off, or no bubblewrap) | refused |
+| `hidden` (paths it must not see) | not mounted (refused inside the workspace or the data) | covered as the sandbox's masks are: under the names it shows them by (the given one and the real one, which a link makes differ), the places the call and the sandbox give the session bound back on top, checked from inside before the command starts; refused when the sandbox does not isolate the call (off, or no bubblewrap) | refused |
 | `network` (hosts besides the model; `None`: not limited) | `[]` only: the egress proxy's allowlist | `[]` only; refused when the network is open, `sandbox.allow` lets other hosts through, or the sandbox does not isolate the call | refused |
 | `timeout_s` | the container is removed | the process group is killed | the process group is killed |
 

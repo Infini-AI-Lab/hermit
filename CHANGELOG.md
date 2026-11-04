@@ -204,20 +204,27 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 - The chat endpoint closed each connection after its reply without saying so (`Connection: close`); an HTTP/1.1
   client kept the connection for its next request and got a dropped connection instead of the answer, now and then
   (`tests/test_base_agents.py`'s error test failed so, about one run in three under load).
-- After a session the Base Agent read and wrote its home through links the session could have left there: a linked
-  `auth.json` with a later refresh became the machine's shared login copy, a linked `usage/` received the usage
-  ledger, and a linked last-message file was read as the reply. Links are no longer followed there.
+- The Base Agent read and wrote a session's home, and its event stream, through what a session could have left
+  there: after a session, a linked `auth.json` with a later refresh became the machine's shared login copy, a linked
+  `usage/` received the usage ledger (a pipe there blocked the call), a linked last-message file was read as the
+  reply, and a linked stream as the session's events; before the next session in a kept home, its config, the
+  sign-in copy and the login's temporary copy were written through links left there. None of these follows a link
+  now (`take_back` also checks every directory below the caller's, `isolate.py`'s rollout logins included).
 - `unavailable` and a ChatGPT plan's refusal were read from the whole stream, so a session whose own work quoted an
   outage or a usage limit (a log it searched) was retried as the provider's failure or held for the plan. They are
   read from the CLI's own messages and error events now; `served` is read from the events, not the text, and the
   result says `extra["refused"]`.
 - A hidden path (`Limits.hidden`, `AgentEvolver`'s `hide`) was covered under its real name only, so a workspace
   reached through a link left it visible under the link's name; and hiding the framework's `examples/` covered a run
-  kept below it, workspace and all. A hidden path is covered under every name the sandbox shows it by, and the places
-  the session is given to work in stay visible below a hidden directory (`hermit/sandbox.py`, `HidingSandbox`).
+  kept below it, workspace and all. Over the run's sandbox, hidden paths are now covered as its masks are: under the
+  names the sandbox shows them by (a bound directory reached by a link included), only where it shows them, with the
+  places the session is given bound back on top, the covered directories read-only, and each checked from inside
+  before the command starts (`hermit/sandbox.py`, `HidingSandbox`). A mask that is itself a link is covered by its
+  real name.
 - The Trainer dropped the usage an Evolver call reported when the hard budget stopped it; it is counted.
-- Codex's trajectory left out failed turns, web searches, to-do lists and an MCP call's arguments and result, and a
-  log directory whose stream had another name (a Harbor trial's `agent/codex.txt`) gave no steps.
+- Codex's trajectory left out failed turns, web searches, to-do lists and an MCP call's arguments and result (the
+  result is the step's `output`), and a log directory whose stream had another name (a Harbor trial's
+  `agent/codex.txt`) gave no steps.
 - A chat call through `llm: {cli: ...}` left its Codex event stream as a file in the temporary directory; the
   Trainer keeps it under the run's `llm_sessions/`, and a call without a log directory removes it.
 - A CLI call without a `home` setting gets a fresh home under `$HERMIT_HOMES` (default `~/.cache/hermit/homes`), not

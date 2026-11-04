@@ -403,7 +403,7 @@ class SandboxedAgent:
                     left = [work / "workspaces" / "login" / codex_login.FILE,
                             *work.glob(f"workspaces/*/home/{codex_login.FILE}")]
                     for path in left:
-                        codex_login.take_back(codex_login.ROOT, path)
+                        codex_login.take_back(codex_login.ROOT, path, within=work)
                     for path in left:
                         path.unlink(missing_ok=True)
                 shutil.rmtree(work / "workspaces" / "login", ignore_errors=True)

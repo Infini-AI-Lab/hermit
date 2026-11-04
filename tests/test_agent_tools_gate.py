@@ -98,3 +98,24 @@ def test_hidden_paths_are_covered_under_every_name_and_the_runs_own_places_stay(
     assert shows(run / "material" / "secret.txt") == "ABSENT"               # hidden below them: covered again
     assert shows(alias / "records" / "log.txt") == "ABSENT"                  # under the link's name
     assert shows(real / "records" / "log.txt") == "ABSENT"                   # and under the real one
+
+
+@pytest.mark.skipif(not __import__("shutil").which("bwrap"), reason="needs bubblewrap")
+def test_a_hidden_link_to_a_place_the_sandbox_does_not_show_still_lets_the_call_run(tmp_path):
+    """A session can leave a link where it writes; a method that hides every entry there hides the link too. The
+    link's own name is not mounted over (inside, it leads nowhere the sandbox shows): the call still starts, and
+    what it points to stays out of reach."""
+    import subprocess
+    from hermit.sandbox import Sandbox
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("s\n")
+    (scratch / "planted").symlink_to(outside)
+    (scratch / "mine.txt").write_text("mine\n")
+    hiding = HidingSandbox(Sandbox(network="open", writable=[scratch]), [scratch / "planted"])
+    args, env = hiding.wrap(["sh", "-c", f"cat {scratch / 'mine.txt'}; cat {outside / 'secret.txt'} 2>/dev/null "
+                                         f"|| echo ABSENT"], env=dict(os.environ))
+    out = subprocess.run(args, env=env, capture_output=True, text=True, timeout=60)
+    assert out.returncode == 0 and out.stdout.split() == ["mine", "ABSENT"], out.stderr

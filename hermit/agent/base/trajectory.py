@@ -21,7 +21,7 @@ from pathlib import Path
 CODEX_STREAM = "agent-codex.jsonl"
 CLAUDE_STREAM = "agent-claude.jsonl"
 STREAMS = (CODEX_STREAM, CLAUDE_STREAM)
-OTHER_STREAMS = ("codex.txt",)        # a host's stream under its own name (Harbor's agent/codex.txt: Codex's events)
+OTHER_STREAMS = ("agent/codex.txt",)  # a host's stream under its own name (a Harbor trial's: Codex's events)
 
 
 @dataclass
@@ -53,7 +53,8 @@ def events(path: Path) -> list[dict]:
 
 def codex_steps(stream: list[dict]) -> list[Step]:
     """Codex's events: completed items (reasoning, messages, commands, file changes, MCP tool calls with their
-    arguments and result, web searches, to-do lists, sub-agent calls, errors), top-level errors and a failed turn;
+    arguments, and their result as the step's `output`, which `text` does not print, web searches, to-do lists,
+    sub-agent calls, errors), top-level errors and a failed turn (once, when Codex also reported it as an error);
     turn and item starts and usage are left out."""
     steps = []
     for event in stream:
@@ -63,7 +64,9 @@ def codex_steps(stream: list[dict]) -> list[Step]:
             continue
         if kind == "turn.failed":
             error = event.get("error")
-            steps.append(Step("error", str(error.get("message") if isinstance(error, dict) else error or "")))
+            message = str(error.get("message") if isinstance(error, dict) else error or "")
+            if not (steps and steps[-1].kind == "error" and steps[-1].text == message):   # Codex's error, again
+                steps.append(Step("error", message))
             continue
         if kind != "item.completed":
             continue
@@ -77,9 +80,9 @@ def codex_steps(stream: list[dict]) -> list[Step]:
                               output=str(item.get("aggregated_output") or "")))
         elif t == "file_change":
             steps.append(Step("file_change", json.dumps(item.get("changes") or item, default=str)))
-        elif t == "mcp_tool_call":
-            steps.append(Step("tool_call", json.dumps({k: item.get(k) for k in ("server", "tool", "status",
-                                                                                 "arguments")},
+        elif t == "mcp_tool_call":                     # the arguments first: a line keeps a field's end (text())
+            steps.append(Step("tool_call", json.dumps({k: item.get(k) for k in ("arguments", "server", "tool",
+                                                                                 "status")},
                                                       ensure_ascii=False, default=str),
                               output=json.dumps(item.get("error") or item.get("result"), ensure_ascii=False,
                                                 default=str) if item.get("error") or item.get("result") else ""))
@@ -164,8 +167,9 @@ def _steps_of(path: Path, name: str | None = None) -> list[Step] | None:
 
 def log_steps(log: Path) -> list[Step] | None:
     """The steps of a log (a directory, or one file): its host stream's, or None when it holds none. A directory's
-    stream is the one at its top under the host's name, else the first found below it under a known name (a Harbor
-    trial keeps Codex's events as agent/codex.txt); a file is read by its name, or by its events."""
+    stream is the one at its top under the host's name, else one at a known place of another host's layout (a
+    Harbor trial keeps Codex's events as agent/codex.txt); a file is read by its name, or by its events. Nothing
+    deeper is searched: a directory of several runs gives no one run's steps."""
     log = Path(log)
     if log.is_file():
         return _steps_of(log, log.name if log.name in STREAMS else None)
@@ -174,12 +178,11 @@ def log_steps(log: Path) -> list[Step] | None:
     for name in STREAMS:
         if (log / name).is_file():
             return _steps_of(log / name, name)
-    for name in (*STREAMS, *OTHER_STREAMS):
-        for path in sorted(log.rglob(name)):
-            if path.is_file() and not path.is_symlink():
-                found = _steps_of(path, name if name in STREAMS else None)
-                if found is not None:
-                    return found
+    for rel in OTHER_STREAMS:
+        if (log / rel).is_file():
+            found = _steps_of(log / rel)
+            if found is not None:
+                return found
     return None
 
 

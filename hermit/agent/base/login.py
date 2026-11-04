@@ -19,6 +19,7 @@ from pathlib import Path
 import random
 import re
 import shutil
+import stat
 import time
 
 FILE = "auth.json"
@@ -49,6 +50,8 @@ def _newer(candidate: Path, than: Path) -> bool:
 
 def _replace(src: Path, dst: Path) -> None:
     tmp = dst.with_suffix(".tmp")
+    if os.path.lexists(tmp):                        # a link a session left beside the login: never written through
+        shutil.rmtree(tmp) if os.path.isdir(tmp) and not os.path.islink(tmp) else os.unlink(tmp)
     shutil.copy2(src, tmp)
     os.chmod(tmp, 0o600)
     os.replace(tmp, dst)
@@ -74,14 +77,17 @@ def master(root: Path | None = None) -> Path:
 
 def keep_refreshed(root: Path, home: Path) -> None:
     """The session's login, if Codex refreshed it (a later last_refresh), becomes the shared copy."""
-    take_back(root, Path(home) / FILE)
+    take_back(root, Path(home) / FILE, within=Path(home))
 
 
 def _plain(path: Path, home: Path | None = None) -> bool:
     """Whether `path` is a regular file reached through no link below `home`: a session can write its home, and a
     link it leaves there (to another login, to any file) is never read as the session's own."""
     path = Path(path)
-    if path.is_symlink() or not path.is_file():
+    try:
+        if not stat.S_ISREG(os.lstat(path).st_mode):       # a link, a pipe, a directory
+            return False
+    except OSError:
         return False
     if home is not None:
         try:
@@ -96,11 +102,11 @@ def _plain(path: Path, home: Path | None = None) -> bool:
     return True
 
 
-def take_back(root: Path, path: Path) -> None:
+def take_back(root: Path, path: Path, within: Path | None = None) -> None:
     """A login file a session left: the shared copy if it is a later refresh of it (a regular file, never one read
-    through a link the session left)."""
+    through a link: none below `within`, the directory the caller trusts, and not the file itself)."""
     master = Path(root) / "login" / FILE
-    if not _plain(path, Path(path).parent) or not master.is_file():
+    if not _plain(path, Path(within) if within is not None else Path(path).parent) or not master.is_file():
         return
     with open(master.parent / ".lock", "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)

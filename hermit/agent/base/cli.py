@@ -41,6 +41,7 @@ Settings (given once; `configured(...)` for a call's own):
   stderr_log        the CLI's stderr in a file of its own (default: in the event stream, after stdout's lines)
   writable          more paths the session may write inside the run's sandbox (besides its home)
   env_drop          variables of this process's environment the session does not get
+  log_dir           a chat endpoint over this agent (`llm: {cli: ...}`) keeps each call's event stream here
   plan_rerun        on a ChatGPT login, a session the plan refused before it finished a turn is run again in the same
                     workspace once the plan allows (default true); false: it is returned (`extra["refused"]`), for a
                     caller that would rather start over from its own files
@@ -62,6 +63,7 @@ from pathlib import Path
 import re
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -97,6 +99,33 @@ def web_search_args(backend: str, enabled: bool) -> list[str]:
     return [] if enabled else ["--disallowedTools", "WebSearch,WebFetch"]
 
 
+def _regular(path) -> bool:
+    """Whether `path` is a regular file (never a link, a FIFO or a directory: lstat, not stat)."""
+    try:
+        return stat.S_ISREG(os.lstat(path).st_mode)
+    except OSError:
+        return False
+
+
+def _clear(path) -> None:
+    """Before the Base Agent writes `path` in a place a session could write (its home, its log's directory):
+    anything there but a regular file (a link, a FIFO, a directory) is removed, so the write lands in a file of its
+    own and never through a link or into a pipe that blocks."""
+    if os.path.lexists(path) and not _regular(path):
+        if os.path.isdir(path) and not os.path.islink(path):
+            shutil.rmtree(path)
+        else:
+            os.unlink(path)
+
+
+def _real_dir(path: Path) -> Path:
+    """`path` as a real directory: a link or a file left there is removed first."""
+    if os.path.islink(path) or (os.path.lexists(path) and not os.path.isdir(path)):
+        os.unlink(path)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def write_home(home: Path, settings: dict, roles: Sequence[dict] = (), tools_url: str | None = None,
                tools_name: str = "hermit_tools") -> None:
     """Codex's home config.toml: no shell snapshot, the session's commands without network and with only the
@@ -117,17 +146,19 @@ def write_home(home: Path, settings: dict, roles: Sequence[dict] = (), tools_url
     if tools_url:
         lines += ["", f"[mcp_servers.{tools_name}]", f"url = {json.dumps(tools_url)}",
                   'default_tools_approval_mode = "approve"', "tool_timeout_sec = 1800"]
-    (home / "agents").mkdir(parents=True, exist_ok=True)
+    _real_dir(home / "agents")
     for role in roles:
         spec = "\n".join(f"{k} = {json.dumps(v, ensure_ascii=False)}" for k, v in
                          {"name": role["name"], "description": role["description"],
                           "developer_instructions": role["instructions"]}.items()) + "\n"
         tomllib.loads(spec)
+        _clear(home / "agents" / f"{role['name']}.toml")
         (home / "agents" / f"{role['name']}.toml").write_text(spec, encoding="utf-8")
         lines += ["", f"[agents.{role['name']}]", f"description = {json.dumps(role['description'], ensure_ascii=False)}",
                   f"config_file = {json.dumps('agents/' + role['name'] + '.toml')}"]
     text = "\n".join(lines) + "\n"
     tomllib.loads(text)
+    _clear(home / "config.toml")
     (home / "config.toml").write_text(text, encoding="utf-8")
 
 
@@ -374,6 +405,7 @@ class CliAgent(BaseAgent):
         for name in self.home_files if s.get("home_files") is None else s["home_files"]:
             source = _user_home(self.backend) / name
             if source.is_file():
+                _clear(home / name)                     # a link the last session left would take the copy elsewhere
                 shutil.copy2(source, home / name)
                 os.chmod(home / name, 0o600)
                 copied.append(home / name)
@@ -412,7 +444,7 @@ class CliAgent(BaseAgent):
             if result.extra.get("served") or not result.extra.get("refused"):
                 return result
             codex_login.hold(plan)                  # never ran: no answer; every session waits for the window
-            if s.get("plan_rerun") is False:
+            if str(s.get("plan_rerun", True)).strip().lower() in ("false", "0", "no", "off"):
                 say("a session was refused for the plan's usage limit; it is returned (plan_rerun: false)")
                 return result
             say("a session was refused for the plan's usage limit; it runs again once the plan allows")
@@ -446,7 +478,11 @@ class CliAgent(BaseAgent):
         else:
             stream = home / f"agent-{self.backend}.jsonl"
         stream.parent.mkdir(parents=True, exist_ok=True)
+        _clear(stream)                                  # written by this process: never through a link left there
+        if s.get("stderr_log"):
+            _clear(s["stderr_log"])
         last_file = home / "last_message.txt"
+        _clear(last_file)
         last_file.unlink(missing_ok=True)
         timeout = limits.timeout_s or s.get("timeout_s", 3600)       # None: no clock (the caller cancels)
         timeout = float(timeout) if timeout else None
@@ -511,15 +547,18 @@ class CliAgent(BaseAgent):
                 path.unlink(missing_ok=True)                              # the sign-in does not outlive the call
             if failed and fresh:
                 shutil.rmtree(home, ignore_errors=True)
-        raw = stream.read_text(encoding="utf-8", errors="replace") if stream.is_file() else ""
+        # The stream is read only as the regular file this process wrote: a session that could write its directory
+        # and put a link (or a pipe) there has left nothing of it to read.
+        readable = stream if _regular(stream) else Path(os.devnull)
+        raw = readable.read_text(encoding="utf-8", errors="replace") if readable is stream else ""
         notes = notices(self.backend, raw)
-        reply = last_message(self.backend, stream, last_file)
-        handle, usage = parse_log(stream, self.backend, (s.get("binding") or {}).get("ref") or s.get("model")
+        reply = last_message(self.backend, readable, last_file)
+        handle, usage = parse_log(readable, self.backend, (s.get("binding") or {}).get("ref") or s.get("model")
                                   or self.backend)
         if self.backend == "codex" and handle and usage:
             usage = [_this_call(home, str(handle), usage[0], resumed=bool(session))]
         price_usage(usage, s)
-        steps = (codex_steps if self.backend == "codex" else claude_steps)(events(stream))
+        steps = (codex_steps if self.backend == "codex" else claude_steps)(events(readable))
         if fresh:
             shutil.rmtree(home, ignore_errors=True)
         return Result(reply=reply, trajectory=steps, usage=usage, session=handle, exit_code=code,
@@ -583,14 +622,10 @@ def _this_call(home: Path, handle: str, reported, resumed: bool):
     ledger = home / "usage" / f"{re.sub(r'[^A-Za-z0-9_.-]', '_', handle)}.json"
     # The session could write its home: a link it left there (the ledger's directory or the ledger) is removed,
     # never followed, and the ledger is written without following one.
-    for path in (ledger.parent, ledger):
-        if path.is_symlink():
-            path.unlink()
-    before = json.loads(ledger.read_text()) if resumed and ledger.is_file() else {}
-    if ledger.parent.exists() and not ledger.parent.is_dir():
-        ledger.parent.unlink()
-    ledger.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(ledger, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    _real_dir(ledger.parent)
+    before = json.loads(ledger.read_text()) if resumed and _regular(ledger) else {}
+    _clear(ledger)                                  # a link or a pipe left there: removed, never written through
+    fd = os.open(ledger, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
     with os.fdopen(fd, "w") as f:
         f.write(json.dumps({f_: getattr(reported, f_) for f_ in fields}))
     return Usage(reported.model, **{f: max(0, getattr(reported, f) - int(before.get(f, 0))) for f in fields},

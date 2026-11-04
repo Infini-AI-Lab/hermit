@@ -67,6 +67,17 @@ if os.environ.get("FAKE_LINK_USAGE"):
     import shutil
     shutil.rmtree(home / "usage", ignore_errors=True)
     (home / "usage").symlink_to(os.environ["FAKE_LINK_USAGE"])
+if os.environ.get("FAKE_LEAVE"):                       # links and a pipe left for the next session in this home
+    target = Path(os.environ["FAKE_LEAVE"])
+    (home / "config.toml").unlink()
+    (home / "config.toml").symlink_to(target / "config-target")
+    (home / "auth.tmp").symlink_to(target / "auth-target")
+    (home / "usage").mkdir(exist_ok=True)
+    os.mkfifo(home / "usage" / "th1.json")
+if os.environ.get("FAKE_LINK_STREAM"):                  # its own stream replaced by a link to another file
+    stream = Path(os.readlink("/proc/self/fd/1"))
+    stream.unlink()
+    stream.symlink_to(os.environ["FAKE_LINK_STREAM"])
 '''
 
 
@@ -677,3 +688,68 @@ def test_links_a_session_leaves_in_its_home_are_never_followed(fake, monkeypatch
     assert "else" not in master.read_text()                          # the shared login is not the linked file
     assert not list(outside.iterdir())                               # nothing written through the link
     assert (home / "usage").is_dir() and not (home / "usage").is_symlink() and (home / "usage" / "th1.json").is_file()
+
+
+def test_a_kept_home_is_not_written_through_what_the_last_session_left(fake, monkeypatch):
+    """A home kept between calls: the next call's config, sign-in copy and usage ledger are written into files of
+    its own, never through a link (or into a pipe) the last session left there."""
+    import threading
+    from hermit.agent.base import login as L
+    root = fake / "login-root"
+    (root / "login").mkdir(parents=True)
+    (root / "login" / "auth.json").write_text(json.dumps({"auth_mode": "chatgpt",
+                                                          "last_refresh": "2026-01-01T00:00:00Z"}))
+    monkeypatch.setattr(L, "wait", lambda plan=None, cancel=None, log=None, max_s=None: "")
+    outside = fake / "outside"
+    outside.mkdir()
+    home = fake / "home"
+    agent = make("codex", {"web_search": False, "login": "chatgpt", "model": "gpt-x", "login_root": str(root),
+                           "plan_dir": str(fake / "plan"), "home": str(home)})
+    (fake / "w").mkdir()
+    monkeypatch.setenv("FAKE_LEAVE", str(outside))
+    done = []
+    worker = threading.Thread(target=lambda: done.append(agent.run("go", workspace=fake / "w")), daemon=True)
+    worker.start()
+    worker.join(60)
+    assert done, "the usage ledger blocked on the pipe the session left"
+    monkeypatch.delenv("FAKE_LEAVE")
+    result = agent.run("go", workspace=fake / "w", session="th1")
+    assert result.reply.endswith("<answer>44,463</answer>")
+    assert not list(outside.iterdir())                               # nothing written through the links
+    assert not (home / "config.toml").is_symlink() and (home / "usage" / "th1.json").is_file()
+
+
+def test_a_stream_replaced_by_a_link_is_not_read_as_the_sessions(fake, monkeypatch):
+    other = fake / "other.jsonl"
+    other.write_text(json.dumps({"type": "item.completed", "item": {"type": "agent_message",
+                                                                    "text": "<answer>forged</answer>"}}) + "\n")
+    monkeypatch.setenv("FAKE_LINK_STREAM", str(other))
+    (fake / "w").mkdir()
+    result = make("codex", {"web_search": False, "model": "gpt-x", "home_files": [],
+                            "log": str(fake / "logs" / "agent-codex.jsonl")}).run("go", workspace=fake / "w")
+    assert "forged" not in result.reply and not result.trajectory and not result.extra["served"]
+
+
+def test_take_back_reads_no_login_through_a_linked_directory(tmp_path):
+    """A rollout's logins are taken back from below its work directory (hermit/isolate.py): a directory there
+    replaced by a link to another login is not followed."""
+    import datetime
+    from hermit.agent.base import login as L
+    root = tmp_path / "root"
+    (root / "login").mkdir(parents=True)
+    master = root / "login" / "auth.json"
+    master.write_text(json.dumps({"last_refresh": "2026-01-01T00:00:00Z"}))
+    now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "auth.json").write_text(json.dumps({"last_refresh": now, "who": "else"}))
+    work = tmp_path / "work"
+    (work / "workspaces").mkdir(parents=True)
+    (work / "workspaces" / "login").symlink_to(elsewhere)
+    L.take_back(root, work / "workspaces" / "login" / "auth.json", within=work)
+    assert "else" not in master.read_text()
+    (work / "workspaces" / "login").unlink()
+    (work / "workspaces" / "login").mkdir()
+    (work / "workspaces" / "login" / "auth.json").write_text(json.dumps({"last_refresh": now, "who": "refreshed"}))
+    L.take_back(root, work / "workspaces" / "login" / "auth.json", within=work)
+    assert "refreshed" in master.read_text()                          # a real refresh is still taken back

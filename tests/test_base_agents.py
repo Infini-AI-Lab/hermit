@@ -207,6 +207,12 @@ def test_codex_failed_turns_searches_to_do_lists_and_tool_results_are_steps():
     assert json.loads(todo.text)["items"][0]["text"] == "find the table"
     assert failed.kind == "error" and "stream disconnected" in failed.text
     assert "[error] stream disconnected" in text(steps)
+    twice = codex_steps([{"type": "error", "message": "quota"}, {"type": "turn.failed", "error": {"message": "quota"}}])
+    assert [s.text for s in twice] == ["quota"]                      # Codex reports a failed turn's error twice
+    long_call = codex_steps([{"type": "item.completed", "item": {
+        "type": "mcp_tool_call", "server": "evolver_tools", "tool": "check_spec", "status": "completed",
+        "arguments": {"path": "x" * 2000}}}])
+    assert '"tool": "check_spec"' in text(long_call)                  # a long argument does not push the tool out
 
 
 def test_a_logs_stream_under_another_name_is_found(tmp_path):

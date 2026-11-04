@@ -533,7 +533,8 @@ class Trainer:
         elif stopped:
             result = box.get("value") or StepResult("failed", f"stopped by the Trainer ({stopped})")
             if stopped.startswith("budget"):
-                self._spend(result)                     # what the stopped call reports it spent counts all the same
+                if isinstance(result, StepResult):
+                    self._spend(result)                 # what the stopped call reports it spent counts all the same
                 raise BudgetExceeded(stopped)
             result = StepResult("failed", f"stopped by the Trainer ({stopped})", usage=result.usage)
         else:

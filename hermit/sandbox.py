@@ -516,9 +516,12 @@ class Sandbox:
                     if n == a or n.startswith(a + "/"):
                         names.add(b + n[len(a):])
         for name in sorted(names, key=len):
-            if not os.path.exists(name) or not any(name == b or name.startswith(b + "/") for b in shown) or any(
+            if not os.path.exists(name) or os.path.islink(name) or \
+                    not any(name == b or name.startswith(b + "/") for b in shown) or any(
                     name == m or name.startswith(m + "/") for m in covered):
-                continue                                  # nothing there, not shown anyway, or covered already
+                # nothing there, a link (its real name is covered where it is shown: mounting over a link that
+                # leads outside what the sandbox shows fails), not shown anyway, or covered already
+                continue
             covered.append(name)
             # A file is covered by an empty regular file: /dev/null cannot be opened on a mount without devices.
             args.extend(["--tmpfs", name] if os.path.isdir(name) else ["--ro-bind", self._empty_file(), name])
@@ -724,13 +727,16 @@ def hidden_paths(hide: list | None) -> list[Path]:
 
 
 class HidingSandbox:
-    """A sandbox with paths covered: a directory by an empty tmpfs, a file by /dev/null, and `keep` bound back on
+    """A sandbox with paths covered: a directory by an empty tmpfs, a file by an empty file, and `keep` bound back on
     top (the task description lives under a hidden tree). Subtractive, until the sandbox is a positive allowlist.
 
-    A hidden path is covered under every name the sandbox shows it by (the name it was given and its real one, which
-    differ under a link). What the sandbox and the call give the session to work in (their writable and readable
-    paths) is bound back on top when it lies strictly below a hidden path, as `keep` is: a run kept under the
-    framework's examples/ keeps its own workspace. A hidden path below such a path is covered again after it."""
+    Over the run's sandbox (a `Sandbox`), the hidden paths are its masks for the call (`Sandbox.wrap`'s `masked`):
+    covered under every name the sandbox shows them by (the name given and the real one, which a link makes differ,
+    also below a bound directory reached by a link), only where the sandbox shows them, with the places the session
+    is given to work in (the sandbox's and the call's writable and readable paths) bound back on top when they lie
+    below one (a run kept below the framework's examples/ keeps its workspace), the covered directories read-only,
+    and every covered path checked from inside before the command starts. Over another sandbox (a test's), the paths
+    are covered under their real name."""
 
     def __init__(self, inner, hidden: list[Path], keep: list[Path] = ()):
         self.inner, self.hidden, self.keep = inner, list(hidden), list(keep)
@@ -738,42 +744,27 @@ class HidingSandbox:
     def __getattr__(self, name):
         return getattr(self.inner, name)
 
-    @staticmethod
-    def _under(path: str, parent: str) -> bool:
-        return path != parent and path.startswith(parent.rstrip("/") + "/")
-
     def wrap(self, command, **kw):
+        if isinstance(self.inner, Sandbox):
+            readable = list(kw.get("readable") or ())
+            given = {os.path.abspath(str(p)) for p in readable}
+            readable += [p for p in self.keep if Path(p).exists() and os.path.abspath(str(p)) not in given]
+            return self.inner.wrap(command, **{**kw, "readable": readable,
+                                              "masked": [*(kw.get("masked") or ()), *self.hidden]})
         args, env = self.inner.wrap(command, **kw)
         start = next((i for i, a in enumerate(args) if Path(a).name == "bwrap"), None)   # after an audit's strace
         if start is not None and "--" in args[start:]:
             cut = args.index("--", start)
-            hidden = [n for p in self.hidden for n in _names(p) if os.path.exists(n)]
-
-            def covers(names):
-                out = []
-                for n in names:
-                    out += ["--tmpfs", n] if os.path.isdir(n) else ["--ro-bind", "/dev/null", n]
-                return out
-            cover = covers(hidden)
-            # the session's own places below a hidden path: bound back (writable as writable), then what is hidden
-            # below them covered again
-            own = [(p, "--bind") for p in [*getattr(self.inner, "writable", []), *kw.get("writable", ())]] + \
-                  [(p, "--ro-bind") for p in [*getattr(self.inner, "readable", []), *getattr(self.inner, "read", []),
-                                              *kw.get("readable", ())]]
-            back, seen = [], set()
-            for path, flag in own:
-                for n in _names(path):
-                    if n in seen or not os.path.exists(n) or n in hidden:
-                        continue
-                    if any(self._under(n, h) for h in hidden):
-                        seen.add(n)
-                        back.append((n, flag))
-            for n, flag in back:
-                cover += [flag, n, n]
-            cover += covers([h for h in hidden if any(self._under(h, n) for n, _ in back)])
+            cover = []
+            for p in self.hidden:
+                p = p.resolve()
+                if p.is_dir():
+                    cover += ["--tmpfs", str(p)]
+                elif p.is_file():
+                    cover += ["--ro-bind", "/dev/null", str(p)]
             for p in self.keep:
-                for n in _names(p):
-                    if os.path.exists(n):
-                        cover += ["--ro-bind", n, n]
+                p = p.resolve()
+                if p.exists():
+                    cover += ["--ro-bind", str(p), str(p)]
             args = args[:cut] + cover + args[cut:]
         return args, env
