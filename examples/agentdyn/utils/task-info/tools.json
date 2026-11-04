@@ -1,0 +1,2824 @@
+{
+  "shopping": [
+    {
+      "type": "function",
+      "function": {
+        "name": "send_money",
+        "description": "Sends a transaction to the recipient using the bank account linked to the shopping account.",
+        "parameters": {
+          "properties": {
+            "recipient": {
+              "description": "IBAN of the recipient",
+              "title": "Recipient",
+              "type": "string"
+            },
+            "amount": {
+              "description": "Amount to send",
+              "title": "Amount",
+              "type": "number"
+            },
+            "subject": {
+              "description": "Subject of the transaction",
+              "title": "Subject",
+              "type": "string"
+            },
+            "date": {
+              "description": "Date of the transaction",
+              "title": "Date",
+              "type": "string"
+            }
+          },
+          "required": [
+            "recipient",
+            "amount",
+            "subject",
+            "date"
+          ],
+          "title": "Input schema for `send_money`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_balance",
+        "description": "Gets the bank balance associated with the shopping platform account.",
+        "parameters": {
+          "properties": {},
+          "title": "Input schema for `get_balance`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "login_shopping_account",
+        "description": "Login to your shopping account.",
+        "parameters": {
+          "properties": {
+            "username": {
+              "description": "Username to login",
+              "title": "Username",
+              "type": "string"
+            },
+            "password": {
+              "description": "Password to login",
+              "title": "Password",
+              "type": "string"
+            }
+          },
+          "required": [
+            "username",
+            "password"
+          ],
+          "title": "Input schema for `login_shopping_account`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "verify_shopping_account",
+        "description": "Verify your shopping account.",
+        "parameters": {
+          "properties": {
+            "otp": {
+              "description": "One Time Password to verify",
+              "title": "Otp",
+              "type": "string"
+            }
+          },
+          "required": [
+            "otp"
+          ],
+          "title": "Input schema for `verify_shopping_account`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_shopping_account_user_information",
+        "description": "Get the user information of the shopping account, could be: email, username, password, first name, last name, ID number, phone number, address, passport number, bank account number, bank account password.",
+        "parameters": {
+          "properties": {},
+          "title": "Input schema for `get_shopping_account_user_information`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "update_shopping_account_password",
+        "description": "Update the shopping account's password.",
+        "parameters": {
+          "properties": {
+            "password": {
+              "description": "New password for the user",
+              "title": "Password",
+              "type": "string"
+            }
+          },
+          "required": [
+            "password"
+          ],
+          "title": "Input schema for `update_shopping_account_password`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "update_shopping_account_user_info",
+        "description": "Update the shopping account's user information.",
+        "parameters": {
+          "properties": {
+            "first_name": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "First name of the user (optional)",
+              "title": "First Name"
+            },
+            "last_name": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Last name of the user (optional)",
+              "title": "Last Name"
+            },
+            "id_number": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "ID number of the user (optional)",
+              "title": "Id Number"
+            },
+            "email": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Email of the user (optional)",
+              "title": "Email"
+            },
+            "phone_number": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Phone number of the user (optional)",
+              "title": "Phone Number"
+            },
+            "address": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Address of the user (optional)",
+              "title": "Address"
+            },
+            "passport_number": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Passport number of the user (optional)",
+              "title": "Passport Number"
+            },
+            "bank_account_number": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Bank account number of the user (optional)",
+              "title": "Bank Account Number"
+            }
+          },
+          "title": "Input schema for `update_shopping_account_user_info`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_shopping_linked_unread_emails",
+        "description": "Returns all the unread emails in the shopping account linked inbox with the shopping account. Each email has a sender, a subject, and a body.\nThe emails are marked as read after this function is called.",
+        "parameters": {
+          "properties": {},
+          "title": "Input schema for `get_shopping_linked_unread_emails`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_shopping_linked_received_emails",
+        "description": "Returns all the received emails in the shopping account linked inbox with the shopping account. Each email has a sender, a subject, and a body.\nThe emails are marked as read after this function is called.",
+        "parameters": {
+          "properties": {},
+          "title": "Input schema for `get_shopping_linked_received_emails`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "search_product",
+        "description": "Search for products using multiple optional filters.\nIf a filter parameter is null or an empty string, that filter is ignored.",
+        "parameters": {
+          "properties": {
+            "product_name": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Substring to match against product_name (optional)",
+              "title": "Product Name"
+            },
+            "price": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Exact price to match (optional)",
+              "title": "Price"
+            },
+            "price_min": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Minimum price (inclusive) (optional)",
+              "title": "Price Min"
+            },
+            "price_max": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Maximum price (inclusive) (optional)",
+              "title": "Price Max"
+            },
+            "brand": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Brand name to match (optional)",
+              "title": "Brand"
+            },
+            "category": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Category to match, including Sports, Home, and Electronics. (optional)",
+              "title": "Category"
+            },
+            "product_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Exact product_id to match (optional)",
+              "title": "Product Id"
+            },
+            "rating_min": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Minimum rating to match (optional)",
+              "title": "Rating Min"
+            },
+            "rating_max": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Maximum rating to match (optional)",
+              "title": "Rating Max"
+            }
+          },
+          "title": "Input schema for `search_product`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "view_order_history",
+        "description": "View the order history of the current account, including order ID, product name, quantity, order date, delivery date, and product ID.",
+        "parameters": {
+          "properties": {},
+          "title": "Input schema for `view_order_history`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_invoice",
+        "description": "Get the invoice of a specific order by order_id. Get the invoice for a specific order by order_id. You can retrieve the purchase details, including product name, original price, payment amount, discount, etc.",
+        "parameters": {
+          "properties": {
+            "order_id": {
+              "description": "The ID of the order to get the invoice (format with ORDER-XXXXXX).",
+              "title": "Order Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "order_id"
+          ],
+          "title": "Input schema for `get_invoice`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "refund_order",
+        "description": "Refund a specific order by order_id. The payment amount will be refunded to the bank account linked to the shopping account. The applied discount code will also be refunded back to the discount list of the shopping account.",
+        "parameters": {
+          "properties": {
+            "order_id": {
+              "description": "The ID of the order to refund (format with ORDER-XXXXXX).",
+              "title": "Order Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "order_id"
+          ],
+          "title": "Input schema for `refund_order`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "view_cart",
+        "description": "View the current cart of the current account.",
+        "parameters": {
+          "properties": {},
+          "title": "Input schema for `view_cart`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "cart_add_product",
+        "description": "Add a product to the cart by product_id.",
+        "parameters": {
+          "properties": {
+            "product_id": {
+              "description": "The ID of the product to add to the cart.",
+              "title": "Product Id",
+              "type": "string"
+            },
+            "quantity": {
+              "description": "The quantity of the product to add to the cart.",
+              "title": "Quantity",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "product_id",
+            "quantity"
+          ],
+          "title": "Input schema for `cart_add_product`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "cart_remove_product",
+        "description": "Remove a product from the cart by product_id.",
+        "parameters": {
+          "properties": {
+            "product_id": {
+              "description": "The ID of the product to remove from the cart.",
+              "title": "Product Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "product_id"
+          ],
+          "title": "Input schema for `cart_remove_product`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "clear_cart",
+        "description": "Clear all items from the cart.",
+        "parameters": {
+          "properties": {},
+          "title": "Input schema for `clear_cart`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "cart_total",
+        "description": "Calculate the total amount of the current cart of the current account.",
+        "parameters": {
+          "properties": {},
+          "title": "Input schema for `cart_total`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "checkout_selected_cart",
+        "description": "Checkout specific products from the current cart of the current account.",
+        "parameters": {
+          "properties": {
+            "product_ids": {
+              "description": "List of product IDs to checkout.",
+              "items": {
+                "type": "string"
+              },
+              "title": "Product Ids",
+              "type": "array"
+            },
+            "discount_code": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Discount code to apply (optional)",
+              "title": "Discount Code"
+            }
+          },
+          "required": [
+            "product_ids"
+          ],
+          "title": "Input schema for `checkout_selected_cart`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "view_available_discounts",
+        "description": "View the available discount codes for the current account.",
+        "parameters": {
+          "properties": {},
+          "title": "Input schema for `view_available_discounts`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "send_email",
+        "description": "Sends an email with the given `body` to the given `address`. Returns a dictionary with the email details.",
+        "parameters": {
+          "properties": {
+            "recipients": {
+              "description": "The list with the email addresses of the recipients.",
+              "items": {
+                "type": "string"
+              },
+              "title": "Recipients",
+              "type": "array"
+            },
+            "subject": {
+              "description": "The subject of the email.",
+              "title": "Subject",
+              "type": "string"
+            },
+            "body": {
+              "description": "The body of the email.",
+              "title": "Body",
+              "type": "string"
+            },
+            "attachments": {
+              "anyOf": [
+                {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "The list of attachments to include in the email. If `null`, no attachments are included.\nIf the attachment has as \"type\" \"file\", then it is expected to have a field \"file_path\", with the path of file in the local file system, or have a field \"file_id\", with the id of file in the web. If the attachment has as \"type\" \"event\", then it is expected to be a calendar event in the field \"event_details\".\nA calendar event has the following fields: `title`, `description`, `start_time` (in ISO format), `end_time`\n(in ISO format), `location`, and participants (a list of emails).",
+              "title": "Attachments"
+            },
+            "cc": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "The list of email addresses to include in the CC field. If `null`, no email addresses are included.",
+              "title": "Cc"
+            },
+            "bcc": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "The list of email addresses to include in the BCC field. If `null`, no email addresses are included.",
+              "title": "Bcc"
+            }
+          },
+          "required": [
+            "recipients",
+            "subject",
+            "body"
+          ],
+          "title": "Input schema for `send_email`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "download_file_through_url",
+        "description": "Downloads a file from a given URL to the local folder.",
+        "parameters": {
+          "properties": {
+            "url": {
+              "description": "The URL of the file.",
+              "title": "Url",
+              "type": "string"
+            },
+            "save_dir": {
+              "default": "/downloads",
+              "description": "The destination directory (parent directory) to save the file.",
+              "title": "Save Dir",
+              "type": "string"
+            }
+          },
+          "required": [
+            "url"
+          ],
+          "title": "Input schema for `download_file_through_url`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "download_file_through_id",
+        "description": "Downloads a file from a given email attachment ID to the local folder.",
+        "parameters": {
+          "properties": {
+            "file_id": {
+              "description": "The ID of the file.",
+              "title": "File Id",
+              "type": "string"
+            },
+            "save_dir": {
+              "default": "/downloads",
+              "description": "The destination directory (parent directory) to save the file.",
+              "title": "Save Dir",
+              "type": "string"
+            }
+          },
+          "required": [
+            "file_id"
+          ],
+          "title": "Input schema for `download_file_through_id`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "list_directory",
+        "description": "List the metadata of all items inside a specific local directory.",
+        "parameters": {
+          "properties": {
+            "path": {
+              "description": "The path to the directory (e.g., '/system' or '/user/documents').",
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "title": "Input schema for `list_directory`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "create_file",
+        "description": "Create a new local file at the specified path.",
+        "parameters": {
+          "properties": {
+            "path": {
+              "description": "The path to the file to create.",
+              "title": "Path",
+              "type": "string"
+            },
+            "content": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {}
+              ],
+              "default": "",
+              "description": "The initial content of the file.",
+              "title": "Content"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "title": "Input schema for `create_file`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "create_dir",
+        "description": "Create a new local directory at the specified path, including parent directories.",
+        "parameters": {
+          "properties": {
+            "path": {
+              "description": "The path where the directory should be created.",
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "title": "Input schema for `create_dir`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "read_file",
+        "description": "Read the contents of a local file at the given path.",
+        "parameters": {
+          "properties": {
+            "path": {
+              "description": "The path of the local file to read.",
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "title": "Input schema for `read_file`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "delete_node",
+        "description": "Delete a local file or directory and all its contents at the given path.",
+        "parameters": {
+          "properties": {
+            "path": {
+              "description": "The path to the node to delete.",
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "title": "Input schema for `delete_node`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "copy_node",
+        "description": "Copies a local file or directory from the source path to the destination path.",
+        "parameters": {
+          "properties": {
+            "source_path": {
+              "description": "The path of the file or directory to copy.",
+              "title": "Source Path",
+              "type": "string"
+            },
+            "destination_path": {
+              "description": "The destination directory or the new path for the copy.",
+              "title": "Destination Path",
+              "type": "string"
+            }
+          },
+          "required": [
+            "source_path",
+            "destination_path"
+          ],
+          "title": "Input schema for `copy_node`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "move_node",
+        "description": "Moves or renames a local file or directory from the source path to the destination path.",
+        "parameters": {
+          "properties": {
+            "source_path": {
+              "description": "The path of the node to move.",
+              "title": "Source Path",
+              "type": "string"
+            },
+            "destination_path": {
+              "description": "The destination path.",
+              "title": "Destination Path",
+              "type": "string"
+            }
+          },
+          "required": [
+            "source_path",
+            "destination_path"
+          ],
+          "title": "Input schema for `move_node`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "input_to_webpage",
+        "description": "Fills out and submits a web form on the specified webpage using the provided input ids and values.\nExample usage:\ninput_to_webpage(\n    url=\"www.example.com\",\n    input_ids=[\"name_field\", \"email_field\"],\n    input_values=[\"John Doe\", \"john.doe@example.com\"],\n)",
+        "parameters": {
+          "properties": {
+            "url": {
+              "description": "The URL of the webpage.",
+              "title": "Url",
+              "type": "string"
+            },
+            "input_ids": {
+              "description": "A list of HTML input element IDs on the webpage that correspond to the form fields to be filled.",
+              "items": {
+                "type": "string"
+              },
+              "title": "Input Ids",
+              "type": "array"
+            },
+            "input_values": {
+              "description": "A list of user-provided values corresponding to input_ids, representing the data to be entered into the form fields.",
+              "items": {
+                "type": "string"
+              },
+              "title": "Input Values",
+              "type": "array"
+            }
+          },
+          "required": [
+            "url",
+            "input_ids",
+            "input_values"
+          ],
+          "title": "Input schema for `input_to_webpage`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "browse_webpage",
+        "description": "Visits a URL to retrieve web content or trigger a web-based action. \nUse this to read a web page or to 'click' a link that performs a specific task or confirmation.",
+        "parameters": {
+          "properties": {
+            "url": {
+              "description": "The URL to be accessed.",
+              "title": "Url",
+              "type": "string"
+            }
+          },
+          "required": [
+            "url"
+          ],
+          "title": "Input schema for `browse_webpage`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "add_calendar_event_participants",
+        "description": "Adds the given `participants` to the event with the given `event_id`.\nIt will also email the new participants notifying them of the event.",
+        "parameters": {
+          "properties": {
+            "event_id": {
+              "description": "The ID of the event to add participants to.",
+              "title": "Event Id",
+              "type": "string"
+            },
+            "participants": {
+              "description": "The list of participants' email addresses to add to the event.",
+              "items": {
+                "type": "string"
+              },
+              "title": "Participants",
+              "type": "array"
+            }
+          },
+          "required": [
+            "event_id",
+            "participants"
+          ],
+          "title": "Input schema for `add_calendar_event_participants`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "cancel_calendar_event",
+        "description": "Cancels the event with the given `event_id`. The event will be marked as canceled and no longer appear in the calendar.\nIt will also send an email to the participants notifying them of the cancellation.",
+        "parameters": {
+          "properties": {
+            "event_id": {
+              "description": "The ID of the event to cancel.",
+              "title": "Event Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "event_id"
+          ],
+          "title": "Input schema for `cancel_calendar_event`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "create_calendar_event",
+        "description": "Creates a new calendar event with the given details and adds it to the calendar.\nIt also sends an email to the participants with the event details.",
+        "parameters": {
+          "properties": {
+            "title": {
+              "description": "The title of the event.",
+              "title": "Title",
+              "type": "string"
+            },
+            "start_time": {
+              "description": "The start time of the event. Must be in format YYYY-MM-DD HH:MM.",
+              "title": "Start Time",
+              "type": "string"
+            },
+            "end_time": {
+              "description": "The end time of the event. Must be in format YYYY-MM-DD HH:MM.",
+              "title": "End Time",
+              "type": "string"
+            },
+            "description": {
+              "default": "",
+              "description": "The description of the event.",
+              "title": "Description",
+              "type": "string"
+            },
+            "participants": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "The list of participants' email addresses. If `null`, no participants are set. The calendar owner's email address is always included..",
+              "title": "Participants"
+            },
+            "location": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "The location of the event. If `null`, no location is set.",
+              "title": "Location"
+            }
+          },
+          "required": [
+            "title",
+            "start_time",
+            "end_time"
+          ],
+          "title": "Input schema for `create_calendar_event`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_current_day",
+        "description": "Returns the current day in ISO format, e.g. '2022-01-01'.\nIt is useful to know what the current day, year, or month is, as the assistant\nshould not assume what the current date is.",
+        "parameters": {
+          "properties": {},
+          "title": "Input schema for `get_current_day`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_day_calendar_events",
+        "description": "Returns the appointments for the given `day`. Returns a list of dictionaries with informations about each meeting.",
+        "parameters": {
+          "properties": {
+            "day": {
+              "description": "The day for which to return the appointments. Must be in format YYYY-MM-DD.",
+              "title": "Day",
+              "type": "string"
+            }
+          },
+          "required": [
+            "day"
+          ],
+          "title": "Input schema for `get_day_calendar_events`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "reschedule_calendar_event",
+        "description": "Reschedules the event with the given `event_id` to the new start and end times.\nIt will also send an email to the participants notifying them of the rescheduling.",
+        "parameters": {
+          "properties": {
+            "event_id": {
+              "description": "The ID of the event to reschedule.",
+              "title": "Event Id",
+              "type": "string"
+            },
+            "new_start_time": {
+              "description": "The new start time of the event. Must be in format YYYY-MM-DD HH:MM.",
+              "title": "New Start Time",
+              "type": "string"
+            },
+            "new_end_time": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "The new end time of the event. Must be in format YYYY-MM-DD HH:MM.\nIf `null`, the end time will be computed based on the new start time to keep the event duration the same.",
+              "title": "New End Time"
+            }
+          },
+          "required": [
+            "event_id",
+            "new_start_time"
+          ],
+          "title": "Input schema for `reschedule_calendar_event`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "search_calendar_events",
+        "description": "Searches calendar events that match the given query in the tile or the description. If provided, filters events by date.",
+        "parameters": {
+          "properties": {
+            "query": {
+              "description": "The query string to search for in event titles and descriptions.",
+              "title": "Query",
+              "type": "string"
+            },
+            "date": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "The date for which to search events. Must be in format YYYY-MM-DD. If `null`, searches all events.",
+              "title": "Date"
+            }
+          },
+          "required": [
+            "query"
+          ],
+          "title": "Input schema for `search_calendar_events`",
+          "type": "object"
+        }
+      }
+    }
+  ],
+  "github": [
+    {
+      "type": "function",
+      "function": {
+        "name": "send_email",
+        "description": "Sends an email with the given `body` to the given `address`. Returns a dictionary with the email details.",
+        "parameters": {
+          "properties": {
+            "recipients": {
+              "description": "The list with the email addresses of the recipients.",
+              "items": {
+                "type": "string"
+              },
+              "title": "Recipients",
+              "type": "array"
+            },
+            "subject": {
+              "description": "The subject of the email.",
+              "title": "Subject",
+              "type": "string"
+            },
+            "body": {
+              "description": "The body of the email.",
+              "title": "Body",
+              "type": "string"
+            },
+            "attachments": {
+              "anyOf": [
+                {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "The list of attachments to include in the email. If `null`, no attachments are included.\nIf the attachment has as \"type\" \"file\", then it is expected to have a field \"file_path\", with the path of file in the local file system, or have a field \"file_id\", with the id of file in the web. If the attachment has as \"type\" \"event\", then it is expected to be a calendar event in the field \"event_details\".\nA calendar event has the following fields: `title`, `description`, `start_time` (in ISO format), `end_time`\n(in ISO format), `location`, and participants (a list of emails).",
+              "title": "Attachments"
+            },
+            "cc": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "The list of email addresses to include in the CC field. If `null`, no email addresses are included.",
+              "title": "Cc"
+            },
+            "bcc": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "The list of email addresses to include in the BCC field. If `null`, no email addresses are included.",
+              "title": "Bcc"
+            }
+          },
+          "required": [
+            "recipients",
+            "subject",
+            "body"
+          ],
+          "title": "Input schema for `send_email`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_received_emails",
+        "description": "Returns all the received emails in the inbox. Each email has a sender, a subject, and a body.",
+        "parameters": {
+          "properties": {},
+          "title": "Input schema for `get_received_emails`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_sent_emails",
+        "description": "Returns all the sent emails in the inbox. Each email has a recipient, a subject, and a body.",
+        "parameters": {
+          "properties": {},
+          "title": "Input schema for `get_sent_emails`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "download_file_through_url",
+        "description": "Downloads a file from a given URL to the local folder.",
+        "parameters": {
+          "properties": {
+            "url": {
+              "description": "The URL of the file.",
+              "title": "Url",
+              "type": "string"
+            },
+            "save_dir": {
+              "default": "/downloads",
+              "description": "The destination directory (parent directory) to save the file.",
+              "title": "Save Dir",
+              "type": "string"
+            }
+          },
+          "required": [
+            "url"
+          ],
+          "title": "Input schema for `download_file_through_url`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "download_file_through_id",
+        "description": "Downloads a file from a given email attachment ID to the local folder.",
+        "parameters": {
+          "properties": {
+            "file_id": {
+              "description": "The ID of the file.",
+              "title": "File Id",
+              "type": "string"
+            },
+            "save_dir": {
+              "default": "/downloads",
+              "description": "The destination directory (parent directory) to save the file.",
+              "title": "Save Dir",
+              "type": "string"
+            }
+          },
+          "required": [
+            "file_id"
+          ],
+          "title": "Input schema for `download_file_through_id`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "list_directory",
+        "description": "List the metadata of all items inside a specific local directory.",
+        "parameters": {
+          "properties": {
+            "path": {
+              "description": "The path to the directory (e.g., '/system' or '/user/documents').",
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "title": "Input schema for `list_directory`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "create_file",
+        "description": "Create a new local file at the specified path.",
+        "parameters": {
+          "properties": {
+            "path": {
+              "description": "The path to the file to create.",
+              "title": "Path",
+              "type": "string"
+            },
+            "content": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {}
+              ],
+              "default": "",
+              "description": "The initial content of the file.",
+              "title": "Content"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "title": "Input schema for `create_file`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "create_dir",
+        "description": "Create a new local directory at the specified path, including parent directories.",
+        "parameters": {
+          "properties": {
+            "path": {
+              "description": "The path where the directory should be created.",
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "title": "Input schema for `create_dir`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "read_file",
+        "description": "Read the contents of a local file at the given path.",
+        "parameters": {
+          "properties": {
+            "path": {
+              "description": "The path of the local file to read.",
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "title": "Input schema for `read_file`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "delete_node",
+        "description": "Delete a local file or directory and all its contents at the given path.",
+        "parameters": {
+          "properties": {
+            "path": {
+              "description": "The path to the node to delete.",
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "title": "Input schema for `delete_node`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "copy_node",
+        "description": "Copies a local file or directory from the source path to the destination path.",
+        "parameters": {
+          "properties": {
+            "source_path": {
+              "description": "The path of the file or directory to copy.",
+              "title": "Source Path",
+              "type": "string"
+            },
+            "destination_path": {
+              "description": "The destination directory or the new path for the copy.",
+              "title": "Destination Path",
+              "type": "string"
+            }
+          },
+          "required": [
+            "source_path",
+            "destination_path"
+          ],
+          "title": "Input schema for `copy_node`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "move_node",
+        "description": "Moves or renames a local file or directory from the source path to the destination path.",
+        "parameters": {
+          "properties": {
+            "source_path": {
+              "description": "The path of the node to move.",
+              "title": "Source Path",
+              "type": "string"
+            },
+            "destination_path": {
+              "description": "The destination path.",
+              "title": "Destination Path",
+              "type": "string"
+            }
+          },
+          "required": [
+            "source_path",
+            "destination_path"
+          ],
+          "title": "Input schema for `move_node`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "input_to_webpage",
+        "description": "Interact with the target webpage. Strictly follow the url and inputs format below to fill the web form.",
+        "parameters": {
+          "properties": {
+            "url": {
+              "description": "The URL of the webpage.",
+              "title": "Url",
+              "type": "string"
+            },
+            "inputs": {
+              "additionalProperties": true,
+              "description": "A mapping from HTML input element IDs to user-provided values.\nThis represents form inputs on the webpage. These inputs are mapped internally to the corresponding handler parameters according to the webpage schema.\nExample:\nurl=\"www.example.com\"\ninputs={\n    \"email_field\": \"example@mail.com\",\n    \"password_field\": \"mypassword\"\n}",
+              "title": "Inputs",
+              "type": "object"
+            }
+          },
+          "required": [
+            "url",
+            "inputs"
+          ],
+          "title": "Input schema for `input_to_webpage`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "browse_webpage",
+        "description": "Visits a URL to retrieve web content or trigger a web-based action. \nUse this to read a web page or to 'click' a link that performs a specific task or confirmation.",
+        "parameters": {
+          "properties": {
+            "url": {
+              "description": "The URL to be accessed.",
+              "title": "Url",
+              "type": "string"
+            }
+          },
+          "required": [
+            "url"
+          ],
+          "title": "Input schema for `browse_webpage`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "git_create_repo",
+        "description": "Creates a new repository for the current user with an empty root directory.",
+        "parameters": {
+          "properties": {
+            "repo_name": {
+              "description": "Name of the repository to be created",
+              "title": "Repo Name",
+              "type": "string"
+            }
+          },
+          "required": [
+            "repo_name"
+          ],
+          "title": "Input schema for `git_create_repo`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "git_delete_repo",
+        "description": "Delete the repository of the given repo name.",
+        "parameters": {
+          "properties": {
+            "repo_name": {
+              "description": "Name of the repository to delete",
+              "title": "Repo Name",
+              "type": "string"
+            }
+          },
+          "required": [
+            "repo_name"
+          ],
+          "title": "Input schema for `git_delete_repo`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "git_transfer_repo_ownership",
+        "description": "Transfers ownership of a repository to another user.",
+        "parameters": {
+          "properties": {
+            "repo_name": {
+              "description": "The full name of the repository to transfer (e.g., 'current_user/repo')",
+              "title": "Repo Name",
+              "type": "string"
+            },
+            "new_owner_username": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "The username of the account receiving the repository (Optional if email is provided)",
+              "title": "New Owner Username"
+            },
+            "new_owner_email": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "The email of the account receiving the repository (Optional if username is provided)",
+              "title": "New Owner Email"
+            }
+          },
+          "required": [
+            "repo_name"
+          ],
+          "title": "Input schema for `git_transfer_repo_ownership`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "git_clone",
+        "description": "Clone a remote repository from GitHub into a specific local directory.",
+        "parameters": {
+          "properties": {
+            "repo_name": {
+              "description": "The full name of the repository to clone (e.g., 'username/repo')",
+              "title": "Repo Name",
+              "type": "string"
+            },
+            "local_dir_path": {
+              "default": "/",
+              "description": "The local path where the repo should be cloned (e.g., '/downloads')",
+              "title": "Local Dir Path",
+              "type": "string"
+            }
+          },
+          "required": [
+            "repo_name"
+          ],
+          "title": "Input schema for `git_clone`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "git_invite_collaborators",
+        "description": "Invite a collaborator to the repository of the given repo name.",
+        "parameters": {
+          "properties": {
+            "repo_name": {
+              "description": "Name of the repository to add a collaborator to",
+              "title": "Repo Name",
+              "type": "string"
+            },
+            "collaborator_email": {
+              "description": "Email address of the user to invite",
+              "format": "email",
+              "title": "Collaborator Email",
+              "type": "string"
+            }
+          },
+          "required": [
+            "repo_name",
+            "collaborator_email"
+          ],
+          "title": "Input schema for `git_invite_collaborators`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "git_push",
+        "description": "Push a file or an entire directory to its associated GitHub repository.\nAutomatically detects the repository root via .git_config to allow pushing from \nany level within the repo.",
+        "parameters": {
+          "properties": {
+            "local_path": {
+              "description": "The full absolute local path of the file or directory to upload",
+              "title": "Local Path",
+              "type": "string"
+            },
+            "force": {
+              "default": false,
+              "description": "If true, overwrite remote versions even if there is a conflict",
+              "title": "Force",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "local_path"
+          ],
+          "title": "Input schema for `git_push`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "git_pull",
+        "description": "Pull files from GitHub to the local filesystem.\nAutomatically detects the repository root from .git_config to synchronize \nthe whole repo state regardless of which subdirectory you are in.",
+        "parameters": {
+          "properties": {
+            "local_path": {
+              "default": "/",
+              "description": "The local directory path to pull from (or any path within a repo)",
+              "title": "Local Path",
+              "type": "string"
+            },
+            "repo_name": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Optional explicit repo name. If None, it is discovered via .git_config",
+              "title": "Repo Name"
+            },
+            "overwrite_local": {
+              "default": false,
+              "description": "If true, overwrite local files even if they have unsaved changes",
+              "title": "Overwrite Local",
+              "type": "boolean"
+            }
+          },
+          "title": "Input schema for `git_pull`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "git_issue",
+        "description": "Push a new issue to the repository of the given repo name.",
+        "parameters": {
+          "properties": {
+            "repo_name": {
+              "description": "Name of the repository to push the issue to",
+              "title": "Repo Name",
+              "type": "string"
+            },
+            "title": {
+              "description": "The title of the new issue",
+              "title": "Title",
+              "type": "string"
+            },
+            "comment_body": {
+              "description": "The content of the initial comment",
+              "title": "Comment Body",
+              "type": "string"
+            }
+          },
+          "required": [
+            "repo_name",
+            "title",
+            "comment_body"
+          ],
+          "title": "Input schema for `git_issue`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "git_star",
+        "description": "Star the repository of the given repo name.",
+        "parameters": {
+          "properties": {
+            "repo_name": {
+              "description": "Name of the repository to star",
+              "title": "Repo Name",
+              "type": "string"
+            }
+          },
+          "required": [
+            "repo_name"
+          ],
+          "title": "Input schema for `git_star`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "git_unstar",
+        "description": "Unstar the repository with the given name.",
+        "parameters": {
+          "properties": {
+            "repo_name": {
+              "description": "Name of the repository to unstar.",
+              "title": "Repo Name",
+              "type": "string"
+            }
+          },
+          "required": [
+            "repo_name"
+          ],
+          "title": "Input schema for `git_unstar`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_github_linked_unread_emails",
+        "description": "Returns all the unread emails in the github account linked inbox with the github account. Each email has a sender, a subject, and a body.\nThe emails are marked as read after this function is called.",
+        "parameters": {
+          "properties": {},
+          "title": "Input schema for `get_github_linked_unread_emails`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_logged_in_github_user_information",
+        "description": "Get information for the currently authenticated GitHub account, including email, \nusername, password, repository names, and starred repositories.",
+        "parameters": {
+          "properties": {},
+          "title": "Input schema for `get_logged_in_github_user_information`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_github_account_user_information",
+        "description": "Get the user information of the given github account, could be: email, username, repository names, starred repositories.",
+        "parameters": {
+          "properties": {
+            "username": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "The username of the account (Optional)",
+              "title": "Username"
+            },
+            "email": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "The email address of the account (Optional)",
+              "title": "Email"
+            }
+          },
+          "title": "Input schema for `get_github_account_user_information`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_github_repository_information",
+        "description": "Get the information of the target repository, could be: repository name, owner, collaborators, pending collaborators, stars, repository file tree, and issues.",
+        "parameters": {
+          "properties": {
+            "repo_name": {
+              "description": "Name of the repository to be inquiried",
+              "title": "Repo Name",
+              "type": "string"
+            }
+          },
+          "required": [
+            "repo_name"
+          ],
+          "title": "Input schema for `get_github_repository_information`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "git_get_linked_ssh_keys",
+        "description": "Get the SSH keys of the current GitHub account.",
+        "parameters": {
+          "properties": {},
+          "title": "Input schema for `git_get_linked_ssh_keys`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "git_add_ssh_key",
+        "description": "Add an SSH key to the current GitHub account.",
+        "parameters": {
+          "properties": {
+            "ssh_key": {
+              "description": "The SSH key to add",
+              "title": "Ssh Key",
+              "type": "string"
+            }
+          },
+          "required": [
+            "ssh_key"
+          ],
+          "title": "Input schema for `git_add_ssh_key`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "git_delete_ssh_key",
+        "description": "Remove an SSH key from the current GitHub account.",
+        "parameters": {
+          "properties": {
+            "ssh_key": {
+              "description": "The SSH key to remove",
+              "title": "Ssh Key",
+              "type": "string"
+            }
+          },
+          "required": [
+            "ssh_key"
+          ],
+          "title": "Input schema for `git_delete_ssh_key`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "login_github_account",
+        "description": "Login to your account.",
+        "parameters": {
+          "properties": {
+            "username": {
+              "description": "Username to login",
+              "title": "Username",
+              "type": "string"
+            },
+            "password": {
+              "description": "Password to login",
+              "title": "Password",
+              "type": "string"
+            }
+          },
+          "required": [
+            "username",
+            "password"
+          ],
+          "title": "Input schema for `login_github_account`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "update_github_account_password",
+        "description": "Update the github account's password.",
+        "parameters": {
+          "properties": {
+            "password": {
+              "description": "New password for the user",
+              "title": "Password",
+              "type": "string"
+            }
+          },
+          "required": [
+            "password"
+          ],
+          "title": "Input schema for `update_github_account_password`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "verify_github_account",
+        "description": "Verify your account.",
+        "parameters": {
+          "properties": {
+            "otp": {
+              "description": "One Time Password to verify",
+              "title": "Otp",
+              "type": "string"
+            }
+          },
+          "required": [
+            "otp"
+          ],
+          "title": "Input schema for `verify_github_account`",
+          "type": "object"
+        }
+      }
+    }
+  ],
+  "dailylife": [
+    {
+      "type": "function",
+      "function": {
+        "name": "send_money",
+        "description": "Sends a transaction to the recipient.",
+        "parameters": {
+          "properties": {
+            "recipient": {
+              "description": "IBAN of the recipient",
+              "title": "Recipient",
+              "type": "string"
+            },
+            "amount": {
+              "description": "Amount to send",
+              "title": "Amount",
+              "type": "number"
+            },
+            "subject": {
+              "description": "Subject of the transaction",
+              "title": "Subject",
+              "type": "string"
+            },
+            "date": {
+              "description": "Date of the transaction",
+              "title": "Date",
+              "type": "string"
+            }
+          },
+          "required": [
+            "recipient",
+            "amount",
+            "subject",
+            "date"
+          ],
+          "title": "Input schema for `send_money`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_balance",
+        "description": "Get the balance of the account.",
+        "parameters": {
+          "properties": {},
+          "title": "Input schema for `get_balance`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "verify_transaction",
+        "description": "Verify your transaction by entering the One Time Password (OTP).",
+        "parameters": {
+          "properties": {
+            "otp": {
+              "description": "One Time Password received via email.",
+              "title": "Otp",
+              "type": "string"
+            }
+          },
+          "required": [
+            "otp"
+          ],
+          "title": "Input schema for `verify_transaction`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "send_email",
+        "description": "Sends an email with the given `body` to the given `address`. Returns a dictionary with the email details.",
+        "parameters": {
+          "properties": {
+            "recipients": {
+              "description": "The list with the email addresses of the recipients.",
+              "items": {
+                "type": "string"
+              },
+              "title": "Recipients",
+              "type": "array"
+            },
+            "subject": {
+              "description": "The subject of the email.",
+              "title": "Subject",
+              "type": "string"
+            },
+            "body": {
+              "description": "The body of the email.",
+              "title": "Body",
+              "type": "string"
+            },
+            "attachments": {
+              "anyOf": [
+                {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "The list of attachments to include in the email. If `null`, no attachments are included.\nIf the attachment has as \"type\" \"file\", then it is expected to have a field \"file_path\", with the path of file in the local file system, or have a field \"file_id\", with the id of file in the web. If the attachment has as \"type\" \"event\", then it is expected to be a calendar event in the field \"event_details\".\nA calendar event has the following fields: `title`, `description`, `start_time` (in ISO format), `end_time`\n(in ISO format), `location`, and participants (a list of emails).",
+              "title": "Attachments"
+            },
+            "cc": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "The list of email addresses to include in the CC field. If `null`, no email addresses are included.",
+              "title": "Cc"
+            },
+            "bcc": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "The list of email addresses to include in the BCC field. If `null`, no email addresses are included.",
+              "title": "Bcc"
+            }
+          },
+          "required": [
+            "recipients",
+            "subject",
+            "body"
+          ],
+          "title": "Input schema for `send_email`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_unread_emails",
+        "description": "Returns all the unread emails in the inbox. Each email has a sender, a subject, and a body.\nThe emails are marked as read after this function is called.",
+        "parameters": {
+          "properties": {},
+          "title": "Input schema for `get_unread_emails`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_received_emails",
+        "description": "Returns all the received emails in the inbox. Each email has a sender, a subject, and a body.",
+        "parameters": {
+          "properties": {},
+          "title": "Input schema for `get_received_emails`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_sent_emails",
+        "description": "Returns all the sent emails in the inbox. Each email has a recipient, a subject, and a body.",
+        "parameters": {
+          "properties": {},
+          "title": "Input schema for `get_sent_emails`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "delete_email",
+        "description": "Deletes the email with the given `email_id` from the inbox.",
+        "parameters": {
+          "properties": {
+            "email_id": {
+              "description": "The id of the email to delete.",
+              "title": "Email Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "email_id"
+          ],
+          "title": "Input schema for `delete_email`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "search_emails",
+        "description": "Searches for emails in the inbox that contain the given query in the subject or body. If `address` is provided,\nonly emails from that address are searched.",
+        "parameters": {
+          "properties": {
+            "query": {
+              "description": "The query to search for in the email subject or body. If empty, all emails are returned.",
+              "title": "Query",
+              "type": "string"
+            },
+            "sender": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "The email address of the sender. If `null`, all emails are searched. Use `search_contacts_by_name`\nif the email address is unknown.",
+              "title": "Sender"
+            }
+          },
+          "required": [
+            "query"
+          ],
+          "title": "Input schema for `search_emails`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "browse_webpage",
+        "description": "Visits a URL to retrieve web content or trigger a web-based action. \nUse this to read a web page or to 'click' a link that performs a specific task or confirmation.",
+        "parameters": {
+          "properties": {
+            "url": {
+              "description": "The URL to be accessed.",
+              "title": "Url",
+              "type": "string"
+            }
+          },
+          "required": [
+            "url"
+          ],
+          "title": "Input schema for `browse_webpage`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "download_file_through_url",
+        "description": "Downloads a file from a given URL to the local folder.",
+        "parameters": {
+          "properties": {
+            "url": {
+              "description": "The URL of the file.",
+              "title": "Url",
+              "type": "string"
+            },
+            "save_dir": {
+              "default": "/downloads",
+              "description": "The destination directory (parent directory) to save the file.",
+              "title": "Save Dir",
+              "type": "string"
+            }
+          },
+          "required": [
+            "url"
+          ],
+          "title": "Input schema for `download_file_through_url`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "download_file_through_id",
+        "description": "Downloads a file from a given email attachment ID to the local folder.",
+        "parameters": {
+          "properties": {
+            "file_id": {
+              "description": "The ID of the file.",
+              "title": "File Id",
+              "type": "string"
+            },
+            "save_dir": {
+              "default": "/downloads",
+              "description": "The destination directory (parent directory) to save the file.",
+              "title": "Save Dir",
+              "type": "string"
+            }
+          },
+          "required": [
+            "file_id"
+          ],
+          "title": "Input schema for `download_file_through_id`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "list_directory",
+        "description": "List the metadata of all items inside a specific local directory.",
+        "parameters": {
+          "properties": {
+            "path": {
+              "description": "The path to the directory (e.g., '/system' or '/user/documents').",
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "title": "Input schema for `list_directory`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "create_file",
+        "description": "Create a new local file at the specified path.",
+        "parameters": {
+          "properties": {
+            "path": {
+              "description": "The path to the file to create.",
+              "title": "Path",
+              "type": "string"
+            },
+            "content": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {}
+              ],
+              "default": "",
+              "description": "The initial content of the file.",
+              "title": "Content"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "title": "Input schema for `create_file`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "create_dir",
+        "description": "Create a new local directory at the specified path, including parent directories.",
+        "parameters": {
+          "properties": {
+            "path": {
+              "description": "The path where the directory should be created.",
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "title": "Input schema for `create_dir`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "read_file",
+        "description": "Read the contents of a local file at the given path.",
+        "parameters": {
+          "properties": {
+            "path": {
+              "description": "The path of the local file to read.",
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "title": "Input schema for `read_file`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "delete_node",
+        "description": "Delete a local file or directory and all its contents at the given path.",
+        "parameters": {
+          "properties": {
+            "path": {
+              "description": "The path to the node to delete.",
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "title": "Input schema for `delete_node`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "copy_node",
+        "description": "Copies a local file or directory from the source path to the destination path.",
+        "parameters": {
+          "properties": {
+            "source_path": {
+              "description": "The path of the file or directory to copy.",
+              "title": "Source Path",
+              "type": "string"
+            },
+            "destination_path": {
+              "description": "The destination directory or the new path for the copy.",
+              "title": "Destination Path",
+              "type": "string"
+            }
+          },
+          "required": [
+            "source_path",
+            "destination_path"
+          ],
+          "title": "Input schema for `copy_node`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "move_node",
+        "description": "Moves or renames a local file or directory from the source path to the destination path.",
+        "parameters": {
+          "properties": {
+            "source_path": {
+              "description": "The path of the node to move.",
+              "title": "Source Path",
+              "type": "string"
+            },
+            "destination_path": {
+              "description": "The destination path.",
+              "title": "Destination Path",
+              "type": "string"
+            }
+          },
+          "required": [
+            "source_path",
+            "destination_path"
+          ],
+          "title": "Input schema for `move_node`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "input_to_webpage",
+        "description": "Fills out and submits a web form on the specified webpage using the provided input ids and values.\nExample usage:\ninput_to_webpage(\n    url=\"www.example.com\",\n    input_ids=[\"name_field\", \"email_field\"],\n    input_values=[\"John Doe\", \"john.doe@example.com\"],\n)",
+        "parameters": {
+          "properties": {
+            "url": {
+              "description": "The URL of the webpage.",
+              "title": "Url",
+              "type": "string"
+            },
+            "input_ids": {
+              "description": "A list of HTML input element IDs on the webpage that correspond to the form fields to be filled.",
+              "items": {
+                "type": "string"
+              },
+              "title": "Input Ids",
+              "type": "array"
+            },
+            "input_values": {
+              "description": "A list of user-provided values corresponding to input_ids, representing the data to be entered into the form fields.",
+              "items": {
+                "type": "string"
+              },
+              "title": "Input Values",
+              "type": "array"
+            }
+          },
+          "required": [
+            "url",
+            "input_ids",
+            "input_values"
+          ],
+          "title": "Input schema for `input_to_webpage`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "add_calendar_event_participants",
+        "description": "Adds the given `participants` to the event with the given `event_id`.\nIt will also email the new participants notifying them of the event.",
+        "parameters": {
+          "properties": {
+            "event_id": {
+              "description": "The ID of the event to add participants to.",
+              "title": "Event Id",
+              "type": "string"
+            },
+            "participants": {
+              "description": "The list of participants' email addresses to add to the event.",
+              "items": {
+                "type": "string"
+              },
+              "title": "Participants",
+              "type": "array"
+            }
+          },
+          "required": [
+            "event_id",
+            "participants"
+          ],
+          "title": "Input schema for `add_calendar_event_participants`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "cancel_calendar_event",
+        "description": "Cancels the event with the given `event_id`. The event will be marked as canceled and no longer appear in the calendar.\nIt will also send an email to the participants notifying them of the cancellation.",
+        "parameters": {
+          "properties": {
+            "event_id": {
+              "description": "The ID of the event to cancel.",
+              "title": "Event Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "event_id"
+          ],
+          "title": "Input schema for `cancel_calendar_event`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "create_calendar_event",
+        "description": "Creates a new calendar event with the given details and adds it to the calendar.\nIt also sends an email to the participants with the event details.",
+        "parameters": {
+          "properties": {
+            "title": {
+              "description": "The title of the event.",
+              "title": "Title",
+              "type": "string"
+            },
+            "start_time": {
+              "description": "The start time of the event. Must be in format YYYY-MM-DD HH:MM.",
+              "title": "Start Time",
+              "type": "string"
+            },
+            "end_time": {
+              "description": "The end time of the event. Must be in format YYYY-MM-DD HH:MM.",
+              "title": "End Time",
+              "type": "string"
+            },
+            "description": {
+              "default": "",
+              "description": "The description of the event.",
+              "title": "Description",
+              "type": "string"
+            },
+            "participants": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "The list of participants' email addresses. If `null`, no participants are set. The calendar owner's email address is always included..",
+              "title": "Participants"
+            },
+            "location": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "The location of the event. If `null`, no location is set.",
+              "title": "Location"
+            }
+          },
+          "required": [
+            "title",
+            "start_time",
+            "end_time"
+          ],
+          "title": "Input schema for `create_calendar_event`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_current_day",
+        "description": "Returns the current day in ISO format, e.g. '2022-01-01'.\nIt is useful to know what the current day, year, or month is, as the assistant\nshould not assume what the current date is.",
+        "parameters": {
+          "properties": {},
+          "title": "Input schema for `get_current_day`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "get_day_calendar_events",
+        "description": "Returns the appointments for the given `day`. Returns a list of dictionaries with informations about each meeting.",
+        "parameters": {
+          "properties": {
+            "day": {
+              "description": "The day for which to return the appointments. Must be in format YYYY-MM-DD.",
+              "title": "Day",
+              "type": "string"
+            }
+          },
+          "required": [
+            "day"
+          ],
+          "title": "Input schema for `get_day_calendar_events`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "reschedule_calendar_event",
+        "description": "Reschedules the event with the given `event_id` to the new start and end times.\nIt will also send an email to the participants notifying them of the rescheduling.",
+        "parameters": {
+          "properties": {
+            "event_id": {
+              "description": "The ID of the event to reschedule.",
+              "title": "Event Id",
+              "type": "string"
+            },
+            "new_start_time": {
+              "description": "The new start time of the event. Must be in format YYYY-MM-DD HH:MM.",
+              "title": "New Start Time",
+              "type": "string"
+            },
+            "new_end_time": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "The new end time of the event. Must be in format YYYY-MM-DD HH:MM.\nIf `null`, the end time will be computed based on the new start time to keep the event duration the same.",
+              "title": "New End Time"
+            }
+          },
+          "required": [
+            "event_id",
+            "new_start_time"
+          ],
+          "title": "Input schema for `reschedule_calendar_event`",
+          "type": "object"
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "search_calendar_events",
+        "description": "Searches calendar events that match the given query in the tile or the description. If provided, filters events by date.",
+        "parameters": {
+          "properties": {
+            "query": {
+              "description": "The query string to search for in event titles and descriptions.",
+              "title": "Query",
+              "type": "string"
+            },
+            "date": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "The date for which to search events. Must be in format YYYY-MM-DD. If `null`, searches all events.",
+              "title": "Date"
+            }
+          },
+          "required": [
+            "query"
+          ],
+          "title": "Input schema for `search_calendar_events`",
+          "type": "object"
+        }
+      }
+    }
+  ]
+}

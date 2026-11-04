@@ -73,6 +73,7 @@ methods/meta_harness_adapter
 methods/ace
 methods/ahe_adapter
 methods/rrsi_adapter
+methods/evosafe
 ```
 
 ```{toctree}
@@ -82,6 +83,7 @@ methods/rrsi_adapter
 recipes/index
 tutorials/reproduce-a-result
 recipes/officeqa
+recipes/agentdyn
 recipes/servelearnbench
 recipes/clbench
 recipes/lean-collaboration

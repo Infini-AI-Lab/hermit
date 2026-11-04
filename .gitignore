@@ -8,4 +8,5 @@ __pycache__/
 /dist/
 .venv-demo/
 .venv-docs/
+.venv-agentdyn/
 /docs/_build/

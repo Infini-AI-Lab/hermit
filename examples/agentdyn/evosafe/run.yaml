@@ -1,0 +1,45 @@
+data:
+  tasks: ../utils/data/tasks.jsonl
+  train: ../utils/data/train.txt
+  val: ../utils/data/val.txt
+  test: ../utils/data/test.txt
+  step_size: 4
+  shuffle: false
+task_info: ../utils/task-info
+template: evosafe@1.0
+agent:
+  name: ../utils/bridge.py:run
+  base: direct
+  model: openai/gpt-4o-mini-2024-07-18
+  concurrency: 1
+  timeout_min: 10
+  params:
+    benchmark_version: v1.2.2
+    max_iters: 15
+    logs: runs/episodes
+judge:
+  path: ../utils/judge.py
+evolver:
+  name: evosafe
+  params:
+    max_clean_drop: 0.0
+    min_improvement: 0.0
+# Configure llm (the proposer) with your own backend before training.
+llm: null
+sandbox:
+  enabled: true
+  enforce: required
+  network: isolated
+  allow: [api.openai.com]
+  profiles:
+    # The episode is trusted orchestration on the host: it starts each learned hook in a Docker container of its
+    # own, which the rollout sandbox cannot reach (eval and check use this profile too).
+    rollout:
+      enabled: false
+trainer:
+  run_name: agentdyn-shopping
+  output_dir: runs
+  epochs: 1
+  call_timeout_min: 30
+  budget:
+    hours: 1

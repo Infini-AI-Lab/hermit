@@ -1,0 +1,143 @@
+# Nemotron Super 49B victim with Codex defense-search roles.
+data:
+  tasks: ../utils/data/all-groups-v1/tasks.jsonl
+  train: ../utils/data/all-groups-v1/train.txt
+  test: ../utils/data/all-groups-v1/test.txt
+  step_size: 57
+  shuffle: false
+task_info: ../utils/task-info
+template: evosafe@1.0
+agent:
+  name: ../utils/bridge.py:run
+  base: direct
+  model: vllm/nvidia/llama-3.3-nemotron-super-49b-v1.5
+  concurrency: 12
+  timeout_min: 15
+  params:
+    episode_timeout_s: 900
+    hook_timeout_s: 90
+    hook_image: python@sha256:6b25cbe6577518889d553cdd5a5da97d259348d8f6e45b527dd731caaba27a07
+    benchmark_version: v1.2.2
+    max_iters: 25
+    max_tokens: 8192
+    temperature: 0.0
+    request_timeout_s: 120
+    max_retries: 4
+    logs: runs/codex-episodes
+    auditor:
+      enabled: true
+      max_calls: 4
+      max_chars: 8000
+      max_tokens: 2048
+      timeout_s: 45
+judge:
+  path: ../utils/judge.py
+evolver:
+  name: evosafe
+  base: codex
+  params:
+    min_improvement: 0.07
+    validation_tolerance: 0.07
+    search_mode: roles
+    max_proposals: 3
+    gate_mode: source
+    cascade_sizes:
+    - 12
+    - 57
+    evaluation_repeats: 1
+    eval_task_ids:
+    - shopping-user_task_0-clean
+    - github-user_task_4-clean
+    - dailylife-user_task_3-clean
+    - shopping-user_task_0-injection_task_0-fa88dd03
+    - github-user_task_4-injection_task_0-7517e44b
+    - dailylife-user_task_3-injection_task_0-5cc9b8be
+    - shopping-user_task_0-injection_task_1-8db1f166
+    - github-user_task_4-injection_task_1-01330669
+    - dailylife-user_task_3-injection_task_1-9b285374
+    - shopping-user_task_2-clean
+    - github-user_task_17-clean
+    - dailylife-user_task_0-clean
+    - shopping-user_task_2-injection_task_2-905a440c
+    - github-user_task_17-injection_task_2-8ccc1edd
+    - dailylife-user_task_0-injection_task_2-7b48a4c9
+    - shopping-user_task_2-injection_task_3-2b63f1b6
+    - github-user_task_17-injection_task_3-8ef3f2f4
+    - dailylife-user_task_0-injection_task_3-2c7c977e
+    - shopping-user_task_8-clean
+    - shopping-user_task_8-injection_task_0-5eb6cb5d
+    - shopping-user_task_8-injection_task_7-9ffce555
+    - shopping-user_task_11-clean
+    - shopping-user_task_11-injection_task_2-e70ec673
+    - shopping-user_task_11-injection_task_6-88485e48
+    - github-user_task_8-clean
+    - github-user_task_8-injection_task_0-3d4366b6
+    - github-user_task_8-injection_task_4-797dfec6
+    - dailylife-user_task_9-clean
+    - dailylife-user_task_9-injection_task_6-c1fdb9b4
+    - dailylife-user_task_9-injection_task_8-2a20c34d
+    - dailylife-user_task_1-clean
+    - dailylife-user_task_1-injection_task_4-1c3fd063
+    - dailylife-user_task_1-injection_task_2-a6f53f62
+    - dailylife-user_task_11-clean
+    - dailylife-user_task_11-injection_task_5-201dd90d
+    - dailylife-user_task_11-injection_task_4-83886156
+    - dailylife-user_task_2-clean
+    - dailylife-user_task_2-injection_task_1-b2cd5980
+    - dailylife-user_task_2-injection_task_9-ff1b0da7
+    - dailylife-user_task_6-clean
+    - dailylife-user_task_6-injection_task_1-a9f82dde
+    - dailylife-user_task_6-injection_task_6-1432666c
+    - github-user_task_14-clean
+    - github-user_task_14-injection_task_5-140e37b3
+    - github-user_task_14-injection_task_8-a13c9fee
+    - github-user_task_15-clean
+    - github-user_task_15-injection_task_3-de721d78
+    - github-user_task_15-injection_task_6-55c8422a
+    - github-user_task_2-clean
+    - github-user_task_2-injection_task_4-d79569ef
+    - github-user_task_2-injection_task_1-e072e1cb
+    - shopping-user_task_1-clean
+    - shopping-user_task_1-injection_task_8-d1b9d5ea
+    - shopping-user_task_1-injection_task_6-c183a4b3
+    - shopping-user_task_5-clean
+    - shopping-user_task_5-injection_task_5-45cc0c8b
+    - shopping-user_task_5-injection_task_2-7e51cf6e
+    robustness_task_ids: []
+    mechanism_schedule: []
+    reuse_rollout_parent: true
+    parent_error_policy: conservative_bounds
+    candidate_error_policy: worst_case_bounds
+    role_retries: 1
+    review_revisions: 2
+  codex:
+    model: gpt-6-sol
+    effort: high
+    web_search: false
+    timeout_s: 1500
+    codex_sandbox: read-only
+    args:
+    - --disable
+    - shell_tool
+    - --disable
+    - unified_exec
+    - --disable
+    - multi_agent
+    - --disable
+    - apps
+    - --disable
+    - plugins
+    - --disable
+    - skill_search
+    - --disable
+    - image_generation
+sandbox:
+  enabled: false
+trainer:
+  run_name: agentdyn-evosafe-codex
+  output_dir: runs
+  epochs: 1
+  call_timeout_min: 480
+  budget:
+    hours: 12
+  tree_dir: runs/trees/evosafe-codex
