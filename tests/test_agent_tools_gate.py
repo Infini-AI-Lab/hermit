@@ -171,6 +171,50 @@ def test_links_among_hidden_paths_and_the_places_a_call_is_given(tmp_path):
     assert shows(hid / "run" / "wslink" / "f.txt", hid / "run" / "ws_real" / "f.txt", hid / "other.txt") == \
         ["f", "f", "ABSENT"]
     assert shows(task / "t.md") == ["task"]
+    # a session that moved a hidden directory away and left a link at its name: what the link leads to is covered
+    (ws / "a" / "secret").mkdir(parents=True)
+    (ws / "a" / "secret" / "x.txt").write_text("moved\n")
+    hiding.hidden.append(ws / "a" / "secret")
+    (ws / "a").rename(ws / "b")
+    (ws / "a").symlink_to(ws / "b")
+    assert shows(ws / "a" / "secret" / "x.txt", ws / "b" / "secret" / "x.txt") == ["ABSENT", "ABSENT"]
+
+
+@pytest.mark.skipif(not __import__("shutil").which("bwrap"), reason="needs bubblewrap")
+def test_what_a_session_leaves_never_widens_or_stops_the_next_call(tmp_path):
+    """Links a session leaves where it writes, back into the place itself, and a pyvenv.cfg naming them, neither
+    show anything nor make the hiding grow (the call starts at once); a place given with a link to it inside another
+    place given below a hidden directory comes back once, through that place."""
+    import subprocess
+    import time
+    from hermit.sandbox import Sandbox
+    w = tmp_path / "w"
+    w.mkdir()
+    private = tmp_path / "private"
+    (private / "h").mkdir(parents=True)
+    (private / "h" / "x").write_text("private\n")
+    (w / "f").symlink_to(private)
+    lines = [f"home = {w / 'f' / 'bin'}"]
+    for i in range(8):
+        (w / f"g{i}").symlink_to(w)
+        lines.append(f"home = {w / f'g{i}' / 'bin'}")
+    (w / "pyvenv.cfg").write_text("\n".join(lines) + "\n")
+    start = time.time()
+    args, env = HidingSandbox(Sandbox(network="open", writable=[w]), [private / "h"]).wrap(
+        ["sh", "-c", f"cat {private}/h/x 2>/dev/null || echo ABSENT; echo STARTED"], env=dict(os.environ))
+    assert time.time() - start < 10 and args.count("--tmpfs") < 20
+    out = subprocess.run(args, env=env, capture_output=True, text=True, timeout=60)
+    assert out.returncode == 0 and out.stdout.split() == ["ABSENT", "STARTED"], out.stderr
+    hid = tmp_path / "H"
+    (hid / "run" / "ws_real").mkdir(parents=True)
+    (hid / "run" / "ws_real" / "f.txt").write_text("f\n")
+    (hid / "run" / "wslink").symlink_to(hid / "run" / "ws_real")
+    (hid / "other.txt").write_text("o\n")
+    args, env = HidingSandbox(Sandbox(network="open"), [hid]).wrap(
+        ["sh", "-c", f"cat {hid}/run/wslink/f.txt; cat {hid}/other.txt 2>/dev/null || echo ABSENT"],
+        env=dict(os.environ), writable=[hid / "run", hid / "run" / "wslink"])
+    out = subprocess.run(args, env=env, capture_output=True, text=True, timeout=60)
+    assert out.returncode == 0 and out.stdout.split() == ["f", "ABSENT"], out.stderr
 
 
 @pytest.mark.skipif(not __import__("shutil").which("bwrap"), reason="needs bubblewrap")

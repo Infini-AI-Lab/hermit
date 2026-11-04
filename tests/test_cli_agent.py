@@ -774,6 +774,25 @@ def test_take_back_keeps_the_shared_login_to_its_account(tmp_path):
     (home / "auth.json").write_text(json.dumps({"last_refresh": now, "tokens": {"account_id": "mine"}, "n": 2}))
     L.take_back(root, home / "auth.json", within=home)
     assert '"n": 2' in master.read_text()                             # the same account's refresh is taken back
+    master.write_text(json.dumps({"last_refresh": "2026-01-01T00:00:00Z"}))   # a copy that names no account
+    (home / "auth.json").write_text(json.dumps({"last_refresh": now, "tokens": {"account_id": "mine"}, "n": 3}))
+    L.take_back(root, home / "auth.json", within=home)
+    assert '"n": 3' in master.read_text()
+
+
+def test_no_link_on_the_way_to_a_sessions_output_is_followed(tmp_path):
+    """A session can replace a directory between its home and its stream with a link: the Base Agent removes the
+    link and makes the directory, and writes or removes nothing where it led."""
+    from hermit.agent.base.cli import _session_output
+    home = tmp_path / "home"
+    home.mkdir()
+    outside = tmp_path / "outside"
+    (outside / "logs" / "agent.jsonl").mkdir(parents=True)          # a directory where the stream goes
+    (outside / "logs" / "agent.jsonl" / "keep.txt").write_text("k")
+    (home / "a").symlink_to(outside)
+    _session_output(home / "a" / "logs" / "agent.jsonl", [home])
+    assert (outside / "logs" / "agent.jsonl" / "keep.txt").read_text() == "k"
+    assert not (home / "a").is_symlink() and (home / "a" / "logs").is_dir()
 
 
 def test_a_login_copy_below_a_rollouts_directory_is_removed_without_following_links(tmp_path):

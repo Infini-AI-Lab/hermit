@@ -211,9 +211,9 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   sign-in copy and the login's temporary copy were written through links left there; a rollout's login copies were
   taken back and deleted through linked directories (`isolate.py`). None of these follows a link now, a usage
   ledger the session rewrote (malformed, or over what Codex reports) is not taken for the thread's earlier total,
-  and a login for another ChatGPT account is never taken back. The stream is read back only from the file the Base
-  Agent opened for it; the caller's own paths (`log`, `stderr_log`: a device, a pipe, a link) are opened as they
-  are. Harness²'s channel reads its session's stream and stderr file the same way.
+  and a login for another ChatGPT account than the shared copy names is never taken back. The stream is read back
+  only from the file the Base Agent opened for it, through no link a session left on the way; the caller's own paths
+  (`log`, `stderr_log`: a device, a pipe, a link) are opened as they are. Harness²'s channel reads its session's stream and stderr file the same way.
 - `unavailable` and a ChatGPT plan's refusal were read from the whole stream, so a session whose own work quoted an
   outage or a usage limit (a log it searched) was retried as the provider's failure or held for the plan. They are
   read from the CLI's own messages and error events now; `served` is read from the events, not the text, and the
@@ -224,10 +224,15 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   is now covered under every name the sandbox shows it by, and the places the session is given (its writable and
   readable paths, the task description) are bound back on top of a covered directory, shallowest first and under
   each of their names, with what is hidden below them (a hidden path, the sandbox's masks) covered again after them
-  (`hermit/sandbox.py`, `HidingSandbox`). A place the call gives or keeps stays visible when it is also hidden, as
-  before; one only the sandbox gives stays hidden. A path reached through a link inside a place the session can
-  write is not covered: a session that can write where a method hides every entry cannot choose what the next call
-  loses (the system, its workspace).
+  (`hermit/sandbox.py`, `HidingSandbox`). A place the call gives (its `readable`, kept visible past `hidden` as
+  documented, and its writable paths) or keeps stays visible when it is also hidden; one only the sandbox gives
+  stays hidden. A path reached through a link inside a place the session can write has what it leads to covered
+  only inside a place the session is given, never a place itself, the system, the interpreter or the sandbox's own
+  files: a session that can write where a method hides every entry cannot choose what the next call loses or stop
+  it from starting.
+- The sandbox read `pyvenv.cfg` in the places a session can write and showed the installation its `home` named in
+  the session's next call: a session could have any directory of the host shown read-only. Only places shown
+  read-only are read now (a venv made inside the sandbox is made from an installation it shows already).
 - The Trainer dropped the usage an Evolver call reported when the hard budget stopped it; it is counted.
 - Codex's trajectory left out failed turns, web searches, to-do lists and an MCP call's arguments and result (the
   result is the step's `output`), and a log directory whose stream had another name (a Harbor trial's

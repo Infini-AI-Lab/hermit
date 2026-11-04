@@ -114,6 +114,21 @@ def test_a_venv_granted_for_one_call_brings_its_base_installation(tmp_path, monk
     assert str(venv.resolve()) in ro and str(base.resolve()) in ro
 
 
+def test_a_pyvenv_cfg_in_a_writable_place_shows_nothing_new(tmp_path, monkeypatch):
+    """A session writes its workspace: a pyvenv.cfg it leaves there (or in a .venv) names no installation the next
+    call is shown; a venv made inside is made from an installation the sandbox shows already."""
+    fake_bwrap(monkeypatch)
+    outside = tmp_path / "outside"
+    (outside / "bin").mkdir(parents=True)
+    ws = tmp_path / "ws"
+    (ws / ".venv").mkdir(parents=True)
+    for cfg in (ws / "pyvenv.cfg", ws / ".venv" / "pyvenv.cfg"):
+        cfg.write_text(f"home = {outside / 'bin'}\nversion = 3.12\n")
+    for box, kw in ((Sandbox(network="open", writable=[ws]), {}), (Sandbox(network="open"), {"writable": [ws]})):
+        args, _ = box.wrap(["true"], **kw)
+        assert str(outside.resolve()) not in binds(args, "--ro-bind") + binds(args, "--bind")
+
+
 def test_older_network_values():
     assert network_mode("restricted") == ("isolated", True)
     assert network_mode("none") == ("isolated", False)

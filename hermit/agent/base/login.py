@@ -133,14 +133,15 @@ def _account(path: Path):
 
 def take_back(root: Path, path: Path, within: Path | None = None) -> None:
     """A login file a session left: the shared copy if it is a later refresh of it (a regular file, never one read
-    through a link: none below `within`, the directory the caller trusts, and not the file itself) for the same
-    account (a session could write another account's login there)."""
+    through a link: none below `within`, the directory the caller trusts, and not the file itself) for the account
+    the copy names, when it names one (a session could write another account's login there)."""
     master = Path(root) / "login" / FILE
     if not _plain(path, Path(within) if within is not None else Path(path).parent) or not master.is_file():
         return
     with open(master.parent / ".lock", "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        if _newer(path, master) and _account(path) == _account(master):
+        account = _account(master)                  # a copy that names its account keeps to it
+        if _newer(path, master) and (account is None or _account(path) == account):
             _replace(path, master)
 
 

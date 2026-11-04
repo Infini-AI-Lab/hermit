@@ -204,7 +204,9 @@ def _venv_paths() -> list[Path]:
 
 def _venv_bases(paths) -> list[Path]:
     """The Python installations the virtual environments in `paths` (a granted directory that is one, or holds one
-    as .venv) were made from: a venv's interpreter is a link to that installation, which lies elsewhere."""
+    as .venv) were made from: a venv's interpreter is a link to that installation, which lies elsewhere. Only places
+    shown read-only are read: a session writes `pyvenv.cfg` in a writable one, and its `home` would be shown in the
+    next call (a venv made inside the sandbox is made from an installation the sandbox shows already)."""
     out = []
     for path in paths:
         for cfg in (Path(path) / "pyvenv.cfg", Path(path) / ".venv" / "pyvenv.cfg"):
@@ -389,7 +391,7 @@ class Sandbox:
     def visible(self, command: list[str]) -> list[Path]:
         """Every read-only path inside the sandbox for this command (besides the system)."""
         out = [*_python_paths(self.packages), PACKAGE, *self.readable, *self.read]
-        out += _venv_bases([*self.readable, *self.read, *self.writable])
+        out += _venv_bases([*self.readable, *self.read])
         found = shutil.which(command[0]) if command else None
         if found and Path(found).resolve() != Path(sys.executable).resolve():
             out += program_paths(command[0])          # this Python is shown above, by its packages, not its venv
@@ -497,7 +499,7 @@ class Sandbox:
         bind([p for p in self.visible(command) if os.path.abspath(str(p)) not in skip], "--ro-bind", ro)
         # A virtual environment granted for this call alone (the framework's, shown to a sandboxed adapter server
         # started from another interpreter) needs the installation it was made from, like a sandbox-level grant.
-        bind(_venv_bases([*readable, *writable]), "--ro-bind", ro)
+        bind(_venv_bases(readable), "--ro-bind", ro)
         bind([p for p in readable if holds_mask(p)], "--ro-bind", ro)
         bind([p for p in self.writable if p not in deferred_rw], "--bind", rw)
         bind([p for p in writable if holds_mask(p)], "--bind", rw)
@@ -723,15 +725,32 @@ def hidden_paths(hide: list | None) -> list[Path]:
     return out
 
 
+_BIND = ("--bind", "--ro-bind", "--dev-bind", "--bind-try", "--ro-bind-try", "--dev-bind-try", "--symlink")
+_MAKE = ("--tmpfs", "--dir", "--proc", "--dev")
+
+
+def _mounted(args) -> set[str]:
+    """What a bubblewrap command line puts in the sandbox: each mount's or link's path inside."""
+    out = set()
+    for i, a in enumerate(args):
+        if a in _BIND and i + 2 < len(args):
+            out.add(args[i + 2])
+        elif a in _MAKE and i + 1 < len(args):
+            out.add(args[i + 1])
+    return out
+
+
 class HidingSandbox:
     """A sandbox with paths covered: a directory by an empty tmpfs, a file by an empty file. Subtractive, until the
     sandbox is a positive allowlist.
 
     A hidden path is covered under every name the sandbox shows it by: its real one, and the same path below a place
     the sandbox binds under a link's name and its real one (a workspace reached through a link, a venv under a linked
-    cache). A path reached through a link inside a place the session can write (the call's or the sandbox's writable
-    paths) is not covered: the session could have left that link, and a method that hides every entry of such a place
-    would let it choose what the next call loses (the system, the workspace). The places the session is given (the
+    cache), as main covered it: by what it leads to. A path reached through a link inside a place the session can
+    write (the call's or the sandbox's writable paths), which the session could have left, has what it leads to
+    covered only where that lies inside a place the session is given (its workspace, its data): never such a place
+    itself or one holding it, nor the system, the interpreter or the sandbox's own files, so that a session cannot
+    choose what the next call loses or stop it from starting. The places the session is given (the
     sandbox's and the call's writable and readable paths, and `keep`: the task description under a hidden tree) are
     bound back on top when they lie below a covered path, shallowest first, under each of their names, and what is
     hidden below them (a hidden path, the sandbox's masks) is covered again after them. A place equal to a hidden path
@@ -758,23 +777,33 @@ class HidingSandbox:
         readable = [*getattr(self.inner, "readable", []), *getattr(self.inner, "read", []),
                     *(kw.get("readable") or ()), *self.keep]
         visible = getattr(self.inner, "visible", lambda command: [])(command)
-        pairs = [tuple(_names(p)) for p in [*writable, *readable, *visible] if len(_names(p)) == 2]
         empty = self.inner._empty_file() if hasattr(self.inner, "_empty_file") else "/dev/null"
         writes = {n for p in writable for n in _names(p)}
+        # places shown under a link's name and their real one; not a link a session could have left (in a place it
+        # writes), nor one that leads into itself
+        pairs = sorted({(given, real) for given, real in (_names(p) for p in [*writable, *readable, *visible]
+                                                          if len(_names(p)) == 2)
+                        if not any(self._under(given, w) for w in writes)
+                        and not (self._under(given, real) or self._under(real, given))})
         mine = {n for p in [*(kw.get("writable") or ()), *home, *(kw.get("readable") or ()), *self.keep]
                 for n in _names(p)}                    # this call's places and `keep`: visible even when hidden
+        own = {n for p in [*writable, *readable] for n in _names(p)}
+        mounts = _mounted(args[start:cut]) | own        # everything the sandbox puts inside
 
         def within(name: str, places) -> bool:
             return any(name == p or self._under(name, p) for p in places)
 
         def aliased(name: str) -> set[str]:
-            """`name`, and the same path below every place bound under a link's name and under its real one."""
+            """`name`, and the same path below every place bound under a link's name and under its real one (at most
+            64 names: the places are the configuration's, and a name is not mapped twice by one pair)."""
             out, todo = set(), [name]
-            for _ in range(len(pairs) + 1):
-                todo = [n for n in todo if n not in out]
-                out.update(todo)
-                todo = [b + n[len(a):] for n in todo for given, real in pairs
-                        for a, b in ((real, given), (given, real)) if n == a or self._under(n, a)]
+            while todo and len(out) < 64:
+                n = todo.pop()
+                if n in out:
+                    continue
+                out.add(n)
+                todo += [b + n[len(a):] for given, real in pairs for a, b in ((real, given), (given, real))
+                         if n == a or self._under(n, a)]
             return out
 
         def planted(given: str) -> bool:
@@ -790,9 +819,14 @@ class HidingSandbox:
 
         def names_of(path) -> list[str]:
             given = os.path.abspath(os.path.expanduser(str(path)))
+            real = os.path.realpath(given)
             if planted(given):
-                return []
-            return [n for n in aliased(os.path.realpath(given)) if os.path.exists(n)]
+                if not os.path.exists(real) or any(real == m or self._under(m, real) for m in mounts):
+                    return []                            # a place itself, one holding a place, or nothing
+                holder = max((m for m in mounts if self._under(real, m)), key=len, default=None)
+                if holder not in own:
+                    return []                            # the system, the interpreter, the sandbox's own files
+            return [n for n in aliased(real) if os.path.exists(n)]
 
         def cover(name: str) -> list[str]:
             return ["--tmpfs", name] if os.path.isdir(name) else ["--ro-bind", empty, name]
@@ -808,6 +842,8 @@ class HidingSandbox:
                 for n in _names(path):
                     if os.path.exists(n) and within(n, covered) and (n in mine or n not in hidden):
                         flags[n] = flags.get(n) or flag                     # writable wins over readable
+        for n in [n for n in flags if os.path.islink(n) and any(self._under(n, m) for m in flags)]:
+            del flags[n]                                 # there through the place it lies in, as the link it is
         masks = {n for p in [*getattr(self.inner, "masked", []), *(kw.get("masked") or ())] for n in _names(p)
                  if os.path.exists(n)}
         recover = {h for h in [*hidden, *masks] if h not in flags and any(self._under(h, n) for n in flags)}

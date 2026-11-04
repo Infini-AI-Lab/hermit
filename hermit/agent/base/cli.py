@@ -128,9 +128,20 @@ def _in_places(path, places) -> bool:
 
 def _session_output(path, places) -> None:
     """Before this process opens `path` for a session's output (its event stream, its stderr). In a place the session
-    can write (`places`: its home, its workspace, the writable paths) anything there but a regular file is removed
-    (`_clear`): a link would be written through, a pipe would block, a directory would stop the write. A path
-    elsewhere is the caller's own (a log file, `/dev/stderr`, a collector's pipe) and is opened as it is."""
+    can write (`places`: its home, its workspace, the writable paths) a link on the way below the place is removed
+    and real directories made, and anything at the path but a regular file is removed (`_clear`): a link would be
+    written through, a pipe would block, a directory would stop the write. A path elsewhere is the caller's own (a
+    log file, `/dev/stderr`, a collector's pipe) and is opened as it is."""
+    given = os.path.abspath(str(path))
+    for root in sorted({os.path.abspath(str(p)) for p in places}, key=len, reverse=True):
+        if given.startswith(root.rstrip("/") + "/"):
+            current = root
+            for part in Path(given).relative_to(root).parts[:-1]:
+                current = os.path.join(current, part)
+                if os.path.islink(current) or (os.path.lexists(current) and not os.path.isdir(current)):
+                    os.unlink(current)                  # never followed: the session could have left it
+                os.makedirs(current, exist_ok=True)
+            break
     if _in_places(path, places):
         _clear(path)
 
