@@ -118,15 +118,30 @@ def _clear(path) -> None:
             os.unlink(path)
 
 
-def _not_ours(path) -> None:
-    """Before this process opens `path` for a session's output: a link, a pipe or a socket left there is removed
-    (written through or blocking otherwise); a device or a directory the caller named is left as it is."""
+def _in_places(path, places) -> bool:
+    """Whether `path` lies in one of `places` (under its given or its real name)."""
+    given = os.path.abspath(str(path))
+    names = {given, os.path.join(os.path.realpath(os.path.dirname(given)), os.path.basename(given))}
+    roots = {n for p in places for n in (os.path.abspath(str(p)), os.path.realpath(str(p)))}
+    return any(n == r or n.startswith(r.rstrip("/") + "/") for n in names for r in roots)
+
+
+def _session_output(path, places) -> None:
+    """Before this process opens `path` for a session's output (its event stream, its stderr). In a place the session
+    can write (`places`: its home, its workspace, the writable paths) anything there but a regular file is removed
+    (`_clear`): a link would be written through, a pipe would block, a directory would stop the write. A path
+    elsewhere is the caller's own (a log file, `/dev/stderr`, a collector's pipe) and is opened as it is."""
+    if _in_places(path, places):
+        _clear(path)
+
+
+def _identity(path):
+    """The regular file at `path` (followed: a caller's path may be a link), as (device, inode), or None."""
     try:
-        mode = os.lstat(path).st_mode
+        st = os.stat(path)
     except OSError:
-        return
-    if stat.S_ISLNK(mode) or stat.S_ISFIFO(mode) or stat.S_ISSOCK(mode):
-        os.unlink(path)
+        return None
+    return (st.st_dev, st.st_ino) if stat.S_ISREG(st.st_mode) else None
 
 
 def _real_dir(path: Path) -> Path:
@@ -489,9 +504,13 @@ class CliAgent(BaseAgent):
         else:
             stream = home / f"agent-{self.backend}.jsonl"
         stream.parent.mkdir(parents=True, exist_ok=True)
-        _not_ours(stream)                               # written by this process: never through a link left there
+        places = (home, workspace, *(s.get("writable") or ()), *getattr(sandbox, "writable", ()))  # the session's
+        _session_output(stream, places)                 # written by this process: never through a link left there
         if s.get("stderr_log"):
-            _not_ours(s["stderr_log"])
+            _session_output(s["stderr_log"], places)
+        if not os.path.exists(stream):
+            stream.touch()
+        wrote = _identity(stream)                       # the file the session's stream goes to
         last_file = home / "last_message.txt"
         _clear(last_file)
         last_file.unlink(missing_ok=True)
@@ -558,9 +577,9 @@ class CliAgent(BaseAgent):
                 path.unlink(missing_ok=True)                              # the sign-in does not outlive the call
             if failed and fresh:
                 shutil.rmtree(home, ignore_errors=True)
-        # The stream is read only as the regular file this process wrote: a session that could write its directory
-        # and put a link (or a pipe) there has left nothing of it to read.
-        readable = stream if _regular(stream) else Path(os.devnull)
+        # The stream is read back only from the file this process wrote: a session that could write its directory
+        # and put a link (or a pipe, or another file) there has left nothing of it to read.
+        readable = stream if wrote is not None and _identity(stream) == wrote else Path(os.devnull)
         raw = readable.read_text(encoding="utf-8", errors="replace") if readable is stream else ""
         notes = notices(self.backend, raw)
         reply = last_message(self.backend, readable, last_file)
@@ -575,7 +594,7 @@ class CliAgent(BaseAgent):
         return Result(reply=reply, trajectory=steps, usage=usage, session=handle, exit_code=code,
                       timed_out=timed_out, log=stream,
                       extra={"served": served(self.backend, raw), "unavailable": bool(UNAVAILABLE.search(notes)),
-                             "refused": codex_login.refused(notes),
+                             "refused": codex_login.refused(notes) and not served(self.backend, raw),
                              "started": any(line.lstrip().startswith("{") for line in raw.splitlines()),
                              "cancelled": cancelled, "isolation": isolation, "wall_s": round(wall_s, 1),
                              "output_tail": raw[-2000:]})

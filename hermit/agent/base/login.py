@@ -122,15 +122,25 @@ def remove(path: Path, within: Path) -> None:
         path.unlink()
 
 
+def _account(path: Path):
+    """The ChatGPT account a login file is for (`tokens.account_id`), or None."""
+    try:
+        tokens = json.loads(Path(path).read_text()).get("tokens")
+        return tokens.get("account_id") if isinstance(tokens, dict) else None
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
 def take_back(root: Path, path: Path, within: Path | None = None) -> None:
     """A login file a session left: the shared copy if it is a later refresh of it (a regular file, never one read
-    through a link: none below `within`, the directory the caller trusts, and not the file itself)."""
+    through a link: none below `within`, the directory the caller trusts, and not the file itself) for the same
+    account (a session could write another account's login there)."""
     master = Path(root) / "login" / FILE
     if not _plain(path, Path(within) if within is not None else Path(path).parent) or not master.is_file():
         return
     with open(master.parent / ".lock", "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        if _newer(path, master):
+        if _newer(path, master) and _account(path) == _account(master):
             _replace(path, master)
 
 

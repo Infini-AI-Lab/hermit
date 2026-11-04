@@ -60,6 +60,8 @@ if (home / "auth.json").exists():
 for e in json.loads({json.dumps(json.dumps(EVENTS))}):
     print(json.dumps(e))
 last.write_text("Done.\\n<answer>44,463</answer>")
+if os.environ.get("FAKE_LATE_LIMIT"):                  # the plan's limit reported after a turn it served
+    print(json.dumps({{"type": "error", "message": "You've hit your usage limit. Try again later."}}))
 if os.environ.get("FAKE_LINK_AUTH"):                   # the session leaves links in its home
     (home / "auth.json").unlink()
     (home / "auth.json").symlink_to(os.environ["FAKE_LINK_AUTH"])
@@ -755,6 +757,25 @@ def test_take_back_reads_no_login_through_a_linked_directory(tmp_path):
     assert "refreshed" in master.read_text()                          # a real refresh is still taken back
 
 
+def test_take_back_keeps_the_shared_login_to_its_account(tmp_path):
+    """A session can write its home's login: a later one for another ChatGPT account is not taken back."""
+    import datetime
+    from hermit.agent.base import login as L
+    root = tmp_path / "root"
+    (root / "login").mkdir(parents=True)
+    master = root / "login" / "auth.json"
+    master.write_text(json.dumps({"last_refresh": "2026-01-01T00:00:00Z", "tokens": {"account_id": "mine"}}))
+    now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / "auth.json").write_text(json.dumps({"last_refresh": now, "tokens": {"account_id": "theirs"}}))
+    L.take_back(root, home / "auth.json", within=home)
+    assert "theirs" not in master.read_text()
+    (home / "auth.json").write_text(json.dumps({"last_refresh": now, "tokens": {"account_id": "mine"}, "n": 2}))
+    L.take_back(root, home / "auth.json", within=home)
+    assert '"n": 2' in master.read_text()                             # the same account's refresh is taken back
+
+
 def test_a_login_copy_below_a_rollouts_directory_is_removed_without_following_links(tmp_path):
     from hermit.agent.base import login as L
     target = tmp_path / "users-codex"
@@ -785,8 +806,31 @@ def test_a_ledger_the_session_rewrote_is_no_earlier_total(tmp_path):
     assert (u.input_tokens, u.output_tokens) == (500, 30)            # an honest earlier total still counts
 
 
-def test_a_callers_dev_null_stderr_log_is_left_as_it_is(fake):
+def test_a_callers_own_output_paths_are_left_as_they_are(fake):
+    """The caller's `stderr_log` and `log` (a device, a link the caller made) are opened as they are, never
+    removed; in the session's own home, whatever it left at the stream's path (a directory) is replaced."""
     (fake / "w").mkdir()
+    for path in (os.devnull, "/dev/stderr"):
+        result = make("codex", {"web_search": False, "model": "gpt-x", "home_files": [],
+                                "stderr_log": path}).run("go", workspace=fake / "w")
+        assert result.reply.endswith("<answer>44,463</answer>") and os.path.exists(path)
+    (fake / "logs").mkdir()
+    (fake / "logs" / "kept.jsonl").write_text("")
+    (fake / "logs" / "agent-codex.jsonl").symlink_to(fake / "logs" / "kept.jsonl")
     result = make("codex", {"web_search": False, "model": "gpt-x", "home_files": [],
-                            "stderr_log": os.devnull}).run("go", workspace=fake / "w")
-    assert result.reply.endswith("<answer>44,463</answer>") and os.path.exists(os.devnull)
+                            "log": str(fake / "logs" / "agent-codex.jsonl")}).run("go", workspace=fake / "w")
+    assert (fake / "logs" / "agent-codex.jsonl").is_symlink() and result.trajectory and result.extra["served"]
+    home = fake / "kept-home"
+    (home / "agent-codex.jsonl").mkdir(parents=True)        # what a session left at its stream's path
+    result = make("codex", {"web_search": False, "model": "gpt-x", "home_files": [],
+                            "home": str(home)}).run("go", workspace=fake / "w")
+    assert result.extra["served"] and (home / "agent-codex.jsonl").is_file()
+
+
+def test_a_session_the_plan_served_is_not_refused(fake, monkeypatch):
+    monkeypatch.setenv("FAKE_LATE_LIMIT", "1")
+    (fake / "w").mkdir()
+    result = make("codex", {"web_search": False, "model": "gpt-x", "home_files": []}).run("go", workspace=fake / "w")
+    assert result.extra["served"] and not result.extra["refused"] and result.reply.endswith("<answer>44,463</answer>")
+
+

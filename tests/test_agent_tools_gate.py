@@ -123,6 +123,57 @@ def test_a_hidden_link_to_a_place_the_sandbox_does_not_show_still_lets_the_call_
 
 
 @pytest.mark.skipif(not __import__("shutil").which("bwrap"), reason="needs bubblewrap")
+def test_links_among_hidden_paths_and_the_places_a_call_is_given(tmp_path):
+    """A hidden entry that is a link no session could have left (outside every place one writes) has what it leads
+    to covered, inside a place the session reads or writes too; one a session could have left covers nothing, so a
+    link to the system leaves the call running; a hidden path is covered under the link's name of a place the
+    sandbox shows it by; a place given by a link's name below a hidden directory comes back under both names; a
+    place the call is given and keeps stays visible when it is also hidden."""
+    import subprocess
+    from hermit.sandbox import Sandbox
+    ws = tmp_path / "ws"
+    (ws / "answers").mkdir(parents=True)
+    (ws / "answers" / "a.txt").write_text("wans\n")
+    (ws / "mine.txt").write_text("mine\n")
+    data = tmp_path / "data"                               # a place the session reads
+    (data / "answers").mkdir(parents=True)
+    (data / "answers" / "a.txt").write_text("rans\n")
+    conf = tmp_path / "conf"                               # configured links, where no session writes
+    conf.mkdir()
+    (conf / "to-data").symlink_to(data / "answers")
+    (conf / "to-ws").symlink_to(ws / "answers")
+    for i, target in enumerate(["/usr", "/lib64" if os.path.exists("/lib64") else "/lib"]):
+        (ws / f"planted{i}").symlink_to(target)            # what a session could leave where it writes
+    real = tmp_path / "real"                               # shown by the sandbox under a link's name
+    real.mkdir()
+    (real / "secret.txt").write_text("s\n")
+    (tmp_path / "alias").symlink_to(real)
+    hid = tmp_path / "hid"                                 # a place given by a link's name below a hidden directory
+    (hid / "run" / "ws_real").mkdir(parents=True)
+    (hid / "run" / "ws_real" / "f.txt").write_text("f\n")
+    (hid / "run" / "wslink").symlink_to(hid / "run" / "ws_real")
+    (hid / "other.txt").write_text("o\n")
+    task = tmp_path / "task_info"
+    task.mkdir()
+    (task / "t.md").write_text("task\n")
+    box = Sandbox(network="open", writable=[ws, hid / "run" / "wslink"], readable=[data, tmp_path / "alias"])
+    hiding = HidingSandbox(box, [conf / "to-data", conf / "to-ws", ws / "planted0", ws / "planted1", real,
+                                 hid, task], keep=[task])
+
+    def shows(*paths) -> list[str]:
+        script = "; ".join(f"cat {p} 2>/dev/null || echo ABSENT" for p in paths)
+        args, env = hiding.wrap(["sh", "-c", script], env=dict(os.environ), readable=[task])
+        out = subprocess.run(args, env=env, capture_output=True, text=True, timeout=60)
+        assert out.returncode == 0, out.stderr
+        return out.stdout.split()
+    assert shows(data / "answers" / "a.txt", ws / "answers" / "a.txt", ws / "mine.txt") == ["ABSENT", "ABSENT", "mine"]
+    assert shows(tmp_path / "alias" / "secret.txt", real / "secret.txt") == ["ABSENT", "ABSENT"]
+    assert shows(hid / "run" / "wslink" / "f.txt", hid / "run" / "ws_real" / "f.txt", hid / "other.txt") == \
+        ["f", "f", "ABSENT"]
+    assert shows(task / "t.md") == ["task"]
+
+
+@pytest.mark.skipif(not __import__("shutil").which("bwrap"), reason="needs bubblewrap")
 def test_nested_places_links_and_system_paths_under_hiding(tmp_path):
     """A place the session is given below a hidden directory stays, and what is hidden inside it stays covered; a
     hidden entry that is a link to the session's own workspace leaves the workspace as it is; a hidden file under

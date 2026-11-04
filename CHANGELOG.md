@@ -209,21 +209,25 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   `usage/` received the usage ledger (a pipe there blocked the call), a linked last-message file was read as the
   reply, and a linked stream as the session's events; before the next session in a kept home, its config, the
   sign-in copy and the login's temporary copy were written through links left there; a rollout's login copies were
-  taken back and deleted through linked directories (`isolate.py`). None of these follows a link now, and a usage
-  ledger the session rewrote (malformed, or over what Codex reports) is not taken for the thread's earlier total.
-  Harness²'s channel reads its session's stream and stderr file the same way.
+  taken back and deleted through linked directories (`isolate.py`). None of these follows a link now, a usage
+  ledger the session rewrote (malformed, or over what Codex reports) is not taken for the thread's earlier total,
+  and a login for another ChatGPT account is never taken back. The stream is read back only from the file the Base
+  Agent opened for it; the caller's own paths (`log`, `stderr_log`: a device, a pipe, a link) are opened as they
+  are. Harness²'s channel reads its session's stream and stderr file the same way.
 - `unavailable` and a ChatGPT plan's refusal were read from the whole stream, so a session whose own work quoted an
   outage or a usage limit (a log it searched) was retried as the provider's failure or held for the plan. They are
   read from the CLI's own messages and error events now; `served` is read from the events, not the text, and the
-  result says `extra["refused"]`.
-- A hidden path (`Limits.hidden`, `AgentEvolver`'s `hide`) was covered under its real name only, so a workspace
-  reached through a link left it visible under the link's name; and hiding the framework's `examples/` covered a run
-  kept below it, workspace and all. A hidden path is now also covered by the name it was given where the sandbox
-  binds a place under a link's name, and the places the session is given (its writable and readable paths, the task
-  description) are bound back on top of a covered directory, shallowest first, with what is hidden below them (a
-  hidden path, the sandbox's masks) covered again after them (`hermit/sandbox.py`, `HidingSandbox`). A hidden entry
-  that is itself a link has what it leads to covered, unless that overlaps a place the session is given or the
-  sandbox needs: a session that can write where a method hides every entry cannot choose what the next call loses.
+  result says `extra["refused"]` (never for a session that was served).
+- A hidden path (`Limits.hidden`, `AgentEvolver`'s `hide`) was covered under its real name only, so a place the
+  sandbox shows under a link's name (a workspace reached through a link, a venv under a linked cache) left it
+  visible there; and hiding the framework's `examples/` covered a run kept below it, workspace and all. A hidden path
+  is now covered under every name the sandbox shows it by, and the places the session is given (its writable and
+  readable paths, the task description) are bound back on top of a covered directory, shallowest first and under
+  each of their names, with what is hidden below them (a hidden path, the sandbox's masks) covered again after them
+  (`hermit/sandbox.py`, `HidingSandbox`). A place the call gives or keeps stays visible when it is also hidden, as
+  before; one only the sandbox gives stays hidden. A path reached through a link inside a place the session can
+  write is not covered: a session that can write where a method hides every entry cannot choose what the next call
+  loses (the system, its workspace).
 - The Trainer dropped the usage an Evolver call reported when the hard budget stopped it; it is counted.
 - Codex's trajectory left out failed turns, web searches, to-do lists and an MCP call's arguments and result (the
   result is the step's `output`), and a log directory whose stream had another name (a Harbor trial's

@@ -727,14 +727,15 @@ class HidingSandbox:
     """A sandbox with paths covered: a directory by an empty tmpfs, a file by an empty file. Subtractive, until the
     sandbox is a positive allowlist.
 
-    A hidden path is covered by its real name, and also by the name it was given when that name lies in a place the
-    sandbox binds under a link's name (a workspace reached through a link shows it there too). An entry that is
-    itself a link has what it leads to covered, unless that overlaps a place the session is given or one the sandbox
-    needs (the framework, the interpreter): a session that can write where a method hides every entry would otherwise
-    choose what the next call loses. The places the session is given to work in (the sandbox's and the
-    call's writable and readable paths, and `keep`: the task description under a hidden tree) are bound back on top
-    when they lie below a covered path, shallowest first, and what is hidden below them (a hidden path, the
-    sandbox's masks) is covered again after them."""
+    A hidden path is covered under every name the sandbox shows it by: its real one, and the same path below a place
+    the sandbox binds under a link's name and its real one (a workspace reached through a link, a venv under a linked
+    cache). A path reached through a link inside a place the session can write (the call's or the sandbox's writable
+    paths) is not covered: the session could have left that link, and a method that hides every entry of such a place
+    would let it choose what the next call loses (the system, the workspace). The places the session is given (the
+    sandbox's and the call's writable and readable paths, and `keep`: the task description under a hidden tree) are
+    bound back on top when they lie below a covered path, shallowest first, under each of their names, and what is
+    hidden below them (a hidden path, the sandbox's masks) is covered again after them. A place equal to a hidden path
+    stays visible when the call gives it or it is kept, and hidden when only the sandbox does."""
 
     def __init__(self, inner, hidden: list[Path], keep: list[Path] = ()):
         self.inner, self.hidden, self.keep = inner, list(hidden), list(keep)
@@ -752,51 +753,66 @@ class HidingSandbox:
         if start is None or "--" not in args[start:]:
             return args, env
         cut = args.index("--", start)
-        writable = [*getattr(self.inner, "writable", []), *(kw.get("writable") or ()),
-                    *([kw["home"]] if kw.get("home") else [])]
+        home = [kw["home"]] if kw.get("home") else []
+        writable = [*getattr(self.inner, "writable", []), *(kw.get("writable") or ()), *home]
         readable = [*getattr(self.inner, "readable", []), *getattr(self.inner, "read", []),
                     *(kw.get("readable") or ()), *self.keep]
-        aliases = [_names(p)[0] for p in [*writable, *readable] if len(_names(p)) == 2]
-        empty = self.inner._empty_file() if hasattr(self.inner, "_empty_file") else "/dev/null"
-
         visible = getattr(self.inner, "visible", lambda command: [])(command)
-        own = {n for p in [*writable, *readable, *visible] for n in _names(p)}
+        pairs = [tuple(_names(p)) for p in [*writable, *readable, *visible] if len(_names(p)) == 2]
+        empty = self.inner._empty_file() if hasattr(self.inner, "_empty_file") else "/dev/null"
+        writes = {n for p in writable for n in _names(p)}
+        mine = {n for p in [*(kw.get("writable") or ()), *home, *(kw.get("readable") or ()), *self.keep]
+                for n in _names(p)}                    # this call's places and `keep`: visible even when hidden
 
-        def overlaps(name: str) -> bool:
-            return any(name == o or self._under(name, o) or self._under(o, name) for o in own)
+        def within(name: str, places) -> bool:
+            return any(name == p or self._under(name, p) for p in places)
+
+        def aliased(name: str) -> set[str]:
+            """`name`, and the same path below every place bound under a link's name and under its real one."""
+            out, todo = set(), [name]
+            for _ in range(len(pairs) + 1):
+                todo = [n for n in todo if n not in out]
+                out.update(todo)
+                todo = [b + n[len(a):] for n in todo for given, real in pairs
+                        for a, b in ((real, given), (given, real)) if n == a or self._under(n, a)]
+            return out
+
+        def planted(given: str) -> bool:
+            """Whether the way to `given` passes a link inside a place the session can write."""
+            parts = given.split("/")
+            for i in range(2, len(parts) + 1):
+                step = "/".join(parts[:i])
+                if os.path.islink(step):
+                    there = os.path.join(os.path.realpath(os.path.dirname(step)), os.path.basename(step))
+                    if any(self._under(step, w) or self._under(there, w) for w in writes):
+                        return True
+            return False
 
         def names_of(path) -> list[str]:
             given = os.path.abspath(os.path.expanduser(str(path)))
-            real = os.path.realpath(given)
-            if os.path.islink(given):
-                # an entry that is itself a link: what it leads to is covered, unless that is (or holds, or lies in)
-                # a place the session is given or the sandbox needs: a session that can write where a method hides
-                # every entry would otherwise choose what the next call loses
-                return [real] if os.path.exists(real) and not overlaps(real) else []
-            out = [real] + ([given] if given != real and any(given == a or self._under(given, a)
-                                                             for a in aliases) else [])
-            return [n for n in out if os.path.exists(n)]
+            if planted(given):
+                return []
+            return [n for n in aliased(os.path.realpath(given)) if os.path.exists(n)]
 
         def cover(name: str) -> list[str]:
             return ["--tmpfs", name] if os.path.isdir(name) else ["--ro-bind", empty, name]
         hidden = sorted({n for p in self.hidden for n in names_of(p)}, key=len)
         out, covered = [], []
         for h in hidden:
-            if not any(h == c or self._under(h, c) for c in covered):     # below a covered one: hidden already
+            if not within(h, covered):                 # below a covered one: hidden already
                 covered.append(h)
                 out += cover(h)
         flags: dict[str, str] = {}
         for flag, paths in (("--bind", writable), ("--ro-bind", readable)):
             for path in paths:
                 for n in _names(path):
-                    if os.path.exists(n) and not os.path.islink(n) and n not in hidden and \
-                            any(self._under(n, c) for c in covered):
+                    if os.path.exists(n) and within(n, covered) and (n in mine or n not in hidden):
                         flags[n] = flags.get(n) or flag                     # writable wins over readable
         masks = {n for p in [*getattr(self.inner, "masked", []), *(kw.get("masked") or ())] for n in _names(p)
                  if os.path.exists(n)}
-        recover = {h for h in [*hidden, *masks] if any(self._under(h, n) for n in flags)}
+        recover = {h for h in [*hidden, *masks] if h not in flags and any(self._under(h, n) for n in flags)}
         # shallowest first, a place bound back before what is covered below it
         for name, kind in sorted([(n, "bind") for n in flags] + [(h, "cover") for h in recover],
                                  key=lambda x: (len(x[0]), x[1] == "cover")):
-            out += [flags[name], name, name] if kind == "bind" else cover(name)
+            out += [flags[name], os.path.realpath(name), name] if kind == "bind" else cover(name)
         return args[:cut] + out + args[cut:], env
