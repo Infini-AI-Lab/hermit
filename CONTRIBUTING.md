@@ -33,7 +33,7 @@ The tests are in groups ([tests/README.md](tests/README.md)): `tests/core/` for 
 but documentation, a method's group for its own files, and every group for a shared layer every method is built on
 (the Base Agents, the acting agents, the Evolver base classes, the Trainer, the sandbox, the hosts' deployment, the
 test helpers). The header says which groups ran and why. Some methods' tests need the method's dependency group
-(`gepa`, `skillopt`, `harness2`, `ace`, `rrsi`; pip 25.1+) and skip without it:
+(`gepa`, `skillopt`, `harness2`, `rrsi`; pip 25.1+) and skip without it:
 
 ```bash
 python -m pip install -e '.[test]' --group all

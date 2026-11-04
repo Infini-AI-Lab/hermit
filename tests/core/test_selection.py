@@ -33,6 +33,8 @@ def test_a_methods_own_files_run_its_group_and_core():
 
 def test_shared_layers_and_unknown_paths_run_everything():
     for path in ("hermit/agent/base/cli.py", "hermit/agent/evolver/base.py", "hermit/trainer/trainer.py",
+                 "hermit/adapter/templates/ace/.hermit/adapter.yaml",      # every `<id>@<version>` is resolved
+                                                                           # through all of them
                  "hermit/sandbox.py", "hermit/hosts/codex.py", "tests/conftest.py", "tests/toy_task.py",
                  "pyproject.toml", "hermit/adapter/templates/prompt_only/ADAPTER.md", "Makefile"):
         assert groups_for(path) is None, path
@@ -70,7 +72,7 @@ def test_every_method_and_template_belongs_to_a_group_with_tests():
     for name in methods:
         assert groups_for(f"hermit/agent/evolver/methods/{name}/evolver.py") - {"core"}, name
     for name in templates:
-        assert groups_for(f"hermit/adapter/templates/{name}/.hermit/adapter.yaml") - {"core"}, name
+        assert groups_for(f"hermit/adapter/templates/{name}/.hermit/check.py") - {"core"}, name
     groups = {p.name for p in (ROOT / "tests/methods").iterdir() if p.is_dir() and not p.name.startswith("__")}
     assert groups == set(METHODS)
 

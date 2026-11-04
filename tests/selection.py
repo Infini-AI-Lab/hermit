@@ -66,6 +66,8 @@ NONE = ["docs/*", "*.md", "tests/README.md", "LICENSE", "NOTICE", ".github/*", "
 
 def groups_for(path: str) -> set[str] | None:
     """The groups a changed path needs; None: every group."""
+    if fnmatch(path, "hermit/adapter/templates/*/.hermit/adapter.yaml"):
+        return None                                 # a template's id and version: Config.template_dir reads them all
     for name, patterns in METHODS.items():
         if path.startswith(f"tests/methods/{name}/") or any(fnmatch(path, p) for p in patterns):
             return {name, "core", *READ_BY.get(name, ())}
