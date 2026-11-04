@@ -25,8 +25,11 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "integration: needs an agent CLI installed on the machine; runs with --integration")
     config._changed_groups = None                   # None: every group
     if config.getoption("--changed"):
-        from selection import changed_paths, select
-        groups, why = select(changed_paths(config.getoption("--base"), TESTS.parent))
+        from selection import NoBase, changed_paths, select
+        try:
+            groups, why = select(changed_paths(config.getoption("--base"), TESTS.parent))
+        except NoBase as exc:
+            raise pytest.UsageError(f"--changed: {exc}") from None
         config._changed_groups, config._changed_why = groups, why
 
 

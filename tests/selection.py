@@ -51,6 +51,8 @@ def groups_for(path: str) -> set[str] | None:
             return {name}
     if any(fnmatch(path, p) for p in SHARED):
         return None
+    if path.startswith("examples/") and path.count("/") <= 2 and path.endswith("README.md"):
+        return set()                                 # the examples' and a benchmark's description
     if path.startswith("examples/"):
         # a benchmark's shared files (utils/, data): every method with an example under that benchmark
         bench = path.split("/")[1]
@@ -82,12 +84,20 @@ def select(paths: list[str]) -> tuple[set[str] | None, dict[str, str]]:
     return chosen, why
 
 
+class NoBase(Exception):
+    """The merge base with the given ref cannot be found (no such ref, or a shallow clone without it)."""
+
+
 def changed_paths(base: str, cwd) -> list[str]:
     """Every path changed since the merge base with `base`: commits, the working tree and untracked files, a move
-    as both its paths."""
-    def git(*args):
-        return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=True).stdout
-    merge_base = git("merge-base", "HEAD", base).strip()
-    paths = git("diff", "--name-only", "--no-renames", merge_base).splitlines()
-    paths += git("ls-files", "--others", "--exclude-standard").splitlines()
-    return sorted({p for p in paths if p.strip()})
+    as both its paths. Names as git stores them, unquoted (-z)."""
+    def git(*args) -> subprocess.CompletedProcess:
+        return subprocess.run(["git", *args], cwd=cwd, capture_output=True)
+    found = git("merge-base", "HEAD", base)
+    if found.returncode != 0:
+        raise NoBase(f"no merge base of HEAD and {base!r} ({found.stderr.decode(errors='replace').strip()}): "
+                     "fetch it, or name another ref with --base")
+    merge_base = found.stdout.decode().strip()
+    out = git("diff", "-z", "--name-only", "--no-renames", merge_base).stdout
+    out += git("ls-files", "-z", "--others", "--exclude-standard").stdout
+    return sorted({p for p in out.decode("utf-8", errors="surrogateescape").split("\0") if p.strip()})

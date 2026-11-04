@@ -1,8 +1,11 @@
 """`pytest --changed` (tests/selection.py): a method's own change runs its group, a shared layer runs everything, and
 every method in the repository has a group."""
 from pathlib import Path
+import subprocess
 
-from selection import METHODS, groups_for, select
+import pytest
+
+from selection import METHODS, NoBase, changed_paths, groups_for, select
 
 ROOT = Path(__file__).resolve().parents[2]
 BUILT_IN = {"codex", "claude"}                   # the generic AgentEvolvers: tests/core
@@ -33,6 +36,8 @@ def test_the_rest_of_the_framework_runs_core_and_documentation_runs_nothing():
     assert groups_for("tests/core/test_deploy.py") == {"core"}
     assert groups_for("docs/methods/rrsi_adapter.md") == set()
     assert groups_for("README.md") == set()
+    assert groups_for("tests/README.md") == set()
+    assert groups_for("examples/officeqa/README.md") == set()
 
 
 def test_a_benchmarks_shared_files_run_the_methods_with_an_example_there():
@@ -56,3 +61,22 @@ def test_every_method_and_template_belongs_to_a_group_with_tests():
         assert groups_for(f"hermit/adapter/templates/{name}/.hermit/adapter.yaml") not in (None, {"core"}), name
     groups = {p.name for p in (ROOT / "tests/methods").iterdir() if p.is_dir() and not p.name.startswith("__")}
     assert groups == set(METHODS)
+
+
+def test_the_changed_paths_are_read_from_git_and_a_missing_base_is_said(tmp_path):
+    def git(*args):
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args], cwd=tmp_path, check=True,
+                       capture_output=True)
+    git("init", "-q", "-b", "main")
+    (tmp_path / "a.py").write_text("a\n")
+    (tmp_path / "old.py").write_text("o\n")
+    git("add", "-A")
+    git("commit", "-qm", "base")
+    git("switch", "-qc", "work")
+    git("mv", "old.py", "new name \u00e9.py")
+    git("commit", "-qm", "move")
+    (tmp_path / "a.py").write_text("b\n")                     # uncommitted
+    (tmp_path / "untracked.md").write_text("u\n")
+    assert changed_paths("main", tmp_path) == ["a.py", "new name \u00e9.py", "old.py", "untracked.md"]
+    with pytest.raises(NoBase, match="no-such-ref"):
+        changed_paths("no-such-ref", tmp_path)
