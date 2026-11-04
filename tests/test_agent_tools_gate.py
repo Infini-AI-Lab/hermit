@@ -64,3 +64,37 @@ def test_agent_evolver_gates_the_tools(tmp_path, monkeypatch):
     Trainer(cfg, log=lambda *_: None).train()
     steps = [json.loads(l) for l in (tmp_path / "runs/toy-run/steps.jsonl").read_text().splitlines()]
     assert steps[0]["evolver"]["summary"] == "tools=check_spec gated=True"
+
+
+@pytest.mark.skipif(not __import__("shutil").which("bwrap"), reason="needs bubblewrap")
+def test_hidden_paths_are_covered_under_every_name_and_the_runs_own_places_stay(tmp_path):
+    """A hidden directory is covered under the name it was given and its real one (a workspace reached through a
+    link shows it under both); the places the session is given to work in, when they lie below a hidden directory
+    (a run kept under the framework's examples/), stay visible, and what is hidden below them stays covered."""
+    import subprocess
+    from hermit.sandbox import Sandbox
+    examples = tmp_path / "examples"                      # stands for the framework's examples/: task data, a run
+    (examples / "data").mkdir(parents=True)
+    (examples / "data" / "answers.txt").write_text("42\n")
+    run = examples / "task" / "runs" / "r"
+    for area in ("state", "adapter", "material"):
+        (run / area).mkdir(parents=True)
+    (run / "adapter" / "ADAPTER.md").write_text("mine\n")
+    (run / "material" / "secret.txt").write_text("hidden from this call\n")
+    real = tmp_path / "real"
+    (real / "records").mkdir(parents=True)
+    (real / "records" / "log.txt").write_text("hidden\n")
+    (tmp_path / "alias").symlink_to(real)
+    alias = tmp_path / "alias"
+    box = Sandbox(network="open", writable=[run / "state", run / "adapter", alias],
+                  readable=[run / "material"])
+    hiding = HidingSandbox(box, [examples, run / "material", alias / "records"])
+
+    def shows(path) -> str:
+        args, env = hiding.wrap(["sh", "-c", f"cat {path} 2>/dev/null || echo ABSENT"], env=dict(os.environ))
+        return subprocess.run(args, env=env, capture_output=True, text=True, timeout=60).stdout.strip()
+    assert shows(examples / "data" / "answers.txt") == "ABSENT"              # the hidden tree's own files
+    assert shows(run / "adapter" / "ADAPTER.md") == "mine"                   # the run's places below it stay
+    assert shows(run / "material" / "secret.txt") == "ABSENT"               # hidden below them: covered again
+    assert shows(alias / "records" / "log.txt") == "ABSENT"                  # under the link's name
+    assert shows(real / "records" / "log.txt") == "ABSENT"                   # and under the real one

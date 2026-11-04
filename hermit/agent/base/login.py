@@ -77,10 +77,30 @@ def keep_refreshed(root: Path, home: Path) -> None:
     take_back(root, Path(home) / FILE)
 
 
+def _plain(path: Path, home: Path | None = None) -> bool:
+    """Whether `path` is a regular file reached through no link below `home`: a session can write its home, and a
+    link it leaves there (to another login, to any file) is never read as the session's own."""
+    path = Path(path)
+    if path.is_symlink() or not path.is_file():
+        return False
+    if home is not None:
+        try:
+            rel = path.relative_to(home)
+        except ValueError:
+            return False
+        current = Path(home)
+        for part in rel.parts[:-1]:
+            current = current / part
+            if current.is_symlink():
+                return False
+    return True
+
+
 def take_back(root: Path, path: Path) -> None:
-    """A login file a session left: the shared copy if it is a later refresh of it."""
+    """A login file a session left: the shared copy if it is a later refresh of it (a regular file, never one read
+    through a link the session left)."""
     master = Path(root) / "login" / FILE
-    if not Path(path).is_file() or not master.is_file():
+    if not _plain(path, Path(path).parent) or not master.is_file():
         return
     with open(master.parent / ".lock", "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
@@ -232,7 +252,8 @@ def slot(plan: Path | str | None = None, cancel=None, log=None, deadline: float 
 
 def usage_of(home: Path) -> dict | None:
     """The plan's usage the latest session log under a Codex home reports (Codex's rate_limits), or None."""
-    logs = sorted(Path(home).glob("sessions/**/*.jsonl"), key=lambda p: p.stat().st_mtime)
+    logs = sorted((p for p in Path(home).glob("sessions/**/*.jsonl") if _plain(p, Path(home))),
+                  key=lambda p: p.stat().st_mtime)
     for log in reversed(logs):
         last = None
         for line in log.read_text(errors="replace").splitlines():

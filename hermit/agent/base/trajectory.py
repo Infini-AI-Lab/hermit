@@ -9,8 +9,8 @@ logs, so that every Evolver reads the same steps:
     text(steps, message=1200, output=600)   # one line per step, each field clipped from its start
 
 The streams read: Codex's `codex exec --json` events (`agent-codex.jsonl`) and Claude Code's stream-json
-(`agent-claude.jsonl`). A normalised message list (`RunOutput.messages`) is the pipeline's own rendering and is
-left to each Evolver.
+(`agent-claude.jsonl`), also under another name below a log directory (Harbor's `agent/codex.txt`). A normalised
+message list (`RunOutput.messages`) is the pipeline's own rendering and is left to each Evolver.
 """
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ from pathlib import Path
 CODEX_STREAM = "agent-codex.jsonl"
 CLAUDE_STREAM = "agent-claude.jsonl"
 STREAMS = (CODEX_STREAM, CLAUDE_STREAM)
+OTHER_STREAMS = ("codex.txt",)        # a host's stream under its own name (Harbor's agent/codex.txt: Codex's events)
 
 
 @dataclass
@@ -51,13 +52,18 @@ def events(path: Path) -> list[dict]:
 
 
 def codex_steps(stream: list[dict]) -> list[Step]:
-    """Codex's events: completed items (reasoning, messages, commands, file changes, MCP tool calls, sub-agent calls,
-    errors) and top-level errors; turn and item starts and usage are left out."""
+    """Codex's events: completed items (reasoning, messages, commands, file changes, MCP tool calls with their
+    arguments and result, web searches, to-do lists, sub-agent calls, errors), top-level errors and a failed turn;
+    turn and item starts and usage are left out."""
     steps = []
     for event in stream:
         kind, item = event.get("type"), event.get("item") or {}
         if kind == "error":
             steps.append(Step("error", str(event.get("message") or "")))
+            continue
+        if kind == "turn.failed":
+            error = event.get("error")
+            steps.append(Step("error", str(error.get("message") if isinstance(error, dict) else error or "")))
             continue
         if kind != "item.completed":
             continue
@@ -72,7 +78,17 @@ def codex_steps(stream: list[dict]) -> list[Step]:
         elif t == "file_change":
             steps.append(Step("file_change", json.dumps(item.get("changes") or item, default=str)))
         elif t == "mcp_tool_call":
-            steps.append(Step("tool_call", json.dumps({k: item.get(k) for k in ("server", "tool", "status")})))
+            steps.append(Step("tool_call", json.dumps({k: item.get(k) for k in ("server", "tool", "status",
+                                                                                 "arguments")},
+                                                      ensure_ascii=False, default=str),
+                              output=json.dumps(item.get("error") or item.get("result"), ensure_ascii=False,
+                                                default=str) if item.get("error") or item.get("result") else ""))
+        elif t == "web_search":
+            steps.append(Step("tool_call", json.dumps({"tool": "web_search", "query": item.get("query")},
+                                                      ensure_ascii=False, default=str)))
+        elif t == "todo_list":
+            steps.append(Step("tool_call", json.dumps({"tool": "todo_list", "items": item.get("items") or []},
+                                                      ensure_ascii=False, default=str)))
         elif t == "collab_tool_call":                  # a sub-agent: spawned with a prompt, waited for, its state
             steps.append(Step("tool_call", json.dumps({"server": "sub_agents", "tool": item.get("tool"),
                                                        "agents": item.get("receiver_thread_ids") or [],
@@ -128,14 +144,42 @@ def claude_steps(stream: list[dict]) -> list[Step]:
     return steps
 
 
+def _host(stream: list[dict]) -> str | None:
+    """Which host wrote a stream, by its events: Codex's (thread, turn and item events) or Claude Code's."""
+    kinds = {str(e.get("type")) for e in stream}
+    if kinds & {"thread.started", "turn.started", "turn.completed", "turn.failed", "item.completed"}:
+        return "codex"
+    if kinds & {"system", "assistant", "user", "result"}:
+        return "claude"
+    return None
+
+
+def _steps_of(path: Path, name: str | None = None) -> list[Step] | None:
+    stream = events(path)
+    host = "codex" if name == CODEX_STREAM else "claude" if name == CLAUDE_STREAM else _host(stream)
+    if host is None:
+        return None
+    return codex_steps(stream) if host == "codex" else claude_steps(stream)
+
+
 def log_steps(log: Path) -> list[Step] | None:
-    """The steps of a log (a directory, or one file): its host stream's, or None when it holds none."""
+    """The steps of a log (a directory, or one file): its host stream's, or None when it holds none. A directory's
+    stream is the one at its top under the host's name, else the first found below it under a known name (a Harbor
+    trial keeps Codex's events as agent/codex.txt); a file is read by its name, or by its events."""
     log = Path(log)
+    if log.is_file():
+        return _steps_of(log, log.name if log.name in STREAMS else None)
+    if not log.is_dir():
+        return None
     for name in STREAMS:
-        path = log / name if log.is_dir() else (log if log.name == name else None)
-        if path is not None and path.is_file():
-            stream = events(path)
-            return codex_steps(stream) if name == CODEX_STREAM else claude_steps(stream)
+        if (log / name).is_file():
+            return _steps_of(log / name, name)
+    for name in (*STREAMS, *OTHER_STREAMS):
+        for path in sorted(log.rglob(name)):
+            if path.is_file() and not path.is_symlink():
+                found = _steps_of(path, name if name in STREAMS else None)
+                if found is not None:
+                    return found
     return None
 
 

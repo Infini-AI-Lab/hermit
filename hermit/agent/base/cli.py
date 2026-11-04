@@ -41,6 +41,9 @@ Settings (given once; `configured(...)` for a call's own):
   stderr_log        the CLI's stderr in a file of its own (default: in the event stream, after stdout's lines)
   writable          more paths the session may write inside the run's sandbox (besides its home)
   env_drop          variables of this process's environment the session does not get
+  plan_rerun        on a ChatGPT login, a session the plan refused before it finished a turn is run again in the same
+                    workspace once the plan allows (default true); false: it is returned (`extra["refused"]`), for a
+                    caller that would rather start over from its own files
   Claude Code only: output_format (stream-json, or json: one result object), allowed_tools (its --tools),
   persist_session (false: --no-session-persistence), append_system_prompt, effort, permission_mode
 
@@ -129,9 +132,10 @@ def write_home(home: Path, settings: dict, roles: Sequence[dict] = (), tools_url
 
 
 def last_message(backend: str, log: Path, last: Path | None = None) -> str:
-    """The session's last message: Codex's `-o` file, else the last message in its stream; Claude Code's result."""
+    """The session's last message: Codex's `-o` file (never read through a link the session left), else the last
+    message in its stream; Claude Code's result."""
     if backend == "codex":
-        if last is not None and last.is_file() and last.read_text(errors="replace").strip():
+        if last is not None and not last.is_symlink() and last.is_file() and last.read_text(errors="replace").strip():
             return last.read_text(errors="replace")
         replies = [s.text for s in codex_steps(events(log)) if s.kind == "message"]
         return replies[-1] if replies else ""
@@ -142,10 +146,49 @@ def last_message(backend: str, log: Path, last: Path | None = None) -> str:
     return text
 
 
+def _objects(raw: str):
+    """(the JSON objects of a stream, the lines that are none): a CLI's events, and its own messages beside them."""
+    objects, other = [], []
+    for line in raw.splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            event = None
+        if isinstance(event, dict):
+            objects.append(event)
+        elif line.strip():
+            other.append(line)
+    return objects, other
+
+
 def served(backend: str, raw: str) -> bool:
-    """Whether the provider served the session: it finished a turn."""
-    marker = '"turn.completed"' if backend == "codex" else '"type":"result"'
-    return marker in raw.replace(" ", "")
+    """Whether the provider served the session: it finished a turn (an event of that type, not the words)."""
+    kind = "turn.completed" if backend == "codex" else "result"
+    return any(e.get("type") == kind for e in _objects(raw)[0])
+
+
+def notices(backend: str, raw: str) -> str:
+    """What the CLI itself reported, apart from the session's own work: its lines that are no event (its stderr),
+    and its error events (Codex: `error`, `turn.failed`, an `error` item; Claude Code: a failed `result`). A
+    message, a command's output or a file the session wrote is not among them, so a session that read the words of
+    an outage or of a usage limit (a log it grepped) is not taken for one that met it."""
+    objects, other = _objects(raw)
+    found = list(other)
+    for e in objects:
+        kind, item = e.get("type"), e.get("item") if isinstance(e.get("item"), dict) else {}
+        if backend == "codex":
+            if kind == "error":
+                found.append(str(e.get("message") or ""))
+            elif kind == "turn.failed":
+                error = e.get("error")
+                found.append(str(error.get("message") if isinstance(error, dict) else error or ""))
+            elif kind == "item.completed" and item.get("type") == "error":
+                found.append(str(item.get("message") or ""))
+        elif kind == "result" and e.get("is_error"):
+            found.append(str(e.get("result") or e.get("subtype") or ""))
+        elif kind == "error":
+            found.append(json.dumps(e.get("error") or e, default=str))
+    return "\n".join(found)
 
 
 ARG_MAX = 120_000            # bytes of one command-line argument to stay under (Linux allows 128 KiB per argument)
@@ -366,16 +409,20 @@ class CliAgent(BaseAgent):
                     continue
                 result = self._session(prompt, workspace=workspace, tools=tools, limits=limits, session=session,
                                        roles=roles)
-            if result.extra.get("served") or not codex_login.refused(result.extra.get("output_tail", "")):
+            if result.extra.get("served") or not result.extra.get("refused"):
                 return result
             codex_login.hold(plan)                  # never ran: no answer; every session waits for the window
+            if s.get("plan_rerun") is False:
+                say("a session was refused for the plan's usage limit; it is returned (plan_rerun: false)")
+                return result
             say("a session was refused for the plan's usage limit; it runs again once the plan allows")
 
     def _not_run(self, why: str, max_s) -> Result:
         """A session that never started: its caller stopped it, or the plan held it back past `plan_max_wait_s` (a
         provider that could not serve, for the caller to retry or report; no answer)."""
         tail = "" if why == "cancelled" else f"hermit: the plan held the session back for {max_s} s"
-        return Result(reply="", exit_code=-1, extra={"served": False, "unavailable": why == "timeout", "started": False,
+        return Result(reply="", exit_code=-1, extra={"served": False, "unavailable": why == "timeout", "refused": False,
+                                                     "started": False,
                                                      "cancelled": why == "cancelled", "isolation":
                                                      self.settings.get("isolation") or "none", "wall_s": 0.0,
                                                      "output_tail": tail})
@@ -465,6 +512,7 @@ class CliAgent(BaseAgent):
             if failed and fresh:
                 shutil.rmtree(home, ignore_errors=True)
         raw = stream.read_text(encoding="utf-8", errors="replace") if stream.is_file() else ""
+        notes = notices(self.backend, raw)
         reply = last_message(self.backend, stream, last_file)
         handle, usage = parse_log(stream, self.backend, (s.get("binding") or {}).get("ref") or s.get("model")
                                   or self.backend)
@@ -476,7 +524,8 @@ class CliAgent(BaseAgent):
             shutil.rmtree(home, ignore_errors=True)
         return Result(reply=reply, trajectory=steps, usage=usage, session=handle, exit_code=code,
                       timed_out=timed_out, log=stream,
-                      extra={"served": served(self.backend, raw), "unavailable": bool(UNAVAILABLE.search(raw)),
+                      extra={"served": served(self.backend, raw), "unavailable": bool(UNAVAILABLE.search(notes)),
+                             "refused": codex_login.refused(notes),
                              "started": any(line.lstrip().startswith("{") for line in raw.splitlines()),
                              "cancelled": cancelled, "isolation": isolation, "wall_s": round(wall_s, 1),
                              "output_tail": raw[-2000:]})
@@ -532,9 +581,18 @@ def _this_call(home: Path, handle: str, reported, resumed: bool):
     from hermit.agent.model.usage import Usage
     fields = ("input_tokens", "cached_input_tokens", "output_tokens")
     ledger = home / "usage" / f"{re.sub(r'[^A-Za-z0-9_.-]', '_', handle)}.json"
+    # The session could write its home: a link it left there (the ledger's directory or the ledger) is removed,
+    # never followed, and the ledger is written without following one.
+    for path in (ledger.parent, ledger):
+        if path.is_symlink():
+            path.unlink()
     before = json.loads(ledger.read_text()) if resumed and ledger.is_file() else {}
+    if ledger.parent.exists() and not ledger.parent.is_dir():
+        ledger.parent.unlink()
     ledger.parent.mkdir(parents=True, exist_ok=True)
-    ledger.write_text(json.dumps({f: getattr(reported, f) for f in fields}))
+    fd = os.open(ledger, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(json.dumps({f_: getattr(reported, f_) for f_ in fields}))
     return Usage(reported.model, **{f: max(0, getattr(reported, f) - int(before.get(f, 0))) for f in fields},
                  calls=reported.calls, cost_usd=None if before else reported.cost_usd)
 

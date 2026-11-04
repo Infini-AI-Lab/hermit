@@ -137,7 +137,7 @@ class Trainer:
         self.budget = Budget(**{k: d["trainer"]["budget"].get(k) for k in ("usd", "tokens", "hours")})
         if isinstance(d.get("llm"), dict) and d["llm"].get("cli"):     # a model only a CLI reaches
             from hermit.agent.base.endpoint import cli_model
-            self.llm = cli_model(d["llm"])
+            self.llm = cli_model(d["llm"], log_dir=self.run_dir / "llm_sessions")
         else:
             self.llm = ChatClient.from_spec(d["llm"]) if d.get("llm") else None
         self.warnings = warnings_for(config, val_given=True)
@@ -399,9 +399,12 @@ class Trainer:
                                     part="evolver")
             finally:
                 shutil.rmtree(snapshot, ignore_errors=True)
-            # A training task's run also names its log (the trajectory, when the pipeline keeps one).
+            # A training task's run also names its log (the trajectory, when the pipeline keeps one), and a run whose
+            # pipeline reports how its session ended (a CLI agent's exit code and timeout) says so.
             return {"results": [{k: r[k] for k in ("id", "status", "output", "judge", "cost_usd", "wall_s")}
-                                | ({"log": r["log"]} if r["id"] in allowed["train"] else {}) for r in results]}
+                                | ({"log": r["log"]} if r["id"] in allowed["train"] else {})
+                                | {k: (r.get("pipeline_extra") or {})[k] for k in ("exit_code", "timed_out")
+                                   if k in (r.get("pipeline_extra") or {})} for r in results]}
         return FunctionTool("run_agent", "Run an adapter (default: your working copy) on training or validation "
                             "tasks through the task's pipeline and judge; returns outputs and scores, and for "
                             "training tasks the path of each run's log. Its cost counts toward the run's budget.",
@@ -461,6 +464,13 @@ class Trainer:
                     # killed, and the call is awaited (no abandoned threads). Spending may slightly exceed the budget.
                     cancel.set()
         return box, reason, thread.is_alive()
+
+    def _spend(self, result: StepResult) -> None:
+        """The Evolver call's own usage (its StepResult's), on the budget."""
+        for usage in result.usage:
+            if not isinstance(usage, Usage):
+                usage = Usage(**usage)
+            self.budget.add("evolver", usage)
 
     def _step(self, progress: Progress, chunk: list[str], feedback: list | None, session: str | None,
               selection: dict | None = None) -> dict:
@@ -523,6 +533,7 @@ class Trainer:
         elif stopped:
             result = box.get("value") or StepResult("failed", f"stopped by the Trainer ({stopped})")
             if stopped.startswith("budget"):
+                self._spend(result)                     # what the stopped call reports it spent counts all the same
                 raise BudgetExceeded(stopped)
             result = StepResult("failed", f"stopped by the Trainer ({stopped})", usage=result.usage)
         else:
@@ -531,10 +542,7 @@ class Trainer:
                 result = StepResult("done", "no bootstrap")
             elif not isinstance(result, StepResult):
                 result = StepResult("failed", f"{what} returned {type(result).__name__}, not StepResult")
-        for usage in result.usage:
-            if not isinstance(usage, Usage):
-                usage = Usage(**usage)
-            self.budget.add("evolver", usage)
+        self._spend(result)
         # 6–7. check, repair, commit.
         commits, repaired, check = self._commit_step(progress, result, parent,
                                                      label="bootstrap (step 0)" if what == "bootstrap" else None)
