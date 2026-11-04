@@ -320,6 +320,25 @@ def test_without_a_container_a_mount_is_a_link(tmp_path):
     assert (source / "empty").is_dir() and (source / "link").is_symlink()      # nothing behind a link is touched
 
 
+def test_a_mount_point_still_held_is_left_and_the_run_kept(tmp_path, monkeypatch):
+    """Docker Desktop can hold a bind mount's target a moment after its container exits (EACCES on reading or
+    removing it); tidying the kept workspace leaves that one directory and still removes the rest."""
+    work = tmp_path / "work"
+    (work / "docs" / "root_1").mkdir(parents=True)
+    (work / "empty").mkdir()
+    held = work / "docs" / "root_1"
+    real_iterdir = Path.iterdir
+
+    def iterdir(self):
+        if self == held:
+            raise PermissionError(13, "Permission denied", str(self))
+        return real_iterdir(self)
+
+    monkeypatch.setattr(Path, "iterdir", iterdir)
+    cli._clean(work)
+    assert held.is_dir() and not (work / "empty").exists()
+
+
 def test_a_task_id_is_a_safe_directory_name(fake):
     out = cli.run({"id": "a/b c"}, None, params={"web_search": False, "prompt": "go", "workspaces": "ws"}, base=fake)
     assert out.log.parent.name.startswith("a_b_c-") and out.log.parent.parent == (fake / "ws").resolve()

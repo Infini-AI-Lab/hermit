@@ -234,6 +234,10 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Fixed
 
+- A workspace agent's run failed after its session had answered when tidying the kept workspace could not read or
+  remove an empty mount point yet (`PermissionError` on `docs/root_1`: Docker Desktop can hold a bind mount's target
+  a moment after its container exits); the answer was scored as a pipeline failure. Tidying now leaves such a
+  directory in place (`hermit/agent/acting/workspace.py`, `_clean`).
 - The chat endpoint closed each connection after its reply without saying so (`Connection: close`); an HTTP/1.1
   client kept the connection for its next request and got a dropped connection instead of the answer, now and then
   (`tests/test_base_agents.py`'s error test failed so, about one run in three under load).
