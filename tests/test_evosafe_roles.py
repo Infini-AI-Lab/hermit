@@ -1102,7 +1102,7 @@ def test_authentication_failure_stops_search_without_retry(tmp_path, monkeypatch
 
 @pytest.mark.parametrize('params,expected', [
     ({}, 'gpt-6-sol'),
-    ({'model': 'explicit-model', 'args': ['-c', 'daybreak=false']}, 'explicit-model'),
+    ({'model': 'explicit-model', 'args': ['-c', 'daybreak=true']}, 'explicit-model'),
     ({'codex_model': 'legacy-model'}, 'legacy-model'),
 ])
 def test_codex_role_defaults_preserve_explicit_settings(tmp_path, monkeypatch, params, expected):
@@ -1111,9 +1111,8 @@ def test_codex_role_defaults_preserve_explicit_settings(tmp_path, monkeypatch, p
     ctx = role_ctx(tmp_path, **params)
     def make(backend, settings):
         assert backend == 'codex' and settings['model'] == expected
-        assert settings['args'][:2] == ['-c', 'daybreak=true']
-        if params.get('args'):
-            assert settings['args'][2:4] == params['args']
+        schema_path = ctx.workspace.scratch / 'codex-check' / 'output-schema.json'
+        assert settings['args'] == params.get('args', []) + ['--output-schema', str(schema_path), '--ephemeral']
         return SimpleNamespace(run=lambda *args, **kwargs: Result(reply='{"ready":true}', exit_code=0))
     monkeypatch.setattr(cli_roles, 'make', make)
     response, _, error = cli_roles.call_role(ctx, [], {
