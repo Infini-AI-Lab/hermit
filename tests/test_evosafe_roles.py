@@ -1119,3 +1119,110 @@ def test_codex_role_defaults_preserve_explicit_settings(tmp_path, monkeypatch, p
     response, _, error = cli_roles.call_role(ctx, [], {
         'type': 'object', 'required': ['ready'], 'properties': {'ready': {'type': 'boolean'}}}, 'check', 'codex')
     assert response is not None and error is None
+
+
+def test_valid_role_answer_quoting_a_login_error_is_accepted(tmp_path, monkeypatch):
+    from hermit.agent.base.interface import Result
+    from hermit.agent.evolver.methods.evosafe import cli_roles
+    reply = json.dumps({'diagnosis': 'the account tool failed to authenticate in case 3'})
+    monkeypatch.setattr(cli_roles, 'make', lambda backend, settings: SimpleNamespace(
+        run=lambda *args, **kwargs: Result(reply=reply, exit_code=0)))
+    response, _, error = cli_roles.call_role(role_ctx(tmp_path), [], {
+        'type': 'object', 'required': ['diagnosis'], 'properties': {'diagnosis': {'type': 'string'}}},
+        'analyzer', 'codex')
+    assert error is None and json.loads(response['content']) == json.loads(reply)
+
+
+def test_shared_cli_settings_reach_the_role_session(tmp_path, monkeypatch):
+    from hermit.agent.base.interface import Result
+    from hermit.agent.evolver.methods.evosafe import cli_roles
+    seen = {}
+    def make(backend, settings):
+        seen.update(settings)
+        return SimpleNamespace(run=lambda *args, **kwargs: Result(reply='{"ready":true}', exit_code=0))
+    monkeypatch.setattr(cli_roles, 'make', make)
+    ctx = role_ctx(tmp_path, login_root=str(tmp_path / 'login'), plan_rerun=False, project_doc_max_bytes=0)
+    cli_roles.call_role(ctx, [], {'type': 'object', 'properties': {'ready': {'type': 'boolean'}}}, 'check', 'codex')
+    assert seen['login_root'] == str(tmp_path / 'login')
+    assert (seen['plan_rerun'], seen['project_doc_max_bytes']) == (False, 0)
+
+
+def test_a_text_log_is_kept_out_of_evidence_and_archive_without_failing(tmp_path):
+    from hermit.agent.evolver.methods.evosafe.experience import TrainingExperience
+    log = tmp_path / 'run.log'
+    log.write_text('plain text, not a message list\n')
+    row = {'id': 't', 'status': 'ok', 'output': {}, 'judge': {}, 'log': str(log),
+           'messages': [{'role': 'assistant', 'content': 'kept'}]}
+    assert result_evidence([row])[0]['events'][0]['content'] == 'kept'
+    store = TrainingExperience(tmp_path / 'archive')
+    store.episodes('v', [row], {'t'})
+    assert 'kept' in store.read('v/case/t/repeat-1/trajectory')['text']
+
+
+@pytest.mark.parametrize("metrics", [{"kind": "injected", "utility": True, "attack_success": None},
+                                     {"kind": "injected", "utility": True}])
+def test_an_injected_run_without_an_attack_verdict_is_an_error_not_a_blocked_attack(metrics):
+    import importlib.util
+    from hermit.agent.evolver.methods.evosafe.contract import summary
+    rows = [record("clean", True), record("injected", False, False)]
+    rows.append({**record("injected", True, None), "judge": {"score": 1.0, "extra": {"metrics": metrics}}})
+    result = summary(rows)
+    assert result["errors_injected"] == 1 and result["secure_completions"] == 0 and result["objective"] is None
+    path = Path(__file__).resolve().parents[1] / "examples/agentdyn/utils/report.py"
+    spec = importlib.util.spec_from_file_location("evosafe_report", path)
+    report = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(report)
+    tasks = [{"id": r["id"], "kind": r["input"]["kind"]} for r in rows]
+    out = report.summarize([{k: v for k, v in r.items() if k != "input"} for r in rows], [t["id"] for t in tasks],
+                           tasks=tasks)
+    assert out["coverage_ok"] and not out["complete"] and out["selection_objective"] is None
+    assert out["errors"] == 1 and out["completed_episode_metrics"]["n_injected"] == 1
+
+
+@pytest.mark.parametrize('reference,policy,worst', [(roles.candidate_reference, 'worst_case_bounds', True),
+                                                    (roles.parent_reference, 'conservative_bounds', False)])
+def test_a_malformed_verdict_is_bounded_like_a_failed_episode(reference, policy, worst):
+    tasks = {'c': {'kind': 'clean'}, 'c2': {'kind': 'clean'}, 'a': {'kind': 'injected'}}
+    rows = [{'id': 'c', 'status': 'error', 'judge': {}},
+            {'id': 'c2', 'status': 'ok', 'judge': {'extra': {'metrics': {'kind': 'clean', 'utility': True}}}},
+            {'id': 'a', 'status': 'ok', 'judge': {'extra': {'metrics': {
+                'kind': 'injected', 'utility': True, 'attack_success': -1}}}}]
+    result = reference(rows, tasks, policy)
+    assert result['errors'] == 2 and result['asr'] == (1.0 if worst else 0.0)
+    comparison = roles.measured_comparison(rows, rows)['candidate']
+    assert comparison['errors'] == 2 and comparison['attack_successes'] == 0
+
+
+def test_tags_in_observed_content_are_kept_and_only_assistant_reasoning_is_dropped(tmp_path):
+    from hermit.agent.evolver.methods.evosafe.evidence import read_messages
+    from hermit.agent.evolver.methods.evosafe.experience import TrainingExperience
+    messages = [{'role': 'tool', 'content': 'Record: <think>ordinary data</think> tail'},
+                {'role': 'assistant', 'content': '<think>private</think>Done.'}]
+    events = result_evidence([{'id': 't', 'status': 'ok', 'messages': messages}])[0]['events']
+    assert [e['content'] for e in events] == ['Record: <think>ordinary data</think> tail', 'Done.']
+    store = TrainingExperience(tmp_path / 'archive')
+    store.episodes('v', [{'id': 't', 'status': 'ok', 'messages': messages}], {'t'})
+    text = store.read('v/case/t/repeat-1/trajectory')['text']
+    assert 'ordinary data' in text and 'private' not in text
+    log = tmp_path / 'trace.json'
+    log.write_text('["plain trace entry"]')
+    assert read_messages(log) is None
+
+
+def test_a_promoted_candidate_with_a_failed_episode_stays_a_bounded_parent(tmp_path):
+    """worst_case_bounds lets a candidate with a failed episode win; the next trial's stages compare against its
+    rows with the parent's best case, not by rejecting them."""
+    ctx, ids, calls, inputs = context(tmp_path, 'improve', proposals=2)
+    ctx.params.update(candidate_error_policy='worst_case_bounds', robustness_task_ids=[])
+    original = ctx.tools['run_agent']
+    def evaluate(task_ids, adapter):
+        answer = original(task_ids, adapter)
+        if Path(adapter) != ctx.workspace.adapter:
+            answer['results'] = [{'id': row['id'], 'status': 'error', 'output': None}
+                                 if row['id'] == 'train-0-injected' else row for row in answer['results']]
+        return answer
+    ctx.tools['run_agent'] = evaluate
+    result = roles.run(ctx, ids)
+    first, second = result.extra['trials']
+    assert first['promoted'] and 'error' not in second, second.get('error')
+    assert second['stages'][0]['parent']['errors'] == 1

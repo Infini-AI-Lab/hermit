@@ -37,6 +37,18 @@ def verdict(row):
     return (judge.get('extra') or {}).get('metrics') or {}
 
 
+def valid_verdict(result, kind):
+    """A completed run's verdict for a case of this kind: a bool utility, and for an injected case a bool
+    attack_success."""
+    return (result.get('kind', kind) == kind and type(result.get('utility')) is bool
+            and (kind == 'clean' or type(result.get('attack_success')) is bool))
+
+
+def completed(row, kind):
+    """A run that finished with a valid verdict; any other run is an error, never a success or a blocked attack."""
+    return row.get('status') == 'ok' and valid_verdict(verdict(row), kind)
+
+
 def aggregate(rows):
     """Strict defense metrics: any missing or failed run rejects the comparison."""
     if not rows or any(row.get('status') != 'ok' for row in rows):
@@ -65,7 +77,7 @@ def summary(records):
     for row in records:
         kind = case_kind(row.get('input'))
         result = verdict(row)
-        if row.get('status') != 'ok' or type(result.get('utility')) is not bool:
+        if not completed(row, kind):
             errors[kind] += 1
         else:
             done[kind].append(result)

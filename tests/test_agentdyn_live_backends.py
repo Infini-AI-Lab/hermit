@@ -89,20 +89,22 @@ def test_compatible_victim_tools_usage_and_error_redaction(tmp_path, monkeypatch
     victim.close()
 
 
-@pytest.mark.parametrize("failure", ["truncated", "malformed", "textual"])
+@pytest.mark.parametrize("failure", ["truncated", "truncated_text", "malformed", "textual", "no_calls"])
 def test_compatible_victim_rejects_partial_responses(tmp_path, monkeypatch, failure):
     openai = pytest.importorskip("openai")
     pytest.importorskip("agentdojo")
     from openai.types.chat import ChatCompletion
     from victim import make_victim
     monkeypatch.setenv("VICTIM_TEST_KEY", "dummy")
-    message = {"role": "assistant", "content": "<TOOLCALL>invalid</TOOLCALL>" if failure == "textual" else None}
+    message = {"role": "assistant", "content": "<TOOLCALL>invalid</TOOLCALL>" if failure == "textual"
+               else "Done." if failure in ("no_calls", "truncated_text") else None}
     if failure == "malformed":
         message["tool_calls"] = [{"id": "call", "type": "function",
                                   "function": {"name": "echo", "arguments": "not json"}}]
     response = ChatCompletion.model_validate({"id": "test", "created": 0, "object": "chat.completion",
         "model": "nemotron-test", "choices": [{"index": 0, "message": message,
-        "finish_reason": "length" if failure == "truncated" else "tool_calls" if failure == "malformed" else "stop"}],
+        "finish_reason": "length" if failure.startswith("truncated")
+        else "tool_calls" if failure in ("malformed", "no_calls") else "stop"}],
         "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15} if failure == "textual" else None})
     from hermit.agent.model.usage import Usage
     monkeypatch.setattr("hermit.agent.model.llm.ChatClient.chat", lambda self, messages, **kw:
@@ -112,9 +114,12 @@ def test_compatible_victim_rejects_partial_responses(tmp_path, monkeypatch, fail
     events = []
     victim = make_victim({"model": "nemotron-test", "base_url": "https://example.invalid/v1",
                           "api_key_env": "VICTIM_TEST_KEY"}, tmp_path, events.append)
-    with pytest.raises(RuntimeError, match="truncated" if failure == "truncated" else "malformed" if failure == "malformed" else "unparsed_textual_tool_call"):
+    expected = {"truncated": "truncated", "truncated_text": "truncated", "malformed": "malformed",
+                "no_calls": "missing_structured_tool_calls"}
+    with pytest.raises(RuntimeError, match=expected.get(failure, "unparsed_textual_tool_call")):
         victim.query("task", SimpleNamespace(functions={}), {})
     assert victim.usage["calls"] == 1 and len(events) == 1
+    assert events[0]["status"] == "error"  # the call's event agrees with the raised failure
     if failure == "textual":
         assert victim.usage["input_tokens"] == 10 and victim.usage["output_tokens"] == 5
         assert events[0]["status"] == "error"
@@ -128,6 +133,8 @@ def test_compatible_victim_rejects_partial_responses(tmp_path, monkeypatch, fail
     ('<think>unfinished', False, 'unfinished_reasoning'),
     ('<think>complete</think>', False, 'missing_terminal_answer'),
     ('<TOOLCALL>{invalid}</TOOLCALL>', False, 'unparsed_textual_tool_call'),
+    ('<function=search_product>{"product_name": "watch"}</function>', False, 'unparsed_textual_tool_call'),
+    ('<tool_call>{"name": "search_product"}</tool_call>', False, 'unparsed_textual_tool_call'),
     (None, False, 'missing_terminal_answer'),
     (None, True, None),
     ([{'type': 'text', 'text': 'Done.'}], False, None),
@@ -319,3 +326,34 @@ def test_transport_error_keeps_known_subtotal_but_marks_episode_unknown(tmp_path
     assert victim.usage["unknown_usage_calls"] == victim.usage["unknown_cost_calls"] == 1
     assert metered(victim.usage) == (None, None)
     victim.close()
+
+
+def test_victim_without_an_optional_key_sends_no_authorization(tmp_path):
+    pytest.importorskip("agentdojo")
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from victim import make_victim
+    seen = []
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+        def do_POST(self):
+            seen.append(self.headers.get("Authorization"))
+            self.rfile.read(int(self.headers["Content-Length"]))
+            body = json.dumps({"id": "fixture", "created": 0, "object": "chat.completion", "model": "fixture",
+                "choices": [{"index": 0, "finish_reason": "stop", "message": {"role": "assistant", "content": "ready"}}],
+                "usage": {"prompt_tokens": 5, "completion_tokens": 2, "total_tokens": 7}}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        victim = make_victim({"model": "fixture", "base_url": f"http://127.0.0.1:{server.server_port}/v1",
+                              "key_required": False}, tmp_path)
+        victim.query("", SimpleNamespace(functions={}), {}, messages=[])
+    finally:
+        server.shutdown()
+    assert seen == [None]

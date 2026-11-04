@@ -108,7 +108,9 @@ To add a domain, follow `examples/agentdyn/utils/` and copy the AgentDyn run con
    marks a final revision admitted without approval; this is not a security certification.
 3. An eligible candidate is scored on the training cases. With `gate_mode: source`, the source method's gates
    apply:
-   - an intermediate stage needs utility ≥ 0.7× and ASR ≤ 1.3× the parent's;
+   - an intermediate stage needs utility ≥ 0.7× and ASR ≤ 1.3× the parent's (the source compares with its fixed
+     no-defense bundle instead, and allows 5% ASR when that bundle's ASR is zero; here a parent with zero ASR
+     allows none);
    - promotion needs a gain in `utility − ASR` above `min_improvement`;
    - when validation probes are configured, their objective must be within `validation_tolerance` of the parent's.
 4. The Analyzer records lessons for the next trial. A promoted candidate becomes the parent.

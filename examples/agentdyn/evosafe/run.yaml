@@ -32,9 +32,10 @@ sandbox:
   network: isolated
   allow: [api.openai.com]
   profiles:
+    # The episode is trusted orchestration on the host: it starts each learned hook in a Docker container of its
+    # own, which the rollout sandbox cannot reach (eval and check use this profile too).
     rollout:
-      network: isolated
-      allow: [api.openai.com]
+      enabled: false
 trainer:
   run_name: agentdyn-shopping
   output_dir: runs

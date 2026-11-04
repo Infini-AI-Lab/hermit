@@ -31,7 +31,8 @@ def prepare(cases, output, seed=0):
     for case in cases:
         validate_case(case)
         # Explicitly discard old trajectories/verdicts and other answer material.
-        row = {key: case[key] for key in ("suite", "user_task_id", "injection_task_id", "injections") if key in case}
+        # A clean case is the same row whether its injection fields are absent, null or empty.
+        row = {key: case[key] for key in ("suite", "user_task_id", "injection_task_id", "injections") if case.get(key)}
         identity = json.dumps(row, sort_keys=True)
         if identity in seen:
             continue

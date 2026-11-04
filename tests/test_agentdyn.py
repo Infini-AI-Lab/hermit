@@ -3,6 +3,7 @@ import sys
 import copy
 import importlib.util
 import json
+import os
 from pathlib import Path
 import shutil
 
@@ -313,6 +314,30 @@ def test_native_shopping_pipeline_without_model(tmp_path, monkeypatch):
     from bridge import _run_episode as run
     baseline = run(case, None, params=params, base=tmp_path)
     assert baseline.output == {"utility": native, "attack_success": None, "kind": "clean"}
+
+    class LoopingReader(Reader):
+        calls = 0
+
+        def query(self, query, runtime, env, messages=(), extra_args=None):
+            self.calls += 1
+            msg = {"role": "assistant", "content": None, "tool_calls": [
+                FunctionCall(function="search_product", args={"product_name": "smart watch"}, id=str(self.calls))]}
+            return query, runtime, env, [*messages, msg], extra_args or {}
+
+    looping = LoopingReader()
+    monkeypatch.setattr(victim, "make_victim", lambda *args, **kwargs: looping)
+    failed = run(case, None, params={**params, "max_iters": 1}, base=tmp_path)
+    assert "terminal" in failed.output["episode_error"]
+    from hermit.trainer.rollout import run_one
+    record = run_one({**case, "id": "exhausted"}, None, lambda task, adapter: failed, score)
+    assert record["status"] == "judge_error"
+    assert record["tokens"] == failed.tokens and record["cost_usd"] == failed.cost_usd
+    assert record["log"] == str(failed.log)
+    assert looping.calls == 2  # initial call + one tools iteration; no suite retry
+    monkeypatch.setattr(victim, "make_victim", lambda *args, **kwargs: Reader())
+
+    if os.environ.get("HERMIT_TEST_DOCKER") != "1":
+        pytest.skip("set HERMIT_TEST_DOCKER=1 to run the defended episodes in the real hook container")
     defended = run(case, TEMPLATE, params=params, base=tmp_path)
     assert defended.output == baseline.output
     assert defended.log != baseline.log
@@ -340,25 +365,19 @@ def build(): return Defense()
     tool_messages = [m for m in filtered.messages if m["role"] == "tool"]
     assert tool_messages[0]["content"][0]["content"] == "filtered fixture"
 
-    class LoopingReader(Reader):
-        calls = 0
-
-        def query(self, query, runtime, env, messages=(), extra_args=None):
-            self.calls += 1
-            msg = {"role": "assistant", "content": None, "tool_calls": [
-                FunctionCall(function="search_product", args={"product_name": "smart watch"}, id=str(self.calls))]}
-            return query, runtime, env, [*messages, msg], extra_args or {}
-
-    looping = LoopingReader()
-    monkeypatch.setattr(victim, "make_victim", lambda *args, **kwargs: looping)
-    failed = run(case, None, params={**params, "max_iters": 1}, base=tmp_path)
-    assert "terminal" in failed.output["episode_error"]
-    from hermit.trainer.rollout import run_one
-    record = run_one({**case, "id": "exhausted"}, None, lambda task, adapter: failed, score)
-    assert record["status"] == "judge_error"
-    assert record["tokens"] == failed.tokens and record["cost_usd"] == failed.cost_usd
-    assert record["log"] == str(failed.log)
-    assert looping.calls == 2  # initial call + one tools iteration; no suite retry
+    # A failing system-prompt hook is the episode's failure: recorded and cleaned up like any other.
+    broken = tmp_path / "broken"
+    shutil.copytree(TEMPLATE, broken)
+    (broken / "defense.py").write_text('''
+class Defense:
+    def system_prompt_transform(self, prompt): return {}["missing"]
+    def on_pre_tool_call(self, ctx): return None
+    def on_post_tool_call(self, ctx, result): return None
+def build(): return Defense()
+''')
+    prompt_failure = run(case, broken, params=params, base=tmp_path)
+    assert prompt_failure.output["episode_error"].startswith("episode failed: RuntimeError")
+    assert (prompt_failure.log / "usage.json").is_file()  # the episode's cleanup ran
 
 
 def test_native_three_suite_initialization():
@@ -398,3 +417,26 @@ def test_report_rejects_missing_and_separates_goal_namespaces():
     assert report['overall']['secure_task_completion']['successes']==1
     with pytest.raises(ValueError,match='missing'):
         module.compare(tasks,['a','b','c'],{'baseline':rows[:2]})
+
+
+def test_a_clean_case_with_empty_injection_fields_is_the_same_case(tmp_path):
+    spec = importlib.util.spec_from_file_location("prepare_cases", ROOT / "examples/agentdyn/utils/prepare.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    cases = [{"suite": "shopping", "user_task_id": f"user_task_{n}", "injection_task_id": "injection_task_0",
+              "injections": {"vector": "fixture"}} for n in range(10)]
+    cases += [{"suite": "shopping", "user_task_id": "user_task_0"},
+              {"suite": "shopping", "user_task_id": "user_task_0", "injection_task_id": None, "injections": {}}]
+    module.prepare(cases, tmp_path / "out")
+    rows = [json.loads(s) for s in (tmp_path / "out/tasks.jsonl").read_text().splitlines()]
+    assert sum(r["user_task_id"] == "user_task_0" and r["kind"] == "clean" for r in rows) == 1
+
+
+@pytest.mark.parametrize("goals", [0, -1])
+def test_all_groups_needs_a_positive_goal_count(tmp_path, goals):
+    path = ROOT / "examples/agentdyn/utils/prepare_all_groups.py"
+    spec = importlib.util.spec_from_file_location("prepare_groups", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    with pytest.raises(ValueError, match="positive"):
+        module.prepare(tmp_path / "inventory", tmp_path / "base", tmp_path / "out", goals=goals)

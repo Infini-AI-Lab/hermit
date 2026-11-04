@@ -15,13 +15,16 @@ def clip(text, limit):
     return text[:half] + '\n[content omitted for budget]\n' + text[-half:]
 
 
-def content_text(content):
+def content_text(content, role=None):
     if isinstance(content, list):
         text = '\n'.join(str(p.get('content', p.get('text', ''))) for p in content if isinstance(p, dict))
     else:
         text = str(content or '')
-    # Provider reasoning consumes the budget and is not needed to diagnose actions.
-    return re.sub(r'<think>.*?</think>', '', text, flags=re.S).strip()
+    # The model's own reasoning consumes the budget and is not needed to diagnose actions; the same tags in a
+    # tool result or a user message are observed content, kept.
+    if role == 'assistant':
+        text = re.sub(r'<think>.*?</think>', '', text, flags=re.S)
+    return text.strip()
 
 
 def summarize_case(row, chars=5000):
@@ -37,7 +40,7 @@ def summarize_case(row, chars=5000):
             event['error'] = message.get('error')
         if message.get('tool_calls'):
             event['tool_calls'] = message['tool_calls']
-        text = content_text(message.get('content'))
+        text = content_text(message.get('content'), role)
         if text:
             event['content'] = text
         if len(event) > 2:
@@ -57,6 +60,16 @@ def summarize_case(row, chars=5000):
                 for c in event['tool_calls']]
     return {'id': row.get('id'), 'status': row.get('status'), 'output': row.get('output'),
             'judge': row.get('judge'), 'events': events, 'event_count': len(events)}
+
+
+def read_messages(path):
+    """A run log's message list, or None when the log is not one (a pipeline may keep a text, JSONL or other
+    JSON log)."""
+    try:
+        value = json.loads(path.read_text())
+    except (ValueError, UnicodeDecodeError):
+        return None
+    return value if isinstance(value, list) and all(isinstance(m, dict) for m in value) else None
 
 
 def training_evidence(workspace, chars=5000):
@@ -113,8 +126,9 @@ def result_evidence(rows, chars=5000):
             path = Path(row['log'])
             directory = path if path.is_dir() else path.parent
             path = directory / 'trajectory.json' if path.is_dir() else path
-            if path.is_file():
-                enriched['messages'] = json.loads(path.read_text())
+            messages = read_messages(path) if path.is_file() else None
+            if messages is not None:
+                enriched['messages'] = messages
             audit = audit_evidence(directory, max(500, int(chars) // 2))
         item = summarize_case(enriched, chars)
         if audit:

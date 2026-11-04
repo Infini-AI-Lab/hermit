@@ -18,6 +18,8 @@ SPLITS = ('train', 'val', 'test')
 
 def prepare(inventory, base, output, goals=2, seed=20261102):
     inventory, base, output = Path(inventory), Path(base), Path(output)
+    if type(goals) is not int or goals < 1:
+        raise ValueError('goals must be a positive integer')
     if output.exists():
         raise FileExistsError(output)
     rows = [json.loads(s) for s in (inventory / 'full/tasks.jsonl').read_text().splitlines() if s.strip()]

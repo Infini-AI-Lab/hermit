@@ -12,9 +12,9 @@ from hermit.agent.base.interface import Limits, make
 from .experience import role_tools
 
 # The Layer 1/2 settings a configuration may give the role CLI; the rest are set per call below.
-CLI_SETTINGS = ("model", "binding", "login", "plan_dir", "plan_max_wait_s", "effort", "isolation", "container",
-                "codex_sandbox", "permission_mode", "shell_env", "home_files", "args", "env", "env_drop",
-                "price", "timeout_s", "bin")
+CLI_SETTINGS = ("model", "binding", "login", "login_root", "plan_dir", "plan_max_wait_s", "plan_rerun", "effort",
+                "isolation", "container", "codex_sandbox", "permission_mode", "shell_env", "project_doc_max_bytes",
+                "home_files", "args", "env", "env_drop", "price", "timeout_s", "bin")
 
 # Provider messages that mean the role request itself was refused (stop, never retried).
 REFUSAL = ("usage policy", "content_policy_violation", "flagged for possible cybersecurity risk")
@@ -99,10 +99,11 @@ def call_role(ctx, messages, schema, name, backend):
         return None, result.usage, f"{backend} role cancelled"
     if result.timed_out:
         return None, result.usage, f"{backend} role timed out"
-    if authentication_failed(result):
-        return None, result.usage, "ROLE_AUTHENTICATION_ERROR: restore the configured CLI login before continuing"
     answer = parse_answer(result.reply, schema) if result.exit_code == 0 else None
     if answer is None:
+        # Only a failed answer is read for login errors: a valid one may quote such text.
+        if authentication_failed(result):
+            return None, result.usage, "ROLE_AUTHENTICATION_ERROR: restore the configured CLI login before continuing"
         if refused(result):
             return None, result.usage, "SAFETY_REVIEW_REFUSAL: the provider refused the role request"
         return None, result.usage, f"{backend} role failed (exit {result.exit_code}); inspect {result.log}"

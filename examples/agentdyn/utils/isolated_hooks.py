@@ -140,6 +140,10 @@ class IsolatedDefense:
             revised = ToolCallContext(**reply['context'])
             revised.classify_output = ctx.classify_output
             return revised
+        if 'metadata' in reply:
+            if not isinstance(reply['metadata'], dict):
+                raise ValueError('invalid hook metadata')
+            ctx.metadata = reply['metadata']
         return reply['value']
 
     def on_post_tool_call(self, ctx, result):

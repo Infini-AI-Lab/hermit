@@ -13,7 +13,7 @@ from hermit.adapter.manifest import read_meta, structure_of
 from .cli_roles import proposer as role_backend
 from hermit.agent.evolver.base import StepResult
 from .codex import call_role, proposal_schema
-from .contract import aggregate, injected as is_injected, qualifying_gain, verdict
+from .contract import aggregate, completed, injected as is_injected, qualifying_gain, verdict
 from . import claude_code
 from .evidence import result_evidence, failure_packet
 from .experience import TrainingExperience
@@ -184,7 +184,7 @@ ANALYSIS_SCHEMA = object_schema({'diagnosis': TEXT, 'lessons': TEXTS, 'next_hypo
 def measured_comparison(parent_rows, candidate_rows):
     """Give the Analyzer explicit paired counts, including invalid evaluations."""
     def counts(rows):
-        valid = [r for r in rows if r['status'] == 'ok']
+        valid = [r for r in rows if completed(r, verdict(r).get('kind'))]
         clean = [r for r in valid if verdict(r).get('kind') == 'clean']
         injected = [r for r in valid if verdict(r).get('kind') == 'injected']
         return {'episodes': len(rows), 'errors': len(rows) - len(valid),
@@ -209,17 +209,19 @@ def parent_reference(rows, tasks, policy='reject'):
     """
     if policy not in ('reject', 'conservative_bounds'):
         raise ValueError('invalid parent_error_policy')
-    if policy == 'reject' or all(r['status'] == 'ok' for r in rows):
+    if policy == 'reject' or all(completed(r, 'injected' if is_injected(tasks[r['id']]) else 'clean') for r in rows):
         return aggregate(rows)
     clean = [r for r in rows if not is_injected(tasks[r['id']])]
     injected = [r for r in rows if is_injected(tasks[r['id']])]
+    # A run without a valid verdict is bounded like a failed one.
+    done = {id(r) for r in clean if completed(r, 'clean')} | {id(r) for r in injected if completed(r, 'injected')}
     if not clean or not injected:
         raise ValueError('parent reference requires both case kinds')
-    clean_errors = sum(r['status'] != 'ok' for r in clean)
-    injected_errors = sum(r['status'] != 'ok' for r in injected)
-    clean_wins = sum(verdict(r)['utility'] for r in clean if r['status'] == 'ok')
-    attack_wins = sum(verdict(r)['attack_success'] for r in injected if r['status'] == 'ok')
-    injected_wins = sum(verdict(r)['utility'] for r in injected if r['status'] == 'ok')
+    clean_errors = sum(id(r) not in done for r in clean)
+    injected_errors = sum(id(r) not in done for r in injected)
+    clean_wins = sum(verdict(r)['utility'] for r in clean if id(r) in done)
+    attack_wins = sum(verdict(r)['attack_success'] for r in injected if id(r) in done)
+    injected_wins = sum(verdict(r)['utility'] for r in injected if id(r) in done)
     cu, attack, iu = clean_wins / len(clean), attack_wins / len(injected), injected_wins / len(injected)
     cu_upper = (clean_wins + clean_errors) / len(clean)
     attack_upper = (attack_wins + injected_errors) / len(injected)
@@ -241,17 +243,19 @@ def candidate_reference(rows, tasks, policy='reject'):
     """
     if policy not in ('reject', 'worst_case_bounds'):
         raise ValueError('invalid candidate_error_policy')
-    if policy == 'reject' or all(r['status'] == 'ok' for r in rows):
+    if policy == 'reject' or all(completed(r, 'injected' if is_injected(tasks[r['id']]) else 'clean') for r in rows):
         return aggregate(rows)
     clean = [r for r in rows if not is_injected(tasks[r['id']])]
     injected = [r for r in rows if is_injected(tasks[r['id']])]
+    # A run without a valid verdict is bounded like a failed one.
+    done = {id(r) for r in clean if completed(r, 'clean')} | {id(r) for r in injected if completed(r, 'injected')}
     if not clean or not injected:
         raise ValueError('candidate evaluation requires both case kinds')
-    clean_errors = sum(r['status'] != 'ok' for r in clean)
-    injected_errors = sum(r['status'] != 'ok' for r in injected)
-    clean_wins = sum(verdict(r)['utility'] for r in clean if r['status'] == 'ok')
-    attack_wins = sum(verdict(r)['attack_success'] for r in injected if r['status'] == 'ok')
-    injected_wins = sum(verdict(r)['utility'] for r in injected if r['status'] == 'ok')
+    clean_errors = sum(id(r) not in done for r in clean)
+    injected_errors = sum(id(r) not in done for r in injected)
+    clean_wins = sum(verdict(r)['utility'] for r in clean if id(r) in done)
+    attack_wins = sum(verdict(r)['attack_success'] for r in injected if id(r) in done)
+    injected_wins = sum(verdict(r)['utility'] for r in injected if id(r) in done)
     cu, attack, iu = clean_wins / len(clean), attack_wins / len(injected), injected_wins / len(injected)
     cu_upper = (clean_wins + clean_errors) / len(clean)
     attack_upper = (attack_wins + injected_errors) / len(injected)
@@ -350,21 +354,6 @@ def balanced_ids(tasks):
             if buckets[key]:
                 result.append(buckets[key].pop(0))
     return result
-
-
-def evaluate(ctx, adapter, ids, repeats):
-    rows = []
-    for repeat in range(1, repeats + 1):
-        if ctx.cancel is not None and ctx.cancel.is_set():
-            raise RuntimeError('evaluation cancelled')
-        batch = ctx.tools['run_agent'](task_ids=ids, adapter=str(adapter))['results']
-        with (ctx.workspace.output / 'evaluation-audit.jsonl').open('a') as audit:
-            audit.write(json.dumps({'adapter': str(adapter), 'ids': ids, 'repeat': repeat, 'results': batch}) + '\n')
-        if len(batch) != len(ids) or {r['id'] for r in batch} != set(ids):
-            raise ValueError('incomplete candidate evaluation')
-        rows.extend(dict(row, repeat=repeat) for row in batch)
-    aggregate(rows)
-    return rows
 
 
 def selected_metrics(rows, ids, tasks=None, policy='reject'):
@@ -827,8 +816,10 @@ def run(ctx, ids):
                 # The promoted rows become the parent: an error in them is again given
                 # its best case, so later candidates must beat an upper bound.
                 parent_rows = candidate_rows
-                parent_metrics = parent_reference(parent_rows, by_id, 'conservative_bounds'
-                                                  if candidate_policy == 'worst_case_bounds' else parent_policy)
+                # Later stages compare against these rows too, so they keep the bounding.
+                if candidate_policy == 'worst_case_bounds':
+                    parent_policy = 'conservative_bounds'
+                parent_metrics = parent_reference(parent_rows, by_id, parent_policy)
                 trial['promoted'] = True
                 report['accepted'] = True
                 evidence = result_evidence(parent_rows, int(p.get('evidence_chars_per_case', 2000)))

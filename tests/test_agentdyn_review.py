@@ -345,3 +345,49 @@ def test_experiment_startup_failures_are_recorded_before_role_spend(tmp_path, mo
     assert manifest['failure_type'] in ('OSError', 'FileNotFoundError', 'RuntimeError', 'ExperimentInterrupted')
     assert manifest['framework_commit'] == 'fixture-commit'
     assert [c['label'] for c in manifest['commands']] == (['entry-check'] if failure in ('entry', 'interrupt') else [])
+
+
+def test_structured_metadata_survives_a_dict_decision_in_the_container(tmp_path):
+    docker_required()
+    (tmp_path / 'defense.py').write_text('''
+from hermit.agent.evolver.methods.evosafe.hooks import Defense
+class Hook(Defense):
+    def on_pre_tool_call(self, ctx):
+        ctx.metadata['checked'] = True
+        return {'arguments': {'limit': 1}}
+    def on_post_tool_call(self, ctx, result):
+        if not ctx.metadata.get('checked'):
+            raise PermissionError('metadata lost')
+        return None
+def build(): return Hook()
+''')
+    sys.path.insert(0, str(ROOT / 'examples/agentdyn/utils'))
+    from bridge import GuardedRuntime
+    class Runtime:
+        functions = {}
+        def run_function(self, env, name, args):
+            return 'fact', None
+    hook, audit = IsolatedDefense(tmp_path), []
+    try:
+        text, error = GuardedRuntime(Runtime(), hook, 'read', 'trace', str, audit, 'shopping').run_function(
+            {}, 'read', {'limit': 50})
+    finally:
+        hook.close()
+    assert (text, error) == ('fact', None) and audit[0]['arguments'] == {'limit': 1}
+
+
+@pytest.mark.parametrize('params,program', [({'backend': 'codex'}, 'codex'),
+                                            ({'backend': 'codex', 'bin': '/opt/pinned-codex'}, '/opt/pinned-codex'),
+                                            ({'proposer': 'claude', 'claude_bin': '/opt/claude'}, '/opt/claude')])
+def test_the_recorded_cli_version_is_of_the_program_the_roles_run(params, program):
+    from run_experiment import role_program
+    assert role_program(params) == program
+
+
+@pytest.mark.parametrize('params,model', [({'backend': 'codex', 'model': 'm'}, 'm'),
+                                          ({'proposer': 'codex', 'codex_model': 'legacy'}, 'legacy'),
+                                          ({'proposer': 'codex'}, 'gpt-6-sol'),
+                                          ({'proposer': 'claude'}, None)])
+def test_the_manifest_records_the_model_the_roles_run(params, model):
+    from run_experiment import role_model
+    assert role_model(params) == model

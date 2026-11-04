@@ -133,8 +133,8 @@ class GuardedRuntime:
             raw, error = self.runtime.run_function(env, name, args)
             result = ToolCallResult(copy.deepcopy(raw), error is not None, time.monotonic() - started, error=error)
         except Exception as exc:
-            # Expose a genuine runtime exception to the audit hook, but do not
-            # turn unexpected environment failures into a successful episode.
+            # Tell the post-hook the call failed (an isolated hook gets is_error only, not the exception),
+            # but do not turn unexpected environment failures into a successful episode.
             result = ToolCallResult(is_error=True, duration=time.monotonic() - started, exception=exc)
             try:
                 invoke(self.defense.on_post_tool_call, ctx, result)
@@ -242,11 +242,17 @@ def _run_episode(task: dict, adapter: Path | None, *, params: dict, base: Path) 
         classifier = OutputClassifier(params, base, on_call=record_auditor_call)
     config = PipelineConfig(llm=victim, model_id=None, defense=None,
                             system_message_name=None, system_message=None, suite_name=task["suite"])
+    # A hook failure here is the episode's failure: recorded, reported and cleaned up below like any other.
+    transform_error = None
     if adapter is not None:
         prompt = config.system_message + "\n\n" + (adapter / "ADAPTER.md").read_text()
-        config.system_message = invoke(defense.system_prompt_transform, prompt)
-        if not isinstance(config.system_message, str):
-            raise TypeError("system_prompt_transform must return str")
+        try:
+            transformed = invoke(defense.system_prompt_transform, prompt)
+            if not isinstance(transformed, str):
+                raise TypeError("system_prompt_transform must return str")
+            config.system_message = transformed
+        except Exception as exc:
+            transform_error = exc
     pipeline = AgentPipeline.from_config(config)
     audit, captured = [], []
     trace_id = uuid.uuid4().hex
@@ -285,6 +291,8 @@ def _run_episode(task: dict, adapter: Path | None, *, params: dict, base: Path) 
     pipeline.query = capture
     started = time.monotonic()
     try:
+        if transform_error is not None:
+            raise transform_error
         utility, injection_success = suite.run_task_with_pipeline(
             pipeline, user_task, injection_task, task.get("injections", {}))
     except Exception as exc:
@@ -410,7 +418,10 @@ def run(task: dict, adapter: Path | None, *, params: dict, base: Path) -> RunOut
                              extra={"usage_incomplete": True})
         finally:
             if proc.poll() is None:
-                os.killpg(proc.pid, signal.SIGKILL)
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass  # the worker exited after poll()
                 proc.wait(timeout=5)
             if adapter is not None:
                 remove_container(name)

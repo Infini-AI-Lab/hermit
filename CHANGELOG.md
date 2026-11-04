@@ -105,7 +105,11 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   `docs/methods/evosafe.md`. Its AgentDyn integration (`examples/agentdyn/utils/`, run configs in `examples/agentdyn/evosafe/`)
   replays existing frozen benign and injected cases with the native judges. The roles run on the `claude` or
   `codex` Base Agent and every AgentDyn model call on `direct`; the defense metrics are computed by the method
-  from run records (`examples/agentdyn/utils/report.py`). No core change.
+  from run records (`examples/agentdyn/utils/report.py`). Role search gives the Designer explicit UTF-8 file budgets
+  (`defense.py` 32,000 bytes by default, capped by the template), repairs specification failures before a review,
+  and gives each candidate at most three Criticizer calls, then a final Designer repair that is evaluated once the
+  hard checks pass; such an unapproved final revision is disclosed, and the promotion gates are unchanged. No core
+  change.
 - The Base Agent API (`hermit.agent.base.interface`): `make(name, settings, model).run(prompt, workspace, tools,
   limits, session, roles) -> Result`, `configured(**settings)`, `Tool` and the tool server, and `Limits`, which a
   Base Agent enforces or refuses (`Unsupported`). The `react` agent's loop is the `react` Base Agent; the `codex` and
@@ -255,11 +259,6 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   `agent/codex.txt`) gave no steps.
 - A chat call through `llm: {cli: ...}` left its Codex event stream as a file in the temporary directory; the
   Trainer keeps it under the run's `llm_sessions/`, and a call without a log directory removes it.
-- EvoSafe role search supplies explicit file budgets, repairs specification failures before model review, and
-  starts new proposals from the accepted parent rather than accumulating rejected source. Each candidate gets
-  at most three Criticizer calls, then a final Designer repair proceeds to empirical evaluation once hard checks
-  pass. Unapproved final revisions are disclosed; empirical promotion gates are unchanged. The executable search
-  budget defaults to 32,000 UTF-8 bytes, capped by the template limit.
 - A CLI call without a `home` setting gets a fresh home under `$HERMIT_HOMES` (default `~/.cache/hermit/homes`), not
   in the temporary directory: Codex makes no helper programs for its sandbox in a home there, and no command of such
   a session ran.

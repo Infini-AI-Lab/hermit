@@ -25,7 +25,8 @@ def terminal_protocol_error(content, has_tool_calls=False):
         return 'unfinished_reasoning'
     if not text:
         return 'missing_terminal_answer'
-    if text.startswith('<TOOLCALL>'):
+    # A reply that opens with a tool call written as text (in any of the formats models use) is not a final answer.
+    if re.match(r'<(?:TOOLCALL|tool_call)>|<function=', text):
         return 'unparsed_textual_tool_call'
     return None
 
@@ -112,7 +113,6 @@ def record_usage(total, result=None):
 
 
 def make_victim(params: dict, base: Path, on_call=None):
-    from hermit.agent.model.backends import PLACEHOLDER_KEY
     from openai.types.chat import ChatCompletion
     from hermit.agent.base.interface import make
     from hermit.agent.model.llm import ChatClient
@@ -131,12 +131,12 @@ def make_victim(params: dict, base: Path, on_call=None):
         settings["api_key"] = os.environ.get(params["api_key_env"])
     if not settings.get("base_url") or (params.get("key_required", True) and not settings.get("api_key")):
         raise ValueError("victim needs a configured model backend, or base_url and api_key_env (or api_script)")
-    settings["api_key"] = settings.get("api_key") or PLACEHOLDER_KEY
     client = ChatClient(settings["base_url"], params["model"], price=params.get("price"),
                         timeout=float(params.get("request_timeout_s", 120)),
                         max_retries=int(params.get("max_retries", 1)), extra_body=params.get("extra_body"))
     agent = make("direct", {}, client)
-    headers = {"Authorization": "Bearer " + settings["api_key"]}
+    # A key that is optional and not set sends no Authorization header, as the shared client does.
+    headers = {"Authorization": "Bearer " + settings["api_key"]} if settings.get("api_key") else {}
 
     class CompatibleVictim(BasePipelineElement):
         name = params["model"]
@@ -181,22 +181,30 @@ def make_victim(params: dict, base: Path, on_call=None):
                 # prompts out of exception reports forwarded to the learner.
                 raise RuntimeError(f"victim API failed: {type(exc).__name__}, HTTP {getattr(exc, 'code', None)}") from None
             message = completion.choices[0].message if completion.choices else None
+            finish = completion.choices[0].finish_reason if completion.choices else None
             protocol_error = terminal_protocol_error(message.content, bool(message.tool_calls)) if message else 'empty_response'
+            if not protocol_error and finish == "tool_calls" and not message.tool_calls:
+                protocol_error = 'missing_structured_tool_calls'
+            output = None
+            if not protocol_error:
+                output = _openai_to_assistant_message(message)
+                # Upstream silently drops malformed tool calls. Reject those episodes
+                # instead of mistaking a parser failure for a secure final response.
+                if len(output.get("tool_calls") or []) != len(message.tool_calls or []):
+                    protocol_error = 'malformed_tool_call_arguments'
+            # The call's event is written once its response has been validated.
             if on_call is not None:
-                on_call({"status": "error" if protocol_error else "ok", "call": self.usage["calls"],
+                rejected = protocol_error or not completion.choices or finish in {"length", "content_filter"}
+                on_call({"status": "error" if rejected else "ok", "call": self.usage["calls"],
                          "protocol_error": protocol_error,
                          "wall_s": time.monotonic() - started, "usage": dict(self.usage),
-                         "finish_reason": completion.choices[0].finish_reason if completion.choices else None})
-            if not completion.choices or completion.choices[0].finish_reason in {"length", "content_filter"}:
+                         "finish_reason": finish})
+            if not completion.choices or finish in {"length", "content_filter"}:
                 raise RuntimeError("victim response was empty, truncated or filtered")
+            if protocol_error == 'malformed_tool_call_arguments':
+                raise RuntimeError("victim returned malformed tool-call arguments")
             if protocol_error:
                 raise RuntimeError(f"victim terminal protocol error: {protocol_error}")
-            message = completion.choices[0].message
-            output = _openai_to_assistant_message(message)
-            # Upstream silently drops malformed tool calls. Reject those episodes
-            # instead of mistaking a parser failure for a secure final response.
-            if len(output.get("tool_calls") or []) != len(message.tool_calls or []):
-                raise RuntimeError("victim returned malformed tool-call arguments")
             return query, runtime, env, [*messages, output], extra_args or {}
 
     return CompatibleVictim()

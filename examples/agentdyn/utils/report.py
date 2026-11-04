@@ -4,7 +4,7 @@ from collections import Counter
 import json
 from pathlib import Path
 
-from hermit.agent.evolver.methods.evosafe.contract import aggregate, summary
+from hermit.agent.evolver.methods.evosafe.contract import aggregate, completed, summary
 
 
 def summarize(rows, expected_ids, repeats=1, *, tasks=None):
@@ -27,7 +27,8 @@ def summarize(rows, expected_ids, repeats=1, *, tasks=None):
         rows = enriched
     elif any("input" not in row for row in rows):
         raise ValueError("tasks are required for eval records without input")
-    valid = [r for r in rows if r.get("status") == "ok"]
+    # A run without a valid verdict is an error as much as a failed one.
+    valid = [r for r in rows if completed(r, (r.get("input") or {}).get("kind"))]
     errors = len(rows) - len(valid)
     expected = Counter((task, repeat) for task in expected_ids for repeat in range(1, repeats + 1))
     observed = Counter((r["id"], r.get("repeat", 1)) for r in rows)

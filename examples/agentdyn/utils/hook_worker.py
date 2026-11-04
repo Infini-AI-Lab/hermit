@@ -73,7 +73,8 @@ for line in sys.stdin:
         value = asyncio.run(invoke(getattr(defense, method), *args))
         if ctx is not None and method == 'on_pre_tool_call':
             if isinstance(value, dict):
-                send({'value': value})
+                # A decision dict keeps the custom metadata the hook set for its post-hook.
+                send({'value': value, 'metadata': ctx.metadata})
             else:
                 ctx = value if value is not None else ctx
                 ctx.classify_output = None

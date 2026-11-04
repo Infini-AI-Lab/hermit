@@ -146,6 +146,17 @@ def snapshot(root, config_path, config):
         if not target.is_dir():
             raise ValueError(f'{key} must be committed inside the repository')
         effective[key] = str(target)
+    # Other file inputs too: a path outside the snapshot would stay live and unhashed.
+    params, direct = effective['agent'].get('params') or {}, effective['agent'].get('direct') or {}
+    for name, holder, key in [('start_from', effective, 'start_from'),
+                              ('agent.params.api_script', params, 'api_script'),
+                              ('agent.direct.api_script', direct, 'api_script')]:
+        if holder.get(key):
+            source = config.path(holder[key]).resolve()
+            target = frozen / source.relative_to(root) if source.is_relative_to(root) else None
+            if target is None or not target.exists():
+                raise ValueError(f'{name} must be committed inside the repository')
+            holder[key] = str(target)
     # File-backed application entry points must resolve inside the archived source.
     for section, key in [('agent', 'name'), ('judge', 'path')]:
         value = effective[section][key]

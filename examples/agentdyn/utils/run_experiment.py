@@ -105,6 +105,21 @@ def validate_training(run, expected_proposals=None):
             'selection_files': len(paths)}
 
 
+def role_program(params):
+    """The program the roles run, as cli_roles.call_role resolves it from the evolver's settings."""
+    from hermit.agent.evolver.methods.evosafe.cli_roles import proposer
+    backend = proposer(params)
+    return params.get('bin') or params.get(f'{backend}_bin') or backend
+
+
+def role_model(params):
+    """The model the roles run, as cli_roles.call_role resolves it (Codex's default when none is set)."""
+    from hermit.agent.evolver.methods.evosafe.cli_roles import proposer
+    backend = proposer(params)
+    model = params.get('model') or params.get(f'{backend}_model')
+    return model if model is not None or backend != 'codex' else 'gpt-6-sol'
+
+
 def export_training_records(run, artifacts):
     """Include search decisions and metering, without bundling raw CLI logs or prompts."""
     patterns = ('summary.json', 'steps.jsonl', 'step_*/step_result.json',
@@ -252,11 +267,12 @@ def run_measured(path, config, snapshot_metadata=None):
         manifest['docker_version'] = subprocess.check_output(['docker', 'version', '--format', '{{.Server.Version}}'], text=True).strip()
         from hermit.agent.evolver.methods.evosafe.cli_roles import proposer
         manifest['learner_backend'] = proposer(config.data['evolver']['params'])
-        manifest['configured_role_model_id'] = config.data['evolver']['params'].get('model')
+        manifest['configured_role_model_id'] = role_model(config.data['evolver']['params'])
         manifest['reported_role_model_ids_source'] = (
             'claude_events' if manifest['learner_backend'] == 'claude'
             else 'unavailable_in_codex_exec_jsonl')
-        manifest['learner_cli_version'] = subprocess.check_output([manifest['learner_backend'], '--version'], text=True).strip()
+        manifest['learner_cli_version'] = subprocess.check_output(
+            [role_program(config.data['evolver']['params']), '--version'], text=True).strip()
         save()
         # Fail before provider spend if the execution boundary is unavailable.
         from isolated_hooks import IsolatedDefense

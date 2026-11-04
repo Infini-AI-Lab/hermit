@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 
 from hermit.agent.base.tool import Tool
-from .evidence import content_text
+from .evidence import content_text, read_messages
 
 
 class TrainingExperience:
@@ -50,13 +50,15 @@ class TrainingExperience:
                 path = Path(row['log'])
                 directory = path if path.is_dir() else path.parent
                 path = directory / 'trajectory.json' if path.is_dir() else path
-                if path.is_file():
-                    messages = json.loads(path.read_text())
+                logged = read_messages(path) if path.is_file() else None
+                if logged is not None:
+                    messages = logged
             if messages is not None:
                 # Keep complete observable content and arguments; private provider
                 # reasoning is not evidence for the defensive roles.
                 observable = [{k: m[k] for k in ('role', 'tool_calls', 'tool_call', 'tool_call_id', 'error', 'name')
-                               if k in m} | {'message_index': n, 'content': content_text(m.get('content'))}
+                               if k in m}
+                              | {'message_index': n, 'content': content_text(m.get('content'), m.get('role'))}
                               for n, m in enumerate(messages)]
                 self.put(prefix + '/trajectory', observable, kind='trajectory', **meta)
             if directory is not None:

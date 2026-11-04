@@ -159,3 +159,37 @@ def build(): return Defense()
     finally:
         hook.close()
         unrelated.close()
+
+
+@pytest.mark.parametrize('field', ['start_from', 'api_script', 'direct'])
+def test_snapshot_refuses_a_file_input_outside_the_repository(tmp_path, monkeypatch, field):
+    root = tmp_path / 'repo'
+    for name in ['template', 'task-info']:
+        (root / name).mkdir(parents=True)
+        (root / name / 'info').write_text('committed')
+    (root / 'worker.py').write_text('')
+    outside = tmp_path / 'outside.py'
+    outside.write_text('live')
+    import yaml
+    config_data = {'data': {k: 'cases.txt' for k in ('tasks', 'train', 'test')},
+                   'agent': {'name': 'worker.py:run', 'params': {}}, 'judge': {'path': 'worker.py'},
+                   'trainer': {}, 'task_info': 'task-info', 'template': 'template'}
+    if field == 'start_from':
+        config_data['start_from'] = str(outside)
+    elif field == 'direct':
+        config_data['agent']['direct'] = {'api_script': str(outside)}
+    else:
+        config_data['agent']['params']['api_script'] = str(outside)
+    config_path = root / 'run.yaml'
+    config_path.write_text(yaml.safe_dump(config_data))
+    subprocess.run(['git', 'init', '-q', str(root)], check=True)
+    subprocess.run(['git', '-C', str(root), 'add', '.'], check=True)
+    subprocess.run(['git', '-C', str(root), '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                    'commit', '-qm', 'fixture'], check=True)
+    (root / 'cases.txt').write_text('cases')
+    config = SimpleNamespace(data=config_data, run_dir=lambda: tmp_path / 'output/run',
+        run_name=lambda: 'run', path=lambda value: (root / value).resolve(),
+        template_dir=lambda: root / 'template', tree_dir=lambda _: tmp_path / 'tree')
+    monkeypatch.setenv('HA_BACKENDS', str(tmp_path / 'none.yaml'))
+    with pytest.raises(ValueError, match='must be committed inside the repository'):
+        snapshot(root, config_path, config)
