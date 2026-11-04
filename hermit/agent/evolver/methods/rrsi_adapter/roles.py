@@ -148,8 +148,9 @@ class Roles:
             extra, tail = result.extra, str(result.extra.get("output_tail") or "")
             if extra.get("cancelled") or self._cancelled():
                 raise Stop("stopped by the Trainer")
-            if (not extra.get("started") and extra.get("unavailable")) or \
-                    (not extra.get("served") and codex_login.refused(tail)):
+            # the Base Agent says whether the plan refused it (hermit >= #69); before, its output's tail is read
+            refused = extra["refused"] if "refused" in extra else codex_login.refused(tail)
+            if (not extra.get("started") and extra.get("unavailable")) or (not extra.get("served") and refused):
                 raise Stop(f"the model's plan did not serve a role's session: {tail[-200:]}")
             if result.reply.strip() and result.exit_code == 0 and not result.timed_out:
                 return extract_json(result.reply) if json_only else result.reply
@@ -158,7 +159,7 @@ class Roles:
             if timeouts >= 2:
                 # upstream retries a failed API call; a session that ran out of its clock twice (role_timeout_s
                 # each) is no transient error: the call fails, and so does the step (counted toward max_failures)
-                raise RuntimeError(f"generate: two Codex sessions in a row ran out of role_timeout_s: {last}")
+                raise RuntimeError(f"generate: two of this call's Codex sessions ran out of role_timeout_s: {last}")
             if self._wait(min(2 ** attempt, 30) * (4 if extra.get("unavailable") else 1)):
                 raise Stop("stopped by the Trainer")
         raise RuntimeError(f"generate failed after {max_retries} Codex sessions: {last}")

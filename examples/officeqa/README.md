@@ -163,7 +163,7 @@ acting and learning on the machine's ChatGPT login instead of GLM 5.3 Flash on F
 skill, judge, parameters, stream order and one pass (Meta-Harness Adapter was not run; RRSI Adapter and ACE ran on
 this column only). It starts 22–23 points lower and gains more from every method, most from ACE, RRSI Adapter,
 Harness² and GEPA (0.600–0.640), and almost all of the gain is the answer's form: a check of every answer finds the
-share with the right value at 0.66–0.71 in every cell of the column it was run on (all but ACE's). RRSI Adapter, which
+share with the right value at 0.66–0.72 in every cell of the column it was run on (all but ACE's). RRSI Adapter, which
 searches whole adapters in the Codex harness the streams use, reaches GEPA and Harness² too, from 0.355 for its
 starting adapter in its own harness and window (its four trainings averaged per question − GEPA +1.6 [−1.6, +4.8], −
 its start +26.2 [+20.1, +32.6], almost all of it the answer's form: checked answer by answer, the share with the right

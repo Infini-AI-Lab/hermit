@@ -605,6 +605,9 @@ def test_the_diff_drops_the_copies_prefixes_on_header_lines_only(tmp_path):
     assert "diff --git a/added file.md b/added file.md\n" in diff and "\n+++ b/added file.md" in diff
     assert "diff --git a/gone.md b/gone.md\n" in diff and "\n--- a/gone.md" in diff
     assert " a/b/" not in diff and " b/a/" not in diff
+    (new / 'say "hi".md').write_text("q\n")                          # a name git quotes
+    diff = E.diff_of(base, new)
+    assert 'diff --git "a/say \\"hi\\".md" "b/say \\"hi\\".md"' in diff and '+++ "b/say \\"hi\\".md"' in diff
 
 
 def test_a_proposers_directory_or_home_turned_into_a_link_ends_its_draft(tmp_path, monkeypatch):
@@ -1056,8 +1059,14 @@ def test_steps_the_trainer_stopped_count_toward_max_failures(tmp_path, monkeypat
     material(ws, 1, rows({"q1": [0, 1], "q2": [1, 0]}))
     cancel = threading.Event()
     cancel.set()                                                # the Trainer's clock ended each call
-    statuses = [ev.step(dataclasses.replace(context(ws, i, dom, tmp_path), cancel=cancel)).status for i in (1, 2, 3)]
-    assert statuses == ["failed", "failed", "stop"]
+    calls = []
+    monkeypatch.setattr(E.RRSIAdapterEvolver, "_open", lambda self, ctx, *a: calls.append(1) or hangs(self, ctx))
+    for i in (1, 2, 3):                                         # the Trainer replaces these steps' results
+        ev.step(dataclasses.replace(context(ws, i, dom, tmp_path), cancel=cancel))
+    assert state(ws)["failures"] == 3 and len(calls) == 3
+    r = ev.step(context(ws, 4, dom, tmp_path))                  # the next step, which the Trainer takes as it is
+    assert r.status == "stop" and "3 failed steps in a row" in r.summary and len(calls) == 3
+    assert "ended early" in ev.finalize(context(ws, 4, dom, tmp_path)).summary
     held = workspace(tmp_path / "held")                          # a plan's refusal (no cancel) is not counted
     dom2 = domain_files(tmp_path / "held")
     material(held, 1, rows({"q1": [0, 1], "q2": [1, 0]}))

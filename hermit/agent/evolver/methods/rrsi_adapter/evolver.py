@@ -199,6 +199,14 @@ def _strip_copy_prefixes(diff: str) -> str:
     `b/<file>`, on a file's header lines only (`diff --git`, `---`, `+++` before its first hunk): a changed line is
     left as it is. With no renames both paths of a `diff --git` line name the same file, also when it is new (both
     under `b/`) or deleted (both under `a/`), so the line is split in its middle, whatever spaces the name holds."""
+    def strip(path: str, side: str) -> str | None:
+        """`<side>/<copy>/<name>` as `<side>/<name>`; a name git quotes ("...") keeps its quotes."""
+        quoted = path.startswith('"') and path.endswith('"') and len(path) > 1
+        inner = path[1:-1] if quoted else path
+        if inner[:2] != f"{side}/" or inner[2:4] not in ("a/", "b/"):
+            return None
+        return f'"{side}/{inner[4:]}"' if quoted else f"{side}/{inner[4:]}"
+
     out, header = [], False
     for line in diff.splitlines(keepends=True):
         body = line.rstrip("\n")
@@ -207,13 +215,17 @@ def _strip_copy_prefixes(diff: str) -> str:
             rest = body[len("diff --git "):]
             n = (len(rest) - 1) // 2
             one, two = rest[:n], rest[n + 1:]
-            if len(rest) % 2 == 1 and rest[n] == " " and one[:2] == "a/" and two[:2] == "b/" and \
-                    one[2:4] in ("a/", "b/") and two[2:4] in ("a/", "b/") and one[4:] == two[4:]:
-                line = f"diff --git a/{one[4:]} b/{two[4:]}" + line[len(body):]
+            a, b = (strip(one, "a"), strip(two, "b")) if len(rest) % 2 == 1 and rest[n] == " " else (None, None)
+            if a and b and a.strip('"')[2:] == b.strip('"')[2:]:
+                line = f"diff --git {a} {b}" + line[len(body):]
         elif body.startswith("@@"):
             header = False
-        elif header and body.startswith(("--- a/a/", "--- a/b/", "+++ b/a/", "+++ b/b/")):
-            line = line[:6] + line[8:]
+        elif header and body.startswith(("--- ", "+++ ")):
+            side = "a" if body.startswith("---") else "b"
+            path, sep, tail = body[4:].partition("\t")          # git's tab after a name with spaces
+            fixed = strip(path, side)
+            if fixed:
+                line = body[:4] + fixed + sep + tail + line[len(body):]
         out.append(line)
     return "".join(out)
 
@@ -315,6 +327,13 @@ class RRSIAdapterEvolver(AgentEvolver):
         roles = self._roles(ctx)
         store = _store(ctx)
         self._record_code(ctx)
+        limit = int(ctx.params.get("max_failures", 3))
+        if int(st.get("failures") or 0) >= limit:
+            # The last steps failed max_failures times in a row. A step the Trainer's clock ended cannot stop the run
+            # itself (the Trainer replaces that step's result with its own), so the run stops here, at the next one.
+            self._lines.append(f"The last {st['failures']} steps failed in a row (max_failures {limit}): the run "
+                               "stops before this step does anything.")
+            return self._result(ctx, st, "stop", f"stopped: {st['failures']} failed steps in a row", roles)
         if not st["order"]:                                  # the starting adapter, H_0
             _copy_tree(ctx.workspace.adapter, store / "h0" / "adapter")
             st["candidates"]["h0"] = {"round": None, "variant": None, "status": "queued",
@@ -863,8 +882,9 @@ class RRSIAdapterEvolver(AgentEvolver):
             extra, tail = result.extra, str(result.extra.get("output_tail") or "")
             if extra.get("cancelled") or (ctx.cancel is not None and ctx.cancel.is_set()):
                 raise Stop("stopped by the Trainer during a proposer session")
-            if (not extra.get("started") and extra.get("unavailable")) or \
-                    (not extra.get("served") and codex_login.refused(tail)):
+            # the Base Agent says whether the plan refused it (hermit >= #69); before, its output's tail is read
+            refused = extra["refused"] if "refused" in extra else codex_login.refused(tail)
+            if (not extra.get("started") and extra.get("unavailable")) or (not extra.get("served") and refused):
                 # the model's plan held the session back past its wait, or refused it: not the proposer's doing, so
                 # the variant is drafted again later, never recorded as a gate failure
                 raise Stop(f"the model's plan did not serve a proposer session: {tail[-200:]}")
@@ -1129,12 +1149,16 @@ class RRSIAdapterEvolver(AgentEvolver):
                         shutil.rmtree(dest, ignore_errors=True)
                         raise Stop("the smoke's rollouts were refused for the model's plan limit")
                     rerun_ids = {str(r.get("id")) for r in rerun}
+                    first = {str(r.get("id")): str(r.get("output") or r.get("status"))[:300]
+                             for r in failing(results)}
                     results = [r for r in results if str(r.get("id")) not in rerun_ids] + rerun
                 bad = {str(r.get("id")): str(r.get("output") or r.get("status"))[:300] for r in failing(results)}
                 if len(results) < len(ids):
                     bad["missing_trials"] = f"{len(results)}/{len(ids)}"
                 _write(vdir / "smoke.json", json.dumps({"ok": not bad, "stage": "smoke_run", "ids": list(ids),
-                                                        "n": len(results), **({"failures": bad} if bad else {})},
+                                                        "n": len(results), **({"failures": bad} if bad else {}),
+                                                        **({"run_again": again, "first_failures": first}
+                                                           if again else {})},
                                                        indent=1))
                 if bad:
                     shutil.rmtree(dest, ignore_errors=True)
