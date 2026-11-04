@@ -123,8 +123,10 @@ On the evolve set (the 50 training questions, two trials each):
   from a `python -c` payload), not when it only reads it.
 - **Selection inside the band.** With the coding instance's weights (w_s = 0) a candidate inside the band is admitted
   for any token saving, or for a new structural component (`client_tool`, `skill`, `memory`) that adds less than about
-  3% tokens (w_n / w_c = 0.5 / 15), so H_T can score below the best candidate measured: 0.66 where 0.68 was measured
-  (`luna-rrsi-p1`), 0.65 where 0.70 was (`luna-rrsi-p2`), 0.68 where 0.72 was (`luna-rrsi-p4`). The engineering
+  3% tokens (w_n / w_c = 0.5 / 15), and one that scores higher but costs more tokens is not, so H_T can score below
+  the best candidate measured. In `luna-rrsi-p1` and `-p4` a later candidate was admitted below an earlier one (0.66
+  where 0.68 was measured, 0.68 where 0.72 was); in `luna-rrsi-p2` only round 0's 0.65 was ever admitted, and five
+  later candidates measured at 0.68 to 0.70 (inside its band, 0.061) were refused for their extra tokens. The engineering
   weights (w_s 100, w_c 2: inside the band the score counts) kept the best candidate measured, 0.67, and its H_T
   scores 0.622 on the test questions, +0.6 [−4.2, +5.5] against the four trainings' mean: one training cannot tell
   the two weightings apart.

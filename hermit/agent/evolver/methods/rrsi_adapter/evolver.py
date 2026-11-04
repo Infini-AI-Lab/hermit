@@ -161,8 +161,9 @@ def stage(cand: Path, staged: Path) -> list[str]:
             dropped.append(str(p.relative_to(staged)) + "/")
             shutil.rmtree(p)
     _git(staged, "init", "-q")
-    ignored = [l for l in _git(staged, "ls-files", "-o", "-i", "--exclude-standard", "--directory").stdout.splitlines()
-               if l.strip()]
+    # NUL-separated: a name git would quote (non-ASCII, quotes) is read as it is
+    ignored = [l for l in _git(staged, "ls-files", "-z", "-o", "-i", "--exclude-standard", "--directory").stdout
+               .split("\0") if l.strip()]
     for rel in ignored:
         target = staged / rel.rstrip("/")
         if target.is_dir():
@@ -184,13 +185,14 @@ def diff_of(base: Path, new: Path) -> str:
         shutil.copytree(new, Path(tmp) / "b")
         # No repository around the copies and no configuration but this call's: inside a git checkout (where the
         # examples' runs lie) git would read the candidate's own .gitattributes (a `* -diff` there shows every file
-        # as binary to the precheck and the critic), and a user's settings could change the diff's form. Every file
-        # as text, whole (no rename pairs), with no external diff or text conversion.
+        # as binary to the precheck and the critic), and a user's settings could change the diff's form. Whole files
+        # (no rename pairs), with no external diff or text conversion; a binary file (a NUL in it) as upstream's git
+        # diff shows it ("Binary files ... differ"), and text not in UTF-8 with its undecodable bytes replaced.
         env = {**os.environ, "GIT_CEILING_DIRECTORIES": str(Path(tmp).parent), "GIT_CONFIG_NOSYSTEM": "1",
                "GIT_CONFIG_GLOBAL": os.devnull}
-        out = subprocess.run(["git", "-c", "core.quotepath=off", "diff", "--no-index", "--no-color", "--text",
+        out = subprocess.run(["git", "-c", "core.quotepath=off", "diff", "--no-index", "--no-color",
                               "--no-renames", "--no-ext-diff", "--no-textconv", "--", "a", "b"],
-                             cwd=tmp, env=env, capture_output=True, text=True).stdout
+                             cwd=tmp, env=env, capture_output=True).stdout.decode("utf-8", errors="replace")
     return _strip_copy_prefixes(out)
 
 
@@ -220,6 +222,15 @@ def _strip_copy_prefixes(diff: str) -> str:
                 line = f"diff --git {a} {b}" + line[len(body):]
         elif body.startswith("@@"):
             header = False
+        elif header and body.startswith("Binary files ") and body.endswith(" differ"):
+            middle = body[len("Binary files "):-len(" differ")]
+            for i in [i for i in range(len(middle)) if middle.startswith(" and ", i)]:
+                one, two = middle[:i], middle[i + len(" and "):]
+                a = "/dev/null" if one == "/dev/null" else strip(one, "a")
+                b = "/dev/null" if two == "/dev/null" else strip(two, "b")
+                if a and b:
+                    line = f"Binary files {a} and {b} differ" + line[len(body):]
+                    break
         elif header and body.startswith(("--- ", "+++ ")):
             side = "a" if body.startswith("---") else "b"
             path, sep, tail = body[4:].partition("\t")          # git's tab after a name with spaces
@@ -228,6 +239,13 @@ def _strip_copy_prefixes(diff: str) -> str:
                 line = body[:4] + fixed + sep + tail + line[len(body):]
         out.append(line)
     return "".join(out)
+
+
+# RRSIConfig fields this method does not read, and what sets the same thing here
+NOT_HERE = {"proposer_model": "the proposer's model is the Evolver's Base Agent setting (agent.model)",
+            "analyst_model": "the roles' model is evolver.params.roles.model",
+            "critic_model": "the roles' model is evolver.params.roles.model",
+            "eval_parallel": "the Trainer evaluates one candidate per step (1 is accepted)"}
 
 
 class RRSIAdapterEvolver(AgentEvolver):
@@ -248,6 +266,10 @@ class RRSIAdapterEvolver(AgentEvolver):
         if unknown:
             raise ValueError(f"evolver.params.rrsi{f' ({path})' if path else ''}: not RRSI hyperparameters "
                              f"(RRSIConfig fields): {unknown}")
+        unused = sorted(k for k in value if k in NOT_HERE and not (k == "eval_parallel" and value[k] == 1))
+        if unused:
+            raise ValueError(f"evolver.params.rrsi{f' ({path})' if path else ''}: {unused} have no effect here: "
+                             + "; ".join(NOT_HERE[k] for k in unused))
         return RRSIConfig.load(path) if path else RRSIConfig(**{k: v for k, v in value.items() if k in known})
 
     def _domain(self, ctx):
@@ -316,6 +338,7 @@ class RRSIAdapterEvolver(AgentEvolver):
                              "roles.binding too; a `<backend>/<model>` reference is resolved for the proposer only")
         self._cfg(ctx)
         self._domain(ctx)
+        self._more_hidden(ctx)                               # a "module:" entry naming no installed package
 
     def step(self, ctx: StepContext) -> StepResult:
         _require_rrsi()
@@ -361,9 +384,10 @@ class RRSIAdapterEvolver(AgentEvolver):
             return self._result(ctx, st, status, f"stopped: {exc}", roles)
         except Exception as exc:                             # a broken step: counted; the next step resumes
             st["failures"] = int(st.get("failures") or 0) + 1
-            self._save(ctx, st)
             self._lines.append(f"\nThe step failed: {type(exc).__name__}: {exc}")
             status = "stop" if st["failures"] >= int(ctx.params.get("max_failures", 3)) else "failed"
+            st["stop_said"] = status == "stop"           # returned to the Trainer, which hears it
+            self._save(ctx, st)
             return self._result(ctx, st, status, f"{type(exc).__name__}: {str(exc)[:200]}", roles)
         st["failures"], st["stop_said"] = 0, False
         self._save(ctx, st)
@@ -406,6 +430,13 @@ class RRSIAdapterEvolver(AgentEvolver):
             extra.update({"incumbent": fr["incumbent"].get("cid"), "S": fr["incumbent"]["S"], "S_star": fr["S_star"]})
         return StepResult(status, summary[:300], usage=usage, extra=extra)
 
+    def _models(self, ctx) -> dict:
+        """The models this run's proposer and roles use, in RRSIConfig's fields (its defaults are not read here)."""
+        backend = ctx.params.get("backend", "codex")
+        proposer = self.settings(ctx, backend).get("model")
+        role = (ctx.params.get("roles") or {}).get("model") or self.settings(ctx, "codex").get("model")
+        return {"proposer_model": proposer, "analyst_model": role, "critic_model": role}
+
     def _roles(self, ctx) -> Roles:
         """The roles' sessions: the proposer's Base Agent settings for Codex (its model, login and effort unless
         `roles` gives the roles' own; with the roles' own model, the proposer's binding and price are not theirs),
@@ -422,7 +453,8 @@ class RRSIAdapterEvolver(AgentEvolver):
                     **{k: role[k] for k in ("model", "binding", "login", "effort", "args", "price")
                        if role.get(k) is not None},
                     "codex_sandbox": "read-only", "timeout_s": float(params.get("role_timeout_s", 1800))}
-        hide = [ws.learning_material, ws.state, ws.adapter, ws.history, ws.output, ws.scratch / "rrsi"]
+        hide = [ws.learning_material, ws.state, ws.adapter, ws.history, ws.output, ws.scratch / "rrsi",
+                *self._more_hidden(ctx)]
         return Roles(ctx, settings, ws.scratch / "rrsi_roles", hide=hide, records=ws.output / "rrsi_roles")
 
     @staticmethod
@@ -585,7 +617,7 @@ class RRSIAdapterEvolver(AgentEvolver):
         fr = {"domain": "adapter", "incumbent": {"t": 0, "cid": "h0", "job": "h0", "S": ev.S, "C": ev.C,
                                                  "extra": ev.extra},
               "S_star": ev.S, "trajectory": [{"t": 0, "S": ev.S, "C": ev.C, "cid": "h0", "job": "h0"}],
-              "config": cfg.dump()}
+              "config": {**cfg.dump(), **self._models(ctx)}}
         _write(R / "frontier.json", json.dumps(fr, indent=1))
         if cfg.delta is None:
             cal = calibrate([ev], z=cfg.delta_z)
@@ -734,6 +766,8 @@ class RRSIAdapterEvolver(AgentEvolver):
                 report = analyze(dom, traces, inc_ev.per_task, rdir, prior_modes=prior.get("failure_modes"),
                                  prior_habits=prior.get("success_habits"), model=None)
             _write(report_path, json.dumps(report, ensure_ascii=False, indent=1))
+        if report.get("error"):                              # upstream goes on with an empty report
+            self._lines.append(f"The analyst's report is empty: {report['error']}.")
         _write(R / "global_analysis.json", json.dumps({"failure_modes": report.get("failure_modes"),
                                                        "success_habits": report.get("success_habits")},
                                                       ensure_ascii=False, indent=1))
@@ -832,6 +866,13 @@ class RRSIAdapterEvolver(AgentEvolver):
         (cdir / "PATTERNS.md").write_text(patterns_md)
         return cdir
 
+    @staticmethod
+    def _more_hidden(ctx) -> list[Path]:
+        """`hide`: more paths hidden from the proposer and the roles, read as AgentEvolver's `hide` reads them (a path,
+        or "module:<name>" for an installed package), without the framework's directories it adds."""
+        from hermit.sandbox import hidden_paths
+        return hidden_paths(ctx.params.get("hide") or [])[len(hidden_paths(None)):]
+
     def _hidden_from_proposer(self, ctx, work: Path) -> list[Path]:
         """What a proposer session must not see: the learning material and the state (the evaluations, every
         candidate, upstream's records), the adapter's history and working copy, the step's output (other sessions'
@@ -864,7 +905,7 @@ class RRSIAdapterEvolver(AgentEvolver):
         # The paths are hidden here rather than through AgentEvolver's `hide`, which also covers the framework's
         # examples/: a run whose output_dir lies under examples/ would lose its own workspace. With the run's sandbox
         # off nothing can be hidden, and the session runs as every learner of such a run does.
-        hidden = [*self._hidden_from_proposer(ctx, work), *(Path(p).expanduser() for p in params.get("hide") or [])] \
+        hidden = [*self._hidden_from_proposer(ctx, work), *self._more_hidden(ctx)] \
             if getattr(ctx.sandbox, "enabled", False) else []
         ws = ctx.workspace
         aliased = self._aliased(ctx)

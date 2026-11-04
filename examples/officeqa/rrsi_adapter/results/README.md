@@ -13,17 +13,22 @@ record per test question, the rounds' decisions, the run's facts and its config.
 | `luna-rrsi-eng` | the same | before the port: a training with `run_luna_eng.yaml` | 0.616 |
 | `luna-rrsi` | the Evolver before the first review (no code record) | before the port: the first training (`run_luna.yaml`, concurrency 10), and H_0 evaluated in its window | 0.593; H_0 0.378 |
 
-The runs on the port recorded commit `859bda9` and a clean tree. The runs before it ran in a local checkout whose
-commit (`3891bb9`) is not published; its Evolver directory had the SHA-256 recorded in `run.json` (`9aa5c603…`),
-the same directory as `c8afc5e`'s, and its acting agent was PR #54's OfficeQA Codex agent (`deploy: adapter`).
+The runs on the port recorded commit `859bda9` and a clean `hermit/` (the record checks that directory; the
+example's files there predate the runs). The runs before it ran in a local checkout whose commit (`3891bb9`) is not
+published and whose `hermit/` had changes (`dirty: true`, not kept by the record); its Evolver directory had the
+SHA-256 recorded in `run.json` (`9aa5c603…`), the same directory as `c8afc5e`'s, and its acting agent was PR #54's
+OfficeQA Codex agent (`deploy: adapter`). Neither `859bda9` nor `c8afc5e` is on a branch: both are earlier heads of
+this pull request, reachable on GitHub by their SHA.
 
 | File | What it holds |
 |---|---|
 | `adapter/` | H_T: the files of the run's final commit (`final_commit` in `run.json`), which `hermit eval --adapter final` evaluated; `.hermit/` is the template's, with the Trainer's card |
 | `test-final.jsonl` (H_T), `test-seed_adapter.jsonl` (H_0) | one line per test question, in the split's order: `id`; `score`, the judge's exact match; `value`, the README's answer-by-answer check (`exact`, `right value, other form`, `wrong value`, `no answer`); `answered`; `tokens`, the session's (`null` where it left no count); `wall_s`; `status` and `error`, the evaluation's. The reference answers and the agent's answers are left out, so that the test split's answers are not in the repository |
-| `rounds.jsonl` | upstream's edit history (`workspace/state/rrsi/history.jsonl`), one line per edit and one for H_0: round `t`, `variant`, `edit_id`, `component`, `targets_mode`, `outcome` (`BASELINE`; `ACCEPTED`; `LOST`, admissible but another candidate won the round; `REJECTED`, not admissible), the candidate's `S` and `C` on the evolve set and their changes, and the selection's `detail`. The proposer's hypotheses, predicted questions and diffs stay in the run directory |
+| `rounds.jsonl` | upstream's edit history (`workspace/state/rrsi/history.jsonl`), one line per edit and one for H_0: round `t`, `variant`, `edit_id`, `component`, `targets_mode`, `outcome` (`BASELINE`; `ACCEPTED`; `LOST`, admissible but another candidate won the round; `REJECTED`, not admissible;
+`critic_reject`, in `luna-rrsi` only, a candidate the critic refused, which that run's earlier Evolver recorded here), the candidate's `S` and `C` on the evolve set and their changes, and the selection's `detail`. The proposer's hypotheses, predicted questions and diffs stay in the run directory |
 | `run.json` | the run's summary (steps, stop reason, spending, the final commit), the code it ran (`code`: the framework commit, whether its tree had changes, the Evolver directory's SHA-256, upstream's commit), delta's calibration, H_T and S*, and the test evaluations' summaries |
-| `config.yaml` | the config as the Trainer resolved it, the command line's settings included, with this machine's paths replaced by `<checkout>`, `<venv>` and `~`. H_0's evaluation on the port keeps none: it ran as below |
+| `config.yaml` | the config as the Trainer resolved it, the command line's settings included, with this machine's paths replaced by `<checkout>` (its virtual environment: `<checkout>-venv` on the port,
+`<checkout>/.venv` before it) and `~`. H_0's evaluation on the port keeps none: it ran as below |
 
 The runs on the port, from `examples/officeqa/rrsi_adapter/` (`run_luna_eng.yaml` for `luna-rrsi-eng-p`):
 

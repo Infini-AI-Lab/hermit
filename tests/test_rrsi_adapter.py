@@ -291,6 +291,9 @@ def test_a_run_baseline_rounds_selection_and_h_t(tmp_path, monkeypatch):
     assert r.status == "done" and r.extra["next"] == "r00A", r.summary
     fr = json.loads((ws.state / "rrsi" / "frontier.json").read_text())
     assert fr["incumbent"]["cid"] == "h0" and fr["S_star"] == 0.5
+    # the record names the models this run used, not RRSIConfig's defaults, which are not read here
+    assert {k: fr["config"][k] for k in ("proposer_model", "analyst_model", "critic_model")} == \
+        ev._models(context(ws, 1, dom, tmp_path)) and "claude-opus" not in json.dumps(fr["config"])
     assert "Answer with the bare number" in (ws.adapter / "ADAPTER.md").read_text()
     st = state(ws)
     assert st["round"]["queue"] == ["r00B"] and st["candidates"]["r00B"]["status"] == "queued"
@@ -445,7 +448,7 @@ def test_consecutive_failures_stop_the_run(tmp_path, monkeypatch):
     dom = domain_files(tmp_path)
     ev = evolver(monkeypatch, Script({}))
 
-    def broken(self, ctx):
+    def broken(self, ctx, *a):
         raise RuntimeError("the analyst is down")
     monkeypatch.setattr(E.RRSIAdapterEvolver, "_open", broken)
     material(ws, 1, rows({"q1": [0, 1], "q2": [1, 0]}))
@@ -453,6 +456,9 @@ def test_consecutive_failures_stop_the_run(tmp_path, monkeypatch):
     assert statuses == ["failed", "failed", "stop"]
     final = ev.finalize(context(ws, 3, dom, tmp_path))       # H_0 was measured; no round was ever decided
     assert final.extra["complete"] is False and "after 0 of 2 rounds: the run ended early" in final.summary
+    # the Trainer heard that stop; one that runs on (allow_early_stop: false) gets the Evolver trying again at once
+    r = ev.step(context(ws, 4, dom, tmp_path))
+    assert r.status == "failed" and "the analyst is down" in r.summary and state(ws)["failures"] == 1
 
 
 def test_the_roles_bridge_rebinds_upstreams_generate_only_while_bound():
@@ -566,12 +572,13 @@ def test_staging_keeps_what_git_commits_and_the_diff_is_independent_of_the_candi
     (cand / "tools" / ".git" / "HEAD").write_text("ref\n")
     (cand / "notes").mkdir()
     (cand / "notes" / "secret.md").write_text("ignored\n")
-    (cand / ".gitignore").write_text("notes/\n")
+    (cand / ".gitignore").write_text("notes/\n*.log\n")
+    (cand / "caf\u00e9 \"x\".log").write_text("ignored, a name git quotes\n")
     staged = tmp_path / "staged"
     dropped = E.stage(cand, staged)
     files = sorted(str(p.relative_to(staged)) for p in staged.rglob("*") if p.is_file())
     assert files == [".gitignore", "ADAPTER.md", "scripts/x.py"]
-    assert {"notes/", ".pytest_cache/", "tools/.git/"} <= set(dropped)
+    assert {"notes/", ".pytest_cache/", "tools/.git/", "caf\u00e9 \"x\".log"} <= set(dropped)
     diff = E.diff_of(base, staged)
     assert "+b" in diff and "+++ b/scripts/x.py" in diff and "--- a/ADAPTER.md" in diff and "pyc" not in diff
 
@@ -588,6 +595,19 @@ def test_the_diff_reads_every_file_whatever_the_candidates_gitattributes_say(tmp
     (new / ".gitattributes").write_text("* -diff\n")
     diff = E.diff_of(base, new)
     assert "+The answer is SECRET-ANSWER." in diff and "Binary files" not in diff
+
+
+def test_the_diff_reads_a_binary_file_and_text_not_in_utf8(tmp_path):
+    base, new = tmp_path / "base", tmp_path / "new"
+    base.mkdir()
+    (base / "ADAPTER.md").write_text("a\n")
+    shutil.copytree(base, new)
+    (new / "units.pkl").write_bytes(b"\x80\x04\x95\x00\x00binary\xff")
+    (new / "notes.txt").write_bytes("caf\u00e9 latin\n".encode("latin-1"))
+    (new / ".gitattributes").write_text("* -diff\n")
+    diff = E.diff_of(base, new)
+    assert "Binary files /dev/null and b/units.pkl differ" in diff and "+caf\ufffd latin" in diff
+    assert "diff --git a/notes.txt b/notes.txt" in diff
 
 
 def test_the_diff_drops_the_copies_prefixes_on_header_lines_only(tmp_path):
@@ -686,6 +706,12 @@ def test_setup_checks_what_every_step_needs(tmp_path):
         ev._cfg(SimpleNamespace(params={"rrsi": "rrsi.json"}, base=tmp_path))
     (tmp_path / "rrsi.json").write_text(json.dumps({"_doc": "a comment", "T": 2, "beta1": 10}))
     assert ev._cfg(SimpleNamespace(params={"rrsi": "rrsi.json"}, base=tmp_path)).beta1 == 10
+    with pytest.raises(ValueError, match="critic_model.*no effect here"):
+        ev.setup(context(ws, 1, dom, tmp_path, rrsi={"T": 2, "critic_model": "claude-x"}))
+    with pytest.raises(ValueError, match="eval_parallel.*no effect here"):
+        ev.setup(context(ws, 1, dom, tmp_path, rrsi={"T": 2, "eval_parallel": 4}))
+    with pytest.raises(RuntimeError, match="no installed package"):
+        ev.setup(context(ws, 1, dom, tmp_path, hide=["module:no_such_package_here"]))
     for name in ("rrsi.json", "rrsi_eng.json"):                     # the example's own files pass
         ev._cfg(SimpleNamespace(params={"rrsi": name}, base=ROOT / "examples" / "officeqa" / "rrsi_adapter"))
 
@@ -912,7 +938,8 @@ def test_the_proposer_runs_in_its_variant_with_the_runs_records_hidden(tmp_path,
     private = tmp_path / "private"
     private.mkdir()
     material(ws, 1, rows({"q1": [0, 1], "q2": [1, 0], "q3": [1, 1], "q4": [0, 0]}))
-    ctx = context(ws, 1, dom, tmp_path, run_agent=lambda **kw: {"results": []}, sandbox=Box(), hide=[str(private)])
+    ctx = context(ws, 1, dom, tmp_path, run_agent=lambda **kw: {"results": []}, sandbox=Box(),
+                  hide=[str(private), "module:json"])
     assert ev.step(ctx).status == "done"
     a, b = script.sessions[0], script.sessions[1]
     work = ws.scratch / "rrsi" / "r0A"
@@ -920,7 +947,9 @@ def test_the_proposer_runs_in_its_variant_with_the_runs_records_hidden(tmp_path,
     assert a["settings"]["log"] == ws.output / "r0A" / "session_1.jsonl" and a["settings"]["cancel"] is ctx.cancel
     assert a["tools"] == [ctx.tools["check_spec"]]            # no run_agent: the smoke is the Evolver's
     hidden = set(map(Path, a["limits"].hidden))
-    assert {ws.learning_material, ws.state, ws.adapter, ws.output, private} <= hidden and work not in hidden
+    package = Path(__import__("json").__file__).parent           # "module:<name>": the installed package
+    assert {ws.learning_material, ws.state, ws.adapter, ws.output, private, package} <= hidden
+    assert work not in hidden and package in set(ROLE_CALLS[-1]["limits"].hidden)
     assert work in set(map(Path, b["limits"].hidden))          # variant B never sees A's directory or home
     assert [m.source for m in a["limits"].readable] == [ws.task_info]
 
@@ -1044,6 +1073,24 @@ def test_a_role_call_whose_session_times_out_twice_fails(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match="ran out of role_timeout_s"):
         roles(tmp_path).generate("p", system="s")
     assert len(calls) == 2                                      # not max_retries (6) sessions of role_timeout_s each
+
+
+def test_a_role_call_the_provider_keeps_failing_ends_the_step_uncounted(tmp_path, monkeypatch):
+    outcomes = []
+
+    class Down(BaseAgent):
+        def run(self, prompt, **kw):
+            unavailable = outcomes.pop(0)
+            return Result(reply="", exit_code=1, extra={**SERVED, "served": False, "unavailable": unavailable,
+                                                        "output_tail": "unexpected status 503"})
+    monkeypatch.setattr(R, "make", lambda name, settings=None, model=None: Down(settings))
+    monkeypatch.setattr(R.Roles, "_wait", lambda self, seconds: False)
+    outcomes[:] = [True] * 3
+    with pytest.raises(R.Stop, match="provider kept failing"):    # as a proposer's: not counted
+        roles(tmp_path).generate("p", system="s", max_retries=3)
+    outcomes[:] = [True, False, True]
+    with pytest.raises(RuntimeError, match="generate failed after 3"):   # not the provider alone: counted
+        roles(tmp_path / "b").generate("p", system="s", max_retries=3)
 
 
 def test_steps_the_trainer_stopped_count_toward_max_failures(tmp_path, monkeypatch):

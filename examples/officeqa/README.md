@@ -130,7 +130,9 @@ Results use two settings:
   ([`meta_harness_adapter/run.yaml`](meta_harness_adapter/run.yaml), [result](meta_harness_adapter/#result)).
   [RRSI Adapter](../../docs/methods/rrsi_adapter.md) evolves the adapter on the 50 training questions with two trials
   each (no validation questions), ten rounds of two candidates under RRSI's regularizers, and evaluates the final
-  incumbent once on the 172; the mean of four trainings, GPT-5.6-Luna only, in the same Codex harness
+  incumbent once on the 172; the mean of four trainings, GPT-5.6-Luna only, with the same Codex CLI and model as the
+  streams, through the framework's `codex` Base Agent with the adapter deployed (the streams' runs used this
+  example's earlier Codex agent, `utils/agent/codex_agent.py`)
   ([`rrsi_adapter/run_luna.yaml`](rrsi_adapter/run_luna.yaml), [result](rrsi_adapter/#result)).
 - **Test streaming:** [Continual Harness](../../docs/methods/continual_harness.md) and
   [Harness²](../../docs/methods/harness2.md) each process the 172 test questions once in the same order,

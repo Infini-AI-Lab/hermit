@@ -140,7 +140,7 @@ class Roles:
         from rrsi.llm import _JSON_SUFFIX, extract_json
         system_text = (system or "") + (_JSON_SUFFIX if json_only else "")
         text = f"{cache_prefix}\n\n{prompt}" if cache_prefix else prompt
-        last, timeouts = "", 0
+        last, timeouts, provider = "", 0, True
         for attempt in range(max(1, int(max_retries))):
             if self._cancelled():
                 raise Stop("stopped by the Trainer")
@@ -155,6 +155,7 @@ class Roles:
             if result.reply.strip() and result.exit_code == 0 and not result.timed_out:
                 return extract_json(result.reply) if json_only else result.reply
             last = tail[-300:] or ("timed out" if result.timed_out else f"exit code {result.exit_code}")
+            provider = provider and bool(extra.get("unavailable")) and not extra.get("served")
             timeouts += bool(result.timed_out)
             if timeouts >= 2:
                 # upstream retries a failed API call; a session that ran out of its clock twice (role_timeout_s
@@ -162,6 +163,10 @@ class Roles:
                 raise RuntimeError(f"generate: two of this call's Codex sessions ran out of role_timeout_s: {last}")
             if self._wait(min(2 ** attempt, 30) * (4 if extra.get("unavailable") else 1)):
                 raise Stop("stopped by the Trainer")
+        if provider:
+            # every session failed on the provider (429, 5xx, overloaded), as a proposer session that keeps failing
+            # on it does: not the step's doing, so it is not counted toward max_failures
+            raise Stop(f"the model's provider kept failing a role's sessions: {last}")
         raise RuntimeError(f"generate failed after {max_retries} Codex sessions: {last}")
 
     def _session(self, system: str, prompt: str) -> Result:
