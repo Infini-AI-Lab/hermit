@@ -1,0 +1,26 @@
+{
+ "session_id": "479c6c2e-1f85-4d64-872e-056bbc16e0e1",
+ "transcript_path": "/probe/home/.claude/projects/-probe-ws/479c6c2e-1f85-4d64-872e-056bbc16e0e1.jsonl",
+ "cwd": "/probe/ws",
+ "prompt_id": "2bd22bb9-2079-412e-9b85-2c4b674627c7",
+ "permission_mode": "bypassPermissions",
+ "effort": {
+  "level": "medium"
+ },
+ "hook_event_name": "PostToolUse",
+ "tool_name": "Write",
+ "tool_input": {
+  "file_path": "/probe/ws/new.txt",
+  "content": "new file\n"
+ },
+ "tool_response": {
+  "type": "create",
+  "filePath": "/probe/ws/new.txt",
+  "content": "new file\n",
+  "structuredPatch": [],
+  "originalFile": null,
+  "userModified": false
+ },
+ "tool_use_id": "toolu_main_05_0",
+ "duration_ms": 3
+}

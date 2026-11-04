@@ -1,0 +1,9 @@
+{
+ "session_id": "652ecb9c-a27b-4116-aeca-fc44a0462949",
+ "transcript_path": "/probe/home/.claude/projects/-probe-ws/652ecb9c-a27b-4116-aeca-fc44a0462949.jsonl",
+ "cwd": "/probe/ws",
+ "prompt_id": "a51ed82b-b58c-4c46-9197-d1da6ca88203",
+ "permission_mode": "bypassPermissions",
+ "hook_event_name": "UserPromptSubmit",
+ "prompt": "Q1 probe: run the two shell commands."
+}

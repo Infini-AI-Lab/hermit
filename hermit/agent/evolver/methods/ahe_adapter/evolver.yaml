@@ -1,0 +1,53 @@
+description: >-
+  AHE Adapter: Agentic Harness Engineering (Lin et al., arXiv:2604.25850; china-qijizhifeng/agentic-harness-engineering @
+  8b2a55d, evolve.py) on the `ahe` template, confined to the adapter (the acting agent is fixed). Each step it classifies
+  the step's k rollouts per task (pass / fail / exception), diffs them against the previous step (flipped / regressed / rollout
+  moves / infra buckets), scores the previous step's change manifest (EFFECTIVE ... HARMFUL, upstream's rules verbatim), rolls
+  HARMFUL changes back file by file (Algorithm 1; `rollback: agent` leaves it to the agent as the released code does), runs the
+  Agent Debugger as one session of the codex Base Agent per task over the rollouts' trajectories and verdicts (upstream's
+  queries verbatim), writes the deterministic analysis overview, and runs the Evolve Agent (AgentEvolver's session of the codex
+  Base Agent on upstream's evolve prompt) that edits the adapter and writes the step's change manifest. No Explore Agent; no
+  Best-of-N; finalize hands back the best-ever evaluated snapshot; tokens/trial is recorded, which upstream never implemented.
+class: evolver.py:AHEAdapterEvolver
+needs: []
+params:
+  backend: codex                   # the Evolve Agent's and the Agent Debugger's Base Agent: codex only
+  model: null                      # the Evolve Agent's model (the example sets it); with login: chatgpt, a Codex model name
+  login: null                      # chatgpt: the user's ChatGPT login, its shared copy and its plan (hermit.agent.base.login)
+  effort: null                     # Codex's model_reasoning_effort (the example sets it)
+  bin: null                        # the codex program; null: codex on PATH
+  args: []                         # extra codex arguments
+  prompt: START.md
+  resume_prompt: null              # a fresh session every step (evolve.py:3055)
+  price: null                      # USD per million tokens {input, cached_input, output}; null: cost unknown (ChatGPT login)
+  home: null                       # without a login, the files of the user's Codex home copied for each call; null: auth.json
+  tools: [check_spec]              # the Evolve Agent's only Trainer tool (upstream: validate_agent.py)
+  web_search: false                # web search, set explicitly: Codex's hosted search runs at the provider, past the sandbox
+  hide: null                       # paths hidden from the Evolve Agent besides examples/tests/docs/.git; null: nothing hidden
+  task_field: task                 # the row field naming the benchmark task, which its k rows <task>#1..#k share
+                                   # (OfficeQA: uid); a row without it: its id without the #n
+  k: null                          # rollouts per task; null: inferred from the rows sharing task_field
+  evolve_timeout_s: 7200           # the Evolve session's wall clock (upstream: 500 turns, no clock)
+  timeout_as: exception            # exception (released code) | fail: a timed-out trial in the diff/attribution; pass@1 counts it 0 either way
+  target_pass_rate: 0.95           # base.yaml:10; needs trainer.allow_early_stop
+  stability_min_iterations: 3
+  rollback: auto                   # auto: revert file-wise (paper Alg. 1 l.8) | agent: report only (released code)
+  rollback_verdicts: [HARMFUL]     # [HARMFUL, INEFFECTIVE] is Appendix C's reading
+  final: best_ever                 # best_ever | last
+  explore: false                   # the Explore Agent is not ported
+  debugger:                        # model, effort, bin, args: null = the Evolve Agent's
+    enabled: true
+    model: null                    # another model only on the CLI's own provider (a login) with no price: the
+                                   # Debugger takes the Evolve Agent's binding and price, so setup refuses one
+    effort: null
+    bin: null
+    args: null
+    concurrency: 16
+    timeout_s: 600                 # one attempt's wall clock
+    retries: 3
+    backoff_s: 2.0
+    max_tasks: 90
+    verifier_output: true
+    verifier_tail_chars: 4000
+    verifier_tail_lines: 60
+    explode_traces: true

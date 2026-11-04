@@ -1,0 +1,15 @@
+{
+ "session_id": "01a1a3eb-bb3c-7163-9423-b742c356237c",
+ "turn_id": "01a1a3eb-bb4a-7101-8ea3-b66f3eaf97f8",
+ "transcript_path": "/probe/codex_home/sessions/2026/11/03/rollout-2026-11-03T19-18-17-01a1a3eb-bb3c-7163-9423-b742c356237c.jsonl",
+ "cwd": "/probe/workspace",
+ "hook_event_name": "PostToolUse",
+ "model": "gpt-5.6-luna",
+ "permission_mode": "bypassPermissions",
+ "tool_name": "Bash",
+ "tool_input": {
+  "command": "echo ok-out; echo ok-err >&2"
+ },
+ "tool_response": "ok-out\nok-err\n",
+ "tool_use_id": "exec-ea3784d8-81f5-4da3-9eb4-b5409050ac37"
+}

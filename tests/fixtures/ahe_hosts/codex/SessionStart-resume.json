@@ -1,0 +1,9 @@
+{
+ "session_id": "01a1a3f4-1fdf-7dd1-acd6-79d542b06534",
+ "transcript_path": "/probe/codex_home/sessions/2026/11/03/rollout-2026-11-03T19-27-27-01a1a3f4-1fdf-7dd1-acd6-79d542b06534.jsonl",
+ "cwd": "/probe/workspace",
+ "hook_event_name": "SessionStart",
+ "model": "gpt-5.6-luna",
+ "permission_mode": "bypassPermissions",
+ "source": "resume"
+}

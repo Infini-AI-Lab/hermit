@@ -1,0 +1,66 @@
+# Smoke of run_codex_luna.yaml: the AHE Adapter on the four smoke training questions x k = 2 (rows/smoke_k2.txt), two
+# steps (step 1 scores H_0, step 2 the Evolve Agent's first edits and attributes them), then `hermit eval` on the four
+# smoke test questions. Confirms the method runs end to end on the Codex route (check -> train -> eval) and that the
+# harness's hook logs reach the Debugger; not a measurement. Otherwise run_codex_luna.yaml, with 4 sessions at a time,
+# a 6 h budget, workspaces of its own, and a target pass rate above 1: a step at 8/8 would otherwise stop the run
+# before the Debugger and the Evolve Agent ran.
+data:
+  tasks: rows/tasks.jsonl              # make_rows.py: own rows, then k = 2 trial rows per training question
+  train: rows/smoke_k2.txt             # 4 questions x k = 2, by trial
+  test: ../utils/splits/smoke_test.txt
+  step_size: 8                         # one step = one AHE iteration over every trial
+  shuffle: false
+task_info: ../utils/task-info/
+agent:
+  base: codex                          # Layer 2: Codex as a Base Agent (hermit/agent/base/cli.py)
+  concurrency: 4
+  params:                              # Layer 3: the Acting Agent with OfficeQA's task functions
+    prompt: ../utils/prompt.md
+    prepare: trials.py:prepare         # the question's task.md and the corpus under docs/ (../utils/task.py)
+    answer: ../utils/task.py:answer    # the last <answer>...</answer>
+    collect: trials.py:collect         # task.md and the harness's hook logs into the log
+    workspaces: ~/.cache/hermit/officeqa-codex-actor-luna-ahe-smoke
+  model:                               # Layer 1
+    name: gpt-5.6-luna                 # a Codex model on the machine's ChatGPT login
+    login: chatgpt
+    effort: medium
+  codex:                               # Layer 2: how Codex runs
+    web_search: false                  # set explicitly: Codex's hosted search runs past the container
+    timeout_s: 3600
+    project_doc_max_bytes: 65536       # 64 KiB: the skill (up to 40 KB) with the deployment's notes; past
+                                       # Codex's default 32 KiB it would cut AGENTS.md (deploy refuses that)
+    isolation: container               # each session in a container of its own (hermit/agent/base/container.py)
+    container: {image: "officeqa-codex:0.164.0", network: oq-sandbox, proxy: "http://oq-egress-login:3128"}
+judge:
+  path: trials.py                      # the question's score (../utils/judge.py)
+template: ahe@1.0
+start_from: seed_adapter               # make_seed.py: H_0
+evolver:
+  name: ahe_adapter                    # Layer 3: the Agent Debugger and the Evolve Agent
+  params:
+    task_field: uid                    # the k trial rows of a question share it
+    k: 2
+    rollback: auto                     # the paper's Algorithm 1: HARMFUL changes reverted file by file
+    target_pass_rate: 1.01             # never reached: every step runs the Debugger and the Evolve Agent
+  base: codex                         # Layer 2: both learners are sessions of the codex Base Agent
+  model: {name: gpt-5.6-luna, login: chatgpt, effort: medium}   # Layer 1: the acting model, on the login
+  codex: {web_search: false}
+sandbox:
+  enabled: true
+  network: restricted
+  allow: [chatgpt.com, auth.openai.com]   # the learners' sessions reach the login through the run's proxy
+  read: []
+  env: []
+  profiles:                  # the agent's role runs unconfined: it drives Docker (the daemon's socket, the sessions'
+    rollout: {enabled: false}   # homes under ~/.cache); each Codex session is in a container of its own (hermit/agent/base/container.py)
+trainer:
+  run_name: smoke-luna-ahe-adapter
+  output_dir: runs
+  tree_dir: runs/trees/smoke-luna-ahe-adapter
+  epochs: 2
+  allow_early_stop: true               # as run_codex_luna.yaml; target_pass_rate 1.01 is never reached
+  save_freq: {steps: 1}
+  call_timeout_min: 420                # one step's Debugger and Evolve sessions
+  budget: {hours: 6, tokens: null, usd: null}
+eval:
+  repeats: 1                           # one pass over the test questions

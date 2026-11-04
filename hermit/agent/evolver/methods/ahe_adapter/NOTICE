@@ -1,0 +1,32 @@
+analysis.py and queries.py in this directory port and, for the prompt text, copy verbatim parts of `evolve.py` of
+Agentic Harness Engineering (https://github.com/china-qijizhifeng/agentic-harness-engineering, commit 8b2a55d;
+Lin et al., arXiv:2604.25850): the evaluation statistics, pass@k, the cross-iteration diff, the change attribution
+rules, the Agent Debugger's query templates and fallback text, the analysis overview writer and the evolution query.
+START.md and DEBUGGER.md adapt `agents/evolve_agent/evolve_prompt.md` and the Agent Debugger's rules of the same
+repository. That repository is released under the MIT License (its LICENSE file; its pyproject.toml and README say
+the same), reproduced here as the license requires:
+
+    MIT License
+
+    Copyright (c) 2026 Jiahang Lin
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.
+
+Everything else in this directory (the Evolver, the Debugger stage on Codex, the rollback, the trajectory reader)
+is this framework's own code, written against the upstream design.
