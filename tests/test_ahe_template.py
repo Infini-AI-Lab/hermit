@@ -202,13 +202,13 @@ BROKEN = {
             "def session_start(inp, state):\n    return None\n\ndef before_tool(inp, state):\n    return None\n\n"
             "def after_tool(inp, state):\n    return None\n\ndef stop(inp, state):\n    return None\n\n"
             "def before_model(inp, state):\n    return None\n"),
-        "middleware.py", "session_start no longer reads MEMORY.md"),
+        "middleware.py", "did not hand that entry to the model"),
     "middleware naming MEMORY.md only in a comment": (
         lambda a: (a / "middleware.py").write_text(
             "# reads MEMORY.md\ndef session_start(inp, state):\n    return None\n\ndef before_tool(inp, state):\n"
             "    return None\n\ndef after_tool(inp, state):\n    return None\n\ndef stop(inp, state):\n    return None\n\n"
             "def before_model(inp, state):\n    return None\n"),
-        "middleware.py", "session_start no longer reads MEMORY.md"),
+        "middleware.py", "did not hand that entry to the model"),
     "middleware importing through importlib": (lambda a: hook_body(a, "    import importlib\n"
                                                                      "    importlib.import_module('socket')\n    return None"),
                                                "middleware.py", "imports `importlib`"),
@@ -243,6 +243,8 @@ BROKEN = {
                                   "middleware.py", "TypeError: middleware must return None, HookResult or a dict"),
     "middleware returning an unknown decision": (lambda a: hook_body(a, "    return {'decision': 'maybe'}"),
                                                  "middleware.py", "ValueError: before_tool decision must be deny"),
+    "middleware denying without a reason": (lambda a: hook_body(a, "    return {'decision': 'deny'}"),
+                                            "middleware.py", "needs a non-empty reason"),
     "off-surface file": (lambda a: (a / "notes.txt").write_text("stray\n"), "notes.txt", "off the AHE harness surface"),
     "off-surface nested file": (lambda a: ((a / "sub_agents" / "x").mkdir(parents=True),
                                            (a / "sub_agents" / "x" / "AGENT.md").write_text("---\ndescription: d\n---\n")),
@@ -250,6 +252,9 @@ BROKEN = {
     "skill without description": (lambda a: (a / ".agents" / "skills" / "tables" / "SKILL.md").write_text(
         "---\nname: tables\n---\nRun `python3 .agents/skills/tables/scripts/sum.py`.\n"),
         ".agents/skills/tables/SKILL.md", "needs a `description:`"),
+    "skill whose description is a YAML comment": (lambda a: rewrite(a, ".agents/skills/tables/SKILL.md",
+                                                                    "description: reading", "description: # reading"),
+                                                  ".agents/skills/tables/SKILL.md", "needs a `description:`"),
     "skill named after another directory": (lambda a: rewrite(a, ".agents/skills/tables/SKILL.md", "name: tables",
                                                               "name: tabular"),
                                             ".agents/skills/tables/SKILL.md", "`name: tabular` OVERRIDES the directory name"),
@@ -286,7 +291,7 @@ BROKEN = {
             'def session_start(inp, state):\n    """Hands MEMORY.md to the model."""\n    return None\n\n'
             "def before_tool(inp, state):\n    return None\n\ndef after_tool(inp, state):\n    return None\n\n"
             "def stop(inp, state):\n    return None\n\ndef before_model(inp, state):\n    return None\n"),
-        "middleware.py", "session_start no longer reads MEMORY.md"),
+        "middleware.py", "did not hand that entry to the model"),
     "session_start naming MEMORY.md but handing nothing over": (
         lambda a: rewrite(a, "middleware.py", "    body = _memory_body(inp.adapter_dir)\n",
                           "    _unused = MEMORY_FILE\n    return None\n    body = _memory_body(inp.adapter_dir)\n"),
@@ -395,6 +400,23 @@ def test_a_middleware_that_selects_the_memory_by_the_task_passes_the_memory_run(
             "    words = set(inp.task_text.lower().split())\n"
             "    kept = [l for l in body.splitlines() if l.startswith('- ') and words & set(l.lower().split())]\n"
             "    return HookResult(context='\\n'.join(kept)) if kept else None\n")
+    assert problems(adapter) == []
+
+
+def test_a_memory_path_built_by_a_call_passes(tmp_path):
+    """The memory channel is what session_start hands over, not how the file is named: a module-level
+    `MEMORY_FILE = Path("MEMORY.md")` keeps the channel and passes."""
+    adapter = seed(tmp_path)
+    rewrite(adapter, "middleware.py", 'MEMORY_FILE = "MEMORY.md"\n', 'MEMORY_FILE = Path("MEMORY.md")\n')
+    assert problems(adapter) == []
+
+
+def test_frontmatter_is_read_as_yaml(tmp_path):
+    """A skill's or a sub-agent's frontmatter is YAML, as the hosts and the deployment read it: a `name:` followed by
+    a comment is the name alone."""
+    adapter = seed(tmp_path)
+    rewrite(adapter, ".agents/skills/tables/SKILL.md", "name: tables", "name: tables  # the directory's name")
+    rewrite(adapter, "agents/reader.md", "name: reader", "name: reader  # the file's stem")
     assert problems(adapter) == []
 
 

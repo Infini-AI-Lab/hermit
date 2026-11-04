@@ -118,4 +118,8 @@ def as_result(value) -> HookResult | None:
         if not isinstance(getattr(value, name), types):
             expected = " or ".join(t.__name__ for t in types)
             raise TypeError(f"HookResult.{name} must be {expected}, not {type(getattr(value, name)).__name__}")
+    # A veto or a block without a reason is refused here: Codex ignores a deny whose reason is empty (the call runs as
+    # if allowed), and on every host the reason is all the model reads of it.
+    if value.decision in ("deny", "block") and not value.reason.strip():
+        raise ValueError(f"HookResult(decision={value.decision!r}) needs a non-empty reason: it is what the model reads")
     return value

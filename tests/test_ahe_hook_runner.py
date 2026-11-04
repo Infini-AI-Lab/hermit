@@ -222,8 +222,12 @@ def test_queue_context_writes_the_pending_queue():
 
 def test_as_result_accepts_only_hook_result_shapes():
     assert hooks.as_result(None) is None
-    r = HookResult(decision="deny")
+    r = HookResult(decision="deny", reason="use the tests instead")
     assert hooks.as_result(r) is r
+    # A deny or a block needs a reason: Codex ignores a deny whose reason is empty, and the reason is what the model reads.
+    for empty in [HookResult(decision="deny"), {"decision": "block", "reason": "  "}]:
+        with pytest.raises(ValueError, match="needs a non-empty reason"):
+            hooks.as_result(empty)
     assert hooks.as_result({"context": "c"}) == HookResult(context="c")
     with pytest.raises(TypeError, match="unknown keys"):
         hooks.as_result({"verdict": "no"})

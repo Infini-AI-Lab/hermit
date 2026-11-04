@@ -25,11 +25,12 @@ text when every attempt failed. Here the same three phases run on Hermit's learn
 3. `run_jobs(jobs, ctx, params, base=...)` — each attempt is one call of the codex Base Agent (Layer 2,
    hermit.agent.base): `make("codex", settings).run(question, workspace=job_dir)`, with the Evolve Agent's settings
    (`base`: the run's sandbox as the isolation and Codex's own sandbox off, the login and its plan, web search, the
-   price) and the Debugger's own model, effort, program, clock and the Trainer's cancel; the question on stdin, a home
-   per job (`scratch/debugger-homes/<task>/`: a call rewrites its home's config and last message) and a stream per
-   attempt (`output/debugger/<task>.<attempt>.jsonl`). The first job runs alone (warm-up), the rest under
-   `ThreadPoolExecutor(concurrency)`. The answer is the `answer.md` the agent wrote, else its last message (the Base
-   Agent's reply). An attempt fails when it was cancelled, timed out, never started (the provider or the plan could
+   price) and the Debugger's own model, effort, program and clock, the clock a deadline over the whole attempt (a wait
+   for the login's plan included, as upstream's subprocess timeout) that the Trainer's cancel also sets; the question
+   on stdin, a home per job (`scratch/debugger-homes/<task>/`: a call rewrites its home's config and last message)
+   and a stream per attempt (`output/debugger/<task>.<attempt>.jsonl`). The first job runs alone (warm-up), the rest
+   under `ThreadPoolExecutor(concurrency)`. The answer is the `answer.md` the agent wrote, else its last message (the
+   Base Agent's reply). An attempt fails when it was cancelled, timed out, never started (the provider or the plan could
    not serve it), exited non-zero or left no answer; after `retries` attempts the upstream fallback text stands in
    (`queries.fallback_response`). Results keep upstream's result keys so analysis.py's overview writer reads them
    unchanged, and one `Usage(model, calls=number of jobs)` sums the attempts' usage, which the Base Agent read and
@@ -356,6 +357,22 @@ def _last_line(text: str) -> str:
     return lines[-1][:200] if lines else ""
 
 
+def deadline_cancel(cancel, seconds: float | None) -> tuple[threading.Event, threading.Event]:
+    """An event that is set when the Trainer's `cancel` is set or `seconds` have passed, for a process the Trainer's
+    runner kills on it; and the event that stops the watcher."""
+    local, stop = threading.Event(), threading.Event()
+    end = time.monotonic() + float(seconds) if seconds else None
+
+    def watch() -> None:
+        while not stop.is_set():
+            if (cancel is not None and cancel.is_set()) or (end is not None and time.monotonic() >= end):
+                local.set()
+                return
+            stop.wait(1)
+    threading.Thread(target=watch, daemon=True).start()
+    return local, stop
+
+
 class Runner:
     """The per-job attempt loop with the run-wide pieces (the Base Agent's settings, the logs and homes) bound once."""
 
@@ -368,11 +385,11 @@ class Runner:
         self.usage: list[Usage] = []
         self._lock = threading.Lock()
 
-    def agent_settings(self, job: Job, job_dir: Path, attempt: int, timeout_s: float) -> dict:
+    def agent_settings(self, job: Job, job_dir: Path, attempt: int, timeout_s: float, cancel=None) -> dict:
         """The codex Base Agent's settings for one attempt: the Evolve Agent's (the isolation, the login, web search,
         the price), the Debugger's model, effort, program and args (after a bound model's provider arguments), its
-        clock, the Trainer's cancel, the question on stdin, the job's own home and the attempt's own stream; the job
-        directory writable."""
+        clock, `cancel` (the attempt's deadline; the Trainer's cancel when None), the question on stdin, the job's
+        own home and the attempt's own stream; the job directory writable."""
         p, name = self.params, task_file_name(job.task)
         args = list(p.get("args") or [])
         if self.base.get("binding"):
@@ -383,7 +400,8 @@ class Runner:
             if args[:len(provider)] != provider:
                 args = [*provider, *args]
         out = {**self.base, **{k: p[k] for k in ("model", "effort", "bin") if p.get(k) is not None},
-               "args": args, "stdin": True, "timeout_s": timeout_s, "cancel": self.ctx.cancel,
+               "args": args, "stdin": True, "timeout_s": timeout_s,
+               "cancel": self.ctx.cancel if cancel is None else cancel,
                "home": self.homes / name, "log": self.logs / f"{name}.{attempt}.jsonl", "writable": [job_dir]}
         if p.get("env"):
             out["env"] = {**(self.base.get("env") or {}), **p["env"]}
@@ -394,19 +412,25 @@ class Runner:
         answer = job_dir / ANSWER
         answer.unlink(missing_ok=True)
         question = (job_dir / "question.md").read_text(encoding="utf-8")
+        # The attempt's clock covers the whole call, as upstream's subprocess timeout did: the Base Agent's own
+        # `timeout_s` starts only once the CLI runs, after any wait for the login's plan or a session slot.
+        deadline, stop = deadline_cancel(self.ctx.cancel, timeout_s)
         try:
-            result = make("codex", self.agent_settings(job, job_dir, attempt, timeout_s)).run(question,
-                                                                                               workspace=job_dir)
+            result = make("codex", self.agent_settings(job, job_dir, attempt, timeout_s, deadline)).run(
+                question, workspace=job_dir)
         except Exception as exc:                                 # noqa: BLE001 - no program, no login: this attempt's
             return None, f"{FAILURE_PREFIX} exception] {type(exc).__name__}: {str(exc)[:300]}"
+        finally:
+            stop.set()
         with self._lock:
             self.usage.extend(result.usage)
         extra = result.extra or {}
         tail = _last_line(extra.get("output_tail", ""))
+        trainer_stopped = self.ctx.cancel is not None and self.ctx.cancel.is_set()
+        if result.timed_out or (deadline.is_set() and not trainer_stopped):   # the deadline stopped it, not the Trainer
+            return None, f"{FAILURE_PREFIX} timeout] exceeded {timeout_s:g}s"
         if extra.get("cancelled"):
             return None, f"{FAILURE_PREFIX} cancelled] stopped by the Trainer"
-        if result.timed_out:
-            return None, f"{FAILURE_PREFIX} timeout] exceeded {timeout_s:g}s"
         if not extra.get("started", True) and (extra.get("unavailable") or result.exit_code in (0, None)):
             # held back by the login's plan past its wait, or gone before a single event: nothing served it
             return None, f"{FAILURE_PREFIX} unavailable] {tail or 'the session never started'}"

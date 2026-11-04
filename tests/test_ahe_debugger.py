@@ -13,6 +13,7 @@ import stat
 import subprocess
 import tempfile
 import threading
+import time
 
 import pytest
 
@@ -524,6 +525,35 @@ def test_an_attempt_reads_the_base_agents_result(tmp_path, monkeypatch, fields, 
     answer, why = runner.attempt(D.Job(task="t"), job_dir, 1, 30.0)
     assert why == reason and (answer == "ROOT CAUSE: the reply") is (reason == "")
     assert made[0]["stdin"] and runner.usage[0].input_tokens == 5         # every attempt's usage counts
+
+
+@pytest.mark.parametrize("trainer_stops", [False, True])
+def test_an_attempts_clock_covers_the_wait_before_the_cli_runs(tmp_path, monkeypatch, trainer_stops):
+    """The Base Agent's own clock starts once the CLI runs; a session held back by the plan waits on its cancel only.
+    The attempt's deadline sets that cancel: a timeout at the deadline, a cancel when the Trainer stopped it."""
+    from hermit.agent.base.interface import Result
+    trainer = threading.Event()
+
+    class Agent:
+        def __init__(self, settings):
+            self.cancel = settings["cancel"]
+
+        def run(self, prompt, *, workspace):
+            if trainer_stops:
+                trainer.set()
+            self.cancel.wait(30)                       # the plan's wait: it ends when the cancel is set
+            return Result(reply="", exit_code=-1, extra={"cancelled": self.cancel.is_set(), "started": False})
+
+    monkeypatch.setattr(D, "make", lambda name, settings: Agent(settings))
+    ctx = context(tmp_path, cancel=trainer)
+    runner = D.Runner(ctx, D.settings({}), {"web_search": False}, ctx.workspace.scratch)
+    job_dir = tmp_path / "job"
+    job_dir.mkdir()
+    (job_dir / "question.md").write_text("q")
+    started = time.monotonic()
+    answer, why = runner.attempt(D.Job(task="t"), job_dir, 1, 30.0 if trainer_stops else 1.5)
+    assert answer is None and time.monotonic() - started < 10
+    assert why == ("[adb cancelled] stopped by the Trainer" if trainer_stops else "[adb timeout] exceeded 1.5s")
 
 
 def test_the_login_is_the_shared_copy_in_each_jobs_home_for_the_call(tmp_path, monkeypatch):

@@ -112,7 +112,6 @@ RX = {"skill": re.compile(rf"\.agents/skills/({NAME})/SKILL\.md"),
       "skill_file_ref": re.compile(r"(\.agents/skills/[\w\-]+/scripts/[\w\-][\w.\-]*)"),
       # The task container's /adapter of an earlier deployment: no deployment has it now.
       "adapter_ref": re.compile(r"/adapter/((?:\.agents/skills/[\w\-]+/)?scripts/[\w.\-]+)")}
-FRONTMATTER = re.compile(r"\A---\n(.*?)\n---(?:\n|\Z)", re.S)
 
 
 def _hosts():
@@ -161,17 +160,14 @@ def normalise(text: str) -> str:
 
 
 def frontmatter(text: str) -> dict[str, str] | None:
-    """The `key: value` lines of a leading YAML frontmatter block (flat keys only; a nested value is kept as its
-    first line), or None when the file has no such block."""
-    m = FRONTMATTER.match(text)
-    if not m:
+    """A leading frontmatter block parsed as YAML, as the framework reads it (hermit.spec._frontmatter; a sub-agent's
+    deployment and the hosts' own skill loaders read YAML too), each value as text ("" for an empty one); None when
+    the file has no block or the block is not a YAML mapping."""
+    from hermit.spec import _frontmatter
+    head = _frontmatter(text)
+    if head is None:
         return None
-    out = {}
-    for line in m.group(1).splitlines():
-        k, sep, v = line.partition(":")
-        if sep and re.fullmatch(r"[A-Za-z_][\w\-]*", k.strip()):
-            out[k.strip()] = v.strip().strip("'\"")
-    return out
+    return {str(k): "" if v is None else str(v).strip() for k, v in head.items()}
 
 
 class Deployment:
@@ -340,41 +336,9 @@ def _forbidden(names: set[str]) -> str | None:
     return next((n for n in sorted(names) if n in FORBIDDEN_CALLS or n.startswith(FORBIDDEN_CALL_PREFIXES)), None)
 
 
-def _reads_memory(module: ast.Module) -> bool:
-    """Whether `session_start`, or a module-level function it calls (transitively), holds a string constant naming
-    MEMORY.md outside its docstring, directly or through a module-level name bound to such a constant. A static
-    first look: memory_run_problems runs session_start to see that the memory reaches the model."""
-    functions = {n.name: n for n in module.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
-    constants = set()
-    for node in module.body:
-        if isinstance(node, (ast.Assign, ast.AnnAssign)):
-            value = node.value
-            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-            if isinstance(value, ast.Constant) and isinstance(value.value, str) and MEMORY in value.value:
-                constants |= {t.id for t in targets if isinstance(t, ast.Name)}
-    seen, todo = set(), ["session_start"]
-    while todo:
-        name = todo.pop()
-        if name in seen or name not in functions:
-            continue
-        seen.add(name)
-        body = functions[name].body
-        if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant) \
-                and isinstance(body[0].value.value, str):
-            body = body[1:]                           # a docstring that names the file reads nothing
-        for node in (n for statement in body for n in ast.walk(statement)):
-            if isinstance(node, ast.Constant) and isinstance(node.value, str) and MEMORY in node.value:
-                return True
-            if isinstance(node, ast.Name) and node.id in constants:
-                return True
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-                todo.append(node.func.id)
-    return False
-
-
 def middleware_problems(tree: dict[str, str]) -> list[tuple[str, str]]:
     """(5) middleware.py: compiles, is shaped as the hook interface, imports nothing the runner cannot provide where
-    the agent runs, and keeps the memory channel."""
+    the agent runs (memory_run_problems sees that it keeps the memory channel)."""
     if MIDDLEWARE not in tree:
         return [(MIDDLEWARE, f"{MIDDLEWARE} is missing: the hook runner calls it on every event, so the harness has no "
                              f"middleware and no memory channel; restore it (five hooks returning None are a valid, "
@@ -445,11 +409,6 @@ def middleware_problems(tree: dict[str, str]) -> list[tuple[str, str]]:
                 errs.append((MIDDLEWARE, f"{MIDDLEWARE} line {node.lineno} imports `{name}`, which is not where the "
                                          f"agent runs: only the stdlib and hermit_hooks, the interface beside the "
                                          f"runner, are importable there"))
-    if "session_start" in defined and not _reads_memory(module):
-        errs.append((MIDDLEWARE, f"{MIDDLEWARE}: session_start no longer reads {MEMORY} (neither it nor a helper it "
-                                 f"calls names the file; a comment or docstring does not count): the long-term memory "
-                                 f"reaches the model only through session_start, so the memory channel was removed; "
-                                 f"read {MEMORY} from inp.adapter_dir and return its body as context"))
     return errs
 
 
@@ -579,8 +538,8 @@ def memory_run_problems(adapter: Path, prompt: str, scratch: Path, clock: Clock)
     """(5, memory) on every host, session_start run by the deployed SessionStart hook of a fresh deployment whose
     MEMORY.md holds one entry (MEMORY_PROBE_ENTRY), in a session whose task is on the entry's topic
     (MEMORY_PROBE_TASK), hands the entry's mark (MEMORY_PROBE_MARK, in the memory alone) to the model as context: the
-    memory channel is what session_start does, not a file name it mentions (a hook that names MEMORY.md and returns
-    None, or returns the task, passes the static rule)."""
+    memory channel is what session_start does, not a file name it mentions, so no static rule looks for one (it
+    would refuse `MEMORY_FILE = Path("MEMORY.md")` and pass a hook that names the file and returns None)."""
     memory = f"{MEMORY_HEADER}\n\n## Agent Added Memories\n- {MEMORY_PROBE_ENTRY}\n"
     for host in HOSTS:
         done = deploy(adapter, prompt, host, scratch, memory=memory)
@@ -667,9 +626,9 @@ def skill_and_agent_problems(tree: dict[str, str]) -> list[tuple[str, str]]:
                               f"deploy; rename one of them"))
         installed.setdefault(native, rel)
         if head is None:
-            errs.append((rel, f"{rel} has no YAML frontmatter: a sub-agent file starts with `---`, `name: {stem}`, "
-                              f"`description: ...`, `---`, then its instructions; without it the adapter does not "
-                              f"deploy"))
+            errs.append((rel, f"{rel} has no YAML frontmatter (or it is not valid YAML): a sub-agent file starts "
+                              f"with `---`, `name: {stem}`, `description: ...`, `---`, then its instructions; without "
+                              f"it the adapter does not deploy"))
             continue
         if not head.get("name") or not head.get("description"):
             errs.append((rel, f"{rel} frontmatter needs both `name:` and `description:` (the description is what "

@@ -61,7 +61,6 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
-import threading
 import time
 
 from hermit.agent.evolver.agent import AgentEvolver
@@ -194,22 +193,6 @@ def sync_context(adapter: Path) -> None:
     target = adapter / CONTEXT
     if not target.is_file() or target.read_text(encoding="utf-8", errors="replace") != text:
         target.write_text(text, encoding="utf-8")
-
-
-def deadline_cancel(cancel, seconds: float | None) -> tuple[threading.Event, threading.Event]:
-    """An event that is set when the Trainer's `cancel` is set or `seconds` have passed, for a process the Trainer's
-    runner kills on it; and the event that stops the watcher."""
-    local, stop = threading.Event(), threading.Event()
-    end = time.monotonic() + float(seconds) if seconds else None
-
-    def watch() -> None:
-        while not stop.is_set():
-            if (cancel is not None and cancel.is_set()) or (end is not None and time.monotonic() >= end):
-                local.set()
-                return
-            stop.wait(1)
-    threading.Thread(target=watch, daemon=True).start()
-    return local, stop
 
 
 def minutes(seconds: float) -> float:
@@ -397,7 +380,7 @@ class AHEAdapterEvolver(AgentEvolver):
         start_md = D.for_stream(start_md, stream)
         prompt = evolve_prompt(start_md, query, ws.scratch)
         e0 = time.monotonic()
-        local, stop = deadline_cancel(ctx.cancel, p.get("evolve_timeout_s"))
+        local, stop = D.deadline_cancel(ctx.cancel, p.get("evolve_timeout_s"))
         try:
             result = super().step(dataclasses.replace(ctx, params={**p, "prompt": str(prompt.resolve()), "resume_prompt": None},
                                                       cancel=local, session=None))

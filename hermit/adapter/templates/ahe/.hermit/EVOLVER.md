@@ -85,8 +85,9 @@ only the stdlib: nothing else is installed where the agent runs.
   host's) produces no output and an `error` line in the audit log, and the tool call proceeds. A middleware can
   slow every tool call down but never abort a trial. Keep hooks fast: no network, no subprocess, no sleeping on I/O.
 - Return `None` for "nothing": the seed's four inert hooks are the pattern. A dict with HookResult keys is also
-  accepted (`{"decision": "deny", "reason": "..."}`). `stop_session=True` ends the session only where the host lets a
-  hook end it, and `system_message` never reaches the model (the host table): neither is a way to steer the agent.
+  accepted (`{"decision": "deny", "reason": "..."}`). A `deny` or a `block` needs a non-empty `reason`: without one it
+  is an error, failing open as above. `stop_session=True` ends the session only where the host lets a hook end it,
+  and `system_message` never reaches the model (the host table): neither is a way to steer the agent.
 - After changing the middleware, read `hook-calls.jsonl` in the next step's trajectories (one line per call: event,
   tool, command, decision, reason, context size, milliseconds, error; a `before_model` the runner called carries
   `at`, the event it followed) before concluding anything about it, exactly as AHE's Evolve Agent reads
@@ -117,21 +118,21 @@ host gets to the rules below.
    `multiprocessing`, `pty`, `importlib`, `posix`, `nt`, `_posixsubprocess`, no `from os import *`, and no call to
    `__import__`, `importlib.import_module`, `os.system`, `os.popen`, `os.fork*`, `os.exec*`, `os.spawn*`,
    `os.posix_spawn*`, under these names or an import's alias (a static check: where the agent runs the runner's only
-   guards are its alarm and fail-open); and `session_start`, or a helper it calls, still reads
-   `MEMORY.md` (the memory channel is never removed; a comment or docstring does not count). A module that passes
-   these rules is then run on every host: one session of synthetic events in the host's own shape and order (the
-   prompt, two tool calls and their results, a stop and the stop after it), each through the hook the deployment
-   installed, as the host runs it (the deployed command through a shell), the state and the queue carried from one
-   event to the next; a module that raises there, at its first call or a later one, returns something other than
-   `None`, a `HookResult` or a dict of its keys, outlasts the runner's alarm, or makes an output with a field the
-   host does not read or with the one drop the check knows of (a context given with `allow` on Codex) fails, with
-   the hook, the event and the host named, and so do hooks slower than 75 s for all the runs together; the host
-   table's other limits are not checked. Last, `session_start` runs on a fresh deployed copy whose
-   `MEMORY.md` holds one entry, on every host, and fails the check unless that entry reaches the model as context.
+   guards are its alarm and fail-open). A module that passes these rules is then run on every host: one session of
+   synthetic events in the host's own shape and order (the prompt, two tool calls and their results, a stop and the
+   stop after it), each through the hook the deployment installed, as the host runs it (the deployed command through
+   a shell), the state and the queue carried from one event to the next; a module that raises there, at its first
+   call or a later one, returns something other than `None`, a `HookResult` or a dict of its keys, outlasts the
+   runner's alarm, or makes an output with a field the host does not read or with the one drop the check knows of (a
+   context given with `allow` on Codex) fails, with the hook, the event and the host named, and so do hooks slower
+   than 75 s for all the runs together; the host table's other limits are not checked. Last, `session_start` runs on
+   a fresh deployed copy whose `MEMORY.md` holds one entry, on every host, and fails the check unless that entry
+   reaches the model as context (the memory channel is never removed).
 6. Every `.py` under `scripts/` (`scripts/<name>.py`, any name) and under a skill's `scripts/` compiles; a
    `python3 scripts/<x>.py` (or `python3 hermit/ahe/scripts/<x>.py`) or `.agents/skills/<n>/scripts/<x>` that
    `AGENTS.md` or a `SKILL.md` invokes exists, named as a deployment lets the agent run it.
-7. A skill's frontmatter has `description:` and, if present, `name:` equal to its directory; an agent file's
-   frontmatter has `name:` (equal to the file stem) and `description:`, and the stem is a role name on every host (a
-   letter first, at most 64 characters of `[a-z0-9_-]`) that no other agent file takes when `-` and `_` are the same.
+7. A skill's frontmatter (read as YAML, as the hosts read it) has `description:` and, if present, `name:` equal to
+   its directory; an agent file's frontmatter has `name:` (equal to the file stem) and `description:`, and the stem
+   is a role name on every host (a letter first, at most 64 characters of `[a-z0-9_-]`) that no other agent file
+   takes when `-` and `_` are the same.
 8. An adapter the check cannot see never passes (the sandbox guard).
