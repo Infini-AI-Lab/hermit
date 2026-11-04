@@ -79,7 +79,7 @@ one `.hermit/EVOLVER.md` gives the Evolve Agent (`hook_hosts.CAPABILITIES`), say
 
 The rows were measured on the hosts' own CLIs, Codex 0.164.0 and Claude Code 2.1.317 (2.1.318 alike), each run on a
 scripted local model with a probe hook on every event; `tests/fixtures/ahe_hosts/` keeps the payloads they sent, which
-`tests/test_ahe_hosts.py` replays through the wires, and the same file runs both CLIs on a scripted model when they
+`tests/methods/ahe/test_ahe_hosts.py` replays through the wires, and the same file runs both CLIs on a scripted model when they
 are installed: the memory, a note after a call (on Claude Code a failed one too, after a `cd`), the queued
 `before_model` context, a deny, a blocked stop with the queue, a context given with `allow`, a new input, a block with a
 system message, and `stop_session` after a call; the other cells rest on the probe and its payloads. `.hermit/check.py`

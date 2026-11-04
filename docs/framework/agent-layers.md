@@ -19,7 +19,7 @@ hermit/agent/
 ```
 
 Imports go one way only: Layer 3 imports Layer 2, Layer 2 imports Layer 1, and never the reverse
-(`tests/test_layers.py` checks it). The rest of `hermit/` (the Trainer, adapters and their templates, `hermit
+(`tests/core/test_layers.py` checks it). The rest of `hermit/` (the Trainer, adapters and their templates, `hermit
 deploy`, the command line) uses the layers and is not part of them; Layer 2 isolates a CLI with the framework's
 sandbox (`hermit/sandbox.py`).
 

@@ -71,3 +71,6 @@ hermit = ["defaults.yaml", "agent/model/backends.yaml", "agent/evolver/methods/*
 
 [tool.setuptools]
 include-package-data = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "examples"]   # the framework's tests and an example's own (examples/*/utils/tests/)
