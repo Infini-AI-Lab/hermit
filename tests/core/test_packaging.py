@@ -13,6 +13,14 @@ def _packaged() -> set[str]:
             for pattern in config for p in glob(str(PACKAGE / pattern), recursive=True) if Path(p).is_file()}
 
 
+def test_every_template_ships_its_metadata():
+    """Every template's adapter.yaml is packaged: the file-coverage test below checks only the files there are."""
+    packaged = _packaged()
+    for template in (PACKAGE / "adapter" / "templates").iterdir():
+        if template.is_dir() and (template / ".hermit").is_dir():
+            assert f"adapter/templates/{template.name}/.hermit/adapter.yaml" in packaged, template.name
+
+
 def test_package_data_covers_every_template_file():
     templates = PACKAGE / "adapter" / "templates"
     files = {p.relative_to(PACKAGE).as_posix() for p in templates.rglob("*")

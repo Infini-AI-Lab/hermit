@@ -148,6 +148,9 @@ def make(tmp: Path, monkeypatch, steps: int = 2, deployment_param: bool = False)
 
 def test_bootstrap_review_mounts_and_records(tmp_path, monkeypatch):
     cfg = Config.load(make(tmp_path, monkeypatch), [])
+    stale = tmp_path / "taskdir" / "evidence" / "block000"   # a record already in the store: hidden from the bootstrap
+    stale.mkdir()
+    (stale / "q000.json").write_text("[]")
     trainer = Trainer(cfg, log=lambda *_: None)
     seen_after_boot = {}
     original = trainer.evolver._one_session
@@ -186,7 +189,8 @@ def test_bootstrap_review_mounts_and_records(tmp_path, monkeypatch):
         assert "block001" in seen["evidence_files"]                 # a review sees the block's records
         assert seen["cwd"] == "/w" and seen["relative_evidence"] and seen["world_model_ro"]
         assert len(seen["hidden_listing"]) >= 7 and all(v in ([], None) for v in seen["hidden_listing"].values()), seen
-        assert seen_after_boot["evidence_files"] == ["README.md"]       # the bootstrap sees no records
+        assert seen_after_boot["evidence_files"] == ["README.md"]       # the bootstrap sees no records, only the README
+        assert "block000" in seen["evidence_files"]                  # a review sees the whole store
     assert "leftover.txt" not in seen["home_entries"]              # a throwaway CODEX_HOME per session
     assert seen["gate_tools"] == ["echo"]                           # only the venue's channels pass the gate
     assert seen["echo"] == {"result": {"text": "hi"}}

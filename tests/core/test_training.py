@@ -309,6 +309,10 @@ def test_a_bad_request_is_refused_where_it_is_made_and_the_order_runs(tmp_path):
     assert [s["step"] for s in steps] == [0, 1, 2, 3, 4]
     assert all(reason in s["next_tasks_refused"] and "chosen_by" not in s for reason, s in zip(reasons, steps))
     assert [s["tasks"] for s in steps if not s.get("bootstrap")] == [["t0", "t1", "t2", "t3"], ["t4", "t5"]] * 2
+    material = tmp_path / "runs" / "toy-run" / "learning_material"
+    order = [t for step in ("step_0001", "step_0002")
+             for t in json.loads((material / step / "summary.json").read_text())["tasks"]]
+    assert order == [f"t{i}" for i in range(6)]          # the material's summaries keep the split order too
 
 
 def test_the_default_order_is_unchanged(tmp_path):

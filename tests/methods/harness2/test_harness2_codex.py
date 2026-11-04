@@ -1,6 +1,7 @@
-"""Harness² on Codex: the harness2-codex template (upstream's Codex tree as an adapter), the Codex acting agent's
-workspace and home, the upstream Evolver's Codex layout, and the paper's protocol end to end on the Trainer's toy
-task with a scripted session channel (no model, no Docker, no network)."""
+"""Harness² on Codex: the harness2-codex template (upstream's Codex tree as an adapter), the upstream Evolver's Codex
+layout, and the paper's protocol end to end on the Trainer's toy task with a scripted session channel (no model, no
+Docker, no network). How the Codex acting agent deploys such a tree and writes its home is tested without harness2
+in tests/core/test_deploy.py."""
 import json
 import os
 from pathlib import Path
