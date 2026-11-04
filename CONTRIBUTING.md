@@ -65,6 +65,8 @@ pre-commit run --all-files
 
 The hooks check TOML, YAML, merge-conflict markers, and newly added large files. They do not reformat code.
 
+Do not commit generated training or evaluation data, per-task results, trajectories, logs, checkpoints, or per-run adapter snapshots. Keep these artifacts in ignored local directories. Include reproducible recipes, reusable configurations, and aggregate results in the documentation and PR description instead.
+
 ## Suggested review workflow
 
 Contributors are encouraged to review their changes iteratively, both before opening a PR and after updating it.
