@@ -1,0 +1,21 @@
+# EvoSafeHarness defense bundle: a prompt surface (ADAPTER.md), an executable hook surface (defense.py) and the
+# design record (BUNDLE.md). The task's hook bridge (see the method's task contract) loads them per episode.
+template:
+  id: evosafe
+  version: "1.0"
+  contract: "2"
+  name: EvoSafeHarness defense bundle
+structure:
+  learnable:
+    - path: ADAPTER.md
+      format: {text: true, max_bytes: 16000}
+    - path: defense.py
+      format: {text: true, max_bytes: 32000}
+    - path: BUNDLE.md
+      format: {text: true, max_bytes: 16000}
+  fixed:
+    - exports.yaml
+check: .hermit/check.py:check
+# The hooks run only inside a task bridge that calls them around tool calls; a deployed workspace or plugin has no
+# such bridge, so `hermit deploy` and `hermit convert` refuse these adapters.
+plugin-portable: false
