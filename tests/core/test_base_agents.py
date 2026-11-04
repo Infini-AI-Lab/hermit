@@ -320,7 +320,7 @@ def test_the_chat_endpoint_streams_a_whole_reply_as_chunks(monkeypatch):
     import http.server
     import threading
     import time
-    import openai
+    openai = pytest.importorskip("openai")                # the SDK a client of the endpoint uses
     from hermit.agent.base import endpoint as module
     from hermit.agent.model.llm import ChatClient
     monkeypatch.setattr(module, "KEEPALIVE_S", 0.1)
@@ -411,7 +411,7 @@ def _answer(handler, status: int, body: bytes, headers: dict | None = None):
 def test_the_chat_endpoint_passes_errors_on_as_the_upstream_gave_them():
     """A quick error keeps its status even for a streamed request (a client tells a context overflow from an outage
     by it), its whole body and its Retry-After; a reply cut off upstream is no answer here either."""
-    import openai
+    openai = pytest.importorskip("openai")                # the SDK a client of the endpoint uses
     from hermit.agent.base.endpoint import ChatEndpoint
     from hermit.agent.model.llm import ChatClient
     long_message = "This model's maximum context length is 131072 tokens. " + "x" * 900

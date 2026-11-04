@@ -9,11 +9,22 @@ Documentation runs none (docs/build-pages.sh checks it), but for docs/_examples/
 """
 from __future__ import annotations
 
-from fnmatch import fnmatch
 from pathlib import Path
+import re
 import subprocess
 
-# group -> the paths (glob patterns, matched from the repository root) that are the method's own
+# Patterns are matched from the repository root: `*` stays within one path component, and a trailing `/*` is
+# everything below that directory.
+
+
+def fnmatch(path: str, pattern: str) -> bool:
+    below = pattern.endswith("/*")
+    head = pattern[:-2] if below else pattern
+    regex = "".join("[^/]*" if c == "*" else re.escape(c) for c in head) + ("/.+" if below else "")
+    return re.fullmatch(regex, path) is not None
+
+
+# group -> the paths (patterns, as `fnmatch` above reads them) that are the method's own
 METHODS = {
     "ace": ["hermit/agent/evolver/methods/ace/*", "hermit/adapter/templates/ace/*", "examples/*/ace/*"],
     "ahe": ["hermit/agent/evolver/methods/ahe_adapter/*", "hermit/adapter/templates/ahe/*",
@@ -40,6 +51,7 @@ READ_BY = {"optimizers": {"ahe"},                       # the AHE example's conf
 # what every method is built on: a change here runs every group (tests/core/test_selection.py checks that every
 # framework module these import, or a method's tests import, is here too)
 SHARED = ["hermit/agent/__init__.py", "hermit/agent/base/*", "hermit/agent/acting/*", "hermit/agent/evolver/*.py",
+          "hermit/agent/evolver/methods/__init__.py",
           "hermit/agent/model/*", "hermit/trainer/*", "hermit/tree.py", "hermit/evaluate.py",
           "hermit/sandbox.py", "hermit/sandbox_relay.py", "hermit/isolate.py", "hermit/spec.py", "hermit/hosts/*",
           "hermit/runtime/*", "hermit/adapter/*.py", "hermit/config.py", "hermit/defaults.yaml", "hermit/tools.py",
@@ -49,7 +61,7 @@ SHARED = ["hermit/agent/__init__.py", "hermit/agent/base/*", "hermit/agent/actin
 # the rest of the framework, the templates no method group owns, the documentation's examples: the core group
 CORE = ["hermit/*", "tests/core/*", "docs/_examples/*"]
 # nothing to run: documentation, and files no test reads
-NONE = ["docs/*", "*.md", "LICENSE", "NOTICE", ".github/*", ".agents/*", "assets/*", ".gitignore"]
+NONE = ["docs/*", "*.md", "tests/README.md", "LICENSE", "NOTICE", ".github/*", ".agents/*", "assets/*", ".gitignore"]
 
 
 def groups_for(path: str) -> set[str] | None:

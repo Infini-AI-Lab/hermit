@@ -22,9 +22,9 @@ shared. A new method adds its
 paths to `METHODS` there and its tests under `methods/<name>/`; `core/test_selection.py` fails until it does.
 
 A test marked `integration` runs an agent CLI installed on the machine (`codex`, `claude`) and holds what a release
-of it does; it is skipped unless `--integration` is given. A method's tests skip themselves without its dependency
-group; the sandbox and MWM tests need Linux and a working bubblewrap, and some do not yet skip without it
-(CONTRIBUTING.md).
+of it does; it is skipped unless `--integration` is given. Some methods' tests (`gepa`, `skillopt`, `harness2`,
+`ace`, `rrsi`) skip themselves without the method's dependency group; the sandbox and MWM tests need Linux and a
+working bubblewrap, and some do not yet skip without it (CONTRIBUTING.md).
 
 Shared helpers: the repository root's `conftest.py` (the options and the groups), `tests/conftest.py` (a private
 ChatGPT-login directory for every test), `fakes.py` (scripted
