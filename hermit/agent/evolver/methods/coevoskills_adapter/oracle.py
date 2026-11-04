@@ -6,7 +6,8 @@ only pass or fail returns to the loop (`_run_gt_oracle_check`). Here the oracle 
 candidate is made the skills of a copy of the adapter without packages (packaging.py), checked by `check_spec`, run on
 the question by `run_agent`, and the acting agent's output is written into the oracle's container where the task's
 hidden test reads it, as the example's `deliver` hook names the files. No model call is made here, and neither the
-judge's score nor its feedback goes to the loop: the hidden test decides, as upstream's does.
+judge's score nor its feedback goes to the loop: the hidden test decides, as upstream's does. A candidate the acting
+agent changed during its run fails the check (integrity.py): upstream keeps the Skill immutable during the run.
 """
 from __future__ import annotations
 
@@ -48,6 +49,14 @@ def probe(skills: Path) -> dict:
                        {"task_ids": [CONFIG["task_id"]], "adapter": str(adapter)})["results"][0]
     if result["status"] != "ok":
         raise RuntimeError(f"the acting agent's run failed: {result.get('output')}")
+    if not result.get("log"):
+        raise RuntimeError("the acting agent's run left no log: the candidate's deployment cannot be checked")
+    from hermit.agent.evolver.methods.coevoskills_adapter.integrity import verify_deployment
+    try:
+        verify_deployment(adapter, Path(result["log"]))
+    except (OSError, ValueError) as exc:
+        raise RuntimeError(f"the candidate was changed during the run, so the run tests another program: {exc}") \
+            from exc
     return result
 
 

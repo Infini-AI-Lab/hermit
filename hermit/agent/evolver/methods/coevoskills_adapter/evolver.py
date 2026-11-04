@@ -20,6 +20,7 @@ paths in the acting agent's workspace).
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+import dataclasses
 import json
 import os
 from pathlib import Path
@@ -27,6 +28,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import uuid
 
 from hermit.agent.evolver.agent import _run
@@ -34,6 +37,7 @@ from hermit.agent.evolver.base import Evolver, StepResult
 from hermit.agent.evolver.methods.coevoskills_adapter.upstream import real_tree, safe_name, verify
 
 KEEP = ("all", "passed")
+DOCKER_TIMEOUT_S = 120                # one cleanup command
 
 
 def resolve(value, base: Path) -> Path:
@@ -41,21 +45,27 @@ def resolve(value, base: Path) -> Path:
     return p if p.is_absolute() else (base / p).resolve()
 
 
-def remove_containers(trial: str, task_dir: str) -> None:
+def remove_containers(trial: str, task_dir: str) -> str | None:
     """What one worker's Harbor sessions left on the Docker daemon: the containers of its Compose projects (Harbor
     names a project after its session: the trial, and `oracle-<task directory>-<random>` for each oracle check; the
-    task directory's name is unique to the worker) and the image built for its task (`hb__<task directory>`)."""
+    task directory's name is unique to the worker) and the image built for its task (`hb__<task directory>`). Every
+    command has a clock (a stuck daemon must not hold the step, or the Trainer's cancel, forever); what failed is
+    returned, None when everything went."""
     docker = shutil.which("docker")
     if docker is None:
-        return
-    listing = subprocess.run([docker, "ps", "-a", "--format", '{{.ID}} {{.Label "com.docker.compose.project"}}'],
-                             capture_output=True, text=True)
-    mine = (trial, f"oracle-{task_dir}-")
-    ids = [line.split()[0] for line in listing.stdout.splitlines()
-           if len(line.split()) == 2 and (line.split()[1] == trial or line.split()[1].startswith(mine[1]))]
-    if ids:
-        subprocess.run([docker, "rm", "-f", "-v", *ids], capture_output=True)
-    subprocess.run([docker, "image", "rm", "-f", f"hb__{task_dir}"], capture_output=True)
+        return None
+    try:
+        listing = subprocess.run([docker, "ps", "-a", "--format", '{{.ID}} {{.Label "com.docker.compose.project"}}'],
+                                 capture_output=True, text=True, timeout=DOCKER_TIMEOUT_S)
+        mine = f"oracle-{task_dir}-"
+        ids = [line.split()[0] for line in listing.stdout.splitlines()
+               if len(line.split()) == 2 and (line.split()[1] == trial or line.split()[1].startswith(mine))]
+        if ids:
+            subprocess.run([docker, "rm", "-f", "-v", *ids], capture_output=True, timeout=DOCKER_TIMEOUT_S)
+        subprocess.run([docker, "image", "rm", "-f", f"hb__{task_dir}"], capture_output=True, timeout=DOCKER_TIMEOUT_S)
+    except subprocess.TimeoutExpired as exc:
+        return f"docker did not answer within {DOCKER_TIMEOUT_S} s: {' '.join(map(str, exc.cmd[1:4]))}"
+    return None
 
 
 class CoEvoSkillsAdapterEvolver(Evolver):
@@ -119,16 +129,33 @@ class CoEvoSkillsAdapterEvolver(Evolver):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps(request, indent=2))
             out.mkdir(parents=True, exist_ok=True)
+            # The worker's own clock: upstream's loop clock cannot interrupt a model call in progress (the call
+            # blocks its event loop), so the worker is stopped at worker_timeout_s, as the Trainer's cancel stops it.
+            stop, done = threading.Event(), threading.Event()
+            deadline = time.monotonic() + float(params.get("worker_timeout_s") or 0) if params.get("worker_timeout_s") \
+                else None
+
+            def watch():
+                while not done.wait(1):
+                    if (ctx.cancel is not None and ctx.cancel.is_set()) or (deadline and time.monotonic() > deadline):
+                        stop.set()
+                        return
+            threading.Thread(target=watch, daemon=True).start()
             try:
                 code = _run([sys.executable, "-m", "hermit.agent.evolver.methods.coevoskills_adapter.worker",
-                             str(path)], {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}, ctx, out / "loop.log", base)
+                             str(path)], {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+                            dataclasses.replace(ctx, cancel=stop), out / "loop.log", base)
             finally:      # a worker stopped before Harbor's own cleanup leaves its containers behind
-                remove_containers(trial, task_dir)
+                done.set()
+                cleanup = remove_containers(trial, task_dir)
+            outcome = {"task": tid, **({"cleanup_error": cleanup} if cleanup else {})}
             result = out / "loop" / "result.json"
+            if stop.is_set() and not (ctx.cancel is not None and ctx.cancel.is_set()):
+                return {**outcome, "status": "failed",
+                        "error": f"the worker was stopped at worker_timeout_s={params.get('worker_timeout_s')}"}
             if code or not result.is_file():
-                return {"task": tid, "status": "failed",
-                        "error": f"the upstream loop exited {code}; see {tid}/loop.log"}
-            return {"task": tid, "status": "done", **json.loads(result.read_text())}
+                return {**outcome, "status": "failed", "error": f"the upstream loop exited {code}; see {tid}/loop.log"}
+            return {**outcome, "status": "done", **json.loads(result.read_text())}
 
         with ThreadPoolExecutor(max_workers=min(int(params.get("workers") or 1), len(ids))) as pool:
             outcomes = list(pool.map(one, ids))

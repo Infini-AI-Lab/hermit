@@ -7,12 +7,12 @@ data:
   train: ../utils/splits/train.txt
   val: ../utils/splits/val.txt         # not used: no selection
   test: ../utils/splits/test.txt
-  step_size: 4                         # questions per step = evolver.params.workers
+  step_size: 16                        # questions per step = evolver.params.workers
   shuffle: false
 task_info: ../utils/task-info/
 agent:
   base: codex                          # Layer 2: Codex as a Base Agent (hermit/agent/base/cli.py)
-  concurrency: 4
+  concurrency: 16
   params:                              # Layer 3: the Acting Agent with OfficeQA's task functions
     prompt: ../utils/prompt.md
     prepare: ../utils/task.py:prepare  # task.md and the corpus under docs/
@@ -36,7 +36,7 @@ start_from: seed_adapter               # make_seed.py: SkillOpt's initial Office
 evolver:
   name: coevoskills_adapter
   params:
-    workers: 4
+    workers: 16
     deliver: oracle_io.py:deliver      # the acting agent's answer where the hidden test reads it
     path_map: {/root/docs: docs, /root/answer.txt: skill-answer.txt}   # the package container's paths, in the workspace
 llm:                                   # every upstream role: GPT-5.6-Luna at medium effort, the acting model

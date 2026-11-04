@@ -37,6 +37,7 @@ evolver:
     max_iterations: 1
     max_episodes: 40
     task_timeout_s: 1800
+    worker_timeout_s: 3300             # the loop, its oracle check (a 600 s session) and room
     deliver: oracle_io.py:deliver      # the acting agent's answer where the hidden test reads it
     path_map: {/root/docs: docs, /root/answer.txt: skill-answer.txt}   # the package container's paths, in the workspace
 llm:                                   # every upstream role (Generator, Verifier): the acting model

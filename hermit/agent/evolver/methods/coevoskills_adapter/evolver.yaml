@@ -15,6 +15,8 @@ params:
   max_iterations: 5                  # upstream max_host_interventions: oracle checks per question
   max_episodes: 120                  # upstream max_episodes
   task_timeout_s: 7200               # upstream override_timeout_sec: one question's whole loop
+  worker_timeout_s: 12600            # the worker's own clock: the loop, its last oracle check (a session and its
+                                     # start) and room; upstream's clock cannot interrupt a model call in progress
   deliver: null                      # the example's hook (file.py:function): the acting agent's output -> {container
                                      # path: text} for the task's hidden test (OfficeQA: oracle_io.py:deliver)
   path_map: {}                       # the task container's paths in the acting agent's workspace, rewritten in the

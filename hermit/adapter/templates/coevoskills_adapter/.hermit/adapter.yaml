@@ -10,4 +10,3 @@ structure:
     - path: skills/**
   fixed: [exports.yaml, README.md]
 check: .hermit/check.py:check
-plugin-portable: false

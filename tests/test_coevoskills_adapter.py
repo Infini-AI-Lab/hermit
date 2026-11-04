@@ -74,6 +74,19 @@ def test_the_template_root_passes_and_the_host_installs_the_packages_as_skills(t
         "---\nname: uid0017-evo-example\n")                   # Codex finds it by its own skill discovery
 
 
+def test_the_public_deploy_installs_the_packages_as_codex_skills(tmp_path):
+    """`hermit deploy`, as a user runs it: the template is portable (no context tool), so a Codex workspace gets the
+    adapter's copy and the packages as native skills."""
+    adapter = tmp_path / "adapter"
+    shutil.copytree(TEMPLATE, adapter)
+    packaging.project(exported(tmp_path / "x"), adapter / "skills", "UID0017", PATH_MAP)
+    run = subprocess.run([sys.executable, "-m", "hermit", "deploy", "--adapter", str(adapter), "--host", "codex",
+                          "--workspace", str(tmp_path / "ws")], capture_output=True, text=True, cwd=ROOT)
+    assert run.returncode == 0, run.stderr[-500:]
+    assert (tmp_path / "ws/.codex/skills/uid0017-evo-example/SKILL.md").is_file()
+    assert (tmp_path / "ws/hermit/coevoskills-adapter/skills/uid0017-evo-example/SKILL.md").is_file()
+
+
 @pytest.mark.parametrize("breakage", ["name differs from directory", "stray file", "nested package"])
 def test_the_template_check_refuses_what_is_no_skill(tmp_path, breakage):
     adapter = tmp_path / "adapter"
@@ -342,6 +355,34 @@ def test_a_workers_leftover_containers_and_image_are_removed(tmp_path, monkeypat
     assert log.read_text().splitlines()[1:] == ["rm -f -v c1 c2", "image rm -f hb__q1-abcd1234"]
 
 
+def test_a_worker_past_its_clock_is_stopped(tmp_path, monkeypatch, no_docker):
+    """Upstream's loop clock cannot interrupt a model call in progress; the worker's own clock stops it as the
+    Trainer's cancel would, and the question is reported as failed for that reason."""
+    E = no_docker
+    seen = []
+
+    def stuck(command, env, ctx, log, cwd):                   # a worker that only ends when it is stopped
+        seen.append(ctx.cancel)
+        assert ctx.cancel.wait(20)
+        return -15
+    monkeypatch.setattr(E, "_run", stuck)
+    result = E.CoEvoSkillsAdapterEvolver().step(context(tmp_path, ["q1"], {"worker_timeout_s": 1}))
+    assert result.status == "failed" and seen[0].is_set()
+    (q1,) = json.loads((tmp_path / "output/questions.json").read_text())
+    assert "worker_timeout_s=1" in q1["error"]
+
+
+def test_a_stuck_docker_daemon_does_not_hold_the_cleanup(tmp_path, monkeypatch):
+    E = evolver_module()
+    fake = tmp_path / "bin/docker"
+    fake.parent.mkdir()
+    fake.write_text(f"#!{sys.executable}\nimport time\ntime.sleep(30)\n")
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{fake.parent}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setattr(E, "DOCKER_TIMEOUT_S", 1)
+    assert "did not answer within 1 s" in E.remove_containers("coevoskills-q1-abcd1234", "q1-abcd1234")
+
+
 def test_the_setup_refuses_what_a_step_would_fail_on(tmp_path, monkeypatch):
     E = evolver_module()
     monkeypatch.setattr(E, "verify", lambda root: root)
@@ -471,6 +512,20 @@ def test_a_run_through_the_trainer_installs_and_ships_the_packages(tmp_path, mon
 
 # ---------- the oracle ----------
 
+def acting_run(tmp_path, payload, output):
+    """What run_agent hands back for a training question: the acting agent's output and its log, with the
+    deployment record of the candidate it ran (unchanged)."""
+    from hermit.agent.acting.workspace import deploy
+    from uuid import uuid4
+    work = tmp_path / f"actor-{uuid4().hex[:6]}" / "work"
+    work.mkdir(parents=True)
+    record = deploy(Path(payload["adapter"]), work, "codex", context="context", serve_tools=False)
+    log = work.parent / "log"
+    log.mkdir()
+    (log / "deployment.json").write_text(json.dumps(record))
+    return {"results": [{"status": "ok", "output": output, "judge": {"score": 0}, "log": str(log)}]}
+
+
 def oracle_module(tmp_path, monkeypatch, tool, deliver=None):
     pytest.importorskip("harbor")
     from hermit.agent.evolver.methods.coevoskills_adapter import oracle
@@ -490,7 +545,7 @@ def test_the_oracle_runs_the_acting_agent_and_returns_no_judge_to_the_loop(tmp_p
         calls.append((url, name, payload))
         if name == "check_spec":
             return {"passed": True}
-        return {"results": [{"status": "ok", "output": {"answer": "prediction"}, "judge": {"score": 0}}]}
+        return acting_run(tmp_path, payload, {"answer": "prediction"})
     oracle = oracle_module(tmp_path, monkeypatch, tool)
     assert oracle.probe(exported(tmp_path / "candidate"))["output"] == {"answer": "prediction"}
     assert [c[1] for c in calls] == ["check_spec", "run_agent"] and calls[1][0] == "http://tools"
@@ -505,8 +560,7 @@ def test_the_oracle_hands_the_answer_to_the_hidden_test_as_deliver_says(tmp_path
     from types import SimpleNamespace
 
     def tool(url, name, payload):
-        return {"passed": True} if name == "check_spec" else \
-            {"results": [{"status": "ok", "output": {"answer": "4'2"}, "judge": {"score": 0}}]}
+        return {"passed": True} if name == "check_spec" else acting_run(tmp_path, payload, {"answer": "4'2"})
     io = module(HERE / "oracle_io.py", "_coevoskills_adapter_oracle_io")
     oracle = oracle_module(tmp_path, monkeypatch, tool, io.deliver)
     uploads, codes = {}, [0]
@@ -531,6 +585,43 @@ def test_the_oracle_hands_the_answer_to_the_hidden_test_as_deliver_says(tmp_path
     oracle.CONFIG["deliver"] = lambda output: {"relative/path": "x"}
     with pytest.raises(ValueError, match="absolute container path"):
         asyncio.run(agent.run("instruction", Environment(), None))
+
+
+@pytest.mark.parametrize("change", [None, "cache", "adapter copy", "native skill", "deleted"])
+def test_a_candidate_the_acting_agent_changed_during_its_run_fails_the_check(tmp_path, monkeypatch, change):
+    """Upstream keeps the Skill immutable during the run: the deployed copies (the adapter's and the host's native
+    skills) are checked after it; a script the agent edited makes the check an error, not a pass. Python's caches,
+    which running a script writes, are no change."""
+    from hermit.agent.acting.workspace import deploy
+
+    def tool(url, name, payload):
+        if name == "check_spec":
+            return {"passed": True}
+        work = tmp_path / "actor/work"
+        work.mkdir(parents=True)
+        record = deploy(Path(payload["adapter"]), work, "codex", context="context", serve_tools=False)
+        log = work.parent / "log"
+        log.mkdir()
+        (log / "deployment.json").write_text(json.dumps(record))
+        copy = work / "hermit/coevoskills-adapter/skills/a-evo-example/scripts"
+        native = work / ".codex/skills/a-evo-example/scripts"
+        if change == "cache":
+            for d in (copy, native):
+                (d / "__pycache__").mkdir()
+                (d / "__pycache__/run.cpython-312.pyc").write_bytes(b"x")
+        elif change == "adapter copy":
+            (copy / "run.py").write_text("print('edited')\n")
+        elif change == "native skill":
+            (native / "run.py").write_text("print('edited')\n")
+        elif change == "deleted":
+            (native / "run.py").unlink()
+        return {"results": [{"status": "ok", "output": {"answer": "x"}, "judge": {"score": 1}, "log": str(log)}]}
+    oracle = oracle_module(tmp_path, monkeypatch, tool)
+    if change in (None, "cache"):
+        assert oracle.probe(exported(tmp_path / "source"))["judge"]["score"] == 1
+    else:
+        with pytest.raises(RuntimeError, match="changed during the run"):
+            oracle.probe(exported(tmp_path / "source"))
 
 
 def test_a_frozen_candidate_can_be_projected_again(tmp_path, monkeypatch):
@@ -728,5 +819,6 @@ def test_the_configs_use_the_tasks_acting_agent_and_the_columns_harness(name):
     assert find(data["evolver"]["name"]).directory == METHOD and data.template_dir() == TEMPLATE
     assert data["data"]["step_size"] == evolver["workers"] and data["llm"]
     assert evolver["deliver"] == "oracle_io.py:deliver" and evolver["path_map"] == PATH_MAP
-    rounds = math.ceil(data["data"]["step_size"] / evolver["workers"])           # each question's loop bounds a step
-    assert data["trainer"]["call_timeout_min"] * 60 > rounds * evolver["task_timeout_s"]
+    rounds = math.ceil(data["data"]["step_size"] / evolver["workers"])           # each worker's clock bounds a step
+    assert evolver["worker_timeout_s"] > evolver["task_timeout_s"] + params["timeout_s"]
+    assert data["trainer"]["call_timeout_min"] * 60 > rounds * evolver["worker_timeout_s"]

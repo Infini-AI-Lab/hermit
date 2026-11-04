@@ -48,10 +48,10 @@ hermit eval  --config examples/officeqa/coevoskills_adapter/run_codex_luna.yaml 
 | `run_codex_luna.yaml` | GPT-5.6-Luna, medium effort, the ChatGPT login (the Luna column) | Codex 0.164.0, egress proxy to chatgpt.com |
 | `smoke_codex_luna.yaml` | as above | the smoke splits, two questions, one oracle check each, short clocks |
 
-A step takes four training questions (`data.step_size`) and runs their loops at once (`evolver.params.workers`);
-they start from the same adapter and do not see each other's packages. The 24 validation questions are not used.
-Every completion of the upstream roles is a call of the run's `llm`; the oracle's acting runs count toward the budget
-like any `run_agent` run.
+A step takes several training questions (`data.step_size`: sixteen in `run_codex_luna.yaml`, four in
+`run_codex.yaml`) and runs their loops at once (`evolver.params.workers`); they start from the same adapter and do
+not see each other's packages. The 24 validation questions are not used. Every completion of the upstream roles is a
+call of the run's `llm`; the oracle's acting runs count toward the budget like any `run_agent` run.
 
 ## What a run leaves
 

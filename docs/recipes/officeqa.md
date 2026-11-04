@@ -447,11 +447,12 @@ hermit eval  --config examples/officeqa/coevoskills_adapter/run_codex_luna.yaml 
 hermit eval  --config examples/officeqa/coevoskills_adapter/run_codex_luna.yaml --adapter none          # no skill
 ```
 
-A step runs four questions' loops at a time (`data.step_size` and `evolver.params.workers`); they do not see each
-other's packages. The 24 validation questions are not used. `run_codex.yaml` is the same protocol on the Flash row
-(GLM 5.3 Flash acting and learning); `smoke_codex.yaml` and `smoke_codex_luna.yaml` are their smokes. No result is
-recorded yet: an earlier run used a different harness (Docker network none with a model relay, image `0.162.0`, its
-own no-adapter baseline) and is to be repeated with these configs.
+A step runs sixteen questions' loops at a time (`data.step_size` and `evolver.params.workers`; four in
+`run_codex.yaml`, for the API's rate); they do not see each other's packages. The 24 validation questions are not
+used. `run_codex.yaml` is the same protocol on the Flash row (GLM 5.3 Flash acting and learning); `smoke_codex.yaml`
+and `smoke_codex_luna.yaml` are their smokes. No result is recorded yet: an earlier run used a different harness
+(Docker network none with a model relay, image `0.162.0`, its own no-adapter baseline) and is to be repeated with
+these configs.
 
 ## Outputs and scoring
 

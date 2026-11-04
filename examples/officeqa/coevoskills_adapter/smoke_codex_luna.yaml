@@ -40,6 +40,7 @@ evolver:
     max_iterations: 1
     max_episodes: 40
     task_timeout_s: 1800
+    worker_timeout_s: 3300             # the loop, its oracle check (a 600 s session) and room
 llm:                                   # every upstream role: GPT-5.6-Luna at medium effort, the acting model
   cli: codex                           # only Codex reaches the model: one session per chat call (base/endpoint.py)
   model: gpt-5.6-luna
