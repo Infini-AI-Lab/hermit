@@ -765,7 +765,7 @@ def _seen(requests, *texts):
 
 
 def _cli(name: str):
-    """An integration test (tests/conftest.py: --integration) on the CLI installed on this machine, whose release
+    """An integration test (the root conftest.py: --integration) on the CLI installed on this machine, whose release
     the recorded behaviour belongs to."""
     def mark(test):
         return pytest.mark.integration(pytest.mark.skipif(not __import__("shutil").which(name),
