@@ -753,3 +753,40 @@ def test_take_back_reads_no_login_through_a_linked_directory(tmp_path):
     (work / "workspaces" / "login" / "auth.json").write_text(json.dumps({"last_refresh": now, "who": "refreshed"}))
     L.take_back(root, work / "workspaces" / "login" / "auth.json", within=work)
     assert "refreshed" in master.read_text()                          # a real refresh is still taken back
+
+
+def test_a_login_copy_below_a_rollouts_directory_is_removed_without_following_links(tmp_path):
+    from hermit.agent.base import login as L
+    target = tmp_path / "users-codex"
+    target.mkdir()
+    (target / "auth.json").write_text("{}")
+    work = tmp_path / "work"
+    (work / "workspaces").mkdir(parents=True)
+    (work / "workspaces" / "login").symlink_to(target)
+    L.remove(work / "workspaces" / "login" / "auth.json", within=work)
+    assert (target / "auth.json").is_file() and not (work / "workspaces" / "login").exists()
+    (work / "workspaces" / "login").mkdir()
+    (work / "workspaces" / "login" / "auth.json").write_text("{}")
+    L.remove(work / "workspaces" / "login" / "auth.json", within=work)
+    assert not (work / "workspaces" / "login" / "auth.json").exists()
+
+
+def test_a_ledger_the_session_rewrote_is_no_earlier_total(tmp_path):
+    from hermit.agent.base.cli import _this_call
+    from hermit.agent.model.usage import Usage
+    reported = Usage("m", input_tokens=1000, cached_input_tokens=0, output_tokens=50, calls=1)
+    (tmp_path / "usage").mkdir()
+    for text in ("not json", json.dumps({"input_tokens": 10 ** 9, "output_tokens": 10 ** 9}), json.dumps([1])):
+        (tmp_path / "usage" / "th1.json").write_text(text)
+        u = _this_call(tmp_path, "th1", reported, resumed=True)
+        assert (u.input_tokens, u.output_tokens) == (1000, 50)
+    u = _this_call(tmp_path, "th1", Usage("m", input_tokens=1500, cached_input_tokens=0, output_tokens=80, calls=1),
+                   resumed=True)
+    assert (u.input_tokens, u.output_tokens) == (500, 30)            # an honest earlier total still counts
+
+
+def test_a_callers_dev_null_stderr_log_is_left_as_it_is(fake):
+    (fake / "w").mkdir()
+    result = make("codex", {"web_search": False, "model": "gpt-x", "home_files": [],
+                            "stderr_log": os.devnull}).run("go", workspace=fake / "w")
+    assert result.reply.endswith("<answer>44,463</answer>") and os.path.exists(os.devnull)

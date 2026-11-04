@@ -516,12 +516,9 @@ class Sandbox:
                     if n == a or n.startswith(a + "/"):
                         names.add(b + n[len(a):])
         for name in sorted(names, key=len):
-            if not os.path.exists(name) or os.path.islink(name) or \
-                    not any(name == b or name.startswith(b + "/") for b in shown) or any(
+            if not os.path.exists(name) or not any(name == b or name.startswith(b + "/") for b in shown) or any(
                     name == m or name.startswith(m + "/") for m in covered):
-                # nothing there, a link (its real name is covered where it is shown: mounting over a link that
-                # leads outside what the sandbox shows fails), not shown anyway, or covered already
-                continue
+                continue                                  # nothing there, not shown anyway, or covered already
             covered.append(name)
             # A file is covered by an empty regular file: /dev/null cannot be opened on a mount without devices.
             args.extend(["--tmpfs", name] if os.path.isdir(name) else ["--ro-bind", self._empty_file(), name])
@@ -727,16 +724,17 @@ def hidden_paths(hide: list | None) -> list[Path]:
 
 
 class HidingSandbox:
-    """A sandbox with paths covered: a directory by an empty tmpfs, a file by an empty file, and `keep` bound back on
-    top (the task description lives under a hidden tree). Subtractive, until the sandbox is a positive allowlist.
+    """A sandbox with paths covered: a directory by an empty tmpfs, a file by an empty file. Subtractive, until the
+    sandbox is a positive allowlist.
 
-    Over the run's sandbox (a `Sandbox`), the hidden paths are its masks for the call (`Sandbox.wrap`'s `masked`):
-    covered under every name the sandbox shows them by (the name given and the real one, which a link makes differ,
-    also below a bound directory reached by a link), only where the sandbox shows them, with the places the session
-    is given to work in (the sandbox's and the call's writable and readable paths) bound back on top when they lie
-    below one (a run kept below the framework's examples/ keeps its workspace), the covered directories read-only,
-    and every covered path checked from inside before the command starts. Over another sandbox (a test's), the paths
-    are covered under their real name."""
+    A hidden path is covered by its real name, and also by the name it was given when that name lies in a place the
+    sandbox binds under a link's name (a workspace reached through a link shows it there too). An entry that is
+    itself a link has what it leads to covered, unless that overlaps a place the session is given or one the sandbox
+    needs (the framework, the interpreter): a session that can write where a method hides every entry would otherwise
+    choose what the next call loses. The places the session is given to work in (the sandbox's and the
+    call's writable and readable paths, and `keep`: the task description under a hidden tree) are bound back on top
+    when they lie below a covered path, shallowest first, and what is hidden below them (a hidden path, the
+    sandbox's masks) is covered again after them."""
 
     def __init__(self, inner, hidden: list[Path], keep: list[Path] = ()):
         self.inner, self.hidden, self.keep = inner, list(hidden), list(keep)
@@ -744,27 +742,61 @@ class HidingSandbox:
     def __getattr__(self, name):
         return getattr(self.inner, name)
 
+    @staticmethod
+    def _under(path: str, parent: str) -> bool:
+        return path.startswith(parent.rstrip("/") + "/")
+
     def wrap(self, command, **kw):
-        if isinstance(self.inner, Sandbox):
-            readable = list(kw.get("readable") or ())
-            given = {os.path.abspath(str(p)) for p in readable}
-            readable += [p for p in self.keep if Path(p).exists() and os.path.abspath(str(p)) not in given]
-            return self.inner.wrap(command, **{**kw, "readable": readable,
-                                              "masked": [*(kw.get("masked") or ()), *self.hidden]})
         args, env = self.inner.wrap(command, **kw)
         start = next((i for i, a in enumerate(args) if Path(a).name == "bwrap"), None)   # after an audit's strace
-        if start is not None and "--" in args[start:]:
-            cut = args.index("--", start)
-            cover = []
-            for p in self.hidden:
-                p = p.resolve()
-                if p.is_dir():
-                    cover += ["--tmpfs", str(p)]
-                elif p.is_file():
-                    cover += ["--ro-bind", "/dev/null", str(p)]
-            for p in self.keep:
-                p = p.resolve()
-                if p.exists():
-                    cover += ["--ro-bind", str(p), str(p)]
-            args = args[:cut] + cover + args[cut:]
-        return args, env
+        if start is None or "--" not in args[start:]:
+            return args, env
+        cut = args.index("--", start)
+        writable = [*getattr(self.inner, "writable", []), *(kw.get("writable") or ()),
+                    *([kw["home"]] if kw.get("home") else [])]
+        readable = [*getattr(self.inner, "readable", []), *getattr(self.inner, "read", []),
+                    *(kw.get("readable") or ()), *self.keep]
+        aliases = [_names(p)[0] for p in [*writable, *readable] if len(_names(p)) == 2]
+        empty = self.inner._empty_file() if hasattr(self.inner, "_empty_file") else "/dev/null"
+
+        visible = getattr(self.inner, "visible", lambda command: [])(command)
+        own = {n for p in [*writable, *readable, *visible] for n in _names(p)}
+
+        def overlaps(name: str) -> bool:
+            return any(name == o or self._under(name, o) or self._under(o, name) for o in own)
+
+        def names_of(path) -> list[str]:
+            given = os.path.abspath(os.path.expanduser(str(path)))
+            real = os.path.realpath(given)
+            if os.path.islink(given):
+                # an entry that is itself a link: what it leads to is covered, unless that is (or holds, or lies in)
+                # a place the session is given or the sandbox needs: a session that can write where a method hides
+                # every entry would otherwise choose what the next call loses
+                return [real] if os.path.exists(real) and not overlaps(real) else []
+            out = [real] + ([given] if given != real and any(given == a or self._under(given, a)
+                                                             for a in aliases) else [])
+            return [n for n in out if os.path.exists(n)]
+
+        def cover(name: str) -> list[str]:
+            return ["--tmpfs", name] if os.path.isdir(name) else ["--ro-bind", empty, name]
+        hidden = sorted({n for p in self.hidden for n in names_of(p)}, key=len)
+        out, covered = [], []
+        for h in hidden:
+            if not any(h == c or self._under(h, c) for c in covered):     # below a covered one: hidden already
+                covered.append(h)
+                out += cover(h)
+        flags: dict[str, str] = {}
+        for flag, paths in (("--bind", writable), ("--ro-bind", readable)):
+            for path in paths:
+                for n in _names(path):
+                    if os.path.exists(n) and not os.path.islink(n) and n not in hidden and \
+                            any(self._under(n, c) for c in covered):
+                        flags[n] = flags.get(n) or flag                     # writable wins over readable
+        masks = {n for p in [*getattr(self.inner, "masked", []), *(kw.get("masked") or ())] for n in _names(p)
+                 if os.path.exists(n)}
+        recover = {h for h in [*hidden, *masks] if any(self._under(h, n) for n in flags)}
+        # shallowest first, a place bound back before what is covered below it
+        for name, kind in sorted([(n, "bind") for n in flags] + [(h, "cover") for h in recover],
+                                 key=lambda x: (len(x[0]), x[1] == "cover")):
+            out += [flags[name], name, name] if kind == "bind" else cover(name)
+        return args[:cut] + out + args[cut:], env

@@ -536,7 +536,8 @@ class Trainer:
                 if isinstance(result, StepResult):
                     self._spend(result)                 # what the stopped call reports it spent counts all the same
                 raise BudgetExceeded(stopped)
-            result = StepResult("failed", f"stopped by the Trainer ({stopped})", usage=result.usage)
+            result = StepResult("failed", f"stopped by the Trainer ({stopped})",
+                                usage=result.usage if isinstance(result, StepResult) else [])
         else:
             result = box.get("value")
             if result is None and what == "bootstrap":

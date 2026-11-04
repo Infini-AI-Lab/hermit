@@ -208,19 +208,22 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   there: after a session, a linked `auth.json` with a later refresh became the machine's shared login copy, a linked
   `usage/` received the usage ledger (a pipe there blocked the call), a linked last-message file was read as the
   reply, and a linked stream as the session's events; before the next session in a kept home, its config, the
-  sign-in copy and the login's temporary copy were written through links left there. None of these follows a link
-  now (`take_back` also checks every directory below the caller's, `isolate.py`'s rollout logins included).
+  sign-in copy and the login's temporary copy were written through links left there; a rollout's login copies were
+  taken back and deleted through linked directories (`isolate.py`). None of these follows a link now, and a usage
+  ledger the session rewrote (malformed, or over what Codex reports) is not taken for the thread's earlier total.
+  Harness²'s channel reads its session's stream and stderr file the same way.
 - `unavailable` and a ChatGPT plan's refusal were read from the whole stream, so a session whose own work quoted an
   outage or a usage limit (a log it searched) was retried as the provider's failure or held for the plan. They are
   read from the CLI's own messages and error events now; `served` is read from the events, not the text, and the
   result says `extra["refused"]`.
 - A hidden path (`Limits.hidden`, `AgentEvolver`'s `hide`) was covered under its real name only, so a workspace
   reached through a link left it visible under the link's name; and hiding the framework's `examples/` covered a run
-  kept below it, workspace and all. Over the run's sandbox, hidden paths are now covered as its masks are: under the
-  names the sandbox shows them by (a bound directory reached by a link included), only where it shows them, with the
-  places the session is given bound back on top, the covered directories read-only, and each checked from inside
-  before the command starts (`hermit/sandbox.py`, `HidingSandbox`). A mask that is itself a link is covered by its
-  real name.
+  kept below it, workspace and all. A hidden path is now also covered by the name it was given where the sandbox
+  binds a place under a link's name, and the places the session is given (its writable and readable paths, the task
+  description) are bound back on top of a covered directory, shallowest first, with what is hidden below them (a
+  hidden path, the sandbox's masks) covered again after them (`hermit/sandbox.py`, `HidingSandbox`). A hidden entry
+  that is itself a link has what it leads to covered, unless that overlaps a place the session is given or the
+  sandbox needs: a session that can write where a method hides every entry cannot choose what the next call loses.
 - The Trainer dropped the usage an Evolver call reported when the hard budget stopped it; it is counted.
 - Codex's trajectory left out failed turns, web searches, to-do lists and an MCP call's arguments and result (the
   result is the step's `output`), and a log directory whose stream had another name (a Harbor trial's

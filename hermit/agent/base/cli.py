@@ -118,6 +118,17 @@ def _clear(path) -> None:
             os.unlink(path)
 
 
+def _not_ours(path) -> None:
+    """Before this process opens `path` for a session's output: a link, a pipe or a socket left there is removed
+    (written through or blocking otherwise); a device or a directory the caller named is left as it is."""
+    try:
+        mode = os.lstat(path).st_mode
+    except OSError:
+        return
+    if stat.S_ISLNK(mode) or stat.S_ISFIFO(mode) or stat.S_ISSOCK(mode):
+        os.unlink(path)
+
+
 def _real_dir(path: Path) -> Path:
     """`path` as a real directory: a link or a file left there is removed first."""
     if os.path.islink(path) or (os.path.lexists(path) and not os.path.isdir(path)):
@@ -478,9 +489,9 @@ class CliAgent(BaseAgent):
         else:
             stream = home / f"agent-{self.backend}.jsonl"
         stream.parent.mkdir(parents=True, exist_ok=True)
-        _clear(stream)                                  # written by this process: never through a link left there
+        _not_ours(stream)                               # written by this process: never through a link left there
         if s.get("stderr_log"):
-            _clear(s["stderr_log"])
+            _not_ours(s["stderr_log"])
         last_file = home / "last_message.txt"
         _clear(last_file)
         last_file.unlink(missing_ok=True)
@@ -623,7 +634,13 @@ def _this_call(home: Path, handle: str, reported, resumed: bool):
     # The session could write its home: a link it left there (the ledger's directory or the ledger) is removed,
     # never followed, and the ledger is written without following one.
     _real_dir(ledger.parent)
-    before = json.loads(ledger.read_text()) if resumed and _regular(ledger) else {}
+    try:
+        before = json.loads(ledger.read_text()) if resumed and _regular(ledger) else {}
+        before = {f: int(before.get(f, 0)) for f in fields} if isinstance(before, dict) else {}
+    except (OSError, ValueError, TypeError):
+        before = {}
+    if any(before.get(f, 0) > getattr(reported, f) or before.get(f, 0) < 0 for f in fields):
+        before = {}                                 # no earlier total of this thread: the session wrote it
     _clear(ledger)                                  # a link or a pipe left there: removed, never written through
     fd = os.open(ledger, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
     with os.fdopen(fd, "w") as f:

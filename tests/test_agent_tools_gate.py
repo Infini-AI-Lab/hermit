@@ -27,7 +27,8 @@ def test_hidden_paths_and_hiding_sandbox(tmp_path):
     keep.mkdir()
     args, env = HidingSandbox(Inner(), [tmp_path, secret], keep=[keep]).wrap(["true"])
     cut = args.index("--")
-    assert args[4:cut] == ["--tmpfs", str(tmp_path), "--ro-bind", "/dev/null", str(secret), "--ro-bind", str(keep), str(keep)]
+    # the secret lies in the covered directory already; the task description is bound back on top of it
+    assert args[4:cut] == ["--tmpfs", str(tmp_path), "--ro-bind", str(keep), str(keep)]
     assert env == {"X": "1"} and args[-1] == "true"
     assert HidingSandbox(Inner(), []).wrap(["true"])[0][-1] == "true"
 
@@ -119,3 +120,35 @@ def test_a_hidden_link_to_a_place_the_sandbox_does_not_show_still_lets_the_call_
                                          f"|| echo ABSENT"], env=dict(os.environ))
     out = subprocess.run(args, env=env, capture_output=True, text=True, timeout=60)
     assert out.returncode == 0 and out.stdout.split() == ["mine", "ABSENT"], out.stderr
+
+
+@pytest.mark.skipif(not __import__("shutil").which("bwrap"), reason="needs bubblewrap")
+def test_nested_places_links_and_system_paths_under_hiding(tmp_path):
+    """A place the session is given below a hidden directory stays, and what is hidden inside it stays covered; a
+    hidden entry that is a link to the session's own workspace leaves the workspace as it is; a hidden file under
+    /usr (bound whole by the sandbox) is covered."""
+    import subprocess
+    from hermit.sandbox import Sandbox
+    hidden = tmp_path / "examples"
+    work = hidden / "run" / "ws"
+    work.mkdir(parents=True)
+    (work / "mine.txt").write_text("mine\n")
+    (work / "secret.txt").write_text("s\n")
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    (scratch / "planted").symlink_to(work)
+    system = next((p for p in sorted(__import__("pathlib").Path("/usr/share").rglob("*"))[:5000]
+                   if p.is_file() and not p.is_symlink() and os.access(p, os.R_OK) and p.stat().st_size > 0), None)
+    hiding = HidingSandbox(Sandbox(network="open", writable=[work, scratch]),
+                           [hidden, work / "secret.txt", scratch / "planted", *([system] if system else [])])
+
+    def shows(path) -> str:
+        args, env = hiding.wrap(["sh", "-c", f"head -c 64 {path} 2>/dev/null | head -1 | grep . || echo ABSENT"],
+                                env=dict(os.environ))
+        out = subprocess.run(args, env=env, capture_output=True, text=True, timeout=60)
+        assert out.returncode == 0, out.stderr
+        return out.stdout.strip()
+    assert shows(work / "mine.txt") == "mine"
+    assert shows(work / "secret.txt") == "ABSENT"
+    if system is not None:
+        assert shows(system) == "ABSENT"

@@ -102,6 +102,26 @@ def _plain(path: Path, home: Path | None = None) -> bool:
     return True
 
 
+def remove(path: Path, within: Path) -> None:
+    """Remove a login copy at `path` below `within` (a directory a session could write): a link on the way (a
+    directory, or the file) is removed itself, never followed, so nothing outside `within` is deleted."""
+    path, within = Path(path), Path(within)
+    try:
+        rel = path.relative_to(within)
+    except ValueError:
+        return
+    current = within
+    for part in rel.parts:
+        current = current / part
+        if current.is_symlink():
+            current.unlink()
+            return
+        if not current.exists():
+            return
+    if _plain(path, within):
+        path.unlink()
+
+
 def take_back(root: Path, path: Path, within: Path | None = None) -> None:
     """A login file a session left: the shared copy if it is a later refresh of it (a regular file, never one read
     through a link: none below `within`, the directory the caller trusts, and not the file itself)."""

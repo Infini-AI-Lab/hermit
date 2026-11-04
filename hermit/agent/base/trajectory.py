@@ -21,7 +21,7 @@ from pathlib import Path
 CODEX_STREAM = "agent-codex.jsonl"
 CLAUDE_STREAM = "agent-claude.jsonl"
 STREAMS = (CODEX_STREAM, CLAUDE_STREAM)
-OTHER_STREAMS = ("agent/codex.txt",)  # a host's stream under its own name (a Harbor trial's: Codex's events)
+OTHER_STREAMS = ("agent/codex.txt", "codex.txt")   # a Harbor trial's Codex events: from the trial or its agent/
 
 
 @dataclass
