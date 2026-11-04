@@ -195,8 +195,8 @@ def _mounts(task: dict, work: Path, params: dict, base: Path) -> list[Mount]:
 
 def _clean(work: Path) -> None:
     """The workspace kept for inspection: no links out of it, no mount points left empty. A link is never followed,
-    so nothing it leads to (a task's data) is touched. Tidying never fails the run: a mount point that cannot be
-    read or removed yet (Docker Desktop may still hold one a moment after its container exits) is left in place."""
+    so nothing it leads to (a task's data) is touched. A mount point that cannot be read or removed yet (Docker
+    Desktop may still hold one a moment after its container exits) is left in place instead of failing the run."""
     root = work.resolve()
     for directory, dirs, files in os.walk(work, topdown=False):          # followlinks=False: links are entries
         for name in dirs + files:
