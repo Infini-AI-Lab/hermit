@@ -15,6 +15,7 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-22.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -24,8 +25,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y bubblewrap strace
-          python -m pip install --upgrade pip
-          python -m pip install -e '.[test]' build twine
+          python -m venv "$RUNNER_TEMP/test-env"
+          "$RUNNER_TEMP/test-env/bin/python" -m pip install --upgrade pip
+          "$RUNNER_TEMP/test-env/bin/python" -m pip install -e '.[test]' build twine
+          echo "$RUNNER_TEMP/test-env/bin" >> "$GITHUB_PATH"
       - name: Check tagged version
         if: startsWith(github.ref, 'refs/tags/')
         run: |
