@@ -87,21 +87,23 @@ fixes the pattern.
 
 1. **prompt**: the instructions' prose in `ADAPTER.md`: the order of work, the answer's form, how to read a table.
    Pick when the agent does not know WHAT is asked, WHEN to act, or in what FORM to answer.
-2. **control_flow**: a procedure the instructions make mandatory at a checkable trigger (a pre-answer checklist
-   with an explicit exit, a rule for when to stop searching).
-3. **output_plumbing / context_mgmt**: what the agent reads and keeps in view: a helper that prints only the rows
-   and columns a question needs, a scratch file of found operands the agent writes and re-reads before answering.
-4. **client_tool**: an executable helper under the adapter (for example `scripts/find_rows.py`) with the
+2. **control_flow / output_plumbing / context_mgmt**: hooks (a `PreToolUse` or `Stop` entry; a `PostToolUse`; a
+   `SessionStart` or `PreCompact`), where the agent runs them (the task information says). A procedure the
+   instructions make mandatory at a checkable trigger (a pre-answer checklist with an explicit exit, a rule for when
+   to stop searching) is **prompt**; a helper that prints only the rows and columns a question needs is
+   **client_tool**; an instruction to keep a scratch file of found operands and re-read it before answering is
+   **prompt**.
+3. **client_tool**: an executable helper under the adapter (for example `scripts/find_rows.py`) with the
    instruction saying when to run it and what it prints. Never let a helper read the answers or the grader.
-5. **skill**: a procedure kept out of `ADAPTER.md` (for example `skills/<name>/SKILL.md`) that `ADAPTER.md` points
+4. **skill**: a procedure kept out of `ADAPTER.md` (for example `skills/<name>/SKILL.md`) that `ADAPTER.md` points
    to with the condition for reading it. PRIOR: purely textual reference skills tend to wash out; make the procedure
    concrete and checkable, or back it with a helper the skill tells the agent to run.
-6. **memory**: notes of general lessons the agent reads. HARD RULE: never persist question-specific data (values,
+5. **memory**: notes of general lessons the agent reads. HARD RULE: never persist question-specific data (values,
    file names, answers): that is memorization, and the critic will reject it.
-7. **subagent / config**: a delegated role or settings, where the agent supports them (the task information says).
+6. **subagent / config**: a delegated role or settings, where the agent supports them (the task information says).
 
 Lever-matching heuristics: if the agent finds the right table but writes the value in the wrong form, that is a
-prompt or control-flow fix at the moment of answering, not more search guidance. If it reads the wrong edition or
+prompt fix at the moment of answering, not more search guidance. If it reads the wrong edition or
 the wrong row, an evidence procedure or a helper usually beats a reminder. Prefer editing an existing part over
 adding a parallel one.
 

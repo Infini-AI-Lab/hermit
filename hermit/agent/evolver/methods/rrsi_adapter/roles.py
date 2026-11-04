@@ -188,7 +188,9 @@ class Roles:
         extra, text = codex_instructions(system, prompt)
         settings = {**self.settings, "home": call / "home", "log": rec / "events.jsonl", "stdin": True,
                     "args": [*(self.settings.get("args") or []), *extra], "cancel": self.ctx.cancel}
-        hidden = self.hide if getattr(self.ctx.sandbox, "enabled", False) else []
+        # nor the other calls' homes and records-in-progress, nor the round's traces unless it is a digester
+        others = [p for p in sorted(self.log_dir.iterdir()) if p.resolve() not in (call.resolve(), Path(cwd).resolve())]
+        hidden = [*self.hide, *others] if getattr(self.ctx.sandbox, "enabled", False) else []
         started = time.time()
         result = make("codex", settings).run(text, workspace=cwd, limits=Limits(hidden=hidden))
         with self._lock:

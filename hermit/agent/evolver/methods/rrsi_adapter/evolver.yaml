@@ -29,7 +29,10 @@ params:
                              # eval_parallel other than 1: one candidate is evaluated per step)
   roles: {}                  # the analyst, digesters and critic, Codex sessions: {model, login, effort, args, price,
                              # binding}; default: the proposer's (give them when the proposer is Claude Code); with
-                             # their own model (a Codex model name), the proposer's binding and price are not theirs
+                             # their own model (a Codex model name), the proposer's binding and price are not theirs;
+                             # with their own binding (its plain form: backend, base_url, model, api_key_env), its
+                             # provider and not the proposer's login, and the run's sandbox must let its host
+                             # (sandbox.allow) and its key variable (sandbox.env) through: it grants the proposer's
   role_timeout_s: 1800       # one role session's wall clock
   smoke: true                # run the domain's smoke tasks with each screened candidate (upstream's liveness smoke)
   max_failures: 3            # consecutive failed steps before the Evolver stops the run (upstream's driver: 3), at

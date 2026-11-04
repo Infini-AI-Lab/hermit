@@ -163,7 +163,7 @@ stop ends the run anyway.
 |---|---|---|---|
 | What the proposer may change | The whole harness program | Every file of the adapter outside `.hermit/`; the acting agent, its loop and the host stay fixed | forced by the framework |
 | The proposer | Claude Opus 4.8 in upstream's JSON-action loop | A session of the `codex` or `claude` Base Agent with `evolver.model`, upstream's system text, context sections and done() contract | a setting |
-| The search roles | Claude Opus 4.8, one completion per call; the analyst and the critic answer from the text they are given | The proposer's model (or `roles`), one Codex session per call with Codex's own sandbox read-only: the analyst and the critic in an empty directory, a digester in the round's rendered traces, which it may read with its own tools as well as through upstream's actions; none of them sees the run's records, the step's output or the proposers' directories | a setting |
+| The search roles | Claude Opus 4.8, one completion per call; the analyst and the critic answer from the text they are given | The proposer's model (or `roles`), one Codex session per call with Codex's own sandbox read-only: the analyst and the critic in an empty directory, a digester in the round's rendered traces, which it may read with its own tools as well as through upstream's actions; none of them sees the run's records, the step's output, the proposers' directories or the other role calls' | a setting |
 | Component vocabulary | Signals in the Terminus-2 source | The same K, with signals for adapter files (`domain.ADAPTER_SIGNALS`) | forced by the framework |
 | delta | Measured from repeated base evaluations (coding: 0.017) | Upstream's `calibrate` on H_0's one evaluation unless the config gives one (its within-task bootstrap reads low by about sqrt(2) with two trials, as upstream's does; on OfficeQA the spread of H_0's own evaluations across the runs, sd 0.035, gives a band of about 0.10 for a difference, against a calibrated 0.045–0.061) | matched to upstream's driver |
 | Unexplored components U_t | K minus the components with a measured edit | The same, without the components outside the domain's carriers (`AdapterDomain.carriers`, for what the benchmark's agent cannot carry; OfficeQA's: the five its reported runs could carry, whose deployment connected no hooks and no roles, kept until a run measures the rest): a reserved slot never asks for one | forced by the setting (OfficeQA: a decision, the runs' setting) |
@@ -195,5 +195,4 @@ in the same harness: level with GEPA and Harness² on that column and above Skil
 the column's highest cell, is not paired with it); as for the column's other methods that were checked (all but ACE),
 almost all of the gain is the answer's form, a lever OfficeQA's domain texts name (the README says how). The runs before
 this Evolver's port onto the agent layers scored 0.602 (paired, the runs on the port − those: +1.5 [−1.9, +4.8]); the
-example's README has both and what the port changed, and its `results/` directory each run's final adapter, per-question
-test records and config.
+example's README has both and what the port changed.

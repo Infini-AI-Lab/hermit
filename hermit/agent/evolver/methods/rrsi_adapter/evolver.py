@@ -172,9 +172,10 @@ def not_text_in(tree: Path, base: Path) -> list[str]:
 
 def stage(cand: Path, staged: Path) -> list[str]:
     """The candidate as it is stored, reviewed and committed: a copy without the root's .git and .hermit/, byte code,
-    nested repositories, tool caches, and the files git would not commit (the candidate's own .gitignore files and
-    the user's global excludes, which the Trainer's commit honours). `cand` must hold no symbolic link. Returns what
-    was left out, relative to the candidate."""
+    nested repositories, tool caches, the files git would not commit (the candidate's own .gitignore files and
+    the user's global excludes, which the Trainer's commit honours) and .gitattributes files (the Trainer's commit
+    and export would apply them: line endings converted, a file left out of the rollouts' copy). `cand` must hold no
+    symbolic link. Returns what was left out, relative to the candidate."""
     if staged.is_symlink() or staged.is_file():
         staged.unlink()
     elif staged.exists():
@@ -182,7 +183,10 @@ def stage(cand: Path, staged: Path) -> list[str]:
     _copy_tree(cand, staged)
     dropped = []
     for p in sorted(staged.rglob("*"), key=lambda q: len(q.parts)):
-        if p.is_dir() and (p.name == ".git" or p.name in CACHES) and p.exists():
+        if p.name == ".git" and p.is_file():                # a worktree's, or a submodule's, pointer
+            dropped.append(str(p.relative_to(staged)))
+            p.unlink()
+        elif p.is_dir() and (p.name == ".git" or p.name in CACHES) and p.exists():
             dropped.append(str(p.relative_to(staged)) + "/")
             shutil.rmtree(p)
     _git(staged, "init", "-q")
@@ -198,6 +202,10 @@ def stage(cand: Path, staged: Path) -> list[str]:
             target.unlink()
         dropped.append(rel)
     shutil.rmtree(staged / ".git", ignore_errors=True)
+    for p in sorted(staged.rglob(".gitattributes")):
+        if p.is_file():
+            p.unlink()
+            dropped.append(str(p.relative_to(staged)))
     return dropped
 
 
@@ -355,7 +363,16 @@ class RRSIAdapterEvolver(AgentEvolver):
         if "/" in str(role.get("model") or "") and role.get("binding") is None:
             raise ValueError("evolver.params.roles.model: a Codex model name (with roles.login), or give "
                              "roles.binding too; a `<backend>/<model>` reference is resolved for the proposer only")
-        self._cfg(ctx)
+        if isinstance(role.get("binding"), dict):        # read at every step (_roles), before its errors count
+            from hermit.agent.model.backends import Binding
+            try:
+                Binding.from_spec(role["binding"]).codex_args()
+            except ValueError as exc:
+                raise ValueError(f"evolver.params.roles.binding: {exc}") from exc
+        cfg = self._cfg(ctx)
+        if not 1 <= cfg.m <= len(VARIANTS):
+            raise ValueError(f"evolver.params.rrsi: m = {cfg.m} variants a round; at most {len(VARIANTS)} "
+                             f"({VARIANTS})")
         self._domain(ctx)
         self._more_hidden(ctx)                               # a "module:" entry naming no installed package
 
@@ -454,46 +471,56 @@ class RRSIAdapterEvolver(AgentEvolver):
         """The models this run's proposer and roles use, in RRSIConfig's fields (its defaults are not read here)."""
         backend = ctx.params.get("backend", "codex")
         proposer = self.settings(ctx, backend).get("model")
-        role = (ctx.params.get("roles") or {}).get("model") or self.settings(ctx, "codex").get("model")
+        roles = ctx.params.get("roles") or {}
+        binding = roles.get("binding") if isinstance(roles.get("binding"), dict) else {}
+        role = roles.get("model") or binding.get("model") or self.settings(ctx, "codex").get("model")
         return {"proposer_model": proposer, "analyst_model": role, "critic_model": role}
 
     def _roles(self, ctx) -> Roles:
         """The roles' sessions: the proposer's Base Agent settings for Codex (its model, login and effort unless
-        `roles` gives the roles' own; with the roles' own model, the proposer's binding and price are not theirs),
-        Codex's own sandbox read-only, `role_timeout_s` each. They do not see the run's records, the step's output
-        or the proposers' directories (upstream's roles see only the text they are given). Each call's prompt,
-        events and reply are kept in the step's output (`rrsi_roles/`), its home and working directory in the
-        scratch."""
+        `roles` gives the roles' own; with the roles' own model, the proposer's binding, price and the provider
+        arguments its binding put in `args` are not theirs; `roles.args` replaces the proposer's own arguments, not
+        those provider arguments), Codex's own sandbox read-only, `role_timeout_s` each. They do not see the run's
+        records, the step's output, the proposers' directories or the other calls' (Roles._session; upstream's roles
+        see only the text they are given). Each call's prompt, events and reply are kept in the step's output
+        (`rrsi_roles/`), its home and working directory in the scratch."""
         params, ws = ctx.params, ctx.workspace
         role = params.get("roles") or {}
         base = self.settings(ctx, "codex")
-        if role.get("model") is not None:
-            base = {k: v for k, v in base.items() if k not in ("binding", "price")}
+        provider = []                                        # the provider arguments the proposer's binding put
+        if base.get("binding"):                              # ahead of the user's own in `args`
+            from hermit.agent.model.backends import Binding
+            try:
+                provider = Binding.from_spec(base["binding"]).codex_args()
+            except ValueError:                               # no provider of its own (a CLI's model)
+                provider = []
+            provider = provider if list(base.get("args") or [])[:len(provider)] == provider else []
+        if role.get("model") is not None:                    # nor its provider arguments
+            args = list(base.get("args") or [])[len(provider):]
+            base = {k: v for k, v in base.items() if k not in ("binding", "price", "args")} | (
+                {"args": args} if args else {})
+            provider = []
         settings = {**base,
                     **{k: role[k] for k in ("model", "binding", "login", "effort", "args", "price")
                        if role.get(k) is not None},
                     "codex_sandbox": "read-only", "timeout_s": float(params.get("role_timeout_s", 1800))}
+        if isinstance(role.get("binding"), dict):            # the roles' own provider, as a binding configures Codex
+            from hermit.agent.model.backends import Binding
+            binding = Binding.from_spec(role["binding"])
+            settings["args"] = [*binding.codex_args(), *(role.get("args") or [])]
+            settings["model"] = role.get("model") or binding.model
+            settings["price"] = role.get("price") or binding.price
+            if role.get("login") is None:                    # not the proposer's ChatGPT login: an API provider
+                settings.pop("login", None)
+        elif "login" in role and role["login"] is None:      # `roles.login: null` clears the proposer's
+            settings.pop("login", None)
+        if not isinstance(role.get("binding"), dict) and role.get("args") is not None and provider:
+            settings["args"] = [*provider, *role["args"]]    # their own arguments, on the proposer's provider still
         hide = [ws.learning_material, ws.state, ws.adapter, ws.history, ws.output, ws.scratch / "rrsi",
                 *self._more_hidden(ctx)]
         return Roles(ctx, settings, ws.scratch / "rrsi_roles", hide=hide, records=ws.output / "rrsi_roles")
 
-    @staticmethod
-    def _aliased(ctx) -> str | None:
-        """A workspace area reached through a link, while the run's sandbox is on: the sandbox shows it under the
-        name it is given and under its real one, and covers a hidden path under its real name only."""
-        if not getattr(ctx.sandbox, "enabled", False):
-            return None
-        ws = ctx.workspace
-        aliased = [str(a) for a in (ws.learning_material, ws.state, ws.adapter, ws.output, ws.scratch, ws.history)
-                   if Path(os.path.abspath(a)) != Path(a).resolve()]
-        return aliased[0] if aliased else None
-
     def _advance(self, ctx, st: dict, cfg, dom, n: int, roles: Roles) -> tuple[str, str]:
-        aliased = self._aliased(ctx)
-        if aliased:
-            raise RuntimeError(f"the run's workspace is reached through a link ({aliased}), under which what the "
-                               "roles and the proposer must not see stays visible: give trainer.output_dir as its "
-                               "real path")
         # 1. The step's rollouts evaluated the candidate handed back last time.
         again = self._record(ctx, st, cfg, dom, n)
         if again is not None:
@@ -666,6 +693,12 @@ class RRSIAdapterEvolver(AgentEvolver):
         rdir = R / f"r{t}"
         rdir.mkdir(parents=True, exist_ok=True)
         fr = self._frontier(ctx)
+        if any(x["t"] == t + 1 for x in fr["trajectory"]):
+            # decided (H_{t+1} written) by a step that ended before it saved the state: not weighed again against
+            # the winner itself
+            st["round"], st["t"], st["phase"] = None, t + 1, "propose"
+            self._save(ctx, st)
+            return
         inc_ev = self._eval(ctx, fr["incumbent"]["job"])
         delta = self._delta(ctx, cfg)
         history = self._history(ctx)
@@ -677,10 +710,19 @@ class RRSIAdapterEvolver(AgentEvolver):
             cands.append(Candidate(v, info.get("edits") or [], ev=ev, diff_path=info.get("diff_path"),
                                    commit=info.get("cid"), gate_failure=info.get("gate_failure") or
                                    (None if ev is not None else "not_evaluated"), detail=info.get("detail") or ""))
-        counts = history.incumbent_component_counts()
+        # the incumbent's components before this round: a retried close (its earlier try wrote some of this round's
+        # rows) decides as the first try did
+        from rrsi.components import K
+        counts = {c: 0 for c in K}
+        for r in history.records():
+            if r.get("accepted") and r.get("component") in counts and r.get("t") is not None and int(r["t"]) < t:
+                counts[r["component"]] += 1
         winner, decisions = select_round(cands, inc_ev, fr["S_star"], delta, cfg, counts, guard_fn=dom.guards)
         _write(rdir / "decisions.json", json.dumps([d.to_json() for d in decisions], indent=1))
+        attributed = self._attributed(ctx, t)
         for c, dec in zip(cands, decisions):
+            if c.ev is not None and c.variant not in attributed:     # also on a retry whose history row is written
+                self._attribute(ctx, dom, cfg, t, c.variant, c.edits, inc_ev, c.ev)
             if history.has(t, c.variant):
                 continue                                     # a resumed step: already recorded
             if c.ev is None:
@@ -691,7 +733,6 @@ class RRSIAdapterEvolver(AgentEvolver):
             outcome = "ACCEPTED" if c is winner else ("LOST" if dec.admissible else "REJECTED")
             history.append_candidate(t, c.variant, c.edits, outcome, dec.delta_S, dec.delta_C, c is winner, dec.S,
                                      dec.C, c.diff_path, dec.reason)
-            self._attribute(ctx, dom, cfg, t, c.variant, c.edits, inc_ev, c.ev)
             self._lines.append(f"r{t}{c.variant}: S {dec.S:.4f} dS {dec.delta_S:+.4f} dC {dec.delta_C:+.3f} "
                                f"nu {dec.novelty} -> {outcome}: {dec.reason}")
         if winner is not None:
@@ -726,6 +767,14 @@ class RRSIAdapterEvolver(AgentEvolver):
         with open(self._rdir(ctx) / "attribution.jsonl", "a") as f:
             for r in rows:
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+    def _attributed(self, ctx, t: int) -> set:
+        """The variants of round t whose attribution rows are written."""
+        path = self._rdir(ctx) / "attribution.jsonl"
+        if not path.is_file():
+            return set()
+        rows = [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
+        return {r.get("variant") for r in rows if r.get("t") == t}
 
     def _scoreboard(self, ctx) -> list:
         path = self._rdir(ctx) / "attribution.jsonl"
@@ -928,10 +977,6 @@ class RRSIAdapterEvolver(AgentEvolver):
         hidden = [*self._hidden_from_proposer(ctx, work), *self._more_hidden(ctx)] \
             if getattr(ctx.sandbox, "enabled", False) else []
         ws = ctx.workspace
-        aliased = self._aliased(ctx)
-        if hidden and aliased:
-            raise RuntimeError(f"the run's workspace is reached through a link ({aliased}), under which what the "
-                               "proposer must not see stays visible: give trainer.output_dir as its real path")
         limits = Limits(hidden=hidden, readable=[Mount(ctx.workspace.task_info, ctx.workspace.task_info)])
         tries = int(params.get("session_retries", 2))
         tail = ""
@@ -1014,6 +1059,8 @@ class RRSIAdapterEvolver(AgentEvolver):
             miss = [f for f in REQUIRED if not e.get(f)]
             if miss:
                 problems.append(f"edit {e.get('id', '?')} missing {miss}")
+            if e.get("predicted_affected") and not isinstance(e["predicted_affected"], list):
+                problems.append(f"edit {e.get('id')} predicted_affected must be an array of task ids")
             if e.get("component") and str(e["component"]).lower() not in K:
                 problems.append(f"edit {e.get('id')} component {e['component']!r} not in {K}")
         if reserved and explore.get("untried") and edits and not any(

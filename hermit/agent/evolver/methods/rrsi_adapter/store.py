@@ -41,11 +41,14 @@ def _real(path: Path, root: Path) -> bool:
 
 
 def _write(path: Path, text: str) -> None:
-    """Write a file the proposer's sandbox could have replaced with a link, without following one."""
+    """Write a file the proposer's sandbox could have replaced with a link (or a named pipe, whose opening would
+    wait for a reader), without following one."""
     if path.is_symlink():
         path.unlink()
     elif path.is_dir():
         shutil.rmtree(path)
+    elif path.exists() and not path.is_file():
+        path.unlink()
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o644)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(text)

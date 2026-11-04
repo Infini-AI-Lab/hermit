@@ -38,6 +38,9 @@ ADAPTER_SIGNALS = [
                          r"(?m)^(?:\+\+\+|---) [ab]/.*\.(?:py|sh|js|ts|rb|pl)$"]),
     ("config",          [r"(?m)^[+-]\s*[A-Z][A-Z0-9_]{2,}\s*[:=]\s*[\w\"'.-]",
                          r"(?m)^(?:\+\+\+|---) [ab]/(?!(?:.*/)?hooks?\.json$).*\.(?:toml|ya?ml|ini|cfg|json)$"]),
+    # last, as upstream's domains list theirs: prose files are evidence of a prompt edit, so that a candidate's prose
+    # edit keeps its tag beside another edit's helper (normalize reads the candidate's whole diff for each edit)
+    ("prompt",          [r"(?m)^(?:\+\+\+|---) [ab]/.*\.(?:md|txt)$"]),
 ]
 
 # What each tag needs in the diff, for the proposer (the same rules as ADAPTER_SIGNALS, in words).
@@ -47,7 +50,7 @@ ADAPTER_EVIDENCE = (
     "context_mgmt = a SessionStart, PreCompact or PostCompact hook entry; output_plumbing = a PostToolUse hook entry; "
     "control_flow = a PreToolUse, Stop, SubagentStop or UserPromptSubmit hook entry, or a hooks file; client_tool = a "
     "file under scripts/, tools/ or bin/, or a .py/.sh/.js/.ts/.rb/.pl file; config = an UPPER_CASE constant line, or a "
-    ".toml/.yaml/.ini/.cfg/.json settings file; prompt = anything else (prose, wherever it is).")
+    ".toml/.yaml/.ini/.cfg/.json settings file; prompt = a .md or .txt file, or anything else (prose, wherever it is).")
 
 
 def task_of(row: str) -> str:

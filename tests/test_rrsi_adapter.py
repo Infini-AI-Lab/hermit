@@ -96,6 +96,8 @@ def test_adapter_diffs_are_tagged_by_upstreams_normalize():
     assert normalize("memory", notes, ADAPTER_SIGNALS) == "memory"
     assert normalize("client_tool", prose, ADAPTER_SIGNALS) == "prompt"
     assert normalize("control_flow", hooks, ADAPTER_SIGNALS) == "control_flow"
+    assert normalize("prompt", prose + script, ADAPTER_SIGNALS) == "prompt"       # one edit of two in a candidate
+    assert normalize(None, prose + script, ADAPTER_SIGNALS) == "client_tool"
 
 
 # ---------- the Evolver ----------
@@ -340,6 +342,94 @@ def test_a_run_baseline_rounds_selection_and_h_t(tmp_path, monkeypatch):
     assert attribution[0]["predicted_hit"] == ["q1"]
 
 
+def test_a_retried_close_decides_with_the_counts_of_the_rounds_before(tmp_path, monkeypatch):
+    """A close that failed after writing some of its round's rows (an attribution that raised) decides again with
+    the incumbent's components as they were before the round, so it picks the same winner and records it once."""
+    import rrsi.selection
+    ws = workspace(tmp_path)
+    dom = domain_files(tmp_path)
+    script = Script({
+        (0, "A"): [{"files": {"ADAPTER.md": "# Skill\n\nAnswer with the bare number.\n"},
+                    "done": {"summary": "form", "edits": [edit()]}}],
+        (0, "B"): [{"files": {"scripts/units.py": "print('units')\n"},
+                    "done": {"summary": "units", "edits": [edit(component="client_tool")]}}],
+    })
+    ev = evolver(monkeypatch, script)
+    seen, real = [], rrsi.selection.select_round
+
+    def select(cands, inc, s_star, delta, cfg, counts, **kw):
+        seen.append(dict(counts))
+        return real(cands, inc, s_star, delta, cfg, counts, **kw)
+    monkeypatch.setattr(rrsi.selection, "select_round", select)
+    base = {"q1": [0, 0], "q2": [1, 0], "q3": [1, 1], "q4": [0, 1]}
+    material(ws, 1, rows(base))
+    ev.step(context(ws, 1, dom, tmp_path))
+    material(ws, 2, rows({"q1": [1, 1], "q2": [1, 0], "q3": [1, 1], "q4": [0, 1]}))
+    ev.step(context(ws, 2, dom, tmp_path))
+    attribute, calls = ev._attribute, []
+
+    def failing(*a, **k):
+        calls.append(1)
+        if len(calls) == 2:                     # B's, after A's row (the winner, ACCEPTED) is in the history
+            raise TypeError("an attribution that raised")
+        return attribute(*a, **k)
+    monkeypatch.setattr(ev, "_attribute", failing)
+    material(ws, 3, rows(base))
+    assert ev.step(context(ws, 3, dom, tmp_path)).status == "failed"
+    written = [json.loads(l) for l in (ws.state / "rrsi" / "history.jsonl").read_text().splitlines()]
+    assert [(h["variant"], h["accepted"]) for h in written if h.get("t") == 0 and h.get("edit_id")] == [("A", True)]
+    ev.step(context(ws, 4, dom, tmp_path))
+    assert len(seen) == 2 and seen[0] == seen[1]
+    history = [json.loads(l) for l in (ws.state / "rrsi" / "history.jsonl").read_text().splitlines()]
+    assert sum(1 for h in history if h.get("t") == 0 and h.get("accepted") and h.get("edit_id")) == 1
+    attribution = [json.loads(l) for l in (ws.state / "rrsi" / "attribution.jsonl").read_text().splitlines()]
+    assert sorted(r["variant"] for r in attribution if r["t"] == 0) == ["A", "B"]      # the failed one written too
+
+
+def test_a_round_decided_before_the_state_was_saved_is_not_decided_again(tmp_path, monkeypatch):
+    """A step that ended after the round's frontier was written (H_{t+1} the winner) but before the state was saved
+    leaves the round open in the state; the next step finishes it as decided, never weighing the candidates against
+    the winner itself."""
+    ws = workspace(tmp_path)
+    dom = domain_files(tmp_path)
+    script = Script({
+        (0, "A"): [{"files": {"ADAPTER.md": "# Skill\n\nAnswer with the bare number.\n"},
+                    "done": {"summary": "form", "edits": [edit()]}}],
+        (0, "B"): [{"files": {"scripts/units.py": "print('units')\n"},
+                    "done": {"summary": "units", "edits": [edit(component="client_tool")]}}],
+    })
+    ev = evolver(monkeypatch, script)
+    base = {"q1": [0, 0], "q2": [1, 0], "q3": [1, 1], "q4": [0, 1]}
+    material(ws, 1, rows(base))
+    ev.step(context(ws, 1, dom, tmp_path))
+    material(ws, 2, rows({"q1": [1, 1], "q2": [1, 0], "q3": [1, 1], "q4": [0, 1]}))
+    ev.step(context(ws, 2, dom, tmp_path))
+
+    class Killed(BaseException):
+        pass
+    save = ev._save
+
+    def killed(ctx, st):
+        if st.get("round") is None and st.get("t") == 1:     # the close's own save, after frontier.json
+            raise Killed()
+        save(ctx, st)
+    monkeypatch.setattr(ev, "_save", killed)
+    material(ws, 3, rows(base))
+    with pytest.raises(Killed):
+        ev.step(context(ws, 3, dom, tmp_path))
+    R = ws.state / "rrsi"
+    decided, frontier = (R / "r0" / "decisions.json").read_text(), json.loads((R / "frontier.json").read_text())
+    assert frontier["incumbent"]["cid"] == "r00A" and json.loads((ws.state / "rrsi_adapter.json").read_text())["t"] == 0
+    monkeypatch.setattr(ev, "_save", save)
+    ev.step(context(ws, 4, dom, tmp_path))
+    assert (R / "r0" / "decisions.json").read_text() == decided
+    after = json.loads((R / "frontier.json").read_text())
+    assert after["incumbent"] == frontier["incumbent"] and [x["t"] for x in after["trajectory"]][:2] == [0, 1]
+    history = [json.loads(l) for l in (R / "history.jsonl").read_text().splitlines()]
+    assert [(h["variant"], h["accepted"]) for h in history if h.get("t") == 0 and h.get("edit_id")] == \
+        [("A", True), ("B", False)]
+
+
 def test_delta_is_calibrated_from_the_baseline_when_the_config_has_none(tmp_path, monkeypatch):
     ws = workspace(tmp_path)
     dom = domain_files(tmp_path)
@@ -392,8 +482,9 @@ def test_the_critic_rejects_a_leak_and_the_repair_is_screened_again(tmp_path, mo
     assert any("REPAIR ROUND" in p for p in script.prompts)
 
 
-def test_a_reserved_slot_is_enforced_on_the_diff(tmp_path, monkeypatch):
-    """With the incumbent stalled, the last variant must edit a never-exercised component, judged by the diff."""
+def test_a_reserved_slot_and_the_edits_fields_are_checked_in_done(tmp_path, monkeypatch):
+    """With the incumbent stalled, the last variant must declare an edit on a never-exercised component (done()'s
+    contract; the declared component is checked against the diff in the draft); an edit's fields have their types."""
     ev = evolver(monkeypatch, Script({}))
     from rrsi.history import exploration
     explore = exploration(3, 1, {"prompt"}, 1)
@@ -402,6 +493,8 @@ def test_a_reserved_slot_is_enforced_on_the_diff(tmp_path, monkeypatch):
     assert prop is None and "RESERVED EXPLORATION SLOT" in problems[0] and not final
     prop, problems, final = ev._check_done(_done(tmp_path, [edit(component="skill")]), 2, True, explore, True)
     assert prop is not None and not problems
+    prop, problems, final = ev._check_done(_done(tmp_path, [edit(predicted_affected=42)]), 2, False, explore, True)
+    assert prop is None and any("predicted_affected must be an array" in p for p in problems)
     prop, problems, final = ev._check_done(_done(tmp_path, []), 2, False, explore, False)
     assert prop is None and final                     # nothing changed and nothing declared: upstream's no_proposal
 
@@ -559,6 +652,19 @@ def test_a_plan_refusal_in_a_proposer_session_is_not_a_gate_failure(tmp_path, mo
     assert not (ws.state / "rrsi" / "r0" / "A" / "prep.json").exists()
 
 
+def test_a_host_side_write_replaces_a_named_pipe_instead_of_waiting_on_it(tmp_path):
+    import threading
+    from hermit.agent.evolver.methods.rrsi_adapter.store import _write
+    path = tmp_path / "prompt_2.md"
+    os.mkfifo(path)                                     # left by a proposer session where the next prompt goes
+    writer = threading.Thread(target=_write, args=(path, "the prompt"), daemon=True)
+    writer.start()
+    writer.join(5)
+    if writer.is_alive():                               # release the blocked open before failing
+        os.close(os.open(path, os.O_RDONLY | os.O_NONBLOCK))
+    assert not writer.is_alive() and path.is_file() and path.read_text() == "the prompt"
+
+
 def test_staging_keeps_what_git_commits_and_the_diff_is_independent_of_the_candidate(tmp_path):
     base = tmp_path / "base"
     base.mkdir()
@@ -573,16 +679,21 @@ def test_staging_keeps_what_git_commits_and_the_diff_is_independent_of_the_candi
     (cand / ".pytest_cache" / "README.md").write_text("cache\n")
     (cand / "tools" / ".git").mkdir(parents=True)
     (cand / "tools" / ".git" / "HEAD").write_text("ref\n")
+    (cand / "helper").mkdir()
+    (cand / "helper" / ".git").write_text("gitdir: /elsewhere/.git/worktrees/helper\n")   # a worktree's
     (cand / "notes").mkdir()
     (cand / "notes" / "secret.md").write_text("ignored\n")
     (cand / ".gitignore").write_text("notes/\n*.log\n")
     (cand / "caf\u00e9 \"x\".log").write_text("ignored, a name git quotes\n")
     (cand / os.fsdecode(b"raw\xff.log")).write_text("ignored, a name not in UTF-8\n")
+    (cand / ".gitattributes").write_text("ADAPTER.md export-ignore\n")     # the Trainer's export would apply it
+    (cand / "scripts" / ".gitattributes").write_text("* text eol=crlf\n")
     staged = tmp_path / "staged"
     dropped = E.stage(cand, staged)
     files = sorted(str(p.relative_to(staged)) for p in staged.rglob("*") if p.is_file())
     assert files == [".gitignore", "ADAPTER.md", "scripts/x.py"]
-    assert {"notes/", ".pytest_cache/", "tools/.git/", "caf\u00e9 \"x\".log", os.fsdecode(b"raw\xff.log")} <= set(dropped)
+    assert {"notes/", ".pytest_cache/", "tools/.git/", "caf\u00e9 \"x\".log", os.fsdecode(b"raw\xff.log"),
+            ".gitattributes", "scripts/.gitattributes", "helper/.git"} <= set(dropped)
     diff = E.diff_of(base, staged)
     assert "+b" in diff and "+++ b/scripts/x.py" in diff and "--- a/ADAPTER.md" in diff and "pyc" not in diff
 
@@ -686,7 +797,9 @@ def test_links_left_in_the_proposers_home_are_removed_before_its_next_session(tm
     assert not (home / "config.toml").is_symlink() and outside.read_text() == "mine\n"
 
 
-def test_a_workspace_reached_through_a_link_is_refused_when_paths_are_hidden(tmp_path, monkeypatch):
+def test_a_workspace_reached_through_a_link_runs_with_paths_hidden(tmp_path, monkeypatch):
+    """The run's sandbox covers a hidden path under every name it shows (#69): a workspace given by a link's name
+    runs, as any other."""
     real = tmp_path / "real"
     real.mkdir()
     (tmp_path / "alias").symlink_to(real)
@@ -697,9 +810,7 @@ def test_a_workspace_reached_through_a_link_is_refused_when_paths_are_hidden(tmp
     ev = evolver(monkeypatch, script)
     material(ws, 1, rows({"q1": [0, 1], "q2": [1, 0], "q3": [1, 1], "q4": [0, 0]}))
     r = ev.step(context(ws, 1, dom, tmp_path, sandbox=Box()))
-    assert r.status == "failed" and "reached through a link" in r.summary and not script.sessions
-    assert not ROLE_CALLS                                      # refused before the analysis, too
-    assert state(ws)["failures"] == 1                          # counted: a run so set up stops after three
+    assert r.status == "done" and script.sessions and "reached through a link" not in r.summary
 
 
 def test_setup_checks_what_every_step_needs(tmp_path):
@@ -714,8 +825,15 @@ def test_setup_checks_what_every_step_needs(tmp_path):
         ev.setup(context(ws, 1, str(tmp_path / "dom" / "missing.py") + ":ToyDomain", tmp_path))
     with pytest.raises(ValueError, match="roles.model"):
         ev.setup(context(ws, 1, dom, tmp_path, roles={"model": "anthropic/claude-x"}))
+    with pytest.raises(ValueError, match="roles.binding.*base_url"):       # not a failure at every step
+        ev.setup(context(ws, 1, dom, tmp_path, roles={"binding": {"backend": "openai", "model": "m"}}))
+    with pytest.raises(ValueError, match="roles.binding.*128k"):           # nor one its Codex arguments refuse
+        ev.setup(context(ws, 1, dom, tmp_path, roles={"binding": {
+            "backend": "x", "base_url": "http://x", "model": "m", "api_key_env": "K", "context_window": "128k"}}))
     with pytest.raises(ValueError, match="not RRSI hyperparameters"):
         ev.setup(context(ws, 1, dom, tmp_path, rrsi={"T": 2, "rounds": 3}))
+    with pytest.raises(ValueError, match="m = 9"):                          # variants A..H
+        ev.setup(context(ws, 1, dom, tmp_path, rrsi={"m": 9}))
     (tmp_path / "rrsi.json").write_text(json.dumps({"_doc": "a comment", "T": 2, "beta_1": 10}))
     with pytest.raises(ValueError, match=r"rrsi\.json.*beta_1"):                 # the file form too
         ev._cfg(SimpleNamespace(params={"rrsi": "rrsi.json"}, base=tmp_path))
@@ -792,6 +910,40 @@ def test_officeqa_smoke_fails_a_rollout_without_an_answer():
     assert dom.smoke_failure({"status": "ok", "output": exited, "timed_out": False, "exit_code": 1})
 
 
+def test_officeqa_smoke_ids_name_a_recorded_row_and_screening_survives_a_recursive_alias(tmp_path):
+    import importlib.util
+    from types import SimpleNamespace
+    spec = importlib.util.spec_from_file_location("oqa_domain", ROOT / "examples/officeqa/rrsi_adapter/domain.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    dom = module.OfficeQADomain()
+    per_task = {"q1": SimpleNamespace(rewards=[0.0, 0.0], extra={"rows": [None, "q1#2"]}),
+                "q2": SimpleNamespace(rewards=[0.0], extra={"rows": [None, None]}),
+                "q3": SimpleNamespace(rewards=[0.0, 1.0], extra={"rows": ["q3#1", "q3#2"]})}
+    assert dom.smoke_ids(per_task) == ["q1#2", "q3#1"]            # padded trials name no row; q2 has none
+    assert dom.smoke_ids({"q2": per_task["q2"]}) == []
+    (tmp_path / "exports.yaml").write_text("x: &x {self: *x}\n")
+    assert dom.screen(tmp_path) == ["exports.yaml refers to itself (a recursive YAML alias)"]
+
+
+def test_officeqa_rollouts_the_plan_never_ran_are_halted_not_failed(tmp_path):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("oqa_domain", ROOT / "examples/officeqa/rrsi_adapter/domain.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    dom = module.OfficeQADomain()
+    feedback = ("the pipeline failed: RuntimeError: agent codex could not be served after 3 attempts: hermit: the plan "
+                "held the session back for 43200 s")
+    held = {"id": "q1#1", "status": "error", "output": None, "judge": {"score": 0.0, "feedback": feedback}}
+    broken = {"id": "q2#1", "status": "error", "output": None, "judge": {"score": 0.0, "feedback": "the pipeline "
+                                                                         "failed: ValueError: bad adapter"}}
+    assert dom.halted_result(held) and not dom.halted_result(broken)
+    (tmp_path / "tasks").mkdir()
+    for r in (held, broken):
+        (tmp_path / "tasks" / f"{r['id'].replace('#', '_')}.json").write_text(json.dumps(r))
+    assert dom.halted_rows(tmp_path) == ["q1#1"]
+
+
 def test_officeqa_refuses_python_an_exports_yaml_names_however_it_is_spelled(tmp_path):
     import importlib.util
     spec = importlib.util.spec_from_file_location("oqa_domain", ROOT / "examples/officeqa/rrsi_adapter/domain.py")
@@ -805,6 +957,7 @@ def test_officeqa_refuses_python_an_exports_yaml_names_however_it_is_spelled(tmp
         "base: &b {entrypoint: x.py:f}\nagents:\n  <<: *b\n": True,
         "context_tool: reflections\n": True,
         "skills: skills\nhooks: hooks.json\nagents: agents\n": False,
+        "tools: []\ncontext_tool: null\nreactions: {}\n": False,                # declared, naming nothing
         "not: [valid\n": True,
     }
     for text, refused in cases.items():
@@ -1029,7 +1182,7 @@ def test_the_roles_are_codex_sessions_with_upstreams_generate_contract(tmp_path,
     call_dir = tmp_path / "roles" / "00002"
     assert s["home"] == call_dir / "home" and s["log"] == call_dir / "events.jsonl"
     assert call["workspace"] == tmp_path / "roles" / "00002" / "work"          # not a digester: an empty directory
-    assert list(call["limits"].hidden) == [tmp_path / "state"]                # the run's sandbox is on
+    assert list(call["limits"].hidden) == [tmp_path / "state", tmp_path / "roles" / "00001"]   # sandbox on
     assert (tmp_path / "roles" / "00002" / "reply.txt").read_text() == 'Here: {"a": 1}'
     r.generate("p", system="You are a trajectory digester: a read-only investigator")
     assert ROLE_CALLS[-1]["workspace"] == traces                             # a digester runs in the traces
@@ -1080,6 +1233,36 @@ def test_the_roles_usage_is_reported_with_the_proposers(tmp_path, monkeypatch):
     assert s["home"] == ws.scratch / "rrsi_roles" / "00001" / "home" and not (rec / "home").exists()
 
 
+def test_a_role_with_its_own_model_drops_the_proposers_provider_arguments(tmp_path):
+    from hermit.agent.model.backends import Binding
+    ws = workspace(tmp_path)
+    dom = domain_files(tmp_path)
+    spec = {"backend": "fireworks", "base_url": "https://api.fireworks.ai/inference/v1", "model": "glm",
+            "api_key_env": "FIREWORKS_API_KEY", "apis": ["responses"]}
+    provider = Binding.from_spec(spec).codex_args()
+    ctx = context(ws, 1, dom, tmp_path, roles={"model": "gpt-5.6-luna", "login": "chatgpt"}, binding=spec,
+                  model="glm", args=[*provider, "-c", "x=1"])
+    roles = E.RRSIAdapterEvolver()._roles(ctx)
+    assert roles.settings["args"] == ["-c", "x=1"] and roles.settings["login"] == "chatgpt"
+    ctx = context(ws, 1, dom, tmp_path, binding=spec, model="glm", args=[*provider, "-c", "x=1"])
+    assert E.RRSIAdapterEvolver()._roles(ctx).settings["args"] == [*provider, "-c", "x=1"]   # the proposer's model
+    ctx = context(ws, 1, dom, tmp_path, roles={"args": ["-c", "y=2"]}, binding=spec, model="glm",
+                  args=[*provider, "-c", "x=1"])
+    assert E.RRSIAdapterEvolver()._roles(ctx).settings["args"] == [*provider, "-c", "y=2"]   # its own, its provider
+    other = {**spec, "backend": "other", "base_url": "https://other.example/v1", "model": "o-1", "price": {"input": 1}}
+    ctx = context(ws, 1, dom, tmp_path, roles={"binding": other}, binding=spec, model="glm",
+                  args=[*provider, "-c", "x=1"])
+    s = E.RRSIAdapterEvolver()._roles(ctx).settings                # the roles' own binding: its provider, model, price
+    assert s["args"] == Binding.from_spec(other).codex_args() and s["model"] == "o-1" and s["price"] == {"input": 1}
+    ctx = context(ws, 1, dom, tmp_path, roles={"binding": other}, login="chatgpt", model="gpt-5.6-luna")
+    assert "login" not in E.RRSIAdapterEvolver()._roles(ctx).settings      # an API provider: not the ChatGPT login
+    ctx = context(ws, 1, dom, tmp_path, roles={"model": "m", "login": None}, login="chatgpt", model="gpt-5.6-luna")
+    assert "login" not in E.RRSIAdapterEvolver()._roles(ctx).settings      # cleared by `roles.login: null`
+    ctx = context(ws, 1, dom, tmp_path, roles={"binding": other}, model="proposer-model")
+    models = E.RRSIAdapterEvolver()._models(ctx)                    # what the run records: the binding's model
+    assert models["analyst_model"] == models["critic_model"] == "o-1"
+
+
 def test_the_roles_see_neither_the_records_nor_the_proposers_directories(tmp_path, monkeypatch):
     ws = workspace(tmp_path)
     dom = domain_files(tmp_path)
@@ -1090,6 +1273,23 @@ def test_the_roles_see_neither_the_records_nor_the_proposers_directories(tmp_pat
     assert ev.step(context(ws, 1, dom, tmp_path, sandbox=Box())).status == "done"
     hidden = set(ROLE_CALLS[-1]["limits"].hidden)                 # the last critic's, after both drafts
     assert {ws.learning_material, ws.state, ws.adapter, ws.output, ws.scratch / "rrsi"} <= hidden
+
+
+def test_a_role_call_sees_neither_other_calls_nor_traces_it_is_not_given(tmp_path, monkeypatch):
+    ROLE_CALLS.clear()
+    monkeypatch.setattr(R, "make", lambda name, settings=None, model=None: Role(settings, lambda *a: "ok"))
+    traces = tmp_path / "roles" / "rendered_r0"
+    traces.mkdir(parents=True)
+    r = roles(tmp_path, sandbox=SimpleNamespace(enabled=True), traces=traces)
+    r.generate("p", system="the analyst")
+    r.generate("p", system="the critic")
+    r.generate("p", system="You are a trajectory digester")
+    analyst, critic, digester = (set(c["limits"].hidden) for c in ROLE_CALLS)
+    calls = tmp_path / "roles"
+    assert traces in analyst and calls / "00001" not in analyst
+    assert {traces, calls / "00001"} <= critic and calls / "00002" not in critic
+    assert calls / "00002" in digester and traces not in digester and ROLE_CALLS[2]["workspace"] == traces
+    assert tmp_path / "state" in analyst & critic & digester
 
 
 def test_a_role_call_whose_session_times_out_twice_fails(tmp_path, monkeypatch):
@@ -1209,10 +1409,11 @@ def test_officeqa_denylist_names_values_and_skips_years_and_round_numbers():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     records = [{"judge": {"feedback": f"predicted 'x' but expected '{v}'"}}
-               for v in ("1987", "100", "4.73", "57,615.04", "[10102000000, 4.73]")]
+               for v in ("1987", "100", "1000", "2,000", "4.73", "57,615.04", "[10102000000, 4.73]")]
     pats = module.OfficeQADomain().leak_patterns(records)
     hits = lambda line: [why for pat, why in pats if re.search(pat, line)]  # noqa: E731
     assert not hits("+ in 1987 the series") and not hits("+ at most 100 rows")
+    assert not hits("+DOLLARS_PER_THOUSAND = 1000") and not hits("+ about 2,000 rows")   # round answers, whole
     assert hits("+ the value 57615.04") and hits("+ use 10,102,000,000 here")
     assert "'4.73'" in hits("+ ratio 4.73")[0]
     assert hits("+ the value 57,615.04") and hits("+ is 57615.04.")   # the bare answer, a separator, a full stop

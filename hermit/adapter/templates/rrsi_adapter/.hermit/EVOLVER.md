@@ -21,7 +21,7 @@ asked for.
 
 | Component | What it is in an adapter | What the diff must show |
 |---|---|---|
-| `prompt` | the instructions' prose: `ADAPTER.md`, or text another file injects into the agent's context | anything else: prose counts as `prompt` wherever it is, a mandatory procedure written in prose too |
+| `prompt` | the instructions' prose: `ADAPTER.md`, or text another file injects into the agent's context | a `.md` or `.txt` file, or anything else: prose counts as `prompt` wherever it is, a mandatory procedure written in prose too |
 | `control_flow` | hooks that gate or redirect the agent (before a tool runs, when it tries to stop) | a hooks file, or a `PreToolUse`, `Stop`, `SubagentStop` or `UserPromptSubmit` entry |
 | `output_plumbing` | what tool output looks like when it reaches the agent | a `PostToolUse` hook entry |
 | `context_mgmt` | what the agent keeps in view over a long session | a `SessionStart`, `PreCompact` or `PostCompact` hook entry |

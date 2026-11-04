@@ -151,11 +151,9 @@ minutes before the pause; the second's went from 56% to 78% while these runs and
 ran (an upper bound on their share). All on the Codex plan, no API key. The code each run used is recorded in
 `workspace/state/rrsi/code.jsonl` (commit `859bda9`, a clean tree; upstream `be50316`).
 
-The records are in [`results/`](results/): per run, the final adapter, one record per test question (its score, the
-check's verdict on its value, its tokens and time; no reference answers), the rounds' decisions, the run's facts and
-its config, for the runs above and those below. The runs kept no record of the analyst's, the digesters' and the
-critic's sessions (the scratch they were written to is cleared at each step); the Evolver now keeps them in each
-step's output.
+The runs' records (each run's final adapter, per-question test records, the rounds' decisions and its config) are not
+kept in the repository. The runs kept no record of the analyst's, the digesters' and the critic's sessions (the
+scratch they were written to is cleared at each step); the Evolver now keeps them in each step's output.
 
 ### Before the port
 

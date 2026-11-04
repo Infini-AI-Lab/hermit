@@ -3,6 +3,7 @@ upstream's coding and workspace domains), the critic's patterns, the answers the
 the critic's denylist as they are seen), and the smoke tasks."""
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import re
 
@@ -13,6 +14,14 @@ from hermit.agent.evolver.methods.rrsi_adapter.domain import AdapterDomain
 
 HERE = Path(__file__).resolve().parent
 EXPECTED = re.compile(r"but expected '([^']*)'")
+HELD = "the plan held the session back"           # the Codex Base Agent's words for a session the plan never ran
+
+
+def _held(record: dict) -> bool:
+    """A rollout the ChatGPT plan never ran: the acting agent gave up after the plan held its session back past
+    plan_max_wait_s (the pipeline's error, which the judge's feedback carries)."""
+    text = str(record.get("error") or "") + str((record.get("judge") or {}).get("feedback") or "")
+    return record.get("status") == "error" and HELD in text
 
 
 class OfficeQADomain(AdapterDomain):
@@ -48,13 +57,18 @@ class OfficeQADomain(AdapterDomain):
             if isinstance(node, dict):
                 for key, value in node.items():
                     at = f"{where}.{key}" if where else str(key)
-                    if str(key) in ("entrypoint", "context_tool", "reactions") or (not where and str(key) == "tools"):
+                    named = str(key) in ("entrypoint", "context_tool", "reactions") or \
+                        (not where and str(key) == "tools")
+                    if named and value not in (None, "", [], {}):          # declared empty: names nothing
                         found.append(at)
                     walk(value, at)
             elif isinstance(node, list):
                 for i, value in enumerate(node):
                     walk(value, f"{where}[{i}]")
-        walk(data, "")
+        try:
+            walk(data, "")
+        except RecursionError:                              # a YAML alias that holds itself
+            return ["exports.yaml refers to itself (a recursive YAML alias)"]
         return [f"exports.yaml names Python the framework would run outside the agent's container: {found[:5]}"] \
             if found else []
 
@@ -62,8 +76,9 @@ class OfficeQADomain(AdapterDomain):
         """The training answers the judge's feedback has revealed, as patterns over the diff's added lines: each
         whole answer of four or more characters with a digit, and each number inside an answer with three or more
         significant digits (thousands separators optional), so an answer copied into the adapter, whole or in part,
-        is rejected before measurement. Bare years and short numbers are left to the LLM critic: they occur in
-        general procedure too. The reason names the value (the proposer wrote it; nothing new is revealed)."""
+        is rejected before measurement. Bare years, short numbers and round numbers (a whole answer too) are left to
+        the LLM critic: they occur in general procedure too. The reason names the value (the proposer wrote it;
+        nothing new is revealed)."""
         answers = set()
         for record in records:
             m = EXPECTED.search(str((record.get("judge") or {}).get("feedback") or ""))
@@ -71,8 +86,10 @@ class OfficeQADomain(AdapterDomain):
                 answers.add(m.group(1).strip())
         out, seen, numbers = [], set(), set()
         for value in sorted(answers):
+            bare = value.replace(",", "")
+            round_number = re.fullmatch(r"\d+(?:\.\d+)?", bare) and len(re.sub(r"\D", "", bare).strip("0")) < 3
             if len(value) >= 4 and re.search(r"\d", value) and not re.fullmatch(r"(19|20)\d\d", value) \
-                    and value not in seen:
+                    and not round_number and value not in seen:
                 seen.add(value)
                 out.append((rf"(?m)^\+.*(?<![\w.]){re.escape(value)}(?![\w.])",
                             f"a training answer in diff: {value!r}"))
@@ -89,6 +106,22 @@ class OfficeQADomain(AdapterDomain):
                                                                           f"{plain!r}"))
         return out
 
+    def halted_rows(self, material: Path) -> list[str]:
+        """Rows the plan never ran: their evaluation is not the candidate's, so it is measured again."""
+        out = []
+        for path in sorted((Path(material) / "tasks").glob("*.json")):
+            try:
+                record = json.loads(path.read_text())
+            except ValueError:
+                continue
+            if isinstance(record, dict) and _held(record):
+                out.append(str(record.get("id")))
+        return out
+
+    def halted_result(self, result: dict) -> bool:
+        """A smoke rollout the plan never ran: no verdict on the candidate (the step stops; the smoke runs later)."""
+        return _held(result)
+
     def smoke_failure(self, result: dict) -> bool:
         """Upstream fails its smoke on a trial that ended with an exception, timeouts included: here a rollout that
         timed out or whose CLI exited non-zero, as the Trainer's `run_agent` reports them (`timed_out`,
@@ -103,9 +136,11 @@ class OfficeQADomain(AdapterDomain):
         return not str(out.get("answer") or "").strip()
 
     def smoke_ids(self, incumbent_per_task: dict | None = None) -> list[str]:
-        """Upstream's coding smoke runs two fixed tasks once each; here the first row of the first two questions the
-        incumbent answered right in every trial (else the first two questions)."""
+        """Upstream's coding smoke runs two fixed tasks once each; here the first recorded row of the first two
+        questions the incumbent answered right in every trial (else of the first two questions with a recorded row:
+        a question all of whose trials are missing has no row to run)."""
         per_task = incumbent_per_task or {}
-        solved = [t for t, tr in sorted(per_task.items()) if tr.rewards and min(tr.rewards) >= 1.0]
-        chosen = (solved or sorted(per_task))[:2]
-        return [((per_task[t].extra or {}).get("rows") or [t])[0] for t in chosen]
+        recorded = {t: [r for r in (tr.extra or {}).get("rows") or [] if r] for t, tr in per_task.items()}
+        solved = [t for t, tr in sorted(per_task.items()) if tr.rewards and min(tr.rewards) >= 1.0 and recorded[t]]
+        chosen = (solved or [t for t in sorted(per_task) if recorded[t]])[:2]
+        return [recorded[t][0] for t in chosen]
