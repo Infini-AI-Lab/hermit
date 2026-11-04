@@ -29,14 +29,18 @@ Two refinements of "the adapter before that change":
 from __future__ import annotations
 
 import fnmatch
+import os
 from pathlib import Path, PurePosixPath
 import subprocess
-from typing import Any, Callable
+from typing import Any, Callable, Optional, Tuple
 
 DEFAULT_VERDICTS = ["HARMFUL"]
 ROLLBACK_TYPE = "rollback"                                        # the framework's own manifest entries (rb-*)
 COMPANIONS = {"AGENTS.md": "ADAPTER.md"}                          # derived files, synced after a restore
 RESTORED = ("restored", "deleted", "synced")                      # the actions that changed a file
+# A file as the rollback compares and restores it: its bytes and whether it is executable (git keeps the bit, and a
+# skill may run its script directly), or None when there is no file.
+State = Optional[Tuple[bytes, bool]]
 
 
 def normalise_verdicts(verdicts: Any) -> dict[str, str]:
@@ -80,22 +84,28 @@ def is_learnable(path: str, patterns: list[str]) -> bool:
     return any(fnmatch.fnmatchcase(path, pattern) for pattern in patterns)
 
 
-def show(adapter: Path, commit: str, path: str) -> bytes | None:
-    """The file's content at `commit`, or None when it did not exist there (or the commit is unknown)."""
-    proc = subprocess.run(["git", "-C", str(adapter), "show", f"{commit}:{path}"], capture_output=True)
-    return proc.stdout if proc.returncode == 0 else None
+def show(adapter: Path, commit: str, path: str) -> State:
+    """The file at `commit` (its bytes and its executable bit), or None when no file was there (nothing, a
+    directory, or an unknown commit)."""
+    entry = subprocess.run(["git", "-C", str(adapter), "ls-tree", commit, "--", path], capture_output=True, text=True)
+    fields = entry.stdout.split("\t", 1)[0].split() if entry.returncode == 0 else []
+    if len(fields) != 3 or fields[1] != "blob":
+        return None
+    blob = subprocess.run(["git", "-C", str(adapter), "cat-file", "blob", fields[2]], capture_output=True)
+    return (blob.stdout, fields[0] == "100755") if blob.returncode == 0 else None
 
 
-def _read(path: Path) -> bytes | None:
-    return path.read_bytes() if path.is_file() else None
+def _read(path: Path) -> State:
+    return (path.read_bytes(), bool(path.stat().st_mode & 0o111)) if path.is_file() else None
 
 
-def _put(path: Path, content: bytes | None) -> None:
-    if content is None:
+def _put(path: Path, state: State) -> None:
+    if state is None:
         path.unlink(missing_ok=True)
     else:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(content)
+        path.write_bytes(state[0])
+        os.chmod(path, 0o755 if state[1] else 0o644)            # the two modes git records
 
 
 def _check(check_spec_tool: Callable | None, adapter: Path) -> dict:
@@ -107,8 +117,8 @@ def _check(check_spec_tool: Callable | None, adapter: Path) -> dict:
     return {"passed": bool(result.get("passed", True)), "issues": list(result.get("issues") or [])}
 
 
-def previous_source(previous: dict | None, path: str) -> tuple[bool, bytes | None]:
-    """(known, content): what the previous step's rollback left at `path`, when its record says it touched it:
+def previous_source(previous: dict | None, path: str) -> tuple[bool, State]:
+    """(known, state): what the previous step's rollback left at `path`, when its record says it touched it:
     the snapshot it kept (`snapshots/<path>`), or None for a path it deleted. (False, None) when that record does
     not cover the path, or was discarded with its step."""
     if not previous or previous.get("discarded"):
@@ -121,7 +131,7 @@ def previous_source(previous: dict | None, path: str) -> tuple[bool, bytes | Non
                 return True, None
             snapshot = Path(str(previous.get("snapshots") or "")) / path if previous.get("snapshots") else None
             if snapshot is not None and snapshot.is_file():
-                return True, snapshot.read_bytes()
+                return True, _read(snapshot)                      # kept with its executable bit
             return False, None                                    # no snapshot left: the rollout commit it is
     return False, None
 
@@ -167,8 +177,8 @@ def rollback(adapter_dir: Path, manifest: dict | None, verdicts: Any, parent_com
         return record
     adapter = Path(adapter_dir)
     patterns = learnable_patterns(learnable_paths)
-    before: dict[str, bytes | None] = {}                          # the pre-rollback copy of every touched file
-    restored: dict[str, bytes | None] = {}                        # what each touched path holds after the rollback
+    before: dict[str, State] = {}                                 # the pre-rollback copy of every touched file
+    restored: dict[str, State] = {}                               # what each touched path holds after the rollback
     for change in targets:
         cid = str(change.get("id") or change.get("change_id"))
         entry = {"id": cid, "verdict": by_id.get(cid), "description": str(change.get("description") or "")[:300],
@@ -201,11 +211,11 @@ def rollback(adapter_dir: Path, manifest: dict | None, verdicts: Any, parent_com
             if path not in restored or companion in restored:
                 continue
             content, current = restored[path], _read(adapter / companion)
-            if content is None or current is None or content == current:    # no companion file: nothing to sync
+            if content is None or current is None or content[0] == current[0]:  # no companion file: nothing to sync
                 continue
             before.setdefault(companion, current)
-            _put(adapter / companion, content)
-            restored[companion] = content
+            _put(adapter / companion, (content[0], current[1]))     # the text follows; the companion's mode stays
+            restored[companion] = (content[0], current[1])
             entry["files"].append({"path": companion, "action": "synced", "reason": f"{companion} is {path}'s copy"})
         record["changes"].append(entry)
     record["touched"] = sorted(before)

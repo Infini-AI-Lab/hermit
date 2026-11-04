@@ -737,3 +737,19 @@ def test_the_runner_works_from_the_copy_with_the_stdlib_only(tmp_path):
     unnamed = {k: v for k, v in payload("PreToolUse", **SHELL_PRE).items() if k != "hook_event_name"}
     proc = _invoke(r.adapter, "", {**unnamed, "cwd": str(r.workspace)})
     assert proc.returncode == 0 and proc.stdout == "" and r.audit()[-1]["error"] == "unknown event ''"
+
+
+def test_a_middleware_with_a_dataclass_loads(tmp_path):
+    """The middleware is imported as a module of its own, registered as an import would register it: a dataclass
+    under postponed annotations resolves its module by name. A module that fails to import is not left behind."""
+    adapter = tmp_path / "adapter"
+    adapter.mkdir()
+    (adapter / "middleware.py").write_text("from __future__ import annotations\nfrom dataclasses import dataclass\n\n\n"
+                                           "@dataclass\nclass _Rule:\n    pattern: str\n\n\n"
+                                           "RULES = [_Rule('rm -rf')]\n")
+    module = runner.load_middleware(adapter / "middleware.py", adapter)
+    assert module.RULES[0].pattern == "rm -rf"
+    (adapter / "middleware.py").write_text("raise RuntimeError('broken')\n")
+    with pytest.raises(RuntimeError):
+        runner.load_middleware(adapter / "middleware.py", adapter)
+    assert "adapter_middleware" not in sys.modules

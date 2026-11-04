@@ -122,7 +122,7 @@ def test_seed_rules_are_the_paper_prompt():
     assert not any(line.startswith(("Date:", "Username:", "Working Dir:")) for line in prompt.splitlines())
 
 
-def test_the_check_imports_the_stdlib_and_the_framework_only_for_the_deployment():
+def test_the_check_imports_the_stdlib_and_the_framework_only_for_the_deployment_and_the_frontmatter():
     tree = ast.parse((TEMPLATE / ".hermit" / "check.py").read_text())
 
     def tops(nodes):
@@ -135,9 +135,11 @@ def test_the_check_imports_the_stdlib_and_the_framework_only_for_the_deployment(
         return out
     assert tops(tree.body) <= set(sys.stdlib_module_names)                     # loads with the stdlib alone
     assert tops(ast.walk(tree)) - set(sys.stdlib_module_names) == {"hermit"}
-    deploy = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "deploy")
-    imported = {n.module for n in ast.walk(deploy) if isinstance(n, ast.ImportFrom)}
-    assert imported == {"hermit.spec"}                            # check_spec's rule for a deployment's failure
+    framework = {f.name: {n.module for n in ast.walk(f) if isinstance(n, ast.ImportFrom)} - set(sys.stdlib_module_names)
+                 for f in tree.body if isinstance(f, ast.FunctionDef)}
+    # check_spec's rule for a deployment's failure, and the framework's YAML frontmatter reader: nothing else
+    assert {name: mods for name, mods in framework.items() if mods} == {"deploy": {"hermit.spec"},
+                                                                         "frontmatter": {"hermit.spec"}}
     check = template_check()                                       # and each host's deployment, by name
     assert {m for m, _, _ in check.DEPLOYMENTS.values()} == {"hermit.hosts.codex", "hermit.hosts.claude_code"}
     assert set(check.DEPLOYMENTS) == set(check.HOSTS) == {"codex", "claude-code"}
@@ -255,6 +257,25 @@ BROKEN = {
     "skill whose description is a YAML comment": (lambda a: rewrite(a, ".agents/skills/tables/SKILL.md",
                                                                     "description: reading", "description: # reading"),
                                                   ".agents/skills/tables/SKILL.md", "needs a `description:`"),
+    "skill whose frontmatter never closes on a whole `---` line": (
+        lambda a: (a / ".agents" / "skills" / "tables" / "SKILL.md").write_text(
+            "---\nname: tables\ndescription: reading a table\n---oops\nRun the table helper.\n"),
+        ".agents/skills/tables/SKILL.md", "needs a `description:`"),
+    "skill whose frontmatter holds a `---oops` line before its closing fence": (
+        lambda a: (a / ".agents" / "skills" / "tables" / "SKILL.md").write_text(
+            "---\nname: tables\ndescription: reading a table\n---oops\n---\nRun the table helper.\n"),
+        ".agents/skills/tables/SKILL.md", "needs a `description:`"),
+    "skill whose description is a YAML list": (lambda a: rewrite(a, ".agents/skills/tables/SKILL.md",
+                                                                "description: reading a table of a bulletin",
+                                                                "description: [reading, tables]"),
+                                              ".agents/skills/tables/SKILL.md", "a YAML list, not a string"),
+    "skill whose name is a YAML number": (lambda a: rewrite(a, ".agents/skills/tables/SKILL.md", "name: tables",
+                                                            "name: 42"),
+                                          ".agents/skills/tables/SKILL.md", "`name:` is a YAML int, not a string"),
+    "agent whose description is a YAML list": (lambda a: rewrite(a, "agents/reader.md",
+                                                                 "description: reads long files and summarises them",
+                                                                 "description: [reads, summarises]"),
+                                               "agents/reader.md", "`description:` a YAML list, not a string"),
     "skill named after another directory": (lambda a: rewrite(a, ".agents/skills/tables/SKILL.md", "name: tables",
                                                               "name: tabular"),
                                             ".agents/skills/tables/SKILL.md", "`name: tabular` OVERRIDES the directory name"),

@@ -13,9 +13,10 @@ can only `inp.queue_context(...)`, or return a context, which is queued).
 
 Rules the template check enforces on this file (EVOLVER.md): stdlib imports only, plus `hermit_hooks` (the
 interface beside this file, which the runner provides); none of socket, http, urllib, ssl, ftplib, smtplib, xmlrpc,
-asyncio, subprocess; every hook `(inp, state)`; helpers private (`_name`); the string "MEMORY.md" kept (the memory
-channel is never removed). The import below is guarded so the module also imports where the interface is not
-importable (a bare `python3 -c "import middleware"` elsewhere); under the runner `hermit_hooks` is always there.
+asyncio, subprocess; every hook `(inp, state)`; helpers private (`_name`); `session_start` still hands MEMORY.md's
+entries to the model (the memory channel is never removed: the check runs it on every host). The import below is
+guarded so the module also imports where the interface is not importable (a bare `python3 -c "import middleware"`
+elsewhere); under the runner `hermit_hooks` is always there.
 """
 from __future__ import annotations
 

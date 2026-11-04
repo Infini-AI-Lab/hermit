@@ -33,8 +33,8 @@ text when every attempt failed. Here the same three phases run on Hermit's learn
    Base Agent's reply). An attempt fails when it was cancelled, timed out, never started (the provider or the plan could
    not serve it), exited non-zero or left no answer; after `retries` attempts the upstream fallback text stands in
    (`queries.fallback_response`). Results keep upstream's result keys so analysis.py's overview writer reads them
-   unchanged, and one `Usage(model, calls=number of jobs)` sums the attempts' usage, which the Base Agent read and
-   priced.
+   unchanged, and one `Usage(model)` sums the attempts' usage (tokens, cost and model calls), which the Base Agent
+   read and priced.
 
 `queries` is imported lazily (it is the module holding upstream's verbatim text); a test may pass a stand-in through
 `texts`.
@@ -357,15 +357,26 @@ def _last_line(text: str) -> str:
     return lines[-1][:200] if lines else ""
 
 
-def deadline_cancel(cancel, seconds: float | None) -> tuple[threading.Event, threading.Event]:
+class Deadline(threading.Event):
+    """An event set by deadline_cancel's watcher, with `cause` recorded before it is set: "cancel" (the Trainer's
+    cancel) or "deadline" (the clock ran out). Read from the cause, not from the Trainer's event afterwards: the
+    Trainer may stop while a timed-out call is still tearing down."""
+    cause: str | None = None
+
+
+def deadline_cancel(cancel, seconds: float | None) -> tuple[Deadline, threading.Event]:
     """An event that is set when the Trainer's `cancel` is set or `seconds` have passed, for a process the Trainer's
     runner kills on it; and the event that stops the watcher."""
-    local, stop = threading.Event(), threading.Event()
+    local, stop = Deadline(), threading.Event()
     end = time.monotonic() + float(seconds) if seconds else None
 
     def watch() -> None:
         while not stop.is_set():
-            if (cancel is not None and cancel.is_set()) or (end is not None and time.monotonic() >= end):
+            if cancel is not None and cancel.is_set():
+                local.cause = "cancel"
+            elif end is not None and time.monotonic() >= end:
+                local.cause = "deadline"
+            if local.cause:
                 local.set()
                 return
             stop.wait(1)
@@ -426,11 +437,10 @@ class Runner:
             self.usage.extend(result.usage)
         extra = result.extra or {}
         tail = _last_line(extra.get("output_tail", ""))
-        trainer_stopped = self.ctx.cancel is not None and self.ctx.cancel.is_set()
-        if result.timed_out or (deadline.is_set() and not trainer_stopped):   # the deadline stopped it, not the Trainer
-            return None, f"{FAILURE_PREFIX} timeout] exceeded {timeout_s:g}s"
-        if extra.get("cancelled"):
+        if deadline.cause == "cancel" or (deadline.cause is None and extra.get("cancelled")):
             return None, f"{FAILURE_PREFIX} cancelled] stopped by the Trainer"
+        if deadline.cause == "deadline" or result.timed_out:
+            return None, f"{FAILURE_PREFIX} timeout] exceeded {timeout_s:g}s"
         if not extra.get("started", True) and (extra.get("unavailable") or result.exit_code in (0, None)):
             # held back by the login's plan past its wait, or gone before a single event: nothing served it
             return None, f"{FAILURE_PREFIX} unavailable] {tail or 'the session never started'}"
@@ -482,35 +492,40 @@ class Runner:
                 "trial_ids": [t.id for t in job.trials], **extra}
 
 
+def _crash_safe(runner: "Runner", job: Job, texts=None) -> dict:
+    """runner.run(job), or the upstream fallback when it raises (a job directory that could not be prepared, say):
+    one job's crash is its own."""
+    try:
+        return runner.run(job)
+    except Exception as exc:                                    # noqa: BLE001 — one job's crash is its own
+        q = _texts(texts)
+        return Runner.result(job, q.fallback_response(
+            f"{FAILURE_PREFIX} exception] {type(exc).__name__}: {str(exc)[:200]}", job.verifier_outputs, []),
+            status="fallback", attempts=0, error=f"{type(exc).__name__}: {str(exc)[:200]}", job_dir="", elapsed_s=0.0)
+
+
 def run_jobs(jobs: list[Job], ctx, params: dict, *, base: dict | None = None, scratch: Path | None = None,
              texts=None) -> tuple[list[dict], Usage]:
     """Run every job (the first alone, the rest `concurrency` at a time) and return the results sorted as upstream
-    (debug first, most failures first) and one Usage over all sessions (`calls` = jobs run). `base` is the codex
-    Base Agent's settings the Evolve Agent runs with (AHEAdapterEvolver.settings), `scratch` the step's scratch
-    directory (default: the workspace's)."""
+    (debug first, most failures first) and one Usage over all sessions (`calls`: the model calls they reported).
+    `base` is the codex Base Agent's settings the Evolve Agent runs with (AHEAdapterEvolver.settings), `scratch` the
+    step's scratch directory (default: the workspace's)."""
     params = {**DEFAULTS, **params}
     runner = Runner(ctx, params, dict(base or {}), scratch if scratch is not None else ctx.workspace.scratch, texts)
     results: list[dict] = []
     if jobs:
-        results.append(runner.run(jobs[0]))
+        results.append(_crash_safe(runner, jobs[0], texts))               # the warm-up falls back like the rest
     rest = jobs[1:]
     if rest:
         workers = max(1, int(params.get("concurrency", 16)))
         with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
-            futures = {pool.submit(runner.run, job): job for job in rest}
+            futures = [pool.submit(_crash_safe, runner, job, texts) for job in rest]
             for future in concurrent.futures.as_completed(futures):
-                job = futures[future]
-                try:
-                    results.append(future.result())
-                except Exception as exc:                            # noqa: BLE001 — one job's crash is its own
-                    q = _texts(texts)
-                    results.append(Runner.result(job, q.fallback_response(
-                        f"{FAILURE_PREFIX} exception] {type(exc).__name__}: {str(exc)[:200]}",
-                        job.verifier_outputs, []), status="fallback", attempts=0,
-                        error=f"{type(exc).__name__}: {str(exc)[:200]}", job_dir="", elapsed_s=0.0))
+                results.append(future.result())
     results.sort(key=lambda r: (r["mode"] == "summary", -r["n_fail"]))
-    usage = Usage(model=str(params.get("model") or "codex"), calls=len(results))
+    usage = Usage(model=str(params.get("model") or "codex"))
     for u in runner.usage:
+        usage.calls += u.calls                          # the model calls each attempt's stream reported, retries too
         usage.input_tokens += u.input_tokens
         usage.cached_input_tokens += u.cached_input_tokens
         usage.output_tokens += u.output_tokens

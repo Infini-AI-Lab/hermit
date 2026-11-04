@@ -526,8 +526,9 @@ def test_evolution_query_has_all_sections_with_hermit_paths():
     assert "### ✅ Passed (2) — all 2 rollouts passed\nflip, keep" in q
     assert "#### Partial pass (3) — high-priority targets" in q
     assert "`agent-codex.jsonl` (under `/run/workspace/learning_material/current/trajectories/<id>/`)" in q
-    assert ("the trajectory of rollout `<id>` is `trajectories/<id>/agent-codex.jsonl`, the Codex event stream, with "
-            "`prompt.txt`, `hook-calls.jsonl` and `hook-state/` beside it)") in q
+    assert ("the trajectory of rollout `<id>` is `trajectories/<id>/agent-codex.jsonl` (the record's `trajectory` "
+            "field names it; `<id>` is the name of the `tasks/<id>.json` file, the id written file-safe: `task#1` is "
+            "`task_1`), the Codex event stream, with `prompt.txt`, `hook-calls.jsonl` and `hook-state/` beside it)") in q
     assert "- partial: 1/2 passed (pass@1=50%, pass@2=100%) — rollouts: partial#1=FAIL, partial#2=PASS" in q
     assert "- slow: 1/2 passed (pass@1=50%, pass@2=100%) — rollouts: slow#1=TIMEOUT, slow#2=PASS" in q
     assert "#### Zero pass (1) — failed all 2 rollouts\nzero" in q

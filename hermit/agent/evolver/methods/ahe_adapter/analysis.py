@@ -1163,8 +1163,10 @@ def build_evolution_query(ctx_paths: dict, stats: dict, *, step: int, diff: dict
     # -- 1. Current Iteration Overview --
     lines.append("## 1. Current Iteration Overview")
     lines.append(f"- Results path: `{lm}/current/` (one `tasks/<id>.json` per rollout, its verdict in `judge`: "
-                 f"score and feedback; the trajectory of rollout `<id>` is `trajectories/<id>/agent-codex.jsonl`, the "
-                 f"Codex event stream, with `prompt.txt`, `hook-calls.jsonl` and `hook-state/` beside it)")
+                 f"score and feedback; the trajectory of rollout `<id>` is `trajectories/<id>/agent-codex.jsonl` (the record's "
+                 f"`trajectory` field names it; `<id>` is the name of the `tasks/<id>.json` file, the id written "
+                 f"file-safe: `task#1` is `task_1`), the Codex event stream, with `prompt.txt`, `hook-calls.jsonl` and "
+                 f"`hook-state/` beside it)")
     if commit:
         lines.append(f"- Evaluated adapter: commit `{commit}` of `{adapter}/` (your edits of step {step - 1})")
 

@@ -121,8 +121,13 @@ def load_middleware(path: Path, adapter: Path):
         sys.path.insert(0, root)
     spec = importlib.util.spec_from_file_location("adapter_middleware", path)
     module = importlib.util.module_from_spec(spec)
-    with quiet_stdout():
-        spec.loader.exec_module(module)
+    sys.modules[spec.name] = module                  # as an import would: a dataclass resolves its module by name
+    try:
+        with quiet_stdout():
+            spec.loader.exec_module(module)
+    except BaseException:
+        sys.modules.pop(spec.name, None)
+        raise
     return module
 
 

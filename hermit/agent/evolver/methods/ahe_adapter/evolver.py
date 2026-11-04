@@ -36,7 +36,8 @@ One step (`step`):
      `state/queries/step_N.md`; `START.md` + the query -> `scratch/evolve_prompt.md`, given to Codex on stdin; the
      Evolve session through `AgentEvolver.step` (the `tools: [check_spec]` gate, a fresh session, `evolve_timeout_s`
      as a wall clock: the Trainer's cancel for the call, which stops the session).
-  6. post-step (B.8): `state/change_manifest.json` validated (`iteration == N`, `changes[]`) and archived to
+  6. post-step (B.8): `state/change_manifest.json` validated (`iteration == N`, `changes[]` of objects whose
+     `files`, `predicted_fixes` and `risk_tasks` are lists of strings and `description` a string) and archived to
      `state/manifests/step_N.json` (a missing or wrong manifest -> an empty archived manifest and a loud line in
      `evolution_history.md` and `report.md`; upstream silently disables attribution instead), the framework's
      rollbacks prefixed as `type: rollback` entries, the agent's report appended to the history,
@@ -76,6 +77,8 @@ EVOLVE_PROMPT = "evolve_prompt.md"
 OVERVIEW_MAX_BYTES = 40_000
 STATE_DIRS = ("stats", "manifests", "evaluations", "rollbacks", "analysis", "queries")
 STOPPED = "stopped by the Trainer"
+LIST_FIELDS = ("files", "predicted_fixes", "risk_tasks")   # a change's fields read as lists of strings at step N+1
+TEXT_FIELDS = ("description",)                             # and as a string (the query slices it)
 
 
 @dataclasses.dataclass
@@ -154,6 +157,18 @@ def validate_manifest(data, step: int) -> tuple[dict | None, str]:
         return None, f"{MANIFEST} has iteration {data.get('iteration')!r}, this step is {step}"
     if not isinstance(data.get("changes"), list):
         return None, f"{MANIFEST} has no changes[] list"
+    for i, change in enumerate(data["changes"]):
+        # The next step's attribution iterates these lists, and the rollback the files: a null or a string there
+        # would fail that step before either agent runs.
+        if not isinstance(change, dict):
+            return None, f"{MANIFEST} changes[{i}] is not an object"
+        for key in LIST_FIELDS:
+            value = change.get(key, [])
+            if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+                return None, f"{MANIFEST} changes[{i}].{key} is not a list of strings ({value!r:.80})"
+        for key in TEXT_FIELDS:
+            if not isinstance(change.get(key, ""), str):
+                return None, f"{MANIFEST} changes[{i}].{key} is not a string ({change.get(key)!r:.80})"
     return data, ""
 
 
@@ -390,7 +405,7 @@ class AHEAdapterEvolver(AgentEvolver):
         finally:
             stop.set()
         cancelled = ctx.cancel is not None and ctx.cancel.is_set()
-        timed_out = local.is_set() and not cancelled
+        timed_out = local.cause == "deadline"
         timing["evolve_min"] = minutes(time.monotonic() - e0)
         timing["total_min"] = minutes(time.monotonic() - started)
         usage += [role_usage(u, "evolve") for u in result.usage]

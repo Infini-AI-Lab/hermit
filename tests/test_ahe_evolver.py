@@ -88,6 +88,10 @@ assert "# Evolution query" in prompt and "## 1. Current Iteration Overview" in p
 (root / "output" / "prompt_seen.json").write_text(json.dumps({
     "step": step, "chars": len(prompt), "analysis_dir": "state/analysis/step_%04d/" % step in prompt,
     "unfilled": "{step_dir}" in prompt or "step_%d/" % step in prompt}))
+if os.environ.get("AHE_FAKE_EDIT_FIRST"):                         # an edit made before the session is stopped
+    for name in ("AGENTS.md", "ADAPTER.md"):
+        (root / "adapter" / name).write_text((root / "adapter" / "AGENTS.md").read_text() + "\n- Edited first.\n"
+                                             if name == "AGENTS.md" else (root / "adapter" / "AGENTS.md").read_text())
 if os.environ.get("AHE_FAKE_SLEEP"):
     time.sleep(float(os.environ["AHE_FAKE_SLEEP"]))
 if os.environ.get("AHE_FAKE_EXIT"):                               # the session fails after its edits
@@ -319,15 +323,17 @@ def test_wrong_iteration_in_the_manifest_is_not_archived_as_the_steps(tmp_path, 
 
 
 def test_evolve_timeout_stops_the_session_and_keeps_its_edits(tmp_path, monkeypatch):
+    monkeypatch.setenv("AHE_FAKE_EDIT_FIRST", "1")                             # it edits, then outlives its clock
     monkeypatch.setenv("AHE_FAKE_SLEEP", "30")
     cfg = Config.load(_task(tmp_path, evolver={"evolve_timeout_s": 2}), ["trainer.epochs=1"])
-    Trainer(cfg, log=lambda *_: None).train()
+    summary = Trainer(cfg, log=lambda *_: None).train()
     steps = _steps(tmp_path)
     assert steps[0]["status"] == "done" and "timed out" in steps[0]["evolver"]["summary"]
     assert steps[0]["evolver"]["wall_s"] < 25
     result = json.loads((tmp_path / "runs/toy-run/step_0001/step_result.json").read_text())
     assert result["extra"]["evolve_timed_out"] and any("evolve_timeout_s=2" in w for w in result["extra"]["warnings"])
-    assert not steps[0]["changed"]                                             # stopped before it wrote anything
+    assert steps[0]["changed"]                                                 # the edit before the timeout shipped
+    assert "- Edited first." in git(Path(summary["tree"]), "show", "toy-run/ckpt-step-1:AGENTS.md")   # step 1's adapter
 
 
 def test_failed_session_archives_nothing_of_the_step(tmp_path, monkeypatch):
@@ -486,4 +492,22 @@ def test_with_claude_code_acting_the_learners_read_its_stream(tmp_path, monkeypa
     assert "the Claude Code event stream" in evolve and "the Codex event stream" not in evolve
     for question in questions:
         assert "`claude -p --output-format stream-json` event stream" in question and "codex exec --json" not in question
+
+
+@pytest.mark.parametrize("change, field", [
+    ({"id": "c", "files": ["AGENTS.md"], "predicted_fixes": None, "risk_tasks": []}, "predicted_fixes"),
+    ({"id": "c", "files": "AGENTS.md"}, "files"),
+    ({"id": "c", "risk_tasks": [1]}, "risk_tasks"),
+    ("chg-1", None),
+    ({"id": "c", "description": None}, "description"),
+])
+def test_a_manifest_the_next_step_could_not_read_is_refused(change, field):
+    """The next step's attribution iterates `predicted_fixes` and `risk_tasks`, the rollback `files` and the query
+    slices `description`: a manifest with another type there is refused now (the step archives an empty one, loudly), not left to fail step N+1."""
+    from hermit.agent.evolver.methods.ahe_adapter.evolver import validate_manifest
+    manifest, note = validate_manifest({"iteration": 3, "changes": [change]}, 3)
+    expected = {None: "changes[0] is not an object", "description": "changes[0].description is not a string"}
+    assert manifest is None and expected.get(field, f"changes[0].{field} is not a list of strings") in note
+    ok, note = validate_manifest({"iteration": 3, "changes": [{"id": "c", "files": ["AGENTS.md"]}]}, 3)
+    assert ok is not None and note == ""
 

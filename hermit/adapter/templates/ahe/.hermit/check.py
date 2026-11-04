@@ -3,14 +3,15 @@ read from the workspace's root, nothing lies off that surface, the seed system p
 non-deletable seed, §3.3), the memory channel is intact, the middleware is a module the adapter's hook runner can load
 and call on every host, and ADAPTER.md is AGENTS.md (the framework's context export is the always-on text).
 
-The rules on the files are stated here with the stdlib only. The rules on what reaches the agent run it, on every host
-the template supports (HOSTS, the hosts of hook_hosts.py): a copy of the adapter is deployed by the framework's own
-deployment for the host (hermit.hosts.codex.prepare, hermit.hosts.claude_code.prepare: what `hermit deploy` and the
-framework's agents run; the framework is importable wherever check_spec runs this), its context file is measured
-against the host's limit, and one session of the host's events (hook_hosts: `session`, payloads in the host's own
-shape and order) is run through the hooks the deployment installed, as the host runs them: the deployed command,
-through a shell, the state carried from event to event, every output held to the fields the host reads and to the
-drop hook_hosts knows of (a context Codex drops when it comes with `allow`).
+The rules on the files are stated here with the stdlib and the framework's YAML frontmatter reader
+(hermit.spec._frontmatter). The rules on what reaches the agent run it, on every host the template supports (HOSTS,
+the hosts of hook_hosts.py): a copy of the adapter is deployed by the framework's own deployment for the host
+(hermit.hosts.codex.prepare, hermit.hosts.claude_code.prepare: what `hermit deploy` and the framework's agents run;
+the framework is importable wherever check_spec runs this), its context file is measured against the host's limit, and
+one session of the host's events (hook_hosts: `session`, payloads in the host's own shape and order) is run through
+the hooks the deployment installed, as the host runs them: the deployed command, through a shell, the state carried
+from event to event, every output held to the fields the host reads and to the drop hook_hosts knows of (a context
+Codex drops when it comes with `allow`).
 
 The surface:
     AGENTS.md                              system prompt + tool guidance: never empty, within what each host reads once
@@ -112,6 +113,9 @@ RX = {"skill": re.compile(rf"\.agents/skills/({NAME})/SKILL\.md"),
       "skill_file_ref": re.compile(r"(\.agents/skills/[\w\-]+/scripts/[\w\-][\w.\-]*)"),
       # The task container's /adapter of an earlier deployment: no deployment has it now.
       "adapter_ref": re.compile(r"/adapter/((?:\.agents/skills/[\w\-]+/)?scripts/[\w.\-]+)")}
+# A frontmatter block closes on a whole `---` line, as Codex's skill loader requires (hermit.spec._frontmatter alone
+# would also close it on `---oops`, and parse only the lines before it).
+FRONTMATTER = re.compile(r"\A---\n(.*?)\n---(?:\n|\Z)", re.S)
 
 
 def _hosts():
@@ -159,15 +163,30 @@ def normalise(text: str) -> str:
     return " ".join(text.split())
 
 
-def frontmatter(text: str) -> dict[str, str] | None:
+def frontmatter(text: str) -> dict | None:
     """A leading frontmatter block parsed as YAML, as the framework reads it (hermit.spec._frontmatter; a sub-agent's
-    deployment and the hosts' own skill loaders read YAML too), each value as text ("" for an empty one); None when
-    the file has no block or the block is not a YAML mapping."""
+    deployment and the hosts' own skill loaders read YAML too), its values with their YAML types; None when the file
+    has no block (FRONTMATTER: closed by a whole `---` line) or the block is not a YAML mapping."""
     from hermit.spec import _frontmatter
-    head = _frontmatter(text)
-    if head is None:
-        return None
-    return {str(k): "" if v is None else str(v).strip() for k, v in head.items()}
+    m = FRONTMATTER.match(text)
+    if m is None or re.search(r"^---", m.group(1), re.M):
+        return None                 # a `---oops` line inside: the host parses the whole block, which is not YAML
+    return _frontmatter(m.group(0))
+
+
+def _text_field(head: dict, key: str) -> str | None:
+    """head[key] when it is a non-empty YAML string, else None: a host that reads the field as a string refuses a
+    list or a number (Codex: `invalid type: sequence, expected a string`) and skips the file."""
+    value = head.get(key)
+    return value if isinstance(value, str) and value.strip() else None
+
+
+def _not_text(head: dict, key: str) -> str:
+    """Why head[key] is not a usable string, for a message: missing, empty, or the YAML type it has instead."""
+    value = head.get(key)
+    if key not in head or value is None or (isinstance(value, str) and not value.strip()):
+        return "missing or empty"
+    return f"a YAML {type(value).__name__}, not a string"
 
 
 class Deployment:
@@ -601,10 +620,14 @@ def skill_and_agent_problems(tree: dict[str, str]) -> list[tuple[str, str]]:
         if not m:
             continue
         name, head = m.group(1), frontmatter(tree[rel]) or {}
-        if not head.get("description"):
-            errs.append((rel, f"{rel} needs a `description:` in its YAML frontmatter (`---` block at the top), or the "
-                              f"host drops the skill SILENTLY at load"))
-        if head.get("name") and head["name"] != name:
+        if _text_field(head, "description") is None:
+            errs.append((rel, f"{rel} needs a `description:` string in its YAML frontmatter (`---` block at the top; "
+                              f"here it is {_not_text(head, 'description')}), or the host drops the skill SILENTLY at "
+                              f"load"))
+        if head.get("name") is not None and not isinstance(head["name"], str):     # an empty `name:` is no name
+            errs.append((rel, f"{rel} frontmatter `name:` is {_not_text(head, 'name')}: the host drops the skill at "
+                              f"load; drop the `name:` line or make it `name: {name}`"))
+        elif _text_field(head, "name") and head["name"] != name:
             errs.append((rel, f"{rel} frontmatter `name: {head['name']}` OVERRIDES the directory name at load, so the "
                               f"skill is advertised under another name; drop the `name:` line or make it `name: "
                               f"{name}`"))
@@ -630,9 +653,11 @@ def skill_and_agent_problems(tree: dict[str, str]) -> list[tuple[str, str]]:
                               f"with `---`, `name: {stem}`, `description: ...`, `---`, then its instructions; without "
                               f"it the adapter does not deploy"))
             continue
-        if not head.get("name") or not head.get("description"):
-            errs.append((rel, f"{rel} frontmatter needs both `name:` and `description:` (the description is what "
-                              f"the agent reads to decide whether to spawn the role)"))
+        if _text_field(head, "name") is None or _text_field(head, "description") is None:
+            errs.append((rel, f"{rel} frontmatter needs both `name:` and `description:` as strings (`name:` is "
+                              f"{'a string' if _text_field(head, 'name') else _not_text(head, 'name')}, `description:` "
+                              f"{'a string' if _text_field(head, 'description') else _not_text(head, 'description')}; "
+                              f"the description is what the agent reads to decide whether to spawn the role)"))
         elif head["name"] != stem:
             errs.append((rel, f"{rel} frontmatter `name: {head['name']}` differs from the file stem `{stem}`; the "
                               f"role is installed under its name, so keep the two equal"))

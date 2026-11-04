@@ -309,9 +309,9 @@ def test_question_of_a_timeout_task(tmp_path):
 FAKE_CODEX = r'''#!/usr/bin/env python3
 """A stand-in for `codex exec --json ... -o <last message> -`: reads the prompt on stdin, records what it was given in
 the job dir, streams JSON events and writes answer.md plus the `-o` last message. FAKE_CODEX_MODE: ok | fail (exit 3)
-| sleep (never finishes in time) | flaky (fails once, then ok) | empty (exit 0 without an answer) | last_only (no
-answer.md, the answer as the last message) | silent (exit 0 before a single event). FAKE_CODEX_TIMES: a file every
-call appends its start and end to."""
+| sleep (never finishes in time) | flaky (fails once, then ok) | flaky_spent (as flaky, its failed attempt after
+one served turn) | empty (exit 0 without an answer) | last_only (no answer.md, the answer as the last message) |
+silent (exit 0 before a single event). FAKE_CODEX_TIMES: a file every call appends its start and end to."""
 import json, os, sys, time
 args = sys.argv[1:]
 job_dir = args[args.index("-C") + 1]
@@ -332,7 +332,9 @@ if mode == "sleep":
     time.sleep(30)
 if os.environ.get("FAKE_CODEX_TIMES"):
     time.sleep(0.3)
-if mode == "fail" or (mode == "flaky" and n < 2):
+if mode == "flaky_spent" and n < 2:                      # a turn the model served, then the stream broke
+    print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 100, "cached_input_tokens": 40, "output_tokens": 7}}), flush=True)
+if mode == "fail" or (mode in ("flaky", "flaky_spent") and n < 2):
     print(json.dumps({"type": "error", "message": "stream disconnected"}), flush=True)
     sys.exit(3)
 print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 100, "cached_input_tokens": 40, "output_tokens": 7}}), flush=True)
@@ -527,10 +529,11 @@ def test_an_attempt_reads_the_base_agents_result(tmp_path, monkeypatch, fields, 
     assert made[0]["stdin"] and runner.usage[0].input_tokens == 5         # every attempt's usage counts
 
 
-@pytest.mark.parametrize("trainer_stops", [False, True])
-def test_an_attempts_clock_covers_the_wait_before_the_cli_runs(tmp_path, monkeypatch, trainer_stops):
+@pytest.mark.parametrize("order", ["deadline", "trainer", "deadline then trainer"])
+def test_an_attempts_clock_covers_the_wait_before_the_cli_runs(tmp_path, monkeypatch, order):
     """The Base Agent's own clock starts once the CLI runs; a session held back by the plan waits on its cancel only.
-    The attempt's deadline sets that cancel: a timeout at the deadline, a cancel when the Trainer stopped it."""
+    The attempt's deadline sets that cancel, and what set it decides the reason: a timeout at the deadline (even when
+    the Trainer stops while the call tears down), a cancel when the Trainer stopped it first."""
     from hermit.agent.base.interface import Result
     trainer = threading.Event()
 
@@ -539,9 +542,11 @@ def test_an_attempts_clock_covers_the_wait_before_the_cli_runs(tmp_path, monkeyp
             self.cancel = settings["cancel"]
 
         def run(self, prompt, *, workspace):
-            if trainer_stops:
+            if order == "trainer":
                 trainer.set()
             self.cancel.wait(30)                       # the plan's wait: it ends when the cancel is set
+            if order == "deadline then trainer":
+                trainer.set()                          # the Trainer stops while the timed-out call tears down
             return Result(reply="", exit_code=-1, extra={"cancelled": self.cancel.is_set(), "started": False})
 
     monkeypatch.setattr(D, "make", lambda name, settings: Agent(settings))
@@ -551,9 +556,9 @@ def test_an_attempts_clock_covers_the_wait_before_the_cli_runs(tmp_path, monkeyp
     job_dir.mkdir()
     (job_dir / "question.md").write_text("q")
     started = time.monotonic()
-    answer, why = runner.attempt(D.Job(task="t"), job_dir, 1, 30.0 if trainer_stops else 1.5)
+    answer, why = runner.attempt(D.Job(task="t"), job_dir, 1, 30.0 if order == "trainer" else 1.5)
     assert answer is None and time.monotonic() - started < 10
-    assert why == ("[adb cancelled] stopped by the Trainer" if trainer_stops else "[adb timeout] exceeded 1.5s")
+    assert why == ("[adb cancelled] stopped by the Trainer" if order == "trainer" else "[adb timeout] exceeded 1.5s")
 
 
 def test_the_login_is_the_shared_copy_in_each_jobs_home_for_the_call(tmp_path, monkeypatch):
@@ -599,6 +604,30 @@ def test_run_jobs_retries_then_succeeds(tmp_path, monkeypatch):
     assert "stream disconnected" in (ctx.workspace.output / "debugger" / "alpha.1.jsonl").read_text()
 
 
+def test_run_jobs_counts_the_model_calls_of_every_attempt(tmp_path, monkeypatch):
+    """`calls` is the model calls the attempts' streams reported, a failed attempt's too, as are its tokens."""
+    monkeypatch.setenv("FAKE_CODEX_MODE", "flaky_spent")
+    step, recs = material(tmp_path)
+    jobs = [j for j in D.build_jobs(recs, {"task_field": "uid"}) if j.task == "alpha"]
+    _, results, usage = run(tmp_path, jobs, retries=3)
+    assert results[0]["status"] == "ok" and results[0]["attempts"] == 2
+    assert usage.calls == 2 and usage.input_tokens == 200
+
+
+def test_a_job_that_cannot_be_prepared_falls_back_the_warm_up_too(tmp_path, monkeypatch):
+    """A job whose directory cannot be prepared falls back with the reason, the first (warm-up) job as the rest: one
+    job's crash never fails the step."""
+    step, recs = material(tmp_path)
+    jobs = D.build_jobs(recs, {"task_field": "uid"})
+
+    def unreadable(job, *args, **kwargs):
+        raise OSError(f"cannot read {job.task}'s trajectory")
+    monkeypatch.setattr(D, "prepare_job_dir", unreadable)
+    _, results, usage = run(tmp_path, jobs)
+    assert len(results) == len(jobs) and all(r["status"] == "fallback" and r["attempts"] == 0 for r in results)
+    assert all(r["error"].startswith("OSError: cannot read") for r in results) and usage.calls == 0
+
+
 def test_run_jobs_falls_back_after_failures(tmp_path, monkeypatch):
     step, recs = material(tmp_path)
     jobs = [j for j in D.build_jobs(recs, {"task_field": "uid"}) if j.task == "alpha"]
@@ -609,7 +638,7 @@ def test_run_jobs_falls_back_after_failures(tmp_path, monkeypatch):
     assert r["response"].startswith('[adb error] exit=3: {"type": "error", "message": "stream disconnected"}')
     assert "FAILED tests/test_outputs.py::test_merge - AssertionError: bio" in r["response"]
     assert "**NOTE**: Debugger LLM analysis was not available for this task." in r["response"]
-    assert usage.calls == 1 and usage.input_tokens == 0 and usage.cost_usd is None
+    assert usage.calls == 0 and usage.input_tokens == 0 and usage.cost_usd is None    # no attempt reached the model
     # an exit 0 without an answer is a failure too
     monkeypatch.setenv("FAKE_CODEX_MODE", "empty")
     _, results, _ = run(tmp_path, jobs, retries=1)
@@ -761,6 +790,36 @@ def test_rollback_restores_deletes_and_skips(tmp_path):
     assert by["chg-1"]["AGENTS.md"] == "unchanged" and by["chg-1"]["scripts/new.py"] == "absent"
     assert by["chg-3"] == {"scripts/a.py": "restored", "scripts/missing.py": "absent"}
     assert (adapter / "scripts" / "a.py").read_text() == "print('a')\n"
+
+
+def test_rollback_restores_the_executable_bit(tmp_path):
+    """A skill may run its script directly: the rollback compares and restores a file's executable bit with its
+    bytes (a change that only dropped it is reverted; a deleted executable comes back executable), and a directory
+    named in `files[]` is no file (absent, not a crash)."""
+    adapter = tmp_path / "adapter"
+    scripts = adapter / ".agents" / "skills" / "t" / "scripts"
+    scripts.mkdir(parents=True)
+    (scripts / "run.sh").write_text("#!/bin/sh\necho run\n")
+    (scripts / "gone.sh").write_text("#!/bin/sh\necho gone\n")
+    os.chmod(scripts / "run.sh", 0o755)
+    os.chmod(scripts / "gone.sh", 0o755)
+    (scripts / "lib").mkdir()
+    (scripts / "lib" / "x.py").write_text("x = 1\n")                  # a directory that matches the learnable glob
+    git(adapter, "init", "-q")
+    git(adapter, "add", "-A")
+    git(adapter, "commit", "-q", "-m", "parent")
+    parent = git(adapter, "rev-parse", "HEAD")
+    os.chmod(scripts / "run.sh", 0o644)                               # the harmful change: the bit alone
+    (scripts / "gone.sh").unlink()                                   # and a deleted executable
+    manifest = {"iteration": 1, "changes": [{"id": "chg-1", "files": [
+        ".agents/skills/t/scripts/run.sh", ".agents/skills/t/scripts/gone.sh", ".agents/skills/t/scripts/lib"]}]}
+    rec = R.rollback(adapter, manifest, {"chg-1": "HARMFUL"}, parent, [".agents/skills/*/scripts/*"], None,
+                     {"rollback": "auto"}, snapshots=tmp_path / "snap")
+    files = {f["path"]: f["action"] for f in rec["changes"][0]["files"]}
+    assert files == {".agents/skills/t/scripts/run.sh": "restored", ".agents/skills/t/scripts/gone.sh": "restored",
+                     ".agents/skills/t/scripts/lib": "absent"}
+    assert os.access(scripts / "run.sh", os.X_OK) and os.access(scripts / "gone.sh", os.X_OK)
+    assert os.access(tmp_path / "snap" / ".agents/skills/t/scripts/run.sh", os.X_OK)    # the next step's source too
 
 
 def test_rollback_undoes_when_check_spec_fails(tmp_path):
