@@ -133,7 +133,8 @@ def _session_output(path, places) -> None:
     written through, a pipe would block, a directory would stop the write. A path elsewhere is the caller's own (a
     log file, `/dev/stderr`, a collector's pipe) and is opened as it is."""
     given = os.path.abspath(str(path))
-    for root in sorted({os.path.abspath(str(p)) for p in places}, key=len, reverse=True):
+    roots = {n for p in places for n in (os.path.abspath(str(p)), os.path.realpath(str(p)))}   # a place by either name
+    for root in sorted(roots, key=len, reverse=True):
         if given.startswith(root.rstrip("/") + "/"):
             current = root
             for part in Path(given).relative_to(root).parts[:-1]:
@@ -153,6 +154,20 @@ def _identity(path):
     except OSError:
         return None
     return (st.st_dev, st.st_ino) if stat.S_ISREG(st.st_mode) else None
+
+
+def _restore_home(home: Path) -> None:
+    """`home` (resolved before the call, so no link on its way) a real directory again after the call: a link that
+    appeared on the way (the session could write its home, or a place above it) is removed, never followed."""
+    if os.path.realpath(home) == str(home) and os.path.isdir(home):
+        return
+    current = Path(home.anchor)
+    for part in home.parts[1:]:
+        current = current / part
+        if os.path.islink(current) or (os.path.lexists(current) and not os.path.isdir(current)):
+            os.unlink(current)
+        if not os.path.lexists(current):
+            current.mkdir()
 
 
 def _real_dir(path: Path) -> Path:
@@ -252,8 +267,10 @@ def notices(backend: str, raw: str) -> str:
                 found.append(str(error.get("message") if isinstance(error, dict) else error or ""))
             elif kind == "item.completed" and item.get("type") == "error":
                 found.append(str(item.get("message") or ""))
-        elif kind == "result" and e.get("is_error"):
+        elif kind == "result" and (e.get("is_error") or str(e.get("subtype") or "").startswith("error")):
             found.append(str(e.get("result") or e.get("subtype") or ""))
+            errors = e.get("errors")                     # an error result's own diagnostics
+            found += [str(x) for x in errors if x] if isinstance(errors, list) else [str(errors)] if errors else []
         elif kind == "error":
             found.append(json.dumps(e.get("error") or e, default=str))
     return "\n".join(found)
@@ -505,6 +522,7 @@ class CliAgent(BaseAgent):
         if not isinstance(self.settings.get("web_search"), bool):
             raise ValueError(f"{self.name}: set web_search, true or false")
         s, limits = self.settings, limits or Limits()
+        given_workspace = Path(workspace).absolute()            # the caller's spelling: a log may lie below it
         workspace = Path(workspace).resolve()
         isolation, conf, sandbox = self._isolation(workspace, limits)
         home, fresh = self._home()
@@ -514,9 +532,10 @@ class CliAgent(BaseAgent):
             stream = Path(tempfile.mkstemp(prefix=f"agent-{self.backend}-", suffix=".jsonl")[1])
         else:
             stream = home / f"agent-{self.backend}.jsonl"
-        stream.parent.mkdir(parents=True, exist_ok=True)
-        places = (home, workspace, *(s.get("writable") or ()), *getattr(sandbox, "writable", ()))  # the session's
+        places = (home, workspace, given_workspace, *(s.get("writable") or ()),        # the session's
+                  *getattr(sandbox, "writable", ()))
         _session_output(stream, places)                 # written by this process: never through a link left there
+        stream.parent.mkdir(parents=True, exist_ok=True)   # after: a link left on the way is gone, not followed
         if s.get("stderr_log"):
             _session_output(s["stderr_log"], places)
         if not os.path.exists(stream):
@@ -581,6 +600,7 @@ class CliAgent(BaseAgent):
         finally:
             if server is not None:
                 server.close()
+            _restore_home(home)                         # a home the session replaced: never read or written through
             if s.get("login") == "chatgpt":
                 codex_login.keep_refreshed(Path(s.get("login_root") or codex_login.ROOT), home)
                 codex_login.note_usage(codex_login.plan_dir(s.get("plan_dir")), home)
@@ -667,7 +687,7 @@ def _this_call(home: Path, handle: str, reported, resumed: bool):
     try:
         before = json.loads(ledger.read_text()) if resumed and _regular(ledger) else {}
         before = {f: int(before.get(f, 0)) for f in fields} if isinstance(before, dict) else {}
-    except (OSError, ValueError, TypeError):
+    except (OSError, ValueError, TypeError, OverflowError):     # OverflowError: a total of 1e1000
         before = {}
     if any(before.get(f, 0) > getattr(reported, f) or before.get(f, 0) < 0 for f in fields):
         before = {}                                 # no earlier total of this thread: the session wrote it

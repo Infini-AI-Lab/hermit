@@ -159,7 +159,8 @@ def _host(stream: list[dict]) -> str | None:
 
 def _steps_of(path: Path, name: str | None = None) -> list[Step] | None:
     stream = events(path)
-    host = "codex" if name == CODEX_STREAM else "claude" if name == CLAUDE_STREAM else _host(stream)
+    known = name == CODEX_STREAM or (path.name == "codex.txt" and stream)    # Harbor's Codex events, by name
+    host = "codex" if known else "claude" if name == CLAUDE_STREAM else _host(stream)
     if host is None:
         return None
     return codex_steps(stream) if host == "codex" else claude_steps(stream)

@@ -395,7 +395,8 @@ class SandboxedAgent:
                                   env=env, keep=keep, forward=self.forward, timeout=self.timeout, masked=masked)
         finally:
             if self.cli:                                 # the login copy does not outlive the call
-                codex_login.remove(home / CLI_HOMES[self.cli][0] / CLI_HOMES[self.cli][2], within=home)
+                # from `work`, not `home`: the session could replace its home by a link (work is writable)
+                codex_login.remove(home / CLI_HOMES[self.cli][0] / CLI_HOMES[self.cli][2], within=work)
                 if chatgpt:
                     # Every copy the call left: its run copy, and a session's own when the worker was stopped before
                     # it could hand that back (a timeout kills it). The latest refresh goes back to the shared copy;

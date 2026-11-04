@@ -38,9 +38,10 @@ def _read_own(path: Path) -> str:
         fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except OSError:
         return ""
+    if not _stat.S_ISREG(os.fstat(fd).st_mode):          # before fdopen, which refuses a directory
+        os.close(fd)
+        return ""
     with os.fdopen(fd, "rb") as f:
-        if not _stat.S_ISREG(os.fstat(f.fileno()).st_mode):
-            return ""
         return f.read().decode("utf-8", errors="replace")
 
 

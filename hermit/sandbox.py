@@ -202,17 +202,21 @@ def _venv_paths() -> list[Path]:
     return out
 
 
-def _venv_bases(paths) -> list[Path]:
+def _venv_bases(paths, writable=()) -> list[Path]:
     """The Python installations the virtual environments in `paths` (a granted directory that is one, or holds one
     as .venv) were made from: a venv's interpreter is a link to that installation, which lies elsewhere. Only places
-    shown read-only are read: a session writes `pyvenv.cfg` in a writable one, and its `home` would be shown in the
-    next call (a venv made inside the sandbox is made from an installation the sandbox shows already)."""
+    shown read-only are read, and no `pyvenv.cfg` in a `writable` one (a place granted both ways, or one below):
+    a session writes it there, and its `home` would be shown in the next call (a venv made inside the sandbox is
+    made from an installation the sandbox shows already)."""
+    places = {n for w in writable for n in _names(w)}
     out = []
     for path in paths:
         for cfg in (Path(path) / "pyvenv.cfg", Path(path) / ".venv" / "pyvenv.cfg"):
+            if any(n == w or n.startswith(w.rstrip("/") + "/") for n in _names(cfg) for w in places):
+                continue
             try:
                 lines = cfg.read_text().splitlines()
-            except OSError:
+            except (OSError, ValueError):               # ValueError: not UTF-8
                 continue
             for line in lines:
                 key, _, value = line.partition("=")
@@ -388,10 +392,11 @@ class Sandbox:
                  if (m := re.fullmatch(rf"{re.escape(self.role)}-(\d+)\.json", f.name))]
         self._count = itertools.count(max(taken, default=0) + 1)
 
-    def visible(self, command: list[str]) -> list[Path]:
-        """Every read-only path inside the sandbox for this command (besides the system)."""
+    def visible(self, command: list[str], writable=()) -> list[Path]:
+        """Every read-only path inside the sandbox for this command (besides the system); `writable`: the call's own
+        writable paths, besides the sandbox's (a venv in one names no installation to show)."""
         out = [*_python_paths(self.packages), PACKAGE, *self.readable, *self.read]
-        out += _venv_bases([*self.readable, *self.read])
+        out += _venv_bases([*self.readable, *self.read], [*self.writable, *writable])
         found = shutil.which(command[0]) if command else None
         if found and Path(found).resolve() != Path(sys.executable).resolve():
             out += program_paths(command[0])          # this Python is shown above, by its packages, not its venv
@@ -496,10 +501,10 @@ class Sandbox:
         deferred_ro = [p for p in [*self.readable, *self.read] if beneath_mask(p)]
         deferred_rw = [p for p in self.writable if beneath_mask(p)]
         skip = {os.path.abspath(str(p)) for p in deferred_ro}
-        bind([p for p in self.visible(command) if os.path.abspath(str(p)) not in skip], "--ro-bind", ro)
+        bind([p for p in self.visible(command, writable) if os.path.abspath(str(p)) not in skip], "--ro-bind", ro)
         # A virtual environment granted for this call alone (the framework's, shown to a sandboxed adapter server
         # started from another interpreter) needs the installation it was made from, like a sandbox-level grant.
-        bind(_venv_bases(readable), "--ro-bind", ro)
+        bind(_venv_bases(readable, [*self.writable, *writable]), "--ro-bind", ro)
         bind([p for p in readable if holds_mask(p)], "--ro-bind", ro)
         bind([p for p in self.writable if p not in deferred_rw], "--bind", rw)
         bind([p for p in writable if holds_mask(p)], "--bind", rw)
@@ -776,7 +781,7 @@ class HidingSandbox:
         writable = [*getattr(self.inner, "writable", []), *(kw.get("writable") or ()), *home]
         readable = [*getattr(self.inner, "readable", []), *getattr(self.inner, "read", []),
                     *(kw.get("readable") or ()), *self.keep]
-        visible = getattr(self.inner, "visible", lambda command: [])(command)
+        visible = getattr(self.inner, "visible", lambda command, writable=(): [])(command, kw.get("writable") or ())
         empty = self.inner._empty_file() if hasattr(self.inner, "_empty_file") else "/dev/null"
         writes = {n for p in writable for n in _names(p)}
         # places shown under a link's name and their real one; not a link a session could have left (in a place it
@@ -844,9 +849,10 @@ class HidingSandbox:
                         flags[n] = flags.get(n) or flag                     # writable wins over readable
         for n in [n for n in flags if os.path.islink(n) and any(self._under(n, m) for m in flags)]:
             del flags[n]                                 # there through the place it lies in, as the link it is
-        masks = {n for p in [*getattr(self.inner, "masked", []), *(kw.get("masked") or ())] for n in _names(p)
-                 if os.path.exists(n)}
-        recover = {h for h in [*hidden, *masks] if h not in flags and any(self._under(h, n) for n in flags)}
+        masks = {n for p in [*getattr(self.inner, "masked", []), *(kw.get("masked") or ())] for m in _names(p)
+                 for n in aliased(m) if os.path.exists(n)}  # under a bound-back place's link name too
+        recover = ({h for h in hidden if h not in flags and any(self._under(h, n) for n in flags)}
+                   | {m for m in masks if any(m == n or self._under(m, n) for n in flags)})   # a mask wins
         # shallowest first, a place bound back before what is covered below it
         for name, kind in sorted([(n, "bind") for n in flags] + [(h, "cover") for h in recover],
                                  key=lambda x: (len(x[0]), x[1] == "cover")):

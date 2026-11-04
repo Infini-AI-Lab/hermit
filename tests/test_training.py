@@ -177,7 +177,7 @@ def test_budget_stops_the_run(tmp_path):
 
 def test_a_budget_stop_keeps_what_the_stopped_call_spent(tmp_path):
     cfg = load(make_task(tmp_path, evolver={"name": "toy", "params": {"mode": "spend"}}), "trainer.budget.usd=null",
-               "trainer.budget.hours=0.0008")
+               "trainer.budget.hours=0.003")   # 10.8 s: past the preparation
     summary = Trainer(cfg, log=lambda *_: None).train()
     assert summary["stop_reason"].startswith("hard budget")
     assert summary["spending"]["tokens"]["evolver"] == 1234 and summary["spending"]["usd"]["evolver"] == 0.5

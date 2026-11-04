@@ -227,6 +227,8 @@ def test_a_logs_stream_under_another_name_is_found(tmp_path):
     assert [s.text for s in log_steps(trial / "agent" / "codex.txt")] == ["<answer>7</answer>"]
     (tmp_path / "notes.txt").write_text("no events here\n")
     assert log_steps(tmp_path / "notes.txt") is None and log_steps(tmp_path / "missing") is None
+    (trial / "agent" / "codex.txt").write_text(json.dumps({"type": "error", "message": "stream disconnected"}) + "\n")
+    assert [(s.kind, s.text) for s in log_steps(trial)] == [("error", "stream disconnected")]   # by its name
 
 
 def test_the_chat_client_waits_as_told_between_retries(monkeypatch):
@@ -434,20 +436,26 @@ def test_the_chat_endpoint_says_it_closes_each_connection():
     from hermit.agent.model.llm import ChatClient
 
     def reply(handler, body, upstream):
-        _answer(handler, 400, b'{"error": {"message": "no"}}')
+        if body["messages"][-1]["content"] == "bad":
+            _answer(handler, 400, b'{"error": {"message": "no"}}')
+        else:
+            _answer(handler, 200, json.dumps({"id": "c", "object": "chat.completion", "model": "x", "choices": [
+                {"index": 0, "message": {"role": "assistant", "content": "hi"}, "finish_reason": "stop"}]}).encode(),
+                {"Content-Type": "application/json"})
     up = _Upstream(reply)
     with ChatEndpoint(make("direct", {}, ChatClient(up.url, "x", max_retries=0))) as endpoint:
         host, port = "127.0.0.1", endpoint.port
         token = endpoint.url.rsplit("/", 1)[-1]
-        for stream in (False, True):
-            conn = http.client.HTTPConnection(host, port, timeout=10)
-            conn.request("POST", f"/{token}/v1/chat/completions",
-                         json.dumps({"model": "m", "messages": [{"role": "user", "content": "q"}], "stream": stream}),
-                         {"Content-Type": "application/json"})
-            response = conn.getresponse()
-            response.read()
-            assert response.status == 400 and response.getheader("Connection") == "close"
-            conn.close()
+        for content, status in (("bad", 400), ("q", 200)):           # an error, and an answer (streamed: SSE)
+            for stream in (False, True):
+                conn = http.client.HTTPConnection(host, port, timeout=10)
+                conn.request("POST", f"/{token}/v1/chat/completions",
+                             json.dumps({"model": "m", "messages": [{"role": "user", "content": content}],
+                                         "stream": stream}), {"Content-Type": "application/json"})
+                response = conn.getresponse()
+                response.read()
+                assert response.status == status and response.getheader("Connection") == "close"
+                conn.close()
     up.server.shutdown()
 
 

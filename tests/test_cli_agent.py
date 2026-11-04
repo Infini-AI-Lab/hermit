@@ -4,6 +4,7 @@ logs, with the views the Evolvers build from it."""
 import json
 import os
 from pathlib import Path
+import shutil
 import stat
 import sys
 
@@ -76,6 +77,14 @@ if os.environ.get("FAKE_LEAVE"):                       # links and a pipe left f
     (home / "auth.tmp").symlink_to(target / "auth-target")
     (home / "usage").mkdir(exist_ok=True)
     os.mkfifo(home / "usage" / "th1.json")
+if os.environ.get("FAKE_LINK_HOME"):                    # its whole home replaced by a link to another
+    import shutil
+    shutil.rmtree(home)
+    home.symlink_to(os.environ["FAKE_LINK_HOME"])
+if os.environ.get("FAKE_LINK_UP"):                      # the directory above its home replaced by a link
+    import shutil
+    shutil.rmtree(home.parent)
+    home.parent.symlink_to(os.environ["FAKE_LINK_UP"])
 if os.environ.get("FAKE_LINK_STREAM"):                  # its own stream replaced by a link to another file
     stream = Path(os.readlink("/proc/self/fd/1"))
     stream.unlink()
@@ -500,12 +509,26 @@ def test_a_cli_chat_calls_stream_is_kept_with_the_run_or_removed(fake, monkeypat
     monkeypatch.setattr(tempfile, "tempdir", str(tmp))
     with ChatEndpoint(make("codex", {"model": "gpt-x", "web_search": False})) as endpoint:
         ChatClient(endpoint.url, "gpt-x").chat([{"role": "user", "content": "Sum it."}])
-    assert not [p for p in tmp.iterdir() if p.name.startswith("agent-codex-")]
+    assert not list(tmp.iterdir())
+    from hermit.agent.base.endpoint import cli_answer
+
+    def broken(self, *a, **k):
+        raise RuntimeError("the sign-in failed")
+    with monkeypatch.context() as m:                            # a call that raises leaves no stream either
+        m.setattr(base_cli.CliAgent, "_sign_in", broken)   # after the stream is opened
+        with pytest.raises(RuntimeError):
+            cli_answer(make("codex", {"model": "gpt-x", "web_search": False}),
+                       {"messages": [{"role": "user", "content": "Sum it."}]})
+    assert not list(tmp.iterdir())
     logs = fake / "llm_sessions"
     with ChatEndpoint(make("codex", {"model": "gpt-x", "web_search": False, "log_dir": str(logs)})) as endpoint:
         ChatClient(endpoint.url, "gpt-x").chat([{"role": "user", "content": "Sum it."}])
     kept = list(logs.glob("*-codex.jsonl"))
     assert len(kept) == 1 and '"thread.started"' in kept[0].read_text()
+    mine = tmp / "agent-codex-mine.jsonl"                       # a log the caller named, in the temporary dir
+    with ChatEndpoint(make("codex", {"model": "gpt-x", "web_search": False, "log": str(mine)})) as endpoint:
+        ChatClient(endpoint.url, "gpt-x").chat([{"role": "user", "content": "Sum it."}])
+    assert mine.is_file()
 
 
 def test_a_cli_llm_is_left_to_the_trainer_and_bound_when_its_model_is_a_reference():
@@ -644,6 +667,9 @@ def test_only_the_clis_own_reports_say_unavailable_or_refused(fake, monkeypatch)
     monkeypatch.delenv("FAKE_REFUSED")
     monkeypatch.setenv("FAKE_UNAVAILABLE", "100")                  # the CLI's own line, beside no event
     assert agent.run("go", workspace=fake / "w").extra["unavailable"]
+    failed = json.dumps({"type": "result", "subtype": "error_during_execution", "is_error": False,
+                         "errors": ["API Error: 503 Service unavailable"]})    # Claude Code's error result
+    assert base_cli.UNAVAILABLE.search(base_cli.notices("claude", failed))
 
 
 def test_a_refused_session_is_returned_when_plan_rerun_is_off(fake, monkeypatch):
@@ -816,13 +842,81 @@ def test_a_ledger_the_session_rewrote_is_no_earlier_total(tmp_path):
     from hermit.agent.model.usage import Usage
     reported = Usage("m", input_tokens=1000, cached_input_tokens=0, output_tokens=50, calls=1)
     (tmp_path / "usage").mkdir()
-    for text in ("not json", json.dumps({"input_tokens": 10 ** 9, "output_tokens": 10 ** 9}), json.dumps([1])):
+    for text in ("not json", json.dumps({"input_tokens": 10 ** 9, "output_tokens": 10 ** 9}), json.dumps([1]),
+                 '{"input_tokens": 1e1000}'):
         (tmp_path / "usage" / "th1.json").write_text(text)
         u = _this_call(tmp_path, "th1", reported, resumed=True)
         assert (u.input_tokens, u.output_tokens) == (1000, 50)
     u = _this_call(tmp_path, "th1", Usage("m", input_tokens=1500, cached_input_tokens=0, output_tokens=80, calls=1),
                    resumed=True)
     assert (u.input_tokens, u.output_tokens) == (500, 30)            # an honest earlier total still counts
+
+
+def test_what_a_session_left_on_the_way_to_its_log_is_never_followed_by_the_next_call(fake, tmp_path):
+    """A log below a place the session writes: what it left on the way (a dangling link, a link out, a file) is
+    removed before the call makes the log's directory, never followed nor in the way."""
+    ws = fake / "w"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    for leave, log in ((lambda: (ws / "logs").symlink_to(tmp_path / "nowhere"), ws / "logs" / "agent-codex.jsonl"),
+                       (lambda: (ws / "a").symlink_to(outside), ws / "a" / "b" / "agent-codex.jsonl"),
+                       (lambda: (ws / "f").write_text("x"), ws / "f" / "agent-codex.jsonl")):
+        shutil.rmtree(ws, ignore_errors=True)
+        ws.mkdir()
+        leave()
+        result = make("codex", {"web_search": False, "model": "gpt-x", "home_files": [],
+                                "log": str(log)}).run("go", workspace=ws)
+        assert result.extra["served"] and log.is_file()
+    assert list(outside.iterdir()) == []                    # nothing made outside through the link
+    alias = tmp_path / "ws-alias"                               # a workspace given by a link's name
+    alias.symlink_to(ws)
+    shutil.rmtree(ws)
+    ws.mkdir()
+    (ws / "a").symlink_to(outside)
+    result = make("codex", {"web_search": False, "model": "gpt-x", "home_files": [],
+                            "log": str(alias / "a" / "b" / "agent-codex.jsonl")}).run("go", workspace=alias)
+    assert result.extra["served"] and list(outside.iterdir()) == []
+    extra = tmp_path / "extra"                                  # a writable path given by a link's name, the log
+    extra.mkdir()                                               # below its real one
+    (tmp_path / "extra-alias").symlink_to(extra)
+    (extra / "a").symlink_to(outside)
+    result = make("codex", {"web_search": False, "model": "gpt-x", "home_files": [],
+                            "writable": [str(tmp_path / "extra-alias")],
+                            "log": str(extra / "a" / "b" / "agent-codex.jsonl")}).run("go", workspace=ws)
+    assert result.extra["served"] and list(outside.iterdir()) == []
+
+
+def test_a_home_the_session_replaced_by_a_link_is_not_read_or_written_through(fake, tmp_path, monkeypatch):
+    """A kept home inside a place the session writes (Harness²'s `.codex-home`): a session that replaced the whole
+    home by a link has nothing done through it after the call (the sign-in copy removed, the login taken back)."""
+    user = tmp_path / "user-codex"
+    user.mkdir()
+    (user / "auth.json").write_text(json.dumps({"auth_mode": "chatgpt", "last_refresh": "2026-01-01T00:00:00Z"}))
+    monkeypatch.setenv("CODEX_HOME", str(user))
+    victim = tmp_path / "victim"
+    victim.mkdir()
+    (victim / "auth.json").write_text("{}")
+    (victim / "last_message.txt").write_text("<answer>forged</answer>")
+    ws = fake / "w"
+    ws.mkdir()
+    monkeypatch.setenv("FAKE_LINK_HOME", str(victim))
+    result = make("codex", {"web_search": False, "model": "gpt-x", "home": str(ws / ".codex-home"),
+                            "home_files": ["auth.json"]}).run("go", workspace=ws)
+    assert (victim / "auth.json").read_text() == "{}" and "forged" not in result.reply
+    assert not (ws / ".codex-home").is_symlink()
+    monkeypatch.delenv("FAKE_LINK_HOME")
+    (victim / "home").mkdir()                                     # a link above the home, in a place it writes
+    (victim / "home" / "auth.json").write_text("{}")
+    monkeypatch.setenv("FAKE_LINK_UP", str(victim))
+    result = make("codex", {"web_search": False, "model": "gpt-x", "home": str(ws / "session" / "home"),
+                            "home_files": ["auth.json"]}).run("go", workspace=ws)
+    assert (victim / "home" / "auth.json").read_text() == "{}" and not (ws / "session").is_symlink()
+    monkeypatch.delenv("FAKE_LINK_UP")
+    (tmp_path / "real-home").mkdir()
+    (tmp_path / "home-link").symlink_to(tmp_path / "real-home")   # a home the caller gives by a link stays one
+    make("codex", {"web_search": False, "model": "gpt-x", "home": str(tmp_path / "home-link"),
+                   "home_files": []}).run("go", workspace=ws)
+    assert (tmp_path / "home-link").is_symlink()
 
 
 def test_a_callers_own_output_paths_are_left_as_they_are(fake):

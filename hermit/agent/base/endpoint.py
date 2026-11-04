@@ -272,20 +272,19 @@ def cli_answer(agent: BaseAgent, request: dict, abort: threading.Event | None = 
         own["args"] = [*(agent.settings.get("args") or []), *extra]
     elif system:
         own["append_system_prompt"] = system
-    log_dir = agent.settings.get("log_dir")
+    log_dir, scratch = agent.settings.get("log_dir"), None
     if log_dir:
         own["log"] = Path(log_dir) / f"{time.strftime('%Y%m%dT%H%M%S')}-{secrets.token_hex(4)}-{agent.name}.jsonl"
+    elif not agent.settings.get("log"):                       # no record asked for: a stream removed with the call
+        scratch = Path(tempfile.mkdtemp(prefix=f"hermit-chat-log-{agent.name}-"))
+        own["log"] = scratch / f"agent-{agent.name}.jsonl"
     work = Path(tempfile.mkdtemp(prefix=f"hermit-chat-{agent.name}-"))
-    result = None
     try:
         result = agent.configured(**own).run(prompt, workspace=work)
     finally:
         shutil.rmtree(work, ignore_errors=True)
-        stream = getattr(result, "log", None)
-        if not log_dir and stream is not None and Path(stream).is_file() and \
-                Path(stream).name.startswith(f"agent-{agent.name}-") and \
-                Path(stream).resolve().parent == Path(tempfile.gettempdir()).resolve():
-            Path(stream).unlink(missing_ok=True)              # the fresh home's stream, left in the temporary dir
+        if scratch is not None:                                # also when the call raised
+            shutil.rmtree(scratch, ignore_errors=True)
     if result.extra.get("cancelled"):
         return _DROP
     if not result.extra.get("served") or not result.reply.strip():
