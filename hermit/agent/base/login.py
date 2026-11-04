@@ -19,6 +19,7 @@ from pathlib import Path
 import random
 import re
 import shutil
+import stat
 import time
 
 FILE = "auth.json"
@@ -49,6 +50,8 @@ def _newer(candidate: Path, than: Path) -> bool:
 
 def _replace(src: Path, dst: Path) -> None:
     tmp = dst.with_suffix(".tmp")
+    if os.path.lexists(tmp):                        # a link a session left beside the login: never written through
+        shutil.rmtree(tmp) if os.path.isdir(tmp) and not os.path.islink(tmp) else os.unlink(tmp)
     shutil.copy2(src, tmp)
     os.chmod(tmp, 0o600)
     os.replace(tmp, dst)
@@ -74,17 +77,71 @@ def master(root: Path | None = None) -> Path:
 
 def keep_refreshed(root: Path, home: Path) -> None:
     """The session's login, if Codex refreshed it (a later last_refresh), becomes the shared copy."""
-    take_back(root, Path(home) / FILE)
+    take_back(root, Path(home) / FILE, within=Path(home))
 
 
-def take_back(root: Path, path: Path) -> None:
-    """A login file a session left: the shared copy if it is a later refresh of it."""
+def _plain(path: Path, home: Path | None = None) -> bool:
+    """Whether `path` is a regular file reached through no link below `home`: a session can write its home, and a
+    link it leaves there (to another login, to any file) is never read as the session's own."""
+    path = Path(path)
+    try:
+        if not stat.S_ISREG(os.lstat(path).st_mode):       # a link, a pipe, a directory
+            return False
+    except OSError:
+        return False
+    if home is not None:
+        try:
+            rel = path.relative_to(home)
+        except ValueError:
+            return False
+        current = Path(home)
+        for part in rel.parts[:-1]:
+            current = current / part
+            if current.is_symlink():
+                return False
+    return True
+
+
+def remove(path: Path, within: Path) -> None:
+    """Remove a login copy at `path` below `within` (a directory a session could write): a link on the way (a
+    directory, or the file) is removed itself, never followed, so nothing outside `within` is deleted."""
+    path, within = Path(path), Path(within)
+    try:
+        rel = path.relative_to(within)
+    except ValueError:
+        return
+    current = within
+    for part in rel.parts:
+        current = current / part
+        if current.is_symlink():
+            current.unlink()
+            return
+        if not current.exists():
+            return
+    if _plain(path, within):
+        path.unlink()
+
+
+def _account(path: Path):
+    """The ChatGPT account a login file is for (`tokens.account_id`), or None."""
+    try:
+        tokens = json.loads(Path(path).read_text()).get("tokens")
+        return tokens.get("account_id") if isinstance(tokens, dict) else None
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
+def take_back(root: Path, path: Path, within: Path | None = None) -> None:
+    """A login file a session left: the shared copy if it is a later refresh of it (a regular file, never one read
+    through a link: none below `within`, the directory the caller trusts, and not the file itself) for the account
+    the copy names, when it names one (a session could write another account's login there)."""
     master = Path(root) / "login" / FILE
-    if not Path(path).is_file() or not master.is_file():
+    if not _plain(path, Path(within) if within is not None else Path(path).parent) or not master.is_file():
         return
     with open(master.parent / ".lock", "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        if _newer(path, master):
+        account = _account(master)                  # a copy that names its account keeps to it
+        if _newer(path, master) and (account is None or _account(path) == account):
             _replace(path, master)
 
 
@@ -232,7 +289,8 @@ def slot(plan: Path | str | None = None, cancel=None, log=None, deadline: float 
 
 def usage_of(home: Path) -> dict | None:
     """The plan's usage the latest session log under a Codex home reports (Codex's rate_limits), or None."""
-    logs = sorted(Path(home).glob("sessions/**/*.jsonl"), key=lambda p: p.stat().st_mtime)
+    logs = sorted((p for p in Path(home).glob("sessions/**/*.jsonl") if _plain(p, Path(home))),
+                  key=lambda p: p.stat().st_mtime)
     for log in reversed(logs):
         last = None
         for line in log.read_text(errors="replace").splitlines():

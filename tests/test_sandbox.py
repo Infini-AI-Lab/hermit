@@ -114,6 +114,69 @@ def test_a_venv_granted_for_one_call_brings_its_base_installation(tmp_path, monk
     assert str(venv.resolve()) in ro and str(base.resolve()) in ro
 
 
+def test_a_pyvenv_cfg_in_a_writable_place_shows_nothing_new(tmp_path, monkeypatch):
+    """A session writes its workspace: a pyvenv.cfg it leaves there (or in a .venv) names no installation the next
+    call is shown; a venv made inside is made from an installation the sandbox shows already."""
+    fake_bwrap(monkeypatch)
+    outside = tmp_path / "outside"
+    (outside / "bin").mkdir(parents=True)
+    ws = tmp_path / "ws"
+    (ws / ".venv").mkdir(parents=True)
+    for cfg in (ws / "pyvenv.cfg", ws / ".venv" / "pyvenv.cfg"):
+        cfg.write_text(f"home = {outside / 'bin'}\nversion = 3.12\n")
+    for box, kw in ((Sandbox(network="open", writable=[ws]), {}), (Sandbox(network="open"), {"writable": [ws]}),
+                    (Sandbox(network="open", read=[ws], writable=[ws]), {}),     # granted both ways
+                    (Sandbox(network="open"), {"readable": [ws], "writable": [ws]}),
+                    (Sandbox(network="open", read=[ws]), {"writable": [ws]})):        # the call grants it writable
+        args, _ = box.wrap(["true"], **kw)
+        assert str(outside.resolve()) not in binds(args, "--ro-bind") + binds(args, "--bind")
+
+
+def test_a_hiding_sandbox_reads_no_pyvenv_cfg_in_a_place_the_call_makes_writable(tmp_path, monkeypatch):
+    """The hiding wrapper looks at the places shown too: not at a pyvenv.cfg the call's writable place holds, which a
+    session could have written (here not even UTF-8)."""
+    from hermit.sandbox import HidingSandbox
+    fake_bwrap(monkeypatch)
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    (ws / "pyvenv.cfg").write_bytes(b"home = \xff\xfe\n")
+    args, _ = HidingSandbox(Sandbox(network="open", read=[ws]), [tmp_path / "hidden"]).wrap(["true"], writable=[ws])
+    assert str(ws) in binds(args, "--bind")
+
+
+def test_a_mask_wins_over_a_place_equal_to_it_bound_back(tmp_path, monkeypatch):
+    """A readable file that is also masked, below a hidden directory: bound back, then covered again."""
+    from hermit.sandbox import HidingSandbox
+    fake_bwrap(monkeypatch)
+    secret = tmp_path / "hidden" / "secret.txt"
+    secret.parent.mkdir()
+    secret.write_text("x")
+    inner = Sandbox(network="isolated", readable=[secret], masked=[secret])
+    args, _ = HidingSandbox(inner, [tmp_path / "hidden"]).wrap(["true"])
+    args = args[:args.index("--")]
+    bound = max(i for i, a in enumerate(args) if a == str(secret) and args[i - 2] == "--ro-bind"
+                and args[i - 1] == str(secret))
+    assert str(secret) in args[bound + 1:]
+
+
+def test_a_mask_stays_under_a_bound_back_places_link_name(tmp_path, monkeypatch):
+    """A writable place reached through a link, both names below hidden directories: bound back under each name,
+    the sandbox's mask (named by the real path) is covered again under each."""
+    from hermit.sandbox import HidingSandbox
+    fake_bwrap(monkeypatch)
+    real = tmp_path / "hidden" / "data"
+    (real / "secret").mkdir(parents=True)
+    alias = tmp_path / "links" / "alias"
+    alias.parent.mkdir()
+    alias.symlink_to(real)
+    inner = Sandbox(network="isolated", writable=[alias], masked=[real / "secret"])
+    args, _ = HidingSandbox(inner, [tmp_path / "hidden", tmp_path / "links"]).wrap(["true"])
+    args = args[:args.index("--")]
+    for name in (alias, real):
+        bound = max(i for i, a in enumerate(args) if a == str(name) and args[i - 2] == "--bind")
+        assert str(name / "secret") in args[bound:]
+
+
 def test_older_network_values():
     assert network_mode("restricted") == ("isolated", True)
     assert network_mode("none") == ("isolated", False)

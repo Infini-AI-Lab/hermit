@@ -207,6 +207,47 @@ def test_codex_sub_agent_calls_are_steps():
     assert json.loads(step.text)["prompt"] == "verify 507" and "pending" in step.output
 
 
+def test_codex_failed_turns_searches_to_do_lists_and_tool_results_are_steps():
+    from hermit.agent.base.trajectory import codex_steps, text
+    steps = codex_steps([
+        {"type": "item.completed", "item": {"type": "mcp_tool_call", "server": "evolver_tools", "tool": "check_spec",
+                                            "arguments": {"path": "adapter"}, "result": {"passed": False},
+                                            "error": None, "status": "completed"}},
+        {"type": "item.completed", "item": {"type": "web_search", "query": "treasury bulletin 1944"}},
+        {"type": "item.completed", "item": {"type": "todo_list", "items": [{"text": "find the table",
+                                                                            "completed": True}]}},
+        {"type": "turn.failed", "error": {"message": "stream disconnected before completion"}},
+    ])
+    call, search, todo, failed = steps
+    assert json.loads(call.text)["arguments"] == {"path": "adapter"} and json.loads(call.output) == {"passed": False}
+    assert json.loads(search.text) == {"tool": "web_search", "query": "treasury bulletin 1944"}
+    assert json.loads(todo.text)["items"][0]["text"] == "find the table"
+    assert failed.kind == "error" and "stream disconnected" in failed.text
+    assert "[error] stream disconnected" in text(steps)
+    twice = codex_steps([{"type": "error", "message": "quota"}, {"type": "turn.failed", "error": {"message": "quota"}}])
+    assert [s.text for s in twice] == ["quota"]                      # Codex reports a failed turn's error twice
+    long_call = codex_steps([{"type": "item.completed", "item": {
+        "type": "mcp_tool_call", "server": "evolver_tools", "tool": "check_spec", "status": "completed",
+        "arguments": {"path": "x" * 2000}}}])
+    assert '"tool": "check_spec"' in text(long_call)                  # a long argument does not push the tool out
+
+
+def test_a_logs_stream_under_another_name_is_found(tmp_path):
+    """A Harbor trial keeps Codex's events as agent/codex.txt; a file named otherwise is read by its events."""
+    from hermit.agent.base.trajectory import log_steps
+    trial = tmp_path / "trial"
+    (trial / "agent").mkdir(parents=True)
+    events = [{"type": "thread.started", "thread_id": "t"},
+              {"type": "item.completed", "item": {"type": "agent_message", "text": "<answer>7</answer>"}}]
+    (trial / "agent" / "codex.txt").write_text("".join(json.dumps(e) + "\n" for e in events))
+    assert [s.text for s in log_steps(trial)] == ["<answer>7</answer>"]
+    assert [s.text for s in log_steps(trial / "agent" / "codex.txt")] == ["<answer>7</answer>"]
+    (tmp_path / "notes.txt").write_text("no events here\n")
+    assert log_steps(tmp_path / "notes.txt") is None and log_steps(tmp_path / "missing") is None
+    (trial / "agent" / "codex.txt").write_text(json.dumps({"type": "error", "message": "stream disconnected"}) + "\n")
+    assert [(s.kind, s.text) for s in log_steps(trial)] == [("error", "stream disconnected")]   # by its name
+
+
 def test_the_chat_client_waits_as_told_between_retries(monkeypatch):
     import urllib.error
     from hermit.agent.model import llm
@@ -401,6 +442,37 @@ def test_the_chat_endpoint_passes_errors_on_as_the_upstream_gave_them():
         assert err.value.response.headers.get("retry-after") == "7"
         with pytest.raises(openai.APIConnectionError):                # no answer, as from the upstream itself
             sdk.chat.completions.create(model="cut", messages=messages)
+    up.server.shutdown()
+
+
+def test_the_chat_endpoint_says_it_closes_each_connection():
+    """The endpoint closes a connection after its reply; the reply says so, or an HTTP/1.1 client keeps the
+    connection for its next request and finds it closed under it (a dropped connection, not the answer)."""
+    import http.client
+    from hermit.agent.base.endpoint import ChatEndpoint
+    from hermit.agent.model.llm import ChatClient
+
+    def reply(handler, body, upstream):
+        if body["messages"][-1]["content"] == "bad":
+            _answer(handler, 400, b'{"error": {"message": "no"}}')
+        else:
+            _answer(handler, 200, json.dumps({"id": "c", "object": "chat.completion", "model": "x", "choices": [
+                {"index": 0, "message": {"role": "assistant", "content": "hi"}, "finish_reason": "stop"}]}).encode(),
+                {"Content-Type": "application/json"})
+    up = _Upstream(reply)
+    with ChatEndpoint(make("direct", {}, ChatClient(up.url, "x", max_retries=0))) as endpoint:
+        host, port = "127.0.0.1", endpoint.port
+        token = endpoint.url.rsplit("/", 1)[-1]
+        for content, status in (("bad", 400), ("q", 200)):           # an error, and an answer (streamed: SSE)
+            for stream in (False, True):
+                conn = http.client.HTTPConnection(host, port, timeout=10)
+                conn.request("POST", f"/{token}/v1/chat/completions",
+                             json.dumps({"model": "m", "messages": [{"role": "user", "content": content}],
+                                         "stream": stream}), {"Content-Type": "application/json"})
+                response = conn.getresponse()
+                response.read()
+                assert response.status == status and response.getheader("Connection") == "close"
+                conn.close()
     up.server.shutdown()
 
 

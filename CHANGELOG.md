@@ -187,6 +187,10 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Changed
 
+- `run_agent`'s results also say how a session ended when the pipeline reports it (`exit_code`, `timed_out`: the
+  Codex and Claude Code agents do).
+- The `codex` and `claude` Base Agents take `plan_rerun: false`: a session a ChatGPT plan refused before it finished
+  a turn is returned (`extra["refused"]`) instead of run again in the same workspace.
 - Hermit requires Python 3.12+ (was 3.11+): the upstream Harness² package of the `harness2` group supports Python
   3.12 and 3.13 only, so `--group all` failed on Python 3.11.
 - The optional Evolvers' dependencies are dependency groups in `pyproject.toml` (`gepa`, `skillopt`, `harness2`,
@@ -206,6 +210,44 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Fixed
 
+- The chat endpoint closed each connection after its reply without saying so (`Connection: close`); an HTTP/1.1
+  client kept the connection for its next request and got a dropped connection instead of the answer, now and then
+  (`tests/test_base_agents.py`'s error test failed so, about one run in three under load).
+- The Base Agent read and wrote a session's home, and its event stream, through what a session could have left
+  there: after a session, a linked `auth.json` with a later refresh became the machine's shared login copy, a linked
+  `usage/` received the usage ledger (a pipe there blocked the call), a linked last-message file was read as the
+  reply, and a linked stream as the session's events; before the next session in a kept home, its config, the
+  sign-in copy and the login's temporary copy were written through links left there; a rollout's login copies were
+  taken back and deleted through linked directories (`isolate.py`). None of these follows a link now, a usage
+  ledger the session rewrote (malformed, or over what Codex reports) is not taken for the thread's earlier total,
+  and a login for another ChatGPT account than the shared copy names is never taken back. The stream is read back
+  only from the file the Base Agent opened for it, through no link a session left on the way; the caller's own paths
+  (`log`, `stderr_log`: a device, a pipe, a link) are opened as they are. Harness²'s channel reads its session's stream and stderr file the same way.
+- `unavailable` and a ChatGPT plan's refusal were read from the whole stream, so a session whose own work quoted an
+  outage or a usage limit (a log it searched) was retried as the provider's failure or held for the plan. They are
+  read from the CLI's own messages and error events now; `served` is read from the events, not the text, and the
+  result says `extra["refused"]` (never for a session that was served).
+- A hidden path (`Limits.hidden`, `AgentEvolver`'s `hide`) was covered under its real name only, so a place the
+  sandbox shows under a link's name (a workspace reached through a link, a venv under a linked cache) left it
+  visible there; and hiding the framework's `examples/` covered a run kept below it, workspace and all. A hidden path
+  is now covered under every name the sandbox shows it by, and the places the session is given (its writable and
+  readable paths, the task description) are bound back on top of a covered directory, shallowest first and under
+  each of their names, with what is hidden below them (a hidden path, the sandbox's masks) covered again after them
+  (`hermit/sandbox.py`, `HidingSandbox`). A place the call gives (its `readable`, kept visible past `hidden` as
+  documented, and its writable paths) or keeps stays visible when it is also hidden; one only the sandbox gives
+  stays hidden. A path reached through a link inside a place the session can write has what it leads to covered
+  only inside a place the session is given, never a place itself, the system, the interpreter or the sandbox's own
+  files: a session that can write where a method hides every entry cannot choose what the next call loses or stop
+  it from starting.
+- The sandbox read `pyvenv.cfg` in the places a session can write and showed the installation its `home` named in
+  the session's next call: a session could have any directory of the host shown read-only. Only places shown
+  read-only are read now (a venv made inside the sandbox is made from an installation it shows already).
+- The Trainer dropped the usage an Evolver call reported when the hard budget stopped it; it is counted.
+- Codex's trajectory left out failed turns, web searches, to-do lists and an MCP call's arguments and result (the
+  result is the step's `output`), and a log directory whose stream had another name (a Harbor trial's
+  `agent/codex.txt`) gave no steps.
+- A chat call through `llm: {cli: ...}` left its Codex event stream as a file in the temporary directory; the
+  Trainer keeps it under the run's `llm_sessions/`, and a call without a log directory removes it.
 - A CLI call without a `home` setting gets a fresh home under `$HERMIT_HOMES` (default `~/.cache/hermit/homes`), not
   in the temporary directory: Codex makes no helper programs for its sandbox in a home there, and no command of such
   a session ran.

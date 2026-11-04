@@ -51,6 +51,15 @@ class Toy(Evolver):
             pass
         elif mode == "stop":
             return StepResult("stop", "converged")
+        elif mode == "spend":                       # spends, and is stopped by the Trainer's budget
+            from hermit.agent.evolver.base import Usage
+            ctx.cancel.wait(30)
+            return StepResult("failed", "stopped", usage=[Usage(model="m", input_tokens=1234, output_tokens=0,
+                                                                calls=1, cost_usd=0.5)])
+        elif mode == "probe":                        # runs a training task through the run_agent tool
+            import json as _json
+            out = ctx.tools["run_agent"](task_ids=["t0"])
+            (ctx.workspace.output / "probe.json").write_text(_json.dumps(out["results"][0], default=str))
         (ctx.workspace.state / "seen.txt").write_text(str(ctx.progress.step))
         (ctx.workspace.output / "report.md").write_text(f"step {ctx.progress.step}: {mode}\\n")
         return StepResult("done", f"{mode} at step {ctx.progress.step}")
@@ -164,6 +173,23 @@ def test_budget_stops_the_run(tmp_path):
     summary = Trainer(cfg, log=lambda *_: None).train()
     assert summary["stop_reason"].startswith("hard budget")
     assert summary["spending"]["usd"]["rollout"] >= 0.05
+
+
+def test_a_budget_stop_keeps_what_the_stopped_call_spent(tmp_path):
+    cfg = load(make_task(tmp_path, evolver={"name": "toy", "params": {"mode": "spend"}}), "trainer.budget.usd=null",
+               "trainer.budget.hours=0.003")   # 10.8 s: past the preparation
+    summary = Trainer(cfg, log=lambda *_: None).train()
+    assert summary["stop_reason"].startswith("hard budget")
+    assert summary["spending"]["tokens"]["evolver"] == 1234 and summary["spending"]["usd"]["evolver"] == 0.5
+
+
+def test_run_agent_says_how_a_session_ended_when_the_pipeline_reports_it(tmp_path):
+    path = make_task(tmp_path, evolver={"name": "toy", "params": {"mode": "probe"}})
+    (tmp_path / "pipeline.py").write_text(PIPELINE.replace("tokens=100)", "tokens=100, extra={'exit_code': 1, "
+                                                                         "'timed_out': False, 'workspace': '/w'})"))
+    Trainer(load(path, "trainer.epochs=1"), log=lambda *_: None).train()
+    probe = json.loads((tmp_path / "runs/toy-run/step_0001/output/probe.json").read_text())
+    assert probe["exit_code"] == 1 and probe["timed_out"] is False and "workspace" not in probe
 
 
 def test_needs_are_enforced(tmp_path):

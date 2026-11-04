@@ -41,6 +41,10 @@ Settings (given once; `configured(...)` for a call's own):
   stderr_log        the CLI's stderr in a file of its own (default: in the event stream, after stdout's lines)
   writable          more paths the session may write inside the run's sandbox (besides its home)
   env_drop          variables of this process's environment the session does not get
+  log_dir           a chat endpoint over this agent (`llm: {cli: ...}`) keeps each call's event stream here
+  plan_rerun        on a ChatGPT login, a session the plan refused before it finished a turn is run again in the same
+                    workspace once the plan allows (default true); false: it is returned (`extra["refused"]`), for a
+                    caller that would rather start over from its own files
   Claude Code only: output_format (stream-json, or json: one result object), allowed_tools (its --tools),
   persist_session (false: --no-session-persistence), append_system_prompt, effort, permission_mode
 
@@ -59,6 +63,7 @@ from pathlib import Path
 import re
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -94,6 +99,90 @@ def web_search_args(backend: str, enabled: bool) -> list[str]:
     return [] if enabled else ["--disallowedTools", "WebSearch,WebFetch"]
 
 
+def _regular(path) -> bool:
+    """Whether `path` is a regular file (never a link, a FIFO or a directory: lstat, not stat)."""
+    try:
+        return stat.S_ISREG(os.lstat(path).st_mode)
+    except OSError:
+        return False
+
+
+def _clear(path) -> None:
+    """Before the Base Agent writes `path` in a place a session could write (its home, its log's directory):
+    anything there but a regular file (a link, a FIFO, a directory) is removed, so the write lands in a file of its
+    own and never through a link or into a pipe that blocks."""
+    if os.path.lexists(path) and not _regular(path):
+        if os.path.isdir(path) and not os.path.islink(path):
+            shutil.rmtree(path)
+        else:
+            os.unlink(path)
+
+
+def _in_places(path, places) -> bool:
+    """Whether `path` lies in one of `places` (under its given or its real name)."""
+    given = os.path.abspath(str(path))
+    names = {given, os.path.join(os.path.realpath(os.path.dirname(given)), os.path.basename(given))}
+    roots = {n for p in places for n in (os.path.abspath(str(p)), os.path.realpath(str(p)))}
+    return any(n == r or n.startswith(r.rstrip("/") + "/") for n in names for r in roots)
+
+
+def _session_output(path, places) -> None:
+    """Before this process opens `path` for a session's output (its event stream, its stderr). In a place the session
+    can write (`places`: its home, its workspace, the writable paths) a link on the way below the place is removed
+    and real directories made, and anything at the path but a regular file is removed (`_clear`): a link would be
+    written through, a pipe would block, a directory would stop the write. A path elsewhere is the caller's own (a
+    log file, `/dev/stderr`, a collector's pipe) and is opened as it is."""
+    given = os.path.abspath(str(path))
+    roots = [os.path.realpath(str(p)) for p in places]
+    parts = Path(given).parts
+    # The first directory on the way, from the top, that lies in a place (under whatever name the path spells it):
+    # nothing above it is the session's, so resolving it follows no link the session left; below it, nothing is
+    # followed.
+    for i in range(1, len(parts)):
+        real = os.path.realpath(os.path.join(*parts[:i]))
+        if any(real == r or real.startswith(r.rstrip("/") + "/") for r in roots):
+            current = os.path.join(*parts[:i])
+            for part in parts[i:-1]:
+                current = os.path.join(current, part)
+                if os.path.islink(current) or (os.path.lexists(current) and not os.path.isdir(current)):
+                    os.unlink(current)                  # never followed: the session could have left it
+                os.makedirs(current, exist_ok=True)
+            break
+    if _in_places(path, places):
+        _clear(path)
+
+
+def _identity(path):
+    """The regular file at `path` (followed: a caller's path may be a link), as (device, inode), or None."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return (st.st_dev, st.st_ino) if stat.S_ISREG(st.st_mode) else None
+
+
+def _restore_home(home: Path) -> None:
+    """`home` (resolved before the call, so no link on its way) a real directory again after the call: a link that
+    appeared on the way (the session could write its home, or a place above it) is removed, never followed."""
+    if os.path.realpath(home) == str(home) and os.path.isdir(home):
+        return
+    current = Path(home.anchor)
+    for part in home.parts[1:]:
+        current = current / part
+        if os.path.islink(current) or (os.path.lexists(current) and not os.path.isdir(current)):
+            os.unlink(current)
+        if not os.path.lexists(current):
+            current.mkdir()
+
+
+def _real_dir(path: Path) -> Path:
+    """`path` as a real directory: a link or a file left there is removed first."""
+    if os.path.islink(path) or (os.path.lexists(path) and not os.path.isdir(path)):
+        os.unlink(path)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def write_home(home: Path, settings: dict, roles: Sequence[dict] = (), tools_url: str | None = None,
                tools_name: str = "hermit_tools") -> None:
     """Codex's home config.toml: no shell snapshot, the session's commands without network and with only the
@@ -114,24 +203,27 @@ def write_home(home: Path, settings: dict, roles: Sequence[dict] = (), tools_url
     if tools_url:
         lines += ["", f"[mcp_servers.{tools_name}]", f"url = {json.dumps(tools_url)}",
                   'default_tools_approval_mode = "approve"', "tool_timeout_sec = 1800"]
-    (home / "agents").mkdir(parents=True, exist_ok=True)
+    _real_dir(home / "agents")
     for role in roles:
         spec = "\n".join(f"{k} = {json.dumps(v, ensure_ascii=False)}" for k, v in
                          {"name": role["name"], "description": role["description"],
                           "developer_instructions": role["instructions"]}.items()) + "\n"
         tomllib.loads(spec)
+        _clear(home / "agents" / f"{role['name']}.toml")
         (home / "agents" / f"{role['name']}.toml").write_text(spec, encoding="utf-8")
         lines += ["", f"[agents.{role['name']}]", f"description = {json.dumps(role['description'], ensure_ascii=False)}",
                   f"config_file = {json.dumps('agents/' + role['name'] + '.toml')}"]
     text = "\n".join(lines) + "\n"
     tomllib.loads(text)
+    _clear(home / "config.toml")
     (home / "config.toml").write_text(text, encoding="utf-8")
 
 
 def last_message(backend: str, log: Path, last: Path | None = None) -> str:
-    """The session's last message: Codex's `-o` file, else the last message in its stream; Claude Code's result."""
+    """The session's last message: Codex's `-o` file (never read through a link the session left), else the last
+    message in its stream; Claude Code's result."""
     if backend == "codex":
-        if last is not None and last.is_file() and last.read_text(errors="replace").strip():
+        if last is not None and not last.is_symlink() and last.is_file() and last.read_text(errors="replace").strip():
             return last.read_text(errors="replace")
         replies = [s.text for s in codex_steps(events(log)) if s.kind == "message"]
         return replies[-1] if replies else ""
@@ -142,10 +234,51 @@ def last_message(backend: str, log: Path, last: Path | None = None) -> str:
     return text
 
 
+def _objects(raw: str):
+    """(the JSON objects of a stream, the lines that are none): a CLI's events, and its own messages beside them."""
+    objects, other = [], []
+    for line in raw.splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            event = None
+        if isinstance(event, dict):
+            objects.append(event)
+        elif line.strip():
+            other.append(line)
+    return objects, other
+
+
 def served(backend: str, raw: str) -> bool:
-    """Whether the provider served the session: it finished a turn."""
-    marker = '"turn.completed"' if backend == "codex" else '"type":"result"'
-    return marker in raw.replace(" ", "")
+    """Whether the provider served the session: it finished a turn (an event of that type, not the words)."""
+    kind = "turn.completed" if backend == "codex" else "result"
+    return any(e.get("type") == kind for e in _objects(raw)[0])
+
+
+def notices(backend: str, raw: str) -> str:
+    """What the CLI itself reported, apart from the session's own work: its lines that are no event (its stderr),
+    and its error events (Codex: `error`, `turn.failed`, an `error` item; Claude Code: a failed `result`). A
+    message, a command's output or a file the session wrote is not among them, so a session that read the words of
+    an outage or of a usage limit (a log it grepped) is not taken for one that met it."""
+    objects, other = _objects(raw)
+    found = list(other)
+    for e in objects:
+        kind, item = e.get("type"), e.get("item") if isinstance(e.get("item"), dict) else {}
+        if backend == "codex":
+            if kind == "error":
+                found.append(str(e.get("message") or ""))
+            elif kind == "turn.failed":
+                error = e.get("error")
+                found.append(str(error.get("message") if isinstance(error, dict) else error or ""))
+            elif kind == "item.completed" and item.get("type") == "error":
+                found.append(str(item.get("message") or ""))
+        elif kind == "result" and (e.get("is_error") or str(e.get("subtype") or "").startswith("error")):
+            found.append(str(e.get("result") or e.get("subtype") or ""))
+            errors = e.get("errors")                     # an error result's own diagnostics
+            found += [str(x) for x in errors if x] if isinstance(errors, list) else [str(errors)] if errors else []
+        elif kind == "error":
+            found.append(json.dumps(e.get("error") or e, default=str))
+    return "\n".join(found)
 
 
 ARG_MAX = 120_000            # bytes of one command-line argument to stay under (Linux allows 128 KiB per argument)
@@ -331,6 +464,7 @@ class CliAgent(BaseAgent):
         for name in self.home_files if s.get("home_files") is None else s["home_files"]:
             source = _user_home(self.backend) / name
             if source.is_file():
+                _clear(home / name)                     # a link the last session left would take the copy elsewhere
                 shutil.copy2(source, home / name)
                 os.chmod(home / name, 0o600)
                 copied.append(home / name)
@@ -366,16 +500,20 @@ class CliAgent(BaseAgent):
                     continue
                 result = self._session(prompt, workspace=workspace, tools=tools, limits=limits, session=session,
                                        roles=roles)
-            if result.extra.get("served") or not codex_login.refused(result.extra.get("output_tail", "")):
+            if result.extra.get("served") or not result.extra.get("refused"):
                 return result
             codex_login.hold(plan)                  # never ran: no answer; every session waits for the window
+            if str(s.get("plan_rerun", True)).strip().lower() in ("false", "0", "no", "off"):
+                say("a session was refused for the plan's usage limit; it is returned (plan_rerun: false)")
+                return result
             say("a session was refused for the plan's usage limit; it runs again once the plan allows")
 
     def _not_run(self, why: str, max_s) -> Result:
         """A session that never started: its caller stopped it, or the plan held it back past `plan_max_wait_s` (a
         provider that could not serve, for the caller to retry or report; no answer)."""
         tail = "" if why == "cancelled" else f"hermit: the plan held the session back for {max_s} s"
-        return Result(reply="", exit_code=-1, extra={"served": False, "unavailable": why == "timeout", "started": False,
+        return Result(reply="", exit_code=-1, extra={"served": False, "unavailable": why == "timeout", "refused": False,
+                                                     "started": False,
                                                      "cancelled": why == "cancelled", "isolation":
                                                      self.settings.get("isolation") or "none", "wall_s": 0.0,
                                                      "output_tail": tail})
@@ -389,6 +527,7 @@ class CliAgent(BaseAgent):
         if not isinstance(self.settings.get("web_search"), bool):
             raise ValueError(f"{self.name}: set web_search, true or false")
         s, limits = self.settings, limits or Limits()
+        given_workspace = Path(workspace).absolute()            # the caller's spelling: a log may lie below it
         workspace = Path(workspace).resolve()
         isolation, conf, sandbox = self._isolation(workspace, limits)
         home, fresh = self._home()
@@ -398,8 +537,17 @@ class CliAgent(BaseAgent):
             stream = Path(tempfile.mkstemp(prefix=f"agent-{self.backend}-", suffix=".jsonl")[1])
         else:
             stream = home / f"agent-{self.backend}.jsonl"
-        stream.parent.mkdir(parents=True, exist_ok=True)
+        places = (home, workspace, given_workspace, *(s.get("writable") or ()),        # the session's
+                  *getattr(sandbox, "writable", ()))
+        _session_output(stream, places)                 # written by this process: never through a link left there
+        stream.parent.mkdir(parents=True, exist_ok=True)   # after: a link left on the way is gone, not followed
+        if s.get("stderr_log"):
+            _session_output(s["stderr_log"], places)
+        if not os.path.exists(stream):
+            stream.touch()
+        wrote = _identity(stream)                       # the file the session's stream goes to
         last_file = home / "last_message.txt"
+        _clear(last_file)
         last_file.unlink(missing_ok=True)
         timeout = limits.timeout_s or s.get("timeout_s", 3600)       # None: no clock (the caller cancels)
         timeout = float(timeout) if timeout else None
@@ -457,6 +605,7 @@ class CliAgent(BaseAgent):
         finally:
             if server is not None:
                 server.close()
+            _restore_home(home)                         # a home the session replaced: never read or written through
             if s.get("login") == "chatgpt":
                 codex_login.keep_refreshed(Path(s.get("login_root") or codex_login.ROOT), home)
                 codex_login.note_usage(codex_login.plan_dir(s.get("plan_dir")), home)
@@ -464,19 +613,24 @@ class CliAgent(BaseAgent):
                 path.unlink(missing_ok=True)                              # the sign-in does not outlive the call
             if failed and fresh:
                 shutil.rmtree(home, ignore_errors=True)
-        raw = stream.read_text(encoding="utf-8", errors="replace") if stream.is_file() else ""
-        reply = last_message(self.backend, stream, last_file)
-        handle, usage = parse_log(stream, self.backend, (s.get("binding") or {}).get("ref") or s.get("model")
+        # The stream is read back only from the file this process wrote: a session that could write its directory
+        # and put a link (or a pipe, or another file) there has left nothing of it to read.
+        readable = stream if wrote is not None and _identity(stream) == wrote else Path(os.devnull)
+        raw = readable.read_text(encoding="utf-8", errors="replace") if readable is stream else ""
+        notes = notices(self.backend, raw)
+        reply = last_message(self.backend, readable, last_file)
+        handle, usage = parse_log(readable, self.backend, (s.get("binding") or {}).get("ref") or s.get("model")
                                   or self.backend)
         if self.backend == "codex" and handle and usage:
             usage = [_this_call(home, str(handle), usage[0], resumed=bool(session))]
         price_usage(usage, s)
-        steps = (codex_steps if self.backend == "codex" else claude_steps)(events(stream))
+        steps = (codex_steps if self.backend == "codex" else claude_steps)(events(readable))
         if fresh:
             shutil.rmtree(home, ignore_errors=True)
         return Result(reply=reply, trajectory=steps, usage=usage, session=handle, exit_code=code,
                       timed_out=timed_out, log=stream,
-                      extra={"served": served(self.backend, raw), "unavailable": bool(UNAVAILABLE.search(raw)),
+                      extra={"served": served(self.backend, raw), "unavailable": bool(UNAVAILABLE.search(notes)),
+                             "refused": codex_login.refused(notes) and not served(self.backend, raw),
                              "started": any(line.lstrip().startswith("{") for line in raw.splitlines()),
                              "cancelled": cancelled, "isolation": isolation, "wall_s": round(wall_s, 1),
                              "output_tail": raw[-2000:]})
@@ -532,9 +686,20 @@ def _this_call(home: Path, handle: str, reported, resumed: bool):
     from hermit.agent.model.usage import Usage
     fields = ("input_tokens", "cached_input_tokens", "output_tokens")
     ledger = home / "usage" / f"{re.sub(r'[^A-Za-z0-9_.-]', '_', handle)}.json"
-    before = json.loads(ledger.read_text()) if resumed and ledger.is_file() else {}
-    ledger.parent.mkdir(parents=True, exist_ok=True)
-    ledger.write_text(json.dumps({f: getattr(reported, f) for f in fields}))
+    # The session could write its home: a link it left there (the ledger's directory or the ledger) is removed,
+    # never followed, and the ledger is written without following one.
+    _real_dir(ledger.parent)
+    try:
+        before = json.loads(ledger.read_text()) if resumed and _regular(ledger) else {}
+        before = {f: int(before.get(f, 0)) for f in fields} if isinstance(before, dict) else {}
+    except (OSError, ValueError, TypeError, OverflowError):     # OverflowError: a total of 1e1000
+        before = {}
+    if any(before.get(f, 0) > getattr(reported, f) or before.get(f, 0) < 0 for f in fields):
+        before = {}                                 # no earlier total of this thread: the session wrote it
+    _clear(ledger)                                  # a link or a pipe left there: removed, never written through
+    fd = os.open(ledger, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(json.dumps({f_: getattr(reported, f_) for f_ in fields}))
     return Usage(reported.model, **{f: max(0, getattr(reported, f) - int(before.get(f, 0))) for f in fields},
                  calls=reported.calls, cost_usd=None if before else reported.cost_usd)
 

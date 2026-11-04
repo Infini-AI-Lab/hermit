@@ -19,7 +19,8 @@ AgentEvolver params:
   tools: the only Trainer tools the agent may use (for example [check_spec]); null: all of them. With a list, the
          task message names no endpoint URL either
   hide: paths the agent must not read although the sandbox shows their parents, besides the framework's examples,
-        tests, docs and .git; "module:<name>" hides an installed package. null: nothing is hidden
+        tests, docs and .git; "module:<name>" hides an installed package. null: nothing is hidden. The run's own
+        places (its workspace areas, the task information) stay visible below a hidden directory
   web_search: the CLI's web search, true or false
 This is Layer 3 over the `codex` or `claude` Base Agent (docs/framework/agent-layers.md): it fills the prompt, picks
 the Trainer's tools and the paths to hide, and resumes the last session; the Base Agent runs the CLI in the run's

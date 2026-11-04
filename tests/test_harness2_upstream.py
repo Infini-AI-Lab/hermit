@@ -322,3 +322,13 @@ def test_a_session_on_codex_is_one_call_of_the_codex_base_agent(tmp_path, monkey
     seen = json.loads((tmp_path / "seen.json").read_text())
     assert 'model_reasoning_effort="xhigh"' in seen["args"] and seen["stdin"].startswith("# SYSTEM INSTRUCTIONS")
     assert max(len(a) for a in seen["args"]) < 1000
+
+
+def test_the_channel_reads_its_own_files_only_as_regular_files(tmp_path):
+    """What the session left at its stream's or stderr's path: a directory, a link or a pipe reads as nothing."""
+    from hermit.agent.evolver.methods.harness2_upstream.channel import _read_own
+    (tmp_path / "dir").mkdir()
+    (tmp_path / "file").write_text("ok")
+    (tmp_path / "link").symlink_to(tmp_path / "file")
+    os.mkfifo(tmp_path / "pipe")
+    assert [_read_own(tmp_path / n) for n in ("dir", "link", "pipe", "file")] == ["", "", "", "ok"]

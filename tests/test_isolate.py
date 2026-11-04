@@ -627,6 +627,34 @@ def test_a_cli_deploy_renders_the_adapter_in_a_sandbox(tmp_path, monkeypatch):
     assert "HA_ADAPTER_SANDBOX" in toml.read_text()
 
 
+def test_a_rollout_that_replaced_its_home_by_a_link_deletes_no_login_outside(tmp_path, monkeypatch, shared_login):
+    """The call's directory is writable, its home a child of it: a rollout that left the home as a link to another
+    Codex home has the link removed, never the login it leads to."""
+    import json as _json
+    import hermit.isolate as isolate
+    user = tmp_path / "user-codex"
+    user.mkdir()
+    (user / "auth.json").write_text(_json.dumps({"last_refresh": "2026-10-01T00:00:00Z"}))
+    monkeypatch.setenv("CODEX_HOME", str(user))
+    victim = tmp_path / "another-home"
+    (victim / ".codex").mkdir(parents=True)
+    (victim / ".codex" / "auth.json").write_text("{}")
+    config = Config.load(sandboxed_task(tmp_path), ["agent.name=codex", "agent.params.login=chatgpt",
+                                                    "agent.params.model=gpt-6-luna", "agent.params.web_search=false"])
+
+    def worker(sandbox, job, work, *, home, **kw):
+        shutil.rmtree(home)
+        home.symlink_to(victim)
+        return {"output": {"output": "ok"}}
+    monkeypatch.setattr(isolate, "_run_worker", worker)
+    agent = SandboxedAgent(config, "rollout", records=None)
+    try:
+        agent({"id": "t1"}, None)
+    finally:
+        agent.close()
+    assert (victim / ".codex" / "auth.json").is_file()
+
+
 def test_a_sandboxed_codex_call_takes_the_shared_login_and_hands_its_refresh_back(tmp_path, monkeypatch, shared_login):
     """A call in the rollout sandbox cannot write the shared copy of a ChatGPT login: it gets the copy from outside,
     and a token it refreshed goes back to the copy, so the next call does not start from a rotated-out token."""
