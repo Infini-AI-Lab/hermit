@@ -79,14 +79,14 @@ for stays a file of the copy, and the context names it with what to do with it. 
 host, and for the built-in `codex` and `claude-code` acting agents, which deploy as `hermit deploy` does: an adapter
 is deployed as far as the host can take it, and nothing it holds is out of the agent's reach.
 
-| Adapter source | Deployment operation | Codex output | Claude Code output | Pi output |
-|---|---|---|---|---|
+| Adapter source | Deployment operation | Codex output | Claude Code output | Pi output | OpenClaw output |
+|---|---|---|---|---|---|
 | Every file but `.hermit/` and `.git/` | Copy it as it is. | `hermit/<id>/` | `hermit/<id>/` | `hermit/<id>/` |
-| `ADAPTER.md` (always exported) | Insert the line above and its text into a managed instruction block. | `AGENTS.md` | `CLAUDE.md` | `AGENTS.md` |
-| `skills/verify-output/`, through `skills` in `exports.yaml` | Copy the skill directory. | `.codex/skills/verify-output/` | `.claude/skills/verify-output/` | `.pi/skills/verify-output/` |
-| `agents/reviewer.md` (or `agents/reviewer/AGENT.md`), through `agents` in `exports.yaml` | Convert the subagent into native host files: frontmatter gives name and description, the body becomes its instructions. | `.codex/agents/reviewer.toml`, registered in `.codex/config.toml` | `.claude/agents/reviewer.md` | named in `AGENTS.md` (Pi has no subagents): name, description, the path of its instructions |
-| `tools.py`, through `tools` in `exports.yaml` | Configure a framework MCP server that loads the source adapter. | `.codex/config.toml` | `.mcp.json` | `.pi/mcp.json` |
-| a hooks file, through `hooks` in `exports.yaml` | Write the hooks the host runs, each command run from `hermit/<id>/`; name the others in the context (a command to run, a `prompt` hook's check to make at that moment); a hook of another type is refused. | `.codex/hooks.json` (command hooks; Codex runs no prompt or agent hooks) | `hooks` in `.claude/settings.json` (command and prompt hooks) | named in `AGENTS.md` (Pi reads no hook file) |
+| `ADAPTER.md` (always exported) | Insert the line above and its text into a managed instruction block. | `AGENTS.md` | `CLAUDE.md` | `AGENTS.md` | `AGENTS.md` |
+| `skills/verify-output/`, through `skills` in `exports.yaml` | Copy the skill directory. | `.codex/skills/verify-output/` | `.claude/skills/verify-output/` | `.pi/skills/verify-output/` | `skills/verify-output/` |
+| `agents/reviewer.md` (or `agents/reviewer/AGENT.md`), through `agents` in `exports.yaml` | Convert the subagent into native host files: frontmatter gives name and description, the body becomes its instructions. | `.codex/agents/reviewer.toml`, registered in `.codex/config.toml` | `.claude/agents/reviewer.md` | named in `AGENTS.md` (Pi has no subagents): name, description, the path of its instructions | refused: OpenClaw v1 has no subagents |
+| `tools.py`, through `tools` in `exports.yaml` | Configure a framework MCP server that loads the source adapter. | `.codex/config.toml` | `.mcp.json` | `.pi/mcp.json` | `openclaw.run.json` |
+| a hooks file, through `hooks` in `exports.yaml` | Write the hooks the host runs, each command run from `hermit/<id>/`; name the others in the context (a command to run, a `prompt` hook's check to make at that moment); a hook of another type is refused. | `.codex/hooks.json` (command hooks; Codex runs no prompt or agent hooks) | `hooks` in `.claude/settings.json` (command and prompt hooks) | named in `AGENTS.md` (Pi reads no hook file) | refused: OpenClaw v1 reads no hook file |
 | every other file of the copy | Name it, with its frontmatter description or first line, under "Adapter resources" in the context (up to 60 files; the rest are counted). | `AGENTS.md` | `CLAUDE.md` | `AGENTS.md` |
 
 This is how the adapter reaches the acting system. The host reads the generated instruction, skill, role and hook

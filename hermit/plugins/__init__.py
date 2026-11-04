@@ -7,7 +7,7 @@ from pathlib import Path
 from hermit.adapter.loader import load_manifest, not_portable
 from hermit.plugins.common import Unsupported
 
-EMITTERS = {"claude-code": "claude_plugin", "codex": "codex_plugin", "pi": "pi_package", "hermes": "hermes_plugin"}
+EMITTERS = {"claude-code": "claude_plugin", "codex": "codex_plugin", "pi": "pi_package", "hermes": "hermes_plugin", "openclaw": "openclaw_plugin"}
 TARGETS = tuple(EMITTERS)
 
 

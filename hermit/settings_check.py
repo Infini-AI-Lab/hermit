@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import shutil
+import subprocess
 import tempfile
 import time
 
@@ -98,6 +99,22 @@ def run_check(config: Config, *, probe: bool = True, log=print) -> bool:
         problems.append(f"agent/judge: {exc}")
         pipeline = judge = None
     report("task", problems)
+    if d.get("agent", {}).get("name") == "openclaw":
+        oc_problems = []
+        oc_bin = str((d.get("agent", {}).get("params") or {}).get("bin") or "openclaw")
+        oc_version = ""
+        if not shutil.which(oc_bin):
+            oc_problems.append(f"openclaw executable not found: {oc_bin}")
+        else:
+            try:
+                res = subprocess.run([oc_bin, "--version"], capture_output=True, text=True, timeout=10)
+                if res.returncode != 0:
+                    oc_problems.append(f"{oc_bin} --version failed with exit code {res.returncode}")
+                else:
+                    oc_version = res.stdout.strip()
+            except Exception as e:
+                oc_problems.append(f"failed to run {oc_bin} --version: {e}")
+        report("agent: openclaw", oc_problems, oc_version if not oc_problems else "")
     # Sandbox: paths the task makes readable must exist (an unset variable leaves a path that names nothing).
     missing = [str(config.path(h)) for h in d["sandbox"]["read"] or [] if not config.path(h).exists()]
     sandbox_problems = [f"sandbox.read path does not exist: {m}" for m in missing]

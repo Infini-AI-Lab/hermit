@@ -312,7 +312,7 @@ hermit train --config examples/officeqa/gepa/smoke.yaml model=vllm/Qwen/Qwen3-30
 
 ```bash
 hermit convert --adapter DIR --output OUT --target codex
-# Other targets: claude-code, pi, hermes
+# Other targets: claude-code, pi, hermes, openclaw
 ```
 
 ## FAQ
