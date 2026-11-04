@@ -1,0 +1,11 @@
+{
+ "session_id": "01a1a3ef-dc75-7003-a97b-4b40d3dfe99e",
+ "turn_id": "01a1a3ef-dc85-79b3-b93b-de5a13bacf49",
+ "transcript_path": "/probe/codex_home/sessions/2026/11/03/rollout-2026-11-03T19-22-48-01a1a3ef-dc75-7003-a97b-4b40d3dfe99e.jsonl",
+ "cwd": "/probe/workspace",
+ "hook_event_name": "Stop",
+ "model": "gpt-5.6-luna",
+ "permission_mode": "bypassPermissions",
+ "stop_hook_active": true,
+ "last_assistant_message": "second answer"
+}

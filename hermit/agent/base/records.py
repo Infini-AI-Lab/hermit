@@ -25,7 +25,8 @@ def price_usage(usage: list[Usage], params: dict) -> None:
 
 
 def parse_log(log: Path, backend: str, model: str) -> tuple[str | None, list[Usage]]:
-    """Session handle and usage from the agent's JSON event stream."""
+    """Session handle and usage from the agent's JSON event stream. The stream also carries the CLI's own messages;
+    a line that is not a JSON object (one that does not parse, or a quoted word or a number that does) is no event."""
     session, usage = None, Usage(model=model)
     if not log.exists():
         return None, []
@@ -33,6 +34,8 @@ def parse_log(log: Path, backend: str, model: str) -> tuple[str | None, list[Usa
         try:
             event = json.loads(line)
         except ValueError:
+            continue
+        if not isinstance(event, dict):
             continue
         if backend == "codex":
             if event.get("type") == "thread.started":

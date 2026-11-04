@@ -424,6 +424,49 @@ Paired per question, 95% bootstrap intervals; bold where the interval lies above
 - The agent names the bullets it used on one line of its final message: 81 of the 100 training samples named at
   least one, 142 citations in all.
 
+## AHE Adapter
+
+[AHE](https://arxiv.org/abs/2604.25850) (Lin et al., 2026) evolves the acting agent's harness over iterations of k
+rollouts per task: an Agent Debugger reports on each task's traces, an Evolve Agent edits the harness and predicts what
+each change fixes, and the next iteration's rollouts judge every change ([AHE Adapter](../methods/ahe_adapter.md) has
+its controls and its differences from the authors' code). `examples/officeqa/ahe_adapter/` runs it on the `ahe`
+template, with Codex as the acting agent, from the seed harness with SkillOpt's initial skill in its system prompt (`make_seed.py` writes
+`seed_adapter/`): the 50 training questions as 100 trial rows (`make_rows.py`, k = 2), one step per iteration over all
+of them, ten iterations; with no validation split, `final` is the best-ever iteration by training pass rate.
+
+| Config | Steps | `run_name` | The number |
+|---|---|---|---|
+| `ahe_adapter/smoke_codex_luna.yaml` | 2 | `smoke-luna-ahe-adapter` | none: a smoke, 4 training questions × 2 |
+| `ahe_adapter/run_codex_luna.yaml` | 10 | `luna-ahe-adapter` | `mean_score` in `ahe_adapter/runs/luna-ahe-adapter/eval/final/summary.json` |
+
+Both are in [the GPT-5.6-Luna setting](#the-flash-row-with-gpt-56-luna): the acting sessions, the Agent Debugger and
+the Evolve Agent on the machine's ChatGPT login, the learners as sessions of the `codex` Base Agent in the run's
+sandbox. The run below is one training with two evaluations, one pass each.
+
+- Models: `gpt-5.6-luna` acting, debugging and evolving, reasoning effort medium, on a ChatGPT login.
+- Harness: the Codex agent, a container per session (`officeqa-codex:0.164.0`), eight side by side, 3,600 s each; the
+  adapter's middleware as Codex hooks.
+- Data: the 50 / 24 / 172 split of SkillOpt `79124b3` (validation unused), the training questions in order;
+  `officeqa_full.csv` with SHA-256 `b5eb1ce0cb34…`, eight items drifted from the split
+  ([Reproduction limits](#reproduction-limits)).
+- Run: `run_codex_luna.yaml` of `725b457`, run `luna-ahe-adapter`.
+- Spending: a subscription has no per-token price. Training 1.5 h: 190 M tokens of rollouts, 122 M of Debugger and
+  Evolve sessions. Evaluations 9 min (`final`) and 21 min (H_0).
+
+| Adapter | accuracy | − H_0, points |
+|---|---|---|
+| H_0: the seed harness with SkillOpt's initial skill (`seed_adapter`) | 0.366 | |
+| `final`, the best-ever iteration 7 (training pass@1 0.69) | 0.616 | **+25.0** [+16.9, +33.1] |
+
+Paired per question, 95% bootstrap intervals; bold where the interval lies above zero.
+
+- Against the column: GEPA +1.6 [−3.2, +6.4], Harness² +0.6 [−5.2, +6.4], SkillOpt **+7.0** [+1.7, +12.4] (GEPA's
+  and SkillOpt's four trainings averaged per question first). H_0 against the initial skill alone: +0.6 [−5.2, +6.4].
+- Answers longer than 40 characters fall from 30% to 0.6%; answers containing the right value anywhere rise from
+  0.558 to 0.616: most of the gain is the answer's form.
+- Training pass@1 by iteration: 0.42, 0.61, 0.65, 0.66, 0.64, 0.64, 0.69, 0.67, 0.63, 0.65; no change was judged
+  HARMFUL, so no automatic rollback ran.
+
 ## Outputs and scoring
 
 A run's records are under `examples/officeqa/<method>/runs/<run name>/` (`<run>` below):

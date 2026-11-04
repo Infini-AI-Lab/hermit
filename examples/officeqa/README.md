@@ -10,8 +10,9 @@ with Meta-Harness Adapter whole adapters written by a coding-agent proposer (Cod
 with no skill and with SkillOpt's initial skill, in both of the paper's harnesses: direct chat, with read and grep
 tools limited to the question's source files, and Codex, a `codex exec` session with the whole corpus. The same
 methods, Meta-Harness Adapter aside, are run a second time with Codex and GPT-5.6-Luna acting and learning on a
-ChatGPT login, the second column of the [Results](#results) table, where RRSI Adapter joins them and [ACE](ace/) also
-grows a playbook of bullets after that skill.
+ChatGPT login, the second column of the [Results](#results) table, where RRSI Adapter joins them, [ACE](ace/)
+also grows a playbook of bullets after that skill and [AHE Adapter](ahe_adapter/) evolves a Codex harness
+(system prompt, middleware, scripts, skills, sub-agents, memory) from it.
 
 ## Setup
 
@@ -88,6 +89,10 @@ CONFIG=run_codex_luna.yaml examples/officeqa/harness2_stream/launch.sh          
 python examples/officeqa/ace/make_seed.py                                                                # ACE
 hermit train --config examples/officeqa/ace/run_codex_luna.yaml                                          # 50 training questions, two epochs
 hermit eval  --config examples/officeqa/ace/run_codex_luna.yaml      --adapter final                     # ACE's playbook
+python examples/officeqa/ahe_adapter/make_rows.py                                                        # AHE Adapter: k = 2 trial rows
+python examples/officeqa/ahe_adapter/make_seed.py                                                        # its H_0
+hermit train --config examples/officeqa/ahe_adapter/run_codex_luna.yaml                                  # 50 training questions x 2, ten iterations
+hermit eval  --config examples/officeqa/ahe_adapter/run_codex_luna.yaml --adapter final                  # the best-ever iteration
 ```
 
 Sessions on the login share its plan; the files under `~/.cache/hermit/codex-login/plan/` steer every running session:
@@ -115,6 +120,7 @@ container per session. Each evaluation makes one pass over the 172 test question
 <tr><td><b>ReHarness</b></td><td>0.634</td><td>0.517</td></tr>
 <tr><td><b>Harness²</b></td><td>0.651</td><td>0.611</td></tr>
 <tr><td><b>ACE</b></td><td>not run</td><td>0.640</td></tr>
+<tr><td><b>AHE Adapter</b></td><td>not run</td><td>0.616</td></tr>
 </tbody>
 </table>
 
@@ -128,6 +134,9 @@ Results use two settings:
   Adapter](../../docs/methods/meta_harness_adapter.md) searches on the 50 training questions alone (no validation
   questions) and evaluates its best candidate once on the 172; one training, in the Codex harness the streams use
   ([`meta_harness_adapter/run.yaml`](meta_harness_adapter/run.yaml), [result](meta_harness_adapter/#result)).
+  [AHE Adapter](ahe_adapter/) also trains on the 50 alone: ten iterations of two rollouts per question, then the
+  best-ever iteration by training pass rate evaluated once on the 172; one training
+  ([`ahe_adapter/run_codex_luna.yaml`](ahe_adapter/run_codex_luna.yaml), [result](ahe_adapter/#result)).
   [RRSI Adapter](../../docs/methods/rrsi_adapter.md) evolves the adapter on the 50 training questions with two trials
   each (no validation questions), ten rounds of two candidates under RRSI's regularizers, and evaluates the final
   incumbent once on the 172; the mean of four trainings, GPT-5.6-Luna only, with the same Codex CLI and model as the
@@ -198,6 +207,9 @@ reharness/          ReHarness: stream_codex.yaml (the 172 test questions as one 
 ace/                ACE: run_codex_luna.yaml and smoke_codex_luna.yaml in the GPT-5.6-Luna setting; make_seed.py
                     writes seed_adapter/, the initial skill with ACE's empty playbook; adapter/ is the measured
                     run's final playbook, with its .hermit/CARD.md
+ahe_adapter/        AHE Adapter: run_codex_luna.yaml and smoke_codex_luna.yaml in the GPT-5.6-Luna setting;
+                    make_rows.py writes rows/, the k = 2 trial rows; make_seed.py writes seed_adapter/, the
+                    ahe seed with the initial skill; trials.py maps a trial row to its question
 rrsi_adapter/       RRSI Adapter on the GPT-5.6-Luna column: run_luna.yaml and smoke_luna.yaml, rrsi.json (RRSI's
                     hyperparameters), run_luna_eng.yaml with rrsi_eng.json (the engineering instance's selection
                     weights), domain.py and texts/ (the benchmark's rules and the roles' texts, adapted from

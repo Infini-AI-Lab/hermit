@@ -1,0 +1,25 @@
+{
+ "session_id": "8bf99a9a-f1e0-49d8-914f-dee53e6a4961",
+ "transcript_path": "/probe/home/.claude/projects/-probe-ws/8bf99a9a-f1e0-49d8-914f-dee53e6a4961.jsonl",
+ "cwd": "/probe/ws/sub",
+ "prompt_id": "a1012fd7-c046-40a7-9b2e-718ea94cbb39",
+ "permission_mode": "bypassPermissions",
+ "effort": {
+  "level": "medium"
+ },
+ "hook_event_name": "PostToolUse",
+ "tool_name": "Bash",
+ "tool_input": {
+  "command": "cd sub && pwd",
+  "description": "probe"
+ },
+ "tool_response": {
+  "stdout": "/probe/ws/sub",
+  "stderr": "",
+  "interrupted": false,
+  "isImage": false,
+  "noOutputExpected": false
+ },
+ "tool_use_id": "toolu_main_01_0",
+ "duration_ms": 8
+}

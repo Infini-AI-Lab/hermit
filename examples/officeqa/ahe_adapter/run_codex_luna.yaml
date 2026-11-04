@@ -1,0 +1,76 @@
+# OfficeQA with the AHE Adapter (arXiv 2604.25850) on the Flash row with GPT-5.6-Luna (the README's second column):
+# gepa/run_codex_luna.yaml's acting agent, judge, models, Codex settings and image, under AHE's own protocol.
+# GPT-5.6-Luna at medium effort acts on the machine's ChatGPT login in a container per session and learns as Codex
+# sessions on the same login: the Agent Debugger (one per question) and the Evolve Agent run in the run's sandbox and
+# reach chatgpt.com through its allowlist proxy, as Harness²'s editors do (GEPA's learner is one Codex session per chat
+# call instead, `llm: {cli: codex}`). Sessions on the login share its plan (hermit.agent.base.login).
+# What differs from the other methods' luna configs is AHE's protocol: AHE classifies each question by its k rollouts
+# of an iteration (the paper's k = 2), so the training split is 100 trial rows `<UID>#<j>` (make_rows.py; trials.py
+# hands ../utils the question's own row and copies the harness's hook logs into the log); a step is one iteration over
+# every trial (step_size 100) and the ten epochs are its ten iterations; HARMFUL changes are rolled back; with no
+# validation split, finalize hands back the best-ever iteration by training pass rate, and `hermit eval` scores it once
+# on the 172 test questions. H_0 is the ahe@1.0 seed harness with SkillOpt's initial skill in its system prompt
+# (make_seed.py). The trainer settings: the rows in order (no shuffle), an
+# early stop at target_pass_rate, call_timeout_min 420 for one step's Debugger and Evolve sessions, a 48 h budget, a
+# checkpoint every step, and workspaces of its own.
+data:
+  tasks: rows/tasks.jsonl              # make_rows.py: own rows, then k = 2 trial rows per training question
+  train: rows/train_k2.txt             # 50 questions x k = 2, by trial
+  test: ../utils/splits/test.txt
+  step_size: 100                       # one step = one AHE iteration over every trial
+  shuffle: false
+task_info: ../utils/task-info/
+agent:
+  base: codex                          # Layer 2: Codex as a Base Agent (hermit/agent/base/cli.py)
+  concurrency: 8
+  params:                              # Layer 3: the Acting Agent with OfficeQA's task functions
+    prompt: ../utils/prompt.md
+    prepare: trials.py:prepare         # the question's task.md and the corpus under docs/ (../utils/task.py)
+    answer: ../utils/task.py:answer    # the last <answer>...</answer>
+    collect: trials.py:collect         # task.md and the harness's hook logs into the log
+    workspaces: ~/.cache/hermit/officeqa-codex-actor-luna-ahe
+  model:                               # Layer 1
+    name: gpt-5.6-luna                 # a Codex model on the machine's ChatGPT login
+    login: chatgpt
+    effort: medium
+  codex:                               # Layer 2: how Codex runs
+    web_search: false                  # set explicitly: Codex's hosted search runs past the container
+    timeout_s: 3600
+    project_doc_max_bytes: 65536       # 64 KiB: the skill (up to 40 KB) with the deployment's notes; past
+                                       # Codex's default 32 KiB it would cut AGENTS.md (deploy refuses that)
+    isolation: container               # each session in a container of its own (hermit/agent/base/container.py)
+    container: {image: "officeqa-codex:0.164.0", network: oq-sandbox, proxy: "http://oq-egress-login:3128"}
+judge:
+  path: trials.py                      # the question's score (../utils/judge.py)
+template: ahe@1.0
+start_from: seed_adapter               # make_seed.py: H_0
+evolver:
+  name: ahe_adapter                    # Layer 3: the Agent Debugger and the Evolve Agent
+  params:
+    task_field: uid                    # the k trial rows of a question share it
+    k: 2
+    rollback: auto                     # the paper's Algorithm 1: HARMFUL changes reverted file by file
+    # defaults (evolver.yaml): the Debugger on the Evolve Agent's model, effort and login, 16 sessions at a time,
+    # 600 s and 3 attempts each; evolve_timeout_s 7200; final: best_ever; target_pass_rate 0.95
+  base: codex                          # Layer 2: both learners are sessions of the codex Base Agent
+  model: {name: gpt-5.6-luna, login: chatgpt, effort: medium}   # Layer 1: the acting model, on the login
+  codex: {web_search: false}
+sandbox:
+  enabled: true
+  network: restricted
+  allow: [chatgpt.com, auth.openai.com]   # the learners' sessions reach the login through the run's proxy
+  read: []
+  env: []
+  profiles:                  # the agent's role runs unconfined: it drives Docker (the daemon's socket, the sessions'
+    rollout: {enabled: false}   # homes under ~/.cache); each Codex session is in a container of its own (hermit/agent/base/container.py)
+trainer:
+  run_name: luna-ahe-adapter
+  output_dir: runs
+  tree_dir: runs/trees/luna-ahe-adapter   # one adapter tree per run: runs can train side by side
+  epochs: 10                           # the paper's 10 iterations
+  allow_early_stop: true               # the Evolver stops at target_pass_rate
+  save_freq: {steps: 1}
+  call_timeout_min: 420                # one step's Debugger and Evolve sessions
+  budget: {hours: 48, tokens: null, usd: null}
+eval:
+  repeats: 1                           # one pass over the test questions

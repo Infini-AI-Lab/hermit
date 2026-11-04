@@ -51,12 +51,19 @@ class ChatEndpoint:
             def log_message(self, *args):
                 pass
 
+            def _closing(self):
+                """A connection this handler closes after its reply says so (`Connection: close`): an HTTP/1.1
+                client would otherwise keep it for its next request and find it closed under that request."""
+                if self.close_connection:
+                    self.send_header("Connection", "close")
+
             def _send(self, status: int, body: bytes, headers: dict | None = None):
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json")
                 for key, value in (headers or {}).items():
                     self.send_header(key, value)
                 self.send_header("Content-Length", str(len(body)))
+                self._closing()
                 self.end_headers()
                 self.wfile.write(body)
 
@@ -112,6 +119,7 @@ class ChatEndpoint:
                 self.send_response(200)
                 self.send_header("Content-Type", "text/event-stream")
                 self.send_header("Cache-Control", "no-cache")
+                self._closing()
                 self.end_headers()
                 try:
                     while worker.is_alive():
@@ -244,7 +252,10 @@ def cli_answer(agent: BaseAgent, request: dict, abort: threading.Event | None = 
     are the session's instructions, the rest its prompt (split_messages), given on stdin; the session works in an
     empty workspace of its own, and its last message is the reply, with its token usage. `reasoning_effort` is the
     session's effort; sampling settings a CLI has none for (max_tokens, temperature) are not applied. A session the
-    provider could not serve answers 503 (the client retries), one past its clock 504, one without a reply 502."""
+    provider could not serve answers 503 (the client retries), one past its clock 504, one without a reply 502.
+    The session sees no files: a caller that wants a session to read files runs one itself (`make(...).run`). Its
+    event stream is kept under the agent's `log_dir` setting when there is one (the Trainer gives the run's
+    `llm_sessions/`), and is removed after the call otherwise."""
     import shutil
     import tempfile
     from pathlib import Path
@@ -261,11 +272,19 @@ def cli_answer(agent: BaseAgent, request: dict, abort: threading.Event | None = 
         own["args"] = [*(agent.settings.get("args") or []), *extra]
     elif system:
         own["append_system_prompt"] = system
+    log_dir, scratch = agent.settings.get("log_dir"), None
+    if log_dir:
+        own["log"] = Path(log_dir) / f"{time.strftime('%Y%m%dT%H%M%S')}-{secrets.token_hex(4)}-{agent.name}.jsonl"
+    elif not agent.settings.get("log"):                       # no record asked for: a stream removed with the call
+        scratch = Path(tempfile.mkdtemp(prefix=f"hermit-chat-log-{agent.name}-"))
+        own["log"] = scratch / f"agent-{agent.name}.jsonl"
     work = Path(tempfile.mkdtemp(prefix=f"hermit-chat-{agent.name}-"))
     try:
         result = agent.configured(**own).run(prompt, workspace=work)
     finally:
         shutil.rmtree(work, ignore_errors=True)
+        if scratch is not None:                                # also when the call raised
+            shutil.rmtree(scratch, ignore_errors=True)
     if result.extra.get("cancelled"):
         return _DROP
     if not result.extra.get("served") or not result.reply.strip():
@@ -304,7 +323,7 @@ def relay(upstream: str, *, timeout: float | None = None) -> str:
         return _relays[key].url
 
 
-def cli_model(spec: dict):
+def cli_model(spec: dict, log_dir=None):
     """The run's `llm` when it names a CLI (`llm: {cli: codex, model: ..., login: chatgpt, ...}`): a chat client over
     a ChatEndpoint that answers each request with one session of that CLI Base Agent (cli_answer), for a model only
     the CLI reaches. Every key but `cli` and `timeout` is the Base Agent's setting (hermit.agent.base.cli); `web_search`
@@ -319,6 +338,8 @@ def cli_model(spec: dict):
                          "its empty workspace")
     settings = {k: v for k, v in spec.items() if k not in ("cli", "timeout")}
     settings.setdefault("codex_sandbox", "read-only")
+    if log_dir is not None:
+        settings.setdefault("log_dir", str(log_dir))           # each call's event stream, with the run's records
     endpoint = ChatEndpoint(make(spec["cli"], settings)).start()
     return ChatClient(endpoint.url, str(settings.get("model") or spec["cli"]), price=settings.get("price"),
                       timeout=float(spec.get("timeout", 3600)))

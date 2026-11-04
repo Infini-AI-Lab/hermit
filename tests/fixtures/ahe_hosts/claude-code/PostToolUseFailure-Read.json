@@ -1,0 +1,19 @@
+{
+ "session_id": "479c6c2e-1f85-4d64-872e-056bbc16e0e1",
+ "transcript_path": "/probe/home/.claude/projects/-probe-ws/479c6c2e-1f85-4d64-872e-056bbc16e0e1.jsonl",
+ "cwd": "/probe/ws",
+ "prompt_id": "2bd22bb9-2079-412e-9b85-2c4b674627c7",
+ "permission_mode": "bypassPermissions",
+ "effort": {
+  "level": "medium"
+ },
+ "hook_event_name": "PostToolUseFailure",
+ "tool_name": "Read",
+ "tool_input": {
+  "file_path": "/probe/ws/missing.txt"
+ },
+ "tool_use_id": "toolu_main_02_0",
+ "error": "File does not exist. Note: your current working directory is /probe/ws.",
+ "is_interrupt": false,
+ "duration_ms": 1
+}

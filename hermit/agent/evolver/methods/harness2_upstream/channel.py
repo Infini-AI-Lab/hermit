@@ -30,6 +30,21 @@ QUIET = {"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1", "DISABLE_AUTOUPDATER":
          "DISABLE_ERROR_REPORTING": "1", "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"}
 
 
+def _read_own(path: Path) -> str:
+    """A file this process had the session write into its working directory (its stream, its stderr), read only as
+    the regular file it is: the session could put a link or a pipe there, and this runs outside its sandbox."""
+    import stat as _stat
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError:
+        return ""
+    if not _stat.S_ISREG(os.fstat(fd).st_mode):          # before fdopen, which refuses a directory
+        os.close(fd)
+        return ""
+    with os.fdopen(fd, "rb") as f:
+        return f.read().decode("utf-8", errors="replace")
+
+
 @dataclass
 class FrameworkProposer(Proposer):
     params: dict = field(default_factory=dict)    # the Evolver's bound params: env, price, binding, model, tools
@@ -70,14 +85,14 @@ class FrameworkProposer(Proposer):
             raise RuntimeError("the session was stopped by the Trainer (budget or timeout)")
         if result.timed_out:
             raise subprocess.TimeoutExpired(["claude"], wall)
-        payload = _parse_json(Path(result.log).read_text(errors="replace"))
+        payload = _parse_json(_read_own(Path(result.log)))
         text = str(payload.get("result") or payload.get("text") or "")
         problem = ""
         if payload.get("is_error") or payload.get("subtype") not in (None, "success"):
             problem = f"CLI error: {payload.get('subtype')} {str(text)[:200]}"
             text = ""
         elif result.exit_code != 0 and not text.strip():
-            problem = f"rc={result.exit_code}: {err.read_text(errors='replace')[-300:] if err.is_file() else ''}"
+            problem = f"rc={result.exit_code}: {_read_own(err)[-300:]}"
         usage = self._usage(payload)
         return text, float(usage.cost_usd or 0.0) if usage else 0.0, problem
 
@@ -106,7 +121,7 @@ class FrameworkProposer(Proposer):
         if result.timed_out:
             raise subprocess.TimeoutExpired(["codex"], wall)
         if not result.extra["served"] or not result.reply.strip():
-            tail = (err.read_text(errors="replace") if err.is_file() else result.extra.get("output_tail", ""))[-300:]
+            tail = (_read_own(err) or result.extra.get("output_tail", ""))[-300:]
             return "", 0.0, f"rc={result.exit_code}: {tail}"
         cost = 0.0
         for usage in result.usage:

@@ -1,0 +1,7 @@
+# What a deployment connects to the host's own places; the rest of the tree is deployed as files (hermit/<id>/).
+# hooks.json starts hook_runner.py from the adapter's copy on every lifecycle event of the host (Codex, Claude Code: each
+# fires the events it has); it calls middleware.py.
+context: ADAPTER.md
+skills: .agents/skills
+agents: agents
+hooks: hooks.json

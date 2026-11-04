@@ -102,7 +102,9 @@ stream). CL-Bench's runner and ServeLearnBench's agent reach their model this wa
 before. The same endpoint over a CLI Base Agent answers each request with one session of it (the system messages
 as its instructions, the rest as its prompt, its last message as the reply): `llm: {cli: codex, model: ...,
 login: chatgpt, ...}` makes the run's model one only the CLI reaches, such as a model on a ChatGPT login, for the
-Evolvers that call `ctx.agent` and the `llm` tool.
+Evolvers that call `ctx.agent` and the `llm` tool. Such a session works in an empty directory of its own: a chat call
+sees no files, so a role that is to read files runs a session itself (`make(...).run(prompt, workspace)`). Each call's
+event stream is kept under the run's `llm_sessions/`.
 
 ## Tools
 
@@ -143,7 +145,7 @@ cannot enforce (`Unsupported`) rather than ignore it. For Codex and Claude Code:
 |---|---|---|---|
 | `workspace` (read-write) | mounted read-write | as the sandbox shows it | the working directory |
 | `readable` (data, at its target; a relative target is in the workspace) | mounted read-only | granted read-only for the call, at its own path only (another target is refused); kept visible past `hidden` | linked into the workspace (not made read-only) |
-| `hidden` (paths it must not see) | not mounted (refused inside the workspace or the data) | covered; refused when the sandbox does not isolate the call (off, or no bubblewrap) | refused |
+| `hidden` (paths it must not see) | not mounted (refused inside the workspace or the data) | covered under every name the sandbox shows it by (its real one, and below a place bound under a link's name); the places the call and the sandbox give the session stay visible below a covered directory, and what is hidden below them is covered again; a place the call gives stays visible when it is hidden too; a path reached through a link inside a place the session can write (which the session could have left) is covered only inside a place the session is given, never the place itself, the system or the interpreter; refused when the sandbox does not isolate the call (off, or no bubblewrap) | refused |
 | `network` (hosts besides the model; `None`: not limited) | `[]` only: the egress proxy's allowlist | `[]` only; refused when the network is open, `sandbox.allow` lets other hosts through, or the sandbox does not isolate the call | refused |
 | `timeout_s` | the container is removed | the process group is killed | the process group is killed |
 

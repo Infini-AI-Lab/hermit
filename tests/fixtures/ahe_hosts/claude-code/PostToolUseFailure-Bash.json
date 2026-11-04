@@ -1,0 +1,20 @@
+{
+ "session_id": "652ecb9c-a27b-4116-aeca-fc44a0462949",
+ "transcript_path": "/probe/home/.claude/projects/-probe-ws/652ecb9c-a27b-4116-aeca-fc44a0462949.jsonl",
+ "cwd": "/probe/ws",
+ "prompt_id": "a51ed82b-b58c-4c46-9197-d1da6ca88203",
+ "permission_mode": "bypassPermissions",
+ "effort": {
+  "level": "medium"
+ },
+ "hook_event_name": "PostToolUseFailure",
+ "tool_name": "Bash",
+ "tool_input": {
+  "command": "echo out-before-fail; echo err-fail >&2; exit 3",
+  "description": "probe"
+ },
+ "tool_use_id": "toolu_main_01_0",
+ "error": "Exit code 3\nout-before-fail\nerr-fail",
+ "is_interrupt": false,
+ "duration_ms": 47
+}
