@@ -138,13 +138,15 @@ For selection guidance, setup, and the complete parameter defaults, use [Choose 
 | `mwm` | MetaWorld Model, with `template: mwm`: one native MWM learner session per block (the step), under the MWM contract, with the task's evidence store mounted at `/evidence`, in its own network namespace. See `docs/methods/mwm.md`. | The Codex CLI, a task that keeps an MWM evidence store (`evolver_access.environment`), `task-info/mwm/`, `data.shuffle: false` |
 | `reharness` | [ReHarness](../methods/reharness.md), with `template: reharness`: one instance of the stream per step. It revises each reflection the acting agent retrieved, from that reflection's own source trajectory with the new trajectory as feedback, then writes the instance's reflection with the revised ones as demonstrations, through the run's `llm` tool with the paper's prompts; no validation data. | `llm`, `data.step_size: 1` and `data.shuffle: false`, an embedding endpoint (`evolver.params.embedding`, and `REHARNESS_EMBED_URL` for the acting side's reader; BM25 without) |
 | `meta_harness_adapter` | [Meta-Harness Adapter](../methods/meta_harness_adapter.md), with `template: meta-harness-adapter`: one candidate per step. Each step's rollouts evaluate the candidate handed back last; when none is waiting, a Codex or Claude Code proposer reads every earlier candidate's files, scores and trajectories and writes k new adapters, which pass `check_spec` before they are queued; no validation data. | The proposer CLI, `data.step_size` covering the training split (the search set) |
+| `rrsi_adapter` | [RRSI Adapter](../methods/rrsi_adapter.md), with `template: rrsi-adapter`: one candidate per step. Each step's rollouts evaluate the candidate handed back last; when a round's candidates are all measured, upstream's selection decides it, upstream's analyst reads the incumbent's evaluation, and m Codex or Claude Code proposer sessions edit the incumbent under RRSI's edit budget, each diff screened by upstream's critic and a smoke before it is queued; no validation data. | The proposer CLI and the Codex CLI (the analyst, digesters and critic), `data.step_size` covering the training split with k rows per task, `evolver.params.domain`, `python -m pip install -e . --group rrsi` |
 
 Change a parameter with `evolver.params` in the run config; each Evolver's `evolver.yaml` under
 `hermit/agent/evolver/methods/` lists them with their defaults. For `gepa`, `data.step_size` is the reflection
 minibatch; for `skillopt`, it is the batch size and `trainer.epochs` the number of epochs. Both select from candidates
 they keep in `state/`, and `finalize` hands back the one with the best validation score. For `reharness` it is 1, one
 instance of the stream per step, and `finalize` hands back the bank as it stands. For `meta_harness_adapter` it covers
-the search set, so a step is an epoch, and `finalize` hands back the candidate with the best mean score there.
+the search set, so a step is an epoch, and `finalize` hands back the candidate with the best mean score there. For
+`rrsi_adapter` it covers the evolve set with k rows per task, and `finalize` hands back the incumbent, H_T.
 
 ## Interaction with the Trainer
 

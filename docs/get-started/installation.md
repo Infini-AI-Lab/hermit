@@ -53,13 +53,16 @@ python -m pip install -e . --group gepa
 # Other methods:
 python -m pip install -e . --group skillopt
 python -m pip install -e . --group harness2
+python -m pip install -e . --group ace
+python -m pip install -e . --group rrsi
 # Or all method dependencies:
 python -m pip install -e . --group all
 ```
 
 To combine methods, repeat the option, for example `--group skillopt --group gepa` for OfficeQA.
 uv reads the same groups: `uv pip install -e . --group gepa`.
-Each group retains its tested upstream Git commit. `all` includes the three method groups; it does not
+Each group but `ace` (`sentence-transformers` alone) retains its tested upstream Git commit. `all` includes the five
+method groups; it does not
 install host CLIs, datasets, or system tools. Groups are not published as package extras, so
 `pip install hermit-harness` still installs only the core; `hermit-harness[gepa]` is not supported.
 Without a checkout, install a method's pinned requirements from its group in `pyproject.toml` directly; the
@@ -80,6 +83,7 @@ Python 3.14; install `gepa` and `skillopt` separately there.
 | GEPA | `python -m pip install -e . --group gepa`, learner endpoint, validation split |
 | SkillOpt | `python -m pip install -e . --group skillopt`, learner endpoint, validation split |
 | Harness² | Python 3.12 or 3.13, `python -m pip install -e . --group harness2`, Claude Code, and the execution environment described in [Harness²](../methods/harness2.md) |
+| RRSI Adapter | `python -m pip install -e . --group rrsi`, the proposer CLI (Codex or Claude Code), the Codex CLI for its analyst, digesters and critic, a training split evaluated k times per task |
 | Codex / Claude learner | Selected authenticated CLI and supported program-execution environment |
 | MWM | Linux learner environment, Codex, evidence store, task deployment contract, model access |
 | Benchmark recipe | Its dataset, scorer, model settings, and environment; see [catalog](../recipes/index.md) |

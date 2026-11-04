@@ -1,0 +1,23 @@
+{
+ "_doc": "The engineering instance's selection-side constants (upstream domains/eng/rrsi.json; paper Appendix E.1: each additional passing trial buys 10% tokens, beta0 0.15; inside the band a passing trial is worth one unit, w_s = trials per evaluation, against w_c = 2 per unit of relative cost), scaled to OfficeQA's 50 x 2 = 100 trials: beta1 = 0.10 x 100 = 10, w_s = 1 x 100 = 100. Everything else is rrsi.json's (the coding instance's proposal side, T = 10, k = 2, delta measured): an arm that differs from run_luna.yaml on the selection side only: the cost budget for a gain above delta (beta0 0.15, beta1 10 instead of 0.10, 25) and how a candidate inside the noise band is judged (w_s 100, w_c 2: the score counts; coding: w_s 0, a token saving or a new structural component).",
+ "T": 10,
+ "k": 2,
+ "m": 2,
+ "b_min": 1,
+ "b_max": 4,
+ "w": 3,
+ "m_draft": 1,
+ "delta": null,
+ "delta_z": 2.0,
+ "beta0": 0.15,
+ "beta1": 10.0,
+ "w_s": 100.0,
+ "w_c": 2.0,
+ "w_n": 0.5,
+ "n_prune": 4,
+ "repair_rounds": 5,
+ "invalid_missing_frac": 0.2,
+ "n_fail_traces": 30,
+ "n_success_traces": 6,
+ "eval_parallel": 1
+}

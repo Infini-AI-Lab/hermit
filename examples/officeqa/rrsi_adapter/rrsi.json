@@ -1,0 +1,23 @@
+{
+ "_doc": "RRSI's hyperparameters for OfficeQA (RRSIConfig fields; upstream: rrsi/config.py, domains/coding/rrsi.json). The coding instance's values (Terminal-Bench 2.1: binary per-trial reward, k = 2, m = 2, b 1..4, w 3, m_draft 1, n_prune 4, beta0 0.10, w_s 0, w_c 15, w_n 0.5, five repairs, 30 + 6 traces, 0.2 missing) with two changes for this setting: beta1 = 25.0, the coding calibration 'each additional passing trial buys 25% tokens' over 50 x 2 = 100 trials (coding: 0.25 x 178 = 44.5); and T = 10 rounds instead of 20, a budget choice (at most 1 + 10 x 2 = 21 evaluations of 100 rollouts), as Meta-Harness Adapter runs 6 rounds here instead of the paper's ~20. delta is null: measured, not chosen, from H_0's evaluation by upstream's calibrate (z = 2 standard deviations of the null score difference, bootstrapped over trials within each question).",
+ "T": 10,
+ "k": 2,
+ "m": 2,
+ "b_min": 1,
+ "b_max": 4,
+ "w": 3,
+ "m_draft": 1,
+ "delta": null,
+ "delta_z": 2.0,
+ "beta0": 0.1,
+ "beta1": 25.0,
+ "w_s": 0.0,
+ "w_c": 15.0,
+ "w_n": 0.5,
+ "n_prune": 4,
+ "repair_rounds": 5,
+ "invalid_missing_frac": 0.2,
+ "n_fail_traces": 30,
+ "n_success_traces": 6,
+ "eval_parallel": 1
+}

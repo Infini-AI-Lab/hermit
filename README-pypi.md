@@ -13,9 +13,9 @@ hermit --help
 ```
 
 The package holds the framework, the adapter templates and the built-in learning methods (prompt-only, GEPA,
-SkillOpt, MetaWorld Model, Harness², Continual Harness). GEPA, SkillOpt and Harness² call their authors' packages,
-pinned to Git commits in the repository's `pyproject.toml` dependency groups (`gepa`, `skillopt`,
-and `harness2`). These groups are not installed by `pip install hermit-harness`. From a source checkout,
+SkillOpt, MetaWorld Model, Harness², Continual Harness, ACE, RRSI Adapter). GEPA, SkillOpt, Harness² and RRSI Adapter call
+their authors' packages, pinned to Git commits in the repository's `pyproject.toml` dependency groups (`gepa`,
+`skillopt`, `harness2` and `rrsi`). These groups are not installed by `pip install hermit-harness`. From a source checkout,
 use pip 25.1+ and run `python -m pip install -e . --group gepa` for GEPA, or
 `python -m pip install -e . --group all` for all method dependencies. The examples, the benchmark recipes and the documentation are in the repository:
 

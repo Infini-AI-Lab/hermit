@@ -72,6 +72,7 @@ methods/reharness
 methods/meta_harness_adapter
 methods/ace
 methods/ahe_adapter
+methods/rrsi_adapter
 methods/evosafe
 ```
 
