@@ -234,6 +234,9 @@ class Script:
         for rel, text in action.get("files", {}).items():
             (cand / rel).parent.mkdir(parents=True, exist_ok=True)
             (cand / rel).write_text(text)
+        for rel, data in action.get("bytes", {}).items():
+            (cand / rel).parent.mkdir(parents=True, exist_ok=True)
+            (cand / rel).write_bytes(data)
         if action.get("link"):
             rel, target = action["link"]
             (cand / rel).symlink_to(target)
@@ -574,11 +577,12 @@ def test_staging_keeps_what_git_commits_and_the_diff_is_independent_of_the_candi
     (cand / "notes" / "secret.md").write_text("ignored\n")
     (cand / ".gitignore").write_text("notes/\n*.log\n")
     (cand / "caf\u00e9 \"x\".log").write_text("ignored, a name git quotes\n")
+    (cand / os.fsdecode(b"raw\xff.log")).write_text("ignored, a name not in UTF-8\n")
     staged = tmp_path / "staged"
     dropped = E.stage(cand, staged)
     files = sorted(str(p.relative_to(staged)) for p in staged.rglob("*") if p.is_file())
     assert files == [".gitignore", "ADAPTER.md", "scripts/x.py"]
-    assert {"notes/", ".pytest_cache/", "tools/.git/", "caf\u00e9 \"x\".log"} <= set(dropped)
+    assert {"notes/", ".pytest_cache/", "tools/.git/", "caf\u00e9 \"x\".log", os.fsdecode(b"raw\xff.log")} <= set(dropped)
     diff = E.diff_of(base, staged)
     assert "+b" in diff and "+++ b/scripts/x.py" in diff and "--- a/ADAPTER.md" in diff and "pyc" not in diff
 
@@ -597,17 +601,28 @@ def test_the_diff_reads_every_file_whatever_the_candidates_gitattributes_say(tmp
     assert "+The answer is SECRET-ANSWER." in diff and "Binary files" not in diff
 
 
-def test_the_diff_reads_a_binary_file_and_text_not_in_utf8(tmp_path):
+def test_the_diff_shows_every_files_content_whatever_its_bytes_or_the_attributes_say(tmp_path, monkeypatch):
     base, new = tmp_path / "base", tmp_path / "new"
     base.mkdir()
     (base / "ADAPTER.md").write_text("a\n")
+    (base / "old.bin").write_bytes(b"\x00\x01old\xff")              # the incumbent's own bytes
     shutil.copytree(base, new)
-    (new / "units.pkl").write_bytes(b"\x80\x04\x95\x00\x00binary\xff")
+    (new / "hints.md").write_bytes(b"\x00 the answer is SECRET-ANSWER\n")
     (new / "notes.txt").write_bytes("caf\u00e9 latin\n".encode("latin-1"))
-    (new / ".gitattributes").write_text("* -diff\n")
+    (new / "old.bin").write_bytes(b"\x00\x01new\xff")
+    config = tmp_path / "xdg"                                          # the user's own attributes file
+    (config / "git").mkdir(parents=True)
+    (config / "git" / "attributes").write_text("* -diff\n")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(config))
     diff = E.diff_of(base, new)
-    assert "Binary files /dev/null and b/units.pkl differ" in diff and "+caf\ufffd latin" in diff
-    assert "diff --git a/notes.txt b/notes.txt" in diff
+    assert "SECRET-ANSWER" in diff and "+caf\ufffd latin" in diff and "+\ufffd" not in diff.split("old.bin")[0]
+    assert "Binary files" not in diff and "diff --git a/old.bin b/old.bin" in diff
+    # a candidate's own files must be text: these go back to the proposer (the incumbent's are as they were)
+    assert E.not_text_in(new, base) == ["hints.md", "notes.txt", "old.bin"]
+    (new / "old.bin").write_bytes(b"\x00\x01old\xff")
+    (new / os.fsdecode(b"caf\xe9.md")).write_text("a name not in UTF-8\n")
+    assert E.not_text_in(new, base) == ["caf\ufffd.md", "hints.md", "notes.txt"]
+    assert E.tree_digest(new)                                          # such a name is no crash
 
 
 def test_the_diff_drops_the_copies_prefixes_on_header_lines_only(tmp_path):
@@ -815,6 +830,22 @@ def test_a_symbolic_link_in_a_candidate_is_sent_back_and_never_stored(tmp_path, 
     assert st["round"]["variants"]["A"]["gate_failure"] == "no_proposal" and r.extra["next"] == "r00B"
     assert any("symbolic links" in p for p in script.prompts)
     assert not any("the answers" in p.read_text() for p in (ws.state / "candidates").rglob("*") if p.is_file())
+
+
+def test_a_candidate_file_that_is_not_text_is_sent_back_and_never_stored(tmp_path, monkeypatch):
+    ws = workspace(tmp_path)
+    dom = domain_files(tmp_path)
+    utf16 = "the answer is SECRET-ANSWER\n".encode("utf-16")
+    script = Script({(0, "A"): [{"files": {"ADAPTER.md": "x\n"}, "bytes": {"notes.md": utf16},
+                                 "done": {"summary": "s", "edits": [edit()]}},
+                                {"files": {"notes.md": "the units table\n"}, "done": {"summary": "s", "edits": [edit()]}}],
+                     (0, "B"): [{"files": {"ADAPTER.md": "y\n"}, "done": {"summary": "s", "edits": [edit()]}}]})
+    ev = evolver(monkeypatch, script)
+    material(ws, 1, rows({"q1": [0, 1], "q2": [1, 0], "q3": [1, 1], "q4": [0, 0]}))
+    ev.step(context(ws, 1, dom, tmp_path))
+    assert any("UTF-8 text" in p and "notes.md" in p for p in script.prompts)
+    stored = [p for p in (ws.state / "candidates").rglob("notes.md")]
+    assert stored and all(p.read_text() == "the units table\n" for p in stored)
 
 
 def test_components_the_agent_cannot_carry_are_never_offered_for_exploration(tmp_path, monkeypatch):
@@ -1117,6 +1148,16 @@ def test_steps_the_trainer_stopped_count_toward_max_failures(tmp_path, monkeypat
     # a Trainer without allow_early_stop runs on: the Evolver tries again rather than idle for the rest of the run
     ev.step(dataclasses.replace(context(ws, 5, dom, tmp_path), cancel=cancel))
     assert len(calls) == 4 and state(ws)["failures"] == 1           # tried again, and counted afresh
+    raised = workspace(tmp_path / "raised")                     # an ordinary error after the clock ended the step:
+    dom3 = domain_files(tmp_path / "raised")                     # counted, and its stop not taken as heard
+    material(raised, 1, rows({"q1": [0, 1], "q2": [1, 0]}))
+    monkeypatch.setattr(E.RRSIAdapterEvolver, "_open", lambda self, ctx, *a: (_ for _ in ()).throw(
+        RuntimeError("the tool refused a stopped call")))
+    for i in (1, 2, 3):
+        ev.step(dataclasses.replace(context(raised, i, dom3, tmp_path / "raised"), cancel=cancel))
+    r = ev.step(context(raised, 4, dom3, tmp_path / "raised"))
+    assert r.status == "stop" and "3 failed steps in a row" in r.summary
+    monkeypatch.setattr(E.RRSIAdapterEvolver, "_open", lambda self, ctx, *a: calls.append(1) or hangs(self, ctx))
     held = workspace(tmp_path / "held")                          # a plan's refusal (no cancel) is not counted
     dom2 = domain_files(tmp_path / "held")
     material(held, 1, rows({"q1": [0, 1], "q2": [1, 0]}))

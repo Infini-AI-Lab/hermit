@@ -18,7 +18,8 @@ prompt, system text, events, reply and meta under `records` (the step's output, 
 and working directory under `log_dir`; its usage is the Base Agent's. A reply counts only from a session that ended
 (exit 0, no timeout); a call whose session timed out twice fails. A session the Trainer stopped, or that the model's
 plan held back or refused, ends the call (`Stop`); one the provider could not serve is tried again after a longer
-pause.
+pause, and a call whose every session the provider could not serve ends the same way (`Stop`, not counted toward
+max_failures, as a proposer's).
 """
 from __future__ import annotations
 
@@ -41,8 +42,8 @@ ROLE_MODULES = ("rrsi.analyst", "rrsi.digester", "rrsi.critic")
 
 
 class Stop(BaseException):
-    """The call must end now: the Trainer stopped it (its budget, its clock), or the model's plan held the
-    proposer's session back. A BaseException, so that upstream's `except Exception` handlers around a role call never
+    """The call must end now: the Trainer stopped it (its budget, its clock), the model's plan held a session back,
+    or the provider kept failing it. A BaseException, so that upstream's `except Exception` handlers around a role call never
     swallow it."""
 
 

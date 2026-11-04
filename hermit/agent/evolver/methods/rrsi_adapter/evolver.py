@@ -92,9 +92,9 @@ def tree_digest(tree: Path) -> str:
         if path.is_file() or path.is_symlink():
             paths.append((rel, path))
     for rel, path in paths:
-        h.update(rel.as_posix().encode() + b"\0")
+        h.update(os.fsencode(rel.as_posix()) + b"\0")
         if path.is_symlink():
-            h.update(b"link:" + str(path.readlink()).encode())
+            h.update(b"link:" + os.fsencode(str(path.readlink())))
         else:
             h.update(b"x:" if path.stat().st_mode & 0o111 else b"-:")
             h.update(path.read_bytes())
@@ -145,6 +145,31 @@ def links_in(tree: Path) -> list[str]:
     return sorted(str(p.relative_to(tree)) for p in Path(tree).rglob("*") if p.is_symlink())
 
 
+def not_text_in(tree: Path, base: Path) -> list[str]:
+    """Files under `tree` the candidate added or changed against `base` that are not UTF-8 text (a NUL byte, bytes or
+    a name UTF-8 cannot decode). The precheck and the critic read the diff as text, so content in another encoding
+    (UTF-16, a NUL among the text) would pass them unread; upstream's proposer writes text files only."""
+    out = []
+    for path in sorted(Path(tree).rglob("*")):
+        rel = path.relative_to(tree)
+        if rel.parts[0] in SKIP or not path.is_file() or path.is_symlink():
+            continue
+        name = os.fsencode(str(rel))
+        data = path.read_bytes()
+        old = Path(base) / rel
+        try:
+            name.decode("utf-8")
+            if old.is_file() and not old.is_symlink() and old.read_bytes() == data:
+                continue                                     # as it was: not the candidate's doing
+            if b"\0" not in data:
+                data.decode("utf-8")
+                continue
+        except UnicodeDecodeError:
+            pass
+        out.append(name.decode("utf-8", errors="replace"))
+    return out
+
+
 def stage(cand: Path, staged: Path) -> list[str]:
     """The candidate as it is stored, reviewed and committed: a copy without the root's .git and .hermit/, byte code,
     nested repositories, tool caches, and the files git would not commit (the candidate's own .gitignore files and
@@ -161,9 +186,10 @@ def stage(cand: Path, staged: Path) -> list[str]:
             dropped.append(str(p.relative_to(staged)) + "/")
             shutil.rmtree(p)
     _git(staged, "init", "-q")
-    # NUL-separated: a name git would quote (non-ASCII, quotes) is read as it is
-    ignored = [l for l in _git(staged, "ls-files", "-z", "-o", "-i", "--exclude-standard", "--directory").stdout
-               .split("\0") if l.strip()]
+    # NUL-separated and as bytes: a name git would quote (non-ASCII, quotes), or one not in UTF-8, is read as it is
+    listed = subprocess.run(["git", "ls-files", "-z", "-o", "-i", "--exclude-standard", "--directory"], cwd=str(staged),
+                            capture_output=True).stdout
+    ignored = [os.fsdecode(name) for name in listed.split(b"\0") if name.strip()]
     for rel in ignored:
         target = staged / rel.rstrip("/")
         if target.is_dir():
@@ -184,14 +210,16 @@ def diff_of(base: Path, new: Path) -> str:
         shutil.copytree(base, Path(tmp) / "a")
         shutil.copytree(new, Path(tmp) / "b")
         # No repository around the copies and no configuration but this call's: inside a git checkout (where the
-        # examples' runs lie) git would read the candidate's own .gitattributes (a `* -diff` there shows every file
-        # as binary to the precheck and the critic), and a user's settings could change the diff's form. Whole files
-        # (no rename pairs), with no external diff or text conversion; a binary file (a NUL in it) as upstream's git
-        # diff shows it ("Binary files ... differ"), and text not in UTF-8 with its undecodable bytes replaced.
+        # examples' runs lie) git would read the candidate's own .gitattributes, and the user's attributes file
+        # applies anywhere (a `* -diff` in either shows every file as binary to the precheck and the critic); a user's
+        # settings could change the diff's form. Every file as text, whole (no rename pairs), with no external diff
+        # or text conversion; bytes UTF-8 cannot decode are replaced (a candidate's own files are UTF-8 text:
+        # not_text_in, so these are only the incumbent's).
         env = {**os.environ, "GIT_CEILING_DIRECTORIES": str(Path(tmp).parent), "GIT_CONFIG_NOSYSTEM": "1",
                "GIT_CONFIG_GLOBAL": os.devnull}
-        out = subprocess.run(["git", "-c", "core.quotepath=off", "diff", "--no-index", "--no-color",
-                              "--no-renames", "--no-ext-diff", "--no-textconv", "--", "a", "b"],
+        out = subprocess.run(["git", "-c", "core.quotepath=off", "-c", f"core.attributesFile={os.devnull}", "diff",
+                              "--no-index", "--no-color", "--text", "--no-renames", "--no-ext-diff", "--no-textconv",
+                              "--", "a", "b"],
                              cwd=tmp, env=env, capture_output=True).stdout.decode("utf-8", errors="replace")
     return _strip_copy_prefixes(out)
 
@@ -222,15 +250,6 @@ def _strip_copy_prefixes(diff: str) -> str:
                 line = f"diff --git {a} {b}" + line[len(body):]
         elif body.startswith("@@"):
             header = False
-        elif header and body.startswith("Binary files ") and body.endswith(" differ"):
-            middle = body[len("Binary files "):-len(" differ")]
-            for i in [i for i in range(len(middle)) if middle.startswith(" and ", i)]:
-                one, two = middle[:i], middle[i + len(" and "):]
-                a = "/dev/null" if one == "/dev/null" else strip(one, "a")
-                b = "/dev/null" if two == "/dev/null" else strip(two, "b")
-                if a and b:
-                    line = f"Binary files {a} and {b} differ" + line[len(body):]
-                    break
         elif header and body.startswith(("--- ", "+++ ")):
             side = "a" if body.startswith("---") else "b"
             path, sep, tail = body[4:].partition("\t")          # git's tab after a name with spaces
@@ -242,7 +261,7 @@ def _strip_copy_prefixes(diff: str) -> str:
 
 
 # RRSIConfig fields this method does not read, and what sets the same thing here
-NOT_HERE = {"proposer_model": "the proposer's model is the Evolver's Base Agent setting (agent.model)",
+NOT_HERE = {"proposer_model": "the proposer's model is the Evolver's own (evolver.model)",
             "analyst_model": "the roles' model is evolver.params.roles.model",
             "critic_model": "the roles' model is evolver.params.roles.model",
             "eval_parallel": "the Trainer evaluates one candidate per step (1 is accepted)"}
@@ -386,7 +405,8 @@ class RRSIAdapterEvolver(AgentEvolver):
             st["failures"] = int(st.get("failures") or 0) + 1
             self._lines.append(f"\nThe step failed: {type(exc).__name__}: {exc}")
             status = "stop" if st["failures"] >= int(ctx.params.get("max_failures", 3)) else "failed"
-            st["stop_said"] = status == "stop"           # returned to the Trainer, which hears it
+            # said only when the Trainer hears it: a step its clock ended has its result replaced
+            st["stop_said"] = status == "stop" and not (ctx.cancel is not None and ctx.cancel.is_set())
             self._save(ctx, st)
             return self._result(ctx, st, status, f"{type(exc).__name__}: {str(exc)[:200]}", roles)
         st["failures"], st["stop_said"] = 0, False
@@ -954,7 +974,7 @@ class RRSIAdapterEvolver(AgentEvolver):
 
     @staticmethod
     def _check_done(done: Path, budget: int, reserved: bool, explore: dict, changed: bool,
-                    links: list | None = None) -> tuple[dict | None, list, bool]:
+                    links: list | None = None, not_text: list | None = None) -> tuple[dict | None, list, bool]:
         """Upstream's done() contract (rrsi/propose.py): an edits array within the budget, every edit tagged from
         K with its fields, a reserved exploration slot honoured, and file changes behind the declared edits.
         Returns (proposal, problems, final): problems go back to the session unless `final` (upstream's no_proposal:
@@ -963,6 +983,9 @@ class RRSIAdapterEvolver(AgentEvolver):
         if links:
             return None, [f"symbolic links are not allowed in a candidate: {', '.join(links[:5])}; replace them with "
                           "files"], False
+        if not_text:
+            return None, [f"a candidate's files are UTF-8 text (no NUL bytes, no other encoding, names in UTF-8): "
+                          f"{', '.join(not_text[:5])}; write them as text (CSV, JSON, Markdown, code)"], False
         if done.is_symlink() or not done.is_file():
             return None, [f"{done} was not written (as a file, not a link)"], False
         try:
@@ -1061,15 +1084,17 @@ class RRSIAdapterEvolver(AgentEvolver):
             self._lines.append(f"r{t}{vid}: {gate} {detail[:200]}")
             return info
 
-        def current() -> tuple[list, str | None]:
-            """The candidate's links, and the digest of its staged copy (None while it holds links)."""
+        def current() -> tuple[list, list, str | None]:
+            """The candidate's links, its staged files that are not UTF-8 text, and the digest of its staged copy
+            (None while it holds either)."""
             if not cand.is_dir() or not _real(cand, ws.scratch):
-                return ["adapter (it must stay a directory, not a link)"], None
+                return ["adapter (it must stay a directory, not a link)"], [], None
             links = links_in(cand)
             if links:
-                return links, None
+                return links, [], None
             stage(cand, staged)
-            return [], tree_digest(staged)
+            not_text = not_text_in(staged, base)
+            return [], not_text, None if not_text else tree_digest(staged)
 
         def propose(prompt: str, session: str | None, since: str) -> tuple[dict | None, str | None, list, bool]:
             """A session, then upstream's done() check against the files changed since `since` (H_t's digest for the
@@ -1080,9 +1105,9 @@ class RRSIAdapterEvolver(AgentEvolver):
             for attempt in range(4):
                 if not _owned(work, ws.scratch):
                     return None, session, ["the variant's directory was replaced by a link or a file"], True
-                links, digest = current()
+                links, not_text, digest = current()
                 prop, problems, final = self._check_done(done, bundle["budget"], reserved, bundle["explore"],
-                                                         digest is not None and digest != since, links)
+                                                         digest is not None and digest != since, links, not_text)
                 if prop is None and result.status != "done" and not (result.extra or {}).get("proposer_fault"):
                     # The session failed (it exited non-zero) and left no proposal: no choice of the proposer's.
                     # Upstream's driver stops on a proposer call that raises; here the step fails (counted toward
@@ -1138,7 +1163,7 @@ class RRSIAdapterEvolver(AgentEvolver):
                 return finish("no_proposal", "the variant's directory was replaced by a link or a file",
                               prop.get("edits"))
             _remove(done)
-            links, start = current()
+            _, _, start = current()
             repaired, session, problems, _ = propose(REPAIR.replace("{done}", str(done))
                                                      + json.dumps(brief, ensure_ascii=False, indent=1), session,
                                                      start or "")
@@ -1152,9 +1177,10 @@ class RRSIAdapterEvolver(AgentEvolver):
         edits = prop.get("edits") or []
         if not verdict or verdict.get("verdict") != "accept":
             return finish("critic_reject", str((verdict or {}).get("reasons")), edits, str(vdir / "diff.patch"))
-        links, digest = current()
-        if links:
-            return finish("no_proposal", f"symbolic links in the candidate: {links[:5]}", edits)
+        links, not_text, digest = current()
+        if links or not_text:
+            return finish("no_proposal", f"symbolic links or files that are not text in the candidate: "
+                                         f"{(links + not_text)[:5]}", edits)
         dropped = stage(cand, staged)
         # tag (l', h', d'): the declared component validated against the diff of what is stored
         diff = diff_of(base, staged)
