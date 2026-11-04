@@ -118,6 +118,9 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   call's tool server serves the allowed tools over MCP and as JSON (`MW_TOOLSRV`).
 - OfficeQA's direct chat makes each of SkillOpt's model calls through the `direct` Base Agent, with SkillOpt's own
   retry waits (`ChatClient` takes `retry_wait` and `retry_wait_max`).
+- CoEvoSkills Adapter: the `coevoskills-adapter` template and the `coevoskills_adapter` Evolver, which runs the
+  pinned CoEvoSkills Generator/Verifier loop once per training question (its oracle the acting agent through
+  `run_agent`, its roles' model the run's `llm`) and keeps the executable Skill packages; an OfficeQA example.
 - `hermit deploy` copies the whole adapter (every file but `.hermit/` and `.git/`) to `hermit/<adapter id>/` in the
   workspace, and the context block says so, with paths in `ADAPTER.md` relative to that folder; what `exports.yaml`
   declares is connected to the host as before. A redeployment replaces the copy, and refuses when a copied file was

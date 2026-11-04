@@ -424,6 +424,36 @@ Paired per question, 95% bootstrap intervals; bold where the interval lies above
 - The agent names the bullets it used on one line of its final message: 81 of the 100 training samples named at
   least one, 142 citations in all.
 
+## CoEvoSkills Adapter
+
+[CoEvoSkills Adapter](../methods/coevoskills_adapter.md) runs the CoEvoSkills Generator/Verifier loop (pinned at
+`4380d4b`) once per training question: the loop writes an executable Skill package, the fresh-execution oracle runs
+it through `run_agent` (the Codex acting agent and the OfficeQA judge), and only the hidden test's pass or fail goes
+back to the loop. Every package is kept in the adapter as one of the acting agent's native skills (Codex lists their
+names and descriptions and opens the ones it chooses). The starting context is SkillOpt's initial OfficeQA skill.
+
+Install the `coevoskills` and `skillopt` dependency groups, keep an unmodified checkout of the upstream repository at
+`4380d4bff673dd6e1d58e5babeb2aaa0fe527119`, prepare the [OfficeQA data](#prepare-the-data) and the
+[Codex harness](#run-in-the-codex-harness), then:
+
+```bash
+export COEVOSKILLS_ROOT=/path/to/CoEvoSkills
+python -m pip install -e . --group coevoskills --group skillopt
+python examples/officeqa/coevoskills_adapter/prepare.py     # the training questions as Harbor task packages
+python examples/officeqa/coevoskills_adapter/make_seed.py   # the starting adapter
+hermit train --config examples/officeqa/coevoskills_adapter/run_codex_luna.yaml
+hermit eval  --config examples/officeqa/coevoskills_adapter/run_codex_luna.yaml --adapter final         # the packages
+hermit eval  --config examples/officeqa/coevoskills_adapter/run_codex_luna.yaml --adapter seed_adapter  # initial skill
+hermit eval  --config examples/officeqa/coevoskills_adapter/run_codex_luna.yaml --adapter none          # no skill
+```
+
+A step runs sixteen questions' loops at a time (`data.step_size` and `evolver.params.workers`; four in
+`run_codex.yaml`, for the API's rate); they do not see each other's packages. The 24 validation questions are not
+used. `run_codex.yaml` is the same protocol on the Flash row (GLM 5.3 Flash acting and learning); `smoke_codex.yaml`
+and `smoke_codex_luna.yaml` are their smokes. No result is recorded yet: an earlier run used a different harness
+(Docker network none with a model relay, image `0.162.0`, its own no-adapter baseline) and is to be repeated with
+these configs.
+
 ## Outputs and scoring
 
 A run's records are under `examples/officeqa/<method>/runs/<run name>/` (`<run>` below):

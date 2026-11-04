@@ -54,7 +54,7 @@ Many harnesses are black boxes; even open-source ones have carefully designed co
 <tbody>
 <tr>
 <td>✅ <strong>Supported</strong></td>
-<td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/gepa.html">GEPA</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/skillopt.html">SkillOpt</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/mwm.html">MetaWorld Model</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/harness2.html">Harness²</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/continual_harness.html">Continual Harness</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/reharness.html">ReHarness</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/meta_harness_adapter.html">Meta-Harness Adapter</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/ace.html">ACE</a></td>
+<td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/gepa.html">GEPA</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/skillopt.html">SkillOpt</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/mwm.html">MetaWorld Model</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/harness2.html">Harness²</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/continual_harness.html">Continual Harness</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/reharness.html">ReHarness</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/meta_harness_adapter.html">Meta-Harness Adapter</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/ace.html">ACE</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/coevoskills_adapter.html">CoEvoSkills Adapter</a></td>
 </tr>
 </tbody>
 </table>
@@ -209,6 +209,10 @@ Train and evaluate harness adapters on benchmarks using different evolution meth
 <tr>
 <td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/ace.html">ACE</a></td>
 <td><a href="examples/officeqa/ace/">OfficeQA</a> (a playbook of bullets grown by a Reflector and a Curator, Codex as the acting agent)</td>
+</tr>
+<tr>
+<td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/coevoskills_adapter.html">CoEvoSkills Adapter</a></td>
+<td><a href="examples/officeqa/coevoskills_adapter/">OfficeQA</a> (executable Skill packages from the upstream Generator/Verifier loop, one per training question)</td>
 </tr>
 <tr>
 <td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/prompt-only.html">Prompt-only</a></td>

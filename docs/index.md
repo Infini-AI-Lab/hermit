@@ -71,6 +71,7 @@ methods/continual_harness
 methods/reharness
 methods/meta_harness_adapter
 methods/ace
+methods/coevoskills_adapter
 ```
 
 ```{toctree}
