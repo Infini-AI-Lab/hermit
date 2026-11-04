@@ -16,7 +16,7 @@ template–method combinations meaningful.
 | Build a persistent world model from an ordered environment stream | [MWM](mwm.md) | `mwm` | Evidence store, deployment description, tools, Linux learner environment |
 | Learn a bank of reflections online, retrieved per instance of an ordered stream | [ReHarness](reharness.md) | `reharness` | The run's `llm`, an embedding endpoint (or BM25), an agent that reads the adapter through `Session.context(query, task)` |
 | Search whole adapters with a coding-agent proposer that reads every earlier candidate's files, scores and trajectories | [Meta-Harness Adapter](meta_harness_adapter.md) | `meta-harness-adapter` | A training split (the search set), a proposer CLI (Codex or Claude Code), an acting agent that delivers the adapter |
-| Learn executable harness Skills for the fixed OfficeQA actor | [CoEvoSkills](coevoskills.md) | `coevoskills@1.0` | Pinned source, offline Docker, Codex CLI and a Responses backend |
+| Learn executable Skill packages the acting agent runs, one per training task | [CoEvoSkills Adapter](coevoskills_adapter.md) | `coevoskills-adapter@1.0` | The pinned upstream checkout, Docker for the loop's task containers, the run's `llm` |
 | Learn the framework contract offline | [Quick Start](../get-started/quickstart.md) | Prompt-only with a teaching learner | Included toy tasks |
 
 ## Compare the work behind each step
@@ -36,7 +36,7 @@ task-specific service overhead. Call counts vary with evidence, candidates, and 
 | MWM | Maintenance and a learner session per eligible block, plus native bootstrap/retry behavior | World-model adapter plus method/session records | Current world-model adapter |
 | ReHarness | Per instance, one reflection call, one revision call per retrieved reflection (up to k) and one embedding call; no candidate rollouts or validation | Reflection bank in the adapter; source trajectories and per-instance retrieval and revision records in `state/` | Current adapter: the bank after the last instance |
 | Meta-Harness Adapter | One proposer session per round writing k candidates; each candidate is a full rollout of the search set, one step per candidate | Every candidate's files, hypothesis, base and per-task scores in `state/` | Best mean on the search set |
-| CoEvoSkills | Original Generator/Verifier episodes and fresh fixed-actor probes per training task, followed by an export probe | Exported Skill packages in the adapter; original-loop outputs and the initial seed in the run records | Frozen bank of valid task updates; parallel streams use a deterministic union, without validation selection |
+| CoEvoSkills Adapter | Upstream's Generator/Verifier loop per training task, its fresh-execution oracle the acting agent through `run_agent`; only the hidden test's pass or fail returns | Executable Skill packages as `skills/<task>-evo-<name>/`, installed as the acting agent's native skills | Every exported package kept (`keep: all`, as upstream keeps its best snapshot); finalize: the last adapter |
 
 `use_gate: false` in SkillOpt removes the ordinary improvement requirement, **not** the validation calls.
 GEPA's minibatch criterion is separate from its validation-based parent/final selection.

@@ -1,0 +1,24 @@
+description: >-
+  CoEvoSkills Adapter: the CoEvoSkills Generator/Verifier loop (Zhang et al.; Zhang-Henry/CoEvoSkills @ 4380d4b,
+  libs/terminus_agent) on the `coevoskills-adapter` template, confined to the adapter (the acting agent is fixed).
+  Each step runs the unchanged upstream loop once per training question of the step, in independent worker
+  processes: the Generator writes an executable Skill package, the fresh-execution oracle runs it through the
+  Trainer's `run_agent` tool (the task's own acting agent and judge) and only pass or fail returns to the loop. Every
+  completion of the upstream roles is a call of the run's `llm`. The packages become the adapter's skills, which the
+  host installs as the acting agent's native skills; finalize hands back the last adapter.
+class: evolver.py:CoEvoSkillsAdapterEvolver
+needs: []
+params:
+  upstream_root: $COEVOSKILLS_ROOT   # an unmodified CoEvoSkills checkout at the pinned commit (prompts, meta-skills)
+  task_packages: data/packages       # the example's preparation: one Harbor task package per training question
+  workers: 1                         # upstream loops at a time; set data.step_size to the same number
+  max_iterations: 5                  # upstream max_host_interventions: oracle checks per question
+  max_episodes: 120                  # upstream max_episodes
+  task_timeout_s: 7200               # upstream override_timeout_sec: one question's whole loop
+  deliver: null                      # the example's hook (file.py:function): the acting agent's output -> {container
+                                     # path: text} for the task's hidden test (OfficeQA: oracle_io.py:deliver)
+  path_map: {}                       # the task container's paths in the acting agent's workspace, rewritten in the
+                                     # packages (OfficeQA: {/root/docs: docs, ...})
+  keep: all                          # all: install every package the loop exports (upstream keeps its best snapshot
+                                     # whether or not it passed) | passed: only a package that upstream's final verdict
+                                     # passed

@@ -1,0 +1,2 @@
+context: ADAPTER.md
+skills: skills          # one directory per package, installed as the host's native skills (Codex: .codex/skills)

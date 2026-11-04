@@ -88,6 +88,9 @@ CONFIG=run_codex_luna.yaml examples/officeqa/harness2_stream/launch.sh          
 python examples/officeqa/ace/make_seed.py                                                                # ACE
 hermit train --config examples/officeqa/ace/run_codex_luna.yaml                                          # 50 training questions, two epochs
 hermit eval  --config examples/officeqa/ace/run_codex_luna.yaml      --adapter final                     # ACE's playbook
+python examples/officeqa/coevoskills_adapter/prepare.py && python examples/officeqa/coevoskills_adapter/make_seed.py
+hermit train --config examples/officeqa/coevoskills_adapter/run_codex_luna.yaml                          # CoEvoSkills
+hermit eval  --config examples/officeqa/coevoskills_adapter/run_codex_luna.yaml --adapter final          # its packages
 ```
 
 Sessions on the login share its plan; the files under `~/.cache/hermit/codex-login/plan/` steer every running session:
@@ -114,7 +117,7 @@ container per session. Each evaluation makes one pass over the 172 test question
 <tr><td><b>ReHarness</b></td><td>0.634</td><td>0.517</td></tr>
 <tr><td><b>Harness²</b></td><td>0.651</td><td>0.611</td></tr>
 <tr><td><b>ACE</b></td><td>not run</td><td>0.640</td></tr>
-<tr><td><b>CoEvoSkills</b></td><td>not run</td><td>0.640</td></tr>
+<tr><td><b>CoEvoSkills Adapter</b></td><td>not run</td><td>not run</td></tr>
 </tbody>
 </table>
 
@@ -134,12 +137,10 @@ Results use two settings:
   scores measure performance during adaptation. See [`continual_harness/`](continual_harness/) and
   [`harness2_stream/`](harness2_stream/) for their protocols.
 
-**CoEvoSkills** ([`coevoskills/`](coevoskills/), [method](../../docs/methods/coevoskills.md)) learns on the
-50 training questions without validation selection, then evaluates the frozen Skill bank once on the 172 test
-questions. Its Luna-only run has its own matched baselines: no adapter **40/172 (23.26%)**, the starting seed
-**62/172 (36.05%)**, and final **110/172 (63.95%)**, a paired **+27.91 points** over the seed.
-The [result record](coevoskills/#result) gives the settings and comparison; this is a separate run from the
-methods measured in both columns.
+**CoEvoSkills Adapter** ([`coevoskills_adapter/`](coevoskills_adapter/),
+[method](../../docs/methods/coevoskills_adapter.md)) runs the CoEvoSkills loop once per training question, keeps
+every exported Skill package and evaluates the frozen adapter once on the 172 test questions; the packages are the
+acting agent's native skills (Codex's own skill discovery). Not run with these configs yet.
 
 **ReHarness** ([`reharness/`](reharness/), [method](../../docs/methods/reharness.md)) keeps the initial skill as
 the harness's text and learns a bank of reflections below it, five retrieved per question by Qwen3-Embedding-8B and
@@ -193,7 +194,8 @@ reharness/          ReHarness: stream_codex.yaml (the 172 test questions as one 
 ace/                ACE: run_codex_luna.yaml and smoke_codex_luna.yaml in the GPT-5.6-Luna setting; make_seed.py
                     writes seed_adapter/, the initial skill with ACE's empty playbook; adapter/ is the measured
                     run's final playbook, with its .hermit/CARD.md
-coevoskills/        CoEvoSkills: prepare.py and prepare_seed.py stage training fixtures and the seed; launch.py
-                    runs fresh baselines, training and frozen evaluation; run_codex_luna.yaml uses ChatGPT login,
-                    run_codex.yaml an API backend; comparison.json holds the paired test results
+coevoskills_adapter/ CoEvoSkills Adapter: prepare.py writes the training questions as Harbor task packages,
+                    make_seed.py seed_adapter/ (the initial skill as the starting context), oracle_io.py the hand-over
+                    to the hidden test; run_codex.yaml and smoke_codex.yaml (GLM 5.3 Flash), run_codex_luna.yaml and
+                    smoke_codex_luna.yaml (GPT-5.6-Luna)
 ```
