@@ -146,7 +146,8 @@ trials than `invalid_missing_frac` is run once more, then counted invalid, as up
 call fails is a step too (so is one whose proposer session exits non-zero without a proposal; the variant is drafted
 again at the next step, and so is one the Trainer's clock ended); three failed steps in a row stop the run, as
 upstream's driver does, at the step after them (the Trainer replaces the result of a step its clock ended, so that
-step cannot stop the run itself), and `finalize` then says that the run ended before round T. A step the model's plan
+step cannot stop the run itself; a Trainer without `allow_early_stop` runs on, and the count starts again), and
+`finalize` then says that the run ended before round T. A step the model's plan
 or provider held back within the Trainer's clock is not counted; a budget stop ends the run anyway.
 
 ## Parameters and defaults

@@ -329,11 +329,19 @@ class RRSIAdapterEvolver(AgentEvolver):
         self._record_code(ctx)
         limit = int(ctx.params.get("max_failures", 3))
         if int(st.get("failures") or 0) >= limit:
-            # The last steps failed max_failures times in a row. A step the Trainer's clock ended cannot stop the run
-            # itself (the Trainer replaces that step's result with its own), so the run stops here, at the next one.
-            self._lines.append(f"The last {st['failures']} steps failed in a row (max_failures {limit}): the run "
-                               "stops before this step does anything.")
-            return self._result(ctx, st, "stop", f"stopped: {st['failures']} failed steps in a row", roles)
+            if not st.get("stop_said"):
+                # The last steps failed max_failures times in a row. A step the Trainer's clock ended cannot stop the
+                # run itself (the Trainer replaces that step's result with its own), so the run stops here, at the
+                # next one.
+                st["stop_said"] = True
+                self._save(ctx, st)
+                self._lines.append(f"The last {st['failures']} steps failed in a row (max_failures {limit}): the "
+                                   "run stops before this step does anything.")
+                return self._result(ctx, st, "stop", f"stopped: {st['failures']} failed steps in a row", roles)
+            # The Trainer ran on (trainer.allow_early_stop: false): the count starts again and the step goes on.
+            self._lines.append("The Trainer ran on after the Evolver asked to stop: the failures are counted again.")
+            st["failures"], st["stop_said"] = 0, False
+            self._save(ctx, st)
         if not st["order"]:                                  # the starting adapter, H_0
             _copy_tree(ctx.workspace.adapter, store / "h0" / "adapter")
             st["candidates"]["h0"] = {"round": None, "variant": None, "status": "queued",
@@ -357,7 +365,7 @@ class RRSIAdapterEvolver(AgentEvolver):
             self._lines.append(f"\nThe step failed: {type(exc).__name__}: {exc}")
             status = "stop" if st["failures"] >= int(ctx.params.get("max_failures", 3)) else "failed"
             return self._result(ctx, st, status, f"{type(exc).__name__}: {str(exc)[:200]}", roles)
-        st["failures"] = 0
+        st["failures"], st["stop_said"] = 0, False
         self._save(ctx, st)
         return self._result(ctx, st, outcome[0], outcome[1], roles)
 

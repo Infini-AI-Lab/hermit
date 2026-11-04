@@ -1067,6 +1067,9 @@ def test_steps_the_trainer_stopped_count_toward_max_failures(tmp_path, monkeypat
     r = ev.step(context(ws, 4, dom, tmp_path))                  # the next step, which the Trainer takes as it is
     assert r.status == "stop" and "3 failed steps in a row" in r.summary and len(calls) == 3
     assert "ended early" in ev.finalize(context(ws, 4, dom, tmp_path)).summary
+    # a Trainer without allow_early_stop runs on: the Evolver tries again rather than idle for the rest of the run
+    ev.step(dataclasses.replace(context(ws, 5, dom, tmp_path), cancel=cancel))
+    assert len(calls) == 4 and state(ws)["failures"] == 1           # tried again, and counted afresh
     held = workspace(tmp_path / "held")                          # a plan's refusal (no cancel) is not counted
     dom2 = domain_files(tmp_path / "held")
     material(held, 1, rows({"q1": [0, 1], "q2": [1, 0]}))

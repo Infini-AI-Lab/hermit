@@ -31,7 +31,8 @@ params:
   smoke: true                # run the domain's smoke tasks with each screened candidate (upstream's liveness smoke)
   max_failures: 3            # consecutive failed steps before the Evolver stops the run (upstream's driver: 3), at
                              # the step after them; a step the Trainer's clock ended counts (a plan's hold that
-                             # outlasts that clock with it), one the plan or the provider held back within it not
+                             # outlasts that clock with it), one the plan or the provider held back within it not; a
+                             # Trainer without allow_early_stop runs on, and the count starts again
   session_retries: 2         # a proposer session the model's provider could not serve (429, 5xx) is resumed this
   session_retry_wait_s: 120  # often, after this pause times the attempt; then the step stops, never a gate failure
   stop_file: null            # a path; while it exists no new round is opened and the run ends at the next step
