@@ -429,8 +429,8 @@ Paired per question, 95% bootstrap intervals; bold where the interval lies above
 [AHE](https://arxiv.org/abs/2604.25850) (Lin et al., 2026) evolves the acting agent's harness over iterations of k
 rollouts per task: an Agent Debugger reports on each task's traces, an Evolve Agent edits the harness and predicts what
 each change fixes, and the next iteration's rollouts judge every change ([AHE Adapter](../methods/ahe_adapter.md) has
-its controls and its differences from the authors' code). `examples/officeqa/ahe_adapter/` runs it on the `ahe-codex`
-template from the seed harness with SkillOpt's initial skill in its system prompt (`make_seed.py` writes
+its controls and its differences from the authors' code). `examples/officeqa/ahe_adapter/` runs it on the `ahe`
+template, with Codex as the acting agent, from the seed harness with SkillOpt's initial skill in its system prompt (`make_seed.py` writes
 `seed_adapter/`): the 50 training questions as 100 trial rows (`make_rows.py`, k = 2), one step per iteration over all
 of them, ten iterations; with no validation split, `final` is the best-ever iteration by training pass rate.
 

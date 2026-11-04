@@ -9,7 +9,7 @@
 # hands ../utils the question's own row and copies the harness's hook logs into the log); a step is one iteration over
 # every trial (step_size 100) and the ten epochs are its ten iterations; HARMFUL changes are rolled back; with no
 # validation split, finalize hands back the best-ever iteration by training pass rate, and `hermit eval` scores it once
-# on the 172 test questions. H_0 is the ahe-codex@1.0 seed harness with SkillOpt's initial skill in its system prompt
+# on the 172 test questions. H_0 is the ahe@1.0 seed harness with SkillOpt's initial skill in its system prompt
 # (make_seed.py). The trainer settings: the rows in order (no shuffle), an
 # early stop at target_pass_rate, call_timeout_min 420 for one step's Debugger and Evolve sessions, a 48 h budget, a
 # checkpoint every step, and workspaces of its own.
@@ -42,7 +42,7 @@ agent:
     container: {image: "officeqa-codex:0.164.0", network: oq-sandbox, proxy: "http://oq-egress-login:3128"}
 judge:
   path: trials.py                      # the question's score (../utils/judge.py)
-template: ahe-codex@1.0
+template: ahe@1.0
 start_from: seed_adapter               # make_seed.py: H_0
 evolver:
   name: ahe_adapter                    # Layer 3: the Agent Debugger and the Evolve Agent

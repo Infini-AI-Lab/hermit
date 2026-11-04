@@ -49,7 +49,7 @@ import threading
 import time
 
 from hermit.agent.base.interface import make
-from hermit.agent.base.trajectory import STREAMS, log_steps
+from hermit.agent.base.trajectory import CODEX_STREAM, STREAMS, log_steps
 from hermit.agent.evolver.base import Usage
 from hermit.agent.evolver.methods.ahe_adapter import trajectory as _trajectory
 from hermit.agent.evolver.methods.ahe_adapter.analysis import task_file_name, task_name_of
@@ -173,6 +173,42 @@ def trace_source(log: Path | None) -> tuple[Path, str] | None:
     return (stream, "events.jsonl") if stream is not None else None
 
 
+# The texts the learners read name the acting agent's event stream as the framework's Codex agent keeps it; with
+# another acting agent the same sentences name its own (the Debugger and the Evolve Agent run on codex either way).
+STREAM_TEXTS = {"agent-claude.jsonl": (("agent-codex.jsonl", "agent-claude.jsonl"),
+                                       ("the raw Codex event stream", "the raw Claude Code event stream"),
+                                       ("the Codex event stream", "the Claude Code event stream"),
+                                       ("`codex exec --json` event stream",
+                                        "`claude -p --output-format stream-json` event stream"))}
+
+
+def stream_of(logs) -> str:
+    """The event stream file the rollouts' logs carry (hermit.agent.base.trajectory.STREAMS): the first one found,
+    else Codex's."""
+    for log in logs:
+        for name in STREAMS:
+            if log is not None and (Path(log) / name).is_file():
+                return name
+    return CODEX_STREAM
+
+
+def rollout_stream(records: list[dict], base: Path | None = None) -> str:
+    """stream_of the step's records (a record's `trajectory` is relative to `record["_dir"]` or `base`)."""
+    logs = []
+    for record in records:
+        trajectory, home = record.get("trajectory"), record.get("_dir") or base
+        if isinstance(trajectory, str) and trajectory and home is not None:
+            logs.append(Path(home) / trajectory)
+    return stream_of(logs)
+
+
+def for_stream(text: str, stream: str) -> str:
+    """`text`, written for Codex's event stream, naming `stream` instead (unchanged for Codex's own)."""
+    for old, new in STREAM_TEXTS.get(stream, ()):
+        text = text.replace(old, new)
+    return text
+
+
 def _tail(text: str, limit: int) -> str:
     text = text.strip()
     return "... (truncated) ...\n" + text[-limit:] if len(text) > limit else text
@@ -271,7 +307,8 @@ def question_for(job: Job, files: list[str], k: int, params: dict, texts=None) -
     listing = "\n".join(f"- `{name}`" for name in files)
     answer = ("Write your answer to `answer.md` in this directory, leading with `" + sections[0] + ":` then "
               + ", ".join(f"`{s}:`" for s in sections[1:]) + ", one section per line.")
-    return (RULES.read_text(encoding="utf-8").rstrip() + "\n\n## Files in this directory\n\n" + listing
+    rules = for_stream(RULES.read_text(encoding="utf-8").rstrip(), stream_of(t.log for t in job.trials))
+    return (rules + "\n\n## Files in this directory\n\n" + listing
             + f"\n\n## Question (task `{job.task}`)\n\n" + query + "\n\n" + answer + "\n")
 
 

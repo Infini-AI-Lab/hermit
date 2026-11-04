@@ -55,7 +55,7 @@ Only `adapter/` is your playground. Everything else is read-only or off-limits.
     │   ├── ADAPTER.md                 ← The framework's copy of AGENTS.md (kept equal by the Evolver)
     │   ├── MEMORY.md                  ← Long-term memory (persistent cross-session knowledge, MODIFIABLE)
     │   ├── middleware.py              ← The hook pipeline (before_tool / after_tool / session_start / stop / before_model)
-    │   ├── scripts/                   ← Tool implementations the agent runs with python3 (from the adapter's folder hermit/ahe-codex/ in its workspace)
+    │   ├── scripts/                   ← Tool implementations the agent runs with python3 (from the adapter's folder hermit/ahe/ in its workspace)
     │   ├── .agents/skills/            ← Skill packages (<name>/SKILL.md + scripts/)
     │   ├── agents/                    ← Sub-agent roles (<name>.md with frontmatter name + description)
     │   └── .hermit/EVOLVER.md         ← The adapter's guide: the component table, the middleware cookbook, the validator's rules (READ)
@@ -84,12 +84,12 @@ Only `adapter/` is your playground. Everything else is read-only or off-limits.
 
 | path | AHE component | reaches the agent |
 |---|---|---|
-| `AGENTS.md` (`ADAPTER.md` copy) | system prompt (seed rules non-deletable) + tool-usage guidance (Codex's tool schemas are fixed) | every turn, injected whole |
+| `AGENTS.md` (`ADAPTER.md` copy) | system prompt (seed rules non-deletable) + tool-usage guidance (the host's tool schemas are fixed) | every turn, injected whole |
 | `MEMORY.md` | long-term memory | at session start, through `middleware.py`'s `session_start` |
-| `middleware.py` | middleware: `before_tool` (veto with a reason), `after_tool` (append a note), `session_start`, `stop`, `before_model` (Codex only, best effort) | inside the tool loop through the host's hooks; per-session state; `hook-calls.jsonl` in every trajectory |
+| `middleware.py` | middleware: `before_tool` (veto with a reason), `after_tool` (append a note), `session_start`, `stop`, `before_model` (queues a note; what each host does: EVOLVER.md's host table) | inside the tool loop through the host's hooks; per-session state; `hook-calls.jsonl` in every trajectory |
 | `scripts/<name>.py` | tool implementation | when the agent runs `python3 scripts/<name>.py` |
 | `.agents/skills/<name>/SKILL.md` (+ `scripts/`) | skill | name/description always; body on demand |
-| `agents/<name>.md` | sub-agent (Codex agent role) | when the agent spawns it |
+| `agents/<name>.md` | sub-agent (a role of the host) | when the agent spawns it |
 
 All component types are equally valid and important. Choose the one that best fits the root cause.
 
@@ -105,7 +105,7 @@ There is no registry to edit: a file on one of the paths in the table above is d
 
 ## How hooks and scripts run
 
-`adapter/.hermit/EVOLVER.md` is the authoritative guide: read it before touching `middleware.py`. In short: the host calls the adapter's hook runner (`hook_runner.py`, fixed) on every event; the runner imports `middleware.py` (stdlib and `hermit_hooks` only, no network, no subprocess), calls the matching function `(inp: HookInput, state: dict) -> HookResult | dict | None`, persists `state` per session, and translates the result (deny a tool call with a reason, append context, block a stop). A middleware that raises or hangs is fail-open: the tool call proceeds and the error lands in `hook-calls.jsonl` of the trajectory — read it after changing the middleware. Scripts run in the agent's workspace, where the adapter is deployed as the folder `hermit/ahe-codex/` (the deployment tells the agent that the paths of `AGENTS.md` and of the skills are relative to that folder): invoke them as `python3 scripts/<name>.py` (a skill helper: `python3 .agents/skills/<name>/scripts/<file>`) in `AGENTS.md` and in skills; `check_spec` verifies that each referenced file exists. Python 3, no third-party packages guaranteed.
+`adapter/.hermit/EVOLVER.md` is the authoritative guide: read it before touching `middleware.py`. In short: the host calls the adapter's hook runner (`hook_runner.py`, fixed) on every event; the runner imports `middleware.py` (stdlib and `hermit_hooks` only, no network, no subprocess), calls the matching function `(inp: HookInput, state: dict) -> HookResult | dict | None`, persists `state` per session, and translates the result (deny a tool call with a reason, append context, block a stop). A middleware that raises or hangs is fail-open: the tool call proceeds and the error lands in `hook-calls.jsonl` of the trajectory — read it after changing the middleware. Scripts run in the agent's workspace, where the adapter is deployed as the folder `hermit/ahe/` (the deployment tells the agent that the paths of `AGENTS.md` and of the skills are relative to that folder): invoke them as `python3 scripts/<name>.py` (a skill helper: `python3 .agents/skills/<name>/scripts/<file>`) in `AGENTS.md` and in skills; `check_spec` verifies that each referenced file exists. Python 3, no third-party packages guaranteed.
 
 
 # Analysis Approach

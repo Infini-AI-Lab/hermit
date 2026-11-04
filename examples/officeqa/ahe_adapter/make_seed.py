@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Write seed_adapter/ beside this file: the `ahe-codex` seed harness (the paper's seed system prompt, an empty
+"""Write seed_adapter/ beside this file: the `ahe` seed harness (the paper's seed system prompt, an empty
 long-term memory, the seed middleware) with SkillOpt's initial OfficeQA skill (../utils/seed_adapter/ADAPTER.md,
 written by ../utils/prepare.py) appended to its system prompt, so H_0 holds the same text the GEPA, SkillOpt,
 Harness², Continual Harness and Meta-Harness Adapter runs start from. AGENTS.md and its copy ADAPTER.md carry it.
@@ -13,7 +13,7 @@ import hermit
 from hermit.spec import check_spec
 
 HERE = Path(__file__).resolve().parent
-TEMPLATE = Path(hermit.__file__).resolve().parent / "adapter" / "templates" / "ahe_codex"
+TEMPLATE = Path(hermit.__file__).resolve().parent / "adapter" / "templates" / "ahe"
 skill = (HERE.parent / "utils" / "seed_adapter" / "ADAPTER.md").read_text(encoding="utf-8").strip()
 out = HERE / "seed_adapter"
 if out.exists():

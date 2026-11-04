@@ -1,0 +1,18 @@
+# AHE's harness H (arXiv 2604.25850 §3.1: system prompt, tool descriptions, tool implementations, middleware, skills, sub-agents,
+# long-term memory) as an adapter for any host that runs its hooks (Codex, Claude Code): AGENTS.md (prompt + tool guidance),
+# scripts/ (tools the shell runs), middleware.py (the hook pipeline, which the fixed hook_runner.py runs on every lifecycle event
+# of the host through the fixed hooks.json; hook_hosts.py is each host's wire), .agents/skills/, agents/, MEMORY.md.
+template: {id: ahe, version: "1.0", contract: "2", name: Agentic Harness Engineering harness}
+structure:
+  learnable:
+    - {path: ADAPTER.md, format: {text: true, max_bytes: 32000}}
+    - {path: AGENTS.md, format: {text: true, max_bytes: 32000}}        # a deployment past a host's limit (Codex's project_doc_max_bytes) is refused
+    - {path: MEMORY.md, format: {text: true, max_bytes: 40000}}
+    - {path: middleware.py, format: {text: true, max_bytes: 200000}}
+    - {path: scripts/*.py, format: {text: true, max_bytes: 200000, max_files: 40}}
+    - {path: .agents/skills/*/SKILL.md, format: {text: true, max_bytes: 24000, max_files: 40, frontmatter: [description]}}
+    - {path: .agents/skills/*/scripts/*, format: {text: true, max_bytes: 200000, max_files: 80}}
+    - {path: agents/*.md, format: {text: true, max_bytes: 24000, max_files: 20, frontmatter: [name, description]}}
+  fixed: [exports.yaml, hooks.json, hook_runner.py, hermit_hooks.py, hook_hosts.py, README.md, scripts/README.md,
+          agents/README.md, .agents/skills/README.md]
+check: .hermit/check.py:check

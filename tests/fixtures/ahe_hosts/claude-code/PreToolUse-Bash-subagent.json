@@ -1,0 +1,19 @@
+{
+ "session_id": "7df330aa-15f0-4199-821c-5724369ff359",
+ "transcript_path": "/probe/home/.claude/projects/-probe-ws/7df330aa-15f0-4199-821c-5724369ff359.jsonl",
+ "cwd": "/probe/ws",
+ "prompt_id": "cff1be1a-c4c7-41cb-a62d-5e9259818e17",
+ "permission_mode": "bypassPermissions",
+ "agent_id": "a191910f9c40a1005",
+ "agent_type": "general-purpose",
+ "effort": {
+  "level": "medium"
+ },
+ "hook_event_name": "PreToolUse",
+ "tool_name": "Bash",
+ "tool_input": {
+  "command": "echo FROM-SUB-OUT",
+  "description": "probe"
+ },
+ "tool_use_id": "toolu_sub_00_0"
+}

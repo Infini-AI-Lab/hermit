@@ -1,0 +1,27 @@
+{
+ "session_id": "479c6c2e-1f85-4d64-872e-056bbc16e0e1",
+ "transcript_path": "/probe/home/.claude/projects/-probe-ws/479c6c2e-1f85-4d64-872e-056bbc16e0e1.jsonl",
+ "cwd": "/probe/ws",
+ "prompt_id": "2bd22bb9-2079-412e-9b85-2c4b674627c7",
+ "permission_mode": "bypassPermissions",
+ "effort": {
+  "level": "medium"
+ },
+ "hook_event_name": "PostToolUse",
+ "tool_name": "Read",
+ "tool_input": {
+  "file_path": "/probe/ws/notes.txt"
+ },
+ "tool_response": {
+  "type": "text",
+  "file": {
+   "filePath": "/probe/ws/notes.txt",
+   "content": "alpha\nbeta\n",
+   "numLines": 3,
+   "startLine": 1,
+   "totalLines": 3
+  }
+ },
+ "tool_use_id": "toolu_main_00_0",
+ "duration_ms": 4
+}

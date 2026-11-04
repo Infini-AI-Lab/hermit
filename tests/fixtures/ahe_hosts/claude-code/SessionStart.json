@@ -1,0 +1,7 @@
+{
+ "session_id": "652ecb9c-a27b-4116-aeca-fc44a0462949",
+ "transcript_path": "/probe/home/.claude/projects/-probe-ws/652ecb9c-a27b-4116-aeca-fc44a0462949.jsonl",
+ "cwd": "/probe/ws",
+ "hook_event_name": "SessionStart",
+ "source": "startup"
+}

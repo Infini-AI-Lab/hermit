@@ -1,8 +1,9 @@
-"""The ahe-codex template's hook runner and middleware interface (hook_runner.py, hermit_hooks.py, loaded by path):
-every host event through the translation table, the pending-context queue, the per-session state under lock, the task
-text from the workspace's task.md or the session's first prompt, where the logs go, and the fail-open rules (a crashing or slow middleware
-produces no output, exit 0 and an audit line). Payloads are the real Codex 0.164 / Claude Code wire shapes recorded
-in the WP0 spikes. No bubblewrap: the runner runs where the agent runs, in its workspace or its container."""
+"""The ahe template's hook runner, middleware interface and hosts' wires (hook_runner.py, hermit_hooks.py,
+hook_hosts.py, loaded by path): every host event through its wire, the pending-context queue, the per-session state
+under lock, the task text from the workspace's task.md or the session's first prompt, where the logs go, the host from
+the deployment's record, and the fail-open rules (a crashing or slow middleware produces no output, exit 0 and an audit
+line). Payloads are the real Codex 0.164 / Claude Code wire shapes. No bubblewrap: the runner runs where the agent
+runs, in its workspace or its container."""
 import fcntl
 import importlib.util
 import io
@@ -18,7 +19,7 @@ import threading
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-TEMPLATE = ROOT / "hermit" / "adapter" / "templates" / "ahe_codex"
+TEMPLATE = ROOT / "hermit" / "adapter" / "templates" / "ahe"
 HOSTS = ("codex", "claude-code")
 AUDIT_KEYS = ["ts", "event", "session_id", "tool_name", "command", "decision", "reason", "context_chars", "ms",
               "error"]                                        # the as-run audit line of the Harbor route, field by field
@@ -31,9 +32,20 @@ def _load(name: str, path: Path):
     return module
 
 
-runner = _load("ahe_codex_hook_runner", TEMPLATE / "hook_runner.py")
+runner = _load("ahe_hook_runner", TEMPLATE / "hook_runner.py")
 hooks = runner.hooks                                          # the template's hermit_hooks.py, as the runner loaded it
-HookInput, HookResult, normalise, translate = hooks.HookInput, hooks.HookResult, hooks.normalise, hooks.translate
+wires = runner.hosts                                          # the template's hook_hosts.py
+HookInput, HookResult = hooks.HookInput, hooks.HookResult
+
+
+def normalise(host, payload, adapter_dir, task_text="", state=None, event=None):
+    """The host's wire on a payload, dispatching on `event` (a middleware function) or the payload's own event."""
+    return wires.HOSTS[host].normalise(payload.get("hook_event_name") or "", payload, adapter_dir, "", task_text,
+                                       state, function=event)
+
+
+def translate(host, event, result, state, *, stop_hook_active=False):
+    return wires.HOSTS[host].translate(event, result, state, stop_hook_active=stop_hook_active)
 
 # A middleware exercising every event: before_tool denies `rm -rf /`, rewrites `ls` to `ls -la`, after_tool appends a
 # note after pytest and blocks `boom`, stop blocks until a flag is set, before_model queues a reminder.
@@ -94,13 +106,16 @@ PATCH_POST = {"tool_name": "apply_patch", "tool_input": {"command": "*** Begin P
               "tool_response": "Exit code: 3\nWall time: 0.0 seconds\nOutput:\nfailed"}
 
 
-def adapter_dir(tmp_path: Path, middleware: str = MIDDLEWARE) -> Path:
-    """An adapter's copy as a deployment leaves it: the fixed runner and interface beside a middleware."""
-    a = tmp_path / "adapter"
-    a.mkdir(exist_ok=True)
-    for name in ("hook_runner.py", "hermit_hooks.py"):
+def adapter_dir(tmp_path: Path, middleware: str = MIDDLEWARE, host: str = "codex") -> Path:
+    """An adapter's copy as a deployment for `host` leaves it: the fixed runner, interface and wires beside a
+    middleware, in `hermit/ahe/` of the workspace tmp_path/ws, whose `.hermit-deploy.json` names the host."""
+    ws = tmp_path / "ws"
+    a = ws / "hermit" / "ahe"
+    a.mkdir(parents=True, exist_ok=True)
+    for name in ("hook_runner.py", "hermit_hooks.py", "hook_hosts.py"):
         shutil.copy2(TEMPLATE / name, a / name)
     (a / "middleware.py").write_text(middleware)
+    (ws / ".hermit-deploy.json").write_text(json.dumps({"host": host, "adapter_dir": str(a)}))
     return a
 
 
@@ -108,8 +123,8 @@ class Runner:
     """Runs the hook runner in process (stdout captured), on an adapter in tmp_path, in a session whose workspace
     (the payload's cwd) is tmp_path/ws: its logs are ws/.hermit-hooks/."""
 
-    def __init__(self, tmp_path, middleware=MIDDLEWARE):
-        self.adapter = adapter_dir(tmp_path, middleware)
+    def __init__(self, tmp_path, middleware=MIDDLEWARE, host="codex"):
+        self.adapter = adapter_dir(tmp_path, middleware, host)
         self.workspace = tmp_path / "ws"
         self.workspace.mkdir(exist_ok=True)
         self.state_dir = self.workspace / ".hermit-hooks" / "hook-state"
@@ -186,7 +201,7 @@ def test_normalise_a_dict_tool_response_and_a_list_command():
     ("mcp__hermit__lookup", "mcp"), ("myserver__search", "mcp"), ("spawn_agent", "other"),
     ("multi_agent_v1wait_agent", "other"), ("WebFetch", "other"), (None, None)])
 def test_tool_kinds(name, kind):
-    assert hooks.tool_kind(name) == kind
+    assert wires.CODEX.tool_kind(name) == kind
 
 
 def test_stop_and_subagent_payloads():
@@ -253,8 +268,10 @@ def test_translate_before_tool(host):
     allow = translate(host, "PreToolUse", HookResult(decision="allow", updated_input={"command": "ls -la"}), {})
     assert allow == {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow",
                                             "updatedInput": {"command": "ls -la"}}}
-    none = translate(host, "PreToolUse", HookResult(context="c", updated_input={"a": 1}), {})
-    assert none == {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": "c", "updatedInput": {"a": 1}}}
+    rewritten = translate(host, "PreToolUse", HookResult(context="c", updated_input={"a": 1}), {})
+    allow = {"permissionDecision": "allow"} if host == "codex" else {}  # Codex runs a new input only with an allow;
+    assert rewritten == {"hookSpecificOutput": {"hookEventName": "PreToolUse", **allow,  # Claude Code's mode decides
+                                                "additionalContext": "c", "updatedInput": {"a": 1}}}
     assert translate(host, "PreToolUse", None, {}) is None
     assert translate(host, "PreToolUse", HookResult(), {}) is None
     with pytest.raises(ValueError):
@@ -280,7 +297,7 @@ def test_translate_after_tool_session_start_and_stop(host):
     assert translate(host, "Bogus", HookResult(context="x"), {}) is None
 
 
-@pytest.mark.parametrize("host", HOSTS)
+@pytest.mark.parametrize("host", ["codex"])          # Claude Code has no PreModelRequest: the runner's own call
 def test_translate_before_model_queues_and_flush_points_drain(host):
     state = {}
     assert translate(host, "PreModelRequest", HookResult(context="remember", decision=None), state) is None
@@ -293,10 +310,24 @@ def test_translate_before_model_queues_and_flush_points_drain(host):
     state = {"_pending": ["a", "b"]}
     assert translate(host, "PostToolUse", HookResult(context="note"), state) == {
         "hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": "note\n\na\n\nb"}}
-    state = {"_pending": ["a"]}
-    assert translate(host, "Stop", HookResult(decision="block", reason="r"), state) == {
-        "decision": "block", "reason": "r", "hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": "a"}}
+    state = {"_pending": ["a"]}                                         # Codex reads no Stop context: the reason
+    assert translate(host, "Stop", HookResult(decision="block", reason="r", context="c"), state) == {
+        "decision": "block", "reason": "r\n\nc\n\na"}
+    assert state == {}
+    state = {"_pending": ["a"]}                                         # a stop that goes through: the queue waits
+    assert translate(host, "Stop", HookResult(context="c"), state) is None and state == {"_pending": ["a"]}
     assert translate(host, "UserPromptSubmit", None, {}) is None
+
+
+def test_claude_codes_stop_sends_a_context_only_with_a_block():
+    """Claude Code reads a Stop's additionalContext, and alone it makes the model go on: so only beside a block."""
+    state = {"_pending": ["a"]}
+    assert translate("claude-code", "Stop", HookResult(decision="block", reason="r", context="c"), state) == {
+        "decision": "block", "reason": "r", "hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": "c\n\na"}}
+    state = {"_pending": ["a"]}
+    assert translate("claude-code", "Stop", HookResult(context="c"), state) is None and state == {"_pending": ["a"]}
+    assert translate("claude-code", "Stop", HookResult(decision="block", reason="r", context="c"), state,
+                     stop_hook_active=True) is None and state == {"_pending": ["a"]}
 
 
 # --- the runner, event by event ---------------------------------------------------------------------------------
@@ -390,14 +421,34 @@ def test_the_logs_go_under_the_workspace_or_where_the_environment_says(tmp_path,
     assert json.loads((elsewhere / "hook-calls.jsonl").read_text())["event"] == "PreToolUse"
     assert json.loads((elsewhere / "hook-state" / "s-1.json").read_text())["calls"] == 1
     monkeypatch.delenv("HERMIT_HOOK_LOGS")
-    # A payload without an absolute cwd: no logs at all, and a state that lives for the call only.
-    for cwd in (None, "relative/dir"):
+    # The workspace is the deployment's (the record's directory), whatever the payload's cwd says.
+    for cwd in (None, "relative/dir", str(tmp_path)):
         data = {k: v for k, v in payload("SessionStart").items() if k != "cwd"}
         if cwd:
             data["cwd"] = cwd
         assert call("SessionStart", raw=json.dumps(data))["hookSpecificOutput"]["additionalContext"] == "session s-1 task="
-    assert len(r.audit()) == 1 and not (r.adapter / ".hermit-hooks").exists()
-    assert not (Path.cwd() / "relative").exists()
+    assert len(r.audit()) == 4 and not (r.adapter / ".hermit-hooks").exists()
+    assert not (Path.cwd() / "relative").exists() and not (tmp_path / ".hermit-hooks").exists()
+
+
+def test_a_copy_no_deployment_made_needs_the_host_and_logs_under_the_payload_s_cwd(tmp_path, capsys, monkeypatch):
+    """Without a deployment record the host is --host's, and the workspace the host's own notion of it: Codex's
+    payload cwd. Without either host, nothing runs: an audited error and no output."""
+    monkeypatch.delenv("HERMIT_HOOK_LOGS", raising=False)
+    r = Runner(tmp_path)
+    (r.workspace / ".hermit-deploy.json").unlink()
+    data = json.dumps({**payload("SessionStart"), "cwd": str(r.workspace)})
+    assert runner.run("SessionStart", data, adapter=r.adapter) == 0
+    assert capsys.readouterr().out == "" and r.audit()[-1]["error"].startswith("LookupError: no host")
+    assert runner.run("SessionStart", data, adapter=r.adapter, host="codex") == 0
+    assert json.loads(capsys.readouterr().out)["hookSpecificOutput"]["additionalContext"] == "session s-1 task="
+    assert r.audit()[-1]["error"] is None
+    assert runner.run("SessionStart", data, adapter=r.adapter, host="goose") == 0
+    assert capsys.readouterr().out == "" and "runs none of this template's hooks" in r.audit()[-1]["error"]
+    # Without a cwd either, the call runs and leaves no log.
+    bare = json.dumps({k: v for k, v in payload("SessionStart").items() if k != "cwd"})
+    assert runner.run("SessionStart", bare, adapter=r.adapter, host="codex") == 0
+    assert json.loads(capsys.readouterr().out) and len(r.audit()) == 3
 
 
 def test_the_pending_queue_is_flushed_at_the_next_flush_point(run):
@@ -412,9 +463,8 @@ def test_the_pending_queue_is_flushed_at_the_next_flush_point(run):
                                "additionalContext": "queued 0\n\nreminder\n\nqueued 0\n\nreminder"}}
     assert "_pending" not in r.state()
     call("PreModelRequest")
-    assert call("Stop", {"last_assistant_message": "m"}) == {
-        "decision": "block", "reason": "verify first: m",
-        "hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": "queued 1\n\nreminder"}}
+    assert call("Stop", {"last_assistant_message": "m"}) == {                # Codex: the queue goes with the reason
+        "decision": "block", "reason": "verify first: m\n\nqueued 1\n\nreminder"}
     call("PreModelRequest")
     assert call("UserPromptSubmit", {"prompt": "go"}) == {
         "hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": "queued 1\n\nreminder"}}
@@ -577,9 +627,13 @@ def test_strict_exits_non_zero_on_an_error(tmp_path, capsys, monkeypatch):
     r.middleware("def before_tool(inp, state):\n    return None\n")
     assert runner.run("PreToolUse", data, adapter=r.adapter, strict=True) == 0
     monkeypatch.setattr(sys, "stdin", io.StringIO(data))
-    with pytest.raises(SystemExit) as info:
-        runner.main(["PreToolUse", "--strict"])                         # the template's own middleware: the seed's
+    with pytest.raises(SystemExit) as info:                           # the template's own middleware: the seed's;
+        runner.main(["PreToolUse", "--strict", "--host", "codex"])      # the template was not deployed: --host
     assert info.value.code == 0
+    monkeypatch.setattr(sys, "stdin", io.StringIO(data))
+    with pytest.raises(SystemExit) as info:
+        runner.main(["PreToolUse", "--strict"])                         # no record and no --host: an error
+    assert info.value.code == 1
 
 
 def test_unknown_events_and_bad_stdin_give_no_output(run, tmp_path, monkeypatch):
@@ -590,9 +644,9 @@ def test_unknown_events_and_bad_stdin_give_no_output(run, tmp_path, monkeypatch)
     assert r.audit()[-1]["error"] == "unknown event 'SubagentStart'"
     assert call("PreToolUse", {"hook_event_name": "PreToolUse", "session_id": "s-1", "cwd": "/w"}) is None   # no tool
     assert r.audit()[-1]["error"] is None and r.audit()[-1]["tool_name"] is None
-    # stdin that is no JSON object has no cwd: the error is audited only where the environment names a log base.
+    # stdin that is no JSON object has no cwd: the error is audited in the deployment's workspace all the same.
     assert call("PreToolUse", raw="not json") is None
-    assert len(r.audit()) == 3
+    assert len(r.audit()) == 4 and r.audit()[-1]["error"].startswith("JSONDecodeError")
     monkeypatch.setenv("HERMIT_HOOK_LOGS", str(tmp_path / "logs"))
     assert call("PreToolUse", raw="not json") is None
     assert call("PreToolUse", raw="[1, 2]") is None

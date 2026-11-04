@@ -196,5 +196,5 @@ ace/                ACE: run_codex_luna.yaml and smoke_codex_luna.yaml in the GP
                     run's final playbook, with its .hermit/CARD.md
 ahe_adapter/        AHE Adapter: run_codex_luna.yaml and smoke_codex_luna.yaml in the GPT-5.6-Luna setting;
                     make_rows.py writes rows/, the k = 2 trial rows; make_seed.py writes seed_adapter/, the
-                    ahe-codex seed with the initial skill; trials.py maps a trial row to its question
+                    ahe seed with the initial skill; trials.py maps a trial row to its question
 ```

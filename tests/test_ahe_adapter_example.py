@@ -27,7 +27,7 @@ from hermit.trainer.rollout import run_one
 ROOT = Path(__file__).resolve().parents[1]
 EXAMPLE = ROOT / "examples" / "officeqa" / "ahe_adapter"
 UTILS = EXAMPLE.parent / "utils"
-TEMPLATE = ROOT / "hermit" / "adapter" / "templates" / "ahe_codex"
+TEMPLATE = ROOT / "hermit" / "adapter" / "templates" / "ahe"
 LUNA = {"model": "gpt-5.6-luna", "login": "chatgpt", "effort": "medium", "web_search": False}
 EVENTS = ["SessionStart", "UserPromptSubmit", "PreModelRequest", "PreToolUse", "PostToolUse", "Stop"]
 
@@ -244,7 +244,7 @@ last.write_text("<answer>507</answer>")
 
 def test_a_rollout_brings_the_hook_logs_where_the_debugger_reads_them(tmp_path, monkeypatch):
     """The example's acting agent (run_codex_luna.yaml's, in no container and with a task.md file in place of the
-    corpus) on a trial row with the ahe-codex harness deployed: the session's hooks get the workspace's task.md as
+    corpus) on a trial row with the ahe harness deployed: the session's hooks get the workspace's task.md as
     inp.task_text from SessionStart on and write their logs under .hermit-hooks/ in the workspace, trials.py:collect
     brings the logs to the log's root, the learning material copies the log, and the Agent Debugger's job directory
     gets the audit."""

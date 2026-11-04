@@ -33,7 +33,7 @@ agent:
     container: {image: "officeqa-codex:0.164.0", network: oq-sandbox, proxy: "http://oq-egress-login:3128"}
 judge:
   path: trials.py                      # the question's score (../utils/judge.py)
-template: ahe-codex@1.0
+template: ahe@1.0
 start_from: seed_adapter               # make_seed.py: H_0
 evolver:
   name: ahe_adapter                    # Layer 3: the Agent Debugger and the Evolve Agent

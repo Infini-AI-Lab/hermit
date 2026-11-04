@@ -10,7 +10,7 @@ trial's task.md, corpus and score are the question's; any other row (validation,
     judge:
       path: trials.py                     # score: ../utils/judge.py
 
-The adapter's hook runner (hermit/adapter/templates/ahe_codex/hook_runner.py) logs every hook call to
+The adapter's hook runner (hermit/adapter/templates/ahe/hook_runner.py) logs every hook call to
 `.hermit-hooks/hook-calls.jsonl` under the session's workspace and each session's state to `.hermit-hooks/hook-state/`;
 `collect` copies both to the root of the rollout's log, beside agent-codex.jsonl, prompt.txt, last_message.txt,
 deployment.json and task.md, where the learning material keeps them for the AHE Adapter's Evolver.

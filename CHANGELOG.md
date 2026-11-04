@@ -139,8 +139,10 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   per task, the attribution of the Evolve Agent's change manifest at the next iteration and the file-wise rollback of
   HARMFUL changes, with the Agent Debugger and the Evolve Agent as sessions of the `codex` Base Agent and upstream's
   queries and attribution rules verbatim; documented in `docs/methods/ahe_adapter.md`.
-- The `ahe-codex` adapter template: a system prompt, scripts, a middleware module run as Codex hooks by a fixed hook
-  runner, skills, sub-agents and a long-term memory.
+- The `ahe` adapter template: a system prompt, scripts, a middleware module run as the host's hooks by a fixed hook
+  runner, skills, sub-agents and a long-term memory, the same files for Codex and Claude Code; each host's hook
+  wire and what it can and cannot do are the template's `hook_hosts.py`, and the template check deploys a copy to
+  both hosts and runs every hook as the host runs it.
 - AHE Adapter on OfficeQA: `examples/officeqa/ahe_adapter/`, in the GPT-5.6-Luna setting (`run_codex_luna.yaml`).
 - The ACE method (Zhang et al., ICLR 2026, arXiv:2510.04618): the `ace` Evolver, ACE's per-sample loop of
   Reflector and Curator over a playbook of bullets with helpful and harmful counters, retry rounds on a wrong answer,

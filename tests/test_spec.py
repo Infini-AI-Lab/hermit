@@ -14,7 +14,7 @@ def copy(src, dst):
 
 
 def test_templates_conform():
-    for name in ("prompt_only", "lean_collab", "ahe_codex"):
+    for name in ("prompt_only", "lean_collab", "ahe"):
         result = check_spec(TEMPLATES / name, TEMPLATES / name)
         assert result.passed, result.issues
 

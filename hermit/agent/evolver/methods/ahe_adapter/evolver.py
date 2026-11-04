@@ -1,5 +1,5 @@
 """AHEAdapterEvolver: Agentic Harness Engineering (arXiv:2604.25850; china-qijizhifeng/agentic-harness-engineering @
-8b2a55d, `evolve.py`) as an Evolver on the `ahe-codex` template, confined to the adapter (the acting agent is fixed).
+8b2a55d, `evolve.py`) as an Evolver on the `ahe` template, confined to the adapter (the acting agent is fixed).
 
 On the agent layers (docs/framework/agent-layers.md) both of its agents are Layer 3 over the `codex` Base Agent: the
 Evolve Agent is AgentEvolver's session (the prompt on stdin, the run's sandbox, `check_spec` as its only tool), and
@@ -185,7 +185,8 @@ def rollback_entries(done: list[dict]) -> list[dict]:
 
 
 def sync_context(adapter: Path) -> None:
-    """ADAPTER.md, the framework's context export, is AGENTS.md (the file Codex reads)."""
+    """ADAPTER.md, the framework's context export (what a deployment writes as the host's context file), is
+    AGENTS.md."""
     source = adapter / ALWAYS_ON
     if not source.is_file():
         return
@@ -388,9 +389,12 @@ class AHEAdapterEvolver(AgentEvolver):
             adb_overview=bounded_overview(overview, analysis_dir / "overview.md"),
             analysis_dir=analysis_dir, rollbacks=done, rollback_mode=mode, prev_commit=parent,
             history_md=state / "evolution_history.md", commit=commit)
+        stream = D.rollout_stream(records)            # the acting agent's event stream, as the texts name it
+        query = D.for_stream(query, stream)
         (state / "queries" / f"{name}.md").write_text(query, encoding="utf-8")
         start_md = (Path(getattr(self, "directory", ".")) / str(p.get("prompt") or "START.md")).read_text(encoding="utf-8")
         start_md = start_md.replace("{date}", datetime.now().strftime("%Y-%m-%d")).replace("{step_dir}", name)
+        start_md = D.for_stream(start_md, stream)
         prompt = evolve_prompt(start_md, query, ws.scratch)
         e0 = time.monotonic()
         local, stop = deadline_cancel(ctx.cancel, p.get("evolve_timeout_s"))

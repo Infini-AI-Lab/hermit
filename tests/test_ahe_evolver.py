@@ -21,7 +21,7 @@ from hermit.trainer.trainer import Trainer
 from hermit.tree import git
 from test_training import make_task
 
-TEMPLATE = Path(__file__).resolve().parents[1] / "hermit" / "adapter" / "templates" / "ahe_codex"
+TEMPLATE = Path(__file__).resolve().parents[1] / "hermit" / "adapter" / "templates" / "ahe"
 RULE = "Always add the numbers."
 TASKS = ("add-1", "add-2")
 
@@ -60,6 +60,10 @@ from pathlib import Path
 args = sys.argv[1:]
 assert args[-1] == "-" and "--json" in args, args
 prompt = sys.stdin.read()
+if os.environ.get("AHE_FAKE_CAPTURE"):                            # every prompt, for the tests that read them
+    _cap = Path(os.environ["AHE_FAKE_CAPTURE"])
+    _kind = "debugger" if (Path(args[args.index("-C") + 1]) / "question.md").is_file() else "evolve"
+    (_cap / ("%s-%d.md" % (_kind, len(list(_cap.glob(_kind + "-*.md"))) + 1))).write_text(prompt)
 home = os.environ["CODEX_HOME"]
 assert 'web_search = "disabled"' in (Path(home) / "config.toml").read_text()
 def usage(n):
@@ -112,6 +116,28 @@ usage(step)
 '''
 
 
+# The same pipeline with Claude Code as the acting agent: its stream-json events as the framework's Claude agent
+# keeps them (agent-claude.jsonl).
+CLAUDE_PIPELINE = PIPELINE.replace(
+    '''    events = [{"type": "thread.started", "thread_id": "t-" + task["id"]},
+              {"type": "item.completed", "item": {"type": "command_execution", "command": "cat task.md",
+                                                  "aggregated_output": "%d + %d\\n" % (task["a"], task["b"]), "exit_code": 0}},
+              {"type": "item.completed", "item": {"type": "agent_message", "text": answer}},
+              {"type": "turn.completed", "usage": {"input_tokens": 50, "cached_input_tokens": 0, "output_tokens": 5}}]
+    (log / "agent-codex.jsonl").write_text("".join(json.dumps(e) + "\\n" for e in events))''',
+    '''    events = [{"type": "system", "subtype": "init", "session_id": "s-" + task["id"]},
+              {"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_1", "name": "Bash",
+                                                              "input": {"command": "cat task.md"}}]}},
+              {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_1",
+                                                         "content": "%d + %d\\n" % (task["a"], task["b"]),
+                                                         "is_error": False}]}},
+              {"type": "assistant", "message": {"content": [{"type": "text", "text": answer}]}},
+              {"type": "result", "subtype": "success", "is_error": False, "result": answer,
+               "usage": {"input_tokens": 50, "output_tokens": 5}}]
+    (log / "agent-claude.jsonl").write_text("".join(json.dumps(e) + "\\n" for e in events))''').replace(
+    '"backend": "codex"', '"backend": "claude"')
+
+
 def _write_rows(tmp: Path) -> None:
     rows = [{"id": f"{t}#{r}", "uid": t, "rollout": r, "a": 2 * i + r, "b": 3 * i + 1}
             for i, t in enumerate(TASKS) for r in (1, 2)]
@@ -123,7 +149,7 @@ def _write_rows(tmp: Path) -> None:
 
 
 def _task(tmp: Path, *, evolver: dict | None = None, **overrides) -> Path:
-    """The toy run: the ahe-codex template, k = 2 rows per question sharing `uid`, the scripted codex as `bin`."""
+    """The toy run: the ahe template, k = 2 rows per question sharing `uid`, the scripted codex as `bin`."""
     fake = tmp / "fakecodex" / "codex"
     fake.parent.mkdir()
     fake.write_text(FAKE_CODEX)
@@ -438,3 +464,26 @@ def test_the_overview_the_query_embeds_is_bounded(tmp_path):
     assert len(overview.encode()) > E.OVERVIEW_MAX_BYTES                      # the full overview is on disk ...
     bounded = E.bounded_overview(overview, analysis_dir / "overview.md")
     assert len(bounded.encode()) < E.OVERVIEW_MAX_BYTES + 200 and "overview.md" in bounded   # ... the query gets a bounded one
+
+
+def test_with_claude_code_acting_the_learners_read_its_stream(tmp_path, monkeypatch):
+    """A step whose rollouts are Claude Code sessions (agent-claude.jsonl): the evolution query, the Evolve Agent's
+    prompt and the Debugger's question name that stream; none names Codex's. The learners are codex sessions all the
+    same (the fake codex answers them)."""
+    assert "agent-claude.jsonl" in CLAUDE_PIPELINE and "agent-codex" not in CLAUDE_PIPELINE
+    capture = tmp_path / "capture"
+    capture.mkdir()
+    monkeypatch.setenv("AHE_FAKE_CAPTURE", str(capture))
+    path = _task(tmp_path)
+    (tmp_path / "pipeline.py").write_text(CLAUDE_PIPELINE)
+    Trainer(Config.load(path, ["trainer.epochs=1"]), log=lambda *_: None).train()
+    evolve = (capture / "evolve-1.md").read_text()
+    query = (_state(tmp_path, 1) / "queries" / "step_0001.md").read_text()
+    questions = [f.read_text() for f in sorted(capture.glob("debugger-*.md"))]
+    assert questions and query.strip() in evolve                         # the prompt is START.md and the query
+    for text in (evolve, query):
+        assert "agent-claude.jsonl" in text and "agent-codex.jsonl" not in text, text[:300]
+    assert "the Claude Code event stream" in evolve and "the Codex event stream" not in evolve
+    for question in questions:
+        assert "`claude -p --output-format stream-json` event stream" in question and "codex exec --json" not in question
+

@@ -1,0 +1,41 @@
+{
+ "session_id": "479c6c2e-1f85-4d64-872e-056bbc16e0e1",
+ "transcript_path": "/probe/home/.claude/projects/-probe-ws/479c6c2e-1f85-4d64-872e-056bbc16e0e1.jsonl",
+ "cwd": "/probe/ws",
+ "prompt_id": "2bd22bb9-2079-412e-9b85-2c4b674627c7",
+ "permission_mode": "bypassPermissions",
+ "effort": {
+  "level": "medium"
+ },
+ "hook_event_name": "PostToolUse",
+ "tool_name": "Edit",
+ "tool_input": {
+  "file_path": "/probe/ws/other.txt",
+  "old_string": "other",
+  "new_string": "OTHER",
+  "replace_all": false
+ },
+ "tool_response": {
+  "filePath": "/probe/ws/other.txt",
+  "oldString": "other",
+  "newString": "OTHER",
+  "originalFile": "other\n",
+  "structuredPatch": [
+   {
+    "oldStart": 1,
+    "oldLines": 1,
+    "newStart": 1,
+    "newLines": 1,
+    "lines": [
+     "-other",
+     "+OTHER"
+    ]
+   }
+  ],
+  "userModified": false,
+  "replaceAll": false,
+  "contentNotInModelContext": true
+ },
+ "tool_use_id": "toolu_main_03_0",
+ "duration_ms": 6
+}

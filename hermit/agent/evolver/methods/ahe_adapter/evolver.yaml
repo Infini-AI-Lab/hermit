@@ -1,6 +1,6 @@
 description: >-
   AHE Adapter: Agentic Harness Engineering (Lin et al., arXiv:2604.25850; china-qijizhifeng/agentic-harness-engineering @
-  8b2a55d, evolve.py) on the `ahe-codex` template, confined to the adapter (the acting agent is fixed). Each step it classifies
+  8b2a55d, evolve.py) on the `ahe` template, confined to the adapter (the acting agent is fixed). Each step it classifies
   the step's k rollouts per task (pass / fail / exception), diffs them against the previous step (flipped / regressed / rollout
   moves / infra buckets), scores the previous step's change manifest (EFFECTIVE ... HARMFUL, upstream's rules verbatim), rolls
   HARMFUL changes back file by file (Algorithm 1; `rollback: agent` leaves it to the agent as the released code does), runs the

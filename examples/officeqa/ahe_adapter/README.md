@@ -3,9 +3,9 @@
 [Agentic Harness Engineering](https://arxiv.org/abs/2604.25850) (Lin et al. 2026;
 [code](https://github.com/china-qijizhifeng/agentic-harness-engineering)) on OfficeQA in the SkillOpt paper's setting,
 with Codex as the acting agent and the search confined to the adapter: Codex itself is fixed, and only the adapter's
-files change. The adapter is the [`ahe-codex`](../../../hermit/adapter/templates/ahe_codex/) template: `AGENTS.md`
-(the system prompt), `scripts/`, `middleware.py` (the hook pipeline, run as Codex hooks), skills, sub-agents and
-`MEMORY.md`. The [`ahe_adapter`](../../../hermit/agent/evolver/methods/ahe_adapter/) Evolver keeps AHE's protocol: one
+files change. The adapter is the [`ahe`](../../../hermit/adapter/templates/ahe/) template, the same for any host that
+runs its hooks: `AGENTS.md` (the system prompt), `scripts/`, `middleware.py` (the hook pipeline, run here as Codex
+hooks), skills, sub-agents and `MEMORY.md`. The [`ahe_adapter`](../../../hermit/agent/evolver/methods/ahe_adapter/) Evolver keeps AHE's protocol: one
 step is one iteration over the 50 training questions with k = 2 rollouts each (100 rollouts), ten iterations. Each
 step classifies every question by its two rollouts, compares them with the previous iteration and scores the previous
 step's change manifest (EFFECTIVE ... HARMFUL), rolls HARMFUL changes back file by file, runs the Agent Debugger (one
@@ -42,7 +42,7 @@ A training question's k rollouts are k rows of `rows/tasks.jsonl`: `<UID>#1` and
 under another id, with `uid` (by which the Evolver groups them) and `rollout`. `trials.py` hands `../utils` the
 question's own row, so a rollout's `task.md`, corpus and score are the question's. The harness is deployed as
 `hermit deploy` deploys it: the system prompt as `AGENTS.md`, skills and sub-agents in Codex's places, the adapter's
-copy under `hermit/ahe-codex/`, and its middleware as Codex hooks (`.codex/hooks.json`) that run the copy's
+copy under `hermit/ahe/`, and its middleware as Codex hooks (`.codex/hooks.json`) that run the copy's
 `hook_runner.py`. The runner gives the middleware the workspace's `task.md` as the task text (`inp.task_text`), logs
 every hook call to `.hermit-hooks/hook-calls.jsonl` in the session's workspace and each session's state to
 `.hermit-hooks/hook-state/`; `trials.py:collect` copies both to the rollout's log, beside `agent-codex.jsonl` and
