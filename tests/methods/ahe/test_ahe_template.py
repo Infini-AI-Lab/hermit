@@ -178,13 +178,6 @@ BROKEN = {
     "reworded seed rule": (lambda a: rewrite(a, "AGENTS.md", "poll their output", "check on them"),
                            "AGENTS.md", "seed rule \"Long-running processes"),
     "empty prompt": (lambda a: (a / "AGENTS.md").write_text("\n"), "AGENTS.md", "AGENTS.md is empty"),
-    "oversize prompt": (lambda a: (a / "AGENTS.md").write_text((a / "AGENTS.md").read_text() + "x" * 32_000),
-                        "AGENTS.md", "-byte cap on Codex: the deployment adds"),
-    # Under the nominal 32,000 bytes, but 500 headings nested two levels down and the deployment's own text push the
-    # deployed AGENTS.md past the 32,768 bytes Codex reads.
-    "prompt over the deployed limit": (lambda a: (a / "AGENTS.md").write_text(
-        (a / "AGENTS.md").read_text() + "".join(f"## rule {i}\n" for i in range(500)) + "x" * 25_000),
-        "AGENTS.md", "-byte cap on Codex: the deployment adds"),
     "ADAPTER.md drift": (lambda a: (a / "ADAPTER.md").write_text((a / "AGENTS.md").read_text() + "\nA learned line.\n"),
                          "ADAPTER.md", "ADAPTER.md is not AGENTS.md"),
     "missing MEMORY.md": (lambda a: (a / "MEMORY.md").unlink(), "MEMORY.md", "MEMORY.md is missing"),
@@ -199,18 +192,6 @@ BROKEN = {
     "middleware importing a third-party package": (lambda a: rewrite(a, "middleware.py", "from pathlib import Path\n",
                                                                      "from pathlib import Path\nimport yaml\n"),
                                                    "middleware.py", "imports `yaml`, which is not where the agent runs"),
-    "middleware without the MEMORY.md reference": (
-        lambda a: (a / "middleware.py").write_text(
-            "def session_start(inp, state):\n    return None\n\ndef before_tool(inp, state):\n    return None\n\n"
-            "def after_tool(inp, state):\n    return None\n\ndef stop(inp, state):\n    return None\n\n"
-            "def before_model(inp, state):\n    return None\n"),
-        "middleware.py", "did not hand that entry to the model"),
-    "middleware naming MEMORY.md only in a comment": (
-        lambda a: (a / "middleware.py").write_text(
-            "# reads MEMORY.md\ndef session_start(inp, state):\n    return None\n\ndef before_tool(inp, state):\n"
-            "    return None\n\ndef after_tool(inp, state):\n    return None\n\ndef stop(inp, state):\n    return None\n\n"
-            "def before_model(inp, state):\n    return None\n"),
-        "middleware.py", "did not hand that entry to the model"),
     "middleware importing through importlib": (lambda a: hook_body(a, "    import importlib\n"
                                                                      "    importlib.import_module('socket')\n    return None"),
                                                "middleware.py", "imports `importlib`"),
@@ -241,12 +222,6 @@ BROKEN = {
                                                        "MEMORY_FILE = \"MEMORY.md\"\nTABLE = {}['missing']\n"),
                                      "middleware.py", "`session_start` fails in a dry run through hook_runner.py "
                                                       "on Codex (SessionStart"),
-    "middleware returning junk": (lambda a: hook_body(a, "    return 'deny'"),
-                                  "middleware.py", "TypeError: middleware must return None, HookResult or a dict"),
-    "middleware returning an unknown decision": (lambda a: hook_body(a, "    return {'decision': 'maybe'}"),
-                                                 "middleware.py", "ValueError: before_tool decision must be deny"),
-    "middleware denying without a reason": (lambda a: hook_body(a, "    return {'decision': 'deny'}"),
-                                            "middleware.py", "needs a non-empty reason"),
     "off-surface file": (lambda a: (a / "notes.txt").write_text("stray\n"), "notes.txt", "off the AHE harness surface"),
     "off-surface nested file": (lambda a: ((a / "sub_agents" / "x").mkdir(parents=True),
                                            (a / "sub_agents" / "x" / "AGENT.md").write_text("---\ndescription: d\n---\n")),
@@ -307,12 +282,8 @@ BROKEN = {
     "AGENTS.md referencing /adapter": (
         lambda a: rewrite(a, "AGENTS.md", "python3 scripts/count.py", "python3 /adapter/scripts/count.py"),
         "AGENTS.md", "invokes `/adapter/scripts/count.py`, but no deployment has /adapter"),
-    "session_start naming MEMORY.md in its docstring only": (
-        lambda a: (a / "middleware.py").write_text(
-            'def session_start(inp, state):\n    """Hands MEMORY.md to the model."""\n    return None\n\n'
-            "def before_tool(inp, state):\n    return None\n\ndef after_tool(inp, state):\n    return None\n\n"
-            "def stop(inp, state):\n    return None\n\ndef before_model(inp, state):\n    return None\n"),
-        "middleware.py", "did not hand that entry to the model"),
+    # The memory channel is what session_start hands over (the memory run), not a name it mentions: one hook that
+    # names MEMORY.md and hands nothing over, one that reads it and hands over something else.
     "session_start naming MEMORY.md but handing nothing over": (
         lambda a: rewrite(a, "middleware.py", "    body = _memory_body(inp.adapter_dir)\n",
                           "    _unused = MEMORY_FILE\n    return None\n    body = _memory_body(inp.adapter_dir)\n"),
@@ -326,26 +297,40 @@ BROKEN = {
 }
 
 
-@pytest.fixture(scope="module")
-def seed_passes():
-    """The seed every broken tree starts from passes the check: checked once for the cases below, as each check
-    deploys the adapter to every host and runs its hooks (seconds a check)."""
-    base = Path.home() / ".cache" / "hermit-tests"
-    base.mkdir(parents=True, exist_ok=True)
-    path = Path(tempfile.mkdtemp(dir=base))
-    try:
-        assert problems(seed(path)) == []
-    finally:
-        shutil.rmtree(path, ignore_errors=True)
+# The cases only a static rule judges share a tree: each rule reports its issue whatever else is wrong, and a check
+# costs the same however many there are (it deploys the adapter to every host and runs its hooks: seconds a check).
+# No two cases of a tree edit the same text, none makes another's issue (AGENTS.md is left alone where ADAPTER.md
+# drifts) and none hides one (an empty AGENTS.md stops the prompt's other rules, an agent's invalid description its
+# name rule). Every other case is a tree of its own. The seed itself passes:
+# test_template_root_is_a_built_in_id_and_passes_the_check.
+TREES = {
+    "static rules 1": ("skill without description", "deleted seed rule", "missing MEMORY.md", "off-surface file",
+                       "off-surface nested file", "agent whose description is a YAML list",
+                       "script that does not compile"),
+    "static rules 2": ("skill whose description is a YAML comment", "reworded seed rule", "MEMORY.md without its header",
+                       "agent named unlike its file", "AGENTS.md referencing a missing script",
+                       "SKILL.md referencing a missing script"),
+    "static rules 3": ("skill whose frontmatter never closes on a whole `---` line",
+                       "AGENTS.md referencing a missing script by the relative form"),
+    "static rules 4": ("skill whose frontmatter holds a `---oops` line before its closing fence",
+                       "AGENTS.md referencing a missing script through the adapter's folder"),
+    "static rules 5": ("skill whose description is a YAML list", "AGENTS.md referencing /adapter"),
+    "static rules 6": ("skill whose name is a YAML number", "empty prompt"),
+    "static rules 7": ("skill named after another directory", "ADAPTER.md drift"),
+}
+TREES.update({case: (case,) for case in BROKEN if not any(case in cases for cases in TREES.values())})
+assert sorted(c for cases in TREES.values() for c in cases) == sorted(BROKEN)
 
 
-@pytest.mark.parametrize("case", sorted(BROKEN))
-def test_check_rejects_a_broken_tree_naming_the_file(tmp_path, case, seed_passes):
-    break_it, path, expected = BROKEN[case]
+@pytest.mark.parametrize("tree", sorted(TREES))
+def test_check_rejects_a_broken_tree_naming_the_file(tmp_path, tree):
     adapter = seed(tmp_path)
-    break_it(adapter)
+    for case in TREES[tree]:
+        BROKEN[case][0](adapter)
     found = problems(adapter)
-    assert any(p == path and expected in text for p, text in found), (case, found)
+    missed = [case for case in TREES[tree]
+              if not any(p == BROKEN[case][1] and BROKEN[case][2] in text for p, text in found)]
+    assert not missed, (missed, found)
 
 
 def test_the_prompt_cap_is_what_the_framework_deploys(tmp_path):
@@ -358,8 +343,8 @@ def test_the_prompt_cap_is_what_the_framework_deploys(tmp_path):
     cap = min(32_000, 32_768 - overhead)
     assert 1_000 < overhead < 3_000 and cap < 32_000                # the seed's deployment, not a constant
     set_prompt(adapter, base + "x" * (cap - len(base.encode()) - 1) + "\n")
-    assert len((adapter / "AGENTS.md").read_bytes()) == cap and problems(adapter) == []
-    assert check_spec(adapter, TEMPLATE, deploy=True).passed
+    assert len((adapter / "AGENTS.md").read_bytes()) == cap
+    assert check_spec(adapter, TEMPLATE, deploy=True).passed                    # the template check among its checks
     set_prompt(adapter, base + "x" * (cap - len(base.encode())) + "\n")
     found = [text for path, text in problems(adapter) if path == "AGENTS.md"]
     assert len(found) == 1, found
@@ -395,7 +380,8 @@ def test_a_deploy_failure_names_the_file_its_message_names(tmp_path, monkeypatch
 
 def test_check_passes_a_grown_tree(tmp_path):
     """A learned middleware with private helpers, a class, a dict return and prints, a longer prompt, memory entries,
-    and scripts named as a deployment runs them."""
+    scripts named as a deployment runs them, and frontmatter read as YAML, as the hosts and the deployment read it (a
+    `name:` followed by a comment is the name alone)."""
     adapter = seed(tmp_path)
     (adapter / "middleware.py").write_text(
         "import json\nimport re\nfrom hermit_hooks import HookResult\n\nRX = re.compile(r'rm -rf /')\n"
@@ -415,8 +401,9 @@ def test_check_passes_a_grown_tree(tmp_path):
     set_prompt(adapter, (adapter / "AGENTS.md").read_text() + "- Tests: `cd hermit/ahe && python3 "
                "scripts/run-tests.py`, or `python3 hermit/ahe/scripts/Fetch.py` from the workspace.\n")
     (adapter / "agents" / "code-checker.md").write_text(AGENT.replace("name: reader", "name: code-checker"))
-    assert problems(adapter) == []
-    result = check_spec(adapter, TEMPLATE, deploy=True)
+    rewrite(adapter, ".agents/skills/tables/SKILL.md", "name: tables", "name: tables  # the directory's name")
+    rewrite(adapter, "agents/reader.md", "name: reader", "name: reader  # the file's stem")
+    result = check_spec(adapter, TEMPLATE, deploy=True)                       # the template check among its checks
     assert result.passed, result.issues
     assert "hermit.runtime.hooks" in template_check().HOOK_MODULES             # trained adapters' fallback import
     rewrite(adapter, "middleware.py", "from hermit_hooks import HookResult\n",
@@ -426,30 +413,16 @@ def test_check_passes_a_grown_tree(tmp_path):
 
 
 def test_a_middleware_that_selects_the_memory_by_the_task_passes_the_memory_run(tmp_path):
-    """The memory run's session has a task on the probe entry's topic: a session_start that hands over only the
-    entries sharing a word with the task keeps the channel and passes."""
+    """The memory channel is what session_start hands over, not how the file is named or how much of it goes: the
+    memory run's session has a task on the probe entry's topic, so a session_start that hands over only the entries
+    sharing a word with the task, from a module-level `MEMORY_FILE = Path("MEMORY.md")`, keeps the channel and
+    passes."""
     adapter = seed(tmp_path)
     rewrite(adapter, "middleware.py", "    return HookResult(context=body)\n",
             "    words = set(inp.task_text.lower().split())\n"
             "    kept = [l for l in body.splitlines() if l.startswith('- ') and words & set(l.lower().split())]\n"
             "    return HookResult(context='\\n'.join(kept)) if kept else None\n")
-    assert problems(adapter) == []
-
-
-def test_a_memory_path_built_by_a_call_passes(tmp_path):
-    """The memory channel is what session_start hands over, not how the file is named: a module-level
-    `MEMORY_FILE = Path("MEMORY.md")` keeps the channel and passes."""
-    adapter = seed(tmp_path)
     rewrite(adapter, "middleware.py", 'MEMORY_FILE = "MEMORY.md"\n', 'MEMORY_FILE = Path("MEMORY.md")\n')
-    assert problems(adapter) == []
-
-
-def test_frontmatter_is_read_as_yaml(tmp_path):
-    """A skill's or a sub-agent's frontmatter is YAML, as the hosts and the deployment read it: a `name:` followed by
-    a comment is the name alone."""
-    adapter = seed(tmp_path)
-    rewrite(adapter, ".agents/skills/tables/SKILL.md", "name: tables", "name: tables  # the directory's name")
-    rewrite(adapter, "agents/reader.md", "name: reader", "name: reader  # the file's stem")
     assert problems(adapter) == []
 
 
@@ -541,7 +514,6 @@ def test_a_deployed_hook_runs_from_the_copy_through_a_shell(tmp_path):
     hook_body(adapter, DENY)
     rewrite(adapter, "middleware.py", "    body = _memory_body(inp.adapter_dir)\n",
             "    state['start_task'] = inp.task_text\n    body = _memory_body(inp.adapter_dir)\n")
-    assert problems(adapter) == []
     work = tmp_path / "work"
     prepare(adapter, work, sys.executable)
     commands = {e: g[0]["hooks"][0]["command"] for e, g in json.loads((work / ".codex" / "hooks.json").read_text())

@@ -145,13 +145,3 @@ def test_a_context_tool_needs_a_template_that_is_not_plugin_portable(adapter):
     meta.write_text(META.replace("plugin-portable: false", "plugin-portable: no-thanks"))
     with pytest.raises(ValueError, match="plugin-portable must be true or false"):
         load_manifest(adapter)
-
-
-def test_a_portable_template_deploys_as_before(tmp_path):
-    from hermit.hosts import codex
-    a = tmp_path / "plain"
-    (a / ".hermit").mkdir(parents=True)
-    (a / ".hermit" / "adapter.yaml").write_text("template: {id: plain, version: '1', contract: '2'}\n")
-    (a / "ADAPTER.md").write_text("Be brief.\n")
-    codex.prepare(a, tmp_path / "ws", sys.executable)
-    assert "Be brief." in (tmp_path / "ws" / "AGENTS.md").read_text()

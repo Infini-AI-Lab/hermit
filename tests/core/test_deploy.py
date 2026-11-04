@@ -11,6 +11,15 @@ from hermit.hosts.codex import prepare as codex_prepare
 from hermit.hosts.pi import prepare as pi_prepare
 
 LEAN = Path(__file__).resolve().parents[2] / "hermit" / "adapter" / "templates" / "lean_collab"
+HARNESS2_CODEX = Path(__file__).resolve().parents[2] / "hermit" / "adapter" / "templates" / "harness2_codex"
+CODEX_TREE = {"AGENTS.md": "Do the work.\n- When a table must be read, read .agents/skills/tables/SKILL.md and follow "
+                           "it.\n",
+              ".agents/skills/tables/SKILL.md": "---\ndescription: reading a table of a bulletin\n---\nRun `python3 "
+                                                ".agents/skills/tables/scripts/sum.py`.\n",
+              ".agents/skills/tables/scripts/sum.py": "print(1 + 1)\n", "scripts/check.py": "print('ok')\n",
+              "sub_agents/reader/AGENT.md": "---\ndescription: reads long files\n---\nSummarise what you read.\n",
+              ".codex/hooks.json": json.dumps({"hooks": {"PostToolUse": [{"matcher": "Bash", "hooks": [
+                  {"type": "command", "command": "python3 scripts/check.py"}]}]}})}
 
 
 def test_codex(tmp_path):
@@ -187,17 +196,6 @@ def test_a_context_codex_would_cut_is_refused(tmp_path):
         codex_prepare(a, tmp_path / "w", sys.executable)
     codex_prepare(a, tmp_path / "v", sys.executable, context_limit=65536)
     codex_prepare(a, tmp_path / "u", sys.executable, context_limit=None)
-
-
-def test_a_per_task_context_is_deployed_only_when_the_harness_gives_it(tmp_path):
-    a = subagent_adapter(tmp_path)
-    (a / ".hermit" / "adapter.yaml").write_text(
-        "template: {id: sub-example, version: '1'}\nplugin-portable: false\n"
-        "structure: {learnable: [exports.yaml, ADAPTER.md, agents/*.md]}\n")
-    with pytest.raises(ValueError, match="plugin-portable: false"):
-        codex_prepare(a, tmp_path / "w", sys.executable)
-    codex_prepare(a, tmp_path / "v", sys.executable, context="For this task: check the units twice.")
-    assert "For this task: check the units twice." in (tmp_path / "v" / "AGENTS.md").read_text()
 
 
 def test_a_redeployment_replaces_the_copy(tmp_path):
@@ -418,3 +416,46 @@ def test_an_exported_roles_instructions_may_not_be_internal(tmp_path):
     shutil.copytree(a, root)
     result = check_spec(a, root)
     assert not result.passed and any(i.check == 5 for i in result.issues)          # refused when submitted too
+
+
+def test_codex_agent_deploys_a_codex_tree_and_writes_the_home(tmp_path):
+    """The Codex agent deploys a Codex-native tree (the harness2-codex template with a skill, a hook, a script and a
+    sub-agent) into Codex's own places and writes its home's settings and roles."""
+    from hermit.agent.acting import workspace as acting
+    from hermit.agent.base import cli
+    import shutil
+    adapter = tmp_path / "adapter"                  # as the Harness² layout writes the tree (its to_adapter)
+    shutil.copytree(HARNESS2_CODEX, adapter, ignore=shutil.ignore_patterns("__pycache__"))
+    for rel, text in CODEX_TREE.items():
+        (adapter / rel).parent.mkdir(parents=True, exist_ok=True)
+        (adapter / rel).write_text(text)
+    (adapter / "ADAPTER.md").write_text(CODEX_TREE["AGENTS.md"])
+    work, home = tmp_path / "work", tmp_path / "home"
+    home.mkdir()
+    deployed, _ = acting._deploy({"id": "t1"}, adapter, work, "codex", {})
+    assert CODEX_TREE["AGENTS.md"].splitlines()[0] in (work / "AGENTS.md").read_text()
+    assert (work / ".codex" / "skills" / "tables" / "scripts" / "sum.py").is_file()       # Codex's own places
+    assert (work / ".codex" / "hooks.json").is_file() and (work / ".codex" / "agents" / "reader.toml").is_file()
+    copy = work / "hermit" / "harness2-codex"
+    assert (copy / "scripts" / "check.py").is_file() and (copy / "sub_agents" / "reader" / "AGENT.md").is_file()
+    assert deployed["skills"] == ["tables"] and set(deployed["roles"]) == {"reader"} and deployed["hooks"]
+    assert deployed["placed"] == {"skills": "native", "agents": "native", "hooks": "native"}
+    assert "--enable" in acting._session_args("codex", deployed, work)               # the roles are spawned
+    role = tomllib.loads((work / ".codex" / "agents" / "reader.toml").read_text())
+    assert role["developer_instructions"].strip() == "Summarise what you read."
+    roles = [{"name": "reader", "description": "reads long files", "instructions": "Summarise what you read."}]
+    cli.write_home(home, {"project_doc_max_bytes": 65536}, roles)
+    config = tomllib.loads((home / "config.toml").read_text())
+    assert config["features"] == {"shell_snapshot": False, "multi_agent": True} and config["approval_policy"] == "never"
+    assert config["project_doc_max_bytes"] == 65536 and "forced_login_method" not in config
+    assert config["web_search"] == "disabled"
+    assert config["shell_environment_policy"]["inherit"] == "core"
+    assert config["agents"]["reader"] == {"description": "reads long files", "config_file": "agents/reader.toml"}
+    role = tomllib.loads((home / "agents" / "reader.toml").read_text())
+    assert role["developer_instructions"] == "Summarise what you read."
+    assert acting._deploy({}, None, tmp_path / "work2", "codex", {}) == ({"mode": "host"}, None)   # no adapter
+    (tmp_path / "home2").mkdir()
+    cli.write_home(tmp_path / "home2", {"login": "chatgpt"}, [])
+    config = tomllib.loads((tmp_path / "home2" / "config.toml").read_text())
+    assert "multi_agent" not in config["features"] and config["forced_login_method"] == "chatgpt"
+    assert config["web_search"] == "disabled"                 # the hosted search would reach past the proxy

@@ -536,7 +536,7 @@ def test_a_slow_middleware_is_cut_by_the_runner_alarm(run, monkeypatch):
     monkeypatch.setattr(runner, "TIMEOUT_S", 3)                            # alarm at 1 s, well before the host's 3 s
     call, r = run(middleware="import time\ndef before_tool(inp, state):\n    time.sleep(30)\n    return {'decision': 'deny'}\n")
     assert call("PreToolUse", SHELL_PRE) is None
-    line = r.audit()[-1]
+    (line,) = r.audit()                                                    # the call cut: one audit line, its own
     assert line["error"] == "MiddlewareTimeout: middleware timed out" and 900 <= line["ms"] < 2500
 
 

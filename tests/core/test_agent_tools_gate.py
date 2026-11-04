@@ -1,14 +1,11 @@
-"""AgentEvolver `tools` and `hide`: the session's tool server serves only the allowed tools, the hiding sandbox
-covers paths, and a Codex run sees no Trainer endpoint."""
-import json
+"""AgentEvolver `hide`: the hiding sandbox covers paths (its `tools` gate is tested with the sandboxed fake Codex in
+test_sandboxed_evolvers.py)."""
 import os
+from pathlib import Path
 
 import pytest
 
-from hermit.config import Config
 from hermit.sandbox import FRAMEWORK, HidingSandbox, hidden_paths
-from hermit.trainer.trainer import Trainer
-from toy_task import make_task
 
 
 def test_hidden_paths_and_hiding_sandbox(tmp_path):
@@ -31,40 +28,6 @@ def test_hidden_paths_and_hiding_sandbox(tmp_path):
     assert args[4:cut] == ["--tmpfs", str(tmp_path), "--ro-bind", str(keep), str(keep)]
     assert env == {"X": "1"} and args[-1] == "true"
     assert HidingSandbox(Inner(), []).wrap(["true"])[0][-1] == "true"
-
-
-FAKE_CODEX = r'''#!/usr/bin/env python3
-"""A codex stand-in: lists the tools its MCP server was pointed at and reports them through report.md."""
-import json, re, sys, urllib.request
-args = sys.argv[1:]
-import os, tomllib
-server = tomllib.load(open(os.environ["CODEX_HOME"] + "/config.toml", "rb"))["mcp_servers"]["evolver_tools"]
-url = server["url"][:-len("/mcp")]                  # the tool server's JSON entrance beside its MCP one
-prompt = args[-1]
-output = re.search(r"output=(\S+)", prompt).group(1)
-tools = [t["name"] for t in json.loads(urllib.request.urlopen(url + "/tools").read())]
-gated = (server["default_tools_approval_mode"] == "approve" and "Tools: check_spec (template)" in prompt
-         and "http://" not in prompt)
-open(output + "/report.md", "w").write(f"tools={','.join(tools)} gated={gated}\n")
-print(json.dumps({"type": "thread.started", "thread_id": "sess-1"}))
-print(json.dumps({"type": "turn.completed", "usage": {"input_tokens": 10, "cached_input_tokens": 0, "output_tokens": 2}}))
-'''
-
-
-def test_agent_evolver_gates_the_tools(tmp_path, monkeypatch):
-    path = make_task(tmp_path, sandbox={"enabled": False, "network": "open"})
-    evolver = tmp_path / "gated"
-    evolver.mkdir()
-    (evolver / "codex").write_text(FAKE_CODEX)
-    (evolver / "codex").chmod(0o755)
-    (evolver / "START.md").write_text("output={output}\n{message}")
-    (evolver / "evolver.yaml").write_text("class: hermit.agent.evolver.agent:AgentEvolver\n"
-                                          "params: {backend: codex, web_search: false, prompt: START.md, home: [], tools: [check_spec]}\n")
-    monkeypatch.setenv("PATH", f"{evolver}{os.pathsep}{os.environ['PATH']}")
-    cfg = Config.load(path, ["evolver.name=gated", "trainer.epochs=1", "data.step_size=6"])
-    Trainer(cfg, log=lambda *_: None).train()
-    steps = [json.loads(l) for l in (tmp_path / "runs/toy-run/steps.jsonl").read_text().splitlines()]
-    assert steps[0]["evolver"]["summary"] == "tools=check_spec gated=True"
 
 
 @pytest.mark.skipif(not __import__("shutil").which("bwrap"), reason="needs bubblewrap")
@@ -91,14 +54,15 @@ def test_hidden_paths_are_covered_under_every_name_and_the_runs_own_places_stay(
                   readable=[run / "material"])
     hiding = HidingSandbox(box, [examples, run / "material", alias / "records"])
 
-    def shows(path) -> str:
-        args, env = hiding.wrap(["sh", "-c", f"cat {path} 2>/dev/null || echo ABSENT"], env=dict(os.environ))
-        return subprocess.run(args, env=env, capture_output=True, text=True, timeout=60).stdout.strip()
-    assert shows(examples / "data" / "answers.txt") == "ABSENT"              # the hidden tree's own files
-    assert shows(run / "adapter" / "ADAPTER.md") == "mine"                   # the run's places below it stay
-    assert shows(run / "material" / "secret.txt") == "ABSENT"               # hidden below them: covered again
-    assert shows(alias / "records" / "log.txt") == "ABSENT"                  # under the link's name
-    assert shows(real / "records" / "log.txt") == "ABSENT"                   # and under the real one
+    paths = [examples / "data" / "answers.txt",            # the hidden tree's own files
+             run / "adapter" / "ADAPTER.md",               # the run's places below it stay
+             run / "material" / "secret.txt",              # hidden below them: covered again
+             alias / "records" / "log.txt",                # under the link's name
+             real / "records" / "log.txt"]                 # and under the real one
+    args, env = hiding.wrap(["sh", "-c", "; ".join(f"cat {p} 2>/dev/null || echo ABSENT" for p in paths)],
+                            env=dict(os.environ))                       # one call shows every path, a line each
+    out = subprocess.run(args, env=env, capture_output=True, text=True, timeout=60)
+    assert out.stdout.splitlines() == ["ABSENT", "mine", "ABSENT", "ABSENT", "ABSENT"], out.stderr
 
 
 @pytest.mark.skipif(not __import__("shutil").which("bwrap"), reason="needs bubblewrap")
@@ -232,8 +196,9 @@ def test_nested_places_links_and_system_paths_under_hiding(tmp_path):
     scratch = tmp_path / "scratch"
     scratch.mkdir()
     (scratch / "planted").symlink_to(work)
-    system = next((p for p in sorted(__import__("pathlib").Path("/usr/share").rglob("*"))[:5000]
-                   if p.is_file() and not p.is_symlink() and os.access(p, os.R_OK) and p.stat().st_size > 0), None)
+    system = next((Path(d) / f for d, dirs, files in os.walk("/usr/share") for f in sorted(files)   # the first one
+                   if (Path(d) / f).is_file() and not (Path(d) / f).is_symlink() and os.access(Path(d) / f, os.R_OK)
+                   and (Path(d) / f).stat().st_size > 0), None)     # found, not a sort of all of /usr/share
     hiding = HidingSandbox(Sandbox(network="open", writable=[work, scratch]),
                            [hidden, work / "secret.txt", scratch / "planted", *([system] if system else [])])
 

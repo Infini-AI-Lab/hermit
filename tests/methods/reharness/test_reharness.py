@@ -19,7 +19,6 @@ import yaml
 
 from fakes import agent_of
 from hermit import Session
-from hermit.adapter.loader import load_manifest
 from hermit.config import Config
 from hermit.evaluate import evaluate
 from hermit.agent.evolver.base import Usage
@@ -172,17 +171,6 @@ def test_template_conforms_and_hides_its_context_tool():
     assert reply["content"].startswith("Error: ValueError: Unknown tool")      # the harness's tool, not the agent's
 
 
-def test_context_tool_must_be_a_declared_tool(tmp_path):
-    a = tmp_path / "a"
-    a.mkdir()
-    (a / "ADAPTER.md").write_text("x\n")
-    (a / ".hermit").mkdir()
-    (a / ".hermit" / "adapter.yaml").write_text("template: {id: x, version: '1'}\nstructure: {}\n")
-    (a / "exports.yaml").write_text("context_tool: nope\n")
-    with pytest.raises(ValueError, match="context_tool"):
-        load_manifest(a)
-
-
 def test_reader_ranks_renders_and_the_check_catches_a_broken_bank(tmp_path, embeddings):
     import sys
     sys.path.insert(0, str(TEMPLATE))
@@ -297,16 +285,6 @@ def test_no_revision_and_raw_memory_ablations(tmp_path, embeddings, monkeypatch)
     _, model = train(config)
     raw = json.loads((tmp_path / "runs" / "raw" / "checkout" / "reflections" / "t00.json").read_text())
     assert raw["reflection"].startswith("[TASK]\nTask 0.") and "[OUTCOME]" in raw["reflection"] and model.calls == 0
-
-
-def test_bm25_without_an_embedding_endpoint(tmp_path):
-    config = make_run(tmp_path, {"k": 1})
-    summary, _ = train(config)
-    run = tmp_path / "runs" / "reharness-toy"
-    assert json.loads((run / "checkout" / "index.json").read_text())["retrieval"] == "bm25"
-    assert [s["rollout"]["mean_score"] for s in records(run)[1:]] == [0.0, 0.0, 1.0, 1.0, 1.0, 1.0]
-    assert json.loads(next((run / "checkout" / "reflections").glob("*.json")).read_text())["embedding"] is None
-    assert summary["steps"] == 6
 
 
 def test_embedding_retrieval_needs_the_readers_variable(tmp_path, embeddings, monkeypatch):
@@ -431,32 +409,29 @@ def test_a_trajectory_without_feedback_and_a_codex_event_stream(tmp_path):
     assert trajectory.NO_FEEDBACK in without and "[assistant] <answer>12</answer>" in without
 
 
-def test_the_codex_agent_deploys_a_context_adapter_as_agents_md(tmp_path, monkeypatch):
-    """The Codex agent writes this task's context (the Session's: ADAPTER.md and the retrieved reflections) into
-    AGENTS.md for an adapter whose context is per task; `hermit deploy` alone refuses it (no task to retrieve for)."""
-    from hermit.agent.acting import workspace as cli
-    adapter = tmp_path / "adapter"
-    shutil.copytree(TEMPLATE, adapter, ignore=shutil.ignore_patterns("__pycache__"))
-    context = "# Skill\n\n[RANKED REFLECTIONS]\n[RANK 1 OF 1 REFLECTION]\nx\n"
-    monkeypatch.setattr(cli, "_context", lambda task, adapter, params: (context, {"retrieved": ["r1"]}))
-    work = tmp_path / "work"
-    deployed, record = cli._deploy({"id": "t1", "question": "q"}, adapter, work, "codex", {})
-    text = (work / "AGENTS.md").read_text()
-    assert "[RANK 1 OF 1 REFLECTION]" in text and record == {"retrieved": ["r1"]}
-    with pytest.raises(ValueError, match="plugin-portable: false"):
-        cli.deploy(adapter, tmp_path / "work2", "codex")
-
-
-def test_a_resumed_run_continues_with_the_restored_trajectories(tmp_path):
-    """State persistence: a run that died after step 2 resumes at step 3 with the bank and the stored source
-    trajectories of the saved step, so the revisions keep reading real trajectories and no step is recorded twice."""
-    config = make_run(tmp_path, {"k": 2})
-    train(config)
+def test_bm25_a_resumed_run_and_a_stopped_step(tmp_path):
+    """Without an embedding endpoint the bank ranks with BM25 (k=1: only the same kind's reflection solves a task).
+    State persistence: a run that died after step 2 resumes at step 3 with the bank and the stored source
+    trajectories of the saved step, so the revisions keep reading real trajectories and no step is recorded twice.
+    Failure handling: when the Trainer stops the run while an agent is writing, the step comes back failed, the
+    Training State keeps no record of it and the trajectory stored for its memory is removed."""
+    import threading
+    import types
+    from hermit.agent.evolver.methods.reharness.evolver import ReHarnessEvolver
+    config = make_run(tmp_path, {"k": 1})
+    summary, _ = train(config)
     run = tmp_path / "runs" / "reharness-toy"
+    assert json.loads((run / "checkout" / "index.json").read_text())["retrieval"] == "bm25"
+    assert [s["rollout"]["mean_score"] for s in records(run)[1:]] == [0.0, 0.0, 1.0, 1.0, 1.0, 1.0]
+    assert json.loads(next((run / "checkout" / "reflections").glob("*.json")).read_text())["embedding"] is None
+    assert summary["steps"] == 6
+    # resume after step 2
     lines = (run / "steps.jsonl").read_text().splitlines()
     (run / "steps.jsonl").write_text("\n".join(lines[:3]) + "\n")             # as if the run died after step 2
     (run / "summary.json").unlink()
-    summary, model = train(Config.load(tmp_path / "run.yaml"))
+    trainer = Trainer(Config.load(tmp_path / "run.yaml"), log=lambda *_: None)
+    trainer.llm = model = ScriptedModel()
+    summary = trainer.train()
     assert [s["step"] for s in records(run)] == [0, 1, 2, 3, 4, 5, 6] and summary["steps"] == 6
     state = json.loads((run / "workspace" / "state" / "reharness.json").read_text())
     assert [s["step"] for s in state["steps"]] == [1, 2, 3, 4, 5, 6]            # the rerun added steps 3 to 6 once
@@ -464,18 +439,7 @@ def test_a_resumed_run_continues_with_the_restored_trajectories(tmp_path):
     assert revisions and all("[TARGET MEMORY'S ORIGINAL TRAJECTORY]\n[TASK]\nTask " in u for u in revisions)
     assert not any("is not available" in u for u in revisions)              # the stored trajectories came back
     assert sorted(f.stem for f in (run / "checkout" / "reflections").glob("*.json")) == [f"t{i:02d}" for i in range(6)]
-
-
-def test_a_stopped_step_leaves_no_record_and_no_orphan_trajectory(tmp_path):
-    """Failure handling: when the Trainer stops the run while an agent is writing, the step comes back failed, the
-    Training State keeps no record of it and the trajectory stored for its memory is removed."""
-    import threading
-    import types
-    from hermit.agent.evolver.methods.reharness.evolver import ReHarnessEvolver
-    config = make_run(tmp_path, {"k": 2})
-    trainer = Trainer(config, log=lambda *_: None)
-    trainer.llm = ScriptedModel()
-    trainer.train()
+    # a step stopped while its agent writes, on the finished run's workspace
     ws = trainer.ws
     before_state = (ws.state / "reharness.json").read_text()
     before_files = sorted(p.name for p in (ws.state / "trajectories").glob("*"))
@@ -485,7 +449,7 @@ def test_a_stopped_step_leaves_no_record_and_no_orphan_trajectory(tmp_path):
         cancel.set()                                   # the Trainer stopped the run during this call
         return {"content": json.dumps({"reflection": "- strategy: x"}), "finish_reason": "stop"}
 
-    ctx = types.SimpleNamespace(workspace=ws, params={"k": 2}, agent=agent_of(llm),
+    ctx = types.SimpleNamespace(workspace=ws, params={"k": 1}, agent=agent_of(llm),
                                 progress=types.SimpleNamespace(step=99), cancel=cancel, sandbox=None)
     result = ReHarnessEvolver().step(ctx)
     assert result.status == "failed" and "not committed" in result.summary

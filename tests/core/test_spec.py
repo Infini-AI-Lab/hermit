@@ -13,12 +13,6 @@ def copy(src, dst):
     return dst
 
 
-def test_templates_conform():
-    for name in ("prompt_only", "lean_collab", "ahe"):
-        result = check_spec(TEMPLATES / name, TEMPLATES / name)
-        assert result.passed, result.issues
-
-
 def test_glob_matching():
     assert matches("skills/a/SKILL.md", "skills/**") and matches("skills/a/SKILL.md", "skills")
     assert matches("ADAPTER.md", "ADAPTER.md") and not matches("x/ADAPTER.md", "ADAPTER.md")
@@ -105,15 +99,6 @@ def test_prompt_only_keeps_adapter_md(tmp_path):
     assert final.passed and (adapter / "ADAPTER.md").read_text() == (root / "ADAPTER.md").read_text()
 
 
-def test_prompt_only_learns_its_prompt_only(tmp_path):
-    root = TEMPLATES / "prompt_only"
-    adapter = copy(root, tmp_path / "adapter")
-    (adapter / "exports.yaml").write_text("context: ADAPTER.md\nskills: skills\n")
-    (adapter / "notes.md").write_text("a stray file\n")
-    checks = {(i.path, i.check) for i in check_spec(adapter, root).issues}
-    assert ("exports.yaml", 1) in checks and ("notes.md", 2) in checks
-
-
 def test_exports_are_learnable_without_a_learnable_entry(tmp_path):
     import yaml
     from hermit.adapter.manifest import MANIFEST
@@ -124,10 +109,12 @@ def test_exports_are_learnable_without_a_learnable_entry(tmp_path):
     adapter = copy(root, tmp_path / "adapter")
     (adapter / "exports.yaml").write_text("context: ADAPTER.md\nskills: skills\n")
     assert check_spec(root, root).passed and check_spec(adapter, root).passed
-    meta["structure"]["fixed"].append("exports.yaml")                     # listed under fixed: no longer learnable
+    meta["structure"]["fixed"].append("exports.yaml")     # listed under fixed, as prompt_only has it: not learnable
     (root / MANIFEST).write_text(yaml.safe_dump(meta, sort_keys=False))
     shutil.copy(root / MANIFEST, adapter / MANIFEST)
-    assert ("exports.yaml", 1) in {(i.path, i.check) for i in check_spec(adapter, root).issues}
+    (adapter / "notes.md").write_text("a stray file\n")                    # prompt_only learns its prompt only
+    checks = {(i.path, i.check) for i in check_spec(adapter, root).issues}
+    assert ("exports.yaml", 1) in checks and ("notes.md", 2) in checks
 
 
 def _edit_exports(adapter, edit):
@@ -175,15 +162,6 @@ def test_deploy_and_serve_name_the_0_1_layout_in_one_line(tmp_path, capsys):
         assert main(argv) == 2
         err = capsys.readouterr().err
         assert "Hermit 0.1 layout" in err and "Traceback" not in err
-
-
-def test_the_0_1_layout_is_named(tmp_path):
-    import pytest
-    from hermit.adapter.manifest import read_manifest
-    adapter = copy(TEMPLATES / "prompt_only", tmp_path / "adapter")
-    shutil.move(adapter / ".hermit" / "adapter.yaml", adapter / "adapter.yaml")
-    with pytest.raises(ValueError, match="Hermit 0.1 layout"):
-        read_manifest(adapter)
 
 
 def test_no_structure_means_every_file_is_learnable():

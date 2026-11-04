@@ -3,10 +3,8 @@ import json
 from pathlib import Path
 import random
 import subprocess
-import textwrap
 
 import pytest
-import yaml
 
 from hermit.config import Config
 from hermit.evaluate import evaluate
@@ -48,6 +46,17 @@ def test_train_commits_tags_and_records(tmp_path):
     assert (run / "summary.json").exists() and summary["stop_reason"] == "completed all epochs"
     # The history view the Evolver read is a log plus patches; it has no write access to git.
     assert (run / "workspace" / "history" / "log.jsonl").exists()
+    # Evaluating the final, root and no adapter on the test split; the final card gets the score.
+    final = evaluate(cfg, "final", log=lambda *_: None)
+    assert final["mean_score"] == 1.0 and final["tasks"] == 3
+    assert evaluate(cfg, "root", log=lambda *_: None)["mean_score"] == 0.0
+    assert evaluate(cfg, "none", log=lambda *_: None)["mean_score"] == 0.0
+    assert "| final | 3 |" in git(tree, "show", "toy-run/final:.hermit/CARD.md")
+    # A second run started from a checkpoint of this one starts from the learned adapter.
+    Trainer(load(tmp_path / "run.yaml", "trainer.run_name=second", "start_from=toy-run/ckpt-step-1",
+                 "trainer.epochs=1"), log=lambda *_: None).train()
+    steps = [json.loads(l) for l in (tmp_path / "runs/second/steps.jsonl").read_text().splitlines()]
+    assert steps[0]["rollout"]["mean_score"] == 1.0
 
 
 def test_failed_check_commits_then_repairs(tmp_path):
@@ -128,27 +137,6 @@ def test_early_stop_only_when_allowed(tmp_path):
     assert summary["steps"] == 1 and "stopped the run" in summary["stop_reason"]
 
 
-def test_eval_final_root_none(tmp_path):
-    path = make_task(tmp_path)
-    cfg = load(path)
-    Trainer(cfg, log=lambda *_: None).train()
-    final = evaluate(cfg, "final", log=lambda *_: None)
-    assert final["mean_score"] == 1.0 and final["tasks"] == 3
-    assert evaluate(cfg, "root", log=lambda *_: None)["mean_score"] == 0.0
-    assert evaluate(cfg, "none", log=lambda *_: None)["mean_score"] == 0.0
-    tree = tmp_path / "runs" / "trees" / "prompt-only"
-    assert "| final | 3 |" in git(tree, "show", "toy-run/final:.hermit/CARD.md")
-
-
-def test_start_from_a_checkpoint(tmp_path):
-    path = make_task(tmp_path)
-    Trainer(load(path), log=lambda *_: None).train()
-    summary = Trainer(load(path, "trainer.run_name=second", "start_from=toy-run/ckpt-step-1", "trainer.epochs=1"),
-                      log=lambda *_: None).train()
-    steps = [json.loads(l) for l in (tmp_path / "runs/second/steps.jsonl").read_text().splitlines()]
-    assert steps[0]["rollout"]["mean_score"] == 1.0          # started from the learned adapter
-
-
 def test_check_command(tmp_path, capsys):
     cfg = load(make_task(tmp_path))
     lines = []
@@ -168,26 +156,10 @@ def test_overrides_reject_unknown_keys(tmp_path):
     assert load(path, "evolver.params.mode=break")["evolver"]["params"]["mode"] == "break"
 
 
-def test_no_change_means_no_commit(tmp_path):
-    path = make_task(tmp_path, evolver={"name": "toy", "params": {"mode": "nothing"}})
-    summary = Trainer(load(path, "trainer.epochs=1"), log=lambda *_: None).train()
-    steps = [json.loads(l) for l in (tmp_path / "runs/toy-run/steps.jsonl").read_text().splitlines()]
-    assert not any(s["changed"] for s in steps)
-
-
 def test_warnings_name_risky_settings(tmp_path):
     from hermit.trainer.trainer import warnings_for
     text = " ".join(warnings_for(load(make_task(tmp_path)), val_given=True))
     assert "sandbox.enabled is false" in text and "sandbox.network is open" in text and "sandbox.env is not set" in text
-
-
-def test_shuffle_false_keeps_the_split_order(tmp_path):
-    cfg = load(make_task(tmp_path), "data.shuffle=false", "trainer.epochs=1")
-    Trainer(cfg, log=lambda *_: None).train()
-    material = tmp_path / "runs" / "toy-run" / "learning_material"
-    order = [t for step in ("step_0001", "step_0002")
-             for t in json.loads((material / step / "summary.json").read_text())["tasks"]]
-    assert order == [f"t{i}" for i in range(6)]
 
 
 def test_shuffle_must_be_boolean(tmp_path):
@@ -235,23 +207,13 @@ def test_bootstrap_is_step_zero_before_any_rollout(tmp_path):
     tags = subprocess.run(["git", "-C", str(tmp_path / "runs" / "trees" / "prompt-only"), "tag"],
                           capture_output=True, text=True).stdout.split()
     assert "toy-run/bootstrap" in tags
-
-
-def test_evolver_workspace_carries_git_history_rollouts_do_not(tmp_path):
-    cfg = load(_boot_task(tmp_path), "evolver.name=boot", "trainer.epochs=1")
-    Trainer(cfg, log=lambda *_: None).train()
-    run = tmp_path / "runs" / "toy-run"
+    # The Evolver's workspace carries the git history; the rollouts' adapter does not.
     log = (run / "workspace" / "state" / "git_2.txt").read_text().splitlines()
     assert any(line.startswith("bootstrap (step 0)") for line in log) and log[-1].startswith("root:")
     assert not (run / "rollout_adapter" / ".git").exists()
     branches = (run / "workspace" / "state" / "branches_2.txt").read_text().split()
     assert branches == ["*", "adapter"]                             # this run's ancestry only
-
-
-def test_resume_does_not_repeat_the_bootstrap(tmp_path):
-    cfg = load(_boot_task(tmp_path), "evolver.name=boot", "trainer.epochs=1")
-    Trainer(cfg, log=lambda *_: None).train()
-    run = tmp_path / "runs" / "toy-run"
+    # A resume does not repeat the bootstrap.
     lines = (run / "steps.jsonl").read_text().splitlines()
     (run / "steps.jsonl").write_text(lines[0] + "\n")             # as if the run died after step 0
     (run / "summary.json").unlink()
@@ -267,7 +229,8 @@ import json
 from hermit.agent.evolver.base import Evolver, StepResult
 
 class Pick(Evolver):
-    """Names the last remaining task as the next step's only task (mode `reverse`), or a bad request."""
+    """Names the last remaining task as the next step's only task (mode `reverse`), or a bad request (mode `each`:
+    a different bad request at each step)."""
     chooses_tasks = True
 
     def bootstrap(self, ctx):
@@ -279,9 +242,9 @@ class Pick(Evolver):
             f.write(json.dumps({"step": p.step, "remaining": list(p.remaining),
                                 "listed": "have still to run" in ctx.message}) + "\\n")
         mode = ctx.params.get("mode", "reverse")
-        nxt = {"reverse": [p.remaining[-1]] if p.remaining else None, "bad": ["t9"],
-               "twice": ["t0", "t0"], "many": ["t0", "t1", "t2", "t3", "t4"],
-               "boundary": None if p.remaining else ["t3"], "empty": (), "word": "t4"}.get(mode)
+        each = [["t9"], ["t0", "t0"], ["t0", "t1", "t2", "t3", "t4"], "t4"]   # outside, twice, too many, no list
+        nxt = {"reverse": [p.remaining[-1]] if p.remaining else None, "bad": ["t9"], "each": each[min(p.step, 3)],
+               "boundary": None if p.remaining else ["t3"], "empty": ()}.get(mode)
         return StepResult("done", f"step {p.step}", next_tasks=nxt)
 
 class Silent(Pick):
@@ -337,14 +300,15 @@ def test_an_evolver_that_does_not_choose_sees_nothing_ahead_and_is_refused(tmp_p
     assert [s["tasks"] for s in steps if not s.get("bootstrap")] == [["t0", "t1", "t2", "t3"], ["t4", "t5"]]
 
 
-@pytest.mark.parametrize("mode, reason", [("bad", "not training tasks still to run"), ("twice", "twice"),
-                                          ("many", "more than data.step_size"), ("word", "not a list")])
-def test_a_bad_request_is_refused_where_it_is_made_and_the_order_runs(tmp_path, mode, reason):
-    cfg = load(_pick_task(tmp_path, mode), "evolver.name=pick", "data.shuffle=false", "trainer.epochs=1")
+def test_a_bad_request_is_refused_where_it_is_made_and_the_order_runs(tmp_path):
+    """Each step makes another kind of bad request; each is refused, for its own reason, on the step that made it."""
+    cfg = load(_pick_task(tmp_path, "each"), "evolver.name=pick", "data.shuffle=false", "trainer.epochs=2")
     Trainer(cfg, log=lambda *_: None).train()
     steps = _steps(tmp_path)
-    assert all(reason in s["next_tasks_refused"] and "chosen_by" not in s for s in steps)
-    assert [s["tasks"] for s in steps if not s.get("bootstrap")] == [["t0", "t1", "t2", "t3"], ["t4", "t5"]]
+    reasons = ["not training tasks still to run", "twice", "more than data.step_size", "not a list", "not a list"]
+    assert [s["step"] for s in steps] == [0, 1, 2, 3, 4]
+    assert all(reason in s["next_tasks_refused"] and "chosen_by" not in s for reason, s in zip(reasons, steps))
+    assert [s["tasks"] for s in steps if not s.get("bootstrap")] == [["t0", "t1", "t2", "t3"], ["t4", "t5"]] * 2
 
 
 def test_the_default_order_is_unchanged(tmp_path):

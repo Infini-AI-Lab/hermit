@@ -462,11 +462,14 @@ def test_an_invalid_done_goes_back_to_the_same_session(tmp_path, monkeypatch):
 
 
 def test_the_critic_rejects_a_leak_and_the_repair_is_screened_again(tmp_path, monkeypatch):
+    """A's repair first declares edits but writes nothing: upstream starts each repair as a new propose() call with no
+    edits counted, so it is bounced (although the candidate differs from H_t), then fixed and screened again."""
     ws = workspace(tmp_path)
     dom = domain_files(tmp_path)
     script = Script({
         (0, "A"): [{"files": {"ADAPTER.md": "The answer to q1 is SECRET-ANSWER.\n"},
                     "done": {"summary": "s", "edits": [edit()]}},
+                   {"done": {"summary": "s", "edits": [edit()]}},                       # the repair: no file change
                    {"files": {"ADAPTER.md": "Check the units.\n"}, "done": {"summary": "s", "edits": [edit()]}}],
         (0, "B"): [{"files": {"ADAPTER.md": "SECRET-ANSWER\n"}, "done": {"summary": "s", "edits": [edit()]}},
                    {"done": {"summary": "s", "edits": [edit()]}}, {"done": {"summary": "s", "edits": [edit()]}}],
@@ -480,6 +483,7 @@ def test_the_critic_rejects_a_leak_and_the_repair_is_screened_again(tmp_path, mo
     critic = json.loads((ws.state / "rrsi" / "r0" / "A" / "critic_a0.json").read_text())
     assert critic["verdict"] == "reject" and "precheck" in critic["reasons"][0]
     assert any("REPAIR ROUND" in p for p in script.prompts)
+    assert any("ZERO file changes" in p for p in script.prompts[:script.calls.index(((0, "B"), False))])   # A's
 
 
 def test_a_reserved_slot_and_the_edits_fields_are_checked_in_done(tmp_path, monkeypatch):
@@ -503,22 +507,6 @@ def _done(tmp: Path, edits: list) -> Path:
     path = tmp / "done.json"
     path.write_text(json.dumps({"summary": "s", "edits": edits}))
     return path
-
-
-def test_rollouts_of_another_adapter_are_never_credited(tmp_path, monkeypatch):
-    ws = workspace(tmp_path)
-    dom = domain_files(tmp_path)
-    script = Script({(0, "A"): [{"files": {"ADAPTER.md": "x\n"}, "done": {"summary": "s", "edits": [edit()]}}],
-                     (0, "B"): [{"files": {"ADAPTER.md": "y\n"}, "done": {"summary": "s", "edits": [edit()]}}]})
-    ev = evolver(monkeypatch, script)
-    material(ws, 1, rows({"q1": [0, 1], "q2": [1, 0], "q3": [1, 1], "q4": [0, 0]}))
-    ev.step(context(ws, 1, dom, tmp_path))
-    (ws.adapter / "ADAPTER.md").write_text("something else ran\n")
-    material(ws, 2, rows({"q1": [1, 1], "q2": [1, 1], "q3": [1, 1], "q4": [1, 1]}))
-    r = ev.step(context(ws, 2, dom, tmp_path))
-    st = state(ws)
-    assert st["candidates"]["r00A"]["status"] == "queued" and r.extra["next"] == "r00A"
-    assert (ws.adapter / "ADAPTER.md").read_text() == "x\n"
 
 
 def test_too_many_missing_trials_are_measured_again_once_then_invalid(tmp_path, monkeypatch):
@@ -1016,7 +1004,8 @@ def test_components_the_agent_cannot_carry_are_never_offered_for_exploration(tmp
     assert "How the diff evidences each component" in (ws.scratch / "rrsi" / "r0A" / "context" / "round.md").read_text()
 
 
-def test_a_working_copy_that_never_matches_is_invalid_after_one_more_hand_back(tmp_path, monkeypatch):
+def test_rollouts_of_another_adapter_are_never_credited_and_the_candidate_is_invalid_after_one_more_hand_back(
+        tmp_path, monkeypatch):
     ws = workspace(tmp_path)
     dom = domain_files(tmp_path)
     script = Script({(0, "A"): [{"files": {"ADAPTER.md": "x\n"}, "done": {"summary": "s", "edits": [edit()]}}],
@@ -1028,6 +1017,9 @@ def test_a_working_copy_that_never_matches_is_invalid_after_one_more_hand_back(t
         (ws.adapter / "ADAPTER.md").write_text("what actually ran\n")
         material(ws, step, rows({"q1": [1, 1], "q2": [1, 1], "q3": [1, 1], "q4": [1, 1]}))
         r = ev.step(context(ws, step, dom, tmp_path))
+        if step == 2:                       # all 1s from another adapter: not credited, r00A handed back again
+            assert state(ws)["candidates"]["r00A"]["status"] == "queued" and r.extra["next"] == "r00A"
+            assert (ws.adapter / "ADAPTER.md").read_text() == "x\n"
     st = state(ws)
     assert st["candidates"]["r00A"]["status"] == "eval_invalid" and r.extra["next"] == "r00B"
     assert st["round"]["variants"]["A"]["gate_failure"] == "eval_invalid"
@@ -1113,7 +1105,7 @@ class Box:
         return list(command), dict(kw.get("env") or {})
 
 
-def test_the_proposer_runs_in_its_variant_with_the_runs_records_hidden(tmp_path, monkeypatch):
+def test_the_proposer_and_the_roles_run_with_the_runs_records_hidden(tmp_path, monkeypatch):
     ws = workspace(tmp_path)
     dom = domain_files(tmp_path)
     script = Script({(0, "A"): [{"files": {"ADAPTER.md": "x\n"}, "done": {"summary": "s", "edits": [edit()]}}],
@@ -1133,7 +1125,9 @@ def test_the_proposer_runs_in_its_variant_with_the_runs_records_hidden(tmp_path,
     hidden = set(map(Path, a["limits"].hidden))
     package = Path(__import__("json").__file__).parent           # "module:<name>": the installed package
     assert {ws.learning_material, ws.state, ws.adapter, ws.output, private, package} <= hidden
-    assert work not in hidden and package in set(ROLE_CALLS[-1]["limits"].hidden)
+    role_hidden = set(ROLE_CALLS[-1]["limits"].hidden)            # the last critic's, after both drafts
+    assert work not in hidden and package in role_hidden
+    assert {ws.learning_material, ws.state, ws.adapter, ws.output, ws.scratch / "rrsi"} <= role_hidden
     assert work in set(map(Path, b["limits"].hidden))          # variant B never sees A's directory or home
     assert [m.source for m in a["limits"].readable] == [ws.task_info]
 
@@ -1261,18 +1255,6 @@ def test_a_role_with_its_own_model_drops_the_proposers_provider_arguments(tmp_pa
     ctx = context(ws, 1, dom, tmp_path, roles={"binding": other}, model="proposer-model")
     models = E.RRSIAdapterEvolver()._models(ctx)                    # what the run records: the binding's model
     assert models["analyst_model"] == models["critic_model"] == "o-1"
-
-
-def test_the_roles_see_neither_the_records_nor_the_proposers_directories(tmp_path, monkeypatch):
-    ws = workspace(tmp_path)
-    dom = domain_files(tmp_path)
-    script = Script({(0, "A"): [{"files": {"ADAPTER.md": "x\n"}, "done": {"summary": "s", "edits": [edit()]}}],
-                     (0, "B"): [{"files": {"ADAPTER.md": "y\n"}, "done": {"summary": "s", "edits": [edit()]}}]})
-    ev = evolver(monkeypatch, script)
-    material(ws, 1, rows({"q1": [0, 1], "q2": [1, 0], "q3": [1, 1], "q4": [0, 0]}))
-    assert ev.step(context(ws, 1, dom, tmp_path, sandbox=Box())).status == "done"
-    hidden = set(ROLE_CALLS[-1]["limits"].hidden)                 # the last critic's, after both drafts
-    assert {ws.learning_material, ws.state, ws.adapter, ws.output, ws.scratch / "rrsi"} <= hidden
 
 
 def test_a_role_call_sees_neither_other_calls_nor_traces_it_is_not_given(tmp_path, monkeypatch):
@@ -1445,19 +1427,3 @@ def test_a_backend_failure_in_a_proposer_session_is_retried_not_recorded(tmp_pat
     assert "429" in (ws.output / "r0A" / "session_1.jsonl").read_text()       # the failed attempt's log is kept
     assert (ws.output / "r0A" / "session_1.retry1.jsonl").is_file()
 
-
-def test_a_repair_that_changes_no_file_is_sent_back(tmp_path, monkeypatch):
-    """Upstream starts each repair as a new propose() call with no edits counted: a repair that declares edits but
-    writes nothing is bounced, even though the candidate differs from H_t."""
-    ws = workspace(tmp_path)
-    dom = domain_files(tmp_path)
-    script = Script({
-        (0, "A"): [{"files": {"ADAPTER.md": "SECRET-ANSWER\n"}, "done": {"summary": "s", "edits": [edit()]}},
-                   {"done": {"summary": "s", "edits": [edit()]}},                       # the repair: no file change
-                   {"files": {"ADAPTER.md": "Check the units.\n"}, "done": {"summary": "s", "edits": [edit()]}}],
-        (0, "B"): [{"files": {"ADAPTER.md": "y\n"}, "done": {"summary": "s", "edits": [edit()]}}]})
-    ev = evolver(monkeypatch, script)
-    material(ws, 1, rows({"q1": [0, 1], "q2": [1, 0], "q3": [1, 1], "q4": [0, 0]}))
-    r = ev.step(context(ws, 1, dom, tmp_path))
-    assert any("ZERO file changes" in p for p in script.prompts)
-    assert r.extra["next"] == "r00A" and (ws.adapter / "ADAPTER.md").read_text() == "Check the units.\n"

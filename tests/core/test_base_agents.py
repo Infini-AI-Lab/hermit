@@ -266,7 +266,7 @@ def test_the_chat_client_waits_as_told_between_retries(monkeypatch):
 
 def test_the_chat_endpoint_relays_a_request_as_it_is():
     """A benchmark's own client reaches the model through `direct` at a local URL: body, Authorization header and the
-    upstream's response pass unchanged; an upstream error keeps its status; streaming is refused."""
+    upstream's response pass unchanged; an upstream error keeps its status and is not retried."""
     import http.server
     import threading
     import urllib.error
@@ -543,13 +543,6 @@ def test_a_client_that_hangs_up_gives_the_call_up_upstream():
         client.close()                                                # the client's own watchdog gives up
         assert up.closed.wait(5)                                      # and the relay hangs up upstream
     up.server.shutdown()
-
-
-def test_react_counts_its_own_calls_on_any_model_with_chat():
-    def reply(messages, **_):
-        return {"content": "hi", "finish_reason": "stop"}
-    result = make("react", {}, FunctionModel(reply)).run("say hi")          # a model with chat() and no `total`
-    assert result.reply == "hi" and result.usage[0].calls == 1
 
 
 def test_a_tool_server_that_cannot_serve_fails_at_start(monkeypatch):

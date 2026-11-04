@@ -148,7 +148,17 @@ def make(tmp: Path, monkeypatch, steps: int = 2, deployment_param: bool = False)
 
 def test_bootstrap_review_mounts_and_records(tmp_path, monkeypatch):
     cfg = Config.load(make(tmp_path, monkeypatch), [])
-    Trainer(cfg, log=lambda *_: None).train()
+    trainer = Trainer(cfg, log=lambda *_: None)
+    seen_after_boot = {}
+    original = trainer.evolver._one_session
+
+    def spy(ctx, **kw):                        # what the bootstrap session saw (the reviews overwrite seen.json)
+        record = original(ctx, **kw)
+        if kw["label"] == "bootstrap":
+            seen_after_boot.update(json.loads((ctx.workspace.adapter / "meta" / "seen.json").read_text()))
+        return record
+    trainer.evolver._one_session = spy
+    trainer.train()
     run = tmp_path / "runs" / "mwm-test"
     seen_git = {"host": (tmp_path / "taskdir" / "host_git_1").read_text() == "True",
                 "learner": int(json.loads((run / "checkout" / "meta" / "seen.json").read_text())["git_log"]) >= 2}
@@ -176,6 +186,7 @@ def test_bootstrap_review_mounts_and_records(tmp_path, monkeypatch):
         assert "block001" in seen["evidence_files"]                 # a review sees the block's records
         assert seen["cwd"] == "/w" and seen["relative_evidence"] and seen["world_model_ro"]
         assert len(seen["hidden_listing"]) >= 7 and all(v in ([], None) for v in seen["hidden_listing"].values()), seen
+        assert seen_after_boot["evidence_files"] == ["README.md"]       # the bootstrap sees no records
     assert "leftover.txt" not in seen["home_entries"]              # a throwaway CODEX_HOME per session
     assert seen["gate_tools"] == ["echo"]                           # only the venue's channels pass the gate
     assert seen["echo"] == {"result": {"text": "hi"}}
@@ -187,24 +198,6 @@ def test_bootstrap_review_mounts_and_records(tmp_path, monkeypatch):
     assert "REVIEW SESSION #2." in prompt and "This block covers questions 2-2; the current tick is 2." in prompt
     boot = (run / "step_0000" / "output" / "bootstrap.prompt.md").read_text()
     assert "BOOTSTRAP SESSION (before any episodes)" in boot
-
-
-def test_bootstrap_sees_no_records(tmp_path, monkeypatch):
-    if not shutil.which("bwrap"):
-        pytest.skip("bwrap not installed")
-    cfg = Config.load(make(tmp_path, monkeypatch, steps=1), [])
-    trainer = Trainer(cfg, log=lambda *_: None)
-    seen_after_boot = {}
-    original = trainer.evolver._one_session
-
-    def spy(ctx, **kw):
-        record = original(ctx, **kw)
-        if kw["label"] == "bootstrap":
-            seen_after_boot.update(json.loads((ctx.workspace.adapter / "meta" / "seen.json").read_text()))
-        return record
-    trainer.evolver._one_session = spy
-    trainer.train()
-    assert seen_after_boot["evidence_files"] == ["README.md"]
 
 
 def test_failing_tool_is_parked_and_reported(tmp_path, monkeypatch):
@@ -249,18 +242,15 @@ def test_editing_serving_code_discards_the_session(tmp_path, monkeypatch):
     assert "# edited" not in (final / "interface.py").read_text()
 
 
-def test_shell_channel_without_mcp_still_passes_the_gate(tmp_path, monkeypatch):
-    cfg = Config.load(make(tmp_path, monkeypatch, steps=1), ["evolver.params.learner_tools=[]"])
-    Trainer(cfg, log=lambda *_: None).train()
-    seen = json.loads((tmp_path / "runs" / "mwm-test" / "checkout" / "meta" / "seen.json").read_text())
-    assert seen["gate_tools"] == ["echo"] and seen["echo"] == {"result": {"text": "hi"}}
-
-
-def test_deployment_parameter_names_the_venue_texts(tmp_path, monkeypatch):
-    cfg = Config.load(make(tmp_path, monkeypatch, steps=1, deployment_param=True), [])
+def test_deployment_parameter_and_a_shell_only_channel(tmp_path, monkeypatch):
+    """params.deployment names the venue texts beside the config (no task-info/mwm); with learner_tools=[] (no
+    channel offered as an MCP tool) the shell channel still passes the gate."""
+    cfg = Config.load(make(tmp_path, monkeypatch, steps=1, deployment_param=True), ["evolver.params.learner_tools=[]"])
     Trainer(cfg, log=lambda *_: None).train()
     run = tmp_path / "runs" / "mwm-test"
     steps = [json.loads(l) for l in (run / "steps.jsonl").read_text().splitlines()]
     assert [s["evolver"]["status"] for s in steps] == ["done", "done"]
     assert not (tmp_path / "task-info" / "mwm").exists()
     assert (run / "checkout" / "ADAPTER.md").read_text().strip()        # rendered with the venue's host.json
+    seen = json.loads((run / "checkout" / "meta" / "seen.json").read_text())
+    assert seen["gate_tools"] == ["echo"] and seen["echo"] == {"result": {"text": "hi"}}

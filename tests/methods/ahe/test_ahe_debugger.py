@@ -883,36 +883,26 @@ def real_check_spec(path):
     return check_spec(Path(path), TEMPLATE).to_dict()
 
 
-def test_rollback_of_agents_md_alone_syncs_adapter_md_and_passes_the_template_check(tmp_path):
-    """START.md tells the agent ADAPTER.md is kept equal by the Evolver, so a prompt change lists AGENTS.md alone;
-    the template's check requires the two equal, so the rollback syncs ADAPTER.md before the check."""
-    adapter, c1, _ = template_repo(tmp_path)
-    manifest = {"iteration": 1, "changes": [{"id": "chg-1", "type": "new", "files": ["AGENTS.md"],
-                                             "risk_tasks": ["t"]}]}
-    verdicts = {"change_evaluations": [{"change_id": "chg-1", "verdict": "HARMFUL"}]}
-    snapshots = tmp_path / "state" / "rollbacks" / "step_0002"
-    rec = R.rollback(adapter, manifest, verdicts, c1, LEARNABLE, real_check_spec, {"rollback": "auto"},
-                     snapshots=snapshots)
-    assert not rec["rollback_failed"], rec["note"]
-    assert rec["check"]["passed"]
-    files = {f["path"]: f["action"] for f in rec["changes"][0]["files"]}
-    assert files == {"AGENTS.md": "restored", "ADAPTER.md": "synced"}
-    assert rec["touched"] == ["ADAPTER.md", "AGENTS.md"] and rec["snapshots"] == str(snapshots)
-    assert HARMFUL_RULE not in (adapter / "AGENTS.md").read_text()
-    assert (adapter / "ADAPTER.md").read_text() == (adapter / "AGENTS.md").read_text()
-    assert (snapshots / "AGENTS.md").read_text() == (adapter / "AGENTS.md").read_text()   # kept for the next step
-    assert (snapshots / "ADAPTER.md").is_file()
-
-
 def test_rollback_restores_what_the_previous_steps_rollback_left_not_the_rollout_commit(tmp_path):
     """Step 2 adds chg-A (C2); step 3 rolls it back and the agent adds chg-B (C3, manifest [rb-1, chg-B]); step 4
-    rolls chg-B back: AGENTS.md goes to what step 3's rollback left (the seed), not to C2, which holds chg-A."""
+    rolls chg-B back: AGENTS.md goes to what step 3's rollback left (the seed), not to C2, which holds chg-A.
+
+    Each manifest lists AGENTS.md alone, as START.md has the agent list a prompt change (ADAPTER.md is kept equal by
+    the Evolver); the template's check requires the two equal, so each rollback syncs ADAPTER.md before the check."""
     adapter, c1, c2 = template_repo(tmp_path)                       # C2 = chg-A ("the harmful rule")
     state = tmp_path / "state" / "rollbacks"
     manifest2 = {"iteration": 2, "changes": [{"id": "chg-A", "type": "new", "files": ["AGENTS.md"]}]}
     rec3 = R.rollback(adapter, manifest2, {"chg-A": "HARMFUL"}, c1, LEARNABLE, real_check_spec, {},
                       snapshots=state / "step_0003")
-    assert not rec3["rollback_failed"]
+    assert not rec3["rollback_failed"], rec3["note"]
+    assert rec3["mode"] == "auto" and rec3["check"]["passed"]
+    assert {f["path"]: f["action"] for f in rec3["changes"][0]["files"]} == {"AGENTS.md": "restored",
+                                                                              "ADAPTER.md": "synced"}
+    assert rec3["touched"] == ["ADAPTER.md", "AGENTS.md"] and rec3["snapshots"] == str(state / "step_0003")
+    assert HARMFUL_RULE not in (adapter / "AGENTS.md").read_text()
+    assert (adapter / "ADAPTER.md").read_text() == (adapter / "AGENTS.md").read_text()
+    assert (state / "step_0003" / "AGENTS.md").read_text() == (adapter / "AGENTS.md").read_text()   # for the next step
+    assert (state / "step_0003" / "ADAPTER.md").is_file()
     # the agent of step 3 adds chg-B on top of the restored prompt; the Trainer commits C3
     for name in ("AGENTS.md", "ADAPTER.md"):
         (adapter / name).write_text((adapter / name).read_text() + "- B (harmful too).\n")
@@ -933,15 +923,16 @@ def test_rollback_restores_what_the_previous_steps_rollback_left_not_the_rollout
     assert by["chg-B"]["files"][0] == {"path": "AGENTS.md", "action": "restored", "source": "the previous step's rollback"}
     assert by["chg-B"]["files"][1]["action"] == "synced"
     assert all(f["action"] == "left in place" for f in by["rb-1"]["files"])    # a rollback is never reverted
-    # without the previous record the rollout commit would have re-introduced chg-A
+    # without the previous record the rollout commit would have re-introduced chg-A (which file is restored is the
+    # point here: no check after it)
     (adapter / "AGENTS.md").write_text(agents + "- B (harmful too).\n")
     (adapter / "ADAPTER.md").write_text(agents + "- B (harmful too).\n")
-    rec = R.rollback(adapter, manifest3, {"chg-B": "HARMFUL"}, c2, LEARNABLE, real_check_spec, {})
+    rec = R.rollback(adapter, manifest3, {"chg-B": "HARMFUL"}, c2, LEARNABLE, None, {})
     assert HARMFUL_RULE in (adapter / "AGENTS.md").read_text() and not rec["rollback_failed"]
     # a discarded previous record (the Trainer threw that step away) is not consulted
     (adapter / "AGENTS.md").write_text(agents + "- B (harmful too).\n")
     (adapter / "ADAPTER.md").write_text(agents + "- B (harmful too).\n")
-    R.rollback(adapter, manifest3, {"chg-B": "HARMFUL"}, c2, LEARNABLE, real_check_spec, {},
+    R.rollback(adapter, manifest3, {"chg-B": "HARMFUL"}, c2, LEARNABLE, None, {},
                previous={**rec3, "discarded": True})
     assert HARMFUL_RULE in (adapter / "AGENTS.md").read_text()
 

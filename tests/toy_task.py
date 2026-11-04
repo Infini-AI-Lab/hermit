@@ -37,8 +37,6 @@ class Toy(Evolver):
             (ctx.workspace.adapter / ".hermit" / "EVOLVER.md").write_text("changed the metadata\\n")
             (ctx.workspace.adapter / "stray.txt").write_text("outside every learnable path\\n")
             (ctx.workspace.adapter / "ADAPTER.md").write_text("Always add the numbers.\\n")
-        elif mode == "nothing":
-            pass
         elif mode == "stop":
             return StepResult("stop", "converged")
         elif mode == "spend":                       # spends, and is stopped by the Trainer's budget

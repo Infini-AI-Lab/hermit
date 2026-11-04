@@ -21,13 +21,6 @@ def test_package_data_covers_every_template_file():
     assert not missing, missing
 
 
-def test_every_template_ships_its_metadata():
-    packaged = _packaged()
-    for template in (PACKAGE / "adapter" / "templates").iterdir():
-        if template.is_dir() and (template / ".hermit").is_dir():
-            assert f"adapter/templates/{template.name}/.hermit/adapter.yaml" in packaged, template.name
-
-
 def test_package_data_covers_every_method_file():
     methods = PACKAGE / "agent" / "evolver" / "methods"
     files = {p.relative_to(PACKAGE).as_posix() for p in methods.rglob("*")

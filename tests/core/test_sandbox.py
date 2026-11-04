@@ -202,7 +202,9 @@ def test_probe_paths_skip_what_is_bound(tmp_path):
     secret = tmp_path / "secret.txt"
     secret.write_text("x")
     box = Sandbox(probe_absent=[secret, work / "inside", tmp_path, tmp_path / "missing"])
-    # tmp_path holds a bound path, work/inside lies under one, and a missing path proves nothing.
+    # tmp_path holds a bound path; work/inside and tmp_path/missing do not exist, and a missing path proves nothing.
+    # (One that exists beneath a bound directory is kept: test_isolate.py's
+    # test_the_isolation_check_keeps_a_secret_shown_by_accident.)
     assert box._absent([str(work.resolve())]) == [str(secret.resolve())]
 
 

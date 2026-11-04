@@ -65,8 +65,22 @@ def test_other_resources_are_refused(tmp_path):
 
 
 @pytest.mark.skipif(not _bwrap_works(), reason="needs a working bubblewrap (unprivileged user namespaces)")
-def test_tools_run_in_the_sandboxed_server(tmp_path):
+def test_tools_run_in_the_sandboxed_server(tmp_path, monkeypatch):
+    """Run with `mcp` unimportable here: a benchmark's own interpreter holds the Session (clbench's host runs in its
+    venv, without `mcp`), so the client side must work with the standard library alone; only the server imports it.
+    One MCP message is one line of the server's stdout: a result far above asyncio's default 64 KiB line limit (a
+    reader rendering several long reflections, sent as text and as structured content) must still arrive."""
+    monkeypatch.setitem(sys.modules, "mcp", None)        # `import mcp` raises in this process
+    monkeypatch.setitem(sys.modules, "mcp.client", None)
     root = adapter_copy(tmp_path)
+    exports = yaml.safe_load((root / "exports.yaml").read_text())
+    exports["tools"].append({
+        "name": "big", "description": "A text of n characters.", "entrypoint": "tools.py:big",
+        "input_schema": {"type": "object", "properties": {"n": {"type": "integer"}}, "required": ["n"]},
+        "output_schema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}})
+    (root / "exports.yaml").write_text(yaml.safe_dump(exports, sort_keys=False))
+    (root / "tools.py").write_text((root / "tools.py").read_text()
+                                   + "\n\ndef big(n):\n    return {\"text\": \"x\" * n}\n")
     secret = tmp_path / "secret.txt"
     secret.write_text("secret")
     before = {m for m in sys.modules if m.startswith("_adapter_")}
@@ -88,6 +102,8 @@ def test_tools_run_in_the_sandboxed_server(tmp_path):
             "content"] == '{"count": 1}'
         with pytest.raises(AttributeError):
             s.resources
+        assert len(s.call("big", {"n": 300_000})["text"]) == 300_000
+        assert s.call("count_words", {"text": "a b"}) == {"count": 2}          # the channel is still fine afterwards
     assert seen["read"] == "ERR FileNotFoundError"                  # outside the grant: absent inside
     assert seen["write_adapter"].startswith("ERR") and not (root / "planted.txt").exists()
     assert seen["deployment"] == "call it"
@@ -95,21 +111,6 @@ def test_tools_run_in_the_sandboxed_server(tmp_path):
     assert {m for m in sys.modules if m.startswith("_adapter_")} == before   # never imported here
     records = [json.loads(l) for l in (tmp_path / "calls.jsonl").read_text().splitlines()]
     assert [r["status"] for r in records][:3] == ["ok", "ok", "ok"] and "error" in [r["status"] for r in records]
-
-
-@pytest.mark.skipif(not _bwrap_works(), reason="needs a working bubblewrap (unprivileged user namespaces)")
-def test_the_client_needs_no_mcp_package(tmp_path, monkeypatch):
-    """A benchmark's own interpreter holds the Session (clbench's host runs in its venv, without `mcp`): the client
-    side must work with the standard library alone, only the server imports the package."""
-    if not _bwrap_works():
-        pytest.skip("bubblewrap not usable")
-    monkeypatch.setitem(sys.modules, "mcp", None)        # `import mcp` raises in this process
-    monkeypatch.setitem(sys.modules, "mcp.client", None)
-    root = adapter_copy(tmp_path)
-    with Session(root, sandbox=True) as s:
-        assert s.sandboxed and s.has_tool("snoop")
-        got = json.loads(s.call("snoop", {"path": "/etc/hostname"})["text"])
-        assert got["write_adapter"].startswith("ERR")
 
 
 def test_a_server_that_cannot_start_is_reported(tmp_path):
@@ -144,23 +145,6 @@ def test_a_tool_that_breaks_its_channel_ends_in_an_error_not_a_hang(tmp_path):
     (root / "tools.py").write_text((root / "tools.py").read_text() +
                                    GARBLE)
     with Session(root, sandbox=True) as s:
-        s._remote.call_timeout = 5
+        s._remote.call_timeout = 1                     # the garbled answer never comes: any timeout ends it
         with pytest.raises(ToolError, match="no answer"):
             s.call("garble", {})
-
-
-@pytest.mark.skipif(not _bwrap_works(), reason="needs a working bubblewrap (unprivileged user namespaces)")
-def test_a_large_tool_result_crosses_the_channel(tmp_path):
-    """One MCP message is one line of the server's stdout: a result far above asyncio's default 64 KiB line limit
-    (a reader rendering several long reflections, sent as text and as structured content) must still arrive."""
-    root = adapter_copy(tmp_path)
-    exports = yaml.safe_load((root / "exports.yaml").read_text())
-    exports["tools"].append({
-        "name": "big", "description": "A text of n characters.", "entrypoint": "tools.py:big",
-        "input_schema": {"type": "object", "properties": {"n": {"type": "integer"}}, "required": ["n"]},
-        "output_schema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}})
-    (root / "exports.yaml").write_text(yaml.safe_dump(exports, sort_keys=False))
-    (root / "tools.py").write_text((root / "tools.py").read_text() + "\n\ndef big(n):\n    return {\"text\": \"x\" * n}\n")
-    with Session(root, sandbox=True) as s:
-        assert len(s.call("big", {"n": 300_000})["text"]) == 300_000
-        assert s.call("count_words", {"text": "a b"}) == {"count": 2}          # the channel is still fine afterwards

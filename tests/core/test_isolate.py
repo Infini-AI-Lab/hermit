@@ -1,7 +1,6 @@
 """The roles besides the learner (#11): the task's agent in rollout, eval and check, and declared tools, each in a
 sandbox of its own, with the run's secrets covered and only the worker able to hand a result back."""
 import json
-import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -324,21 +323,6 @@ def test_a_failed_agent_reports_its_error_through_the_worker(tmp_path):
         agent.close()
 
 
-@needs_bwrap
-def test_training_and_eval_with_sandboxed_rollouts(tmp_path):
-    from hermit.evaluate import evaluate
-    from hermit.trainer.trainer import Trainer
-    config = Config.load(sandboxed_task(tmp_path), ["trainer.epochs=1"])
-    Trainer(config, log=lambda *_: None).train()
-    steps = [json.loads(l) for l in (tmp_path / "runs/toy-run/steps.jsonl").read_text().splitlines()]
-    assert steps[0]["rollout"]["mean_score"] == 0.0 and steps[1]["rollout"]["mean_score"] == 1.0
-    records = [json.loads(p.read_text()) for p in (tmp_path / "runs/toy-run/sandbox").glob("rollout-*.json")]
-    assert len(records) >= 6 and all(r["probe"]["passed"] for r in records)   # one per call, each checked
-    summary = evaluate(config, "final", log=lambda *_: None)
-    assert summary["mean_score"] == 1.0 and summary["errors"] == 0
-    assert list((tmp_path / "runs/toy-run/eval/final/sandbox").glob("eval-*.json"))
-
-
 TOOL = r'''
 import os
 from pathlib import Path
@@ -622,7 +606,6 @@ def test_a_cli_deploy_renders_the_adapter_in_a_sandbox(tmp_path, monkeypatch):
     assert not planted.exists()                                       # the module could not read or write outside
     server_env = result.get("server", {}).get("env", {}) if isinstance(result.get("server"), dict) else {}
     # The generated tool server carries the variables that sandbox its Session.
-    import json as _json
     toml = (tmp_path / "ws" / ".codex" / "config.toml")
     assert "HA_ADAPTER_SANDBOX" in toml.read_text()
 

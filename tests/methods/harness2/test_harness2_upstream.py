@@ -105,39 +105,6 @@ def run(tmp_path: Path, **params) -> Path:
     return tmp_path / "runs" / "h2u"
 
 
-def test_every_task_starts_from_h0_and_only_the_library_carries(tmp_path):
-    run_dir = run(tmp_path)
-    steps = [json.loads(l) for l in (run_dir / "steps.jsonl").read_text().splitlines()]
-    assert [s["tasks"] for s in steps] == [["t0"], ["t1"], ["t2"]]
-    assert all(s["rollout"]["mean_score"] == 0.0 for s in steps)          # every Trainer rollout ran H0
-    assert not any(s["changed"] for s in steps)
-    assert (run_dir / "workspace" / "adapter" / "AGENTS.md").read_text() == (TEMPLATE / "AGENTS.md").read_text()
-    results = [json.loads((run_dir / f"step_{n:04d}" / "step_result.json").read_text())["extra"]["harness2"]
-               for n in (1, 2, 3)]
-    for i, r in enumerate(results):
-        assert r["status"] == "ok" and r["selection"]["chosen_label"] == "agg1" and r["selection"]["trivial"]
-        assert r["runs"]["base1"] == {"answered": True, "score": 0.0}     # the reference is the Trainer's rollout
-        assert r["runs"]["agg1"]["score"] == 1.0                           # the composed harness, on the same task
-        assert r["judged"]["graded"] and r["judged"]["frac"] == 1.0 and r["judged"]["label"] == "agg1"
-        assert r["library"] == {"entries_before": i, "added": [f"t{i}"]}
-        assert [s["label"] for s in r["stages"]] == ["inv1", "dom1", "agg1"]
-        assert not any(s["fell_back"] for s in r["stages"])
-    calls = [json.loads(l) for l in (tmp_path / "calls.jsonl").read_text().splitlines()]
-    labels = [c["label"] for c in calls]
-    assert labels.count("experience.agg1") == 3 and sorted(labels[:2]) == ["dom1.a1", "inv1.a1"]
-    first_inv, later_inv = calls[labels.index("inv1.a1")], [c for c in calls if c["label"] == "inv1.a1"][1]
-    assert not any(f.startswith("library/") for f in first_inv["files"])     # the first task sees an empty library
-    assert "library/INDEX.md" in later_inv["files"] and "rollouts/base1.md" in later_inv["files"]
-    assert "source/numbers.txt" in first_inv["files"]                         # the task's source material
-    assert "Adding two numbers" in first_inv["mission"] or "THE WORK" in first_inv["mission"]
-    summary = json.loads(next((run_dir / "step_0001" / "output" / "h2").glob("toy-cx-agg1/t0/summary.json"))
-                         .read_text())
-    assert summary["modes"]["agg"]["ledger"]["R"] == 4 and summary["modes"]["agg"]["ledger"]["P"] == 3
-    lib = run_dir / "workspace" / "state" / "library" / "agg" / "default"
-    assert sorted(p.name for p in (lib / "harnesses").iterdir()) == ["t0", "t1", "t2"]
-    assert "Always add the numbers." in (lib / "harnesses" / "t2" / "harness" / "AGENTS.md").read_text()
-
-
 def test_one_task_per_step_is_required(tmp_path):
     (tmp_path / "proposer.py").write_text(PROPOSER)
     (tmp_path / "slots.yaml").write_text("work: Adding two numbers given in the task.\n")
@@ -162,8 +129,39 @@ def test_a_step_without_editor_sessions_is_marked_failed(tmp_path):
     assert sorted(r["run_id"].rsplit("/", 1)[-1] for r in scores) == ["agg1", "base1", "dom1", "inv1"]
 
 
-def test_a_run_continues_a_finished_stream_from_its_library(tmp_path):
+def test_every_task_starts_from_h0_and_a_run_continues_the_stream_from_its_library(tmp_path):
+    """Every task of a stream starts from H0 and only the library carries; a second run continues the finished
+    stream from that library."""
     first = run(tmp_path)                                                 # t0, t1, t2
+    steps = [json.loads(l) for l in (first / "steps.jsonl").read_text().splitlines()]
+    assert [s["tasks"] for s in steps] == [["t0"], ["t1"], ["t2"]]
+    assert all(s["rollout"]["mean_score"] == 0.0 for s in steps)          # every Trainer rollout ran H0
+    assert not any(s["changed"] for s in steps)
+    assert (first / "workspace" / "adapter" / "AGENTS.md").read_text() == (TEMPLATE / "AGENTS.md").read_text()
+    results = [json.loads((first / f"step_{n:04d}" / "step_result.json").read_text())["extra"]["harness2"]
+               for n in (1, 2, 3)]
+    for i, r in enumerate(results):
+        assert r["status"] == "ok" and r["selection"]["chosen_label"] == "agg1" and r["selection"]["trivial"]
+        assert r["runs"]["base1"] == {"answered": True, "score": 0.0}     # the reference is the Trainer's rollout
+        assert r["runs"]["agg1"]["score"] == 1.0                           # the composed harness, on the same task
+        assert r["judged"]["graded"] and r["judged"]["frac"] == 1.0 and r["judged"]["label"] == "agg1"
+        assert r["library"] == {"entries_before": i, "added": [f"t{i}"]}
+        assert [s["label"] for s in r["stages"]] == ["inv1", "dom1", "agg1"]
+        assert not any(s["fell_back"] for s in r["stages"])
+    calls = [json.loads(l) for l in (tmp_path / "calls.jsonl").read_text().splitlines()]
+    labels = [c["label"] for c in calls]
+    assert labels.count("experience.agg1") == 3 and sorted(labels[:2]) == ["dom1.a1", "inv1.a1"]
+    first_inv, later_inv = calls[labels.index("inv1.a1")], [c for c in calls if c["label"] == "inv1.a1"][1]
+    assert not any(f.startswith("library/") for f in first_inv["files"])     # the first task sees an empty library
+    assert "library/INDEX.md" in later_inv["files"] and "rollouts/base1.md" in later_inv["files"]
+    assert "source/numbers.txt" in first_inv["files"]                         # the task's source material
+    assert "Adding two numbers" in first_inv["mission"] or "THE WORK" in first_inv["mission"]
+    summary = json.loads(next((first / "step_0001" / "output" / "h2").glob("toy-cx-agg1/t0/summary.json"))
+                         .read_text())
+    assert summary["modes"]["agg"]["ledger"]["R"] == 4 and summary["modes"]["agg"]["ledger"]["P"] == 3
+    lib = first / "workspace" / "state" / "library" / "agg" / "default"
+    assert sorted(p.name for p in (lib / "harnesses").iterdir()) == ["t0", "t1", "t2"]
+    assert "Always add the numbers." in (lib / "harnesses" / "t2" / "harness" / "AGENTS.md").read_text()
     (tmp_path / "rest.txt").write_text("t3\nt4\n")
     Trainer(Config.load(tmp_path / "run.yaml", [
         "data.train=rest.txt", "data.step_size=1", "data.shuffle=false", "trainer.run_name=h2u-rest",

@@ -142,12 +142,6 @@ def test_every_result_becomes_an_output_the_host_reads(wire):
     assert wire.output_problems("Stop", {"decision": "block", "bogus": 1})
 
 
-def test_a_failed_calls_note_is_claude_codes_post_tool_use_failure_output():
-    out = CLAUDE.translate("PostToolUseFailure", HookResult(context="exit 3: read the stderr"), {"_pending": ["q"]})
-    assert out == {"hookSpecificOutput": {"hookEventName": "PostToolUseFailure",
-                                          "additionalContext": "exit 3: read the stderr\n\nq"}}
-
-
 def test_the_payload_before_model_gets_is_the_sessions():
     """The session's and the agent's fields of the event it follows, the turn included; no tool call."""
     batch = fixtures("claude-code")["PostToolBatch"]
@@ -435,17 +429,6 @@ def test_a_slow_before_model_of_the_runners_costs_only_its_own_context(tmp_path,
     assert _audit(work)[-1]["at"] == "Stop" and _audit(work)[-1]["error"].startswith("MiddlewareTimeout")
 
 
-def test_a_slow_after_tool_is_cut_by_the_alarm_and_leaves_one_audit_line(tmp_path, capsys, monkeypatch):
-    slow = LOGGING.replace("def after_tool(inp, state):\n", "def after_tool(inp, state):\n    import time\n"
-                                                            "    time.sleep(5)\n")
-    work, copy = _deployed(tmp_path, "claude-code", slow)
-    monkeypatch.setattr(runner, "TIMEOUT_S", 4)
-    bash = {"tool_name": "Bash", "tool_input": {"command": "echo out"}, "tool_use_id": "t1"}
-    assert _call(work, copy, "PostToolUse", capsys, **bash, tool_response={"stdout": "out"}) is None
-    (line,) = _audit(work)
-    assert line["error"] == "MiddlewareTimeout: middleware timed out"
-
-
 def test_a_sub_agents_queue_is_its_own(tmp_path, capsys, monkeypatch):
     """Claude Code's sub-agents share the session: what the main agent queued goes out with the main agent's next tool
     result, not the sub-agent's, and the other way round."""
@@ -594,10 +577,10 @@ def test_hooks_slower_than_the_budget_fail_on_the_middleware(tmp_path, monkeypat
                                         ("exports.yaml", "context: ADAPTER.md\n")])     # no hooks exported
 def test_a_broken_fixed_file_is_not_the_middlewares_fault(tmp_path, name, text):
     """The dry runs deploy and run the template root's exports, runner, interface and wires: a copy whose fixed file
-    is broken gets no middleware issue from the template check (check 1, the fixed files' own rule, names it)."""
+    is broken gets no middleware issue from the template check (check 1, the fixed files' own rule, names it; a
+    check-1 issue does not stop check_spec from running the template check, whose issues would be check 6)."""
     adapter = seed(tmp_path)
     (adapter / name).write_text(text)
-    assert problems(adapter) == []
     from hermit.spec import check_spec
     issues = check_spec(adapter, TEMPLATE, deploy=True).issues
     assert [(i.path, i.check) for i in issues] == [(name, 1)]

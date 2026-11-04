@@ -97,10 +97,10 @@ def test_pi_package(tmp_path):
     assert "import.meta.url" in extension
 
 
-@pytest.mark.parametrize("target", ["pi", "codex"])
-def test_targets_without_context_refuse_it(tmp_path, target):
+def test_pi_refuses_a_context(tmp_path):
+    """Pi carries no context (Codex's refusal: test_codex_refuses_context_and_roles_together)."""
     with pytest.raises(Unsupported, match="- context:"):
-        build(target, variant(tmp_path, roles=False), tmp_path / target, sys.executable)
+        build("pi", variant(tmp_path, roles=False), tmp_path / "pi", sys.executable)
 
 
 def load_hermes_module(out):
@@ -196,6 +196,7 @@ def test_serve_runs_the_tool_server(tmp_path):
     finally:
         proc.kill()
     assert json.loads(audit.read_text().splitlines()[-1])["result"] == {"count": 4}
+    assert "made by hermit" not in proc.communicate()[1]       # no plugin's record beside it: no version warning
 
 
 def test_reconversion_drops_the_parts_the_adapter_lost(tmp_path):
@@ -236,10 +237,7 @@ def test_serve_warns_when_the_framework_version_differs(tmp_path):
     (plugin / "hermit.json").write_text(json.dumps({**record, "framework": "0.0.0"}))
     proc = subprocess.run([sys.executable, "-m", "hermit.cli", "serve", str(plugin / "adapter")],
                           input="", capture_output=True, text=True, timeout=60)
-    assert "made by hermit 0.0.0" in proc.stderr
-    proc = subprocess.run([sys.executable, "-m", "hermit.cli", "serve", str(EXAMPLE)],
-                          input="", capture_output=True, text=True, timeout=60)
-    assert "made by hermit" not in proc.stderr
+    assert "made by hermit 0.0.0" in proc.stderr       # and none without the record: test_serve_runs_the_tool_server
 
 
 @pytest.mark.parametrize("target,marker", [("pi", "package.json"), ("hermes", "plugin.yaml")])

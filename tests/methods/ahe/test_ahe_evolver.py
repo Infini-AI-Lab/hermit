@@ -53,7 +53,8 @@ def run(task, adapter):
 # The scripted codex. A Debugger call works in its job directory (question.md) and writes answer.md there (the
 # manifest lists AGENTS.md alone, as START.md says ADAPTER.md is the Evolver's copy); an Evolve call works in the
 # Evolver's workspace, whose manifest block names the step (`"iteration": N`). Both read their prompt on stdin.
-# AHE_FAKE_* variables select the variants the tests need.
+# AHE_FAKE_* variables select the variants the tests need (AHE_FAKE_NO_MANIFEST and AHE_FAKE_WRONG_ITERATION: at the
+# step they name).
 FAKE_CODEX = r'''#!/usr/bin/env python3
 import json, os, re, sys, time
 from pathlib import Path
@@ -109,9 +110,11 @@ plan = {1: ("Always add the numbers.", {"type": "new", "predicted_fixes": ["add-
 line, change = plan.get(step, plan[3])
 (adapter / "AGENTS.md").write_text(seed + "\n- " + line + "\n")
 (adapter / "ADAPTER.md").write_text((adapter / "AGENTS.md").read_text())
-if not os.environ.get("AHE_FAKE_NO_MANIFEST"):
+if os.environ.get("AHE_FAKE_NO_MANIFEST") == str(step):         # none, not even an earlier step's
+    (root / "state" / "change_manifest.json").unlink(missing_ok=True)
+else:
     (root / "state" / "change_manifest.json").write_text(json.dumps({
-        "iteration": step if not os.environ.get("AHE_FAKE_WRONG_ITERATION") else step + 1,
+        "iteration": step + 1 if os.environ.get("AHE_FAKE_WRONG_ITERATION") == str(step) else step,
         "changes": [{"id": "chg-1", "description": "prompt rule: " + line, "files": ["AGENTS.md"],
                      "failure_pattern": "arithmetic", "constraint_level": "prompt",
                      "why_this_component": "the rule belongs in the always-on prompt", **change}]}, indent=1))
@@ -293,33 +296,32 @@ def test_early_stop_returns_stop_before_the_session(tmp_path):
     assert "best-ever adapter from step 2" in summary["finalize"]
 
 
-def test_missing_manifest_archives_an_empty_one_and_warns(tmp_path, monkeypatch):
-    monkeypatch.setenv("AHE_FAKE_NO_MANIFEST", "1")
-    cfg = Config.load(_task(tmp_path), ["trainer.epochs=1"])
-    Trainer(cfg, log=lambda *_: None).train()
-    steps = _steps(tmp_path)
-    assert steps[0]["status"] == "done" and steps[0]["changed"]
-    state = _state(tmp_path, 1)
-    archived = json.loads((state / "manifests/step_0001.json").read_text())
-    assert archived["iteration"] == 1 and archived["changes"] == [] and "no change_manifest.json" in archived["note"]
-    assert "WARNING: no change_manifest.json" in (state / "evolution_history.md").read_text()
-    assert "WARNING" in (tmp_path / "runs/toy-run/step_0001/output/report.md").read_text()
-    result = json.loads((tmp_path / "runs/toy-run/step_0001/step_result.json").read_text())
-    assert result["extra"]["manifest"] == {"iteration": 1, "changes": [], "note": archived["note"]}
-    assert any("unattributable" in w for w in result["extra"]["warnings"])
-
-
-def test_wrong_iteration_in_the_manifest_is_not_archived_as_the_steps(tmp_path, monkeypatch):
+def test_a_manifest_of_another_iteration_or_none_is_archived_empty_and_warned(tmp_path, monkeypatch):
+    """Step 1's manifest names iteration 2: it is not archived as step 1's. Step 2 writes none: an empty one is
+    archived in its place. Either way the step is done and the history, the report and the result warn of it."""
     monkeypatch.setenv("AHE_FAKE_WRONG_ITERATION", "1")
+    monkeypatch.setenv("AHE_FAKE_NO_MANIFEST", "2")
     cfg = Config.load(_task(tmp_path), ["trainer.epochs=2"])
     Trainer(cfg, log=lambda *_: None).train()
+    steps = _steps(tmp_path)
     state = _state(tmp_path, 2)
+    history = (state / "evolution_history.md").read_text()
+    # step 1: the manifest of another iteration
     archived = json.loads((state / "manifests/step_0001.json").read_text())
     assert archived["changes"] == [] and "iteration 2, this step is 1" in archived["note"]
+    assert "WARNING: change_manifest.json has iteration 2, this step is 1" in history
     # The empty archive is step 1's, so step 2 attributes it: no change to score, the flips are unattributed.
     ev2 = json.loads((state / "evaluations/step_0002.json").read_text())
     assert ev2["change_evaluations"] == [] and ev2["evaluating_iteration"] == 1
-    assert "WARNING" in (state / "evolution_history.md").read_text()
+    # step 2: no manifest at all
+    assert steps[1]["status"] == "done" and steps[1]["changed"]
+    archived = json.loads((state / "manifests/step_0002.json").read_text())
+    assert archived["iteration"] == 2 and archived["changes"] == [] and "no change_manifest.json" in archived["note"]
+    assert "WARNING: no change_manifest.json" in history
+    assert "WARNING" in (tmp_path / "runs/toy-run/step_0002/output/report.md").read_text()
+    result = json.loads((tmp_path / "runs/toy-run/step_0002/step_result.json").read_text())
+    assert result["extra"]["manifest"] == {"iteration": 2, "changes": [], "note": archived["note"]}
+    assert any("unattributable" in w for w in result["extra"]["warnings"])
 
 
 def test_evolve_timeout_stops_the_session_and_keeps_its_edits(tmp_path, monkeypatch):
@@ -368,28 +370,6 @@ def test_an_evolve_session_that_cannot_start_fails_the_step_and_keeps_the_debugg
     assert "the Evolve session failed (the Evolve session raised FileNotFoundError" in \
         (state / "evolution_history.md").read_text()
     assert json.loads((state / "manifests/step_0001.json").read_text())["changes"] == []
-
-
-def test_task_names_that_are_no_file_names_get_their_reports(tmp_path):
-    """A task name the framework allows but no file name can be (`suite/add-1`): the Debugger's directories and the
-    detail reports are named by task_file_name, the overview names the file beside the task, and the step is done
-    with the Debugger's usage in it."""
-    path = _task(tmp_path)
-    rows = [{"id": f"suite/{t}#{r}", "uid": f"suite/{t}", "rollout": r, "a": 2 * i + r, "b": 3 * i + 1}
-            for i, t in enumerate(TASKS) for r in (1, 2)] + [{"id": "held", "uid": "held", "a": 7, "b": 8}]
-    (tmp_path / "tasks.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
-    (tmp_path / "train.txt").write_text("".join(f"suite/{t}#{r}\n" for t in TASKS for r in (1, 2)))
-    Trainer(Config.load(path, ["trainer.epochs=1"]), log=lambda *_: None).train()
-    (step,) = _steps(tmp_path)
-    assert step["status"] == "done", step["evolver"]["summary"]
-    assert "debugger" in [u["role"] for u in step["evolver"]["usage"]]
-    from hermit.agent.evolver.methods.ahe_adapter.analysis import task_file_name
-    analysis = _state(tmp_path, 1) / "analysis" / "step_0001"
-    names = {task_file_name(f"suite/{t}") for t in TASKS}
-    assert len(names) == 2 and not any("/" in n for n in names)
-    assert {f.stem for f in (analysis / "detail").iterdir()} == names
-    overview = (analysis / "overview.md").read_text()
-    assert all(f"(detail: `{n}.md`)" in overview for n in names)
 
 
 def test_a_step_that_raises_after_the_debugger_reports_its_usage(tmp_path, monkeypatch):
@@ -475,14 +455,32 @@ def test_the_overview_the_query_embeds_is_bounded(tmp_path):
 def test_with_claude_code_acting_the_learners_read_its_stream(tmp_path, monkeypatch):
     """A step whose rollouts are Claude Code sessions (agent-claude.jsonl): the evolution query, the Evolve Agent's
     prompt and the Debugger's question name that stream; none names Codex's. The learners are codex sessions all the
-    same (the fake codex answers them)."""
+    same (the fake codex answers them).
+
+    Its tasks have names the framework allows but no file name can be (`suite/add-1`): the Debugger's directories and
+    the detail reports are named by task_file_name, the overview names the file beside the task, and the step is done
+    with the Debugger's usage in it."""
     assert "agent-claude.jsonl" in CLAUDE_PIPELINE and "agent-codex" not in CLAUDE_PIPELINE
     capture = tmp_path / "capture"
     capture.mkdir()
     monkeypatch.setenv("AHE_FAKE_CAPTURE", str(capture))
     path = _task(tmp_path)
     (tmp_path / "pipeline.py").write_text(CLAUDE_PIPELINE)
+    rows = [{"id": f"suite/{t}#{r}", "uid": f"suite/{t}", "rollout": r, "a": 2 * i + r, "b": 3 * i + 1}
+            for i, t in enumerate(TASKS) for r in (1, 2)] + [{"id": "held", "uid": "held", "a": 7, "b": 8}]
+    (tmp_path / "tasks.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+    (tmp_path / "train.txt").write_text("".join(f"suite/{t}#{r}\n" for t in TASKS for r in (1, 2)))
     Trainer(Config.load(path, ["trainer.epochs=1"]), log=lambda *_: None).train()
+    (step,) = _steps(tmp_path)
+    assert step["status"] == "done", step["evolver"]["summary"]
+    assert "debugger" in [u["role"] for u in step["evolver"]["usage"]]
+    from hermit.agent.evolver.methods.ahe_adapter.analysis import task_file_name
+    analysis = _state(tmp_path, 1) / "analysis" / "step_0001"
+    names = {task_file_name(f"suite/{t}") for t in TASKS}
+    assert len(names) == 2 and not any("/" in n for n in names)
+    assert {f.stem for f in (analysis / "detail").iterdir()} == names
+    overview = (analysis / "overview.md").read_text()
+    assert all(f"(detail: `{n}.md`)" in overview for n in names)
     evolve = (capture / "evolve-1.md").read_text()
     query = (_state(tmp_path, 1) / "queries" / "step_0001.md").read_text()
     questions = [f.read_text() for f in sorted(capture.glob("debugger-*.md"))]
