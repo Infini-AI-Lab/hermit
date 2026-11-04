@@ -87,7 +87,7 @@ def call_role(ctx, messages, schema, name, backend):
         # Codex enforces the schema on its last message; the session is ephemeral and read-only.
         (root / "output-schema.json").write_text(json.dumps(schema))
         settings.setdefault("model", "gpt-6-sol")
-        settings.update(args=["-c", "daybreak=true"] + args + ["--output-schema", str(root / "output-schema.json"), "--ephemeral"])
+        settings.update(args=args + ["--output-schema", str(root / "output-schema.json"), "--ephemeral"])
         settings.setdefault("codex_sandbox", "read-only")
         prompt = instructions + json.dumps(messages, ensure_ascii=False)
     (root / "prompt.txt").write_text(prompt)

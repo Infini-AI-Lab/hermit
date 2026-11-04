@@ -28,6 +28,19 @@ interface does not propagate `agent.timeout_min`. Timeouts are errors with poten
 usage/cost. [EXPERIMENT_RUNTIME.md](EXPERIMENT_RUNTIME.md) describes source freezing, formal
 entry checks and cancellation cleanup. Learner orchestration still runs on the host.
 
+## Optional Daybreak for Codex roles
+
+When Codex optimizes the defense, requests that include attack examples or security
+analysis can trigger cybersecurity checks and be refused. If your account has Daybreak
+access and your Codex CLI and model support it, we recommend enabling Daybreak for
+authorized defensive experiments to reduce unnecessary refusals.
+
+Append `-c` and `daybreak=true` as two entries to `evolver.codex.args` in the
+[Codex recipe](run_nemotron_codex.yaml), keeping the existing entries. EvoSafeHarness
+leaves this option unset by default. Record whether you enabled it with the run
+configuration. See [Using Daybreak in Codex CLI](https://help.openai.com/en/articles/20001607-using-daybreak-in-codex-cli)
+for access and setup requirements.
+
 ## Evaluation
 
 The [Codex recipe](run_nemotron_codex.yaml) uses Nemotron Super 49B as the frozen victim
@@ -36,13 +49,13 @@ held-out cases, grouped by user task. Candidate selection uses the training casc
 The [Claude recipe](run_nemotron_claude.yaml) also uses a disjoint validation split.
 The dataset revision, construction and split hashes are in [DATA.md](../utils/DATA.md).
 
-The experiment runner evaluates three conditions against the same test split with the
-same victim settings: the native pipeline (`none`), the starting adapter (`root`),
-and the final adapter (`final`). Clean utility is measured on completed clean cases.
+The experiment runner evaluates `none`, `root`, and `final` on the same test split
+with the same victim settings. Clean utility is measured on completed clean cases.
 ASR is measured on completed injected cases. The [aggregate results](README.md#results)
-show the available no-defense and EvoSafeHarness comparison.
+report held-out rates and episode errors for No-defense (`none`) and EvoSafeHarness
+(`final`).
 
-For a reproducible comparison, retain the manifest, effective configuration, root
-and final adapters, and per-task records together in the run's ignored `artifacts/`
-directory. Use `comparison.json` to inspect episode coverage, descriptive intervals,
-and paired clean-task changes against the starting adapter.
+For a reproducible comparison, retain the manifest, effective configuration, adapter
+snapshots, and per-task records together in the run's ignored `artifacts/` directory.
+Use `comparison.json` to inspect episode coverage, descriptive intervals, and paired
+clean-task changes.
