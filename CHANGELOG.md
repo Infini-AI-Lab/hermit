@@ -181,6 +181,19 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 - Meta-Harness Adapter on OfficeQA: `examples/officeqa/meta_harness_adapter/` (the Flash row, six rounds of two
   candidates), with the Codex agent's `deploy: files`, which deploys `ADAPTER.md` as the session's `AGENTS.md`
   and every other adapter file at the same path in the workspace.
+- The RRSI Adapter method: RRSI (Xia et al., arXiv:2609.24972), regularized recursive self-improvement, on the
+  Trainer with the harness confined to the adapter (the acting agent is fixed). The `rrsi_adapter` Evolver evaluates
+  one candidate per step on the evolve set (k rows per task) and leaves every other decision to upstream's code at a
+  pinned commit (the `rrsi` dependency group): the annealed edit budget, the edit history, exploration and pruning,
+  the analyst and its digesters, the leakage critic, delta's calibration, the noise-adjusted floor,
+  the cost rule and the selection. The proposer is a session of the `codex` or `claude` Base Agent, what it must not
+  see the call's `Limits.hidden`; the analyst, its digesters and the critic are sessions of the `codex` Base Agent,
+  one per call.
+  Documented in `docs/methods/rrsi_adapter.md`.
+- The `rrsi-adapter` adapter template: every file outside `.hermit/` is learnable; `.hermit/EVOLVER.md` names RRSI's
+  component vocabulary and what each component's edit must show in the diff.
+- RRSI Adapter on OfficeQA: `examples/officeqa/rrsi_adapter/` (the GPT-5.6-Luna column: ten rounds of two candidates,
+  each training question twice), made on the agent layers (four trainings: 0.616 on the 172 test questions).
 - `docs/framework/adapter.md` states what every adapter can rely on: `.hermit/` is fixed and `ADAPTER.md` reaches
   the acting agent.
 - `docker/offline.sh`: the examples in a container whose only route out is an egress proxy to the model provider.

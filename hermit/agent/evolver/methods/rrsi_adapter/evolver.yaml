@@ -1,0 +1,47 @@
+description: RRSI (Xia et al., arXiv:2609.24972; google-research/rrsi) on the Trainer, confined to the adapter (the
+  acting agent is fixed). Each round the analyst reports the incumbent's failures, m proposer sessions edit the
+  incumbent under an annealed edit budget with the edit history, exploration and prune directives, a critic screens
+  each diff before evaluation, and each screened candidate is handed back in turn so the next step's rollouts on the
+  training tasks (the evolve set, k rows per task) evaluate it; a candidate replaces the incumbent only above the
+  noise-adjusted floor and within the cost rule. Upstream's rules and roles run from the pinned `rrsi` package.
+class: evolver.py:RRSIAdapterEvolver
+needs: []
+params:
+  backend: codex             # the proposer: codex or claude (upstream: Claude Opus 4.8 in its own JSON-action loop)
+  prompt: PROPOSE.md         # the proposer's prompt (placeholders filled per variant)
+  args: []                   # extra arguments for the proposer's CLI, e.g. codex `-c key=value` pairs
+  model: null                # the proposer's model, `<backend>/<model id>`, or a Codex model name with `login`;
+                             # null: the agent's default
+  login: null                # chatgpt: the proposer runs on the user's ChatGPT login (its plan)
+  effort: null               # the proposer's reasoning effort (Codex's model_reasoning_effort)
+  price: null                # USD per million tokens {input, cached_input, output}
+  home: [auth.json, .credentials.json]   # files of the user's CLI home copied into each session's (without a login
+                             # or a binding), removed after the session
+  tools: [check_spec]        # the proposer's only Trainer tool: it does not run evaluations (the smoke is the Evolver's)
+  web_search: false          # web search, set explicitly: Codex's hosted search runs at the provider, past the sandbox
+  hide: null                 # more paths hidden from the proposer and the roles, or "module:<name>" for an installed
+                             # package, as AgentEvolver's hide (with the run's sandbox on, the learning material, the
+                             # state and the rest of the run's records always are; with it off, nothing is)
+  domain: null               # the benchmark's domain, <file>.py:<Class> relative to the run config (an AdapterDomain)
+  rrsi: {}                   # RRSI's hyperparameters (upstream's RRSIConfig fields), or a path to an rrsi.json;
+                             # any other key is refused (a domain's own rrsi.json keys, `notes`), "_" keys are comments;
+                             # so are the fields read nowhere here (the models: evolver.model and roles.model; an
+                             # eval_parallel other than 1: one candidate is evaluated per step)
+  roles: {}                  # the analyst, digesters and critic, Codex sessions: {model, login, effort, args, price,
+                             # binding}; default: the proposer's (give them when the proposer is Claude Code); with
+                             # their own model (a Codex model name), the proposer's binding and price are not theirs;
+                             # with their own binding (its plain form: backend, base_url, model, api_key_env), its
+                             # provider and not the proposer's login, and the run's sandbox must let its host
+                             # (sandbox.allow) and its key variable (sandbox.env) through: it grants the proposer's
+  role_timeout_s: 1800       # one role session's wall clock
+  smoke: true                # run the domain's smoke tasks with each screened candidate (upstream's liveness smoke)
+  max_failures: 3            # consecutive failed steps before the Evolver stops the run (upstream's driver: 3), at
+                             # the step after them; a step the Trainer's clock ended counts (a plan's hold that
+                             # outlasts that clock with it), one the plan or the provider held back within it not (a
+                             # proposer's or a role's sessions); a Trainer without allow_early_stop runs on, and the
+                             # count starts again
+  session_retries: 2         # a proposer session the model's provider could not serve (429, 5xx) is resumed this
+  session_retry_wait_s: 120  # often, after this pause times the attempt; then the step stops, never a gate failure
+  stop_file: null            # a path; while it exists no new round is opened and the run ends at the next step
+  halt_file: null            # a benchmark's halt sentinel (Harbor: <jobs_dir>/HALT); halted rollouts are never
+  halt_wait_min: 240         # credited, and the step waits this long for the sentinel to clear before failing

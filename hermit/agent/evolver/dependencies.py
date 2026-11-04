@@ -15,6 +15,7 @@ METHOD_REQUIREMENTS = {
     ),
     "harness2": ("harness2 @ git+https://github.com/google-research/harness2@1cfe254e8d25b15f37048c3730134686abe60335",),
     "ace": ("sentence-transformers>=2.2.0",),       # only for use_bulletpoint_analyzer
+    "rrsi": ("rrsi @ git+https://github.com/google-research/rrsi@be50316e1db05914068a973f322770ef08ed7ba1",),
 }
 
 
