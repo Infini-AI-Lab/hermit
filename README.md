@@ -55,7 +55,7 @@ Many harnesses are black boxes; even open-source ones have carefully designed co
 <tbody>
 <tr>
 <td>✅ <strong>Supported</strong></td>
-<td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/gepa.html">GEPA</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/skillopt.html">SkillOpt</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/mwm.html">MetaWorld Model</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/harness2.html">Harness²</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/continual_harness.html">Continual Harness</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/reharness.html">ReHarness</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/meta_harness_adapter.html">Meta-Harness Adapter</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/ace.html">ACE</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/ahe_adapter.html">AHE Adapter</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/rrsi_adapter.html">RRSI Adapter</a></td>
+<td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/gepa.html">GEPA</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/skillopt.html">SkillOpt</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/mwm.html">MetaWorld Model</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/harness2.html">Harness²</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/continual_harness.html">Continual Harness</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/reharness.html">ReHarness</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/meta_harness_adapter.html">Meta-Harness Adapter</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/ace.html">ACE</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/ahe_adapter.html">AHE Adapter</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/rrsi_adapter.html">RRSI Adapter</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/evosafe.html">EvoSafeHarness</a></td>
 </tr>
 </tbody>
 </table>
@@ -218,6 +218,10 @@ Train and evaluate harness adapters on benchmarks using different evolution meth
 <tr>
 <td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/rrsi_adapter.html">RRSI Adapter</a></td>
 <td><a href="examples/officeqa/rrsi_adapter/">OfficeQA</a> (whole adapters evolved round by round under regularizers against overfitting, Codex + GPT-5.6-Luna acting and learning)</td>
+</tr>
+<tr>
+<td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/evosafe.html">EvoSafeHarness</a></td>
+<td><a href="examples/agentdyn/evosafe/">AgentDyn</a> (a defense bundle of a system prompt and tool-call hooks searched around a frozen victim, on fixed benign and injected cases)</td>
 </tr>
 <tr>
 <td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/prompt-only.html">Prompt-only</a></td>

@@ -29,3 +29,6 @@ working bubblewrap, and some do not yet skip without it (CONTRIBUTING.md).
 Shared helpers: the repository root's `conftest.py` (the options and the groups), `tests/conftest.py` (a private
 ChatGPT-login directory for every test), `fakes.py` (scripted
 models), `toy_task.py` (the toy task the Trainer tests run on), `fixtures/`.
+
+A new or changed test follows the [test checklist](../.agents/skills/prepare-pr/references/test-checklist.md): where it
+goes, how it is named and documented, what it asserts, and what it may touch.
