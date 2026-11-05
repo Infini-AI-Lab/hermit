@@ -21,7 +21,8 @@ def pytest_addoption(parser):
 
 
 def pytest_configure(config):
-    config.addinivalue_line("markers", "integration: needs an agent CLI installed on the machine; runs with --integration")
+    config.addinivalue_line("markers",
+                            "integration: needs an agent CLI installed on the machine; runs with --integration")
     config._changed_groups = None                    # None: every group
     if config.getoption("--changed"):
         from selection import NoBase, changed_paths, select

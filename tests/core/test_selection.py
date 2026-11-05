@@ -78,6 +78,13 @@ def test_every_method_and_template_belongs_to_a_group_with_tests():
     assert groups == set(METHODS)
 
 
+def test_every_test_file_under_tests_is_in_a_group():
+    """A test file outside core/ and methods/<name>/ (a new tests/test_x.py) is in no group: --changed would never
+    run it."""
+    parts = [p.relative_to(ROOT / "tests").parts for p in (ROOT / "tests").rglob("test_*.py")]
+    assert [p for p in parts if not (p[0] == "core" or p[0] == "methods" and len(p) > 2)] == []
+
+
 def test_the_changed_paths_are_read_from_git_and_a_missing_base_is_said(tmp_path):
     def git(*args):
         subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args], cwd=tmp_path, check=True,

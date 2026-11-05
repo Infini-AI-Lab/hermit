@@ -45,7 +45,9 @@ jobs:
             tests/core/test_convert.py tests/core/test_backends.py tests/core/test_session.py \
             tests/core/test_layers.py tests/core/test_packaging.py tests/core/test_sandbox.py \
             tests/core/test_isolate.py tests/core/test_session_sandbox.py \
-            tests/core/test_sandboxed_evolvers.py::test_command_evolver_in_sandbox
+            tests/core/test_sandboxed_evolvers.py::test_command_evolver_in_sandbox \
+            tests/core/test_context_tool.py::test_the_codex_agent_gives_each_task_its_own_context \
+            tests/methods/ahe/test_ahe_template.py::test_template_root_is_a_built_in_id_and_passes_the_check
       - name: Build and check distributions
         run: |
           python -m build

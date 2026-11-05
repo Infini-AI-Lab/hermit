@@ -16,11 +16,10 @@ python -m pytest --integration ...  # also the tests that run an agent CLI insta
 method's template, manifest and packaging); a method's own files (its Evolver, its template, its examples, its tests)
 add its group; a shared layer every method is built on (the Base Agents, the acting agents, the Evolver base classes,
 the Trainer, the sandbox, the hosts' deployment, the model bindings, the templates' manifests, the toy task's
-template, the test helpers) and
-any path the table does not know run every group; documentation runs none, but for `docs/_examples/`, which `core/`
-reads. `core/test_selection.py` checks that every framework module a shared layer or a method's tests import is
-shared. A new method adds its
-paths to `METHODS` there and its tests under `methods/<name>/`; `core/test_selection.py` fails until it does.
+template, the test helpers) and any path the table does not know run every group; documentation runs none, but for
+`docs/_examples/`, which `core/` reads. A new method adds its paths to `METHODS` in `selection.py` and its tests
+under `methods/<name>/`. `core/test_selection.py` fails until it does, when a test file is in no group, and when a
+framework module a shared layer or a method's tests import is not shared.
 
 A test marked `integration` runs an agent CLI installed on the machine (`codex`, `claude`) and holds what a release
 of it does; it is skipped unless `--integration` is given. Some methods' tests (`gepa`, `skillopt`, `harness2`,

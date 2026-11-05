@@ -79,17 +79,17 @@ one `.hermit/EVOLVER.md` gives the Evolve Agent (`hook_hosts.CAPABILITIES`), say
 
 The rows were measured on the hosts' own CLIs, Codex 0.164.0 and Claude Code 2.1.317 (2.1.318 alike), each run on a
 scripted local model with a probe hook on every event; `tests/fixtures/ahe_hosts/` keeps the payloads they sent, which
-`tests/methods/ahe/test_ahe_hosts.py` replays through the wires, and the same file runs both CLIs on a scripted
-model when they are installed and `--integration` is given (`python -m pytest --integration tests/methods/ahe`): the memory, a note after a call (on Claude Code a failed one too, after a `cd`), the queued
-`before_model` context, a deny, a blocked stop with the queue, a context given with `allow`, a new input, a block with a
-system message, and `stop_session` after a call; the other cells rest on the probe and its payloads. `.hermit/check.py`
-deploys a copy of the adapter to each host as the framework does, measures the context file each reads (Codex reads
-32,768 bytes), runs one session of synthetic events in each host's own shape and order through the hooks the
-deployment installed, as the host runs them, holding every output to the fields the host reads (and to the one drop it
-knows of: a context Codex drops when it comes with `allow`), and requires `AGENTS.md` to keep the paper's three seed
-rules; `MEMORY.md` its header; `middleware.py` to define the five functions, import only the standard library or
-`hermit_hooks`, keep reading `MEMORY.md` at `session_start` and hand an entry of it to the model on each host; skills
-and sub-agents their front matter.
+`tests/methods/ahe/test_ahe_hosts.py` replays through the wires, and the same file runs both CLIs on a scripted model
+when they are installed and `--integration` is given (`python -m pytest --integration tests/methods/ahe`): the memory, a
+note after a call (on Claude Code a failed one too, after a `cd`), the queued `before_model` context, a deny, a blocked
+stop with the queue, a context given with `allow`, a new input, a block with a system message, and `stop_session` after
+a call; the other cells rest on the probe and its payloads. `.hermit/check.py` deploys a copy of the adapter to each
+host as the framework does, measures the context file each reads (Codex reads 32,768 bytes), runs one session of
+synthetic events in each host's own shape and order through the hooks the deployment installed, as the host runs them,
+holding every output to the fields the host reads (and to the one drop it knows of: a context Codex drops when it comes
+with `allow`), and requires `AGENTS.md` to keep the paper's three seed rules; `MEMORY.md` its header; `middleware.py` to
+define the five functions, import only the standard library or `hermit_hooks`, keep reading `MEMORY.md` at
+`session_start` and hand an entry of it to the model on each host; skills and sub-agents their front matter.
 
 ## One framework step
 

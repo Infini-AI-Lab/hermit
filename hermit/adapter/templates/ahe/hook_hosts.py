@@ -13,7 +13,8 @@ HookResult alone, the same on every host.
 Each wire was measured on the host's own CLI, Codex 0.164.0 and Claude Code 2.1.317 (2.1.318 alike), run on a
 scripted local model: which payload each event carries and where each kind of output reaches the model.
 tests/fixtures/ahe_hosts/ holds real payloads of those runs, which tests/methods/ahe/test_ahe_hosts.py replays through
-the wires, and the same file re-runs both CLIs on a scripted model when they are installed.
+the wires, and the same file re-runs both CLIs on a scripted model when they are installed and `--integration` is
+given.
 
 Pi reads no hook file: its deployment lists the hook commands in AGENTS.md for the agent to run by hand. Run so, with
 no payload (the `pi` wire), session_start still hands over the memory; the other hooks have no tool call, prompt or
