@@ -4,6 +4,12 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ## Unreleased
 
+### Fixed
+
+- The AHE Adapter Evolver took a `change_manifest.json` an earlier step left for the current step's: a manifest
+  naming the next iteration was refused at its own step, then archived as the next step's when that step's session
+  wrote none. The file is now removed before each Evolve session.
+
 ## 0.2.0 - 2026-11-04
 
 Three-layer agents, unified adapter deployment, Codex plan-backed acting and learning, and six new method

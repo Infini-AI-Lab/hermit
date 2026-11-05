@@ -110,9 +110,7 @@ plan = {1: ("Always add the numbers.", {"type": "new", "predicted_fixes": ["add-
 line, change = plan.get(step, plan[3])
 (adapter / "AGENTS.md").write_text(seed + "\n- " + line + "\n")
 (adapter / "ADAPTER.md").write_text((adapter / "AGENTS.md").read_text())
-if os.environ.get("AHE_FAKE_NO_MANIFEST") == str(step):         # none, not even an earlier step's
-    (root / "state" / "change_manifest.json").unlink(missing_ok=True)
-else:
+if os.environ.get("AHE_FAKE_NO_MANIFEST") != str(step):         # else none: an earlier step's may be left there
     (root / "state" / "change_manifest.json").write_text(json.dumps({
         "iteration": step + 1 if os.environ.get("AHE_FAKE_WRONG_ITERATION") == str(step) else step,
         "changes": [{"id": "chg-1", "description": "prompt rule: " + line, "files": ["AGENTS.md"],
@@ -297,8 +295,9 @@ def test_early_stop_returns_stop_before_the_session(tmp_path):
 
 
 def test_a_manifest_of_another_iteration_or_none_is_archived_empty_and_warned(tmp_path, monkeypatch):
-    """Step 1's manifest names iteration 2: it is not archived as step 1's. Step 2 writes none: an empty one is
-    archived in its place. Either way the step is done and the history, the report and the result warn of it."""
+    """Step 1's manifest names iteration 2: it is not archived as step 1's. Step 2 writes none, and step 1's file,
+    which names step 2, is still there: it is not taken for step 2's, and an empty one is archived in its place.
+    Either way the step is done and the history, the report and the result warn of it."""
     monkeypatch.setenv("AHE_FAKE_WRONG_ITERATION", "1")
     monkeypatch.setenv("AHE_FAKE_NO_MANIFEST", "2")
     cfg = Config.load(_task(tmp_path), ["trainer.epochs=2"])
