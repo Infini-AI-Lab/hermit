@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "examples/agentdyn/utils"))  # bridge, victim, auditor
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "examples/agentdyn/utils"))  # bridge, victim, auditor
 from victim import model_params, script_settings
 
 
@@ -23,7 +23,7 @@ def test_model_backend_uses_local_connection_settings(tmp_path, monkeypatch):
     }}))
     monkeypatch.setenv("HA_BACKENDS", str(local))
     monkeypatch.delenv("VLLM_BASE_URL", raising=False)
-    root = Path(__file__).resolve().parents[1]
+    root = Path(__file__).resolve().parents[3]
     config = Config.load(root / "examples/agentdyn/evosafe/run_nemotron_claude.yaml")
     original = config["agent"]["params"]
     params = model_params({**original, "extra_body": {"top_k": 20}})

@@ -32,6 +32,8 @@ METHODS = {
             "docs/methods/ahe_adapter.md"],                    # its capability table, which the hosts' tests hold
     "continual_harness": ["hermit/agent/evolver/methods/continual_harness/*",
                           "hermit/adapter/templates/continual_harness/*", "examples/*/continual_harness/*"],
+    "evosafe": ["hermit/agent/evolver/methods/evosafe/*", "hermit/adapter/templates/evosafe/*",
+                "examples/*/evosafe/*"],
     "harness2": ["hermit/agent/evolver/methods/harness2_upstream/*", "hermit/adapter/templates/harness2_codex/*",
                  "examples/*/harness2_stream/*"],
     "meta_harness_adapter": ["hermit/agent/evolver/methods/meta_harness_adapter/*",

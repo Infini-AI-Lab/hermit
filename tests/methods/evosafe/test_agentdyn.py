@@ -12,13 +12,13 @@ import pytest
 from hermit.agent.evolver.base import Access, Progress, StepContext, Workspace
 from hermit.agent.evolver.loader import find, instantiate
 from hermit.agent.evolver.methods.evosafe.contract import aggregate
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "examples/agentdyn/utils"))  # bridge, victim, auditor
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "examples/agentdyn/utils"))  # bridge, victim, auditor
 from bridge import GuardedRuntime, run, score, validate_case
-from conftest import load_defense
+from defenses import load_defense
 from hermit.spec import check_spec
 from hermit.task import RunOutput
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[3]
 TEMPLATE = ROOT / "hermit/adapter/templates/evosafe"
 
 

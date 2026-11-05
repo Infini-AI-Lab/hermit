@@ -7,7 +7,7 @@ from dataclasses import replace
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "examples/agentdyn/utils"))  # bridge, victim, auditor
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "examples/agentdyn/utils"))  # bridge, victim, auditor
 from bridge import GuardedRuntime
 from hermit.agent.evolver.methods.evosafe.hooks import Defense, ToolCallResult
 
@@ -242,7 +242,7 @@ def test_failed_episode_is_metered_and_recorded_as_a_failed_run(tmp_path):
 
 def test_candidate_dataclass_with_postponed_annotations(tmp_path):
     import sys
-    from conftest import load_defense
+    from defenses import load_defense
     (tmp_path / "defense.py").write_text('''
 from __future__ import annotations
 from dataclasses import dataclass, field

@@ -12,7 +12,7 @@ from hermit.agent.evolver.methods.evosafe import roles
 from hermit.agent.evolver.methods.evosafe.evidence import training_evidence, result_evidence
 from hermit.agent.evolver.methods.evosafe.evidence import failure_packet
 
-TEMPLATE = Path(__file__).resolve().parents[1] / 'hermit/adapter/templates/evosafe'
+TEMPLATE = Path(__file__).resolve().parents[3] / 'hermit/adapter/templates/evosafe'
 
 
 def outcome(task, clean=True, attack=False):
@@ -1167,7 +1167,7 @@ def test_an_injected_run_without_an_attack_verdict_is_an_error_not_a_blocked_att
     rows.append({**record("injected", True, None), "judge": {"score": 1.0, "extra": {"metrics": metrics}}})
     result = summary(rows)
     assert result["errors_injected"] == 1 and result["secure_completions"] == 0 and result["objective"] is None
-    path = Path(__file__).resolve().parents[1] / "examples/agentdyn/utils/report.py"
+    path = Path(__file__).resolve().parents[3] / "examples/agentdyn/utils/report.py"
     spec = importlib.util.spec_from_file_location("evosafe_report", path)
     report = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(report)

@@ -4,6 +4,15 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ## Unreleased
 
+### Changed
+
+- The tests are in groups: `tests/core/` for the framework and `tests/methods/<name>/` for each method
+  (`tests/README.md`). `python -m pytest --changed` runs the groups the branch touches since `origin/main`
+  (`tests/selection.py`: the core group for every change but documentation, a method's own files its group, a
+  shared layer every group); the header says which groups ran and why. Tests that run an agent CLI installed on the
+  machine are marked `integration` and run only with `--integration`. Tests another test already covers were
+  removed and tests that repeat one setup share it: the full suite runs in about half the time.
+
 ### Fixed
 
 - The AHE Adapter Evolver took a `change_manifest.json` an earlier step left for the current step's: a manifest
@@ -224,12 +233,6 @@ integrations: ReHarness, Meta-Harness Adapter, ACE, AHE Adapter, RRSI Adapter an
 
 ### Changed
 
-- The tests are in groups: `tests/core/` for the framework and `tests/methods/<name>/` for each method
-  (`tests/README.md`). `python -m pytest --changed` runs the groups the branch touches since `origin/main`
-  (`tests/selection.py`: the core group for every change but documentation, a method's own files its group, a
-  shared layer every group); the header says which groups ran and why. Tests that run an agent CLI installed on the machine are
-  marked `integration` and run only with `--integration`. The AHE template's broken-tree cases check the seed once
-  (the file's run from 376 s to about 204 s).
 - `run_agent`'s results also say how a session ended when the pipeline reports it (`exit_code`, `timed_out`: the
   Codex and Claude Code agents do).
 - The `codex` and `claude` Base Agents take `plan_rerun: false`: a session a ChatGPT plan refused before it finished

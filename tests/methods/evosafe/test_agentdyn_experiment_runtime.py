@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[3]
 UTILS = ROOT / 'examples/agentdyn/utils'
 sys.path.insert(0, str(UTILS))
 from experiment_runtime import snapshot, verify_snapshot
