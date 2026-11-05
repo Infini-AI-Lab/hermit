@@ -36,7 +36,13 @@ these follow this page verbatim; this page says how they map onto the harness, a
   3. the result's `judge.score` is the verifier's pass rate on its five seeds: `verified` at 0.8 or more (4 of 5),
      `refuted` below; its `output.answer` is the verifier's report (verdict, per-proposal dispositions, gaps).
   Promote only what a `verified` run supports, into the topic files of `{adapter}`, with the verifier's result on the
-  Provenance line. Never leave `skills/proposed.md` in `{adapter}`.
+  Provenance line. A verifier's score is 0 unless its own verdict is `verified`, and its run was within its rules; a
+  `void` result says nothing about the skill. Never leave `skills/proposed.md` in `{adapter}`.
+- **Evaluation results are not development evidence.** A task's Stage 2 pass count is in its record; the held-out
+  runs themselves are not given to you, and you never use held-out results to tune an entry (ASPIRE's Stage 2 rule).
+  Use `run_agent` only on `verify-*` rows: running a training task would run its held-out evaluation.
+- **A record whose `pipeline_extra.task.breach` is not empty** comes from a session that broke its rules: its score is
+  0, and nothing in its findings or skill report is evidence. Do not promote from it.
 - **Curriculum.** The tasks this epoch has still to run are listed above. Append your round to
   `{state}/curriculum.md` in the guide's format, then write the next task as a JSON list of one task id from that
   list to `{output}/next_tasks.json`, for example `["robosuite-nut_assembly"]`. When none remain, do not write it.

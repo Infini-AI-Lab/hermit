@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import stat
 import sys
@@ -61,14 +62,19 @@ def prepare(task: dict, workspace: Path, params: dict, base: Path) -> list[dict]
     (bin_dir / "sim.json").write_text(json.dumps({
         "workspace": str(work.resolve()), "aspire_root": str(s["root"]), "suite": s["suite"], "task_id": s["task_id"],
         "dev_seeds": sim_seeds(s["dev"]), "unseen_seeds": sim_seeds(s["unseen"]), "dev_seeds_text": s["dev"],
-        "unseen_seeds_text": s["unseen"], "env": s["env"], "workers": s["workers"], "max_steps": s["max_steps"]},
+        "unseen_seeds_text": s["unseen"], "env": s["env"], "workers": s["workers"], "max_steps": s["max_steps"],
+        "max_programs": 2 if s["role"] == "verifier" else None},
         indent=1))
     wrapper = bin_dir / "sim"
     wrapper.write_text(f"#!/bin/sh\nexec {sys.executable} \"$(dirname \"$0\")/sim_cli.py\" \"$@\"\n")
     wrapper.chmod(wrapper.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
     (work / "docs").mkdir(exist_ok=True)
     for name in DOCS:
-        shutil.copy2(s["root"] / "docs" / name, work / "docs" / name)
+        # the repository's worked programs are not the actor's to read: drop the lines that name them
+        text = (s["root"] / "docs" / name).read_text()
+        (work / "docs" / name).write_text("".join(line for line in text.splitlines(keepends=True)
+                                                  if "examples/" not in line))
+    shutil.copy2(s["root"] / SKILLS / "skills" / "task-exploration.md", work / "docs" / "task-exploration.md")
     shutil.copy2(s["root"] / EVOSEARCH / "skills" / "evosearch-iteration.md", work / "docs" / "evosearch-iteration.md")
     (work / "scripts").mkdir(exist_ok=True)
     shutil.copy2(s["root"] / SKILLS / "scripts" / "scene_snapshot.py", work / "scripts" / "scene_snapshot.py")
@@ -181,20 +187,62 @@ def collect(task: dict, workspace: Path, log: Path, params: dict) -> dict:
     # the fix loop's
     program = evo / "evosearch_best_code.py" if (evo / "evosearch_best_code.py").is_file() else work / "fix_code.py"
     facts["scored_program"] = str(program.relative_to(workspace)) if program.is_file() else None
+    if program.is_file():
+        facts["fix_code"] = program.read_text(errors="replace")           # the program Stage 2 scores
     seeds = sim_seeds(s["heldout"] if s["role"] == "actor" else s["dev"])
-    if program.is_file() and seeds:
+    facts["breach"] = audit(s, Path(workspace), Path(log))
+    if facts["breach"]:
+        # ASPIRE's `void`: a session that read past its rules is not scored, and its findings are not evidence
+        facts.update(scored_seeds=seeds, scored_passed=0,
+                     scored_refused="boundary breach: " + "; ".join(facts["breach"])[:400])
+    elif program.is_file() and seeds:
         engine = sim.Engine(s["root"], env=s["env"], workers=s["workers"], max_steps=s["max_steps"],
                             timeout_s=float(params.get("sweep_timeout_s", 7200)))
         refused = engine.validate(program)
-        records = [] if refused else engine.run(program, suite=s["suite"], seeds=seeds, out=work / "validation",
-                                                 task_id=s["task_id"])
-        (Path(log) / "stage2.json").write_text(json.dumps({"refused": refused, "records": records}, indent=1))
+        out = Path(workspace).parent / "stage2"        # beside the workspace, not in the log: the coordinator reads
+        records = [] if refused else engine.run(program, suite=s["suite"], seeds=seeds, out=out,   # the log, and
+                                                 task_id=s["task_id"])                             # held-out
+        (out / "stage2.json").write_text(json.dumps({"refused": refused, "records": records}, indent=1))  # stays out
         facts.update(scored_seeds=seeds, scored_passed=sum(r["task_success"] for r in records),
                      scored_refused=refused)
     else:
         facts.update(scored_seeds=seeds, scored_passed=0,
                      scored_refused="no fix_code.py" if seeds else "no seeds to score")
     return facts
+
+
+# What a session must not touch (ASPIRE's reading rules), found in the commands it ran: the repository (its shipped
+# library, worked solutions, examples, the engine called past bin/sim) and other sessions' workspaces.
+FORBIDDEN = (r"\.claude/skills", r"\w+_fix_code\.py", r"examples/robosuite", r"SUCCESS_RATES", r"\.venv-robosuite")
+
+
+def audit(s: dict, workspace: Path, log: Path) -> list[str]:
+    """The breaches of the session's rules, after the fact: commands that reach outside its workspace (the
+    repository, another workspace) or past bin/sim, and runs on seeds it was not assigned. Empty when clean."""
+    found = []
+    others = re.escape(str(workspace.parent.parent))          # the directory that holds every session's workspace
+    own = re.escape(workspace.parent.name)
+    patterns = [re.compile(p) for p in FORBIDDEN] + [re.compile(re.escape(str(s["root"]))),
+                                                      re.compile(others + r"/(?!" + own + r")[^/\s'\"]+")]
+    stream = log / "agent-codex.jsonl"
+    for line in (stream.read_text(errors="replace").splitlines() if stream.is_file() else []):
+        try:
+            item = json.loads(line).get("item") or {}
+        except ValueError:
+            continue
+        if item.get("type") != "command_execution":
+            continue
+        command = re.sub(r"<<'?(\w+)'?.*?\n\1", "", item.get("command", ""), flags=re.S)   # not a heredoc's text
+        for pattern in patterns:
+            match = pattern.search(command)
+            if match:
+                found.append(f"command reached {match.group(0)!r}")
+    allowed = set(sim_seeds(s["dev"])) | set(sim_seeds(s["unseen"]))
+    for run in workspace.rglob("run.json"):
+        seed = (_json(run.read_text(errors="replace")) or {}).get("seed")
+        if isinstance(seed, int) and seed not in allowed:
+            found.append(f"a run on seed {seed}, not assigned")
+    return sorted(set(found))
 
 
 def _json(text):

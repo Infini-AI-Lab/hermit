@@ -30,7 +30,8 @@ agent:
     timeout_s: 5400
     isolation: none                 # the session drives the GPU simulator through bin/sim
     codex_sandbox: danger-full-access
-    shell_env: all
+    shell_env: core                 # no keys and no ASPIRE_ROOT in the session's commands
+    project_doc_max_bytes: 131072   # AGENTS.md carries the whole library (the template caps it at 100,000 bytes)
 judge:
   path: ../utils/judge.py
 template: aspire

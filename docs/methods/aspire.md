@@ -99,11 +99,13 @@ The actor's settings are the example's (`agent.params`): `debug_seeds`, `unseen_
 | Curriculum | the coordinator chooses each round's tasks and logs `curriculum.md` | the same, one task per step, through `StepResult.next_tasks` | the Trainer dispatches what the coordinator names |
 | Parallelism | one task per GPU | one task at a time | a decision: two GPUs |
 | Stage 2 (held-out) | the coordinator runs it after the subagent returns | `collect` runs it after the session | the score is the rollout's |
-| What the actor sees | the repository: library, docs, scripts, its own runs (and, against the rules, the shipped skills and worked examples) | a workspace with the library, the docs it is allowed, the snapshot program and `bin/sim`; the repository's path is not given | a decision: the reading rules enforced by the layout |
-| Running episodes | `cap-harness run-batch` with the GPU's environment | `bin/sim`, which also refuses unassigned seeds and a second unseen check | a decision: the seed rules enforced |
+| What the actor sees | the repository: library, docs, scripts, its own runs (and, against the rules, the shipped skills and worked examples) | a workspace with the library, the docs it is allowed (worked-program lines dropped), the snapshot program and `bin/sim`; no repository path in its environment, though `bin/sim.json` names it | a decision: the reading rules held by the layout and audited after the fact (a breach voids the session), not isolated |
+| Running episodes | `cap-harness run-batch` with the GPU's environment | `bin/sim`, which also refuses unassigned seeds, a second unseen check and a verifier's third program | a decision: the seed rules held by the wrapper and audited from every run's seed |
 | The update | promotion after a verified reproduction; repairs on grades | the same, by the coordinator session | — |
-| Verification | 5 seeds (the template's 51-55), 2 attempts, `verified` at ≥ 4/5 | the same budget on 101-105 | the template's seeds are LIBERO's; ASPIRE says to change them for Robosuite |
-| Lint | `lint_skills.py` after every promotion | `check_spec` with the template's check (sandbox validity, privileged access) | the upstream linter imports ASPIRE |
+| Verification | 5 seeds (the template's 51-55), 2 attempts, `verified` at ≥ 4/5; `void` never promoted | the same budget on 101-105 (two programs, held by `bin/sim`); the score counts only with the verifier's own `verified` and its selected program at ≥ 4/5 on rerun | the template's seeds are LIBERO's; ASPIRE says to change them for Robosuite |
+| Lint | `lint_skills.py` after every promotion | `check_spec` with the template's check (sandbox validity and privileged access in ```python snippets, the library's size) | the upstream linter imports ASPIRE |
+| Scene exploration | `skills/task-exploration.md` in the shipped library | the same file, given as `docs/task-exploration.md` (the procedure, not learned skills) | the empty library has no such file |
+| Stage 2 evidence | the coordinator runs it and keeps the failures out of development | `collect` runs it beside the workspace; the record carries only the pass count | ASPIRE's rule: evaluation failures are not development evidence |
 | Library history | `<file>-changelog.md` beside each file | `state/changelog.md` | the adapter holds only the library |
 | Phase 3 | rerun of tasks below 80% whose library changed | the test split reruns every task | the evaluation measures it per task |
 | Models | Claude Opus 4.6 (and others) | GLM 5.3 Flash in every role | the first-evaluation row of the framework |
@@ -117,8 +119,11 @@ The actor's settings are the example's (`agent.params`): `debug_seeds`, `unseen_
 ## What it is not
 
 A verified entry transmits (a fresh actor followed it to the fix on the task it came from); it is not shown to
-generalize. The reading rules (no worked solutions, no other task's directory) rest on the workspace's layout and the
-prompts: the actor's commands run without a sandbox, because they drive a GPU simulator.
+generalize. The reading rules (no worked solutions, no other task's directory, only the assigned seeds) are not
+isolation: the actor's commands run without a sandbox, because they drive a GPU simulator. They rest on the
+workspace's layout, `bin/sim` and the prompts, and the task's `collect` audits every session after the fact (the
+commands it ran, every run's seed), voiding one that broke them. The reruns score the held-out seeds the first pass
+was scored on (as ASPIRE's Phase 3 does).
 
 ## Example
 

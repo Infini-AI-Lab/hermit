@@ -19,7 +19,11 @@ things in it map onto your workspace as follows. Where the template and this pag
   the unseen-check seeds once. Perception, IK and planning services are already running; you need not check them.
 - **The shared skill library** is the "Shared skill library" section of your AGENTS.md, and the same files are under
   `hermit/aspire/skills/` in this workspace. Wherever the template says `.claude/skills/iterative-debugging/skills/`
-  (or `skills/<file>.md`), it means these. {proposed_line}
+  (or `skills/<file>.md`), it means these, except `skills/task-exploration.md`, which is `docs/task-exploration.md`.
+  {proposed_line}
+- **The rules are checked afterwards.** The commands you run are audited when you finish: one that reaches the
+  repository, another workspace, a worked solution or the engine past `bin/sim`, or a run on a seed not assigned to
+  you, voids your result (ASPIRE's `void`): it scores 0 and nothing you report is used.
 - **Documentation.** `docs/api-reference.md`, `docs/run-artifacts.md` and `docs/robosuite.md` are in this workspace;
   the scene-snapshot program is `scripts/scene_snapshot.py`.
 - **Scripts the template names that you do not have** (`campaign.py`, `lint_skills.py`, `dispatch.py`,
