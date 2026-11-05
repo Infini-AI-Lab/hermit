@@ -239,8 +239,10 @@ SOLUTIONS = re.compile(r"\b(?:cube_lifting|cube_restack|cube_stack|nut_assembly|
 def audit(s: dict, workspace: Path, log: Path) -> list[str]:
     """The breaches of the session's rules, found after the fact; empty when clean. Detection, not isolation:
 
-    - a command (heredoc bodies included) that names the ASPIRE checkout's absolute path, another session's
-      workspace, or one of ASPIRE's worked solutions by name;
+    - a command (heredoc bodies included) that names, in the ASPIRE checkout, its shipped library and worked
+      solutions (.claude/), its examples or outputs, or its cap-harness (past bin/sim); another session's workspace;
+      or one of ASPIRE's worked solutions by name (the harness's source and docs are the actor's to read, as in
+      ASPIRE);
     - a run on a seed the session was not assigned, or of a program from outside its workspace (each run's
       provenance names its input file);
     - a run, or the scored program, whose code is byte-identical to one of ASPIRE's worked solutions or examples;
@@ -255,7 +257,11 @@ def audit(s: dict, workspace: Path, log: Path) -> list[str]:
         return ["no session log to audit (agent-codex.jsonl)"]
     holder = workspace.parent.parent                       # the directory that holds every session's workspace
     others = [d.name for d in holder.iterdir() if d.is_dir() and d.name != workspace.parent.name]
-    patterns = [re.compile(re.escape(str(root)) + r"\b"), SOLUTIONS]
+    # In ASPIRE the actor works in the repository and may read the harness's source and docs; what it may not read is
+    # the shipped library and worked solutions (.claude/), the examples, other tasks' outputs, or run the engine past
+    # its seeds (here: cap-harness past bin/sim).
+    patterns = [re.compile(re.escape(str(root)) + r"/(?:\.claude|examples|outputs)\b|"
+                           + re.escape(str(root)) + r"/\.venv-robosuite/bin/cap-harness"), SOLUTIONS]
     if others:
         patterns.append(re.compile("|".join(re.escape(name) for name in others)))
     for line in stream.read_text(errors="replace").splitlines():
