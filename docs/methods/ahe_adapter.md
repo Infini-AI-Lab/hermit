@@ -25,7 +25,7 @@ data:
   train: rows/train_k2.txt   # every training task k times: rows <task>#1 ... <task>#k
   step_size: 100             # one step = one AHE iteration over every trial row
 trainer: {epochs: 10, allow_early_stop: true}        # the paper's ten iterations
-sandbox: {enabled: true, network: restricted, allow: [chatgpt.com, auth.openai.com]}
+sandbox: {enabled: true, evolver: {allowed_hosts: [chatgpt.com, auth.openai.com]}}   # the learners' ChatGPT login
 ```
 
 Both learners are sessions of the `codex` Base Agent: the Agent Debugger one session per task and attempt, the Evolve

@@ -148,10 +148,12 @@ What the binding gives each CLI:
   `accounts/fireworks/models/...` on Fireworks) in print mode; vLLM's own guide still recommends a plain served
   name (`vllm serve ... --served-model-name qwen3`).
 
-The Evolver's own endpoint and key variable always reach the sandbox: the Trainer adds the binding's URLs to
-`sandbox.allow` and its `api_key_env` to `sandbox.env`, so a config lists neither. Claude Code's token is written
-into the Evolver's settings as `$<api_key_env>` and expanded when the agent starts, so the run's `config.yaml`
-records the variable's name, never the key.
+No sandbox holds a model key. The run's model proxy serves each bound endpoint on a loopback route: a sandboxed
+session (the learner's, the acting agent's) gets that route as its base URL and a secret of its own in place of the
+key, and the proxy puts the real key, read from the host's environment, in its place. A config therefore lists
+neither the endpoint's host nor its key variable. Claude Code's token is written into the Evolver's settings as
+`$<api_key_env>` and expanded when the agent starts, so the run's `config.yaml` records the variable's name, never
+the key.
 
 ## A local server
 

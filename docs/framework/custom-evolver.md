@@ -79,7 +79,7 @@ You can reuse a launcher instead of implementing a new Python learning loop:
 The bundled definitions are under `hermit/agent/evolver/methods/`.
 
 `CommandEvolver` supplies `HA_CONTEXT`, a path to JSON describing the workspace, access, progress, session, and
-parameters, plus `HA_TOOL_URL` for the tool endpoint. A program may write `output/step_result.json` using the
+parameters (the paths spelled as the sandbox shows them, below `/w`), plus `HA_TOOL_URL` for the tool endpoint. A program may write `output/step_result.json` using the
 `StepResult` fields. Without that file, the process exit code determines success or failure. A subclass that sets
 `chooses_tasks = True` also gets `progress.remaining` in the context and may name the next step's tasks as
 `next_tasks` ([Choosing the next tasks](evolver.md#choosing-the-next-tasks)).
@@ -91,7 +91,8 @@ and report known usage; the wrapper still owns translating the service's result 
 ## Execution and cancellation
 
 Custom classes run in the Trainer process. Their Python code is trusted; the sandbox object wraps programs launched
-through it, not the class itself. Framework tools are callable in-process and can also be exposed to programs through
+through it, not the class itself. A program the sandbox starts sees the interpreter and its standard library, not the
+hermit package; a class whose programs run framework code sets `sandbox_framework = True`. Framework tools are callable in-process and can also be exposed to programs through
 HTTP or MCP.
 
 During a step, long-running custom code should check `ctx.cancel` when present. A budget or timeout stops work at

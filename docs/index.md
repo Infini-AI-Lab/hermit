@@ -97,6 +97,7 @@ developer/index
 developer/releasing
 developer/reproducing-a-method
 developer/service-design
+developer/sandbox-design
 framework/agent-layers
 tutorials/custom-evolver
 framework/custom-evolver

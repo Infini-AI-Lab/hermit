@@ -15,8 +15,6 @@ evolver:
   name: ../record_only
 sandbox:
   enabled: false
-  network: none
-  env: []
 trainer:
   run_name: interface-demo
   output_dir: ../../../.demo/interface-example

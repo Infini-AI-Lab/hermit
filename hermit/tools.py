@@ -39,11 +39,11 @@ def declared(decl: dict, base: Path, source: str, bound: dict, runner=None) -> F
     """A tool declared like an adapter tool: name, description, entrypoint, input_schema, output_schema (none, or
     an empty one, asks for a JSON object back).
     Keyword arguments the function declares among `bound` (for example `_adapter`) are filled by the framework.
-    With a `runner` (the `tool` role's sandbox, isolate.ToolRunner) the code is never imported here: every call runs
-    in a sandboxed worker."""
+    With a `runner` (isolate.ToolRunner) the code is never imported here: every call runs in a sandboxed worker, a
+    template's tool in a strict sandbox, a task's in one built from the run config's `environment`."""
     if runner is not None:
         def call(**arguments):
-            return runner(decl["entrypoint"], base, arguments, bound)
+            return runner(decl["entrypoint"], base, arguments, bound, kind=source)
         return FunctionTool(decl["name"], decl["description"], call, source=source,
                             input_schema=decl.get("input_schema"), output_schema=decl.get("output_schema") or None)
     fn = _load_entry(decl["entrypoint"], base)

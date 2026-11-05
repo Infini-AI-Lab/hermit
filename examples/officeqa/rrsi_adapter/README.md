@@ -51,8 +51,10 @@ questions, and H_0 once in the same window (run `luna-rrsi-h0-p`). Codex 0.164.0
 learning, 3,600 s per session; exact match. Besides their names (`trainer.run_name` and `trainer.tree_dir`; the
 configs' own are those of the runs before the port), the runs and their evaluations had three settings on the command
 line: `agent.concurrency=6`, and `agent.codex.container.proxy=http://oq-egress-chatgpt:3128` with
-`sandbox.allow=[chatgpt.com]`, an egress proxy started as `oq-egress-login` is but letting through chatgpt.com only
-(`egress_proxy.py 3128 chatgpt.com:443`), so that no session could refresh, and so rotate, the login the five shared.
+`sandbox.allow=[chatgpt.com]` (today's keys: `environment.container.proxy=...` and
+`sandbox.evolver.allowed_hosts=[chatgpt.com]`), an egress proxy started as `oq-egress-login` is but letting through
+chatgpt.com only (`egress_proxy.py 3128 chatgpt.com:443`), so that no session could refresh, and so rotate, the login
+the five shared.
 Data: the 50 training and 172 test questions of SkillOpt `79124b3`'s split (its 24 validation questions unused),
 `databricks/officeqa` at revision `763a836` (`officeqa_full.csv` with SHA-256 `b5eb1ce0cb34…`), eight items drifted
 from the split ([Reproduction limits](../../../docs/recipes/officeqa.md#reproduction-limits)). A one-pass accuracy

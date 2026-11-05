@@ -4,7 +4,35 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ## Unreleased
 
+### Breaking
+
+- One sandbox design replaces every earlier sandbox mode ([design](docs/developer/sandbox-design.md)); no old
+  configuration keeps working, and an old key fails with where it went:
+
+  | Old | New |
+  |---|---|
+  | `sandbox.profiles.rollout` (`read`, `write`, `mask`, `env`, `network`, `allow`, `packages`) | `environment` (`read`, `write`, `env`, `network`, `allowed_hosts`, `packages`, `resources`); no masks: a declared path may not hold the data, the judge or the runs |
+  | `sandbox.profiles.rollout.enabled: false` with the agent's `isolation: container` | `environment.image` (+ `environment.container`) |
+  | `sandbox.profiles.rollout.enabled: false` for a pipeline that starts containers itself | `environment.runner: host` |
+  | `sandbox.network`, `sandbox.allow`, `sandbox.env` (the learner's) | `sandbox.evolver.allowed_hosts`, `sandbox.evolver.env`; the learner's model is reached through the model proxy |
+  | `sandbox.read` | `evolver_access.environment` |
+  | `sandbox.profiles.tool` | a task's declared tool runs with `environment`; a template's in a strict sandbox |
+  | `evolver.params.hide`, `HidingSandbox`, masks | removed: every sandbox is an allowlist |
+  | `sandbox.audit: files` | removed; the launch records and the proxies' logs remain |
+  | `spec.SANDBOX_ENFORCE` | `check_spec(..., enforce=...)` |
+
+- The learner works in `/w` (`/w/adapter`, `/w/material`, `/w/task-info`, ...): its prompt names the workspace
+  relative to `/w`, and the tools it calls resolve the paths it names. The interpreter's site-packages show only the
+  distributions a sandbox asks for (also on a conda base installation).
+
 ### Added
+
+- The run's model proxy (`hermit/model_proxy.py`): no sandbox holds a model key; a sandboxed session gets a loopback
+  route and a secret of its own.
+- `judge.mode`: `host`, `shared` (in the task sandbox after the agent, `judge.tests` shown to it alone) and
+  `separate` (a fresh sandbox holding the paths `judge.collect` names, copied through a sanitized archive).
+- Sandbox resource limits (`resources`: memory, file size, CPU time), environment-variable patterns (`MWM_*`), and
+  `Sandbox.view` for a method's own view of the run's sandbox.
 
 - Benchmarks through one protocol: `agent.name: harbor` runs any task set in [Harbor](https://github.com/laude-institute/harbor)'s
   format (`task.toml`, `environment/`, `tests/test.sh` writing the reward) as the acting pipeline. One rollout is
@@ -16,8 +44,7 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   stream with a frozen adapter. `python -m hermit.harbor.dataset` downloads a dataset, indexes task directories
   into `tasks.jsonl` rows (per task, per rollout, per step), writes splits and a content lock. The container-side
   half (`hermit/harbor/harborside/`: the Codex agent, a scripted agent for smoke tests, the stream driver) runs
-  under Harbor's own venv. Streams need the rollout role unconfined (`sandbox.profiles.rollout.enabled: false`)
-  for now, as every Docker-driving agent does.
+  under Harbor's own venv. A Harbor task set's pipeline runs on the host, the task's container being its sandbox.
 
 ### Changed
 

@@ -285,10 +285,7 @@ def run_measured(path, config, snapshot_metadata=None):
         manifest['entry_preflight'] = json.loads((run / 'entry-check.log').read_text())
         manifest['role_preflight'] = preflight_role(config, run / 'role-preflight')
         save()
-        # Match Trainer's sandbox-disabled handling for the trusted template checker.
-        # Core check currently ignores sandbox.enabled for this call; keep this workaround task-side.
-        check = "from hermit import spec; spec.SANDBOX_ENFORCE=None; from hermit.cli import main; raise SystemExit(main())"
-        execute([sys.executable, '-c', check, 'check', '--config', str(path), '--no-probe'], 'check')
+        execute([sys.executable, '-m', 'hermit', 'check', '--config', str(path), '--no-probe'], 'check')
         execute([sys.executable, '-m', 'hermit', 'train', '--config', str(path)], 'train')
         export_training_records(run, artifacts)
         manifest['training_audit'] = validate_training(

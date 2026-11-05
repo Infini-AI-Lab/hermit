@@ -19,6 +19,7 @@ params:
                              # or a binding), removed after the session
   tools: [check_spec]        # the proposer's only Trainer tool: it does not run evaluations (the smoke is the Evolver's)
   web_search: false          # web search, set explicitly: Codex's hosted search runs at the provider, past the sandbox
+  domain: null               # the benchmark's domain, <file>.py:<Class> relative to the run config (an AdapterDomain)
   rrsi: {}                   # RRSI's hyperparameters (upstream's RRSIConfig fields), or a path to an rrsi.json;
                              # any other key is refused (a domain's own rrsi.json keys, `notes`), "_" keys are comments;
                              # so are the fields read nowhere here (the models: evolver.model and roles.model; an
@@ -27,8 +28,8 @@ params:
                              # binding}; default: the proposer's (give them when the proposer is Claude Code); with
                              # their own model (a Codex model name), the proposer's binding and price are not theirs;
                              # with their own binding (its plain form: backend, base_url, model, api_key_env), its
-                             # provider and not the proposer's login, and the run's sandbox must let its host
-                             # (sandbox.allow) and its key variable (sandbox.env) through: it grants the proposer's
+                             # provider and not the proposer's login, reached through the run's model proxy (the
+                             # sandbox needs no host or key of its own for it): it grants the proposer's
   role_timeout_s: 1800       # one role session's wall clock
   smoke: true                # run the domain's smoke tasks with each screened candidate (upstream's liveness smoke)
   max_failures: 3            # consecutive failed steps before the Evolver stops the run (upstream's driver: 3), at

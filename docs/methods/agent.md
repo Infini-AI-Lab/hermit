@@ -15,13 +15,14 @@ evolver:
   name: codex
   resume: false
 sandbox:
-  enabled: true
-  network: restricted
+  enabled: true                  # the learner works in /w; its model through the run's model proxy
+environment:
+  read: [../utils/agent]         # what the acting agent's sandbox shows: its code, never the data or the judge
 ```
 
 Complete the endpoint grants, environment, and task resources for your learner; the fragment alone is not a
 working model configuration. Use [Installation](../get-started/installation.md) and
-[configuration boundaries](../framework/configuration.md#sandbox-network-and-warnings).
+[configuration boundaries](../framework/configuration.md#sandboxes).
 
 ## Update contract
 

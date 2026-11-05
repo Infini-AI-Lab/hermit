@@ -30,16 +30,12 @@ model: fireworks/accounts/fireworks/models/glm-5p3-flash   # the agent's model (
 llm:                           # the reflection and revision agents: the acting model (the paper: one backbone throughout)
   model: fireworks/accounts/fireworks/models/glm-5p3-flash
   extra_body: {reasoning_effort: medium}
+environment:                         # the task sandbox: the agent's code, its data and the corpus
+  read: [../utils/agent, ../utils/data.json, ../utils/documents]
+  packages: [skillopt]
+  env: ["REHARNESS_*"]                 # the reader's embedding relay (launch.sh)
 sandbox:
   enabled: true
-  network: restricted
-  allow: []                  # the Evolver's own model endpoint is always reachable
-  read: []
-  env: []                    # the Evolver's model key variable is always passed; nothing else is
-  profiles:                  # the agent's sandbox (rollout; check takes it too)
-    rollout:
-      read: [../utils/documents]   # the source documents (prepare.py links them)
-      mask: [../utils/.private]    # the judge's answers, beside the task
 trainer:
   run_name: stream-reharness
   output_dir: runs

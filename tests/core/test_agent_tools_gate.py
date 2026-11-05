@@ -1,11 +1,8 @@
-"""AgentEvolver `tools` (and the removed `hide`): the session's tool server serves only the allowed tools and a Codex run sees no
-Trainer endpoint (with the sandbox off; the sandboxed fake Codex in test_sandboxed_evolvers.py checks it under
-bubblewrap); `hide` is refused, the evolver sandbox showing only its layout."""
+"""AgentEvolver `tools` (and the removed `hide`): the session's tool server serves only the allowed tools and a Codex
+run sees no Trainer endpoint (with the sandbox off; the sandboxed fake Codex in test_sandboxed_evolvers.py checks it
+under bubblewrap); `hide` is refused, the evolver sandbox showing only its layout."""
 import json
 import os
-from pathlib import Path
-
-import pytest
 
 from hermit.config import Config
 from hermit.trainer.trainer import Trainer

@@ -85,6 +85,29 @@ resources. It is learner-facing and does not automatically become acting-agent c
 permitted to that learner. MWM additionally requires a structured deployment description and evidence store;
 follow the [MWM contract](../methods/mwm.md) rather than switching names alone.
 
+## Declare the task sandbox
+
+The acting agent runs in the task sandbox, which shows only what the config's `environment` declares
+([sandboxes](../framework/configuration.md#sandboxes)). Keep the agent's code, its helpers and the data it reads in
+directories of their own, apart from the answers, the judge and the runs, and declare them:
+
+```yaml
+environment:
+  read: [../utils/agent, ../utils/corpus]   # never a directory holding the data, the judge or the runs
+  packages: [your-benchmark]                # the distributions the agent imports, with their dependencies
+  env: ["YOURTASK_*"]                       # the variables your launcher exports (no model keys)
+judge:
+  path: ../utils/judge.py
+  mode: host                                # or shared / separate, when the judge reads the environment's state
+```
+
+Before a reported run, check the isolation: `sandbox.enforce: required` (never a `best_effort` run that fell back to
+running unconfined); `hermit check` passes, which refuses a declared path that holds a secret; the launch records
+(`runs/<run>/sandbox/*.json`) show the isolation check passed, the answers and the judge absent, and no model key in
+the variables; the network reaches only the model proxy and the hosts you declared; `web_search` is set explicitly.
+A benchmark whose scoring lives in the package the agent imports shows its scoring to the agent: say so in the
+results.
+
 ## Select a real learning method
 
 The copied config uses a one-rule teaching learner. Choose a [built-in method](../methods/index.md) for a real

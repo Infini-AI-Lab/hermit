@@ -41,7 +41,7 @@ All inputs and code are under `docs/_examples/first_training/`:
 ```
 
 The sandbox is disabled for this local scripted demonstration. It launches no external learner program;
-[sandbox boundaries](../framework/configuration.md#sandbox-network-and-warnings) matter when using other learners.
+[sandbox boundaries](../framework/configuration.md#sandboxes) matter when using other learners.
 
 ## 4. Evaluate the result
 

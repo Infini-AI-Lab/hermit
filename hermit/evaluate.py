@@ -9,7 +9,7 @@ import time
 from hermit.adapter.manifest import CARD, MANIFEST
 from hermit.config import Config
 from hermit.isolate import agent_pipeline, judge_for
-from hermit.task import TaskData, load_callable
+from hermit.task import TaskData
 from hermit.trainer.budget import Budget
 from hermit.trainer.rollout import run_tasks
 from hermit.tree import ROOT_TAG, Tree

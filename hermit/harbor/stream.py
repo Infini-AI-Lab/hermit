@@ -105,11 +105,11 @@ class StreamClient:
         error it reported."""
         self.dir.mkdir(parents=True, exist_ok=True)
         if os.environ.get("HA_ADAPTER_SANDBOX") == "1" and self.running() is None:
-            # The rollout runs in a sandboxed worker: a driver it started would die with it (bubblewrap's
-            # --die-with-parent), and its socket would sit in a private /tmp. The stream's environment has to
-            # outlive the call, so streams need the rollout role unconfined for now.
-            raise StreamError("a stream's driver cannot be started from a sandboxed rollout: set "
-                              "sandbox.profiles.rollout.enabled: false for a multi-step (stream) task set")
+            # A driver started from a sandboxed worker would die with it (bubblewrap's --die-with-parent), and its
+            # socket would sit in a private /tmp. A Harbor task set's pipeline runs on the host (its environment is
+            # Harbor's), so this is a task's own agent driving a stream from inside the task sandbox.
+            raise StreamError("a stream's driver cannot be started from inside the task sandbox: run the task set "
+                              "with agent.name: harbor, whose pipeline runs on the host")
         with open(self.dir / ".lock", "w") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             try:

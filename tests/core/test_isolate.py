@@ -159,9 +159,10 @@ def test_a_declared_tool_with_a_runner_is_never_imported_here(tmp_path):
         {"name": "probe", "description": "d", "entrypoint": "tools.py:probe",
          "input_schema": {"type": "object", "properties": {"x": {"type": "integer"}}}}],
         task_decls=[], task_base=tmp_path, budget=type("B", (), {"remaining": lambda s: {}, "snapshot": lambda s: {}})(),
-        runner=lambda entry, base, arguments, bound: calls.append((entry, arguments)) or {"ok": 1})
+        runner=lambda entry, base, arguments, bound, kind="template": calls.append((entry, arguments, kind))
+        or {"ok": 1})
     assert tools["probe"](x=3) == {"ok": 1}
-    assert calls == [("tools.py:probe", {"x": 3})]
+    assert calls == [("tools.py:probe", {"x": 3}, "template")]
 
 
 def test_check_spec_takes_a_candidate_under_scratch_or_state_and_nothing_else(tmp_path, monkeypatch):

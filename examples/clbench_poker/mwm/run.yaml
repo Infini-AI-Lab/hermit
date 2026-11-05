@@ -24,14 +24,13 @@ evolver:
 evolver_access:
   environment: []                  # launch.sh: [<task workdir>/evidence]
   tools: []                        # the poker venue declares no channel
+environment:                         # the task sandbox: the host runner, clbench's checkout and venv
+  read: [../utils/agent, $MWM_CLBENCH]
+  write: [$MWM_TASK_WORKDIR]       # the run's task directory: evidence, host records
+  env: ["MWM_*", "CLB_*", "MW_*"]   # the launcher's settings (launch.sh)
 sandbox:
-  enabled: true
-  network: none                    # the learner's own namespace forwards only its meter and the tool gate
-  allow: []
-  env: [MW_TOOLSRV]                # the channel client's URL (the Evolver's tool gate); the learner's model key
-                                   # variable is always passed
-  profiles:                        # the agent's sandbox (rollout; eval and check take it too); launch.sh sets both
-    rollout: {read: [$MWM_CLBENCH], write: [$MWM_TASK_WORKDIR]}   # CL-Bench and its .venv; the task's directory
+  evolver:
+    env: [MW_TOOLSRV]
 trainer:
   run_name: null
   output_dir: runs

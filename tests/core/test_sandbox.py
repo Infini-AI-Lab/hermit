@@ -376,7 +376,8 @@ def test_what_a_learner_is_told_and_what_it_names():
     box = Sandbox(binds=[Bind(Path("/r/ws/adapter"), "/w/adapter", True), Bind(Path("/r/ev"), "/evidence")],
                   layout=(Path("/r/ws"), "/w"))
     text = "Edit /r/ws/adapter/ADAPTER.md, read /r/ev/a.json; the native /w stays; scratch /r/ws/scratch/x."
-    assert box.relative(text) == "Edit adapter/ADAPTER.md, read /evidence/a.json; the native /w stays; scratch scratch/x."
+    assert box.relative(text) == ("Edit adapter/ADAPTER.md, read /evidence/a.json; the native /w stays; "
+                                  "scratch scratch/x.")
     assert box.translate("/r/ws.") == "/w." and box.translate("/r/ws.bak") == "/r/ws.bak"
     assert box.outside("adapter/x") == Path("/r/ws/adapter/x")       # relative to the working directory
     assert box.outside("/evidence/a.json") == Path("/r/ev/a.json")

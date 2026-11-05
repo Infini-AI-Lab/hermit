@@ -26,16 +26,13 @@ evolver:
     min_improvement: 0.0
 # Configure llm (the proposer) with your own backend before training.
 llm: null
+environment:
+  runner: host                      # the bridge runs learned hooks in Docker containers of their own;
+                                    # the pipeline starts them, so it runs in the Trainer's process
 sandbox:
-  enabled: true
   enforce: required
-  network: isolated
-  allow: [api.openai.com]
-  profiles:
-    # The episode is trusted orchestration on the host: it starts each learned hook in a Docker container of its
-    # own, which the rollout sandbox cannot reach (eval and check use this profile too).
-    rollout:
-      enabled: false
+  evolver:
+    allowed_hosts: [api.openai.com]
 trainer:
   run_name: agentdyn-shopping
   output_dir: runs

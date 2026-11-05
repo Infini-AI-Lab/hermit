@@ -131,8 +131,12 @@ evolver:
     - skill_search
     - --disable
     - image_generation
+environment:
+  runner: host                      # the bridge runs learned hooks in Docker containers of their own;
+                                    # the pipeline starts them, so it runs in the Trainer's process
 sandbox:
-  enabled: false
+  evolver:                          # the roles sign in with the user's own Codex login (copied into each session,
+    allowed_hosts: [chatgpt.com, auth.openai.com, api.openai.com]   # removed after it: a recorded exception); its hosts
 trainer:
   run_name: agentdyn-evosafe-codex
   output_dir: runs

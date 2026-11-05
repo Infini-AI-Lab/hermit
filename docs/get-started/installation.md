@@ -88,8 +88,8 @@ Python 3.14; install `gepa` and `skillopt` separately there.
 | MWM | Linux learner environment, Codex, evidence store, task deployment contract, model access |
 | Benchmark recipe | Its dataset, scorer, model settings, and environment; see [catalog](../recipes/index.md) |
 
-Core installation and the deterministic tutorial work on macOS. Sandboxed learner **programs** use a
-Linux-specific bubblewrap backend. For Ubuntu/Debian:
+Core installation and the deterministic tutorial work on macOS. The sandboxes (the acting agent's, the judge's, the
+learner's) use a Linux-specific bubblewrap backend; macOS has no evolver sandbox. For Ubuntu/Debian:
 
 ```bash
 sudo apt-get install bubblewrap
@@ -97,8 +97,9 @@ bwrap --version
 ```
 
 The environment must permit the required namespaces. Installing the binary alone may not satisfy a container or
-cluster's namespace policy. The sandbox does not isolate your acting pipeline or arbitrary in-process Python.
-See [sandbox boundaries](../framework/configuration.md#sandbox-network-and-warnings).
+cluster's namespace policy (on Ubuntu 24.04, unprivileged user namespaces need an AppArmor profile for bwrap or the
+`kernel.apparmor_restrict_unprivileged_userns=0` setting). The sandbox does not isolate arbitrary in-process Python.
+See [sandbox boundaries](../framework/configuration.md#sandboxes).
 
 A recipe or method can support fewer Python versions than the core. Check external dependencies separately.
 For exact experiment reproduction, record the framework commit and dependency revisions.

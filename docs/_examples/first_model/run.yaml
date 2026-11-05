@@ -19,8 +19,6 @@ llm:
   api_key_env: MODEL_API_KEY
 sandbox:
   enabled: false
-  network: none
-  env: []
 trainer:
   run_name: first-model
   output_dir: runs

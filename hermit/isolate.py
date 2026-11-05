@@ -67,6 +67,8 @@ def host_pipeline(config) -> str | None:
         return "sandbox.enabled is false"
     if str(d["agent"]["name"]) == "harbor":
         return "a Harbor task set runs in Harbor's own environment"
+    if d["environment"].get("runner") == "host":
+        return "environment.runner: host (the task's own code isolates the adapter's code it runs, in containers)"
     if d["environment"].get("image"):
         return "environment.image: the agent runs in a container of its own"
     return None
@@ -83,6 +85,11 @@ def validate(config) -> None:
     for key in ENVIRONMENT_LISTS:
         if not isinstance(env.get(key) or [], list):
             raise ValueError(f"environment.{key} must be a list")
+    if env.get("runner", "sandbox") not in ("sandbox", "host"):
+        raise ValueError(f"environment.runner must be sandbox or host, not {env.get('runner')!r}")
+    if env.get("runner") == "host" and (env.get("read") or env.get("packages") or env.get("write")):
+        raise ValueError("environment.read, write and packages build the task sandbox; with environment.runner: "
+                         "host the pipeline runs in the Trainer's process")
     if env.get("network") not in NETWORK_MODES:
         raise ValueError(f"environment.network must be one of {list(NETWORK_MODES)}, not {env.get('network')!r}")
     if env.get("allowed_hosts") and env["network"] != "allowlist":
@@ -117,7 +124,7 @@ def validate(config) -> None:
                          "the acting agent's environment.image and an llm: {cli: ...} endpoint")
     reason = host_pipeline(config)
     if env.get("image"):
-        if _cli_kind(d["agent"]["name"], params) != "codex":
+        if _cli_kind(d["agent"]["name"], params) != "codex" and params.get("base") != "codex":
             raise ValueError("environment.image runs a Codex acting agent in a container: agent.base (or agent.name) "
                              "must be codex")
         if env.get("packages") or env.get("read"):
@@ -493,32 +500,60 @@ def judge_for(config, pipeline):
 
 
 class ToolRunner:
-    """Runs a declared tool (a template's or a task's) in a strict sandbox: its code and the template's files
-    read-only, the adapter it acts on read-write, no network, no environment but PYTHONPATH."""
+    """Runs a declared tool in a sandbox: a template's tool (the learner's adapter is what it acts on) in a strict
+    one, its code and the template's files read-only, the adapter read-write, no network, no environment but
+    PYTHONPATH; a task's tool (task code, like its agent) in one built from `environment` (its reads, writes,
+    packages, variables and network) besides its own code and the adapter."""
 
     def __init__(self, config, *, records: Path | None, work_root: Path):
         d = config.data
+        envc = d["environment"]
         self.work_root = Path(work_root)
         self.enabled = bool(d["sandbox"]["enabled"])
-        self.box = Sandbox(enabled=self.enabled, network="no-network", env_allow=["PYTHONPATH"],
-                           enforce=d["sandbox"].get("enforce", "required"), record_dir=records,
-                           probe_absent=[*HOME_SECRETS, *run_secrets(config)], role="tool")
+        enforce = d["sandbox"].get("enforce", "required")
+        probe = [*HOME_SECRETS, *run_secrets(config)]
+        self.box = Sandbox(enabled=self.enabled, network="no-network", env_allow=["PYTHONPATH"], enforce=enforce,
+                           record_dir=records, probe_absent=probe, role="tool")
+        self.allow_proxy = None
+        task_network, allow = envc.get("network") or "no-network", list(envc.get("allowed_hosts") or [])
+        if self.enabled and network_mode(task_network) == ("isolated", True) and allow:
+            self.allow_proxy = AllowlistProxy(allow, log=records / "network-task-tool.jsonl" if records else None)
+        on_host = d["environment"].get("runner") == "host"
+        self.task_box = Sandbox(enabled=self.enabled and not on_host, network=task_network, allow=allow,
+                                readable=config_paths(config, "environment.read", envc.get("read")),
+                                writable=config_paths(config, "environment.write", envc.get("write")),
+                                proxy_url=self.allow_proxy.url if self.allow_proxy else None,
+                                env_allow=["PYTHONPATH", *(envc.get("env") or [])], enforce=enforce,
+                                packages=list(envc.get("packages") or []), record_dir=records, probe_absent=probe,
+                                limits=dict(envc.get("resources") or {}), role="task-tool")
         self.timeout = float(d["trainer"].get("call_timeout_min") or 60) * 60
 
-    def __call__(self, entrypoint: str, base: Path, arguments: dict, bound: dict) -> object:
+    def __call__(self, entrypoint: str, base: Path, arguments: dict, bound: dict, kind: str = "template") -> object:
         work = self.work_root / f"tool-{uuid.uuid4().hex[:8]}"
         home = work / "home"
         home.mkdir(parents=True)
         adapter, root = bound.get("_adapter"), bound.get("_root")
+        module = str(entrypoint).partition(":")[0]
+        # The tool's own code: a template's whole directory (the template's files), a task's file alone (it often
+        # sits beside the run's data and records; what else it needs is declared in environment.read).
+        own = None
+        if module.endswith(".py"):
+            own = (Path(base) / module).resolve()
+            own = own if kind == "task" else own.parent
         job = {"kind": "tool", "entrypoint": entrypoint, "base": str(base), "arguments": arguments,
                "bound": {k: str(v) for k, v in bound.items()}}
+        box = self.task_box if kind == "task" else self.box
         try:
-            payload = _run_worker(self.box, job, work, home=home,
-                                  readable=[p for p in (Path(base), root) if p is not None],
-                                  writable=[adapter] if adapter is not None else [], timeout=self.timeout)
+            payload = _run_worker(box, job, work, home=home,
+                                  readable=[p for p in (own, root) if p is not None],
+                                  writable=[adapter] if adapter is not None else [], timeout=self.timeout,
+                                  env=framework_env())
         finally:
             shutil.rmtree(work, ignore_errors=True)
         return payload["result"]
 
     def close(self) -> None:
         self.box.close()
+        self.task_box.close()
+        if self.allow_proxy:
+            self.allow_proxy.close()

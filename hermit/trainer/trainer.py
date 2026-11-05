@@ -66,6 +66,9 @@ def warnings_for(config: Config, val_given: bool) -> list[str]:
     elif d["sandbox"].get("enforce", "required") == "best_effort":
         out.append("sandbox.enforce is best_effort: without bubblewrap the run starts its processes unconfined (each "
                    "one is recorded). Not for reported results.")
+    if d["sandbox"]["enabled"] and d["environment"].get("runner") == "host":
+        out.append("environment.runner is host: the acting pipeline runs in the Trainer's process and must isolate the "
+                   "adapter's code it runs itself.")
     if d["environment"].get("network") == "public":
         out.append("environment.network is public: the acting agent and the adapter's code reach any host.")
     if d["evolver_access"]["send_material_out"]:

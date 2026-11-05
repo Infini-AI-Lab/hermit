@@ -105,10 +105,11 @@ agent:
     answer: ../utils/task.py:answer       # (last message, task) -> the output; or a pattern, the last match
     collect: ../utils/task.py:collect     # (task, workspace, log) -> facts: the task's own artifacts into the log
     project_doc_max_bytes: 65536          # Codex's cap on AGENTS.md; a deployment past it is refused
-    isolation: container                  # none | container: a Docker container per session
-    container: {image: "officeqa-codex:0.162.0", network: oq-sandbox, proxy: "http://oq-egress:3128"}
     timeout_s: 3600
     workspaces: ~/.cache/hermit/officeqa-codex     # outside any checkout: Codex reads a repository's instructions
+environment:                              # the acting agent's sandbox: here a Docker container per session
+  image: "officeqa-codex:0.162.0"
+  container: {network: oq-sandbox, proxy: "http://oq-egress:3128"}
 ```
 
 What the agent does for every task:
@@ -124,15 +125,16 @@ What the agent does for every task:
   calls the adapter's tools without approvals and may start its sub-agents. An adapter with `memory/NOTES.md` (the
   continual-harness template) is told so in the prompt, and the notes the session leaves come back in the log
   (`log/memory/`). The context must fit `project_doc_max_bytes` (Codex reads no further): a longer one is refused.
-- **Isolate.** With `isolation: container`, Codex runs in a container of its own: the workspace and the session's home
+- **Isolate.** With `environment.image`, Codex runs in a container of its own: the workspace and the session's home
   read-write, the mounts read-only at their targets, an internal network whose only way out is an egress proxy to
   the provider's hosts, and Codex's workspace-write sandbox inside. `docker/codex/` builds the image and the proxy;
-  `container` (or `HERMIT_CODEX_IMAGE`, `HERMIT_CODEX_NETWORK`, `HERMIT_CODEX_PROXY`) names them. The agent checks the
-  image and the network before its first session. Without a container a mount is a link.
+  `environment.container` (or `HERMIT_CODEX_NETWORK`, `HERMIT_CODEX_PROXY`) names the network and the proxy. The agent
+  checks the image and the network before its first session. Without an image the agent runs in the task sandbox
+  (bubblewrap) and a mount is a link.
 - **Sign in.** A `<backend>/<model>` reference binds Codex to that backend's key; `login: chatgpt` uses the user's
   own ChatGPT login (`codex login`; `model` is then a Codex model name, the cost unknown), from one shared copy
   (`~/.cache/hermit/codex-login/`, outside every run's directory) that each session's refreshed token is written back
-  to, the rollout sandbox's sessions included; a model that is no reference uses the user's own Codex sign-in as it
+  to, the task sandbox's sessions included; a model that is no reference uses the user's own Codex sign-in as it
   is. Each session has a home of its own: none of the user's Codex or Claude Code settings apply, and the session's
   commands see only Codex's core variables (`shell_env: all` passes every variable).
 - **Web search.** `web_search` must be set, `true` or `false`: Codex's hosted search runs at the provider, past any
@@ -204,9 +206,10 @@ agent:
     jobs_dir: ~/.cache/hermit/harbor/jobs
 judge:
   path: hermit.harbor.judge              # the reward the container's verifier wrote
-sandbox:
-  profiles: {rollout: {enabled: false}}  # the rollout drives Docker through Harbor: unconfined, as every such agent
 ```
+
+The pipeline of a Harbor task set runs on the host: the task's container is its sandbox, and the verifier runs there
+after the agent (Harbor's `[verifier] environment_mode`: shared, or a separate container).
 
 Harbor starts the task's container, installs the acting agent in it (Codex by default: `harborside.codex:HermitCodex`,
 Harbor's Codex with the adapter deployed into the container as `hermit deploy` lays it out, the AGENTS.md context,
@@ -246,8 +249,7 @@ socket in the stream's directory under `jobs_dir/streams/`), asks it for each st
 not come waits for the earlier ones, running in other rollouts of the batch), and stops it after the last step, an
 aborted step, or `stream.idle_s` without a request. With a frozen adapter, `harbor run` on the same task evaluates
 the whole stream in one trial. Put the stream's rows in file order with `data.shuffle: false`. A stream's driver
-must outlive the rollout that started it, so streams need `sandbox.profiles.rollout.enabled: false` (as every agent
-that drives Docker does today).
+outlives the rollout that started it; it runs on the host with the pipeline.
 
 **Packaging a benchmark.** `python -m hermit.harbor.dataset download terminal-bench@2.0 --output <dir>` fetches a
 registry dataset; a benchmark of your own is written as task directories by your `utils/prepare.py` (the judge goes

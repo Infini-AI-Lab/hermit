@@ -12,8 +12,6 @@ evolver:
   name: learner
 sandbox:
   enabled: false
-  network: none
-  env: []
 trainer:
   run_name: first-training
   output_dir: ../../../.demo/first-training

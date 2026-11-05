@@ -28,6 +28,7 @@ import dataclasses
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import importlib.metadata
+import fnmatch
 import itertools
 import json
 import os
@@ -45,7 +46,7 @@ from typing import NamedTuple
 from urllib.parse import urlparse
 
 
-# Variables the framework itself sets or a program cannot start without; passed even when sandbox.env is a list.
+# Variables the framework itself sets or a program cannot start without; passed whatever the allowlist says.
 ALWAYS = {"PATH", "HOME", "LANG", "LC_ALL", "TERM", "PYTHONPATH", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "HA_CONTEXT",
           "HA_TOOL_URL"}
 SYSTEM_ETC = ("/etc/ld.so.cache", "/etc/ld.so.conf", "/etc/ld.so.conf.d", "/etc/alternatives", "/etc/ssl", "/etc/pki",
@@ -245,7 +246,8 @@ def _interpreter() -> tuple[list[Path], list[Path], list[Path]]:
     empty one; the distributions a sandbox shows are bound back into it."""
     ver = f"python{sys.version_info.major}.{sys.version_info.minor}"
     shown, sites = [Path(sys.executable), Path(sys.executable).resolve(), *_venv_paths()], []
-    for prefix in dict.fromkeys([Path(sys.base_prefix), Path(sys.prefix), Path(sys.executable).resolve().parent.parent]):
+    prefixes = [Path(sys.base_prefix), Path(sys.prefix), Path(sys.executable).resolve().parent.parent]
+    for prefix in dict.fromkeys(prefixes):
         for name in ("lib", "lib64", "ssl"):
             if (prefix / name).is_dir() and not (prefix / name).is_symlink():
                 shown.append(prefix / name)
@@ -435,7 +437,8 @@ class Sandbox:
     binds: list[Bind] = field(default_factory=list)      # shown under names of their own (the evolver's layout)
     layout: tuple[Path, str] | None = None               # (outside, inside): the working directory's root, not bound
     proxy_url: str | None = None
-    env_allow: list[str] | None = None                   # None: every variable passes; else only these (+ ALWAYS)
+    env_allow: list[str] | None = None                   # None: every variable passes; else only these (+ ALWAYS);
+                                                         # a name may be a pattern (MWM_*)
     enforce: str = "required"                            # required | best_effort
     packages: list[str] = field(default_factory=list)    # Python distributions to show ("*": all)
     framework: bool = True                               # show the hermit package and its dependencies
@@ -488,11 +491,24 @@ class Sandbox:
         return [*self.binds, *[Bind(Path(b[0]), str(b[1]), bool(b[2]) if len(b) > 2 else False) for b in binds]]
 
     def _pairs(self, binds=()) -> list[tuple[str, str]]:
-        """(outside, inside) spellings of every bound source and of the layout root, longest outside first."""
-        pairs = {(n, b.target.rstrip("/") or "/") for b in self._all_binds(binds) for n in _names(b.source)}
+        """(outside, inside) spellings of every bound source and of the layout root, longest outside first. A source
+        shown under several names (MWM's adapter at /w and, read-only, at /world-model) is spelled by the layout's
+        root, else by its writable name, else by the first one given."""
+        root = self.layout[1].rstrip("/") if self.layout else None
+        chosen: dict[str, tuple] = {}
+        for i, b in enumerate(self._all_binds(binds)):
+            inside = b.target.rstrip("/") or "/"
+            rank = (inside != root, not b.writable, i)
+            for n in _names(b.source):
+                if n not in chosen or rank < chosen[n][0]:
+                    chosen[n] = (rank, inside)
         if self.layout:
-            pairs |= {(n, self.layout[1]) for n in _names(self.layout[0])}
-        return sorted(pairs, key=lambda p: -len(p[0]))
+            for n in _names(self.layout[0]):
+                chosen.setdefault(n, ((False, False, -1), self.layout[1]))
+        return sorted(((n, v[1]) for n, v in chosen.items()), key=lambda p: -len(p[0]))
+
+    def _in_layout(self, path) -> bool:
+        return any(n == q or n.startswith(q.rstrip("/") + "/") for n in _names(path) for q in _names(self.layout[0]))
 
     def translate(self, text: str, binds=()) -> str:
         """`text` with every path under a bound source (or under the layout root) spelled by its name inside, under
@@ -543,15 +559,16 @@ class Sandbox:
         own. Paths under a bound source in the command, the environment and `chdir` are translated to their names
         inside. Order inside: what is shown read-only, the writable paths, then the named binds."""
         env = dict(env if env is not None else os.environ)
+        if not self.enabled:                             # unconfined: nothing is held back, the environment either
+            return command, env
         if self.env_allow is not None:
             allowed = set(self.env_allow) | ALWAYS | set(keep)
-            env = {k: v for k, v in env.items() if k in allowed}
+            patterns = [a for a in allowed if any(c in a for c in "*?[")]
+            env = {k: v for k, v in env.items() if k in allowed or any(fnmatch.fnmatchcase(k, p) for p in patterns)}
         if self.proxy_url:
             for key in ("HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy"):
                 env[key] = self.proxy_url
             env["NO_PROXY"] = env["no_proxy"] = "127.0.0.1,localhost"
-        if not self.enabled:
-            return command, env
         if not shutil.which("bwrap"):
             if self.enforce == "required":
                 raise RuntimeError("sandbox.enforce is required but bubblewrap (bwrap) is not installed; install it, "
@@ -567,8 +584,7 @@ class Sandbox:
         if self.layout:
             lay = [Bind(Path(p), self.translate(str(p), binds), w) for p, w in
                    [*((p, False) for p in readable), *((p, True) for p in [*writable, *([home] if home else [])])]
-                   if any(n == q or n.startswith(q.rstrip("/") + "/") for n in _names(p) for q in _names(self.layout[0]))
-                   and self.translate(str(p), binds) != str(p)]
+                   if self._in_layout(p) and self.translate(str(p), binds) != str(p)]
             moved = {str(b.source) for b in lay}
             readable = [p for p in readable if str(Path(p)) not in moved]
             writable = [p for p in writable if str(Path(p)) not in moved]
