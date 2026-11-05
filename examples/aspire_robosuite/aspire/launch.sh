@@ -6,6 +6,7 @@
 #   ./launch.sh eval --adapter final                              # the reruns with the final library (test split)
 #   ./launch.sh eval --adapter root                               # the same with the empty library
 #   ASPIRE_SIM_ENV=/path/to/sim_env.yaml ./launch.sh              # the simulator's render environment (a YAML map)
+#   ASPIRE_OUT=/big/disk/aspire ./launch.sh                       # the runs and workspaces (default ../runs)
 #
 # ASPIRE_SIM_ENV names a YAML mapping of environment variables for the simulator process, e.g.
 #   {MUJOCO_GL: egl, PYOPENGL_PLATFORM: egl, EGL_PLATFORM: device, MUJOCO_EGL_DEVICE_ID: "0"}
@@ -38,5 +39,9 @@ cd "$HERE"
 (cd ../utils && "$HERMIT" prepare.py)
 MODE=train
 if [[ "${1:-}" == train || "${1:-}" == eval ]]; then MODE="$1"; shift; fi
+# Where the runs and the actors' workspaces go (ASPIRE_OUT; default ../runs): a session keeps its simulator runs'
+# records and traces (their images are pruned after scoring), so put it on a large disk.
+OUT="${ASPIRE_OUT:-$HERE/../runs}"
 "$HERMIT" -m hermit.cli "$MODE" --config "$CONFIG" "agent.params.aspire_root=$ASPIRE_ROOT" \
-  "agent.params.sim_env=$SIM_ENV_YAML" "$@"
+  "agent.params.sim_env=$SIM_ENV_YAML" "agent.params.workspaces=$OUT/workspaces" "trainer.output_dir=$OUT" \
+  "trainer.tree_dir=$OUT/trees/$(basename "$CONFIG" .yaml)" "$@"

@@ -218,7 +218,17 @@ def collect(task: dict, workspace: Path, log: Path, params: dict) -> dict:
     else:
         facts.update(scored_seeds=seeds, scored_passed=0,
                      scored_refused="no fix_code.py" if seeds else "no seeds to score")
+    if params.get("prune_media", True):
+        prune(Path(workspace).parent)
     return facts
+
+
+def prune(run_dir: Path) -> None:
+    """The heavy part of a finished session's simulator runs: every run's media/ (keyframes, overlays, videos; a
+    session runs hundreds of episodes). The records, traces and programs stay; the audit has already read them."""
+    for media in run_dir.rglob("media"):
+        if media.is_dir() and (media.parent / "run.json").is_file():
+            shutil.rmtree(media, ignore_errors=True)
 
 
 # ASPIRE's worked solutions by name: a command that names one has gone looking for it.

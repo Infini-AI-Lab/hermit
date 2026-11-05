@@ -91,6 +91,13 @@ only if a fresh verifier re-solves the task from the library and the proposals a
 | Verifier | ASPIRE's: 5 seeds (101-105), 2 attempts, verified at ≥ 4/5 | the same |
 | Actor, verifier, coordinator | Codex, GLM 5.3 Flash (Fireworks), reasoning effort medium | the same |
 
+## Disk
+
+Every actor session runs the simulator hundreds of times (a fix loop of up to 8 programs on 25 seeds, an
+evolutionary search of up to 40 more), and each run keeps its record, trace and images. `collect` deletes the images
+(`media/`) once the session is audited and scored (`agent.params.prune_media: false` keeps them); the rest still adds
+up over a campaign. Set `ASPIRE_OUT` to a large disk: `launch.sh` puts the runs and the workspaces there.
+
 ## The actor's rules
 
 The actor's commands run without a sandbox, because they drive a GPU simulator and local services. Its rules
