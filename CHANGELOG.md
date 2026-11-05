@@ -18,6 +18,13 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   half (`hermit/harbor/harborside/`: the Codex agent, a scripted agent for smoke tests, the stream driver) runs
   under Harbor's own venv. Streams need the rollout role unconfined (`sandbox.profiles.rollout.enabled: false`)
   for now, as every Docker-driving agent does.
+- ASPIRE (arXiv:2607.00272) as a method, with its three roles as Codex sessions given ASPIRE's own prompts: the
+  `aspire` template (a skill library of Markdown entries rendered whole as the actor's context, every snippet checked
+  under the CaP program rules, no privileged access) and the `aspire` Evolver (the coordinator: an agent Evolver with
+  ASPIRE's guide that repairs graded entries, verifies proposals with `run_agent` on the task's verifier row, and
+  chooses the next task through `StepResult.next_tasks`), with `examples/aspire_robosuite/`: the fix-loop subagent,
+  its evolutionary search and the verifier as the Codex acting agent in a workspace that reaches ASPIRE's robot
+  execution engine through `bin/sim`, on the Robosuite tasks of ASPIRE's harness.
 
 ### Changed
 
