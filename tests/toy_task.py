@@ -71,7 +71,7 @@ def make_task(tmp: Path, **overrides) -> Path:
                        "step_size": 4},
               "task_info": "task-info", "agent": {"name": "pipeline.py:run", "concurrency": 2},
               "judge": {"path": "judge.py"}, "template": str(TEMPLATE), "evolver": {"name": "toy"},
-              "sandbox": {"enabled": False, "network": "open"},
+              "sandbox": {"enabled": False},
               "trainer": {"run_name": "toy-run", "output_dir": "runs", "epochs": 2,
                           "save_freq": {"steps": 1, "epochs": 1}, "budget": {"usd": 5}}}
     for key, value in overrides.items():
@@ -82,4 +82,14 @@ def make_task(tmp: Path, **overrides) -> Path:
             config[section] = value
     path = tmp / "run.yaml"
     path.write_text(yaml.safe_dump(config))
+    return path
+
+
+def make_sandboxed_task(tmp: Path, **overrides) -> Path:
+    """The toy task under the run's sandbox: its agent's code in agent/ (the task sandbox's one declared path), the
+    data, the judge and the runs beside it, never shown to the agent."""
+    path = make_task(tmp, **{"sandbox": {"enabled": True}, "agent": {"name": "agent/pipeline.py:run", "concurrency": 2},
+                             "environment": {"read": ["agent"]}, **overrides})
+    (tmp / "agent").mkdir(exist_ok=True)
+    (tmp / "agent" / "pipeline.py").write_text(PIPELINE)
     return path

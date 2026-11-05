@@ -158,8 +158,12 @@ def test_overrides_reject_unknown_keys(tmp_path):
 
 def test_warnings_name_risky_settings(tmp_path):
     from hermit.trainer.trainer import warnings_for
-    text = " ".join(warnings_for(load(make_task(tmp_path)), val_given=True))
-    assert "sandbox.enabled is false" in text and "sandbox.network is open" in text and "sandbox.env is not set" in text
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    text = " ".join(warnings_for(load(make_task(tmp_path / "a", environment__network="public")), val_given=True))
+    assert "sandbox.enabled is false" in text and "environment.network is public" in text
+    on = make_task(tmp_path / "b", sandbox__enabled=True, sandbox__enforce="best_effort")
+    assert "sandbox.enforce is best_effort" in " ".join(warnings_for(load(on), val_given=True))
 
 
 def test_shuffle_must_be_boolean(tmp_path):

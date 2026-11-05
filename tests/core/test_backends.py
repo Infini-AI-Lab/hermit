@@ -347,7 +347,7 @@ def _tiny_run(tmp_path, **overrides):
     data = {"data": {"tasks": "tasks.jsonl", "train": "train.txt"}, "judge": {"path": "judge.py"}, "task_info": "task-info",
             "template": "prompt-only@1.0", "evolver": {"name": "codex"}, "model": "vllm/q",
             "backends": {"vllm": {"base_url": "http://127.0.0.1:1/v1"}},
-            "agent": {"name": "react", "params": {"prompt": "hi"}}, "sandbox": {"env": []},
+            "agent": {"name": "react", "params": {"prompt": "hi"}}, "sandbox": {"enabled": True},
             "trainer": {"budget": {"hours": 1}}, **overrides}
     (tmp_path / "run.yaml").write_text(yaml.safe_dump(data))
     return tmp_path / "run.yaml"
@@ -374,15 +374,18 @@ def test_check_reports_models_and_train_refuses_a_missing_dialect(tmp_path, monk
 
 
 def test_evolver_binding_reaches_the_sandbox(tmp_path, monkeypatch):
-    """The Trainer lets the Evolver's endpoint through the allowlist and its key variable into the sandbox."""
+    """The Trainer routes the Evolver's endpoint through the run's model proxy: neither the endpoint's host nor the
+    key variable enters the learner's sandbox."""
     from hermit.trainer.trainer import Trainer
     monkeypatch.setenv("HA_BACKENDS", str(tmp_path / "no-user-file.yaml"))
     monkeypatch.setenv("LAB_KEY", "sekret-123")
     config = Config.load(_tiny_run(tmp_path, backends={"vllm": {"base_url": "http://box:8000/v1", "api_key_env": "LAB_KEY"}},
-                                   sandbox={"env": [], "enabled": False}))
+                                   sandbox={"enabled": False}))
     trainer = Trainer(config, log=lambda *a: None)
     trainer._prepare()
-    assert "http://box:8000/v1" in trainer.sandbox.allow and trainer.sandbox.env_allow == ["LAB_KEY"]
+    assert trainer.sandbox.allow == [] and trainer.sandbox.env_allow == []
+    assert trainer.sandbox.model_proxy is trainer.model_proxy
+    assert [b["base_url"] for b in trainer.sandbox.model_bindings] == ["http://box:8000/v1"]
     assert trainer.params["binding"]["api_key_env"] == "LAB_KEY" and "sekret-123" not in json.dumps(trainer.params)
     recorded = yaml.safe_load((trainer.run_dir / "config.yaml").read_text())
     assert "sekret-123" not in json.dumps(recorded["evolver"]["params"])

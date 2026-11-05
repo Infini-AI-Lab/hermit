@@ -220,18 +220,15 @@ class Harness2UpstreamEvolver(Evolver):
 
     @staticmethod
     def _sandbox(ctx):
-        """A sandbox of its own for the sessions: the system, the Claude install and the session directory only, the
-        network only through the run's allowlist proxy (or a forwarded 127.0.0.1 model endpoint). None when the run
-        has no sandbox."""
+        """The sessions' sandbox: the run's evolver sandbox with nothing of the run's layout shown, the system, the
+        CLI's installation and each session's own directory (writable, given per session) only, the network the run
+        allows (the model proxy). None when the run has no sandbox."""
         run = ctx.sandbox
         if run is None or not getattr(run, "enabled", False):
             return None
-        from hermit.sandbox import Sandbox
-        absent = [Path(p).expanduser() for p in ctx.params.get("probe_absent") or []]
-        return Sandbox(enabled=True, network="isolated", allow=list(getattr(run, "allow", []) or []),
-                       proxy_url=getattr(run, "proxy_url", None), env_allow=[], enforce=getattr(run, "enforce",
-                                                                                                 "required"),
-                       record_dir=ctx.workspace.output / "sandbox", probe_absent=absent, role="editor")
+        box = run.view(framework=False, role="editor")
+        box.probe_absent = [*box.probe_absent, *(Path(p).expanduser() for p in ctx.params.get("probe_absent") or [])]
+        return box
 
     @staticmethod
     def _assert_hidden(sandbox, program: str, paths) -> None:

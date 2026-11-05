@@ -15,9 +15,25 @@ DEFAULTS = Path(__file__).with_name("defaults.yaml")
 TEMPLATES = Path(__file__).resolve().parent / "adapter" / "templates"
 
 
+# Keys of the sandbox modes the refactor removed (docs/developer/sandbox-design.md): where each went.
+MOVED = {
+    "sandbox.profiles": "the task sandbox is `environment` (read, write, packages, env, network, allowed_hosts); the "
+                        "learner's is `sandbox.evolver`; a judge's place is `judge.mode`",
+    "sandbox.network": "`environment.network` for the acting agent (no-network | allowlist | public); the learner "
+                       "reaches only the model proxy, the tool endpoint and `sandbox.evolver.allowed_hosts`",
+    "sandbox.allow": "`environment.allowed_hosts` or `sandbox.evolver.allowed_hosts`",
+    "sandbox.read": "`evolver_access.environment` (paths the learner reads) or `environment.read` (the agent)",
+    "sandbox.packages": "`environment.packages`",
+    "sandbox.env": "`environment.env` or `sandbox.evolver.env`",
+    "sandbox.audit": "removed: under an allowlist an undeclared path does not exist; the launch records remain",
+}
+
+
 def _merge(base: dict, extra: dict, prefix: str = "") -> dict:
     out = copy.deepcopy(base)
     for key, value in (extra or {}).items():
+        if f"{prefix}{key}" in MOVED:
+            raise ValueError(f"config key {prefix}{key} was removed with the old sandbox modes: {MOVED[prefix + key]}")
         if key not in out:
             raise ValueError(f"Unknown config key: {prefix}{key}")
         if isinstance(out[key], dict) and isinstance(value, dict) and key not in FREE:
@@ -27,7 +43,7 @@ def _merge(base: dict, extra: dict, prefix: str = "") -> dict:
     return out
 
 
-FREE = ("params", "llm", "backends", "profiles",   # sections whose keys the framework does not know in advance
+FREE = ("params", "llm", "backends", "container", "resources",   # sections whose keys the framework does not know
         "model", *("codex", "claude", "react", "direct"))     # a layer's settings (docs/framework/agent-layers.md)
 BASES = {"codex": "codex", "claude": "claude-code", "claude-code": "claude-code", "react": "react", "direct": None}
 MODEL_KEYS = ("login", "effort", "price")           # Layer 1 settings a CLI takes beside its model
@@ -205,14 +221,8 @@ class Config:
             raise ValueError("template is required")
         if not d["evolver"]["name"]:
             raise ValueError("evolver.name is required")
-        from hermit.sandbox import network_mode
-        network_mode(d["sandbox"]["network"])
-        if d["sandbox"].get("enforce", "required") not in ("required", "best_effort"):
-            raise ValueError("sandbox.enforce must be required or best_effort")
-        if d["sandbox"].get("audit") not in (None, "files"):
-            raise ValueError("sandbox.audit must be null or files")
-        from hermit.isolate import validate as validate_profiles
-        validate_profiles(d["sandbox"])
+        from hermit.isolate import validate as validate_sandboxes
+        validate_sandboxes(self)
         if not isinstance(d["data"]["shuffle"], bool):
             raise ValueError("data.shuffle must be true or false")
         if int(d["data"]["step_size"]) < 1 or int(d["trainer"]["epochs"]) < 1:

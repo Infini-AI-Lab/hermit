@@ -52,7 +52,7 @@ import sys
 import time
 
 from hermit.agent.base import login as codex_login
-from hermit.agent.base.interface import Limits, Mount, make
+from hermit.agent.base.interface import Limits, make
 from hermit.agent.evolver.agent import AgentEvolver
 from hermit.agent.evolver.base import FinalResult, StepContext, StepResult, Usage
 from hermit.agent.evolver.methods.rrsi_adapter.store import _copy_tree, _install, _real, _store, _write
@@ -374,7 +374,9 @@ class RRSIAdapterEvolver(AgentEvolver):
             raise ValueError(f"evolver.params.rrsi: m = {cfg.m} variants a round; at most {len(VARIANTS)} "
                              f"({VARIANTS})")
         self._domain(ctx)
-        self._more_hidden(ctx)                               # a "module:" entry naming no installed package
+        if ctx.params.get("hide") is not None:
+            raise ValueError("evolver.params.hide was removed: each proposer and role session sees only its own "
+                             "directory (the evolver sandbox's view), so nothing else needs hiding")
 
     def step(self, ctx: StepContext) -> StepResult:
         _require_rrsi()
@@ -516,9 +518,7 @@ class RRSIAdapterEvolver(AgentEvolver):
             settings.pop("login", None)
         if not isinstance(role.get("binding"), dict) and role.get("args") is not None and provider:
             settings["args"] = [*provider, *role["args"]]    # their own arguments, on the proposer's provider still
-        hide = [ws.learning_material, ws.state, ws.adapter, ws.history, ws.output, ws.scratch / "rrsi",
-                *self._more_hidden(ctx)]
-        return Roles(ctx, settings, ws.scratch / "rrsi_roles", hide=hide, records=ws.output / "rrsi_roles")
+        return Roles(ctx, settings, ws.scratch / "rrsi_roles", records=ws.output / "rrsi_roles")
 
     def _advance(self, ctx, st: dict, cfg, dom, n: int, roles: Roles) -> tuple[str, str]:
         # 1. The step's rollouts evaluated the candidate handed back last time.
@@ -935,27 +935,6 @@ class RRSIAdapterEvolver(AgentEvolver):
         (cdir / "PATTERNS.md").write_text(patterns_md)
         return cdir
 
-    @staticmethod
-    def _more_hidden(ctx) -> list[Path]:
-        """`hide`: more paths hidden from the proposer and the roles, read as AgentEvolver's `hide` reads them (a path,
-        or "module:<name>" for an installed package), without the framework's directories it adds."""
-        from hermit.sandbox import hidden_paths
-        return hidden_paths(ctx.params.get("hide") or [])[len(hidden_paths(None)):]
-
-    def _hidden_from_proposer(self, ctx, work: Path) -> list[Path]:
-        """What a proposer session must not see: the learning material and the state (the evaluations, every
-        candidate, upstream's records), the adapter's history and working copy, the step's output (other sessions'
-        logs), the roles' calls, and every other variant's or round's working directory. Upstream's proposer reads only
-        its own worktree and the round's context."""
-        ws = ctx.workspace
-        hide = [ws.learning_material, ws.state, ws.history, ws.adapter, ws.output, ws.scratch / "rrsi_roles"]
-        root = ws.scratch / "rrsi"
-        hide += [p for p in sorted(root.iterdir()) if not p.is_symlink() and p.resolve() != work.resolve()] \
-            if root.is_dir() else []
-        hide += [p for p in sorted(ws.scratch.iterdir()) if p.name not in ("rrsi", "rrsi_roles")] \
-            if ws.scratch.is_dir() else []
-        return [p for p in hide if p.exists()]
-
     def _session(self, ctx, prompt: str, path: Path, work: Path, session: str | None, log: Path) -> StepResult:
         """One proposer session (or a resumed one) of the `codex` or `claude` Base Agent, in the variant's working
         directory (its candidate under adapter/, its context under context/), with everything else the run keeps
@@ -971,13 +950,13 @@ class RRSIAdapterEvolver(AgentEvolver):
         _write(path, prompt)
         allowed = params.get("tools")
         tools = [t for name, t in ctx.tools.items() if allowed is None or name in allowed]
-        # The paths are hidden here rather than through AgentEvolver's `hide`, which also covers the framework's
-        # examples/: a run whose output_dir lies under examples/ would lose its own workspace. With the run's sandbox
-        # off nothing can be hidden, and the session runs as every learner of such a run does.
-        hidden = [*self._hidden_from_proposer(ctx, work), *self._more_hidden(ctx)] \
-            if getattr(ctx.sandbox, "enabled", False) else []
+        # The session sees its own variant directory and the task description, nothing else the run keeps (the
+        # learning material, the state, the history, the working copy, the other variants and rounds): the run's
+        # evolver sandbox with this view. With the run's sandbox off it runs as every learner of such a run does.
         ws = ctx.workspace
-        limits = Limits(hidden=hidden, readable=[Mount(ctx.workspace.task_info, ctx.workspace.task_info)])
+        limits = Limits()
+        box = ctx.sandbox.view(readable=[ws.task_info], writable=[work]) \
+            if ctx.sandbox is not None and getattr(ctx.sandbox, "enabled", False) else ctx.sandbox
         tries = int(params.get("session_retries", 2))
         tail = ""
         for attempt in range(1 + tries):
@@ -990,8 +969,13 @@ class RRSIAdapterEvolver(AgentEvolver):
             _unlink_links(home)
             kept = log if attempt == 0 else log.with_name(f"{log.stem}.retry{attempt}{log.suffix}")
             kept.parent.mkdir(parents=True, exist_ok=True)
-            agent = make(backend, {**self.settings(ctx, backend), "home": home, "log": kept})
-            result = agent.run(prompt, workspace=work, tools=tools, limits=limits, session=session)
+            agent = make(backend, {**self.settings(ctx, backend), "home": home, "log": kept,
+                                   **({"sandbox": box} if box is not None else {})})
+            try:
+                result = agent.run(prompt, workspace=work, tools=tools, limits=limits, session=session)
+            finally:
+                if box is not ctx.sandbox and box is not None:
+                    box.close()
             self._usage += result.usage
             extra, tail = result.extra, str(result.extra.get("output_tail") or "")
             if extra.get("cancelled") or (ctx.cancel is not None and ctx.cancel.is_set()):

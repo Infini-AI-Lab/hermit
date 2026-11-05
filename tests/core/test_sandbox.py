@@ -12,8 +12,8 @@ import time
 import pytest
 
 import hermit.sandbox as sandbox_module
-from hermit.sandbox import (FRAMEWORK, PACKAGE, RELAY, AllowlistProxy, Sandbox, network_mode,
-                                    package_closure)
+from hermit.sandbox import (FRAMEWORK, PACKAGE, RELAY, AllowlistProxy, Bind, Sandbox, network_mode,
+                            package_closure)
 
 REAL_WHICH = shutil.which
 
@@ -46,9 +46,10 @@ def test_isolated_network_binds_only_what_is_granted(tmp_path, monkeypatch):
                          env={"PATH": "/usr/bin", "HA_TOOL_URL": "http://127.0.0.1:4333"})
     ro = binds(args, "--ro-bind")
     assert str(PACKAGE) in ro and str(FRAMEWORK) not in ro        # the package, not the checkout
-    assert str(Path(sys.prefix).resolve()) not in ro or Path(sys.prefix) == Path(sys.base_prefix)
-    site = Path(sys.prefix).resolve() / "lib"
-    assert not any(p == str(site) for p in ro)                     # site-packages never as a whole
+    assert str(Path(sys.prefix).resolve()) not in ro               # the installation's lib/, never all of it
+    from hermit.sandbox import _interpreter
+    for site in _interpreter()[1]:                                 # its site-packages emptied, then filled again
+        assert str(site) in binds(args, "--tmpfs") and str(site) in binds(args, "--remount-ro")
     assert str(granted.resolve()) in ro and str(work.resolve()) in binds(args, "--bind")
     assert "--unshare-net" in args
     command = args[args.index("--") + 1:]
@@ -68,36 +69,18 @@ def test_open_network_has_no_namespace_and_no_relay(tmp_path, monkeypatch):
     assert "--unshare-net" not in args and str(RELAY) not in args
 
 
-def test_open_network_still_checks_the_covered_paths(tmp_path, monkeypatch):
-    """A rollout's network is open by default, but its masks are still proven from inside."""
+def test_open_network_still_checks_the_absent_paths(tmp_path, monkeypatch):
+    """An open network keeps the check inside: the paths that must be missing are proven missing."""
     fake_bwrap(monkeypatch)
     secret = tmp_path / "tasks.jsonl"
     secret.write_text("x")
-    args, _ = Sandbox(network="open", readable=[tmp_path], masked=[secret]).wrap(["true"])
+    args, _ = Sandbox(network="open", probe_absent=[secret]).wrap(["true"])
     command = args[args.index("--") + 1:]
     assert "--unshare-net" not in args and command[:2] == [sys.executable, str(RELAY)]
     assert "--open-network" in command and "--forward" not in command
     assert command[command.index("--deny") + 1] == str(secret.resolve())
     from hermit.sandbox_relay import probe
     assert probe([], [], open_network=True)["outside"] == {}
-
-
-def test_a_role_grant_beneath_a_mask_is_bound_on_top_of_it(tmp_path, monkeypatch):
-    """A launcher keeps the task directory the agent writes inside the runs directory (clbench:
-    <runs>/<tag>/order0/task). The runs directory is covered; the granted directory must still be there, writable,
-    and the check inside must know it is the one thing the covered directory may hold."""
-    fake_bwrap(monkeypatch)
-    runs = tmp_path / "runs"
-    task = runs / "order0" / "task"
-    task.mkdir(parents=True)
-    (runs / "steps.jsonl").write_text("secret")
-    args, _ = Sandbox(network="open", readable=[tmp_path], writable=[task], masked=[runs]).wrap(["true"])
-    pairs = [(args[i], args[i + 1]) for i in range(len(args) - 1)]
-    s = lambda p: str(p.resolve())
-    assert pairs.index(("--tmpfs", s(runs))) < pairs.index(("--bind", s(task)))
-    command = args[args.index("--") + 1:]
-    assert command[command.index("--keep") + 1] == s(task)
-    assert command[command.index("--deny") + 1] == s(runs)
 
 
 def test_a_venv_granted_for_one_call_brings_its_base_installation(tmp_path, monkeypatch):
@@ -125,64 +108,21 @@ def test_a_pyvenv_cfg_in_a_writable_place_shows_nothing_new(tmp_path, monkeypatc
     for cfg in (ws / "pyvenv.cfg", ws / ".venv" / "pyvenv.cfg"):
         cfg.write_text(f"home = {outside / 'bin'}\nversion = 3.12\n")
     for box, kw in ((Sandbox(network="open", writable=[ws]), {}), (Sandbox(network="open"), {"writable": [ws]}),
-                    (Sandbox(network="open", read=[ws], writable=[ws]), {}),     # granted both ways
+                    (Sandbox(network="open", readable=[ws], writable=[ws]), {}),     # granted both ways
                     (Sandbox(network="open"), {"readable": [ws], "writable": [ws]}),
-                    (Sandbox(network="open", read=[ws]), {"writable": [ws]})):        # the call grants it writable
+                    (Sandbox(network="open", readable=[ws]), {"writable": [ws]})):    # the call grants it writable
         args, _ = box.wrap(["true"], **kw)
         assert str(outside.resolve()) not in binds(args, "--ro-bind") + binds(args, "--bind")
 
 
-def test_a_hiding_sandbox_reads_no_pyvenv_cfg_in_a_place_the_call_makes_writable(tmp_path, monkeypatch):
-    """The hiding wrapper looks at the places shown too: not at a pyvenv.cfg the call's writable place holds, which a
-    session could have written (here not even UTF-8)."""
-    from hermit.sandbox import HidingSandbox
-    fake_bwrap(monkeypatch)
-    ws = tmp_path / "ws"
-    ws.mkdir()
-    (ws / "pyvenv.cfg").write_bytes(b"home = \xff\xfe\n")
-    args, _ = HidingSandbox(Sandbox(network="open", read=[ws]), [tmp_path / "hidden"]).wrap(["true"], writable=[ws])
-    assert str(ws) in binds(args, "--bind")
-
-
-def test_a_mask_wins_over_a_place_equal_to_it_bound_back(tmp_path, monkeypatch):
-    """A readable file that is also masked, below a hidden directory: bound back, then covered again."""
-    from hermit.sandbox import HidingSandbox
-    fake_bwrap(monkeypatch)
-    secret = tmp_path / "hidden" / "secret.txt"
-    secret.parent.mkdir()
-    secret.write_text("x")
-    inner = Sandbox(network="isolated", readable=[secret], masked=[secret])
-    args, _ = HidingSandbox(inner, [tmp_path / "hidden"]).wrap(["true"])
-    args = args[:args.index("--")]
-    bound = max(i for i, a in enumerate(args) if a == str(secret) and args[i - 2] == "--ro-bind"
-                and args[i - 1] == str(secret))
-    assert str(secret) in args[bound + 1:]
-
-
-def test_a_mask_stays_under_a_bound_back_places_link_name(tmp_path, monkeypatch):
-    """A writable place reached through a link, both names below hidden directories: bound back under each name,
-    the sandbox's mask (named by the real path) is covered again under each."""
-    from hermit.sandbox import HidingSandbox
-    fake_bwrap(monkeypatch)
-    real = tmp_path / "hidden" / "data"
-    (real / "secret").mkdir(parents=True)
-    alias = tmp_path / "links" / "alias"
-    alias.parent.mkdir()
-    alias.symlink_to(real)
-    inner = Sandbox(network="isolated", writable=[alias], masked=[real / "secret"])
-    args, _ = HidingSandbox(inner, [tmp_path / "hidden", tmp_path / "links"]).wrap(["true"])
-    args = args[:args.index("--")]
-    for name in (alias, real):
-        bound = max(i for i, a in enumerate(args) if a == str(name) and args[i - 2] == "--bind")
-        assert str(name / "secret") in args[bound:]
-
-
-def test_older_network_values():
-    assert network_mode("restricted") == ("isolated", True)
-    assert network_mode("none") == ("isolated", False)
-    assert network_mode("open") == ("open", False)
-    with pytest.raises(ValueError):
-        network_mode("anything")
+def test_network_modes():
+    assert network_mode("no-network") == ("isolated", False)
+    assert network_mode("allowlist") == ("isolated", True)
+    assert network_mode("public") == ("open", False)
+    assert network_mode("isolated") == ("isolated", True) and network_mode("open") == ("open", False)
+    for old in ("restricted", "none", "anything"):                 # the removed spellings are refused
+        with pytest.raises(ValueError):
+            network_mode(old)
 
 
 def test_enforcement_without_bubblewrap(tmp_path, monkeypatch):
@@ -331,34 +271,6 @@ def test_records_continue_after_a_resume(tmp_path, monkeypatch):
     assert sorted(p.name for p in tmp_path.glob("learner-*.json")) == ["learner-1.json", "learner-2.json"]
 
 
-def test_file_audit_wraps_bubblewrap_in_strace(tmp_path, monkeypatch):
-    monkeypatch.setattr(sandbox_module.shutil, "which",
-                        lambda name, *a, **k: f"/usr/bin/{name}" if name in ("bwrap", "strace")
-                        else REAL_WHICH(name, *a, **k))
-    args, _ = Sandbox(network="open", record_dir=tmp_path, audit="files").wrap(["true"])
-    trace = str(tmp_path / "learner-1.strace")
-    assert args[:7] == ["strace", "-f", "-qq", "-e", "trace=%file", "-o", trace] and args[7] == "bwrap"
-    assert json.loads((tmp_path / "learner-1.json").read_text())["audit"] == trace
-    with pytest.raises(RuntimeError, match="strace"):
-        Sandbox(network="open", audit="files").wrap(["true"])             # nowhere to leave the trace
-    with pytest.raises(ValueError):
-        Sandbox(audit="everything")
-
-
-@pytest.mark.skipif(not _bwrap_works() or not REAL_WHICH("strace"), reason="needs bubblewrap and strace")
-def test_file_audit_sees_what_the_sandbox_opens(tmp_path):
-    granted = tmp_path / "granted"
-    granted.mkdir()
-    (granted / "a.txt").write_text("a")
-    box = Sandbox(readable=[granted], record_dir=tmp_path / "records", audit="files")
-    try:
-        args, env = box.wrap([sys.executable, "-c", f"open({str(granted / 'a.txt')!r}).read()"])
-        assert subprocess.run(args, env=env, capture_output=True, timeout=120).returncode == 0
-    finally:
-        box.close()
-    assert str(granted / "a.txt") in (tmp_path / "records" / "learner-1.strace").read_text()
-
-
 def test_a_granted_virtual_environment_comes_with_its_base_python(tmp_path, monkeypatch):
     """A task's external checkout runs its own .venv, whose interpreter links to an installation elsewhere."""
     fake_bwrap(monkeypatch)
@@ -369,7 +281,7 @@ def test_a_granted_virtual_environment_comes_with_its_base_python(tmp_path, monk
     checkout = tmp_path / "clbench"
     (checkout / ".venv").mkdir(parents=True)
     (checkout / ".venv" / "pyvenv.cfg").write_text(f"home = {alias / 'bin'}\nversion = 3.12\n")
-    args, _ = Sandbox(network="open", read=[checkout]).wrap(["true"])
+    args, _ = Sandbox(network="open", readable=[checkout]).wrap(["true"])
     ro = binds(args, "--ro-bind")
     assert str(alias) in ro and str(base.resolve()) in ro        # the interpreter links through the alias
 
@@ -385,7 +297,7 @@ def test_a_uv_alias_inside_a_granted_checkout_is_bound_once(tmp_path, monkeypatc
     alias.symlink_to(base)
     (checkout / ".venv").mkdir()
     (checkout / ".venv" / "pyvenv.cfg").write_text(f"home = {alias / 'bin'}\nversion = 3.13\n")
-    args, _ = Sandbox(network="open", read=[checkout]).wrap(["true"])
+    args, _ = Sandbox(network="open", readable=[checkout]).wrap(["true"])
     ro = binds(args, "--ro-bind")
     assert str(checkout.resolve()) in ro and str(base.resolve()) in ro
     assert str(alias) not in ro                                   # reached through the checkout, never bound itself
@@ -420,3 +332,105 @@ def test_program_paths_never_bind_the_home(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", f"{home / 'bin'}:/usr/bin:/bin")
     paths = program_paths("tool")
     assert tool in paths and home not in paths
+
+
+def named(args):
+    return [(args[i], args[i + 1], args[i + 2]) for i, a in enumerate(args[:-2]) if a in ("--bind", "--ro-bind")
+            and args[i + 2].startswith("/w")]
+
+
+def test_binds_show_paths_under_names_of_their_own(tmp_path, monkeypatch):
+    """The evolver's layout: each workspace area under a fixed name below /w; the command, the environment and the
+    working directory are spelled with those names."""
+    fake_bwrap(monkeypatch)
+    ws, material = tmp_path / "ws", tmp_path / "material"
+    (ws / "adapter").mkdir(parents=True)
+    material.mkdir()
+    box = Sandbox(network="open", binds=[Bind(ws / "adapter", "/w/adapter", True), Bind(material, "/w/material")],
+                  layout=(ws, "/w"))
+    args, env = box.wrap(["true", str(ws / "adapter" / "x.md"), f"--material={material}"],
+                         env={"PATH": "/usr/bin", "WHERE": str(material / "README.md")}, chdir=ws)
+    assert ("--bind", str((ws / "adapter").resolve()), "/w/adapter") in named(args)
+    assert ("--ro-bind", str(material.resolve()), "/w/material") in named(args)
+    command = args[args.index("--") + 1:]
+    assert command[-2:] == ["/w/adapter/x.md", "--material=/w/material"]
+    assert env["WHERE"] == "/w/material/README.md" and args[args.index("--chdir") + 1] == "/w"
+    box.close()
+
+
+def test_a_grant_under_the_layout_root_goes_where_the_layout_puts_it(tmp_path, monkeypatch):
+    """A call's own writable path inside the workspace (a CLI home kept there) is shown at its layout name, so the
+    HOME it is told exists inside."""
+    fake_bwrap(monkeypatch)
+    ws = tmp_path / "ws"
+    home = ws / "agent_home"
+    box = Sandbox(network="open", binds=[Bind(ws / "adapter", "/w/adapter", True)], layout=(ws, "/w"))
+    args, env = box.wrap(["true"], home=home, writable=[home])
+    assert ("--bind", str(home.resolve()), "/w/agent_home") in named(args)
+    own = [(args[i], args[i + 1], args[i + 2]) for i in range(len(args) - 2) if args[i] == "--bind"]
+    assert env["HOME"] == "/w/agent_home" and ("--bind", str(home.resolve()), str(home.resolve())) not in own
+    box.close()
+
+
+def test_what_a_learner_is_told_and_what_it_names():
+    box = Sandbox(binds=[Bind(Path("/r/ws/adapter"), "/w/adapter", True), Bind(Path("/r/ev"), "/evidence")],
+                  layout=(Path("/r/ws"), "/w"))
+    text = "Edit /r/ws/adapter/ADAPTER.md, read /r/ev/a.json; the native /w stays; scratch /r/ws/scratch/x."
+    assert box.relative(text) == "Edit adapter/ADAPTER.md, read /evidence/a.json; the native /w stays; scratch scratch/x."
+    assert box.translate("/r/ws.") == "/w." and box.translate("/r/ws.bak") == "/r/ws.bak"
+    assert box.outside("adapter/x") == Path("/r/ws/adapter/x")       # relative to the working directory
+    assert box.outside("/evidence/a.json") == Path("/r/ev/a.json")
+    assert box.outside("/elsewhere") == Path("/elsewhere")
+
+
+def test_a_view_keeps_the_sandbox_and_replaces_what_it_shows(tmp_path, monkeypatch):
+    fake_bwrap(monkeypatch)
+    run = Sandbox(network="no-network", binds=[Bind(tmp_path / "ws", "/w/adapter", True)], layout=(tmp_path, "/w"),
+                  env_allow=["KEEP"], limits={"memory_mb": 512}, framework=False, record_dir=tmp_path / "rec")
+    run.model_proxy, run.model_bindings = "proxy", [{"base_url": "x"}]
+    view = run.view(binds=[Bind(tmp_path / "ev", "/evidence")], readable=[tmp_path], framework=True, role="editor")
+    assert view.binds == [Bind(tmp_path / "ev", "/evidence", False)] and view.layout is None
+    assert (view.network, view.env_allow, view.limits, view.record_dir) == ("isolated", ["KEEP"], {"memory_mb": 512},
+                                                                           tmp_path / "rec")
+    assert view.framework and view.role == "editor" and view.model_proxy == "proxy" and view.model_bindings
+    assert run.binds and not run.framework                         # the run's sandbox is unchanged
+    view.close()
+
+
+def test_limits_go_to_the_relay(tmp_path, monkeypatch):
+    fake_bwrap(monkeypatch)
+    args, _ = Sandbox(network="open", limits={"memory_mb": 1024, "cpu_s": 60}).wrap(["true"])
+    command = args[args.index("--") + 1:]
+    assert command[:2] == [sys.executable, str(RELAY)]
+    assert [command[i + 1] for i, a in enumerate(command) if a == "--limit"] == ["cpu_s=60", "memory_mb=1024"]
+    with pytest.raises(ValueError, match="unknown keys"):
+        Sandbox(limits={"processes": 4})
+
+
+def test_without_the_framework_only_the_relay_of_the_package_is_shown(tmp_path, monkeypatch):
+    fake_bwrap(monkeypatch)
+    args, _ = Sandbox(network="isolated", framework=False).wrap(["true"])
+    ro = binds(args, "--ro-bind")
+    assert str(PACKAGE) not in ro and str(RELAY) in ro
+    names = [Path(p).name for p in ro]
+    assert not any(n.startswith("yaml") or n.startswith("mcp") for n in names)     # no framework dependency
+
+
+@pytest.mark.skipif(not _bwrap_works(), reason="needs a working bubblewrap (unprivileged user namespaces)")
+def test_inside_a_layout_with_limits(tmp_path):
+    ws, material = tmp_path / "ws", tmp_path / "material"
+    (ws / "adapter").mkdir(parents=True)
+    material.mkdir()
+    (material / "a.txt").write_text("hi")
+    box = Sandbox(network="isolated", binds=[Bind(ws / "adapter", "/w/adapter", True), Bind(material, "/w/material")],
+                  layout=(ws, "/w"), limits={"memory_mb": 2048}, record_dir=tmp_path / "rec")
+    code = ("import os, resource\nprint(os.getcwd(), open('material/a.txt').read())\n"
+            "open('adapter/x', 'w').write('1')\nprint(resource.getrlimit(resource.RLIMIT_AS)[0] >> 20)")
+    try:
+        args, env = box.wrap([sys.executable, "-c", code], chdir=ws)
+        proc = subprocess.run(args, env=env, capture_output=True, text=True, timeout=120)
+    finally:
+        box.close()
+    assert proc.returncode == 0, proc.stderr[-1500:]
+    assert proc.stdout.split() == ["/w", "hi", "2048"] and (ws / "adapter" / "x").read_text() == "1"
+

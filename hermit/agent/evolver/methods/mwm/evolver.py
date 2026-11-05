@@ -39,8 +39,6 @@ Parameters (evolver.params):
   retry_wait_s                 wait before the infrastructure retry (default 30)
   block_size                   episodes per block (= data.step_size); when set, the stream's shorter final block gets
                                no session, as natively (learning ran only when learn_every episodes had gathered)
-  network_isolation            the learner in its own network namespace, reaching only the tool endpoint and the
-                               127.0.0.1 ports named in `args` (default true); every session measures it first
 """
 from __future__ import annotations
 
@@ -50,7 +48,6 @@ import os
 from pathlib import Path
 import shutil
 import sys
-import tempfile
 import time
 import uuid
 
@@ -114,104 +111,6 @@ def _digest(root: Path) -> dict[str, bytes]:
 
 def _changed(before: dict, after: dict) -> list[str]:
     return sorted(k for k in set(before) | set(after) if before.get(k) != after.get(k))
-
-
-class _Relay:
-    """Unix socket -> host 127.0.0.1:port, one per forwarded port, for the learner's network namespace."""
-
-    def __init__(self, directory: Path, ports: list[int]):
-        import socket
-        import threading
-        self.servers = []
-        directory.mkdir(parents=True, exist_ok=True)
-        for port in ports:
-            path = directory / str(port)
-            if len(str(path)) > 107:
-                raise ValueError(f"socket path too long for AF_UNIX: {path}")
-            if path.exists():
-                path.unlink()
-            server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            server.bind(str(path))
-            server.listen(64)
-            self.servers.append(server)
-
-            def serve(server=server, port=port):
-                while True:
-                    try:
-                        client, _ = server.accept()
-                    except OSError:
-                        return
-                    try:
-                        upstream = socket.create_connection(("127.0.0.1", port), timeout=30)
-                        upstream.settimeout(None)
-                    except OSError:
-                        client.close()
-                        continue
-                    for a, b in ((client, upstream), (upstream, client)):
-                        threading.Thread(target=self._pipe, args=(a, b), daemon=True).start()
-            threading.Thread(target=serve, daemon=True).start()
-
-    @staticmethod
-    def _pipe(a, b) -> None:
-        import socket
-        try:
-            while True:
-                data = a.recv(65536)
-                if not data:
-                    break
-                b.sendall(data)
-        except OSError:
-            pass
-        finally:
-            for x in (a, b):
-                try:
-                    x.shutdown(socket.SHUT_RDWR)
-                except OSError:
-                    pass
-
-    def close(self) -> None:
-        for server in self.servers:
-            try:
-                server.close()
-            except OSError:
-                pass
-
-
-class NativeMounts:
-    """The learner's isolation, as the `codex` Base Agent's sandbox: the run's sandbox, and inside it the mount
-    launcher (mounts.py) that shows the native mount names (/w, /evidence, /environment, /skills, /patterns,
-    /world-model), covers the areas the native learner never saw and, with `net`, puts the session in a network
-    namespace of its own that reaches only the forwarded ports (relayed over Unix sockets in `net`)."""
-    enabled = True
-
-    def __init__(self, inner, mounts: list[str], net: Path | None, ports: list[int]):
-        self.inner, self.mounts, self.net, self.ports = inner, list(mounts), net, list(ports)
-        self.network = getattr(inner, "network", "isolated")
-        self.allow = getattr(inner, "allow", [])
-        self.relay = None
-
-    def wrap(self, command, *, writable=(), env=None, home=None, keep=(), forward=(), readable=()):
-        ports = sorted(set(self.ports) | set(forward))
-        mounts = list(self.mounts)
-        if self.net is not None:
-            self.relay = _Relay(self.net, ports)
-            mounts += ["--netns", *[a for port in ports for a in ("--forward", f"{port}={self.net / str(port)}")],
-                       "--probe", str(self.net / "probe.json")]
-        mounts.append("--")
-        if self.inner is None:
-            return mounts + list(command), env
-        wrapped, env = self.inner.wrap(command, writable=[*writable, *([self.net] if self.net else [])], env=env,
-                                       home=home, keep=keep, forward=forward, readable=readable)
-        if "--" in wrapped and Path(wrapped[0]).name == "bwrap":
-            # The outer sandbox was built for codex (its installation is visible); run it through the mount launcher
-            # inside that sandbox.
-            cut = wrapped.index("--")
-            return wrapped[:cut + 1] + mounts + wrapped[cut + 1:], env
-        return mounts + wrapped, env
-
-    def close(self) -> None:
-        if self.relay is not None:
-            self.relay.close()
 
 
 def _native_text(result) -> str:
@@ -310,55 +209,25 @@ class MwmEvolver(Evolver):
         allowed = self._channel_tools(ctx)
         return allowed if only is None else [n for n in only if n in allowed]
 
-    @staticmethod
-    def _forward_ports(ctx: StepContext) -> list[int]:
-        """Host loopback ports the learner needs besides its tool server's: any 127.0.0.1 URL in the agent arguments
-        (the model meter). The Trainer's own tool endpoint is never forwarded."""
-        import re
-        ports = set()
-        for arg in ctx.params.get("args", []):
-            ports.update(int(p) for p in re.findall(r"https?://(?:127\.0\.0\.1|localhost):(\d+)", str(arg)))
-        return sorted(p for p in ports if p)
-
-    def _mounts(self, ctx: StepContext, session: Path, evidence: Path) -> list[str]:
-        """The mount launcher's arguments (mounts.py): the native mount names, the hidden areas, the working
-        directory /w."""
-        if not shutil.which("bwrap"):
-            raise RuntimeError("the mwm Evolver needs bubblewrap (bwrap): the learner runs under the native mount names")
+    def _view(self, ctx: StepContext, session: Path, evidence: Path):
+        """The learner's sandbox: the run's evolver sandbox with MWM's native view in place of the run's layout:
+        /evidence, /environment, /skills, /patterns read-only, the adapter writable at /w (the working directory) and
+        read-only at /world-model. The native learner saw nothing else; `captest` (bin/) runs the framework's Python
+        sandbox, so that much of the framework is shown too. Its own network namespace reaches only the tool endpoint
+        and the 127.0.0.1 ports in `args` (the model meter), forwarded."""
+        if ctx.sandbox is None or not getattr(ctx.sandbox, "enabled", False) or not shutil.which("bwrap"):
+            raise RuntimeError("the mwm Evolver needs the run's sandbox with bubblewrap (bwrap): the learner runs "
+                               "under the native mount names")
+        from hermit.sandbox import PACKAGE, Bind
         adapter = ctx.workspace.adapter.resolve()
         environment = session / "deployment" / "environment"
         if not environment.is_dir():
             environment.mkdir(parents=True)
-        return [sys.executable, str(HERE / "mounts.py"),
-                "--ro", f"{evidence}:/evidence", "--ro", f"{environment}:/environment",
-                "--ro", f"{session / 'method' / 'skills'}:/skills",
-                "--ro", f"{session / 'method' / 'patterns'}:/patterns",
-                "--bind", f"{adapter}:{WORK}", "--ro", f"{adapter}:/world-model",
-                *[a for path in self._hidden(ctx) for a in ("--hide", str(path))],
-                "--chdir", WORK]
-
-    @staticmethod
-    def _hidden(ctx: StepContext) -> list[Path]:
-        """What the framework's sandbox shows and the native learner never saw: the Trainer's other workspace areas
-        (learning material, task-info, history, state, scratch, output; the session's own texts reach the learner
-        only through the mounts), the framework checkout's examples, tests and docs (task code and data), and this
-        Evolver's maintenance code and raw materials (the native learner never saw the wrapper)."""
-        ws = ctx.workspace
-        repo = Path(__file__).resolve().parents[5]
-        hidden = [ws.learning_material, ws.task_info, ws.history, ws.state, ws.scratch, ws.output,
-                  repo / "examples", repo / "tests", repo / "docs", HERE / "maintenance", HERE / "materials"]
-        # The task's own additions (`hide`): a benchmark package installed beside the framework holds its evaluator
-        # and its test tasks, and the sandbox shows the whole Python installation. "module:<name>" names one.
-        for item in ctx.params.get("hide") or []:
-            item = str(item)
-            if item.startswith("module:"):
-                spec = importlib.util.find_spec(item[len("module:"):])
-                if spec is None or not spec.submodule_search_locations:
-                    raise RuntimeError(f"hide: no installed package named {item[len('module:'):]!r}")
-                hidden += [Path(loc) for loc in spec.submodule_search_locations]
-            else:
-                hidden.append(Path(item).expanduser())
-        return hidden
+        binds = [Bind(evidence, "/evidence"), Bind(environment, "/environment"),
+                 Bind(session / "method" / "skills", "/skills"), Bind(session / "method" / "patterns", "/patterns"),
+                 Bind(adapter, WORK, True), Bind(adapter, "/world-model")]
+        return ctx.sandbox.view(binds=binds, layout=(adapter, WORK), framework=False,
+                                readable=[PACKAGE / "__init__.py", PACKAGE / "runtime", HERE / "bin"])
 
     def _settings(self, ctx: StepContext, home: Path, log: Path, box) -> dict:
         """The `codex` Base Agent's settings for one learner session: Codex as natively (its own sandbox off, every
@@ -371,7 +240,7 @@ class MwmEvolver(Evolver):
                 "web_search": params["web_search"], "isolation": "sandbox", "sandbox": box,
                 "codex_sandbox": "danger-full-access", "shell_env": "all", "home": home,
                 "home_files": params.get("home", []), "log": log, "cancel": ctx.cancel,
-                "timeout_s": float(params.get("session_timeout_s", 1800)), "cwd": WORK,
+                "timeout_s": float(params.get("session_timeout_s", 1800)),
                 "tools_name": "evolver_tools", "tools_env": "MW_TOOLSRV", "mcp_tools": self._mcp_tools(ctx),
                 "env": {"PYTHONPATH": str(Path(__file__).resolve().parents[5]) + os.pathsep
                         + os.environ.get("PYTHONPATH", ""),
@@ -422,12 +291,13 @@ class MwmEvolver(Evolver):
         prepared = _digest(adapter)                        # after maintenance: what the session is handed
         record["advice"] = state.get("advice")
         home = self._home(ctx)
-        # The forward sockets need a short path (AF_UNIX); /tmp is private inside the sandbox, so the directory is
-        # bound in explicitly.
-        net = Path(tempfile.mkdtemp(prefix="mwm-", dir="/tmp")) if ctx.params.get("network_isolation", True) else None
         log = ctx.workspace.output / f"{label}.codex.jsonl"
-        box = NativeMounts(ctx.sandbox, self._mounts(ctx, session, self._evidence(ctx, block == 0)), net,
-                           self._forward_ports(ctx))
+        try:
+            box = self._view(ctx, session, self._evidence(ctx, block == 0))
+        except Exception as exc:                               # noqa: BLE001
+            _restore(snapshot, adapter)
+            record.update(status="isolation_failed", error=f"{type(exc).__name__}: {exc}")
+            return record
         started = time.time()
         try:
             result = make("codex", self._settings(ctx, home, log, box)).run(text, workspace=adapter,
@@ -436,11 +306,10 @@ class MwmEvolver(Evolver):
             box.close()
         run = {"exit_code": result.exit_code, "timed_out": result.timed_out, "wall_s": round(time.time() - started, 1),
                "cancelled": bool(ctx.cancel is not None and ctx.cancel.is_set())}
-        if net is not None:
-            probe = net / "probe.json"
-            record["isolation"] = json.loads(probe.read_text()) if probe.exists() else {"passed": False,
-                                                                                         "error": "no probe result"}
-            shutil.rmtree(net, ignore_errors=True)
+        # The sandbox's isolation check (network, forwarded ports, absent paths), from the session's launch record.
+        launch = box.last_record
+        record["isolation"] = (json.loads(launch.read_text()).get("probe") if launch and launch.exists() else None) \
+            or {"passed": False, "error": "no probe result"}
         session_id, usage = result.session, result.usage
         events = [json.loads(l) for l in log.read_text(errors="replace").splitlines() if l.startswith("{")] \
             if log.exists() else []
@@ -545,12 +414,16 @@ class MwmEvolver(Evolver):
         job = {"kind": "tool", "entrypoint": f"{HERE / 'isolated.py'}:{name}", "base": str(HERE),
                "arguments": arguments, "bound": {}}
         timeout = float(ctx.params.get("session_timeout_s", 1800))
+        # The run's evolver sandbox with the paths at their own places (the worker reads them from its job) and the
+        # framework shown (the worker runs it).
+        box = ctx.sandbox.view(binds=[], readable=readable, framework=True)
         try:
-            return _run_worker(ctx.sandbox, job, work, home=work / "home", readable=readable,
+            return _run_worker(box, job, work, home=work / "home",
                                writable=[Path(arguments["adapter"]), *([Path(arguments["session"])]
                                                                       if "session" in arguments else [])],
                                env=framework_env(), timeout=timeout)["result"]
         finally:
+            box.close()
             shutil.rmtree(work, ignore_errors=True)
 
     @staticmethod

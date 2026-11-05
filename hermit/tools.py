@@ -105,21 +105,23 @@ def evolver_agent(client, budget, metered: list | None = None, cancel=None, log_
 
 def assemble(*, adapter: Path, root: Path, template_decls: list, task_decls: list, task_base: Path,
              budget, agent=None, python: str | None = None, runner=None,
-             within: list[Path] = ()) -> dict[str, FunctionTool]:
+             within: list[Path] = (), enforce: str | None = "best_effort", resolve=None) -> dict[str, FunctionTool]:
     """One toolset for one call. `adapter` is the workspace copy the tools act on; `root` the template's files;
     `within` are the learner's other writable directories (scratch, state), where an Evolver keeps a candidate.
-    `agent` is the call's metered `direct` Base Agent (evolver_agent); the `llm` tool calls it."""
+    `agent` is the call's metered `direct` Base Agent (evolver_agent); the `llm` tool calls it. `enforce` is the run's
+    sandbox.enforce for the spec check (None: the run's sandbox is off). `resolve` turns a path the learner names
+    (inside its sandbox) into the path outside."""
     from hermit.spec import check_spec
     tools: dict[str, FunctionTool] = {}
     checkable = [Path(p).resolve() for p in (adapter, *within)]
 
     def check(path: str | None = None) -> dict:
-        target = Path(path) if path else adapter
+        target = (resolve(path) if resolve else Path(path)) if path else adapter
         # The learner's own work only: its working copy, or a candidate it wrote in its scratch or state directory.
         if not any(target.resolve().is_relative_to(c) for c in checkable):
             raise ValueError("check_spec checks your working copy of the adapter, or a copy under your scratch or "
                              "state directory")
-        return check_spec(target, root, python=python).to_dict()
+        return check_spec(target, root, python=python, enforce=enforce).to_dict()
     tools["check_spec"] = FunctionTool(
         "check_spec", "Check whether the adapter (default: your working copy) conforms to its template's "
         "specification and deploys. Returns {passed, issues: [{path, check, problem}]}.", check, source="template",

@@ -52,7 +52,7 @@ Limits are enforced by the isolation, or the call is refused (Unsupported):
 
   isolation   readable                          hidden                         network
   none        linked into the workspace          refused                        refused (any list)
-  sandbox     must be readable in the sandbox    covered (HidingSandbox)        the sandbox's own: [] only
+  sandbox     shown at its target (a bind)       refused when the sandbox shows it    the sandbox's own: [] only
   container   bound read-only at their target    all but workspace, home, data  the container's proxy: [] only
 """
 from __future__ import annotations
@@ -414,13 +414,14 @@ class CliAgent(BaseAgent):
                 raise Unsupported("the run's sandbox is off: it cannot hide paths or limit the network")
             if network is not None and (getattr(sandbox, "network", None) == "open" or getattr(sandbox, "allow", None)):
                 raise Unsupported("the run's sandbox lets more than the model through (an open network or "
-                                  "sandbox.allow): it cannot limit the network to the model")
-            for m in limits.readable:
-                if _target(m, workspace).resolve() != Path(m.source).resolve():
-                    raise Unsupported(f"the run's sandbox shows data at its own path, not at {m.target}")
-            if limits.hidden:
-                from hermit.sandbox import HidingSandbox
-                sandbox = HidingSandbox(sandbox, list(limits.hidden), keep=[m.source for m in limits.readable])
+                                  "allowed hosts): it cannot limit the network to the model")
+            # An allowlist shows what is granted: a path to keep hidden must not lie in anything granted.
+            shown = [*getattr(sandbox, "readable", ()), *getattr(sandbox, "writable", ()),
+                     *(b.source for b in getattr(sandbox, "binds", ())), *(m.source for m in limits.readable),
+                     *(map(Path, s.get("writable") or ()))]
+            for path in limits.hidden:
+                if any(_overlap(Path(path), Path(p)) for p in shown):
+                    raise Unsupported(f"{path} is to be hidden but lies in what the sandbox shows")
             return isolation, None, sandbox
         if self.backend != "codex":
             raise Unsupported("isolation: container runs Codex; Claude Code takes isolation none or sandbox")
@@ -552,6 +553,19 @@ class CliAgent(BaseAgent):
         timeout = limits.timeout_s or s.get("timeout_s", 3600)       # None: no clock (the caller cancels)
         timeout = float(timeout) if timeout else None
         mounts = [Mount(Path(m.source), _target(m, workspace), m.readonly) for m in limits.readable]
+        # In the run's sandbox a mount is shown at its target (a bind); paths in the prompt, the command and the
+        # environment are spelled as they are inside, relative to the working directory when that is the layout's
+        # root (the learner's /w).
+        binds = [(m.source, sandbox.translate(str(m.target)) if hasattr(sandbox, "translate") else str(m.target),
+                  not m.readonly) for m in mounts
+                 if Path(m.target).resolve() != Path(m.source).resolve()] if sandbox is not None else []
+        if sandbox is not None and hasattr(sandbox, "translate"):
+            layout = getattr(sandbox, "layout", None)
+            at_root = bool(layout) and sandbox.translate(str(workspace), binds) == layout[1]
+            spell = (lambda text: sandbox.relative(text, binds)) if at_root else \
+                (lambda text: sandbox.translate(text, binds))
+            prompt = spell(prompt)
+            roles = [{**r, "instructions": spell(str(r.get("instructions", "")))} for r in roles]
         server, copied, failed = None, [], True
         try:
             copied = self._sign_in(home)
@@ -588,10 +602,30 @@ class CliAgent(BaseAgent):
                 drop = set(s.get("env_drop") or ())
                 full_env = {**{k: v for k, v in os.environ.items() if k not in drop}, **env}
                 if sandbox is not None:
+                    keep = list(own)
+                    proxy = getattr(sandbox, "model_proxy", None)
+                    bindings = [s["binding"]] if isinstance(s.get("binding"), dict) else \
+                        list(getattr(sandbox, "model_bindings", ()))
+                    for binding in (bindings if proxy is not None else []):
+                        # The session reaches its provider through the run's model proxy, with a secret of its own
+                        # in place of the key: no key enters the sandbox. A session configured from the run's
+                        # bindings without naming one (provider settings in its `env`) is routed by them.
+                        from hermit.model_proxy import rewrite
+                        mapping, key_env, secret = proxy.origins(binding)
+                        if mapping:
+                            command = [rewrite(str(a), mapping) for a in command]
+                            real = os.environ.get(key_env) if key_env else None
+                            full_env = {k: (secret if real and v == real else rewrite(str(v), mapping))
+                                        for k, v in full_env.items()}
+                            if key_env:
+                                full_env[key_env] = secret
+                                keep.append(key_env)
                     command, full_env = sandbox.wrap(command, writable=[home, *map(Path, s.get("writable") or ())],
-                                                     env=full_env, home=home, keep=own,
+                                                     env=full_env, home=home, keep=keep,
                                                      forward=[server.port] if server else [],
-                                                     readable=[m.source for m in mounts])
+                                                     readable=[m.source for m in mounts
+                                                               if Path(m.target).resolve() == Path(m.source).resolve()],
+                                                     binds=binds, chdir=workspace)
                     if (limits.hidden or limits.network is not None) and \
                             not any(Path(a).name == "bwrap" for a in command):
                         raise Unsupported("the run's sandbox did not isolate the call (no bubblewrap): it cannot hide "
@@ -702,6 +736,11 @@ def _this_call(home: Path, handle: str, reported, resumed: bool):
         f.write(json.dumps({f_: getattr(reported, f_) for f_ in fields}))
     return Usage(reported.model, **{f: max(0, getattr(reported, f) - int(before.get(f, 0))) for f in fields},
                  calls=reported.calls, cost_usd=None if before else reported.cost_usd)
+
+
+def _overlap(a: Path, b: Path) -> bool:
+    a, b = Path(os.path.realpath(a)), Path(os.path.realpath(b))
+    return a == b or a.is_relative_to(b) or b.is_relative_to(a)
 
 
 def _target(m: Mount, workspace: Path) -> Path:

@@ -36,8 +36,10 @@ from hermit.agent.evolver.base import (Access, Context, Evolver, FinalResult, Pr
                                          Workspace)
 from hermit.agent.evolver.loader import find, instantiate
 from hermit.agent.model.llm import ChatClient
-from hermit.isolate import HOME_SECRETS, ToolRunner, agent_pipeline, profile
-from hermit.sandbox import AllowlistProxy, Sandbox, network_mode
+from hermit.isolate import CHATGPT_HOSTS, HOME_SECRETS, ToolRunner, agent_pipeline, judge_for, run_secrets, \
+    sanitized_copy
+from hermit.model_proxy import ModelProxy
+from hermit.sandbox import AllowlistProxy, Bind, Sandbox
 from hermit.spec import check_spec, repair
 from hermit.task import TaskData, load_callable
 from hermit.tools import FunctionTool, ToolServer, assemble, evolver_agent
@@ -59,16 +61,13 @@ def warnings_for(config: Config, val_given: bool) -> list[str]:
     """Risky settings: warned, never blocked."""
     d, out = config.data, []
     if not d["sandbox"]["enabled"]:
-        out.append("sandbox.enabled is false: what the Evolver starts runs unconfined; it can read anything on this "
-                   "machine, including the test split, and reach the network.")
-    if d["sandbox"].get("env") is None:
-        out.append("sandbox.env is not set: what the Evolver starts inherits every environment variable of the Trainer, "
-                   "including keys kept in variables. List the variables it may see in sandbox.env.")
-    if d["sandbox"]["network"] == "open":
-        out.append("sandbox.network is open: learning material and other data can leave the machine.")
-    if d["sandbox"]["network"] == "restricted" and d["sandbox"]["enabled"]:
-        out.append("sandbox.network is restricted through a proxy (best effort): a program that ignores proxy "
-                   "variables can still reach the network.")
+        out.append("sandbox.enabled is false: what the run starts runs unconfined; the learner can read anything on "
+                   "this machine, including the test split, and reach the network. Not for reported results.")
+    elif d["sandbox"].get("enforce", "required") == "best_effort":
+        out.append("sandbox.enforce is best_effort: without bubblewrap the run starts its processes unconfined (each "
+                   "one is recorded). Not for reported results.")
+    if d["environment"].get("network") == "public":
+        out.append("environment.network is public: the acting agent and the adapter's code reach any host.")
     if d["evolver_access"]["send_material_out"]:
         out.append("evolver_access.send_material_out is true: learning material is sent to an outside service.")
     if val_given and d["data"].get("val"):
@@ -124,13 +123,12 @@ class Trainer:
         self.branch = self.run_name
         self.data = TaskData(config.path(d["data"]["tasks"]), config.path(d["data"]["train"]),
                              config.path(d["data"]["val"]), config.path(d["data"]["test"]))
-        # The spec checks run the adapter's modules in a sandbox, as strictly as the run asks. Set before the first
-        # check_spec (start_from), so no learner-authored code runs on the host unconfined under enforce: required.
-        import hermit.spec as spec_module
-        spec_module.SANDBOX_ENFORCE = d["sandbox"].get("enforce", "required") if d["sandbox"]["enabled"] \
-            else None
+        # The spec checks run the adapter's modules in a strict sandbox, as strictly as the run asks; None: the run's
+        # sandbox is off and they run unconfined like everything else.
+        self.enforce = d["sandbox"].get("enforce", "required") if d["sandbox"]["enabled"] else None
         self.pipeline = None             # set when the run starts: the agent runs in its sandbox, never imported here
-        self.judge = load_callable(f"{d['judge']['path']}:{d['judge']['name']}", config.base)
+        self.judge = load_callable(f"{d['judge']['path']}:{d['judge']['name']}", config.base)   # replaced in _prepare
+                                                                                                   # by judge_for
         self.spec = find(d["evolver"]["name"], config.base)
         self.evolver, self.params = instantiate(self.spec, d["evolver"]["params"],
                                                 backends=registry(d.get("backends")), default_model=d.get("model"))
@@ -189,36 +187,48 @@ class Trainer:
                     f.write(json.dumps(row, ensure_ascii=False) + "\n")
         env = tuple(self.config.path(p) for p in d["evolver_access"]["environment"] or [])
         self.access = Access(validation=val, environment=env)
-        # The Evolver's own model endpoint is reachable and its key variable passes: they come with the model the
-        # Evolver was given (its binding), whatever sandbox.allow and sandbox.env list.
-        learner = profile(d["sandbox"], "learner")
-        allow, env_allow, binding = list(learner["allow"]), d["sandbox"].get("env"), self.params.get("binding")
-        if isinstance(binding, dict) and binding.get("base_url"):
-            allow += [u for u in (binding["base_url"], binding.get("messages_url")) if u]
-            if env_allow is not None and binding.get("api_key_env") and binding["api_key_env"] not in env_allow:
-                env_allow = [*env_allow, binding["api_key_env"]]
-        network, wants_proxy = network_mode(d["sandbox"]["network"])
+        # The learner's sandbox (docs/developer/sandbox-design.md): the workspace under fixed names below /w, the
+        # model proxy (its sessions never hold a model key), the Trainer's tool endpoint, and the hosts the run
+        # declares. A Codex learner on a ChatGPT login reaches its plan's hosts (the recorded exception).
+        ev = d["sandbox"]["evolver"]
         records = self.run_dir / "sandbox"
-        self.proxy = AllowlistProxy(allow, log=records / "network.jsonl") \
-            if (network == "isolated" and wants_proxy and allow) else None
-        # The Evolver sees only what it is given: the workspace (read-write), its accesses, its own code, and what
-        # the task lists in sandbox.read. The task, the answers and the run records are not among them.
-        readable = [self.ws.learning_material, self.ws.task_info, self.ws.history, *([val] if val else []), *env,
-                    self.run_dir / "root", self.spec.directory]
-        # What else the run starts has a sandbox of its own (#11): the agent that does the tasks (rollouts, and
-        # run_agent for the Evolver) and the tools a template or task declares.
+        allow = list(ev.get("allowed_hosts") or [])
+        if self.params.get("login") == "chatgpt" or (isinstance(d.get("llm"), dict) and d["llm"].get("login") ==
+                                                       "chatgpt"):
+            allow += [h for h in CHATGPT_HOSTS if h not in allow]
+        self.proxy = AllowlistProxy(allow, log=records / "network.jsonl") if allow else None
+        self.model_proxy = ModelProxy(log=records / "models.jsonl")
+        # What else the run starts has a sandbox of its own: the agent that does the tasks (rollouts, and run_agent
+        # for the Evolver), its judge when sandboxed, and the tools a template or task declares.
         self.pipeline, self._close_pipeline = agent_pipeline(self.config, "rollout", records=records)
+        self.judge = judge_for(self.config, self.pipeline)
         self.tool_runner = ToolRunner(self.config, records=records, work_root=self.run_dir / "tool_calls")
         atexit.register(self._close_sandboxes)
-        self.sandbox = Sandbox(enabled=learner["enabled"], network=d["sandbox"]["network"], allow=allow,
-                               read=[self.config.path(p) for p in learner["read"]], readable=readable,
-                               writable=[self.ws.adapter, self.ws.state, self.ws.scratch, self.ws.output,
-                                         *[self.config.path(p) for p in learner["write"]]],
+        binds = [Bind(self.ws.adapter, "/w/adapter", True), Bind(self.ws.learning_material, "/w/material"),
+                 Bind(self.ws.task_info, "/w/task-info"), Bind(self.ws.history, "/w/history"),
+                 Bind(self.ws.state, "/w/state", True), Bind(self.ws.scratch, "/w/scratch", True),
+                 Bind(self.ws.output, "/w/output", True), Bind(self.run_dir / "root", "/w/root"),
+                 Bind(self.spec.directory, "/w/method")]
+        if val:
+            binds.append(Bind(val, "/w/validation"))
+        names = set()
+        for path in env:
+            name = path.name or "environment"
+            while name in names:
+                name += "_"
+            names.add(name)
+            binds.append(Bind(path, f"/w/environment/{name}"))
+        self.sandbox = Sandbox(enabled=d["sandbox"]["enabled"], network="allowlist" if allow else "no-network",
+                               allow=allow, binds=binds, layout=(self.ws.adapter.parent, "/w"),
                                proxy_url=self.proxy.url if self.proxy else None,
-                               env_allow=env_allow, enforce=d["sandbox"].get("enforce", "required"),
-                               packages=learner["packages"], record_dir=records, audit=d["sandbox"].get("audit"),
-                               # The isolation check inside proves these absent: the task's data and the home.
-                               probe_absent=[self.config.path(d["data"]["tasks"]), *HOME_SECRETS])
+                               env_allow=list(ev.get("env") or []), enforce=d["sandbox"].get("enforce", "required"),
+                               framework=bool(getattr(self.evolver, "sandbox_framework", False)), record_dir=records,
+                               # The isolation check inside proves these absent: the data, the judge, the runs,
+                               # the home's secrets.
+                               probe_absent=[*run_secrets(self.config), *HOME_SECRETS],
+                               limits=dict(ev.get("resources") or {}), role="learner")
+        self.sandbox.model_proxy = self.model_proxy
+        self.sandbox.model_bindings = [b for b in (self.params.get("binding"),) if isinstance(b, dict)]
         resolved = {"config": d, "template": self.template, "tree": str(self.tree.repo), "branch": self.branch,
                     "start": start, "evolver": {"name": self.spec.name, "directory": str(self.spec.directory),
                                                 "class": self.spec.class_path, "needs": self.spec.needs,
@@ -236,8 +246,8 @@ class Trainer:
             mine = read_manifest(path)["template"]
             if mine != self.template:
                 raise SystemExit(f"start_from {value} belongs to template {mine}, not {self.template}")
-            result = check_spec(path, self.run_dir / "root", python=self.python) if (self.run_dir / "root").exists() \
-                else None
+            result = check_spec(path, self.run_dir / "root", python=self.python, enforce=self.enforce) \
+                if (self.run_dir / "root").exists() else None
             if result is not None and not result.passed:
                 raise SystemExit(f"start_from {value} fails check_spec: {result.to_dict()['issues'][:3]}")
             # Import the folder as a node: a commit on an import branch from the root.
@@ -354,7 +364,8 @@ class Trainer:
         tools = assemble(adapter=self.ws.adapter, root=self.run_dir / "root",
                          template_decls=read_manifest(self.run_dir / "root").get("evolver_tools") or [],
                          task_decls=_task_tool_decls(self.config), task_base=self.config.base,
-                         budget=self.budget, agent=tool_agent, python=self.python,
+                         budget=self.budget, agent=tool_agent, python=self.python, enforce=self.enforce,
+                         resolve=self.sandbox.outside,
                          runner=self.tool_runner if self.tool_runner.enabled else None,
                          within=[self.ws.scratch, self.ws.state])
         tools["run_agent"] = self._run_agent_tool()
@@ -364,20 +375,25 @@ class Trainer:
         return tools
 
     def _snapshot_adapter(self, source: Path) -> Path:
-        """A private copy of the adapter the learner names, made inside the learner's own sandbox: a link it swaps
-        in the meantime can only reach what the learner sees, and the rollout gets the copy, which the learner
-        cannot change while it runs."""
+        """A private copy of the adapter the learner names, made inside the learner's own sandbox (a link it swaps in
+        the meantime can only reach what the learner sees), then sanitized on its way out: links that leave the
+        adapter, special files and setuid bits are dropped. The rollout gets the copy, which the learner cannot
+        change while it runs."""
         dest = self.run_dir / "agent_runs" / uuid.uuid4().hex[:12]
-        dest.mkdir(parents=True)
-        if self.sandbox.enabled and shutil.which("bwrap"):
-            args, env = self.sandbox.wrap(["cp", "-a", "--no-preserve=ownership", f"{source}/.", str(dest)],
-                                          writable=[dest])
-            run = subprocess.run(args, env=env, capture_output=True, text=True, timeout=300)
-            if run.returncode != 0:
-                shutil.rmtree(dest, ignore_errors=True)
-                raise ValueError(f"the adapter could not be copied from the workspace: {run.stderr.strip()[-300:]}")
-        else:
-            shutil.copytree(source, dest, symlinks=True, dirs_exist_ok=True)
+        raw = dest.with_name(dest.name + ".raw")
+        raw.mkdir(parents=True)
+        try:
+            if self.sandbox.enabled and shutil.which("bwrap"):
+                args, env = self.sandbox.wrap(["cp", "-a", "--no-preserve=ownership", f"{source}/.", str(raw)],
+                                              writable=[raw])
+                run = subprocess.run(args, env=env, capture_output=True, text=True, timeout=300)
+                if run.returncode != 0:
+                    raise ValueError(f"the adapter could not be copied from the workspace: {run.stderr.strip()[-300:]}")
+            else:
+                shutil.copytree(source, raw, symlinks=True, dirs_exist_ok=True)
+            sanitized_copy(raw, dest)
+        finally:
+            shutil.rmtree(raw, ignore_errors=True)
         return dest
 
     def _run_agent_tool(self) -> FunctionTool:
@@ -388,7 +404,7 @@ class Trainer:
             unknown = [t for t in task_ids if t not in allowed["train"] | allowed["val"]]
             if unknown:
                 raise ValueError(f"only training or validation tasks may be run: {unknown[:5]}")
-            target = Path(adapter) if adapter else self.ws.adapter
+            target = self.sandbox.outside(adapter) if adapter else self.ws.adapter      # a name the learner sees
             if not target.resolve().is_relative_to(self.run_dir.resolve()):
                 raise ValueError("the adapter must be inside the workspace")
             tasks = [self.data.tasks[t] for t in task_ids]
@@ -617,12 +633,13 @@ class Trainer:
             message += f"\n{result.rationale.strip()[:2000]}\n"
         if not self._dirty():
             return [], [], {"passed": True, "note": "adapter unchanged"}
-        check = check_spec(adapter, self.run_dir / "root", python=self.python, parent=parent_copy)
+        check = check_spec(adapter, self.run_dir / "root", python=self.python, parent=parent_copy,
+                           enforce=self.enforce)
         if check.passed:
             commit = Tree.commit(self.checkout, message)
             return [commit] if commit else [], [], check.to_dict()
         invalid = Tree.commit(self.checkout, message + f"\n{INVALID_MARK}\n")
-        final, repaired = repair(adapter, self.run_dir / "root", parent_copy, python=self.python)
+        final, repaired = repair(adapter, self.run_dir / "root", parent_copy, python=self.python, enforce=self.enforce)
         Tree.sync(adapter, self.checkout)
         lines = "\n".join(f"- {r['path']}: restored from {r['restored_from']} ({r['reason']})" for r in repaired)
         fixed = Tree.commit(self.checkout, f"repair {label}: {len(repaired)} file(s)\n\n{lines}\n")
@@ -675,7 +692,8 @@ class Trainer:
                            epochs_done=steps[-1]["epoch"] if steps else 0,
                            steps_done=sum(1 for s in steps if not s.get("bootstrap")),
                            budget=self.budget.snapshot(), settings={
-                               "sandbox": d["sandbox"], "evolver_access": d["evolver_access"],
+                               "sandbox": d["sandbox"], "environment": d["environment"],
+                               "judge_mode": d["judge"].get("mode") or "host", "evolver_access": d["evolver_access"],
                                "validation_given": bool(d["data"].get("val"))},
                            warnings=self.warnings, summary=note, report=report)
         (self.ws.adapter / CARD).parent.mkdir(parents=True, exist_ok=True)
@@ -696,7 +714,9 @@ class Trainer:
 
     def _close_sandboxes(self) -> None:
         for close in (getattr(self, "_close_pipeline", None), getattr(getattr(self, "tool_runner", None), "close", None),
-                      getattr(getattr(self, "proxy", None), "close", None), getattr(getattr(self, "sandbox", None), "close", None)):
+                      getattr(getattr(self, "proxy", None), "close", None),
+                      getattr(getattr(self, "model_proxy", None), "close", None),
+                      getattr(getattr(self, "sandbox", None), "close", None)):
             if close is not None:
                 try:
                     close()

@@ -13,7 +13,7 @@ from hermit.config import Config
 from hermit.agent.evolver.loader import find, instantiate, load_class
 from hermit.spec import check_spec
 from hermit.agent.acting.agent import load_agent
-from hermit.isolate import ROLES, agent_pipeline, config_paths, profile, validate as validate_profiles
+from hermit.isolate import agent_pipeline, config_paths, host_pipeline, judge_for, validate as validate_sandboxes
 from hermit.task import TaskData, load_callable
 from hermit.trainer.rollout import run_one
 from hermit.trainer.trainer import needs_errors, warnings_for
@@ -39,7 +39,8 @@ def run_check(config: Config, *, probe: bool = True, log=print) -> bool:
         start = config.path(d["start_from"]) if d.get("start_from") else template_dir
         problems = []
         if start is not None and (start / MANIFEST).is_file():
-            result = check_spec(start, template_dir)
+            enforce = d["sandbox"].get("enforce", "required") if d["sandbox"]["enabled"] else None
+            result = check_spec(start, template_dir, enforce=enforce)
             problems = [f"{i.path or '-'}: check {i.check}: {i.problem}" for i in result.issues]
         report("template", problems, f"{read_manifest(template_dir)['template']}")
     except Exception as exc:
@@ -91,34 +92,40 @@ def run_check(config: Config, *, probe: bool = True, log=print) -> bool:
     try:
         # A sandboxed agent is loaded only inside its sandbox (the probe below); importing it here would run the
         # task's code in this process.
-        sandboxed = profile(d["sandbox"], "check")["enabled"]
+        sandboxed = host_pipeline(config) is None
         pipeline = True if sandboxed else load_agent(d["agent"]["name"], d["agent"].get("params"), config.base).run
-        judge = load_callable(f"{d['judge']['path']}:{d['judge']['name']}", config.base)
+        judge = load_callable(f"{d['judge']['path']}:{d['judge']['name']}", config.base) \
+            if (d["judge"].get("mode") or "host") == "host" else True
     except Exception as exc:
         problems.append(f"agent/judge: {exc}")
         pipeline = judge = None
     report("task", problems)
-    # Sandbox: paths the task makes readable must exist (an unset variable leaves a path that names nothing).
-    missing = [str(config.path(h)) for h in d["sandbox"]["read"] or [] if not config.path(h).exists()]
-    sandbox_problems = [f"sandbox.read path does not exist: {m}" for m in missing]
+    # Sandboxes: the declared paths must exist (an unset variable leaves a path that names nothing) and hold no
+    # secret; the selected backend must be installed.
+    sandbox_problems = []
     try:
-        validate_profiles(d["sandbox"])
-        # A role's paths: a variable the launcher should have exported, a link prepare.py should have made.
-        for role in ROLES:
-            prof = profile(d["sandbox"], role)
-            for key in ("read", "write", "mask"):
-                for path in config_paths(config, role, key, prof[key]):
-                    if key != "write" and not path.exists():
-                        sandbox_problems.append(f"sandbox.profiles.{role}.{key} path does not exist: {path}")
+        validate_sandboxes(config)
+        env = d["environment"]
+        for key in ("read", "write"):
+            for path in config_paths(config, f"environment.{key}", env.get(key)):
+                if key != "write" and not path.exists():
+                    sandbox_problems.append(f"environment.{key} path does not exist: {path}")
+        for path in config_paths(config, "judge.tests", d["judge"].get("tests")):
+            if not path.exists():
+                sandbox_problems.append(f"judge.tests path does not exist: {path}")
+        for path in config_paths(config, "evolver_access.environment", d["evolver_access"]["environment"]):
+            if not path.exists():
+                sandbox_problems.append(f"evolver_access.environment path does not exist: {path}")
     except ValueError as exc:
         sandbox_problems.append(str(exc))
     if d["sandbox"]["enabled"] and d["sandbox"].get("enforce", "required") == "required" and not shutil.which("bwrap"):
         sandbox_problems.append("sandbox.enforce is required but bubblewrap (bwrap) is not installed")
-    if d["sandbox"].get("audit") == "files" and not shutil.which("strace"):
-        sandbox_problems.append("sandbox.audit is files but strace is not installed")
+    if d["environment"].get("image") and d["sandbox"]["enabled"] and not shutil.which("docker"):
+        sandbox_problems.append("environment.image needs Docker, which is not installed")
+    where = host_pipeline(config) or "the task sandbox (bubblewrap)"
     report("sandbox", sandbox_problems,
-           f"enabled={d['sandbox']['enabled']}, enforce={d['sandbox'].get('enforce', 'required')}, "
-           f"network={d['sandbox']['network']}, env={d['sandbox']['env']}")
+           f"enabled={d['sandbox']['enabled']}, enforce={d['sandbox'].get('enforce', 'required')}, agent: {where}, "
+           f"network={d['environment'].get('network')}, judge={d['judge'].get('mode') or 'host'}")
     # Budgets.
     b = d["trainer"]["budget"]
     report("budgets", [] if any(b.get(k) for k in ("usd", "tokens", "hours")) else ["no hard budget is set"],
@@ -127,9 +134,10 @@ def run_check(config: Config, *, probe: bool = True, log=print) -> bool:
     if probe and data is not None and pipeline is not None and data.splits["train"]:
         task = data.tasks[data.splits["train"][0]]
         t0 = time.time()
-        # The probe runs the agent as a rollout would: in the check role's sandbox (#11), not in this process.
+        # The probe runs the agent as a rollout would: in the task sandbox, not in this process.
         try:
             probe_pipeline, close = agent_pipeline(config, "check", records=None)
+            judge = judge_for(config, probe_pipeline)
         except Exception as exc:
             probe_pipeline, close = None, (lambda: None)
             record = {"status": "error", "error": f"the check sandbox: {exc}", "judge": {"score": 0.0},

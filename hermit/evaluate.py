@@ -8,7 +8,7 @@ import time
 
 from hermit.adapter.manifest import CARD, MANIFEST
 from hermit.config import Config
-from hermit.isolate import agent_pipeline
+from hermit.isolate import agent_pipeline, judge_for
 from hermit.task import TaskData, load_callable
 from hermit.trainer.budget import Budget
 from hermit.trainer.rollout import run_tasks
@@ -22,7 +22,6 @@ def evaluate(config: Config, adapter: str, *, log=print) -> dict:
     tests = data.rows("test")
     if not tests:
         raise SystemExit("eval needs data.test")
-    judge = load_callable(f"{d['judge']['path']}:{d['judge']['name']}", config.base)
     run_name = config.run_name()
     run_dir = config.run_dir()
     from hermit.adapter.manifest import read_manifest
@@ -46,6 +45,7 @@ def evaluate(config: Config, adapter: str, *, log=print) -> dict:
     out = run_dir / "eval" / label
     out.mkdir(parents=True, exist_ok=True)
     pipeline, close = agent_pipeline(config, "eval", records=out / "sandbox")
+    judge = judge_for(config, pipeline)
     budget = Budget()
     t0 = time.time()
     per_task: dict[str, list[float]] = {t["id"]: [] for t in tests}

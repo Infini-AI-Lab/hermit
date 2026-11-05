@@ -127,21 +127,21 @@ def test_direct_and_react_refuse_a_time_limit_they_cannot_keep():
             make(name, {}, FunctionModel(lambda **_: {"content": "x"})).run("hi", limits=Limits(timeout_s=1))
 
 
-def test_a_sandboxed_cli_refuses_data_it_cannot_place_or_hosts_it_cannot_limit(tmp_path):
+def test_a_sandboxed_cli_refuses_what_its_sandbox_cannot_keep(tmp_path):
+    shown = tmp_path / "shown"
+    shown.mkdir()
+
     class Box:
         enabled, network, allow = True, "isolated", ["example.com"]
+        readable, writable, binds = [shown], [], []
 
         def wrap(self, command, **kw):
             return command, kw["env"]
     agent = make("codex", {"web_search": False, "isolation": "sandbox", "sandbox": Box()})
-    data = tmp_path / "data"
-    data.mkdir()
-    with pytest.raises(Unsupported, match="its own path"):
-        agent.run("go", workspace=tmp_path, limits=Limits(readable=[Mount(data, Path("docs"))]))
-    with pytest.raises(Unsupported, match="sandbox.allow"):
+    with pytest.raises(Unsupported, match="allowed hosts"):
         agent.run("go", workspace=tmp_path, limits=Limits(network=[]))
-    with pytest.raises(Unsupported, match="did not isolate"):        # a wrap without bubblewrap hides nothing
-        agent.run("go", workspace=tmp_path, limits=Limits(hidden=[tmp_path / "secret"]))
+    with pytest.raises(Unsupported, match="lies in what the sandbox shows"):    # an allowlist shows what it grants
+        agent.run("go", workspace=tmp_path, limits=Limits(hidden=[shown / "secret"]))
 
 
 def test_an_interrupted_caller_stops_the_session(tmp_path):
@@ -595,18 +595,24 @@ def test_without_isolation_data_is_linked_inside_the_workspace_only(tmp_path):
     assert (work / "docs").resolve() == new
 
 
-def test_the_sandbox_places_a_relative_target_under_the_workspace(tmp_path, monkeypatch):
+def test_the_sandbox_shows_a_mount_at_its_target(tmp_path):
+    """A mount is a bind in the run's sandbox: shown under its target (a relative one under the workspace), not at
+    its own path."""
+    seen = {}
+
     class Box:
         enabled, network, allow = True, "isolated", []
 
         def wrap(self, command, **kw):
+            seen.update(kw)
             return command, kw["env"]
-    data = tmp_path / "data"
+    data, work = tmp_path / "data", tmp_path / "work"
     data.mkdir()
-    monkeypatch.chdir(tmp_path)                                           # "data" from here is the source itself
-    with pytest.raises(Unsupported, match="its own path"):
-        make("codex", {"web_search": False, "isolation": "sandbox", "sandbox": Box()}).run(
-            "go", workspace=tmp_path / "work", limits=Limits(readable=[Mount(data, Path("data"))]))
+    work.mkdir()
+    make("codex", {"web_search": False, "isolation": "sandbox", "sandbox": Box(), "bin": "true"}).run(
+        "go", workspace=work, limits=Limits(readable=[Mount(data, Path("docs")), Mount(data, Path("/data"))]))
+    assert (data, str(work.resolve() / "docs"), False) in seen["binds"] and (data, "/data", False) in seen["binds"]
+    assert seen["chdir"] == work.resolve()
 
 
 def test_a_call_given_up_while_a_proxy_holds_its_connect_stops(monkeypatch):

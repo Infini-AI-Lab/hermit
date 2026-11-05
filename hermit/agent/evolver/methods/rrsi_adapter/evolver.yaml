@@ -19,10 +19,6 @@ params:
                              # or a binding), removed after the session
   tools: [check_spec]        # the proposer's only Trainer tool: it does not run evaluations (the smoke is the Evolver's)
   web_search: false          # web search, set explicitly: Codex's hosted search runs at the provider, past the sandbox
-  hide: null                 # more paths hidden from the proposer and the roles, or "module:<name>" for an installed
-                             # package, as AgentEvolver's hide (with the run's sandbox on, the learning material, the
-                             # state and the rest of the run's records always are; with it off, nothing is)
-  domain: null               # the benchmark's domain, <file>.py:<Class> relative to the run config (an AdapterDomain)
   rrsi: {}                   # RRSI's hyperparameters (upstream's RRSIConfig fields), or a path to an rrsi.json;
                              # any other key is refused (a domain's own rrsi.json keys, `notes`), "_" keys are comments;
                              # so are the fields read nowhere here (the models: evolver.model and roles.model; an
