@@ -74,6 +74,13 @@ def tmp_path():
         shutil.rmtree(path, ignore_errors=True)
 
 
+def not_installed(monkeypatch, program):
+    """`program` is not on PATH as far as the Evolver looks it up; every other program still is (hiding a whole PATH
+    directory would also hide git when the CLI lives in /usr/bin)."""
+    which = shutil.which
+    monkeypatch.setattr(shutil, "which", lambda cmd, *a, **k: None if cmd == program else which(cmd, *a, **k))
+
+
 # The task's source material, written slowly enough that two stages gathering it at once would collide.
 SOURCES = r'''
 import time
@@ -132,8 +139,7 @@ def test_a_step_without_editor_sessions_is_marked_failed(tmp_path):
 def test_every_task_starts_from_h0_and_a_run_continues_the_stream_from_its_library(tmp_path, monkeypatch):
     """Every task of a stream starts from H0 and only the library carries; a second run continues the finished
     stream from that library, also where no Claude Code is installed (the pin and the continuation's check agree)."""
-    monkeypatch.setenv("PATH", os.pathsep.join(d for d in os.environ["PATH"].split(os.pathsep)
-                                               if not (Path(d) / "claude").exists()))
+    not_installed(monkeypatch, "claude")
     first = run(tmp_path)                                                 # t0, t1, t2
     steps = [json.loads(l) for l in (first / "steps.jsonl").read_text().splitlines()]
     assert [s["tasks"] for s in steps] == [["t0"], ["t1"], ["t2"]]
@@ -189,8 +195,7 @@ def test_every_task_starts_from_h0_and_a_run_continues_the_stream_from_its_libra
 def test_a_codex_run_keeps_the_codex_pin_where_no_codex_is_installed(tmp_path, monkeypatch):
     """`backend: codex` with no Codex installed pins the bare name `codex` for the whole run: the step's report does
     not re-pin it as `claude`, which a continuation would then refuse."""
-    monkeypatch.setenv("PATH", os.pathsep.join(d for d in os.environ["PATH"].split(os.pathsep)
-                                               if not (Path(d) / "codex").exists()))
+    not_installed(monkeypatch, "codex")
     first = run(tmp_path, backend="codex")
     assert (first / "workspace" / "state" / "claude_bin.txt").read_text().strip() == "codex"
     reports = [json.loads((first / f"step_{n:04d}" / "step_result.json").read_text())["extra"]["harness2"]
