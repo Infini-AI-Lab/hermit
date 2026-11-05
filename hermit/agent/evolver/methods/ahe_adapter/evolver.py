@@ -395,8 +395,13 @@ class AHEAdapterEvolver(AgentEvolver):
         start_md = start_md.replace("{date}", datetime.now().strftime("%Y-%m-%d")).replace("{step_dir}", name)
         start_md = D.for_stream(start_md, stream)
         prompt = evolve_prompt(start_md, query, ws.scratch)
-        # a manifest an earlier session left (one naming a later iteration was refused then) is never this step's
-        (state / MANIFEST).unlink(missing_ok=True)
+        # a manifest an earlier session left (one naming a later iteration was refused then) is never this step's,
+        # nor is a directory made in its place
+        left = state / MANIFEST
+        if left.is_dir() and not left.is_symlink():
+            shutil.rmtree(left)
+        else:
+            left.unlink(missing_ok=True)
         e0 = time.monotonic()
         local, stop = D.deadline_cancel(ctx.cancel, p.get("evolve_timeout_s"))
         try:

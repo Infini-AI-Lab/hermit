@@ -53,8 +53,8 @@ def run(task, adapter):
 # The scripted codex. A Debugger call works in its job directory (question.md) and writes answer.md there (the
 # manifest lists AGENTS.md alone, as START.md says ADAPTER.md is the Evolver's copy); an Evolve call works in the
 # Evolver's workspace, whose manifest block names the step (`"iteration": N`). Both read their prompt on stdin.
-# AHE_FAKE_* variables select the variants the tests need (AHE_FAKE_NO_MANIFEST and AHE_FAKE_WRONG_ITERATION: at the
-# step they name).
+# AHE_FAKE_* variables select the variants the tests need (AHE_FAKE_NO_MANIFEST, AHE_FAKE_WRONG_ITERATION and
+# AHE_FAKE_MANIFEST_DIR: at the step they name).
 FAKE_CODEX = r'''#!/usr/bin/env python3
 import json, os, re, sys, time
 from pathlib import Path
@@ -110,7 +110,9 @@ plan = {1: ("Always add the numbers.", {"type": "new", "predicted_fixes": ["add-
 line, change = plan.get(step, plan[3])
 (adapter / "AGENTS.md").write_text(seed + "\n- " + line + "\n")
 (adapter / "ADAPTER.md").write_text((adapter / "AGENTS.md").read_text())
-if os.environ.get("AHE_FAKE_NO_MANIFEST") != str(step):         # else none: an earlier step's may be left there
+if os.environ.get("AHE_FAKE_MANIFEST_DIR") == str(step):        # a directory where the manifest goes
+    (root / "state" / "change_manifest.json").mkdir()
+elif os.environ.get("AHE_FAKE_NO_MANIFEST") != str(step):       # else none: an earlier step's may be left there
     (root / "state" / "change_manifest.json").write_text(json.dumps({
         "iteration": step + 1 if os.environ.get("AHE_FAKE_WRONG_ITERATION") == str(step) else step,
         "changes": [{"id": "chg-1", "description": "prompt rule: " + line, "files": ["AGENTS.md"],
@@ -321,6 +323,17 @@ def test_a_manifest_of_another_iteration_or_none_is_archived_empty_and_warned(tm
     result = json.loads((tmp_path / "runs/toy-run/step_0002/step_result.json").read_text())
     assert result["extra"]["manifest"] == {"iteration": 2, "changes": [], "note": archived["note"]}
     assert any("unattributable" in w for w in result["extra"]["warnings"])
+
+
+def test_a_directory_left_where_the_manifest_goes_is_cleared_for_the_next_step(tmp_path, monkeypatch):
+    """Step 1's session makes change_manifest.json a directory: step 1 archives an empty manifest, and step 2's session
+    still runs and its manifest is taken."""
+    monkeypatch.setenv("AHE_FAKE_MANIFEST_DIR", "1")
+    cfg = Config.load(_task(tmp_path), ["trainer.epochs=2"])
+    Trainer(cfg, log=lambda *_: None).train()
+    state = _state(tmp_path, 2)
+    assert json.loads((state / "manifests/step_0001.json").read_text())["changes"] == []
+    assert [c["id"] for c in json.loads((state / "manifests/step_0002.json").read_text())["changes"]] == ["chg-1"]
 
 
 def test_evolve_timeout_stops_the_session_and_keeps_its_edits(tmp_path, monkeypatch):
