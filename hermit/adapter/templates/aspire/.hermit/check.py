@@ -4,10 +4,11 @@ The surface:
     ADAPTER.md            the actor's instructions above the library, never empty
     skills/README.md      the index: links every skill file, and only files that exist
     skills/<topic>.md     frontmatter `description:`; entries under `## <title>`, each with **Failure signature.**,
-                          **When to apply.** and **Provenance.**, each at the start of a line; every fenced snippet
-                          runs under the CaP program rules (ASPIRE cap_harness/runtime.py `_ProgramValidator`: only
-                          `import math`, no names or attributes starting with `_`, no class, with, global, nonlocal,
-                          del or async)
+                          **When to apply.** and **Provenance.**, each at the start of a line
+Every ```python snippet runs under the CaP program rules (ASPIRE cap_harness/runtime.py `_ProgramValidator`: only
+`import math`, no names or attributes starting with `_`, no class, with, global, nonlocal, del or async) and names no
+privileged access. The whole library is at most 100,000 bytes (the actor's context holds it whole), and a staged
+`skills/proposed.md` never stays.
 """
 from __future__ import annotations
 
@@ -18,7 +19,8 @@ import re
 OWN = frozenset({"ADAPTER.md", "exports.yaml", "README.md", "interface.py"})
 SKILL = re.compile(r"skills/([a-z0-9][a-z0-9_\-]*)\.md")
 FIELDS = ("**Failure signature.**", "**When to apply.**", "**Provenance.**")
-FENCE = re.compile(r"```[^\n]*\n(.*?)```", re.S)            # every fenced block, labelled or not
+FENCE = re.compile(r"```(?:python|py)[ \t]*\n(.*?)```", re.S)   # program snippets (other fences are prose)
+LIBRARY_MAX = 100_000      # bytes of ADAPTER.md, the index and every skill file: what the actor's context carries
 LINK = re.compile(r"\]\(([A-Za-z0-9_\-]+\.md)\)")
 # Privileged access a generated program must never use (ASPIRE's provenance rule), named in code or prose
 PRIVILEGED = re.compile(r"\b(?:env\.sim|sim\.(?:data|model)|sim\.forward|check_success|get_reward|"
@@ -98,10 +100,10 @@ def problems(adapter: Path) -> list[dict]:
             missing = [f for f in FIELDS if not any(line.startswith(f) for line in body.split("\n"))]
             if missing:
                 issue(rel, f"{rel} § {title}: missing {', '.join(missing)}")
-            found = PRIVILEGED.search(body)
-            if found:
-                issue(rel, f"{rel} § {title}: names privileged access ({found.group(0)}), which programs must not use")
             for snippet in FENCE.findall(body):
+                found = PRIVILEGED.search(snippet)
+                if found:
+                    issue(rel, f"{rel} § {title}: the snippet uses privileged access ({found.group(0)})")
                 why = program_problem(snippet)
                 if why:
                     issue(rel, f"{rel} § {title}: the snippet would be refused by the program sandbox: {why}")
@@ -113,4 +115,10 @@ def check(adapter_path: str) -> list[dict]:
     if not (adapter / "skills").is_dir():
         # Never pass an adapter this check cannot see (under bubblewrap, /tmp is an empty tmpfs).
         return [{"path": "skills", "problem": f"no aspire adapter at {adapter} (skills/ missing or not visible)"}]
-    return problems(adapter)
+    issues = problems(adapter)
+    total = sum(p.stat().st_size for p in [adapter / "ADAPTER.md", *(adapter / "skills").glob("*.md")]
+                if p.is_file() and p.name != "proposed.md")
+    if total > LIBRARY_MAX:
+        issues.append({"path": "skills", "problem": f"the library is {total} bytes, past {LIBRARY_MAX}: the actor's "
+                                                    f"context must hold it whole; merge or retire entries"})
+    return issues

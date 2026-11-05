@@ -69,9 +69,14 @@ only if a fresh verifier re-solves the task from the library and the proposals a
    ```
 
    `./launch.sh eval --adapter final` reruns every task with the final library (the test split's `rerun-*` rows):
-   ASPIRE's backward transfer, compared per task with the task's first pass during training (the training run's
-   `state/aspire.json` keeps the first-pass scores; the rerun's are in the eval's results). `--adapter root` is the
-   empty library and `--adapter none` no library at all: the baselines on the same seeds.
+   ASPIRE's backward transfer, compared per task with the task's first pass during training (each training step's
+   score in the run's `steps.jsonl`; the rerun's in the eval's results). `--adapter root` is the empty library and
+   `--adapter none` no library at all: the baselines on the same seeds.
+
+   The protocol is ASPIRE's: each task learns on its development seeds and is scored once on held-out seeds; the
+   reruns score the same held-out seeds again, so the comparison reuses that partition (as ASPIRE's Phase 3 does).
+   The first evaluation ran `run.yaml` with `agent.params.eval_seeds=1-50` (half of ASPIRE's 1-100), as
+   `./launch.sh train agent.params.eval_seeds=1-50`, and its reruns with the same override.
 
 ## Protocol
 
@@ -85,6 +90,17 @@ only if a fresh verifier re-solves the task from the library and the proposals a
 | Evolutionary search | ASPIRE's, for a task the fix loop leaves below 90%: K = 8, top 3, stop at 80% or 5 rounds | the same |
 | Verifier | ASPIRE's: 5 seeds (101-105), 2 attempts, verified at ≥ 4/5 | the same |
 | Actor, verifier, coordinator | Codex, GLM 5.3 Flash (Fireworks), reasoning effort medium | the same |
+
+## The actor's rules
+
+The actor's commands run without a sandbox, because they drive a GPU simulator and local services. Its rules
+(ASPIRE's reading rules: no worked solution, no shipped library, no other task's directory; only its own seeds) are
+held three ways: the workspace holds only what it may read (the docs it is allowed, with the lines that name worked
+programs dropped; no repository path in its environment); `bin/sim` runs only its assigned seeds, the unseen check
+once, and a verifier's two programs; and `collect` audits the session after the fact (`utils/task.py:audit`: the
+commands it ran and every run's seed), voiding a session that broke them (score 0, its report not used). The
+audit is detection, not isolation: `bin/sim.json` names the ASPIRE checkout, and a determined session could reach
+it; it would be caught only by the commands it ran.
 
 ## Segmentation without SAM3
 

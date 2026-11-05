@@ -7,7 +7,9 @@
 It runs ASPIRE's `cap-harness` for this workspace's task (benchmark robosuite, the suite and task id, the flat run
 directory, the engine's environment) and refuses what the assignment does not allow: a seed outside the development
 and unseen-check seeds, the unseen-check seeds a second time, and an output root outside the workspace. Settings come
-from `sim.json` beside this file, written by the task's `prepare`.
+from `sim.json` beside this file, written by the task's `prepare`. A verifier may run at most two programs on its
+seeds. These are rules, not a sandbox: the session can reach past them, and the task's `collect` audits it after the
+fact (utils/task.py:audit).
 """
 from __future__ import annotations
 
@@ -51,6 +53,10 @@ def main() -> None:
         if name == "run-batch":
             p.add_argument("--seeds", nargs="+", required=True)
             p.add_argument("--workers", type=int, default=CONFIG["workers"])
+        # flags ASPIRE's templates pass to cap-harness that bin/sim sets itself: accepted, ignored
+        for flag in ("--init-mode", "--log-dir", "--results-jsonl", "--benchmark", "--suite", "--task-id"):
+            p.add_argument(flag, help=argparse.SUPPRESS)
+        p.add_argument("--flat-run-dir", action="store_true", help=argparse.SUPPRESS)
     a = ap.parse_args()
 
     workspace = Path(CONFIG["workspace"]).resolve()
@@ -80,6 +86,15 @@ def main() -> None:
         if ledger.exists():
             refuse("the unseen-check seeds are run once, and they have been run")
         ledger.write_text(json.dumps({"seeds": unseen, "program": str(program)}))
+
+    if a.cmd == "run-batch" and CONFIG.get("max_programs"):
+        # the verifier's attempt budget (ASPIRE: at most two programs on its seeds)
+        attempts = HERE / "attempts.json"
+        used = json.loads(attempts.read_text()) if attempts.exists() else []
+        if str(program) not in used:
+            if len(used) >= CONFIG["max_programs"]:
+                refuse(f"the attempt budget is {CONFIG['max_programs']} programs, and it is spent: {used}")
+            attempts.write_text(json.dumps(used + [str(program)]))
 
     cli = str(root / ".venv-robosuite" / "bin" / "cap-harness")
     common = ["--benchmark", "robosuite", "--suite", CONFIG["suite"], "--task-id", str(CONFIG["task_id"]),

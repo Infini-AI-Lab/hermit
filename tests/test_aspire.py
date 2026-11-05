@@ -1,6 +1,6 @@
-"""ASPIRE: the aspire template (the skill library, its reader and its check), the coordinator's step with a scripted
-model and a stand-in verifier (repairs, the pre-screen, the verifier gate, the file cap, the rollback), and the
-example actor's pure helpers (no simulator, no model, no network)."""
+"""ASPIRE: the aspire template (the skill library, its reader and its check), the coordinator's hook into the
+Trainer (next_tasks), and the example's Codex task functions (prompt assembly, the workspace, bin/sim's rules, the
+after-the-fact audit, the judge) and pure helpers; no simulator, no model, no network."""
 import importlib.util
 import json
 import os
@@ -97,11 +97,18 @@ def test_check_refuses_staged_proposals_privileged_access_and_reads_headings_in_
     commented = ENTRY.replace("if not found.ok:", "## a comment, not a heading\nif not found.ok:")
     grasp.write_text(grasp.read_text().replace("(no entries yet)\n", commented))
     assert spec(adapter)["passed"]
+    prose = ENTRY.replace("## Re-localize after the approach", "## Warned").replace(
+        "Localize again", "Never read env.sim.data; localize again")
+    bash = "```bash\nbin/sim run --seed 101\n```\n"
+    grasp.write_text(grasp.read_text() + "\n" + prose.replace("**Provenance.**", bash + "**Provenance.**"))
+    assert spec(adapter)["passed"]                 # a warning in prose and a shell fence are not program snippets
     grasp.write_text(grasp.read_text() + "\n" + ENTRY.replace("## Re-localize after the approach", "## Peek")
-                     .replace("Localize again", "Read env.sim.data to localize again"))
+                     .replace("target = found.geometry.pose.position", "target = env.sim.data.qpos"))
     (adapter / "skills" / "proposed.md").write_text(ENTRY)
+    (adapter / "skills" / "transport.md").write_text((adapter / "skills" / "transport.md").read_text() + "x" * 100_000)
     problems = " ".join(i["problem"] for i in spec(adapter)["issues"])
-    assert "Peek: names privileged access (env.sim)" in problems
+    assert "Peek: the snippet uses privileged access (env.sim)" in problems
+    assert "past 100000" in problems
     assert "skills/proposed.md stages proposals for a verifier only" in problems
 
 
@@ -229,7 +236,9 @@ def fake_aspire(tmp: Path) -> Path:
                                                   "## EVAL SET LOCKOUT\nsearch text\n```\n")
     (evosearch / "skills" / "evosearch-iteration.md").write_text("# iteration\n")
     for name in ("api-reference.md", "run-artifacts.md", "robosuite.md"):
-        (root / "docs" / name).write_text(f"# {name}\n")
+        (root / "docs" / name).write_text(f"# {name}\nrun examples/robosuite/cube_lifting_seed1.py\nkept\n")
+    (skills / "skills").mkdir()
+    (skills / "skills" / "task-exploration.md").write_text("# exploration\n")
     return root
 
 
@@ -269,12 +278,74 @@ def test_prepare_lays_out_the_workspace_and_bin_sim_refuses_unassigned_seeds(tmp
               params, tmp_path)
     assert (work / "proposed_skills.md").read_text() == ENTRY
     T.prepare({"id": "robosuite-cube_lifting", "suite": "cube_lifting"}, work, params, tmp_path)
-    for name in ("task.md", "docs/api-reference.md", "docs/evosearch-iteration.md", "scripts/scene_snapshot.py",
-                 "bin/sim", "bin/sim.json"):
+    for name in ("task.md", "docs/api-reference.md", "docs/evosearch-iteration.md", "docs/task-exploration.md",
+                 "scripts/scene_snapshot.py", "bin/sim", "bin/sim.json"):
         assert (work / name).is_file(), name
     (work / "p.py").write_text("result = {}\n")
     sim = lambda *args: subprocess.run([str(work / "bin" / "sim"), *args], capture_output=True, text=True, cwd=work)
+    assert "examples/" not in (work / "docs" / "robosuite.md").read_text()
+    assert "kept" in (work / "docs" / "robosuite.md").read_text()
     held_out = sim("run-batch", "--seeds", "1-3", "--program", "p.py", "--output-root", "out")
     assert held_out.returncode == 2 and "not assigned to you" in held_out.stderr
     outside = sim("run", "--seed", "101", "--program", "p.py", "--output-root", str(tmp_path / "elsewhere"))
     assert outside.returncode == 2 and "inside the workspace" in outside.stderr
+
+
+def test_a_verifier_may_run_two_programs(tmp_path):
+    T = _task_module()
+    work = tmp_path / "work"
+    work.mkdir()
+    T.prepare({"id": "verify-x", "suite": "cube_lifting", "role": "verifier", "debug_seeds": "101-105"}, work,
+              {"aspire_root": str(fake_aspire(tmp_path))}, tmp_path)
+    codes = []
+    for name in ("a.py", "b.py", "c.py"):
+        (work / name).write_text("result = {}\n")
+        done = subprocess.run([str(work / "bin" / "sim"), "run-batch", "--seeds", "101-105", "--program", name,
+                               "--output-root", "out", "--init-mode", "saved"], capture_output=True, text=True,
+                              cwd=work)
+        codes.append((done.returncode, done.stderr))
+    assert "attempt budget" not in codes[0][1] and "attempt budget" not in codes[1][1]
+    assert codes[2][0] == 2 and "attempt budget is 2 programs" in codes[2][1]
+
+
+def test_the_audit_voids_a_session_that_reached_past_its_rules(tmp_path):
+    T = _task_module()
+    root = fake_aspire(tmp_path)
+    run_dir = tmp_path / "workspaces" / "robosuite-cube_lifting-abc"
+    work, log = run_dir / "work", run_dir / "log"
+    work.mkdir(parents=True)
+    log.mkdir()
+    s = T.settings({"suite": "cube_lifting"}, {"aspire_root": str(root), "debug_seeds": "101-103",
+                                               "unseen_seeds": "126", "eval_seeds": "1-3"})
+    command = lambda c: json.dumps({"item": {"type": "command_execution", "command": c}}) + "\n"
+    clean = [command("bin/sim run-batch --seeds 101-103 --program code/v00.py --output-root debug/initial"),
+             command(f"cat {run_dir}/work/robosuite/cube_lifting/task_0/fix_code.py"),
+             command("cat > notes.md <<'EOF'\nsee .claude/skills and ../../other\nEOF")]
+    (log / "agent-codex.jsonl").write_text("".join(clean))
+    (work / "debug" / "0101").mkdir(parents=True)
+    (work / "debug" / "0101" / "run.json").write_text('{"seed": 101}')
+    assert T.audit(s, work, log) == []
+    broken = [command(f"cat {root}/.claude/skills/x/cube_lifting_fix_code.py"),
+              command(f"ls {tmp_path}/workspaces/verify-robosuite-cube_lifting-def/work")]
+    (log / "agent-codex.jsonl").write_text("".join(clean + broken))
+    (work / "debug" / "0002").mkdir()
+    (work / "debug" / "0002" / "run.json").write_text('{"seed": 2}')
+    found = " ".join(T.audit(s, work, log))
+    assert ".claude/skills" in found and "verify-robosuite-cube_lifting-def" in found and "seed 2" in found
+
+
+def test_the_judge_scores_the_scored_seeds_and_a_verifier_only_when_verified():
+    sys.path.insert(0, str(EXAMPLE))
+    try:
+        spec_ = importlib.util.spec_from_file_location("aspire_judge", EXAMPLE / "judge.py")
+        J = importlib.util.module_from_spec(spec_)
+        spec_.loader.exec_module(J)
+    finally:
+        sys.path.remove(str(EXAMPLE))
+    out = lambda facts: SimpleNamespace(extra={"task": facts}, output=None)
+    actor = {"role": "actor", "scored_seeds": [1, 2, 3, 4], "scored_passed": 3, "unseen": {"passed": 1, "total": 1}}
+    assert J.score({}, out(actor))["score"] == 0.75
+    verifier = {"role": "verifier", "scored_seeds": [101, 102, 103, 104, 105], "scored_passed": 5}
+    assert J.score({}, out({**verifier, "verification": {"verdict": "verified"}}))["score"] == 1.0
+    assert J.score({}, out({**verifier, "verification": {"verdict": "void"}}))["score"] == 0.0
+    assert J.score({}, out(verifier))["score"] == 0.0
