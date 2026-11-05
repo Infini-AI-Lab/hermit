@@ -1,0 +1,46 @@
+name: Tests
+
+# A pull request runs the test groups it touches (`pytest --changed`, tests/README.md); main, a daily run and a
+# manual run run the whole suite, which also catches what a selection would miss.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 8 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04                # the release checks' runner: the sandbox tests run there
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0                 # --changed compares with the merge base of the base branch
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install the test requirements
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap strace
+          python -m venv "$RUNNER_TEMP/test-env"
+          "$RUNNER_TEMP/test-env/bin/python" -m pip install --upgrade pip
+          # the methods' dependency groups, so their tests run rather than skip (not ace's: it pulls torch)
+          "$RUNNER_TEMP/test-env/bin/python" -m pip install -e '.[test]' \
+            --group gepa --group skillopt --group harness2 --group rrsi
+          echo "$RUNNER_TEMP/test-env/bin" >> "$GITHUB_PATH"
+      - name: The test groups this pull request touches
+        if: github.event_name == 'pull_request'
+        run: python -m pytest -q -rs --changed --base "origin/${{ github.base_ref }}"
+      - name: The whole suite
+        if: github.event_name != 'pull_request'
+        run: python -m pytest -q -rs

@@ -26,6 +26,9 @@ of it does; it is skipped unless `--integration` is given. Some methods' tests (
 `rrsi`) skip themselves without the method's dependency group; the sandbox and MWM tests need Linux and a
 working bubblewrap, and some do not yet skip without it (CONTRIBUTING.md).
 
+CI (`.github/workflows/tests.yml`) runs `--changed` on a pull request and the whole suite on main, daily and on
+demand.
+
 Shared helpers: the repository root's `conftest.py` (the options and the groups), `tests/conftest.py` (a private
 ChatGPT-login directory for every test), `fakes.py` (scripted
 models), `toy_task.py` (the toy task the Trainer tests run on), `fixtures/`.

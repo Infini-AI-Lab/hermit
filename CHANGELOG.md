@@ -18,6 +18,8 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   half (`hermit/harbor/harborside/`: the Codex agent, a scripted agent for smoke tests, the stream driver) runs
   under Harbor's own venv. Streams need the rollout role unconfined (`sandbox.profiles.rollout.enabled: false`)
   for now, as every Docker-driving agent does.
+- A test workflow (`.github/workflows/tests.yml`): a pull request runs the test groups it touches
+  (`pytest --changed`); main, a daily schedule and a manual run run the whole suite.
 
 ### Changed
 

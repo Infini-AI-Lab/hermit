@@ -61,7 +61,8 @@ SHARED = ["hermit/agent/__init__.py", "hermit/agent/base/*", "hermit/agent/actin
           "hermit/runtime/*", "hermit/adapter/*.py", "hermit/config.py", "hermit/defaults.yaml", "hermit/tools.py",
           "hermit/task.py", "hermit/__init__.py", "hermit/adapter/templates/prompt_only/*",   # the toy task's
           "pyproject.toml", "conftest.py", "tests/conftest.py", "tests/fakes.py",
-          "tests/toy_task.py", "tests/selection.py"]
+          "tests/toy_task.py", "tests/selection.py",
+          ".github/workflows/tests.yml"]                    # how CI runs them: a change to it runs them all
 # the rest of the framework, the templates no method group owns, the documentation's examples: the core group
 CORE = ["hermit/*", "tests/core/*", "docs/_examples/*"]
 # nothing to run: documentation, and files no test reads
