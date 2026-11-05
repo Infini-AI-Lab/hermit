@@ -1,0 +1,52 @@
+# Smoke: two tasks, three development seeds, one unseen-check seed, three held-out seeds; Codex acting (ASPIRE's
+# fix-loop subagent and verifier prompts) and coordinating, GLM 5.3 Flash. Started by launch.sh:
+#   ASPIRE_CONFIG=smoke.yaml ./launch.sh
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/smoke.txt
+  val: ../utils/splits/verify.txt   # the verifier's rows: run only by the coordinator, through run_agent
+  test: ../utils/splits/smoke_rerun.txt
+  step_size: 1
+  shuffle: false
+task_info: ../utils/task-info
+agent:
+  base: codex
+  concurrency: 1
+  params:
+    prompt: ../utils/task.py:prompt
+    prepare: ../utils/task.py:prepare
+    answer: ../utils/task.py:answer
+    collect: ../utils/task.py:collect
+    workspaces: ../runs/workspaces
+    aspire_root: $ASPIRE_ROOT
+    sim_env: {}                     # launch.sh fills it from ASPIRE_SIM_ENV
+    debug_seeds: 101-103
+    unseen_seeds: "126"
+    eval_seeds: 1-3
+    workers: 3
+  model: {ref: fireworks/accounts/fireworks/models/glm-5p3-flash, effort: medium}
+  codex:
+    web_search: false
+    timeout_s: 5400
+    isolation: none                 # the session drives the GPU simulator through bin/sim
+    codex_sandbox: danger-full-access
+    shell_env: all
+judge:
+  path: ../utils/judge.py
+template: aspire
+evolver:
+  name: aspire
+  base: codex
+  model: {ref: fireworks/accounts/fireworks/models/glm-5p3-flash, effort: medium}
+  codex: {web_search: false}
+sandbox:
+  enabled: false                    # the actor drives a GPU simulator and local services (see ../README.md)
+trainer:
+  run_name: smoke-aspire
+  output_dir: ../runs
+  tree_dir: ../runs/trees/smoke-aspire
+  epochs: 1
+  call_timeout_min: 240
+  budget: {usd: 10, hours: 8}
+eval:
+  repeats: 1
