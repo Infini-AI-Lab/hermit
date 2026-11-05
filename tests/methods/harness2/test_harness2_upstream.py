@@ -129,9 +129,11 @@ def test_a_step_without_editor_sessions_is_marked_failed(tmp_path):
     assert sorted(r["run_id"].rsplit("/", 1)[-1] for r in scores) == ["agg1", "base1", "dom1", "inv1"]
 
 
-def test_every_task_starts_from_h0_and_a_run_continues_the_stream_from_its_library(tmp_path):
+def test_every_task_starts_from_h0_and_a_run_continues_the_stream_from_its_library(tmp_path, monkeypatch):
     """Every task of a stream starts from H0 and only the library carries; a second run continues the finished
-    stream from that library."""
+    stream from that library, also where no Claude Code is installed (the pin and the continuation's check agree)."""
+    monkeypatch.setenv("PATH", os.pathsep.join(d for d in os.environ["PATH"].split(os.pathsep)
+                                               if not (Path(d) / "claude").exists()))
     first = run(tmp_path)                                                 # t0, t1, t2
     steps = [json.loads(l) for l in (first / "steps.jsonl").read_text().splitlines()]
     assert [s["tasks"] for s in steps] == [["t0"], ["t1"], ["t2"]]

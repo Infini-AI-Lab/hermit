@@ -307,7 +307,8 @@ class Harness2UpstreamEvolver(Evolver):
                 differ.append(key)
         pin = run / "workspace" / "state" / "claude_bin.txt"
         program = "codex" if params.get("backend") == "codex" else "claude"
-        mine = params.get("claude_bin") or os.path.realpath(shutil.which(program) or program)
+        found = shutil.which(program)                    # as _claude pins it: the bare name when it is not installed
+        mine = params.get("claude_bin") or (os.path.realpath(found) if found else program)
         other = theirs.get("claude_bin") or (pin.read_text().strip() if pin.is_file() else "")
         if mine != other and not (Path(mine).is_file() and Path(other).is_file()
                                   and filecmp.cmp(mine, other, shallow=False)):
