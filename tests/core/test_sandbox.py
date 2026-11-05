@@ -602,3 +602,37 @@ def test_a_port_named_in_the_command_is_not_forwarded(tmp_path, monkeypatch):
         box.close()
     forwarded = [a.split("=")[0] for i, a in enumerate(args) if i and args[i - 1] == "--forward"]
     assert forwarded == ["4100", "4200"]
+
+
+def test_a_namespace_package_shows_only_the_distributions_own_part(tmp_path):
+    """google-cloud-storage installs under google/, a namespace shared with other distributions: only its own
+    regular package is shown, not the namespace whole."""
+    from hermit.sandbox import distribution_paths
+    for pkg in ("storage", "bigquery"):
+        (tmp_path / "google" / "cloud" / pkg).mkdir(parents=True)
+        (tmp_path / "google" / "cloud" / pkg / "__init__.py").write_text("")
+    (tmp_path / "google_cloud_storage-1.0.dist-info").mkdir()
+
+    class Dist:
+        files = ["google/cloud/storage/__init__.py", "google_cloud_storage-1.0.dist-info/RECORD"]
+
+        def locate_file(self, f):
+            return tmp_path / f
+    assert distribution_paths([Dist()]) == sorted([tmp_path / "google" / "cloud" / "storage",
+                                                   tmp_path / "google_cloud_storage-1.0.dist-info"])
+
+
+def test_the_closure_follows_extras_asked_for_after_a_first_visit(monkeypatch):
+    """application -> bridge, library[feature]; bridge -> library: library's feature dependency is needed whichever
+    way library is reached first."""
+    import importlib.metadata as md
+    from hermit.sandbox import package_closure
+    requires = {"application": ["library[feature]", "bridge"], "bridge": ["library"],
+                "library": ['feature-dep; extra == "feature"'], "feature-dep": []}
+
+    class Dist:
+        def __init__(self, name):
+            self.name, self.requires = name, requires[name]
+    monkeypatch.setattr(md, "distribution", lambda name: Dist(name) if name in requires else
+                        (_ for _ in ()).throw(md.PackageNotFoundError(name)))
+    assert {d.name for d in package_closure(["application"])} == set(requires)

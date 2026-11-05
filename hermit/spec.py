@@ -214,7 +214,8 @@ def check_spec(adapter: Path, root: Path, *, deploy: bool = True, python: str | 
     with tempfile.TemporaryDirectory(prefix="ha-spec-") as tmp:
         snapshot = Path(tmp) / "adapter"
         try:
-            sanitized_copy(Path(adapter), snapshot, max_bytes=SNAPSHOT_BYTES)
+            sanitized_copy(Path(adapter), snapshot, max_bytes=SNAPSHOT_BYTES,
+                           exclude=(".git", "__pycache__"))         # what the checks skip anyway
         except ValueError as exc:
             return CheckResult(False, [Issue("", 5, str(exc))])
         issues = library_checks(snapshot, root, deploy=deploy, python=python, parent=parent, enforce=enforce)

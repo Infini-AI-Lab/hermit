@@ -1126,7 +1126,8 @@ def test_the_proposer_and_the_roles_each_see_only_their_own_directory(tmp_path, 
     work = ws.scratch / "rrsi" / "r0A"
     assert a["workspace"] == work and a["settings"]["home"] == work / ".codex-home"
     assert a["settings"]["log"] == ws.output / "r0A" / "session_1.jsonl" and a["settings"]["cancel"] is ctx.cancel
-    assert a["tools"] == [ctx.tools["check_spec"]]            # no run_agent: the smoke is the Evolver's
+    assert len(a["tools"]) == 1 and a["tools"][0] is not ctx.tools["check_spec"]   # check_spec bound to its view;
+                                                                                   # no run_agent (the Evolver's)
     # A proposer's view: its own variant directory (writable) and the task description, nothing else the run keeps.
     view = a["settings"]["sandbox"]
     assert view.writable == [work] and view.readable == [ws.task_info]
@@ -1429,3 +1430,20 @@ def test_a_backend_failure_in_a_proposer_session_is_retried_not_recorded(tmp_pat
     assert "429" in (ws.output / "r0A" / "session_1.jsonl").read_text()       # the failed attempt's log is kept
     assert (ws.output / "r0A" / "session_1.retry1.jsonl").is_file()
 
+
+
+def test_a_proposers_tools_resolve_paths_in_its_own_directory(tmp_path):
+    """check_spec without a path checks the session's candidate, a relative path is the session's own, and a path
+    outside its directory (the run's working copy, another variant's) is refused."""
+    from hermit.agent.base.tool import Tool
+    seen = []
+    tool = Tool("check_spec", "x", lambda path=None: seen.append(path) or {"passed": True},
+                input_schema={"type": "object", "properties": {"path": {"type": "string"}}})
+    work = tmp_path / "scratch" / "rrsi" / "r0A"
+    bound_tool = E._in_view("check_spec", tool, work)
+    bound_tool()
+    bound_tool(path="adapter")
+    assert seen == [str(work / "adapter"), str(work / "adapter")]
+    for outside in ("../r0B/adapter", str(tmp_path / "adapter")):
+        with pytest.raises(ValueError, match="under your directory"):
+            bound_tool(path=outside)

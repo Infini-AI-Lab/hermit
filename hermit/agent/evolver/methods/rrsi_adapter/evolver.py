@@ -275,6 +275,29 @@ NOT_HERE = {"proposer_model": "the proposer's model is the Evolver's own (evolve
             "eval_parallel": "the Trainer evaluates one candidate per step (1 is accepted)"}
 
 
+def _in_view(name: str, tool, work: Path):
+    """A Trainer tool as one proposer session uses it: a path it names (check_spec's, run_agent's adapter) is
+    resolved against the session's own directory, defaults to its candidate (work/adapter), and must lie there: the
+    session neither checks the run's working copy by default nor reaches another variant's files through a tool."""
+    import copy
+    names = {"check_spec": "path", "run_agent": "adapter"}
+    if name not in names:
+        return tool
+    key, fn = names[name], getattr(tool, "fn", tool)
+
+    def call(**arguments):
+        value = arguments.get(key)
+        target = Path(os.path.normpath(work / value)) if value else work / "adapter"
+        if not target.is_relative_to(work):
+            raise ValueError(f"{name} takes a path under your directory ({work.name}/), as your session sees it")
+        return fn(**{**arguments, key: str(target)})
+    if not hasattr(tool, "fn"):                   # a plain function (a test's tools)
+        return call
+    out = copy.copy(tool)
+    out.fn = call
+    return out
+
+
 class RRSIAdapterEvolver(AgentEvolver):
     supports_resume = False             # every session starts afresh from the files of its round
 
@@ -948,7 +971,7 @@ class RRSIAdapterEvolver(AgentEvolver):
                               extra={"proposer_fault": True})
         _write(path, prompt)
         allowed = params.get("tools")
-        tools = [t for name, t in ctx.tools.items() if allowed is None or name in allowed]
+        tools = [_in_view(name, t, work) for name, t in ctx.tools.items() if allowed is None or name in allowed]
         # The session sees its own variant directory and the task description, nothing else the run keeps (the
         # learning material, the state, the history, the working copy, the other variants and rounds): the run's
         # evolver sandbox with this view. With the run's sandbox off it runs as every learner of such a run does.

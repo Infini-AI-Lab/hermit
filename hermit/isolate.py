@@ -580,7 +580,9 @@ class SandboxedJudge:
             # The collected paths at the agent's own path, so the answer's references still resolve; nothing else
             # of what the agent left is there.
             binds, writable = [Bind(fresh, str(work), True)], []
-        payload = _run_worker(self.box, job, place, home=home, readable=self.readable, writable=writable,
+        # The log the agent returned is a sanitized copy beside its work directory: the judge reads it there.
+        log_copy = [out.log.parent] if out.log and Path(out.log).parent.name == f"{work.name}.log" else []
+        payload = _run_worker(self.box, job, place, home=home, readable=[*self.readable, *log_copy], writable=writable,
                               env=framework_env(self.agent.model_env), keep=list(self.agent.model_env),
                               forward=self.agent.forward, timeout=self.agent.timeout, binds=binds)
         return payload["result"]

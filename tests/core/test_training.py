@@ -464,3 +464,16 @@ def test_the_host_checks_and_repairs_a_learners_adapter_without_following_its_li
     _sanitize_in_place(adapter)
     assert not (adapter / EXPORTS).exists() and adapter.is_dir()        # the link is gone, nothing points out
     assert secret.read_text() == "q1: [gold-answer-42\n"
+
+
+def test_the_check_snapshot_leaves_out_git_history(tmp_path, monkeypatch):
+    import shutil as _shutil
+    import hermit.spec as spec_module
+    from toy_task import TEMPLATE
+    adapter = tmp_path / "adapter"
+    _shutil.copytree(TEMPLATE, adapter)
+    (adapter / ".git" / "objects").mkdir(parents=True)
+    (adapter / ".git" / "objects" / "old.pack").write_bytes(b"x" * 200_000)       # history, not the adapter
+    monkeypatch.setattr(spec_module, "SNAPSHOT_BYTES", 100_000)
+    result = spec_module.check_spec(adapter, TEMPLATE, deploy=False)
+    assert not any("bytes" in i.problem for i in result.issues)

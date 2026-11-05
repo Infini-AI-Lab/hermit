@@ -58,7 +58,8 @@ class SandboxedServer:
         self.args, self.env = sandbox.wrap(command, readable=readable, writable=writable, home=self.work,
                                            env=env, keep=["PYTHONPATH", ENV_SANDBOX], interpreters=interpreters)
         self.log = self.work / "server.log"
-        self._errlog = open(self.log, "w")
+        # Read back from this descriptor, never by its name: the server can write its directory (a link put there).
+        self._errlog = open(self.log, "w+b")
         self.loop = asyncio.new_event_loop()
         self._ready = threading.Event()
         self._stop: asyncio.Event | None = None
@@ -70,7 +71,8 @@ class SandboxedServer:
         if not self._ready.wait(timeout) or self._failure is not None:
             reason = f"{type(self._failure).__name__}: {self._failure}" if self._failure else "it did not start in time"
             self._errlog.flush()
-            tail = self.log.read_text(errors="replace")[-1500:]
+            self._errlog.seek(max(0, os.fstat(self._errlog.fileno()).st_size - 1500))
+            tail = self._errlog.read().decode(errors="replace")
             self.close()
             raise RuntimeError(f"the sandboxed adapter server did not start ({reason}):\n{tail}")
 

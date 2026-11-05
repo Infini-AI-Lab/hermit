@@ -45,7 +45,11 @@ def evaluate(config: Config, adapter: str, *, log=print) -> dict:
     out = run_dir / "eval" / label
     out.mkdir(parents=True, exist_ok=True)
     pipeline, close = agent_pipeline(config, "eval", records=out / "sandbox")
-    judge = judge_for(config, pipeline)
+    try:
+        judge = judge_for(config, pipeline)
+    except BaseException:
+        close()                      # the pipeline's sandbox and proxies, before the error leaves
+        raise
     budget = Budget()
     t0 = time.time()
     per_task: dict[str, list[float]] = {t["id"]: [] for t in tests}

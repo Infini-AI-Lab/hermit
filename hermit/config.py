@@ -158,9 +158,20 @@ def _override(config: dict, item: str) -> None:
     key, sep, raw = item.partition("=")
     if not sep:
         raise ValueError(f"Overrides look like key.sub=value, got {item!r}")
+    value_keys = []                                   # a whole section given at once: the keys it names too
+
+    def walk(prefix, node):
+        if isinstance(node, dict):
+            for k, v in node.items():
+                value_keys.append(f"{prefix}.{k}")
+                walk(f"{prefix}.{k}", v)
     for moved, where in MOVED.items():
         if key == moved or key.startswith(moved + "."):
             raise ValueError(f"config key {moved} was removed with the old sandbox modes: {where}")
+    walk(key, yaml.safe_load(raw) if raw != "" else None)
+    for name in value_keys:
+        if name in MOVED:
+            raise ValueError(f"config key {name} was removed with the old sandbox modes: {MOVED[name]}")
     value = yaml.safe_load(raw) if raw != "" else None
     parts = key.split(".")
     node, free = config, False

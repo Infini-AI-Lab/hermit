@@ -396,7 +396,7 @@ class Trainer:
                          template_decls=read_manifest(self.run_dir / "root").get("evolver_tools") or [],
                          task_decls=_task_tool_decls(self.config), task_base=self.config.base,
                          budget=self.budget, agent=tool_agent, python=self.python, enforce=self.enforce,
-                         resolve=self.sandbox.outside,
+                         resolve=self.sandbox.outside, snapshot=self._snapshot_adapter,
                          runner=self.tool_runner if self.tool_runner.enabled else None,
                          within=[self.ws.scratch, self.ws.state])
         tools["run_agent"] = self._run_agent_tool()

@@ -66,6 +66,7 @@ def test_the_old_sandbox_keys_are_refused_with_where_they_went(tmp_path):
     clean = make_task(tmp_path / "clean")
     assert "environment.network" in load_error(clean, "sandbox.network=open")          # an override too
     assert "allowlist" in load_error(clean, "evolver.params.hide=null")                # hide, whatever its value
+    assert "environment" in load_error(clean, "sandbox={enabled: true, profiles: {rollout: {network: open}}}")
 
 
 def test_the_sections_are_checked(tmp_path):
@@ -241,6 +242,22 @@ def test_check_spec_takes_a_candidate_under_scratch_or_state_and_nothing_else(tm
     with pytest.raises(ValueError, match="scratch or state"):
         tools["check_spec"](path=str(tmp_path / "elsewhere"))
     assert [p.name for p, _ in seen] == ["adapter", "candidate", "3"] and {e for _, e in seen} == {"required"}
+    # With a snapshot function (the Trainer's copy made inside the learner's sandbox), the copy is what is
+    # checked, never the path the learner can still change; the copy is gone after.
+    copies = []
+
+    def snapshot(source):
+        copy = tmp_path / f"copy{len(copies)}"
+        copy.mkdir()
+        copies.append((source, copy))
+        return copy
+    tools = module.assemble(adapter=tmp_path / "adapter", root=tmp_path, template_decls=[], task_decls=[],
+                            task_base=tmp_path, budget=budget, within=[tmp_path / "scratch"], enforce="required",
+                            resolve=box.outside, snapshot=snapshot)
+    seen.clear()
+    tools["check_spec"](path="scratch/candidate")
+    assert copies[0][0] == tmp_path / "scratch" / "candidate" and seen[0][0] == copies[0][1]
+    assert not copies[0][1].exists()
 
 
 # --- inside a real sandbox ------------------------------------------------------------------------------------------
@@ -413,7 +430,7 @@ def score(task, out):
     read = lambda p: p.read_text() if p.exists() else None
     return {"score": float(out.output == gold.read_text().strip()), "feedback": "", "planted": planted,
             "logged": read(base / "agent" / ".logs" / "note.txt"), "state": read(base / "state" / "planted.txt"),
-            "collected": read(work / "logs" / "answer.txt")}
+            "collected": read(work / "logs" / "answer.txt"), "log": read(Path(out.log)) if out.log else None}
 """
 
 PIPELINE_PLANTS = """
@@ -430,7 +447,8 @@ def run(task, adapter):
     if os.path.isdir(os.path.join(here, "..", "state")):
         open(os.path.join(here, "..", "state", "planted.txt"), "w").write("1")  # state outside its work directory
     gold = "/".join(__file__.split("/")[:-2]) + "/judging/gold.txt"
-    return RunOutput(output="3", extra={"where": work, "gold_visible": os.path.exists(gold)})
+    return RunOutput(output="3", log=os.path.join(work, "logs", "answer.txt"),
+                     extra={"where": work, "gold_visible": os.path.exists(gold)})
 """
 
 
@@ -450,6 +468,7 @@ def test_a_shared_judge_sees_its_tests_the_agent_did_not(tmp_path):
     assert out.extra["gold_visible"] is False                        # the judge's file and tests: not the agent's
     assert verdict["score"] == 1.0 and verdict["planted"] == "1"     # the shared judge sees the agent's work
     assert verdict["logged"] == "log"                                # its .logs as the agent wrote them
+    assert verdict["log"] == "3"                                     # and the returned log (its sanitized copy)
 
 
 @needs_bwrap
@@ -469,6 +488,7 @@ def test_a_separate_judge_gets_only_the_collected_paths(tmp_path):
         agent.close()
     assert verdict["score"] == 1.0 and verdict["planted"] is None    # what the agent left besides logs/: not there
     assert verdict["collected"] == "3"                               # what it collects: there, at the agent's path
+    assert verdict["log"] == "3"                                     # the returned log (its sanitized copy)
     assert (tmp_path / "state" / "planted.txt").exists() and verdict["state"] is None   # nor its writable state
 
 

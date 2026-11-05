@@ -88,7 +88,7 @@ def read_regular(path, limit: int = 1 << 20) -> str | None:
         os.close(fd)
 
 
-def sanitized_copy(source: Path, dest: Path, paths=None, max_bytes: int | None = None) -> list[str]:
+def sanitized_copy(source: Path, dest: Path, paths=None, max_bytes: int | None = None, exclude=()) -> list[str]:
     """Copy `paths` (relative to `source`; all of it when None) into `dest` through a tar archive extracted with
     tarfile's `data` filter: setuid and setgid bits cleared, device files, FIFOs and links that leave the archive
     refused. Returns what was skipped. The archive is a temporary file, not memory; `max_bytes` caps it, checked as
@@ -97,6 +97,8 @@ def sanitized_copy(source: Path, dest: Path, paths=None, max_bytes: int | None =
     with tempfile.TemporaryFile() as buf:
         with tarfile.open(fileobj=buf, mode="w") as tar:
             def keep(info):
+                if exclude and set(Path(info.name).parts) & set(exclude):
+                    return None                                  # left out (`exclude`: names such as .git)
                 if max_bytes is not None and buf.tell() + info.size > max_bytes:
                     raise ValueError(f"{source} holds more than {max_bytes} bytes")
                 return info
@@ -261,32 +263,55 @@ def package_closure(roots: list[str]) -> list[importlib.metadata.Distribution]:
     requirement asks for them). A requirement that is not installed is skipped."""
     from packaging.requirements import Requirement    # a dependency of hermit: pip's own copy is not importable
     seen: dict[str, importlib.metadata.Distribution] = {}
+    asked: dict[str, set] = {}                         # the extras each distribution was asked for so far
     todo = [(name, ()) for name in roots]
     while todo:
         name, extras = todo.pop()
-        if _canonical(name) in seen:
-            continue
-        try:
-            dist = importlib.metadata.distribution(name)
-        except importlib.metadata.PackageNotFoundError:
-            continue
-        seen[_canonical(name)] = dist
-        for text in dist.requires or []:
+        key = _canonical(name)
+        first = key not in seen
+        if first:
+            try:
+                seen[key] = importlib.metadata.distribution(name)
+            except importlib.metadata.PackageNotFoundError:
+                continue
+            asked[key] = set()
+        wanted = set(extras) - asked[key]
+        if not first and not wanted:
+            continue                                   # visited, and asked for nothing more
+        asked[key] |= wanted
+        for text in seen[key].requires or []:
             req = Requirement(text)
-            if req.marker and not any(req.marker.evaluate({"extra": e}) for e in (extras or ("",))):
+            if req.marker is None:
+                if not first:
+                    continue                           # followed on the first visit
+            elif not any(req.marker.evaluate({"extra": e}) for e in ({"", *wanted} if first else wanted)) or \
+                    (not first and req.marker.evaluate({"extra": ""})):
                 continue
             todo.append((req.name, tuple(req.extras)))
     return list(seen.values())
 
 
 def distribution_paths(dists) -> list[Path]:
-    """The top-level entries (package directories, modules, .dist-info) the given distributions installed."""
+    """The entries the given distributions installed: their top-level packages, modules and .dist-info, and below
+    a namespace directory shared with others (google/, a top level without __init__.py) the first regular package on
+    each file's path, or the file itself, so a namespace sibling of another distribution is not shown."""
     out = set()
     for dist in dists:
         for f in dist.files or []:
             parts = Path(f).parts
-            if parts and parts[0] != "..":
-                out.add(Path(dist.locate_file(parts[0])))
+            if not parts or parts[0] == "..":
+                continue
+            root = Path(dist.locate_file(""))
+            top = root / parts[0]
+            if len(parts) == 1 or (top / "__init__.py").exists() or parts[0].endswith((".dist-info", ".egg-info")) \
+                    or not top.is_dir():
+                out.add(top)
+                continue
+            for i in range(2, len(parts) + 1):
+                candidate = root.joinpath(*parts[:i])
+                if i == len(parts) or (candidate / "__init__.py").exists():
+                    out.add(candidate)
+                    break
     return sorted(out)
 
 

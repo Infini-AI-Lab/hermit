@@ -49,8 +49,10 @@ of it, through a sanitized copy.
   path under a name of its own. A `layout` (outside root, inside root) names the working directory a learner is told.
 - Paths under a bound source are translated in the command, the environment and `--chdir`; `relative()` writes them
   relative to the layout's root, as a learner is told them; `outside()` maps a path a learner names back.
-- `network: isolated` gives the process its own namespace with loopback only; every 127.0.0.1 URL in the command or
-  its environment, and the allowlist proxy, is forwarded over a Unix socket by `sandbox_relay.py`. `open` is the host
+- `network: isolated` gives the process its own namespace with loopback only; the ports the caller names (a tool
+  server, a local model server), every 127.0.0.1 URL in the environment, the model proxy and the allowlist proxy are
+  forwarded over a Unix socket by `sandbox_relay.py` (never a URL in the command's arguments, where a prompt can carry
+  the learner's text). `open` is the host
   network. A run config names these `no-network`, `allowlist` (with `allowed_hosts`) and `public`.
 - `env_allow` lists the variables passed (names or patterns such as `MWM_*`); `limits` (memory_mb, file_mb, cpu_s)
   are set on the command by the relay.
@@ -156,6 +158,9 @@ check (`spec`) and host-side renders run the adapter's modules in the same stric
   runner grades each question beside the host it plays). The first and the last call their model from their own loop
   and so hold its key (`SLB_API_KEY`; the litellm key variable the CL-Bench launchers add to `environment.env`).
 - A ChatGPT login is copied into the task sandbox when the acting agent uses one.
+- A program on another interpreter that holds a Session (a benchmark's own venv) starts the adapter server on the
+  framework's Python, whose installation is shown whole: its packages are not filtered to a closure, which the
+  calling interpreter cannot compute.
 
 ## Verification
 

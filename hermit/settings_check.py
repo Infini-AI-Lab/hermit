@@ -135,10 +135,12 @@ def run_check(config: Config, *, probe: bool = True, log=print) -> bool:
         task = data.tasks[data.splits["train"][0]]
         t0 = time.time()
         # The probe runs the agent as a rollout would: in the task sandbox, not in this process.
+        probe_pipeline, close = None, (lambda: None)
         try:
             probe_pipeline, close = agent_pipeline(config, "check", records=None)
             judge = judge_for(config, probe_pipeline)
         except Exception as exc:
+            close()                  # what was started before the error
             probe_pipeline, close = None, (lambda: None)
             record = {"status": "error", "error": f"the check sandbox: {exc}", "judge": {"score": 0.0},
                       "api_speed": None, "cost_usd": None}
