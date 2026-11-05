@@ -419,7 +419,9 @@ class CliAgent(BaseAgent):
             shown = [*getattr(sandbox, "readable", ()), *getattr(sandbox, "writable", ()),
                      *(b.source for b in getattr(sandbox, "binds", ())), *(m.source for m in limits.readable),
                      *(map(Path, s.get("writable") or ())), workspace,           # the session's own, bound writable
-                     *([Path(os.path.expanduser(str(s["home"])))] if s.get("home") else [])]
+                     *([Path(os.path.expanduser(str(s["home"])))] if s.get("home") else []),
+                     # and what every sandbox shows: the system and the interpreter's installation
+                     *map(Path, ("/usr", "/bin", "/sbin", "/lib", "/lib64")), Path(sys.prefix), Path(sys.base_prefix)]
             for path in limits.hidden:
                 if any(_overlap(Path(path), Path(p)) for p in shown):
                     raise Unsupported(f"{path} is to be hidden but lies in what the sandbox shows")
@@ -632,6 +634,13 @@ class CliAgent(BaseAgent):
             if server is not None:
                 server.close()
             _restore_home(home)                         # a home the session replaced: never read or written through
+            if sandbox is not None and getattr(sandbox, "enabled", False):
+                # What the session could write is read and written by the host after it (an Evolver's own code):
+                # no link out of it and no pipe is left there.
+                from hermit.sandbox import drop_unsafe
+                for place in {*map(str, getattr(sandbox, "writable", ())), *map(str, s.get("writable") or ()),
+                              *(str(b.source) for b in getattr(sandbox, "binds", ()) if b.writable)}:
+                    drop_unsafe(place)
             if s.get("login") == "chatgpt":
                 codex_login.keep_refreshed(Path(s.get("login_root") or codex_login.ROOT), home)
                 codex_login.note_usage(codex_login.plan_dir(s.get("plan_dir")), home)

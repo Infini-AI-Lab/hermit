@@ -23,8 +23,8 @@ is Hermit's:
 2. The proposer is a session of the `codex` (or `claude`) Base Agent, as Meta-Harness Adapter's is, instead of
    upstream's JSON-action agent: it edits a copy of the incumbent adapter in place with its own tools and writes
    done.json, whose contract (budget, tags, reserved slot) is upstream's done() check; an invalid done.json, and
-   each critic objection, goes back to the same session (resumed) with upstream's repair text. What it must not
-   see is the call's `Limits.hidden`, which the Base Agent enforces or refuses. A session that fails (exits
+   each critic objection, goes back to the same session (resumed) with upstream's repair text. It sees only its
+   variant's directory and the task description (a view of the run's sandbox). A session that fails (exits
    non-zero) without a proposal fails the step, and the variant is drafted again at the next one.
 3. Candidates are stored as Meta-Harness Adapter stores them (state/candidates/<id>/adapter/ with a digest) and
    checked with check_spec; the smoke is `run_agent` on the domain's smoke tasks.
@@ -824,7 +824,7 @@ class RRSIAdapterEvolver(AgentEvolver):
             ga = R / "global_analysis.json"
             prior = json.loads(ga.read_text()) if ga.is_file() else {}
             # upstream's analyze() renders the traces first; rendered here too, so the digesters' sessions can run
-            # in a copy of them (the state is hidden from every role session)
+            # in a copy of them (no role session's view shows the state)
             from rrsi.analyst import prepare_rendered
             prepare_rendered(dom, traces, rdir / "analysis" / "rendered")
             shared = ctx.workspace.scratch / "rrsi_roles" / f"rendered_r{t}"
@@ -937,10 +937,9 @@ class RRSIAdapterEvolver(AgentEvolver):
 
     def _session(self, ctx, prompt: str, path: Path, work: Path, session: str | None, log: Path) -> StepResult:
         """One proposer session (or a resumed one) of the `codex` or `claude` Base Agent, in the variant's working
-        directory (its candidate under adapter/, its context under context/), with everything else the run keeps
-        hidden (`Limits.hidden`: the run's sandbox covers it, or the Base Agent refuses the call), the Trainer's
-        allowed tools, and its event log at `log`. Its home is the variant's own: a later variant never reads an
-        earlier one's sessions."""
+        directory (its candidate under adapter/, its context under context/) and the task description, nothing else the
+        run keeps (a view of the run's sandbox), the Trainer's allowed tools, and its event log at `log`. Its home is
+        the variant's own: a later variant never reads an earlier one's sessions."""
         params = ctx.params
         backend = params.get("backend", "codex")
         home = work / f".{backend}-home"

@@ -55,8 +55,9 @@ of it, through a sanitized copy.
 - `env_allow` lists the variables passed (names or patterns such as `MWM_*`); `limits` (memory_mb, file_mb, cpu_s)
   are set on the command by the relay.
 - The relay checks the isolation inside before the command starts (outside TCP blocked, forwarded ports open, the
-  probe paths absent) and reports it over a socket; each bubblewrap start leaves a record in the run's `sandbox/`
-  directory.
+  probe paths absent) and reports it over a socket; each start of a task, judge, tool or learner sandbox leaves a
+  record in the run's `sandbox/` directory (the strict spec and render checks keep none: they show only the adapter
+  and the template).
 - `view(...)` gives a method the run's sandbox (network, proxies, environment, enforcement, records, limits) with a
   view of its own in place of the run's binds.
 - `enforce: required` refuses to run without bubblewrap; `best_effort` runs unconfined and records that. With the
@@ -92,7 +93,8 @@ The run config's `judge.mode` says where the judge runs.
 | `shared` | the task sandbox, a new exec over the agent's work directory, with the judge's file and `judge.tests` shown to it alone | the judge reads state in place |
 | `separate` | a sandbox holding only the paths `judge.collect` names, copied from the agent's work through a sanitized archive and shown at the agent's own path | the result can be extracted and must be graded clean |
 
-With the sandbox off every mode runs the judge on the host. A Harbor task set keeps Harbor's own verifier (shared or separate as its `task.toml` says), read back on the host.
+With the sandbox off every mode runs the judge on the host. A Harbor task set keeps Harbor's own verifier (shared or
+separate as its `task.toml` says), read back on the host.
 What a judge's result contains is the task's decision; which splits' results reach the learner is the method's.
 
 ## Evolver sandbox
@@ -106,6 +108,7 @@ The Trainer builds the learner's sandbox with the workspace under fixed names, t
 /w/task-info    the task description                 /w/output      output (writable)
 /w/history      the adapter's history                /w/root        the template's root
 /w/method       the Evolver's directory              /w/validation, /w/environment/<name>  evolver_access
+/w/agent-logs   run_agent's copies of the logs
 ```
 
 The Base Agent translates every host path in the prompt (relative to `/w`), the command, the environment and the
@@ -122,15 +125,16 @@ files and setuid bits are dropped.
 
 ## Model proxy
 
-No bubblewrap sandbox holds a model key. `hermit/model_proxy.py` serves each provider origin on a loopback route; a sandbox gets
-the route in place of the provider's URL and a secret of its own in place of the key, and the proxy puts the real key
-(read from the host's environment) under the same header. A server on the loopback that takes no key (a local vLLM)
-is reached directly; one whose key is set (a meter in front of a provider) is routed. The task sandbox's bindings (`agent.params.binding`, a chat
-agent's model spec) are routed when the sandbox is built; the learner's sessions are routed by the Base Agent, from
-the session's binding or the run's (the Evolver's). Exceptions, recorded: a container (`environment.image`, Harbor) gets the key itself; a Codex ChatGPT login is
-copied in (its
-hosts reached through the allowlist proxy), and a task whose own code calls a model outside the bindings declares
-its key variable in `environment.env`.
+No bubblewrap sandbox holds a model key. `hermit/model_proxy.py` serves each provider origin on a loopback route; a
+sandbox gets the route in place of the provider's URL and a secret of its own in place of the key, and the proxy puts
+the real key (read from the host's environment) under the same header. A server on the loopback that takes no key (a
+local vLLM) is reached directly; one whose key is set (a meter in front of a provider) is routed. The task sandbox's
+bindings (`agent.params.binding`, a chat agent's model spec) are routed when the sandbox is built; the learner's
+sessions are routed by the Base Agent, from the session's binding or the run's (the Evolver's). Exceptions, recorded: a
+container (`environment.image`, Harbor) gets the key itself; a CLI session that names no model reference copies the
+CLI's own login from the user's home (`auth.json`, `.credentials.json`; warned); a Codex ChatGPT login is copied in (its
+hosts reached through the allowlist proxy), and a task whose own code calls a model outside the bindings declares its
+key variable in `environment.env`.
 
 Web search runs at the provider; the CLI setting (`web_search`, required and explicit) switches it off.
 

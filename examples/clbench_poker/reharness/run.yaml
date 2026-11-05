@@ -32,7 +32,7 @@ llm:                                     # the revision and reflection agents; l
 environment:                         # the task sandbox: the host runner, clbench's checkout and venv
   read: [../utils/agent, ../utils/task-info/mwm, $MWM_CLBENCH]
   write: [$MWM_TASK_WORKDIR]       # the run's task directory: evidence, host records
-  env: ["MWM_*", "CLB_*", "MW_*", "REHARNESS_*"]   # the launcher's settings (launch.sh), the reader's relay
+  env: ["MWM_*", "CLB_*", "MW_*", "LITELLM_*", "REHARNESS_*"]   # the launcher's settings, the reader's relay
                                    # + the host's litellm key variable (launch.sh): the benchmark's own loop calls
                                    # its model, the recorded exception (docs/developer/sandbox-design.md)
 sandbox:

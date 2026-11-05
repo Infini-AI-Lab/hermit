@@ -441,10 +441,12 @@ class AHEAdapterEvolver(AgentEvolver):
         if not failed:
             manifest["changes"] = rollback_entries(done) + list(manifest["changes"])
         dump_json(state / "manifests" / f"{name}.json", manifest)
+        from hermit.sandbox import read_regular
         report = ws.output / "report.md"
-        text = report.read_text(encoding="utf-8", errors="replace").strip() if report.is_file() else ""
-        if not text:
-            text = result.summary
+        text = (read_regular(report) or "").strip()        # the session's file: never through a link or a pipe
+        if not text or report.is_symlink() or not report.is_file():
+            text = text or result.summary
+            report.unlink(missing_ok=True)                   # what was there is replaced, never written through
             report.write_text(text + "\n", encoding="utf-8")
         if warnings:
             append_text(report, "\n\n" + "\n".join(warnings) + "\n")

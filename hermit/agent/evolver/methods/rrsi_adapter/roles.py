@@ -4,11 +4,11 @@ Upstream's analyst, digester and critic (rrsi.analyst, rrsi.digester, rrsi.criti
 json_only, ...)`, Claude Opus 4.8 on Vertex AI (rrsi.llm). Here `generate` is rebound in those three modules, for the
 duration of a call, to `Roles.generate`: one call of the `codex` Base Agent (`make("codex", settings).run`,
 docs/framework/agent-layers.md), the way the Evolver's proposer is one, with the role's system text as the session's
-developer instructions and the prompt on stdin. The session runs under the run's sandbox with the workspace's records
-hidden (`Limits.hidden`), Codex's own sandbox read-only, in an empty directory, so a role answers from the text it is
-given, as upstream's do; a digester's session runs in the round's rendered traces instead, the directory upstream's
-digester reads with its read_file/grep/bash actions. The reply is the session's last message; with `json_only`,
-upstream's own `extract_json` cuts the JSON out of it, as upstream's `generate` does.
+developer instructions and the prompt on stdin. The session runs in a view of the run's sandbox that shows its own call
+directory and nothing else the run keeps, Codex's own sandbox read-only, in an empty directory, so a role answers from
+the text it is given, as upstream's do; a digester's session runs in the round's rendered traces instead, the directory
+upstream's digester reads with its read_file/grep/bash actions. The reply is the session's last message; with
+`json_only`, upstream's own `extract_json` cuts the JSON out of it, as upstream's `generate` does.
 
 The roles are not calls of the run's model (`ctx.agent`): through the Trainer's chat endpoint a session for a model
 only Codex serves runs in an empty workspace of its own, and a digester there, told its trace is in its working

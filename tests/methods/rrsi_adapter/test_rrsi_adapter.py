@@ -1074,7 +1074,7 @@ def test_the_digesters_shell_is_refused_when_the_sandbox_ran_unconfined(tmp_path
     assert R.SandboxedSubprocess(None).run("true", shell=True).returncode == 0     # the run's sandbox off
 
 
-def test_the_digesters_shell_sees_only_its_working_directory(tmp_path):
+def test_the_digesters_shell_sees_only_its_working_directory(tmp_path, monkeypatch):
     # Upstream's digester runs its shell with cwd = the round's rendered traces: the command runs there, in a view
     # of the run's sandbox that shows that directory alone (read-only); without a cwd, in the traces' copy.
     rendered = tmp_path / "state" / "rrsi" / "r0" / "analysis" / "rendered"
@@ -1085,7 +1085,10 @@ def test_the_digesters_shell_sees_only_its_working_directory(tmp_path):
     VIEWS.clear()
     box = Box()
     box.wrap = lambda command, **kw: (["bwrap", *command], dict(kw.get("env") or {}))     # as a confined run
+    ran = []
+    monkeypatch.setattr(R.subprocess, "run", lambda args, **kw: ran.append(args))          # the view, not bwrap
     R.SandboxedSubprocess(box).run("cat T1.txt", shell=True, cwd=rendered, capture_output=True, text=True)
+    assert ran[-1][0] == "bwrap"
     assert VIEWS[-1].readable == [rendered] and VIEWS[-1].writable == []
     copy = tmp_path / "scratch" / "rrsi_roles" / "rendered_r0"
     copy.mkdir(parents=True)

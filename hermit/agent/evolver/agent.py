@@ -109,7 +109,8 @@ class AgentEvolver(Evolver):
     def settings(self, ctx: Context, backend: str) -> dict:
         """The Base Agent's settings: the learner's CLI in the run's sandbox (whose own isolation is the boundary,
         so the CLI's sandbox is off), with every variable for its commands, a home kept across calls for resume, no
-        clock (the Trainer stops the call), the framework importable."""
+        clock (the Trainer stops the call). The framework is on PYTHONPATH, but the evolver sandbox shows the hermit
+        package only to an Evolver that asks for it (`sandbox_framework`)."""
         params = ctx.params
         env = {**(params.get("env") or {}),
                "PYTHONPATH": str(Path(__file__).resolve().parents[3]) + os.pathsep + os.environ.get("PYTHONPATH", "")}

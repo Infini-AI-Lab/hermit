@@ -33,7 +33,7 @@ evolver_access:
 environment:                         # the task sandbox: the host runner, clbench's checkout and venv
   read: [../utils/agent, ../utils/task-info/mwm, $MWM_CLBENCH]
   write: [$MWM_TASK_WORKDIR]       # the run's task directory: evidence, host records
-  env: ["MWM_*", "CLB_*", "MW_*"]   # the launcher's settings (launch.sh)
+  env: ["MWM_*", "CLB_*", "MW_*", "LITELLM_*"]   # the launcher's settings (launch.sh)
                                    # + the host's litellm key variable (launch.sh): the benchmark's own loop calls
                                    # its model, the recorded exception (docs/developer/sandbox-design.md)
 sandbox:

@@ -96,6 +96,10 @@ def test_a_declared_path_may_not_hold_or_lie_in_a_secret(tmp_path):
     (tmp_path / "t" / "agent" / "old" / "other-run").mkdir(parents=True)
     (tmp_path / "t" / "agent" / "old" / "other-run" / "steps.jsonl").write_text("{}\n")
     assert "a run's records" in load_error(path, "environment.read=[agent]")   # another output directory's run
+    assert "a run's records" in load_error(path, "environment.read=[agent/old/other-run/steps.jsonl]")  # or in one
+    import hermit.isolate as isolate_module
+    with pytest.raises(ValueError, match="too many to search"):
+        isolate_module._run_records(tmp_path / "t", limit=1)
     (tmp_path / "t" / "agent" / "old" / "other-run" / "steps.jsonl").unlink()
     # What the learner reads (evolver_access.environment, shown at /w/environment/<name>) is checked the same way.
     assert "overlaps" in load_error(path, "evolver_access.environment=[.]")
@@ -741,8 +745,8 @@ def test_a_container_agent_runs_from_a_worker_that_sandboxes_the_adapters_code(t
     (tmp_path / "t" / "probe.py").write_text(
         "import os\nfrom hermit.task import RunOutput\n"
         "def run(task, adapter):\n"
-        "    env = os.environ.get\n"
-        "    return RunOutput(output=f\"{env('HA_ADAPTER_SANDBOX')} {env('HA_ADAPTER_SANDBOX_ENFORCE')} {os.getpid()}\")\n")
+        "    sandboxed, enforce = os.environ.get('HA_ADAPTER_SANDBOX'), os.environ.get('HA_ADAPTER_SANDBOX_ENFORCE')\n"
+        "    return RunOutput(output=f'{sandboxed} {enforce} {os.getpid()}')\n")
     config.data["agent"]["name"] = "probe.py:run"
     agent = ContainerAgent(config, "rollout", {}, work_root=tmp_path / "work")
     sandboxed, enforce, pid = agent({"id": "q1"}, None).output.split()
@@ -789,9 +793,22 @@ def test_the_model_proxy_swaps_the_secret_for_the_key_on_the_wire(monkeypatch):
         assert post(routed["base_url"], env["EXAMPLE_KEY"]) == 200
         assert seen[-1] == ("/v1/chat/completions", "Bearer the-real-key")
         assert post(routed["base_url"], "a-guess") == 401 and len(seen) == 1
+        import socket
+        with socket.create_connection(("127.0.0.1", proxy.port)) as raw:       # a body length that reads to EOF
+            rid = routed["base_url"].split("/")[3]
+            raw.sendall(f"POST /{rid}/v1/x HTTP/1.1\r\nHost: x\r\nContent-Length: -1\r\n"
+                        f"Authorization: Bearer {env['EXAMPLE_KEY']}\r\n\r\n".encode())
+            assert b" 400 " in raw.recv(200).split(b"\r\n")[0] + b" "
         monkeypatch.delenv("EXAMPLE_KEY")
         keyless, _ = proxy.route({"base_url": origin + "/v1", "api_key_env": "EXAMPLE_KEY"})
         assert post(keyless["base_url"], None) == 200 and seen[-1][1] is None
     finally:
         proxy.close()
         server.shutdown()
+
+
+def test_a_tasks_own_agent_on_a_cli_base_is_that_cli():
+    from hermit.isolate import _cli_kind
+    assert _cli_kind("agent.py:Custom", {"base": "codex"}) == "codex"
+    assert _cli_kind("agent.py:Custom", {"base": "claude-code"}) == "claude"
+    assert _cli_kind("agent.py:Custom", {}) is None

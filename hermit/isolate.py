@@ -19,8 +19,9 @@ adapter's code in the strict sandbox; a Harbor task set (`agent.name: harbor`) r
 
 The judge runs where `judge.mode` says: `host` in this process on the downloaded answer, `shared` in the task
 sandbox after the agent (a new exec over the same work directory, with `judge.tests` shown to it alone), `separate`
-in a fresh sandbox holding only the paths `judge.collect` names. Declared tools (a template's or task's) run in a
-strict sandbox: their code and the template read-only, the adapter they act on read-write, no network.
+in a fresh sandbox holding only the paths `judge.collect` names. A template's declared tools run in a strict
+sandbox (their code and the template read-only, the adapter they act on read-write, no network); a task's in one
+built from `environment`, like its agent.
 """
 from __future__ import annotations
 
@@ -32,8 +33,6 @@ import re
 import shutil
 import subprocess
 import sys
-import tarfile
-import tempfile
 import threading
 from urllib.parse import urlparse
 import uuid
@@ -41,7 +40,7 @@ import uuid
 from hermit.agent.base import login as codex_login
 from hermit.model_proxy import ModelProxy, rewrite
 from hermit.sandbox import (LIMITS, NETWORK_MODES, PACKAGE, AllowlistProxy, Bind, Sandbox, framework_env,
-                            network_mode, package_closure, program_paths)
+                            network_mode, package_closure, program_paths, sanitized_copy)
 from hermit.task import RunOutput, load_callable, output_record
 
 WORKER = PACKAGE / "worker.py"
@@ -50,7 +49,7 @@ CHATGPT_HOSTS = ["chatgpt.com", "auth.openai.com"]       # a Codex ChatGPT login
 JUDGE_MODES = ("host", "shared", "separate")
 HOME_SECRETS = [Path.home() / ".ssh", Path.home() / ".bashrc"]   # proven absent inside a sandbox
 ENVIRONMENT_LISTS = ("packages", "read", "write", "env", "allowed_hosts")
-RECORDS_WALK = 20000                                     # directories a declared path is searched for run records
+RECORDS_WALK = 50000                                     # directories a declared path is searched for run records
 
 
 def _cli_kind(name, params: dict) -> str | None:
@@ -58,6 +57,8 @@ def _cli_kind(name, params: dict) -> str | None:
     kind = CLI_AGENTS.get(str(name))
     if kind is None and str(name) == "cli":
         kind = {"claude-code": "claude"}.get(params.get("backend", "codex"), params.get("backend", "codex"))
+    if kind is None and params.get("base"):          # a task's own agent on a CLI's Base Agent (agent.base)
+        kind = {"claude-code": "claude"}.get(str(params["base"]), str(params["base"]))
     return kind if kind in CLI_HOMES else None
 
 
@@ -217,13 +218,18 @@ def check_declared(config) -> None:
 
 
 def _run_records(root: Path, limit: int = RECORDS_WALK) -> Path | None:
-    """The first directory under `root` that holds a run's records (its steps.jsonl), walking at most `limit`
-    directories (links not followed); None when there is none within that many."""
-    if not root.is_dir():
+    """The run directory (one holding a steps.jsonl) that `root` lies in, or the first one under it, walking at most
+    `limit` directories (links not followed); past that, ValueError: the path is too large to search."""
+    real = Path(os.path.realpath(root))
+    for directory in [real, *real.parents]:
+        if (directory / "steps.jsonl").is_file():
+            return directory
+    if not real.is_dir():
         return None
-    for walked, (directory, _, files) in enumerate(os.walk(root)):
+    for walked, (directory, _, files) in enumerate(os.walk(real)):
         if walked >= limit:
-            return None
+            raise ValueError(f"{root} holds more than {limit} directories, too many to search for run records; "
+                             "declare a narrower path")
         if "steps.jsonl" in files:
             return Path(directory)
     return None
@@ -346,35 +352,6 @@ def _owned_log(value, roots, binds=()) -> Path | None:
 def _safe(text: str) -> str:
     """A filename-safe slug of a task id (shared with the learning material)."""
     return re.sub(r"[^A-Za-z0-9._-]+", "_", str(text))[:60] or "task"
-
-
-def sanitized_copy(source: Path, dest: Path, paths=None, max_bytes: int | None = None) -> list[str]:
-    """Copy `paths` (relative to `source`; all of it when None) into `dest` through a tar archive extracted with
-    tarfile's `data` filter: setuid and setgid bits cleared, device files, FIFOs and links that leave the archive
-    refused. Returns what was skipped. The archive is a temporary file, not memory; `max_bytes` caps it, checked as
-    each file is added."""
-    skipped = []
-    with tempfile.TemporaryFile() as buf:
-        with tarfile.open(fileobj=buf, mode="w") as tar:
-            def keep(info):
-                if max_bytes is not None and buf.tell() + info.size > max_bytes:
-                    raise ValueError(f"{source} holds more than {max_bytes} bytes")
-                return info
-            for rel in (paths if paths is not None else ["."]):
-                item = Path(source) / rel
-                if not os.path.lexists(item):
-                    skipped.append(f"{rel}: missing")
-                    continue
-                tar.add(str(item), arcname=str(Path(rel)), recursive=True, filter=keep)
-        buf.seek(0)
-        dest.mkdir(parents=True, exist_ok=True)
-        with tarfile.open(fileobj=buf, mode="r") as tar:
-            for member in tar.getmembers():
-                try:
-                    tar.extract(member, dest, filter="data")
-                except tarfile.FilterError as exc:
-                    skipped.append(f"{member.name}: {exc}")
-    return skipped
 
 
 class SandboxedAgent:

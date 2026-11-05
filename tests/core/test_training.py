@@ -120,8 +120,8 @@ def test_run_agent_says_how_a_session_ended_when_the_pipeline_reports_it(tmp_pat
     Trainer(load(path, "trainer.epochs=1"), log=lambda *_: None).train()
     probe = json.loads((tmp_path / "runs/toy-run/step_0001/output/probe.json").read_text())
     assert probe["exit_code"] == 1 and probe["timed_out"] is False and "workspace" not in probe
-    # The log is a copy in the learner's scratch (named as its sandbox shows it: here the sandbox is off).
-    assert "/workspace/scratch/run_agent/" in probe["log"] and "question" in probe["log_text"]
+    # The log is a copy in the run's agent_logs/ (shown at /w/agent-logs; here the sandbox is off: the host path).
+    assert "/toy-run/agent_logs/" in probe["log"] and "question" in probe["log_text"]
 
 
 def test_needs_are_enforced(tmp_path):
@@ -442,3 +442,25 @@ def test_syncing_a_learners_adapter_never_follows_a_link(tmp_path):
     Tree.sync(src, checkout)
     assert sorted(p.name for p in checkout.iterdir()) == ["ADAPTER.md", "alias.md"]
     assert (checkout / "alias.md").is_symlink() and os.readlink(checkout / "alias.md") == "ADAPTER.md"
+
+
+def test_the_host_checks_and_repairs_a_learners_adapter_without_following_its_links(tmp_path):
+    """check_spec reads a sanitized snapshot (a linked exports file is not followed, so its target is not echoed);
+    the Trainer replaces the working copy by its sanitized copy before checking and repairing it, so a repair never
+    writes through a link to a host file."""
+    import shutil as _shutil
+    from hermit.adapter.manifest import EXPORTS
+    from hermit.spec import check_spec
+    from hermit.trainer.trainer import _sanitize_in_place
+    from toy_task import TEMPLATE
+    secret = tmp_path / "answers.jsonl"
+    secret.write_text("q1: [gold-answer-42\n")             # not YAML: a parser's error would quote it
+    adapter = tmp_path / "adapter"
+    _shutil.copytree(TEMPLATE, adapter)
+    (adapter / EXPORTS).unlink()
+    (adapter / EXPORTS).symlink_to(secret)
+    result = check_spec(adapter, TEMPLATE, deploy=False)
+    assert "gold-answer-42" not in json.dumps(result.to_dict())
+    _sanitize_in_place(adapter)
+    assert not (adapter / EXPORTS).exists() and adapter.is_dir()        # the link is gone, nothing points out
+    assert secret.read_text() == "q1: [gold-answer-42\n"

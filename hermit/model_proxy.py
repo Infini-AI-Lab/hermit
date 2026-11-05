@@ -94,7 +94,12 @@ class ModelProxy:
                     headers.pop(name)
                     if real:
                         headers[name] = f"Bearer {real}" if lower == "authorization" else real
-                length = int(self.headers.get("Content-Length") or 0)
+                try:
+                    length = int(self.headers.get("Content-Length") or 0)
+                except ValueError:
+                    return self._refuse(400, "a malformed Content-Length")
+                if self.headers.get("Transfer-Encoding") or length < 0:
+                    return self._refuse(400, "a request body needs one non-negative Content-Length")
                 if length > MAX_BODY:
                     return self._refuse(413, f"a request body over {MAX_BODY} bytes")
                 body = self.rfile.read(length) if length else None

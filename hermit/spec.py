@@ -202,11 +202,26 @@ def template_check(adapter: Path, root: Path, python: str | None = None,
     return [Issue(str(i.get("path", "")), 6, str(i.get("problem", i))) for i in raw or []]
 
 
+SNAPSHOT_BYTES = 256 << 20                  # the largest adapter a check copies
+
+
 def check_spec(adapter: Path, root: Path, *, deploy: bool = True, python: str | None = None,
                parent: Path | None = None, enforce: str | None = "best_effort") -> CheckResult:
-    issues = library_checks(adapter, root, deploy=deploy, python=python, parent=parent, enforce=enforce)
-    if not any(i.check == 3 or is_meta(i.path) for i in issues):
-        issues.extend(template_check(adapter, root, python, enforce))
+    """The checks run on a sanitized snapshot of the adapter (the learner's work, read here on the host): no link
+    that leaves it is followed, no pipe or device is read, and the learner cannot change it while it is checked."""
+    import tempfile
+    from hermit.sandbox import sanitized_copy
+    with tempfile.TemporaryDirectory(prefix="ha-spec-") as tmp:
+        snapshot = Path(tmp) / "adapter"
+        try:
+            sanitized_copy(Path(adapter), snapshot, max_bytes=SNAPSHOT_BYTES)
+        except ValueError as exc:
+            return CheckResult(False, [Issue("", 5, str(exc))])
+        issues = library_checks(snapshot, root, deploy=deploy, python=python, parent=parent, enforce=enforce)
+        if not any(i.check == 3 or is_meta(i.path) for i in issues):
+            issues.extend(template_check(snapshot, root, python, enforce))
+        # A problem names the adapter, not the snapshot.
+        issues = [Issue(i.path, i.check, i.problem.replace(str(snapshot), str(adapter))) for i in issues]
     return CheckResult(not issues, issues)
 
 

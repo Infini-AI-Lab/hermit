@@ -29,10 +29,11 @@ Also needed:
   Responses API ([Run in the Codex harness](#run-in-the-codex-harness)).
 
 The models are backend references ([Model backends](../guides/model-backends.md)). The acting agent is GLM 5.3 Flash
-on Fireworks (`fireworks/accounts/fireworks/models/glm-5p3-flash`, the default of `utils/agent/agent.py`) and the
+on Fireworks (`fireworks/accounts/fireworks/models/glm-5p3-flash`, the configs' `agent.params.model`) and the
 configs' learner (`llm`) GLM 5.3 on Fireworks, both at reasoning effort medium; the paper's learner is GPT-5.5 at
-medium. `model=<backend>/<model id>` on the command line moves the acting agent; the configs set `llm` and keep their
-learner unless `llm=...` is given too. Dollar accounting uses the backend's prices; verify them for your endpoint.
+medium. `agent.params.model=<backend>/<model id>` on the command line moves the acting agent (the task sandbox routes it
+through the run's model proxy); `llm=...` moves the learner. Dollar accounting uses the backend's prices; verify them
+for your endpoint.
 
 The agent acts in one of the paper's two harnesses (`agent.params.harness`), with the question and its parsed source
 pages in either:
@@ -508,7 +509,7 @@ A run's records are under `examples/officeqa/<method>/runs/<run name>/` (`<run>`
 | `<run>/eval/<selector>/summary.json` | `mean_score` over all attempts, `solved_once`, `errors`, `cost_usd` |
 | `<run>/eval/<selector>/results.jsonl` | per attempt: the judge's score and feedback, `tokens`, `wall_s`, log path |
 | `examples/officeqa/<method>/runs/trees/<run name>/` | Git history of the adapter versions |
-| `examples/officeqa/utils/agent/.logs/` | direct-chat rollouts: SkillOpt's prediction files |
+| `<run>/rollout/<task>-<id>/agent-logs/0/` | direct-chat rollouts: SkillOpt's prediction files (each call's own `.logs`, the directory the agent sees beside its file) |
 | `~/.cache/hermit/officeqa-*-codex*/<task>-<id>/` | Codex-harness runs: `work/` (the workspace), `log/` (the session's `agent-codex.jsonl`, prompt, last message, deployment, `task.md`) |
 | `docker logs oq-egress` | every connection the Codex sessions made or were refused |
 

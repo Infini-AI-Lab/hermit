@@ -99,8 +99,9 @@ model keys.
 | judge | the judge, when `judge.mode` is `shared` or `separate` | `judge` |
 | evolver | the learner's sessions and programs | the Trainer's layout, `sandbox.evolver`, `evolver_access` |
 
-A template's declared tools, the spec check and host-side renders run the adapter's modules in a strict sandbox (the
-adapter read-only, no network, no variables).
+A template's declared tools run in a strict sandbox (their code and the template read-only, the adapter they act on
+writable, no network, no variables); the spec check and host-side renders run the adapter's modules in the same
+strict preset with the adapter read-only. A task's declared tools run with `environment`, like its agent.
 
 ### The task sandbox: `environment`
 
@@ -136,9 +137,9 @@ With `sandbox.enabled: false` every mode runs the judge in the Trainer's process
 ### The evolver sandbox: `sandbox`
 
 The learner works in `/w`: `/w/adapter`, `/w/material`, `/w/task-info`, `/w/history`, `/w/state`, `/w/scratch`,
-`/w/output`, `/w/root`, `/w/method`, and `evolver_access` as `/w/validation` and `/w/environment/<name>`; its prompt
-names them relative to `/w`. Its network reaches only the model proxy, the Trainer's tool endpoint and the hosts
-below; a Codex ChatGPT login's hosts are added.
+`/w/output`, `/w/root`, `/w/method`, `/w/agent-logs` (the logs `run_agent` returns, read-only), and `evolver_access` as
+`/w/validation` and `/w/environment/<name>`; its prompt names them relative to `/w`. Its network reaches only the model
+proxy, the Trainer's tool endpoint and the hosts below; a Codex ChatGPT login's hosts are added.
 
 | Setting | Effect |
 |---|---|
@@ -155,13 +156,14 @@ it went.
 
 ### Records
 
-Before each command starts, a check inside its sandbox confirms that an outside connection fails (with an isolated
-network), that every forwarded port answers, and that the run's secrets and the home's `.ssh` and `.bashrc` are
-absent; the command does not start unless it passes. Every bubblewrap start leaves a record, `sandbox/<role>-<n>.json`
-in the run's directory (a container's start, `environment.image` or Harbor, and a pipeline in the host process leave
-none; the run's card records which ran) (`eval` writes its own beside its results): what was bound and under which names, which ports were
-forwarded, which variables passed, and that check. The allowlist proxies log each request to `sandbox/network*.jsonl`
-and the model proxy to `sandbox/models*.jsonl`.
+Before a task, judge, tool or learner sandbox starts its command, a check inside it confirms that an outside
+connection fails (with an isolated network), that every forwarded port answers, and that the run's secrets and the
+home's `.ssh` and `.bashrc` are absent; the command does not start unless it passes. Each such start leaves a
+record, `sandbox/<role>-<n>.json` in the run's directory (`eval` writes its own beside its results): what was bound
+and under which names, which ports were forwarded, which variables passed, and that check. The strict spec and
+render checks (which show only the adapter and the template), a container's start (`environment.image`, Harbor) and
+a pipeline in the host process keep no such record; the run's card records which ran. The allowlist proxies log
+each request to `sandbox/network*.jsonl` and the model proxy to `sandbox/models*.jsonl`.
 
 Giving more read paths or passing more variables changes what a sandbox can access. Warnings are recorded with the
 run.

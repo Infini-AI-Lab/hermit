@@ -535,3 +535,32 @@ def test_tools_served_to_a_sandboxed_session_name_paths_as_it_sees_them(tmp_path
     assert served()["log"] == "/w/scratch/run_agent/t0.txt"
     assert tool()["log"] == str(scratch / "run_agent" / "t0.txt")
     assert inside_tools([tool], Sandbox(enabled=False))[0] is tool
+
+
+def test_what_a_session_left_is_cleared_of_links_out_and_pipes(tmp_path):
+    """After a sandboxed session the host reads and writes its directories (an Evolver's own code): a link out of
+    them or a pipe would turn that elsewhere, so both are removed; a link inside stays."""
+    import os
+    from hermit.sandbox import drop_unsafe
+    (tmp_path / "state" / "a").mkdir(parents=True)
+    (tmp_path / "state" / "a" / "notes.md").write_text("x")
+    (tmp_path / "state" / "history.md").symlink_to("/etc/hostname")        # an append would write the host file
+    (tmp_path / "state" / "alias.md").symlink_to("a/notes.md")
+    (tmp_path / "state" / "a" / "out").symlink_to("/etc")
+    os.mkfifo(tmp_path / "state" / "a" / "report.md")
+    assert sorted(drop_unsafe(tmp_path / "state")) == ["a/out", "a/report.md", "history.md"]
+    assert sorted(p.name for p in (tmp_path / "state").rglob("*")) == ["a", "alias.md", "notes.md"]
+
+
+def test_a_file_granted_writable_at_its_own_path_stays_a_file(tmp_path, monkeypatch):
+    fake_bwrap(monkeypatch)
+    f = tmp_path / "db.sqlite"
+    f.write_text("x")
+    args, _ = Sandbox(network="open", writable=[f]).wrap(["true"])
+    assert f.is_file() and str(f) in binds(args, "--bind")
+
+
+def test_a_path_is_translated_only_where_it_starts(tmp_path):
+    box = Sandbox(binds=[Bind(Path("/data"), "/w/material")], layout=(Path("/ws"), "/w"))
+    assert box.translate("see /data/a and /mirror/data/b") == "see /w/material/a and /mirror/data/b"
+    assert box.relative("open /ws/adapter, not /old/ws/adapter") == "open adapter, not /old/ws/adapter"

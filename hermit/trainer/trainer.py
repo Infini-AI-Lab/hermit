@@ -40,7 +40,7 @@ from hermit.agent.model.llm import ChatClient
 from hermit.isolate import CHATGPT_HOSTS, HOME_SECRETS, ToolRunner, _safe, agent_pipeline, judge_for, \
     run_secrets, sanitized_copy
 from hermit.model_proxy import ModelProxy
-from hermit.sandbox import AllowlistProxy, Bind, Sandbox, inside_tools
+from hermit.sandbox import AllowlistProxy, Bind, Sandbox, drop_unsafe, inside_tools
 from hermit.spec import check_spec, repair
 from hermit.task import TaskData, load_callable
 from hermit.tools import FunctionTool, ToolServer, assemble, evolver_agent
@@ -116,6 +116,24 @@ def _copy_dir(src: Path, dst: Path) -> None:
         dst.mkdir(parents=True)
 
 
+def _sanitize_in_place(path: Path) -> None:
+    """Replace a directory the learner wrote by its sanitized copy (links that leave it, pipes and devices dropped),
+    so that the host's later reads and writes there (the spec check, the repair, the tree) stay inside it. Its own
+    directory is kept (a sandbox may bind it)."""
+    if not path.is_dir() or path.is_symlink():
+        return
+    clean = path.with_name(path.name + f".clean-{uuid.uuid4().hex[:6]}")
+    sanitized_copy(path, clean)
+    for child in list(path.iterdir()):
+        if child.is_dir() and not child.is_symlink():
+            shutil.rmtree(child)
+        else:
+            child.unlink()
+    for child in list(clean.iterdir()):
+        child.rename(path / child.name)
+    clean.rmdir()
+
+
 class Trainer:
     def __init__(self, config: Config, *, python: str | None = None, log=print):
         self.config = config
@@ -145,6 +163,12 @@ class Trainer:
         else:
             self.llm = ChatClient.from_spec(d["llm"]) if d.get("llm") else None
         self.warnings = warnings_for(config, val_given=True)
+        if d["sandbox"]["enabled"] and not self.params.get("binding") and self.params.get("login") != "chatgpt" \
+                and self.params.get("home"):
+            self.warnings.append(f"the Evolver names no model reference: its CLI's own login ({self.params['home']} "
+                                 "from your home) is copied into the learner's sandbox, where the session can read "
+                                 "it (a recorded exception, like a ChatGPT login); name a model to route it through "
+                                 "the model proxy instead.")
 
     # ---------- setup ----------
     def _prepare(self) -> None:
@@ -210,11 +234,12 @@ class Trainer:
         self.judge = judge_for(self.config, self.pipeline)
         self.tool_runner = ToolRunner(self.config, records=records, work_root=self.run_dir / "tool_calls")
         atexit.register(self._close_sandboxes)
+        (self.run_dir / "agent_logs").mkdir(exist_ok=True)       # run_agent's log copies, shown read-only
         binds = [Bind(self.ws.adapter, "/w/adapter", True), Bind(self.ws.learning_material, "/w/material"),
                  Bind(self.ws.task_info, "/w/task-info"), Bind(self.ws.history, "/w/history"),
                  Bind(self.ws.state, "/w/state", True), Bind(self.ws.scratch, "/w/scratch", True),
                  Bind(self.ws.output, "/w/output", True), Bind(self.run_dir / "root", "/w/root"),
-                 Bind(self.spec.directory, "/w/method")]
+                 Bind(self.spec.directory, "/w/method"), Bind(self.run_dir / "agent_logs", "/w/agent-logs")]
         if val:
             binds.append(Bind(val, "/w/validation"))
         names = set()
@@ -437,12 +462,13 @@ class Trainer:
                                                          "adapter": {"type": "string"}}})
 
     def _visible_log(self, result: dict) -> str | None:
-        """A run's log as the learner can open it: a copy under its scratch directory (through the sanitized archive).
-        A host path: a server that serves the tool to a sandboxed session names it as the sandbox shows it."""
+        """A run's log as the learner can open it: a copy (through the sanitized archive) in the run's agent_logs/,
+        which the learner's sandbox shows read-only at /w/agent-logs. A host path: a server that serves the tool to a
+        sandboxed session names it as the sandbox shows it."""
         log = Path(result["log"]) if result.get("log") else None
         if log is None or not os.path.lexists(log):
             return None
-        place = self.ws.scratch / "run_agent" / f"{_safe(result['id'])}-{uuid.uuid4().hex[:6]}"
+        place = self.run_dir / "agent_logs" / f"{_safe(result['id'])}-{uuid.uuid4().hex[:6]}"   # this process's own
         sanitized_copy(log.parent, place, [log.name])
         return str(place / log.name)
 
@@ -562,6 +588,9 @@ class Trainer:
             box, stopped, alive = self._call(what, lambda: method(ctx), progress=progress,
                                              timeout_s=float(d["trainer"]["call_timeout_min"]) * 60, cancel=cancel)
         evolver_s = time.time() - e0
+        # What the learner could write is read by this process from here on: no link out of it, no pipe in it.
+        for place in (self.ws.adapter, self.ws.state, self.ws.scratch, self.ws.output):
+            drop_unsafe(place)
         result: StepResult
         if "error" in box:
             result = StepResult("failed", f"{what} raised {type(box['error']).__name__}: {box['error']}")
@@ -642,6 +671,7 @@ class Trainer:
         if result.status in ("failed", "out_of_budget"):
             return [], [], {"skipped": f"status {result.status}: the previous adapter stays"}
         adapter = self.ws.adapter
+        _sanitize_in_place(adapter)          # the checks, the repair and the tree read and write only what is in it
         parent_copy = self.tree.export(parent, self.run_dir / "parent_adapter")
         Tree.sync(adapter, self.checkout)
         message = (f"{label} [{self.spec.name}]: {result.summary}\n\n"

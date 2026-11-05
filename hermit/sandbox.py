@@ -41,6 +41,7 @@ import socketserver
 import stat
 import subprocess
 import sys
+import tarfile
 import tempfile
 import threading
 from typing import NamedTuple
@@ -84,6 +85,59 @@ def read_regular(path, limit: int = 1 << 20) -> str | None:
         return os.read(fd, limit).decode("utf-8", errors="replace")
     finally:
         os.close(fd)
+
+
+def sanitized_copy(source: Path, dest: Path, paths=None, max_bytes: int | None = None) -> list[str]:
+    """Copy `paths` (relative to `source`; all of it when None) into `dest` through a tar archive extracted with
+    tarfile's `data` filter: setuid and setgid bits cleared, device files, FIFOs and links that leave the archive
+    refused. Returns what was skipped. The archive is a temporary file, not memory; `max_bytes` caps it, checked as
+    each file is added."""
+    skipped = []
+    with tempfile.TemporaryFile() as buf:
+        with tarfile.open(fileobj=buf, mode="w") as tar:
+            def keep(info):
+                if max_bytes is not None and buf.tell() + info.size > max_bytes:
+                    raise ValueError(f"{source} holds more than {max_bytes} bytes")
+                return info
+            for rel in (paths if paths is not None else ["."]):
+                item = Path(source) / rel
+                if not os.path.lexists(item):
+                    skipped.append(f"{rel}: missing")
+                    continue
+                tar.add(str(item), arcname=str(Path(rel)), recursive=True, filter=keep)
+        buf.seek(0)
+        dest.mkdir(parents=True, exist_ok=True)
+        with tarfile.open(fileobj=buf, mode="r") as tar:
+            for member in tar.getmembers():
+                try:
+                    tar.extract(member, dest, filter="data")
+                except tarfile.FilterError as exc:
+                    skipped.append(f"{member.name}: {exc}")
+    return skipped
+
+
+def drop_unsafe(root) -> list[str]:
+    """Remove from a directory a sandboxed session could write what would turn the host's later reads and writes
+    there elsewhere: links that leave it, and anything not a regular file, directory or link (a pipe, a socket, a
+    device). Nothing is followed. Returns what was removed, relative."""
+    root = Path(root)
+    if root.is_symlink() or not root.is_dir():
+        return []
+    real, removed = os.path.realpath(root), []
+    for directory, dirs, files in os.walk(root):
+        for name in [*dirs, *files]:
+            path = os.path.join(directory, name)
+            try:
+                mode = os.lstat(path).st_mode
+            except OSError:
+                continue
+            leaves = stat.S_ISLNK(mode) and not (os.path.realpath(path) + "/").startswith(real.rstrip("/") + "/")
+            special = not (stat.S_ISLNK(mode) or stat.S_ISREG(mode) or stat.S_ISDIR(mode))
+            if leaves or special:
+                os.unlink(path)
+                removed.append(os.path.relpath(path, root))
+        dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(directory, d))]
+    return removed
 
 
 def inside_tools(tools, sandbox):
@@ -273,12 +327,12 @@ def _venv_bases(paths, writable=()) -> list[Path]:
     return out
 
 
-def _interpreter() -> tuple[list[Path], list[Path], list[Path]]:
+def _interpreter() -> tuple[list[Path], list[Path]]:
     """What the interpreter needs, without the packages installed beside it: (read-only paths, site directories to
-    replace with an empty directory, directories to keep visible inside them). The installation's lib/ (the standard
-    library and the shared libraries C extensions load), its ssl/ (a conda installation's certificates), the
-    executable and the virtual environment's own files. Every site-packages directory under them is replaced by an
-    empty one; the distributions a sandbox shows are bound back into it."""
+    replace with an empty directory). The installation's lib/ (the standard library and the shared libraries C
+    extensions load), its ssl/ (a conda installation's certificates), the executable and the virtual environment's
+    own files. Every site-packages directory under them, and every system Python's under /usr, is replaced by an empty
+    one; the distributions a sandbox shows are bound back into it."""
     ver = f"python{sys.version_info.major}.{sys.version_info.minor}"
     shown, sites = [Path(sys.executable), Path(sys.executable).resolve(), *_venv_paths()], []
     prefixes = [Path(sys.base_prefix), Path(sys.prefix), Path(sys.executable).resolve().parent.parent]
@@ -290,9 +344,14 @@ def _interpreter() -> tuple[list[Path], list[Path], list[Path]]:
             for name in ("site-packages", "dist-packages"):
                 if (prefix / lib / ver / name).is_dir():
                     sites.append(prefix / lib / ver / name)
-    # And the interpreter's own list (a Debian system Python's /usr/lib/python3/dist-packages, /usr/local/...).
+    # And the interpreter's own list (a Debian system Python's /usr/lib/python3/dist-packages, /usr/local/...), and
+    # every system Python's under /usr, which is shown whole whatever interpreter runs (a conda one, say).
+    import glob
     import site
     sites += [Path(p) for p in site.getsitepackages() if os.path.isdir(p)]
+    sites += [Path(p) for pattern in ("/usr/lib*/python3*/*-packages", "/usr/local/lib*/python3*/*-packages")
+              for p in sorted(glob.glob(pattern)) if p.endswith(("/site-packages", "/dist-packages"))
+              and os.path.isdir(p)]
     return shown, list(dict.fromkeys(sites))
 
 
@@ -479,6 +538,7 @@ class Bind(NamedTuple):
 
 
 LIMITS = {"memory_mb", "file_mb", "cpu_s"}
+START = r"(?<![\w.~/-])"                          # where a path starts: not inside a longer one (/mirror/data)
 END = r"(?=$|/|[\s\"'`:;,)\]}>]|\.(?:\s|$))"      # where a path ends in running text
 
 
@@ -569,7 +629,7 @@ class Sandbox:
         if not self.enabled:
             return text
         for outside, inside in self._pairs(binds):
-            text = re.sub(re.escape(outside) + END, lambda _m, i=inside: i, text)
+            text = re.sub(START + re.escape(outside) + END, lambda _m, i=inside: i, text)
         return text
 
     def relative(self, text: str, binds=()) -> str:
@@ -586,8 +646,8 @@ class Sandbox:
             return inside[len(root) + 1:] if inside.startswith(root + "/") else inside
         for outside, inside in self._pairs(binds):
             if inside.rstrip("/") == root:                 # the root itself: what lies below it is relative to it
-                text = re.sub(re.escape(outside) + "/", "", text)
-            text = re.sub(re.escape(outside) + END, lambda _m, i=told(inside): i, text)
+                text = re.sub(START + re.escape(outside) + "/", "", text)
+            text = re.sub(START + re.escape(outside) + END, lambda _m, i=told(inside): i, text)
         return text
 
     def outside(self, path: str | Path, binds=()) -> Path:
@@ -667,7 +727,7 @@ class Sandbox:
 
         def bind(paths, flag, out, system=False):
             for path in paths:
-                if flag == "--bind":
+                if flag == "--bind" and not os.path.lexists(path):     # a writable file stays a file
                     Path(path).mkdir(parents=True, exist_ok=True)
                 for name in _names(path):
                     if not os.path.exists(name) or (name.startswith("/usr") and not system):
