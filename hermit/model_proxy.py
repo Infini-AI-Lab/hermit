@@ -45,13 +45,18 @@ def rewrite(text: str, mapping: dict) -> str:
     return text
 
 
-def route_session(sandbox, bindings, command: list[str], env: dict) -> tuple[list[str], dict, list[str]]:
+def route_session(sandbox, bindings, command: list[str], env: dict) -> tuple[list[str], dict, list[str], list[int]]:
     """A session's command and environment with every provider of `bindings` on the sandbox's model proxy and a
     secret in place of each key (a variable that holds the real key gets the secret): (command, env, the key
-    variables to pass whatever the sandbox's allowlist says). Unchanged without a proxy."""
-    proxy, keep = getattr(sandbox, "model_proxy", None), []
-    for binding in (bindings if proxy is not None else []):
-        mapping, key_env, secret = proxy.origins(binding)
+    variables to pass whatever the sandbox's allowlist says, the loopback ports the session needs: a local model
+    server reached directly). Unchanged without a proxy."""
+    proxy, keep, ports = getattr(sandbox, "model_proxy", None), [], []
+    for binding in bindings:
+        mapping, key_env, secret = proxy.origins(binding) if proxy is not None else ({}, None, None)
+        for field in ("base_url", "messages_url"):
+            parts = urlsplit(binding.get(field) or "")
+            if parts.hostname in ("127.0.0.1", "localhost") and f"{parts.scheme}://{parts.netloc}" not in mapping:
+                ports.append(parts.port or (443 if parts.scheme == "https" else 80))
         if not mapping:
             continue
         command = [rewrite(str(a), mapping) for a in command]
@@ -60,7 +65,7 @@ def route_session(sandbox, bindings, command: list[str], env: dict) -> tuple[lis
         if key_env:
             env[key_env] = secret
             keep.append(key_env)
-    return command, env, keep
+    return command, env, keep, ports
 
 
 class ModelProxy:

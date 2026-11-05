@@ -55,10 +55,10 @@ def test_isolated_network_binds_only_what_is_granted(tmp_path, monkeypatch):
     command = args[args.index("--") + 1:]
     assert command[:2] == [sys.executable, str(RELAY)]
     forwards = [command[i + 1].partition("=")[0] for i, a in enumerate(command) if a == "--forward"]
-    assert forwards == ["4111", "4222", "4333"]                    # proxy, the command's URL, the environment's URL
+    assert forwards == ["4111", "4333"]                            # the proxy, the environment's URL (not argv's)
     assert env["HTTPS_PROXY"] == proxy_url and "127.0.0.1" in env["NO_PROXY"]
     record = json.loads((tmp_path / "records" / "learner-1.json").read_text())
-    assert record["enforced"] and record["network"] == "isolated" and record["forwarded"] == [4111, 4222, 4333]
+    assert record["enforced"] and record["network"] == "isolated" and record["forwarded"] == [4111, 4333]
     assert record["probe"] is None and "HA_TOOL_URL" in record["environment"]
     box.close()
 
@@ -92,7 +92,7 @@ def test_a_venv_granted_for_one_call_brings_its_base_installation(tmp_path, monk
     venv = tmp_path / "venv"
     venv.mkdir()
     (venv / "pyvenv.cfg").write_text(f"home = {base / 'bin'}\nversion = 3.12.0\n")
-    args, _ = Sandbox(network="isolated").wrap(["true"], readable=[venv])
+    args, _ = Sandbox(network="isolated").wrap(["true"], interpreters=[venv])
     ro = binds(args, "--ro-bind")
     assert str(venv.resolve()) in ro and str(base.resolve()) in ro
 
@@ -143,8 +143,8 @@ def test_probe_paths_skip_what_is_bound(tmp_path):
     secret.write_text("x")
     box = Sandbox(probe_absent=[secret, work / "inside", tmp_path, tmp_path / "missing"])
     # tmp_path holds a bound path; work/inside and tmp_path/missing do not exist, and a missing path proves nothing.
-    # (One that exists beneath a bound directory is kept: test_isolate.py's
-    # test_the_isolation_check_keeps_a_secret_shown_by_accident.)
+    # (One that exists beneath a bound directory is kept, under its inside name too:
+    # test_a_secret_under_a_renamed_bind_is_probed_under_its_inside_name.)
     assert box._absent([str(work.resolve())]) == [str(secret.resolve())]
 
 
@@ -237,7 +237,7 @@ def test_inside_the_sandbox(tmp_path):
     out = work / "result.json"
     try:
         args, env = box.wrap([sys.executable, str(script), str(granted), str(secret), str(work), tool, str(out),
-                              str(linked)])
+                              str(linked)], forward=[server.server_address[1]])
         proc = subprocess.run(args, env=env, capture_output=True, text=True, timeout=120)
         assert proc.returncode == 0, proc.stderr[-2000:]
         res = json.loads(out.read_text())
@@ -246,7 +246,7 @@ def test_inside_the_sandbox(tmp_path):
         assert res["write_work"][0] == "ok" and res["write_granted"][0] == "error"
         assert res["import_yaml"] == ["ok", "yaml"]                # in the framework's dependency closure
         assert res["import_pytest"][0] == "error"                  # installed, but not shown
-        assert res["tool_endpoint"] == ["ok", "tool-ok"]           # forwarded from the command's URL
+        assert res["tool_endpoint"] == ["ok", "tool-ok"]           # the port the caller names, forwarded
         assert res["proxy_denied_host"][0] == "error"              # the proxy answers 403
         assert res["direct_outside"][0] == "error"                 # no route out of the namespace
         assert res["linked_names"] == ["ok", "both"]               # bound under the given and the resolved name
@@ -291,9 +291,25 @@ def test_a_granted_virtual_environment_comes_with_its_base_python(tmp_path, monk
     checkout = tmp_path / "clbench"
     (checkout / ".venv").mkdir(parents=True)
     (checkout / ".venv" / "pyvenv.cfg").write_text(f"home = {alias / 'bin'}\nversion = 3.12\n")
+    (base / "lib" / "python3.12" / "site-packages").mkdir(parents=True)     # what is installed in the base
     args, _ = Sandbox(network="open", readable=[checkout]).wrap(["true"])
     ro = binds(args, "--ro-bind")
     assert str(alias) in ro and str(base.resolve()) in ro        # the interpreter links through the alias
+    site = base / "lib" / "python3.12" / "site-packages"
+    assert any(n in binds(args, "--tmpfs") for n in (str(site), str(site.resolve())))   # but not its packages
+
+
+def test_an_adapters_venv_names_no_installation_to_show(tmp_path, monkeypatch):
+    """A path given for one call (the adapter, the learner's work) is never read for a venv's home: a pyvenv.cfg
+    there could name any host path."""
+    fake_bwrap(monkeypatch)
+    secret = tmp_path / "secrets"
+    secret.mkdir()
+    adapter = tmp_path / "adapter"
+    (adapter / ".venv").mkdir(parents=True)
+    (adapter / ".venv" / "pyvenv.cfg").write_text(f"home = {secret / 'bin'}\n")
+    args, _ = Sandbox(network="open").wrap(["true"], readable=[adapter])
+    assert str(secret) not in binds(args, "--ro-bind") and str(secret.resolve()) not in binds(args, "--ro-bind")
 
 
 def test_a_uv_alias_inside_a_granted_checkout_is_bound_once(tmp_path, monkeypatch):
@@ -564,3 +580,25 @@ def test_a_path_is_translated_only_where_it_starts(tmp_path):
     box = Sandbox(binds=[Bind(Path("/data"), "/w/material")], layout=(Path("/ws"), "/w"))
     assert box.translate("see /data/a and /mirror/data/b") == "see /w/material/a and /mirror/data/b"
     assert box.relative("open /ws/adapter, not /old/ws/adapter") == "open adapter, not /old/ws/adapter"
+
+
+def test_tool_results_are_translated_value_by_value(tmp_path):
+    from hermit.sandbox import translate_values
+    scratch = tmp_path / "训练" / "scratch"
+    box = Sandbox(binds=[Bind(scratch, "/w/scratch", True)])
+    got = translate_values(box, {"log": str(scratch / "a.txt"), "n": 3, "logs": [str(scratch / 'b "c".txt')]})
+    assert got == {"log": "/w/scratch/a.txt", "n": 3, "logs": ['/w/scratch/b "c".txt']}
+
+
+def test_a_port_named_in_the_command_is_not_forwarded(tmp_path, monkeypatch):
+    """A prompt in argv can carry text the learner wrote (MWM's notes): a loopback URL there opens no port; one the
+    caller sets in the environment, or names, does."""
+    fake_bwrap(monkeypatch)
+    box = Sandbox(network="isolated", env_allow=["TOOL_URL"])
+    try:
+        args, _ = box.wrap(["true", "see http://127.0.0.1:5432/x"], env={"TOOL_URL": "http://127.0.0.1:4100/"},
+                           forward=[4200])
+    finally:
+        box.close()
+    forwarded = [a.split("=")[0] for i, a in enumerate(args) if i and args[i - 1] == "--forward"]
+    assert forwarded == ["4100", "4200"]

@@ -9,8 +9,9 @@ model provider) and nothing else. Codex's own workspace-write sandbox (bubblewra
 commands write only the workspace, /tmp and parts of its home, and have no network at all; bubblewrap needs
 namespaces, which Docker allows only with SYS_ADMIN, seccomp and AppArmor off.
 
-`agent.params.container` names the image, the network and the proxy; each defaults to the environment's
-HERMIT_CODEX_IMAGE, HERMIT_CODEX_NETWORK and HERMIT_CODEX_PROXY, else to the names below.
+The session's `container` setting names the image, the network and the proxy (for the acting agent the run
+config's `environment.image` and `environment.container`, for a CLI model endpoint `llm.container`); each defaults
+to the environment's HERMIT_CODEX_IMAGE, HERMIT_CODEX_NETWORK and HERMIT_CODEX_PROXY, else to the names below.
 """
 from __future__ import annotations
 

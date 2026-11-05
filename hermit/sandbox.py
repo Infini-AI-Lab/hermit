@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import importlib.metadata
 import fnmatch
+import glob
 import itertools
 import json
 import os
@@ -140,6 +141,20 @@ def drop_unsafe(root) -> list[str]:
     return removed
 
 
+def translate_values(sandbox, value):
+    """`value` (a tool's result, a context) with every string in it translated as the sandbox shows paths: each string
+    on its own, so nothing a serialization escapes (a non-ASCII directory name) is missed."""
+    if isinstance(value, str):
+        return sandbox.translate(value)
+    if isinstance(value, dict):
+        return {k: translate_values(sandbox, v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [translate_values(sandbox, v) for v in value]
+    if isinstance(value, Path):
+        return sandbox.translate(str(value))
+    return value
+
+
 def inside_tools(tools, sandbox):
     """The tools as a sandboxed session calls them through a server: each result with the host paths it names spelled
     as the sandbox shows them (a run's log copied into the learner's scratch is /w/scratch/...). The tools themselves
@@ -151,7 +166,7 @@ def inside_tools(tools, sandbox):
     def wrapped(tool):
         out = copy.copy(tool)
         fn = tool.fn
-        out.fn = lambda **arguments: json.loads(sandbox.translate(json.dumps(fn(**arguments), default=str)))
+        out.fn = lambda **arguments: translate_values(sandbox, fn(**arguments))
         return out
     if isinstance(tools, dict):
         return {name: wrapped(tool) for name, tool in tools.items()}
@@ -577,7 +592,9 @@ class Sandbox:
 
     def visible(self, command: list[str], writable=()) -> list[Path]:
         """Every read-only path inside the sandbox for this command at its own path (besides the system); `writable`:
-        the call's own writable paths, besides the sandbox's (a venv in one names no installation to show)."""
+        the call's own writable paths, besides the sandbox's (a venv in one names no installation to show). The
+        installation a virtual environment was made from is read only from the sandbox's own grants (the run's
+        config), never from a path given for one call (an adapter could name any path as its venv's home)."""
         shown, _ = _python_paths(self.packages, self.framework)
         out = [*shown, *([PACKAGE] if self.framework else [RELAY]), *self.readable]
         out += _venv_bases(self.readable, [*self.writable, *writable])
@@ -590,13 +607,17 @@ class Sandbox:
         return out
 
     def forwarded_ports(self, command: list[str], env: dict, forward: list[int] = ()) -> list[int]:
-        """The ports to re-create inside: the explicit ones, every 127.0.0.1 URL in the command or the environment
-        (the tool endpoint, the model proxy), and the allowlist proxy's."""
+        """The ports to re-create inside: the explicit ones (a tool server, a model route, a local model server the
+        caller names), every 127.0.0.1 URL in the environment (which the caller sets), the allowlist proxy's and the
+        model proxy's. Never one read from the command's arguments: a prompt passed there can carry text the learner
+        wrote, and a URL in it would open a port."""
         ports = set(forward)
-        for text in [*command, *env.values()]:
+        for text in env.values():
             ports.update(int(p) for p in LOCAL_URL.findall(str(text)))
         if self.proxy_url:
             ports.add(urlparse(self.proxy_url).port)
+        if getattr(self, "model_proxy", None) is not None:
+            ports.add(self.model_proxy.port)
         return sorted(p for p in ports if p)
 
     def _all_binds(self, binds=()) -> list[Bind]:
@@ -669,12 +690,14 @@ class Sandbox:
 
     def wrap(self, command: list[str], *, writable: list[Path] = (), env: dict | None = None,
              home: Path | None = None, keep=(), forward: list[int] = (), readable: list[Path] = (),
-             binds=(), chdir: Path | str | None = None) -> tuple[list[str], dict]:
+             binds=(), chdir: Path | str | None = None, interpreters=()) -> tuple[list[str], dict]:
         """The command to run and its environment. `home` becomes HOME (it must be among the writable paths).
         `keep` names variables the caller set for this command itself (an agent's provider settings): they pass
         whatever the allowlist says. `forward` names more ports to re-create inside an isolated network. `readable`
         and `writable` add paths at their own location for this command only; `binds` add paths under names of their
-        own. Paths under a bound source in the command, the environment and `chdir` are translated to their names
+        own; `interpreters` are virtual environments the caller trusts (the framework's own), whose base
+        installations are shown too (never one read from `readable`, which may be the learner's
+        work). Paths under a bound source in the command, the environment and `chdir` are translated to their names
         inside. Order inside: what is shown read-only, the writable paths, then the named binds."""
         env = dict(env if env is not None else os.environ)
         if not self.enabled:                             # unconfined: nothing is held back, the environment either
@@ -703,6 +726,7 @@ class Sandbox:
             lay = [Bind(Path(p), self.translate(str(p), binds), w) for p, w in
                    [*((p, False) for p in readable), *((p, True) for p in [*writable, *([home] if home else [])])]
                    if self._in_layout(p) and self.translate(str(p), binds) != str(p)]
+            lay = list({(str(b.source), b.target): b for b in lay}.values())    # the home is often writable too
             moved = {str(b.source) for b in lay}
             readable = [p for p in readable if str(Path(p)) not in moved]
             writable = [p for p in writable if str(Path(p)) not in moved]
@@ -742,6 +766,11 @@ class Sandbox:
                     out.append(name)
                     args.extend([flag, name, name])
         _, sites = _python_paths(self.packages, self.framework)
+        # The installations a declared virtual environment was made from are shown for their interpreter, not for
+        # what is installed in them: their site directories are emptied too (the environment's own stay).
+        for base in _venv_bases(self.readable, [*self.writable, *writable]):
+            sites += [Path(p) for p in sorted(glob.glob(str(base / "lib*" / "python3*" / "site-packages")))]
+        sites = list(dict.fromkeys(sites))
         visible = self.visible(command, writable)
         bind([p for p in visible if not any(_under(p, s) for s in sites)], "--ro-bind", ro)
         # The interpreter's site directories hold every installed package: each is replaced by an empty directory,
@@ -758,7 +787,7 @@ class Sandbox:
             for name in _names(site):
                 if shown(name) and os.path.isdir(name):
                     args.extend(["--remount-ro", name])
-        bind(_venv_bases(readable, [*self.writable, *writable]), "--ro-bind", ro)
+        bind([*interpreters, *_venv_bases(interpreters, [*self.writable, *writable])], "--ro-bind", ro)
         bind(readable, "--ro-bind", ro)
         bind(self.writable, "--bind", rw)
         bind([*writable, *([home] if home and str(Path(home)) not in {str(b.source) for b in all_binds} else [])],

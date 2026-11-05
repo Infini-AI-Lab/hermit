@@ -33,12 +33,13 @@ class SandboxedServer:
         from hermit.sandbox import program_paths
 
         self.work = Path(tempfile.mkdtemp(prefix="ha-session-"))
-        readable, writable = [root], [self.work]
+        readable, writable, interpreters = [root], [self.work], []
         # The server runs on the framework's Python. A program on another interpreter (a benchmark's own venv) that
         # holds a Session names it through the environment; that installation is shown for the server.
         python = os.environ.get(ENV_PYTHON) or sys.executable
         if Path(python).resolve() != Path(sys.executable).resolve():
-            readable += [Path(python).parent.parent, *program_paths(python)]
+            interpreters = [Path(python).parent.parent]
+            readable += program_paths(python)
         command = [python, "-m", "hermit.runtime.mcp_server", "--adapter", str(root)]
         if deployment is not None:
             path = self.work / "host.json"
@@ -55,7 +56,7 @@ class SandboxedServer:
         self.call_timeout = call_timeout
         env = framework_env({ENV_SANDBOX: "0"})          # the server is the sandbox: its Session serves in place
         self.args, self.env = sandbox.wrap(command, readable=readable, writable=writable, home=self.work,
-                                           env=env, keep=["PYTHONPATH", ENV_SANDBOX])
+                                           env=env, keep=["PYTHONPATH", ENV_SANDBOX], interpreters=interpreters)
         self.log = self.work / "server.log"
         self._errlog = open(self.log, "w")
         self.loop = asyncio.new_event_loop()

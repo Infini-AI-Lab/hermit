@@ -612,11 +612,11 @@ class CliAgent(BaseAgent):
                     from hermit.model_proxy import route_session
                     bindings = [s["binding"]] if isinstance(s.get("binding"), dict) else \
                         list(getattr(sandbox, "model_bindings", ()))
-                    command, full_env, keys = route_session(sandbox, bindings, command, full_env)
+                    command, full_env, keys, local = route_session(sandbox, bindings, command, full_env)
                     keep = [*own, *keys]
                     command, full_env = sandbox.wrap(command, writable=[home, *map(Path, s.get("writable") or ())],
                                                      env=full_env, home=home, keep=keep,
-                                                     forward=[server.port] if server else [],
+                                                     forward=[*([server.port] if server else []), *local],
                                                      readable=[m.source for m in mounts
                                                                if Path(m.target).resolve() == Path(m.source).resolve()],
                                                      binds=binds, chdir=workspace)

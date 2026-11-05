@@ -37,8 +37,8 @@ from hermit.agent.evolver.base import (Access, Context, Evolver, FinalResult, Pr
                                          Workspace)
 from hermit.agent.evolver.loader import find, instantiate
 from hermit.agent.model.llm import ChatClient
-from hermit.isolate import CHATGPT_HOSTS, HOME_SECRETS, ToolRunner, _safe, agent_pipeline, judge_for, \
-    run_secrets, sanitized_copy
+from hermit.isolate import CHATGPT_HOSTS, HOME_SECRETS, ToolRunner, _safe, agent_pipeline, config_paths, \
+    judge_for, run_secrets, sanitized_copy
 from hermit.model_proxy import ModelProxy
 from hermit.sandbox import AllowlistProxy, Bind, Sandbox, drop_unsafe, inside_tools
 from hermit.spec import check_spec, repair
@@ -215,7 +215,7 @@ class Trainer:
             with open(val / "tasks.jsonl", "w") as f:
                 for row in self.data.rows("val"):
                     f.write(json.dumps(row, ensure_ascii=False) + "\n")
-        env = tuple(self.config.path(p) for p in d["evolver_access"]["environment"] or [])
+        env = tuple(config_paths(self.config, "evolver_access.environment", d["evolver_access"]["environment"]))
         self.access = Access(validation=val, environment=env)
         # The learner's sandbox (docs/developer/sandbox-design.md): the workspace under fixed names below /w, the
         # model proxy (its sessions never hold a model key), the Trainer's tool endpoint, and the hosts the run
@@ -446,9 +446,9 @@ class Trainer:
                                     part="evolver")
             finally:
                 shutil.rmtree(snapshot, ignore_errors=True)
-            # A training task's run also names its log (the trajectory, when the pipeline keeps one), copied where
-            # the learner can read it (its scratch) and named as it sees it; and a run whose pipeline reports how its
-            # session ended (a CLI agent's exit code and timeout) says so.
+            # A training task's run also names its log (the trajectory, when the pipeline keeps one), copied into the
+            # run's agent_logs/ (shown read-only at /w/agent-logs); and a run whose pipeline reports how its session
+            # ended (a CLI agent's exit code and timeout) says so.
             return {"results": [{k: r[k] for k in ("id", "status", "output", "judge", "cost_usd", "wall_s")}
                                 | ({"log": self._visible_log(r)} if r["id"] in allowed["train"] else {})
                                 | {k: (r.get("pipeline_extra") or {})[k] for k in ("exit_code", "timed_out")

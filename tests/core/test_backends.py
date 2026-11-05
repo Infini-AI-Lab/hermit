@@ -389,6 +389,13 @@ def test_evolver_binding_reaches_the_sandbox(tmp_path, monkeypatch):
     assert trainer.params["binding"]["api_key_env"] == "LAB_KEY" and "sekret-123" not in json.dumps(trainer.params)
     recorded = yaml.safe_load((trainer.run_dir / "config.yaml").read_text())
     assert "sekret-123" not in json.dumps(recorded["evolver"]["params"])
+    # A learner session as the Base Agent starts it: its provider URL becomes the proxy's, its key a secret.
+    from hermit.model_proxy import route_session
+    command, env, keep, _ = route_session(trainer.sandbox, trainer.sandbox.model_bindings,
+                                          ["codex", "-c", 'model_providers.vllm.base_url="http://box:8000/v1"'],
+                                          {"LAB_KEY": "sekret-123", "PATH": "/usr/bin"})
+    assert f"127.0.0.1:{trainer.model_proxy.port}/" in command[2] and "box:8000" not in command[2]
+    assert env["LAB_KEY"] != "sekret-123" and keep == ["LAB_KEY"]
 
 
 def test_cli_dispatch_and_meter_buckets(capsys):

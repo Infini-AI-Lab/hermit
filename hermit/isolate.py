@@ -34,6 +34,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 from urllib.parse import urlparse
 import uuid
 
@@ -287,12 +288,15 @@ def _run_worker(box: Sandbox, job: dict, work: Path, *, home: Path, readable=(),
         os.close(write_end)
         raise
     log = work / "worker.log"
+    # The log is read back from this descriptor, never by its name: the call can write its directory and could put a
+    # link or a pipe there.
+    out = open(log, "w+b")
     try:
-        with open(log, "wb") as out:
-            proc = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=out, stderr=subprocess.STDOUT, env=env,
-                                    cwd=str(work), pass_fds=(write_end,))
+        proc = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=out, stderr=subprocess.STDOUT, env=env,
+                                cwd=str(work), pass_fds=(write_end,))
     except BaseException:
         os.close(read_end)
+        out.close()
         raise
     finally:
         os.close(write_end)
@@ -314,6 +318,7 @@ def _run_worker(box: Sandbox, job: dict, work: Path, *, home: Path, readable=(),
         proc.kill()
         proc.wait()
         reader.join(10)
+        out.close()
         raise TimeoutError(f"the sandboxed {job['kind']} ran longer than {timeout / 60:.1f} min and was stopped; "
                            f"log {log}")
     data = received[0] if received else ""
@@ -323,9 +328,12 @@ def _run_worker(box: Sandbox, job: dict, work: Path, *, home: Path, readable=(),
         proc.kill()
         code = proc.wait()
     if not data:
-        tail = log.read_text(errors="replace")[-1500:] if log.exists() else ""
+        out.seek(max(0, os.fstat(out.fileno()).st_size - 1500))
+        tail = out.read().decode(errors="replace")
+        out.close()
         reason = "the sandbox's isolation check failed" if code == 97 else f"it exited with code {code}"
         raise RuntimeError(f"the sandboxed {job['kind']} returned nothing: {reason}; log {log}:\n{tail}")
+    out.close()
     payload = json.loads(data)
     if not payload.get("ok"):
         raise RuntimeError(f"{payload.get('error')}\n{payload.get('traceback', '')}".strip())
@@ -399,8 +407,27 @@ class SandboxedAgent:
                                packages=list(envc.get("packages") or []), framework=True, record_dir=records,
                                probe_absent=[*HOME_SECRETS, *run_secrets(config)],
                                limits=dict(envc.get("resources") or {}), role=role)
+        # What the config declares (not the CLI's installation), searched again for run records before calls.
+        self.declared = [*config_paths(config, "environment.read", envc.get("read")),
+                         *config_paths(config, "environment.write", envc.get("write"))]
+        self._checked, self._check_lock = float("-inf"), threading.Lock()
+
+    def _recheck(self) -> None:
+        """A declared path that came to hold a run's records after the config was checked (another experiment
+        writing there) is refused before the next call; searched again at most once a minute."""
+        now = time.monotonic()
+        if now - self._checked < 60:
+            return
+        with self._check_lock:
+            for path in self.declared:
+                found = _run_records(Path(path))
+                if found:
+                    raise RuntimeError(f"declared path {path} now holds a run's records ({found}): the call is "
+                                       "refused; move them out or declare a narrower path")
+            self._checked = now
 
     def __call__(self, task: dict, adapter: Path | None) -> RunOutput:
+        self._recheck()
         work = self.work_root / f"{_safe(task.get('id', 'task'))}-{uuid.uuid4().hex[:8]}"
         home = work / "home"
         home.mkdir(parents=True)
@@ -446,6 +473,12 @@ class SandboxedAgent:
         extra = dict(rec.get("extra") or {})
         if rec.get("log") and log is None:
             extra["sandbox_warning"] = f"log {rec['log']!r} lies outside what the call could write; dropped"
+        if log is not None:
+            # Host code reads the log next (the learning material, a method's trajectory reader): a sanitized copy
+            # beside the call's directory, where the call could not write, without links out or special files.
+            clean = work.parent / f"{work.name}.log"
+            sanitized_copy(log.parent, clean, [log.name])
+            log = clean / log.name if os.path.lexists(clean / log.name) else None
         extra["sandbox_work"] = str(work)
         return RunOutput(output=rec.get("output"), log=log,
                          cost_usd=rec.get("cost_usd"), wall_s=rec.get("wall_s") or 0.0, api_speed=rec.get("api_speed"),

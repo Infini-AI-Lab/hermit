@@ -381,6 +381,27 @@ def test_a_failed_agent_reports_its_error_through_the_worker(tmp_path):
         agent.close()
 
 
+PIPELINE_SWAPS_ITS_LOG = """
+import os, sys
+def run(task, adapter):
+    print("before the swap", flush=True)
+    os.unlink("worker.log")
+    os.symlink("/etc/hostname", "worker.log")      # the host must not read this file back
+    os._exit(3)                                      # no result: the host reports the log's tail
+"""
+
+
+@needs_bwrap
+def test_a_worker_that_returns_nothing_is_reported_from_its_own_log(tmp_path):
+    agent = SandboxedAgent(Config.load(sandboxed_task(tmp_path, PIPELINE_SWAPS_ITS_LOG), []), "rollout", records=None)
+    try:
+        with pytest.raises(RuntimeError, match="before the swap") as caught:
+            agent({"id": "t1", "a": 1, "b": 2}, None)
+    finally:
+        agent.close()
+    assert open("/etc/hostname").read().strip() not in str(caught.value).split("before the swap")[-1]
+
+
 JUDGE_SHARED = """
 from pathlib import Path
 
@@ -391,7 +412,8 @@ def score(task, out):
     base = Path(__file__).resolve().parents[1]
     read = lambda p: p.read_text() if p.exists() else None
     return {"score": float(out.output == gold.read_text().strip()), "feedback": "", "planted": planted,
-            "logged": read(base / "agent" / ".logs" / "note.txt"), "state": read(base / "state" / "planted.txt")}
+            "logged": read(base / "agent" / ".logs" / "note.txt"), "state": read(base / "state" / "planted.txt"),
+            "collected": read(work / "logs" / "answer.txt")}
 """
 
 PIPELINE_PLANTS = """
@@ -401,6 +423,8 @@ from hermit.task import RunOutput
 def run(task, adapter):
     work = os.getcwd()
     open(os.path.join(work, "reward.txt"), "w").write("1")       # what a cheating agent leaves behind
+    os.makedirs(os.path.join(work, "logs"), exist_ok=True)
+    open(os.path.join(work, "logs", "answer.txt"), "w").write("3")   # what a separate judge collects
     here = os.path.dirname(__file__)
     open(os.path.join(here, ".logs", "note.txt"), "w").write("log")             # its per-call .logs
     if os.path.isdir(os.path.join(here, "..", "state")):
@@ -444,6 +468,7 @@ def test_a_separate_judge_gets_only_the_collected_paths(tmp_path):
     finally:
         agent.close()
     assert verdict["score"] == 1.0 and verdict["planted"] is None    # what the agent left besides logs/: not there
+    assert verdict["collected"] == "3"                               # what it collects: there, at the agent's path
     assert (tmp_path / "state" / "planted.txt").exists() and verdict["state"] is None   # nor its writable state
 
 
@@ -812,3 +837,44 @@ def test_a_tasks_own_agent_on_a_cli_base_is_that_cli():
     assert _cli_kind("agent.py:Custom", {"base": "codex"}) == "codex"
     assert _cli_kind("agent.py:Custom", {"base": "claude-code"}) == "claude"
     assert _cli_kind("agent.py:Custom", {}) is None
+
+
+PIPELINE_LINKED_LOG = """
+import os
+from pathlib import Path
+from hermit.task import RunOutput
+
+def run(task, adapter):
+    trace = Path(os.getcwd()) / "trace"
+    trace.mkdir()
+    (trace / "steps.txt").write_text("ok")
+    os.symlink("/etc/hostname", trace / "task.md")        # a host file a method's reader would copy along
+    return RunOutput(output="3", log=trace)
+"""
+
+
+@needs_bwrap
+def test_a_returned_log_reaches_the_host_as_a_sanitized_copy(tmp_path):
+    path = sandboxed_task(tmp_path, PIPELINE_LINKED_LOG)
+    agent = SandboxedAgent(Config.load(path, []), "rollout", records=None)
+    try:
+        out = agent({"id": "t1", "a": 1, "b": 2}, None)
+    finally:
+        agent.close()
+    work = Path(out.extra["sandbox_work"])
+    assert out.log.parent.parent == work.parent and out.log.name == "trace"     # beside the call's directory
+    assert (out.log / "steps.txt").read_text() == "ok" and not os.path.lexists(out.log / "task.md")
+
+
+def test_a_declared_path_that_comes_to_hold_a_run_is_refused_before_the_next_call(tmp_path, monkeypatch):
+    fake_bwrap(monkeypatch)
+    agent = SandboxedAgent(Config.load(sandboxed_task(tmp_path), []), "rollout", records=None)
+    try:
+        agent._recheck()                                             # clean when the run starts
+        (tmp_path / "agent" / "later-run").mkdir()
+        (tmp_path / "agent" / "later-run" / "steps.jsonl").write_text("{}\n")
+        agent._checked = float("-inf")                               # a minute later
+        with pytest.raises(RuntimeError, match="now holds a run's records"):
+            agent._recheck()
+    finally:
+        agent.close()
