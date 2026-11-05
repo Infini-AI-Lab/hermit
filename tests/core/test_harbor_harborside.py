@@ -10,7 +10,7 @@ import subprocess
 import sys
 import tempfile
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 HARBORSIDE_ROOT = ROOT / "hermit" / "harbor"
 HARBOR_PYTHON = Path(os.environ.get("HERMIT_HARBOR_VENV", "~/.cache/hermit/harbor-venv")).expanduser() / "bin" / "python"
 AGENTS_MD = "# Project\n\nAlways run the tests before you stop.\n"

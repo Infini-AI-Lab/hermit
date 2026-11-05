@@ -256,7 +256,7 @@ into `tests/`, uploaded after the agent ran, so the answer is never where the ag
 `dataset check` compares; `dataset splits` writes deterministic train/val/test lists by task. The task set is
 checked without a model by running it with the scripted agent (`acting_agent: {import_path:
 harborside.scripted:ScriptedAgent, kwargs: {script: "echo 42 > /app/answer.txt"}}`): a script that produces the
-right answer must score 1 and a wrong one 0 (`tests/test_harbor_smoke.py` does this against Docker).
+right answer must score 1 and a wrong one 0 (`tests/core/test_harbor_smoke.py` does this against Docker).
 
 Limits, each a piece still to build rather than a boundary of the protocol: an adapter whose context comes from a
 `context_tool` is refused, as the CLI agents refuse it (its per-task context would never reach the agent in the

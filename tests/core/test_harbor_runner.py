@@ -17,8 +17,8 @@ from hermit.harbor import curate, dataset, errors, judge, stream
 from hermit.harbor.runner import HarborAgent
 from hermit.task import RunOutput
 
-ROOT = Path(__file__).resolve().parents[1]
-TEMPLATES = ROOT / "hermit" / "algorithms" / "templates"
+ROOT = Path(__file__).resolve().parents[2]
+TEMPLATES = ROOT / "hermit" / "adapter" / "templates"
 
 
 # ---- helpers -----------------------------------------------------------------------------------------------------
@@ -260,7 +260,7 @@ def make_agent(tmp_path, fake_harbor, tasks, **params) -> HarborAgent:
 
 
 def test_runner_is_a_builtin_and_validates_params(tmp_path, fake_harbor):
-    from hermit.agents.base import BUILTIN_NAMES, load_agent
+    from hermit.agent.acting.agent import BUILTIN_NAMES, load_agent
     assert "harbor" in BUILTIN_NAMES
     tasks = tmp_path / "tasks"
     make_task(tasks, "alpha")

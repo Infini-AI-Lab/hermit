@@ -58,7 +58,7 @@ import uuid
 
 import yaml
 
-from hermit.agents.base import Agent
+from hermit.agent.acting.agent import Agent
 from hermit.harbor import curate as curate_mod
 from hermit.harbor import docker
 from hermit.harbor.errors import classify, no_trial
