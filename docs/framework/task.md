@@ -183,6 +183,89 @@ whose manifest names a [`context_tool`](adapter.md#per-task-context), such a loo
 `session.context(query=<the instance's input>, task=<the row>)` and records `session.last_context` in
 `RunOutput.extra["context_tool"]`, as `react` does, so the Evolver knows what the agent read.
 
+## Benchmarks
+
+A benchmark enters Hermit as a task set in [Harbor](https://github.com/laude-institute/harbor)'s format: that is the
+one protocol for every task, whether its agent works inside the container (a coding or terminal benchmark, a corpus
+searched with shell tools) or only answers (a question stream whose state the environment keeps), instead of Docker
+code or a loop of the benchmark's own. The format (`task.toml`,
+`instruction.md`, `environment/` with a Dockerfile or a prebuilt `docker_image`, `tests/test.sh` writing
+`/logs/verifier/reward.txt`) is what Terminal-Bench, SWE-bench and the datasets on the Harbor hub share, and the
+built-in `harbor` agent makes one rollout one Harbor trial:
+
+```yaml
+agent:
+  name: harbor
+  concurrency: 8
+  params:
+    tasks_dir: ../utils/tasks            # the task directories (python -m hermit.harbor.dataset downloads or indexes)
+    model: gpt-5.6-luna                  # the acting model; a `<backend>/<model>` reference binds an endpoint and key
+    agent_timeout_sec: 3600              # a uniform agent budget; null: each task's own
+    jobs_dir: ~/.cache/hermit/harbor/jobs
+judge:
+  path: hermit.harbor.judge              # the reward the container's verifier wrote
+sandbox:
+  profiles: {rollout: {enabled: false}}  # the rollout drives Docker through Harbor: unconfined, as every such agent
+```
+
+Harbor starts the task's container, installs the acting agent in it (Codex by default: `harborside.codex:HermitCodex`,
+Harbor's Codex with the adapter deployed into the container as `hermit deploy` lays it out, the AGENTS.md context,
+skills, roles and hooks, with the whole adapter copied to `hermit/<adapter id>/` in the task's workdir), runs the
+instruction and then the task's own verifier; the trial's reward is the rollout's output and the judge's score. A
+task row (`tasks.jsonl`, written by `python -m hermit.harbor.dataset index <tasks dir> --out tasks.jsonl
+[--rollouts k]`) names its directory as `harbor_task` and is the task's name, so a benchmark's existing split files
+apply; `k` rollouts of a task are `k` rows (`<task>#<k>`). Harbor
+lives in its own venv (`~/.cache/hermit/harbor-venv`, `agent.params.harbor` names its command): Hermit's side writes
+one job config per rollout and runs `harbor run` as a subprocess, and the container-side half under
+`hermit/harbor/harborside/` imports harbor and the standard library only.
+
+| `agent.params` | Meaning |
+|---|---|
+| `tasks_dir`, `jobs_dir`, `tmpdir`, `harbor` | the task directories; one Harbor job per rollout (outside the checkout); TMPDIR for harbor; Harbor's command |
+| `model`, `effort`, `codex_version`, `codex_login` | the acting model (a name, or a backend reference: its endpoint and key variable go to Harbor); Codex's reasoning effort, npm pin, and whether the ChatGPT login (`~/.codex/auth.json`) is uploaded when no endpoint is bound |
+| `acting_agent` | `{import_path}` or `{name}` (Harbor's built-ins: `codex`, `mini-swe-agent`, ...; they take no adapter), `kwargs`, `env`, `pythonpath` (directories of an example's own Harbor agents) |
+| `agent_timeout_sec`, `environment`, `verifier`, `retry` | the agent's budget; Harbor's environment (`type`, `import_path`, `delete`, `force_build`, `mounts`, `kwargs`), verifier and retry configs, passed through |
+| `docker_cleanup`, `rmi_threshold_gb`, `disk_gate_gb`, `disk_gate_wait_s` | `images_keep`, `rmi_task_image` or `rmi_over_gb` (the task's prebuilt image removed after the trial, only when larger than the threshold); no trial starts while Docker's data root has less than the gate free |
+| `benchmark` | a YAML file holding these same keys, shared by every method's config of the example (the config's params override it) |
+| `stream` | a multi-step task's driver: `idle_s` (the environment stops after that long without a step), `start_timeout_s`, `turn_wait_s` |
+
+The rollout's output is `{harbor_task, rollout, step, reward, rewards, status, failure_cause, exception_type, trial,
+hooks_active}`, with `status` one of `ok` (a verifier reward), `timeout` (Harbor's `AgentTimeoutError`; the verifier
+may still have scored), `infra` (a sandbox, model-provider, verifier or Harbor failure, a killed `harbor run`, the
+disk gate, a lost stream) or `agent_error`; `tokens` is known for an `ok` trial only. The log is a curated copy of
+the trial (`result.json`, the agent's outputs and ATIF `trajectory.json`, the verifier's output and reward; never the
+agent's session transcripts). A usage-limit or authentication failure writes `<jobs_dir>/HALT`: every rollout returns
+at once as `infra`/`halted` while it exists.
+
+**Streams.** A task with `[[steps]]` in its task.toml (`steps/<name>/instruction.md`, `steps/<name>/tests/`) is one
+environment that lives through every step: a benchmark whose next question depends on what the earlier ones left
+in the environment. `dataset index` writes one row per step (`<task>:<step>`, with `step`, `step_index` and
+`steps`), so the Trainer sees the stream as consecutive tasks and the learner acts between them; the `harbor` agent
+starts a driver with the first step (`harborside/driver.py`, Harbor's `MultiStepTrial` fed one step at a time over a
+socket in the stream's directory under `jobs_dir/streams/`), asks it for each step in order (a step whose turn has
+not come waits for the earlier ones, running in other rollouts of the batch), and stops it after the last step, an
+aborted step, or `stream.idle_s` without a request. With a frozen adapter, `harbor run` on the same task evaluates
+the whole stream in one trial. Put the stream's rows in file order with `data.shuffle: false`. A stream's driver
+must outlive the rollout that started it, so streams need `sandbox.profiles.rollout.enabled: false` (as every agent
+that drives Docker does today).
+
+**Packaging a benchmark.** `python -m hermit.harbor.dataset download terminal-bench@2.0 --output <dir>` fetches a
+registry dataset; a benchmark of your own is written as task directories by your `utils/prepare.py` (the judge goes
+into `tests/`, uploaded after the agent ran, so the answer is never where the agent can read it; see
+`examples/officeqa/utils/harbor/build_tasks.py`). `dataset lock` records the sha256 of every task directory and
+`dataset check` compares; `dataset splits` writes deterministic train/val/test lists by task. The task set is
+checked without a model by running it with the scripted agent (`acting_agent: {import_path:
+harborside.scripted:ScriptedAgent, kwargs: {script: "echo 42 > /app/answer.txt"}}`): a script that produces the
+right answer must score 1 and a wrong one 0 (`tests/core/test_harbor_smoke.py` does this against Docker).
+
+Limits, each a piece still to build rather than a boundary of the protocol: an adapter whose context comes from a
+`context_tool` is refused, as the CLI agents refuse it (its per-task context would never reach the agent in the
+container); the adapter's tools are not served in the container (no Hermit there; the config's `mcp_servers` are
+dropped with a log line); what an agent writes into the adapter's copy in the container (a memory file) does not
+come back; a benchmark whose acting model only answers (CL-Bench's host, OfficeQA's direct harness) needs a
+host-side acting agent whose tools run in the task's environment, which does not exist yet, so those examples
+still run their own loops; `hermit eval` on a task set still needs the training-only config keys.
+
 ## What the task owner provides
 
 | Input | Purpose | Used by |

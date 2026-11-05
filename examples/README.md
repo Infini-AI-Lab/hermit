@@ -71,6 +71,13 @@ SGLang server with one override, `model=vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP
 - A task: `utils/prepare.py`, the task's tools or an `utils/agent/agent.py` with an `Agent` subclass, `utils/judge.py`,
   `utils/task-info/README.md` (see [Task integration](../docs/framework/task.md) and the
   [built-in agents](../docs/framework/task.md#built-in-agents)), and a row in the table above.
+- A benchmark comes as a task set in Harbor's format, the one protocol every task enters by, not as Docker code or a
+  loop of its own: `utils/prepare.py` downloads or builds the task directories (`task.toml`, `environment/`,
+  `tests/test.sh` writing the reward) and indexes them into `tasks.jsonl`, the configs name `agent.name: harbor` and
+  `judge.path: hermit.harbor.judge`, and a benchmark whose tasks carry state from one to the next (CL-Bench,
+  ServeLearnBench) is one multi-step task per stream. See [Benchmarks](../docs/framework/task.md#benchmarks).
+  The examples that still own their loop (CL-Bench, ServeLearnBench, OfficeQA's direct harness) predate this rule
+  and are to be moved onto it; no new example drives Docker or a model loop itself.
 - A method on an existing task: `<method>/smoke.yaml` and `run.yaml` (a stream's launcher may take a prefix split in
   place of a smoke config, `MW_TRAIN_SPLIT=...`, as the CL-Bench folders do), and a row in `docs/methods/<method>.md`.
 - A method: `docs/methods/<method>.md` in the shape of the others: what it does, one step, knobs, configs, commands.
