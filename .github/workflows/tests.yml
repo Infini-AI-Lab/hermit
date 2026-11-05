@@ -40,7 +40,8 @@ jobs:
           echo "$RUNNER_TEMP/test-env/bin" >> "$GITHUB_PATH"
       - name: The test groups this pull request touches
         if: github.event_name == 'pull_request'
-        run: python -m pytest -q -rs --changed --base "origin/${{ github.base_ref }}"
+        # not -q: the header says which groups ran and why
+        run: python -m pytest -rs --changed --base "origin/${{ github.base_ref }}"
       - name: The whole suite
         if: github.event_name != 'pull_request'
         run: python -m pytest -q -rs
