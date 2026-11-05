@@ -86,6 +86,24 @@ def read_regular(path, limit: int = 1 << 20) -> str | None:
         os.close(fd)
 
 
+def inside_tools(tools, sandbox):
+    """The tools as a sandboxed session calls them through a server: each result with the host paths it names spelled
+    as the sandbox shows them (a run's log copied into the learner's scratch is /w/scratch/...). The tools themselves
+    are unchanged: called in this process, they keep answering with host paths. A dict or a sequence, as given."""
+    import copy
+    if sandbox is None or not getattr(sandbox, "enabled", False) or not hasattr(sandbox, "translate"):
+        return tools
+
+    def wrapped(tool):
+        out = copy.copy(tool)
+        fn = tool.fn
+        out.fn = lambda **arguments: json.loads(sandbox.translate(json.dumps(fn(**arguments), default=str)))
+        return out
+    if isinstance(tools, dict):
+        return {name: wrapped(tool) for name, tool in tools.items()}
+    return [wrapped(tool) for tool in tools]
+
+
 def run_in_strict_sandbox(command: list[str], *, role: str, readable, enforce: str | None,
                           timeout: float | None = None, no_bytecode: bool = False) -> "subprocess.CompletedProcess":
     """Run `command` in a strict sandbox and return the finished process. The adapter's or template's own modules

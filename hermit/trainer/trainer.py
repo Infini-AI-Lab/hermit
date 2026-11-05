@@ -40,7 +40,7 @@ from hermit.agent.model.llm import ChatClient
 from hermit.isolate import CHATGPT_HOSTS, HOME_SECRETS, ToolRunner, _safe, agent_pipeline, judge_for, \
     run_secrets, sanitized_copy
 from hermit.model_proxy import ModelProxy
-from hermit.sandbox import AllowlistProxy, Bind, Sandbox
+from hermit.sandbox import AllowlistProxy, Bind, Sandbox, inside_tools
 from hermit.spec import check_spec, repair
 from hermit.task import TaskData, load_callable
 from hermit.tools import FunctionTool, ToolServer, assemble, evolver_agent
@@ -437,14 +437,14 @@ class Trainer:
                                                          "adapter": {"type": "string"}}})
 
     def _visible_log(self, result: dict) -> str | None:
-        """A run's log as the learner can open it: a copy under its scratch directory (through the sanitized archive),
-        named as its sandbox shows it."""
+        """A run's log as the learner can open it: a copy under its scratch directory (through the sanitized archive).
+        A host path: a server that serves the tool to a sandboxed session names it as the sandbox shows it."""
         log = Path(result["log"]) if result.get("log") else None
         if log is None or not os.path.lexists(log):
             return None
         place = self.ws.scratch / "run_agent" / f"{_safe(result['id'])}-{uuid.uuid4().hex[:6]}"
         sanitized_copy(log.parent, place, [log.name])
-        return self.sandbox.translate(str(place / log.name))
+        return str(place / log.name)
 
     def _message(self, progress: Progress | None, tools: dict) -> str:
         lines = ["# This call", ""]
@@ -551,7 +551,9 @@ class Trainer:
         tools = self._tools(cancel, agent)
         # 5. the Evolver.
         e0 = time.time()
-        with ToolServer(tools) as server:
+        # The endpoint serves sandboxed programs: results name paths as the sandbox shows them (ctx.tools, called in
+        # this process, keep host paths).
+        with ToolServer(inside_tools(tools, self.sandbox)) as server:
             ctx = StepContext(workspace=self.ws, access=self.access, tools=tools, params=self.params, base=self.config.base,
                               message=self._message(progress, tools) + f"Tool endpoint (HTTP): {server.url}\n",
                               sandbox=self.sandbox, cancel=cancel, tool_url=server.url, progress=progress,

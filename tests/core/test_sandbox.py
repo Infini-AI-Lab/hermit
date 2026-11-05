@@ -521,3 +521,17 @@ def test_a_file_bound_writable_under_a_name_stays_a_file(tmp_path, monkeypatch):
     f.write_text("x")
     args, _ = Sandbox(network="open", binds=[Bind(f, "/w/notes.txt", True)]).wrap(["true"])
     assert f.is_file() and "/w/notes.txt" in args
+
+
+def test_tools_served_to_a_sandboxed_session_name_paths_as_it_sees_them(tmp_path):
+    """A tool's result names host paths; through the server a sandboxed session calls, they are spelled as its
+    sandbox shows them, while the tool called in this process (an Evolver on the host) keeps the host path."""
+    from hermit.agent.base.tool import Tool
+    from hermit.sandbox import inside_tools
+    scratch = tmp_path / "ws" / "scratch"
+    tool = Tool("run_agent", "x", lambda: {"log": str(scratch / "run_agent" / "t0.txt")})
+    box = Sandbox(binds=[Bind(scratch, "/w/scratch", True)], layout=(tmp_path / "ws", "/w"))
+    served = inside_tools({"run_agent": tool}, box)["run_agent"]
+    assert served()["log"] == "/w/scratch/run_agent/t0.txt"
+    assert tool()["log"] == str(scratch / "run_agent" / "t0.txt")
+    assert inside_tools([tool], Sandbox(enabled=False))[0] is tool
