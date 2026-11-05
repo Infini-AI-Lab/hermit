@@ -44,7 +44,8 @@ jobs:
           python -m pytest -q tests/core/test_training.py tests/core/test_spec.py tests/core/test_deploy.py \
             tests/core/test_convert.py tests/core/test_backends.py tests/core/test_session.py \
             tests/core/test_layers.py tests/core/test_packaging.py tests/core/test_sandbox.py \
-            tests/core/test_isolate.py tests/core/test_session_sandbox.py
+            tests/core/test_isolate.py tests/core/test_session_sandbox.py \
+            tests/core/test_sandboxed_evolvers.py::test_command_evolver_in_sandbox
       - name: Build and check distributions
         run: |
           python -m build

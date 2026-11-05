@@ -35,7 +35,8 @@ def test_shared_layers_and_unknown_paths_run_everything():
     for path in ("hermit/agent/base/cli.py", "hermit/agent/evolver/base.py", "hermit/trainer/trainer.py",
                  "hermit/adapter/templates/ace/.hermit/adapter.yaml",      # every `<id>@<version>` is resolved
                                                                            # through all of them
-                 "hermit/sandbox.py", "hermit/hosts/codex.py", "tests/conftest.py", "tests/toy_task.py",
+                 "hermit/sandbox.py", "hermit/worker.py", "hermit/hosts/codex.py", "tests/conftest.py",
+                 "tests/toy_task.py",
                  "pyproject.toml", "hermit/adapter/templates/prompt_only/ADAPTER.md", "Makefile"):
         assert groups_for(path) is None, path
     groups, why = select(["hermit/agent/evolver/methods/ace/evolver.py", "hermit/sandbox.py"])
@@ -97,7 +98,8 @@ def test_the_changed_paths_are_read_from_git_and_a_missing_base_is_said(tmp_path
 
 
 def _imports(path: Path, modules: dict) -> set[str]:
-    """The framework modules a file imports (absolute and relative, `from x import y` as x and x.y)."""
+    """The framework modules a file imports (absolute and relative, `from x import y` as x and x.y) or runs (a
+    module's name, a sibling's file name)."""
     import ast
     name = ".".join(path.relative_to(ROOT).with_suffix("").parts).removesuffix(".__init__")
     package = name if path.name == "__init__.py" else name.rpartition(".")[0]
@@ -111,6 +113,12 @@ def _imports(path: Path, modules: dict) -> set[str]:
                 parts = package.split(".")[:len(package.split(".")) - node.level + 1]
                 base = ".".join(parts + ([node.module] if node.module else []))
             out |= {base} | {f"{base}.{a.name}" for a in node.names}
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+            # a module run by name (`-m hermit.x`) or by its file (`PACKAGE / "worker.py"`) is used as an import is
+            if node.value.endswith(".py") and "/" not in node.value and (path.parent / node.value).is_file():
+                out.add(f"{package}.{node.value[:-3]}")
+            else:
+                out.add(node.value)
     return {m for m in out if m in modules}
 
 
