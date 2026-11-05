@@ -100,15 +100,17 @@ up over a campaign. Set `ASPIRE_OUT` to a large disk: `launch.sh` puts the runs 
 
 ## The actor's rules
 
-The actor's commands run without a sandbox, because they drive a GPU simulator and local services. Its rules
-(ASPIRE's reading rules: no worked solution, no shipped library, no other task's directory; only its own seeds) are
-held three ways. The workspace holds only what it may read: the docs it is allowed, with the lines that name worked
-programs dropped, and no repository path in its environment (`shell_env: core`). `bin/sim` runs only its assigned
-seeds, the unseen check once, and a verifier's two programs. `collect` audits the session after the fact
-(`utils/task.py:audit`) and voids one that broke them (score 0, its report not used): commands that name the ASPIRE
-checkout, another workspace or a worked solution; runs on unassigned seeds, of programs from outside the workspace,
-or of a worked solution's code; a verifier's third program; a session with no log to audit. This is detection, not
-isolation: `bin/sim.json` names the checkout, and a breach that leaves none of these traces goes undetected.
+The actor's commands run without a sandbox, because they drive a GPU simulator and local services. Its rules (ASPIRE's
+reading rules: no worked solution, no shipped library, no other task's directory; only its own seeds) are held three
+ways. The workspace holds only what it may read: the docs it is allowed, with the lines that name worked programs
+dropped, and no repository path in its environment (`shell_env: core`). `bin/sim` runs only its assigned seeds, the
+unseen check once, and a verifier's two programs. `collect` audits the session after the fact (`utils/task.py:audit`)
+and voids one that broke them (score 0, its report not used): commands that reach ASPIRE's shipped library, worked
+solutions, examples or outputs, its engine past `bin/sim`, another workspace, or a worked solution by name (the
+harness's source and docs are the actor's to read, as in ASPIRE); runs on unassigned seeds, of programs from outside
+the workspace, or of a worked solution's code; a verifier's third program; a session with no log to audit. This is
+detection, not isolation: `bin/sim.json` names the checkout, and a breach that leaves none of these traces goes
+undetected.
 
 ## Segmentation without SAM3
 

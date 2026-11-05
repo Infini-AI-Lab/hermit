@@ -122,11 +122,12 @@ A verified entry transmits (a fresh actor followed it to the fix on the task it 
 generalize. The reading rules (no worked solutions, no other task's directory, only the assigned seeds) are not
 isolation: the actor's commands run without a sandbox, because they drive a GPU simulator. They rest on the
 workspace's layout, `bin/sim` and the prompts, and the task's `collect` audits every session after the fact, voiding
-one that broke them: commands naming the ASPIRE checkout, another workspace or a worked solution; runs on unassigned
-seeds, of programs from outside the workspace, or of a worked solution's code; a verifier's third program. A breach
-that leaves none of these traces (a path assembled at run time) goes undetected. The coordinator, also unsandboxed,
-is held to the same reading rules by its prompt only. The reruns score the held-out seeds the first pass
-was scored on (as ASPIRE's Phase 3 does).
+one that broke them: commands that reach ASPIRE's shipped library, worked solutions, examples or outputs (its source
+and docs are the actor's to read, as in ASPIRE), its engine past `bin/sim`, another workspace, or a worked solution by
+name; runs on unassigned seeds, of programs from outside the workspace, or of a worked solution's code; a verifier's
+third program. A breach that leaves none of these traces (a path assembled at run time) goes undetected. The
+coordinator, also unsandboxed, is held to the same reading rules by its prompt only. The reruns score the held-out
+seeds the first pass was scored on (as ASPIRE's Phase 3 does).
 
 ## Example
 

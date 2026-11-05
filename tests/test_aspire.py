@@ -328,7 +328,8 @@ def test_the_audit_voids_a_session_that_reached_past_its_rules_and_only_that(tmp
     clean = [command("bin/sim run-batch --seeds 101-103 --program code/v00.py --output-root debug/initial"),
              command("ls .claude/skills/iterative-debugging/skills/ 2>/dev/null; ls .venv-robosuite/bin/cap-harness"),
              command("cp fix_code.py code/v03_fix_code.py"),
-             command(f"cat {run_dir}/work/robosuite/cube_lifting/task_0/fix_code.py")]
+             command(f"cat {run_dir}/work/robosuite/cube_lifting/task_0/fix_code.py"),
+             command(f"sed -n '150,220p' {root}/src/cap_harness/runtime.py")]       # the harness's source: allowed
     (log / "agent-codex.jsonl").write_text("".join(clean))
 
     def a_run(name, seed, source, code="result = {}\n"):
@@ -339,14 +340,14 @@ def test_the_audit_voids_a_session_that_reached_past_its_rules_and_only_that(tmp
         (d / "source" / "provenance.json").write_text(json.dumps({"input_path": str(source), "sha256": sha}))
     a_run("0101", 101, work / "code" / "v00.py")
     assert T.audit(s, work, log) == []
-    broken = [command(f"python3 - <<'PY'\nopen('{root}/README.md').read()\nPY"),
+    broken = [command(f"python3 - <<'PY'\nopen('{root}/examples/robosuite/x.py').read()\nPY"),
               command("cat ../../verify-robosuite-cube_lifting-def/work/fix_code.py"),
               command("find / -name cube_lifting_fix_code.py")]
     (log / "agent-codex.jsonl").write_text("".join(clean + broken))
     a_run("0002", 2, work / "code" / "v00.py")
     a_run("0102", 102, root / "examples" / "x.py", code="result = 'solved'\n")
     found = " ".join(T.audit(s, work, log))
-    for evidence in (str(root), "verify-robosuite-cube_lifting-def", "cube_lifting_fix_code.py", "seed 2",
+    for evidence in (f"{root}/examples", "verify-robosuite-cube_lifting-def", "cube_lifting_fix_code.py", "seed 2",
                      "outside the workspace", "worked solutions"):
         assert evidence in found, evidence
     (log / "agent-codex.jsonl").unlink()
