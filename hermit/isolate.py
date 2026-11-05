@@ -136,22 +136,33 @@ def validate(config) -> None:
     check_declared(config)
 
 
-def run_secrets(config) -> list[Path]:
-    """What no sandbox but the judge's may show: the data and split files, the judge, where runs and trees are kept,
-    and the tests a sandboxed judge reads."""
+def _secrets(config) -> tuple[list[Path], Path | None]:
+    """(what no declared path may overlap: the data and split files, the judge and its tests, this run's directory and
+    the tree; the runs directory, which a declared path may lie inside but neither be nor hold)."""
     d = config.data
     out = [config.path(d["data"].get(k)) for k in ("tasks", "train", "val", "test")]
     judge = d.get("judge") or {}
     if judge.get("path") and str(judge["path"]).partition(":")[0].endswith(".py"):
         out.append(config.path(judge["path"]))
     out += [config.path(t) for t in judge.get("tests") or []]
+    runs = None
     try:
-        out.append(config.run_dir().parent)
+        out.append(config.run_dir())
+        runs = config.run_dir().parent
         from hermit.adapter.manifest import read_manifest
         out.append(config.tree_dir(read_manifest(config.template_dir())["template"]["id"]))
     except Exception:                                    # a config without a template still guards the rest
         pass
-    return [p for p in out if p is not None and "$" not in str(p)]
+    keep = lambda p: p is not None and "$" not in str(p)
+    return [p for p in out if keep(p)], runs if keep(runs) else None
+
+
+def run_secrets(config) -> list[Path]:
+    """What no sandbox but the judge's may show: the data and split files, the judge, its tests, this run's directory,
+    the tree, and the runs directory (a launcher's task directory may lie inside it: the isolation check skips a
+    directory that holds a bound path)."""
+    hard, runs = _secrets(config)
+    return [*hard, *([runs] if runs is not None else [])]
 
 
 def config_paths(config, where: str, values) -> list[Path]:
@@ -175,18 +186,23 @@ def check_declared(config) -> None:
     """A declared path of the task sandbox may neither hold nor lie inside a run secret: the whitelist shows what is
     declared, so a secret inside it would be shown."""
     d = config.data
-    secrets = run_secrets(config)
+    hard, runs = _secrets(config)
     tests = [config.path(t) for t in d["judge"].get("tests") or []]
     for key in ("read", "write"):
         for value in d["environment"].get(key) or []:
             path = config.path(value)
             if path is None or "$" in str(path):
                 continue                                 # an unset variable: refused when the sandbox is built
-            for secret in secrets:
+            for secret in hard:
                 if _overlaps(path, secret):
-                    what = "a judge test" if secret in tests else "the data, the judge or the runs"
+                    what = "a judge test" if secret in tests else "the data, the judge, this run or the tree"
                     raise ValueError(f"environment.{key} {value!r} overlaps {secret} ({what}): the agent would see "
                                      "it; move the secret out of that path or declare a narrower one")
+            # The runs directory holds every run's records: a declared path may lie inside it (a launcher's task
+            # directory beside the runs), never be it or hold it.
+            if runs is not None and Path(os.path.realpath(runs)).is_relative_to(Path(os.path.realpath(path))):
+                raise ValueError(f"environment.{key} {value!r} holds the runs directory {runs}: the agent would see "
+                                 "every run's records; declare a narrower path")
 
 
 def _agent_logs(name: str, base: Path) -> list[Path]:

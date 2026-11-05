@@ -80,7 +80,9 @@ def test_a_declared_path_may_not_hold_or_lie_in_a_secret(tmp_path):
     (tmp_path / "t").mkdir()
     path = make_task(tmp_path / "t")
     assert "overlaps" in load_error(path, "environment.read=[.]")             # holds the data and the judge
-    assert "overlaps" in load_error(path, "environment.read=[runs/r]")        # lies in the runs directory
+    assert "overlaps" in load_error(path, "environment.read=[runs]")          # every run's records, this one's too
+    assert "overlaps" in load_error(path, "environment.read=[runs/toy-run/x]")   # inside this run's directory
+    Config.load(path, ["environment.write=[runs/task]"])                     # a launcher's task directory: fine
     assert "overlaps" in load_error(path, "environment.write=[judge.py]")
     (tmp_path / "t" / "agent").mkdir()
     Config.load(path, ["environment.read=[agent]"])                           # beside them: fine
