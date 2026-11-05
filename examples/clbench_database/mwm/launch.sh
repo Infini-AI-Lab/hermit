@@ -64,6 +64,10 @@ HOST_KEY=""; [ -n "$HOST_API_KEY_ENV" ] && HOST_KEY=${!HOST_API_KEY_ENV:-}
 [ -n "${!HOST_LITELLM_KEY_ENV:-}" ] || export "$HOST_LITELLM_KEY_ENV=${HOST_KEY:-local}"
 [ -n "$HOST_PRICE_INPUT" ] && export MW_COST_IN_PER_M=$HOST_PRICE_INPUT MW_COST_OUT_PER_M=$HOST_PRICE_OUTPUT
 export CLB_SKIP_BASELINE=1 CLB_REQUEST_TIMEOUT=600 CLB_REASONING_EFFORT=$EFFORT
+# clbench's host calls litellm, which runs offline in the task sandbox (no network but the meter): its bundled model
+# map does not know GLM 5.3 Flash on Fireworks and would refuse the host's tool_choice="auto" unless unsupported
+# parameters are dropped, and it reads that map without trying the network first. litellm reads both as bool(str).
+export LITELLM_DROP_PARAMS=${LITELLM_DROP_PARAMS:-True} LITELLM_LOCAL_MODEL_COST_MAP=${LITELLM_LOCAL_MODEL_COST_MAP:-True}
 export MWM_CLBENCH=$CLBENCH MWM_METAWORLD=$METAWORLD
 if [ "$VENUE" = database ]; then
   export CLB_SCORING=accuracy CLB_QUERY_BUDGET=${CLB_QUERY_BUDGET:-0} MW_META_SQL=1
@@ -108,8 +112,8 @@ for i in ${MW_ORDERS:-0}; do
       --workdir "$WD" --clbench "$CLBENCH" --framework "$FRAMEWORK"
   fi
   # The learner's model through its meter: the backend copied to the metered URL, the Evolver bound to it (the
-  # Trainer derives codex's provider settings from the binding; the session reaches the meter through the run's
-  # model proxy, which holds the key).
+  # Trainer derives codex's provider settings from the binding and passes its key variable into the learner's
+  # sandbox, the meter's port forwarded).
   LEARNER="{from: '$EVOLVER_BACKEND', base_url: 'http://127.0.0.1:$META_PORT/${TAG}_o${i}_meta$EVOLVER_PATH'}"
   LOG="$RUNS/$TAG/order$i/run.log"
   echo "=== setting stamp: venue=$VENUE method=mwm framework=$HEAD clbench=$CLB_HEAD metaworld=$MW_HEAD" \

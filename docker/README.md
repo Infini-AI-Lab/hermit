@@ -43,9 +43,10 @@ other target. Every client in the container is pointed at it: `HTTPS_PROXY` and 
 Evolvers' HTTP clients, clbench's litellm, curl), `PROXY` (the wire meters read it and reach their upstream through
 it), with `NO_PROXY=127.0.0.1,localhost` so that the meters on the loopback are reached directly. Inside hermit's own
 sandboxes the adapter's tools (a context tool that retrieves, say) and the template's checks are isolated further: they see only the
-forwarded `127.0.0.1` ports of the run (the meters), whose traffic leaves through the proxy. The acting agent itself
-(the rollout role) keeps the container's network, which is the internal one, unless the run sets
-`profiles.rollout.network: isolated`. The TLS session is end to end between the client and Fireworks; the proxy sees
+forwarded `127.0.0.1` ports of the run (the meters), whose traffic leaves through the proxy. The acting agent and the
+learner run in network namespaces of their own (`environment.network`, default `no-network`; `sandbox.evolver`):
+they reach their models' providers through hermit's allowlist proxy, which goes out through this egress proxy, and
+the meters on the loopback directly. The TLS session is end to end between the client and Fireworks; the proxy sees
 host names, not contents.
 
 `docker logs hermit-egress` shows every connection the containers tried, one line each:

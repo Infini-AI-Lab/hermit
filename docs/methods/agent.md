@@ -15,7 +15,7 @@ evolver:
   name: codex
   resume: false
 sandbox:
-  enabled: true                  # the learner works in /w; its model through the run's model proxy
+  enabled: true                  # the learner works in /w; its model's key and host are passed in
 environment:
   read: [../utils/agent]         # what the acting agent's sandbox shows: its code, never the data or the judge
 ```

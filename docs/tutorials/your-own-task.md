@@ -102,13 +102,14 @@ judge:
 ```
 
 An agent that calls a model takes it from `agent.params.model` (a `<backend>/<model>` reference): the framework
-resolves it and routes it through the run's model proxy, so the sandbox holds a secret of its own, never the key. A
-model the agent's code picks by itself (a default in the code) is not routed and finds no key inside.
+resolves it and passes its key variable and its provider's host into the sandbox, as Harbor gives its agents their
+models. A model the agent's code picks by itself (a default in the code) finds neither its key nor its host inside.
 
 Before a reported run, check the isolation: `sandbox.enforce: required` (never a `best_effort` run that fell back to
 running unconfined); `hermit check` passes, which refuses a declared path that holds a secret; the launch records
-(`runs/<run>/sandbox/*.json`) show the isolation check passed, the answers and the judge absent, and no model key in
-the variables; the network reaches only the model proxy and the hosts you declared; `web_search` is set explicitly.
+(`runs/<run>/sandbox/*.json`) show the isolation check passed, the answers and the judge absent, and only the
+variables you expect; the network reaches only the models' providers and the hosts you declared; `web_search` is set
+explicitly.
 A benchmark whose scoring lives in the package the agent imports shows its scoring to the agent: say so in the
 results.
 

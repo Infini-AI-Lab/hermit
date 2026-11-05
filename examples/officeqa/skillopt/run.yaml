@@ -11,8 +11,8 @@ data:
 task_info: ../utils/task-info/
 agent:
   name: ../utils/agent/agent.py:OfficeQAAgent
-  params:                          # the agent's model, resolved here so the task sandbox routes it through the
-    model: fireworks/accounts/fireworks/models/glm-5p3-flash   # model proxy (agent.py's default model)
+  params:                          # the agent's model, named so its key and host are passed into the task sandbox
+    model: fireworks/accounts/fireworks/models/glm-5p3-flash   # (agent.py's default model)
   concurrency: 8
 judge:
   path: ../utils/judge.py

@@ -20,7 +20,7 @@ MOVED = {
     "sandbox.profiles": "the task sandbox is `environment` (read, write, packages, env, network, allowed_hosts); the "
                         "learner's is `sandbox.evolver`; a judge's place is `judge.mode`",
     "sandbox.network": "`environment.network` for the acting agent (no-network | allowlist | public); the learner "
-                       "reaches only the model proxy, the tool endpoint and `sandbox.evolver.allowed_hosts`",
+                       "reaches only its models, the tool endpoint and `sandbox.evolver.allowed_hosts`",
     "sandbox.allow": "`environment.allowed_hosts` or `sandbox.evolver.allowed_hosts`",
     "sandbox.read": "`evolver_access.environment` (paths the learner reads) or `environment.read` (the agent)",
     "sandbox.packages": "`environment.packages`",

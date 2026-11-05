@@ -41,8 +41,8 @@ model of the CLI's own provider (`gpt-5.4`), as before. So a provider id that ha
 name (`openai/...`) is read as a reference to that backend.
 
 The top-level `model` is a default: `model=vllm/qwen` on the command line moves every caller that names no model
-of its own. The OfficeQA configs set the acting agent's model (`agent.params.model`, GLM 5.3 Flash: the task
-sandbox routes a named model through the run's model proxy) and the learner's `llm` (GLM 5.3; the SkillOpt paper
+of its own. The OfficeQA configs set the acting agent's model (`agent.params.model`, GLM 5.3 Flash) and the
+learner's `llm` (GLM 5.3; the SkillOpt paper
 used GPT-5.5), so both are overridden by name: `agent.params.model=vllm/qwen` moves the agent and `llm=vllm/qwen`
 the learner. An agent Evolver such as `codex` takes its model
 from `evolver.params.model`; `evolver.params.model=vllm/qwen` moves it.
@@ -148,10 +148,10 @@ What the binding gives each CLI:
   `accounts/fireworks/models/...` on Fireworks) in print mode; vLLM's own guide still recommends a plain served
   name (`vllm serve ... --served-model-name qwen3`).
 
-No sandbox holds a model key. The run's model proxy serves each bound endpoint on a loopback route: a sandboxed
-session (the learner's, the acting agent's) gets that route as its base URL and a secret of its own in place of the
-key, and the proxy puts the real key, read from the host's environment, in its place. A config therefore lists
-neither the endpoint's host nor its key variable. Claude Code's token is written into the Evolver's settings as
+A sandboxed session (the learner's, the acting agent's) gets its model as Harbor's agents do: the bound endpoint's
+key variable passes into the sandbox, its host joins the sandbox's allowlist, and an endpoint on the loopback (a
+meter) is forwarded. A config therefore lists neither the endpoint's host nor its key variable. What the run keeps is
+scrubbed of key values. Claude Code's token is written into the Evolver's settings as
 `$<api_key_env>` and expanded when the agent starts, so the run's `config.yaml` records the variable's name, never
 the key.
 

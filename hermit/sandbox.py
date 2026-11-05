@@ -8,12 +8,12 @@ the checkout it lives in) when `framework`, the started program's own installati
 Read-write: the granted writable paths. Under names of their own: the binds (the evolver's layout). Nothing is shown
 and then covered.
 
-network: isolated gives the process its own network namespace with loopback only. The only ways out are the
-forwarded ports: the ones the caller names (a tool server, a local model server), every 127.0.0.1 URL in the
-environment, the model proxy, and the allowlist proxy when `allow` names hosts (never a URL in the command's
-arguments, where a prompt can carry the learner's text). Each is re-created inside by `sandbox_relay.py` and bridged over a Unix
-socket, so a program that ignores the proxy variables has no route out. open: the host network. The run config
-names these no-network (isolated, no proxy), allowlist (isolated, the proxy) and public (open).
+network: isolated gives the process its own network namespace with loopback only. The only ways out are the forwarded
+ports: the sandbox's own (`forward`: a model server or meter on the loopback), the ones the caller names (a tool
+server), every 127.0.0.1 URL in the environment, and the allowlist proxy when `allow` names hosts (never a URL in the
+command's arguments, where a prompt can carry the learner's text). Each is re-created inside by `sandbox_relay.py` and
+bridged over a Unix socket, so a program that ignores the proxy variables has no route out. open: the host network. The
+run config names these no-network (isolated, no proxy), allowlist (isolated, the proxy) and public (open).
 
 enforce: required refuses to run when bubblewrap is missing; best_effort runs the command unconfined and records
 that it did. `enabled: false` turns the sandbox off. env: `env_allow` lists the environment variables passed on
@@ -147,6 +147,27 @@ def drop_unsafe(root) -> list[str]:
                 removed.append(os.path.relpath(path, root))
         dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(directory, d))]
     return removed
+
+
+def model_access(specs) -> tuple[list[str], list[str], list[int]]:
+    """What a sandbox needs to reach the models `specs` name (bindings or model specs, their plain form: base_url,
+    messages_url, api_key_env), as Harbor gives an agent its model: (the key variables to pass, the provider hosts
+    to allow, the loopback ports to forward: a local server or a meter in front of a provider)."""
+    keys, hosts, ports = [], [], []
+    for spec in specs:
+        if not isinstance(spec, dict):
+            continue
+        if spec.get("api_key_env"):
+            keys.append(spec["api_key_env"])
+        for field_name in ("base_url", "messages_url"):
+            url = urlparse(spec.get(field_name) or "")
+            if not url.hostname:
+                continue
+            if url.hostname in ("127.0.0.1", "localhost"):
+                ports.append(url.port or (443 if url.scheme == "https" else 80))
+            else:
+                hosts.append(url.hostname)
+    return list(dict.fromkeys(keys)), list(dict.fromkeys(hosts)), sorted(set(ports))
 
 
 def translate_values(sandbox, value, binds=()):
@@ -613,6 +634,7 @@ class Bind(NamedTuple):
 
 
 LIMITS = {"memory_mb", "file_mb", "cpu_s"}
+PROXY_VARS = ("HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy")
 START = r"(?<![\w.~/-])"                          # where a path starts: not inside a longer one (/mirror/data)
 END = r"(?=$|/|[\s\"'`:;,)\]}>]|\.(?:\s|$))"      # where a path ends in running text
 
@@ -636,6 +658,7 @@ class Sandbox:
     probe_absent: list[Path] = field(default_factory=list)   # paths the isolation check must find missing
     limits: dict = field(default_factory=dict)           # memory_mb, file_mb, cpu_s: per process, set before exec
     role: str = "learner"
+    forward: list[int] = field(default_factory=list)     # loopback ports every command reaches (a model meter)
 
     def __post_init__(self):
         self.network, _ = network_mode(self.network)
@@ -667,17 +690,15 @@ class Sandbox:
         return out
 
     def forwarded_ports(self, command: list[str], env: dict, forward: list[int] = ()) -> list[int]:
-        """The ports to re-create inside: the explicit ones (a tool server, a model route, a local model server the
-        caller names), every 127.0.0.1 URL in the environment (which the caller sets), the allowlist proxy's and the
-        model proxy's. Never one read from the command's arguments: a prompt passed there can carry text the learner
-        wrote, and a URL in it would open a port."""
-        ports = set(forward)
+        """The ports to re-create inside: the sandbox's own (`forward`: a model server or meter on the loopback), the
+        explicit ones (a tool server), every 127.0.0.1 URL in the environment (which the caller sets) and the
+        allowlist proxy's. Never one read from the command's arguments: a prompt passed there can carry text the
+        learner wrote, and a URL in it would open a port."""
+        ports = {*self.forward, *forward}
         for text in env.values():
             ports.update(int(p) for p in LOCAL_URL.findall(str(text)))
         if self.proxy_url:
             ports.add(urlparse(self.proxy_url).port)
-        if getattr(self, "model_proxy", None) is not None:
-            ports.add(self.model_proxy.port)
         return sorted(p for p in ports if p)
 
     def _all_binds(self, binds=()) -> list[Bind]:
@@ -773,9 +794,14 @@ class Sandbox:
             patterns = [a for a in allowed if any(c in a for c in "*?[")]
             env = {k: v for k, v in env.items() if k in allowed or any(fnmatch.fnmatchcase(k, p) for p in patterns)}
         if self.proxy_url:
-            for key in ("HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy"):
+            for key in PROXY_VARS:
                 env[key] = self.proxy_url
             env["NO_PROXY"] = env["no_proxy"] = "127.0.0.1,localhost"
+        elif self.network == "isolated":
+            # No way out but the forwarded ports: an outer sandbox's proxy variables (a nested sandbox inherits them)
+            # would send even a loopback request to a proxy this one cannot use.
+            for key in (*PROXY_VARS, "ALL_PROXY", "all_proxy"):
+                env.pop(key, None)
         if not shutil.which("bwrap"):
             if self.enforce == "required":
                 raise RuntimeError("sandbox.enforce is required but bubblewrap (bwrap) is not installed; install it, "
@@ -952,8 +978,6 @@ class Sandbox:
                                   writable=list(writable),
                                   framework=self.framework if framework is None else framework,
                                   role=role or self.role)
-        box.model_proxy = getattr(self, "model_proxy", None)
-        box.model_bindings = list(getattr(self, "model_bindings", ()))
         return box
 
     def close(self):
@@ -968,11 +992,15 @@ def _under(path, parent) -> bool:
 
 
 class AllowlistProxy:
-    """HTTP CONNECT (and plain HTTP) proxy on 127.0.0.1 that forwards only to allowed hosts."""
+    """HTTP CONNECT (and plain HTTP) proxy on 127.0.0.1 that forwards only to allowed hosts. When this process has
+    a proxy of its own (HTTPS_PROXY / HTTP_PROXY, an offline machine's egress proxy), it connects through it."""
 
     def __init__(self, allow: list[str], log: Path | None = None):
         self.hosts = {urlparse(a).hostname or a for a in allow}
         self.log = Path(log) if log else None
+        upstream = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy") or os.environ.get("HTTP_PROXY") \
+            or os.environ.get("http_proxy")
+        self.upstream = urlparse(upstream) if upstream else None
         self._log_lock = threading.Lock()
         outer = self
 
@@ -1007,13 +1035,13 @@ class AllowlistProxy:
                     return
                 outer._write(method, host, port, True)
                 try:
-                    upstream = socket.create_connection((host, port), timeout=30)
+                    upstream = outer._connect(host, port)
                 except OSError:
                     self.wfile.write(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n")
                     return
                 if method == "CONNECT":
                     self.wfile.write(b"HTTP/1.1 200 Connection Established\r\n\r\n")
-                else:
+                else:                                # a plain request: sent on as it came (absolute URI)
                     upstream.sendall(line.encode("latin-1") + b"".join(headers) + b"\r\n")
                 self._pipe(self.connection, upstream)
 
@@ -1040,6 +1068,23 @@ class AllowlistProxy:
         self.server = Server(("127.0.0.1", 0), Handler)
         self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def _connect(self, host: str, port: int) -> socket.socket:
+        """A connection to host:port, directly or through this process's own proxy (a CONNECT tunnel)."""
+        if self.upstream is None or not self.upstream.hostname:
+            return socket.create_connection((host, port), timeout=30)
+        sock = socket.create_connection((self.upstream.hostname, self.upstream.port or 80), timeout=30)
+        sock.sendall(f"CONNECT {host}:{port} HTTP/1.1\r\nHost: {host}:{port}\r\n\r\n".encode())
+        reply = b""
+        while b"\r\n\r\n" not in reply and len(reply) < 65536:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            reply += chunk
+        if not reply.split(b"\r\n", 1)[0].split(b" ")[1:2] == [b"200"]:
+            sock.close()
+            raise OSError(f"the upstream proxy refused {host}:{port}: {reply[:100]!r}")
+        return sock
 
     def _write(self, method: str, host: str, port: int, allowed: bool) -> None:
         if self.log is None:

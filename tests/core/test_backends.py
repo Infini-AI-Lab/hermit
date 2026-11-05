@@ -374,8 +374,8 @@ def test_check_reports_models_and_train_refuses_a_missing_dialect(tmp_path, monk
 
 
 def test_evolver_binding_reaches_the_sandbox(tmp_path, monkeypatch):
-    """The Trainer routes the Evolver's endpoint through the run's model proxy: the endpoint's host never reaches the
-    learner's sandbox, and its key variable carries a secret of the sandbox's own, never the key's value."""
+    """The learner reaches the Evolver's endpoint as Harbor's agents reach theirs: its key variable passes into the
+    learner's sandbox and its host is allowed; the key's value is never written into the run's records."""
     from hermit.trainer.trainer import Trainer
     monkeypatch.setenv("HA_BACKENDS", str(tmp_path / "no-user-file.yaml"))
     monkeypatch.setenv("LAB_KEY", "sekret-123")
@@ -383,19 +383,11 @@ def test_evolver_binding_reaches_the_sandbox(tmp_path, monkeypatch):
                                    sandbox={"enabled": False}))
     trainer = Trainer(config, log=lambda *a: None)
     trainer._prepare()
-    assert trainer.sandbox.allow == [] and trainer.sandbox.env_allow == []
-    assert trainer.sandbox.model_proxy is trainer.model_proxy
-    assert [b["base_url"] for b in trainer.sandbox.model_bindings] == ["http://box:8000/v1"]
+    # as Harbor gives its agents their keys: the key variable passes, the provider's host is allowed
+    assert "LAB_KEY" in trainer.sandbox.env_allow and trainer.sandbox.allow == ["box"]
     assert trainer.params["binding"]["api_key_env"] == "LAB_KEY" and "sekret-123" not in json.dumps(trainer.params)
     recorded = yaml.safe_load((trainer.run_dir / "config.yaml").read_text())
     assert "sekret-123" not in json.dumps(recorded["evolver"]["params"])
-    # A learner session as the Base Agent starts it: its provider URL becomes the proxy's, its key a secret.
-    from hermit.model_proxy import route_session
-    command, env, keep, _ = route_session(trainer.sandbox, trainer.sandbox.model_bindings,
-                                          ["codex", "-c", 'model_providers.vllm.base_url="http://box:8000/v1"'],
-                                          {"LAB_KEY": "sekret-123", "PATH": "/usr/bin"})
-    assert f"127.0.0.1:{trainer.model_proxy.port}/" in command[2] and "box:8000" not in command[2]
-    assert env["LAB_KEY"] != "sekret-123" and keep == ["LAB_KEY"]
 
 
 def test_cli_dispatch_and_meter_buckets(capsys):

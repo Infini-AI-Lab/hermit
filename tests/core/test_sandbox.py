@@ -417,13 +417,13 @@ def test_what_a_learner_is_told_and_what_it_names(monkeypatch):
 def test_a_view_keeps_the_sandbox_and_replaces_what_it_shows(tmp_path, monkeypatch):
     fake_bwrap(monkeypatch)
     run = Sandbox(network="no-network", binds=[Bind(tmp_path / "ws", "/w/adapter", True)], layout=(tmp_path, "/w"),
-                  env_allow=["KEEP"], limits={"memory_mb": 512}, framework=False, record_dir=tmp_path / "rec")
-    run.model_proxy, run.model_bindings = "proxy", [{"base_url": "x"}]
+                  env_allow=["KEEP"], limits={"memory_mb": 512}, framework=False, record_dir=tmp_path / "rec",
+                  forward=[3402])
     view = run.view(binds=[Bind(tmp_path / "ev", "/evidence")], readable=[tmp_path], framework=True, role="editor")
     assert view.binds == [Bind(tmp_path / "ev", "/evidence", False)] and view.layout is None
     assert (view.network, view.env_allow, view.limits, view.record_dir) == ("isolated", ["KEEP"], {"memory_mb": 512},
                                                                            tmp_path / "rec")
-    assert view.framework and view.role == "editor" and view.model_proxy == "proxy" and view.model_bindings
+    assert view.framework and view.role == "editor" and view.forward == [3402]     # the model meter's port too
     assert run.binds and not run.framework                         # the run's sandbox is unchanged
     view.close()
 
@@ -722,3 +722,49 @@ def test_a_pkgutil_namespace_is_not_shown_whole(tmp_path):
     assert distribution_paths([Dist()]) == sorted([tmp_path / "opencensus" / "__init__.py",
                                                    tmp_path / "opencensus" / "common" / "__init__.py",
                                                    tmp_path / "opencensus" / "common" / "runtime_context"])
+
+
+def test_the_allowlist_proxy_goes_out_through_the_hosts_own_proxy(tmp_path, monkeypatch):
+    """On a machine whose only way out is an egress proxy (docker/offline.sh), the sandbox's allowlist proxy reaches
+    an allowed host through it."""
+    import http.server
+    import threading
+    import urllib.request
+
+    class Target(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Length", "2")
+            self.end_headers()
+            self.wfile.write(b"ok")
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Target)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    host = "localhost."                                       # a name the proxies see as a host, not the loopback
+    monkeypatch.delenv("HTTPS_PROXY", raising=False)
+    monkeypatch.delenv("HTTP_PROXY", raising=False)
+    egress = AllowlistProxy([host], log=tmp_path / "egress.jsonl")
+    monkeypatch.setenv("HTTPS_PROXY", egress.url)
+    inner = AllowlistProxy([host])
+    try:
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({"http": inner.url}))
+        assert opener.open(f"http://{host}:{server.server_address[1]}/", timeout=10).read() == b"ok"
+        assert '"CONNECT"' in (tmp_path / "egress.jsonl").read_text()      # it went out through the egress proxy
+    finally:
+        inner.close()
+        egress.close()
+        server.shutdown()
+
+
+def test_a_sandbox_without_a_proxy_drops_an_outer_ones_variables(monkeypatch):
+    """A nested sandbox (the adapter's, inside the task sandbox) inherits HTTPS_PROXY pointing at the outer allowlist
+    proxy; without NO_PROXY a loopback request would go there and be refused."""
+    fake_bwrap(monkeypatch)
+    box = Sandbox(network="isolated", env_allow=["HTTPS_PROXY", "EMBED_URL"])
+    try:
+        _, env = box.wrap(["true"], env={"HTTPS_PROXY": "http://127.0.0.1:4111", "EMBED_URL": "http://127.0.0.1:3611/v1"})
+    finally:
+        box.close()
+    assert "HTTPS_PROXY" not in env and env["EMBED_URL"] == "http://127.0.0.1:3611/v1"

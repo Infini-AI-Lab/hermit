@@ -39,10 +39,10 @@ from hermit.agent.evolver.loader import find, instantiate
 from hermit.agent.model.llm import ChatClient
 from hermit.isolate import CHATGPT_HOSTS, HOME_SECRETS, ToolRunner, _safe, agent_pipeline, config_paths, \
     judge_for, run_secrets, sanitized_copy
-from hermit.model_proxy import ModelProxy
-from hermit.sandbox import AllowlistProxy, Bind, Sandbox, drop_unsafe, inside_tools
+from hermit.redact import redact_tree
+from hermit.sandbox import AllowlistProxy, Bind, Sandbox, drop_unsafe, inside_tools, model_access
 from hermit.spec import check_spec, repair
-from hermit.task import TaskData, load_callable
+from hermit.task import TaskData
 from hermit.tools import FunctionTool, ToolServer, assemble, evolver_agent
 from hermit.trainer import card
 from hermit.trainer.budget import Budget, BudgetExceeded
@@ -151,8 +151,7 @@ class Trainer:
         # sandbox is off and they run unconfined like everything else.
         self.enforce = d["sandbox"].get("enforce", "required") if d["sandbox"]["enabled"] else None
         self.pipeline = None             # set when the run starts: the agent runs in its sandbox, never imported here
-        self.judge = load_callable(f"{d['judge']['path']}:{d['judge']['name']}", config.base)   # replaced in _prepare
-                                                                                                   # by judge_for
+        self.judge = None                # set when the run starts (judge_for): a sandboxed judge is never imported here
         self.spec = find(d["evolver"]["name"], config.base)
         self.evolver, self.params = instantiate(self.spec, d["evolver"]["params"],
                                                 backends=registry(d.get("backends")), default_model=d.get("model"))
@@ -163,12 +162,6 @@ class Trainer:
         else:
             self.llm = ChatClient.from_spec(d["llm"]) if d.get("llm") else None
         self.warnings = warnings_for(config, val_given=True)
-        if d["sandbox"]["enabled"] and not self.params.get("binding") and self.params.get("login") != "chatgpt" \
-                and self.params.get("home"):
-            self.warnings.append(f"the Evolver names no model reference: its CLI's own login ({self.params['home']} "
-                                 "from your home) is copied into the learner's sandbox, where the session can read "
-                                 "it (a recorded exception, like a ChatGPT login); name a model to route it through "
-                                 "the model proxy instead.")
 
     # ---------- setup ----------
     def _prepare(self) -> None:
@@ -217,18 +210,22 @@ class Trainer:
                     f.write(json.dumps(row, ensure_ascii=False) + "\n")
         env = tuple(config_paths(self.config, "evolver_access.environment", d["evolver_access"]["environment"]))
         self.access = Access(validation=val, environment=env)
-        # The learner's sandbox (docs/developer/sandbox-design.md): the workspace under fixed names below /w, the
-        # model proxy (its sessions never hold a model key), the Trainer's tool endpoint, and the hosts the run
-        # declares. A Codex learner on a ChatGPT login reaches its plan's hosts (the recorded exception).
+        # The learner's sandbox (docs/developer/sandbox-design.md): the workspace under fixed names below /w, its
+        # models, the Trainer's tool endpoint, and the hosts the run declares. A Codex learner on a ChatGPT login
+        # reaches its plan's hosts.
         ev = d["sandbox"]["evolver"]
         records = self.run_dir / "sandbox"
         allow = list(ev.get("allowed_hosts") or [])
         if self.params.get("login") == "chatgpt" or (isinstance(d.get("llm"), dict) and d["llm"].get("login") ==
                                                        "chatgpt"):
             allow += [h for h in CHATGPT_HOSTS if h not in allow]
+        # The learner reaches its models as Harbor's agents do: the key variables pass, the providers' hosts are
+        # allowed, a server on the loopback (a meter) is forwarded. Its models: the Evolver's, and its roles' (RRSI).
+        roles = self.params.get("roles") if isinstance(self.params.get("roles"), dict) else {}
+        model_keys, model_hosts, model_ports = model_access([self.params.get("binding"), roles.get("binding")])
+        allow += [h for h in model_hosts if h not in allow]
         atexit.register(self._close_sandboxes)      # whatever is started from here is closed, a failure included
         self.proxy = AllowlistProxy(allow, log=records / "network.jsonl") if allow else None
-        self.model_proxy = ModelProxy(log=records / "models.jsonl")
         # What else the run starts has a sandbox of its own: the agent that does the tasks (rollouts, and run_agent
         # for the Evolver), its judge when sandboxed, and the tools a template or task declares.
         self.pipeline, self._close_pipeline = agent_pipeline(self.config, "rollout", records=records)
@@ -252,14 +249,13 @@ class Trainer:
         self.sandbox = Sandbox(enabled=d["sandbox"]["enabled"], network="allowlist" if allow else "no-network",
                                allow=allow, binds=binds, layout=(self.ws.adapter.parent, "/w"),
                                proxy_url=self.proxy.url if self.proxy else None,
-                               env_allow=list(ev.get("env") or []), enforce=d["sandbox"].get("enforce", "required"),
+                               env_allow=[*(ev.get("env") or []), *model_keys], forward=model_ports,
+                               enforce=d["sandbox"].get("enforce", "required"),
                                framework=bool(getattr(self.evolver, "sandbox_framework", False)), record_dir=records,
                                # The isolation check inside proves these absent: the data, the judge, the runs,
                                # the home's secrets.
                                probe_absent=[*run_secrets(self.config), *HOME_SECRETS],
                                limits=dict(ev.get("resources") or {}), role="learner")
-        self.sandbox.model_proxy = self.model_proxy
-        self.sandbox.model_bindings = [b for b in (self.params.get("binding"),) if isinstance(b, dict)]
         resolved = {"config": d, "template": self.template, "tree": str(self.tree.repo), "branch": self.branch,
                     "start": start, "evolver": {"name": self.spec.name, "directory": str(self.spec.directory),
                                                 "class": self.spec.class_path, "needs": self.spec.needs,
@@ -616,6 +612,7 @@ class Trainer:
         step_dir = self.run_dir / f"step_{n:04d}"
         _copy_dir(self.ws.output, step_dir / "output")
         _copy_dir(self.ws.state, step_dir / "state")
+        redact_tree(step_dir)                # the learner held its model's key
         (step_dir / "step_result.json").write_text(json.dumps(asdict(result), indent=1, default=str))
         record = {"step": n, "epoch": progress.epoch, "tasks": chunk, **({"bootstrap": True} if what == "bootstrap" else {}),
                   **(selection or {}), "epoch_end": progress.is_epoch_end, **self._request(progress, result),
@@ -672,6 +669,7 @@ class Trainer:
             return [], [], {"skipped": f"status {result.status}: the previous adapter stays"}
         adapter = self.ws.adapter
         _sanitize_in_place(adapter)          # the checks, the repair and the tree read and write only what is in it
+        redact_tree(adapter)                 # and no model key the learner held is kept in the tree
         parent_copy = self.tree.export(parent, self.run_dir / "parent_adapter")
         Tree.sync(adapter, self.checkout)
         message = (f"{label} [{self.spec.name}]: {result.summary}\n\n"
@@ -747,6 +745,7 @@ class Trainer:
                            warnings=self.warnings, summary=note, report=report)
         (self.ws.adapter / CARD).parent.mkdir(parents=True, exist_ok=True)
         (self.ws.adapter / CARD).write_text(text)
+        redact_tree(self.ws.adapter)
         Tree.sync(self.ws.adapter, self.checkout)
         Tree.commit(self.checkout, f"final: {self.run_name}\n\n{note}\n")
         final_commit = Tree.head(self.checkout)
@@ -764,7 +763,6 @@ class Trainer:
     def _close_sandboxes(self) -> None:
         for close in (getattr(self, "_close_pipeline", None), getattr(getattr(self, "tool_runner", None), "close", None),
                       getattr(getattr(self, "proxy", None), "close", None),
-                      getattr(getattr(self, "model_proxy", None), "close", None),
                       getattr(getattr(self, "sandbox", None), "close", None)):
             if close is not None:
                 try:

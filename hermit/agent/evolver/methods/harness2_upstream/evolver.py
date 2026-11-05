@@ -222,7 +222,7 @@ class Harness2UpstreamEvolver(Evolver):
     def _sandbox(ctx):
         """The sessions' sandbox: the run's evolver sandbox with nothing of the run's layout shown, the system, the
         CLI's installation and each session's own directory (writable, given per session) only, the network the run
-        allows (the model proxy). None when the run has no sandbox."""
+        allows (its models' providers). None when the run has no sandbox."""
         run = ctx.sandbox
         if run is None or not getattr(run, "enabled", False):
             return None

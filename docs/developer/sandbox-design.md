@@ -25,9 +25,9 @@ Three roles run in three kinds of sandbox.
 
 | Sandbox | Contents | Never inside | Backend |
 |---|---|---|---|
-| task | the declared task paths, packages and variables, the acting layer, the frozen adapter | the data and split files, the judge and its tests, the runs and trees, model keys | bubblewrap; Docker for `environment.image` |
+| task | the declared task paths, packages and variables, the acting layer, the frozen adapter, its model's key | the data and split files, the judge and its tests, the runs and trees | bubblewrap; Docker for `environment.image` |
 | judge | the task sandbox's settings, the judge's file and `judge.tests`; `separate`: only the collected paths of the agent's work, none of `environment.write` | | as the task |
-| evolver | the learner CLI, the workspace under fixed names below `/w`, what the method declares | the framework's code (unless the method needs it), the data, the judge, the test split, model keys | bubblewrap |
+| evolver | the learner CLI, the workspace under fixed names below `/w`, what the method declares, its models' keys | the framework's code (unless the method needs it), the data, the judge, the test split | bubblewrap |
 
 Every sandbox is an allowlist: a path, a package, a variable or a host that is not declared does not exist inside.
 Nothing is shown and then covered.
@@ -49,11 +49,11 @@ of it, through a sanitized copy.
   path under a name of its own. A `layout` (outside root, inside root) names the working directory a learner is told.
 - Paths under a bound source are translated in the command, the environment and `--chdir`; `relative()` writes them
   relative to the layout's root, as a learner is told them; `outside()` maps a path a learner names back.
-- `network: isolated` gives the process its own namespace with loopback only; the ports the caller names (a tool
-  server, a local model server), every 127.0.0.1 URL in the environment, the model proxy and the allowlist proxy are
+- `network: isolated` gives the process its own namespace with loopback only; the sandbox's own ports (a model server or
+  meter), the ports the caller names (a tool server), every 127.0.0.1 URL in the environment and the allowlist proxy are
   forwarded over a Unix socket by `sandbox_relay.py` (never a URL in the command's arguments, where a prompt can carry
-  the learner's text). `open` is the host
-  network. A run config names these `no-network`, `allowlist` (with `allowed_hosts`) and `public`.
+  the learner's text). `open` is the host network. A run config names these `no-network`, `allowlist` (with
+  `allowed_hosts`) and `public`.
 - `env_allow` lists the variables passed (names or patterns such as `MWM_*`); `limits` (memory_mb, file_mb, cpu_s)
   are set on the command by the relay.
 - The relay checks the isolation inside before the command starts (outside TCP blocked, forwarded ports open, the
@@ -74,12 +74,12 @@ directory is writable; the `.logs` beside a task's agent file is a fresh directo
 holds or lies inside a run secret (the data and split files, the judge and its tests, the runs and trees) refuses
 the config; the isolation check proves the secrets absent at every start.
 
-With `environment.image` a Codex acting agent runs in a container of its own (the Base Agent's container
-isolation), started from a worker on the host, one per call; the worker puts the adapter's code the agent renders or
-serves in the strict sandbox below. The container holds the model key (recorded). The pipeline runs in the host
-process instead in three cases, each recorded: `sandbox.enabled: false`; a Harbor task set (`agent.name: harbor`,
-whose environment is Harbor's container, which also holds the key); and `environment.runner: host`, for a task whose
-own code isolates the adapter's code it runs (AgentDyn runs learned hooks in containers of their own).
+With `environment.image` a Codex acting agent runs in a container of its own (the Base Agent's container isolation),
+started from a worker on the host, one per call; the worker puts the adapter's code the agent renders or serves in the
+strict sandbox below. The pipeline runs in the host process instead in three cases, each recorded: `sandbox.enabled:
+false`; a Harbor task set (`agent.name: harbor`, whose environment is Harbor's container); and `environment.runner:
+host`, for a task whose own code isolates the adapter's code it runs (AgentDyn runs learned hooks in containers of their
+own).
 
 Inside the task sandbox the adapter's modules (its tools, its renders) still run in a nested strict sandbox of their
 own (`HA_ADAPTER_SANDBOX`, set by the worker for the code the agent starts), which only narrows what the task sandbox
@@ -115,8 +115,9 @@ The Trainer builds the learner's sandbox with the workspace under fixed names, t
 
 The Base Agent translates every host path in the prompt (relative to `/w`), the command, the environment and the
 working directory; a call's own writable path under the workspace (the CLI's home) is shown at its layout name. Tools
-the learner calls resolve the paths it names (`Sandbox.outside`). The network reaches only the model proxy, the
-Trainer's tool endpoint and `sandbox.evolver.allowed_hosts`; the variables are `sandbox.evolver.env`. The interpreter
+the learner calls resolve the paths it names (`Sandbox.outside`). The network reaches only its models (below), the
+Trainer's tool endpoint and `sandbox.evolver.allowed_hosts`; the variables are `sandbox.evolver.env` and its models'
+key variables. The interpreter
 and its standard library are shown, not the hermit package: an Evolver that runs framework code inside sets
 `sandbox_framework = True` (CommandEvolver). A method with a view of its own takes one (`Sandbox.view`): MWM shows its
 native names (`/w` as the adapter, `/evidence`, `/environment`, `/skills`, `/patterns`, `/world-model`), RRSI shows
@@ -125,18 +126,19 @@ each proposer and role its own directory, harness2 each session its own director
 The adapter leaves the learner's sandbox as a copy made inside it and then sanitized: links that leave it, special
 files and setuid bits are dropped.
 
-## Model proxy
+## Models and keys
 
-No bubblewrap sandbox holds a model key. `hermit/model_proxy.py` serves each provider origin on a loopback route; a
-sandbox gets the route in place of the provider's URL and a secret of its own in place of the key, and the proxy puts
-the real key (read from the host's environment) under the same header. A server on the loopback that takes no key (a
-local vLLM) is reached directly; one whose key is set (a meter in front of a provider) is routed. The task sandbox's
-bindings (`agent.params.binding`, a chat agent's model spec) are routed when the sandbox is built; the learner's
-sessions are routed by the Base Agent, from the session's binding or the run's (the Evolver's). Exceptions, recorded: a
-container (`environment.image`, Harbor) gets the key itself; a CLI session that names no model reference copies the
-CLI's own login from the user's home (`auth.json`, `.credentials.json`; warned); a Codex ChatGPT login is copied in (its
-hosts reached through the allowlist proxy), and a task whose own code calls a model outside the bindings declares its
-key variable in `environment.env`.
+A sandbox gets its models' keys as Harbor gives its agents theirs: the key variable of each model a sandbox calls
+passes in (the acting agent's binding or model spec in the task sandbox; the Evolver's and its roles' in the learner's),
+the provider's host joins the allowlist (an isolated network becomes an allowlist; `public` needs nothing), and a
+model server or meter on the loopback is forwarded. A container (`environment.image`, Harbor) gets the key the same
+way. A task whose own code calls a model (CL-Bench's and ServeLearnBench's runners) passes its key variable in
+`environment.env`. A Codex ChatGPT login is copied in, its hosts allowed; a CLI learner that names no model reference
+copies the CLI's own login from the user's home.
+
+What a run keeps and may share is scrubbed of every key value (`hermit/redact.py`): the learning material, the step
+records the learner wrote and the adapter before each commit; each value of a key-like variable of the Trainer
+(`..._API_KEY`, `..._KEY`, `..._TOKEN`, `..._SECRET`, at least 16 characters) becomes `<VARIABLE>`.
 
 Web search runs at the provider; the CLI setting (`web_search`, required and explicit) switches it off.
 
@@ -155,9 +157,12 @@ check (`spec`) and host-side renders run the adapter's modules in the same stric
 - Web search runs at the provider; only the CLI setting controls it.
 - A benchmark whose environment and scoring share one package shows its scoring to the agent when the agent needs the
   package: ServeLearnBench (`servelearnbench`), AgentDyn (its judge predicates live beside its tasks), CL-Bench (its
-  runner grades each question beside the host it plays). The first and the last call their model from their own loop
-  and so hold its key (`SLB_API_KEY`; the litellm key variable the CL-Bench launchers add to `environment.env`).
-- A ChatGPT login is copied into the task sandbox when the acting agent uses one.
+  runner grades each question beside the host it plays).
+- A sandbox holds its models' keys (as Harbor's agents do): an agent or a learner can read them. What the run keeps
+  is scrubbed of them; what a sandbox sends to its allowed hosts is not inspected.
+- A Claude Code acting agent on a Claude subscription is not supported in the task sandbox yet (only a model
+  reference or, for Codex, a ChatGPT login): its login file would need the shared copy and write-back a ChatGPT
+  login has (roadmap).
 - A program on another interpreter that holds a Session (a benchmark's own venv) starts the adapter server on the
   framework's Python, whose installation is shown whole: its packages are not filtered to a closure, which the
   calling interpreter cannot compute.
@@ -165,5 +170,6 @@ check (`spec`) and host-side renders run the adapter's modules in the same stric
 ## Verification
 
 - Unit tests of the core (binds, translation, views, limits, the package allowlist), the task sandbox (what an agent
-  sees and cannot do from inside), the judge modes and the model proxy, with real bubblewrap where available.
+  sees and cannot do from inside), the judge modes, the models' access and the key scrubbing, with real bubblewrap
+  where available.
 - The isolation check in every sandbox fails the start when it fails.

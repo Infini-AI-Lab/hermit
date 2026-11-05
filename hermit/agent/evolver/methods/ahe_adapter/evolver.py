@@ -446,7 +446,9 @@ class AHEAdapterEvolver(AgentEvolver):
         text = (read_regular(report) or "").strip()        # the session's file: never through a link or a pipe
         if not text or report.is_symlink() or not report.is_file():
             text = text or result.summary
-            report.unlink(missing_ok=True)                   # what was there is replaced, never written through
+            if report.is_dir() and not report.is_symlink():
+                shutil.rmtree(report)                        # what was there is replaced, never written through
+            report.unlink(missing_ok=True)
             report.write_text(text + "\n", encoding="utf-8")
         if warnings:
             append_text(report, "\n\n" + "\n".join(warnings) + "\n")

@@ -20,14 +20,13 @@ with links to supporting files, runs or records.
   solution guidance. Verify that training evidence and labels follow the declared
   protocol. Check the execution boundary between learned code and scoring logic,
   and disclose any access or isolation limitations.
-- [ ] **Sandbox control.** Did every reported run keep file and network control on? Give the run
-  config's `sandbox` section and link the launch records. Check: `enforce: required` (a `best_effort`
-  run that fell back to running unconfined is not a reported result); answers, the judge and held-out
-  splits are absent from the task and evolver sandboxes; the network reaches only the model proxy and
-  declared hosts; `web_search` is set explicitly (provider-side search is outside the sandbox's network
-  control); no model keys inside a sandbox. On macOS the evolver sandbox is unavailable, so file reads
-  are not restricted to the declared directories: say so, state how the learner's network was limited
-  (the CLI's own sandbox), or run on Linux.
+- [ ] **Sandbox control.** Did every reported run keep file and network control on? Give the run config's `sandbox`
+  section and link the launch records. Check: `enforce: required` (a `best_effort` run that fell back to running
+  unconfined is not a reported result); answers, the judge and held-out splits are absent from the task and evolver
+  sandboxes; the network reaches only the models' providers and declared hosts; `web_search` is set explicitly
+  (provider-side search is outside the sandbox's network control); the learning material and the adapter hold no key
+  values (they are scrubbed). On macOS the evolver sandbox is unavailable, so file reads are not restricted to the
+  declared directories: say so, state how the learner's network was limited (the CLI's own sandbox), or run on Linux.
 - [ ] **Experiments.** What was run, and on what? State the benchmark and its data
   (split or stream), protocol, acting agent and its model, Evolver and its model,
   budgets and number of runs. Verify that baselines and comparisons use matching

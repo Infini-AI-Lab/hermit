@@ -129,7 +129,7 @@ Checkpoint frequency controls tags; completed steps still have records and accep
 | `environment.write` | list / [] | Paths it may write besides its own work directory |
 | `environment.packages` | list / [] | Python distributions shown besides the framework's, with their dependencies |
 | `environment.env` | list / [] | Variables passed in: names or patterns (`MWM_*`) |
-| `environment.network` | string / `no-network` | `no-network`, `allowlist` or `public`; the model proxy stays reachable |
+| `environment.network` | string / `no-network` | `no-network`, `allowlist` or `public`; the agent's model provider stays reachable |
 | `environment.allowed_hosts` | list / [] | With `allowlist`: hosts reachable through the proxy |
 | `environment.resources` | mapping / {} | `memory_mb`, `file_mb`, `cpu_s` per process (positive whole numbers; null: no limit) |
 | `environment.image` | string / null | A Docker image: a Codex acting agent runs in a container of its own |
@@ -143,9 +143,10 @@ Checkpoint frequency controls tags; completed steps still have records and accep
 | `sandbox.evolver.env` | list / [] | Variables passed to the learner (names or patterns) |
 | `sandbox.evolver.resources` | mapping / {} | `memory_mb`, `file_mb`, `cpu_s` per process (positive whole numbers; null: no limit) |
 
-The backend is Linux/bubblewrap (Docker for `environment.image`). No sandbox holds a model key: the run's model proxy
-does. An arbitrary in-process Python Evolver's own code runs in the Trainer; what it starts runs in the learner's
-sandbox. Read [the boundary description](../framework/configuration.md#sandboxes) before granting resources.
+The backend is Linux/bubblewrap (Docker for `environment.image`). A sandbox holds its models' keys, as Harbor's agents
+do; what the run keeps is scrubbed of them. An arbitrary in-process Python Evolver's own code runs in the Trainer; what
+it starts runs in the learner's sandbox. Read [the boundary description](../framework/configuration.md#sandboxes) before
+granting resources.
 
 ## Complete defaults
 

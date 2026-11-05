@@ -1,5 +1,5 @@
 """The task sandbox (docs/developer/sandbox-design.md): the acting agent in a worker inside bubblewrap, shown only what
-the run config's `environment` declares, its model reached through the run's model proxy; the judge's sandboxes; the
+the run config's `environment` declares, its model's key and host passed in; the judge's sandboxes; the
 declared tools' strict sandbox; and only the worker able to hand a result back."""
 import json
 import os
@@ -13,9 +13,8 @@ import yaml
 
 import hermit.sandbox as sandbox_module
 from hermit.config import Config
-from hermit.isolate import (SandboxedAgent, SandboxedJudge, ToolRunner, _owned_log, _route_models, agent_pipeline,
+from hermit.isolate import (SandboxedAgent, SandboxedJudge, ToolRunner, _owned_log, agent_pipeline,
                             host_pipeline, judge_for, run_secrets, sanitized_copy)
-from hermit.model_proxy import ModelProxy, rewrite
 from hermit.sandbox import Bind, Sandbox
 from hermit.tools import assemble
 from toy_task import make_task
@@ -119,49 +118,6 @@ def test_run_secrets_name_the_data_the_judge_its_tests_and_the_runs(tmp_path):
     config = Config.load(make_task(tmp_path), ["sandbox.enabled=true", "judge.mode=shared", "judge.tests=[gold]"])
     secrets = {p.name for p in run_secrets(config)}
     assert {"tasks.jsonl", "train.txt", "val.txt", "test.txt", "judge.py", "runs", "gold"} <= secrets
-
-
-def test_the_agents_model_is_routed_through_the_proxy(tmp_path, monkeypatch):
-    monkeypatch.setenv("EXAMPLE_KEY", "the-real-key")
-    proxy = ModelProxy()
-    try:
-        params, env, ports = _route_models({"model": {"base_url": "https://api.example.com/v1", "model": "m",
-                                                      "api_key_env": "EXAMPLE_KEY"}}, proxy)
-        assert params["model"]["base_url"].startswith(f"http://127.0.0.1:{proxy.port}/")
-        assert params["model"]["base_url"].endswith("/v1") and env["EXAMPLE_KEY"] != "the-real-key"
-        assert ports == []
-        local, env, ports = _route_models({"binding": {"base_url": "http://127.0.0.1:8123/v1", "model": "m"}}, proxy)
-        assert local["binding"]["base_url"] == "http://127.0.0.1:8123/v1" and env == {} and ports == [8123]
-        # A server on the loopback that takes the caller's key (a meter in front of a provider) is routed too: the
-        # key stays outside, and the meter's port is not forwarded.
-        metered, env, ports = _route_models({"binding": {"base_url": "http://127.0.0.1:8123/v1", "model": "m",
-                                                         "api_key_env": "EXAMPLE_KEY"}}, proxy)
-        assert metered["binding"]["base_url"].startswith(f"http://127.0.0.1:{proxy.port}/")
-        assert env["EXAMPLE_KEY"] != "the-real-key" and ports == []
-    finally:
-        proxy.close()
-
-
-def test_an_origin_is_rewritten_only_where_it_ends():
-    assert rewrite("http://127.0.0.1:801/v1 http://127.0.0.1:8011/v1 'http://127.0.0.1:801'",
-                   {"http://127.0.0.1:801": "P"}) == "P/v1 http://127.0.0.1:8011/v1 'P'"
-
-
-@pytest.mark.parametrize("name, field", [("codex", "args"), ("claude-code", "env")])
-def test_a_cli_agents_provider_settings_are_routed_too(name, field, monkeypatch):
-    # A CLI agent reaches its provider by the settings bound from its binding (Codex's -c arguments, Claude Code's
-    # environment), not by the binding itself: those must name the proxy too.
-    from hermit.agent.model.backends import normalize_config
-    monkeypatch.setenv("FIREWORKS_API_KEY", "the-real-key")
-    data = {"agent": {"name": name, "params": {"model": "fireworks/accounts/fireworks/models/glm-5p3-flash"}}}
-    normalize_config(data)
-    proxy = ModelProxy()
-    try:
-        params, env, _ = _route_models(data["agent"]["params"], proxy)
-        assert "fireworks.ai" not in json.dumps(params[field]) and f"127.0.0.1:{proxy.port}/" in json.dumps(params)
-        assert env["FIREWORKS_API_KEY"] != "the-real-key"
-    finally:
-        proxy.close()
 
 
 def test_where_the_pipeline_runs(tmp_path):
@@ -806,60 +762,6 @@ def test_a_container_agent_runs_from_a_worker_that_sandboxes_the_adapters_code(t
     assert sandboxed == "1" and enforce == "required" and int(pid) != os.getpid()
 
 
-def test_the_model_proxy_swaps_the_secret_for_the_key_on_the_wire(monkeypatch):
-    """A request through the proxy reaches the provider with the real key in place of the sandbox's secret; one
-    without the secret is refused; a provider that takes no key (its variable unset) asks for none."""
-    import threading
-    import urllib.error
-    import urllib.request
-    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-    seen = []
-
-    class Provider(BaseHTTPRequestHandler):
-        def log_message(self, *a):
-            pass
-
-        def do_POST(self):
-            seen.append((self.path, self.headers.get("Authorization")))
-            self.rfile.read(int(self.headers.get("Content-Length") or 0))
-            body = b'{"ok": true}'
-            self.send_response(200)
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Provider)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    # "localhost." is no loopback spelling the proxy skips, so the route is made as for a remote provider.
-    origin = f"http://localhost.:{server.server_address[1]}"
-    proxy = ModelProxy()
-
-    def post(url, token):
-        req = urllib.request.Request(url + "/chat/completions", data=b"{}", method="POST",
-                                     headers={"Authorization": f"Bearer {token}"} if token else {})
-        try:
-            return urllib.request.urlopen(req, timeout=10).status
-        except urllib.error.HTTPError as exc:
-            return exc.code
-    try:
-        monkeypatch.setenv("EXAMPLE_KEY", "the-real-key")
-        routed, env = proxy.route({"base_url": origin + "/v1", "api_key_env": "EXAMPLE_KEY"})
-        assert post(routed["base_url"], env["EXAMPLE_KEY"]) == 200
-        assert seen[-1] == ("/v1/chat/completions", "Bearer the-real-key")
-        assert post(routed["base_url"], "a-guess") == 401 and len(seen) == 1
-        import socket
-        with socket.create_connection(("127.0.0.1", proxy.port)) as raw:       # a body length that reads to EOF
-            rid = routed["base_url"].split("/")[3]
-            raw.sendall(f"POST /{rid}/v1/x HTTP/1.1\r\nHost: x\r\nContent-Length: -1\r\n"
-                        f"Authorization: Bearer {env['EXAMPLE_KEY']}\r\n\r\n".encode())
-            assert b" 400 " in raw.recv(200).split(b"\r\n")[0] + b" "
-        monkeypatch.delenv("EXAMPLE_KEY")
-        keyless, _ = proxy.route({"base_url": origin + "/v1", "api_key_env": "EXAMPLE_KEY"})
-        assert post(keyless["base_url"], None) == 200 and seen[-1][1] is None
-    finally:
-        proxy.close()
-        server.shutdown()
-
-
 def test_a_tasks_own_agent_on_a_cli_base_is_that_cli():
     from hermit.isolate import _cli_kind
     assert _cli_kind("agent.py:Custom", {"base": "codex"}) == "codex"
@@ -917,3 +819,33 @@ def test_a_container_session_ends_before_the_outer_deadline(tmp_path):
     assert ContainerAgent(config, "rollout", {"timeout_s": 3600}).params["timeout_s"] == 540
     assert ContainerAgent(config, "rollout", {"timeout_s": 3600}).params["deadline_s"] == 540   # retries included
     assert ContainerAgent(config, "rollout", {"timeout_s": 60}).params["timeout_s"] == 60
+
+
+def test_the_agent_gets_its_models_key_and_host_as_harbors_do(tmp_path, monkeypatch):
+    """The task sandbox passes the agent model's key variable, allows its provider's host (the network becomes an
+    allowlist) and forwards a model server on the loopback."""
+    fake_bwrap(monkeypatch)
+    path = sandboxed_task(tmp_path)
+    model = "{base_url: 'https://api.example.com/v1', model: m, api_key_env: EXAMPLE_KEY}"
+    agent = SandboxedAgent(Config.load(path, [f"agent.params.model={model}"]), "rollout", records=None)
+    try:
+        assert "EXAMPLE_KEY" in agent.sandbox.env_allow and agent.sandbox.allow == ["api.example.com"]
+        assert agent.sandbox.network == "isolated" and agent.sandbox.proxy_url
+    finally:
+        agent.close()
+    local = "{base_url: 'http://127.0.0.1:8123/v1', model: m}"
+    agent = SandboxedAgent(Config.load(path, [f"agent.params.model={local}"]), "rollout", records=None)
+    try:
+        assert agent.forward == [8123] and agent.sandbox.allow == []
+    finally:
+        agent.close()
+
+
+def test_what_a_run_keeps_is_scrubbed_of_model_keys(tmp_path, monkeypatch):
+    from hermit.redact import redact_tree
+    monkeypatch.setenv("EXAMPLE_API_KEY", "sk-the-real-key-0123456789")
+    (tmp_path / "trajectories").mkdir()
+    (tmp_path / "trajectories" / "t1.jsonl").write_text('{"env": "EXAMPLE_API_KEY=sk-the-real-key-0123456789"}\n')
+    (tmp_path / "ADAPTER.md").write_text("no key here\n")
+    assert redact_tree(tmp_path) == ["trajectories/t1.jsonl"]
+    assert "<EXAMPLE_API_KEY>" in (tmp_path / "trajectories" / "t1.jsonl").read_text()

@@ -34,7 +34,7 @@ environment:                   # the task sandbox, where the acting agent runs (
   write: []                    # paths the acting agent may write besides its own work directory
   env: []                      # environment variables passed in, names or patterns (MWM_*); no model keys: the model
                                # proxy holds them
-  network: no-network          # no-network | allowlist | public; the model proxy and the tool endpoint stay reachable
+  network: no-network          # no-network | allowlist | public; the agent's model and the tool endpoint stay reachable
   allowed_hosts: []            # allowlist: hosts reachable through the allowlist proxy
   resources: {}                # memory_mb, file_mb, cpu_s: per process
 judge:
@@ -62,9 +62,9 @@ evolver_access:
 sandbox:                       # docs/developer/sandbox-design.md
   enabled: true                # false: everything the run starts runs unconfined (a warning; not for reported results)
   enforce: required            # required: refuse to run without bubblewrap | best_effort: run unconfined, recorded
-  evolver:                     # the learner's sandbox: a fixed layout under /w, the model proxy, the tool endpoint
+  evolver:                     # the learner's sandbox: a fixed layout under /w, its models, the tool endpoint
     allowed_hosts: []          # more hosts the learner may reach, through the allowlist proxy
-    env: []                    # environment variables passed to the learner's sessions (no model keys: the proxy)
+    env: []                    # environment variables passed to the learner's sessions (its models' keys pass anyway)
     resources: {}              # memory_mb, file_mb, cpu_s: per process
 model: null                    # the run's default model, a `<backend>/<model id>` reference (see backends): what `llm`,
                                # agent.params.model and evolver.params.model use when they name none

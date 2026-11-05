@@ -14,7 +14,7 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   | `sandbox.profiles.rollout` (`read`, `write`, `mask`, `env`, `network`, `allow`, `packages`) | `environment` (`read`, `write`, `env`, `network`, `allowed_hosts`, `packages`, `resources`); no masks: a declared path may not hold the data, the judge or the runs |
   | `sandbox.profiles.rollout.enabled: false` with the agent's `isolation: container` | `environment.image` (+ `environment.container`) |
   | `sandbox.profiles.rollout.enabled: false` for a pipeline that starts containers itself | `environment.runner: host` |
-  | `sandbox.network`, `sandbox.allow`, `sandbox.env` (the learner's) | `sandbox.evolver.allowed_hosts`, `sandbox.evolver.env`; the learner's model is reached through the model proxy |
+  | `sandbox.network`, `sandbox.allow`, `sandbox.env` (the learner's) | `sandbox.evolver.allowed_hosts`, `sandbox.evolver.env`; the learner's model key variable and provider host are passed in by themselves |
   | `sandbox.read` | `evolver_access.environment` |
   | `sandbox.profiles.tool` | a task's declared tool runs with `environment`; a template's in a strict sandbox |
   | `evolver.params.hide`, `HidingSandbox`, masks | removed: every sandbox is an allowlist |
@@ -27,8 +27,10 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Added
 
-- The run's model proxy (`hermit/model_proxy.py`): no sandbox holds a model key; a sandboxed session gets a loopback
-  route and a secret of its own.
+- Models in sandboxes as Harbor's agents get theirs: each sandbox gets its models' key variables and provider hosts
+  (an isolated network becomes an allowlist) and forwards a model meter on the loopback; what a run keeps (the
+  learning material, the step records, the adapter) is scrubbed of key values (`hermit/redact.py`). The allowlist
+  proxy goes out through the host's own proxy when it has one.
 - `judge.mode`: `host`, `shared` (in the task sandbox after the agent, `judge.tests` shown to it alone) and
   `separate` (a fresh sandbox holding the paths `judge.collect` names, copied through a sanitized archive).
 - Sandbox resource limits (`resources`: memory, file size, CPU time), environment-variable patterns (`MWM_*`), and

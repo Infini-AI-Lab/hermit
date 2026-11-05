@@ -31,8 +31,8 @@ Also needed:
 The models are backend references ([Model backends](../guides/model-backends.md)). The acting agent is GLM 5.3 Flash
 on Fireworks (`fireworks/accounts/fireworks/models/glm-5p3-flash`, the configs' `agent.params.model`) and the
 configs' learner (`llm`) GLM 5.3 on Fireworks, both at reasoning effort medium; the paper's learner is GPT-5.5 at
-medium. `agent.params.model=<backend>/<model id>` on the command line moves the acting agent (the task sandbox routes it
-through the run's model proxy); `llm=...` moves the learner. Dollar accounting uses the backend's prices; verify them
+medium. `agent.params.model=<backend>/<model id>` on the command line moves the acting agent; `llm=...` moves the
+learner. Dollar accounting uses the backend's prices; verify them
 for your endpoint.
 
 The agent acts in one of the paper's two harnesses (`agent.params.harness`), with the question and its parsed source
@@ -93,8 +93,8 @@ that the integration works; four test questions cannot establish a performance g
 reported on this page.
 
 The configs run the acting agent in the task sandbox (`environment`: its code, `data.json` and the corpus, the
-`skillopt` package; never `.private/` or the judge) and the learner in the evolver sandbox, both reaching their model
-through the run's model proxy, which holds the key. The in-process `gepa` method calls the run's model tool directly;
+`skillopt` package; never `.private/` or the judge) and the learner in the evolver sandbox, each given its model's
+key variable and provider host. The in-process `gepa` method calls the run's model tool directly;
 enabling the sandbox does not turn the whole Python process into an isolated environment.
 
 Paths in a config are relative to its file, so the run is under `examples/officeqa/gepa/runs/smoke-gepa/`

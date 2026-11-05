@@ -113,31 +113,3 @@ def test_agent_evolver_with_a_fake_codex(tmp_path, monkeypatch):
     assert steps[0]["evolver"]["usage"][0]["cost_usd"] == pytest.approx(150e-6)
 
 
-def test_a_command_evolver_reaches_its_model_through_the_proxy(tmp_path, monkeypatch):
-    """The program gets the Evolver's binding on the run's model proxy and a secret in its key variable, never the
-    key (the sandbox is off here, so only the routing is under test)."""
-    from types import SimpleNamespace
-    from hermit.agent.evolver.agent import CommandEvolver
-    from hermit.model_proxy import ModelProxy
-    from hermit.sandbox import Sandbox
-    monkeypatch.setenv("EXAMPLE_KEY", "the-real-key")
-    binding = {"base_url": "https://api.example.com/v1", "model": "m", "api_key_env": "EXAMPLE_KEY"}
-    box = Sandbox(enabled=False)
-    box.model_proxy, box.model_bindings = ModelProxy(), [binding]
-    ws = SimpleNamespace(**{k: tmp_path / k for k in ("adapter", "scratch", "output", "state")})
-    for p in ws.__dict__.values():
-        p.mkdir()
-    seen = tmp_path / "seen.json"
-    script = ("import json, os; ctx = json.load(open(os.environ['HA_CONTEXT'])); "
-              f"json.dump({{'url': ctx['params']['binding']['base_url'], 'key': os.environ['EXAMPLE_KEY']}}, "
-              f"open({str(seen)!r}, 'w'))")
-    ctx = SimpleNamespace(workspace=ws, access=SimpleNamespace(validation=None, environment=()), progress=None,
-                          session=None, message="", params={"command": [sys.executable, "-c", script],
-                                                            "binding": binding},
-                          sandbox=box, tool_url=None, cancel=None)
-    try:
-        CommandEvolver().step(ctx)
-    finally:
-        box.model_proxy.close()
-    got = json.loads(seen.read_text())
-    assert got["url"].startswith(f"http://127.0.0.1:{box.model_proxy.port}/") and got["key"] != "the-real-key"

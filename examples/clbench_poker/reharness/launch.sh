@@ -80,7 +80,7 @@ export CLB_SKIP_BASELINE=1 CLB_REQUEST_TIMEOUT=600 CLB_REASONING_EFFORT=$EFFORT
 # clbench's host calls litellm (1.81.6), whose bundled model map (the one it uses offline, LITELLM_LOCAL_MODEL_COST_MAP)
 # does not know GLM 5.3 Flash on Fireworks: it would refuse the host's tool_choice="auto" (its default anyway) unless
 # unsupported parameters are dropped. litellm reads the variable as bool(str): any non-empty value turns it on.
-export LITELLM_DROP_PARAMS=${LITELLM_DROP_PARAMS:-True}
+export LITELLM_DROP_PARAMS=${LITELLM_DROP_PARAMS:-True} LITELLM_LOCAL_MODEL_COST_MAP=${LITELLM_LOCAL_MODEL_COST_MAP:-True}
 export MWM_CLBENCH=$CLBENCH MWM_METAWORLD=$METAWORLD
 
 [ -f "$TASKDIR/tasks.jsonl" ] || { echo "REFUSING: run $TASKDIR/prepare.py first"; exit 1; }

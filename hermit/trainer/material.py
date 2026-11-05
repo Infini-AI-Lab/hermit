@@ -77,6 +77,8 @@ class Material:
         if current.is_symlink() or current.exists():
             current.unlink()
         current.symlink_to(d.name)
+        from hermit.redact import redact_tree
+        redact_tree(d)                    # the agents held their keys: none of them reaches the learner's material
         return d
 
     def truncate(self, last_step: int) -> None:

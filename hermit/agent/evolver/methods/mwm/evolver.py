@@ -7,7 +7,7 @@ the native wrapper ran after a block:
 1. maintenance on the adapter (journal roll, docket caps, gate advice, memory index; prompt.prepare_session);
 2. one Codex session with the native session prompt (prompt.build_prompt), started in the adapter directory with the
    native mounts (the world model at /w, read-only at /world-model; /evidence, /environment, /skills, /patterns), in
-   its own network namespace (it reaches the run's model proxy, the session's tool server with the venue's channels,
+   its own network namespace (it reaches its model (the meter), the session's tool server with the venue's channels,
    the MW_TOOLSRV gate and sandbox.evolver.allowed_hosts; every session measures that first);
 3. executable admission (prompt.finalize: every tool's own test, failures parked in tools/_rejected/);
 4. the native retry: a session that produced nothing and did not time out is run once more.
@@ -213,8 +213,8 @@ class MwmEvolver(Evolver):
         """The learner's sandbox: the run's evolver sandbox with MWM's native view in place of the run's layout:
         /evidence, /environment, /skills, /patterns read-only, the adapter writable at /w (the working directory) and
         read-only at /world-model. The native learner saw nothing else; `captest` (bin/) runs the framework's Python
-        sandbox, so that much of the framework is shown too. Its own network namespace reaches the run's model proxy
-        (the model meter behind it), the session's tool server, the ports its environment names (MW_TOOLSRV) and
+        sandbox, so that much of the framework is shown too. Its own network namespace reaches its model (the meter,
+        forwarded), the session's tool server, the ports its environment names (MW_TOOLSRV) and
         sandbox.evolver.allowed_hosts."""
         if ctx.sandbox is None or not getattr(ctx.sandbox, "enabled", False) or not shutil.which("bwrap"):
             raise RuntimeError("the mwm Evolver needs the run's sandbox with bubblewrap (bwrap): the learner runs "
@@ -440,7 +440,7 @@ class MwmEvolver(Evolver):
     def setup(self, ctx: Context) -> None:
         if "network_isolation" in ctx.params:
             raise ValueError("evolver.params.network_isolation was removed: the learner runs in the run's evolver "
-                             "sandbox, whose network reaches only the model proxy, the tool endpoint and "
+                             "sandbox, whose network reaches only its models, the tool endpoint and "
                              "sandbox.evolver.allowed_hosts")
         if not ctx.params.get("evidence"):
             raise ValueError("the mwm Evolver needs params.evidence: the task's evidence store")

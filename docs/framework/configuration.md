@@ -21,10 +21,12 @@ The `llm` section configures the run's model tool, which the GEPA learner uses.
 Models are named by reference, `<backend>/<model id>` (`fireworks/accounts/fireworks/models/glm-5p3-flash`,
 `vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8`); the backend decides the endpoint, the key variable and the price,
 so the same config runs against another provider or a local vLLM or SGLang server with one override:
-`hermit train --config run.yaml model=vllm/...`. See [Model backends](../guides/model-backends.md).
+`hermit train --config run.yaml model=vllm/...` for every caller that names no model of its own (a config that names
+one, as the OfficeQA configs name the agent's and `llm`, takes `agent.params.model=...` and `llm=...`). See
+[Model backends](../guides/model-backends.md).
 
 The acting agent owns its own model configuration. Changing `llm.model` does not change the acting agent's model;
-a built-in agent takes it from `agent.params.model`, and so does OfficeQA's own agent (GLM 5.3 Flash when unset).
+a built-in agent takes it from `agent.params.model`, and so does OfficeQA's own agent (its configs name GLM 5.3 Flash).
 The top-level `model` is the default for both.
 
 For every field, its default, type, and path rules, use the [complete field reference](../reference/config-fields.md). Method defaults are included in the [method guides](../methods/index.md).
@@ -110,19 +112,20 @@ strict preset with the adapter read-only. A task's declared tools run with `envi
 | `environment.read` | Task paths shown read-only (relative to the config; `$VAR` names a launcher's variable, an unset one is an error): the agent's code, its data, a corpus. A path that holds or lies in the data and split files, the judge, its tests, or the runs and trees is refused. |
 | `environment.write` | Paths the agent may write besides its own work directory. |
 | `environment.packages` | Python distributions shown besides the framework's, with their dependencies; every other installed package is absent. |
-| `environment.env` | Environment variables passed in: names or patterns (`MWM_*`). No model key: the model proxy holds it. |
-| `environment.network` | `no-network` (default), `allowlist` (with `environment.allowed_hosts`, through a proxy), or `public`. The model proxy and the tool endpoint stay reachable. |
+| `environment.env` | Environment variables passed in: names or patterns (`MWM_*`). The agent's model key variable passes by itself. |
+| `environment.network` | `no-network` (default), `allowlist` (with `environment.allowed_hosts`, through a proxy), or `public`. The agent's model provider (as an allowed host) and the tool endpoint stay reachable. |
 | `environment.resources` | `memory_mb`, `file_mb`, `cpu_s` per process (positive whole numbers; null: no limit). |
 | `environment.image` | A Docker image: a Codex acting agent runs in a container of its own; `environment.container` gives its network and egress proxy. |
 | `environment.runner: host` | The pipeline runs in the Trainer's process, for a task whose own code isolates the adapter's code it runs (AgentDyn's hooks in containers). Warned. |
 
 Each call gets a work directory of its own (its HOME, logs and workspaces), and a fresh directory in place of the
-`.logs` beside a task's agent file. The agent's model binding is routed through the run's model proxy: inside, its
-URL is a loopback route and its key a secret of the sandbox's own. A Codex ChatGPT login is copied in (recorded); its
-hosts are reached through the allowlist proxy. The adapter's modules, when the agent's code runs them (its tools, a
-CLI agent's deploy render), run in a nested strict sandbox. The result comes back on a pipe only the worker can
-write, and its `log` must lie where the call could write; a link is never followed. A Harbor task set
-(`agent.name: harbor`) runs in Harbor's container. `agent.timeout_min` stops a call that runs longer.
+`.logs` beside a task's agent file. The agent gets its model as Harbor's agents do: its key variable passes, its
+provider's host is allowed and a model server or meter on the loopback is forwarded. A Codex ChatGPT login is copied in;
+its hosts are allowed. What the run keeps (the learning material, the adapter) is scrubbed of key values. The adapter's
+modules, when the agent's code runs them (its tools, a CLI agent's deploy render), run in a nested strict sandbox. The
+result comes back on a pipe only the worker can write, and its `log` must lie where the call could write; a link is
+never followed. A Harbor task set (`agent.name: harbor`) runs in Harbor's container. `agent.timeout_min` stops a call
+that runs longer.
 
 ### The judge: `judge.mode`
 
@@ -138,8 +141,9 @@ With `sandbox.enabled: false` every mode runs the judge in the Trainer's process
 
 The learner works in `/w`: `/w/adapter`, `/w/material`, `/w/task-info`, `/w/history`, `/w/state`, `/w/scratch`,
 `/w/output`, `/w/root`, `/w/method`, `/w/agent-logs` (the logs `run_agent` returns, read-only), and `evolver_access` as
-`/w/validation` and `/w/environment/<name>`; its prompt names them relative to `/w`. Its network reaches only the model
-proxy, the Trainer's tool endpoint and the hosts below; a Codex ChatGPT login's hosts are added.
+`/w/validation` and `/w/environment/<name>`; its prompt names them relative to `/w`. Its network reaches only its
+models (their providers' hosts, a meter on the loopback; their key variables pass), the Trainer's tool endpoint and the
+hosts below; a Codex ChatGPT login's hosts are added.
 
 | Setting | Effect |
 |---|---|
@@ -147,7 +151,7 @@ proxy, the Trainer's tool endpoint and the hosts below; a Codex ChatGPT login's 
 | `sandbox.enforce: required` | Default. Refuse to run when bubblewrap is missing. |
 | `sandbox.enforce: best_effort` | Run unconfined when bubblewrap is missing, and record that the sandbox was not applied. |
 | `sandbox.evolver.allowed_hosts` | More hosts the learner may reach, through the allowlist proxy. |
-| `sandbox.evolver.env` | Environment variables passed to the learner's sessions (names or patterns). |
+| `sandbox.evolver.env` | Environment variables passed to the learner's sessions (names or patterns); its models' key variables pass by themselves. |
 | `sandbox.evolver.resources` | `memory_mb`, `file_mb`, `cpu_s` per process (positive whole numbers; null: no limit). |
 
 An old key (`sandbox.profiles`, `sandbox.network`, `sandbox.allow`, `sandbox.read`, `sandbox.packages`,
@@ -163,7 +167,7 @@ record, `sandbox/<role>-<n>.json` in the run's directory (`eval` writes its own 
 and under which names, which ports were forwarded, which variables passed, and that check. The strict spec and
 render checks (which show only the adapter and the template), a container's start (`environment.image`, Harbor) and
 a pipeline in the host process keep no such record; the run's card records which ran. The allowlist proxies log
-each request to `sandbox/network*.jsonl` and the model proxy to `sandbox/models*.jsonl`.
+each request to `sandbox/network*.jsonl`.
 
 Giving more read paths or passing more variables changes what a sandbox can access. Warnings are recorded with the
 run.

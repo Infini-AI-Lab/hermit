@@ -124,8 +124,8 @@ SLB_VERSION=$("$PY" -c "import servelearnbench; print(servelearnbench.__version_
 mkdir -p "$WD/evidence"
 export SLB_BASE_URL="http://127.0.0.1:$WM_PORT/${TAG}$HOST_PATH"
 # The learner's model through its meter: the backend copied to the metered URL, the Evolver bound to it (the
-# Trainer derives codex's provider settings from the binding; the session reaches the meter through the run's
-# model proxy, which holds the key).
+# Trainer derives codex's provider settings from the binding and passes its key variable into the learner's
+# sandbox, the meter's port forwarded).
 LEARNER="{from: '$EVOLVER_BACKEND', base_url: 'http://127.0.0.1:$META_PORT/${TAG}_meta$EVOLVER_PATH'}"
 LOG="$RUNS/$TAG/run.log"
 EVOLVER=$(sed -n '/^evolver:/,/^[a-z]/p' "$CONFIG" | grep -E '^\s+name:' | head -1 | sed -E 's/.*name:\s*([^ #]+).*/\1/')

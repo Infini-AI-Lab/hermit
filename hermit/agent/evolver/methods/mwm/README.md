@@ -10,7 +10,7 @@ The native MetaWorld Model learner (V2 default: docket on, hypothesis off) on th
 - The session: one call of the `codex` Base Agent (docs/framework/agent-layers.md) with the native prompt, in the
   adapter directory at `/w`, with `/evidence`, `/environment`, `/skills`, `/patterns` and `/world-model` mounted: the
   run's evolver sandbox with MWM's native view in place of the run's layout (`Sandbox.view`), in its own network
-  namespace. It reaches the run's model proxy (the model meter behind it), the session's tool server (the venue's
+  namespace. It reaches its model (the meter on the loopback, forwarded), the session's tool server (the venue's
   channels and nothing else of the Trainer's, over MCP, `learner_tools`, and as JSON for the venue's shell client,
   `MW_TOOLSRV`) and `sandbox.evolver.allowed_hosts`; every session measures that first and does not start if it
   fails. `bin/captest` is the native tool-test command.

@@ -610,13 +610,10 @@ class CliAgent(BaseAgent):
                 drop = set(s.get("env_drop") or ())
                 full_env = {**{k: v for k, v in os.environ.items() if k not in drop}, **env}
                 if sandbox is not None:
-                    # The session reaches its provider through the run's model proxy, with a secret of its own in
-                    # place of the key: no key enters the sandbox. A session configured from the run's bindings
-                    # without naming one (provider settings in its `env`) is routed by them.
-                    from hermit.model_proxy import route_session
-                    bindings = [s["binding"]] if isinstance(s.get("binding"), dict) else \
-                        list(getattr(sandbox, "model_bindings", ()))
-                    command, full_env, keys, local = route_session(sandbox, bindings, command, full_env)
+                    # The session reaches its provider as Harbor's agents do: its key variable passes, a server on
+                    # the loopback (a meter) is forwarded; the provider's host is allowed by the run's sandbox.
+                    from hermit.sandbox import model_access
+                    keys, _, local = model_access([s.get("binding")])
                     keep = [*own, *keys]
                     command, full_env = sandbox.wrap(command, writable=[home, *map(Path, s.get("writable") or ())],
                                                      env=full_env, home=home, keep=keep,

@@ -153,18 +153,11 @@ class CommandEvolver(Evolver):
             from hermit.sandbox import translate_values
             info = translate_values(ctx.sandbox, info)     # the paths it is given, as the evolver sandbox shows them
         text = json.dumps(info, indent=1, ensure_ascii=False)
-        if ctx.sandbox is not None:
-            # The program reaches the Evolver's model through the run's model proxy (its binding in the context and
-            # the environment name the proxy, its key variable a secret).
-            from hermit.model_proxy import route_session
-            [text, *command], env, keep, local = route_session(
-                ctx.sandbox, list(getattr(ctx.sandbox, "model_bindings", ())), [text, *command], env)
         path.write_text(text)
         env["HA_CONTEXT"] = str(path)
         if ctx.sandbox is not None:
             keep += list(ctx.params.get("env") or {})          # the program's own settings, as configured
-            command, env = ctx.sandbox.wrap(command, env=env, chdir=Path(getattr(self, "directory", ".")), keep=keep,
-                                            forward=local)
+            command, env = ctx.sandbox.wrap(command, env=env, chdir=Path(getattr(self, "directory", ".")), keep=keep)
         code = _run(command, env, ctx, ctx.workspace.output / "command.log", Path(getattr(self, "directory", ".")))
         from hermit.sandbox import read_regular
         text = read_regular(ctx.workspace.output / "step_result.json")              # never through a link or a pipe

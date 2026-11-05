@@ -8,9 +8,10 @@ access. What the sandbox shows is the run config's `environment` section and not
   dependencies, `environment.read`, the adapter of this call, and a CLI agent's own installation;
 - read-write: this call's work directory (the built-in agents' logs and workspaces go there), a fresh directory in
   place of the `.logs` beside the task's agent file, and `environment.write`;
-- environment: what the framework sets, and `environment.env`;
-- network: `environment.network` (no-network | allowlist | public); the run's model proxy is always reachable, and
-  the agent's binding is routed through it, so the sandbox holds a secret of its own, never the provider's key.
+- environment: what the framework sets, `environment.env`, and the key variable of the agent's model (as Harbor
+  gives its agents their keys);
+- network: `environment.network` (no-network | allowlist | public); the agent's model provider is always allowed,
+  and a model server or meter on the loopback is forwarded.
 
 The data and split files, the judge, the runs and trees directories may not lie in a declared path: the config is
 refused, and the isolation check inside proves them absent. A task with `environment.image` runs its CLI agent in a
@@ -35,13 +36,11 @@ import subprocess
 import sys
 import threading
 import time
-from urllib.parse import urlparse
 import uuid
 
 from hermit.agent.base import login as codex_login
-from hermit.model_proxy import ModelProxy, rewrite
 from hermit.sandbox import (LIMITS, NETWORK_MODES, PACKAGE, AllowlistProxy, Bind, Sandbox, framework_env,
-                            network_mode, package_closure, program_paths, sanitized_copy)
+                            model_access, network_mode, package_closure, program_paths, sanitized_copy)
 from hermit.task import RunOutput, load_callable, output_record
 
 WORKER = PACKAGE / "worker.py"
@@ -142,8 +141,8 @@ def validate(config) -> None:
     if not reason and _cli_kind(d["agent"]["name"], params) and not params.get("binding") \
             and params.get("login") != "chatgpt":
         raise ValueError("a CLI acting agent in the task sandbox signs in through a model reference (agent.params.model:"
-                         " <backend>/<model>, routed through the run's model proxy) or login: chatgpt; the CLI's own "
-                         "sign-in from your home is not copied into the sandbox")
+                         " <backend>/<model>, its key variable passed in) or login: chatgpt; the CLI's own sign-in "
+                         "from your home is not copied into the sandbox")
     if reason and mode != "host" and s["enabled"]:          # with the sandbox off every judge runs in this process
         raise ValueError(f"judge.mode {mode} runs the judge in the task sandbox, but the pipeline runs on the host "
                          f"({reason}); use judge.mode: host")
@@ -255,33 +254,6 @@ def _agent_logs(name: str, base: Path) -> list[Path]:
     return [(Path(base) / target).resolve().parent / ".logs"]
 
 
-def _route_models(params: dict, proxy: ModelProxy) -> tuple[dict, dict, list[int]]:
-    """The agent's params as the sandbox sees them: its binding (a CLI agent's) or its model spec (a chat agent's)
-    routed through the model proxy, and with them the provider settings bound from it (a Codex agent's `args`, a
-    Claude Code agent's `env`); the environment the routes need (key variable -> secret); loopback ports a local
-    model server listens on."""
-    params = dict(params)
-    env, ports = {}, []
-    for key in ("binding", "model"):
-        spec = params.get(key)
-        if not isinstance(spec, dict) or not spec.get("base_url"):
-            continue
-        mapping, key_env, secret = proxy.origins(spec)
-        params[key] = {k: rewrite(v, mapping) if k in ("base_url", "messages_url") and v else v
-                       for k, v in spec.items()}
-        for url in (params[key].get("base_url"), params[key].get("messages_url")):
-            parsed = urlparse(url) if url else None
-            if parsed and parsed.hostname in ("127.0.0.1", "localhost") and parsed.port != proxy.port:
-                ports.append(parsed.port or (443 if parsed.scheme == "https" else 80))
-        if isinstance(params.get("args"), list):
-            params["args"] = [rewrite(str(a), mapping) for a in params["args"]]
-        if isinstance(params.get("env"), dict):
-            params["env"] = {k: rewrite(str(v), mapping) for k, v in params["env"].items()}
-        if key_env and secret:
-            env[key_env] = secret
-    return params, env, sorted(set(ports))
-
-
 def _run_worker(box: Sandbox, job: dict, work: Path, *, home: Path, readable=(), writable=(), env=None,
                 keep=(), forward=(), timeout: float | None = None, binds=()) -> dict:
     """Run worker.py in the sandbox with `job`; return its payload, or raise with what it left behind. After
@@ -386,9 +358,10 @@ class SandboxedAgent:
             raise ValueError(f"environment.packages names distributions that are not installed: {missing}")
         readable = config_paths(config, "environment.read", envc.get("read"))
         writable = config_paths(config, "environment.write", envc.get("write"))
-        self.proxy = ModelProxy(log=records / f"models-{role}.jsonl" if records else None)
-        self.params, self.model_env, local_ports = _route_models(dict(agent.get("params") or {}), self.proxy)
-        self.forward = [*local_ports, self.proxy.port]
+        self.params = dict(agent.get("params") or {})
+        # The agent reaches its model as Harbor's do: its key variable passes, its provider's host is allowed, a
+        # server on the loopback (a meter) is forwarded.
+        model_keys, model_hosts, self.forward = model_access([self.params.get("binding"), self.params.get("model")])
         self.work_root = Path(work_root) if work_root else config.path(self.params.get("logs", ".logs")) / role
         self.cli = _cli_kind(self.name, self.params)
         self.timeout = float(agent["timeout_min"]) * 60 if agent.get("timeout_min") else None
@@ -406,15 +379,16 @@ class SandboxedAgent:
         if self.plan is not None:
             self.plan.mkdir(parents=True, exist_ok=True)
         network, allow = envc.get("network") or "no-network", list(envc.get("allowed_hosts") or [])
-        if self.chatgpt:                                 # the recorded exception: the plan login reaches its hosts
-            network, allow = "allowlist", [*allow, *[h for h in CHATGPT_HOSTS if h not in allow]]
+        wanted = [*model_hosts, *(CHATGPT_HOSTS if self.chatgpt else [])]    # the model's hosts, a plan login's
+        if network != "public" and wanted:
+            network, allow = "allowlist", [*allow, *[h for h in wanted if h not in allow]]
         isolated, wants_proxy = network_mode(network)
         self.allow_proxy = AllowlistProxy(allow, log=records / f"network-{role}.jsonl" if records else None) \
             if (isolated == "isolated" and wants_proxy and allow) else None
         self.sandbox = Sandbox(enabled=True, network=network, allow=allow, readable=readable,
                                writable=[*writable, *([self.plan] if self.plan is not None else [])],
                                proxy_url=self.allow_proxy.url if self.allow_proxy else None,
-                               env_allow=list(envc.get("env") or []), enforce=self.enforce,
+                               env_allow=[*(envc.get("env") or []), *model_keys], enforce=self.enforce,
                                packages=list(envc.get("packages") or []), framework=True, record_dir=records,
                                probe_absent=[*HOME_SECRETS, *run_secrets(config)],
                                limits=dict(envc.get("resources") or {}), role=role)
@@ -445,8 +419,8 @@ class SandboxedAgent:
         # Logs and workspaces go to this call's own directory.
         params = {**self.params, "logs": str(work / "logs"), "workspaces": str(work / "workspaces")}
         from hermit.adapter.session import ENV_ENFORCE
-        env = framework_env({ENV_ENFORCE: self.enforce, **self.model_env})
-        keep = [ENV_ENFORCE, *self.model_env]
+        env = framework_env({ENV_ENFORCE: self.enforce})
+        keep = [ENV_ENFORCE]
         if self.chatgpt:     # inside, the agent keeps this call's copy in its workspaces; the shared one is out here
             params["login_root"] = str(work / "workspaces")
             params["plan_dir"] = str(self.plan)                     # the machine's plan, not this call's copy
@@ -498,7 +472,6 @@ class SandboxedAgent:
     def close(self) -> None:
         for box in [self.sandbox, *self.others]:
             box.close()
-        self.proxy.close()
         if self.allow_proxy:
             self.allow_proxy.close()
 
@@ -600,7 +573,7 @@ class SandboxedJudge:
         # The log the agent returned is a sanitized copy beside its work directory: the judge reads it there.
         log_copy = [out.log.parent] if out.log and Path(out.log).parent.name == f"{work.name}.log" else []
         payload = _run_worker(self.box, job, place, home=home, readable=[*self.readable, *log_copy], writable=writable,
-                              env=framework_env(self.agent.model_env), keep=list(self.agent.model_env),
+                              env=framework_env(),
                               forward=self.agent.forward, timeout=self.agent.timeout, binds=binds)
         return payload["result"]
 
