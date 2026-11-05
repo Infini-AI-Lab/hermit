@@ -1,0 +1,53 @@
+# ASPIRE on Robosuite: the seven Robosuite tasks of ASPIRE's harness, one task per step in the order the
+# coordinator chooses (its curriculum); Codex acting (ASPIRE's fix-loop subagent and verifier prompts) and coordinating,
+# GLM 5.3 Flash; ASPIRE's seeds (development 101-125, unseen-check 126-130, held-out 1-100). Started by launch.sh.
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/all.txt
+  val: ../utils/splits/verify.txt   # the verifier's rows: run only by the coordinator, through run_agent
+  test: ../utils/splits/rerun.txt
+  step_size: 1
+  shuffle: false
+task_info: ../utils/task-info
+agent:
+  base: codex
+  concurrency: 1
+  params:
+    prompt: ../utils/task.py:prompt
+    prepare: ../utils/task.py:prepare
+    answer: ../utils/task.py:answer
+    collect: ../utils/task.py:collect
+    workspaces: ../runs/workspaces
+    aspire_root: $ASPIRE_ROOT
+    sim_env: {}                     # launch.sh fills it from ASPIRE_SIM_ENV
+    debug_seeds: 101-125
+    unseen_seeds: 126-130
+    eval_seeds: 1-100
+    workers: 4
+  model: {ref: fireworks/accounts/fireworks/models/glm-5p3-flash, effort: medium}
+  codex:
+    web_search: false
+    timeout_s: 21600              # a fix loop of up to 8 versions on 25 seeds
+    isolation: none                 # the session drives the GPU simulator through bin/sim
+    codex_sandbox: danger-full-access
+    shell_env: core                 # no keys and no ASPIRE_ROOT in the session's commands
+    project_doc_max_bytes: 131072   # AGENTS.md carries the whole library (the template caps it at 100,000 bytes)
+judge:
+  path: ../utils/judge.py
+template: aspire
+evolver:
+  name: aspire
+  base: codex
+  model: {ref: fireworks/accounts/fireworks/models/glm-5p3-flash, effort: medium}
+  codex: {web_search: false}
+sandbox:
+  enabled: false                    # the actor drives a GPU simulator and local services (see ../README.md)
+trainer:
+  run_name: aspire
+  output_dir: ../runs
+  tree_dir: ../runs/trees/aspire
+  epochs: 1
+  call_timeout_min: 720             # the coordinator, its verifiers included
+  budget: {usd: 300, hours: 120}
+eval:
+  repeats: 1
