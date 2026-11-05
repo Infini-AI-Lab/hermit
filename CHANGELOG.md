@@ -4,6 +4,21 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ## Unreleased
 
+### Changed
+
+- The tests are in groups: `tests/core/` for the framework and `tests/methods/<name>/` for each method
+  (`tests/README.md`). `python -m pytest --changed` runs the groups the branch touches since `origin/main`
+  (`tests/selection.py`: the core group for every change but documentation, a method's own files its group, a
+  shared layer every group); the header says which groups ran and why. Tests that run an agent CLI installed on the
+  machine are marked `integration` and run only with `--integration`. Tests another test already covers were
+  removed and tests that repeat one setup share it: the full suite runs in about half the time.
+
+### Fixed
+
+- The AHE Adapter Evolver took a `change_manifest.json` an earlier step left for the current step's: a manifest
+  naming the next iteration was refused at its own step, then archived as the next step's when that step's session
+  wrote none. The file (or a directory a session made in its place) is now removed before each Evolve session.
+
 ## 0.2.0 - 2026-11-04
 
 Three-layer agents, unified adapter deployment, Codex plan-backed acting and learning, and six new method
@@ -248,7 +263,7 @@ integrations: ReHarness, Meta-Harness Adapter, ACE, AHE Adapter, RRSI Adapter an
   documentation clarifies task-dependent utility judging and reports completed episodes and errors.
 - The chat endpoint closed each connection after its reply without saying so (`Connection: close`); an HTTP/1.1
   client kept the connection for its next request and got a dropped connection instead of the answer, now and then
-  (`tests/test_base_agents.py`'s error test failed so, about one run in three under load).
+  (`tests/core/test_base_agents.py`'s error test failed so, about one run in three under load).
 - The Base Agent read and wrote a session's home, and its event stream, through what a session could have left
   there: after a session, a linked `auth.json` with a later refresh became the machine's shared login copy, a linked
   `usage/` received the usage ledger (a pipe there blocked the call), a linked last-message file was read as the

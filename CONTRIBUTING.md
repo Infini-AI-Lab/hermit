@@ -18,28 +18,37 @@ Benchmark data, agent CLIs, and model credentials depend on the integration. The
 
 ## Verify a Change
 
-Run the core checks and the offline training walkthrough:
+Run the tests the change needs and the offline training walkthrough:
 
 ```bash
-python -m pytest tests/test_training.py tests/test_spec.py tests/test_deploy.py
+python -m pytest --changed
 hermit check --config docs/_examples/first_training/run.yaml
 hermit train --config docs/_examples/first_training/run.yaml
 hermit eval --config docs/_examples/first_training/run.yaml --adapter final
 ```
 
-Select additional tests for the affected interface. Host exporters have `tests/test_convert.py`; algorithm
-integrations have `tests/test_optimizer_evolvers.py`, which needs the method dependency groups (pip 25.1+):
+The tests are in groups ([tests/README.md](tests/README.md)): `tests/core/` for the framework and
+`tests/methods/<name>/` for each method. `--changed` runs the groups whose files the branch changed since
+`origin/main` (`--base` names another ref), with uncommitted and untracked files: the core group for every change
+but documentation, a method's group for its own files, and every group for a shared layer every method is built on
+(the Base Agents, the acting agents, the Evolver base classes, the Trainer, the sandbox, the hosts' deployment, the
+test helpers). The header says which groups ran and why. Some methods' tests need the method's dependency group
+(`gepa`, `skillopt`, `harness2`, `rrsi`; pip 25.1+) and skip without it:
 
 ```bash
 python -m pip install -e '.[test]' --group all
-python -m pytest tests/test_optimizer_evolvers.py
+python -m pytest tests/methods/optimizers
 ```
 
-The optimizer tests use scripted responses and need no model credentials. The complete suite is:
+The method tests use scripted models and need no model credentials. The complete suite (`tests/` and the examples'
+own tests under `examples/*/utils/tests/`) is:
 
 ```bash
-python -m pytest tests
+python -m pytest
 ```
+
+Tests marked `integration` run an agent CLI installed on the machine (`codex`, `claude`) and depend on its
+release; they run only with `--integration`.
 
 Sandbox and MWM integration tests require Linux, bubblewrap, and usable namespaces; some tests do not yet skip
 automatically when those prerequisites are absent. On macOS, run the applicable core tests and identify the

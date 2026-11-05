@@ -36,8 +36,9 @@ One step (`step`):
      `state/queries/step_N.md`; `START.md` + the query -> `scratch/evolve_prompt.md`, given to Codex on stdin; the
      Evolve session through `AgentEvolver.step` (the `tools: [check_spec]` gate, a fresh session, `evolve_timeout_s`
      as a wall clock: the Trainer's cancel for the call, which stops the session).
-  6. post-step (B.8): `state/change_manifest.json` validated (`iteration == N`, `changes[]` of objects whose
-     `files`, `predicted_fixes` and `risk_tasks` are lists of strings and `description` a string) and archived to
+  6. post-step (B.8): `state/change_manifest.json` (removed before the session: only the session's own counts)
+     validated (`iteration == N`, `changes[]` of objects whose `files`, `predicted_fixes` and `risk_tasks` are lists
+     of strings and `description` a string) and archived to
      `state/manifests/step_N.json` (a missing or wrong manifest -> an empty archived manifest and a loud line in
      `evolution_history.md` and `report.md`; upstream silently disables attribution instead), the framework's
      rollbacks prefixed as `type: rollback` entries, the agent's report appended to the history,
@@ -394,6 +395,13 @@ class AHEAdapterEvolver(AgentEvolver):
         start_md = start_md.replace("{date}", datetime.now().strftime("%Y-%m-%d")).replace("{step_dir}", name)
         start_md = D.for_stream(start_md, stream)
         prompt = evolve_prompt(start_md, query, ws.scratch)
+        # a manifest an earlier session left (one naming a later iteration was refused then) is never this step's,
+        # nor is a directory made in its place
+        left = state / MANIFEST
+        if left.is_dir() and not left.is_symlink():
+            shutil.rmtree(left)
+        else:
+            left.unlink(missing_ok=True)
         e0 = time.monotonic()
         local, stop = D.deadline_cancel(ctx.cancel, p.get("evolve_timeout_s"))
         try:

@@ -25,23 +25,28 @@ Start with the extension boundary you need. A task integration normally requires
 | `hermit/trainer/` | Training loop, rollouts, material, budgets, recovery |
 | `hermit/runtime/` | Tool serving, sandboxing, and runtime support |
 | `examples/<task>/utils/` | Task integrations and benchmark-owned acting/scoring logic |
-| `tests/` | Framework regression tests |
+| `tests/` | Regression tests: `core/` for the framework, `methods/<name>/` for each method |
 | `docs/_examples/` | Small offline examples included in documentation |
 
 ## Local development
 
 ```bash
 python -m pip install -e '.[test]'
-python -m pytest tests/test_training.py tests/test_spec.py tests/test_deploy.py
+python -m pytest --changed
 ```
 
-Choose tests for the changed contract. Optimizer tests need the method's dependency group (for example `python -m pip install -e . --group gepa`) and skip
+`--changed` runs the test groups the branch touches
+([tests/README.md](https://github.com/Infini-AI-Lab/hermit/blob/main/tests/README.md)): the core group for every
+change but documentation, a method's group for its own files, every group for a shared layer.
+
+Optimizer tests need the method's dependency group (for example `python -m pip install -e . --group gepa`) and skip
 without it; sandbox and MWM integration
 tests can require Linux, learner CLIs, external packages, or environment fixtures. Inspect their prerequisites
 rather than interpreting every skipped test as coverage.
 
-For a host exporter change, run `tests/test_convert.py` and/or `tests/test_deploy.py`. For a new Evolver, use an
-offline task or fake client to test real failure and state behavior without paid model calls.
+For a new Evolver, put its tests under `tests/methods/<name>/` and add its paths to `METHODS` in
+`tests/selection.py` (`tests/core/test_selection.py` fails until every method has a group); use an offline task or
+fake client to test real failure and state behavior without paid model calls.
 
 ## Documentation changes
 

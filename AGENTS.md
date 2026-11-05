@@ -16,7 +16,7 @@ Use Python 3.12+ and Git. In an activated environment, run from the repository r
 
 ```bash
 python -m pip install -e '.[test]'
-python -m pytest tests/test_training.py tests/test_spec.py tests/test_deploy.py
+python -m pytest --changed    # the test groups this branch touches (tests/README.md)
 ```
 
 - Read [CONTRIBUTING.md](CONTRIBUTING.md) for additional checks, dependencies and
