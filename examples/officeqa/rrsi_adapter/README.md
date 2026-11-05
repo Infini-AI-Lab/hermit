@@ -52,7 +52,8 @@ learning, 3,600 s per session; exact match. Besides their names (`trainer.run_na
 configs' own are those of the runs before the port), the runs and their evaluations had three settings on the command
 line: `agent.concurrency=6`, and `agent.codex.container.proxy=http://oq-egress-chatgpt:3128` with
 `sandbox.allow=[chatgpt.com]` (today's keys: `environment.container.proxy=...` and
-`sandbox.evolver.allowed_hosts=[chatgpt.com]`), an egress proxy started as `oq-egress-login` is but letting through
+`sandbox.evolver.allowed_hosts=[chatgpt.com]`; the Trainer now adds `auth.openai.com` for a learner on a ChatGPT
+login, so the learner's side of that block cannot be reproduced), an egress proxy started as `oq-egress-login` is but letting through
 chatgpt.com only (`egress_proxy.py 3128 chatgpt.com:443`), so that no session could refresh, and so rotate, the login
 the five shared.
 Data: the 50 training and 172 test questions of SkillOpt `79124b3`'s split (its 24 validation questions unused),

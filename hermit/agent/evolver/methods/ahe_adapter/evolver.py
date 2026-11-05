@@ -369,7 +369,10 @@ class AHEAdapterEvolver(AgentEvolver):
             jobs = D.build_jobs(records, {**dbg, "task_field": task_field}, base=Path(records[0]["_dir"]))
             results, dbg_usage = D.run_jobs(jobs, ctx, dbg, base=self.settings(ctx, "codex"), scratch=ws.scratch)
             usage.append(role_usage(dbg_usage, "debugger"))
-            _, overview = A.write_debugger_analyse(results, analysis_dir, n, detail_label=str(analysis_dir / "detail"))
+            # The Evolve Agent reads the overview in its sandbox: the details named as it sees them there.
+            label = str(analysis_dir / "detail")
+            label = ctx.sandbox.relative(label) if getattr(ctx.sandbox, "enabled", False) else label
+            _, overview = A.write_debugger_analyse(results, analysis_dir, n, detail_label=label)
             dump_json(analysis_dir / "jobs.json", results)
             dump_json(analysis_dir / "usage.json", dataclasses.asdict(dbg_usage))
             debugger_info.update({"jobs": len(results), "fallbacks": sum(1 for r in results if r.get("status") == "fallback"),

@@ -30,7 +30,7 @@ llm:                                     # the revision and reflection agents; l
   model: fireworks/accounts/fireworks/models/glm-5p3-flash   # launch.sh: learner/<model id>
   extra_body: {reasoning_effort: high}   # launch.sh: MW_EFFORT, the host's effort
 environment:                         # the task sandbox: the host runner, clbench's checkout and venv
-  read: [../utils/agent, $MWM_CLBENCH]
+  read: [../utils/agent, ../utils/task-info/mwm, $MWM_CLBENCH]
   write: [$MWM_TASK_WORKDIR]       # the run's task directory: evidence, host records
   env: ["MWM_*", "CLB_*", "MW_*", "REHARNESS_*"]   # the launcher's settings (launch.sh), the reader's relay
                                    # + the host's litellm key variable (launch.sh): the benchmark's own loop calls

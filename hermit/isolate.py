@@ -14,8 +14,8 @@ access. What the sandbox shows is the run config's `environment` section and not
 
 The data and split files, the judge, the runs and trees directories may not lie in a declared path: the config is
 refused, and the isolation check inside proves them absent. A task with `environment.image` runs its CLI agent in a
-container of its own (the Base Agent's container isolation); a Harbor task set (`agent.name: harbor`) runs in
-Harbor's. The pipeline that starts those runs on the host.
+container of its own (the Base Agent's container isolation), started from a worker on the host that keeps the
+adapter's code in the strict sandbox; a Harbor task set (`agent.name: harbor`) runs in Harbor's, from this process.
 
 The judge runs where `judge.mode` says: `host` in this process on the downloaded answer, `shared` in the task
 sandbox after the agent (a new exec over the same work directory, with `judge.tests` shown to it alone), `separate`
@@ -25,7 +25,6 @@ strict sandbox: their code and the template read-only, the adapter they act on r
 from __future__ import annotations
 
 import dataclasses
-import io
 import json
 import os
 from pathlib import Path
@@ -34,6 +33,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import tempfile
 import threading
 from urllib.parse import urlparse
 import uuid
@@ -50,6 +50,7 @@ CHATGPT_HOSTS = ["chatgpt.com", "auth.openai.com"]       # a Codex ChatGPT login
 JUDGE_MODES = ("host", "shared", "separate")
 HOME_SECRETS = [Path.home() / ".ssh", Path.home() / ".bashrc"]   # proven absent inside a sandbox
 ENVIRONMENT_LISTS = ("packages", "read", "write", "env", "allowed_hosts")
+RECORDS_WALK = 20000                                     # directories a declared path is searched for run records
 
 
 def _cli_kind(name, params: dict) -> str | None:
@@ -119,6 +120,9 @@ def validate(config) -> None:
     if params.get("isolation") == "container":
         raise ValueError("the acting agent's isolation: container moved to environment.image (and "
                          "environment.container for its network and proxy)")
+    if "hide" in (d["evolver"].get("params") or {}):
+        raise ValueError("evolver.params.hide was removed: the evolver sandbox is an allowlist and shows only what the "
+                         "run and the method declare (docs/framework/configuration.md#sandboxes)")
     if (d["evolver"].get("params") or {}).get("isolation") == "container":
         raise ValueError("the learner runs in the evolver sandbox (sandbox.evolver); isolation: container is for "
                          "the acting agent's environment.image and an llm: {cli: ...} endpoint")
@@ -183,26 +187,46 @@ def _overlaps(a: Path, b: Path) -> bool:
 
 
 def check_declared(config) -> None:
-    """A declared path of the task sandbox may neither hold nor lie inside a run secret: the whitelist shows what is
-    declared, so a secret inside it would be shown."""
+    """A declared path (the task sandbox's, or one the learner reads) may neither hold nor lie inside a run secret:
+    the allowlist shows what is declared, so a secret inside it would be shown."""
     d = config.data
     hard, runs = _secrets(config)
     tests = [config.path(t) for t in d["judge"].get("tests") or []]
-    for key in ("read", "write"):
-        for value in d["environment"].get(key) or []:
-            path = config.path(value)
-            if path is None or "$" in str(path):
-                continue                                 # an unset variable: refused when the sandbox is built
-            for secret in hard:
-                if _overlaps(path, secret):
-                    what = "a judge test" if secret in tests else "the data, the judge, this run or the tree"
-                    raise ValueError(f"environment.{key} {value!r} overlaps {secret} ({what}): the agent would see "
-                                     "it; move the secret out of that path or declare a narrower one")
-            # The runs directory holds every run's records: a declared path may lie inside it (a launcher's task
-            # directory beside the runs), never be it or hold it.
-            if runs is not None and Path(os.path.realpath(runs)).is_relative_to(Path(os.path.realpath(path))):
-                raise ValueError(f"environment.{key} {value!r} holds the runs directory {runs}: the agent would see "
-                                 "every run's records; declare a narrower path")
+    declared = [(f"environment.{key}", v) for key in ("read", "write") for v in d["environment"].get(key) or []]
+    # What the learner reads is declared the same way (its sandbox shows these under /w/environment/<name>).
+    declared += [("evolver_access.environment", v) for v in d["evolver_access"].get("environment") or []]
+    for key, value in declared:
+        path = config.path(value)
+        if path is None or "$" in str(path):
+            continue                                 # an unset variable: refused when the sandbox is built
+        for secret in hard:
+            if _overlaps(path, secret):
+                what = "a judge test" if secret in tests else "the data, the judge, this run or the tree"
+                raise ValueError(f"{key} {value!r} overlaps {secret} ({what}): it would be seen; move the "
+                                 "secret out of that path or declare a narrower one")
+        # The runs directory holds every run's records: a declared path may lie inside it (a launcher's task
+        # directory beside the runs), never be it or hold it.
+        if runs is not None and Path(os.path.realpath(runs)).is_relative_to(Path(os.path.realpath(path))):
+            raise ValueError(f"{key} {value!r} holds the runs directory {runs}: every run's records would be "
+                             "seen; declare a narrower path")
+        # Nor another run's records (another output directory's), whose judge feedback can carry the answers.
+        found = _run_records(path)
+        if found:
+            raise ValueError(f"{key} {value!r} holds a run's records ({found}): their feedback can carry the "
+                             "answers; declare a narrower path")
+
+
+def _run_records(root: Path, limit: int = RECORDS_WALK) -> Path | None:
+    """The first directory under `root` that holds a run's records (its steps.jsonl), walking at most `limit`
+    directories (links not followed); None when there is none within that many."""
+    if not root.is_dir():
+        return None
+    for walked, (directory, _, files) in enumerate(os.walk(root)):
+        if walked >= limit:
+            return None
+        if "steps.jsonl" in files:
+            return Path(directory)
+    return None
 
 
 def _agent_logs(name: str, base: Path) -> list[Path]:
@@ -327,26 +351,29 @@ def _safe(text: str) -> str:
 def sanitized_copy(source: Path, dest: Path, paths=None, max_bytes: int | None = None) -> list[str]:
     """Copy `paths` (relative to `source`; all of it when None) into `dest` through a tar archive extracted with
     tarfile's `data` filter: setuid and setgid bits cleared, device files, FIFOs and links that leave the archive
-    refused. Returns what was skipped. `max_bytes` caps the total size."""
-    buf = io.BytesIO()
+    refused. Returns what was skipped. The archive is a temporary file, not memory; `max_bytes` caps it, checked as
+    each file is added."""
     skipped = []
-    with tarfile.open(fileobj=buf, mode="w") as tar:
-        for rel in (paths if paths is not None else ["."]):
-            item = Path(source) / rel
-            if not os.path.lexists(item):
-                skipped.append(f"{rel}: missing")
-                continue
-            tar.add(str(item), arcname=str(Path(rel)), recursive=True)
-    if max_bytes is not None and buf.tell() > max_bytes:
-        raise ValueError(f"{source} holds more than {max_bytes} bytes")
-    buf.seek(0)
-    dest.mkdir(parents=True, exist_ok=True)
-    with tarfile.open(fileobj=buf, mode="r") as tar:
-        for member in tar.getmembers():
-            try:
-                tar.extract(member, dest, filter="data")
-            except tarfile.FilterError as exc:
-                skipped.append(f"{member.name}: {exc}")
+    with tempfile.TemporaryFile() as buf:
+        with tarfile.open(fileobj=buf, mode="w") as tar:
+            def keep(info):
+                if max_bytes is not None and buf.tell() + info.size > max_bytes:
+                    raise ValueError(f"{source} holds more than {max_bytes} bytes")
+                return info
+            for rel in (paths if paths is not None else ["."]):
+                item = Path(source) / rel
+                if not os.path.lexists(item):
+                    skipped.append(f"{rel}: missing")
+                    continue
+                tar.add(str(item), arcname=str(Path(rel)), recursive=True, filter=keep)
+        buf.seek(0)
+        dest.mkdir(parents=True, exist_ok=True)
+        with tarfile.open(fileobj=buf, mode="r") as tar:
+            for member in tar.getmembers():
+                try:
+                    tar.extract(member, dest, filter="data")
+                except tarfile.FilterError as exc:
+                    skipped.append(f"{member.name}: {exc}")
     return skipped
 
 
@@ -455,16 +482,47 @@ class SandboxedAgent:
             self.allow_proxy.close()
 
 
+class ContainerAgent:
+    """The agent of a task with `environment.image`: its CLI runs in a container of its own, started from a worker
+    process on the host, one per call. The worker puts the adapter's code the agent renders or serves (its context,
+    its tools) in the strict sandbox (HA_ADAPTER_SANDBOX), so none of it runs in this process or with its access."""
+
+    def __init__(self, config, role: str, params: dict, *, work_root: Path | None = None):
+        d = config.data
+        self.name, self.base, self.params = d["agent"]["name"], Path(config.base), params
+        self.work_root = Path(work_root) if work_root else config.path(params.get("logs", ".logs")) / role
+        self.timeout = float(d["agent"]["timeout_min"]) * 60 if d["agent"].get("timeout_min") else None
+        self.enforce = d["sandbox"].get("enforce", "required")
+        self.box = Sandbox(enabled=False, role=role)     # the worker is on the host; the container is the boundary
+
+    def __call__(self, task: dict, adapter: Path | None) -> RunOutput:
+        from hermit.adapter.session import ENV_ENFORCE
+        work = self.work_root / f"{_safe(task.get('id', 'task'))}-{uuid.uuid4().hex[:8]}"
+        work.mkdir(parents=True)
+        job = {"kind": "agent", "name": self.name, "params": self.params, "base": str(self.base), "task": task,
+               "adapter": str(adapter) if adapter else None}
+        payload = _run_worker(self.box, job, work, home=work, env=framework_env({ENV_ENFORCE: self.enforce}),
+                              timeout=self.timeout)
+        rec = payload["output"]
+        return RunOutput(output=rec.get("output"), log=Path(rec["log"]) if rec.get("log") else None,
+                         cost_usd=rec.get("cost_usd"), wall_s=rec.get("wall_s") or 0.0, api_speed=rec.get("api_speed"),
+                         messages=rec.get("messages"), tokens=rec.get("tokens"), extra=dict(rec.get("extra") or {}))
+
+
 def agent_pipeline(config, role: str, *, records: Path | None, work_root: Path | None = None):
-    """(pipeline, close): the agent in the task sandbox, or in this process when it runs on the host
-    (`host_pipeline`): with the sandbox off, in its own container (`environment.image`), or in Harbor's."""
+    """(pipeline, close): the agent in the task sandbox; in its own container from a worker on the host
+    (`environment.image`); or in this process when the pipeline runs on the host (`host_pipeline`: the sandbox off,
+    a Harbor task set, `environment.runner: host`)."""
     d = config.data
+    if d["environment"].get("image") and d["sandbox"]["enabled"]:
+        params = dict(d["agent"].get("params") or {})
+        params["isolation"] = "container"
+        params["container"] = {**(d["environment"].get("container") or {}), "image": d["environment"]["image"]}
+        agent = ContainerAgent(config, role, params, work_root=work_root)
+        return agent, (lambda: None)
     if host_pipeline(config):
         from hermit.agent.acting.agent import load_agent
         params = dict(d["agent"].get("params") or {})
-        if d["environment"].get("image") and d["sandbox"]["enabled"]:
-            params["isolation"] = "container"
-            params["container"] = {**(d["environment"].get("container") or {}), "image": d["environment"]["image"]}
         return load_agent(d["agent"]["name"], params, config.base).run, (lambda: None)
     agent = SandboxedAgent(config, role, records=records, work_root=work_root)
     return agent, agent.close
@@ -483,8 +541,10 @@ class SandboxedJudge:
                          *config_paths(config, "judge.tests", d["judge"].get("tests"))]
         self.collect = list(d["judge"].get("collect") or [])
         # The judge's own sandbox: the task sandbox's settings, and its probe checks only the home's secrets (the
-        # judge, its tests and the data are its to read).
-        self.box = dataclasses.replace(agent.sandbox, probe_absent=list(HOME_SECRETS), role="judge")
+        # judge, its tests and the data are its to read). A separate judge gets none of what the agent could write
+        # (environment.write): only what is collected.
+        self.box = dataclasses.replace(agent.sandbox, probe_absent=list(HOME_SECRETS), role="judge",
+                                       **({"writable": []} if self.mode == "separate" else {}))
         agent.others.append(self.box)
 
     def __call__(self, task: dict, out: RunOutput) -> dict:
@@ -498,7 +558,10 @@ class SandboxedJudge:
         record = output_record(out)
         record["extra"] = {k: v for k, v in (record.get("extra") or {}).items() if k != "sandbox_work"}
         job = {"kind": "judge", "spec": self.spec, "base": str(self.base), "task": task, "output": record}
-        binds, writable = [], [work]
+        # Shared: the agent's work as the agent saw it, its per-call `.logs` at the names the agent wrote them under.
+        binds = [Bind(work / "agent-logs" / str(i), str(log_dir), True) for i, log_dir in enumerate(self.agent.logs)
+                 if (work / "agent-logs" / str(i)).is_dir()]
+        writable = [work]
         if self.mode == "separate":
             fresh = place / "collected"
             skipped = sanitized_copy(work, fresh, self.collect)

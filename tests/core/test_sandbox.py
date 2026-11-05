@@ -445,3 +445,79 @@ def test_inside_a_layout_with_limits(tmp_path):
     assert proc.returncode == 0, proc.stderr[-1500:]
     assert proc.stdout.split() == ["/w", "hi", "2048"] and (ws / "adapter" / "x").read_text() == "1"
 
+
+
+def test_a_file_a_sandbox_left_is_read_only_when_regular(tmp_path):
+    """The host reads a learner's report or result without following a link or blocking on a pipe."""
+    import os
+    from hermit.sandbox import read_regular
+    (tmp_path / "secret").write_text("host secret")
+    (tmp_path / "report.md").write_text("done\n")
+    (tmp_path / "link.md").symlink_to(tmp_path / "secret")
+    os.mkfifo(tmp_path / "pipe.md")
+    assert read_regular(tmp_path / "report.md") == "done\n"
+    assert read_regular(tmp_path / "link.md") is None and read_regular(tmp_path / "pipe.md") is None
+    assert read_regular(tmp_path / "missing.md") is None
+
+
+def test_a_sanitized_copy_skips_pipes_and_caps_its_size(tmp_path):
+    import os
+    from hermit.isolate import sanitized_copy
+    src = tmp_path / "out"
+    src.mkdir()
+    (src / "a.txt").write_text("x" * 100)
+    os.mkfifo(src / "pipe")
+    skipped = sanitized_copy(src, tmp_path / "dest")
+    assert (tmp_path / "dest" / "a.txt").exists() and not (tmp_path / "dest" / "pipe").exists() and skipped
+    with pytest.raises(ValueError):
+        sanitized_copy(src, tmp_path / "small", max_bytes=50)
+
+
+def test_a_system_pythons_site_directory_is_emptied_too(monkeypatch):
+    """/usr is shown whole: a system interpreter's site directory under it is still replaced by an empty one, and the
+    distributions asked for are bound back into it."""
+    import glob
+    found = sorted(glob.glob("/usr/lib*/python3*/site-packages"))
+    if not found:
+        pytest.skip("no system site-packages directory under /usr")
+    site = Path(found[0])
+    module = next((p for p in sorted(site.iterdir()) if p.suffix == ".py"), None)
+    if module is None:
+        pytest.skip("no plain module in the system site directory")
+    fake_bwrap(monkeypatch)
+    monkeypatch.setattr(sandbox_module, "_python_paths", lambda packages, framework=True: ([module], [site]))
+    args, _ = Sandbox(network="open", framework=False).wrap(["true"])
+    assert str(site) in binds(args, "--tmpfs") and str(site) in binds(args, "--remount-ro")
+    assert str(module) in binds(args, "--ro-bind")          # bound back after the empty directory
+    assert args.index(str(module)) > args.index("--tmpfs", args.index(str(site)) - 1)
+
+
+def test_a_secret_under_a_renamed_bind_is_probed_under_its_inside_name(tmp_path, monkeypatch):
+    fake_bwrap(monkeypatch)
+    method = tmp_path / "method"
+    method.mkdir()
+    (method / "answers.jsonl").write_text("{}")
+    box = Sandbox(network="isolated", binds=[Bind(method, "/w/method")], probe_absent=[method / "answers.jsonl"])
+    try:
+        args, _ = box.wrap(["true"])
+    finally:
+        box.close()
+    denied = [args[i + 1] for i, a in enumerate(args) if a == "--deny"]
+    assert "/w/method/answers.jsonl" in denied and str((method / "answers.jsonl").resolve()) in denied
+
+
+def test_a_path_named_inside_maps_back_under_every_bind_name(tmp_path):
+    adapter, material = tmp_path / "ws" / "adapter", tmp_path / "ws" / "material"
+    box = Sandbox(binds=[Bind(adapter, "/w", True), Bind(adapter, "/world-model"), Bind(material, "/w/material")],
+                  layout=(adapter, "/w"))
+    assert box.outside("/world-model/ADAPTER.md") == adapter / "ADAPTER.md"     # the second name of one source
+    assert box.outside("/w/material/../ADAPTER.md") == adapter / "ADAPTER.md"   # normalized before mapping
+    assert box.outside("material/a.md") == material / "a.md"
+
+
+def test_a_file_bound_writable_under_a_name_stays_a_file(tmp_path, monkeypatch):
+    fake_bwrap(monkeypatch)
+    f = tmp_path / "notes.txt"
+    f.write_text("x")
+    args, _ = Sandbox(network="open", binds=[Bind(f, "/w/notes.txt", True)]).wrap(["true"])
+    assert f.is_file() and "/w/notes.txt" in args

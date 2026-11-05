@@ -25,6 +25,7 @@ import ssl
 import threading
 from urllib.parse import urlsplit
 
+MAX_BODY = 64 << 20                     # the largest request the proxy buffers (a long conversation is a few MB)
 HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers",
        "transfer-encoding", "upgrade", "host", "content-length"}
 
@@ -71,6 +72,7 @@ class ModelProxy:
 
         class Handler(BaseHTTPRequestHandler):
             protocol_version = "HTTP/1.0"            # the answer ends when the connection closes: streams pass through
+            timeout = 600                            # a client that stops sending is dropped
 
             def log_message(self, *args):            # the proxy's own log, not stderr
                 pass
@@ -85,13 +87,16 @@ class ModelProxy:
                 real = os.environ.get(route.key_env, "") if route.key_env else ""
                 given = [headers[k] for k in auth.values()]
                 tokens = [g.split(" ", 1)[1] if g.lower().startswith("bearer ") else g for g in given]
-                if route.key_env and not any(t in (route.secret, real) and t for t in tokens):
+                # A provider that takes no key (its variable unset) has nothing to protect: no secret is asked for.
+                if real and not any(t in (route.secret, real) and t for t in tokens):
                     return self._refuse(401, "the request does not carry this sandbox's secret")
                 for lower, name in auth.items():
                     headers.pop(name)
                     if real:
                         headers[name] = f"Bearer {real}" if lower == "authorization" else real
                 length = int(self.headers.get("Content-Length") or 0)
+                if length > MAX_BODY:
+                    return self._refuse(413, f"a request body over {MAX_BODY} bytes")
                 body = self.rfile.read(length) if length else None
                 target = urlsplit(route.origin)
                 conn_cls = http.client.HTTPSConnection if target.scheme == "https" else http.client.HTTPConnection

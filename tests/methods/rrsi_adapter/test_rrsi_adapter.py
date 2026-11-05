@@ -831,8 +831,8 @@ def test_setup_checks_what_every_step_needs(tmp_path):
         ev.setup(context(ws, 1, dom, tmp_path, rrsi={"T": 2, "critic_model": "claude-x"}))
     with pytest.raises(ValueError, match="eval_parallel.*no effect here"):
         ev.setup(context(ws, 1, dom, tmp_path, rrsi={"T": 2, "eval_parallel": 4}))
-    with pytest.raises(RuntimeError, match="no installed package"):
-        ev.setup(context(ws, 1, dom, tmp_path, hide=["module:no_such_package_here"]))
+    with pytest.raises(ValueError, match="hide was removed"):        # every session sees only its own view
+        ev.setup(context(ws, 1, dom, tmp_path, hide=["module:json"]))
     for name in ("rrsi.json", "rrsi_eng.json"):                     # the example's own files pass
         ev._cfg(SimpleNamespace(params={"rrsi": name}, base=ROOT / "examples" / "officeqa" / "rrsi_adapter"))
 
@@ -1068,68 +1068,68 @@ def test_the_digesters_shell_runs_through_the_sandbox_while_bound():
     assert calls and rrsi.digester.subprocess is original
 
 
-def test_the_digesters_shell_is_refused_when_the_sandbox_cannot_hide_paths(tmp_path):
-    state = tmp_path / "state"
-    state.mkdir()
+def test_the_digesters_shell_is_refused_when_the_sandbox_ran_unconfined(tmp_path):
     with pytest.raises(RuntimeError, match="bubblewrap"):
-        R.SandboxedSubprocess(Box(), [state]).run("true", shell=True)       # Box: on, but no bwrap in its command
-    assert R.SandboxedSubprocess(Box(), []).run("true", shell=True).returncode == 0
+        R.SandboxedSubprocess(Box()).run("true", shell=True)        # Box: on, but no bwrap in its command
+    assert R.SandboxedSubprocess(None).run("true", shell=True).returncode == 0     # the run's sandbox off
 
 
-def test_the_digesters_shell_runs_in_the_visible_copy_of_the_traces(tmp_path):
-    # Upstream's digester runs its shell with cwd = the round's rendered traces, under the state the sandbox covers;
-    # the command must run in the visible copy, where its relative paths name the same files.
-    state = tmp_path / "state"
-    rendered = state / "rrsi" / "r0" / "analysis" / "rendered"
+def test_the_digesters_shell_sees_only_its_working_directory(tmp_path):
+    # Upstream's digester runs its shell with cwd = the round's rendered traces: the command runs there, in a view
+    # of the run's sandbox that shows that directory alone (read-only); without a cwd, in the traces' copy.
+    rendered = tmp_path / "state" / "rrsi" / "r0" / "analysis" / "rendered"
     rendered.mkdir(parents=True)
-    (rendered / "T1.txt").write_text("hidden original\n")
+    (rendered / "T1.txt").write_text("the traces\n")
+    out = R.SandboxedSubprocess(None).run("cat T1.txt", shell=True, cwd=rendered, capture_output=True, text=True)
+    assert out.stdout == "the traces\n"
+    VIEWS.clear()
+    box = Box()
+    box.wrap = lambda command, **kw: (["bwrap", *command], dict(kw.get("env") or {}))     # as a confined run
+    R.SandboxedSubprocess(box).run("cat T1.txt", shell=True, cwd=rendered, capture_output=True, text=True)
+    assert VIEWS[-1].readable == [rendered] and VIEWS[-1].writable == []
     copy = tmp_path / "scratch" / "rrsi_roles" / "rendered_r0"
     copy.mkdir(parents=True)
-    (copy / "T1.txt").write_text("visible copy\n")
-    run = R.SandboxedSubprocess(None, [state], visible=copy).run
-    out = run("cat T1.txt", shell=True, cwd=rendered, capture_output=True, text=True)
-    assert out.stdout == "visible copy\n"
-    other = tmp_path / "elsewhere"
-    other.mkdir()
-    (other / "T1.txt").write_text("elsewhere\n")
-    assert run("cat T1.txt", shell=True, cwd=other, capture_output=True, text=True).stdout == "elsewhere\n"
-    assert R.SandboxedSubprocess(None, [state]).run("cat T1.txt", shell=True, cwd=rendered, capture_output=True,
-                                                    text=True).stdout == "hidden original\n"
+    R.SandboxedSubprocess(box, visible=copy).run("true", shell=True)
+    assert VIEWS[-1].readable == [copy]
+
+
+VIEWS: list = []
 
 
 class Box:
-    """The run's sandbox, on: covering the hidden paths is the Base Agent's (cli.py, HidingSandbox)."""
+    """The run's sandbox, on (confining a session is the Base Agent's): each session gets a view of it, recorded."""
     enabled = True
+
+    def view(self, **kw):
+        v = SimpleNamespace(enabled=True, readable=list(kw.get("readable") or []),
+                            writable=list(kw.get("writable") or []), wrap=self.wrap, close=lambda: None)
+        VIEWS.append(v)
+        return v
 
     def wrap(self, command, **kw):
         return list(command), dict(kw.get("env") or {})
 
 
-def test_the_proposer_and_the_roles_run_with_the_runs_records_hidden(tmp_path, monkeypatch):
+def test_the_proposer_and_the_roles_each_see_only_their_own_directory(tmp_path, monkeypatch):
     ws = workspace(tmp_path)
     dom = domain_files(tmp_path)
     script = Script({(0, "A"): [{"files": {"ADAPTER.md": "x\n"}, "done": {"summary": "s", "edits": [edit()]}}],
                      (0, "B"): [{"files": {"ADAPTER.md": "y\n"}, "done": {"summary": "s", "edits": [edit()]}}]})
     ev = evolver(monkeypatch, script)
-    private = tmp_path / "private"
-    private.mkdir()
     material(ws, 1, rows({"q1": [0, 1], "q2": [1, 0], "q3": [1, 1], "q4": [0, 0]}))
-    ctx = context(ws, 1, dom, tmp_path, run_agent=lambda **kw: {"results": []}, sandbox=Box(),
-                  hide=[str(private), "module:json"])
+    ctx = context(ws, 1, dom, tmp_path, run_agent=lambda **kw: {"results": []}, sandbox=Box())
     assert ev.step(ctx).status == "done"
     a, b = script.sessions[0], script.sessions[1]
     work = ws.scratch / "rrsi" / "r0A"
     assert a["workspace"] == work and a["settings"]["home"] == work / ".codex-home"
     assert a["settings"]["log"] == ws.output / "r0A" / "session_1.jsonl" and a["settings"]["cancel"] is ctx.cancel
     assert a["tools"] == [ctx.tools["check_spec"]]            # no run_agent: the smoke is the Evolver's
-    hidden = set(map(Path, a["limits"].hidden))
-    package = Path(__import__("json").__file__).parent           # "module:<name>": the installed package
-    assert {ws.learning_material, ws.state, ws.adapter, ws.output, private, package} <= hidden
-    role_hidden = set(ROLE_CALLS[-1]["limits"].hidden)            # the last critic's, after both drafts
-    assert work not in hidden and package in role_hidden
-    assert {ws.learning_material, ws.state, ws.adapter, ws.output, ws.scratch / "rrsi"} <= role_hidden
-    assert work in set(map(Path, b["limits"].hidden))          # variant B never sees A's directory or home
-    assert [m.source for m in a["limits"].readable] == [ws.task_info]
+    # A proposer's view: its own variant directory (writable) and the task description, nothing else the run keeps.
+    view = a["settings"]["sandbox"]
+    assert view.writable == [work] and view.readable == [ws.task_info]
+    assert b["settings"]["sandbox"].writable == [ws.scratch / "rrsi" / "r0B"]    # B never sees A's directory
+    role = ROLE_CALLS[-1]["settings"]["sandbox"]                   # the last critic's, after both drafts
+    assert role.readable == [] and len(role.writable) == 1 and role.writable[0].parent.name == "rrsi_roles"
 
 
 def test_with_the_runs_sandbox_off_nothing_is_asked_to_be_hidden(tmp_path, monkeypatch):
@@ -1147,8 +1147,7 @@ def test_with_the_runs_sandbox_off_nothing_is_asked_to_be_hidden(tmp_path, monke
 
 def roles(tmp: Path, cancel=None, sandbox=None, traces: Path | None = None) -> "R.Roles":
     out = R.Roles(SimpleNamespace(cancel=cancel, sandbox=sandbox), {"model": "m", "codex_sandbox": "read-only",
-                                                                    "args": ["-c", "x=1"]}, tmp / "roles",
-                  hide=[tmp / "state"])
+                                                                    "args": ["-c", "x=1"]}, tmp / "roles")
     out.traces = traces
     return out
 
@@ -1176,7 +1175,7 @@ def test_the_roles_are_codex_sessions_with_upstreams_generate_contract(tmp_path,
     call_dir = tmp_path / "roles" / "00002"
     assert s["home"] == call_dir / "home" and s["log"] == call_dir / "events.jsonl"
     assert call["workspace"] == tmp_path / "roles" / "00002" / "work"          # not a digester: an empty directory
-    assert list(call["limits"].hidden) == [tmp_path / "state", tmp_path / "roles" / "00001"]   # sandbox on
+    assert s["sandbox"].writable == [call_dir] and s["sandbox"].readable == []    # its own call directory only
     assert (tmp_path / "roles" / "00002" / "reply.txt").read_text() == 'Here: {"a": 1}'
     r.generate("p", system="You are a trajectory digester: a read-only investigator")
     assert ROLE_CALLS[-1]["workspace"] == traces                             # a digester runs in the traces
@@ -1262,16 +1261,16 @@ def test_a_role_call_sees_neither_other_calls_nor_traces_it_is_not_given(tmp_pat
     monkeypatch.setattr(R, "make", lambda name, settings=None, model=None: Role(settings, lambda *a: "ok"))
     traces = tmp_path / "roles" / "rendered_r0"
     traces.mkdir(parents=True)
-    r = roles(tmp_path, sandbox=SimpleNamespace(enabled=True), traces=traces)
+    r = roles(tmp_path, sandbox=Box(), traces=traces)
     r.generate("p", system="the analyst")
     r.generate("p", system="the critic")
     r.generate("p", system="You are a trajectory digester")
-    analyst, critic, digester = (set(c["limits"].hidden) for c in ROLE_CALLS)
+    analyst, critic, digester = (c["settings"]["sandbox"] for c in ROLE_CALLS)
     calls = tmp_path / "roles"
-    assert traces in analyst and calls / "00001" not in analyst
-    assert {traces, calls / "00001"} <= critic and calls / "00002" not in critic
-    assert calls / "00002" in digester and traces not in digester and ROLE_CALLS[2]["workspace"] == traces
-    assert tmp_path / "state" in analyst & critic & digester
+    assert analyst.writable == [calls / "00001"] and analyst.readable == []
+    assert critic.writable == [calls / "00002"] and critic.readable == []
+    assert digester.writable == [calls / "00003"] and digester.readable == [traces]
+    assert ROLE_CALLS[2]["workspace"] == traces
 
 
 def test_a_role_call_whose_session_times_out_twice_fails(tmp_path, monkeypatch):

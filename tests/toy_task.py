@@ -47,7 +47,9 @@ class Toy(Evolver):
         elif mode == "probe":                        # runs a training task through the run_agent tool
             import json as _json
             out = ctx.tools["run_agent"](task_ids=["t0"])
-            (ctx.workspace.output / "probe.json").write_text(_json.dumps(out["results"][0], default=str))
+            first = out["results"][0]
+            first["log_text"] = open(first["log"]).read() if first.get("log") else None   # readable here
+            (ctx.workspace.output / "probe.json").write_text(_json.dumps(first, default=str))
         (ctx.workspace.state / "seen.txt").write_text(str(ctx.progress.step))
         (ctx.workspace.output / "report.md").write_text(f"step {ctx.progress.step}: {mode}\\n")
         return StepResult("done", f"{mode} at step {ctx.progress.step}")

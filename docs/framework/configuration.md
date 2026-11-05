@@ -157,8 +157,9 @@ it went.
 
 Before each command starts, a check inside its sandbox confirms that an outside connection fails (with an isolated
 network), that every forwarded port answers, and that the run's secrets and the home's `.ssh` and `.bashrc` are
-absent; the command does not start unless it passes. Every start leaves a record, `sandbox/<role>-<n>.json` in the
-run's directory (`eval` writes its own beside its results): what was bound and under which names, which ports were
+absent; the command does not start unless it passes. Every bubblewrap start leaves a record, `sandbox/<role>-<n>.json`
+in the run's directory (a container's start, `environment.image` or Harbor, and a pipeline in the host process leave
+none; the run's card records which ran) (`eval` writes its own beside its results): what was bound and under which names, which ports were
 forwarded, which variables passed, and that check. The allowlist proxies log each request to `sandbox/network*.jsonl`
 and the model proxy to `sandbox/models*.jsonl`.
 

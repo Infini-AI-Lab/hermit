@@ -26,7 +26,7 @@ Three roles run in three kinds of sandbox.
 | Sandbox | Contents | Never inside | Backend |
 |---|---|---|---|
 | task | the declared task paths, packages and variables, the acting layer, the frozen adapter | the data and split files, the judge and its tests, the runs and trees, model keys | bubblewrap; Docker for `environment.image` |
-| judge | the task sandbox's settings, the judge's file and `judge.tests`; `separate`: only the collected paths of the agent's work | | as the task |
+| judge | the task sandbox's settings, the judge's file and `judge.tests`; `separate`: only the collected paths of the agent's work, none of `environment.write` | | as the task |
 | evolver | the learner CLI, the workspace under fixed names below `/w`, what the method declares | the framework's code (unless the method needs it), the data, the judge, the test split, model keys | bubblewrap |
 
 Every sandbox is an allowlist: a path, a package, a variable or a host that is not declared does not exist inside.
@@ -55,7 +55,8 @@ of it, through a sanitized copy.
 - `env_allow` lists the variables passed (names or patterns such as `MWM_*`); `limits` (memory_mb, file_mb, cpu_s)
   are set on the command by the relay.
 - The relay checks the isolation inside before the command starts (outside TCP blocked, forwarded ports open, the
-  probe paths absent) and reports it over a socket; each start leaves a record in the run's `sandbox/` directory.
+  probe paths absent) and reports it over a socket; each bubblewrap start leaves a record in the run's `sandbox/`
+  directory.
 - `view(...)` gives a method the run's sandbox (network, proxies, environment, enforcement, records, limits) with a
   view of its own in place of the run's binds.
 - `enforce: required` refuses to run without bubblewrap; `best_effort` runs unconfined and records that. With the
@@ -70,9 +71,11 @@ directory is writable; the `.logs` beside a task's agent file is a fresh directo
 holds or lies inside a run secret (the data and split files, the judge and its tests, the runs and trees) refuses
 the config; the isolation check proves the secrets absent at every start.
 
-The pipeline runs on the host instead in three cases, each recorded: `sandbox.enabled: false`; a Harbor task set
-(`agent.name: harbor`, whose environment is Harbor's container); `environment.image`, where a Codex acting agent runs
-in a container of its own (the Base Agent's container isolation); and `environment.runner: host`, for a task whose
+With `environment.image` a Codex acting agent runs in a container of its own (the Base Agent's container
+isolation), started from a worker on the host, one per call; the worker puts the adapter's code the agent renders or
+serves in the strict sandbox below. The container holds the model key (recorded). The pipeline runs in the host
+process instead in three cases, each recorded: `sandbox.enabled: false`; a Harbor task set (`agent.name: harbor`,
+whose environment is Harbor's container, which also holds the key); and `environment.runner: host`, for a task whose
 own code isolates the adapter's code it runs (AgentDyn runs learned hooks in containers of their own).
 
 Inside the task sandbox the adapter's modules (its tools, its renders) still run in a nested strict sandbox of their
@@ -119,12 +122,13 @@ files and setuid bits are dropped.
 
 ## Model proxy
 
-No sandbox holds a model key. `hermit/model_proxy.py` serves each provider origin on a loopback route; a sandbox gets
+No bubblewrap sandbox holds a model key. `hermit/model_proxy.py` serves each provider origin on a loopback route; a sandbox gets
 the route in place of the provider's URL and a secret of its own in place of the key, and the proxy puts the real key
 (read from the host's environment) under the same header. A server on the loopback that takes no key (a local vLLM)
 is reached directly; one whose key is set (a meter in front of a provider) is routed. The task sandbox's bindings (`agent.params.binding`, a chat
 agent's model spec) are routed when the sandbox is built; the learner's sessions are routed by the Base Agent, from
-the session's binding or the run's (the Evolver's). Exceptions, recorded: a Codex ChatGPT login is copied in (its
+the session's binding or the run's (the Evolver's). Exceptions, recorded: a container (`environment.image`, Harbor) gets the key itself; a Codex ChatGPT login is
+copied in (its
 hosts reached through the allowlist proxy), and a task whose own code calls a model outside the bindings declares
 its key variable in `environment.env`.
 

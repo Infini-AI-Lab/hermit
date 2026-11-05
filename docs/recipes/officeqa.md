@@ -231,9 +231,10 @@ docker network connect oq-sandbox oq-egress
 cd -    # back to the repository root
 ```
 
-Each config names its image, network and proxy in `agent.codex.container` (`run_codex.yaml` and `smoke_codex.yaml`
-`officeqa-codex:0.134.0`, the Flash row's configs `officeqa-codex:0.162.0`; build that one the same way); override
-them on the command line (`agent.codex.container.image=...`). The proxy above lets through only Fireworks: for
+Each config names its image in `environment.image` and its network and proxy in `environment.container`
+(`run_codex.yaml` and `smoke_codex.yaml` `officeqa-codex:0.134.0`, the Flash row's configs `officeqa-codex:0.162.0`;
+build that one the same way); override them on the command line (`environment.image=...`,
+`environment.container.proxy=...`). The proxy above lets through only Fireworks: for
 another backend, start one with that backend's `host:port` (a plain-HTTP or local endpoint cannot be reached from the
 network); for a ChatGPT login, with `chatgpt.com:443 auth.openai.com:443`, and the model named by the login
 (`agent.model.ref=null agent.model.name=gpt-6-luna agent.model.login=chatgpt`).

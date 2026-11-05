@@ -2,6 +2,7 @@
 the run config's `environment` declares, its model reached through the run's model proxy; the judge's sandboxes; the
 declared tools' strict sandbox; and only the worker able to hand a result back."""
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -61,6 +62,10 @@ def test_the_old_sandbox_keys_are_refused_with_where_they_went(tmp_path):
         path = make_task(tmp_path / key, sandbox={"enabled": True, key: {} if key == "profiles" else []}) \
             if (tmp_path / key).mkdir() is None else None
         assert word in load_error(path)
+    (tmp_path / "clean").mkdir()
+    clean = make_task(tmp_path / "clean")
+    assert "environment.network" in load_error(clean, "sandbox.network=open")          # an override too
+    assert "allowlist" in load_error(clean, "evolver.params.hide=null")                # hide, whatever its value
 
 
 def test_the_sections_are_checked(tmp_path):
@@ -88,6 +93,13 @@ def test_a_declared_path_may_not_hold_or_lie_in_a_secret(tmp_path):
     Config.load(path, ["environment.read=[agent]"])                           # beside them: fine
     assert "a judge test" in load_error(path, "sandbox.enabled=true", "judge.mode=shared",
                                         "judge.tests=[agent/answers.json]", "environment.read=[agent]")
+    (tmp_path / "t" / "agent" / "old" / "other-run").mkdir(parents=True)
+    (tmp_path / "t" / "agent" / "old" / "other-run" / "steps.jsonl").write_text("{}\n")
+    assert "a run's records" in load_error(path, "environment.read=[agent]")   # another output directory's run
+    (tmp_path / "t" / "agent" / "old" / "other-run" / "steps.jsonl").unlink()
+    # What the learner reads (evolver_access.environment, shown at /w/environment/<name>) is checked the same way.
+    assert "overlaps" in load_error(path, "evolver_access.environment=[.]")
+    Config.load(path, ["evolver_access.environment=[agent]"])
 
 
 def test_run_secrets_name_the_data_the_judge_its_tests_and_the_runs(tmp_path):
@@ -372,7 +384,10 @@ def score(task, out):
     gold = Path(__file__).resolve().parent / "gold.txt"
     work = Path(out.extra.get("where", ""))
     planted = (work / "reward.txt").read_text() if (work / "reward.txt").exists() else None
-    return {"score": float(out.output == gold.read_text().strip()), "feedback": "", "planted": planted}
+    base = Path(__file__).resolve().parents[1]
+    read = lambda p: p.read_text() if p.exists() else None
+    return {"score": float(out.output == gold.read_text().strip()), "feedback": "", "planted": planted,
+            "logged": read(base / "agent" / ".logs" / "note.txt"), "state": read(base / "state" / "planted.txt")}
 """
 
 PIPELINE_PLANTS = """
@@ -382,6 +397,10 @@ from hermit.task import RunOutput
 def run(task, adapter):
     work = os.getcwd()
     open(os.path.join(work, "reward.txt"), "w").write("1")       # what a cheating agent leaves behind
+    here = os.path.dirname(__file__)
+    open(os.path.join(here, ".logs", "note.txt"), "w").write("log")             # its per-call .logs
+    if os.path.isdir(os.path.join(here, "..", "state")):
+        open(os.path.join(here, "..", "state", "planted.txt"), "w").write("1")  # state outside its work directory
     gold = "/".join(__file__.split("/")[:-2]) + "/judging/gold.txt"
     return RunOutput(output="3", extra={"where": work, "gold_visible": os.path.exists(gold)})
 """
@@ -402,6 +421,7 @@ def test_a_shared_judge_sees_its_tests_the_agent_did_not(tmp_path):
         agent.close()
     assert out.extra["gold_visible"] is False                        # the judge's file and tests: not the agent's
     assert verdict["score"] == 1.0 and verdict["planted"] == "1"     # the shared judge sees the agent's work
+    assert verdict["logged"] == "log"                                # its .logs as the agent wrote them
 
 
 @needs_bwrap
@@ -410,7 +430,9 @@ def test_a_separate_judge_gets_only_the_collected_paths(tmp_path):
     (tmp_path / "judging" / "gold.txt").write_text("3")
     (tmp_path / "judging" / "judge.py").write_text(JUDGE_SHARED)
     path = sandboxed_task(tmp_path, PIPELINE_PLANTS)
-    config = Config.load(path, ["judge.path=judging/judge.py", "judge.mode=separate", "judge.collect=[logs]"])
+    (tmp_path / "state").mkdir()
+    config = Config.load(path, ["judge.path=judging/judge.py", "judge.mode=separate", "judge.collect=[logs]",
+                                "environment.write=[state]"])
     agent = SandboxedAgent(config, "rollout", records=None)
     try:
         out = agent({"id": "t1", "a": 1, "b": 2}, None)
@@ -418,6 +440,7 @@ def test_a_separate_judge_gets_only_the_collected_paths(tmp_path):
     finally:
         agent.close()
     assert verdict["score"] == 1.0 and verdict["planted"] is None    # what the agent left besides logs/: not there
+    assert (tmp_path / "state" / "planted.txt").exists() and verdict["state"] is None   # nor its writable state
 
 
 TOOL = r'''
@@ -564,8 +587,10 @@ def test_the_spec_check_runs_the_adapters_code_in_a_sandbox(tmp_path):
     (adapter / "tools.py").write_text(
         f"import os\ntry:\n    open({str(planted)!r}, 'w').write(open({str(secret)!r}).read())\nexcept Exception:\n"
         "    pass\n" + (EXAMPLE / "tools.py").read_text())
-    spec_module._deploy_check(adapter, sys.executable, "required")
+    assert spec_module._deploy_check(adapter, sys.executable, "required") == []      # it deployed
     assert not planted.exists()                                      # neither read the secret nor wrote outside
+    spec_module._deploy_check(adapter, sys.executable, None)         # the control: unconfined (the sandbox off), the
+    assert planted.read_text() == "gold"                             # same check runs that code and it reads it
 
 
 @needs_bwrap
@@ -705,3 +730,68 @@ def test_a_sandboxed_codex_call_takes_the_shared_login_and_hands_its_refresh_bac
         other.close()
     assert seen["plan_dir"] == str(mine) and mine in [Path(w) for w in other.sandbox.writable]
     assert login.plan_dir() in [Path(w) for w in agent.sandbox.writable]
+
+
+def test_a_container_agent_runs_from_a_worker_that_sandboxes_the_adapters_code(tmp_path):
+    """environment.image: the CLI's container is started from a worker on the host, never from this process, and the
+    worker puts the adapter's code (its context, its tools) in the strict sandbox."""
+    from hermit.isolate import ContainerAgent
+    (tmp_path / "t").mkdir()
+    config = Config.load(make_task(tmp_path / "t"), [])
+    (tmp_path / "t" / "probe.py").write_text(
+        "import os\nfrom hermit.task import RunOutput\n"
+        "def run(task, adapter):\n"
+        "    env = os.environ.get\n"
+        "    return RunOutput(output=f\"{env('HA_ADAPTER_SANDBOX')} {env('HA_ADAPTER_SANDBOX_ENFORCE')} {os.getpid()}\")\n")
+    config.data["agent"]["name"] = "probe.py:run"
+    agent = ContainerAgent(config, "rollout", {}, work_root=tmp_path / "work")
+    sandboxed, enforce, pid = agent({"id": "q1"}, None).output.split()
+    assert sandboxed == "1" and enforce == "required" and int(pid) != os.getpid()
+
+
+def test_the_model_proxy_swaps_the_secret_for_the_key_on_the_wire(monkeypatch):
+    """A request through the proxy reaches the provider with the real key in place of the sandbox's secret; one
+    without the secret is refused; a provider that takes no key (its variable unset) asks for none."""
+    import threading
+    import urllib.error
+    import urllib.request
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    seen = []
+
+    class Provider(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_POST(self):
+            seen.append((self.path, self.headers.get("Authorization")))
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            body = b'{"ok": true}'
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Provider)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    # "localhost." is no loopback spelling the proxy skips, so the route is made as for a remote provider.
+    origin = f"http://localhost.:{server.server_address[1]}"
+    proxy = ModelProxy()
+
+    def post(url, token):
+        req = urllib.request.Request(url + "/chat/completions", data=b"{}", method="POST",
+                                     headers={"Authorization": f"Bearer {token}"} if token else {})
+        try:
+            return urllib.request.urlopen(req, timeout=10).status
+        except urllib.error.HTTPError as exc:
+            return exc.code
+    try:
+        monkeypatch.setenv("EXAMPLE_KEY", "the-real-key")
+        routed, env = proxy.route({"base_url": origin + "/v1", "api_key_env": "EXAMPLE_KEY"})
+        assert post(routed["base_url"], env["EXAMPLE_KEY"]) == 200
+        assert seen[-1] == ("/v1/chat/completions", "Bearer the-real-key")
+        assert post(routed["base_url"], "a-guess") == 401 and len(seen) == 1
+        monkeypatch.delenv("EXAMPLE_KEY")
+        keyless, _ = proxy.route({"base_url": origin + "/v1", "api_key_env": "EXAMPLE_KEY"})
+        assert post(keyless["base_url"], None) == 200 and seen[-1][1] is None
+    finally:
+        proxy.close()
+        server.shutdown()

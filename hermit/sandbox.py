@@ -38,6 +38,7 @@ import select
 import shutil
 import socket
 import socketserver
+import stat
 import subprocess
 import sys
 import tempfile
@@ -67,6 +68,22 @@ def framework_env(extra: dict | None = None, *, no_bytecode: bool = False) -> di
     if no_bytecode:
         env["PYTHONDONTWRITEBYTECODE"] = "1"
     return env
+
+
+def read_regular(path, limit: int = 1 << 20) -> str | None:
+    """The text of a file a sandboxed process left (its report, its result), read on the host: only a regular file,
+    never through a link (O_NOFOLLOW), never blocking on a pipe (O_NONBLOCK), at most `limit` bytes. None when it is
+    missing or anything else."""
+    try:
+        fd = os.open(str(path), os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError:
+        return None
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return None
+        return os.read(fd, limit).decode("utf-8", errors="replace")
+    finally:
+        os.close(fd)
 
 
 def run_in_strict_sandbox(command: list[str], *, role: str, readable, enforce: str | None,
@@ -251,9 +268,13 @@ def _interpreter() -> tuple[list[Path], list[Path], list[Path]]:
         for name in ("lib", "lib64", "ssl"):
             if (prefix / name).is_dir() and not (prefix / name).is_symlink():
                 shown.append(prefix / name)
-        for name in ("site-packages", "dist-packages"):
-            if (prefix / "lib" / ver / name).is_dir():
-                sites.append(prefix / "lib" / ver / name)
+        for lib in ("lib", "lib64"):
+            for name in ("site-packages", "dist-packages"):
+                if (prefix / lib / ver / name).is_dir():
+                    sites.append(prefix / lib / ver / name)
+    # And the interpreter's own list (a Debian system Python's /usr/lib/python3/dist-packages, /usr/local/...).
+    import site
+    sites += [Path(p) for p in site.getsitepackages() if os.path.isdir(p)]
     return shown, list(dict.fromkeys(sites))
 
 
@@ -552,12 +573,18 @@ class Sandbox:
         return text
 
     def outside(self, path: str | Path, binds=()) -> Path:
-        """A path a sandboxed session named (inside, or relative to the layout root) as it is outside."""
+        """A path a sandboxed session named (inside, or relative to the layout root) as it is outside: normalized
+        first (no `..` crosses a bind), then under whichever name it was shown (a source bound under two names is
+        found under both)."""
         text = str(path)
         if self.enabled and self.layout and not os.path.isabs(text):
             text = self.layout[1].rstrip("/") + "/" + text
         if self.enabled:
-            for out, inside in sorted(((n, i) for n, i in self._pairs(binds)), key=lambda p: -len(p[1])):
+            text = os.path.normpath(text)
+            names = [(str(b.source), b.target.rstrip("/") or "/") for b in self._all_binds(binds)]
+            if self.layout:
+                names.append((str(self.layout[0]), self.layout[1].rstrip("/")))
+            for out, inside in sorted(names, key=lambda p: -len(p[1])):
                 if text == inside or text.startswith(inside.rstrip("/") + "/"):
                     return Path(out + text[len(inside.rstrip("/")):])
         return Path(text)
@@ -620,12 +647,12 @@ class Sandbox:
             args.append("--unshare-net")
         seen, ro, rw = set(), [], []
 
-        def bind(paths, flag, out):
+        def bind(paths, flag, out, system=False):
             for path in paths:
                 if flag == "--bind":
                     Path(path).mkdir(parents=True, exist_ok=True)
                 for name in _names(path):
-                    if not os.path.exists(name) or name.startswith("/usr"):
+                    if not os.path.exists(name) or (name.startswith("/usr") and not system):
                         continue
                     # A link under a directory bound already (uv's version alias of an interpreter kept inside a
                     # granted checkout) is there through that directory; binding it again fails on a link.
@@ -641,14 +668,17 @@ class Sandbox:
         bind([p for p in visible if not any(_under(p, s) for s in sites)], "--ro-bind", ro)
         # The interpreter's site directories hold every installed package: each is replaced by an empty directory,
         # and the distributions this sandbox shows are bound back into it.
+        # A site directory is shown when it lies in a bound path or under /usr (bound whole above: a system Python).
+        def shown(name):
+            return name.startswith("/usr/") or any(name == r or name.startswith(r.rstrip("/") + "/") for r in ro)
         for site in sites:
             for name in _names(site):
-                if any(name == r or name.startswith(r.rstrip("/") + "/") for r in ro) and os.path.isdir(name):
+                if shown(name) and os.path.isdir(name):
                     args.extend(["--tmpfs", name])
-        bind([p for p in visible if any(_under(p, s) for s in sites)], "--ro-bind", ro)
+        bind([p for p in visible if any(_under(p, s) for s in sites)], "--ro-bind", ro, system=True)
         for site in sites:
             for name in _names(site):
-                if any(name == r or name.startswith(r.rstrip("/") + "/") for r in ro) and os.path.isdir(name):
+                if shown(name) and os.path.isdir(name):
                     args.extend(["--remount-ro", name])
         bind(_venv_bases(readable, [*self.writable, *writable]), "--ro-bind", ro)
         bind(readable, "--ro-bind", ro)
@@ -657,7 +687,7 @@ class Sandbox:
              "--bind", rw)
         named = []
         for b in all_binds:
-            if b.writable:
+            if b.writable and not os.path.lexists(b.source):     # a file bound writable stays a file
                 b.source.mkdir(parents=True, exist_ok=True)
             if not os.path.exists(b.source):
                 continue
@@ -677,7 +707,7 @@ class Sandbox:
         policy = {"enforced": True, "network": self.network, "read_only": ro, "read_write": rw, "binds": named,
                   "proxy": self.proxy_url, "allow": list(self.allow), "limits": dict(self.limits)}
         name = f"{self.role}-{next(self._count)}"
-        deny = self._absent(ro + rw + [b["source"] for b in named])
+        deny = self._absent(ro + rw + [b["source"] for b in named], binds)
         if self.network == "isolated" or deny or self.limits:
             # The check inside: on an isolated network the network and the paths, on an open one the paths only;
             # the limits are set on the command before it starts.
@@ -698,9 +728,11 @@ class Sandbox:
             self._record(command, policy, env, name=name)
         return args + ["--", *command], env
 
-    def _absent(self, bound: list[str]) -> list[str]:
-        """The probe paths that exist outside and are neither bound themselves nor above a bound path. One beneath a
-        bound directory stays: it is shown by accident (a home bound whole), and the check must catch that."""
+    def _absent(self, bound: list[str], binds=()) -> list[str]:
+        """The probe paths that exist outside and are neither bound themselves nor above a bound path, each under its
+        own name and, beneath a source bound under another name, under that name too. One beneath a bound directory
+        stays: it is shown by accident (a home bound whole, a secret in a directory shown at /w/method), and the
+        check must catch that."""
         out = []
         for path in self.probe_absent:
             p = Path(path).expanduser()
@@ -710,7 +742,10 @@ class Sandbox:
             if any(p == b or str(b).startswith(p + "/") for b in bound):
                 continue
             out.append(p)
-        return out
+            inside = self.translate(p, binds)
+            if inside != p:
+                out.append(inside)
+        return list(dict.fromkeys(out))
 
     def _record(self, command: list[str], policy: dict, env: dict, name: str | None = None) -> Path | None:
         if self.record_dir is None:

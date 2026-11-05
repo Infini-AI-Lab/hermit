@@ -31,7 +31,7 @@ evolver_access:
       input_schema: {type: object, properties: {query: {type: string}}, required: [query], additionalProperties: false}
       output_schema: {type: object}
 environment:                         # the task sandbox: the host runner, clbench's checkout and venv
-  read: [../utils/agent, $MWM_CLBENCH]
+  read: [../utils/agent, ../utils/task-info/mwm, $MWM_CLBENCH]
   write: [$MWM_TASK_WORKDIR]       # the run's task directory: evidence, host records
   env: ["MWM_*", "CLB_*", "MW_*"]   # the launcher's settings (launch.sh)
                                    # + the host's litellm key variable (launch.sh): the benchmark's own loop calls

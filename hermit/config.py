@@ -158,6 +158,9 @@ def _override(config: dict, item: str) -> None:
     key, sep, raw = item.partition("=")
     if not sep:
         raise ValueError(f"Overrides look like key.sub=value, got {item!r}")
+    for moved, where in MOVED.items():
+        if key == moved or key.startswith(moved + "."):
+            raise ValueError(f"config key {moved} was removed with the old sandbox modes: {where}")
     value = yaml.safe_load(raw) if raw != "" else None
     parts = key.split(".")
     node, free = config, False

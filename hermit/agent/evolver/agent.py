@@ -99,9 +99,9 @@ class AgentEvolver(Evolver):
                                                                 tools=tools, limits=Limits(), session=ctx.session)
         if ctx.cancel is not None and ctx.cancel.is_set():
             return StepResult("failed", "stopped by the Trainer", session=result.session, usage=result.usage)
-        report = ctx.workspace.output / "report.md"
-        summary = report.read_text().strip().splitlines()[0][:300] if report.exists() and report.read_text().strip() \
-            else f"{backend} session finished"
+        from hermit.sandbox import read_regular
+        report = (read_regular(ctx.workspace.output / "report.md") or "").strip()   # never through a link or a pipe
+        summary = report.splitlines()[0][:300] if report else f"{backend} session finished"
         code = result.exit_code
         return StepResult("done" if code == 0 else "failed", summary if code == 0 else f"{backend} exited with {code}",
                           session=result.session, usage=result.usage)
@@ -162,9 +162,10 @@ class CommandEvolver(Evolver):
         if ctx.sandbox is not None:
             command, env = ctx.sandbox.wrap(command, env=env, chdir=Path(getattr(self, "directory", ".")), keep=keep)
         code = _run(command, env, ctx, ctx.workspace.output / "command.log", Path(getattr(self, "directory", ".")))
-        result_file = ctx.workspace.output / "step_result.json"
-        if result_file.exists():
-            data = json.loads(result_file.read_text())
+        from hermit.sandbox import read_regular
+        text = read_regular(ctx.workspace.output / "step_result.json")              # never through a link or a pipe
+        if text is not None:
+            data = json.loads(text)
             usage = [Usage(**u) for u in data.get("usage", [])]
             return StepResult(data.get("status", "done" if code == 0 else "failed"), data.get("summary", ""),
                               data.get("rationale", ""), data.get("session"), usage, data.get("extra", {}),

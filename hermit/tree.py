@@ -114,16 +114,27 @@ class Tree:
 
     @staticmethod
     def sync(source: Path, checkout: Path) -> None:
-        """Make the checkout's files exactly the source adapter's files (git metadata untouched)."""
+        """Make the checkout's files exactly the source adapter's files (git metadata untouched). The source may be
+        a learner's working copy: only its regular files are copied and a link is kept as a link, never followed; a
+        link that leaves the adapter and anything else (a pipe, a device) are left out."""
         source, checkout = Path(source), Path(checkout)
-        want = set(files_of(source))
+        root = Path(os.path.realpath(source))
+        want = set()
+        for rel in files_of(source):
+            path = source / rel
+            inside = Path(os.path.realpath(path)).is_relative_to(root)
+            if (path.is_symlink() and inside) or (not path.is_symlink() and path.is_file()
+                                                  and Path(os.path.realpath(path.parent)).is_relative_to(root)):
+                want.add(rel)
         for rel in files_of(checkout):
             if rel not in want:
                 (checkout / rel).unlink()
         for rel in want:
             target = checkout / rel
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source / rel, target)
+            if target.is_symlink() or target.exists():
+                target.unlink()
+            shutil.copy2(source / rel, target, follow_symlinks=False)
         for directory in sorted((p for p in checkout.rglob("*") if p.is_dir() and ".git" not in p.parts),
                                 key=lambda p: len(p.parts), reverse=True):
             try:

@@ -18,6 +18,7 @@ import atexit
 
 from dataclasses import asdict
 import json
+import os
 import random
 import shutil
 import subprocess
@@ -36,8 +37,8 @@ from hermit.agent.evolver.base import (Access, Context, Evolver, FinalResult, Pr
                                          Workspace)
 from hermit.agent.evolver.loader import find, instantiate
 from hermit.agent.model.llm import ChatClient
-from hermit.isolate import CHATGPT_HOSTS, HOME_SECRETS, ToolRunner, agent_pipeline, judge_for, run_secrets, \
-    sanitized_copy
+from hermit.isolate import CHATGPT_HOSTS, HOME_SECRETS, ToolRunner, _safe, agent_pipeline, judge_for, \
+    run_secrets, sanitized_copy
 from hermit.model_proxy import ModelProxy
 from hermit.sandbox import AllowlistProxy, Bind, Sandbox
 from hermit.spec import check_spec, repair
@@ -105,10 +106,12 @@ def _task_tool_decls(config: Config) -> list[dict]:
 
 
 def _copy_dir(src: Path, dst: Path) -> None:
+    """A copy of a directory the learner wrote: through the sanitized archive (links that leave it, pipes and devices
+    left out, nothing followed)."""
     if dst.exists():
         shutil.rmtree(dst)
     if src.exists():
-        shutil.copytree(src, dst, symlinks=True)
+        sanitized_copy(src, dst)
     else:
         dst.mkdir(parents=True)
 
@@ -418,10 +421,11 @@ class Trainer:
                                     part="evolver")
             finally:
                 shutil.rmtree(snapshot, ignore_errors=True)
-            # A training task's run also names its log (the trajectory, when the pipeline keeps one), and a run whose
-            # pipeline reports how its session ended (a CLI agent's exit code and timeout) says so.
+            # A training task's run also names its log (the trajectory, when the pipeline keeps one), copied where
+            # the learner can read it (its scratch) and named as it sees it; and a run whose pipeline reports how its
+            # session ended (a CLI agent's exit code and timeout) says so.
             return {"results": [{k: r[k] for k in ("id", "status", "output", "judge", "cost_usd", "wall_s")}
-                                | ({"log": r["log"]} if r["id"] in allowed["train"] else {})
+                                | ({"log": self._visible_log(r)} if r["id"] in allowed["train"] else {})
                                 | {k: (r.get("pipeline_extra") or {})[k] for k in ("exit_code", "timed_out")
                                    if k in (r.get("pipeline_extra") or {})} for r in results]}
         return FunctionTool("run_agent", "Run an adapter (default: your working copy) on training or validation "
@@ -431,6 +435,16 @@ class Trainer:
                             input_schema={"type": "object", "required": ["task_ids"], "additionalProperties": False,
                                           "properties": {"task_ids": {"type": "array", "items": {"type": "string"}},
                                                          "adapter": {"type": "string"}}})
+
+    def _visible_log(self, result: dict) -> str | None:
+        """A run's log as the learner can open it: a copy under its scratch directory (through the sanitized archive),
+        named as its sandbox shows it."""
+        log = Path(result["log"]) if result.get("log") else None
+        if log is None or not os.path.lexists(log):
+            return None
+        place = self.ws.scratch / "run_agent" / f"{_safe(result['id'])}-{uuid.uuid4().hex[:6]}"
+        sanitized_copy(log.parent, place, [log.name])
+        return self.sandbox.translate(str(place / log.name))
 
     def _message(self, progress: Progress | None, tools: dict) -> str:
         lines = ["# This call", ""]

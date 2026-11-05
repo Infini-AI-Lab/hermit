@@ -142,6 +142,11 @@ def test_a_sandboxed_cli_refuses_what_its_sandbox_cannot_keep(tmp_path):
         agent.run("go", workspace=tmp_path, limits=Limits(network=[]))
     with pytest.raises(Unsupported, match="lies in what the sandbox shows"):    # an allowlist shows what it grants
         agent.run("go", workspace=tmp_path, limits=Limits(hidden=[shown / "secret"]))
+    home = tmp_path / "home"
+    agent = make("codex", {"web_search": False, "isolation": "sandbox", "sandbox": Box(), "home": str(home)})
+    for hidden in (home / "private", tmp_path / "work" / "private"):   # the session's own home and workspace
+        with pytest.raises(Unsupported, match="lies in what the sandbox shows"):
+            agent.run("go", workspace=tmp_path / "work", limits=Limits(hidden=[hidden]))
 
 
 def test_an_interrupted_caller_stops_the_session(tmp_path):

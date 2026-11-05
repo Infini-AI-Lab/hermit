@@ -1,5 +1,6 @@
 """End-to-end tests of the Trainer on a toy task (no network, no model)."""
 import json
+import os
 from pathlib import Path
 import random
 import subprocess
@@ -119,6 +120,8 @@ def test_run_agent_says_how_a_session_ended_when_the_pipeline_reports_it(tmp_pat
     Trainer(load(path, "trainer.epochs=1"), log=lambda *_: None).train()
     probe = json.loads((tmp_path / "runs/toy-run/step_0001/output/probe.json").read_text())
     assert probe["exit_code"] == 1 and probe["timed_out"] is False and "workspace" not in probe
+    # The log is a copy in the learner's scratch (named as its sandbox shows it: here the sandbox is off).
+    assert "/workspace/scratch/run_agent/" in probe["log"] and "question" in probe["log_text"]
 
 
 def test_needs_are_enforced(tmp_path):
@@ -421,3 +424,21 @@ def test_an_empty_request_names_nothing(tmp_path):
     steps = _steps(tmp_path)
     assert [s["tasks"] for s in steps if not s.get("bootstrap")] == [["t0", "t1", "t2", "t3"], ["t4", "t5"]]
     assert not any("next_tasks" in s or "next_tasks_refused" in s or "chosen_by" in s for s in steps)
+
+
+def test_syncing_a_learners_adapter_never_follows_a_link(tmp_path):
+    """The learner's working copy reaches the tree through Tree.sync on the host: a link to a file outside it (one
+    the learner could not read) is not copied, a link inside it stays a link, and a pipe is skipped unread."""
+    from hermit.tree import Tree
+    secret = tmp_path / "secret.txt"
+    secret.write_text("host secret\n")
+    src, checkout = tmp_path / "adapter", tmp_path / "checkout"
+    src.mkdir()
+    checkout.mkdir()
+    (src / "ADAPTER.md").write_text("context\n")
+    (src / "leak.md").symlink_to(secret)
+    (src / "alias.md").symlink_to("ADAPTER.md")
+    os.mkfifo(src / "pipe")
+    Tree.sync(src, checkout)
+    assert sorted(p.name for p in checkout.iterdir()) == ["ADAPTER.md", "alias.md"]
+    assert (checkout / "alias.md").is_symlink() and os.readlink(checkout / "alias.md") == "ADAPTER.md"

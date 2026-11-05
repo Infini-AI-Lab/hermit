@@ -418,7 +418,8 @@ class CliAgent(BaseAgent):
             # An allowlist shows what is granted: a path to keep hidden must not lie in anything granted.
             shown = [*getattr(sandbox, "readable", ()), *getattr(sandbox, "writable", ()),
                      *(b.source for b in getattr(sandbox, "binds", ())), *(m.source for m in limits.readable),
-                     *(map(Path, s.get("writable") or ()))]
+                     *(map(Path, s.get("writable") or ())), workspace,           # the session's own, bound writable
+                     *([Path(os.path.expanduser(str(s["home"])))] if s.get("home") else [])]
             for path in limits.hidden:
                 if any(_overlap(Path(path), Path(p)) for p in shown):
                     raise Unsupported(f"{path} is to be hidden but lies in what the sandbox shows")
