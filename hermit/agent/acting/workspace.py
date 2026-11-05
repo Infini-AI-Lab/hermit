@@ -23,8 +23,8 @@ They are the framework's one way to act with a coding-agent CLI; a task adds onl
                                              # last message is the output
         collect: utils/task.py:collect       # optional: (task, workspace, log) -> facts, after the run
         context_query: question              # the task field an adapter's context tool retrieves for
-        isolation: none                      # none: where the Trainer runs the agent; container: Codex in a
-        container: {image: ..., network: ..., proxy: ...}   # Docker container of its own (hermit.agent.base.container)
+        # (a Codex agent in a Docker container of its own: the run config's environment.image and
+        #  environment.container, not these params; hermit.agent.base.container)
         project_doc_max_bytes: null          # Codex's cap on AGENTS.md; null: Codex's default
         shell_env: core                      # the variables Codex's commands get: core (no keys, no PYTHONPATH) or all
         web_search: false                    # web search, set explicitly either way: Codex's hosted search (it runs

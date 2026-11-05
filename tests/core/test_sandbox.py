@@ -146,6 +146,8 @@ def test_probe_paths_skip_what_is_bound(tmp_path):
     # (One that exists beneath a bound directory is kept, under its inside name too:
     # test_a_secret_under_a_renamed_bind_is_probed_under_its_inside_name.)
     assert box._absent([str(work.resolve())]) == [str(secret.resolve())]
+    # A secret that is bound itself (a grant retargeted to it through a link) stays checked: the start fails.
+    assert box._absent([str(work.resolve()), str(secret.resolve())]) == [str(secret.resolve())]
 
 
 def test_proxy_logs_every_decision(tmp_path):
@@ -292,11 +294,12 @@ def test_a_granted_virtual_environment_comes_with_its_base_python(tmp_path, monk
     (checkout / ".venv").mkdir(parents=True)
     (checkout / ".venv" / "pyvenv.cfg").write_text(f"home = {alias / 'bin'}\nversion = 3.12\n")
     (base / "lib" / "python3.12" / "site-packages").mkdir(parents=True)     # what is installed in the base
+    (base / "lib" / "python3" / "dist-packages").mkdir(parents=True)
     args, _ = Sandbox(network="open", readable=[checkout]).wrap(["true"])
     ro = binds(args, "--ro-bind")
     assert str(alias) in ro and str(base.resolve()) in ro        # the interpreter links through the alias
-    site = base / "lib" / "python3.12" / "site-packages"
-    assert any(n in binds(args, "--tmpfs") for n in (str(site), str(site.resolve())))   # but not its packages
+    for site in (base / "lib" / "python3.12" / "site-packages", base / "lib" / "python3" / "dist-packages"):
+        assert any(n in binds(args, "--tmpfs") for n in (str(site), str(site.resolve())))   # but not its packages
 
 
 def test_an_adapters_venv_names_no_installation_to_show(tmp_path, monkeypatch):
@@ -398,7 +401,8 @@ def test_a_grant_under_the_layout_root_goes_where_the_layout_puts_it(tmp_path, m
     box.close()
 
 
-def test_what_a_learner_is_told_and_what_it_names():
+def test_what_a_learner_is_told_and_what_it_names(monkeypatch):
+    fake_bwrap(monkeypatch)                      # translation applies where the sandbox confines
     box = Sandbox(binds=[Bind(Path("/r/ws/adapter"), "/w/adapter", True), Bind(Path("/r/ev"), "/evidence")],
                   layout=(Path("/r/ws"), "/w"))
     text = "Edit /r/ws/adapter/ADAPTER.md, read /r/ev/a.json; the native /w stays; scratch /r/ws/scratch/x."
@@ -522,7 +526,8 @@ def test_a_secret_under_a_renamed_bind_is_probed_under_its_inside_name(tmp_path,
     assert "/w/method/answers.jsonl" in denied and str((method / "answers.jsonl").resolve()) in denied
 
 
-def test_a_path_named_inside_maps_back_under_every_bind_name(tmp_path):
+def test_a_path_named_inside_maps_back_under_every_bind_name(tmp_path, monkeypatch):
+    fake_bwrap(monkeypatch)                      # translation applies where the sandbox confines
     adapter, material = tmp_path / "ws" / "adapter", tmp_path / "ws" / "material"
     box = Sandbox(binds=[Bind(adapter, "/w", True), Bind(adapter, "/world-model"), Bind(material, "/w/material")],
                   layout=(adapter, "/w"))
@@ -539,9 +544,10 @@ def test_a_file_bound_writable_under_a_name_stays_a_file(tmp_path, monkeypatch):
     assert f.is_file() and "/w/notes.txt" in args
 
 
-def test_tools_served_to_a_sandboxed_session_name_paths_as_it_sees_them(tmp_path):
+def test_tools_served_to_a_sandboxed_session_name_paths_as_it_sees_them(tmp_path, monkeypatch):
     """A tool's result names host paths; through the server a sandboxed session calls, they are spelled as its
     sandbox shows them, while the tool called in this process (an Evolver on the host) keeps the host path."""
+    fake_bwrap(monkeypatch)                      # translation applies where the sandbox confines
     from hermit.agent.base.tool import Tool
     from hermit.sandbox import inside_tools
     scratch = tmp_path / "ws" / "scratch"
@@ -576,13 +582,15 @@ def test_a_file_granted_writable_at_its_own_path_stays_a_file(tmp_path, monkeypa
     assert f.is_file() and str(f) in binds(args, "--bind")
 
 
-def test_a_path_is_translated_only_where_it_starts(tmp_path):
+def test_a_path_is_translated_only_where_it_starts(tmp_path, monkeypatch):
+    fake_bwrap(monkeypatch)                      # translation applies where the sandbox confines
     box = Sandbox(binds=[Bind(Path("/data"), "/w/material")], layout=(Path("/ws"), "/w"))
     assert box.translate("see /data/a and /mirror/data/b") == "see /w/material/a and /mirror/data/b"
     assert box.relative("open /ws/adapter, not /old/ws/adapter") == "open adapter, not /old/ws/adapter"
 
 
-def test_tool_results_are_translated_value_by_value(tmp_path):
+def test_tool_results_are_translated_value_by_value(tmp_path, monkeypatch):
+    fake_bwrap(monkeypatch)                      # translation applies where the sandbox confines
     from hermit.sandbox import translate_values
     scratch = tmp_path / "训练" / "scratch"
     box = Sandbox(binds=[Bind(scratch, "/w/scratch", True)])
@@ -636,3 +644,28 @@ def test_the_closure_follows_extras_asked_for_after_a_first_visit(monkeypatch):
     monkeypatch.setattr(md, "distribution", lambda name: Dist(name) if name in requires else
                         (_ for _ in ()).throw(md.PackageNotFoundError(name)))
     assert {d.name for d in package_closure(["application"])} == set(requires)
+
+
+def test_an_editable_install_shows_its_package_not_the_checkout(tmp_path):
+    """A plain .pth path is often a whole checkout (data, earlier runs beside the code): only the distribution's own
+    top-level package is shown."""
+    from hermit.sandbox import _dist_sources
+    checkout = tmp_path / "benchmark"
+    (checkout / "benchmark").mkdir(parents=True)
+    (checkout / "benchmark" / "__init__.py").write_text("")
+    (checkout / "runs" / "old").mkdir(parents=True)
+    (checkout / "runs" / "old" / "steps.jsonl").write_text("{}")
+    site = tmp_path / "site"
+    site.mkdir()
+    (site / "__editable__.benchmark.pth").write_text(str(checkout) + "\n")
+
+    class Dist:
+        files = ["__editable__.benchmark.pth"]
+        metadata = {"Name": "benchmark"}
+
+        def locate_file(self, f):
+            return site / f
+
+        def read_text(self, name):
+            return None
+    assert _dist_sources(Dist()) == [(checkout / "benchmark").resolve()]

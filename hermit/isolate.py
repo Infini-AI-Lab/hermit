@@ -195,8 +195,10 @@ def check_declared(config) -> None:
     hard, runs = _secrets(config)
     tests = [config.path(t) for t in d["judge"].get("tests") or []]
     declared = [(f"environment.{key}", v) for key in ("read", "write") for v in d["environment"].get(key) or []]
-    # What the learner reads is declared the same way (its sandbox shows these under /w/environment/<name>).
+    # What the learner reads is declared the same way (its sandbox shows these under /w/environment/<name>), and so
+    # is the task description it is shown at /w/task-info.
     declared += [("evolver_access.environment", v) for v in d["evolver_access"].get("environment") or []]
+    declared += [("task_info", d["task_info"])] if d.get("task_info") else []
     for key, value in declared:
         path = config.path(value)
         if path is None or "$" in str(path):
@@ -370,6 +372,12 @@ class SandboxedAgent:
         agent, envc = d["agent"], d["environment"]
         self.config, self.role = config, role
         self.name, self.base = agent["name"], Path(config.base)
+        # What can refuse the config is checked before anything is started (a proxy left running otherwise).
+        missing = [p for p in envc.get("packages") or [] if p != "*" and not package_closure([p])]
+        if missing:
+            raise ValueError(f"environment.packages names distributions that are not installed: {missing}")
+        readable = config_paths(config, "environment.read", envc.get("read"))
+        writable = config_paths(config, "environment.write", envc.get("write"))
         self.proxy = ModelProxy(log=records / f"models-{role}.jsonl" if records else None)
         self.params, self.model_env, local_ports = _route_models(dict(agent.get("params") or {}), self.proxy)
         self.forward = [*local_ports, self.proxy.port]
@@ -381,10 +389,6 @@ class SandboxedAgent:
         for log_dir in self.logs:                        # the mount point of each call's own log directory
             log_dir.mkdir(exist_ok=True)
         self.others: list[Sandbox] = []                  # the judge's sandboxes, closed with this one
-        missing = [p for p in envc.get("packages") or [] if p != "*" and not package_closure([p])]
-        if missing:
-            raise ValueError(f"environment.packages names distributions that are not installed: {missing}")
-        readable = config_paths(config, "environment.read", envc.get("read"))
         if self.cli:                                     # the CLI and the node it may run on, as installed
             readable += program_paths(self.cli)
         # A Codex agent on a ChatGPT login waits for the login's plan with every session on the machine: the plan's
@@ -400,8 +404,7 @@ class SandboxedAgent:
         self.allow_proxy = AllowlistProxy(allow, log=records / f"network-{role}.jsonl" if records else None) \
             if (isolated == "isolated" and wants_proxy and allow) else None
         self.sandbox = Sandbox(enabled=True, network=network, allow=allow, readable=readable,
-                               writable=[*config_paths(config, "environment.write", envc.get("write")),
-                                         *([self.plan] if self.plan is not None else [])],
+                               writable=[*writable, *([self.plan] if self.plan is not None else [])],
                                proxy_url=self.allow_proxy.url if self.allow_proxy else None,
                                env_allow=list(envc.get("env") or []), enforce=self.enforce,
                                packages=list(envc.get("packages") or []), framework=True, record_dir=records,
@@ -502,6 +505,11 @@ class ContainerAgent:
         self.name, self.base, self.params = d["agent"]["name"], Path(config.base), params
         self.work_root = Path(work_root) if work_root else config.path(params.get("logs", ".logs")) / role
         self.timeout = float(d["agent"]["timeout_min"]) * 60 if d["agent"].get("timeout_min") else None
+        if self.timeout:
+            # The container's own session ends first and removes the container; the worker, stopped at the outer
+            # deadline, could not.
+            inner = max(self.timeout - 60, self.timeout * 0.9)
+            self.params = {**params, "timeout_s": min(float(params.get("timeout_s") or inner), inner)}
         self.enforce = d["sandbox"].get("enforce", "required")
         self.box = Sandbox(enabled=False, role=role)     # the worker is on the host; the container is the boundary
 

@@ -94,8 +94,10 @@ def run_check(config: Config, *, probe: bool = True, log=print) -> bool:
         # task's code in this process.
         sandboxed = host_pipeline(config) is None
         pipeline = True if sandboxed else load_agent(d["agent"]["name"], d["agent"].get("params"), config.base).run
+        # The judge is imported here when it runs here: a host judge, or any judge when the pipeline runs on the
+        # host (the sandbox off); a sandboxed judge is loaded only inside its sandbox (the probe below).
         judge = load_callable(f"{d['judge']['path']}:{d['judge']['name']}", config.base) \
-            if (d["judge"].get("mode") or "host") == "host" else True
+            if (d["judge"].get("mode") or "host") == "host" or not sandboxed else True
     except Exception as exc:
         problems.append(f"agent/judge: {exc}")
         pipeline = judge = None

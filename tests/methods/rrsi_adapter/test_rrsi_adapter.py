@@ -1444,6 +1444,9 @@ def test_a_proposers_tools_resolve_paths_in_its_own_directory(tmp_path):
     bound_tool()
     bound_tool(path="adapter")
     assert seen == [str(work / "adapter"), str(work / "adapter")]
-    for outside in ("../r0B/adapter", str(tmp_path / "adapter")):
+    (tmp_path / "scratch" / "rrsi" / "r0B" / "adapter").mkdir(parents=True)
+    work.mkdir(parents=True, exist_ok=True)
+    (work / "peek").symlink_to(tmp_path / "scratch" / "rrsi" / "r0B")           # a link to another variant
+    for outside in ("../r0B/adapter", str(tmp_path / "adapter"), "peek/adapter"):
         with pytest.raises(ValueError, match="under your directory"):
             bound_tool(path=outside)

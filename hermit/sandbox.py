@@ -9,8 +9,9 @@ Read-write: the granted writable paths. Under names of their own: the binds (the
 and then covered.
 
 network: isolated gives the process its own network namespace with loopback only. The only ways out are the
-forwarded ports: every 127.0.0.1 URL in the command or its environment (the tool endpoint, the model proxy), and the
-allowlist proxy when `allow` names hosts. Each is re-created inside by `sandbox_relay.py` and bridged over a Unix
+forwarded ports: the ones the caller names (a tool server, a local model server), every 127.0.0.1 URL in the
+environment, the model proxy, and the allowlist proxy when `allow` names hosts (never a URL in the command's
+arguments, where a prompt can carry the learner's text). Each is re-created inside by `sandbox_relay.py` and bridged over a Unix
 socket, so a program that ignores the proxy variables has no route out. open: the host network. The run config
 names these no-network (isolated, no proxy), allowlist (isolated, the proxy) and public (open).
 
@@ -396,8 +397,14 @@ def _interpreter() -> tuple[list[Path], list[Path]]:
 
 
 def _dist_sources(dist) -> list[Path]:
-    """Where an editable install's code lives: the source directories its finder module maps, or the plain paths its
-    .pth file adds."""
+    """Where an editable install's code lives: the source directories its finder module maps, or, below a plain
+    path its .pth file adds (often the whole checkout, with data and runs beside the code), the distribution's own
+    top-level packages and modules (top_level.txt, else its name) and nothing else."""
+    try:
+        tops = [n.strip() for n in (dist.read_text("top_level.txt") or "").splitlines() if n.strip()]
+    except OSError:
+        tops = []
+    tops = tops or [re.sub(r"[-.]+", "_", dist.metadata["Name"]).lower()]
     out = []
     for f in dist.files or []:
         name = Path(f).name
@@ -414,7 +421,10 @@ def _dist_sources(dist) -> list[Path]:
                 elif line and not line.startswith("#"):
                     p = Path(line) if os.path.isabs(line) else (located.parent / line)
                     if p.is_dir():
-                        out.append(p.resolve())
+                        for name in tops:
+                            for candidate in (p / name, p / f"{name}.py"):
+                                if candidate.exists():
+                                    out.append(candidate.resolve())
     return out
 
 
@@ -668,11 +678,16 @@ class Sandbox:
     def _in_layout(self, path) -> bool:
         return any(n == q or n.startswith(q.rstrip("/") + "/") for n in _names(path) for q in _names(self.layout[0]))
 
+    def confines(self) -> bool:
+        """Whether a wrapped command runs confined: the sandbox is on and bubblewrap is there (best_effort without it
+        runs the command unconfined, at the host's paths)."""
+        return self.enabled and bool(shutil.which("bwrap"))
+
     def translate(self, text: str, binds=()) -> str:
         """`text` with every path under a bound source (or under the layout root) spelled by its name inside, under
         each name the source has outside: as given and resolved. A path not bound under another name is the same
-        inside."""
-        if not self.enabled:
+        inside. Unchanged when nothing is confined."""
+        if not self.confines():
             return text
         for outside, inside in self._pairs(binds):
             text = re.sub(START + re.escape(outside) + END, lambda _m, i=inside: i, text)
@@ -682,7 +697,7 @@ class Sandbox:
         """`text` with every host path under a bound source written as a learner is told it: relative to the layout's
         root (its working directory inside) when it lies there, else by its name inside. Text that names an inside
         path already is left as it is."""
-        if not (self.enabled and self.layout):
+        if not (self.confines() and self.layout):
             return self.translate(text, binds)
         root = self.layout[1].rstrip("/")
 
@@ -701,16 +716,17 @@ class Sandbox:
         first (no `..` crosses a bind), then under whichever name it was shown (a source bound under two names is
         found under both)."""
         text = str(path)
-        if self.enabled and self.layout and not os.path.isabs(text):
+        if not self.confines():                       # the session ran at the host's paths
+            return Path(text) if os.path.isabs(text) or not self.layout else Path(self.layout[0]) / text
+        if self.layout and not os.path.isabs(text):
             text = self.layout[1].rstrip("/") + "/" + text
-        if self.enabled:
-            text = os.path.normpath(text)
-            names = [(str(b.source), b.target.rstrip("/") or "/") for b in self._all_binds(binds)]
-            if self.layout:
-                names.append((str(self.layout[0]), self.layout[1].rstrip("/")))
-            for out, inside in sorted(names, key=lambda p: -len(p[1])):
-                if text == inside or text.startswith(inside.rstrip("/") + "/"):
-                    return Path(out + text[len(inside.rstrip("/")):])
+        text = os.path.normpath(text)
+        names = [(str(b.source), b.target.rstrip("/") or "/") for b in self._all_binds(binds)]
+        if self.layout:
+            names.append((str(self.layout[0]), self.layout[1].rstrip("/")))
+        for out, inside in sorted(names, key=lambda p: -len(p[1])):
+            if text == inside or text.startswith(inside.rstrip("/") + "/"):
+                return Path(out + text[len(inside.rstrip("/")):])
         return Path(text)
 
     def wrap(self, command: list[str], *, writable: list[Path] = (), env: dict | None = None,
@@ -794,7 +810,8 @@ class Sandbox:
         # The installations a declared virtual environment was made from are shown for their interpreter, not for
         # what is installed in them: their site directories are emptied too (the environment's own stay).
         for base in _venv_bases(self.readable, [*self.writable, *writable]):
-            sites += [Path(p) for p in sorted(glob.glob(str(base / "lib*" / "python3*" / "site-packages")))]
+            sites += [Path(p) for p in sorted(glob.glob(str(base / "lib*" / "python3*" / "*-packages")))
+                      if p.endswith(("/site-packages", "/dist-packages"))]
         sites = list(dict.fromkeys(sites))
         visible = self.visible(command, writable)
         bind([p for p in visible if not any(_under(p, s) for s in sites)], "--ro-bind", ro)
@@ -861,8 +878,8 @@ class Sandbox:
         return args + ["--", *command], env
 
     def _absent(self, bound: list[str], binds=()) -> list[str]:
-        """The probe paths that exist outside and are neither bound themselves nor above a bound path, each under its
-        own name and, beneath a source bound under another name, under that name too. One beneath a bound directory
+        """The probe paths that exist outside and are not above a bound path, each under its own name and, beneath a
+        source bound under another name, under that name too. One beneath a bound directory
         stays: it is shown by accident (a home bound whole, a secret in a directory shown at /w/method), and the
         check must catch that."""
         out = []
@@ -871,7 +888,9 @@ class Sandbox:
             if not p.exists():
                 continue
             p = str(p.resolve())
-            if any(p == b or str(b).startswith(p + "/") for b in bound):
+            # A probe path that holds what is bound (the run's directory holding the workspace) is not checked; one
+            # that is bound itself is (a grant that is, or was retargeted to, a secret fails the check).
+            if any(str(b).startswith(p + "/") for b in bound):
                 continue
             out.append(p)
             inside = self.translate(p, binds)

@@ -226,6 +226,7 @@ class Trainer:
         if self.params.get("login") == "chatgpt" or (isinstance(d.get("llm"), dict) and d["llm"].get("login") ==
                                                        "chatgpt"):
             allow += [h for h in CHATGPT_HOSTS if h not in allow]
+        atexit.register(self._close_sandboxes)      # whatever is started from here is closed, a failure included
         self.proxy = AllowlistProxy(allow, log=records / "network.jsonl") if allow else None
         self.model_proxy = ModelProxy(log=records / "models.jsonl")
         # What else the run starts has a sandbox of its own: the agent that does the tasks (rollouts, and run_agent
@@ -233,7 +234,6 @@ class Trainer:
         self.pipeline, self._close_pipeline = agent_pipeline(self.config, "rollout", records=records)
         self.judge = judge_for(self.config, self.pipeline)
         self.tool_runner = ToolRunner(self.config, records=records, work_root=self.run_dir / "tool_calls")
-        atexit.register(self._close_sandboxes)
         (self.run_dir / "agent_logs").mkdir(exist_ok=True)       # run_agent's log copies, shown read-only
         binds = [Bind(self.ws.adapter, "/w/adapter", True), Bind(self.ws.learning_material, "/w/material"),
                  Bind(self.ws.task_info, "/w/task-info"), Bind(self.ws.history, "/w/history"),

@@ -147,6 +147,10 @@ def test_a_sandboxed_cli_refuses_what_its_sandbox_cannot_keep(tmp_path):
     for hidden in (home / "private", tmp_path / "work" / "private", Path("/usr/bin/true")):   # its own, the system
         with pytest.raises(Unsupported, match="lies in what the sandbox shows"):
             agent.run("go", workspace=tmp_path / "work", limits=Limits(hidden=[hidden]))
+    from hermit.sandbox import PACKAGE, Sandbox
+    framework = make("codex", {"web_search": False, "isolation": "sandbox", "sandbox": Sandbox(framework=True)})
+    with pytest.raises(Unsupported, match="lies in what the sandbox shows"):    # the framework it shows
+        framework.run("go", workspace=tmp_path / "work", limits=Limits(hidden=[PACKAGE / "config.py"]))
 
 
 def test_an_interrupted_caller_stops_the_session(tmp_path):

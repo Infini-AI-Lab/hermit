@@ -105,6 +105,8 @@ def test_a_declared_path_may_not_hold_or_lie_in_a_secret(tmp_path):
     # What the learner reads (evolver_access.environment, shown at /w/environment/<name>) is checked the same way.
     assert "overlaps" in load_error(path, "evolver_access.environment=[.]")
     Config.load(path, ["evolver_access.environment=[agent]"])
+    assert "a judge test" in load_error(path, "sandbox.enabled=true", "judge.mode=shared", "judge.tests=[task-info]",
+                                        "environment.read=[agent]")          # the learner's task description
 
 
 def test_run_secrets_name_the_data_the_judge_its_tests_and_the_runs(tmp_path):
@@ -898,3 +900,13 @@ def test_a_declared_path_that_comes_to_hold_a_run_is_refused_before_the_next_cal
             agent._recheck()
     finally:
         agent.close()
+
+
+def test_a_container_session_ends_before_the_outer_deadline(tmp_path):
+    """Killed at agent.timeout_min, the host worker could not remove the container: its session's own clock ends
+    first."""
+    from hermit.isolate import ContainerAgent
+    (tmp_path / "t").mkdir()
+    config = Config.load(make_task(tmp_path / "t"), ["agent.timeout_min=10"])
+    assert ContainerAgent(config, "rollout", {"timeout_s": 3600}).params["timeout_s"] == 540
+    assert ContainerAgent(config, "rollout", {"timeout_s": 60}).params["timeout_s"] == 60

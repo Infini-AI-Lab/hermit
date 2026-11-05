@@ -420,8 +420,10 @@ class CliAgent(BaseAgent):
                      *(b.source for b in getattr(sandbox, "binds", ())), *(m.source for m in limits.readable),
                      *(map(Path, s.get("writable") or ())), workspace,           # the session's own, bound writable
                      *([Path(os.path.expanduser(str(s["home"])))] if s.get("home") else []),
-                     # and what every sandbox shows: the system and the interpreter's installation
-                     *map(Path, ("/usr", "/bin", "/sbin", "/lib", "/lib64")), Path(sys.prefix), Path(sys.base_prefix)]
+                     # and what every sandbox shows: the system, the interpreter's installation, the packages and
+                     # the framework it shows
+                     *map(Path, ("/usr", "/bin", "/sbin", "/lib", "/lib64")), Path(sys.prefix), Path(sys.base_prefix),
+                     *(sandbox.visible([]) if hasattr(sandbox, "visible") else [])]
             for path in limits.hidden:
                 if any(_overlap(Path(path), Path(p)) for p in shown):
                     raise Unsupported(f"{path} is to be hidden but lies in what the sandbox shows")

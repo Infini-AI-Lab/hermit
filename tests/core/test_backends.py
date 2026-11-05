@@ -374,8 +374,8 @@ def test_check_reports_models_and_train_refuses_a_missing_dialect(tmp_path, monk
 
 
 def test_evolver_binding_reaches_the_sandbox(tmp_path, monkeypatch):
-    """The Trainer routes the Evolver's endpoint through the run's model proxy: neither the endpoint's host nor the
-    key variable enters the learner's sandbox."""
+    """The Trainer routes the Evolver's endpoint through the run's model proxy: the endpoint's host never reaches the
+    learner's sandbox, and its key variable carries a secret of the sandbox's own, never the key's value."""
     from hermit.trainer.trainer import Trainer
     monkeypatch.setenv("HA_BACKENDS", str(tmp_path / "no-user-file.yaml"))
     monkeypatch.setenv("LAB_KEY", "sekret-123")

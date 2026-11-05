@@ -288,7 +288,9 @@ def _in_view(name: str, tool, work: Path):
     def call(**arguments):
         value = arguments.get(key)
         target = Path(os.path.normpath(work / value)) if value else work / "adapter"
-        if not target.is_relative_to(work):
+        # named under the directory and, through any link on the way, still there
+        if not target.is_relative_to(work) or \
+                not Path(os.path.realpath(target)).is_relative_to(Path(os.path.realpath(work))):
             raise ValueError(f"{name} takes a path under your directory ({work.name}/), as your session sees it")
         return fn(**{**arguments, key: str(target)})
     if not hasattr(tool, "fn"):                   # a plain function (a test's tools)
