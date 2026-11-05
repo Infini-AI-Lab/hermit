@@ -22,7 +22,7 @@ FIELDS = ("**Failure signature.**", "**When to apply.**", "**Provenance.**")
 FENCE = re.compile(r"```(?:python|py)[ \t]*\n(.*?)```", re.S)   # program snippets (other fences are prose)
 LIBRARY_MAX = 100_000      # bytes of ADAPTER.md, the index and every skill file: what the actor's context carries
 LINK = re.compile(r"\]\(([A-Za-z0-9_\-]+\.md)\)")
-# Privileged access a generated program must never use (ASPIRE's provenance rule), named in code or prose
+# Privileged access a generated program must never use (ASPIRE's provenance rule), looked for in ```python snippets
 PRIVILEGED = re.compile(r"\b(?:env\.sim|sim\.(?:data|model)|sim\.forward|check_success|get_reward|"
                         r"native_env|handle\.env|parsed_problem|eval_predicate|obj_body_id|getattr|setattr)\b")
 FORBIDDEN = (ast.AsyncFunctionDef, ast.Await, ast.ClassDef, ast.Delete, ast.Global, ast.ImportFrom, ast.Nonlocal,

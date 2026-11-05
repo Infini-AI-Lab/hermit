@@ -14,6 +14,7 @@ fact (utils/task.py:audit).
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -87,14 +88,16 @@ def main() -> None:
             refuse("the unseen-check seeds are run once, and they have been run")
         ledger.write_text(json.dumps({"seeds": unseen, "program": str(program)}))
 
-    if a.cmd == "run-batch" and CONFIG.get("max_programs"):
-        # the verifier's attempt budget (ASPIRE: at most two programs on its seeds)
+    if CONFIG.get("max_programs") and (a.cmd == "run-batch" or a.seed != min(CONFIG["dev_seeds"] or [a.seed])):
+        # the verifier's attempt budget (ASPIRE: at most two programs on its seeds), by the program's content; a
+        # single run on the first seed (the scene snapshot, a probe) is free
         attempts = HERE / "attempts.json"
         used = json.loads(attempts.read_text()) if attempts.exists() else []
-        if str(program) not in used:
+        digest = hashlib.sha256(program.read_bytes()).hexdigest()
+        if digest not in used:
             if len(used) >= CONFIG["max_programs"]:
-                refuse(f"the attempt budget is {CONFIG['max_programs']} programs, and it is spent: {used}")
-            attempts.write_text(json.dumps(used + [str(program)]))
+                refuse(f"the attempt budget is {CONFIG['max_programs']} programs, and it is spent")
+            attempts.write_text(json.dumps(used + [digest]))
 
     cli = str(root / ".venv-robosuite" / "bin" / "cap-harness")
     common = ["--benchmark", "robosuite", "--suite", CONFIG["suite"], "--task-id", str(CONFIG["task_id"]),

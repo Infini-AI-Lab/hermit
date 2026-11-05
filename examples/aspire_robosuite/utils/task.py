@@ -13,6 +13,7 @@ agent.params.sim_env. A task row may carry its own seeds and role (the verifier'
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -62,7 +63,8 @@ def prepare(task: dict, workspace: Path, params: dict, base: Path) -> list[dict]
     (bin_dir / "sim.json").write_text(json.dumps({
         "workspace": str(work.resolve()), "aspire_root": str(s["root"]), "suite": s["suite"], "task_id": s["task_id"],
         "dev_seeds": sim_seeds(s["dev"]), "unseen_seeds": sim_seeds(s["unseen"]), "dev_seeds_text": s["dev"],
-        "unseen_seeds_text": s["unseen"], "env": s["env"], "workers": s["workers"], "max_steps": s["max_steps"],
+        "unseen_seeds_text": s["unseen"], "env": {**service_env(), **s["env"]}, "workers": s["workers"],
+        "max_steps": s["max_steps"],
         "max_programs": 2 if s["role"] == "verifier" else None},
         indent=1))
     wrapper = bin_dir / "sim"
@@ -85,6 +87,12 @@ def prepare(task: dict, workspace: Path, params: dict, base: Path) -> list[dict]
         (work / "proposed_skills.md").write_text(staged[0].read_text() if staged else "(no proposals were staged)\n")
     (work / "task.md").write_text(assignment(s))
     return []
+
+
+def service_env() -> dict:
+    """The provider URLs set for this run (README, step 2): bin/sim gets them through sim.json, because the session's
+    commands see only Codex's core variables (shell_env: core), and Stage 2 runs in this process with them."""
+    return {k: os.environ[k] for k in ("CAP_HARNESS_SAM3_URL", "CAP_HARNESS_CUROBO_URL") if os.environ.get(k)}
 
 
 def task_dir(s: dict) -> str:
@@ -199,10 +207,12 @@ def collect(task: dict, workspace: Path, log: Path, params: dict) -> dict:
         engine = sim.Engine(s["root"], env=s["env"], workers=s["workers"], max_steps=s["max_steps"],
                             timeout_s=float(params.get("sweep_timeout_s", 7200)))
         refused = engine.validate(program)
-        out = Path(workspace).parent / "stage2"        # beside the workspace, not in the log: the coordinator reads
-        records = [] if refused else engine.run(program, suite=s["suite"], seeds=seeds, out=out,   # the log, and
-                                                 task_id=s["task_id"])                             # held-out
-        (out / "stage2.json").write_text(json.dumps({"refused": refused, "records": records}, indent=1))  # stays out
+        # Beside the workspace, not in the log: the coordinator reads the log, and held-out runs stay out of it.
+        out = Path(workspace).parent / "stage2"
+        out.mkdir(parents=True, exist_ok=True)
+        records = [] if refused else engine.run(program, suite=s["suite"], seeds=seeds, out=out,
+                                                 task_id=s["task_id"])
+        (out / "stage2.json").write_text(json.dumps({"refused": refused, "records": records}, indent=1))
         facts.update(scored_seeds=seeds, scored_passed=sum(r["task_success"] for r in records),
                      scored_refused=refused)
     else:
@@ -211,38 +221,71 @@ def collect(task: dict, workspace: Path, log: Path, params: dict) -> dict:
     return facts
 
 
-# What a session must not touch (ASPIRE's reading rules), found in the commands it ran: the repository (its shipped
-# library, worked solutions, examples, the engine called past bin/sim) and other sessions' workspaces.
-FORBIDDEN = (r"\.claude/skills", r"\w+_fix_code\.py", r"examples/robosuite", r"SUCCESS_RATES", r"\.venv-robosuite")
+# ASPIRE's worked solutions by name: a command that names one has gone looking for it.
+SOLUTIONS = re.compile(r"\b(?:cube_lifting|cube_restack|cube_stack|nut_assembly|spill_wipe|two_arm_handover|"
+                       r"two_arm_lift)_fix_code\.py|SUCCESS_RATES\.md")
 
 
 def audit(s: dict, workspace: Path, log: Path) -> list[str]:
-    """The breaches of the session's rules, after the fact: commands that reach outside its workspace (the
-    repository, another workspace) or past bin/sim, and runs on seeds it was not assigned. Empty when clean."""
+    """The breaches of the session's rules, found after the fact; empty when clean. Detection, not isolation:
+
+    - a command (heredoc bodies included) that names the ASPIRE checkout's absolute path, another session's
+      workspace, or one of ASPIRE's worked solutions by name;
+    - a run on a seed the session was not assigned, or of a program from outside its workspace (each run's
+      provenance names its input file);
+    - a run, or the scored program, whose code is byte-identical to one of ASPIRE's worked solutions or examples;
+    - for a verifier, more than two programs run on several seeds (its attempt budget);
+    - no session log to audit.
+    Relative paths that merely repeat a name from ASPIRE's own text (`.claude/skills/...`) are not breaches: inside
+    the workspace they name nothing."""
+    workspace, root = Path(workspace), Path(s["root"])
     found = []
-    others = re.escape(str(workspace.parent.parent))          # the directory that holds every session's workspace
-    own = re.escape(workspace.parent.name)
-    patterns = [re.compile(p) for p in FORBIDDEN] + [re.compile(re.escape(str(s["root"]))),
-                                                      re.compile(others + r"/(?!" + own + r")[^/\s'\"]+")]
     stream = log / "agent-codex.jsonl"
-    for line in (stream.read_text(errors="replace").splitlines() if stream.is_file() else []):
+    if not stream.is_file():
+        return ["no session log to audit (agent-codex.jsonl)"]
+    holder = workspace.parent.parent                       # the directory that holds every session's workspace
+    others = [d.name for d in holder.iterdir() if d.is_dir() and d.name != workspace.parent.name]
+    patterns = [re.compile(re.escape(str(root)) + r"\b"), SOLUTIONS]
+    if others:
+        patterns.append(re.compile("|".join(re.escape(name) for name in others)))
+    for line in stream.read_text(errors="replace").splitlines():
         try:
             item = json.loads(line).get("item") or {}
         except ValueError:
             continue
         if item.get("type") != "command_execution":
             continue
-        command = re.sub(r"<<'?(\w+)'?.*?\n\1", "", item.get("command", ""), flags=re.S)   # not a heredoc's text
         for pattern in patterns:
-            match = pattern.search(command)
+            match = pattern.search(item.get("command", ""))
             if match:
-                found.append(f"command reached {match.group(0)!r}")
+                found.append(f"a command named {match.group(0)!r}")
+    solutions = {_sha(p) for p in [*(root / SKILLS / "robosuite").glob("*.py"), *(root / "examples").rglob("*.py")]}
     allowed = set(sim_seeds(s["dev"])) | set(sim_seeds(s["unseen"]))
+    programs: dict[str, set] = {}
     for run in workspace.rglob("run.json"):
         seed = (_json(run.read_text(errors="replace")) or {}).get("seed")
         if isinstance(seed, int) and seed not in allowed:
             found.append(f"a run on seed {seed}, not assigned")
+        provenance = _json((run.parent / "source" / "provenance.json").read_text(errors="replace")) \
+            if (run.parent / "source" / "provenance.json").is_file() else {}
+        source = Path(str((provenance or {}).get("input_path") or workspace))
+        if not source.resolve().is_relative_to(workspace.resolve()):
+            found.append(f"a run of a program from outside the workspace ({source.name})")
+        if (provenance or {}).get("sha256") in solutions:
+            found.append(f"a run of one of ASPIRE's worked solutions ({source.name})")
+        programs.setdefault((provenance or {}).get("sha256"), set()).add(seed)
+    for scored in (workspace / task_dir(s) / "fix_code.py", workspace / evo_dir(s) / "evosearch_best_code.py"):
+        if scored.is_file() and _sha(scored) in solutions:
+            found.append(f"{scored.name} is one of ASPIRE's worked solutions")
+    if s["role"] == "verifier":
+        sweeps = [sha for sha, seeds in programs.items() if sha and len(seeds) > 1]
+        if len(sweeps) > 2:
+            found.append(f"{len(sweeps)} programs run on several seeds, past the verifier's two")
     return sorted(set(found))
+
+
+def _sha(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _json(text):
