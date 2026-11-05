@@ -1,8 +1,8 @@
 """ASPIRE: the aspire template (the skill library, its reader and its check), the coordinator's hook into the
 Trainer (next_tasks), and the example's Codex task functions (prompt assembly, the workspace, bin/sim's rules, the
 after-the-fact audit, the judge) and pure helpers; no simulator, no model, no network."""
-import importlib.util
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -18,7 +18,7 @@ from hermit.agent.evolver.base import StepResult
 from hermit.agent.evolver.methods.aspire import evolver as E
 from hermit.spec import check_spec
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[3]
 TEMPLATE = ROOT / "hermit" / "adapter" / "templates" / "aspire"
 EXAMPLE = ROOT / "examples" / "aspire_robosuite" / "utils"
 
