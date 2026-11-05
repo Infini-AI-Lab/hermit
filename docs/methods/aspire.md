@@ -19,7 +19,7 @@ agent:
   base: codex                                 # the actor: ASPIRE's fix-loop subagent prompt, verbatim
   params: {prompt: ../utils/task.py:prompt, prepare: ../utils/task.py:prepare, answer: ../utils/task.py:answer,
            collect: ../utils/task.py:collect}
-  codex: {isolation: none, codex_sandbox: danger-full-access, shell_env: all, web_search: false}
+  codex: {isolation: none, codex_sandbox: danger-full-access, shell_env: core, web_search: false}
 evolver:
   name: aspire                                # the coordinator: a Codex session with ASPIRE's guide
   base: codex
@@ -105,7 +105,7 @@ The actor's settings are the example's (`agent.params`): `debug_seeds`, `unseen_
 | Verification | 5 seeds (the template's 51-55), 2 attempts, `verified` at ≥ 4/5; `void` never promoted | the same budget on 101-105 (two programs, held by `bin/sim`); the score counts only with the verifier's own `verified` and its selected program at ≥ 4/5 on rerun | the template's seeds are LIBERO's; ASPIRE says to change them for Robosuite |
 | Lint | `lint_skills.py` after every promotion | `check_spec` with the template's check (sandbox validity and privileged access in ```python snippets, the library's size) | the upstream linter imports ASPIRE |
 | Scene exploration | `skills/task-exploration.md` in the shipped library | the same file, given as `docs/task-exploration.md` (the procedure, not learned skills) | the empty library has no such file |
-| Stage 2 evidence | the coordinator runs it and keeps the failures out of development | `collect` runs it beside the workspace; the record carries only the pass count | ASPIRE's rule: evaluation failures are not development evidence |
+| Stage 2 evidence | the coordinator runs it and keeps the failures out of development | `collect` runs it beside the workspace; the record carries only the pass count, and the coordinator is told not to look further (the per-seed results are reachable from the record's workspace path) | ASPIRE's rule: evaluation failures are not development evidence |
 | Library history | `<file>-changelog.md` beside each file | `state/changelog.md` | the adapter holds only the library |
 | Phase 3 | rerun of tasks below 80% whose library changed | the test split reruns every task | the evaluation measures it per task |
 | Models | Claude Opus 4.6 (and others) | GLM 5.3 Flash in every role | the first-evaluation row of the framework |
@@ -121,8 +121,11 @@ The actor's settings are the example's (`agent.params`): `debug_seeds`, `unseen_
 A verified entry transmits (a fresh actor followed it to the fix on the task it came from); it is not shown to
 generalize. The reading rules (no worked solutions, no other task's directory, only the assigned seeds) are not
 isolation: the actor's commands run without a sandbox, because they drive a GPU simulator. They rest on the
-workspace's layout, `bin/sim` and the prompts, and the task's `collect` audits every session after the fact (the
-commands it ran, every run's seed), voiding one that broke them. The reruns score the held-out seeds the first pass
+workspace's layout, `bin/sim` and the prompts, and the task's `collect` audits every session after the fact, voiding
+one that broke them: commands naming the ASPIRE checkout, another workspace or a worked solution; runs on unassigned
+seeds, of programs from outside the workspace, or of a worked solution's code; a verifier's third program. A breach
+that leaves none of these traces (a path assembled at run time) goes undetected. The coordinator, also unsandboxed,
+is held to the same reading rules by its prompt only. The reruns score the held-out seeds the first pass
 was scored on (as ASPIRE's Phase 3 does).
 
 ## Example

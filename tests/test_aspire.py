@@ -2,6 +2,7 @@
 Trainer (next_tasks), and the example's Codex task functions (prompt assembly, the workspace, bin/sim's rules, the
 after-the-fact audit, the judge) and pure helpers; no simulator, no model, no network."""
 import importlib.util
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -298,8 +299,8 @@ def test_a_verifier_may_run_two_programs(tmp_path):
     T.prepare({"id": "verify-x", "suite": "cube_lifting", "role": "verifier", "debug_seeds": "101-105"}, work,
               {"aspire_root": str(fake_aspire(tmp_path))}, tmp_path)
     codes = []
-    for name in ("a.py", "b.py", "c.py"):
-        (work / name).write_text("result = {}\n")
+    for name in ("a.py", "a.py", "c.py"):                       # the same path, rewritten: a new program
+        (work / name).write_text(f"result = {{'v': {len(codes)}}}\n")
         done = subprocess.run([str(work / "bin" / "sim"), "run-batch", "--seeds", "101-105", "--program", name,
                                "--output-root", "out", "--init-mode", "saved"], capture_output=True, text=True,
                               cwd=work)
@@ -308,30 +309,69 @@ def test_a_verifier_may_run_two_programs(tmp_path):
     assert codes[2][0] == 2 and "attempt budget is 2 programs" in codes[2][1]
 
 
-def test_the_audit_voids_a_session_that_reached_past_its_rules(tmp_path):
+def test_the_audit_voids_a_session_that_reached_past_its_rules_and_only_that(tmp_path):
     T = _task_module()
     root = fake_aspire(tmp_path)
-    run_dir = tmp_path / "workspaces" / "robosuite-cube_lifting-abc"
+    solved = root / ".claude" / "skills" / "iterative-debugging" / "robosuite"
+    solved.mkdir()
+    (solved / "cube_lifting_fix_code.py").write_text("result = 'solved'\n")
+    holder = tmp_path / "workspaces"
+    (holder / "verify-robosuite-cube_lifting-def" / "work").mkdir(parents=True)
+    run_dir = holder / "robosuite-cube_lifting-abc"
     work, log = run_dir / "work", run_dir / "log"
     work.mkdir(parents=True)
     log.mkdir()
     s = T.settings({"suite": "cube_lifting"}, {"aspire_root": str(root), "debug_seeds": "101-103",
                                                "unseen_seeds": "126", "eval_seeds": "1-3"})
     command = lambda c: json.dumps({"item": {"type": "command_execution", "command": c}}) + "\n"
+    # what ASPIRE's own text makes actors type, inside their workspace: not a breach
     clean = [command("bin/sim run-batch --seeds 101-103 --program code/v00.py --output-root debug/initial"),
-             command(f"cat {run_dir}/work/robosuite/cube_lifting/task_0/fix_code.py"),
-             command("cat > notes.md <<'EOF'\nsee .claude/skills and ../../other\nEOF")]
+             command("ls .claude/skills/iterative-debugging/skills/ 2>/dev/null; ls .venv-robosuite/bin/cap-harness"),
+             command("cp fix_code.py code/v03_fix_code.py"),
+             command(f"cat {run_dir}/work/robosuite/cube_lifting/task_0/fix_code.py")]
     (log / "agent-codex.jsonl").write_text("".join(clean))
-    (work / "debug" / "0101").mkdir(parents=True)
-    (work / "debug" / "0101" / "run.json").write_text('{"seed": 101}')
+
+    def a_run(name, seed, source, code="result = {}\n"):
+        d = work / "debug" / name
+        (d / "source").mkdir(parents=True)
+        (d / "run.json").write_text(json.dumps({"seed": seed}))
+        sha = hashlib.sha256(code.encode()).hexdigest()
+        (d / "source" / "provenance.json").write_text(json.dumps({"input_path": str(source), "sha256": sha}))
+    a_run("0101", 101, work / "code" / "v00.py")
     assert T.audit(s, work, log) == []
-    broken = [command(f"cat {root}/.claude/skills/x/cube_lifting_fix_code.py"),
-              command(f"ls {tmp_path}/workspaces/verify-robosuite-cube_lifting-def/work")]
+    broken = [command(f"python3 - <<'PY'\nopen('{root}/README.md').read()\nPY"),
+              command("cat ../../verify-robosuite-cube_lifting-def/work/fix_code.py"),
+              command("find / -name cube_lifting_fix_code.py")]
     (log / "agent-codex.jsonl").write_text("".join(clean + broken))
-    (work / "debug" / "0002").mkdir()
-    (work / "debug" / "0002" / "run.json").write_text('{"seed": 2}')
+    a_run("0002", 2, work / "code" / "v00.py")
+    a_run("0102", 102, root / "examples" / "x.py", code="result = 'solved'\n")
     found = " ".join(T.audit(s, work, log))
-    assert ".claude/skills" in found and "verify-robosuite-cube_lifting-def" in found and "seed 2" in found
+    for evidence in (str(root), "verify-robosuite-cube_lifting-def", "cube_lifting_fix_code.py", "seed 2",
+                     "outside the workspace", "worked solutions"):
+        assert evidence in found, evidence
+    (log / "agent-codex.jsonl").unlink()
+    assert "no session log" in " ".join(T.audit(s, work, log))
+
+
+def test_a_refused_program_is_scored_zero_not_an_error(tmp_path, monkeypatch):
+    T = _task_module()
+    root = fake_aspire(tmp_path)
+    work, log = tmp_path / "ws" / "w" / "work", tmp_path / "ws" / "w" / "log"
+    (work / "robosuite" / "cube_lifting" / "task_0").mkdir(parents=True)
+    log.mkdir()
+    (log / "agent-codex.jsonl").write_text("")
+    (work / "robosuite" / "cube_lifting" / "task_0" / "fix_code.py").write_text("import os\n")
+
+    class Refusing:
+        def __init__(self, *a, **k):
+            pass
+
+        def validate(self, program):
+            return "ValueError: only math"
+    monkeypatch.setattr(T.sim, "Engine", Refusing)
+    facts = T.collect({"id": "robosuite-cube_lifting", "suite": "cube_lifting"}, work, log,
+                      {"aspire_root": str(root), "eval_seeds": "1-3"})
+    assert facts["scored_passed"] == 0 and "only math" in facts["scored_refused"]
 
 
 def test_the_judge_scores_the_scored_seeds_and_a_verifier_only_when_verified():
