@@ -389,3 +389,15 @@ def test_the_judge_scores_the_scored_seeds_and_a_verifier_only_when_verified():
     assert J.score({}, out({**verifier, "verification": {"verdict": "verified"}}))["score"] == 1.0
     assert J.score({}, out({**verifier, "verification": {"verdict": "void"}}))["score"] == 0.0
     assert J.score({}, out(verifier))["score"] == 0.0
+
+
+def test_prune_drops_the_runs_images_and_keeps_their_records(tmp_path):
+    T = _task_module()
+    run = tmp_path / "run" / "work" / "debug" / "0101" / "run-x"
+    (run / "media" / "keyframes").mkdir(parents=True)
+    (run / "media" / "keyframes" / "a.png").write_bytes(b"png")
+    (run / "run.json").write_text('{"seed": 101}')
+    (tmp_path / "run" / "work" / "notes" / "media").mkdir(parents=True)     # not a run's: kept
+    T.prune(tmp_path / "run")
+    assert not (run / "media").exists() and (run / "run.json").is_file()
+    assert (tmp_path / "run" / "work" / "notes" / "media").is_dir()
