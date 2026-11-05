@@ -186,6 +186,18 @@ def test_every_task_starts_from_h0_and_a_run_continues_the_stream_from_its_libra
     assert sorted(p.name for p in done.iterdir()) == ["t0", "t1", "t2"]   # the stream continued is left as it was
 
 
+def test_a_codex_run_keeps_the_codex_pin_where_no_codex_is_installed(tmp_path, monkeypatch):
+    """`backend: codex` with no Codex installed pins the bare name `codex` for the whole run: the step's report does
+    not re-pin it as `claude`, which a continuation would then refuse."""
+    monkeypatch.setenv("PATH", os.pathsep.join(d for d in os.environ["PATH"].split(os.pathsep)
+                                               if not (Path(d) / "codex").exists()))
+    first = run(tmp_path, backend="codex")
+    assert (first / "workspace" / "state" / "claude_bin.txt").read_text().strip() == "codex"
+    reports = [json.loads((first / f"step_{n:04d}" / "step_result.json").read_text())["extra"]["harness2"]
+               for n in (1, 2, 3)]
+    assert [r["claude"] for r in reports] == ["codex"] * 3
+
+
 def test_a_continuation_refuses_what_would_not_continue_the_stream(tmp_path):
     first = run(tmp_path)                                                 # t0, t1, t2
     (tmp_path / "rest.txt").write_text("t3\n")

@@ -34,7 +34,8 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 - The harness2 Evolver refused to continue a stream (`library_from`) on a machine without the session CLI on its
   PATH: its pin kept the bare name `claude` while the continuation's check compared the name's absolute path in the
-  current directory, so `claude_bin` always differed. Both now keep the bare name.
+  current directory, so `claude_bin` always differed. Both now keep the bare name. With `backend: codex`, a step's
+  report also re-pinned the missing CLI as `claude`; it now keeps `codex`.
 - The AHE Adapter Evolver took a `change_manifest.json` an earlier step left for the current step's: a manifest
   naming the next iteration was refused at its own step, then archived as the next step's when that step's session
   wrote none. The file (or a directory a session made in its place) is now removed before each Evolve session.
