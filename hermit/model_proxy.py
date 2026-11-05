@@ -19,6 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import ssl
 import threading
@@ -36,10 +37,29 @@ class Route:
 
 
 def rewrite(text: str, mapping: dict) -> str:
-    """`text` with every provider origin in `mapping` replaced by its proxy root."""
+    """`text` with every provider origin in `mapping` replaced by its proxy root, where the origin ends (not
+    http://127.0.0.1:801 inside http://127.0.0.1:8011)."""
     for origin, root in mapping.items():
-        text = text.replace(origin, root)
+        text = re.sub(re.escape(origin) + r"(?![\w.:-])", lambda _m, r=root: r, text)
     return text
+
+
+def route_session(sandbox, bindings, command: list[str], env: dict) -> tuple[list[str], dict, list[str]]:
+    """A session's command and environment with every provider of `bindings` on the sandbox's model proxy and a
+    secret in place of each key (a variable that holds the real key gets the secret): (command, env, the key
+    variables to pass whatever the sandbox's allowlist says). Unchanged without a proxy."""
+    proxy, keep = getattr(sandbox, "model_proxy", None), []
+    for binding in (bindings if proxy is not None else []):
+        mapping, key_env, secret = proxy.origins(binding)
+        if not mapping:
+            continue
+        command = [rewrite(str(a), mapping) for a in command]
+        real = os.environ.get(key_env) if key_env else None
+        env = {k: (secret if real and v == real else rewrite(str(v), mapping)) for k, v in env.items()}
+        if key_env:
+            env[key_env] = secret
+            keep.append(key_env)
+    return command, env, keep
 
 
 class ModelProxy:
@@ -125,15 +145,17 @@ class ModelProxy:
 
     def origins(self, binding: dict) -> tuple[dict, str | None, str | None]:
         """For a binding (its plain form: base_url, messages_url, api_key_env): {provider origin: proxy root} for every
-        provider URL not on the loopback (a local server is reached directly), the key variable, and the secret a
-        sandbox sends in its place. The proxy root keeps the provider's path after it, so any URL of the provider
-        becomes a URL of the proxy by its prefix."""
+        provider URL, the key variable, and the secret a sandbox sends in its place. A server on the loopback that
+        takes no key (a local vLLM) is reached directly; one whose key is set (a meter in front of a provider, which
+        passes the caller's key on) is routed like any provider. The proxy root keeps the provider's path after it,
+        so any URL of the provider becomes a URL of the proxy by its prefix."""
         key_env = binding.get("api_key_env")
+        keyed = bool(key_env and os.environ.get(key_env))
         secret = "hermit-" + secrets.token_urlsafe(24)
         mapping = {}
         for field in ("base_url", "messages_url"):
             url = binding.get(field)
-            if not url or urlsplit(url).hostname in ("127.0.0.1", "localhost"):
+            if not url or (urlsplit(url).hostname in ("127.0.0.1", "localhost") and not keyed):
                 continue
             parts = urlsplit(url)
             origin = f"{parts.scheme}://{parts.netloc}"
@@ -147,7 +169,7 @@ class ModelProxy:
 
     def route(self, binding: dict) -> tuple[dict, dict]:
         """`binding` as a sandbox sees it (its provider URLs on the proxy), and the environment it needs:
-        {api_key_env: secret}. A binding on the loopback is left as it is."""
+        {api_key_env: secret}. A binding on the loopback without a key is left as it is."""
         mapping, key_env, secret = self.origins(binding)
         out = dict(binding)
         for field in ("base_url", "messages_url"):

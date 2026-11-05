@@ -271,6 +271,16 @@ def test_records_continue_after_a_resume(tmp_path, monkeypatch):
     assert sorted(p.name for p in tmp_path.glob("learner-*.json")) == ["learner-1.json", "learner-2.json"]
 
 
+def test_a_view_numbers_its_records_after_the_sandboxes_own(tmp_path, monkeypatch):
+    fake_bwrap(monkeypatch)
+    box = Sandbox(network="open", record_dir=tmp_path)
+    box.wrap(["true"])
+    view = box.view()
+    box.wrap(["true"])
+    view.wrap(["true"])                     # no record overwrites another's
+    assert sorted(p.name for p in tmp_path.glob("learner-*.json")) == [f"learner-{i}.json" for i in (1, 2, 3)]
+
+
 def test_a_granted_virtual_environment_comes_with_its_base_python(tmp_path, monkeypatch):
     """A task's external checkout runs its own .venv, whose interpreter links to an installation elsewhere."""
     fake_bwrap(monkeypatch)

@@ -39,7 +39,7 @@ from urllib.parse import urlparse
 import uuid
 
 from hermit.agent.base import login as codex_login
-from hermit.model_proxy import ModelProxy
+from hermit.model_proxy import ModelProxy, rewrite
 from hermit.sandbox import (LIMITS, NETWORK_MODES, PACKAGE, AllowlistProxy, Bind, Sandbox, framework_env,
                             network_mode, package_closure, program_paths)
 from hermit.task import RunOutput, load_callable, output_record
@@ -130,7 +130,7 @@ def validate(config) -> None:
         if env.get("packages") or env.get("read"):
             raise ValueError("environment.packages and environment.read build a bubblewrap sandbox; with "
                              "environment.image the image holds the agent's world")
-    if reason and mode != "host":
+    if reason and mode != "host" and s["enabled"]:          # with the sandbox off every judge runs in this process
         raise ValueError(f"judge.mode {mode} runs the judge in the task sandbox, but the pipeline runs on the host "
                          f"({reason}); use judge.mode: host")
     check_declared(config)
@@ -216,21 +216,28 @@ def _agent_logs(name: str, base: Path) -> list[Path]:
 
 def _route_models(params: dict, proxy: ModelProxy) -> tuple[dict, dict, list[int]]:
     """The agent's params as the sandbox sees them: its binding (a CLI agent's) or its model spec (a chat agent's)
-    routed through the model proxy; the environment the routes need (key variable -> secret); loopback ports a
-    local model server listens on."""
+    routed through the model proxy, and with them the provider settings bound from it (a Codex agent's `args`, a
+    Claude Code agent's `env`); the environment the routes need (key variable -> secret); loopback ports a local
+    model server listens on."""
     params = dict(params)
     env, ports = {}, []
     for key in ("binding", "model"):
         spec = params.get(key)
         if not isinstance(spec, dict) or not spec.get("base_url"):
             continue
-        for url in (spec.get("base_url"), spec.get("messages_url")):
+        mapping, key_env, secret = proxy.origins(spec)
+        params[key] = {k: rewrite(v, mapping) if k in ("base_url", "messages_url") and v else v
+                       for k, v in spec.items()}
+        for url in (params[key].get("base_url"), params[key].get("messages_url")):
             parsed = urlparse(url) if url else None
-            if parsed and parsed.hostname in ("127.0.0.1", "localhost"):
+            if parsed and parsed.hostname in ("127.0.0.1", "localhost") and parsed.port != proxy.port:
                 ports.append(parsed.port or (443 if parsed.scheme == "https" else 80))
-        routed, needs = proxy.route(spec)
-        params[key] = routed
-        env.update(needs)
+        if isinstance(params.get("args"), list):
+            params["args"] = [rewrite(str(a), mapping) for a in params["args"]]
+        if isinstance(params.get("env"), dict):
+            params["env"] = {k: rewrite(str(v), mapping) for k, v in params["env"].items()}
+        if key_env and secret:
+            env[key_env] = secret
     return params, env, sorted(set(ports))
 
 
@@ -507,7 +514,8 @@ class SandboxedJudge:
 
 
 def judge_for(config, pipeline):
-    """The judge as `run_tasks` calls it: in this process (`host`), or sandboxed beside the task sandbox."""
+    """The judge as `run_tasks` calls it: in this process (`host`, or any mode with the sandbox off), or sandboxed
+    beside the task sandbox."""
     d = config.data
     mode = d["judge"].get("mode") or "host"
     if mode == "host" or not isinstance(pipeline, SandboxedAgent):

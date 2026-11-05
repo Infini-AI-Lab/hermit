@@ -101,6 +101,10 @@ judge:
   mode: host                                # or shared / separate, when the judge reads the environment's state
 ```
 
+An agent that calls a model takes it from `agent.params.model` (a `<backend>/<model>` reference): the framework
+resolves it and routes it through the run's model proxy, so the sandbox holds a secret of its own, never the key. A
+model the agent's code picks by itself (a default in the code) is not routed and finds no key inside.
+
 Before a reported run, check the isolation: `sandbox.enforce: required` (never a `best_effort` run that fell back to
 running unconfined); `hermit check` passes, which refuses a declared path that holds a secret; the launch records
 (`runs/<run>/sandbox/*.json`) show the isolation check passed, the answers and the judge absent, and no model key in

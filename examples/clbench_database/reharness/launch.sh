@@ -151,6 +151,7 @@ for i in ${MW_ORDERS:-0}; do
   MWM_TASK_WORKDIR="$WD" CLB_API_BASE="http://127.0.0.1:$WM_PORT/${TAG}_o$i$HOST_PATH" REHARNESS_EMBED_URL="$EMBED_URL" \
     setsid -w nohup "$PY" -m hermit.cli train --config "$HERE/run.yaml" \
       "trainer.run_name=$TAG-o$i" "trainer.output_dir=$RUNS/$TAG" \
+      "environment.env=[MWM_*, CLB_*, MW_*, REHARNESS_*, $HOST_LITELLM_KEY_ENV]" \
       "data.train=${MW_TRAIN_SPLIT:-$TASKDIR/splits/order$i.txt}" \
       "backends.learner=$LEARNER" "llm=$LLM" \
       "evolver.params.embedding=$EMBEDDING" \

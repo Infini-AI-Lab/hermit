@@ -1,4 +1,5 @@
-"""One CLI session in a Docker container of its own (`agent.params.isolation: container`).
+"""One CLI session in a Docker container of its own (the acting agent's `environment.image`, an `llm: {cli: codex}`
+endpoint's `isolation: container`).
 
 The container has: the image (a CLI, ripgrep and python3; docker/codex/Dockerfile builds Codex's); the workspace and
 the session's home read-write, and the task's mounts (read-only unless a mount says otherwise), each at the path the

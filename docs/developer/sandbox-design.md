@@ -89,7 +89,7 @@ The run config's `judge.mode` says where the judge runs.
 | `shared` | the task sandbox, a new exec over the agent's work directory, with the judge's file and `judge.tests` shown to it alone | the judge reads state in place |
 | `separate` | a sandbox holding only the paths `judge.collect` names, copied from the agent's work through a sanitized archive and shown at the agent's own path | the result can be extracted and must be graded clean |
 
-A Harbor task set keeps Harbor's own verifier (shared or separate as its `task.toml` says), read back on the host.
+With the sandbox off every mode runs the judge on the host. A Harbor task set keeps Harbor's own verifier (shared or separate as its `task.toml` says), read back on the host.
 What a judge's result contains is the task's decision; which splits' results reach the learner is the method's.
 
 ## Evolver sandbox
@@ -121,7 +121,8 @@ files and setuid bits are dropped.
 
 No sandbox holds a model key. `hermit/model_proxy.py` serves each provider origin on a loopback route; a sandbox gets
 the route in place of the provider's URL and a secret of its own in place of the key, and the proxy puts the real key
-(read from the host's environment) under the same header. The task sandbox's bindings (`agent.params.binding`, a chat
+(read from the host's environment) under the same header. A server on the loopback that takes no key (a local vLLM)
+is reached directly; one whose key is set (a meter in front of a provider) is routed. The task sandbox's bindings (`agent.params.binding`, a chat
 agent's model spec) are routed when the sandbox is built; the learner's sessions are routed by the Base Agent, from
 the session's binding or the run's (the Evolver's). Exceptions, recorded: a Codex ChatGPT login is copied in (its
 hosts reached through the allowlist proxy), and a task whose own code calls a model outside the bindings declares
@@ -143,7 +144,9 @@ check (`spec`) and host-side renders run the adapter's modules in the same stric
   writes but allows reads everywhere by default (roadmap, issue #37 section 6).
 - Web search runs at the provider; only the CLI setting controls it.
 - A benchmark whose environment and scoring share one package shows its scoring to the agent when the agent needs the
-  package: ServeLearnBench (`servelearnbench`), AgentDyn (its judge predicates live beside its tasks).
+  package: ServeLearnBench (`servelearnbench`), AgentDyn (its judge predicates live beside its tasks), CL-Bench (its
+  runner grades each question beside the host it plays). The first and the last call their model from their own loop
+  and so hold its key (`SLB_API_KEY`; the litellm key variable the CL-Bench launchers add to `environment.env`).
 - A ChatGPT login is copied into the task sandbox when the acting agent uses one.
 
 ## Verification

@@ -416,6 +416,22 @@ class _Bridges:
         shutil.rmtree(self.dir, ignore_errors=True)
 
 
+_COUNTERS: dict[tuple[str, str], "itertools.count"] = {}
+_COUNTERS_LOCK = threading.Lock()
+
+
+def _record_counter(record_dir: Path | None, role: str):
+    """The numbering of a role's records in a directory, one per process: every Sandbox writing there (a view, a
+    resumed run's new one) takes the next number, after the records already there."""
+    key = (os.path.realpath(record_dir) if record_dir else "", role)
+    with _COUNTERS_LOCK:
+        if key not in _COUNTERS:
+            taken = [int(m.group(1)) for f in (Path(record_dir).glob(f"{role}-*.json") if record_dir else [])
+                     if (m := re.fullmatch(rf"{re.escape(role)}-(\d+)\.json", f.name))]
+            _COUNTERS[key] = itertools.count(max(taken, default=0) + 1)
+        return _COUNTERS[key]
+
+
 class Bind(NamedTuple):
     """A path shown inside under a name of its own: `source` (outside) at `target` (inside)."""
     source: Path
@@ -458,10 +474,7 @@ class Sandbox:
         self._bridges: _Bridges | None = None
         self.last_record: Path | None = None             # the record of the latest wrapped command
         self._setup = threading.Lock()                   # concurrent first calls (an agent's concurrency) share one
-        # Number records after the ones already there: a resumed run builds a new Sandbox in the same run directory.
-        taken = [int(m.group(1)) for f in (self.record_dir.glob(f"{self.role}-*.json") if self.record_dir else [])
-                 if (m := re.fullmatch(rf"{re.escape(self.role)}-(\d+)\.json", f.name))]
-        self._count = itertools.count(max(taken, default=0) + 1)
+        self._count = _record_counter(self.record_dir, self.role)
 
     def visible(self, command: list[str], writable=()) -> list[Path]:
         """Every read-only path inside the sandbox for this command at its own path (besides the system); `writable`:

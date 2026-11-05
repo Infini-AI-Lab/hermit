@@ -131,6 +131,8 @@ write, and its `log` must lie where the call could write; a link is never follow
 | `shared` | the task sandbox, after the agent, over its work directory, with the judge's file and `judge.tests` shown to it alone |
 | `separate` | a sandbox holding only the paths `judge.collect` names, copied from the agent's work directory through a sanitized archive |
 
+With `sandbox.enabled: false` every mode runs the judge in the Trainer's process.
+
 ### The evolver sandbox: `sandbox`
 
 The learner works in `/w`: `/w/adapter`, `/w/material`, `/w/task-info`, `/w/history`, `/w/state`, `/w/scratch`,

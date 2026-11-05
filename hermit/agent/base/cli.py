@@ -602,24 +602,14 @@ class CliAgent(BaseAgent):
                 drop = set(s.get("env_drop") or ())
                 full_env = {**{k: v for k, v in os.environ.items() if k not in drop}, **env}
                 if sandbox is not None:
-                    keep = list(own)
-                    proxy = getattr(sandbox, "model_proxy", None)
+                    # The session reaches its provider through the run's model proxy, with a secret of its own in
+                    # place of the key: no key enters the sandbox. A session configured from the run's bindings
+                    # without naming one (provider settings in its `env`) is routed by them.
+                    from hermit.model_proxy import route_session
                     bindings = [s["binding"]] if isinstance(s.get("binding"), dict) else \
                         list(getattr(sandbox, "model_bindings", ()))
-                    for binding in (bindings if proxy is not None else []):
-                        # The session reaches its provider through the run's model proxy, with a secret of its own
-                        # in place of the key: no key enters the sandbox. A session configured from the run's
-                        # bindings without naming one (provider settings in its `env`) is routed by them.
-                        from hermit.model_proxy import rewrite
-                        mapping, key_env, secret = proxy.origins(binding)
-                        if mapping:
-                            command = [rewrite(str(a), mapping) for a in command]
-                            real = os.environ.get(key_env) if key_env else None
-                            full_env = {k: (secret if real and v == real else rewrite(str(v), mapping))
-                                        for k, v in full_env.items()}
-                            if key_env:
-                                full_env[key_env] = secret
-                                keep.append(key_env)
+                    command, full_env, keys = route_session(sandbox, bindings, command, full_env)
+                    keep = [*own, *keys]
                     command, full_env = sandbox.wrap(command, writable=[home, *map(Path, s.get("writable") or ())],
                                                      env=full_env, home=home, keep=keep,
                                                      forward=[server.port] if server else [],

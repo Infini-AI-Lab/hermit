@@ -143,16 +143,24 @@ class CommandEvolver(Evolver):
                 "session": ctx.session,
                 "message": ctx.message, "params": {k: v for k, v in ctx.params.items() if k not in ("command", "env")}}
         path = ctx.workspace.scratch / "context.json"
-        text = json.dumps(info, indent=1)
-        # The program runs in the evolver sandbox: the paths it is given are spelled as they are there.
-        path.write_text(ctx.sandbox.translate(text) if ctx.sandbox is not None and hasattr(ctx.sandbox, "translate")
-                        else text)
         env = {**os.environ, **{k: str(v) for k, v in (ctx.params.get("env") or {}).items()},
-               "HA_CONTEXT": str(path), "HA_TOOL_URL": ctx.tool_url or ""}
+               "HA_TOOL_URL": ctx.tool_url or ""}
         command = ctx.params["command"]
         command = command.split() if isinstance(command, str) else list(command)
+        text, keep = json.dumps(info, indent=1), []
         if ctx.sandbox is not None:
-            command, env = ctx.sandbox.wrap(command, env=env, chdir=Path(getattr(self, "directory", ".")))
+            # The program reaches the Evolver's model through the run's model proxy (its binding in the context and
+            # the environment name the proxy, its key variable a secret), and the paths it is given are spelled as
+            # they are in the evolver sandbox.
+            from hermit.model_proxy import route_session
+            [text, *command], env, keep = route_session(ctx.sandbox, list(getattr(ctx.sandbox, "model_bindings", ())),
+                                                        [text, *command], env)
+            if hasattr(ctx.sandbox, "translate"):
+                text = ctx.sandbox.translate(text)
+        path.write_text(text)
+        env["HA_CONTEXT"] = str(path)
+        if ctx.sandbox is not None:
+            command, env = ctx.sandbox.wrap(command, env=env, chdir=Path(getattr(self, "directory", ".")), keep=keep)
         code = _run(command, env, ctx, ctx.workspace.output / "command.log", Path(getattr(self, "directory", ".")))
         result_file = ctx.workspace.output / "step_result.json"
         if result_file.exists():

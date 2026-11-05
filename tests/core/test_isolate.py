@@ -14,7 +14,7 @@ import hermit.sandbox as sandbox_module
 from hermit.config import Config
 from hermit.isolate import (SandboxedAgent, SandboxedJudge, ToolRunner, _owned_log, _route_models, agent_pipeline,
                             host_pipeline, judge_for, run_secrets, sanitized_copy)
-from hermit.model_proxy import ModelProxy
+from hermit.model_proxy import ModelProxy, rewrite
 from hermit.sandbox import Bind, Sandbox
 from hermit.tools import assemble
 from toy_task import make_task
@@ -107,6 +107,34 @@ def test_the_agents_model_is_routed_through_the_proxy(tmp_path, monkeypatch):
         assert ports == []
         local, env, ports = _route_models({"binding": {"base_url": "http://127.0.0.1:8123/v1", "model": "m"}}, proxy)
         assert local["binding"]["base_url"] == "http://127.0.0.1:8123/v1" and env == {} and ports == [8123]
+        # A server on the loopback that takes the caller's key (a meter in front of a provider) is routed too: the
+        # key stays outside, and the meter's port is not forwarded.
+        metered, env, ports = _route_models({"binding": {"base_url": "http://127.0.0.1:8123/v1", "model": "m",
+                                                         "api_key_env": "EXAMPLE_KEY"}}, proxy)
+        assert metered["binding"]["base_url"].startswith(f"http://127.0.0.1:{proxy.port}/")
+        assert env["EXAMPLE_KEY"] != "the-real-key" and ports == []
+    finally:
+        proxy.close()
+
+
+def test_an_origin_is_rewritten_only_where_it_ends():
+    assert rewrite("http://127.0.0.1:801/v1 http://127.0.0.1:8011/v1 'http://127.0.0.1:801'",
+                   {"http://127.0.0.1:801": "P"}) == "P/v1 http://127.0.0.1:8011/v1 'P'"
+
+
+@pytest.mark.parametrize("name, field", [("codex", "args"), ("claude-code", "env")])
+def test_a_cli_agents_provider_settings_are_routed_too(name, field, monkeypatch):
+    # A CLI agent reaches its provider by the settings bound from its binding (Codex's -c arguments, Claude Code's
+    # environment), not by the binding itself: those must name the proxy too.
+    from hermit.agent.model.backends import normalize_config
+    monkeypatch.setenv("FIREWORKS_API_KEY", "the-real-key")
+    data = {"agent": {"name": name, "params": {"model": "fireworks/accounts/fireworks/models/glm-5p3-flash"}}}
+    normalize_config(data)
+    proxy = ModelProxy()
+    try:
+        params, env, _ = _route_models(data["agent"]["params"], proxy)
+        assert "fireworks.ai" not in json.dumps(params[field]) and f"127.0.0.1:{proxy.port}/" in json.dumps(params)
+        assert env["FIREWORKS_API_KEY"] != "the-real-key"
     finally:
         proxy.close()
 
@@ -135,6 +163,12 @@ def test_the_judge_runs_where_its_mode_says(tmp_path, monkeypatch):
         (tmp_path / "b").mkdir()
         host = judge_for(Config.load(sandboxed_task(tmp_path / "b"), []), agent)
         assert callable(host) and not isinstance(host, SandboxedJudge)
+        # With the sandbox off the task's judge mode stays valid and the judge runs in this process.
+        (tmp_path / "c").mkdir()
+        off = Config.load(sandboxed_task(tmp_path / "c"), ["judge.mode=shared", "sandbox.enabled=false"])
+        pipeline, close = agent_pipeline(off, "rollout", records=None)
+        assert not isinstance(judge_for(off, pipeline), SandboxedJudge)
+        close()
     finally:
         agent.close()
 

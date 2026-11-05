@@ -99,7 +99,8 @@ for i in ${MW_ORDERS:-0}; do
   # The store's README exists before the bootstrap session, as natively (the wrapper wrote it before block 0).
   "$PY" -m hermit.agent.evolver.methods.mwm.evidence.readme --evidence "$WD/evidence" --from "$HERE/../utils/task-info/mwm/contract/env_evidence.md"
   # The learner's model through its meter: the backend copied to the metered URL, the Evolver bound to it (the
-  # Trainer derives codex's provider settings from the binding and passes the key variable into the sandbox).
+  # Trainer derives codex's provider settings from the binding; the session reaches the meter through the run's
+  # model proxy, which holds the key).
   LEARNER="{from: '$EVOLVER_BACKEND', base_url: 'http://127.0.0.1:$META_PORT/${TAG}_o${i}_meta$EVOLVER_PATH'}"
   LOG="$RUNS/$TAG/order$i/run.log"
   echo "=== setting stamp: venue=$VENUE method=mwm framework=$HEAD clbench=$CLB_HEAD metaworld=$MW_HEAD" \
@@ -108,6 +109,7 @@ for i in ${MW_ORDERS:-0}; do
   MWM_TASK_WORKDIR="$WD" CLB_API_BASE="http://127.0.0.1:$WM_PORT/${TAG}_o$i$HOST_PATH" \
     setsid -w nohup "$PY" -m hermit.cli train --config "$HERE/run.yaml" \
       "trainer.run_name=$TAG-o$i" "trainer.output_dir=$RUNS/$TAG" \
+      "environment.env=[MWM_*, CLB_*, MW_*, $HOST_LITELLM_KEY_ENV]" \
       "data.train=${MW_TRAIN_SPLIT:-$TASKDIR/splits/order$i.txt}" \
       "backends.learner=$LEARNER" "evolver.params.model=learner/$EVOLVER_MODEL_ID" \
       "evolver.params.args=[-c, model_reasoning_effort=\"$EFFORT\"]" \
