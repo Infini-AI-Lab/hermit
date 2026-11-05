@@ -151,6 +151,14 @@ def test_a_sandboxed_cli_refuses_what_its_sandbox_cannot_keep(tmp_path):
     framework = make("codex", {"web_search": False, "isolation": "sandbox", "sandbox": Sandbox(framework=True)})
     with pytest.raises(Unsupported, match="lies in what the sandbox shows"):    # the framework it shows
         framework.run("go", workspace=tmp_path / "work", limits=Limits(hidden=[PACKAGE / "config.py"]))
+    install = tmp_path / "opt" / "private-cli"
+    (install / "bin").mkdir(parents=True)
+    (install / "bin" / "codex").write_text("#!/bin/sh\n")
+    (install / "bin" / "codex").chmod(0o755)
+    cli = make("codex", {"web_search": False, "isolation": "sandbox", "sandbox": Sandbox(framework=True),
+                         "bin": str(install / "bin" / "codex")})
+    with pytest.raises(Unsupported, match="lies in what the sandbox shows"):    # the CLI's own installation
+        cli.run("go", workspace=tmp_path / "work", limits=Limits(hidden=[install / "secret.txt"]))
 
 
 def test_an_interrupted_caller_stops_the_session(tmp_path):

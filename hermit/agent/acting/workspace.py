@@ -298,7 +298,14 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path) -> RunOutpu
     timeout_s = float(params.get("timeout_s", 3600))
     retries = max(1, int(params.get("retries", 3)))
     started = time.time()
+    # `deadline_s`: the whole call's time (attempts and waits), set by a caller that is stopped at it (a container
+    # session must end, and remove its container, before its worker is killed)
+    budget = float(params["deadline_s"]) if params.get("deadline_s") else None
     for attempt in range(1, retries + 1):
+        if budget is not None:
+            timeout_s = min(float(params.get("timeout_s", 3600)), budget - (time.time() - started))
+            if timeout_s <= 0:
+                raise RuntimeError(f"agent {backend} could not be served within deadline_s={budget:.0f}")
         for d in (work, home, log):
             shutil.rmtree(d, ignore_errors=True)
             d.mkdir(parents=True)
@@ -335,7 +342,8 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path) -> RunOutpu
         if attempt == retries:
             raise RuntimeError(f"agent {backend} could not be served after {retries} attempts: "
                                f"{result.extra['output_tail']}")
-        time.sleep(float(params.get("retry_wait_s", 120)))
+        wait = float(params.get("retry_wait_s", 120))
+        time.sleep(wait if budget is None else max(0.0, min(wait, budget - (time.time() - started) - 1)))
     code, timed_out, last, usage = result.exit_code, result.timed_out, result.reply, result.usage
     (log / "last_message.txt").write_text(last, encoding="utf-8")
     if memory is not None and memory.parent.is_dir():                  # the notes the session left

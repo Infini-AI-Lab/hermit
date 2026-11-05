@@ -176,6 +176,13 @@ def test_a_provider_that_could_not_serve_is_run_again(fake, monkeypatch):
     with pytest.raises(RuntimeError, match="could not be served after 2 attempts"):
         cli.run({"id": "q2"}, None, params={"web_search": False, "prompt": "go", "workspaces": "ws", "retries": 2, "retry_wait_s": 0},
                 base=tmp_path)
+    # deadline_s bounds every attempt and wait together: past it no attempt starts and no wait is slept out
+    import time as _time
+    t0 = _time.time()
+    with pytest.raises(RuntimeError, match="could not be served"):
+        cli.run({"id": "q3"}, None, params={"web_search": False, "prompt": "go", "workspaces": "ws", "retries": 5,
+                                            "retry_wait_s": 30, "deadline_s": 1}, base=tmp_path)
+    assert _time.time() - t0 < 20
 
 
 def test_a_line_of_the_clis_own_output_that_parses_as_json_is_not_an_event(fake):

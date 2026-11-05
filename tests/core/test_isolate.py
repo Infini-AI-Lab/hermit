@@ -80,6 +80,12 @@ def test_the_sections_are_checked(tmp_path):
     assert "memory_mb" in load_error(path, "environment.resources={processes: 4}")
     assert "environment.image" in load_error(path, "agent.params.isolation=container")
     assert "codex" in load_error(path, "environment.image=some:image")       # the toy agent is no Codex
+    assert "model reference" in load_error(path, "sandbox.enabled=true", "agent.name=codex",
+                                           "agent.params={web_search: false}")   # a CLI agent with no sign-in
+    assert "positive whole number" in load_error(path, "environment.resources={memory_mb: garbage}")
+    assert "positive whole number" in load_error(path, "sandbox.evolver.resources={cpu_s: -1}")
+    assert "must be a list" in load_error(path, "environment.env=false")
+    assert "must be a list" in load_error(path, "judge.collect=false")
 
 
 def test_a_declared_path_may_not_hold_or_lie_in_a_secret(tmp_path):
@@ -909,4 +915,5 @@ def test_a_container_session_ends_before_the_outer_deadline(tmp_path):
     (tmp_path / "t").mkdir()
     config = Config.load(make_task(tmp_path / "t"), ["agent.timeout_min=10"])
     assert ContainerAgent(config, "rollout", {"timeout_s": 3600}).params["timeout_s"] == 540
+    assert ContainerAgent(config, "rollout", {"timeout_s": 3600}).params["deadline_s"] == 540   # retries included
     assert ContainerAgent(config, "rollout", {"timeout_s": 60}).params["timeout_s"] == 60

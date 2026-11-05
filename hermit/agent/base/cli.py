@@ -423,7 +423,8 @@ class CliAgent(BaseAgent):
                      # and what every sandbox shows: the system, the interpreter's installation, the packages and
                      # the framework it shows
                      *map(Path, ("/usr", "/bin", "/sbin", "/lib", "/lib64")), Path(sys.prefix), Path(sys.base_prefix),
-                     *(sandbox.visible([]) if hasattr(sandbox, "visible") else [])]
+                     *(sandbox.visible([str(s.get("bin") or ("claude" if self.backend == "claude" else "codex"))])
+                       if hasattr(sandbox, "visible") else [])]           # with the CLI's own installation
             for path in limits.hidden:
                 if any(_overlap(Path(path), Path(p)) for p in shown):
                     raise Unsupported(f"{path} is to be hidden but lies in what the sandbox shows")

@@ -86,7 +86,7 @@ def validate(config) -> None:
     if s.get("enforce", "required") not in ("required", "best_effort"):
         raise ValueError("sandbox.enforce must be required or best_effort")
     for key in ENVIRONMENT_LISTS:
-        if not isinstance(env.get(key) or [], list):
+        if env.get(key) is not None and not isinstance(env[key], list):
             raise ValueError(f"environment.{key} must be a list")
     if env.get("runner", "sandbox") not in ("sandbox", "host"):
         raise ValueError(f"environment.runner must be sandbox or host, not {env.get('runner')!r}")
@@ -103,16 +103,19 @@ def validate(config) -> None:
         raise ValueError(f"sandbox.evolver: unknown keys {sorted(unknown)}")
     for where, res in (("environment.resources", env.get("resources")), ("sandbox.evolver.resources",
                                                                           evolver.get("resources"))):
-        if res and (not isinstance(res, dict) or set(res) - LIMITS):
+        if res is not None and (not isinstance(res, dict) or set(res) - LIMITS):
             raise ValueError(f"{where} takes {sorted(LIMITS)}")
+        for name, value in (res or {}).items():
+            if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value < 1):
+                raise ValueError(f"{where}.{name} must be a positive whole number (or null: no limit), not {value!r}")
     for key in ("allowed_hosts", "env"):
-        if not isinstance(evolver.get(key) or [], list):
+        if evolver.get(key) is not None and not isinstance(evolver[key], list):
             raise ValueError(f"sandbox.evolver.{key} must be a list")
     mode = judge.get("mode") or "host"
     if mode not in JUDGE_MODES:
         raise ValueError(f"judge.mode must be one of {list(JUDGE_MODES)}, not {mode!r}")
     for key in ("tests", "collect"):
-        if not isinstance(judge.get(key) or [], list):
+        if judge.get(key) is not None and not isinstance(judge[key], list):
             raise ValueError(f"judge.{key} must be a list")
     if judge.get("tests") and mode == "host":
         raise ValueError("judge.tests are shown to a sandboxed judge: set judge.mode to shared or separate")
@@ -136,6 +139,11 @@ def validate(config) -> None:
         if env.get("packages") or env.get("read"):
             raise ValueError("environment.packages and environment.read build a bubblewrap sandbox; with "
                              "environment.image the image holds the agent's world")
+    if not reason and _cli_kind(d["agent"]["name"], params) and not params.get("binding") \
+            and params.get("login") != "chatgpt":
+        raise ValueError("a CLI acting agent in the task sandbox signs in through a model reference (agent.params.model:"
+                         " <backend>/<model>, routed through the run's model proxy) or login: chatgpt; the CLI's own "
+                         "sign-in from your home is not copied into the sandbox")
     if reason and mode != "host" and s["enabled"]:          # with the sandbox off every judge runs in this process
         raise ValueError(f"judge.mode {mode} runs the judge in the task sandbox, but the pipeline runs on the host "
                          f"({reason}); use judge.mode: host")
@@ -509,7 +517,8 @@ class ContainerAgent:
             # The container's own session ends first and removes the container; the worker, stopped at the outer
             # deadline, could not.
             inner = max(self.timeout - 60, self.timeout * 0.9)
-            self.params = {**params, "timeout_s": min(float(params.get("timeout_s") or inner), inner)}
+            self.params = {**params, "timeout_s": min(float(params.get("timeout_s") or inner), inner),
+                           "deadline_s": inner}               # all attempts and waits together, too
         self.enforce = d["sandbox"].get("enforce", "required")
         self.box = Sandbox(enabled=False, role=role)     # the worker is on the host; the container is the boundary
 

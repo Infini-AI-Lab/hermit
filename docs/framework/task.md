@@ -134,8 +134,9 @@ What the agent does for every task:
 - **Sign in.** A `<backend>/<model>` reference binds Codex to that backend's key; `login: chatgpt` uses the user's
   own ChatGPT login (`codex login`; `model` is then a Codex model name, the cost unknown), from one shared copy
   (`~/.cache/hermit/codex-login/`, outside every run's directory) that each session's refreshed token is written back
-  to, the task sandbox's sessions included; a model that is no reference uses the user's own Codex sign-in as it
-  is. Each session has a home of its own: none of the user's Codex or Claude Code settings apply, and the session's
+  to, the task sandbox's sessions included. In the task sandbox one of the two is required: the CLI's own sign-in
+  from the user's home is not copied in (a model that is no reference uses it only where the pipeline runs on the
+  host). Each session has a home of its own: none of the user's Codex or Claude Code settings apply, and the session's
   commands see only Codex's core variables (`shell_env: all` passes every variable).
 - **Web search.** `web_search` must be set, `true` or `false`: Codex's hosted search runs at the provider, past any
   sandbox or proxy, so it is never left to a default. Claude Code's `WebSearch` and `WebFetch` follow it too.

@@ -687,3 +687,38 @@ def test_every_python_versions_site_directory_under_the_prefix_is_emptied(tmp_pa
     monkeypatch.setattr(sb.sys, "base_prefix", str(tmp_path))
     monkeypatch.setattr(sb.sys, "prefix", str(tmp_path))
     assert other in sb._interpreter()[1]
+
+
+def test_an_editable_finder_maps_packages_and_module_files_not_their_checkout(tmp_path):
+    """Current setuptools writes `MAPPING: dict[str, str] = {...}`: its packages are shown, and a module mapped by
+    file is shown alone, not the directory around it."""
+    from hermit.sandbox import _editable_finder_paths
+    checkout = tmp_path / "checkout"
+    (checkout / "pkg").mkdir(parents=True)
+    (checkout / "mod.py").write_text("")
+    (checkout / "runs").mkdir()
+    site = tmp_path / "site"
+    site.mkdir()
+    (site / "__editable___x_finder.py").write_text(
+        f"MAPPING: dict[str, str] = {{'pkg': {str(checkout / 'pkg')!r}, 'mod': {str(checkout / 'mod')!r}}}\n")
+    got = _editable_finder_paths(site, "import __editable___x_finder; __editable___x_finder.install()")
+    assert got == [checkout / "pkg", checkout / "mod.py"]
+
+
+def test_a_pkgutil_namespace_is_not_shown_whole(tmp_path):
+    """opencensus/__init__.py only extends the path: another distribution's opencensus/trace stays out."""
+    from hermit.sandbox import distribution_paths
+    (tmp_path / "opencensus" / "common" / "runtime_context").mkdir(parents=True)
+    (tmp_path / "opencensus" / "trace").mkdir()
+    for d in ("opencensus", "opencensus/common"):
+        (tmp_path / d / "__init__.py").write_text("__path__ = __import__('pkgutil').extend_path(__path__, __name__)\n")
+    (tmp_path / "opencensus" / "common" / "runtime_context" / "__init__.py").write_text("")
+
+    class Dist:
+        files = ["opencensus/common/runtime_context/__init__.py"]
+
+        def locate_file(self, f):
+            return tmp_path / f
+    assert distribution_paths([Dist()]) == sorted([tmp_path / "opencensus" / "__init__.py",
+                                                   tmp_path / "opencensus" / "common" / "__init__.py",
+                                                   tmp_path / "opencensus" / "common" / "runtime_context"])

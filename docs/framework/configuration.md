@@ -112,7 +112,7 @@ strict preset with the adapter read-only. A task's declared tools run with `envi
 | `environment.packages` | Python distributions shown besides the framework's, with their dependencies; every other installed package is absent. |
 | `environment.env` | Environment variables passed in: names or patterns (`MWM_*`). No model key: the model proxy holds it. |
 | `environment.network` | `no-network` (default), `allowlist` (with `environment.allowed_hosts`, through a proxy), or `public`. The model proxy and the tool endpoint stay reachable. |
-| `environment.resources` | `memory_mb`, `file_mb`, `cpu_s` per process. |
+| `environment.resources` | `memory_mb`, `file_mb`, `cpu_s` per process (positive whole numbers; null: no limit). |
 | `environment.image` | A Docker image: a Codex acting agent runs in a container of its own; `environment.container` gives its network and egress proxy. |
 | `environment.runner: host` | The pipeline runs in the Trainer's process, for a task whose own code isolates the adapter's code it runs (AgentDyn's hooks in containers). Warned. |
 
@@ -148,7 +148,7 @@ proxy, the Trainer's tool endpoint and the hosts below; a Codex ChatGPT login's 
 | `sandbox.enforce: best_effort` | Run unconfined when bubblewrap is missing, and record that the sandbox was not applied. |
 | `sandbox.evolver.allowed_hosts` | More hosts the learner may reach, through the allowlist proxy. |
 | `sandbox.evolver.env` | Environment variables passed to the learner's sessions (names or patterns). |
-| `sandbox.evolver.resources` | `memory_mb`, `file_mb`, `cpu_s` per process. |
+| `sandbox.evolver.resources` | `memory_mb`, `file_mb`, `cpu_s` per process (positive whole numbers; null: no limit). |
 
 An old key (`sandbox.profiles`, `sandbox.network`, `sandbox.allow`, `sandbox.read`, `sandbox.packages`,
 `sandbox.env`, `sandbox.audit`, `evolver.params.hide`, the acting agent's `isolation: container`) fails with where

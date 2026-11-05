@@ -297,10 +297,23 @@ def package_closure(roots: list[str]) -> list[importlib.metadata.Distribution]:
     return list(seen.values())
 
 
+def _namespace(directory: Path) -> bool:
+    """Whether a package directory is a namespace other distributions share: no __init__.py (PEP 420), or one that
+    only extends the path (pkgutil.extend_path, pkg_resources.declare_namespace)."""
+    init = directory / "__init__.py"
+    if not init.is_file():
+        return True
+    try:
+        text = init.read_text(errors="replace")[:4096]
+    except OSError:
+        return False
+    return "extend_path" in text or "declare_namespace" in text
+
+
 def distribution_paths(dists) -> list[Path]:
-    """The entries the given distributions installed: their top-level packages, modules and .dist-info, and below
-    a namespace directory shared with others (google/, a top level without __init__.py) the first regular package on
-    each file's path, or the file itself, so a namespace sibling of another distribution is not shown."""
+    """The entries the given distributions installed: their top-level packages, modules and .dist-info; below a
+    namespace shared with others (google/, opencensus/) the first regular package on each file's path (or the file),
+    with the namespaces' own __init__.py, so a namespace sibling of another distribution is not shown."""
     out = set()
     for dist in dists:
         for f in dist.files or []:
@@ -309,13 +322,15 @@ def distribution_paths(dists) -> list[Path]:
                 continue
             root = Path(dist.locate_file(""))
             top = root / parts[0]
-            if len(parts) == 1 or (top / "__init__.py").exists() or parts[0].endswith((".dist-info", ".egg-info")) \
-                    or not top.is_dir():
+            if len(parts) == 1 or parts[0].endswith((".dist-info", ".egg-info")) or not top.is_dir() \
+                    or not _namespace(top):
                 out.add(top)
                 continue
-            for i in range(2, len(parts) + 1):
-                candidate = root.joinpath(*parts[:i])
-                if i == len(parts) or (candidate / "__init__.py").exists():
+            for i in range(1, len(parts)):
+                candidate = root.joinpath(*parts[:i + 1])
+                if (candidate.parent / "__init__.py").is_file():
+                    out.add(candidate.parent / "__init__.py")          # each namespace's own initializer
+                if i == len(parts) - 1 or (candidate.is_dir() and not _namespace(candidate)):
                     out.add(candidate)
                     break
     return sorted(out)
@@ -445,8 +460,8 @@ def _python_paths(packages: list[str], framework: bool = True) -> tuple[list[Pat
 
 
 def _editable_finder_paths(directory: Path, line: str) -> list[Path]:
-    """The source directories of a setuptools editable install that imports a finder (`import __editable___x_finder;
-    ...install()`): the finder module's MAPPING names them."""
+    """The sources of a setuptools editable install that imports a finder (`import __editable___x_finder;
+    ...install()`): the package directories and module files its MAPPING names."""
     import ast
     out = []
     for module in re.findall(r"import\s+(__editable__[\w.]*finder)", line):
@@ -455,14 +470,22 @@ def _editable_finder_paths(directory: Path, line: str) -> list[Path]:
         except (OSError, SyntaxError):
             continue
         for node in ast.walk(tree):
-            if isinstance(node, ast.Assign) and any(getattr(t, "id", None) == "MAPPING" for t in node.targets):
-                try:
-                    mapping = ast.literal_eval(node.value)
-                except ValueError:
-                    continue
-                for value in mapping.values():
-                    p = Path(value)
-                    out.append(p.parent if p.is_file() else p)
+            # MAPPING = {...} or, as current setuptools writes it, MAPPING: dict[str, str] = {...}
+            targets = node.targets if isinstance(node, ast.Assign) else \
+                [node.target] if isinstance(node, ast.AnnAssign) and node.value is not None else []
+            if not any(getattr(t, "id", None) == "MAPPING" for t in targets):
+                continue
+            try:
+                mapping = ast.literal_eval(node.value)
+            except ValueError:
+                continue
+            for value in mapping.values():
+                p = Path(value)
+                # a package directory, or a module file itself (never the directory around it: the checkout)
+                if not p.exists() and Path(f"{p}.py").is_file():
+                    p = Path(f"{p}.py")
+                if p.exists():
+                    out.append(p)
     return out
 
 
