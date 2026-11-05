@@ -1450,3 +1450,26 @@ def test_a_proposers_tools_resolve_paths_in_its_own_directory(tmp_path):
     for outside in ("../r0B/adapter", str(tmp_path / "adapter"), "peek/adapter"):
         with pytest.raises(ValueError, match="under your directory"):
             bound_tool(path=outside)
+
+
+@pytest.mark.skipif(not shutil.which("bwrap"), reason="the view's copy runs under bubblewrap")
+def test_a_proposers_check_copies_its_candidate_inside_its_own_view(tmp_path):
+    """The candidate is copied through the session's own view (a link swapped in meanwhile reaches only what that
+    session sees), and the check runs on that copy; run_agent's logs, outside the view, are not returned."""
+    from hermit.agent.base.tool import Tool
+    work = tmp_path / "r0A"
+    (work / "adapter").mkdir(parents=True)
+    (work / "adapter" / "ADAPTER.md").write_text("candidate\n")
+    wrapped = []
+    box = SimpleNamespace(enabled=True, wrap=lambda cmd, **kw: (wrapped.append(cmd) or cmd, dict(os.environ)))
+    seen = {}
+
+    def check(path=None, _snapshot=None):
+        copy = _snapshot(Path(path))
+        seen["text"] = (copy / "ADAPTER.md").read_text()
+        return {"passed": True}
+    E._in_view("check_spec", Tool("check_spec", "x", check), work, box)()
+    assert wrapped and wrapped[0][0] == "cp" and seen["text"] == "candidate\n"
+    runs = Tool("run_agent", "x", lambda task_ids, adapter=None, _snapshot=None:
+                {"results": [{"id": "t0", "log": "/run/agent_logs/t0.txt"}]})
+    assert E._in_view("run_agent", runs, work, None)(task_ids=["t0"]) == {"results": [{"id": "t0"}]}

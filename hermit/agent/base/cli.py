@@ -577,7 +577,8 @@ class CliAgent(BaseAgent):
             if tools:
                 from hermit.agent.base.tool_server import ToolServer
                 from hermit.sandbox import inside_tools        # results name paths as the session sees them
-                server = ToolServer(inside_tools(tools, sandbox), host=container.gateway(conf) if conf else "127.0.0.1",
+                server = ToolServer(inside_tools(tools, sandbox, binds),
+                                    host=container.gateway(conf) if conf else "127.0.0.1",
                                     mcp_only=s.get("mcp_tools")).start()
             name = s.get("tools_name") or "hermit_tools"
             own = {k: os.path.expandvars(str(v)) for k, v in (s.get("env") or {}).items()}   # $KEY_VAR -> the key

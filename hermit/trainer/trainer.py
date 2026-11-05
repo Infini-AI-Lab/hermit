@@ -431,7 +431,7 @@ class Trainer:
         """The acting-agent runner: an adapter through the user's pipeline and judge, on train or validation tasks."""
         allowed = {"train": set(self.data.splits["train"]), "val": set(self.data.splits["val"])}
 
-        def run_agent(task_ids: list, adapter: str | None = None) -> dict:
+        def run_agent(task_ids: list, adapter: str | None = None, _snapshot=None) -> dict:
             unknown = [t for t in task_ids if t not in allowed["train"] | allowed["val"]]
             if unknown:
                 raise ValueError(f"only training or validation tasks may be run: {unknown[:5]}")
@@ -439,7 +439,7 @@ class Trainer:
             if not target.resolve().is_relative_to(self.run_dir.resolve()):
                 raise ValueError("the adapter must be inside the workspace")
             tasks = [self.data.tasks[t] for t in task_ids]
-            snapshot = self._snapshot_adapter(target)
+            snapshot = (_snapshot or self._snapshot_adapter)(target)     # a caller's narrower view may copy it
             try:
                 results = run_tasks(tasks, snapshot, self.pipeline, self.judge,
                                     concurrency=int(self.config["agent"]["concurrency"]), budget=self.budget,

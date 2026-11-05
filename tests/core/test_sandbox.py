@@ -491,6 +491,12 @@ def test_a_sanitized_copy_skips_pipes_and_caps_its_size(tmp_path):
     assert (tmp_path / "dest" / "a.txt").exists() and not (tmp_path / "dest" / "pipe").exists() and skipped
     with pytest.raises(ValueError):
         sanitized_copy(src, tmp_path / "small", max_bytes=50)
+    hidden = tmp_path / "hidden"
+    hidden.mkdir()
+    (hidden / "answer.json").write_text("gold")
+    (src / "artifacts").symlink_to(hidden)               # a collected path whose parent the agent replaced
+    skipped = sanitized_copy(src, tmp_path / "collected", ["artifacts/answer.json"])
+    assert not (tmp_path / "collected" / "artifacts").exists() and "a link on its way" in skipped[0]
 
 
 def test_a_system_pythons_site_directory_is_emptied_too(monkeypatch):
@@ -557,6 +563,9 @@ def test_tools_served_to_a_sandboxed_session_name_paths_as_it_sees_them(tmp_path
     assert served()["log"] == "/w/scratch/run_agent/t0.txt"
     assert tool()["log"] == str(scratch / "run_agent" / "t0.txt")
     assert inside_tools([tool], Sandbox(enabled=False))[0] is tool
+    corpus = tmp_path / "corpus"                         # a mount of this call only, shown at /data
+    found = Tool("search", "x", lambda: {"hit": str(corpus / "a.txt")})
+    assert inside_tools([found], box, [(corpus, "/data", False)])[0]()["hit"] == "/data/a.txt"
 
 
 def test_what_a_session_left_is_cleared_of_links_out_and_pipes(tmp_path):
@@ -669,3 +678,12 @@ def test_an_editable_install_shows_its_package_not_the_checkout(tmp_path):
         def read_text(self, name):
             return None
     assert _dist_sources(Dist()) == [(checkout / "benchmark").resolve()]
+
+
+def test_every_python_versions_site_directory_under_the_prefix_is_emptied(tmp_path, monkeypatch):
+    import hermit.sandbox as sb
+    other = tmp_path / "lib" / "python3.11" / "site-packages"
+    other.mkdir(parents=True)
+    monkeypatch.setattr(sb.sys, "base_prefix", str(tmp_path))
+    monkeypatch.setattr(sb.sys, "prefix", str(tmp_path))
+    assert other in sb._interpreter()[1]

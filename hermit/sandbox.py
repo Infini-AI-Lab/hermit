@@ -108,6 +108,11 @@ def sanitized_copy(source: Path, dest: Path, paths=None, max_bytes: int | None =
                 if not os.path.lexists(item):
                     skipped.append(f"{rel}: missing")
                     continue
+                # tar keeps a link that is the path's last part, but follows one on the way to it
+                parts = Path(rel).parts[:-1]
+                if any(os.path.islink(Path(source).joinpath(*parts[:i + 1])) for i in range(len(parts))):
+                    skipped.append(f"{rel}: a link on its way")
+                    continue
                 tar.add(str(item), arcname=str(Path(rel)), recursive=True, filter=keep)
         buf.seek(0)
         dest.mkdir(parents=True, exist_ok=True)
@@ -144,21 +149,21 @@ def drop_unsafe(root) -> list[str]:
     return removed
 
 
-def translate_values(sandbox, value):
+def translate_values(sandbox, value, binds=()):
     """`value` (a tool's result, a context) with every string in it translated as the sandbox shows paths: each string
     on its own, so nothing a serialization escapes (a non-ASCII directory name) is missed."""
     if isinstance(value, str):
-        return sandbox.translate(value)
+        return sandbox.translate(value, binds)
     if isinstance(value, dict):
-        return {k: translate_values(sandbox, v) for k, v in value.items()}
+        return {k: translate_values(sandbox, v, binds) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
-        return [translate_values(sandbox, v) for v in value]
+        return [translate_values(sandbox, v, binds) for v in value]
     if isinstance(value, Path):
-        return sandbox.translate(str(value))
+        return sandbox.translate(str(value), binds)
     return value
 
 
-def inside_tools(tools, sandbox):
+def inside_tools(tools, sandbox, binds=()):
     """The tools as a sandboxed session calls them through a server: each result with the host paths it names spelled
     as the sandbox shows them (a run's log copied into the learner's scratch is /w/scratch/...). The tools themselves
     are unchanged: called in this process, they keep answering with host paths. A dict or a sequence, as given."""
@@ -169,7 +174,7 @@ def inside_tools(tools, sandbox):
     def wrapped(tool):
         out = copy.copy(tool)
         fn = tool.fn
-        out.fn = lambda **arguments: translate_values(sandbox, fn(**arguments))
+        out.fn = lambda **arguments: translate_values(sandbox, fn(**arguments), binds)
         return out
     if isinstance(tools, dict):
         return {name: wrapped(tool) for name, tool in tools.items()}
@@ -374,20 +379,17 @@ def _interpreter() -> tuple[list[Path], list[Path]]:
     extensions load), its ssl/ (a conda installation's certificates), the executable and the virtual environment's
     own files. Every site-packages directory under them, and every system Python's under /usr, is replaced by an empty
     one; the distributions a sandbox shows are bound back into it."""
-    ver = f"python{sys.version_info.major}.{sys.version_info.minor}"
     shown, sites = [Path(sys.executable), Path(sys.executable).resolve(), *_venv_paths()], []
     prefixes = [Path(sys.base_prefix), Path(sys.prefix), Path(sys.executable).resolve().parent.parent]
     for prefix in dict.fromkeys(prefixes):
         for name in ("lib", "lib64", "ssl"):
             if (prefix / name).is_dir() and not (prefix / name).is_symlink():
                 shown.append(prefix / name)
-        for lib in ("lib", "lib64"):
-            for name in ("site-packages", "dist-packages"):
-                if (prefix / lib / ver / name).is_dir():
-                    sites.append(prefix / lib / ver / name)
+        # every Python version's under it (lib/ is shown whole: a conda prefix may hold python3.11/ beside 3.12/)
+        sites += [Path(p) for p in sorted(glob.glob(str(prefix / "lib*" / "python3*" / "*-packages")))
+                  if p.endswith(("/site-packages", "/dist-packages")) and os.path.isdir(p)]
     # And the interpreter's own list (a Debian system Python's /usr/lib/python3/dist-packages, /usr/local/...), and
     # every system Python's under /usr, which is shown whole whatever interpreter runs (a conda one, say).
-    import glob
     import site
     sites += [Path(p) for p in site.getsitepackages() if os.path.isdir(p)]
     sites += [Path(p) for pattern in ("/usr/lib*/python3*/*-packages", "/usr/local/lib*/python3*/*-packages")

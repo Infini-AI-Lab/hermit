@@ -275,7 +275,29 @@ NOT_HERE = {"proposer_model": "the proposer's model is the Evolver's own (evolve
             "eval_parallel": "the Trainer evaluates one candidate per step (1 is accepted)"}
 
 
-def _in_view(name: str, tool, work: Path):
+def _view_snapshot(box):
+    """A copy of a candidate made inside one proposer's own view (so a link swapped in while it is copied reaches
+    only what that session sees), then sanitized into a directory of this process; None without a sandbox."""
+    if box is None or not getattr(box, "enabled", False) or not shutil.which("bwrap"):
+        return None
+    import tempfile
+    from hermit.sandbox import sanitized_copy
+
+    def snapshot(source: Path) -> Path:
+        raw, clean = Path(tempfile.mkdtemp(prefix="rrsi-raw-")), Path(tempfile.mkdtemp(prefix="rrsi-check-"))
+        try:
+            args, env = box.wrap(["cp", "-a", "--no-preserve=ownership", f"{source}/.", str(raw)], writable=[raw])
+            run = subprocess.run(args, env=env, capture_output=True, text=True, timeout=300)
+            if run.returncode != 0:
+                raise ValueError(f"the candidate could not be copied: {run.stderr.strip()[-300:]}")
+            sanitized_copy(raw, clean)
+        finally:
+            shutil.rmtree(raw, ignore_errors=True)
+        return clean
+    return snapshot
+
+
+def _in_view(name: str, tool, work: Path, box=None):
     """A Trainer tool as one proposer session uses it: a path it names (check_spec's, run_agent's adapter) is
     resolved against the session's own directory, defaults to its candidate (work/adapter), and must lie there: the
     session neither checks the run's working copy by default nor reaches another variant's files through a tool."""
@@ -292,7 +314,11 @@ def _in_view(name: str, tool, work: Path):
         if not target.is_relative_to(work) or \
                 not Path(os.path.realpath(target)).is_relative_to(Path(os.path.realpath(work))):
             raise ValueError(f"{name} takes a path under your directory ({work.name}/), as your session sees it")
-        return fn(**{**arguments, key: str(target)})
+        snapshot = _view_snapshot(box)
+        out = fn(**{**arguments, key: str(target), **({"_snapshot": snapshot} if snapshot else {})})
+        if name == "run_agent":                   # the logs lie in the run's agent_logs/, outside this view
+            out = {**out, "results": [{k: v for k, v in r.items() if k != "log"} for r in out.get("results", [])]}
+        return out
     if not hasattr(tool, "fn"):                   # a plain function (a test's tools)
         return call
     out = copy.copy(tool)
@@ -973,7 +999,7 @@ class RRSIAdapterEvolver(AgentEvolver):
                               extra={"proposer_fault": True})
         _write(path, prompt)
         allowed = params.get("tools")
-        tools = [_in_view(name, t, work) for name, t in ctx.tools.items() if allowed is None or name in allowed]
+        tools = None                              # bound below, once the session's view exists
         # The session sees its own variant directory and the task description, nothing else the run keeps (the
         # learning material, the state, the history, the working copy, the other variants and rounds): the run's
         # evolver sandbox with this view. With the run's sandbox off it runs as every learner of such a run does.
@@ -981,6 +1007,8 @@ class RRSIAdapterEvolver(AgentEvolver):
         limits = Limits()
         box = ctx.sandbox.view(readable=[ws.task_info], writable=[work]) \
             if ctx.sandbox is not None and getattr(ctx.sandbox, "enabled", False) else ctx.sandbox
+        view = box if box is not ctx.sandbox else None
+        tools = [_in_view(name, t, work, view) for name, t in ctx.tools.items() if allowed is None or name in allowed]
         tries = int(params.get("session_retries", 2))
         tail = ""
         for attempt in range(1 + tries):

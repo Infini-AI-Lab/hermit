@@ -118,15 +118,16 @@ def assemble(*, adapter: Path, root: Path, template_decls: list, task_decls: lis
     tools: dict[str, FunctionTool] = {}
     checkable = [Path(p).resolve() for p in (adapter, *within)]
 
-    def check(path: str | None = None) -> dict:
+    def check(path: str | None = None, _snapshot=None) -> dict:
         target = (resolve(path) if resolve else Path(path)) if path else adapter
         # The learner's own work only: its working copy, or a candidate it wrote in its scratch or state directory.
         if not any(target.resolve().is_relative_to(c) for c in checkable):
             raise ValueError("check_spec checks your working copy of the adapter, or a copy under your scratch or "
                              "state directory")
-        if snapshot is None:
+        take = _snapshot or snapshot          # `_snapshot`: a caller's own (a session's narrower view), never a model's
+        if take is None:
             return check_spec(target, root, python=python, enforce=enforce).to_dict()
-        copy = snapshot(target)
+        copy = take(target)
         try:
             result = check_spec(copy, root, python=python, enforce=enforce).to_dict()
         finally:
