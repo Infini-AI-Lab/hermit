@@ -289,15 +289,17 @@ def _agent_logs(name: str, base: Path) -> list[Path]:
     return [(Path(base) / target).resolve().parent / ".logs"]
 
 
-def _log_binds(work: Path, logs: list[Path], own: list[Path], existing: bool = False) -> list[Bind]:
+def _log_binds(work: Path, logs: list[Path], own: list[Path], existing: bool = False, shown=()) -> list[Bind]:
     """Each `.logs` beside the agent's file bound to this call's fresh directory (`existing`: only those it made);
     and a directory of the call's own that lies in one of them (an agent file beside the config: the default
-    .logs/<role>/<call>) bound again after it at its own path, so the fresh `.logs` does not hide it."""
+    .logs/<role>/<call>) bound again after it at its own path, so the fresh `.logs` does not hide it: `own`
+    writable, `shown` (the agent's log copy a judge reads) read-only."""
     binds = [Bind(work / "agent-logs" / str(i), str(log_dir), True) for i, log_dir in enumerate(logs)
              if not existing or (work / "agent-logs" / str(i)).is_dir()]
     covered = [Path(b.target).resolve() for b in binds]
-    return binds + [Bind(p, str(p), True) for p in own
-                    if any(Path(p).resolve().is_relative_to(c) for c in covered)]
+    inside = lambda p: any(Path(p).resolve().is_relative_to(c) for c in covered)
+    return binds + [Bind(p, str(p), True) for p in own if inside(p)] + \
+        [Bind(p, str(p), False) for p in shown if os.path.exists(p) and inside(p)]
 
 
 def _run_worker(box: Sandbox, job: dict, work: Path, *, home: Path, readable=(), writable=(), env=None,
@@ -614,7 +616,8 @@ class SandboxedJudge:
         record["extra"] = {k: v for k, v in (record.get("extra") or {}).items() if k != "sandbox_work"}
         job = {"kind": "judge", "spec": self.spec, "base": str(self.base), "task": task, "output": record}
         # Shared: the agent's work as the agent saw it, its per-call `.logs` at the names the agent wrote them under.
-        binds = _log_binds(work, self.agent.logs, [work, place], existing=True)
+        binds = _log_binds(work, self.agent.logs, [work, place], existing=True,
+                           shown=[work.parent / f"{work.name}.log"])      # the agent's log copy, read by the judge
         writable = [work]
         if self.mode == "separate":
             fresh = place / "collected"

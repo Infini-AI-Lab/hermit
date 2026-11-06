@@ -1395,6 +1395,9 @@ def test_a_path_a_tool_returned_resolves_when_handed_to_another_tool(tmp_path, m
     shown = wrapped["locate"].fn()["path"]
     assert shown == "/w/adapter/notes/a.txt"
     assert wrapped["read"].fn(path=shown, note="kept") == "found" and seen["note"] == "kept"
+    wrapped["read"].fn(path=shown, pattern="/api//v1", files={shown: "utf8"})
+    assert seen["pattern"] == "/api//v1"                        # not a name inside: left as given
+    assert seen["files"] == {str(adapter / "notes" / "a.txt"): "utf8"}     # a key that names a path: back too
     box.close()
 
 
@@ -1420,3 +1423,26 @@ def test_an_editable_install_without_top_level_txt_shows_its_package_under_anoth
         def read_text(self, name):
             return None
     assert _dist_sources(Dist()) == [(src / "mytool").resolve()]
+
+
+def test_an_editable_namespace_package_without_top_level_txt_is_shown(tmp_path):
+    from hermit.sandbox import _dist_sources
+    src = tmp_path / "checkout" / "src"
+    (src / "nspkg" / "sub").mkdir(parents=True)
+    (src / "nspkg" / "sub" / "__init__.py").write_text("")       # nspkg/ itself has no __init__.py (PEP 420)
+    (src / "assets").mkdir()
+    (src / "assets" / "table.csv").write_text("a,b\n")          # no Python: not shown
+    site = tmp_path / "site"
+    site.mkdir()
+    (site / "_ns.pth").write_text(str(src) + "\n")
+
+    class Dist:
+        files = ["_ns.pth"]
+        metadata = {"Name": "ns-dist"}
+
+        def locate_file(self, f):
+            return site / f
+
+        def read_text(self, name):
+            return None
+    assert _dist_sources(Dist()) == [(src / "nspkg").resolve()]

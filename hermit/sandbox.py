@@ -217,10 +217,13 @@ def outside_values(sandbox, value, binds=()):
     """`value` (a tool's arguments) with every absolute path that lies under a name inside the sandbox (the layout
     root, a bind's target) spelled as it is outside: what a tool's result was translated to comes back as the host
     path the tool reads. Other strings are unchanged."""
-    if isinstance(value, str):                          # outside() leaves a path under no name inside as it is
-        return str(sandbox.outside(value, binds)) if os.path.isabs(value) else value
+    if isinstance(value, str):
+        names = sandbox.inside_names(binds)
+        if any(value == n or value.startswith(n + "/") for n in names):
+            return str(sandbox.outside(value, binds))
+        return value                                   # anything else (a pattern such as /api//v1) as given
     if isinstance(value, dict):
-        return {k: outside_values(sandbox, v, binds) for k, v in value.items()}
+        return {outside_values(sandbox, k, binds): outside_values(sandbox, v, binds) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
         return [outside_values(sandbox, v, binds) for v in value]
     return value
@@ -482,7 +485,8 @@ def _dist_sources(dist) -> list[Path]:
     """Where an editable install's code lives: the source directories its finder module maps, or, below a plain
     path its .pth file adds (often the whole checkout, with data and runs beside the code), the distribution's own
     top-level packages and modules (top_level.txt, else its name; without either there, as a backend that writes no
-    top_level.txt leaves it (Hatchling), the Python packages and modules in that path) and nothing else."""
+    top_level.txt leaves it (Hatchling), the modules and the directories holding Python code in that path, a
+    namespace package's included) and nothing else."""
     try:
         listed = [n.strip() for n in (dist.read_text("top_level.txt") or "").splitlines() if n.strip()]
     except OSError:
@@ -508,8 +512,8 @@ def _dist_sources(dist) -> list[Path]:
                             out += [c.resolve() for c in _entries(p, name)]   # a native module too
                         if not listed and not any(_entries(p, name) for name in tops):
                             out += [c.resolve() for c in sorted(p.iterdir()) if c.name != "setup.py" and (
-                                (c.is_dir() and (c / "__init__.py").is_file()) or
-                                (c.is_file() and c.suffix == ".py"))]
+                                (c.is_dir() and not c.name.startswith(".") and next(c.rglob("*.py"), None)) or
+                                (c.is_file() and c.suffix == ".py"))]     # a namespace package (PEP 420) too
     return out
 
 
@@ -957,6 +961,16 @@ class Sandbox:
         # One pass, as translate: the root itself drops out of what lies below it (relative to it).
         pattern = START + "(" + "|".join(map(re.escape, pairs)) + ")(?:(/)|" + END + ")"
         return re.sub(pattern, spelled, text)
+
+    def inside_names(self, binds=()) -> list[str]:
+        """The names a confined command sees bound places under (the layout root, the binds' targets) that differ
+        from their places outside; none when nothing is confined."""
+        if not self.confines():
+            return []
+        names = [(b.target.rstrip("/") or "/") for b in self._all_binds(binds) if b.target != str(b.source)]
+        if self.layout:
+            names.append(self.layout[1].rstrip("/") or "/")
+        return sorted(set(names), key=len, reverse=True)
 
     def outside(self, path: str | Path, binds=()) -> Path:
         """A path a sandboxed session named (inside, or relative to the layout root) as it is outside: normalized

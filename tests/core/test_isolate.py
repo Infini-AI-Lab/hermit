@@ -1127,3 +1127,19 @@ def test_without_bubblewrap_a_best_effort_call_keeps_its_log(tmp_path, monkeypat
     finally:
         agent.close()
     assert out.log is not None and Path(out.log).read_text() == "trajectory"
+
+
+def test_a_shared_judge_sees_the_agents_log_copy_under_a_root_layout(tmp_path):
+    """The agent file beside the config: the call's directory, the judge's and the agent's log copy beside them all
+    lie in the .logs that is bound to the call's fresh directory; each is bound again after it, the copy read-only."""
+    from hermit.isolate import _log_binds
+    logs = tmp_path / ".logs"
+    work = logs / "rollout" / "t1-abc"
+    (work / "agent-logs" / "0").mkdir(parents=True)
+    place, copy = work.parent / "t1-abc-judge-x", work.parent / "t1-abc.log"
+    place.mkdir()
+    copy.mkdir()
+    binds = _log_binds(work, [logs], [work, place], existing=True, shown=[copy])
+    assert binds[0] == Bind(work / "agent-logs" / "0", str(logs), True)
+    assert Bind(work, str(work), True) in binds and Bind(place, str(place), True) in binds
+    assert Bind(copy, str(copy), False) in binds
