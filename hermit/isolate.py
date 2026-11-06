@@ -289,6 +289,17 @@ def _agent_logs(name: str, base: Path) -> list[Path]:
     return [(Path(base) / target).resolve().parent / ".logs"]
 
 
+def _log_binds(work: Path, logs: list[Path], own: list[Path], existing: bool = False) -> list[Bind]:
+    """Each `.logs` beside the agent's file bound to this call's fresh directory (`existing`: only those it made);
+    and a directory of the call's own that lies in one of them (an agent file beside the config: the default
+    .logs/<role>/<call>) bound again after it at its own path, so the fresh `.logs` does not hide it."""
+    binds = [Bind(work / "agent-logs" / str(i), str(log_dir), True) for i, log_dir in enumerate(logs)
+             if not existing or (work / "agent-logs" / str(i)).is_dir()]
+    covered = [Path(b.target).resolve() for b in binds]
+    return binds + [Bind(p, str(p), True) for p in own
+                    if any(Path(p).resolve().is_relative_to(c) for c in covered)]
+
+
 def _run_worker(box: Sandbox, job: dict, work: Path, *, home: Path, readable=(), writable=(), env=None,
                 keep=(), forward=(), timeout: float | None = None, binds=()) -> dict:
     """Run worker.py in the sandbox with `job`; return its payload, or raise with what it left behind. After
@@ -372,7 +383,7 @@ def _owned_log(value, roots, binds=()) -> Path | None:
     if not value:
         return None
     path = Path(value)
-    for b in binds:
+    for b in sorted(binds, key=lambda b: -len(str(b.target))):    # the innermost name inside first
         target = Path(b.target)
         if path == target or path.is_relative_to(target):
             path = Path(b.source) / path.relative_to(target)
@@ -461,7 +472,7 @@ class SandboxedAgent:
                 codex_login.prepare(codex_login.ROOT, agent_home)      # the shared copy, refreshed by earlier calls
             env[var] = str(agent_home)
             keep.append(var)
-        binds = [Bind(work / "agent-logs" / str(i), str(log_dir), True) for i, log_dir in enumerate(self.logs)]
+        binds = _log_binds(work, self.logs, [work])
         job = {"kind": "agent", "name": self.name, "params": params, "base": str(self.base), "task": task,
                "adapter": str(adapter) if adapter else None}
         clean = work.parent / f"{work.name}.log"
@@ -485,7 +496,9 @@ class SandboxedAgent:
             rec = payload["output"]
             # The log is copied into the learner's material outside any sandbox: it must lie where this call could
             # write (its work directory, its logs, the declared write paths), never a file it merely names.
-            log = _owned_log(rec.get("log"), [work, *self.sandbox.writable], binds)
+            confined = self.sandbox.confines()            # best_effort without bubblewrap: no bind was applied
+            log = _owned_log(rec.get("log"), [work, *self.sandbox.writable, *([] if confined else self.logs)],
+                             binds if confined else [])
             extra = dict(rec.get("extra") or {})
             if rec.get("log") and log is None:
                 extra["sandbox_warning"] = f"log {rec['log']!r} lies outside what the call could write; dropped"
@@ -601,8 +614,7 @@ class SandboxedJudge:
         record["extra"] = {k: v for k, v in (record.get("extra") or {}).items() if k != "sandbox_work"}
         job = {"kind": "judge", "spec": self.spec, "base": str(self.base), "task": task, "output": record}
         # Shared: the agent's work as the agent saw it, its per-call `.logs` at the names the agent wrote them under.
-        binds = [Bind(work / "agent-logs" / str(i), str(log_dir), True) for i, log_dir in enumerate(self.agent.logs)
-                 if (work / "agent-logs" / str(i)).is_dir()]
+        binds = _log_binds(work, self.agent.logs, [work, place], existing=True)
         writable = [work]
         if self.mode == "separate":
             fresh = place / "collected"

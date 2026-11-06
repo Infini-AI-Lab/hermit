@@ -1087,3 +1087,43 @@ def test_a_sandboxed_judges_directory_and_the_agents_it_wrote_are_scrubbed(tmp_p
     logs = list((tmp_path / "calls").glob("t1-abc-judge-*/worker.log"))
     assert logs and logs[0].read_text() == "printed <JUDGE_API_KEY>"
     assert (work / "graded.txt").read_text() == "<JUDGE_API_KEY>"
+
+
+@needs_bwrap
+def test_an_agent_file_beside_the_config_keeps_its_calls_directory(tmp_path):
+    """The default work root is the config's .logs/<role>; the agent's own .logs (beside its file) is bound to the
+    call's fresh directory: with the agent file beside the config, the call's directory (its HOME, its cwd) lies in
+    that .logs and is bound again after it."""
+    path = make_task(tmp_path, sandbox={"enabled": True}, agent={"name": "pipeline.py:run", "concurrency": 1},
+                     environment={"read": ["pipeline.py"]})
+    (tmp_path / "pipeline.py").write_text(
+        "import os\nfrom pathlib import Path\nfrom hermit.task import RunOutput\n"
+        "def run(task, adapter):\n"
+        "    (Path(os.environ['HOME']) / 'mark').write_text('home')\n"
+        "    return RunOutput(output=os.getcwd())\n")
+    agent = SandboxedAgent(Config.load(path, []), "rollout", records=None)
+    try:
+        out = agent({"id": "t1", "a": 1, "b": 2}, None)
+    finally:
+        agent.close()
+    work = Path(out.extra["sandbox_work"])
+    assert out.output == str(work) and (work / "home" / "mark").read_text() == "home"
+
+
+def test_without_bubblewrap_a_best_effort_call_keeps_its_log(tmp_path, monkeypatch):
+    """best_effort with no bubblewrap runs the agent at the host's paths: its log, under the real .logs beside its
+    file, is the one kept (no bind was applied to map it through)."""
+    monkeypatch.setattr(sandbox_module.shutil, "which", lambda name, *a, **k: None if name == "bwrap"
+                        else REAL_WHICH(name, *a, **k))
+    pipeline = ("from pathlib import Path\nfrom hermit.task import RunOutput\n"
+                "def run(task, adapter):\n"
+                "    log = Path(__file__).resolve().parent / '.logs' / 't1.txt'\n"
+                "    log.parent.mkdir(exist_ok=True)\n    log.write_text('trajectory')\n"
+                "    return RunOutput(output='3', log=str(log))\n")
+    config = Config.load(sandboxed_task(tmp_path, pipeline), ["sandbox.enforce=best_effort"])
+    agent = SandboxedAgent(config, "rollout", records=None)
+    try:
+        out = agent({"id": "t1", "a": 1, "b": 2}, None)
+    finally:
+        agent.close()
+    assert out.log is not None and Path(out.log).read_text() == "trajectory"

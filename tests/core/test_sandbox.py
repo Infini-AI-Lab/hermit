@@ -1376,3 +1376,47 @@ def test_a_result_file_can_be_read_whole(tmp_path):
     big.write_text(json.dumps({"extra": {"trace": "x" * (2 << 20)}}))
     assert len(read_regular(big)) == 1 << 20                       # the default cap
     assert json.loads(read_regular(big, limit=None))["extra"]["trace"] == "x" * (2 << 20)
+
+
+def test_a_path_a_tool_returned_resolves_when_handed_to_another_tool(tmp_path, monkeypatch):
+    """A result is spelled as the sandbox shows it (/w/adapter/...); an argument naming such a path reaches the
+    tool as the host path it reads."""
+    from types import SimpleNamespace
+    from hermit.sandbox import inside_tools
+    fake_bwrap(monkeypatch)
+    adapter = tmp_path / "adapter"
+    (adapter / "notes").mkdir(parents=True)
+    (adapter / "notes" / "a.txt").write_text("found")
+    box = Sandbox(network="isolated", layout=(tmp_path, "/w"))
+    seen = {}
+    tools = {"locate": SimpleNamespace(fn=lambda **a: {"path": str(adapter / "notes" / "a.txt")}),
+             "read": SimpleNamespace(fn=lambda **a: (seen.update(a), Path(a["path"]).read_text())[1])}
+    wrapped = inside_tools(tools, box)
+    shown = wrapped["locate"].fn()["path"]
+    assert shown == "/w/adapter/notes/a.txt"
+    assert wrapped["read"].fn(path=shown, note="kept") == "found" and seen["note"] == "kept"
+    box.close()
+
+
+def test_an_editable_install_without_top_level_txt_shows_its_package_under_another_name(tmp_path):
+    """A backend that writes no top_level.txt (Hatchling) and an import name unlike the distribution's: the
+    packages and modules in the path its .pth adds are shown, not data beside them."""
+    from hermit.sandbox import _dist_sources
+    src = tmp_path / "checkout" / "src"
+    (src / "mytool").mkdir(parents=True)
+    (src / "mytool" / "__init__.py").write_text("")
+    (src / "data").mkdir()                                       # no __init__.py: not a package
+    site = tmp_path / "site"
+    site.mkdir()
+    (site / "_my_tool.pth").write_text(str(src) + "\n")
+
+    class Dist:
+        files = ["_my_tool.pth"]
+        metadata = {"Name": "my-tool"}
+
+        def locate_file(self, f):
+            return site / f
+
+        def read_text(self, name):
+            return None
+    assert _dist_sources(Dist()) == [(src / "mytool").resolve()]
