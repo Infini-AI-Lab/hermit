@@ -10,6 +10,7 @@ These docs describe the **0.2.0** code in this checkout.
 |---|---|---|
 | Run a complete training cycle without model access | [Quick Start](get-started/quickstart.md) | A changed adapter, held-out scores, and a host workspace |
 | Run with your model API | [First real-model training](get-started/first-model.md) | Acting calls, learner edits, and held-out evaluation on included data |
+| Run with your coding plan | [Harness evolution with your coding plan](tutorials/codex-plan.md) | A small benchmark run with Codex acting and learning |
 | Reproduce a benchmark experiment | [Recipe catalog](recipes/index.md) | A run using the recipe's data and model setup |
 | Choose a learning method | [Choose a method](methods/index.md) | A suitable template, Evolver, and split plan |
 | Improve your own agent | [Bring your task](tutorials/your-own-task.md) | A pipeline, judge, task description, and run config |
@@ -36,6 +37,7 @@ Passing file checks establishes structural validity. Performance improvement req
 get-started/installation
 get-started/quickstart
 get-started/first-model
+tutorials/codex-plan
 framework/what-is-a-harness-adapter
 faq
 ```
