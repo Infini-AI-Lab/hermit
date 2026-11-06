@@ -257,9 +257,8 @@ hermit eval --config examples/officeqa/skillopt/run_codex.yaml --adapter none
 hermit eval --config examples/officeqa/skillopt/run_codex.yaml --adapter ../utils/seed_adapter
 ```
 
-Codex's workspaces are each call's own, `examples/officeqa/<method>/.logs/<role>/<task>-<id>/workspaces/` (the
-enclosing directory is `agent.params.logs`); the session's working directory is a fresh `work/` there, so no
-repository instructions reach it; each rollout's events, commands included, are in its
+Codex's workspaces are under `~/.cache/hermit/officeqa-codex-actor/` (`agent.params.workspaces`), outside the
+checkout, so no repository instructions reach the session; each rollout's events, commands included, are in its
 `log/agent-codex.jsonl`, which the learning material copies.
 
 ### Through Harbor
@@ -511,7 +510,7 @@ A run's records are under `examples/officeqa/<method>/runs/<run name>/` (`<run>`
 | `<run>/eval/<selector>/results.jsonl` | per attempt: the judge's score and feedback, `tokens`, `wall_s`, log path |
 | `examples/officeqa/<method>/runs/trees/<run name>/` | Git history of the adapter versions |
 | `examples/officeqa/<method>/.logs/rollout/<task>-<id>/agent-logs/0/` | direct-chat rollouts: SkillOpt's prediction files (each call's own `.logs`, the directory the agent sees beside its file; `agent.params.logs` moves them); the learner reads the rollouts' copies in `<run>/learning_material/step_NNNN/trajectories/`, and its own `run_agent` calls' in `<run>/agent_logs/` |
-| `examples/officeqa/<method>/.logs/<role>/<task>-<id>/workspaces/<session>/` | Codex-harness runs: `work/` (the workspace), `log/` (the session's `agent-codex.jsonl`, prompt, last message, deployment, `task.md`), a model key's value scrubbed |
+| `~/.cache/hermit/officeqa-*-codex*/<task>-<id>/` | Codex-harness runs: `work/` (the workspace), `log/` (the session's `agent-codex.jsonl`, prompt, last message, deployment, `task.md`), a model key's value scrubbed after the call |
 | `docker logs oq-egress` | every connection the Codex sessions made or were refused |
 
 `<selector>` is `final`, `none`, `adapter`, or a directory's name such as `seed_adapter`; re-evaluating a selector

@@ -550,15 +550,22 @@ class ContainerAgent:
         from hermit.adapter.session import ENV_ENFORCE
         work = self.work_root / f"{_safe(task.get('id', 'task'))}-{uuid.uuid4().hex[:8]}"
         work.mkdir(parents=True)
-        # Logs and workspaces go to this call's own directory, scrubbed with it afterwards.
-        params = {**self.params, "logs": str(work / "logs"), "workspaces": str(work / "workspaces")}
+        # The agent's logs go to this call's own directory; its workspaces stay where the task puts them
+        # (agent.params.workspaces: short, outside any checkout; Codex 0.164's command runner failed now and then
+        # under a long one), and this call's session there is scrubbed with the call's directory.
+        params = {**self.params, "logs": str(work / "logs")}
         job = {"kind": "agent", "name": self.name, "params": params, "base": str(self.base), "task": task,
                "adapter": str(adapter) if adapter else None}
+        session = None
         try:
             payload = _run_worker(self.box, job, work, home=work, env=framework_env({ENV_ENFORCE: self.enforce}),
                                   timeout=self.timeout)
+            workspace = ((payload.get("output") or {}).get("extra") or {}).get("workspace")
+            session = Path(workspace).parent if workspace else None    # <workspaces>/<task>-<id>: work, home, log
         finally:
             redact_tree(work)                            # what the run keeps of the call: no model key in it
+            if session is not None and session.is_dir():
+                redact_tree(session)
         rec = payload["output"]
         return RunOutput(output=rec.get("output"), log=Path(rec["log"]) if rec.get("log") else None,
                          cost_usd=rec.get("cost_usd"), wall_s=rec.get("wall_s") or 0.0, api_speed=rec.get("api_speed"),

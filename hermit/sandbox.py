@@ -218,7 +218,7 @@ def outside_values(sandbox, value, binds=()):
     root, a bind's target) spelled as it is outside: what a tool's result was translated to comes back as the host
     path the tool reads. Other strings are unchanged."""
     if isinstance(value, str):
-        names = sandbox.inside_names(binds)
+        names = sandbox.inside_names(binds) if hasattr(sandbox, "inside_names") else []
         if any(value == n or value.startswith(n + "/") for n in names):
             return str(sandbox.outside(value, binds))
         return value                                   # anything else (a pattern such as /api//v1) as given
@@ -481,12 +481,27 @@ def _interpreter() -> tuple[list[Path], list[Path]]:
     return shown, list(dict.fromkeys(sites))
 
 
+def _python_code(directory: Path, top: bool = False) -> list[Path]:
+    """The Python code in `directory`, never the data beside it: a package (with __init__.py) whole, a module file,
+    and below a directory without __init__.py (a namespace package, PEP 420) its own packages and modules only; at
+    the top (`top`), setup.py left out."""
+    out = []
+    for c in sorted(directory.iterdir()):
+        if c.name.startswith(".") or c.is_symlink():
+            continue
+        if c.is_dir():
+            out += [c] if (c / "__init__.py").is_file() else _python_code(c)
+        elif c.suffix == ".py" and not (top and c.name == "setup.py"):
+            out.append(c)
+    return out
+
+
 def _dist_sources(dist) -> list[Path]:
     """Where an editable install's code lives: the source directories its finder module maps, or, below a plain
     path its .pth file adds (often the whole checkout, with data and runs beside the code), the distribution's own
     top-level packages and modules (top_level.txt, else its name; without either there, as a backend that writes no
-    top_level.txt leaves it (Hatchling), the modules and the directories holding Python code in that path, a
-    namespace package's included) and nothing else."""
+    top_level.txt leaves it (Hatchling), the Python code in that path: packages, modules, a namespace package's
+    own code, never data beside it) and nothing else."""
     try:
         listed = [n.strip() for n in (dist.read_text("top_level.txt") or "").splitlines() if n.strip()]
     except OSError:
@@ -511,9 +526,7 @@ def _dist_sources(dist) -> list[Path]:
                         for name in tops:
                             out += [c.resolve() for c in _entries(p, name)]   # a native module too
                         if not listed and not any(_entries(p, name) for name in tops):
-                            out += [c.resolve() for c in sorted(p.iterdir()) if c.name != "setup.py" and (
-                                (c.is_dir() and not c.name.startswith(".") and next(c.rglob("*.py"), None)) or
-                                (c.is_file() and c.suffix == ".py"))]     # a namespace package (PEP 420) too
+                            out += [c.resolve() for c in _python_code(p, top=True)]
     return out
 
 

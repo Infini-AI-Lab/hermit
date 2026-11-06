@@ -105,7 +105,8 @@ agent:
     answer: ../utils/task.py:answer       # (last message, task) -> the output; or a pattern, the last match
     collect: ../utils/task.py:collect     # (task, workspace, log) -> facts: the task's own artifacts into the log
     project_doc_max_bytes: 65536          # Codex's cap on AGENTS.md; a deployment past it is refused
-    timeout_s: 3600                       # each call's workspaces lie in its own directory under .logs/
+    timeout_s: 3600
+    workspaces: ~/.cache/hermit/officeqa-codex     # outside any checkout: Codex reads a repository's instructions
 environment:                              # the acting agent's sandbox: here a Docker container per session
   image: "officeqa-codex:0.162.0"
   container: {network: oq-sandbox, proxy: "http://oq-egress:3128"}

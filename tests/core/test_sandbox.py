@@ -1432,6 +1432,9 @@ def test_an_editable_namespace_package_without_top_level_txt_is_shown(tmp_path):
     (src / "nspkg" / "sub" / "__init__.py").write_text("")       # nspkg/ itself has no __init__.py (PEP 420)
     (src / "assets").mkdir()
     (src / "assets" / "table.csv").write_text("a,b\n")          # no Python: not shown
+    (src / "data").mkdir()                                       # a script beside answers (a flat layout's data/)
+    (src / "data" / "prepare.py").write_text("")
+    (src / "data" / "answers.jsonl").write_text("{}")
     site = tmp_path / "site"
     site.mkdir()
     (site / "_ns.pth").write_text(str(src) + "\n")
@@ -1445,4 +1448,4 @@ def test_an_editable_namespace_package_without_top_level_txt_is_shown(tmp_path):
 
         def read_text(self, name):
             return None
-    assert _dist_sources(Dist()) == [(src / "nspkg").resolve()]
+    assert _dist_sources(Dist()) == [(src / "data" / "prepare.py").resolve(), (src / "nspkg" / "sub").resolve()]

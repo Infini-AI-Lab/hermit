@@ -158,7 +158,8 @@ copies the CLI's own login from the user's home.
 What a run keeps and may share is scrubbed of every key value (`hermit/redact.py`); each value of a key-like
 variable of the Trainer (`..._API_KEY`, `..._KEY`, `..._TOKEN`, `..._SECRET`, at least 16 characters) becomes
 `<VARIABLE>`. Scrubbed: the learning material and the copies of `run_agent` logs the learner opens; each acting
-call's directory and its log copy, and each sandboxed judge's directory, after the call (a failed one too); the
+call's directory and its log copy, and each sandboxed judge's directory, after the call (a failed one too), and
+with `environment.image` the session's directory in `agent.params.workspaces` after a call that returned; the
 step records, `steps.jsonl`, the commits, the card, `summary.json` and `hermit eval`'s `results.jsonl`; the adapter
 before each commit; `evolver_access.environment` before each learner call; at the end of the run the learner's
 workspace (output, state, scratch, its CLI's home), `environment.write` and a configured `llm.cli` home; `llm.cli`'s
