@@ -23,7 +23,6 @@ params:
   home: null                       # without a login, the files of the user's Codex home copied for each call; null: auth.json
   tools: [check_spec]              # the Evolve Agent's only Trainer tool (upstream: validate_agent.py)
   web_search: false                # web search, set explicitly: Codex's hosted search runs at the provider, past the sandbox
-  hide: null                       # paths hidden from the Evolve Agent besides examples/tests/docs/.git; null: nothing hidden
   task_field: task                 # the row field naming the benchmark task, which its k rows <task>#1..#k share
                                    # (OfficeQA: uid); a row without it: its id without the #n
   k: null                          # rollouts per task; null: inferred from the rows sharing task_field

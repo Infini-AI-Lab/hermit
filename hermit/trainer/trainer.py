@@ -16,10 +16,13 @@ from __future__ import annotations
 
 import atexit
 
+import dataclasses
 from dataclasses import asdict
 import json
+import os
 import random
 import shutil
+import stat
 import subprocess
 import sys
 import threading
@@ -29,17 +32,20 @@ from pathlib import Path
 
 import yaml
 
-from hermit.adapter.manifest import CARD, MANIFEST, files_of, read_manifest
+from hermit.adapter.manifest import CARD, MANIFEST, read_manifest
 from hermit.agent.model.backends import bindings_of, problems_of, registry
 from hermit.config import Config
 from hermit.agent.evolver.base import (Access, Context, Evolver, FinalResult, Progress, StepContext, StepResult, Usage,
                                          Workspace)
 from hermit.agent.evolver.loader import find, instantiate
 from hermit.agent.model.llm import ChatClient
-from hermit.isolate import HOME_SECRETS, ToolRunner, agent_pipeline, profile
-from hermit.sandbox import AllowlistProxy, Sandbox, network_mode
+from hermit.isolate import CHATGPT_HOSTS, HOME_SECRETS, Recheck, ToolRunner, _safe, agent_pipeline, config_paths, \
+    judge_for, run_secrets, sanitized_copy
+from hermit.redact import redact_name, redact_path, redact_tree, redact_value
+from hermit.sandbox import (AllowlistProxy, Bind, Sandbox, drop_unsafe, hidden_paths, inside_tools, model_access,
+                            set_hidden)
 from hermit.spec import check_spec, repair
-from hermit.task import TaskData, load_callable
+from hermit.task import TaskData
 from hermit.tools import FunctionTool, ToolServer, assemble, evolver_agent
 from hermit.trainer import card
 from hermit.trainer.budget import Budget, BudgetExceeded
@@ -59,16 +65,16 @@ def warnings_for(config: Config, val_given: bool) -> list[str]:
     """Risky settings: warned, never blocked."""
     d, out = config.data, []
     if not d["sandbox"]["enabled"]:
-        out.append("sandbox.enabled is false: what the Evolver starts runs unconfined; it can read anything on this "
-                   "machine, including the test split, and reach the network.")
-    if d["sandbox"].get("env") is None:
-        out.append("sandbox.env is not set: what the Evolver starts inherits every environment variable of the Trainer, "
-                   "including keys kept in variables. List the variables it may see in sandbox.env.")
-    if d["sandbox"]["network"] == "open":
-        out.append("sandbox.network is open: learning material and other data can leave the machine.")
-    if d["sandbox"]["network"] == "restricted" and d["sandbox"]["enabled"]:
-        out.append("sandbox.network is restricted through a proxy (best effort): a program that ignores proxy "
-                   "variables can still reach the network.")
+        out.append("sandbox.enabled is false: what the run starts runs unconfined; the learner can read anything on "
+                   "this machine, including the test split, and reach the network. Not for reported results.")
+    elif d["sandbox"].get("enforce", "required") == "best_effort":
+        out.append("sandbox.enforce is best_effort: without bubblewrap the run starts its processes unconfined (each "
+                   "one is recorded). Not for reported results.")
+    if d["sandbox"]["enabled"] and d["environment"].get("runner") == "host":
+        out.append("environment.runner is host: the acting pipeline runs in the Trainer's process and must isolate the "
+                   "adapter's code it runs itself.")
+    if d["environment"].get("network") == "public":
+        out.append("environment.network is public: the acting agent and the adapter's code reach any host.")
     if d["evolver_access"]["send_material_out"]:
         out.append("evolver_access.send_material_out is true: learning material is sent to an outside service.")
     if val_given and d["data"].get("val"):
@@ -103,12 +109,37 @@ def _task_tool_decls(config: Config) -> list[dict]:
 
 
 def _copy_dir(src: Path, dst: Path) -> None:
+    """A copy of a directory the learner wrote: through the sanitized archive (links that leave it, pipes and devices
+    left out, nothing followed)."""
     if dst.exists():
         shutil.rmtree(dst)
     if src.exists():
-        shutil.copytree(src, dst, symlinks=True)
+        sanitized_copy(src, dst)                         # the learner's unreadable files read (owner_readable)
     else:
         dst.mkdir(parents=True)
+
+
+def _sanitize_in_place(path: Path) -> None:
+    """Replace a directory the learner wrote by its sanitized copy (links that leave it, pipes and devices dropped),
+    so that the host's later reads and writes there (the spec check, the repair, the tree) stay inside it. Its own
+    directory is kept (a sandbox may bind it)."""
+    if not path.is_dir() or path.is_symlink():
+        return
+    clean = path.with_name(path.name + f".clean-{uuid.uuid4().hex[:6]}")
+    os.chmod(path, os.stat(path).st_mode | 0o700)            # left read-only: its entries are replaced below
+    sanitized_copy(path, clean)
+    def writable(function, name, _):          # a directory the learner left read-only: made the owner's again
+        os.chmod(os.path.dirname(name), 0o700)
+        function(name)
+    for child in list(path.iterdir()):
+        if child.is_dir() and not child.is_symlink():
+            os.chmod(child, 0o700)
+            shutil.rmtree(child, onexc=writable)
+        else:
+            child.unlink()
+    for child in list(clean.iterdir()):
+        child.rename(path / child.name)
+    clean.rmdir()
 
 
 class Trainer:
@@ -117,6 +148,8 @@ class Trainer:
         self.python = python or sys.executable
         self.log = log
         d = config.data
+        # What only the judge may read, covered in every other sandbox this run (and the processes it starts) makes.
+        set_hidden(hidden_paths(d["sandbox"].get("hide") or []))
         self.template_dir = config.template_dir()
         self.template = read_manifest(self.template_dir)["template"]
         self.run_name = config.run_name()
@@ -124,23 +157,49 @@ class Trainer:
         self.branch = self.run_name
         self.data = TaskData(config.path(d["data"]["tasks"]), config.path(d["data"]["train"]),
                              config.path(d["data"]["val"]), config.path(d["data"]["test"]))
-        # The spec checks run the adapter's modules in a sandbox, as strictly as the run asks. Set before the first
-        # check_spec (start_from), so no learner-authored code runs on the host unconfined under enforce: required.
-        import hermit.spec as spec_module
-        spec_module.SANDBOX_ENFORCE = d["sandbox"].get("enforce", "required") if d["sandbox"]["enabled"] \
-            else None
+        # The spec checks run the adapter's modules in a strict sandbox, as strictly as the run asks; None: the run's
+        # sandbox is off and they run unconfined like everything else.
+        self.enforce = d["sandbox"].get("enforce", "required") if d["sandbox"]["enabled"] else None
         self.pipeline = None             # set when the run starts: the agent runs in its sandbox, never imported here
-        self.judge = load_callable(f"{d['judge']['path']}:{d['judge']['name']}", config.base)
+        self.judge = None                # set when the run starts (judge_for): a sandboxed judge is never imported here
         self.spec = find(d["evolver"]["name"], config.base)
         self.evolver, self.params = instantiate(self.spec, d["evolver"]["params"],
                                                 backends=registry(d.get("backends")), default_model=d.get("model"))
         self.budget = Budget(**{k: d["trainer"]["budget"].get(k) for k in ("usd", "tokens", "hours")})
         if isinstance(d.get("llm"), dict) and d["llm"].get("cli"):     # a model only a CLI reaches
             from hermit.agent.base.endpoint import cli_model
-            self.llm = cli_model(d["llm"], log_dir=self.run_dir / "llm_sessions")
+            try:
+                self.llm = cli_model(d["llm"], log_dir=self.run_dir / "llm_sessions", sandbox=self._llm_sandbox(d))
+            except BaseException:
+                self._close_sandboxes()                  # its proxy, started for it
+                raise
         else:
             self.llm = ChatClient.from_spec(d["llm"]) if d.get("llm") else None
         self.warnings = warnings_for(config, val_given=True)
+
+    def _scrub_access(self) -> None:
+        """What the learner is shown of the task (evolver_access.environment: an evidence store the agents wrote) holds
+        no model key's value; no agent runs while the learner works."""
+        for path in self.access.environment:
+            redact_path(Path(path).resolve())            # a configured link: its target, which the sandbox shows
+
+    def _llm_sandbox(self, d: dict) -> Sandbox | None:
+        """The sandbox of a model only a CLI reaches (`llm.cli`, isolation: sandbox, the default): each session sees
+        its empty workspace and home, reaches its model's hosts (a ChatGPT login's) through a proxy of its own and
+        holds its model's key; nothing of the run."""
+        spec = d["llm"]
+        if (spec.get("isolation") or "sandbox") != "sandbox":
+            return None
+        keys, hosts, ports = model_access([spec.get("binding")])
+        allow = [*hosts, *(h for h in CHATGPT_HOSTS if spec.get("login") == "chatgpt" and h not in hosts)]
+        records = self.run_dir / "sandbox"
+        self._llm_proxy = AllowlistProxy(allow, log=records / "network-llm.jsonl") if allow else None
+        self._llm_box = Sandbox(enabled=d["sandbox"]["enabled"], network="allowlist" if allow else "no-network",
+                                allow=allow, proxy_url=self._llm_proxy.url if self._llm_proxy else None,
+                                env_allow=keys, forward=ports, enforce=d["sandbox"].get("enforce", "required"),
+                                framework=False, record_dir=records, role="llm",
+                                probe_absent=[*run_secrets(self.config), *HOME_SECRETS])
+        return self._llm_box
 
     # ---------- setup ----------
     def _prepare(self) -> None:
@@ -187,38 +246,55 @@ class Trainer:
             with open(val / "tasks.jsonl", "w") as f:
                 for row in self.data.rows("val"):
                     f.write(json.dumps(row, ensure_ascii=False) + "\n")
-        env = tuple(self.config.path(p) for p in d["evolver_access"]["environment"] or [])
+        env = tuple(config_paths(self.config, "evolver_access.environment", d["evolver_access"]["environment"]))
         self.access = Access(validation=val, environment=env)
-        # The Evolver's own model endpoint is reachable and its key variable passes: they come with the model the
-        # Evolver was given (its binding), whatever sandbox.allow and sandbox.env list.
-        learner = profile(d["sandbox"], "learner")
-        allow, env_allow, binding = list(learner["allow"]), d["sandbox"].get("env"), self.params.get("binding")
-        if isinstance(binding, dict) and binding.get("base_url"):
-            allow += [u for u in (binding["base_url"], binding.get("messages_url")) if u]
-            if env_allow is not None and binding.get("api_key_env") and binding["api_key_env"] not in env_allow:
-                env_allow = [*env_allow, binding["api_key_env"]]
-        network, wants_proxy = network_mode(d["sandbox"]["network"])
+        self._recheck_grants = Recheck([*env, self.ws.task_info], own=self.run_dir)
+        # The learner's sandbox (docs/developer/sandbox-design.md): the workspace under fixed names below /w, its
+        # models, the Trainer's tool endpoint, and the hosts the run declares. A Codex learner on a ChatGPT login
+        # reaches its plan's hosts.
+        ev = d["sandbox"]["evolver"]
         records = self.run_dir / "sandbox"
-        self.proxy = AllowlistProxy(allow, log=records / "network.jsonl") \
-            if (network == "isolated" and wants_proxy and allow) else None
-        # The Evolver sees only what it is given: the workspace (read-write), its accesses, its own code, and what
-        # the task lists in sandbox.read. The task, the answers and the run records are not among them.
-        readable = [self.ws.learning_material, self.ws.task_info, self.ws.history, *([val] if val else []), *env,
-                    self.run_dir / "root", self.spec.directory]
-        # What else the run starts has a sandbox of its own (#11): the agent that does the tasks (rollouts, and
-        # run_agent for the Evolver) and the tools a template or task declares.
+        allow = list(ev.get("allowed_hosts") or [])
+        roles = self.params.get("roles") if isinstance(self.params.get("roles"), dict) else {}   # RRSI's sessions
+        if "chatgpt" in (self.params.get("login"), roles.get("login"),
+                         d["llm"].get("login") if isinstance(d.get("llm"), dict) else None):
+            allow += [h for h in CHATGPT_HOSTS if h not in allow]
+        # The learner reaches its models as Harbor's agents do: the key variables pass, the providers' hosts are
+        # allowed, a server on the loopback (a meter) is forwarded. Its models: the Evolver's, and its roles'.
+        model_keys, model_hosts, model_ports = model_access([self.params.get("binding"), roles.get("binding")])
+        allow += [h for h in model_hosts if h not in allow]
+        atexit.register(self._close_sandboxes)      # whatever is started from here is closed, a failure included
+        self.proxy = AllowlistProxy(allow, log=records / "network.jsonl") if allow else None
+        # What else the run starts has a sandbox of its own: the agent that does the tasks (rollouts, and run_agent
+        # for the Evolver), its judge when sandboxed, and the tools a template or task declares.
         self.pipeline, self._close_pipeline = agent_pipeline(self.config, "rollout", records=records)
+        self.judge = judge_for(self.config, self.pipeline)
         self.tool_runner = ToolRunner(self.config, records=records, work_root=self.run_dir / "tool_calls")
-        atexit.register(self._close_sandboxes)
-        self.sandbox = Sandbox(enabled=learner["enabled"], network=d["sandbox"]["network"], allow=allow,
-                               read=[self.config.path(p) for p in learner["read"]], readable=readable,
-                               writable=[self.ws.adapter, self.ws.state, self.ws.scratch, self.ws.output,
-                                         *[self.config.path(p) for p in learner["write"]]],
+        (self.run_dir / "agent_logs").mkdir(exist_ok=True)       # run_agent's log copies, shown read-only
+        binds = [Bind(self.ws.adapter, "/w/adapter", True), Bind(self.ws.learning_material, "/w/material"),
+                 Bind(self.ws.task_info, "/w/task-info"), Bind(self.ws.history, "/w/history"),
+                 Bind(self.ws.state, "/w/state", True), Bind(self.ws.scratch, "/w/scratch", True),
+                 Bind(self.ws.output, "/w/output", True), Bind(self.run_dir / "root", "/w/root"),
+                 Bind(self.spec.directory, "/w/method"), Bind(self.run_dir / "agent_logs", "/w/agent-logs")]
+        if val:
+            binds.append(Bind(val, "/w/validation"))
+        names = set()
+        for path in env:
+            name = path.name or "environment"
+            while name in names:
+                name += "_"
+            names.add(name)
+            binds.append(Bind(path, f"/w/environment/{name}"))
+        self.sandbox = Sandbox(enabled=d["sandbox"]["enabled"], network="allowlist" if allow else "no-network",
+                               allow=allow, binds=binds, layout=(self.ws.adapter.parent, "/w"),
                                proxy_url=self.proxy.url if self.proxy else None,
-                               env_allow=env_allow, enforce=d["sandbox"].get("enforce", "required"),
-                               packages=learner["packages"], record_dir=records, audit=d["sandbox"].get("audit"),
-                               # The isolation check inside proves these absent: the task's data and the home.
-                               probe_absent=[self.config.path(d["data"]["tasks"]), *HOME_SECRETS])
+                               env_allow=[*(ev.get("env") or []), *model_keys], forward=model_ports,
+                               enforce=d["sandbox"].get("enforce", "required"),
+                               framework=bool(getattr(self.evolver, "sandbox_framework", False)), record_dir=records,
+                               # The isolation check inside proves these absent: the data, the judge, the runs,
+                               # the home's secrets.
+                               probe_absent=[*run_secrets(self.config), *HOME_SECRETS],
+                               limits=dict(ev.get("resources") or {}), role="learner")
         resolved = {"config": d, "template": self.template, "tree": str(self.tree.repo), "branch": self.branch,
                     "start": start, "evolver": {"name": self.spec.name, "directory": str(self.spec.directory),
                                                 "class": self.spec.class_path, "needs": self.spec.needs,
@@ -236,8 +312,8 @@ class Trainer:
             mine = read_manifest(path)["template"]
             if mine != self.template:
                 raise SystemExit(f"start_from {value} belongs to template {mine}, not {self.template}")
-            result = check_spec(path, self.run_dir / "root", python=self.python) if (self.run_dir / "root").exists() \
-                else None
+            result = check_spec(path, self.run_dir / "root", python=self.python, enforce=self.enforce) \
+                if (self.run_dir / "root").exists() else None
             if result is not None and not result.passed:
                 raise SystemExit(f"start_from {value} fails check_spec: {result.to_dict()['issues'][:3]}")
             # Import the folder as a node: a commit on an import branch from the root.
@@ -254,7 +330,11 @@ class Trainer:
 
     # ---------- the loop ----------
     def train(self) -> dict:
-        self._prepare()
+        try:
+            self._prepare()
+        except BaseException:
+            self._close_sandboxes()                 # what the constructor started (the llm's proxy)
+            raise
         d = self.config.data
         done = self._completed_steps()
         if done:
@@ -265,6 +345,8 @@ class Trainer:
         self._last_rollout_commit = done[-1]["parent"] if done and not done[-1].get("bootstrap") else None
         ctx = self._context()
         if not done:
+            self._recheck_grants()               # before every learner call: others' records in its grants
+            self._scrub_access()
             box, stopped, _ = self._call("setup", lambda: self.evolver.setup(ctx), progress=None,
                                          timeout_s=float(d["trainer"]["call_timeout_min"]) * 60)
             if "error" in box or stopped:
@@ -354,7 +436,8 @@ class Trainer:
         tools = assemble(adapter=self.ws.adapter, root=self.run_dir / "root",
                          template_decls=read_manifest(self.run_dir / "root").get("evolver_tools") or [],
                          task_decls=_task_tool_decls(self.config), task_base=self.config.base,
-                         budget=self.budget, agent=tool_agent, python=self.python,
+                         budget=self.budget, agent=tool_agent, python=self.python, enforce=self.enforce,
+                         resolve=self.sandbox.outside, snapshot=self._snapshot_adapter,
                          runner=self.tool_runner if self.tool_runner.enabled else None,
                          within=[self.ws.scratch, self.ws.state])
         tools["run_agent"] = self._run_agent_tool()
@@ -364,47 +447,58 @@ class Trainer:
         return tools
 
     def _snapshot_adapter(self, source: Path) -> Path:
-        """A private copy of the adapter the learner names, made inside the learner's own sandbox: a link it swaps
-        in the meantime can only reach what the learner sees, and the rollout gets the copy, which the learner
-        cannot change while it runs."""
+        """A private copy of the adapter the learner names, made inside the learner's own sandbox (a link it swaps in
+        the meantime can only reach what the learner sees), then sanitized on its way out: links that leave the
+        adapter, special files and setuid bits are dropped. The rollout gets the copy, which the learner cannot
+        change while it runs."""
         dest = self.run_dir / "agent_runs" / uuid.uuid4().hex[:12]
-        dest.mkdir(parents=True)
-        if self.sandbox.enabled and shutil.which("bwrap"):
-            args, env = self.sandbox.wrap(["cp", "-a", "--no-preserve=ownership", f"{source}/.", str(dest)],
-                                          writable=[dest])
-            run = subprocess.run(args, env=env, capture_output=True, text=True, timeout=300)
-            if run.returncode != 0:
-                shutil.rmtree(dest, ignore_errors=True)
-                raise ValueError(f"the adapter could not be copied from the workspace: {run.stderr.strip()[-300:]}")
-        else:
-            shutil.copytree(source, dest, symlinks=True, dirs_exist_ok=True)
+        raw = dest.with_name(dest.name + ".raw")
+        raw.mkdir(parents=True)
+        try:
+            if self.sandbox.enabled and shutil.which("bwrap"):
+                args, env = self.sandbox.wrap(["cp", "-a", "--no-preserve=ownership", f"{source}/.", str(raw)],
+                                              writable=[raw])
+                try:
+                    run = subprocess.run(args, env=env, capture_output=True, text=True, timeout=300)
+                finally:
+                    self.sandbox.abandon(args)               # a report that never came is not waited for
+                if run.returncode != 0:
+                    raise ValueError(f"the adapter could not be copied from the workspace: {run.stderr.strip()[-300:]}")
+            else:
+                shutil.copytree(source, raw, symlinks=True, dirs_exist_ok=True)
+            sanitized_copy(raw, dest)
+        finally:
+            shutil.rmtree(raw, ignore_errors=True)
         return dest
 
     def _run_agent_tool(self) -> FunctionTool:
         """The acting-agent runner: an adapter through the user's pipeline and judge, on train or validation tasks."""
         allowed = {"train": set(self.data.splits["train"]), "val": set(self.data.splits["val"])}
 
-        def run_agent(task_ids: list, adapter: str | None = None) -> dict:
+        def run_agent(task_ids: list, adapter: str | None = None, _snapshot=None) -> dict:
             unknown = [t for t in task_ids if t not in allowed["train"] | allowed["val"]]
             if unknown:
                 raise ValueError(f"only training or validation tasks may be run: {unknown[:5]}")
-            target = Path(adapter) if adapter else self.ws.adapter
+            target = self.sandbox.outside(adapter) if adapter else self.ws.adapter      # a name the learner sees
             if not target.resolve().is_relative_to(self.run_dir.resolve()):
                 raise ValueError("the adapter must be inside the workspace")
             tasks = [self.data.tasks[t] for t in task_ids]
-            snapshot = self._snapshot_adapter(target)
+            snapshot = (_snapshot or self._snapshot_adapter)(target)     # a caller's narrower view may copy it
             try:
                 results = run_tasks(tasks, snapshot, self.pipeline, self.judge,
                                     concurrency=int(self.config["agent"]["concurrency"]), budget=self.budget,
                                     part="evolver")
             finally:
                 shutil.rmtree(snapshot, ignore_errors=True)
-            # A training task's run also names its log (the trajectory, when the pipeline keeps one), and a run whose
-            # pipeline reports how its session ended (a CLI agent's exit code and timeout) says so.
-            return {"results": [{k: r[k] for k in ("id", "status", "output", "judge", "cost_usd", "wall_s")}
-                                | ({"log": r["log"]} if r["id"] in allowed["train"] else {})
-                                | {k: (r.get("pipeline_extra") or {})[k] for k in ("exit_code", "timed_out")
-                                   if k in (r.get("pipeline_extra") or {})} for r in results]}
+            # A training task's run also names its log (the trajectory, when the pipeline keeps one), copied into the
+            # run's agent_logs/ (shown read-only at /w/agent-logs); and a run whose pipeline reports how its session
+            # ended (a CLI agent's exit code and timeout) says so.
+            # Scrubbed of model keys: the agent held its own, and the learner's may be another provider's.
+            shown = [{k: r[k] for k in ("id", "status", "output", "judge", "cost_usd", "wall_s")}
+                     | ({"log": self._visible_log(r)} if r["id"] in allowed["train"] else {})
+                     | {k: (r.get("pipeline_extra") or {})[k] for k in ("exit_code", "timed_out")
+                        if k in (r.get("pipeline_extra") or {})} for r in results]
+            return {"results": redact_value(shown)}
         return FunctionTool("run_agent", "Run an adapter (default: your working copy) on training or validation "
                             "tasks through the task's pipeline and judge; returns outputs and scores, and for "
                             "training tasks the path of each run's log. Its cost counts toward the run's budget.",
@@ -412,6 +506,32 @@ class Trainer:
                             input_schema={"type": "object", "required": ["task_ids"], "additionalProperties": False,
                                           "properties": {"task_ids": {"type": "array", "items": {"type": "string"}},
                                                          "adapter": {"type": "string"}}})
+
+    def _visible_log(self, result: dict) -> str | None:
+        """A run's log as the learner can open it: a copy (a file read once, never through a link; a directory through
+        the sanitized archive; scrubbed of model keys) in the run's agent_logs/, which the learner's sandbox shows read-only at /w/agent-logs. A host path: a server
+        that serves the tool to a sandboxed session names it as the sandbox shows it."""
+        log = Path(result["log"]) if result.get("log") else None
+        if log is None or not os.path.lexists(log):
+            return None
+        place = self.run_dir / "agent_logs" / f"{_safe(result['id'])}-{uuid.uuid4().hex[:6]}"   # this process's own
+        try:
+            if log.is_dir() and not log.is_symlink():
+                sanitized_copy(log.parent, place, [log.name])
+            else:
+                # One file, read once (never through a link, only a regular file): a run of the same task going on
+                # beside this one may be rewriting it, which an archive's size check refuses.
+                fd = os.open(log, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+                with os.fdopen(fd, "rb") as f:
+                    if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
+                        return None
+                    place.mkdir(parents=True)
+                    with open(place / log.name, "wb") as out:
+                        shutil.copyfileobj(f, out)           # streamed: a large trajectory is not held in memory
+        except OSError:
+            return None                      # the run's result stands without its log
+        redact_tree(place)                   # the agent held its model's key; the learner's may be another's
+        return str(place / redact_name(log.name))     # as the scrub may have renamed it
 
     def _message(self, progress: Progress | None, tools: dict) -> str:
         lines = ["# This call", ""]
@@ -518,15 +638,22 @@ class Trainer:
         tools = self._tools(cancel, agent)
         # 5. the Evolver.
         e0 = time.time()
-        with ToolServer(tools) as server:
+        # The endpoint serves sandboxed programs: results name paths as the sandbox shows them (ctx.tools, called in
+        # this process, keep host paths).
+        with ToolServer(inside_tools(tools, self.sandbox)) as server:
             ctx = StepContext(workspace=self.ws, access=self.access, tools=tools, params=self.params, base=self.config.base,
                               message=self._message(progress, tools) + f"Tool endpoint (HTTP): {server.url}\n",
                               sandbox=self.sandbox, cancel=cancel, tool_url=server.url, progress=progress,
                               session=session if d["evolver"]["resume"] else None, agent=agent)
+            self._recheck_grants()               # the learner's declared paths, searched again for others' records
+            self._scrub_access()
             method = self.evolver.bootstrap if what == "bootstrap" else self.evolver.step
             box, stopped, alive = self._call(what, lambda: method(ctx), progress=progress,
                                              timeout_s=float(d["trainer"]["call_timeout_min"]) * 60, cancel=cancel)
         evolver_s = time.time() - e0
+        # What the learner could write is read by this process from here on: no link out of it, no pipe in it.
+        for place in (self.ws.adapter, self.ws.state, self.ws.scratch, self.ws.output):
+            drop_unsafe(place)
         result: StepResult
         if "error" in box:
             result = StepResult("failed", f"{what} raised {type(box['error']).__name__}: {box['error']}")
@@ -545,6 +672,12 @@ class Trainer:
             elif not isinstance(result, StepResult):
                 result = StepResult("failed", f"{what} returned {type(result).__name__}, not StepResult")
         self._spend(result)
+        # What the learner reports is kept (step records, steps.jsonl, the commit message): no model key it held.
+        result = dataclasses.replace(result, status=redact_value(result.status), summary=redact_value(result.summary),
+                                     rationale=redact_value(result.rationale), session=redact_value(result.session),
+                                     extra=redact_value(result.extra), next_tasks=redact_value(result.next_tasks),
+                                     usage=[dataclasses.replace(u, model=redact_value(u.model))
+                                            if isinstance(u, Usage) else redact_value(u) for u in result.usage])
         # 6–7. check, repair, commit.
         commits, repaired, check = self._commit_step(progress, result, parent,
                                                      label="bootstrap (step 0)" if what == "bootstrap" else None)
@@ -552,6 +685,7 @@ class Trainer:
         step_dir = self.run_dir / f"step_{n:04d}"
         _copy_dir(self.ws.output, step_dir / "output")
         _copy_dir(self.ws.state, step_dir / "state")
+        redact_tree(step_dir)                # the learner held its model's key
         (step_dir / "step_result.json").write_text(json.dumps(asdict(result), indent=1, default=str))
         record = {"step": n, "epoch": progress.epoch, "tasks": chunk, **({"bootstrap": True} if what == "bootstrap" else {}),
                   **(selection or {}), "epoch_end": progress.is_epoch_end, **self._request(progress, result),
@@ -568,6 +702,7 @@ class Trainer:
                   "commit": Tree.head(self.checkout), "changed": Tree.head(self.checkout) != parent,
                   "check": check, "repaired": repaired, "check_feedback_next": repaired or None,
                   "budget_after": self.budget.snapshot(), "time": time.strftime("%Y-%m-%dT%H:%M:%S")}
+        record = redact_value(record)        # the rollouts' own fields (api_speed, ...) came from agents holding keys
         with open(self.run_dir / "steps.jsonl", "a") as f:
             f.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
         self.log(f"step {n}: mean score {record['rollout']['mean_score']}, evolver {result.status}: {result.summary}"
@@ -607,6 +742,8 @@ class Trainer:
         if result.status in ("failed", "out_of_budget"):
             return [], [], {"skipped": f"status {result.status}: the previous adapter stays"}
         adapter = self.ws.adapter
+        _sanitize_in_place(adapter)          # the checks, the repair and the tree read and write only what is in it
+        redact_tree(adapter)                 # and no model key the learner held is kept in the tree
         parent_copy = self.tree.export(parent, self.run_dir / "parent_adapter")
         Tree.sync(adapter, self.checkout)
         message = (f"{label} [{self.spec.name}]: {result.summary}\n\n"
@@ -617,12 +754,13 @@ class Trainer:
             message += f"\n{result.rationale.strip()[:2000]}\n"
         if not self._dirty():
             return [], [], {"passed": True, "note": "adapter unchanged"}
-        check = check_spec(adapter, self.run_dir / "root", python=self.python, parent=parent_copy)
+        check = check_spec(adapter, self.run_dir / "root", python=self.python, parent=parent_copy,
+                           enforce=self.enforce)
         if check.passed:
             commit = Tree.commit(self.checkout, message)
             return [commit] if commit else [], [], check.to_dict()
         invalid = Tree.commit(self.checkout, message + f"\n{INVALID_MARK}\n")
-        final, repaired = repair(adapter, self.run_dir / "root", parent_copy, python=self.python)
+        final, repaired = repair(adapter, self.run_dir / "root", parent_copy, python=self.python, enforce=self.enforce)
         Tree.sync(adapter, self.checkout)
         lines = "\n".join(f"- {r['path']}: restored from {r['restored_from']} ({r['reason']})" for r in repaired)
         fixed = Tree.commit(self.checkout, f"repair {label}: {len(repaired)} file(s)\n\n{lines}\n")
@@ -653,15 +791,24 @@ class Trainer:
         head = Tree.head(self.checkout)
         self.tree.export(head, self.ws.adapter, history=True)
         ctx = self._context()
+        self._recheck_grants()
+        self._scrub_access()
         box, stopped, _ = self._call("finalize", lambda: self.evolver.finalize(ctx), progress=None,
                                      timeout_s=float(d["trainer"]["call_timeout_min"]) * 60)
         final: FinalResult | None = box.get("value") if isinstance(box.get("value"), FinalResult) else None
         note = final.summary if final else f"finalize failed ({box.get('error') or stopped}); the last adapter is final"
+        note = redact_value(note)            # the final commit, the card and summary.json keep it
         if final and Path(final.adapter).resolve() != self.ws.adapter.resolve():
             _copy_dir(Path(final.adapter), self.ws.adapter)
         steps = [json.loads(l) for l in (self.run_dir / "steps.jsonl").read_text().splitlines() if l.strip()] \
             if (self.run_dir / "steps.jsonl").exists() else []
         self.material.truncate(steps[-1]["step"] if steps else 0)   # a step stopped midway is discarded
+        llm = d.get("llm") if isinstance(d.get("llm"), dict) else {}
+        for place in (self.ws.output, self.ws.state, self.ws.scratch,      # the learner's own files the run keeps,
+                      self.ws.state.parent / "agent_home",                # its CLI's home (transcripts) too,
+                      *config_paths(self.config, "environment.write", d["environment"].get("write")),  # the agents'
+                      *([Path(os.path.expanduser(str(llm["home"])))] if llm.get("home") else [])):   # llm.cli's home
+            redact_path(Path(place).resolve())
         if final:
             result = StepResult("done", f"finalize: {note}")
             self._commit_step(Progress(steps[-1]["epoch"] if steps else 0, steps[-1]["step"] if steps else 0, True),
@@ -675,11 +822,13 @@ class Trainer:
                            epochs_done=steps[-1]["epoch"] if steps else 0,
                            steps_done=sum(1 for s in steps if not s.get("bootstrap")),
                            budget=self.budget.snapshot(), settings={
-                               "sandbox": d["sandbox"], "evolver_access": d["evolver_access"],
+                               "sandbox": d["sandbox"], "environment": d["environment"],
+                               "judge_mode": d["judge"].get("mode") or "host", "evolver_access": d["evolver_access"],
                                "validation_given": bool(d["data"].get("val"))},
                            warnings=self.warnings, summary=note, report=report)
         (self.ws.adapter / CARD).parent.mkdir(parents=True, exist_ok=True)
         (self.ws.adapter / CARD).write_text(text)
+        redact_tree(self.ws.adapter)
         Tree.sync(self.ws.adapter, self.checkout)
         Tree.commit(self.checkout, f"final: {self.run_name}\n\n{note}\n")
         final_commit = Tree.head(self.checkout)
@@ -696,7 +845,10 @@ class Trainer:
 
     def _close_sandboxes(self) -> None:
         for close in (getattr(self, "_close_pipeline", None), getattr(getattr(self, "tool_runner", None), "close", None),
-                      getattr(getattr(self, "proxy", None), "close", None), getattr(getattr(self, "sandbox", None), "close", None)):
+                      getattr(getattr(self, "proxy", None), "close", None),
+                      getattr(getattr(self, "sandbox", None), "close", None),
+                      getattr(getattr(self, "_llm_proxy", None), "close", None),
+                      getattr(getattr(self, "_llm_box", None), "close", None)):
             if close is not None:
                 try:
                     close()

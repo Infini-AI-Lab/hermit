@@ -33,12 +33,13 @@ class SandboxedServer:
         from hermit.sandbox import program_paths
 
         self.work = Path(tempfile.mkdtemp(prefix="ha-session-"))
-        readable, writable = [root], [self.work]
+        readable, writable, interpreters = [root], [self.work], []
         # The server runs on the framework's Python. A program on another interpreter (a benchmark's own venv) that
         # holds a Session names it through the environment; that installation is shown for the server.
         python = os.environ.get(ENV_PYTHON) or sys.executable
         if Path(python).resolve() != Path(sys.executable).resolve():
-            readable += [Path(python).parent.parent, *program_paths(python)]
+            interpreters = [Path(python).parent.parent]
+            readable += program_paths(python)
         command = [python, "-m", "hermit.runtime.mcp_server", "--adapter", str(root)]
         if deployment is not None:
             path = self.work / "host.json"
@@ -55,9 +56,10 @@ class SandboxedServer:
         self.call_timeout = call_timeout
         env = framework_env({ENV_SANDBOX: "0"})          # the server is the sandbox: its Session serves in place
         self.args, self.env = sandbox.wrap(command, readable=readable, writable=writable, home=self.work,
-                                           env=env, keep=["PYTHONPATH", ENV_SANDBOX])
+                                           env=env, keep=["PYTHONPATH", ENV_SANDBOX], interpreters=interpreters)
         self.log = self.work / "server.log"
-        self._errlog = open(self.log, "w")
+        # Read back from this descriptor, never by its name: the server can write its directory (a link put there).
+        self._errlog = open(self.log, "w+b")
         self.loop = asyncio.new_event_loop()
         self._ready = threading.Event()
         self._stop: asyncio.Event | None = None
@@ -69,7 +71,8 @@ class SandboxedServer:
         if not self._ready.wait(timeout) or self._failure is not None:
             reason = f"{type(self._failure).__name__}: {self._failure}" if self._failure else "it did not start in time"
             self._errlog.flush()
-            tail = self.log.read_text(errors="replace")[-1500:]
+            self._errlog.seek(max(0, os.fstat(self._errlog.fileno()).st_size - 1500))
+            tail = self._errlog.read().decode(errors="replace")
             self.close()
             raise RuntimeError(f"the sandboxed adapter server did not start ({reason}):\n{tail}")
 
@@ -106,6 +109,8 @@ class SandboxedServer:
             await self._stop.wait()
         except BaseException as exc:                     # a server that dies is reported to the caller waiting on it
             self._failure = exc
+            if hasattr(self.sandbox, "abandon"):
+                self.sandbox.abandon(self.args)          # one that never started sends no isolation report
         finally:
             self._client = None
             if reader is not None:

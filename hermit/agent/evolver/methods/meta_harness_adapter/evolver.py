@@ -141,6 +141,8 @@ class MetaHarnessAdapterEvolver(AgentEvolver):
     @staticmethod
     def _save(ctx, state: dict) -> None:
         _write(ctx.workspace.state / STATE, json.dumps(state, ensure_ascii=False, indent=1))
+        # The proposer reads the summary in its sandbox: its paths named as it sees them there.
+        told = ctx.sandbox.relative if getattr(ctx.sandbox, "enabled", False) else str
         lines = []
         for cid in state["order"]:
             c = state["candidates"][cid]
@@ -150,8 +152,8 @@ class MetaHarnessAdapterEvolver(AgentEvolver):
                           "base": c.get("base"), "status": c["status"],
                           "mean_score": round(sum(scores) / len(scores), 4) if scores else None,
                           "tasks": len(evals[-1]["scores"]) if evals else 0,
-                          "rollouts": [str(ctx.workspace.learning_material / e["material"]) for e in evals],
-                          "files": str(ctx.workspace.state / CANDIDATES / cid / "adapter")
+                          "rollouts": [told(str(ctx.workspace.learning_material / e["material"])) for e in evals],
+                          "files": told(str(ctx.workspace.state / CANDIDATES / cid / "adapter"))
                           if c["status"] != "invalid" else None,
                           **({"problems": c["problems"]} if c.get("problems") else {})})
         _write(ctx.workspace.state / SUMMARY, "".join(json.dumps(l, ensure_ascii=False) + "\n" for l in lines))

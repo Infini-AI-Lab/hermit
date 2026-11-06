@@ -29,14 +29,14 @@ evolver:
 llm:                                     # the revision and reflection agents; launch.sh binds it to the learner's meter
   model: fireworks/accounts/fireworks/models/glm-5p3-flash   # launch.sh: learner/<model id>
   extra_body: {reasoning_effort: high}   # launch.sh: MW_EFFORT, the host's effort
-sandbox:                                 # the Evolver runs in the Trainer's process; `network` and `env` govern the
-  enabled: true                          # learner role and the template's checks and tools (the tool role), which reach
-  network: isolated                      # forwarded 127.0.0.1 endpoints only. The adapter's reader always runs so. The
-                                         # host (rollout; eval and check take it too) keeps the launcher's environment and
-  env: []                                # network and reaches the loopback meters directly; `profiles.rollout.network:
-                                         # isolated` would confine it to the 127.0.0.1 URLs its environment names
-  profiles:                              # the agent's sandbox (rollout; eval and check take it too); launch.sh sets both
-    rollout: {read: [$MWM_CLBENCH], write: [$MWM_TASK_WORKDIR]}   # CL-Bench and its .venv; the task's directory
+environment:                         # the task sandbox: the host runner, clbench's checkout and venv
+  read: [../utils/agent, ../utils/task-info/mwm, $MWM_CLBENCH]
+  write: [$MWM_TASK_WORKDIR]       # the run's task directory: evidence, host records
+  env: ["MWM_*", "CLB_*", "MW_*", "LITELLM_*", "REHARNESS_*"]   # the launcher's settings, the reader's relay
+                                   # + the host's litellm key variable (launch.sh): the benchmark's own loop calls
+                                   # its model, the recorded exception (docs/developer/sandbox-design.md)
+sandbox:
+  enabled: true
 trainer:
   run_name: null                   # launch.sh: <tag>-o<i>
   output_dir: runs                 # launch.sh: $MW_RUNS/<tag>

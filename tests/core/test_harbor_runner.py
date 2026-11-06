@@ -444,7 +444,8 @@ def test_stream_steps_through_a_fake_driver(tmp_path, fake_harbor, monkeypatch):
     # A sandboxed worker may not start a driver.
     monkeypatch.setenv("HA_ADAPTER_SANDBOX", "1")
     blocked = agent.run(rows["flow:s3"], None)
-    assert blocked.output["failure_cause"] == "stream_lost" and "sandboxed rollout" in blocked.extra["exception_message"]
+    assert blocked.output["failure_cause"] == "stream_lost" and \
+        "inside the task sandbox" in blocked.extra["exception_message"]
 
 
 def test_socket_path_is_short(tmp_path, monkeypatch):

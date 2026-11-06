@@ -84,7 +84,9 @@ def _adapter_sandbox_env(python: str) -> dict:
     if os.environ.get("HA_ADAPTER_SANDBOX") != "1":
         return {}
     from hermit.adapter.session import ENV_ENFORCE, ENV_PYTHON, ENV_SANDBOX
-    return {ENV_SANDBOX: "1", ENV_ENFORCE: os.environ.get(ENV_ENFORCE, "required"), ENV_PYTHON: python}
+    from hermit.sandbox import ENV_HIDE
+    return {ENV_SANDBOX: "1", ENV_ENFORCE: os.environ.get(ENV_ENFORCE, "required"), ENV_PYTHON: python,
+            **({ENV_HIDE: os.environ[ENV_HIDE]} if os.environ.get(ENV_HIDE) else {})}
 
 
 def check_workspace(adapter: Path, output: Path, host: str) -> dict:

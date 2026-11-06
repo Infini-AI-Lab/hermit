@@ -47,7 +47,7 @@ docs = args.docs.resolve()
 for sub in ("transformed", "jsons"):
     if not (docs / sub).is_dir():
         raise SystemExit(f"{docs / sub} is missing: --docs is treasury_bulletins_parsed/ with transformed/ and jsons/")
-# The documents, linked beside the task: the configs grant the agent's sandbox this link (and cover .private/).
+# The documents, linked beside the task: the configs grant the agent's sandbox this link (.private/ is never granted).
 link = HERE / "documents"
 if link.is_symlink() or link.exists():
     link.unlink()

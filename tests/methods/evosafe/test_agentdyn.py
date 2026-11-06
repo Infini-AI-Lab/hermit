@@ -22,13 +22,6 @@ ROOT = Path(__file__).resolve().parents[3]
 TEMPLATE = ROOT / "hermit/adapter/templates/evosafe"
 
 
-@pytest.fixture(autouse=True)
-def trusted_fixture_checks(monkeypatch):
-    # Only our repository-owned fixtures execute in these unit tests. Production
-    # example remains sandbox.enforce=required; this is not a sandbox test.
-    monkeypatch.setattr("hermit.spec.SANDBOX_ENFORCE", None)
-
-
 class Runtime:
     functions = {}
 

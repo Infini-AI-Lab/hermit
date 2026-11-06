@@ -13,8 +13,8 @@ previous iteration's change manifest (EFFECTIVE ... HARMFUL), run an Agent Debug
 then let an Evolve Agent read the analysis, edit the harness and declare its changes in a manifest the next iteration
 scores. Hermit step N is AHE iteration N: step 1 scores the seed; step N's edits are scored in step N+1. The
 "snapshot of iteration N" is the git commit `learning_material/step_N/summary.json["adapter_commit"]` (the Evolver's
-adapter copy carries the run's git history), so a rollback is `git show <commit>:<path>` and finalize is `git
-archive` of the best-ever commit.
+adapter copy carries the run's git history), so a rollback is `git show <commit>:<path>` and finalize exports
+the best-ever commit object by object (`rollback.export`: no `git archive`, which runs a repository's filters).
 
 One step (`step`):
   1. deterministic pre-step (spec B.3): the records of `learning_material/current` grouped by `params.task_field`
@@ -48,7 +48,7 @@ One step (`step`):
      the previous adapter, so nothing of the step is attributable at step N+1. The Debugger's usage is reported
      either way.
 
-`finalize` (B.9): `final: best_ever` hands back `git archive` of `best_ever.commit` into `scratch/best_adapter`
+`finalize` (B.9): `final: best_ever` hands back `best_ever.commit`, exported into `scratch/best_adapter`
 (`output/final_selection.json`); `final: last`, or no best-ever commit, hands back the working copy.
 
 The pure ports live in the sibling modules (analysis.py, debugger.py, rollback.py), imported inside the methods so
@@ -62,7 +62,6 @@ from datetime import datetime
 import json
 from pathlib import Path
 import shutil
-import subprocess
 import time
 
 from hermit.agent.evolver.agent import AgentEvolver
@@ -369,7 +368,10 @@ class AHEAdapterEvolver(AgentEvolver):
             jobs = D.build_jobs(records, {**dbg, "task_field": task_field}, base=Path(records[0]["_dir"]))
             results, dbg_usage = D.run_jobs(jobs, ctx, dbg, base=self.settings(ctx, "codex"), scratch=ws.scratch)
             usage.append(role_usage(dbg_usage, "debugger"))
-            _, overview = A.write_debugger_analyse(results, analysis_dir, n, detail_label=str(analysis_dir / "detail"))
+            # The Evolve Agent reads the overview in its sandbox: the details named as it sees them there.
+            label = str(analysis_dir / "detail")
+            label = ctx.sandbox.relative(label) if getattr(ctx.sandbox, "enabled", False) else label
+            _, overview = A.write_debugger_analyse(results, analysis_dir, n, detail_label=label)
             dump_json(analysis_dir / "jobs.json", results)
             dump_json(analysis_dir / "usage.json", dataclasses.asdict(dbg_usage))
             debugger_info.update({"jobs": len(results), "fallbacks": sum(1 for r in results if r.get("status") == "fallback"),
@@ -438,10 +440,14 @@ class AHEAdapterEvolver(AgentEvolver):
         if not failed:
             manifest["changes"] = rollback_entries(done) + list(manifest["changes"])
         dump_json(state / "manifests" / f"{name}.json", manifest)
+        from hermit.sandbox import read_regular
         report = ws.output / "report.md"
-        text = report.read_text(encoding="utf-8", errors="replace").strip() if report.is_file() else ""
-        if not text:
-            text = result.summary
+        text = (read_regular(report) or "").strip()        # the session's file: never through a link or a pipe
+        if not text or report.is_symlink() or not report.is_file():
+            text = text or result.summary
+            if report.is_dir() and not report.is_symlink():
+                shutil.rmtree(report)                        # what was there is replaced, never written through
+            report.unlink(missing_ok=True)
             report.write_text(text + "\n", encoding="utf-8")
         if warnings:
             append_text(report, "\n\n" + "\n".join(warnings) + "\n")
@@ -470,16 +476,14 @@ class AHEAdapterEvolver(AgentEvolver):
             dest = ws.scratch / "best_adapter"
             shutil.rmtree(dest, ignore_errors=True)
             dest.mkdir(parents=True)
-            archive = subprocess.run(["git", "-C", str(ws.adapter), "archive", "--format=tar", str(best["commit"])],
-                                     capture_output=True)
-            if archive.returncode == 0:
-                subprocess.run(["tar", "-x", "-C", str(dest)], input=archive.stdout, check=True)
+            from hermit.agent.evolver.methods.ahe_adapter import rollback as R
+            if R.export(ws.adapter, str(best["commit"]), dest):      # object by object: no repository filters
                 final = dest
                 summary = (f"best-ever adapter from step {best.get('step')} (pass@1 {float(best.get('pass_rate') or 0):.1%}, "
                            f"commit {str(best['commit'])[:12]})")
             else:
                 summary = (f"the last adapter (best-ever commit {str(best['commit'])[:12]} of step {best.get('step')} is "
-                           f"not in the adapter's history: {archive.stderr.decode(errors='replace').strip()[:200]})")
+                           "not in the adapter's history)")
         ws.output.mkdir(parents=True, exist_ok=True)
         dump_json(ws.output / "final_selection.json",
                   {"commit": best.get("commit") if final is not ws.adapter else None, "step": best.get("step"),

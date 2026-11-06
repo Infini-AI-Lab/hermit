@@ -1,20 +1,25 @@
-"""The run's sandbox for what an Evolver starts (agents, external programs). Every setting is the task user's.
+"""The bubblewrap core of every sandbox the framework starts (docs/developer/sandbox-design.md). Every setting is the
+run's.
 
-A positive allowlist: inside the sandbox exists only what is granted. Read-only: the system (/usr and the /lib, /bin
-links, a few /etc files), the Python interpreter, the Python distributions the framework needs (the dependency closure
-of `hermit` plus `sandbox.packages`, not every package installed beside it), the `hermit` package
-itself (not the checkout it lives in), the started program's own installation, the granted accesses, the Evolver's
-directory and the task's `sandbox.read`. Read-write: the workspace areas. Nothing else exists inside.
+An allowlist: inside exists only what is granted. Read-only: the system (/usr and the /lib, /bin links, a few /etc
+files), the interpreter with its standard library, the environment the framework runs in (its site directories as
+installed, never what their .pth files add beside them: an editable install's checkout), the distributions `packages`
+names besides it, the hermit package itself (not the checkout it lives in) when `framework`, the started program's own
+installation and the granted paths. Read-write: the granted writable paths. Under names of their own: the binds (the
+evolver's layout). One thing is shown and then covered: what `hide` names (the run's sandbox.hide, a module or package
+in the environment that only the judge may read) and, without `framework`, a hermit package installed in the
+environment, each replaced by an empty file or directory.
 
-network: isolated (default) gives the process its own network namespace with loopback only. The only ways out are
-the forwarded ports: every 127.0.0.1 URL in the command or its environment (the run's tool endpoint, a tool gate, a
-model meter), and the allowlist proxy when `sandbox.allow` names hosts. Each is re-created inside by
-`sandbox_relay.py` and bridged over a Unix socket, so a program that ignores the proxy variables has no route out.
-open: the host network, unrestricted. The older `restricted` means isolated; `none` means isolated without the proxy.
+network: isolated gives the process its own network namespace with loopback only. The only ways out are the forwarded
+ports: the sandbox's own (`forward`: a model server or meter on the loopback), the ones the caller names (a tool
+server), every 127.0.0.1 URL in the environment, and the allowlist proxy when `allow` names hosts (never a URL in the
+command's arguments, where a prompt can carry the learner's text). Each is re-created inside by `sandbox_relay.py` and
+bridged over a Unix socket, so a program that ignores the proxy variables has no route out. open: the host network. The
+run config names these no-network (isolated, no proxy), allowlist (isolated, the proxy) and public (open).
 
-enforce: required (default) refuses to run when bubblewrap is missing; best_effort runs the command unconfined and
-records that it did. `enabled: false` turns the sandbox off. env: `sandbox.env` lists the environment variables
-passed on (plus ALWAYS); null passes all of them.
+enforce: required refuses to run when bubblewrap is missing; best_effort runs the command unconfined and records
+that it did. `enabled: false` turns the sandbox off. env: `env_allow` lists the environment variables passed on
+(plus ALWAYS); None passes all of them. limits: memory, file size and CPU time, set on the command by the relay.
 
 Every wrapped command leaves a record in the run's `sandbox/` directory: what was bound, what was forwarded, which
 environment variables passed, and the isolation check `sandbox_relay.py` ran inside before the command started. The
@@ -22,9 +27,13 @@ proxy writes one line per request to `sandbox/network.jsonl`.
 """
 from __future__ import annotations
 
+import base64
+import dataclasses
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import importlib.metadata
+import fnmatch
+import glob
 import itertools
 import json
 import os
@@ -34,16 +43,21 @@ import select
 import shutil
 import socket
 import socketserver
+import ssl
+import stat
 import subprocess
 import sys
+import tarfile
 import tempfile
 import threading
-from urllib.parse import urlparse
+from typing import NamedTuple
+from urllib.parse import unquote, urlparse
+import urllib.request
 
 
-# Variables the framework itself sets or a program cannot start without; passed even when sandbox.env is a list.
+# Variables the framework itself sets or a program cannot start without; passed whatever the allowlist says.
 ALWAYS = {"PATH", "HOME", "LANG", "LC_ALL", "TERM", "PYTHONPATH", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "HA_CONTEXT",
-          "HA_TOOL_URL"}
+          "HA_TOOL_URL", "HA_SANDBOX_HIDE"}
 SYSTEM_ETC = ("/etc/ld.so.cache", "/etc/ld.so.conf", "/etc/ld.so.conf.d", "/etc/alternatives", "/etc/ssl", "/etc/pki",
               "/etc/resolv.conf", "/etc/hosts", "/etc/nsswitch.conf", "/etc/passwd", "/etc/group", "/etc/localtime",
               "/etc/crypto-policies", "/etc/os-release")
@@ -51,7 +65,8 @@ FRAMEWORK = Path(__file__).resolve().parents[1]          # the checkout; only it
 PACKAGE = Path(__file__).resolve().parent
 DISTRIBUTION = "hermit-harness"                           # the installed distribution (pip name) of this package
 RELAY = PACKAGE / "sandbox_relay.py"
-LOCAL_URL = re.compile(r"https?://(?:127\.0\.0\.1|localhost):(\d+)")
+ENV_HIDE = "HA_SANDBOX_HIDE"         # the run's sandbox.hide as paths: the sandboxes a child process starts cover them
+LOCAL_ANY = re.compile(r"(https?)://(?:127\.0\.0\.1|localhost)(?::(\d+))?(?![\w.:-])")   # a loopback URL
 
 
 def framework_env(extra: dict | None = None, *, no_bytecode: bool = False) -> dict:
@@ -64,28 +79,219 @@ def framework_env(extra: dict | None = None, *, no_bytecode: bool = False) -> di
     return env
 
 
-def run_in_strict_sandbox(command: list[str], *, role: str, readable, enforce: str, timeout: float | None = None,
-                          no_bytecode: bool = False) -> "subprocess.CompletedProcess":
+def read_regular(path, limit: int | None = 1 << 20) -> str | None:
+    """The text of a file a sandboxed process left (its report, its result), read on the host: only a regular file,
+    never through a link (O_NOFOLLOW), never blocking on a pipe (O_NONBLOCK), at most `limit` bytes (None: all of it).
+    None when it is missing or anything else."""
+    try:
+        fd = os.open(str(path), os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError:
+        return None
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return None
+        if limit is not None:
+            return os.read(fd, limit).decode("utf-8", errors="replace")
+        with os.fdopen(os.dup(fd), "rb") as f:            # the whole file (limit None)
+            return f.read().decode("utf-8", errors="replace")
+    finally:
+        os.close(fd)
+
+
+def owner_readable(root: Path) -> None:
+    """`root` and what lies under it readable (files) and searchable (directories) by its owner, as a process that
+    wrote it may have left them otherwise; links are not followed; one this user does not own is left as it is. Each
+    directory is repaired before it is listed."""
+    def repair(path):
+        try:
+            info = os.lstat(path)
+            need = stat.S_IRWXU if stat.S_ISDIR(info.st_mode) else stat.S_IRUSR if stat.S_ISREG(info.st_mode) else 0
+            if need and stat.S_IMODE(info.st_mode) & need != need:
+                os.chmod(path, stat.S_IMODE(info.st_mode) | need)
+        except OSError:
+            pass
+    repair(root)
+    for directory, dirs, files in os.walk(root):       # top down: a directory is repaired before it is entered
+        for name in [*dirs, *files]:
+            repair(os.path.join(directory, name))
+
+
+def sanitized_copy(source: Path, dest: Path, paths=None, max_bytes: int | None = None, exclude=()) -> list[str]:
+    """Copy `paths` (relative to `source`; all of it when None) into `dest` through a tar archive extracted with
+    tarfile's `data` filter: setuid and setgid bits cleared, device files, FIFOs and links that leave the archive
+    refused. Returns what was skipped. The archive is a temporary file, not memory; `max_bytes` caps it, checked as
+    each file is added."""
+    skipped = []
+    with tempfile.TemporaryFile() as buf:
+        with tarfile.open(fileobj=buf, mode="w") as tar:
+            def keep(info):
+                if exclude and set(Path(info.name).parts) & set(exclude):
+                    return None                                  # left out (`exclude`: names such as .git)
+                if max_bytes is not None and buf.tell() + info.size > max_bytes:
+                    raise ValueError(f"{source} holds more than {max_bytes} bytes")
+                return info
+            for rel in (paths if paths is not None else ["."]):
+                item = Path(source) / rel
+                if not os.path.lexists(item):
+                    skipped.append(f"{rel}: missing")
+                    continue
+                # tar keeps a link that is the path's last part, but follows one on the way to it
+                parts = Path(rel).parts[:-1]
+                if any(os.path.islink(Path(source).joinpath(*parts[:i + 1])) for i in range(len(parts))):
+                    skipped.append(f"{rel}: a link on its way")
+                    continue
+                if not os.path.islink(item):
+                    owner_readable(item)                 # what the process that wrote it left unreadable
+                tar.add(str(item), arcname=str(Path(rel)), recursive=True, filter=keep)
+        buf.seek(0)
+        dest.mkdir(parents=True, exist_ok=True)
+        with tarfile.open(fileobj=buf, mode="r") as tar:
+            for member in tar.getmembers():
+                try:
+                    tar.extract(member, dest, filter="data")
+                except tarfile.FilterError as exc:
+                    skipped.append(f"{member.name}: {exc}")
+    return skipped
+
+
+def drop_unsafe(root) -> list[str]:
+    """Remove from a directory a sandboxed session could write what would turn the host's later reads and writes
+    there elsewhere: links that leave it, and anything not a regular file, directory or link (a pipe, a socket, a
+    device). Nothing is followed. Returns what was removed, relative."""
+    root = Path(root)
+    if root.is_symlink() or not root.is_dir():
+        return []
+    real, removed = os.path.realpath(root), []
+    for directory, dirs, files in os.walk(root):
+        for name in [*dirs, *files]:
+            path = os.path.join(directory, name)
+            try:
+                mode = os.lstat(path).st_mode
+            except OSError:
+                continue
+            leaves = stat.S_ISLNK(mode) and not (os.path.realpath(path) + "/").startswith(real.rstrip("/") + "/")
+            special = not (stat.S_ISLNK(mode) or stat.S_ISREG(mode) or stat.S_ISDIR(mode))
+            if leaves or special:
+                if not os.access(directory, os.W_OK | os.X_OK):   # left read-only by the session: the owner's again
+                    os.chmod(directory, stat.S_IMODE(os.lstat(directory).st_mode) | stat.S_IRWXU)
+                os.unlink(path)
+                removed.append(os.path.relpath(path, root))
+        dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(directory, d))]
+    return removed
+
+
+def model_access(specs) -> tuple[list[str], list[str], list[int]]:
+    """What a sandbox needs to reach the models `specs` name (bindings or model specs, their plain form: base_url,
+    messages_url, api_key_env), as Harbor gives an agent its model: (the key variables to pass, the provider hosts
+    to allow, the loopback ports to forward: a local server or a meter in front of a provider)."""
+    keys, hosts, ports = [], [], []
+    for spec in specs:
+        if not isinstance(spec, dict):
+            continue
+        if spec.get("api_key_env"):
+            keys.append(spec["api_key_env"])
+        for field_name in ("base_url", "messages_url"):
+            url = urlparse(spec.get(field_name) or "")
+            if not url.hostname:
+                continue
+            if url.hostname in ("127.0.0.1", "localhost"):
+                ports.append(url.port or (443 if url.scheme == "https" else 80))
+            else:
+                hosts.append(url.hostname)
+    return list(dict.fromkeys(keys)), list(dict.fromkeys(hosts)), sorted(set(ports))
+
+
+def translate_values(sandbox, value, binds=()):
+    """`value` (a tool's result, a context) with every string in it translated as the sandbox shows paths: each string
+    on its own, so nothing a serialization escapes (a non-ASCII directory name) is missed."""
+    if isinstance(value, str):
+        return sandbox.translate(value, binds)
+    if isinstance(value, dict):
+        return {(sandbox.translate(k, binds) if isinstance(k, str) else k): translate_values(sandbox, v, binds)
+                for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [translate_values(sandbox, v, binds) for v in value]
+    if isinstance(value, Path):
+        return sandbox.translate(str(value), binds)
+    return value
+
+
+def outside_values(sandbox, value, binds=()):
+    """`value` (a tool's arguments) with every absolute path that lies under a name inside the sandbox (the layout
+    root, a bind's target) spelled as it is outside: what a tool's result was translated to comes back as the host
+    path the tool reads. Other strings are unchanged."""
+    if isinstance(value, str):
+        names = sandbox.inside_names(binds) if hasattr(sandbox, "inside_names") else []
+        if any(value == n or value.startswith(n + "/") for n in names):
+            return str(sandbox.outside(value, binds))
+        return value                                   # anything else (a pattern such as /api//v1) as given
+    if isinstance(value, dict):
+        return {outside_values(sandbox, k, binds): outside_values(sandbox, v, binds) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [outside_values(sandbox, v, binds) for v in value]
+    return value
+
+
+def inside_tools(tools, sandbox, binds=()):
+    """The tools as a sandboxed session calls them through a server: each result with the host paths it names spelled
+    as the sandbox shows them (a run's log copied into the run's agent_logs/ is /w/agent-logs/...), and each argument
+    that names a path inside spelled back as the host's, so a result handed on to another tool still resolves. The
+    tools themselves are unchanged: called in this process, they keep answering with host paths. A dict or a
+    sequence, as given."""
+    import copy
+    if sandbox is None or not getattr(sandbox, "enabled", False) or not hasattr(sandbox, "translate"):
+        return tools
+
+    def wrapped(tool):
+        out = copy.copy(tool)
+        fn = tool.fn
+        out.fn = lambda **arguments: translate_values(sandbox, fn(**outside_values(sandbox, arguments, binds)), binds)
+        return out
+    if isinstance(tools, dict):
+        return {name: wrapped(tool) for name, tool in tools.items()}
+    return [wrapped(tool) for tool in tools]
+
+
+def run_in_strict_sandbox(command: list[str], *, role: str, readable, enforce: str | None,
+                          timeout: float | None = None, no_bytecode: bool = False) -> "subprocess.CompletedProcess":
     """Run `command` in a strict sandbox and return the finished process. The adapter's or template's own modules
     (the learner's work) run here, never with the caller's network or keys: an isolated network, only `readable`
-    shown read-only, and only PYTHONPATH kept. The caller decides what a non-zero exit means."""
+    shown read-only, and only PYTHONPATH kept. `enforce` is the run's sandbox.enforce, or None when the run's
+    sandbox is off (sandbox.enabled: false), and the command then runs unconfined like everything else the run
+    starts. The caller decides what a non-zero exit means."""
     keep = ["PYTHONPATH", *(["PYTHONDONTWRITEBYTECODE"] if no_bytecode else [])]
-    box = Sandbox(role=role, network="isolated", env_allow=keep, readable=[Path(p) for p in readable],
-                  enforce=enforce)
+    box = Sandbox(enabled=enforce is not None, role=role, network="isolated", env_allow=keep,
+                  readable=[Path(p) for p in readable], enforce=enforce or "required")
     try:
         args, env = box.wrap(command, env=framework_env(no_bytecode=no_bytecode), keep=keep)
         return subprocess.run(args, capture_output=True, text=True, timeout=timeout, env=env)
     finally:
         box.close()
-NETWORKS = {"isolated": ("isolated", True), "restricted": ("isolated", True), "none": ("isolated", False),
-            "open": ("open", False)}
+
+
+NETWORK_MODES = ("no-network", "allowlist", "public")            # what a run config may name
+NETWORKS = {"no-network": ("isolated", False), "allowlist": ("isolated", True), "public": ("open", False),
+            "isolated": ("isolated", True), "open": ("open", False)}       # the last two: the framework's own callers
 
 
 def network_mode(value: str) -> tuple[str, bool]:
-    """sandbox.network -> (isolated | open, whether the allowlist proxy is wanted)."""
+    """A network mode -> (isolated | open, whether the allowlist proxy is wanted)."""
     if value not in NETWORKS:
-        raise ValueError(f"sandbox.network must be one of {sorted(NETWORKS)}, not {value!r}")
+        raise ValueError(f"network must be one of {list(NETWORK_MODES)}, not {value!r}")
     return NETWORKS[value]
+
+
+def _runs_on_python(found: str) -> bool:
+    """Whether a program is a script whose #! line names a Python interpreter."""
+    try:
+        with open(os.path.realpath(found), "rb") as f:
+            line = f.readline(512)
+    except OSError:
+        return False
+    words = line[2:].decode(errors="replace").split() if line.startswith(b"#!") else []
+    if words and words[0].endswith("/env"):
+        words = [w for w in words[1:] if not w.startswith("-")]
+    return bool(words) and os.path.basename(words[0]).startswith("python")
 
 
 def program_paths(executable: str, depth: int = 2) -> list[Path]:
@@ -147,32 +353,70 @@ def package_closure(roots: list[str]) -> list[importlib.metadata.Distribution]:
     requirement asks for them). A requirement that is not installed is skipped."""
     from packaging.requirements import Requirement    # a dependency of hermit: pip's own copy is not importable
     seen: dict[str, importlib.metadata.Distribution] = {}
+    asked: dict[str, set] = {}                         # the extras each distribution was asked for so far
     todo = [(name, ()) for name in roots]
     while todo:
         name, extras = todo.pop()
-        if _canonical(name) in seen:
-            continue
-        try:
-            dist = importlib.metadata.distribution(name)
-        except importlib.metadata.PackageNotFoundError:
-            continue
-        seen[_canonical(name)] = dist
-        for text in dist.requires or []:
+        key = _canonical(name)
+        first = key not in seen
+        if first:
+            try:
+                seen[key] = importlib.metadata.distribution(name)
+            except importlib.metadata.PackageNotFoundError:
+                continue
+            asked[key] = set()
+        wanted = set(extras) - asked[key]
+        if not first and not wanted:
+            continue                                   # visited, and asked for nothing more
+        asked[key] |= wanted
+        for text in seen[key].requires or []:
             req = Requirement(text)
-            if req.marker and not any(req.marker.evaluate({"extra": e}) for e in (extras or ("",))):
+            if req.marker is None:
+                if not first:
+                    continue                           # followed on the first visit
+            elif not any(req.marker.evaluate({"extra": e}) for e in ({"", *wanted} if first else wanted)) or \
+                    (not first and req.marker.evaluate({"extra": ""})):
                 continue
             todo.append((req.name, tuple(req.extras)))
     return list(seen.values())
 
 
+def _namespace(directory: Path) -> bool:
+    """Whether a package directory is a namespace other distributions share: no __init__.py (PEP 420), or one that
+    only extends the path (pkgutil.extend_path, pkg_resources.declare_namespace)."""
+    init = directory / "__init__.py"
+    if not init.is_file():
+        return True
+    try:
+        text = init.read_text(errors="replace")[:4096]
+    except OSError:
+        return False
+    return "extend_path" in text or "declare_namespace" in text
+
+
 def distribution_paths(dists) -> list[Path]:
-    """The top-level entries (package directories, modules, .dist-info) the given distributions installed."""
+    """The entries the given distributions installed: their top-level packages, modules and .dist-info; below a
+    namespace shared with others (google/, opencensus/) the first regular package on each file's path (or the file),
+    with the namespaces' own __init__.py, so a namespace sibling of another distribution is not shown."""
     out = set()
     for dist in dists:
         for f in dist.files or []:
             parts = Path(f).parts
-            if parts and parts[0] != "..":
-                out.add(Path(dist.locate_file(parts[0])))
+            if not parts or parts[0] == "..":
+                continue
+            root = Path(dist.locate_file(""))
+            top = root / parts[0]
+            if len(parts) == 1 or parts[0].endswith((".dist-info", ".egg-info")) or not top.is_dir() \
+                    or not _namespace(top):
+                out.add(top)
+                continue
+            for i in range(1, len(parts)):
+                candidate = root.joinpath(*parts[:i + 1])
+                if (candidate.parent / "__init__.py").is_file():
+                    out.add(candidate.parent / "__init__.py")          # each namespace's own initializer
+                if i == len(parts) - 1 or (candidate.is_dir() and not _namespace(candidate)):
+                    out.add(candidate)
+                    break
     return sorted(out)
 
 
@@ -228,19 +472,224 @@ def _venv_bases(paths, writable=()) -> list[Path]:
     return out
 
 
-def _python_paths(packages: list[str]) -> list[Path]:
-    """What the framework's Python needs: the interpreter with its standard library, the virtual environment's own
-    files (not its site-packages as a whole), and the needed distributions."""
-    out = [Path(sys.base_prefix), Path(sys.executable).resolve().parent.parent, *_venv_paths()]
-    if "*" in packages:
-        out += _installed_paths()
-        packages = [p for p in packages if p != "*"]
-    return out + distribution_paths(package_closure([DISTRIBUTION, *packages]))
+def _interpreter() -> tuple[list[Path], list[Path]]:
+    """What the interpreter needs, without the packages installed beside it: (read-only paths, site directories to
+    replace with an empty directory). The installation's lib/ (the standard library and the shared libraries C
+    extensions load), its ssl/ (a conda installation's certificates), the executable and the virtual environment's
+    own files. Every site-packages directory under them, and every system Python's under /usr, is replaced by an empty
+    one; the distributions a sandbox shows are bound back into it."""
+    real = Path(sys.executable).resolve()
+    # Its other names beside it (python3 next to python): PATH inside leads with this directory.
+    siblings = [p for p in Path(sys.executable).parent.glob("python*") if p.resolve() == real]
+    shown, sites = [Path(sys.executable), real, *siblings, *_venv_paths()], []
+    prefixes = [Path(sys.base_prefix), Path(sys.prefix), Path(sys.executable).resolve().parent.parent]
+    for prefix in dict.fromkeys(prefixes):
+        for name in ("lib", "lib64", "ssl"):
+            if (prefix / name).is_dir() and not (prefix / name).is_symlink():
+                shown.append(prefix / name)
+        # every Python version's under it (lib/ is shown whole: a conda prefix may hold python3.11/ beside 3.12/)
+        sites += [Path(p) for p in sorted(glob.glob(str(prefix / "lib*" / "python3*" / "*-packages")))
+                  if p.endswith(("/site-packages", "/dist-packages")) and os.path.isdir(p)]
+    # And the interpreter's own list (a Debian system Python's /usr/lib/python3/dist-packages, /usr/local/...), and
+    # every system Python's under /usr, which is shown whole whatever interpreter runs (a conda one, say).
+    import site
+    sites += [Path(p) for p in site.getsitepackages() if os.path.isdir(p)]
+    sites += [Path(p) for pattern in ("/usr/lib*/python3*/*-packages", "/usr/local/lib*/python3*/*-packages")
+              for p in sorted(glob.glob(pattern)) if p.endswith(("/site-packages", "/dist-packages"))
+              and os.path.isdir(p)]
+    return shown, list(dict.fromkeys(sites))
+
+
+def _python_code(directory: Path, top: bool = False) -> list[Path]:
+    """The Python code in `directory`, never the data beside it: a package (with __init__.py) whole, a module file,
+    and below a directory without __init__.py (a namespace package, PEP 420) its own packages and modules only; at
+    the top (`top`), setup.py left out."""
+    import importlib.machinery as m
+    out = []
+    for c in sorted(directory.iterdir()):
+        if c.name.startswith(".") or c.is_symlink():
+            continue
+        if c.is_dir():
+            out += [c] if (c / "__init__.py").is_file() else _python_code(c)
+        elif (c.suffix == ".py" and not (top and c.name == "setup.py")) or \
+                c.name.endswith(tuple(m.EXTENSION_SUFFIXES)):      # a native module too
+            out.append(c)
+    return out
+
+
+def _dist_sources(dist) -> list[Path]:
+    """Where an editable install's code lives: the source directories its finder module maps, or, below a plain
+    path its .pth file adds (often the whole checkout, with data and runs beside the code), the distribution's own
+    top-level packages and modules (top_level.txt, else its name; without either there, as a backend that writes no
+    top_level.txt leaves it (Hatchling), the Python code in that path: packages, modules, a namespace package's
+    own code, never data beside it) and nothing else."""
+    try:
+        listed = [n.strip() for n in (dist.read_text("top_level.txt") or "").splitlines() if n.strip()]
+    except OSError:
+        listed = []
+    tops = listed or [re.sub(r"[-.]+", "_", dist.metadata["Name"]).lower()]
+    out = []
+    for f in dist.files or []:
+        name = Path(f).name
+        if name.endswith(".pth"):
+            located = Path(dist.locate_file(f))
+            try:
+                lines = located.read_text().splitlines()
+            except OSError:
+                continue
+            for line in lines:
+                line = line.strip()
+                if line.startswith(("import ", "import\t")):
+                    out += _editable_finder_paths(located.parent, line)
+                elif line and not line.startswith("#"):
+                    p = Path(line) if os.path.isabs(line) else (located.parent / line)
+                    if p.is_dir():
+                        for name in tops:
+                            out += [c.resolve() for c in _entries(p, name)]   # a native module too
+                        if not listed and not any(_entries(p, name) for name in tops):
+                            out += [c.resolve() for c in _python_code(p, top=True)]
+    return out
+
+
+def _environment_sites() -> list[Path]:
+    """The site directories of the environment the framework runs in: the ones on its sys.path (a virtual
+    environment's own; its base installation's only when it includes them; the user's when enabled)."""
+    import site
+    on_path = {os.path.realpath(p) for p in sys.path if p}
+    found = [*site.getsitepackages(), site.getusersitepackages()]
+    return [Path(p) for p in dict.fromkeys(found) if os.path.isdir(p) and os.path.realpath(p) in on_path]
+
+
+def _python_paths(packages: list[str]) -> tuple[list[Path], list[Path]]:
+    """(read-only paths, site directories shown empty): the interpreter, the environment's site directories as
+    installed, and the distributions `packages` names (with their dependencies) that lie outside them: an editable
+    install's package, one on PYTHONPATH ("*": also every path the environment's .pth files add). Every other
+    interpreter's site directory (a venv's base installation, a system Python under /usr) is shown empty."""
+    shown, sites = _interpreter()
+    environment = _environment_sites()
+    own = {os.path.realpath(p) for p in environment}
+    sites = [p for p in sites if os.path.realpath(p) not in own]
+    dists = package_closure([p for p in packages if p != "*"])
+    home = Path.home().resolve()
+    sources = [s for d in dists for s in _dist_sources(d)
+               if s.resolve() != FRAMEWORK and not home.is_relative_to(s.resolve())]   # the checkout: PACKAGE alone
+    extra = [*distribution_paths(dists), *sources, *(_installed_paths() if "*" in packages else [])]
+    extra = [p for p in extra if not any(p == e or _under(p, e) for e in environment)]
+    return shown + environment + extra, sites
+
+
+def _copies(name: str) -> list[Path]:
+    """Every copy of a top-level module or package on this interpreter's path: a package's directory, a module's
+    file, an extension module."""
+    out = []
+    for entry in sys.path:
+        if entry and os.path.isdir(entry):
+            out += _entries(Path(entry), name)
+    return out
+
+
+def _in_archives(name: str) -> bool:
+    """Whether a zip or wheel on this interpreter's path holds the top-level module or package `name`."""
+    import zipfile
+    for entry in sys.path:
+        if entry and os.path.isfile(entry) and zipfile.is_zipfile(entry):
+            try:
+                with zipfile.ZipFile(entry) as z:
+                    if any(n == f"{name}.py" or n.startswith(f"{name}/") for n in z.namelist()):
+                        return True
+            except (OSError, zipfile.BadZipFile):
+                continue
+    return False
+
+
+def _entries(directory: Path, name: str) -> list[Path]:
+    """`name` as a package directory, a source file or an extension module (every suffix this interpreter loads)
+    in `directory`."""
+    import importlib.machinery as m
+    return [c for c in [directory / name, *(directory / f"{name}{s}" for s in
+                                            [*m.SOURCE_SUFFIXES, *m.BYTECODE_SUFFIXES, *m.EXTENSION_SUFFIXES])]
+            if c.exists()]
+
+
+def hidden_paths(names) -> list[Path]:
+    """sandbox.hide: each module or package name (`pkg.scoring`) -> every installed copy of it on the framework's
+    path (a package's directory, a module's file), found without importing anything: no package's __init__ runs. One
+    inside another hidden directory is left out (that directory covers it)."""
+    import importlib.util
+    out = []
+    for name in names:
+        if not re.fullmatch(r"[A-Za-z_]\w*(\.[A-Za-z_]\w*)*", str(name)):
+            raise ValueError(f"sandbox.hide names {name!r}: not a module or package name (pkg.module)")
+        parts = str(name).split(".")
+        try:
+            spec = importlib.util.find_spec(parts[0])
+        except (ImportError, ValueError):
+            spec = None
+        found = []
+        if spec is not None:          # an editable install's finder maps it to where no sys.path entry leads
+            found = [Path(p) for p in spec.submodule_search_locations or []] or \
+                ([Path(spec.origin)] if spec.origin and os.path.isfile(spec.origin) else [])
+        found += _copies(parts[0])
+        if any(not os.path.exists(p) for p in found) or _in_archives(parts[0]):   # a zip or wheel: nothing to cover
+            raise ValueError(f"sandbox.hide names {name}, which is imported from an archive; it cannot be covered")
+        for part in parts[1:]:
+            found = [c for d in found if d.is_dir() for c in _entries(d, part)]
+        if not found:
+            raise ValueError(f"sandbox.hide names {name}, which is not installed in the framework's environment")
+        out += [p.resolve() for p in found]
+    out = list(dict.fromkeys(out))
+    return [p for p in out if not any(q != p and q.is_dir() and p.is_relative_to(q) for q in out)]
+
+
+def _covered(paths) -> list[Path]:
+    """What covering `paths` covers: each, and beside a module file its bytecode (the package's whole __pycache__,
+    where a cache the judge's import writes later lands too, and a legacy .pyc beside it)."""
+    out = []
+    for p in map(Path, paths):
+        out.append(p)
+        if p.suffix == ".py":
+            out += [c for c in (p.parent / "__pycache__", p.with_suffix(".pyc")) if c.exists()]
+    return list(dict.fromkeys(out))
+
+
+def set_hidden(paths) -> None:
+    """The run's sandbox.hide, for every sandbox this process and the processes it starts make (ENV_HIDE). A hidden
+    module's __pycache__ is made now, so that a cache the judge's import writes later lands in a covered directory."""
+    for p in map(Path, paths):
+        if p.suffix == ".py":
+            try:
+                (p.parent / "__pycache__").mkdir(exist_ok=True)
+            except OSError:
+                pass                                   # an installation not writable: no cache is written there
+    if paths:
+        os.environ[ENV_HIDE] = os.pathsep.join(str(p) for p in paths)
+    else:
+        os.environ.pop(ENV_HIDE, None)
+
+
+def _env_hidden() -> list[Path]:
+    return [Path(p) for p in os.environ.get(ENV_HIDE, "").split(os.pathsep) if p]
+
+
+_EMPTY: list[str] = []
+
+
+def _empty_file() -> str:
+    """One empty read-only file of this process, bound over each hidden file (/dev/null cannot be opened where the
+    mount is nodev)."""
+    if not _EMPTY:
+        fd, path = tempfile.mkstemp(prefix="ha-empty-")
+        os.close(fd)
+        os.chmod(path, 0o444)
+        import atexit
+        atexit.register(lambda: os.path.exists(path) and os.unlink(path))
+        _EMPTY.append(path)
+    return _EMPTY[0]
 
 
 def _editable_finder_paths(directory: Path, line: str) -> list[Path]:
-    """The source directories of a setuptools editable install that imports a finder (`import __editable___x_finder;
-    ...install()`): the finder module's MAPPING names them."""
+    """The sources of a setuptools editable install that imports a finder (`import __editable___x_finder;
+    ...install()`): the package directories and module files its MAPPING names."""
     import ast
     out = []
     for module in re.findall(r"import\s+(__editable__[\w.]*finder)", line):
@@ -249,14 +698,22 @@ def _editable_finder_paths(directory: Path, line: str) -> list[Path]:
         except (OSError, SyntaxError):
             continue
         for node in ast.walk(tree):
-            if isinstance(node, ast.Assign) and any(getattr(t, "id", None) == "MAPPING" for t in node.targets):
-                try:
-                    mapping = ast.literal_eval(node.value)
-                except ValueError:
-                    continue
-                for value in mapping.values():
-                    p = Path(value)
-                    out.append(p.parent if p.is_file() else p)
+            # MAPPING = {...} or, as current setuptools writes it, MAPPING: dict[str, str] = {...}
+            targets = node.targets if isinstance(node, ast.Assign) else \
+                [node.target] if isinstance(node, ast.AnnAssign) and node.value is not None else []
+            if not any(getattr(t, "id", None) == "MAPPING" for t in targets):
+                continue
+            try:
+                mapping = ast.literal_eval(node.value)
+            except ValueError:
+                continue
+            for value in mapping.values():
+                p = Path(value)
+                # a package directory, or a module file itself (never the directory around it: the checkout)
+                if not p.exists():                     # a module mapped without its suffix: .py or native
+                    p = next(iter(_entries(p.parent, p.name)), p)
+                if p.exists():
+                    out.append(p)
     return out
 
 
@@ -296,6 +753,7 @@ class _Bridges:
     def __init__(self):
         self.dir = Path(tempfile.mkdtemp(prefix="ha-sbx-"))
         self._ports: dict[int, socket.socket] = {}
+        self._reports: dict[str, socket.socket] = {}         # report listeners still waiting
         self._lock = threading.Lock()
 
     def socket_for(self, port: int) -> Path:
@@ -332,6 +790,8 @@ class _Bridges:
         server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         server.bind(str(path))
         server.listen(1)
+        with self._lock:
+            self._reports[str(path)] = server
 
         def wait():
             try:
@@ -349,105 +809,305 @@ class _Bridges:
             finally:
                 server.close()
                 path.unlink(missing_ok=True)
+                with self._lock:
+                    self._reports.pop(str(path), None)
         threading.Thread(target=wait, daemon=True).start()
         return path
 
+    def cancel(self, path) -> None:
+        """A report that will not come (the command was never started): its listener closed."""
+        with self._lock:
+            server = self._reports.pop(str(path), None)
+        if server is not None:
+            try:
+                server.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            server.close()
+
     def close(self):
         with self._lock:
-            for server in self._ports.values():
+            for server in [*self._ports.values(), *self._reports.values()]:
+                try:
+                    server.shutdown(socket.SHUT_RDWR)     # a thread blocked in accept() returns
+                except OSError:
+                    pass
                 server.close()
             self._ports.clear()
+            self._reports.clear()
         shutil.rmtree(self.dir, ignore_errors=True)
+
+
+_COUNTERS: dict[tuple[str, str], "itertools.count"] = {}
+_COUNTERS_LOCK = threading.Lock()
+
+
+def _scrubbed(value):
+    """`value` with every model key's value replaced (hermit.redact), for the records the sandbox writes; as given
+    where that module is not shown (a learner's view that grants this file alone writes no record)."""
+    try:
+        from hermit.redact import redact_value
+    except ImportError:
+        return value
+    return redact_value(value)
+
+
+def _record_counter(record_dir: Path | None, role: str):
+    """The numbering of a role's records in a directory, one per process: every Sandbox writing there (a view, a
+    resumed run's new one) takes the next number, after the records already there."""
+    key = (os.path.realpath(record_dir) if record_dir else "", role)
+    with _COUNTERS_LOCK:
+        if key not in _COUNTERS:
+            taken = [int(m.group(1)) for f in (Path(record_dir).glob(f"{role}-*.json") if record_dir else [])
+                     if (m := re.fullmatch(rf"{re.escape(role)}-(\d+)\.json", f.name))]
+            _COUNTERS[key] = itertools.count(max(taken, default=0) + 1)
+        return _COUNTERS[key]
+
+
+class Bind(NamedTuple):
+    """A path shown inside under a name of its own: `source` (outside) at `target` (inside)."""
+    source: Path
+    target: str
+    writable: bool = False
+
+
+LIMITS = {"memory_mb", "file_mb", "cpu_s"}
+PROXY_VARS = ("HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy")
+START = r"(?<![\w.~/-])"                          # where a path starts: not inside a longer one (/mirror/data)
+END = r"(?=$|/|[\s\"'`:;,)\]}>]|\.(?:\s|$))"      # where a path ends in running text
 
 
 @dataclass
 class Sandbox:
     enabled: bool = True
-    network: str = "isolated"                            # isolated | open (or the older restricted | none)
+    network: str = "isolated"                            # isolated | open (config: no-network | allowlist | public)
     allow: list[str] = field(default_factory=list)       # hosts the proxy lets through
-    read: list[Path] = field(default_factory=list)       # the task's sandbox.read
-    writable: list[Path] = field(default_factory=list)   # the workspace areas
-    readable: list[Path] = field(default_factory=list)   # granted accesses, the Evolver's directory, ...
+    writable: list[Path] = field(default_factory=list)   # read-write, at their own paths
+    readable: list[Path] = field(default_factory=list)   # read-only, at their own paths
+    binds: list[Bind] = field(default_factory=list)      # shown under names of their own (the evolver's layout)
+    layout: tuple[Path, str] | None = None               # (outside, inside): the working directory's root, not bound
     proxy_url: str | None = None
-    env_allow: list[str] | None = None                   # None: every variable passes; else only these (+ ALWAYS)
+    env_allow: list[str] | None = None                   # None: every variable passes; else only these (+ ALWAYS);
+                                                         # a name may be a pattern (MWM_*)
     enforce: str = "required"                            # required | best_effort
-    packages: list[str] = field(default_factory=list)    # Python distributions to show beside the framework's ("*": all)
+    packages: list[str] = field(default_factory=list)    # distributions to show besides the environment's
+                                                         # ("*": what its .pth files add too)
+    framework: bool = True                               # show the hermit package
+    hide: list[Path] = field(default_factory=_env_hidden)    # covered: what only the judge may read (sandbox.hide)
     record_dir: Path | None = None                       # where each wrapped command leaves its record
     probe_absent: list[Path] = field(default_factory=list)   # paths the isolation check must find missing
-    masked: list[Path] = field(default_factory=list)     # paths inside a bound directory to cover (a run's secrets)
-    audit: str | None = None                             # files: strace every file access from outside, beside the record
+    limits: dict = field(default_factory=dict)           # memory_mb, file_mb, cpu_s: per process, set before exec
     role: str = "learner"
+    forward: list[int] = field(default_factory=list)     # loopback ports every command reaches (a model meter)
+    sockets: dict = field(default_factory=dict)          # isolated network: {port inside: Unix socket outside}
 
     def __post_init__(self):
         self.network, _ = network_mode(self.network)
         if self.enforce not in ("required", "best_effort"):
             raise ValueError("sandbox.enforce must be required or best_effort")
-        if self.audit not in (None, "files"):
-            raise ValueError("sandbox.audit must be null or files")
+        unknown = set(self.limits) - LIMITS
+        if unknown:
+            raise ValueError(f"sandbox limits: unknown keys {sorted(unknown)}; known: {sorted(LIMITS)}")
+        self.binds = [Bind(Path(b[0]), str(b[1]), bool(b[2]) if len(b) > 2 else False) for b in self.binds]
         self._bridges: _Bridges | None = None
-        self._empty: str | None = None
+        self.last_record: Path | None = None             # the record of the latest wrapped command
         self._setup = threading.Lock()                   # concurrent first calls (an agent's concurrency) share one
-        # Number records after the ones already there: a resumed run builds a new Sandbox in the same run directory.
-        taken = [int(m.group(1)) for f in (self.record_dir.glob(f"{self.role}-*.json") if self.record_dir else [])
-                 if (m := re.fullmatch(rf"{re.escape(self.role)}-(\d+)\.json", f.name))]
-        self._count = itertools.count(max(taken, default=0) + 1)
+        self._count = _record_counter(self.record_dir, self.role)
 
     def visible(self, command: list[str], writable=()) -> list[Path]:
-        """Every read-only path inside the sandbox for this command (besides the system); `writable`: the call's own
-        writable paths, besides the sandbox's (a venv in one names no installation to show)."""
-        out = [*_python_paths(self.packages), PACKAGE, *self.readable, *self.read]
-        out += _venv_bases([*self.readable, *self.read], [*self.writable, *writable])
+        """Every read-only path inside the sandbox for this command at its own path (besides the system); `writable`:
+        the call's own writable paths, besides the sandbox's (a venv in one names no installation to show). The
+        installation a virtual environment was made from is read only from the sandbox's own grants (the run's
+        config), never from a path given for one call (an adapter could name any path as its venv's home)."""
+        shown, _ = _python_paths(self.packages)
+        out = [*shown, *([PACKAGE] if self.framework else [RELAY]), *self.readable]
+        out += _venv_bases(self.readable, [*self.writable, *writable])
         found = shutil.which(command[0]) if command else None
         if found and Path(found).resolve() != Path(sys.executable).resolve():
             out += program_paths(command[0])          # this Python is shown above, by its packages, not its venv
         bwrap = shutil.which("bwrap")
         if bwrap and not Path(bwrap).resolve().is_relative_to("/usr"):
-            out.append(Path(bwrap).resolve())            # a nested sandbox (the mwm Evolver) needs the same binary
+            out.append(Path(bwrap).resolve())            # a nested sandbox needs the same binary
         return out
 
-    def forwarded_ports(self, command: list[str], env: dict, forward: list[int] = ()) -> list[int]:
-        """The ports to re-create inside: the explicit ones, every 127.0.0.1 URL in the command or the environment
-        (the tool endpoint, a gate, a meter), and the proxy's."""
-        ports = set(forward)
-        for text in [*command, *env.values()]:
-            ports.update(int(p) for p in LOCAL_URL.findall(str(text)))
+    def forwarded_ports(self, command: list[str], env: dict, forward: list[int] = (),
+                        from_env: bool = True) -> list[int]:
+        """The ports to re-create inside: the sandbox's own (`forward`: a model server or meter on the loopback), the
+        explicit ones (a tool server), every 127.0.0.1 URL in the environment (which the caller sets) and the
+        allowlist proxy's. Never one read from the command's arguments: a prompt passed there can carry text the
+        learner wrote, and a URL in it would open a port."""
+        ports = {*self.forward, *forward}
+        for text in env.values() if from_env else ():   # a URL without a port: its scheme's (80, 443)
+            ports.update(int(port) if port else (443 if scheme == "https" else 80)
+                         for scheme, port in LOCAL_ANY.findall(str(text)))
         if self.proxy_url:
             ports.add(urlparse(self.proxy_url).port)
         return sorted(p for p in ports if p)
 
+    def _all_binds(self, binds=()) -> list[Bind]:
+        return [*self.binds, *[Bind(Path(b[0]), str(b[1]), bool(b[2]) if len(b) > 2 else False) for b in binds]]
+
+    def _pairs(self, binds=()) -> list[tuple[str, str]]:
+        """(outside, inside) spellings of every bound source and of the layout root, longest outside first. A source
+        shown under several names (MWM's adapter at /w and, read-only, at /world-model) is spelled by the layout's
+        root, else by its writable name, else by the first one given."""
+        root = self.layout[1].rstrip("/") if self.layout else None
+        chosen: dict[str, tuple] = {}
+        for i, b in enumerate(self._all_binds(binds)):
+            inside = b.target.rstrip("/") or "/"
+            rank = (inside != root, not b.writable, i)
+            for n in _names(b.source):
+                if n not in chosen or rank < chosen[n][0]:
+                    chosen[n] = (rank, inside)
+        if self.layout:
+            for n in _names(self.layout[0]):
+                chosen.setdefault(n, ((False, False, -1), self.layout[1]))
+        return sorted(((n, v[1]) for n, v in chosen.items()), key=lambda p: -len(p[0]))
+
+    def _in_layout(self, path) -> bool:
+        return any(n == q or n.startswith(q.rstrip("/") + "/") for n in _names(path) for q in _names(self.layout[0]))
+
+    def confines(self) -> bool:
+        """Whether a wrapped command runs confined: the sandbox is on and bubblewrap is there (best_effort without it
+        runs the command unconfined, at the host's paths)."""
+        return self.enabled and bool(shutil.which("bwrap"))
+
+    def translate(self, text: str, binds=()) -> str:
+        """`text` with every path under a bound source (or under the layout root) spelled by its name inside, under
+        each name the source has outside: as given and resolved. A path not bound under another name is the same
+        inside. Unchanged when nothing is confined."""
+        if not self.confines():
+            return text
+        pairs = dict(self._pairs(binds))
+        if not pairs:
+            return text
+        # One pass, the longest source first: a name inside that is another source's path is not translated again.
+        pattern = START + "(" + "|".join(map(re.escape, pairs)) + ")" + END
+        return re.sub(pattern, lambda m: pairs[m.group(1)], text)
+
+    def relative(self, text: str, binds=()) -> str:
+        """`text` with every host path under a bound source written as a learner is told it: relative to the layout's
+        root (its working directory inside) when it lies there, else by its name inside. Text that names an inside
+        path already is left as it is."""
+        if not (self.confines() and self.layout):
+            return self.translate(text, binds)
+        root = self.layout[1].rstrip("/")
+
+        def told(inside: str) -> str:
+            if inside == root:
+                return "."
+            return inside[len(root) + 1:] if inside.startswith(root + "/") else inside
+        pairs = dict(self._pairs(binds))
+        if not pairs:
+            return text
+
+        def spelled(m) -> str:
+            inside = pairs[m.group(1)]
+            if m.group(2):                                 # a path below it
+                return "" if inside.rstrip("/") == root else told(inside) + "/"
+            return told(inside)
+        # One pass, as translate: the root itself drops out of what lies below it (relative to it).
+        pattern = START + "(" + "|".join(map(re.escape, pairs)) + ")(?:(/)|" + END + ")"
+        return re.sub(pattern, spelled, text)
+
+    def inside_names(self, binds=()) -> list[str]:
+        """The names a confined command sees bound places under (the layout root, the binds' targets) that differ
+        from their places outside; none when nothing is confined."""
+        if not self.confines():
+            return []
+        names = [(b.target.rstrip("/") or "/") for b in self._all_binds(binds) if b.target != str(b.source)]
+        if self.layout:
+            names.append(self.layout[1].rstrip("/") or "/")
+        return sorted(set(names), key=len, reverse=True)
+
+    def outside(self, path: str | Path, binds=()) -> Path:
+        """A path a sandboxed session named (inside, or relative to the layout root) as it is outside: normalized
+        first (no `..` crosses a bind), then under whichever name it was shown (a source bound under two names is
+        found under both)."""
+        text = str(path)
+        if not self.confines():                       # the session ran at the host's paths
+            return Path(text) if os.path.isabs(text) or not self.layout else Path(self.layout[0]) / text
+        if self.layout and not os.path.isabs(text):
+            text = self.layout[1].rstrip("/") + "/" + text
+        text = os.path.normpath(text)
+        names = [(str(b.source), b.target.rstrip("/") or "/") for b in self._all_binds(binds)]
+        if self.layout:
+            names.append((str(self.layout[0]), self.layout[1].rstrip("/")))
+        for out, inside in sorted(names, key=lambda p: -len(p[1])):
+            if text == inside or text.startswith(inside.rstrip("/") + "/"):
+                return Path(out + text[len(inside.rstrip("/")):])
+        return Path(text)
+
     def wrap(self, command: list[str], *, writable: list[Path] = (), env: dict | None = None,
-             home: Path | None = None, keep=(), forward: list[int] = (),
-             readable: list[Path] = (), masked: list[Path] = ()) -> tuple[list[str], dict]:
+             home: Path | None = None, keep=(), forward: list[int] = (), readable: list[Path] = (),
+             binds=(), chdir: Path | str | None = None, interpreters=(), env_ports: bool = True
+             ) -> tuple[list[str], dict]:
         """The command to run and its environment. `home` becomes HOME (it must be among the writable paths).
         `keep` names variables the caller set for this command itself (an agent's provider settings): they pass
-        whatever sandbox.env lists. `forward` names more ports to re-create inside an isolated network.
-        `readable` adds read-only paths for this command only (the adapter a rollout runs with).
-
-        Order inside: the visible paths, then the masks over them (the run's secrets in a bound directory), then
-        `readable` and the writable paths, which may lie under a mask and are bound back on top of it."""
+        whatever the allowlist says. `forward` names more ports to re-create inside an isolated network. `readable`
+        and `writable` add paths at their own location for this command only; `binds` add paths under names of their
+        own; `interpreters` are virtual environments the caller trusts (the framework's own), whose base
+        installations are shown too (never one read from `readable`, which may be the learner's
+        work). Paths under a bound source in the command, the environment and `chdir` are translated to their names
+        inside. Order inside: what is shown read-only, the writable paths, then the named binds."""
         env = dict(env if env is not None else os.environ)
+        if not self.enabled:                             # unconfined: nothing is held back, the environment either
+            return command, env
         if self.env_allow is not None:
             allowed = set(self.env_allow) | ALWAYS | set(keep)
-            env = {k: v for k, v in env.items() if k in allowed}
+            patterns = [a for a in allowed if any(c in a for c in "*?[")]
+            env = {k: v for k, v in env.items() if k in allowed or any(fnmatch.fnmatchcase(k, p) for p in patterns)}
         if self.proxy_url:
-            for key in ("HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy"):
+            for key in PROXY_VARS:
                 env[key] = self.proxy_url
             env["NO_PROXY"] = env["no_proxy"] = "127.0.0.1,localhost"
-        if not self.enabled:
-            return command, env
+        elif self.network == "isolated":
+            # No way out but the forwarded ports: an outer sandbox's proxy variables (a nested sandbox inherits them)
+            # would send even a loopback request to a proxy this one cannot use.
+            for key in (*PROXY_VARS, "ALL_PROXY", "all_proxy"):
+                env.pop(key, None)
         if not shutil.which("bwrap"):
             if self.enforce == "required":
                 raise RuntimeError("sandbox.enforce is required but bubblewrap (bwrap) is not installed; install it, "
                                    "or set sandbox.enforce: best_effort to run unconfined and record that")
             self._record(command, {"enforced": False, "reason": "bubblewrap is not installed"}, env)
             return command, env
+        if "PATH" in env:
+            # `python3` inside is this environment's: when another interpreter comes first on PATH (an unactivated
+            # venv), whose packages are emptied below, this one's directory leads it; otherwise its order is kept
+            # (a /usr/local/bin before /usr/bin keeps its tools).
+            own, real = os.path.dirname(sys.executable), os.path.realpath(sys.executable)
+
+            def ours(first: str) -> bool:      # a venv's python3 is its own bin/'s, not the base it links to
+                where = os.path.dirname(first)
+                if sys.prefix != sys.base_prefix:
+                    return os.path.realpath(where) == os.path.realpath(own)
+                in_venv = any(os.path.exists(os.path.join(d, "pyvenv.cfg")) for d in (where, os.path.dirname(where)))
+                return not in_venv and os.path.realpath(first) == real
+            if any(first and not ours(first)
+                   for first in (shutil.which(name, path=env["PATH"]) for name in ("python3", "python"))):
+                env["PATH"] = os.pathsep.join([own, *(p for p in env["PATH"].split(os.pathsep) if p and p != own)])
         found = shutil.which(command[0]) if command else None
         if found:      # run the program by its real path: PATH entries outside the sandbox do not exist inside
             real = Path(found).resolve()     # ... except this Python, which must keep its environment's path
             command = [sys.executable if real == Path(sys.executable).resolve() else str(real), *command[1:]]
+        # A path given for this call at its own location but lying under the layout's root is shown where the
+        # layout puts it, so its spelling inside (translated) is where it is.
+        if self.layout:
+            lay = [Bind(Path(p), self.translate(str(p), binds), w) for p, w in
+                   [*((p, False) for p in readable), *((p, True) for p in [*writable, *([home] if home else [])])]
+                   if self._in_layout(p) and self.translate(str(p), binds) != str(p)]
+            lay = list({(str(b.source), b.target): b for b in lay}.values())    # the home is often writable too
+            moved = {str(b.source) for b in lay}
+            readable = [p for p in readable if str(Path(p)) not in moved]
+            writable = [p for p in writable if str(Path(p)) not in moved]
+            binds = [*binds, *lay]
+        all_binds = self._all_binds(binds)
         # A process namespace of its own: the host's processes (their environment, their open files, their root
         # through /proc/<pid>/root) are not there to read or signal.
-        args = ["bwrap", "--die-with-parent", "--new-session", "--unshare-pid", "--dev", "/dev", "--proc", "/proc",
+        # bwrap by its path: a caller's PATH may lack it
+        args = [shutil.which("bwrap") or "bwrap", "--die-with-parent", "--new-session", "--unshare-pid",
+                "--dev", "/dev", "--proc", "/proc",
                 "--tmpfs", "/tmp",
                 "--ro-bind", "/usr", "/usr"]
         for link in ("/lib", "/lib64", "/bin", "/sbin"):
@@ -460,131 +1120,172 @@ class Sandbox:
                 args += ["--ro-bind", path, path]
         if self.network == "isolated":
             args.append("--unshare-net")
-        # Order: what is shown read-only, the role's own writable paths, the masks over both (read-only, so a
-        # writable directory cannot uncover a secret inside it), then this call's readable and writable paths, which
-        # may lie under a mask and are bound back on top of it.
-        to_mask = [*self.masked, *masked]                  # the sandbox's own, and this call's (computed now)
-        seen, ro, rw, covered, aliases = set(), [], [], [], []
+        seen, ro, rw = set(), [], []
 
-        def bind(paths, flag, out, fresh=False):
+        def bind(paths, flag, out, system=False):
             for path in paths:
-                if flag == "--bind":
+                if flag == "--bind" and not os.path.lexists(path):     # a writable file stays a file
                     Path(path).mkdir(parents=True, exist_ok=True)
-                names = _names(path)
-                if len(names) == 2:
-                    aliases.append(tuple(names))           # the same directory under two names: masks need both
-                for name in names:
-                    if not os.path.exists(name) or name.startswith("/usr"):
+                for name in _names(path):
+                    if not os.path.exists(name) or (name.startswith("/usr") and not system):
                         continue
                     # A link under a directory bound already (uv's version alias of an interpreter kept inside a
                     # granted checkout) is there through that directory; binding it again fails on a link.
                     if os.path.islink(name) and any(name.startswith(b + "/") for b in (*ro, *rw)):
                         continue
-                    key = (flag, name)
-                    if key in seen and not fresh:          # a call's own paths go on top of the masks, always
+                    if (flag, name) in seen:
                         continue
-                    seen.add(key)
+                    seen.add((flag, name))
                     out.append(name)
                     args.extend([flag, name, name])
-        # A call's own path that holds a covered path goes in before the masks, or binding it after would uncover
-        # them (a tool's task directory holding the runs); one beneath a mask goes on top, after them.
-        cover = [n for path in to_mask for n in _names(path) if os.path.exists(n)]
-
-        def holds_mask(path) -> bool:
-            return any(c == n or c.startswith(n + "/") for n in _names(path) for c in cover)
-
-        def beneath_mask(path) -> bool:
-            """Strictly under a covered path. A role's grant kept inside the run's records (a launcher's task
-            directory under the runs directory, which the agent writes) is bound on top of the mask, after it, like
-            a call's own path; bound before, the mask would cover it."""
-            return any(n.startswith(c + "/") for n in _names(path) for c in cover)
-        deferred_ro = [p for p in [*self.readable, *self.read] if beneath_mask(p)]
-        deferred_rw = [p for p in self.writable if beneath_mask(p)]
-        skip = {os.path.abspath(str(p)) for p in deferred_ro}
-        bind([p for p in self.visible(command, writable) if os.path.abspath(str(p)) not in skip], "--ro-bind", ro)
-        # A virtual environment granted for this call alone (the framework's, shown to a sandboxed adapter server
-        # started from another interpreter) needs the installation it was made from, like a sandbox-level grant.
-        bind(_venv_bases(readable, [*self.writable, *writable]), "--ro-bind", ro)
-        bind([p for p in readable if holds_mask(p)], "--ro-bind", ro)
-        bind([p for p in self.writable if p not in deferred_rw], "--bind", rw)
-        bind([p for p in writable if holds_mask(p)], "--bind", rw)
-        readable, writable = [*readable, *deferred_ro], [*writable, *deferred_rw]
-        readable = [p for p in readable if not holds_mask(p)]
-        writable = [p for p in writable if not holds_mask(p)]
-        shown = ro + rw
-        # Shortest first, so a covered directory comes before anything beneath it; a path under one is already
-        # hidden, and covering it again would leave a mount point behind in the empty directory.
-        # A secret is covered under every name it is shown by: through a bound directory reached by a link, the
-        # same file has a second path inside, and covering one name leaves the other.
-        names = {n for path in to_mask for n in _names(path)}
-        for n in list(names):
-            for given, real in aliases:
-                for a, b in ((real, given), (given, real)):
-                    if n == a or n.startswith(a + "/"):
-                        names.add(b + n[len(a):])
-        for name in sorted(names, key=len):
-            if not os.path.exists(name) or not any(name == b or name.startswith(b + "/") for b in shown) or any(
-                    name == m or name.startswith(m + "/") for m in covered):
-                continue                                  # nothing there, not shown anyway, or covered already
-            covered.append(name)
-            # A file is covered by an empty regular file: /dev/null cannot be opened on a mount without devices.
-            args.extend(["--tmpfs", name] if os.path.isdir(name) else ["--ro-bind", self._empty_file(), name])
-        n_ro, n_rw = len(ro), len(rw)
-        bind(readable, "--ro-bind", ro, fresh=True)
-        bind(writable, "--bind", rw, fresh=True)
-        own = ro[n_ro:] + rw[n_rw:]                       # this call's paths, which may lie under a mask
-        # A covered directory becomes read-only last: a call's own paths beneath it needed their mount points made
-        # first, and the remount leaves what is mounted inside it as it is.
-        for name in covered:
-            if os.path.isdir(name):
-                args.extend(["--remount-ro", name])
+        _, sites = _python_paths(self.packages)
+        # The installations a declared virtual environment was made from are shown for their interpreter, not for
+        # what is installed in them: their site directories are emptied too (the environment's own stay).
+        own = {os.path.realpath(p) for p in _environment_sites()}      # a venv made from this installation: kept
+        trusted = _venv_bases(interpreters, [*self.writable, *writable])   # shown before the masking below
+        found = shutil.which(command[0]) if command else None
+        # A CLI's own installation (~/.local): its Python packages masked too, unless the CLI runs on Python and
+        # they are its own (a pipx or venv install).
+        program = program_paths(command[0]) if found and Path(found).resolve() != Path(sys.executable).resolve() \
+            and not _runs_on_python(found) else []
+        mine = [os.path.realpath(i) for i in interpreters]      # a trusted interpreter's own packages stay
+        for base in [*_venv_bases(self.readable, [*self.writable, *writable]), *trusted,
+                     *(p for p in program if Path(p).is_dir())]:
+            sites += [Path(p) for p in sorted(glob.glob(str(base / "lib*" / "python3*" / "*-packages")))
+                      if p.endswith(("/site-packages", "/dist-packages")) and os.path.realpath(p) not in own
+                      and not any(os.path.realpath(p).startswith(m.rstrip("/") + "/") for m in mine)]
+        sites = list(dict.fromkeys(sites))
+        visible = self.visible(command, writable)
+        bind([p for p in [*visible, *interpreters, *trusted] if not any(_under(p, s) for s in sites)], "--ro-bind", ro)
+        # The interpreter's site directories hold every installed package: each is replaced by an empty directory,
+        # and the distributions this sandbox shows are bound back into it.
+        # A site directory is shown when it lies in a bound path or under /usr (bound whole above: a system Python).
+        def shown(name):
+            return name.startswith("/usr/") or any(name == r or name.startswith(r.rstrip("/") + "/") for r in ro)
+        for site in sites:
+            for name in _names(site):
+                if shown(name) and os.path.isdir(name):
+                    args.extend(["--tmpfs", name])
+        bind([p for p in visible if any(_under(p, s) for s in sites)], "--ro-bind", ro, system=True)
+        for site in sites:
+            for name in _names(site):
+                if shown(name) and os.path.isdir(name):
+                    args.extend(["--remount-ro", name])
+        bind(readable, "--ro-bind", ro)
+        bind(self.writable, "--bind", rw)
+        bind([*writable, *([home] if home and str(Path(home)) not in {str(b.source) for b in all_binds} else [])],
+             "--bind", rw)
+        named = []
+        for b in all_binds:
+            if b.writable and not os.path.lexists(b.source):     # a file bound writable stays a file
+                b.source.mkdir(parents=True, exist_ok=True)
+            if not os.path.exists(b.source):
+                continue
+            args.extend(["--bind" if b.writable else "--ro-bind", os.path.realpath(b.source), b.target])
+            named.append({"source": str(b.source), "target": b.target, "writable": b.writable})
+        # What only the judge may read, and without the framework every hermit package the environment shows: covered
+        # under every name it is shown by (its own; below a bound place, a linked path or a bind's target; and for
+        # sandbox.hide a bound place itself when it is, or lies in, what is hidden: a grant inside it; the framework's
+        # own grants, the relay and a method's helpers, stay), a directory by an empty one, a file by an empty file.
+        places = [(n, os.path.realpath(n)) for n in [*ro, *rw]] + \
+            [(b["target"], os.path.realpath(b["source"])) for b in named]
+        hidden, covers = [], []
+        framework = [] if self.framework else [PACKAGE, *_copies("hermit")]
+        framework_names = {n for p in framework for n in _names(p)}
+        for path in _covered([*self.hide, *framework]):
+            real = os.path.realpath(path)
+            if not os.path.lexists(real):
+                continue
+            covers += [(name, os.path.isdir(real)) for name in _names(path)]
+            for inside, source in places:
+                if real.startswith(source.rstrip("/") + "/"):
+                    covers.append((inside + real[len(source):], os.path.isdir(real)))
+                elif (source == real or source.startswith(real + "/")) and path not in framework:
+                    covers.append((inside, os.path.isdir(source)))      # a grant of what sandbox.hide names
+        covers = [(n, d) for n, d in dict.fromkeys(covers)
+                  if shown(n) or any(n == w or n.startswith(w.rstrip("/") + "/") for w in rw)
+                  or any(n == b["target"] or n.startswith(b["target"].rstrip("/") + "/") for b in named)]
+        covers.sort(key=lambda c: c[0] not in framework_names)   # the framework package first, sandbox.hide after
+        dirs, shown_again = [n for n, d in covers if d], []
+        for name, is_dir in covers:
+            if any(name.startswith(d.rstrip("/") + "/") for d in dirs) and \
+                    not any(name == r or name.startswith(r + "/") for r in shown_again):
+                continue                                   # inside a covered directory (bwrap cannot mount there)
+            if is_dir:
+                # Under a covered framework package, the relay and what was granted in it (a method's helpers) are
+                # bound again before it is made read-only; what sandbox.hide names in them is covered after.
+                again = [] if self.framework or name not in framework_names else \
+                    [p for p in [str(RELAY), *(n for g in [*self.readable, *readable] for n in _names(g))]
+                     if p.startswith(name + "/") and os.path.exists(p)]
+                shown_again += again
+                args.extend(["--tmpfs", name, *[a for r in dict.fromkeys(again) for a in ("--ro-bind", r, r)],
+                             "--remount-ro", name])
+            else:
+                args.extend(["--ro-bind", _empty_file(), name])
+            hidden.append(name)
         ro = [p for p in ro if p not in rw]               # a path bound both ways is writable: the later bind wins
-        env["HOME"] = _names(home)[0] if home else _names(self.writable[0])[0] if self.writable else "/tmp"
-        policy = {"enforced": True, "network": self.network, "read_only": ro, "read_write": rw, "masked": covered,
-                  "proxy": self.proxy_url, "allow": list(self.allow)}
+        command = [command[0], *[self.translate(str(a), binds) for a in command[1:]]]
+        env = {k: self.translate(str(v), binds) for k, v in env.items()}
+        if home:
+            env["HOME"] = self.translate(_names(home)[0], binds)
+        elif self.writable:
+            env["HOME"] = _names(self.writable[0])[0]
+        else:
+            env["HOME"] = "/tmp"
+        if chdir is not None:
+            args += ["--chdir", self.translate(str(chdir), binds)]
+        policy = {"enforced": True, "network": self.network, "read_only": ro, "read_write": rw, "hidden": hidden,
+                  "binds": named,
+                  "proxy": self.proxy_url, "allow": list(self.allow), "limits": dict(self.limits)}
         name = f"{self.role}-{next(self._count)}"
-        if self.audit == "files":
-            # strace runs outside, as bwrap's parent: what the sandbox does cannot reach the trace it leaves.
-            if self.record_dir is None or not shutil.which("strace"):
-                raise RuntimeError("sandbox.audit: files needs strace installed and a directory for the records")
-            self.record_dir.mkdir(parents=True, exist_ok=True)
-            trace = self.record_dir / f"{name}.strace"
-            args = ["strace", "-f", "-qq", "-e", "trace=%file", "-o", str(trace), *args]
-            policy["audit"] = str(trace)
-        deny = [*self._absent(ro + rw), *covered]
-        if self.network == "isolated" or deny:
-            # The check inside: on an isolated network the network and the paths, on an open one the paths only
-            # (what must be missing, and the covered secrets).
+        deny = [p for p in self._absent(ro + rw + [b["source"] for b in named], binds)    # covered: empty inside
+                if not any(p == h or p.startswith(h.rstrip("/") + "/") for h in hidden)]
+        if self.network == "isolated" or deny or self.limits:
+            # The check inside: on an isolated network the network and the paths, on an open one the paths only;
+            # the limits are set on the command before it starts.
             with self._setup:
                 if self._bridges is None:
                     self._bridges = _Bridges()
-            ports = self.forwarded_ports(command, env, forward) if self.network == "isolated" else []
-            record = self._record(command, {**policy, "forwarded": ports, "probe": None}, env, name=name)
+            ports = self.forwarded_ports(command, env, forward, env_ports) if self.network == "isolated" else []
+            sockets = {int(p): str(s) for p, s in self.sockets.items()} if self.network == "isolated" else {}
+            record = self._record(command, {**policy, "forwarded": sorted({*ports, *sockets}), "sockets": sockets,
+                                            "probe": None}, env, name=name)
             report = self._bridges.report_listener(name, lambda result: self._probe_result(record, result))
             args += ["--bind", str(self._bridges.dir), str(self._bridges.dir)]
+            for sock in sockets.values():                 # a service of its own per sandbox, at one port inside
+                args += ["--bind", sock, sock]
             command = [sys.executable, str(RELAY),
-                       *[a for p in ports for a in ("--forward", f"{p}={self._bridges.socket_for(p)}")],
+                       *[a for p in ports if p not in sockets
+                         for a in ("--forward", f"{p}={self._bridges.socket_for(p)}")],
+                       *[a for p, s in sorted(sockets.items()) for a in ("--forward", f"{p}={s}")],
                        *[a for p in deny for a in ("--deny", p)],
-                       *[a for p in own for a in ("--keep", p)],
+                       *[a for k, v in sorted(self.limits.items()) if v for a in ("--limit", f"{k}={int(v)}")],
                        *(["--open-network"] if self.network == "open" else []),
                        "--report", str(report), "--", *command]
         else:
             self._record(command, policy, env, name=name)
         return args + ["--", *command], env
 
-    def _absent(self, bound: list[str]) -> list[str]:
-        """The probe paths that exist outside and are neither bound themselves nor above a bound path. One beneath a
-        bound directory stays: it is shown by accident (a home bound whole), and the check must catch that."""
+    def _absent(self, bound: list[str], binds=()) -> list[str]:
+        """The probe paths that exist outside and are not above a bound path, each under its own name and, beneath a
+        source bound under another name, under that name too. One beneath a bound directory
+        stays: it is shown by accident (a home bound whole, a secret in a directory shown at /w/method), and the
+        check must catch that."""
         out = []
         for path in self.probe_absent:
             p = Path(path).expanduser()
             if not p.exists():
                 continue
             p = str(p.resolve())
-            if any(p == b or b.startswith(p + "/") for b in bound):
+            # A probe path that holds what is bound (the run's directory holding the workspace) is not checked; one
+            # that is bound itself is (a grant that is, or was retargeted to, a secret fails the check).
+            if any(str(b).startswith(p + "/") for b in bound):
                 continue
             out.append(p)
-        return out
+            inside = self.translate(p, binds)
+            if inside != p:
+                out.append(inside)
+        return list(dict.fromkeys(out))
 
     def _record(self, command: list[str], policy: dict, env: dict, name: str | None = None) -> Path | None:
         if self.record_dir is None:
@@ -592,9 +1293,10 @@ class Sandbox:
         self.record_dir.mkdir(parents=True, exist_ok=True)
         name = name or f"{self.role}-{next(self._count)}"
         path = self.record_dir / f"{name}.json"
-        path.write_text(json.dumps({"role": self.role, "time": datetime.now(timezone.utc).isoformat(),
-                                    "program": command[0] if command else None, **policy,
-                                    "environment": sorted(env)}, indent=1))
+        self.last_record = path
+        path.write_text(json.dumps(_scrubbed({"role": self.role, "time": datetime.now(timezone.utc).isoformat(),
+                                              "program": command[0] if command else None, **policy,
+                                              "environment": sorted(env)}), indent=1))
         return path
 
     @staticmethod
@@ -602,37 +1304,54 @@ class Sandbox:
         if record is None or not record.exists():
             return
         data = json.loads(record.read_text())
-        data["probe"] = result
+        data["probe"] = _scrubbed(result)
         record.write_text(json.dumps(data, indent=1))
 
-    def _empty_file(self) -> str:
-        with self._setup:
-            if self._empty is None:
-                fd, name = tempfile.mkstemp(prefix="ha-sbx-empty-")
-                os.close(fd)
-                os.chmod(name, 0o444)
-                self._empty = name
-            return self._empty
+    def view(self, *, binds=(), layout: tuple[Path, str] | None = None, readable=(), writable=(),
+             framework: bool | None = None, role: str | None = None) -> "Sandbox":
+        """This sandbox (its network, proxies, environment, enforcement, records, probe and limits) with a method's
+        own view in place of the run's: `binds` and `layout` instead of its binds and layout, `readable` and
+        `writable` instead of its own-path grants. Close it after use."""
+        box = dataclasses.replace(self, binds=list(binds), layout=layout, readable=list(readable),
+                                  writable=list(writable),
+                                  framework=self.framework if framework is None else framework,
+                                  role=role or self.role)
+        return box
+
+    def abandon(self, args: list[str]) -> None:
+        """A wrapped command that will not be run: the listener waiting for its isolation report is closed."""
+        if getattr(self, "_bridges", None) is not None and "--report" in args:
+            self._bridges.cancel(args[args.index("--report") + 1])
 
     def close(self):
         if self._bridges is not None:
             self._bridges.close()
             self._bridges = None
-        if self._empty is not None:
-            Path(self._empty).unlink(missing_ok=True)
-            self._empty = None
+
+
+def _under(path, parent) -> bool:
+    """Whether `path` lies strictly below `parent`, under any of their names."""
+    return any(n.startswith(q.rstrip("/") + "/") for n in _names(path) for q in _names(parent))
 
 
 class AllowlistProxy:
-    """HTTP CONNECT (and plain HTTP) proxy on 127.0.0.1 that forwards only to allowed hosts."""
+    """HTTP CONNECT (and plain HTTP) proxy on 127.0.0.1 that forwards only to allowed hosts. When this process has
+    a proxy of its own (HTTPS_PROXY / HTTP_PROXY, an offline machine's egress proxy), it connects through it, except
+    to the hosts NO_PROXY names."""
 
     def __init__(self, allow: list[str], log: Path | None = None):
         self.hosts = {urlparse(a).hostname or a for a in allow}
         self.log = Path(log) if log else None
+        upstream = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy") or os.environ.get("HTTP_PROXY") \
+            or os.environ.get("http_proxy")
+        self.upstream = urlparse(upstream) if upstream else None
+        self._env_proxies = urllib.request.getproxies_environment()       # NO_PROXY, read once like the upstream
         self._log_lock = threading.Lock()
         outer = self
 
         class Handler(socketserver.StreamRequestHandler):
+            rbufsize = 0                 # the head is read as it comes: a request body is left for the pipe
+
             def handle(self):
                 try:
                     self._handle()
@@ -651,9 +1370,9 @@ class AllowlistProxy:
                     if h in (b"\r\n", b"\n", b""):
                         break
                     headers.append(h)
-                if method == "CONNECT":
-                    host, _, port = target.partition(":")
-                    port = int(port or 443)
+                if method == "CONNECT":                # host:port, an IPv6 literal bracketed ([::1]:8443)
+                    u = urlparse(f"//{target}")
+                    host, port = u.hostname or "", u.port or 443
                 else:
                     u = urlparse(target)
                     host, port = u.hostname or "", u.port or 80
@@ -663,14 +1382,20 @@ class AllowlistProxy:
                     return
                 outer._write(method, host, port, True)
                 try:
-                    upstream = socket.create_connection((host, port), timeout=30)
+                    upstream = outer._connect(host, port)
                 except OSError:
                     self.wfile.write(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n")
                     return
                 if method == "CONNECT":
                     self.wfile.write(b"HTTP/1.1 200 Connection Established\r\n\r\n")
-                else:
-                    upstream.sendall(line.encode("latin-1") + b"".join(headers) + b"\r\n")
+                else:                                # a plain request: to the server, in origin form, and the
+                    # connection closed after it (a kept-alive one would carry the next request, for any host,
+                    # past this check)
+                    path = (u.path or "/") + (f"?{u.query}" if u.query else "")
+                    line = f"{method} {path} {parts[2]}\r\n"
+                    hop = (b"connection:", b"proxy-connection:", b"keep-alive:")
+                    kept = [h for h in headers if not h.lower().startswith(hop)]
+                    upstream.sendall(line.encode("latin-1") + b"".join(kept) + b"Connection: close\r\n\r\n")
                 self._pipe(self.connection, upstream)
 
             @staticmethod
@@ -678,7 +1403,9 @@ class AllowlistProxy:
                 sockets = [a, b]
                 try:
                     while True:
-                        ready, _, _ = select.select(sockets, [], [], 600)
+                        # A TLS connection to the upstream proxy may hold decrypted bytes select does not see.
+                        ready = [s for s in sockets if isinstance(s, ssl.SSLSocket) and s.pending()] \
+                            or select.select(sockets, [], [], 600)[0]
                         if not ready:
                             return
                         for s in ready:
@@ -697,11 +1424,39 @@ class AllowlistProxy:
         self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
 
+    def _connect(self, host: str, port: int) -> socket.socket:
+        """A connection to host:port, directly or through this process's own proxy (a CONNECT tunnel)."""
+        if self.upstream is None or not self.upstream.hostname \
+                or urllib.request.proxy_bypass_environment(f"[{host}]:{port}" if ":" in host else f"{host}:{port}",
+                                                           self._env_proxies):
+            return socket.create_connection((host, port), timeout=30)
+        tls = self.upstream.scheme == "https"           # https://proxy: TLS to the proxy, then CONNECT inside it
+        sock = socket.create_connection((self.upstream.hostname, self.upstream.port or (443 if tls else 80)),
+                                        timeout=30)
+        if tls:
+            sock = ssl.create_default_context().wrap_socket(sock, server_hostname=self.upstream.hostname)
+        auth = ""
+        if self.upstream.username:                       # http://user:pass@proxy:3128
+            pair = f"{unquote(self.upstream.username)}:{unquote(self.upstream.password or '')}"
+            auth = f"Proxy-Authorization: Basic {base64.b64encode(pair.encode()).decode()}\r\n"
+        name = f"[{host}]" if ":" in host else host
+        sock.sendall(f"CONNECT {name}:{port} HTTP/1.1\r\nHost: {name}:{port}\r\n{auth}\r\n".encode())
+        reply = b""
+        while b"\r\n\r\n" not in reply and len(reply) < 65536:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            reply += chunk
+        if not reply.split(b"\r\n", 1)[0].split(b" ")[1:2] == [b"200"]:
+            sock.close()
+            raise OSError(f"the upstream proxy refused {host}:{port}: {reply[:100]!r}")
+        return sock
+
     def _write(self, method: str, host: str, port: int, allowed: bool) -> None:
         if self.log is None:
             return
-        line = json.dumps({"time": datetime.now(timezone.utc).isoformat(), "method": method, "host": host,
-                           "port": port, "allowed": allowed})
+        line = json.dumps(_scrubbed({"time": datetime.now(timezone.utc).isoformat(), "method": method,
+                                     "host": host, "port": port, "allowed": allowed}))
         with self._log_lock:
             self.log.parent.mkdir(parents=True, exist_ok=True)
             with open(self.log, "a") as f:
@@ -712,149 +1467,28 @@ class AllowlistProxy:
         self.server.server_close()
 
 
-def hidden_paths(hide: list | None) -> list[Path]:
-    """What a learner must not read although the sandbox shows the directories holding it: the framework checkout's
-    examples (task code and data), tests, docs and git objects, plus `hide`: more paths, or "module:<name>" for an
-    installed Python package (a benchmark whose evaluator sits beside the framework)."""
-    import importlib.util
-    out = [FRAMEWORK / "examples", FRAMEWORK / "tests", FRAMEWORK / "docs", FRAMEWORK / ".git"]
-    for item in hide or []:
-        item = str(item)
-        if item.startswith("module:"):
-            spec = importlib.util.find_spec(item[len("module:"):])
-            if spec is None or not spec.submodule_search_locations:
-                raise RuntimeError(f"hide: no installed package named {item[len('module:'):]!r}")
-            out += [Path(loc) for loc in spec.submodule_search_locations]
-        else:
-            out.append(Path(item).expanduser())
-    return out
+def _main(argv: list[str]) -> int:
+    """`python -m hermit.sandbox SPEC -- COMMAND...`: COMMAND in a sandbox made from SPEC, a JSON object of Sandbox
+    fields (readable, writable, hide, network, env_allow, sockets, enforce, role, ...) and of the call's `env` (its
+    HOME, when it names one, kept: /tmp inside) and `chdir`; its exit status. A launcher that hands another program a
+    command prefix (an adapter's compile) uses it."""
+    spec, command = json.loads(argv[0]), argv[argv.index("--") + 1:]
+    env, chdir = spec.pop("env", None), spec.pop("chdir", None)
+    for key in ("readable", "writable", "hide"):
+        spec[key] = [Path(p) for p in spec.get(key) or []]
+    spec["hide"] = [*_env_hidden(), *spec["hide"]]      # the run's sandbox.hide holds here too
+    if spec.get("record_dir"):
+        spec["record_dir"] = Path(spec["record_dir"])
+    box = Sandbox(**spec)
+    try:
+        args, full = box.wrap(command, env=env, keep=list(env or {}), chdir=chdir)
+        if env and env.get("HOME"):
+            full["HOME"] = box.translate(env["HOME"])
+        confined = bool(args) and Path(args[0]).name == "bwrap"     # else unconfined: chdir is this process's own
+        return subprocess.run(args, env=full, cwd=None if confined or chdir is None else chdir).returncode
+    finally:
+        box.close()
 
 
-_BIND = ("--bind", "--ro-bind", "--dev-bind", "--bind-try", "--ro-bind-try", "--dev-bind-try", "--symlink")
-_MAKE = ("--tmpfs", "--dir", "--proc", "--dev")
-
-
-def _mounted(args) -> set[str]:
-    """What a bubblewrap command line puts in the sandbox: each mount's or link's path inside."""
-    out = set()
-    for i, a in enumerate(args):
-        if a in _BIND and i + 2 < len(args):
-            out.add(args[i + 2])
-        elif a in _MAKE and i + 1 < len(args):
-            out.add(args[i + 1])
-    return out
-
-
-class HidingSandbox:
-    """A sandbox with paths covered: a directory by an empty tmpfs, a file by an empty file. Subtractive, until the
-    sandbox is a positive allowlist.
-
-    A hidden path is covered under every name the sandbox shows it by: its real one, and the same path below a place
-    the sandbox binds under a link's name and its real one (a workspace reached through a link, a venv under a linked
-    cache), as main covered it: by what it leads to. A path reached through a link inside a place the session can
-    write (the call's or the sandbox's writable paths), which the session could have left, has what it leads to
-    covered only where that lies inside a place the session is given (its workspace, its data): never such a place
-    itself or one holding it, nor the system, the interpreter or the sandbox's own files, so that a session cannot
-    choose what the next call loses or stop it from starting. The places the session is given (the
-    sandbox's and the call's writable and readable paths, and `keep`: the task description under a hidden tree) are
-    bound back on top when they lie below a covered path, shallowest first, under each of their names, and what is
-    hidden below them (a hidden path, the sandbox's masks) is covered again after them. A place equal to a hidden path
-    stays visible when the call gives it or it is kept, and hidden when only the sandbox does."""
-
-    def __init__(self, inner, hidden: list[Path], keep: list[Path] = ()):
-        self.inner, self.hidden, self.keep = inner, list(hidden), list(keep)
-
-    def __getattr__(self, name):
-        return getattr(self.inner, name)
-
-    @staticmethod
-    def _under(path: str, parent: str) -> bool:
-        return path.startswith(parent.rstrip("/") + "/")
-
-    def wrap(self, command, **kw):
-        args, env = self.inner.wrap(command, **kw)
-        start = next((i for i, a in enumerate(args) if Path(a).name == "bwrap"), None)   # after an audit's strace
-        if start is None or "--" not in args[start:]:
-            return args, env
-        cut = args.index("--", start)
-        home = [kw["home"]] if kw.get("home") else []
-        writable = [*getattr(self.inner, "writable", []), *(kw.get("writable") or ()), *home]
-        readable = [*getattr(self.inner, "readable", []), *getattr(self.inner, "read", []),
-                    *(kw.get("readable") or ()), *self.keep]
-        visible = getattr(self.inner, "visible", lambda command, writable=(): [])(command, kw.get("writable") or ())
-        empty = self.inner._empty_file() if hasattr(self.inner, "_empty_file") else "/dev/null"
-        writes = {n for p in writable for n in _names(p)}
-        # places shown under a link's name and their real one; not a link a session could have left (in a place it
-        # writes), nor one that leads into itself
-        pairs = sorted({(given, real) for given, real in (_names(p) for p in [*writable, *readable, *visible]
-                                                          if len(_names(p)) == 2)
-                        if not any(self._under(given, w) for w in writes)
-                        and not (self._under(given, real) or self._under(real, given))})
-        mine = {n for p in [*(kw.get("writable") or ()), *home, *(kw.get("readable") or ()), *self.keep]
-                for n in _names(p)}                    # this call's places and `keep`: visible even when hidden
-        own = {n for p in [*writable, *readable] for n in _names(p)}
-        mounts = _mounted(args[start:cut]) | own        # everything the sandbox puts inside
-
-        def within(name: str, places) -> bool:
-            return any(name == p or self._under(name, p) for p in places)
-
-        def aliased(name: str) -> set[str]:
-            """`name`, and the same path below every place bound under a link's name and under its real one (at most
-            64 names: the places are the configuration's, and a name is not mapped twice by one pair)."""
-            out, todo = set(), [name]
-            while todo and len(out) < 64:
-                n = todo.pop()
-                if n in out:
-                    continue
-                out.add(n)
-                todo += [b + n[len(a):] for given, real in pairs for a, b in ((real, given), (given, real))
-                         if n == a or self._under(n, a)]
-            return out
-
-        def planted(given: str) -> bool:
-            """Whether the way to `given` passes a link inside a place the session can write."""
-            parts = given.split("/")
-            for i in range(2, len(parts) + 1):
-                step = "/".join(parts[:i])
-                if os.path.islink(step):
-                    there = os.path.join(os.path.realpath(os.path.dirname(step)), os.path.basename(step))
-                    if any(self._under(step, w) or self._under(there, w) for w in writes):
-                        return True
-            return False
-
-        def names_of(path) -> list[str]:
-            given = os.path.abspath(os.path.expanduser(str(path)))
-            real = os.path.realpath(given)
-            if planted(given):
-                if not os.path.exists(real) or any(real == m or self._under(m, real) for m in mounts):
-                    return []                            # a place itself, one holding a place, or nothing
-                holder = max((m for m in mounts if self._under(real, m)), key=len, default=None)
-                if holder not in own:
-                    return []                            # the system, the interpreter, the sandbox's own files
-            return [n for n in aliased(real) if os.path.exists(n)]
-
-        def cover(name: str) -> list[str]:
-            return ["--tmpfs", name] if os.path.isdir(name) else ["--ro-bind", empty, name]
-        hidden = sorted({n for p in self.hidden for n in names_of(p)}, key=len)
-        out, covered = [], []
-        for h in hidden:
-            if not within(h, covered):                 # below a covered one: hidden already
-                covered.append(h)
-                out += cover(h)
-        flags: dict[str, str] = {}
-        for flag, paths in (("--bind", writable), ("--ro-bind", readable)):
-            for path in paths:
-                for n in _names(path):
-                    if os.path.exists(n) and within(n, covered) and (n in mine or n not in hidden):
-                        flags[n] = flags.get(n) or flag                     # writable wins over readable
-        for n in [n for n in flags if os.path.islink(n) and any(self._under(n, m) for m in flags)]:
-            del flags[n]                                 # there through the place it lies in, as the link it is
-        masks = {n for p in [*getattr(self.inner, "masked", []), *(kw.get("masked") or ())] for m in _names(p)
-                 for n in aliased(m) if os.path.exists(n)}  # under a bound-back place's link name too
-        recover = ({h for h in hidden if h not in flags and any(self._under(h, n) for n in flags)}
-                   | {m for m in masks if any(m == n or self._under(m, n) for n in flags)})   # a mask wins
-        # shallowest first, a place bound back before what is covered below it
-        for name, kind in sorted([(n, "bind") for n in flags] + [(h, "cover") for h in recover],
-                                 key=lambda x: (len(x[0]), x[1] == "cover")):
-            out += [flags[name], os.path.realpath(name), name] if kind == "bind" else cover(name)
-        return args[:cut] + out + args[cut:], env
+if __name__ == "__main__":
+    sys.exit(_main(sys.argv[1:]))

@@ -117,8 +117,9 @@ candidate pool with each candidate's validation scores.
 Look for a general classification/formatting rule, not copied training reviews. The feedback explicitly discloses
 training labels in this protocol, and the learner model sees only the training attempts and their feedback. GEPA's
 code receives the validation results and keeps only their scores; the feedback of a wrong validation answer names its
-label, and the run's `tools.jsonl` records it. Test labels stay in judge-owned code. This in-process,
-sandbox-disabled example does not create a security boundary around those files.
+label, and the run's `tools.jsonl` records it. Test labels stay in judge-owned code. The acting
+pipeline runs in the task sandbox, its endpoint's host allowed (`configure.py` writes it); GEPA's own code runs in
+the Trainer's process, which the sandbox does not isolate.
 
 Require `errors: 0` when comparing scores. `mean_score` is the fraction of correct task attempts here.
 Three test tasks do not establish a reliable improvement. The final adapter can be deployed using

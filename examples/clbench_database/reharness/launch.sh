@@ -80,7 +80,7 @@ export CLB_SKIP_BASELINE=1 CLB_REQUEST_TIMEOUT=600 CLB_REASONING_EFFORT=$EFFORT
 # clbench's host calls litellm (1.81.6), whose bundled model map (the one it uses offline, LITELLM_LOCAL_MODEL_COST_MAP)
 # does not know GLM 5.3 Flash on Fireworks: it would refuse the host's tool_choice="auto" (its default anyway) unless
 # unsupported parameters are dropped. litellm reads the variable as bool(str): any non-empty value turns it on.
-export LITELLM_DROP_PARAMS=${LITELLM_DROP_PARAMS:-True}
+export LITELLM_DROP_PARAMS=${LITELLM_DROP_PARAMS:-True} LITELLM_LOCAL_MODEL_COST_MAP=${LITELLM_LOCAL_MODEL_COST_MAP:-True}
 export MWM_CLBENCH=$CLBENCH MWM_METAWORLD=$METAWORLD
 if [ "$VENUE" = database ]; then
   export CLB_SCORING=accuracy CLB_QUERY_BUDGET=${CLB_QUERY_BUDGET:-0} MW_META_SQL=1
@@ -138,8 +138,8 @@ for i in ${MW_ORDERS:-0}; do
   # The learner model through its meter: the backend copied to the metered URL, the run's `llm` tool bound to it at
   # the host's reasoning effort (`llm` is a free-form section: a whole mapping on the command line). The embedding
   # model through its relay, once for the Evolver (evolver.params.embedding, with the key variable) and once for the
-  # adapter's reader (REHARNESS_EMBED_URL, which the adapter's sandbox forwards: the reader alone is confined, the
-  # host keeps the launcher's network; the relay adds the key).
+  # adapter's reader (REHARNESS_EMBED_URL: the host runner runs in the task sandbox's no-network namespace, which
+  # forwards it, and the reader in its own nested sandbox, which forwards it again; the relay adds the key).
   LEARNER="{from: '$EVOLVER_BACKEND', base_url: 'http://127.0.0.1:$META_PORT/${TAG}_o${i}_meta$EVOLVER_PATH'}"
   LLM="{model: 'learner/$EVOLVER_MODEL_ID', extra_body: {reasoning_effort: '$EFFORT'}}"
   EMBED_URL="http://127.0.0.1:$EMBED_PORT/${TAG}_o${i}_embed$EMBED_PATH"
@@ -151,6 +151,7 @@ for i in ${MW_ORDERS:-0}; do
   MWM_TASK_WORKDIR="$WD" CLB_API_BASE="http://127.0.0.1:$WM_PORT/${TAG}_o$i$HOST_PATH" REHARNESS_EMBED_URL="$EMBED_URL" \
     setsid -w nohup "$PY" -m hermit.cli train --config "$HERE/run.yaml" \
       "trainer.run_name=$TAG-o$i" "trainer.output_dir=$RUNS/$TAG" \
+      "environment.env=[MWM_*, CLB_*, MW_*, LITELLM_*, REHARNESS_*, $HOST_LITELLM_KEY_ENV]" \
       "data.train=${MW_TRAIN_SPLIT:-$TASKDIR/splits/order$i.txt}" \
       "backends.learner=$LEARNER" "llm=$LLM" \
       "evolver.params.embedding=$EMBEDDING" \

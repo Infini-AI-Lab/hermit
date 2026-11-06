@@ -70,8 +70,9 @@ class Tool:
             raise
         finally:
             if self.log_path is not None:
+                from hermit.redact import redact_value      # a key the caller put in an argument is not kept
                 with open(self.log_path, "a") as stream:
-                    stream.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+                    stream.write(json.dumps(redact_value(record), ensure_ascii=False, default=str) + "\n")
 
     def answer(self, arguments: Any, max_chars: int | None = None) -> str:
         """Run one call from a model and return the text it reads: the rendered result, or the error. Arguments

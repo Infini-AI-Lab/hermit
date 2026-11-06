@@ -9,9 +9,9 @@ What it does, in order:
      deploy` of the adapter, plus the problem as Problem.lean with its proof link stripped);
   2. starts a model relay (the framework's wire meter, which also records every agent's tokens) and the team
      service (one unix socket per agent, one control socket);
-  3. starts the agents, each `codex exec` in a bubblewrap jail with no network: only its own workspace is writable,
-     the Lean checkout is read-only with the problem sources hidden, and two sockets are bridged in (the model relay
-     and the agent's own team endpoint);
+  3. starts the agents, each `codex exec` in the framework's sandbox (`python -m hermit.sandbox`) with no network:
+     only its own workspace is writable, the Lean checkout is read-only with the problem sources hidden, and two
+     sockets are forwarded in (the model relay and the agent's own team endpoint);
   4. every 5 s posts the agents' status to the service and carries out the commands the adapter's reactions decided
      (interrupt a running session, resume an ended one, each with a text);
   5. grades every changed Problem.lean in a Lean jail; the first proof ends the run, so does the time cap;
@@ -26,6 +26,7 @@ and socat on PATH. `--dry-run` prepares everything and starts the service, but n
 from __future__ import annotations
 
 import argparse
+import atexit
 import hashlib
 import http.client
 import json
@@ -36,6 +37,7 @@ import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -143,6 +145,27 @@ def _axioms(out: str) -> dict[str, set[str]]:
             for n, ax in re.findall(r"AXIOMS of (\S+): \[([^\]]*)\]", out, re.S)}
 
 
+STOPPING = threading.Event()      # set on SIGTERM, before the run is scrubbed
+COMPILES: set[subprocess.Popen] = set()     # the judge's compiles running now, each in a session of its own
+COMPILES_LOCK = threading.Lock()
+
+
+def stop_compiles() -> None:
+    """Stop the judge's running compiles, after STOPPING is set (no new one starts): a compile is agent-written Lean,
+    whose elaboration can write into its directory, and the run is scrubbed next. It takes no lock (the SIGTERM handler
+    may have interrupted the thread holding one): a compile started just before STOPPING joins COMPILES within its
+    Popen call, so the set is read again until it stays the same."""
+    seen = None
+    while True:
+        running = COMPILES.copy()
+        for p in running:
+            killpg(p)
+        if running == seen:
+            return
+        seen = running
+        time.sleep(0.2)
+
+
 class Judge:
     """A submitted Problem.lean proves the target when its imports are the original's, it compiles, every original
     declaration keeps its statement (and every non-theorem its value), it adds no axiom, and the target depends only
@@ -153,12 +176,22 @@ class Judge:
         self._want = None
 
     def compile(self, path: Path) -> tuple[int, str]:
+        with COMPILES_LOCK:                      # none starts once the run is stopping (stop_compiles)
+            if STOPPING.is_set():
+                return 1, f"{path}:1:0: error: not compiled, the run is stopping (judge)"
+            p = subprocess.Popen(lean_jail_prefix(path.parent) + [LAKE, "env", "lean", str(path)], cwd=REPO,
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
+            COMPILES.add(p)
         try:
-            p = subprocess.run(lean_jail_prefix(path.parent) + [LAKE, "env", "lean", str(path)], cwd=REPO,
-                               capture_output=True, text=True, timeout=3600)
+            out, err = p.communicate(timeout=3600)
         except subprocess.TimeoutExpired:
+            killpg(p)
+            p.communicate()
             return 1, f"{path}:1:0: error: compile timed out after 3600 s (judge)"
-        return p.returncode, p.stdout + p.stderr
+        finally:
+            with COMPILES_LOCK:
+                COMPILES.discard(p)
+        return p.returncode, out + err
 
     def original(self, work: Path):
         if self._want is None:
@@ -175,6 +208,8 @@ class Judge:
         if _imports(cand) != _imports(self.orig):
             return "rejected: imports changed"
         want, targets = self.original(work)
+        if STOPPING.is_set():                    # the run is being scrubbed: write nothing more into it
+            return "not graded (stopped)"
         g = work / "Grade.lean"
         g.write_text(cand.rstrip() + "\n" + DUMP_CMD.format(name=self.name))
         rc, out = self.compile(g)
@@ -203,70 +238,58 @@ class Judge:
         return "PROVED"
 
 
-# ---------------------------------------------------------------- jails (bubblewrap)
-def _system_binds() -> list[str]:
-    cmd = ["bwrap", "--unshare-user", "--unshare-net", "--unshare-pid", "--unshare-ipc", "--unshare-uts", "--unshare-cgroup",
-           "--die-with-parent", "--new-session", "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--ro-bind", "/usr", "/usr"]
-    for link in ("/lib", "/lib64", "/bin", "/sbin"):
-        if os.path.islink(link):
-            cmd += ["--symlink", os.readlink(link), link]
-        elif os.path.isdir(link):
-            cmd += ["--ro-bind", link, link]
-    for etc in ("/etc/ld.so.cache", "/etc/ld.so.conf", "/etc/ld.so.conf.d", "/etc/alternatives", "/etc/ssl", "/etc/pki",
-                "/etc/resolv.conf", "/etc/hosts", "/etc/nsswitch.conf", "/etc/passwd", "/etc/group", "/etc/localtime"):
-        if os.path.exists(etc):
-            cmd += ["--ro-bind", etc, etc]
-    return cmd
-
-
-def _repo_hides() -> list[str]:
+# ---------------------------------------------------------------- jails (the framework's sandbox, hermit/sandbox.py)
+def _repo_hidden() -> list[str]:
     """What of the Lean checkout no agent may read: the git objects (every problem file as committed, proof links
     included), documentation and the problem sources; a compile needs only the compiled imports."""
-    out = ["--tmpfs", str(REPO / ".git")]
+    out = [str(REPO / ".git")]
     for extra in ("site", "docbuild", "scripts", ".github"):
         if (REPO / extra).is_dir():
-            out += ["--tmpfs", str(REPO / extra)]
-    for d in sorted((REPO / "FormalConjectures").iterdir()):
-        if d.is_dir():
-            out += ["--tmpfs", str(d)]
-    return out
+            out.append(str(REPO / extra))
+    return out + [str(d) for d in sorted((REPO / "FormalConjectures").iterdir()) if d.is_dir()]
+
+
+def _jail(spec: dict) -> list[str]:
+    """The command prefix that runs what follows it in a sandbox made from `spec` (`python -m hermit.sandbox`): no
+    network but `sockets`, only what `spec` shows, nothing of the environment but its `env`."""
+    # -P: not the working directory first (another checkout's hermit); this checkout comes from PYTHONPATH (main)
+    return [sys.executable, "-P", "-m", "hermit.sandbox", json.dumps({"framework": False, "env_allow": [], **spec}),
+            "--"]
 
 
 ELAN = HOME / ".elan"
+
+
+def scrub_run(base: Path, key: str | None) -> None:
+    """What the run keeps holds no key value, as a Trainer's run (the agents' codex homes snapshot their environment):
+    the model's key, whatever its variable is named and wherever it was read from, and every key-like variable's."""
+    from hermit.redact import redact_tree
+    if key:
+        os.environ["LEAN_SWARM_MODEL_API_KEY"] = key
+    redact_tree(base)
 
 
 def lean_jail_prefix(rw: Path) -> list[str]:
     """A compile of agent-written Lean (the service's `check`, the judge): no network, toolchain and checkout read-only,
     only `rw` writable. A Lean file can run IO at elaboration time, so an agent's file is never compiled on the open
     host. Returns the command prefix; the lake command follows it."""
-    cmd = _system_binds() + ["--ro-bind", str(ELAN), str(ELAN), "--ro-bind", str(REPO), str(REPO)] + _repo_hides()
-    cmd += ["--bind", str(rw), str(rw)]
-    return cmd + ["--chdir", str(REPO), "--clearenv", "--setenv", "HOME", "/tmp", "--setenv", "LANG", "C.UTF-8",
-                  "--setenv", "ELAN_HOME", str(ELAN), "--setenv", "PATH", f"{ELAN}/bin:/usr/bin:/bin", "--"]
+    return _jail({"network": "no-network", "role": "lean", "readable": [str(ELAN), str(REPO)],
+                  "writable": [str(rw)], "hide": _repo_hidden(), "chdir": str(REPO),
+                  "env": {"HOME": "/tmp", "LANG": "C.UTF-8", "ELAN_HOME": str(ELAN),
+                          "PATH": f"{ELAN}/bin:/usr/bin:/bin"}})
 
 
 def agent_jail(work: Path, home: Path, ro: list[Path], bridges: list[tuple[Path, int]], env: dict[str, str]) -> list[str]:
     """The agent's jail: no network; its workspace and codex home writable, the codex release, the toolchain and the
-    checkout read-only; each (unix socket, port) bridged in by socat so the agent reaches it at 127.0.0.1:port."""
+    checkout read-only; each (unix socket, port) forwarded in, so the agent reaches it at 127.0.0.1:port."""
     codex_rel = Path(os.path.realpath(shutil.which("codex"))).parents[1]
-    cmd = _system_binds()
-    bridge = ""
-    for sock, port in bridges:
-        cmd += ["--bind", str(sock), str(sock)]
-        bridge += (f"socat TCP-LISTEN:{port},bind=127.0.0.1,fork,reuseaddr UNIX-CONNECT:{sock} & "
-                   f"for i in $(seq 100); do (exec 3<>/dev/tcp/127.0.0.1/{port}) 2>/dev/null && break; sleep 0.1; done; ")
-    bridge += 'exec "$@"'
-    for p in (codex_rel, ELAN, REPO, *ro):
-        cmd += ["--ro-bind", str(p), str(p)]
-    cmd += _repo_hides()
-    for p in (work, home):
-        cmd += ["--bind", str(p), str(p)]
-    return cmd + ["--chdir", str(work), "--clearenv", "--setenv", "USER", os.environ.get("USER", "user"),
-                  "--setenv", "LANG", "C.UTF-8", "--setenv", "TERM", "xterm-256color",
-                  "--setenv", "HOME", str(home), "--setenv", "CODEX_HOME", str(home), "--setenv", "ELAN_HOME", str(ELAN),
-                  "--setenv", "PATH", f"{codex_rel}/bin:{ELAN}/bin:/usr/bin:/bin", "--setenv", "TMPDIR", "/tmp",
-                  *[x for k, v in env.items() for x in ("--setenv", k, v)],
-                  "--", "bash", "-c", bridge, "jail"]
+    return _jail({"network": "no-network", "role": "agent",
+                  "readable": [str(p) for p in (codex_rel, ELAN, REPO, *ro)], "writable": [str(work), str(home)],
+                  "hide": _repo_hidden(), "sockets": {str(port): str(sock) for sock, port in bridges},
+                  "chdir": str(work),
+                  "env": {"USER": os.environ.get("USER", "user"), "LANG": "C.UTF-8", "TERM": "xterm-256color",
+                          "HOME": str(home), "CODEX_HOME": str(home), "ELAN_HOME": str(ELAN),
+                          "PATH": f"{codex_rel}/bin:{ELAN}/bin:/usr/bin:/bin", "TMPDIR": "/tmp", **env}})
 
 
 CODEX_FLAGS = [  # the model's own commands may not write /tmp outside the workspace; nothing that reaches outside the jail
@@ -399,6 +422,9 @@ def main() -> None:
     a = ap.parse_args()
 
     sys.path.insert(0, str(FRAMEWORK))
+    # The jails (`python -m hermit.sandbox`) start in the checkout or a workspace: they import this checkout's hermit,
+    # not one installed elsewhere. What runs inside a jail gets only its spec's variables.
+    os.environ["PYTHONPATH"] = os.pathsep.join([str(FRAMEWORK), *filter(None, [os.environ.get("PYTHONPATH")])])
     from hermit.agent.model.backends import problems_of, registry, resolve
     try:
         binding = resolve(a.model, registry())
@@ -430,6 +456,22 @@ def main() -> None:
     if (base / "result.json").exists():
         sys.exit(f"REFUSING: {base} already has a result.json")
     base.mkdir(parents=True, exist_ok=True)
+    # At the end, after a failure or on SIGTERM: the processes stop first (added later, so run earlier), then the run
+    # is scrubbed. SIGTERM runs them at once and exits: a normal exit first joins the grading threads (a compile can
+    # take an hour).
+    finish = [lambda: scrub_run(base, key)]
+
+    def run_finish():
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)     # a cleanup under way runs to its end
+        while finish:
+            finish.pop()()
+
+    def on_sigterm(*_):
+        STOPPING.set()
+        run_finish()
+        os._exit(143)
+    atexit.register(run_finish)
+    signal.signal(signal.SIGTERM, on_sigterm)
     lib = base / "library"
     (lib / "verified").mkdir(parents=True, exist_ok=True)
     # unix socket paths are limited to about 107 bytes: the sockets live in a short directory keyed by the run
@@ -532,7 +574,10 @@ def main() -> None:
         killpg(service)
         killpg(relay)
         killpg(meter)
-        gpool.shutdown(wait=False, cancel_futures=True)
+        if not STOPPING.is_set():      # on SIGTERM the handler may have interrupted the main thread inside the pool
+            gpool.shutdown(wait=False, cancel_futures=True)
+        stop_compiles()
+    finish.append(shutdown)
 
     if a.dry_run:
         probe = agents["A1"]["cmd"][:agents["A1"]["cmd"].index("codex")] + [

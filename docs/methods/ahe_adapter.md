@@ -25,7 +25,7 @@ data:
   train: rows/train_k2.txt   # every training task k times: rows <task>#1 ... <task>#k
   step_size: 100             # one step = one AHE iteration over every trial row
 trainer: {epochs: 10, allow_early_stop: true}        # the paper's ten iterations
-sandbox: {enabled: true, network: restricted, allow: [chatgpt.com, auth.openai.com]}
+sandbox: {enabled: true, evolver: {allowed_hosts: [chatgpt.com, auth.openai.com]}}   # the learners' ChatGPT login
 ```
 
 Both learners are sessions of the `codex` Base Agent: the Agent Debugger one session per task and attempt, the Evolve
@@ -117,7 +117,7 @@ flowchart TD
     D["4. Agent Debugger: one codex session per task<br/>over its trajectories, hook audits and verdicts"]
     V["5. Evolve Agent: one codex session edits the adapter<br/>(check_spec), writes manifest N"]
     P["6. archive the manifest, scores, history"]
-    F["finalize: final = best_ever (git archive of its commit) or last"]
+    F["finalize: final = best_ever (its commit, exported object by object) or last"]
     R --> S --> E
     E -- yes --> F
     E -- no --> B --> D --> V --> P --> R

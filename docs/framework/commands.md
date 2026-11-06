@@ -32,7 +32,7 @@ hermit eval  --config run.yaml --adapter none       # optional: the agent withou
 | Task | `task-info/README.md` missing; splits overlap; the judge cannot score a sample task |
 | Budgets | No hard budget or no iteration budget |
 | Pipeline probe | One training task without an adapter; score, time, reported API speed, and cost are printed |
-| Risky settings | The warnings listed in [Configuration](configuration.md#sandbox-network-and-warnings) |
+| Risky settings | The warnings listed in [Configuration](configuration.md#sandboxes) |
 
 `check` prints a disclaimer: it checks only these basic items. Passing `check` does not guarantee that the settings are
 free of problems or that the run will succeed.
@@ -162,8 +162,10 @@ It is not an HTTP preview server or the proposed standalone-service launcher. `-
 
 ## Implementation notes
 
-- `check` also verifies that every `sandbox.read` path exists. It does not check the pipeline's host: adapters are meant to
-  be usable by any acting agent, and each pipeline deploys the exports (context, tools, roles, skills) in its own way.
+- `check` also verifies that every declared sandbox path exists (`environment.read`, `judge.tests`,
+  `evolver_access.environment`) and that no declared path holds the data, the judge or the runs. It does not check
+  the pipeline's host: adapters are meant to be usable by any acting agent, and each pipeline deploys the exports
+  (context, tools, roles, skills) in its own way.
 - `hermit deploy --adapter DIR --workspace WORKSPACE --host codex|claude-code|pi` copies an adapter to
   `hermit/<id>/` in a host workspace and connects its exports there (context block, MCP tools, native roles, skills,
   hooks).

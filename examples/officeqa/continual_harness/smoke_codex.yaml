@@ -24,8 +24,6 @@ agent:
     timeout_s: 1800
     project_doc_max_bytes: 65536       # 64 KiB: the skill (up to 40 KB) with the deployment's notes; past
                                        # Codex's default 32 KiB it would cut AGENTS.md (deploy refuses that)
-    isolation: container               # each session in a container of its own (hermit/agent/base/container.py)
-    container: {image: "officeqa-codex:0.162.0", network: oq-sandbox, proxy: "http://oq-egress:3128"}
 judge:
   path: ../utils/judge.py
 template: continual-harness@1.1
@@ -37,14 +35,11 @@ evolver:
 llm:
   model: fireworks/accounts/fireworks/models/glm-5p3-flash
   extra_body: {reasoning_effort: medium}
+environment:                         # the acting agent: Codex in a container of its own
+  image: "officeqa-codex:0.162.0"
+  container: {"network": "oq-sandbox", "proxy": "http://oq-egress:3128"}
 sandbox:
   enabled: true
-  network: restricted
-  allow: []
-  read: []
-  env: []
-  profiles:
-    rollout: {enabled: false}
 trainer:
   run_name: smoke-codex-ch
   output_dir: runs

@@ -60,9 +60,9 @@ without starting an agent. The launcher does, in order:
    `AGENTS.md`, its skills under `.codex/skills/`), plus the problem as `Problem.lean` with the target left as
    `sorry`.
 3. **Agents.** `codex exec` in each workspace with the task and the agent's own endpoint as the `team` MCP server,
-   so the five tools reach the service as that agent. Each agent runs in a bubblewrap jail with no network: its
-   workspace is writable, the Lean checkout is read-only with the problem sources hidden, and only two sockets are
-   bridged in, the model relay and the agent's team endpoint.
+   so the five tools reach the service as that agent. Each agent runs in the framework's sandbox (`python -m
+   hermit.sandbox`, bubblewrap) with no network: its workspace is writable, the Lean checkout is read-only with the
+   problem sources hidden, and only two sockets are forwarded in, the model relay and the agent's team endpoint.
 4. **Reactions and the judge.** Every 5 s the launcher posts the agents' status to the service and carries out
    what the adapter decided (interrupt a running agent, resume an ended one, each with a text), and grades every
    changed `Problem.lean` in a Lean jail. The first proof that compiles without `sorry` or extra axioms ends the run,

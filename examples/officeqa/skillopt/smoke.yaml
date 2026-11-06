@@ -31,19 +31,16 @@ evolver:
     trajectory_view: paper        # trajectories as the paper-time analyst saw them
     promote_final: false          # the paper-time code hands back the best skill as is
     seed: 42
+model: fireworks/accounts/fireworks/models/glm-5p3-flash   # the agent's (agent.params.model), named so its key and
+                                                         # host reach the task sandbox; `model=...` moves it
 llm:                           # the optimizer: GLM 5.3 at medium effort (the paper: GPT-5.5, medium)
   model: fireworks/accounts/fireworks/models/glm-5p3     # <backend>/<model id>; the price is the backend's
   extra_body: {reasoning_effort: medium}
+environment:                         # the task sandbox: the agent's code, its data and the corpus
+  read: [../utils/agent, ../utils/data.json, ../utils/documents]
+  packages: [skillopt]
 sandbox:
   enabled: true
-  network: restricted
-  allow: []                  # the Evolver's own model endpoint is always reachable
-  read: []
-  env: []                    # the Evolver's model key variable is always passed; nothing else is
-  profiles:                  # the agent's sandbox (rollout; eval and check take it too)
-    rollout:
-      read: [../utils/documents]   # the source documents (prepare.py links them)
-      mask: [../utils/.private]    # the judge's answers, beside the task
 trainer:
   run_name: smoke-skillopt
   output_dir: runs

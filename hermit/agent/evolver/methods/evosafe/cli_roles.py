@@ -13,7 +13,7 @@ from .experience import role_tools
 
 # The Layer 1/2 settings a configuration may give the role CLI; the rest are set per call below.
 CLI_SETTINGS = ("model", "binding", "login", "login_root", "plan_dir", "plan_max_wait_s", "plan_rerun", "effort",
-                "isolation", "container", "codex_sandbox", "permission_mode", "shell_env", "project_doc_max_bytes",
+                "codex_sandbox", "permission_mode", "shell_env", "project_doc_max_bytes",
                 "home_files", "args", "env", "env_drop", "price", "timeout_s", "bin")
 
 # Provider messages that mean the role request itself was refused (stop, never retried).
@@ -64,7 +64,7 @@ def call_role(ctx, messages, schema, name, backend):
         if settings.get(key) is None and params.get(f"{backend}_{key}") is not None:
             settings[key] = params[f"{backend}_{key}"]
     settings.setdefault("timeout_s", 600 if backend == "codex" else 1200)
-    settings.setdefault("isolation", "sandbox" if ctx.sandbox is not None else "none")
+    settings["isolation"] = "sandbox" if ctx.sandbox is not None else "none"     # the run's sandbox, when it is on
     settings.update(sandbox=ctx.sandbox, cancel=ctx.cancel, web_search=False, stdin=True,
                     log=ctx.workspace.output / f"{backend}-{name}-events.jsonl")
     system = "\n\n".join(m["content"] for m in messages if m["role"] == "system")
