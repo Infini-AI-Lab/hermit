@@ -45,15 +45,15 @@ use), a `separate` judge in a sanitized copy of the collected paths, so the orig
 `hermit/sandbox.py` builds every sandbox:
 
 - The system (`/usr`, the `/lib` and `/bin` links, a few `/etc` files) read-only.
-- The interpreter with its standard library and the environment the framework runs in: its site directories (the
-  ones on its `sys.path`) as installed, so what is installed there is what a sandbox can import
-  (`hermit-harness[sandbox]` installs a base: numpy, pandas, scipy, torch). Never what their `.pth` files add beside
-  them (an editable install's checkout: hermit's own, a benchmark's with its data); `packages` names such a
-  distribution, or one on `PYTHONPATH`, to show its package. Every other interpreter's site directory (a venv's base
-  installation, a system Python under `/usr`) is replaced by an empty one. The interpreter's directory leads `PATH`
-  inside (its `python3` beside `python` shown), so `#!/usr/bin/env python3` runs on this environment. The hermit
-  package itself (not the checkout) is shown when `framework`; a hermit installed in the environment is covered
-  without it.
+- The interpreter with its standard library and the environment the framework runs in: its site directories (the ones
+  on its `sys.path`) as installed, so what is installed there is what a sandbox can import (`hermit-harness[sandbox]`
+  installs a base: numpy, pandas, scipy, torch). Never what their `.pth` files add beside them (an editable install's
+  checkout: hermit's own, a benchmark's with its data); `packages` names such a distribution, or one on `PYTHONPATH`,
+  to show its package. Every other interpreter's site directory (a venv's base installation, a system Python under
+  `/usr`) is replaced by an empty one. The framework interpreter's `python3` beside `python` is shown, and when
+  another interpreter comes first on `PATH` its directory leads `PATH` inside, so `#!/usr/bin/env python3` runs on
+  this environment. The hermit package itself (not the checkout) is shown when `framework`; a hermit installed in the
+  environment is covered without it.
 - `hide` (the run's `sandbox.hide`: module or package names, resolved to their files without importing them) is
   covered in every sandbox but the judge's, under every name it is shown by: a directory by an empty one, a file
   by an empty file and its package's `__pycache__` by an empty directory (a cache the judge's import writes later

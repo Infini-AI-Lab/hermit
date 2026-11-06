@@ -1546,6 +1546,63 @@ def test_python3_on_the_path_inside_is_the_frameworks_own(tmp_path):
         box.close()
 
 
+def test_path_keeps_its_order_when_its_python3_is_the_frameworks_own(monkeypatch):
+    """Only another interpreter first on PATH moves the framework's directory forward: tools keep their order."""
+    fake_bwrap(monkeypatch)
+    own = os.path.dirname(sys.executable)             # the framework's own directory, with python3 and python
+    if not all(os.path.exists(os.path.join(own, name)) for name in ("python3", "python")):
+        pytest.skip("the interpreter's directory lacks python3 or python")
+    path = f"{own}:/usr/bin:/bin"
+    box = Sandbox(network="isolated")
+    try:
+        _, env = box.wrap(["true"], env={**os.environ, "PATH": path})
+        assert env["PATH"] == path
+    finally:
+        box.close()
+
+
+def test_from_an_unactivated_venv_the_base_python3_first_on_path_is_not_its_own(tmp_path, monkeypatch):
+    """A venv's python links to its base interpreter's file: the base's python3 first on PATH runs the base
+    environment (emptied inside), so the venv's bin/ is moved forward."""
+    fake_bwrap(monkeypatch)
+    base, venv = tmp_path / "base" / "bin", tmp_path / "venv"
+    base.mkdir(parents=True)
+    (venv / "bin").mkdir(parents=True)
+    real = os.path.realpath(sys.executable)
+    for name in ("python3", "python"):
+        (base / name).symlink_to(real)
+    (venv / "bin" / "python").symlink_to(real)
+    (venv / "pyvenv.cfg").write_text(f"home = {base}\n")
+    monkeypatch.setattr(sys, "executable", str(venv / "bin" / "python"))
+    monkeypatch.setattr(sys, "prefix", str(venv))
+    box = Sandbox(network="isolated")
+    try:
+        _, env = box.wrap(["true"], env={**os.environ, "PATH": f"{base}:/usr/bin:/bin"})
+        assert env["PATH"].split(os.pathsep)[:2] == [str(venv / "bin"), str(base)]
+    finally:
+        box.close()
+
+
+def test_from_a_base_python_another_venv_first_on_path_is_not_its_own(tmp_path, monkeypatch):
+    """The framework on its base Python: another venv whose python links to the same file runs that venv's
+    environment, so the framework's directory is moved forward."""
+    fake_bwrap(monkeypatch)
+    real = os.path.realpath(sys.executable)
+    venv = tmp_path / "other-venv"
+    (venv / "bin").mkdir(parents=True)
+    for name in ("python3", "python"):
+        (venv / "bin" / name).symlink_to(real)
+    (venv / "pyvenv.cfg").write_text(f"home = {os.path.dirname(real)}\n")
+    monkeypatch.setattr(sys, "executable", real)
+    monkeypatch.setattr(sys, "prefix", sys.base_prefix)
+    box = Sandbox(network="isolated")
+    try:
+        _, env = box.wrap(["true"], env={**os.environ, "PATH": f"{venv / 'bin'}:/usr/bin:/bin"})
+        assert env["PATH"].split(os.pathsep)[0] == os.path.dirname(real)
+    finally:
+        box.close()
+
+
 def test_a_python_clis_own_installation_keeps_its_packages(tmp_path, monkeypatch):
     """A CLI that runs on Python (a pipx or venv install) imports from its own site directory: it is not emptied."""
     fake_bwrap(monkeypatch)

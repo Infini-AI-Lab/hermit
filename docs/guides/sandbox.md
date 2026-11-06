@@ -84,9 +84,12 @@ The pieces, in the order they are applied:
      replaced by an empty directory;
    - the hermit package itself, unless the sandbox runs framework code (`framework`, as CommandEvolver's does).
 
-   The directory of hermit's interpreter leads `PATH` inside, and the interpreter's other names there (`python3`
-   beside `python`) are shown, so `python3` and a script starting with `#!/usr/bin/env python3` run on hermit's
-   environment, even when hermit was started from a virtual environment that is not activated.
+   The interpreter's other names beside it (`python3` beside `python`) are shown, and when another interpreter comes
+   first on `PATH` (hermit started from a virtual environment that is not activated), the interpreter's directory is
+   moved to the front inside. A `python3` that a shell or a `#!/usr/bin/env python3` line looks up inside then runs
+   on hermit's environment (unless that directory's `python3` is another version, as on the host). The sandbox's own
+   command is found on the host's `PATH` before it starts: give a Python command as an absolute path
+   (`sys.executable`).
 4. **Programs.** A command started by name is run by its real path. Its installation is shown (a CLI under
    `~/.local/bin` and the package it belongs to, the interpreter its `#!` line names), with that installation's
    Python packages emptied, unless the program itself runs on Python (a pipx or venv install keeps its own).
@@ -128,9 +131,10 @@ flowchart LR
 
 Before the command starts, the relay checks from inside that an outside connection fails (with an isolated network),
 that every forwarded port answers, and that the run's secrets and the home's `.ssh` and `.bashrc` are absent. If the
-check fails, the command does not start. Each start of a task, judge, tool or learner sandbox writes a record,
-`sandbox/<role>-<n>.json` in the run directory: what was bound and under which names, the forwarded ports, the
-variables passed, and the check.
+check fails, the command does not start. Each start of a task, judge, tool or learner sandbox in a run writes a
+record, `sandbox/<role>-<n>.json` in the run directory: what was bound and under which names, the forwarded ports,
+the variables passed, and the check (`hermit eval` writes its own beside its results). `hermit check`'s probes and
+the strict spec and render sandboxes keep none.
 
 ## Models and keys
 
@@ -167,9 +171,12 @@ A launcher that hands another program a command prefix can run a command in a sa
 `Sandbox` fields:
 
 ```bash
-python -m hermit.sandbox '{"readable": ["/data/corpus"], "writable": ["/tmp/out"], "network": "isolated"}' -- \
-    python3 job.py
+python -m hermit.sandbox '{"readable": ["/data/corpus", "/home/me/jobs"], "writable": ["/home/me/out"],
+  "network": "isolated", "env_allow": [], "chdir": "/home/me/jobs"}' -- "$(which python)" job.py
 ```
+
+`env_allow` lists the variables that pass besides the few every sandbox needs (`PATH`, `HOME`, ...); left out,
+every variable of the calling process passes.
 
 The run's `sandbox.hide` (from `HA_SANDBOX_HIDE`) applies here too. The Lean swarm's agent jails and compiles use it
 (`examples/lean_swarm/launch.py`).

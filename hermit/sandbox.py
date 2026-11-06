@@ -1073,10 +1073,20 @@ class Sandbox:
             self._record(command, {"enforced": False, "reason": "bubblewrap is not installed"}, env)
             return command, env
         if "PATH" in env:
-            # `python3` inside is this environment's: a script started by `#!/usr/bin/env python3` must not find
-            # another interpreter first (an unactivated venv), whose packages are emptied below.
-            own = os.path.dirname(sys.executable)
-            env["PATH"] = os.pathsep.join([own, *(p for p in env["PATH"].split(os.pathsep) if p and p != own)])
+            # `python3` inside is this environment's: when another interpreter comes first on PATH (an unactivated
+            # venv), whose packages are emptied below, this one's directory leads it; otherwise its order is kept
+            # (a /usr/local/bin before /usr/bin keeps its tools).
+            own, real = os.path.dirname(sys.executable), os.path.realpath(sys.executable)
+
+            def ours(first: str) -> bool:      # a venv's python3 is its own bin/'s, not the base it links to
+                where = os.path.dirname(first)
+                if sys.prefix != sys.base_prefix:
+                    return os.path.realpath(where) == os.path.realpath(own)
+                in_venv = any(os.path.exists(os.path.join(d, "pyvenv.cfg")) for d in (where, os.path.dirname(where)))
+                return not in_venv and os.path.realpath(first) == real
+            if any(first and not ours(first)
+                   for first in (shutil.which(name, path=env["PATH"]) for name in ("python3", "python"))):
+                env["PATH"] = os.pathsep.join([own, *(p for p in env["PATH"].split(os.pathsep) if p and p != own)])
         found = shutil.which(command[0]) if command else None
         if found:      # run the program by its real path: PATH entries outside the sandbox do not exist inside
             real = Path(found).resolve()     # ... except this Python, which must keep its environment's path

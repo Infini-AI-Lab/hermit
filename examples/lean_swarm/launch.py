@@ -26,6 +26,7 @@ and socat on PATH. `--dry-run` prepares everything and starts the service, but n
 from __future__ import annotations
 
 import argparse
+import atexit
 import hashlib
 import http.client
 import json
@@ -36,6 +37,7 @@ import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -143,6 +145,27 @@ def _axioms(out: str) -> dict[str, set[str]]:
             for n, ax in re.findall(r"AXIOMS of (\S+): \[([^\]]*)\]", out, re.S)}
 
 
+STOPPING = threading.Event()      # set on SIGTERM, before the run is scrubbed
+COMPILES: set[subprocess.Popen] = set()     # the judge's compiles running now, each in a session of its own
+COMPILES_LOCK = threading.Lock()
+
+
+def stop_compiles() -> None:
+    """Stop the judge's running compiles, after STOPPING is set (no new one starts): a compile is agent-written Lean,
+    whose elaboration can write into its directory, and the run is scrubbed next. It takes no lock (the SIGTERM handler
+    may have interrupted the thread holding one): a compile started just before STOPPING joins COMPILES within its
+    Popen call, so the set is read again until it stays the same."""
+    seen = None
+    while True:
+        running = COMPILES.copy()
+        for p in running:
+            killpg(p)
+        if running == seen:
+            return
+        seen = running
+        time.sleep(0.2)
+
+
 class Judge:
     """A submitted Problem.lean proves the target when its imports are the original's, it compiles, every original
     declaration keeps its statement (and every non-theorem its value), it adds no axiom, and the target depends only
@@ -153,12 +176,22 @@ class Judge:
         self._want = None
 
     def compile(self, path: Path) -> tuple[int, str]:
+        with COMPILES_LOCK:                      # none starts once the run is stopping (stop_compiles)
+            if STOPPING.is_set():
+                return 1, f"{path}:1:0: error: not compiled, the run is stopping (judge)"
+            p = subprocess.Popen(lean_jail_prefix(path.parent) + [LAKE, "env", "lean", str(path)], cwd=REPO,
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
+            COMPILES.add(p)
         try:
-            p = subprocess.run(lean_jail_prefix(path.parent) + [LAKE, "env", "lean", str(path)], cwd=REPO,
-                               capture_output=True, text=True, timeout=3600)
+            out, err = p.communicate(timeout=3600)
         except subprocess.TimeoutExpired:
+            killpg(p)
+            p.communicate()
             return 1, f"{path}:1:0: error: compile timed out after 3600 s (judge)"
-        return p.returncode, p.stdout + p.stderr
+        finally:
+            with COMPILES_LOCK:
+                COMPILES.discard(p)
+        return p.returncode, out + err
 
     def original(self, work: Path):
         if self._want is None:
@@ -175,6 +208,8 @@ class Judge:
         if _imports(cand) != _imports(self.orig):
             return "rejected: imports changed"
         want, targets = self.original(work)
+        if STOPPING.is_set():                    # the run is being scrubbed: write nothing more into it
+            return "not graded (stopped)"
         g = work / "Grade.lean"
         g.write_text(cand.rstrip() + "\n" + DUMP_CMD.format(name=self.name))
         rc, out = self.compile(g)
@@ -217,10 +252,21 @@ def _repo_hidden() -> list[str]:
 def _jail(spec: dict) -> list[str]:
     """The command prefix that runs what follows it in a sandbox made from `spec` (`python -m hermit.sandbox`): no
     network but `sockets`, only what `spec` shows, nothing of the environment but its `env`."""
-    return [sys.executable, "-m", "hermit.sandbox", json.dumps({"framework": False, "env_allow": [], **spec}), "--"]
+    # -P: not the working directory first (another checkout's hermit); this checkout comes from PYTHONPATH (main)
+    return [sys.executable, "-P", "-m", "hermit.sandbox", json.dumps({"framework": False, "env_allow": [], **spec}),
+            "--"]
 
 
 ELAN = HOME / ".elan"
+
+
+def scrub_run(base: Path, key: str | None) -> None:
+    """What the run keeps holds no key value, as a Trainer's run (the agents' codex homes snapshot their environment):
+    the model's key, whatever its variable is named and wherever it was read from, and every key-like variable's."""
+    from hermit.redact import redact_tree
+    if key:
+        os.environ["LEAN_SWARM_MODEL_API_KEY"] = key
+    redact_tree(base)
 
 
 def lean_jail_prefix(rw: Path) -> list[str]:
@@ -410,6 +456,22 @@ def main() -> None:
     if (base / "result.json").exists():
         sys.exit(f"REFUSING: {base} already has a result.json")
     base.mkdir(parents=True, exist_ok=True)
+    # At the end, after a failure or on SIGTERM: the processes stop first (added later, so run earlier), then the run
+    # is scrubbed. SIGTERM runs them at once and exits: a normal exit first joins the grading threads (a compile can
+    # take an hour).
+    finish = [lambda: scrub_run(base, key)]
+
+    def run_finish():
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)     # a cleanup under way runs to its end
+        while finish:
+            finish.pop()()
+
+    def on_sigterm(*_):
+        STOPPING.set()
+        run_finish()
+        os._exit(143)
+    atexit.register(run_finish)
+    signal.signal(signal.SIGTERM, on_sigterm)
     lib = base / "library"
     (lib / "verified").mkdir(parents=True, exist_ok=True)
     # unix socket paths are limited to about 107 bytes: the sockets live in a short directory keyed by the run
@@ -512,7 +574,10 @@ def main() -> None:
         killpg(service)
         killpg(relay)
         killpg(meter)
-        gpool.shutdown(wait=False, cancel_futures=True)
+        if not STOPPING.is_set():      # on SIGTERM the handler may have interrupted the main thread inside the pool
+            gpool.shutdown(wait=False, cancel_futures=True)
+        stop_compiles()
+    finish.append(shutdown)
 
     if a.dry_run:
         probe = agents["A1"]["cmd"][:agents["A1"]["cmd"].index("codex")] + [
@@ -679,11 +744,6 @@ def main() -> None:
     except ValueError:
         ledger = {}
     shutdown()
-    # What the run keeps holds no key value, as a Trainer's run (the agents' codex homes snapshot their environment).
-    from hermit.redact import redact_tree
-    if binding.key_env_if_set() and key:
-        os.environ.setdefault(binding.key_env_if_set(), key)
-    redact_tree(base)
 
     res = dict(problem=rel, theorem=a.theorem, model=a.model, n_agents=a.agents, cap_s=a.cap, solved=winner is not None,
                winner=winner, time_to_solve=round(t_solved) if t_solved is not None else None, wall=round(time.time() - t0), agents={})
