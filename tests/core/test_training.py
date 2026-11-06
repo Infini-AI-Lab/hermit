@@ -740,3 +740,21 @@ def test_a_failed_llm_client_closes_its_sandbox(tmp_path, monkeypatch):
         Trainer(load(make_task(tmp_path), "llm={cli: codex, model: gpt-x, login: chatgpt, web_search: false}"),
                 log=lambda *_: None)
     assert closed
+
+
+def test_a_run_agent_log_is_copied_whole_and_a_failed_copy_leaves_the_result(tmp_path, monkeypatch):
+    """Two runs of one task at once may write one log (Harness²'s stages, the toy pipeline's .logs/<task>.txt): the
+    copy the learner opens reads the file once, never through an archive's size check, which failed when the other
+    run rewrote it (OSError: unexpected end of data) and with it the whole run_agent call."""
+    import hermit.trainer.trainer as trainer_module
+    trainer = Trainer.__new__(Trainer)
+    trainer.run_dir = tmp_path / "run"
+    log = tmp_path / ".logs" / "t0.txt"
+    log.parent.mkdir()
+    log.write_text("question 1+2 answer 3")
+    copied = trainer._visible_log({"id": "t0", "log": str(log)})
+    assert Path(copied).read_text() == "question 1+2 answer 3"
+    (tmp_path / "logdir").mkdir()                                  # a directory log goes through the archive
+    monkeypatch.setattr(trainer_module, "sanitized_copy", lambda *a, **k: (_ for _ in ()).throw(
+        OSError("unexpected end of data")))
+    assert trainer._visible_log({"id": "t1", "log": str(tmp_path / "logdir")}) is None

@@ -22,6 +22,7 @@ import json
 import os
 import random
 import shutil
+import stat
 import subprocess
 import sys
 import threading
@@ -511,7 +512,21 @@ class Trainer:
         if log is None or not os.path.lexists(log):
             return None
         place = self.run_dir / "agent_logs" / f"{_safe(result['id'])}-{uuid.uuid4().hex[:6]}"   # this process's own
-        sanitized_copy(log.parent, place, [log.name])
+        try:
+            if log.is_dir() and not log.is_symlink():
+                sanitized_copy(log.parent, place, [log.name])
+            else:
+                # One file, read once (never through a link, only a regular file): a run of the same task going on
+                # beside this one may be rewriting it, which an archive's size check refuses.
+                fd = os.open(log, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+                with os.fdopen(fd, "rb") as f:
+                    if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
+                        return None
+                    data = f.read()
+                place.mkdir(parents=True)
+                (place / log.name).write_bytes(data)
+        except OSError:
+            return None                      # the run's result stands without its log
         redact_tree(place)                   # the agent held its model's key; the learner's may be another's
         return str(place / log.name)
 
