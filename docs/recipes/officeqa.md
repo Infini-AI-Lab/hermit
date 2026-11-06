@@ -509,10 +509,10 @@ ChatGPT login, the optimizer one Codex session per call (`llm: {cli: codex}`). T
 evaluation pass, and one evaluation of the initial skill in the same setting.
 
 - Models: `gpt-5.6-luna` acting and learning, reasoning effort medium, on a ChatGPT login.
-- Harness: the Codex agent, a container per session (`officeqa-codex:0.165.0`), four at a time, 3,600 s each.
+- Harness: the Codex agent, a container per session, four at a time, 3,600 s each.
 - Data: the 50 / 24 / 172 split of SkillOpt `79124b3`, `data.shuffle_seed: 42`.
 - Spending: a subscription has no per-token price. The training took 2.4 h: 27.8 M tokens of training rollouts,
-  124.5 M of optimizer and candidate sessions. Each evaluation about 30 min.
+  124.5 M of optimizer and candidate sessions. The evaluations took 30 min (`final`) and 57 min (the initial skill).
 
 | Adapter | accuracy | − the initial skill, points |
 |---|---|---|

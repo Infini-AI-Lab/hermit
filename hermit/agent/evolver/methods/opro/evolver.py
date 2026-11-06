@@ -76,6 +76,13 @@ def _mean(scores: dict) -> float:
 
 
 class OPROEvolver(Evolver):
+    def setup(self, ctx) -> None:
+        """A run without the model, or with an unknown `select`, stops here, before the first rollouts."""
+        if ctx.agent is None:
+            raise ValueError("opro needs the run's model: set `llm` in run.yaml")
+        if ctx.params.get("select", "validation") not in ("train", "validation"):
+            raise ValueError(f"unknown select {ctx.params.get('select')!r}: train or validation")
+
     def step(self, ctx: StepContext) -> StepResult:
         if ctx.agent is None:
             return StepResult("failed", "opro needs the run's model: set `llm` in run.yaml")
