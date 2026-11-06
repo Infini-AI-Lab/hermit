@@ -135,7 +135,7 @@ Checkpoint frequency controls tags; completed steps still have records and accep
 | `environment.image` | string / null | A Docker image: a Codex acting agent runs in a container of its own |
 | `environment.container` | mapping / {} | With `image`: the container's `network` and `proxy` |
 | `judge.mode` | string / `host` | `host`, `shared` or `separate` |
-| `judge.tests` | list / [] | `shared`, `separate`: paths only the judge sees |
+| `judge.tests` | list / [] | `shared`, `separate`: paths only the judge sees (its own file is shown; a file beside it is not unless listed here) |
 | `judge.collect` | list / [] | `separate`: paths of the agent's work directory carried to the judge |
 | `sandbox.enabled` | boolean / true | False runs everything unconfined |
 | `sandbox.enforce` | string / `required` | `required` or `best_effort` (run unconfined without bubblewrap, recorded) |

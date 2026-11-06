@@ -159,4 +159,16 @@ def redact_tree(root: Path) -> list[str]:
         for name in files:
             if redact_file(Path(directory) / name, values):
                 changed.append(os.path.relpath(Path(directory) / name, root))
+    # A name that holds a key value (a learner's skills/<value>/), files and directories alike, deepest first.
+    for directory, dirs, files in os.walk(root, topdown=False):
+        for name in [*files, *dirs]:
+            new = name
+            for variable, value in values.items():
+                new = new.replace(value.decode(errors="replace"), f"<{variable}>")
+            if new != name:
+                target = Path(directory) / new
+                while os.path.lexists(target):
+                    target = target.with_name(target.name + "_")
+                os.rename(Path(directory) / name, target)
+                changed.append(os.path.relpath(target, root))
     return changed

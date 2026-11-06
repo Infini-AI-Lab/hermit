@@ -758,3 +758,18 @@ def test_a_run_agent_log_is_copied_whole_and_a_failed_copy_leaves_the_result(tmp
     monkeypatch.setattr(trainer_module, "sanitized_copy", lambda *a, **k: (_ for _ in ()).throw(
         OSError("unexpected end of data")))
     assert trainer._visible_log({"id": "t1", "log": str(tmp_path / "logdir")}) is None
+
+
+def test_a_name_that_holds_a_model_key_is_renamed(tmp_path, monkeypatch):
+    """A learner can put a key in a name (skills/<value>/SKILL.md) with clean contents: the name is scrubbed too, and
+    with it what the adapter, the archive and the tree keep."""
+    from hermit.redact import redact_tree
+    key = "sk-named-key-0123456789abcdef"
+    monkeypatch.setenv("NAMED_API_KEY", key)
+    (tmp_path / "skills" / key).mkdir(parents=True)
+    (tmp_path / "skills" / key / "SKILL.md").write_text("clean\n")
+    (tmp_path / f"note-{key}.md").write_text("clean\n")
+    changed = redact_tree(tmp_path)
+    names = sorted(str(p.relative_to(tmp_path)) for p in tmp_path.rglob("*"))
+    assert not any(key in n for n in names) and "skills/<NAMED_API_KEY>/SKILL.md" in names
+    assert "note-<NAMED_API_KEY>.md" in names and changed

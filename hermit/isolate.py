@@ -601,7 +601,7 @@ class SandboxedJudge:
         self.agent, self.mode = agent, d["judge"].get("mode") or "host"
         self.spec, self.base = f"{d['judge']['path']}:{d['judge']['name']}", Path(config.base)
         module = str(d["judge"]["path"]).partition(":")[0]
-        self.readable = [*([config.path(module).parent] if module.endswith(".py") else []),
+        self.readable = [*([config.path(module)] if module.endswith(".py") else []),     # the file, not its dir
                          *config_paths(config, "judge.tests", d["judge"].get("tests"))]
         self.collect = list(d["judge"].get("collect") or [])
         # The judge's own sandbox: the task sandbox's settings, and its probe checks only the home's secrets (the

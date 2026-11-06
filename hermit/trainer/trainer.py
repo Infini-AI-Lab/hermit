@@ -505,8 +505,8 @@ class Trainer:
                                                          "adapter": {"type": "string"}}})
 
     def _visible_log(self, result: dict) -> str | None:
-        """A run's log as the learner can open it: a copy (through the sanitized archive, scrubbed of model keys) in
-        the run's agent_logs/, which the learner's sandbox shows read-only at /w/agent-logs. A host path: a server
+        """A run's log as the learner can open it: a copy (a file read once, never through a link; a directory through
+        the sanitized archive; scrubbed of model keys) in the run's agent_logs/, which the learner's sandbox shows read-only at /w/agent-logs. A host path: a server
         that serves the tool to a sandboxed session names it as the sandbox shows it."""
         log = Path(result["log"]) if result.get("log") else None
         if log is None or not os.path.lexists(log):

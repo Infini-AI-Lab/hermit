@@ -166,6 +166,8 @@ def test_the_judge_runs_where_its_mode_says(tmp_path, monkeypatch):
         assert isinstance(judge, SandboxedJudge) and judge.mode == "separate"
         assert judge.box.probe_absent != agent.sandbox.probe_absent        # the judge may read its tests and data
         assert agent.sandbox.hide == hidden and judge.box.hide == []       # and what the hide list covers
+        judge_file = (tmp_path / "a" / "judge.py").resolve()
+        assert judge.readable[:1] == [judge_file]                           # the file, not its directory
         (tmp_path / "b").mkdir()
         host = judge_for(Config.load(sandboxed_task(tmp_path / "b"), []), agent)
         assert callable(host) and not isinstance(host, SandboxedJudge)
@@ -447,7 +449,7 @@ def test_a_shared_judge_sees_its_tests_the_agent_did_not(tmp_path):
     (tmp_path / "judging" / "gold.txt").write_text("3")
     (tmp_path / "judging" / "judge.py").write_text(JUDGE_SHARED)
     path = sandboxed_task(tmp_path, PIPELINE_PLANTS)
-    config = Config.load(path, ["judge.path=judging/judge.py", "judge.mode=shared"])
+    config = Config.load(path, ["judge.path=judging/judge.py", "judge.mode=shared", "judge.tests=[judging/gold.txt]"])
     agent = SandboxedAgent(config, "rollout", records=tmp_path / "records")
     try:
         out = agent({"id": "t1", "a": 1, "b": 2}, None)
@@ -468,6 +470,7 @@ def test_a_separate_judge_gets_only_the_collected_paths(tmp_path):
     path = sandboxed_task(tmp_path, PIPELINE_PLANTS)
     (tmp_path / "state").mkdir()
     config = Config.load(path, ["judge.path=judging/judge.py", "judge.mode=separate", "judge.collect=[logs]",
+                                "judge.tests=[judging/gold.txt]",
                                 "environment.write=[state]"])
     agent = SandboxedAgent(config, "rollout", records=None)
     try:

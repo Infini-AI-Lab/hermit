@@ -32,6 +32,13 @@ def binds(args, flag):
     return [args[i + 1] for i, a in enumerate(args) if a == flag]
 
 
+def clean_proxy_env(monkeypatch):
+    """No proxy setting of the machine running the tests (NO_PROXY=*, a lowercase spelling) reaches the test."""
+    for name in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "NO_PROXY", "no_proxy", "ALL_PROXY",
+                 "all_proxy"):
+        monkeypatch.delenv(name, raising=False)
+
+
 def test_closure_has_the_framework_dependencies_and_nothing_beside_them():
     from hermit.sandbox import DISTRIBUTION
     names = {d.metadata["Name"].lower() for d in package_closure([DISTRIBUTION])}
@@ -734,6 +741,7 @@ def test_a_pkgutil_namespace_is_not_shown_whole(tmp_path):
 def test_the_allowlist_proxy_goes_out_through_the_hosts_own_proxy(tmp_path, monkeypatch):
     """On a machine whose only way out is an egress proxy (docker/offline.sh), the sandbox's allowlist proxy reaches
     an allowed host through it."""
+    clean_proxy_env(monkeypatch)
     import http.server
     import threading
     import urllib.request
@@ -768,6 +776,7 @@ def test_the_allowlist_proxy_goes_out_through_the_hosts_own_proxy(tmp_path, monk
 def test_the_allowlist_proxy_reaches_no_proxy_hosts_directly_and_signs_in_to_the_upstream(monkeypatch):
     """A host NO_PROXY names is reached directly, not through the machine's egress proxy; a proxy URL with
     credentials (http://user:pass@proxy) gets them on its CONNECT."""
+    clean_proxy_env(monkeypatch)
     import threading
     seen = []
     upstream = socket.socket()
@@ -806,6 +815,7 @@ def test_the_allowlist_proxy_reaches_no_proxy_hosts_directly_and_signs_in_to_the
 def test_a_plain_http_request_reaches_its_server_whole_and_in_origin_form(monkeypatch):
     """A model on plain HTTP (http://inference.internal:8000/v1) goes through the allowlist proxy: the server gets
     the path it routes on, not the proxy's absolute URI, and the whole body the client sent."""
+    clean_proxy_env(monkeypatch)
     import urllib.request
     seen = {}
 
