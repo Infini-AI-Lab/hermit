@@ -37,7 +37,8 @@ def test_shared_layers_and_unknown_paths_run_everything():
                                                                            # through all of them
                  "hermit/sandbox.py", "hermit/worker.py", "hermit/hosts/codex.py", "tests/conftest.py",
                  "tests/toy_task.py",
-                 "pyproject.toml", "hermit/adapter/templates/prompt_only/ADAPTER.md", "Makefile"):
+                 "pyproject.toml", "hermit/adapter/templates/prompt_only/ADAPTER.md", "Makefile",
+                 ".github/workflows/tests.yml"):
         assert groups_for(path) is None, path
     groups, why = select(["hermit/agent/evolver/methods/ace/evolver.py", "hermit/sandbox.py"])
     assert groups is None and why == {"all": "hermit/sandbox.py"}

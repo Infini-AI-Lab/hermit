@@ -50,6 +50,14 @@ python -m pytest
 Tests marked `integration` run an agent CLI installed on the machine (`codex`, `claude`) and depend on its
 release; they run only with `--integration`.
 
+A pull request that adds or changes tests also answers the
+[test checklist](.agents/skills/prepare-pr/references/test-checklist.md): where a test goes, how it is named and
+documented, what it asserts, and what it may touch.
+
+GitHub Actions (`.github/workflows/tests.yml`) runs `python -m pytest --changed` against the base branch on every
+pull request, and the complete suite on main, daily and on demand, on Ubuntu with bubblewrap. Tests whose
+dependencies it does not install (agent CLIs, AgentDyn, prepared benchmark data) skip there, as they do locally.
+
 Sandbox and MWM integration tests require Linux, bubblewrap, and usable namespaces; some tests do not yet skip
 automatically when those prerequisites are absent. On macOS, run the applicable core tests and identify the
 Linux checks that remain unverified. See [sandbox configuration](docs/framework/configuration.md) for the

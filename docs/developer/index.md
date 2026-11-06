@@ -47,6 +47,8 @@ rather than interpreting every skipped test as coverage.
 For a new Evolver, put its tests under `tests/methods/<name>/` and add its paths to `METHODS` in
 `tests/selection.py` (`tests/core/test_selection.py` fails until every method has a group); use an offline task or
 fake client to test real failure and state behavior without paid model calls.
+A new or changed test follows the
+[test checklist](https://github.com/Infini-AI-Lab/hermit/blob/main/.agents/skills/prepare-pr/references/test-checklist.md).
 
 ## Documentation changes
 

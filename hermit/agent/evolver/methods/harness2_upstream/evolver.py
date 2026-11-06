@@ -169,7 +169,7 @@ class Harness2UpstreamEvolver(Evolver):
                  "judged": None if row is None else {"graded": row.graded, "frac": row.frac,
                                                      "label": row.label, "error": row.error},
                  "sessions_usd": round(sum(u.cost_usd or 0.0 for u in getattr(prop, "usages", [])), 6),
-                 "claude": params.get("claude_bin") or self._claude(ws)}
+                 "claude": params.get("claude_bin") or self._claude(ws, params.get("backend"))}
         # Every editor stage fell back without a session reply: the model endpoint failed, and the deliverable is H0's.
         extra["editors_failed"] = bool(stages) and all(s["fell_back"] for s in stages) \
             and not getattr(prop, "usages", [])
@@ -304,7 +304,8 @@ class Harness2UpstreamEvolver(Evolver):
                 differ.append(key)
         pin = run / "workspace" / "state" / "claude_bin.txt"
         program = "codex" if params.get("backend") == "codex" else "claude"
-        mine = params.get("claude_bin") or os.path.realpath(shutil.which(program) or program)
+        found = shutil.which(program)                    # as _claude pins it: the bare name when it is not installed
+        mine = params.get("claude_bin") or (os.path.realpath(found) if found else program)
         other = theirs.get("claude_bin") or (pin.read_text().strip() if pin.is_file() else "")
         if mine != other and not (Path(mine).is_file() and Path(other).is_file()
                                   and filecmp.cmp(mine, other, shallow=False)):

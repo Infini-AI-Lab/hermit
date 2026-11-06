@@ -454,7 +454,8 @@ def test_socket_path_is_short(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(short))
     path = stream.socket_path(tmp_path / ("x" * 200))
     assert len(str(path)) <= 100 and path.parent.is_dir()
-    assert path.is_relative_to(short) if len(str(short)) < 60 else not path.is_relative_to(short)
+    fits = len(str(short / "hermit-harbor-sockets" / path.name).encode()) <= 100   # tmp_path's length varies
+    assert path.is_relative_to(short) == fits
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / ("y" * 120)))     # too long: another base is taken
     (tmp_path / ("y" * 120)).mkdir()
     assert len(str(stream.socket_path(tmp_path))) <= 100

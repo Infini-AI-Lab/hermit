@@ -19,6 +19,8 @@ affected interfaces, and the validation evidence available.
   for every PR, plus all applicable task-specific checklists.
 - For method reproductions, also complete the
   [method checklist](../reproduce-method/references/reproduction-checklist.md).
+- For PRs that add or change tests, also complete the
+  [test checklist](references/test-checklist.md).
 
 Keep checklist questions in their owning files. Answer shared items once, using
 actual code, checks and records rather than planned work.
