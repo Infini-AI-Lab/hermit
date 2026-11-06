@@ -427,6 +427,7 @@ class CliAgent(BaseAgent):
                         getattr(sandbox, "sockets", None):
                     raise Unsupported("the run's sandbox lets more than the model through (an open network, allowed "
                                       "hosts, forwarded ports or sockets): it cannot limit the network to the model")
+            from hermit.sandbox import SYSTEM_ETC
             # An allowlist shows what is granted: a path to keep hidden must not lie in anything granted.
             shown = [*getattr(sandbox, "readable", ()), *getattr(sandbox, "writable", ()),
                      *(b.source for b in getattr(sandbox, "binds", ())), *(m.source for m in limits.readable),
@@ -434,7 +435,7 @@ class CliAgent(BaseAgent):
                      *([Path(os.path.expanduser(str(s["home"])))] if s.get("home") else []),
                      # and what every sandbox shows: the system, the interpreter's installation, the packages and
                      # the framework it shows (visible() lists them)
-                     *map(Path, ("/usr", "/bin", "/sbin", "/lib", "/lib64")),
+                     *map(Path, ("/usr", "/bin", "/sbin", "/lib", "/lib64", *SYSTEM_ETC)),
                      *(sandbox.visible([str(s.get("bin") or ("claude" if self.backend == "claude" else "codex"))])
                        if hasattr(sandbox, "visible") else [])]           # with the CLI's own installation
             for path in limits.hidden:

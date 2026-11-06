@@ -159,7 +159,11 @@ class CommandEvolver(Evolver):
         if ctx.sandbox is not None:
             keep += list(ctx.params.get("env") or {})          # the program's own settings, as configured
             command, env = ctx.sandbox.wrap(command, env=env, chdir=Path(getattr(self, "directory", ".")), keep=keep)
-        code = _run(command, env, ctx, ctx.workspace.output / "command.log", Path(getattr(self, "directory", ".")))
+        try:
+            code = _run(command, env, ctx, ctx.workspace.output / "command.log", Path(getattr(self, "directory", ".")))
+        finally:
+            if ctx.sandbox is not None and hasattr(ctx.sandbox, "abandon"):
+                ctx.sandbox.abandon(command)              # a report that never came is not waited for
         from hermit.sandbox import read_regular
         text = read_regular(ctx.workspace.output / "step_result.json", limit=None)  # never through a link or a pipe
         if text is not None:

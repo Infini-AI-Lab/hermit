@@ -776,3 +776,10 @@ def test_hiding_a_path_under_the_interpreters_prefix_that_no_grant_shows_is_kept
     agent = make("codex", {"web_search": False, "isolation": "sandbox", "sandbox": box}, None)
     assert agent._isolation(tmp_path, Limits(hidden=[Path(sys.prefix) / "private-data" / "answers.json"]))[0] == \
         "sandbox"
+
+
+def test_a_system_file_every_sandbox_shows_cannot_be_hidden(tmp_path):
+    from hermit.sandbox import Sandbox
+    agent = make("codex", {"web_search": False, "isolation": "sandbox", "sandbox": Sandbox(network="isolated")}, None)
+    with pytest.raises(Unsupported, match="lies in what the sandbox shows"):
+        agent._isolation(tmp_path, Limits(hidden=[Path("/etc/passwd")]))

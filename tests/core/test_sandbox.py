@@ -1459,3 +1459,45 @@ def test_an_editable_namespace_package_without_top_level_txt_is_shown(tmp_path):
         def read_text(self, name):
             return None
     assert _dist_sources(Dist()) == [(src / "data" / "prepare.py").resolve(), (src / "nspkg" / "sub").resolve()]
+
+
+def test_a_programs_own_installation_shows_no_python_packages_of_its_own(tmp_path, monkeypatch):
+    """A CLI installed under ~/.local/bin is granted ~/.local (its installation): the site directories there (other
+    interpreters' user packages) are emptied like any other interpreter's."""
+    fake_bwrap(monkeypatch)
+    local = tmp_path / ".local"
+    (local / "bin").mkdir(parents=True)
+    tool = local / "bin" / "sometool"
+    tool.write_text("#!/bin/sh\nexit 0\n")
+    tool.chmod(0o755)
+    site = local / "lib" / "python3.11" / "site-packages"
+    (site / "foreign").mkdir(parents=True)
+    monkeypatch.setenv("PATH", f"{local / 'bin'}:{os.environ['PATH']}")
+    args, _ = Sandbox(network="open").wrap(["sometool"])
+    assert str(local) in binds(args, "--ro-bind") and str(site) in binds(args, "--tmpfs")
+
+
+def test_a_module_also_in_a_later_archive_cannot_be_hidden(tmp_path, monkeypatch):
+    import zipfile
+    from hermit.sandbox import hidden_paths
+    _fake_package(tmp_path / "dir")
+    archive = tmp_path / "bundle.zip"
+    with zipfile.ZipFile(archive, "w") as z:
+        z.writestr("pkg/__init__.py", "")
+        z.writestr("pkg/scoring.py", "X = 1\n")
+    monkeypatch.syspath_prepend(str(archive))
+    monkeypatch.syspath_prepend(str(tmp_path / "dir"))           # the directory copy first, the archive later
+    with pytest.raises(ValueError, match="from an archive"):
+        hidden_paths(["pkg.scoring"])
+
+
+def test_the_allowlist_proxy_parses_a_bracketed_ipv6_connect(monkeypatch):
+    clean_proxy_env(monkeypatch)
+    proxy = AllowlistProxy(["::1"])
+    try:
+        with socket.create_connection(("127.0.0.1", proxy.server.server_address[1])) as s:
+            s.sendall(b"CONNECT [::1]:9 HTTP/1.1\r\nHost: [::1]:9\r\n\r\n")
+            reply = s.recv(200)
+        assert b"502" in reply or b"200" in reply                  # allowed and tried, not a parse failure
+    finally:
+        proxy.close()

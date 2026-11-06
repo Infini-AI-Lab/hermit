@@ -567,6 +567,20 @@ def _copies(name: str) -> list[Path]:
     return out
 
 
+def _in_archives(name: str) -> bool:
+    """Whether a zip or wheel on this interpreter's path holds the top-level module or package `name`."""
+    import zipfile
+    for entry in sys.path:
+        if entry and os.path.isfile(entry) and zipfile.is_zipfile(entry):
+            try:
+                with zipfile.ZipFile(entry) as z:
+                    if any(n == f"{name}.py" or n.startswith(f"{name}/") for n in z.namelist()):
+                        return True
+            except (OSError, zipfile.BadZipFile):
+                continue
+    return False
+
+
 def _entries(directory: Path, name: str) -> list[Path]:
     """`name` as a package directory, a source file or an extension module (every suffix this interpreter loads)
     in `directory`."""
@@ -595,7 +609,7 @@ def hidden_paths(names) -> list[Path]:
             found = [Path(p) for p in spec.submodule_search_locations or []] or \
                 ([Path(spec.origin)] if spec.origin and os.path.isfile(spec.origin) else [])
         found += _copies(parts[0])
-        if any(not os.path.exists(p) for p in found):    # a zip or wheel on the path: no file to cover
+        if any(not os.path.exists(p) for p in found) or _in_archives(parts[0]):   # a zip or wheel: nothing to cover
             raise ValueError(f"sandbox.hide names {name}, which is imported from an archive; it cannot be covered")
         for part in parts[1:]:
             found = [c for d in found if d.is_dir() for c in _entries(d, part)]
@@ -1091,7 +1105,11 @@ class Sandbox:
         # what is installed in them: their site directories are emptied too (the environment's own stay).
         own = {os.path.realpath(p) for p in _environment_sites()}      # a venv made from this installation: kept
         trusted = _venv_bases(interpreters, [*self.writable, *writable])   # shown before the masking below
-        for base in [*_venv_bases(self.readable, [*self.writable, *writable]), *trusted]:
+        found = shutil.which(command[0]) if command else None
+        program = program_paths(command[0]) if found and Path(found).resolve() != Path(sys.executable).resolve() \
+            else []                             # a CLI's own installation (~/.local): its Python packages masked too
+        for base in [*_venv_bases(self.readable, [*self.writable, *writable]), *trusted,
+                     *(p for p in program if Path(p).is_dir())]:
             sites += [Path(p) for p in sorted(glob.glob(str(base / "lib*" / "python3*" / "*-packages")))
                       if p.endswith(("/site-packages", "/dist-packages")) and os.path.realpath(p) not in own]
         sites = list(dict.fromkeys(sites))
@@ -1310,9 +1328,9 @@ class AllowlistProxy:
                     if h in (b"\r\n", b"\n", b""):
                         break
                     headers.append(h)
-                if method == "CONNECT":
-                    host, _, port = target.partition(":")
-                    port = int(port or 443)
+                if method == "CONNECT":                # host:port, an IPv6 literal bracketed ([::1]:8443)
+                    u = urlparse(f"//{target}")
+                    host, port = u.hostname or "", u.port or 443
                 else:
                     u = urlparse(target)
                     host, port = u.hostname or "", u.port or 80
@@ -1373,7 +1391,8 @@ class AllowlistProxy:
         if self.upstream.username:                       # http://user:pass@proxy:3128
             pair = f"{unquote(self.upstream.username)}:{unquote(self.upstream.password or '')}"
             auth = f"Proxy-Authorization: Basic {base64.b64encode(pair.encode()).decode()}\r\n"
-        sock.sendall(f"CONNECT {host}:{port} HTTP/1.1\r\nHost: {host}:{port}\r\n{auth}\r\n".encode())
+        name = f"[{host}]" if ":" in host else host
+        sock.sendall(f"CONNECT {name}:{port} HTTP/1.1\r\nHost: {name}:{port}\r\n{auth}\r\n".encode())
         reply = b""
         while b"\r\n\r\n" not in reply and len(reply) < 65536:
             chunk = sock.recv(4096)

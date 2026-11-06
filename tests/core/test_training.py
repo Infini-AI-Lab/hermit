@@ -773,3 +773,30 @@ def test_a_name_that_holds_a_model_key_is_renamed(tmp_path, monkeypatch):
     names = sorted(str(p.relative_to(tmp_path)) for p in tmp_path.rglob("*"))
     assert not any(key in n for n in names) and "skills/<NAMED_API_KEY>/SKILL.md" in names
     assert "note-<NAMED_API_KEY>.md" in names and changed
+
+
+def test_a_key_in_a_name_under_a_read_only_directory_and_a_long_name(tmp_path, monkeypatch):
+    from hermit.redact import redact_tree
+    key = "sk-k-0123456789abcdef"
+    monkeypatch.setenv("SHORT_API_KEY", key)
+    sealed = tmp_path / "sealed"
+    sealed.mkdir()
+    (sealed / f"{key}.md").write_text("clean")
+    long_name = "x" * (255 - len(key) - 3) + key + ".md"
+    (tmp_path / long_name).write_text("clean")
+    os.chmod(sealed, 0o555)
+    try:
+        redact_tree(tmp_path)
+        names = [p.name for p in tmp_path.rglob("*")]
+        assert not any(key in n for n in names) and all(len(n.encode()) <= 255 for n in names)
+        assert (sealed / "<SHORT_API_KEY>.md").exists()
+    finally:
+        os.chmod(sealed, 0o755)
+
+
+def test_a_returned_log_whose_name_held_a_key_is_found_after_the_scrub(tmp_path, monkeypatch):
+    """The scrub renames a log whose name holds a key: the RunOutput names the renamed file, not a missing one."""
+    from hermit.redact import redact_name
+    key = "sk-logname-0123456789abcdef"
+    monkeypatch.setenv("LOGNAME_API_KEY", key)
+    assert redact_name(f"trace-{key}.jsonl") == "trace-<LOGNAME_API_KEY>.jsonl"

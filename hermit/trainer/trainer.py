@@ -522,9 +522,9 @@ class Trainer:
                 with os.fdopen(fd, "rb") as f:
                     if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
                         return None
-                    data = f.read()
-                place.mkdir(parents=True)
-                (place / log.name).write_bytes(data)
+                    place.mkdir(parents=True)
+                    with open(place / log.name, "wb") as out:
+                        shutil.copyfileobj(f, out)           # streamed: a large trajectory is not held in memory
         except OSError:
             return None                      # the run's result stands without its log
         redact_tree(place)                   # the agent held its model's key; the learner's may be another's

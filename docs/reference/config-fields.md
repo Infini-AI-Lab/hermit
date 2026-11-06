@@ -34,6 +34,7 @@ guarantee that their consumer supports arbitrary fields.
 | `task_info` | directory / null | Learner-facing task description; provide `README.md` |
 | `agent.name` | string / null; required | Built-in `react`, `codex`, `claude-code`, `harbor` (a benchmark's task set in Harbor's format, see [Benchmarks](../framework/task.md#benchmarks)), an Agent class, or a `file.py:function` / `module:function` |
 | `agent.concurrency` | integer / 4 | Maximum concurrent rollout/evaluation task executions; use a positive value |
+| `agent.timeout_min` | number / null | A sandboxed task call (its worker) running longer is stopped and recorded as an error; null: no limit |
 | `agent.params` | mapping / {} | Passed to Agent constructors; plain functions receive it when they declare a `params` argument |
 | `agent.base` | string / null | Layer 2 in the per-layer form ([Agent layers](../framework/agent-layers.md#settings-by-layer)): `codex`, `claude`, `react`, or `direct` (with `agent.name`, a task's own loop); sets `agent.name` when unset |
 | `agent.model` | string / mapping / null | Layer 1: a `<backend>/<model>` reference, or `{ref` or `name, login, effort, price, ...}`; read into `agent.params` |

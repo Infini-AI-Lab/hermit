@@ -151,7 +151,7 @@ hosts below; a Codex ChatGPT login's hosts are added.
 | `sandbox.enabled` | False runs everything unconfined (warned; not for reported results). |
 | `sandbox.enforce: required` | Default. Refuse to run when bubblewrap is missing. |
 | `sandbox.enforce: best_effort` | Run unconfined when bubblewrap is missing, and record that the sandbox was not applied. |
-| `sandbox.hide` | Modules or packages of the framework's environment (`pkg.scoring`) covered in every sandbox but the judge's: a benchmark's scoring code the agent does not import. Each must be installed. |
+| `sandbox.hide` | Modules or packages of the framework's environment (`pkg.scoring`) covered in every bubblewrap sandbox but the judge's: a benchmark's scoring code the agent does not import. Each must be installed, not from a zip or wheel. A container (`environment.image`, `llm.cli` with `isolation: container`) holds its own image's copies, which it does not reach. |
 | `sandbox.evolver.allowed_hosts` | More hosts the learner may reach, through the allowlist proxy. |
 | `sandbox.evolver.env` | Environment variables passed to the learner's sessions (names or patterns); its models' key variables pass by themselves. |
 | `sandbox.evolver.resources` | `memory_mb`, `file_mb`, `cpu_s` per process (positive whole numbers; null: no limit). |

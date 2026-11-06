@@ -136,6 +136,23 @@ def redact_file(path: Path, values: dict[str, bytes] | None = None) -> bool:
     return True
 
 
+def redact_name(name: str, values: dict[str, bytes] | None = None, suffix: str = "") -> str:
+    """A file name with each key value replaced (`<VARIABLE>`), kept within the 255 bytes a name may have (cut, with
+    a short digest of the original, when the replacement made it longer); `suffix` keeps two names apart."""
+    import hashlib
+    values = key_values() if values is None else values
+    new = name
+    for variable, value in values.items():
+        new = new.replace(value.decode(errors="replace"), f"<{variable}>")
+    if new == name and not suffix:
+        return name
+    new += suffix
+    if len(new.encode()) > 255:
+        tail = "~" + hashlib.sha256(name.encode()).hexdigest()[:8] + suffix
+        new = new.encode()[:255 - len(tail.encode())].decode(errors="ignore") + tail
+    return new
+
+
 def redact_path(path: Path) -> list[str]:
     """redact_tree for a directory, redact_file for a file; what changed."""
     path = Path(path)
@@ -162,13 +179,15 @@ def redact_tree(root: Path) -> list[str]:
     # A name that holds a key value (a learner's skills/<value>/), files and directories alike, deepest first.
     for directory, dirs, files in os.walk(root, topdown=False):
         for name in [*files, *dirs]:
-            new = name
-            for variable, value in values.items():
-                new = new.replace(value.decode(errors="replace"), f"<{variable}>")
+            new = redact_name(name, values)
             if new != name:
                 target = Path(directory) / new
+                n = 0
                 while os.path.lexists(target):
-                    target = target.with_name(target.name + "_")
+                    n += 1
+                    target = Path(directory) / redact_name(f"{name}", values, suffix=f"_{n}")
+                if not os.access(directory, os.W_OK | os.X_OK):     # a directory left read-only: the owner's again
+                    os.chmod(directory, stat.S_IMODE(os.lstat(directory).st_mode) | stat.S_IRWXU)
                 os.rename(Path(directory) / name, target)
                 changed.append(os.path.relpath(target, root))
     return changed

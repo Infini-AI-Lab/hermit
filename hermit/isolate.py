@@ -39,7 +39,7 @@ import time
 import uuid
 
 from hermit.agent.base import login as codex_login
-from hermit.redact import redact_tree
+from hermit.redact import redact_name, redact_tree
 from hermit.sandbox import (LIMITS, NETWORK_MODES, PACKAGE, AllowlistProxy, Bind, Sandbox, framework_env,
                             hidden_paths, model_access, network_mode, owner_readable, package_closure,
                             program_paths, sanitized_copy, set_hidden)
@@ -513,12 +513,16 @@ class SandboxedAgent:
                 sanitized_copy(log.parent, clean, [log.name])
                 log = clean / log.name if os.path.lexists(clean / log.name) else None
             extra["sandbox_work"] = str(work)
-            return RunOutput(output=rec.get("output"), log=log, cost_usd=rec.get("cost_usd"),
-                             wall_s=rec.get("wall_s") or 0.0, api_speed=rec.get("api_speed"),
-                             messages=rec.get("messages"), tokens=rec.get("tokens"), extra=extra)
+            result = RunOutput(output=rec.get("output"), log=log, cost_usd=rec.get("cost_usd"),
+                               wall_s=rec.get("wall_s") or 0.0, api_speed=rec.get("api_speed"),
+                               messages=rec.get("messages"), tokens=rec.get("tokens"), extra=extra)
         finally:                                         # what the run keeps of the call, a failed one too:
             redact_tree(work)                            # no model key in it
             redact_tree(clean)
+        if result.log is not None and not os.path.lexists(result.log):   # a name the scrub renamed (it held a key)
+            parts = Path(result.log).relative_to(clean).parts
+            result.log = Path(clean).joinpath(*(redact_name(part) for part in parts))
+        return result
 
     def close(self) -> None:
         for box in [self.sandbox, *self.others]:
