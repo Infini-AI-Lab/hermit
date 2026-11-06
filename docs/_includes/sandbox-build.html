@@ -1,0 +1,63 @@
+<figure class="ha-sbx">
+<div class="ha-sbx-scroll">
+<svg viewBox="0 0 680 640" role="img" aria-label="One bubblewrap sandbox, layer by layer: process, system, Python, programs, declared paths, variables, network and limits; below it what is never inside, what is covered or emptied, and the check before it starts">
+<rect class="b-gen" x="16" y="16" width="648" height="388" rx="10"/>
+<text class="t-h c-gen" x="32" y="42">one bubblewrap sandbox</text>
+<text class="t-m mono" x="648" y="42" text-anchor="end">hermit/sandbox.py · an allowlist</text>
+<rect class="b-band" x="26" y="56" width="628" height="42" rx="4"/>
+<text class="t-b" x="38" y="82">process</text>
+<text x="146" y="74">own PID namespace, new session, dies with its parent</text>
+<text class="t-m" x="146" y="90">fresh /dev and /proc, an empty tmpfs /tmp</text>
+<text class="t-m" x="644" y="82" text-anchor="end">fresh</text>
+<text class="t-b" x="38" y="124">system</text>
+<text x="146" y="116">/usr, and the /lib and /bin links as on the host</text>
+<text class="t-m" x="146" y="132">a fixed list of /etc files (ld.so, ssl, resolv.conf, passwd, ...)</text>
+<text class="t-m" x="644" y="124" text-anchor="end">read-only</text>
+<rect class="b-band" x="26" y="140" width="628" height="42" rx="4"/>
+<text class="t-b" x="38" y="166">Python</text>
+<text x="146" y="158">the framework's interpreter and standard library</text>
+<text class="t-m" x="146" y="174">its environment's site-packages, as installed</text>
+<text class="t-m" x="644" y="166" text-anchor="end">read-only</text>
+<text class="t-b" x="38" y="208">programs</text>
+<text x="146" y="200">a command's own installation, run by its real path</text>
+<text class="t-m" x="146" y="216">a CLI under ~/.local/bin and the package it belongs to</text>
+<text class="t-m" x="644" y="208" text-anchor="end">read-only</text>
+<rect class="b-band" x="26" y="224" width="628" height="42" rx="4"/>
+<text class="t-b" x="38" y="250">declared paths</text>
+<text x="146" y="242">task paths, work dir, the learner's /w, collected paths</text>
+<text class="t-m" x="146" y="258">at their own location, or under names of their own</text>
+<text class="t-m c-gen" x="644" y="242" text-anchor="end">read-only</text>
+<text class="t-m c-gen" x="644" y="258" text-anchor="end">or writable</text>
+<text class="t-b" x="38" y="292">variables</text>
+<text x="146" y="284">the declared names and patterns, its models' keys</text>
+<text class="t-m" x="146" y="300">and a fixed few: PATH, HOME, LANG, PYTHONPATH, ...</text>
+<text class="t-m" x="644" y="292" text-anchor="end">allowlist</text>
+<rect class="b-band" x="26" y="308" width="628" height="42" rx="4"/>
+<text class="t-b" x="38" y="334">network</text>
+<text x="146" y="326">its own namespace, loopback only</text>
+<text class="t-m" x="146" y="342">network: public shares the host's (see Network)</text>
+<text class="t-m" x="644" y="334" text-anchor="end">isolated</text>
+<text class="t-b" x="38" y="376">limits</text>
+<text x="146" y="368">memory_mb, file_mb, cpu_s</text>
+<text class="t-m" x="146" y="384">RLIMIT_AS, RLIMIT_FSIZE, RLIMIT_CPU, set by the relay</text>
+<rect class="b-deny" x="16" y="420" width="316" height="150" rx="8"/>
+<text class="t-h c-deny" x="32" y="446">never inside</text>
+<text x="32" y="470">the data and split files, the answers</text>
+<text x="32" y="488">the judge and its tests</text>
+<text x="32" y="506">run records and trees</text>
+<text x="32" y="524">the user's home (.ssh, .bashrc)</text>
+<text class="t-m" x="32" y="550">nor any path that is not declared</text>
+<rect class="b-muted" x="348" y="420" width="316" height="150" rx="8"/>
+<text class="t-h" x="364" y="446">covered or emptied</text>
+<text x="364" y="470">other interpreters' site-packages</text>
+<text class="t-m" x="376" y="488">an empty directory</text>
+<text x="364" y="512">sandbox.hide modules and packages</text>
+<text class="t-m" x="376" y="530">an empty directory or file</text>
+<text class="t-m" x="364" y="554">every sandbox but the judge's</text>
+<rect class="b-host" x="16" y="586" width="648" height="38" rx="8"/>
+<text class="t-b" x="32" y="610">checked before it starts</text>
+<text class="t-m" x="200" y="610">no route out, forwarded ports answer, secrets absent; else no start</text>
+</svg>
+</div>
+<figcaption>Each layer is bound in explicitly; a path, a variable or a host that is not declared does not exist inside. The list below describes the layers in the order they are applied.</figcaption>
+</figure>

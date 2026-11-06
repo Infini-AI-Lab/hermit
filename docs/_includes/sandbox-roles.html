@@ -1,0 +1,56 @@
+<figure class="ha-sbx">
+<div class="ha-sbx-scroll">
+<svg viewBox="0 0 680 530" role="img" aria-label="Every handoff goes through the host process: material to the evolver sandbox and its adapter back; the frozen adapter and task to the task sandbox and its output back; collected paths and tests to the judge sandbox and the score back">
+<defs>
+<marker id="sbx1-evo" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-evo" d="M0,0 L10,5 L0,10 z"/></marker>
+<marker id="sbx1-task" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-task" d="M0,0 L10,5 L0,10 z"/></marker>
+<marker id="sbx1-judge" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-judge" d="M0,0 L10,5 L0,10 z"/></marker>
+</defs>
+<!-- evolver sandbox -->
+<rect class="b-evo" x="190" y="16" width="300" height="96" rx="8"/>
+<text class="t-h c-evo" x="206" y="40">evolver sandbox</text>
+<text class="t-m" x="474" y="40" text-anchor="end">its models' keys</text>
+<text x="206" y="62">learner CLI and its roles</text>
+<text class="mono" x="206" y="80">/w/adapter    writable</text>
+<text class="mono" x="206" y="97">/w/material   train split</text>
+<line class="a a-evo" x1="300" y1="194" x2="300" y2="116" marker-end="url(#sbx1-evo)"/>
+<text x="292" y="160" text-anchor="end">material (train split)</text>
+<line class="a a-evo" x1="380" y1="114" x2="380" y2="192" marker-end="url(#sbx1-evo)"/>
+<text x="388" y="160">adapter, sanitized copy</text>
+<!-- host -->
+<rect class="b-host" x="120" y="196" width="440" height="104" rx="8"/>
+<text class="t-h" x="340" y="222" text-anchor="middle">host process</text>
+<text class="t-m" x="340" y="240" text-anchor="middle">trusted · no sandbox</text>
+<text x="136" y="266">Trainer · hermit eval · hermit check</text>
+<text class="t-m" x="136" y="286">holds the splits, answers, records, keys</text>
+<line x1="384" y1="254" x2="384" y2="292" stroke="var(--sbx-line)"/>
+<text class="t-b" x="398" y="266">judge</text>
+<text class="t-m" x="398" y="286">judge.mode: host (the default)</text>
+<!-- task sandbox -->
+<line class="a a-task" x1="150" y1="302" x2="150" y2="380" marker-end="url(#sbx1-task)"/>
+<text x="142" y="336" text-anchor="end">frozen adapter + task</text>
+<line class="a a-task" x1="230" y1="382" x2="230" y2="304" marker-end="url(#sbx1-task)"/>
+<text x="238" y="358">output, trajectory, work dir</text>
+<rect class="b-task" x="16" y="384" width="310" height="130" rx="8"/>
+<text class="t-h c-task" x="32" y="408">task sandbox</text>
+<text class="t-m" x="310" y="408" text-anchor="end">one per call</text>
+<text x="32" y="430">acting agent, the task's tools</text>
+<text x="32" y="448">frozen adapter (read-only)</text>
+<text class="t-m" x="32" y="466">task paths · its model's key</text>
+<rect class="b-muted" x="28" y="478" width="286" height="26" rx="5"/>
+<text class="t-m c-judge" x="171" y="495" text-anchor="middle">judge.mode: shared runs here, after the agent</text>
+<!-- judge sandbox -->
+<line class="a a-judge" x1="470" y1="302" x2="470" y2="380" marker-end="url(#sbx1-judge)"/>
+<text x="462" y="336" text-anchor="end">collected paths + tests</text>
+<line class="a a-judge" x1="550" y1="382" x2="550" y2="304" marker-end="url(#sbx1-judge)"/>
+<text x="558" y="358">score, feedback</text>
+<rect class="b-judge" x="354" y="384" width="310" height="130" rx="8"/>
+<text class="t-h c-judge" x="370" y="408">judge sandbox</text>
+<text class="t-m" x="648" y="408" text-anchor="end">judge.mode: separate</text>
+<text x="370" y="430">judge + judge.tests, fresh</text>
+<text x="370" y="448">only the collected paths</text>
+<text class="t-m" x="370" y="466">copied through a sanitized archive</text>
+</svg>
+</div>
+<figcaption>Every handoff goes through the host process; no sandbox reaches another. The judge runs in the host process by default, as a new exec in the task sandbox after the agent (<code>shared</code>), or in a fresh sandbox of its own (<code>separate</code>).</figcaption>
+</figure>
