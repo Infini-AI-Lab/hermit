@@ -198,6 +198,11 @@ integrations: ReHarness, Meta-Harness Adapter, ACE, AHE Adapter, RRSI Adapter an
   wire and what it can and cannot do are the template's `hook_hosts.py`, and the template check deploys a copy to
   both hosts and runs every hook as the host runs it.
 - AHE Adapter on OfficeQA: `examples/officeqa/ahe_adapter/`, in the GPT-5.6-Luna setting (`run_codex_luna.yaml`).
+- The OPRO method (Yang et al., ICLR 2024, arXiv:2309.03409): the `opro` Evolver on the `prompt-only` template, one
+  OPRO step per training step with the authors' meta-prompt verbatim and their reply parsing and md5
+  de-duplication ported (adaptations listed on the method page);
+  the optimizer runs through the run's `llm` tool; documented in `docs/methods/opro.md`.
+- OPRO on OfficeQA: `examples/officeqa/opro/`, in the GPT-5.6-Luna setting (`run_codex_luna.yaml`).
 - The ACE method (Zhang et al., ICLR 2026, arXiv:2510.04618): the `ace` Evolver, ACE's per-sample loop of
   Reflector and Curator over a playbook of bullets with helpful and harmful counters, retry rounds on a wrong answer,
   ADD-only curation and validation-based selection, with ACE's prompts verbatim (the Generator's adapted for an

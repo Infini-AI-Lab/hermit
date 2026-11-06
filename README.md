@@ -57,6 +57,7 @@ Many harnesses are black boxes; even open-source ones have carefully designed co
 - [AHE Adapter](https://infini-ai-lab.github.io/hermit/docs/methods/ahe_adapter.html)
 - [RRSI Adapter](https://infini-ai-lab.github.io/hermit/docs/methods/rrsi_adapter.html)
 - [EvoSafeHarness](https://infini-ai-lab.github.io/hermit/docs/methods/evosafe.html)
+- [OPRO](https://infini-ai-lab.github.io/hermit/docs/methods/opro.html)
 
 Hermit provides an RL-style training loop for evolving harness adapters:
 

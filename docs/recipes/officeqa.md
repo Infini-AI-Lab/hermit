@@ -491,6 +491,47 @@ Paired per question, 95% bootstrap intervals; bold where the interval lies above
 - Training pass@1 by iteration: 0.42, 0.61, 0.65, 0.66, 0.64, 0.64, 0.69, 0.67, 0.63, 0.65; no change was judged
   HARMFUL, so no automatic rollback ran.
 
+## OPRO
+
+[OPRO](https://arxiv.org/abs/2309.03409) (Yang et al., ICLR 2024) searches one instruction document, `ADAPTER.md` on
+the `prompt-only` template, from SkillOpt's initial skill (`utils/seed_adapter`). Its optimizer reads the
+instructions scored so far with their training scores and three training problems, and writes four new ones per
+step, each scored on the 50 training questions; `final` is the best validation mean of the top 3 on training
+([OPRO](../methods/opro.md)).
+
+| Config | Steps | `run_name` | The number |
+|---|---|---|---|
+| `opro/smoke_codex_luna.yaml` | 2 | `smoke-luna-opro` | none: a smoke, 4 training questions |
+| `opro/run_codex_luna.yaml` | 3 | `luna-opro` | `mean_score` in `opro/runs/luna-opro/eval/final/summary.json` |
+
+Both are in [the GPT-5.6-Luna setting](#the-flash-row-with-gpt-56-luna): the acting sessions on the machine's
+ChatGPT login, the optimizer one Codex session per call (`llm: {cli: codex}`). The run below is one training with one
+evaluation pass, and one evaluation of the initial skill in the same setting.
+
+- Models: `gpt-5.6-luna` acting and learning, reasoning effort medium, on a ChatGPT login.
+- Harness: the Codex agent, a container per session (`officeqa-codex:0.165.0`), four at a time, 3,600 s each.
+- Data: the 50 / 24 / 172 split of SkillOpt `79124b3`, `data.shuffle_seed: 42`.
+- Spending: a subscription has no per-token price. The training took 2.4 h: 27.8 M tokens of training rollouts,
+  124.5 M of optimizer and candidate sessions. Each evaluation about 30 min.
+
+| Adapter | accuracy | − the initial skill, points |
+|---|---|---|
+| the initial skill (`utils/seed_adapter`), this setting | 0.355 [0.285, 0.424] | |
+| OPRO `final` (candidate 2 of 13, validation 0.625) | 0.436 [0.366, 0.512] | **+8.1** [+1.7, +14.5] |
+
+Paired per question, 95% bootstrap intervals; bold where the interval excludes zero. 24 questions better and 10
+worse.
+
+- The difference is the answer's form. Answers that contain the reference value somewhere (an automatic reading that
+  misses some right values: [Results](#the-flash-row-with-gpt-56-luna)) are 118 for the initial skill and 112 for
+  OPRO; long or Markdown answers 55 and 13 of 172. OPRO's instruction ends "then return only the requested answer
+  format".
+- The training means are one pass each; the same instruction scored 0.54, 0.50 and 0.52 at the three steps.
+- The first evaluation of OPRO's `final` lost 10 of 172 answers to a pipeline error after the session had answered
+  (`PermissionError` tidying `docs/root_1`, fixed in the shared layer by a separate pull request); it was discarded
+  and the evaluation run again on the fix, as was the initial skill's. The training met the same error once; it was
+  run again and scored.
+
 ## Outputs and scoring
 
 A run's records are under `examples/officeqa/<method>/runs/<run name>/` (`<run>` below):
