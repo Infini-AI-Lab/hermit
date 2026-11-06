@@ -110,7 +110,8 @@ class AgentEvolver(Evolver):
         """The Base Agent's settings: the learner's CLI in the run's sandbox (whose own isolation is the boundary,
         so the CLI's sandbox is off), with every variable for its commands, a home kept across calls for resume, no
         clock (the Trainer stops the call). The framework is on PYTHONPATH, but the evolver sandbox shows the hermit
-        package only to an Evolver that asks for it (`sandbox_framework`)."""
+        package only to an Evolver that asks for it (`sandbox_framework`); the environment's other packages it shows
+        to every Evolver."""
         params = ctx.params
         env = {**(params.get("env") or {}),
                "PYTHONPATH": str(Path(__file__).resolve().parents[3]) + os.pathsep + os.environ.get("PYTHONPATH", "")}
@@ -160,7 +161,7 @@ class CommandEvolver(Evolver):
             command, env = ctx.sandbox.wrap(command, env=env, chdir=Path(getattr(self, "directory", ".")), keep=keep)
         code = _run(command, env, ctx, ctx.workspace.output / "command.log", Path(getattr(self, "directory", ".")))
         from hermit.sandbox import read_regular
-        text = read_regular(ctx.workspace.output / "step_result.json")              # never through a link or a pipe
+        text = read_regular(ctx.workspace.output / "step_result.json", limit=None)  # never through a link or a pipe
         if text is not None:
             data = json.loads(text)
             usage = [Usage(**u) for u in data.get("usage", [])]

@@ -18,7 +18,12 @@ llm:
   model: your-model-id
   api_key_env: MODEL_API_KEY
 sandbox:
-  enabled: false
+  enforce: best_effort          # bubblewrap where it is installed; elsewhere unconfined, recorded and warned
+environment:
+  read: [pipeline.py]           # the agent's code; the data, the judge and the runs stay outside
+  env: [MODEL_*, ACTOR_*]       # the acting model's endpoint, name and key
+  network: allowlist
+  allowed_hosts: []             # configure.py writes the acting endpoint's host (a loopback one is reached anyway)
 trainer:
   run_name: first-model
   output_dir: runs

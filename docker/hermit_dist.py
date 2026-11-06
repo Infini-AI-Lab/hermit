@@ -7,9 +7,9 @@
                                                  this interpreter's site-packages
 
 The checkout is not installed in the image: offline.sh mounts it and PYTHONPATH makes the mounted `hermit` import.
-hermit/sandbox.py still looks the installed distribution up (`package_closure(["hermit-harness"])`) to learn which
-packages a sandboxed process needs, so `register` writes the metadata pip would have written, with the same
-Requires-Dist lines, and nothing else.
+A sandbox shows the image's environment as installed (hermit/sandbox.py); `register` writes the metadata pip would
+have written, with the same Requires-Dist lines, and nothing else, so that what looks the distribution up (pip, an
+`environment.packages` entry naming it) finds it.
 """
 from __future__ import annotations
 

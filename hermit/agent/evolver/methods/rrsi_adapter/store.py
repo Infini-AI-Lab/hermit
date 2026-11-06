@@ -2,8 +2,9 @@
 store layout, state/candidates/<id>/adapter/, and the same rules), kept here so that this method depends on no other
 method's private names.
 
-Everything done to the store happens outside the proposer's sandbox, which can write the run's state and scratch: a
-path that a session could have replaced with a link is checked (`_real`) or written without following one (`_write`).
+Everything done to the store happens outside the proposer's sandbox, whose view writes only the proposer's own
+directory; a path under the run's state or scratch is still checked (`_real`) or written without following a link
+(`_write`), as if a session could have replaced it.
 """
 from __future__ import annotations
 

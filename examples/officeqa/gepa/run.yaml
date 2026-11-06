@@ -11,8 +11,6 @@ data:
 task_info: ../utils/task-info/
 agent:
   name: ../utils/agent/agent.py:OfficeQAAgent
-  params:                          # the agent's model, named so its key and host are passed into the task sandbox
-    model: fireworks/accounts/fireworks/models/glm-5p3-flash   # (agent.py's default model)
   concurrency: 8
 judge:
   path: ../utils/judge.py
@@ -20,6 +18,8 @@ template: prompt-only@1.0
 start_from: ../utils/seed_adapter  # SkillOpt's initial OfficeQA skill
 evolver:
   name: gepa
+model: fireworks/accounts/fireworks/models/glm-5p3-flash   # the agent's (agent.params.model), named so its key and
+                                                         # host reach the task sandbox; `model=...` moves it
 llm:                           # the optimizer: GLM 5.3 at medium effort (the paper: GPT-5.5, medium)
   model: fireworks/accounts/fireworks/models/glm-5p3     # <backend>/<model id>; the price is the backend's
   extra_body: {reasoning_effort: medium}

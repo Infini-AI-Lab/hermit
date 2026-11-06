@@ -92,6 +92,8 @@ The acting agent runs in the task sandbox, which shows only what the config's `e
 directories of their own, apart from the answers, the judge and the runs, and declare them:
 
 ```yaml
+sandbox:
+  enforce: required                         # the first-training config runs best_effort
 environment:
   read: [../utils/agent, ../utils/corpus]   # never a directory holding the data, the judge or the runs
   packages: [your-benchmark]                # the distributions the agent imports, with their dependencies

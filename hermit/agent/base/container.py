@@ -40,7 +40,7 @@ def settings(params: dict) -> dict[str, str]:
     given = params.get("container") or {}
     unknown = set(given) - set(DEFAULTS)
     if unknown:
-        raise ValueError(f"agent.params.container: unknown keys {sorted(unknown)}; known: {sorted(DEFAULTS)}")
+        raise ValueError(f"container settings: unknown keys {sorted(unknown)}; known: {sorted(DEFAULTS)}")
     return {k: str(given.get(k) or os.environ.get(env) or default) for k, (env, default) in DEFAULTS.items()}
 
 

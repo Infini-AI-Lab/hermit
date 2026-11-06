@@ -40,8 +40,9 @@ All inputs and code are under `docs/_examples/first_training/`:
 :language: yaml
 ```
 
-The sandbox is disabled for this local scripted demonstration. It launches no external learner program;
-[sandbox boundaries](../framework/configuration.md#sandboxes) matter when using other learners.
+The agent runs in the task sandbox, shown only its own code (`environment.read`); `enforce: best_effort` lets the
+demonstration run where bubblewrap is missing, unconfined and recorded. See
+[sandbox boundaries](../framework/configuration.md#sandboxes).
 
 ## 4. Evaluate the result
 

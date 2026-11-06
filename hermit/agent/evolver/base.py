@@ -87,7 +87,7 @@ class StepResult:
     rationale: str = ""                                  # optional: why it changed the adapter this way, or why not
     session: str | None = None                           # handle for resuming next time, if any
     usage: list[Usage] = field(default_factory=list)     # model usage of this call
-    extra: dict[str, Any] = field(default_factory=dict)  # recorded unchanged
+    extra: dict[str, Any] = field(default_factory=dict)  # recorded as given, a model key's value scrubbed
     next_tasks: list[str] | None = None                  # chooses_tasks: the next step's tasks, of progress.remaining
 
 

@@ -14,7 +14,9 @@ template: prompt-only@1.0
 evolver:
   name: ../record_only
 sandbox:
-  enabled: false
+  enforce: best_effort          # bubblewrap where it is installed; elsewhere unconfined, recorded and warned
+environment:
+  read: [pipeline.py]           # the agent's code; the data, the judge and the runs stay outside
 trainer:
   run_name: interface-demo
   output_dir: ../../../.demo/interface-example

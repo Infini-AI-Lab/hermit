@@ -284,13 +284,19 @@ def _view_snapshot(box):
     from hermit.sandbox import sanitized_copy
 
     def snapshot(source: Path) -> Path:
-        raw, clean = Path(tempfile.mkdtemp(prefix="rrsi-raw-")), Path(tempfile.mkdtemp(prefix="rrsi-check-"))
+        raw = Path(tempfile.mkdtemp(prefix="rrsi-raw-"))
+        clean = None
         try:
+            clean = Path(tempfile.mkdtemp(prefix="rrsi-check-"))
             args, env = box.wrap(["cp", "-a", "--no-preserve=ownership", f"{source}/.", str(raw)], writable=[raw])
             run = subprocess.run(args, env=env, capture_output=True, text=True, timeout=300)
             if run.returncode != 0:
                 raise ValueError(f"the candidate could not be copied: {run.stderr.strip()[-300:]}")
             sanitized_copy(raw, clean)
+        except BaseException:
+            if clean is not None:                        # the caller gets no path to remove: removed here
+                shutil.rmtree(clean, ignore_errors=True)
+            raise
         finally:
             shutil.rmtree(raw, ignore_errors=True)
         return clean
@@ -1012,8 +1018,8 @@ class RRSIAdapterEvolver(AgentEvolver):
         tries = int(params.get("session_retries", 2))
         tail = ""
         for attempt in range(1 + tries):
-            # a session can write its directory's parent (the run's scratch): its directory or home replaced by a
-            # link would be bound into the next session read-write, past what is hidden; and the host writes into
+            # a session's view writes only its own directory: its home there replaced by a link would be bound into
+            # the next session read-write, past its view (the directory is checked too); and the host writes into
             # the home (the sign-in, the settings), so a link left inside it is removed, never followed
             if not _owned(work, ws.scratch) or not _owned(home, ws.scratch):
                 return StepResult("failed", "the proposer's directory or home was replaced by a link or a file",

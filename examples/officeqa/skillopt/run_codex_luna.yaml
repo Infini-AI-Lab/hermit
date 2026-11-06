@@ -59,8 +59,7 @@ llm:                                   # the learner: GPT-5.6-Luna at medium eff
   login: chatgpt
   effort: medium
   web_search: false
-  isolation: container
-  container: {image: "officeqa-codex:0.164.0", network: oq-sandbox, proxy: "http://oq-egress-login:3128"}
+  isolation: sandbox                   # a bubblewrap sandbox of its own: its empty workspace, the login's hosts
   timeout: 3600                        # a Codex session answers more slowly than a chat completion
 environment:                         # the acting agent: Codex in a container of its own
   image: "officeqa-codex:0.164.0"

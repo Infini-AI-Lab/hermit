@@ -150,11 +150,34 @@ def preflight_role(config, directory):
     if backend not in ('claude', 'codex'):
         raise ValueError('this experiment runner requires a CLI role backend')
     params['timeout_s'] = min(float(params.get('timeout_s', 60)), 60)
-    ctx = SimpleNamespace(params=params, sandbox=None, cancel=None,
+    # The role CLI in a sandbox as the run gives its roles: its model's key and hosts, its directory, nothing else.
+    from hermit.isolate import CHATGPT_HOSTS, HOME_SECRETS, run_secrets
+    from hermit.sandbox import AllowlistProxy, Sandbox, hidden_paths, model_access
+    keys, hosts, ports = model_access([params.get('binding')])
+    learner = data['sandbox'].get('evolver') or {}                  # what the run gives its learner, as the Trainer
+    allow = list(learner.get('allowed_hosts') or [])
+    allow += [h for h in [*hosts, *(CHATGPT_HOSTS if params.get('login') == 'chatgpt' else [])] if h not in allow]
+    proxy = AllowlistProxy(allow, log=directory / 'network.jsonl') if allow else None
+    box = Sandbox(enabled=data['sandbox']['enabled'], network='allowlist' if allow else 'no-network', allow=allow,
+                  proxy_url=proxy.url if proxy else None, env_allow=[*(learner.get('env') or []), *keys],
+                  forward=ports, writable=[directory],
+                  enforce=data['sandbox'].get('enforce', 'required'), framework=False, record_dir=directory / 'sandbox',
+                  probe_absent=[*run_secrets(config), *HOME_SECRETS], role='preflight',
+                  limits=dict(learner.get('resources') or {}),
+                  hide=hidden_paths(data['sandbox'].get('hide') or []))
+    ctx = SimpleNamespace(params=params, sandbox=box, cancel=None,
                           workspace=SimpleNamespace(scratch=directory, output=directory))
-    response, usage, error = call_role(ctx, [{'role': 'user', 'content': 'Return {"ready": true}.'}],
-        {'type': 'object', 'properties': {'ready': {'type': 'boolean', 'const': True}}, 'required': ['ready'],
-         'additionalProperties': False}, 'preflight', backend)
+    try:
+        response, usage, error = call_role(
+            ctx, [{'role': 'user', 'content': 'Return {"ready": true}.'}],
+            {'type': 'object', 'properties': {'ready': {'type': 'boolean', 'const': True}}, 'required': ['ready'],
+             'additionalProperties': False}, 'preflight', backend)
+    finally:
+        box.close()
+        if proxy is not None:
+            proxy.close()
+        from hermit.redact import redact_tree
+        redact_tree(directory)                          # its streams and trajectory: no model key kept
     if error or response is None:
         raise RuntimeError(error or 'role preflight failed')
     return {'status': 'passed', 'usage': [asdict(u) for u in usage]}

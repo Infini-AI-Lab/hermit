@@ -10,6 +10,7 @@ import time
 from hermit.adapter.manifest import MANIFEST, read_manifest
 from hermit.agent.model.backends import bindings_of, list_models, probe as probe_model, problems_of, registry, warnings_of
 from hermit.config import Config
+from hermit.sandbox import hidden_paths, set_hidden
 from hermit.agent.evolver.loader import find, instantiate, load_class
 from hermit.spec import check_spec
 from hermit.agent.acting.agent import load_agent
@@ -25,6 +26,7 @@ DISCLAIMER = ("check looks only at the basic items above. Passing it does not gu
 def run_check(config: Config, *, probe: bool = True, log=print) -> bool:
     d = config.data
     ok = True
+    set_hidden(hidden_paths(d["sandbox"].get("hide") or []))    # the spec check's sandbox below covers it too
 
     def report(item: str, problems: list[str], note: str = ""):
         nonlocal ok

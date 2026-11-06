@@ -28,12 +28,13 @@ environment:                   # the task sandbox, where the acting agent runs (
                                # code isolates what it runs (AgentDyn's hooks in containers); warned
   image: null                  # a Docker image: a CLI acting agent runs in a container of its own (Codex)
   container: {}                # with image: the container's network and egress proxy (hermit/agent/base/container.py)
-  packages: []                 # no image: Python distributions shown besides the framework's, with their dependencies
+  packages: []                 # no image: Python distributions shown besides the framework's environment (an editable
+                               # install's package, one on PYTHONPATH), with their dependencies
   read: []                     # no image: task paths shown read-only (relative to this file); never the data, the
                                # judge or the runs
   write: []                    # paths the acting agent may write besides its own work directory
-  env: []                      # environment variables passed in, names or patterns (MWM_*); no model keys: the model
-                               # proxy holds them
+  env: []                      # environment variables passed in, names or patterns (MWM_*); the agent's model key
+                               # passes anyway
   network: no-network          # no-network | allowlist | public; the agent's model and the tool endpoint stay reachable
   allowed_hosts: []            # allowlist: hosts reachable through the allowlist proxy
   resources: {}                # memory_mb, file_mb, cpu_s: per process
@@ -62,6 +63,8 @@ evolver_access:
 sandbox:                       # docs/developer/sandbox-design.md
   enabled: true                # false: everything the run starts runs unconfined (a warning; not for reported results)
   enforce: required            # required: refuse to run without bubblewrap | best_effort: run unconfined, recorded
+  hide: []                     # modules or packages of the framework's environment covered in every sandbox but the
+                               # judge's (a benchmark's scoring the agent does not import): `pkg.scoring`
   evolver:                     # the learner's sandbox: a fixed layout under /w, its models, the tool endpoint
     allowed_hosts: []          # more hosts the learner may reach, through the allowlist proxy
     env: []                    # environment variables passed to the learner's sessions (its models' keys pass anyway)

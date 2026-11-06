@@ -228,7 +228,8 @@ class MwmEvolver(Evolver):
                  Bind(session / "method" / "skills", "/skills"), Bind(session / "method" / "patterns", "/patterns"),
                  Bind(adapter, WORK, True), Bind(adapter, "/world-model")]
         return ctx.sandbox.view(binds=binds, layout=(adapter, WORK), framework=False,
-                                readable=[PACKAGE / "__init__.py", PACKAGE / "runtime", HERE / "bin"])
+                                readable=[PACKAGE / "__init__.py", PACKAGE / "runtime", PACKAGE / "sandbox.py",
+                                          HERE / "bin"])     # captest's PythonSandbox runs on hermit.sandbox
 
     def _settings(self, ctx: StepContext, home: Path, log: Path, box) -> dict:
         """The `codex` Base Agent's settings for one learner session: Codex as natively (its own sandbox off, every

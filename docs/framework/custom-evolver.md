@@ -62,7 +62,8 @@ The task is a local echo stub. The run has two training steps and one test task;
 Inspect `.demo/interface-example/interface-demo/` for the learning material, per-step
 `state/observations.json` snapshots, final adapter card, and evaluation records.
 
-This example uses trusted in-process Python and disables the learner-program sandbox. For a fresh repeat, add
+The Evolver is trusted in-process Python; the agent runs in the task sandbox (`enforce: best_effort`: unconfined
+and recorded where bubblewrap is missing). For a fresh repeat, add
 `trainer.run_name=interface-demo-02` to the commands. See [Trainer](trainer.md) for resume behavior.
 
 ## Agent and command implementations

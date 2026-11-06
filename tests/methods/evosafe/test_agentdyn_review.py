@@ -226,8 +226,13 @@ def test_role_preflight_resolves_training_backend(tmp_path, monkeypatch):
     from hermit.agent.evolver.methods.evosafe import cli_roles
     from run_experiment import preflight_role
 
+    import hermit.isolate
     monkeypatch.setenv('HA_BACKENDS', str(tmp_path / 'no-local-settings.yaml'))
+    monkeypatch.setattr(hermit.isolate, 'run_secrets', lambda config: [])
     config = SimpleNamespace(base=tmp_path, data={
+        'sandbox': {'enabled': True, 'enforce': 'required',
+                    'evolver': {'allowed_hosts': ['api.anthropic.com'], 'env': ['ROLE_*'],
+                                'resources': {'memory_mb': 2048}}},
         'evolver': {'name': 'evosafe', 'params': {
             'backend': 'codex', 'model': 'fixture/role-model', 'timeout_s': 120}},
         'backends': {'fixture': {'base_url': 'http://127.0.0.1:9/v1',
@@ -240,10 +245,17 @@ def test_role_preflight_resolves_training_backend(tmp_path, monkeypatch):
         assert ctx.params['binding']['ref'] == 'fixture/role-model'
         assert 'model_provider="fixture"' in ctx.params['args']
         assert ctx.params['timeout_s'] == 60
+        assert ctx.sandbox.enabled and ctx.sandbox.role == 'preflight'        # never the CLI on the host
+        assert ctx.sandbox.forward == [9] and ctx.sandbox.writable == [tmp_path / 'preflight']
+        assert ctx.sandbox.allow == ['api.anthropic.com'] and 'ROLE_*' in ctx.sandbox.env_allow   # as the Trainer
+        assert ctx.sandbox.limits == {'memory_mb': 2048}
+        (ctx.workspace.output / 'trajectory.json').write_text('key sk-preflight-key-0123456789abcdef')
         return {'content': '{"ready": true}'}, [], None
 
     monkeypatch.setattr(cli_roles, 'call_role', call)
+    monkeypatch.setenv('PREFLIGHT_API_KEY', 'sk-preflight-key-0123456789abcdef')
     assert preflight_role(config, tmp_path / 'preflight')['status'] == 'passed'
+    assert (tmp_path / 'preflight' / 'trajectory.json').read_text() == 'key <PREFLIGHT_API_KEY>'   # scrubbed
 
 
 @pytest.mark.parametrize('change', [

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import atexit
 
+import dataclasses
 from dataclasses import asdict
 import json
 import os
@@ -30,17 +31,18 @@ from pathlib import Path
 
 import yaml
 
-from hermit.adapter.manifest import CARD, MANIFEST, files_of, read_manifest
+from hermit.adapter.manifest import CARD, MANIFEST, read_manifest
 from hermit.agent.model.backends import bindings_of, problems_of, registry
 from hermit.config import Config
 from hermit.agent.evolver.base import (Access, Context, Evolver, FinalResult, Progress, StepContext, StepResult, Usage,
                                          Workspace)
 from hermit.agent.evolver.loader import find, instantiate
 from hermit.agent.model.llm import ChatClient
-from hermit.isolate import CHATGPT_HOSTS, HOME_SECRETS, ToolRunner, _safe, agent_pipeline, config_paths, \
+from hermit.isolate import CHATGPT_HOSTS, HOME_SECRETS, Recheck, ToolRunner, _safe, agent_pipeline, config_paths, \
     judge_for, run_secrets, sanitized_copy
-from hermit.redact import redact_tree
-from hermit.sandbox import AllowlistProxy, Bind, Sandbox, drop_unsafe, inside_tools, model_access
+from hermit.redact import redact_path, redact_tree, redact_value
+from hermit.sandbox import (AllowlistProxy, Bind, Sandbox, drop_unsafe, hidden_paths, inside_tools, model_access,
+                            set_hidden)
 from hermit.spec import check_spec, repair
 from hermit.task import TaskData
 from hermit.tools import FunctionTool, ToolServer, assemble, evolver_agent
@@ -111,7 +113,7 @@ def _copy_dir(src: Path, dst: Path) -> None:
     if dst.exists():
         shutil.rmtree(dst)
     if src.exists():
-        sanitized_copy(src, dst)
+        sanitized_copy(src, dst)                         # the learner's unreadable files read (owner_readable)
     else:
         dst.mkdir(parents=True)
 
@@ -123,10 +125,15 @@ def _sanitize_in_place(path: Path) -> None:
     if not path.is_dir() or path.is_symlink():
         return
     clean = path.with_name(path.name + f".clean-{uuid.uuid4().hex[:6]}")
+    os.chmod(path, os.stat(path).st_mode | 0o700)            # left read-only: its entries are replaced below
     sanitized_copy(path, clean)
+    def writable(function, name, _):          # a directory the learner left read-only: made the owner's again
+        os.chmod(os.path.dirname(name), 0o700)
+        function(name)
     for child in list(path.iterdir()):
         if child.is_dir() and not child.is_symlink():
-            shutil.rmtree(child)
+            os.chmod(child, 0o700)
+            shutil.rmtree(child, onexc=writable)
         else:
             child.unlink()
     for child in list(clean.iterdir()):
@@ -140,6 +147,8 @@ class Trainer:
         self.python = python or sys.executable
         self.log = log
         d = config.data
+        # What only the judge may read, covered in every other sandbox this run (and the processes it starts) makes.
+        set_hidden(hidden_paths(d["sandbox"].get("hide") or []))
         self.template_dir = config.template_dir()
         self.template = read_manifest(self.template_dir)["template"]
         self.run_name = config.run_name()
@@ -158,10 +167,38 @@ class Trainer:
         self.budget = Budget(**{k: d["trainer"]["budget"].get(k) for k in ("usd", "tokens", "hours")})
         if isinstance(d.get("llm"), dict) and d["llm"].get("cli"):     # a model only a CLI reaches
             from hermit.agent.base.endpoint import cli_model
-            self.llm = cli_model(d["llm"], log_dir=self.run_dir / "llm_sessions")
+            try:
+                self.llm = cli_model(d["llm"], log_dir=self.run_dir / "llm_sessions", sandbox=self._llm_sandbox(d))
+            except BaseException:
+                self._close_sandboxes()                  # its proxy, started for it
+                raise
         else:
             self.llm = ChatClient.from_spec(d["llm"]) if d.get("llm") else None
         self.warnings = warnings_for(config, val_given=True)
+
+    def _scrub_access(self) -> None:
+        """What the learner is shown of the task (evolver_access.environment: an evidence store the agents wrote) holds
+        no model key's value; no agent runs while the learner works."""
+        for path in self.access.environment:
+            redact_path(Path(path).resolve())            # a configured link: its target, which the sandbox shows
+
+    def _llm_sandbox(self, d: dict) -> Sandbox | None:
+        """The sandbox of a model only a CLI reaches (`llm.cli`, isolation: sandbox, the default): each session sees
+        its empty workspace and home, reaches its model's hosts (a ChatGPT login's) through a proxy of its own and
+        holds its model's key; nothing of the run."""
+        spec = d["llm"]
+        if (spec.get("isolation") or "sandbox") != "sandbox":
+            return None
+        keys, hosts, ports = model_access([spec.get("binding")])
+        allow = [*hosts, *(h for h in CHATGPT_HOSTS if spec.get("login") == "chatgpt" and h not in hosts)]
+        records = self.run_dir / "sandbox"
+        self._llm_proxy = AllowlistProxy(allow, log=records / "network-llm.jsonl") if allow else None
+        self._llm_box = Sandbox(enabled=d["sandbox"]["enabled"], network="allowlist" if allow else "no-network",
+                                allow=allow, proxy_url=self._llm_proxy.url if self._llm_proxy else None,
+                                env_allow=keys, forward=ports, enforce=d["sandbox"].get("enforce", "required"),
+                                framework=False, record_dir=records, role="llm",
+                                probe_absent=[*run_secrets(self.config), *HOME_SECRETS])
+        return self._llm_box
 
     # ---------- setup ----------
     def _prepare(self) -> None:
@@ -210,18 +247,19 @@ class Trainer:
                     f.write(json.dumps(row, ensure_ascii=False) + "\n")
         env = tuple(config_paths(self.config, "evolver_access.environment", d["evolver_access"]["environment"]))
         self.access = Access(validation=val, environment=env)
+        self._recheck_grants = Recheck([*env, self.ws.task_info], own=self.run_dir)
         # The learner's sandbox (docs/developer/sandbox-design.md): the workspace under fixed names below /w, its
         # models, the Trainer's tool endpoint, and the hosts the run declares. A Codex learner on a ChatGPT login
         # reaches its plan's hosts.
         ev = d["sandbox"]["evolver"]
         records = self.run_dir / "sandbox"
         allow = list(ev.get("allowed_hosts") or [])
-        if self.params.get("login") == "chatgpt" or (isinstance(d.get("llm"), dict) and d["llm"].get("login") ==
-                                                       "chatgpt"):
+        roles = self.params.get("roles") if isinstance(self.params.get("roles"), dict) else {}   # RRSI's sessions
+        if "chatgpt" in (self.params.get("login"), roles.get("login"),
+                         d["llm"].get("login") if isinstance(d.get("llm"), dict) else None):
             allow += [h for h in CHATGPT_HOSTS if h not in allow]
         # The learner reaches its models as Harbor's agents do: the key variables pass, the providers' hosts are
-        # allowed, a server on the loopback (a meter) is forwarded. Its models: the Evolver's, and its roles' (RRSI).
-        roles = self.params.get("roles") if isinstance(self.params.get("roles"), dict) else {}
+        # allowed, a server on the loopback (a meter) is forwarded. Its models: the Evolver's, and its roles'.
         model_keys, model_hosts, model_ports = model_access([self.params.get("binding"), roles.get("binding")])
         allow += [h for h in model_hosts if h not in allow]
         atexit.register(self._close_sandboxes)      # whatever is started from here is closed, a failure included
@@ -291,7 +329,11 @@ class Trainer:
 
     # ---------- the loop ----------
     def train(self) -> dict:
-        self._prepare()
+        try:
+            self._prepare()
+        except BaseException:
+            self._close_sandboxes()                 # what the constructor started (the llm's proxy)
+            raise
         d = self.config.data
         done = self._completed_steps()
         if done:
@@ -302,6 +344,8 @@ class Trainer:
         self._last_rollout_commit = done[-1]["parent"] if done and not done[-1].get("bootstrap") else None
         ctx = self._context()
         if not done:
+            self._recheck_grants()               # before every learner call: others' records in its grants
+            self._scrub_access()
             box, stopped, _ = self._call("setup", lambda: self.evolver.setup(ctx), progress=None,
                                          timeout_s=float(d["trainer"]["call_timeout_min"]) * 60)
             if "error" in box or stopped:
@@ -445,10 +489,12 @@ class Trainer:
             # A training task's run also names its log (the trajectory, when the pipeline keeps one), copied into the
             # run's agent_logs/ (shown read-only at /w/agent-logs); and a run whose pipeline reports how its session
             # ended (a CLI agent's exit code and timeout) says so.
-            return {"results": [{k: r[k] for k in ("id", "status", "output", "judge", "cost_usd", "wall_s")}
-                                | ({"log": self._visible_log(r)} if r["id"] in allowed["train"] else {})
-                                | {k: (r.get("pipeline_extra") or {})[k] for k in ("exit_code", "timed_out")
-                                   if k in (r.get("pipeline_extra") or {})} for r in results]}
+            # Scrubbed of model keys: the agent held its own, and the learner's may be another provider's.
+            shown = [{k: r[k] for k in ("id", "status", "output", "judge", "cost_usd", "wall_s")}
+                     | ({"log": self._visible_log(r)} if r["id"] in allowed["train"] else {})
+                     | {k: (r.get("pipeline_extra") or {})[k] for k in ("exit_code", "timed_out")
+                        if k in (r.get("pipeline_extra") or {})} for r in results]
+            return {"results": redact_value(shown)}
         return FunctionTool("run_agent", "Run an adapter (default: your working copy) on training or validation "
                             "tasks through the task's pipeline and judge; returns outputs and scores, and for "
                             "training tasks the path of each run's log. Its cost counts toward the run's budget.",
@@ -458,14 +504,15 @@ class Trainer:
                                                          "adapter": {"type": "string"}}})
 
     def _visible_log(self, result: dict) -> str | None:
-        """A run's log as the learner can open it: a copy (through the sanitized archive) in the run's agent_logs/,
-        which the learner's sandbox shows read-only at /w/agent-logs. A host path: a server that serves the tool to a
-        sandboxed session names it as the sandbox shows it."""
+        """A run's log as the learner can open it: a copy (through the sanitized archive, scrubbed of model keys) in
+        the run's agent_logs/, which the learner's sandbox shows read-only at /w/agent-logs. A host path: a server
+        that serves the tool to a sandboxed session names it as the sandbox shows it."""
         log = Path(result["log"]) if result.get("log") else None
         if log is None or not os.path.lexists(log):
             return None
         place = self.run_dir / "agent_logs" / f"{_safe(result['id'])}-{uuid.uuid4().hex[:6]}"   # this process's own
         sanitized_copy(log.parent, place, [log.name])
+        redact_tree(place)                   # the agent held its model's key; the learner's may be another's
         return str(place / log.name)
 
     def _message(self, progress: Progress | None, tools: dict) -> str:
@@ -580,6 +627,8 @@ class Trainer:
                               message=self._message(progress, tools) + f"Tool endpoint (HTTP): {server.url}\n",
                               sandbox=self.sandbox, cancel=cancel, tool_url=server.url, progress=progress,
                               session=session if d["evolver"]["resume"] else None, agent=agent)
+            self._recheck_grants()               # the learner's declared paths, searched again for others' records
+            self._scrub_access()
             method = self.evolver.bootstrap if what == "bootstrap" else self.evolver.step
             box, stopped, alive = self._call(what, lambda: method(ctx), progress=progress,
                                              timeout_s=float(d["trainer"]["call_timeout_min"]) * 60, cancel=cancel)
@@ -605,6 +654,12 @@ class Trainer:
             elif not isinstance(result, StepResult):
                 result = StepResult("failed", f"{what} returned {type(result).__name__}, not StepResult")
         self._spend(result)
+        # What the learner reports is kept (step records, steps.jsonl, the commit message): no model key it held.
+        result = dataclasses.replace(result, status=redact_value(result.status), summary=redact_value(result.summary),
+                                     rationale=redact_value(result.rationale), session=redact_value(result.session),
+                                     extra=redact_value(result.extra), next_tasks=redact_value(result.next_tasks),
+                                     usage=[dataclasses.replace(u, model=redact_value(u.model))
+                                            if isinstance(u, Usage) else redact_value(u) for u in result.usage])
         # 6–7. check, repair, commit.
         commits, repaired, check = self._commit_step(progress, result, parent,
                                                      label="bootstrap (step 0)" if what == "bootstrap" else None)
@@ -629,6 +684,7 @@ class Trainer:
                   "commit": Tree.head(self.checkout), "changed": Tree.head(self.checkout) != parent,
                   "check": check, "repaired": repaired, "check_feedback_next": repaired or None,
                   "budget_after": self.budget.snapshot(), "time": time.strftime("%Y-%m-%dT%H:%M:%S")}
+        record = redact_value(record)        # the rollouts' own fields (api_speed, ...) came from agents holding keys
         with open(self.run_dir / "steps.jsonl", "a") as f:
             f.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
         self.log(f"step {n}: mean score {record['rollout']['mean_score']}, evolver {result.status}: {result.summary}"
@@ -717,15 +773,24 @@ class Trainer:
         head = Tree.head(self.checkout)
         self.tree.export(head, self.ws.adapter, history=True)
         ctx = self._context()
+        self._recheck_grants()
+        self._scrub_access()
         box, stopped, _ = self._call("finalize", lambda: self.evolver.finalize(ctx), progress=None,
                                      timeout_s=float(d["trainer"]["call_timeout_min"]) * 60)
         final: FinalResult | None = box.get("value") if isinstance(box.get("value"), FinalResult) else None
         note = final.summary if final else f"finalize failed ({box.get('error') or stopped}); the last adapter is final"
+        note = redact_value(note)            # the final commit, the card and summary.json keep it
         if final and Path(final.adapter).resolve() != self.ws.adapter.resolve():
             _copy_dir(Path(final.adapter), self.ws.adapter)
         steps = [json.loads(l) for l in (self.run_dir / "steps.jsonl").read_text().splitlines() if l.strip()] \
             if (self.run_dir / "steps.jsonl").exists() else []
         self.material.truncate(steps[-1]["step"] if steps else 0)   # a step stopped midway is discarded
+        llm = d.get("llm") if isinstance(d.get("llm"), dict) else {}
+        for place in (self.ws.output, self.ws.state, self.ws.scratch,      # the learner's own files the run keeps,
+                      self.ws.state.parent / "agent_home",                # its CLI's home (transcripts) too,
+                      *config_paths(self.config, "environment.write", d["environment"].get("write")),  # the agents'
+                      *([Path(os.path.expanduser(str(llm["home"])))] if llm.get("home") else [])):   # llm.cli's home
+            redact_path(Path(place).resolve())
         if final:
             result = StepResult("done", f"finalize: {note}")
             self._commit_step(Progress(steps[-1]["epoch"] if steps else 0, steps[-1]["step"] if steps else 0, True),
@@ -763,7 +828,9 @@ class Trainer:
     def _close_sandboxes(self) -> None:
         for close in (getattr(self, "_close_pipeline", None), getattr(getattr(self, "tool_runner", None), "close", None),
                       getattr(getattr(self, "proxy", None), "close", None),
-                      getattr(getattr(self, "sandbox", None), "close", None)):
+                      getattr(getattr(self, "sandbox", None), "close", None),
+                      getattr(getattr(self, "_llm_proxy", None), "close", None),
+                      getattr(getattr(self, "_llm_box", None), "close", None)):
             if close is not None:
                 try:
                     close()

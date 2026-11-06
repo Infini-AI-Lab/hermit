@@ -127,11 +127,11 @@ Checkpoint frequency controls tags; completed steps still have records and accep
 | `environment.runner` | string / `sandbox` | `sandbox`: the acting agent runs in the task sandbox; `host`: in the Trainer's process (a task whose code isolates what it runs) |
 | `environment.read` | list / [] | Task paths shown read-only to the acting agent; never the data, the judge, its tests or the runs |
 | `environment.write` | list / [] | Paths it may write besides its own work directory |
-| `environment.packages` | list / [] | Python distributions shown besides the framework's, with their dependencies |
+| `environment.packages` | list / [] | Python distributions shown besides the framework's environment (an editable install's package, one on `PYTHONPATH`), with their dependencies |
 | `environment.env` | list / [] | Variables passed in: names or patterns (`MWM_*`) |
 | `environment.network` | string / `no-network` | `no-network`, `allowlist` or `public`; the agent's model provider stays reachable |
 | `environment.allowed_hosts` | list / [] | With `allowlist`: hosts reachable through the proxy |
-| `environment.resources` | mapping / {} | `memory_mb`, `file_mb`, `cpu_s` per process (positive whole numbers; null: no limit) |
+| `environment.resources` | mapping / {} | `memory_mb`, `file_mb`, `cpu_s` per process (positive whole numbers; null: no limit); not with `environment.image` (the container keeps its own) |
 | `environment.image` | string / null | A Docker image: a Codex acting agent runs in a container of its own |
 | `environment.container` | mapping / {} | With `image`: the container's `network` and `proxy` |
 | `judge.mode` | string / `host` | `host`, `shared` or `separate` |
@@ -139,6 +139,7 @@ Checkpoint frequency controls tags; completed steps still have records and accep
 | `judge.collect` | list / [] | `separate`: paths of the agent's work directory carried to the judge |
 | `sandbox.enabled` | boolean / true | False runs everything unconfined |
 | `sandbox.enforce` | string / `required` | `required` or `best_effort` (run unconfined without bubblewrap, recorded) |
+| `sandbox.hide` | list / [] | Modules or packages of the framework's environment covered in every sandbox but the judge's |
 | `sandbox.evolver.allowed_hosts` | list / [] | More hosts the learner reaches, through the proxy |
 | `sandbox.evolver.env` | list / [] | Variables passed to the learner (names or patterns) |
 | `sandbox.evolver.resources` | mapping / {} | `memory_mb`, `file_mb`, `cpu_s` per process (positive whole numbers; null: no limit) |

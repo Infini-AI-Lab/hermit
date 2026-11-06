@@ -12,6 +12,8 @@ Settings (given once; `configured(...)` for a call's own):
   plan_dir          the plan's directory the sessions on a login share (default: the machine's one, login.PLAN)
   plan_max_wait_s   how long a session on a login waits for the plan before it is unavailable (default 12 h;
                     None: no limit)
+  deadline          a time (time.time()) past which no session starts and none runs on: the plan's waits and a
+                    refused session's rerun come off its timeout (a caller stopped at that time: a container session's)
   effort            Codex's model_reasoning_effort
   web_search        the CLI's web search, on or off (required: set either way)
   isolation         none: the CLI on this machine; sandbox: inside `sandbox` (the run's hermit.sandbox.Sandbox);
@@ -57,6 +59,7 @@ Limits are enforced by the isolation, or the call is refused (Unsupported):
 """
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 from pathlib import Path
@@ -359,12 +362,12 @@ def _stop(proc) -> None:
 
 def _descendants(pid: int) -> list[int]:
     children: dict[int, list[int]] = {}
-    for stat in Path("/proc").glob("[0-9]*/stat"):
+    for entry in Path("/proc").glob("[0-9]*/stat"):
         try:
-            fields = stat.read_text().rsplit(")", 1)[1].split()
+            fields = entry.read_text().rsplit(")", 1)[1].split()
         except (OSError, IndexError):
             continue
-        children.setdefault(int(fields[1]), []).append(int(stat.parent.name))
+        children.setdefault(int(fields[1]), []).append(int(entry.parent.name))
     out, todo = [], [pid]
     while todo:
         for child in children.get(todo.pop(), []):
@@ -412,17 +415,26 @@ class CliAgent(BaseAgent):
                 raise Unsupported("isolation: sandbox needs the run's sandbox (settings.sandbox)")
             if not getattr(sandbox, "enabled", True) and (limits.hidden or network is not None):
                 raise Unsupported("the run's sandbox is off: it cannot hide paths or limit the network")
-            if network is not None and (getattr(sandbox, "network", None) == "open" or getattr(sandbox, "allow", None)):
-                raise Unsupported("the run's sandbox lets more than the model through (an open network or "
-                                  "allowed hosts): it cannot limit the network to the model")
+            if network is not None:
+                # The session's own model (its provider's host, a plan login's hosts) is allowed in any case.
+                from hermit.isolate import CHATGPT_HOSTS
+                from hermit.sandbox import model_access
+                _, hosts, ports = model_access([s.get("binding")])
+                own = [*hosts, *(CHATGPT_HOSTS if s.get("login") == "chatgpt" else [])]
+                if getattr(sandbox, "network", None) == "open" or \
+                        [h for h in getattr(sandbox, "allow", None) or () if h not in own] or \
+                        [p for p in getattr(sandbox, "forward", None) or () if p not in ports] or \
+                        getattr(sandbox, "sockets", None):
+                    raise Unsupported("the run's sandbox lets more than the model through (an open network, allowed "
+                                      "hosts, forwarded ports or sockets): it cannot limit the network to the model")
             # An allowlist shows what is granted: a path to keep hidden must not lie in anything granted.
             shown = [*getattr(sandbox, "readable", ()), *getattr(sandbox, "writable", ()),
                      *(b.source for b in getattr(sandbox, "binds", ())), *(m.source for m in limits.readable),
                      *(map(Path, s.get("writable") or ())), workspace,           # the session's own, bound writable
                      *([Path(os.path.expanduser(str(s["home"])))] if s.get("home") else []),
                      # and what every sandbox shows: the system, the interpreter's installation, the packages and
-                     # the framework it shows
-                     *map(Path, ("/usr", "/bin", "/sbin", "/lib", "/lib64")), Path(sys.prefix), Path(sys.base_prefix),
+                     # the framework it shows (visible() lists them)
+                     *map(Path, ("/usr", "/bin", "/sbin", "/lib", "/lib64")),
                      *(sandbox.visible([str(s.get("bin") or ("claude" if self.backend == "claude" else "codex"))])
                        if hasattr(sandbox, "visible") else [])]           # with the CLI's own installation
             for path in limits.hidden:
@@ -490,11 +502,16 @@ class CliAgent(BaseAgent):
         machine's session slots, and is run again when the plan refused it (hermit.agent.base.login's plan)."""
         s = self.settings
         if s.get("login") != "chatgpt":
+            limits = self._within(limits)
+            if limits is False:
+                return self._not_run("deadline", None)
             return self._session(prompt, workspace=workspace, tools=tools, limits=limits, session=session,
                                  roles=roles)
         plan, cancel = codex_login.plan_dir(s.get("plan_dir")), s.get("cancel")
         max_s = s.get("plan_max_wait_s", codex_login.MAX_WAIT_S)
         deadline = None if max_s is None else time.time() + float(max_s)    # over every wait of this session
+        if s.get("deadline") is not None:
+            deadline = float(s["deadline"]) if deadline is None else min(deadline, float(s["deadline"]))
         say = lambda m: print(f"hermit {self.name}: {m}", file=sys.stderr, flush=True)
         while True:
             waited = codex_login.wait(plan, cancel, say, None if deadline is None else max(0.0, deadline - time.time()))
@@ -505,21 +522,48 @@ class CliAgent(BaseAgent):
                     return self._not_run(got, max_s)
                 if codex_login.held(plan):           # paused or held while it waited for a slot: wait again
                     continue
-                result = self._session(prompt, workspace=workspace, tools=tools, limits=limits, session=session,
+                left = self._within(limits)              # what the waits left of the caller's deadline
+                if left is False:
+                    return self._not_run("deadline", None)
+                result = self._session(prompt, workspace=workspace, tools=tools, limits=left, session=session,
                                        roles=roles)
             if result.extra.get("served") or not result.extra.get("refused"):
                 return result
-            codex_login.hold(plan)                  # never ran: no answer; every session waits for the window
+            codex_login.hold(plan, cancel, None if deadline is None else max(0.0, deadline - time.time()))
             if str(s.get("plan_rerun", True)).strip().lower() in ("false", "0", "no", "off"):
                 say("a session was refused for the plan's usage limit; it is returned (plan_rerun: false)")
                 return result
             say("a session was refused for the plan's usage limit; it runs again once the plan allows")
 
+    def _within(self, limits: Limits | None):
+        """`limits` with its timeout cut to what is left before the `deadline` setting (as given without one);
+        False when nothing is left."""
+        if self.settings.get("deadline") is None:
+            return limits
+        left = float(self.settings["deadline"]) - time.time()
+        if left <= 0:
+            return False
+        limits = limits or Limits()
+        own = limits.timeout_s or self.settings.get("timeout_s", 3600)     # as the session's own default
+        return dataclasses.replace(limits, timeout_s=min(left, float(own)) if own else left)
+
+    def _left(self, timeout: float | None):
+        """`timeout` cut to what the preparation left before the `deadline` setting, just before the CLI starts;
+        False when nothing is."""
+        if self.settings.get("deadline") is None:
+            return timeout
+        left = float(self.settings["deadline"]) - time.time()
+        if left <= 0:
+            return False
+        return min(timeout, left) if timeout else left
+
     def _not_run(self, why: str, max_s) -> Result:
         """A session that never started: its caller stopped it, or the plan held it back past `plan_max_wait_s` (a
         provider that could not serve, for the caller to retry or report; no answer)."""
-        tail = "" if why == "cancelled" else f"hermit: the plan held the session back for {max_s} s"
-        return Result(reply="", exit_code=-1, extra={"served": False, "unavailable": why == "timeout", "refused": False,
+        tail = {"cancelled": "", "deadline": "hermit: the caller's deadline passed before the session started"}.get(
+            why, f"hermit: the plan held the session back for {max_s} s")
+        return Result(reply="", exit_code=-1, extra={"served": False, "unavailable": why in ("timeout", "deadline"),
+                                                     "refused": False,
                                                      "started": False,
                                                      "cancelled": why == "cancelled", "isolation":
                                                      self.settings.get("isolation") or "none", "wall_s": 0.0,
@@ -600,6 +644,9 @@ class CliAgent(BaseAgent):
                         m.target.mkdir(parents=True, exist_ok=True)   # the mount point, a real directory inside
                 key_env = self._key_env()
                 keys = {**env, **({key_env: os.environ.get(key_env, "")} if key_env else {})}
+                timeout = self._left(timeout)
+                if timeout is False:
+                    return self._not_run("deadline", None)
                 code, timed_out, cancelled = container.run(command, conf=conf, work=workspace, home=home,
                                                            mounts=mounts, env=keys, timeout=timeout, stdout=stream,
                                                            cancel=s.get("cancel"),
@@ -620,15 +667,26 @@ class CliAgent(BaseAgent):
                                                      forward=[*([server.port] if server else []), *local],
                                                      readable=[m.source for m in mounts
                                                                if Path(m.target).resolve() == Path(m.source).resolve()],
-                                                     binds=binds, chdir=workspace)
+                                                     binds=binds, chdir=workspace,
+                                                     env_ports=limits.network is None)   # model-only: no more
                     if (limits.hidden or limits.network is not None) and \
                             not any(Path(a).name == "bwrap" for a in command):
                         raise Unsupported("the run's sandbox did not isolate the call (no bubblewrap): it cannot hide "
                                           "paths or limit the network")
-                code, timed_out, cancelled = run_process(command, env=full_env, cwd=workspace, stream=stream,
-                                                         timeout=timeout, cancel=s.get("cancel"),
-                                                         stdin=prompt if s.get("stdin") else None,
-                                                         stderr=Path(s["stderr_log"]) if s.get("stderr_log") else None)
+                timeout = self._left(timeout)
+                if timeout is False:
+                    if sandbox is not None and hasattr(sandbox, "abandon"):
+                        sandbox.abandon(command)         # its isolation report will not come
+                    return self._not_run("deadline", None)
+                try:
+                    code, timed_out, cancelled = run_process(
+                        command, env=full_env, cwd=workspace, stream=stream, timeout=timeout, cancel=s.get("cancel"),
+                        stdin=prompt if s.get("stdin") else None,
+                        stderr=Path(s["stderr_log"]) if s.get("stderr_log") else None)
+                except BaseException:
+                    if sandbox is not None and hasattr(sandbox, "abandon"):
+                        sandbox.abandon(command)         # not started (or no report to wait for): its listener goes
+                    raise
             wall_s = time.time() - started
             failed = False
         finally:

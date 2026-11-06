@@ -83,7 +83,7 @@ the bind mounts. The containers are not privileged, have no Docker socket and ar
 | Mount | Access | Why the same path |
 |---|---|---|
 | `HERMIT_DIR` | read-write | `PYTHONPATH`; the examples' `utils/` (tasks, splits, `data.json` with absolute paths, the `documents` link) and `runs/`. |
-| `CLBENCH_DIR` | read-write | `.venv/bin/python` is a link to the interpreter under `.uv-python/`, and `pyvenv.cfg` names it by absolute path; hermit's rollout sandbox grants `$MWM_CLBENCH` and binds the interpreter the venv names. `prepare` puts the interpreter, the venv and uv's cache under the checkout (`UV_PYTHON_INSTALL_DIR`, `UV_CACHE_DIR`) so they resolve on the host too. A venv made on the host with an interpreter elsewhere does not resolve inside. |
+| `CLBENCH_DIR` | read-write | `.venv/bin/python` is a link to the interpreter under `.uv-python/`, and `pyvenv.cfg` names it by absolute path; hermit's task sandbox grants `$MWM_CLBENCH` and binds the interpreter the venv names. `prepare` puts the interpreter, the venv and uv's cache under the checkout (`UV_PYTHON_INSTALL_DIR`, `UV_CACHE_DIR`) so they resolve on the host too. A venv made on the host with an interpreter elsewhere does not resolve inside. |
 | `OFFICEQA_DIR` | read-only | `examples/officeqa/utils/documents` links to it and `data.json` names it. |
 | `RUN_HOME` | read-write | `HOME` inside: `~/.cache` (uv, Hugging Face, the tests' `hermit-tests`), a CLI agent's home; the launchers' `$HOME/code/...` defaults land here unless overridden. |
 | `/tmp` | tmpfs | A fresh, memory-backed `/tmp` per container (`exec`, 8 GB); hermit's sandbox bridges live there. |
@@ -93,8 +93,8 @@ The container's Python is `/opt/venv/bin/python` (Ubuntu's 3.12 with `pyproject.
 `run` sets `MW_FRAMEWORK_PYTHON` to it, so the launchers use it instead of the checkout's `.venv`. `hermit` is on
 `PATH`. The Codex CLI (the learner of the `prompt_only` and `mwm` examples) is in the image, release `CODEX_VERSION`
 of the Dockerfile (`CODEX_VERSION= docker/offline.sh build` leaves it out). hermit itself is not installed in the
-image; `hermit_dist.py` registers the distribution's metadata so that `hermit/sandbox.py` finds the framework's
-dependencies when it binds them into a sandbox.
+image; `hermit_dist.py` registers the distribution's metadata (pip finds it). Every sandbox shows `/opt/venv` as
+installed: what it holds is what sandboxed code can import.
 
 ## Where runs land
 

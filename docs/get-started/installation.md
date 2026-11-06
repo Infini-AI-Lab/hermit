@@ -71,6 +71,22 @@ Evolver's missing-dependency error prints them. Documentation build dependencies
 The upstream Harness² package supports Python 3.12 and 3.13 only, so `--group harness2` and `--group all` fail on
 Python 3.14; install `gepa` and `skillopt` separately there.
 
+## Install the sandbox's packages
+
+The bubblewrap sandboxes (the acting agent's, the learner's, the adapter's) show the environment Hermit runs in:
+what is installed there is what their code can import. The `sandbox` extra installs a base, numpy, pandas, scipy
+and torch:
+
+```bash
+python -m pip install -e ".[sandbox]"      # a checkout
+python -m pip install "hermit-harness[sandbox]"
+```
+
+PyPI's torch for Linux is the CUDA build; for the CPU one, install torch first from
+`https://download.pytorch.org/whl/cpu`. Install Hermit in an environment of its own: a package installed beside it
+is shown to the sandboxes too (`sandbox.hide` covers a benchmark's scoring module; an editable install's checkout is
+never shown).
+
 ## Choose the additional requirements
 
 | Workflow | Additional requirements |
@@ -112,8 +128,8 @@ From the source checkout:
 hermit check --config docs/_examples/first_training/run.yaml
 ```
 
-The probe should score the first toy task zero without execution errors. Its sandbox-disabled warning is expected
-for the included in-process, offline teaching learner. Continue to [Quick Start](quickstart.md) to train and evaluate it.
+The probe should score the first toy task zero without execution errors, its agent in the task sandbox. The
+`best_effort` warning is expected: the example runs where bubblewrap is missing too, unconfined and recorded. Continue to [Quick Start](quickstart.md) to train and evaluate it.
 
 ## Optional: build documentation
 

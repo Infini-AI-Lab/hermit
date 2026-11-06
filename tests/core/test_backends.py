@@ -401,3 +401,14 @@ def test_cli_dispatch_and_meter_buckets(capsys):
     assert split_bucket("/v1/chat/completions") == ("unattributed", "/v1/chat/completions")
     assert split_bucket("/anthropic/v1/messages") == ("unattributed", "/anthropic/v1/messages")
     assert split_bucket("/health") == ("unattributed", "/health")
+
+
+def test_a_task_agent_on_a_cli_base_is_bound_and_checked_like_the_cli():
+    """A task's own agent on agent.base: codex with a model reference is bound as Codex's model (not a dictionary for
+    -m), and the run's preflight checks that binding for the Responses API."""
+    data = {"agent": {"name": "trials.py:TrialCodexAgent",
+                      "params": {"base": "codex", "model": "fireworks/accounts/fireworks/models/glm-5p3-flash"}}}
+    normalize_config(data)
+    params = data["agent"]["params"]
+    assert params["model"] == "accounts/fireworks/models/glm-5p3-flash" and params["binding"]
+    assert [(who, api) for who, _, api in bindings_of(data)] == [("agent (trials.py:TrialCodexAgent)", "responses")]

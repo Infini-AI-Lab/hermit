@@ -19,7 +19,8 @@
 # trainer.run_name and trainer.tree_dir, three settings on the command line: agent.concurrency=6,
 # agent.codex.container.proxy=http://oq-egress-chatgpt:3128 (an egress proxy letting through chatgpt.com only) and
 # sandbox.allow=[chatgpt.com] (README.md, Result). In today's config keys: environment.container.proxy=... and
-# sandbox.evolver.allowed_hosts=[chatgpt.com].
+# sandbox.evolver.allowed_hosts=[chatgpt.com], except that the learner on a ChatGPT login is now also allowed
+# auth.openai.com (README.md).
 data:
   tasks: rows/tasks.jsonl              # make_rows.py: ../utils/tasks.jsonl plus k trial rows per training question
   train: rows/train_k2.txt             # the evolve set: 50 questions x k = 2

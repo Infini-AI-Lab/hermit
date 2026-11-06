@@ -78,13 +78,31 @@ def test_the_sections_are_checked(tmp_path):
     assert "separate" in load_error(path, "judge.mode=shared", "judge.collect=[out]")
     assert "memory_mb" in load_error(path, "environment.resources={processes: 4}")
     assert "environment.image" in load_error(path, "agent.params.isolation=container")
+    assert "evolver sandbox" in load_error(path, "evolver.params.isolation=none")      # never unconfined
+    assert "evolver sandbox" in load_error(path, "evolver.params.isolation=container")
     assert "codex" in load_error(path, "environment.image=some:image")       # the toy agent is no Codex
     assert "model reference" in load_error(path, "sandbox.enabled=true", "agent.name=codex",
                                            "agent.params={web_search: false}")   # a CLI agent with no sign-in
+    custom = Config.load(path, ["sandbox.enabled=true", "agent.base=codex",   # a task's own agent on Codex, with a
+                                "agent.model={ref: fireworks/accounts/fireworks/models/glm-5p3-flash}"])   # model
+    assert custom.data["agent"]["params"]["binding"] and custom.data["agent"]["params"]["model"] == \
+        "accounts/fireworks/models/glm-5p3-flash"             # bound as the CLI's model, not a dictionary for -m
     assert "positive whole number" in load_error(path, "environment.resources={memory_mb: garbage}")
     assert "positive whole number" in load_error(path, "sandbox.evolver.resources={cpu_s: -1}")
     assert "must be a list" in load_error(path, "environment.env=false")
     assert "must be a list" in load_error(path, "judge.collect=false")
+    assert "llm.cli runs in a sandbox of its own" in load_error(path, "sandbox.enabled=true",
+                                                                "llm={cli: codex, model: gpt-5, web_search: false}")
+    Config.load(path, ["llm={cli: codex, model: gpt-5, login: chatgpt, web_search: false}"])
+    assert "sandbox.hide must be a list" in load_error(path, "sandbox.hide=json")
+    for falsy in ("false", "0", '""', "{}"):                        # never read as no hide list
+        assert "sandbox.hide must be a list" in load_error(path, f"sandbox.hide={falsy}")
+    assert "not installed" in load_error(path, "sandbox.hide=[no_such_package_anywhere]")
+    Config.load(path, ["sandbox.hide=[json.decoder]"])
+    assert "sandbox.evolver takes" in load_error(path, "sandbox.evolver=null")
+    assert "sandbox.evolver takes" in load_error(path, "sandbox.evolver=false")
+    assert "container" in load_error(path, "agent.name=codex", "environment.image=some:image",
+                                     "environment.resources={memory_mb: 128}")      # limits a container ignores
 
 
 def test_a_declared_path_may_not_hold_or_lie_in_a_secret(tmp_path):
@@ -135,12 +153,19 @@ def test_where_the_pipeline_runs(tmp_path):
 def test_the_judge_runs_where_its_mode_says(tmp_path, monkeypatch):
     fake_bwrap(monkeypatch)
     (tmp_path / "a").mkdir()
-    config = Config.load(sandboxed_task(tmp_path / "a"), ["judge.mode=separate", "judge.collect=[logs]"])
+    config = Config.load(sandboxed_task(tmp_path / "a"), ["judge.mode=separate", "judge.collect=[logs]",
+                                                          "sandbox.hide=[json.decoder]"])
+    monkeypatch.delenv(sandbox_module.ENV_HIDE, raising=False)
+    pipeline, close_pipeline = agent_pipeline(config, "rollout", records=None)       # sets the run's hide list
+    close_pipeline()
+    hidden = sandbox_module.hidden_paths(["json.decoder"])
+    assert os.environ[sandbox_module.ENV_HIDE].split(os.pathsep) == [str(p) for p in hidden]
     agent = SandboxedAgent(config, "rollout", records=None)
     try:
         judge = judge_for(config, agent)
         assert isinstance(judge, SandboxedJudge) and judge.mode == "separate"
         assert judge.box.probe_absent != agent.sandbox.probe_absent        # the judge may read its tests and data
+        assert agent.sandbox.hide == hidden and judge.box.hide == []       # and what the hide list covers
         (tmp_path / "b").mkdir()
         host = judge_for(Config.load(sandboxed_task(tmp_path / "b"), []), agent)
         assert callable(host) and not isinstance(host, SandboxedJudge)
@@ -803,7 +828,7 @@ def test_a_declared_path_that_comes_to_hold_a_run_is_refused_before_the_next_cal
         agent._recheck()                                             # clean when the run starts
         (tmp_path / "agent" / "later-run").mkdir()
         (tmp_path / "agent" / "later-run" / "steps.jsonl").write_text("{}\n")
-        agent._checked = float("-inf")                               # a minute later
+        agent._recheck._checked = float("-inf")                      # a minute later
         with pytest.raises(RuntimeError, match="now holds a run's records"):
             agent._recheck()
     finally:
@@ -847,5 +872,218 @@ def test_what_a_run_keeps_is_scrubbed_of_model_keys(tmp_path, monkeypatch):
     (tmp_path / "trajectories").mkdir()
     (tmp_path / "trajectories" / "t1.jsonl").write_text('{"env": "EXAMPLE_API_KEY=sk-the-real-key-0123456789"}\n')
     (tmp_path / "ADAPTER.md").write_text("no key here\n")
+    (tmp_path / "trajectories" / "t1.jsonl").chmod(0o444)        # a container's log, copied with its mode
     assert redact_tree(tmp_path) == ["trajectories/t1.jsonl"]
     assert "<EXAMPLE_API_KEY>" in (tmp_path / "trajectories" / "t1.jsonl").read_text()
+    assert (tmp_path / "trajectories" / "t1.jsonl").stat().st_mode & 0o777 == 0o444
+
+
+def test_a_large_file_and_a_tools_result_are_scrubbed_too(tmp_path, monkeypatch):
+    """A file past the in-memory size is scrubbed in chunks, a key across two chunks included; a structured result
+    (run_agent's, a step's report) is scrubbed string by string."""
+    import hermit.redact as redact
+    key = "sk-the-real-key-0123456789"
+    monkeypatch.setenv("EXAMPLE_API_KEY", key)
+    monkeypatch.setattr(redact, "MAX_BYTES", 64)
+    text = "x" * 50 + key + "y" * 100 + key + "\n"                # the first key crosses the first 64-byte chunk
+    (tmp_path / "long.log").write_text(text)
+    (tmp_path / "long.log.redact").write_text("an unrelated file\n")        # a sibling the scrub must not touch
+    assert redact.redact_tree(tmp_path) == ["long.log"]
+    assert (tmp_path / "long.log.redact").read_text() == "an unrelated file\n"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["long.log", "long.log.redact"]
+    script = tmp_path / ("s" * 250)                                       # the longest name a file may have, and
+    script.write_text(text)                                               # executable
+    script.chmod(0o755)
+    assert redact.redact_tree(tmp_path) == [script.name]
+    assert script.stat().st_mode & 0o777 == 0o755 and key not in script.read_text()
+    assert (tmp_path / "long.log").read_text() == text.replace(key, "<EXAMPLE_API_KEY>")
+    assert redact.redact_value({"results": [{"output": f"key={key}", "score": 1.0, key: True}]}) == \
+        {"results": [{"output": "key=<EXAMPLE_API_KEY>", "score": 1.0, "<EXAMPLE_API_KEY>": True}]}
+    assert redact.redact_value({"file": Path("/tmp") / key}) == {"file": "/tmp/<EXAMPLE_API_KEY>"}
+
+    class BytesPath:                                               # an os.PathLike whose path is bytes
+        def __fspath__(self):
+            return b"/tmp/" + key.encode()
+
+        def __str__(self):
+            return f"BytesPath({key})"
+    assert redact.redact_value(BytesPath()) == "BytesPath(<EXAMPLE_API_KEY>)"
+    from collections import namedtuple
+    Point = namedtuple("Point", "x y")
+    assert redact.redact_value({"stdout": key.encode(), "p": Point(key, 2)}) == \
+        {"stdout": b"<EXAMPLE_API_KEY>", "p": Point("<EXAMPLE_API_KEY>", 2)}
+    from types import SimpleNamespace
+    assert redact.redact_value({"s": {key}, "ns": SimpleNamespace(k=key), "n": 3, "none": None}) == \
+        {"s": ["<EXAMPLE_API_KEY>"], "ns": "namespace(k='<EXAMPLE_API_KEY>')", "n": 3, "none": None}
+
+
+def test_a_tool_runner_that_cannot_resolve_its_grants_starts_no_proxy(tmp_path, monkeypatch):
+    import hermit.isolate as isolate
+    started = []
+    monkeypatch.setattr(isolate, "AllowlistProxy", lambda *a, **k: started.append(a) or pytest.fail("proxy started"))
+    monkeypatch.delenv("HERMIT_TEST_UNSET", raising=False)
+    path = sandboxed_task(tmp_path, network="allowlist", allowed_hosts=["example.com"],
+                          write=["${HERMIT_TEST_UNSET}/out"])
+    with pytest.raises(ValueError, match="unset environment variable"):
+        ToolRunner(Config.load(path, []), records=None, work_root=tmp_path / "tools")
+    assert started == []
+
+
+def test_a_worker_whose_log_cannot_be_opened_leaves_no_descriptor_open(tmp_path):
+    import hermit.isolate as isolate
+    box = Sandbox(enabled=False)
+    work = tmp_path / "work"
+    (work / "worker.log").mkdir(parents=True)                # opening the log fails
+    before = len(os.listdir("/proc/self/fd"))
+    with pytest.raises(IsADirectoryError):
+        isolate._run_worker(box, {"kind": "agent"}, work, home=tmp_path / "home")
+    assert len(os.listdir("/proc/self/fd")) == before
+
+
+def test_a_declared_path_that_comes_to_hold_anothers_records_is_refused_this_runs_own_are_not(tmp_path):
+    """The learner's grants (evolver_access.environment, task_info) and a task tool's are searched again before
+    calls, like the acting agent's; this run's own directory (a default task_info lies in it) is not another's."""
+    from hermit.isolate import Recheck
+    run, shared = tmp_path / "runs" / "me", tmp_path / "shared"
+    (run / "workspace" / "task-info").mkdir(parents=True)
+    (run / "steps.jsonl").write_text("")
+    shared.mkdir()
+    check = Recheck([shared, run / "workspace" / "task-info"], own=run)
+    check()                                                        # nothing else's records: the call goes on
+    (shared / "other").mkdir()
+    (shared / "other" / "steps.jsonl").write_text("")             # another experiment starts writing there
+    check._checked = float("-inf")                                 # a minute later
+    with pytest.raises(RuntimeError, match="now holds a run's records"):
+        check()
+
+
+def test_with_the_pipeline_on_the_host_a_task_tool_keeps_its_sandbox(tmp_path):
+    """environment.runner: host moves the pipeline into the Trainer's process, not a task's declared tools."""
+    (tmp_path / "t").mkdir()
+    (tmp_path / "t" / "tools").mkdir(parents=True)
+    config = Config.load(make_task(tmp_path / "t", sandbox={"enabled": True}),
+                         ["environment.runner=host", "environment.read=[tools]"])    # the tools' grant: accepted
+    runner = ToolRunner(config, records=None, work_root=tmp_path / "calls")
+    try:
+        assert runner.task_box.enabled and runner.box.enabled
+        assert runner.task_box.readable == [(tmp_path / "t" / "tools").resolve()]
+    finally:
+        runner.close()
+
+
+PIPELINE_LOGS_ITS_KEY = """
+import os
+from pathlib import Path
+from hermit.task import RunOutput
+def run(task, adapter):
+    log = Path("logs") / "t1.txt"
+    log.parent.mkdir(exist_ok=True)
+    log.write_text("called with " + os.environ["ACTOR_API_KEY"])
+    Path("notes.txt").write_text(os.environ["ACTOR_API_KEY"])
+    return RunOutput(output="3", log=str(log.resolve()))
+"""
+
+
+@needs_bwrap
+def test_what_the_run_keeps_of_an_agents_call_holds_no_model_key(tmp_path, monkeypatch):
+    """The acting agent holds its key: its work directory and the log copy the host reads are scrubbed."""
+    key = "sk-actor-key-0123456789abcdef"
+    monkeypatch.setenv("ACTOR_API_KEY", key)
+    config = Config.load(sandboxed_task(tmp_path, PIPELINE_LOGS_ITS_KEY, env=["ACTOR_API_KEY"]), [])
+    agent = SandboxedAgent(config, "rollout", records=None)
+    try:
+        out = agent({"id": "t1", "a": 1, "b": 2}, None)
+    finally:
+        agent.close()
+    work = Path(out.extra["sandbox_work"])
+    assert Path(out.log).read_text() == "called with <ACTOR_API_KEY>"
+    assert key not in (work / "notes.txt").read_text() and key not in (work / "logs" / "t1.txt").read_text()
+
+
+def test_a_container_calls_logs_and_workspaces_lie_in_its_directory_and_are_scrubbed_on_failure(tmp_path,
+                                                                                                  monkeypatch):
+    """environment.image: the agent's logs and workspaces go to the call's own directory (scrubbed with it), and a
+    call that fails is scrubbed too."""
+    import hermit.isolate as isolate_module
+    from hermit.isolate import ContainerAgent
+    key = "sk-container-key-0123456789abcdef"
+    monkeypatch.setenv("CONTAINER_API_KEY", key)
+    (tmp_path / "t").mkdir()
+    config = Config.load(make_task(tmp_path / "t"), [])
+    seen = {}
+
+    def worker(box, job, work, **kw):
+        seen["params"] = job["params"]
+        (work / "logs").mkdir()
+        (work / "logs" / "events.jsonl").write_text(key)
+        raise RuntimeError("the session failed")
+    monkeypatch.setattr(isolate_module, "_run_worker", worker)
+    agent = ContainerAgent(config, "rollout", {}, work_root=tmp_path / "calls")
+    with pytest.raises(RuntimeError):
+        agent({"id": "t1"}, None)
+    work = next((tmp_path / "calls").iterdir())
+    assert seen["params"]["logs"] == str(work / "logs") and seen["params"]["workspaces"] == str(work / "workspaces")
+    assert (work / "logs" / "events.jsonl").read_text() == "<CONTAINER_API_KEY>"
+
+
+def test_a_worker_that_never_starts_leaves_no_report_waiting(tmp_path, monkeypatch):
+    import hermit.isolate as isolate_module
+    from hermit.isolate import _run_worker
+    fake_bwrap(monkeypatch)
+    box = Sandbox(network="isolated")
+
+    def refuse(*a, **k):
+        raise OSError("cannot start")
+    monkeypatch.setattr(isolate_module.subprocess, "Popen", refuse)
+    (tmp_path / "w").mkdir()
+    try:
+        with pytest.raises(OSError):
+            _run_worker(box, {"kind": "agent"}, tmp_path / "w", home=tmp_path / "w")
+        assert not box._bridges._reports
+    finally:
+        box.close()
+
+
+@needs_bwrap
+def test_a_failed_agents_call_is_scrubbed_too(tmp_path, monkeypatch):
+    key = "sk-failing-key-0123456789abcdef"
+    monkeypatch.setenv("ACTOR_API_KEY", key)
+    pipeline = ("import os\nfrom pathlib import Path\ndef run(task, adapter):\n"
+                "    Path('notes.txt').write_text(os.environ['ACTOR_API_KEY'])\n    raise ValueError('failed')\n")
+    agent = SandboxedAgent(Config.load(sandboxed_task(tmp_path, pipeline, env=["ACTOR_API_KEY"]), []), "rollout",
+                           records=None, work_root=tmp_path / "calls")
+    try:
+        with pytest.raises(RuntimeError, match="failed"):
+            agent({"id": "t1", "a": 1, "b": 2}, None)
+    finally:
+        agent.close()
+    notes = list((tmp_path / "calls").rglob("notes.txt"))
+    assert notes and notes[0].read_text() == "<ACTOR_API_KEY>"
+
+
+def test_a_sandboxed_judges_directory_and_the_agents_it_wrote_are_scrubbed(tmp_path, monkeypatch):
+    import hermit.isolate as isolate_module
+    from hermit.task import RunOutput
+    fake_bwrap(monkeypatch)
+    key = "sk-judge-key-0123456789abcdef"
+    monkeypatch.setenv("JUDGE_API_KEY", key)
+    (tmp_path / "a").mkdir()
+    config = Config.load(sandboxed_task(tmp_path / "a"), ["judge.mode=shared"])
+    agent = SandboxedAgent(config, "rollout", records=None)
+    work = tmp_path / "calls" / "t1-abc"
+    work.mkdir(parents=True)
+
+    def worker(box, job, place, **kw):
+        (place / "worker.log").write_text(f"printed {key}")
+        (work / "graded.txt").write_text(key)
+        raise RuntimeError("the judge failed")
+    monkeypatch.setattr(isolate_module, "_run_worker", worker)
+    try:
+        judge = judge_for(config, agent)
+        with pytest.raises(RuntimeError):
+            judge({"id": "t1"}, RunOutput(output="3", extra={"sandbox_work": str(work)}))
+    finally:
+        agent.close()
+    logs = list((tmp_path / "calls").glob("t1-abc-judge-*/worker.log"))
+    assert logs and logs[0].read_text() == "printed <JUDGE_API_KEY>"
+    assert (work / "graded.txt").read_text() == "<JUDGE_API_KEY>"

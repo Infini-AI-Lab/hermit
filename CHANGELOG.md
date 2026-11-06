@@ -22,8 +22,9 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   | `spec.SANDBOX_ENFORCE` | `check_spec(..., enforce=...)` |
 
 - The learner works in `/w` (`/w/adapter`, `/w/material`, `/w/task-info`, ...): its prompt names the workspace
-  relative to `/w`, and the tools it calls resolve the paths it names. The interpreter's site-packages show only the
-  distributions a sandbox asks for (also on a conda base installation).
+  relative to `/w`, and the tools it calls resolve the paths it names. Every sandbox shows the Python environment
+  the framework runs in as installed (`hermit-harness[sandbox]` adds numpy, pandas, scipy and torch), never an
+  editable install's checkout; `sandbox.hide` covers a module of it in every sandbox but the judge's.
 
 ### Added
 

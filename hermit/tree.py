@@ -132,7 +132,9 @@ class Tree:
         for rel in want:
             target = checkout / rel
             target.parent.mkdir(parents=True, exist_ok=True)
-            if target.is_symlink() or target.exists():
+            if target.is_dir() and not target.is_symlink():      # a directory the learner replaced with a file
+                shutil.rmtree(target)
+            elif target.is_symlink() or target.exists():
                 target.unlink()
             shutil.copy2(source / rel, target, follow_symlinks=False)
         for directory in sorted((p for p in checkout.rglob("*") if p.is_dir() and ".git" not in p.parts),

@@ -10,7 +10,8 @@ They are the framework's one way to act with a coding-agent CLI; a task adds onl
                                              # (Claude Code's own cost figure only for Anthropic's backend)
         login: chatgpt                       # Codex: the user's own ChatGPT login (`model` is then a Codex model
                                              # name; no key, no price); absent: the backend's key, or for a model
-                                             # that is no reference the user's own Codex sign-in
+                                             # that is no reference the user's own Codex sign-in (on the host or in
+                                             # a container; the task sandbox refuses it: give a reference or login)
         effort: medium                       # Codex's model_reasoning_effort; absent: the CLI's default
         prompt: environment/prompt.md        # the task prompt; `{field}` placeholders take the task's fields; or
                                              # `file.py:function` (task) -> the prompt
@@ -43,7 +44,7 @@ The adapter is deployed into the workspace as `hermit deploy` deploys it (hermit
 context is per task (a context tool) gets this task's context, and the session gets the deployment's tools without
 approvals and its sub-agents. Then the task's files and mounts are added, the prompt is given to the CLI in
 print mode, and the answer is read from the agent's last message. The log is what the run records: the host's own
-event stream unchanged (`agent-codex.jsonl`, `agent-claude.jsonl`), the prompt, the last message, the deployment
+event stream (`agent-codex.jsonl`, `agent-claude.jsonl`; in a run, a model key's value scrubbed), the prompt, the last message, the deployment
 and what `collect` adds; Evolvers read it (hermit.agent.base.trajectory). `RunOutput.extra` has the same keys for every task:
 backend, model, effort, web_search, deploy, isolation, deployed, exit_code, timed_out, attempts, workspace, and context_tool
 and task when there are any. Usage is read from the event stream, as the AgentEvolver reads it.
@@ -301,11 +302,9 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path) -> RunOutpu
     # `deadline_s`: the whole call's time (attempts and waits), set by a caller that is stopped at it (a container
     # session must end, and remove its container, before its worker is killed)
     budget = float(params["deadline_s"]) if params.get("deadline_s") else None
+    if budget is not None:              # and the session's own waits (a login's plan) come off it too
+        agent = agent.configured(deadline=started + budget)
     for attempt in range(1, retries + 1):
-        if budget is not None:
-            timeout_s = min(float(params.get("timeout_s", 3600)), budget - (time.time() - started))
-            if timeout_s <= 0:
-                raise RuntimeError(f"agent {backend} could not be served within deadline_s={budget:.0f}")
         for d in (work, home, log):
             shutil.rmtree(d, ignore_errors=True)
             d.mkdir(parents=True)
@@ -325,6 +324,12 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path) -> RunOutpu
         (log / "deployment.json").write_text(json.dumps(deployed, indent=1, default=str))
         from hermit.adapter.session import Session
         served = Session(adapter) if deployed.get("harness_tools") else None
+        if budget is not None:          # what is left once the deployment, the files and the server are ready
+            timeout_s = min(float(params.get("timeout_s", 3600)), budget - (time.time() - started))
+            if timeout_s <= 0:
+                if served is not None:
+                    served.close()
+                raise RuntimeError(f"agent {backend} could not be served within deadline_s={budget:.0f}")
         try:
             result = session.run(prompt, workspace=work, limits=Limits(readable=mounts, timeout_s=timeout_s),
                                  tools=served.as_tools() if served else ())

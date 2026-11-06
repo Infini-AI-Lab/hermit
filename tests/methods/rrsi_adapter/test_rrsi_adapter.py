@@ -785,9 +785,9 @@ def test_links_left_in_the_proposers_home_are_removed_before_its_next_session(tm
     assert not (home / "config.toml").is_symlink() and outside.read_text() == "mine\n"
 
 
-def test_a_workspace_reached_through_a_link_runs_with_paths_hidden(tmp_path, monkeypatch):
-    """The run's sandbox covers a hidden path under every name it shows (#69): a workspace given by a link's name
-    runs, as any other."""
+def test_a_workspace_reached_through_a_link_runs_in_a_view(tmp_path, monkeypatch):
+    """A workspace given by a link's name runs its sessions in the run's sandbox view, as any other (#69): the step
+    is not refused for the link."""
     real = tmp_path / "real"
     real.mkdir()
     (tmp_path / "alias").symlink_to(real)
@@ -1452,11 +1452,13 @@ def test_a_proposers_tools_resolve_paths_in_its_own_directory(tmp_path):
             bound_tool(path=outside)
 
 
-@pytest.mark.skipif(not shutil.which("bwrap"), reason="the view's copy runs under bubblewrap")
-def test_a_proposers_check_copies_its_candidate_inside_its_own_view(tmp_path):
-    """The candidate is copied through the session's own view (a link swapped in meanwhile reaches only what that
-    session sees), and the check runs on that copy; run_agent's logs, outside the view, are not returned."""
+def test_a_proposers_check_copies_its_candidate_inside_its_own_view(tmp_path, monkeypatch):
+    """The candidate is copied by a command the session's own view wraps (so under bubblewrap a link swapped in
+    meanwhile reaches only what that session sees; here the wrap is a stand-in that records it), and the check runs
+    on that copy; run_agent's logs, outside the view, are not returned. A copy that fails leaves no directory."""
     from hermit.agent.base.tool import Tool
+    real_which = shutil.which
+    monkeypatch.setattr(E.shutil, "which", lambda name: "/usr/bin/bwrap" if name == "bwrap" else real_which(name))
     work = tmp_path / "r0A"
     (work / "adapter").mkdir(parents=True)
     (work / "adapter" / "ADAPTER.md").write_text("candidate\n")
@@ -1466,10 +1468,19 @@ def test_a_proposers_check_copies_its_candidate_inside_its_own_view(tmp_path):
 
     def check(path=None, _snapshot=None):
         copy = _snapshot(Path(path))
-        seen["text"] = (copy / "ADAPTER.md").read_text()
+        try:
+            seen["text"] = (copy / "ADAPTER.md").read_text()
+        finally:
+            shutil.rmtree(copy, ignore_errors=True)             # a successful snapshot is the caller's to remove
         return {"passed": True}
     E._in_view("check_spec", Tool("check_spec", "x", check), work, box)()
     assert wrapped and wrapped[0][0] == "cp" and seen["text"] == "candidate\n"
     runs = Tool("run_agent", "x", lambda task_ids, adapter=None, _snapshot=None:
                 {"results": [{"id": "t0", "log": "/run/agent_logs/t0.txt"}]})
     assert E._in_view("run_agent", runs, work, None)(task_ids=["t0"]) == {"results": [{"id": "t0"}]}
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path / "tmp"))
+    (tmp_path / "tmp").mkdir()
+    failing = SimpleNamespace(enabled=True, wrap=lambda cmd, **kw: (["false"], dict(os.environ)))
+    with pytest.raises(ValueError, match="could not be copied"):
+        E._in_view("check_spec", Tool("check_spec", "x", check), work, failing)()
+    assert list((tmp_path / "tmp").iterdir()) == []

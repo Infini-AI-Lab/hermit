@@ -117,7 +117,7 @@ flowchart TD
     D["4. Agent Debugger: one codex session per task<br/>over its trajectories, hook audits and verdicts"]
     V["5. Evolve Agent: one codex session edits the adapter<br/>(check_spec), writes manifest N"]
     P["6. archive the manifest, scores, history"]
-    F["finalize: final = best_ever (git archive of its commit) or last"]
+    F["finalize: final = best_ever (its commit, exported object by object) or last"]
     R --> S --> E
     E -- yes --> F
     E -- no --> B --> D --> V --> P --> R

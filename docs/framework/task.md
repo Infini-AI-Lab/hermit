@@ -105,8 +105,7 @@ agent:
     answer: ../utils/task.py:answer       # (last message, task) -> the output; or a pattern, the last match
     collect: ../utils/task.py:collect     # (task, workspace, log) -> facts: the task's own artifacts into the log
     project_doc_max_bytes: 65536          # Codex's cap on AGENTS.md; a deployment past it is refused
-    timeout_s: 3600
-    workspaces: ~/.cache/hermit/officeqa-codex     # outside any checkout: Codex reads a repository's instructions
+    timeout_s: 3600                       # each call's workspaces lie in its own directory under .logs/
 environment:                              # the acting agent's sandbox: here a Docker container per session
   image: "officeqa-codex:0.162.0"
   container: {network: oq-sandbox, proxy: "http://oq-egress:3128"}
@@ -144,9 +143,10 @@ What the agent does for every task:
   a container that did not start) runs again after `retry_wait_s`, up to `retries`; then the run is an error, not a
   wrong answer.
 - **Record.** The run's directory holds `work/` (the workspace, kept for inspection without its links out),
-  `home/` and `log/`. `RunOutput.log` is `log/`: the host's event stream unchanged (`agent-codex.jsonl`,
+  `home/` and `log/`. `RunOutput.log` is `log/`: the host's event stream (`agent-codex.jsonl`,
   `agent-claude.jsonl`), `prompt.txt`, `last_message.txt`, `deployment.json`, and what `collect` added. The output
-  is what `answer` returned, with `fail_reason` when there is no answer; without `answer`, the last message.
+  is what `answer` returned, with `fail_reason` when there is no answer; without `answer`, the last message. In a
+  run, a model key's value in what the call leaves is scrubbed (`<VARIABLE>`).
   `RunOutput.extra` has the same keys for every task: `backend`, `model`, `effort`, `deploy`, `isolation`,
   `deployed`, `exit_code`, `timed_out`, `attempts`, `workspace`, and `context_tool` and `task` when there are any.
 

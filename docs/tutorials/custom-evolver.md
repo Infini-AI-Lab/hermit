@@ -91,10 +91,11 @@ Those calls count toward learner usage. They do not expose test evaluation to th
 | `CommandEvolver` | An external program receives workspace context through `HA_CONTEXT` |
 | Subclass of a built-in method | You need to modify a small piece of an existing implementation |
 
-A learner program or session runs in the evolver sandbox: the workspace under `/w`, its model through the run's model
-proxy, no other host unless `sandbox.evolver.allowed_hosts` names it. Before a reported run, keep `sandbox.enforce:
-required`, set `web_search` explicitly, and read the launch records (`runs/<run>/sandbox/learner-*.json`): the isolation
-check passed and no model key reached the session. On macOS there is no evolver sandbox: `sandbox.enforce: required`
+A learner program or session runs in the evolver sandbox: the workspace under `/w`, its model's key variable and
+provider host, no other host unless `sandbox.evolver.allowed_hosts` names it. Before a reported run, keep
+`sandbox.enforce: required`, set `web_search` explicitly, and read the launch records
+(`runs/<run>/sandbox/learner-*.json`): the isolation check passed, and the allowed hosts and passed variables are the
+ones you expect. On macOS there is no evolver sandbox: `sandbox.enforce: required`
 refuses to start, and a run made unconfined on purpose (`sandbox.enforce: best_effort` or `sandbox.enabled: false`) does
 not restrict file reads, which a result must state.
 

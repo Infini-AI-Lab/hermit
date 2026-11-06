@@ -9,6 +9,7 @@ import time
 from hermit.adapter.manifest import CARD, MANIFEST
 from hermit.config import Config
 from hermit.isolate import agent_pipeline, judge_for
+from hermit.redact import redact_path, redact_value
 from hermit.task import TaskData
 from hermit.trainer.budget import Budget
 from hermit.trainer.rollout import run_tasks
@@ -62,11 +63,14 @@ def evaluate(config: Config, adapter: str, *, log=print) -> dict:
                                      budget=budget, part="rollout"):
                     per_task[rec["id"]].append(rec["judge"]["score"])
                     errors += rec["status"] != "ok"
-                    f.write(json.dumps({"repeat": r, **{k: rec[k] for k in ("id", "status", "error", "output",
-                                        "judge", "cost_usd", "wall_s", "api_speed", "tokens", "log")}},
-                                       default=str) + "\n")
+                    row = {"repeat": r, **{k: rec[k] for k in ("id", "status", "error", "output", "judge",
+                                                               "cost_usd", "wall_s", "api_speed", "tokens", "log")}}
+                    f.write(json.dumps(redact_value(row), default=str) + "\n")     # no model key is kept
     finally:
         close()
+        from hermit.isolate import config_paths
+        for place in config_paths(config, "environment.write", d["environment"].get("write")):
+            redact_path(Path(place).resolve())       # what the agents wrote there: no model key kept
     scores = [s for v in per_task.values() for s in v]
     spent = budget.snapshot()
     summary = {"adapter": adapter, "commit": commit, "tasks": len(tests), "repeats": repeats,

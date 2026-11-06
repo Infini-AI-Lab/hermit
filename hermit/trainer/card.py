@@ -19,6 +19,8 @@ def render(*, template: dict, run_name: str, parent: str, evolver: str, task: st
              + f"; {budget['seconds'] / 3600:.2f} h", "",
              "## Settings that affect what can be trusted", ""]
     lines += [f"- sandbox: {json.dumps(settings.get('sandbox'))}",
+              f"- environment (the acting agent's sandbox): {json.dumps(settings.get('environment'))}",
+              f"- judge: {settings.get('judge_mode') or 'host'}",
               f"- evolver_access: {json.dumps(settings.get('evolver_access'))}",
               f"- validation data given to the Evolver: {settings.get('validation_given')}"]
     if warnings:

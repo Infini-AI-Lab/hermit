@@ -39,8 +39,10 @@ import time
 import uuid
 
 from hermit.agent.base import login as codex_login
+from hermit.redact import redact_tree
 from hermit.sandbox import (LIMITS, NETWORK_MODES, PACKAGE, AllowlistProxy, Bind, Sandbox, framework_env,
-                            model_access, network_mode, package_closure, program_paths, sanitized_copy)
+                            hidden_paths, model_access, network_mode, owner_readable, package_closure,
+                            program_paths, sanitized_copy, set_hidden)
 from hermit.task import RunOutput, load_callable, output_record
 
 WORKER = PACKAGE / "worker.py"
@@ -89,14 +91,22 @@ def validate(config) -> None:
             raise ValueError(f"environment.{key} must be a list")
     if env.get("runner", "sandbox") not in ("sandbox", "host"):
         raise ValueError(f"environment.runner must be sandbox or host, not {env.get('runner')!r}")
-    if env.get("runner") == "host" and (env.get("read") or env.get("packages") or env.get("write")):
-        raise ValueError("environment.read, write and packages build the task sandbox; with environment.runner: "
-                         "host the pipeline runs in the Trainer's process")
+    llm = d.get("llm")
+    if isinstance(llm, dict) and llm.get("cli") and (llm.get("isolation") or "sandbox") == "sandbox" and \
+            s.get("enabled", True) and not llm.get("binding") and llm.get("login") != "chatgpt":
+        raise ValueError("llm.cli runs in a sandbox of its own that reaches only its model's hosts: give its model as "
+                         "a `<backend>/<model>` reference or `login: chatgpt` (or isolation: container)")
     if env.get("network") not in NETWORK_MODES:
         raise ValueError(f"environment.network must be one of {list(NETWORK_MODES)}, not {env.get('network')!r}")
     if env.get("allowed_hosts") and env["network"] != "allowlist":
         raise ValueError("environment.allowed_hosts needs environment.network: allowlist")
-    evolver = s.get("evolver") or {}
+    hide = [] if s.get("hide") is None else s["hide"]
+    if not isinstance(hide, list) or not all(isinstance(n, str) for n in hide):
+        raise ValueError("sandbox.hide must be a list of module or package names")
+    hidden_paths(s.get("hide") or [])                 # each must be installed: what is not found cannot be covered
+    evolver = s.get("evolver")
+    if not isinstance(evolver, dict):
+        raise ValueError(f"sandbox.evolver takes {{allowed_hosts, env, resources}}, not {evolver!r}")
     unknown = set(evolver) - {"allowed_hosts", "env", "resources"}
     if unknown:
         raise ValueError(f"sandbox.evolver: unknown keys {sorted(unknown)}")
@@ -127,9 +137,9 @@ def validate(config) -> None:
     if "hide" in (d["evolver"].get("params") or {}):
         raise ValueError("evolver.params.hide was removed: the evolver sandbox is an allowlist and shows only what the "
                          "run and the method declare (docs/framework/configuration.md#sandboxes)")
-    if (d["evolver"].get("params") or {}).get("isolation") == "container":
-        raise ValueError("the learner runs in the evolver sandbox (sandbox.evolver); isolation: container is for "
-                         "the acting agent's environment.image and an llm: {cli: ...} endpoint")
+    if (d["evolver"].get("params") or {}).get("isolation") not in (None, "sandbox"):
+        raise ValueError("the learner runs in the evolver sandbox (sandbox.evolver); its isolation is not set (a "
+                         "container is for the acting agent's environment.image and an llm: {cli: ...} endpoint)")
     reason = host_pipeline(config)
     if env.get("image"):
         if _cli_kind(d["agent"]["name"], params) != "codex" and params.get("base") != "codex":
@@ -138,6 +148,9 @@ def validate(config) -> None:
         if env.get("packages") or env.get("read"):
             raise ValueError("environment.packages and environment.read build a bubblewrap sandbox; with "
                              "environment.image the image holds the agent's world")
+        if env.get("resources"):
+            raise ValueError("environment.resources are the bubblewrap sandbox's limits; a container "
+                             "(environment.image) keeps its own (hermit/agent/base/container.py)")
     if not reason and _cli_kind(d["agent"]["name"], params) and not params.get("binding") \
             and params.get("login") != "chatgpt":
         raise ValueError("a CLI acting agent in the task sandbox signs in through a model reference (agent.params.model:"
@@ -245,6 +258,28 @@ def _run_records(root: Path, limit: int = RECORDS_WALK) -> Path | None:
     return None
 
 
+class Recheck:
+    """Declared paths searched again for run records before a call: one that came to hold a run's records after the
+    config was checked (another experiment writing there) refuses the call. At most once a minute; `own` (this run's
+    directory) is not another's."""
+
+    def __init__(self, paths, own: Path | None = None):
+        self.paths, self.own = [Path(p) for p in paths], Path(os.path.realpath(own)) if own else None
+        self._checked, self._lock = float("-inf"), threading.Lock()
+
+    def __call__(self) -> None:
+        now = time.monotonic()
+        if now - self._checked < 60:
+            return
+        with self._lock:
+            for path in self.paths:
+                found = _run_records(path)
+                if found and (self.own is None or Path(os.path.realpath(found)) != self.own):
+                    raise RuntimeError(f"declared path {path} now holds a run's records ({found}): the call is "
+                                       "refused; move them out or declare a narrower path")
+            self._checked = now
+
+
 def _agent_logs(name: str, base: Path) -> list[Path]:
     """The `.logs` directory beside a task's own agent file (file.py:Class), where real agents keep their logs
     (examples/officeqa). Each call gets a fresh directory bound there, so no call reads an earlier one's."""
@@ -272,13 +307,20 @@ def _run_worker(box: Sandbox, job: dict, work: Path, *, home: Path, readable=(),
     log = work / "worker.log"
     # The log is read back from this descriptor, never by its name: the call can write its directory and could put a
     # link or a pipe there.
-    out = open(log, "w+b")
+    try:
+        out = open(log, "w+b")
+    except BaseException:
+        os.close(read_end)
+        os.close(write_end)
+        box.abandon(args)                                # never started: no isolation report comes
+        raise
     try:
         proc = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=out, stderr=subprocess.STDOUT, env=env,
                                 cwd=str(work), pass_fds=(write_end,))
     except BaseException:
         os.close(read_end)
         out.close()
+        box.abandon(args)
         raise
     finally:
         os.close(write_end)
@@ -301,6 +343,7 @@ def _run_worker(box: Sandbox, job: dict, work: Path, *, home: Path, readable=(),
         proc.wait()
         reader.join(10)
         out.close()
+        box.abandon(args)                                # stopped before (or without) its isolation report
         raise TimeoutError(f"the sandboxed {job['kind']} ran longer than {timeout / 60:.1f} min and was stopped; "
                            f"log {log}")
     data = received[0] if received else ""
@@ -309,6 +352,7 @@ def _run_worker(box: Sandbox, job: dict, work: Path, *, home: Path, readable=(),
     except subprocess.TimeoutExpired:
         proc.kill()
         code = proc.wait()
+    box.abandon(args)                                    # ended: a report that never came is not waited for
     if not data:
         out.seek(max(0, os.fstat(out.fileno()).st_size - 1500))
         tail = out.read().decode(errors="replace")
@@ -393,23 +437,8 @@ class SandboxedAgent:
                                probe_absent=[*HOME_SECRETS, *run_secrets(config)],
                                limits=dict(envc.get("resources") or {}), role=role)
         # What the config declares (not the CLI's installation), searched again for run records before calls.
-        self.declared = [*config_paths(config, "environment.read", envc.get("read")),
-                         *config_paths(config, "environment.write", envc.get("write"))]
-        self._checked, self._check_lock = float("-inf"), threading.Lock()
-
-    def _recheck(self) -> None:
-        """A declared path that came to hold a run's records after the config was checked (another experiment
-        writing there) is refused before the next call; searched again at most once a minute."""
-        now = time.monotonic()
-        if now - self._checked < 60:
-            return
-        with self._check_lock:
-            for path in self.declared:
-                found = _run_records(Path(path))
-                if found:
-                    raise RuntimeError(f"declared path {path} now holds a run's records ({found}): the call is "
-                                       "refused; move them out or declare a narrower path")
-            self._checked = now
+        self._recheck = Recheck([*config_paths(config, "environment.read", envc.get("read")),
+                                 *config_paths(config, "environment.write", envc.get("write"))])
 
     def __call__(self, task: dict, adapter: Path | None) -> RunOutput:
         self._recheck()
@@ -435,39 +464,46 @@ class SandboxedAgent:
         binds = [Bind(work / "agent-logs" / str(i), str(log_dir), True) for i, log_dir in enumerate(self.logs)]
         job = {"kind": "agent", "name": self.name, "params": params, "base": str(self.base), "task": task,
                "adapter": str(adapter) if adapter else None}
+        clean = work.parent / f"{work.name}.log"
         try:
-            payload = _run_worker(self.sandbox, job, work, home=home, readable=[adapter] if adapter else [],
-                                  env=env, keep=keep, forward=self.forward, timeout=self.timeout, binds=binds)
-        finally:
-            if self.chatgpt:
-                # Every copy the call left: its run copy, and a session's own when the worker was stopped before it
-                # could hand that back (a timeout kills it). The latest refresh goes back to the shared copy; then
-                # none of them is kept.
-                codex_login.remove(home / CLI_HOMES["codex"][0] / CLI_HOMES["codex"][2], within=work)
-                left = [work / "workspaces" / "login" / codex_login.FILE,
-                        *work.glob(f"workspaces/*/home/{codex_login.FILE}")]
-                for path in left:
-                    codex_login.take_back(codex_login.ROOT, path, within=work)
-                for path in left:
-                    codex_login.remove(path, within=work)
-                shutil.rmtree(work / "workspaces" / "login", ignore_errors=True)
-        rec = payload["output"]
-        # The log is copied into the learner's material outside any sandbox: it must lie where this call could
-        # write (its work directory, its logs, the declared write paths), never a file it merely names.
-        log = _owned_log(rec.get("log"), [work, *self.sandbox.writable], binds)
-        extra = dict(rec.get("extra") or {})
-        if rec.get("log") and log is None:
-            extra["sandbox_warning"] = f"log {rec['log']!r} lies outside what the call could write; dropped"
-        if log is not None:
-            # Host code reads the log next (the learning material, a method's trajectory reader): a sanitized copy
-            # beside the call's directory, where the call could not write, without links out or special files.
-            clean = work.parent / f"{work.name}.log"
-            sanitized_copy(log.parent, clean, [log.name])
-            log = clean / log.name if os.path.lexists(clean / log.name) else None
-        extra["sandbox_work"] = str(work)
-        return RunOutput(output=rec.get("output"), log=log,
-                         cost_usd=rec.get("cost_usd"), wall_s=rec.get("wall_s") or 0.0, api_speed=rec.get("api_speed"),
-                         messages=rec.get("messages"), tokens=rec.get("tokens"), extra=extra)
+            try:
+                payload = _run_worker(self.sandbox, job, work, home=home, readable=[adapter] if adapter else [],
+                                      env=env, keep=keep, forward=self.forward, timeout=self.timeout, binds=binds)
+            finally:
+                if self.chatgpt:
+                    # Every copy the call left: its run copy, and a session's own when the worker was stopped
+                    # before it could hand that back (a timeout kills it). The latest refresh goes back to the
+                    # shared copy; then none of them is kept.
+                    codex_login.remove(home / CLI_HOMES["codex"][0] / CLI_HOMES["codex"][2], within=work)
+                    left = [work / "workspaces" / "login" / codex_login.FILE,
+                            *work.glob(f"workspaces/*/home/{codex_login.FILE}")]
+                    for path in left:
+                        codex_login.take_back(codex_login.ROOT, path, within=work)
+                    for path in left:
+                        codex_login.remove(path, within=work)
+                    shutil.rmtree(work / "workspaces" / "login", ignore_errors=True)
+            rec = payload["output"]
+            # The log is copied into the learner's material outside any sandbox: it must lie where this call could
+            # write (its work directory, its logs, the declared write paths), never a file it merely names.
+            log = _owned_log(rec.get("log"), [work, *self.sandbox.writable], binds)
+            extra = dict(rec.get("extra") or {})
+            if rec.get("log") and log is None:
+                extra["sandbox_warning"] = f"log {rec['log']!r} lies outside what the call could write; dropped"
+            if log is not None:
+                # Host code reads the log next (the learning material, a method's trajectory reader): a sanitized
+                # copy beside the call's directory, where the call could not write, without links out or special
+                # files (one the call left unreadable made readable first).
+                if os.path.isfile(log) and not os.path.islink(log) and not os.access(log, os.R_OK):
+                    os.chmod(log, os.stat(log).st_mode | 0o400)
+                sanitized_copy(log.parent, clean, [log.name])
+                log = clean / log.name if os.path.lexists(clean / log.name) else None
+            extra["sandbox_work"] = str(work)
+            return RunOutput(output=rec.get("output"), log=log, cost_usd=rec.get("cost_usd"),
+                             wall_s=rec.get("wall_s") or 0.0, api_speed=rec.get("api_speed"),
+                             messages=rec.get("messages"), tokens=rec.get("tokens"), extra=extra)
+        finally:                                         # what the run keeps of the call, a failed one too:
+            redact_tree(work)                            # no model key in it
+            redact_tree(clean)
 
     def close(self) -> None:
         for box in [self.sandbox, *self.others]:
@@ -499,10 +535,15 @@ class ContainerAgent:
         from hermit.adapter.session import ENV_ENFORCE
         work = self.work_root / f"{_safe(task.get('id', 'task'))}-{uuid.uuid4().hex[:8]}"
         work.mkdir(parents=True)
-        job = {"kind": "agent", "name": self.name, "params": self.params, "base": str(self.base), "task": task,
+        # Logs and workspaces go to this call's own directory, scrubbed with it afterwards.
+        params = {**self.params, "logs": str(work / "logs"), "workspaces": str(work / "workspaces")}
+        job = {"kind": "agent", "name": self.name, "params": params, "base": str(self.base), "task": task,
                "adapter": str(adapter) if adapter else None}
-        payload = _run_worker(self.box, job, work, home=work, env=framework_env({ENV_ENFORCE: self.enforce}),
-                              timeout=self.timeout)
+        try:
+            payload = _run_worker(self.box, job, work, home=work, env=framework_env({ENV_ENFORCE: self.enforce}),
+                                  timeout=self.timeout)
+        finally:
+            redact_tree(work)                            # what the run keeps of the call: no model key in it
         rec = payload["output"]
         return RunOutput(output=rec.get("output"), log=Path(rec["log"]) if rec.get("log") else None,
                          cost_usd=rec.get("cost_usd"), wall_s=rec.get("wall_s") or 0.0, api_speed=rec.get("api_speed"),
@@ -514,6 +555,7 @@ def agent_pipeline(config, role: str, *, records: Path | None, work_root: Path |
     (`environment.image`); or in this process when the pipeline runs on the host (`host_pipeline`: the sandbox off,
     a Harbor task set, `environment.runner: host`)."""
     d = config.data
+    set_hidden(hidden_paths(d["sandbox"].get("hide") or []))    # eval and check too: what only the judge may read
     if d["environment"].get("image") and d["sandbox"]["enabled"]:
         params = dict(d["agent"].get("params") or {})
         params["isolation"] = "container"
@@ -541,9 +583,9 @@ class SandboxedJudge:
                          *config_paths(config, "judge.tests", d["judge"].get("tests"))]
         self.collect = list(d["judge"].get("collect") or [])
         # The judge's own sandbox: the task sandbox's settings, and its probe checks only the home's secrets (the
-        # judge, its tests and the data are its to read). A separate judge gets none of what the agent could write
-        # (environment.write): only what is collected.
-        self.box = dataclasses.replace(agent.sandbox, probe_absent=list(HOME_SECRETS), role="judge",
+        # judge, its tests and the data are its to read, and so is what sandbox.hide covers for everyone else). A
+        # separate judge gets none of what the agent could write (environment.write): only what is collected.
+        self.box = dataclasses.replace(agent.sandbox, probe_absent=list(HOME_SECRETS), role="judge", hide=[],
                                        **({"writable": []} if self.mode == "separate" else {}))
         agent.others.append(self.box)
 
@@ -572,9 +614,13 @@ class SandboxedJudge:
             binds, writable = [Bind(fresh, str(work), True)], []
         # The log the agent returned is a sanitized copy beside its work directory: the judge reads it there.
         log_copy = [out.log.parent] if out.log and Path(out.log).parent.name == f"{work.name}.log" else []
-        payload = _run_worker(self.box, job, place, home=home, readable=[*self.readable, *log_copy], writable=writable,
-                              env=framework_env(),
-                              forward=self.agent.forward, timeout=self.agent.timeout, binds=binds)
+        try:
+            payload = _run_worker(self.box, job, place, home=home, readable=[*self.readable, *log_copy],
+                                  writable=writable, env=framework_env(),
+                                  forward=self.agent.forward, timeout=self.agent.timeout, binds=binds)
+        finally:
+            for kept in (place, *writable):              # the judge holds the task's keys too: none kept
+                redact_tree(kept)
         return payload["result"]
 
 
@@ -605,19 +651,25 @@ class ToolRunner:
                            record_dir=records, probe_absent=probe, role="tool")
         self.allow_proxy = None
         task_network, allow = envc.get("network") or "no-network", list(envc.get("allowed_hosts") or [])
+        # The grants first: one that cannot be resolved refuses the run before a proxy is left running.
+        readable = config_paths(config, "environment.read", envc.get("read"))
+        writable = config_paths(config, "environment.write", envc.get("write"))
         if self.enabled and network_mode(task_network) == ("isolated", True) and allow:
             self.allow_proxy = AllowlistProxy(allow, log=records / "network-task-tool.jsonl" if records else None)
-        on_host = d["environment"].get("runner") == "host"
-        self.task_box = Sandbox(enabled=self.enabled and not on_host, network=task_network, allow=allow,
-                                readable=config_paths(config, "environment.read", envc.get("read")),
-                                writable=config_paths(config, "environment.write", envc.get("write")),
+        # With environment.runner: host only the pipeline runs here; a task's declared tool keeps its sandbox (its own
+        # file, the adapter, environment's network and variables).
+        self.task_box = Sandbox(enabled=self.enabled, network=task_network, allow=allow,
+                                readable=readable, writable=writable,
                                 proxy_url=self.allow_proxy.url if self.allow_proxy else None,
                                 env_allow=["PYTHONPATH", *(envc.get("env") or [])], enforce=enforce,
                                 packages=list(envc.get("packages") or []), record_dir=records, probe_absent=probe,
                                 limits=dict(envc.get("resources") or {}), role="task-tool")
         self.timeout = float(d["trainer"].get("call_timeout_min") or 60) * 60
+        self._recheck = Recheck([*readable, *writable])          # a task tool's grants, searched again
 
     def __call__(self, entrypoint: str, base: Path, arguments: dict, bound: dict, kind: str = "template") -> object:
+        if kind == "task":
+            self._recheck()
         work = self.work_root / f"tool-{uuid.uuid4().hex[:8]}"
         home = work / "home"
         home.mkdir(parents=True)
@@ -638,6 +690,8 @@ class ToolRunner:
                                   writable=[adapter] if adapter is not None else [], timeout=self.timeout,
                                   env=framework_env())
         finally:
+            redact_tree(work)                            # what removal below might leave: no model key in it
+            owner_readable(work)                         # a directory the tool left read-only: removable again
             shutil.rmtree(work, ignore_errors=True)
         return payload["result"]
 
