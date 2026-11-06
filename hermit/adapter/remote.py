@@ -109,6 +109,8 @@ class SandboxedServer:
             await self._stop.wait()
         except BaseException as exc:                     # a server that dies is reported to the caller waiting on it
             self._failure = exc
+            if hasattr(self.sandbox, "abandon"):
+                self.sandbox.abandon(self.args)          # one that never started sends no isolation report
         finally:
             self._client = None
             if reader is not None:

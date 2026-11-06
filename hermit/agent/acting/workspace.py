@@ -292,7 +292,10 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path) -> RunOutpu
     root = Path(os.path.expanduser(str(params.get("workspaces", ".logs/workspaces"))))
     # Resolved: a container binds each directory at its real path, and the CLI is given these paths.
     root = (root if root.is_absolute() else Path(base) / root).resolve()
-    run_dir = root / f"{re.sub(r'[^A-Za-z0-9_.-]', '_', str(task.get('id', 'task')))[:80]}-{uuid.uuid4().hex[:8]}"
+    # `session_name`: this call's directory, named by a caller that scrubs it afterwards (a container call, whose worker
+    # may fail before it says where the directory is)
+    run_dir = root / (params.get("session_name")
+                      or f"{re.sub(r'[^A-Za-z0-9_.-]', '_', str(task.get('id', 'task')))[:80]}-{uuid.uuid4().hex[:8]}")
     work, home, log = run_dir / "work", run_dir / "home", run_dir / "log"
     agent = agent.configured(home=home, log=log / f"agent-{backend}.jsonl",
                              **({"login_root": params["login_root"]} if params.get("login_root") else {}))

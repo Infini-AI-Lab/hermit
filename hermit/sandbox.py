@@ -43,6 +43,7 @@ import select
 import shutil
 import socket
 import socketserver
+import ssl
 import stat
 import subprocess
 import sys
@@ -278,6 +279,19 @@ def network_mode(value: str) -> tuple[str, bool]:
     if value not in NETWORKS:
         raise ValueError(f"network must be one of {list(NETWORK_MODES)}, not {value!r}")
     return NETWORKS[value]
+
+
+def _runs_on_python(found: str) -> bool:
+    """Whether a program is a script whose #! line names a Python interpreter."""
+    try:
+        with open(os.path.realpath(found), "rb") as f:
+            line = f.readline(512)
+    except OSError:
+        return False
+    words = line[2:].decode(errors="replace").split() if line.startswith(b"#!") else []
+    if words and words[0].endswith("/env"):
+        words = [w for w in words[1:] if not w.startswith("-")]
+    return bool(words) and os.path.basename(words[0]).startswith("python")
 
 
 def program_paths(executable: str, depth: int = 2) -> list[Path]:
@@ -1073,7 +1087,9 @@ class Sandbox:
         all_binds = self._all_binds(binds)
         # A process namespace of its own: the host's processes (their environment, their open files, their root
         # through /proc/<pid>/root) are not there to read or signal.
-        args = ["bwrap", "--die-with-parent", "--new-session", "--unshare-pid", "--dev", "/dev", "--proc", "/proc",
+        # bwrap by its path: a caller's PATH may lack it
+        args = [shutil.which("bwrap") or "bwrap", "--die-with-parent", "--new-session", "--unshare-pid",
+                "--dev", "/dev", "--proc", "/proc",
                 "--tmpfs", "/tmp",
                 "--ro-bind", "/usr", "/usr"]
         for link in ("/lib", "/lib64", "/bin", "/sbin"):
@@ -1110,8 +1126,10 @@ class Sandbox:
         own = {os.path.realpath(p) for p in _environment_sites()}      # a venv made from this installation: kept
         trusted = _venv_bases(interpreters, [*self.writable, *writable])   # shown before the masking below
         found = shutil.which(command[0]) if command else None
+        # A CLI's own installation (~/.local): its Python packages masked too, unless the CLI runs on Python and
+        # they are its own (a pipx or venv install).
         program = program_paths(command[0]) if found and Path(found).resolve() != Path(sys.executable).resolve() \
-            else []                             # a CLI's own installation (~/.local): its Python packages masked too
+            and not _runs_on_python(found) else []
         mine = [os.path.realpath(i) for i in interpreters]      # a trusted interpreter's own packages stay
         for base in [*_venv_bases(self.readable, [*self.writable, *writable]), *trusted,
                      *(p for p in program if Path(p).is_dir())]:
@@ -1367,7 +1385,9 @@ class AllowlistProxy:
                 sockets = [a, b]
                 try:
                     while True:
-                        ready, _, _ = select.select(sockets, [], [], 600)
+                        # A TLS connection to the upstream proxy may hold decrypted bytes select does not see.
+                        ready = [s for s in sockets if isinstance(s, ssl.SSLSocket) and s.pending()] \
+                            or select.select(sockets, [], [], 600)[0]
                         if not ready:
                             return
                         for s in ready:
@@ -1392,7 +1412,11 @@ class AllowlistProxy:
                 or urllib.request.proxy_bypass_environment(f"[{host}]:{port}" if ":" in host else f"{host}:{port}",
                                                            self._env_proxies):
             return socket.create_connection((host, port), timeout=30)
-        sock = socket.create_connection((self.upstream.hostname, self.upstream.port or 80), timeout=30)
+        tls = self.upstream.scheme == "https"           # https://proxy: TLS to the proxy, then CONNECT inside it
+        sock = socket.create_connection((self.upstream.hostname, self.upstream.port or (443 if tls else 80)),
+                                        timeout=30)
+        if tls:
+            sock = ssl.create_default_context().wrap_socket(sock, server_hostname=self.upstream.hostname)
         auth = ""
         if self.upstream.username:                       # http://user:pass@proxy:3128
             pair = f"{unquote(self.upstream.username)}:{unquote(self.upstream.password or '')}"

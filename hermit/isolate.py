@@ -565,22 +565,23 @@ class ContainerAgent:
         work.mkdir(parents=True)
         # The agent's logs go to this call's own directory; its workspaces stay where the task puts them
         # (agent.params.workspaces: short, outside any checkout; Codex 0.164's command runner failed now and then
-        # under a long one), and this call's session there is scrubbed with the call's directory.
-        params = {**self.params, "logs": str(work / "logs")}
+        # under a long one), and this call's session there, named here, is scrubbed with the call's directory
+        # whether the call ended or failed.
+        root = Path(os.path.expanduser(str(self.params.get("workspaces", ".logs/workspaces"))))
+        root = (root if root.is_absolute() else self.base / root).resolve()
+        session = root / work.name                       # <workspaces>/<task>-<id>: work, home, log
+        params = {**self.params, "logs": str(work / "logs"), "workspaces": str(root), "session_name": work.name}
         job = {"kind": "agent", "name": self.name, "params": params, "base": str(self.base), "task": task,
                "adapter": str(adapter) if adapter else None}
-        session = None
         try:
             payload = _run_worker(self.box, job, work, home=work, env=framework_env({ENV_ENFORCE: self.enforce}),
                                   timeout=self.timeout)
-            workspace = ((payload.get("output") or {}).get("extra") or {}).get("workspace")
-            session = Path(workspace).parent if workspace else None    # <workspaces>/<task>-<id>: work, home, log
         finally:
             redact_tree(work)                            # what the run keeps of the call: no model key in it
-            if session is not None and session.is_dir():
+            if session.is_dir():
                 redact_tree(session)
         rec = payload["output"]
-        log = _after_scrub(Path(rec["log"]) if rec.get("log") else None, [work, *([session] if session else [])])
+        log = _after_scrub(Path(rec["log"]) if rec.get("log") else None, [work, session])
         return RunOutput(output=rec.get("output"), log=log,
                          cost_usd=rec.get("cost_usd"), wall_s=rec.get("wall_s") or 0.0, api_speed=rec.get("api_speed"),
                          messages=rec.get("messages"), tokens=rec.get("tokens"), extra=dict(rec.get("extra") or {}))

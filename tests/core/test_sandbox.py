@@ -826,6 +826,43 @@ def test_the_allowlist_proxy_reaches_no_proxy_hosts_directly_and_signs_in_to_the
         target.close()
 
 
+@pytest.mark.skipif(not shutil.which("openssl"), reason="needs openssl for a test certificate")
+def test_the_allowlist_proxy_speaks_tls_to_an_https_upstream(tmp_path, monkeypatch):
+    """HTTPS_PROXY=https://proxy: the tunnel to the proxy is TLS (port 443 when none is given), CONNECT inside it."""
+    import ssl
+    import threading
+    clean_proxy_env(monkeypatch)
+    cert, key = tmp_path / "cert.pem", tmp_path / "key.pem"
+    subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=localhost",
+                    "-addext", "subjectAltName=DNS:localhost", "-keyout", str(key), "-out", str(cert)],
+                   check=True, capture_output=True)
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(cert, key)
+    upstream = socket.socket()
+    upstream.bind(("127.0.0.1", 0))
+    upstream.listen()
+    seen = []
+
+    def accept():
+        conn = context.wrap_socket(upstream.accept()[0], server_side=True)
+        seen.append(conn.recv(4096))
+        conn.sendall(b"HTTP/1.1 200 Connection established\r\n\r\n")
+        conn.sendall(conn.recv(4096))                           # the tunnel: an echo
+        conn.close()
+    threading.Thread(target=accept, daemon=True).start()
+    monkeypatch.setenv("SSL_CERT_FILE", str(cert))
+    monkeypatch.setenv("HTTPS_PROXY", f"https://localhost:{upstream.getsockname()[1]}")
+    proxy = AllowlistProxy(["via.proxy"])
+    try:
+        sock = proxy._connect("via.proxy", 443)
+        sock.sendall(b"ping")
+        assert sock.recv(4096) == b"ping" and b"CONNECT via.proxy:443" in seen[0]
+        sock.close()
+    finally:
+        proxy.close()
+        upstream.close()
+
+
 def test_a_plain_http_request_reaches_its_server_whole_and_in_origin_form(monkeypatch):
     """A model on plain HTTP (http://inference.internal:8000/v1) goes through the allowlist proxy: the server gets
     the path it routes on, not the proxy's absolute URI, and the whole body the client sent."""
@@ -1491,6 +1528,21 @@ def test_a_programs_own_installation_shows_no_python_packages_of_its_own(tmp_pat
     assert str(local) in binds(args, "--ro-bind") and str(site) in binds(args, "--tmpfs")
 
 
+def test_a_python_clis_own_installation_keeps_its_packages(tmp_path, monkeypatch):
+    """A CLI that runs on Python (a pipx or venv install) imports from its own site directory: it is not emptied."""
+    fake_bwrap(monkeypatch)
+    venv = tmp_path / "venv"
+    (venv / "bin").mkdir(parents=True)
+    tool = venv / "bin" / "sometool"
+    tool.write_text(f"#!{venv / 'bin' / 'python'}\nimport sometool\n")
+    tool.chmod(0o755)
+    site = venv / "lib" / "python3.11" / "site-packages"
+    (site / "sometool").mkdir(parents=True)
+    monkeypatch.setenv("PATH", f"{venv / 'bin'}:{os.environ['PATH']}")
+    args, _ = Sandbox(network="open").wrap(["sometool"])
+    assert str(venv) in binds(args, "--ro-bind") and str(site) not in binds(args, "--tmpfs")
+
+
 def test_a_module_also_in_a_later_archive_cannot_be_hidden(tmp_path, monkeypatch):
     import zipfile
     from hermit.sandbox import hidden_paths
@@ -1568,3 +1620,12 @@ def test_an_editable_native_module_under_another_name_is_shown(tmp_path):
         def read_text(self, name):
             return None
     assert _dist_sources(Dist()) == [native.resolve()]
+
+
+def test_bubblewrap_is_started_by_its_path(tmp_path, monkeypatch):
+    """A bwrap installed outside the system directories (~/.local/bin on a cluster) is found through the caller's
+    PATH: the command names it by path, so a child given PATH=/usr/bin:/bin (MWM's tool runner) still starts it."""
+    monkeypatch.setattr(sandbox_module.shutil, "which", lambda name, *a, **k:
+                        str(tmp_path / "bin" / "bwrap") if name == "bwrap" else REAL_WHICH(name, *a, **k))
+    args, _ = Sandbox(network="open").wrap(["true"])
+    assert args[0] == str(tmp_path / "bin" / "bwrap")

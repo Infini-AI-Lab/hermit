@@ -1003,10 +1003,10 @@ def test_what_the_run_keeps_of_an_agents_call_holds_no_model_key(tmp_path, monke
     assert key not in (work / "notes.txt").read_text() and key not in (work / "logs" / "t1.txt").read_text()
 
 
-def test_a_container_calls_logs_and_workspaces_lie_in_its_directory_and_are_scrubbed_on_failure(tmp_path,
-                                                                                                  monkeypatch):
-    """environment.image: the agent's logs and workspaces go to the call's own directory (scrubbed with it), and a
-    call that fails is scrubbed too."""
+def test_a_container_calls_logs_and_session_are_scrubbed_whether_it_returned_or_failed(tmp_path, monkeypatch):
+    """environment.image: the agent's logs go to the call's own directory; its workspaces stay at
+    agent.params.workspaces, where the call's session is named by the caller; both are scrubbed whether the call
+    returned or failed."""
     import hermit.isolate as isolate_module
     from hermit.isolate import ContainerAgent
     key = "sk-container-key-0123456789abcdef"
@@ -1015,29 +1015,35 @@ def test_a_container_calls_logs_and_workspaces_lie_in_its_directory_and_are_scru
     config = Config.load(make_task(tmp_path / "t"), [])
     seen = {}
 
-    def worker(box, job, work, **kw):
+    def session_of(job):
+        return Path(job["params"]["workspaces"]) / job["params"]["session_name"]
+
+    def failed(box, job, work, **kw):
         seen["params"] = job["params"]
         (work / "logs").mkdir()
         (work / "logs" / "events.jsonl").write_text(key)
+        (session_of(job) / "home").mkdir(parents=True)
+        (session_of(job) / "home" / "transcript.jsonl").write_text(key)
         raise RuntimeError("the session failed")
-    monkeypatch.setattr(isolate_module, "_run_worker", worker)
+    monkeypatch.setattr(isolate_module, "_run_worker", failed)
     agent = ContainerAgent(config, "rollout", {"workspaces": str(tmp_path / "ws")}, work_root=tmp_path / "calls")
     with pytest.raises(RuntimeError):
         agent({"id": "t1"}, None)
     work = next((tmp_path / "calls").iterdir())
     assert seen["params"]["logs"] == str(work / "logs")
-    assert seen["params"]["workspaces"] == str(tmp_path / "ws")      # the task's own (short, outside a checkout)
+    assert seen["params"]["workspaces"] == str((tmp_path / "ws").resolve())      # the task's own
     assert (work / "logs" / "events.jsonl").read_text() == "<CONTAINER_API_KEY>"
-    session = tmp_path / "ws" / "t1-abcd1234"                      # a call that returned: its session scrubbed
+    assert (session_of(seen) / "home" / "transcript.jsonl").read_text() == "<CONTAINER_API_KEY>"
 
     def returned(box, job, work, **kw):
-        (session / "work").mkdir(parents=True)
-        (session / "home").mkdir()
-        (session / "home" / "transcript.jsonl").write_text(key)
-        return {"output": {"output": "3", "extra": {"workspace": str(session / "work")}}}
+        seen["params"] = job["params"]
+        (session_of(job) / "work").mkdir(parents=True)
+        (session_of(job) / "home").mkdir()
+        (session_of(job) / "home" / "transcript.jsonl").write_text(key)
+        return {"output": {"output": "3", "extra": {"workspace": str(session_of(job) / "work")}}}
     monkeypatch.setattr(isolate_module, "_run_worker", returned)
     agent({"id": "t1"}, None)
-    assert (session / "home" / "transcript.jsonl").read_text() == "<CONTAINER_API_KEY>"
+    assert (session_of(seen) / "home" / "transcript.jsonl").read_text() == "<CONTAINER_API_KEY>"
 
 
 def test_a_worker_that_never_starts_leaves_no_report_waiting(tmp_path, monkeypatch):

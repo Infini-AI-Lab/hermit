@@ -458,7 +458,10 @@ class Trainer:
             if self.sandbox.enabled and shutil.which("bwrap"):
                 args, env = self.sandbox.wrap(["cp", "-a", "--no-preserve=ownership", f"{source}/.", str(raw)],
                                               writable=[raw])
-                run = subprocess.run(args, env=env, capture_output=True, text=True, timeout=300)
+                try:
+                    run = subprocess.run(args, env=env, capture_output=True, text=True, timeout=300)
+                finally:
+                    self.sandbox.abandon(args)               # a report that never came is not waited for
                 if run.returncode != 0:
                     raise ValueError(f"the adapter could not be copied from the workspace: {run.stderr.strip()[-300:]}")
             else:

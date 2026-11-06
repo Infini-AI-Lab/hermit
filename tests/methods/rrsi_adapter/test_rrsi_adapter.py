@@ -1088,7 +1088,7 @@ def test_the_digesters_shell_sees_only_its_working_directory(tmp_path, monkeypat
     ran = []
     monkeypatch.setattr(R.subprocess, "run", lambda args, **kw: ran.append(args))          # the view, not bwrap
     R.SandboxedSubprocess(box).run("cat T1.txt", shell=True, cwd=rendered, capture_output=True, text=True)
-    assert ran[-1][0] == "bwrap"
+    assert Path(ran[-1][0]).name == "bwrap"
     assert VIEWS[-1].readable == [rendered] and VIEWS[-1].writable == []
     copy = tmp_path / "scratch" / "rrsi_roles" / "rendered_r0"
     copy.mkdir(parents=True)
