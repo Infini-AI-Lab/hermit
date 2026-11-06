@@ -15,26 +15,8 @@ through it.
 Three roles run in three kinds of sandbox. Sandboxes never reach each other; the host copies what passes between
 them.
 
-```mermaid
-flowchart LR
-    subgraph H["host process (trusted): splits, answers, judge, records, keys"]
-        T["Trainer / eval / check"]
-    end
-    subgraph E["evolver sandbox"]
-        L["learner CLI<br/>/w/adapter (writable)<br/>/w/material (train split)"]
-    end
-    subgraph K["task sandbox (one per task call)"]
-        A["acting agent<br/>frozen adapter (read-only)<br/>task paths"]
-    end
-    subgraph J["judge sandbox (judge.mode: separate)"]
-        G["judge<br/>collected paths + judge.tests"]
-    end
-    T -- "material (train split)" --> L
-    L -- "adapter, sanitized copy" --> T
-    T -- "frozen adapter + task" --> A
-    A -- "output, trajectory, work dir" --> T
-    T -- "collected paths, tests" --> G
-    G -- "score, feedback" --> T
+```{raw} html
+:file: ../_includes/sandbox-roles.html
 ```
 
 | Sandbox | Who runs inside | What is inside | Never inside |
@@ -54,18 +36,8 @@ container of its own, started by a worker on the host.
 `hermit/sandbox.py` builds every sandbox as a bubblewrap command line. It is an allowlist: a path, a variable or a
 host that is not declared does not exist inside.
 
-```mermaid
-flowchart TB
-    subgraph S["one bubblewrap sandbox"]
-        direction TB
-        P["own PID namespace, new session, dies with its parent<br/>fresh /dev, /proc, and an empty tmpfs /tmp"]
-        Y["system, read-only: /usr, the /lib and /bin links,<br/>a fixed list of /etc files (ld.so, ssl, resolv.conf, passwd, ...)"]
-        I["the framework's Python: interpreter, standard library,<br/>its environment's site-packages as installed"]
-        X["every other interpreter's site-packages: an empty directory"]
-        D["declared paths at their own location (read-only or writable),<br/>binds under names of their own (the learner's /w)"]
-        C["sandbox.hide: covered by an empty directory or file"]
-        N["network: own namespace (loopback only) or the host's"]
-    end
+```{raw} html
+:file: ../_includes/sandbox-build.html
 ```
 
 The pieces, in the order they are applied:
@@ -108,14 +80,8 @@ The pieces, in the order they are applied:
 
 ## Network
 
-```mermaid
-flowchart LR
-    subgraph S["sandbox (own network namespace)"]
-        P["process"] -- "127.0.0.1:port" --> R["sandbox_relay.py"]
-    end
-    R -- "Unix socket" --> M["model server or meter<br/>tool endpoint"]
-    R -- "Unix socket" --> X["allowlist proxy"]
-    X -- "allowed hosts only<br/>(through HTTPS_PROXY if set,<br/>except NO_PROXY hosts)" --> W["internet"]
+```{raw} html
+:file: ../_includes/sandbox-network.html
 ```
 
 - `no-network` and `allowlist` give the sandbox its own network namespace with loopback only. The ports it needs (its
