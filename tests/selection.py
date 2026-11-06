@@ -39,6 +39,7 @@ METHODS = {
     "meta_harness_adapter": ["hermit/agent/evolver/methods/meta_harness_adapter/*",
                              "hermit/adapter/templates/meta_harness_adapter/*", "examples/*/meta_harness_adapter/*"],
     "mwm": ["hermit/agent/evolver/methods/mwm/*", "hermit/adapter/templates/mwm/*", "examples/*/mwm/*"],
+    "opro": ["hermit/agent/evolver/methods/opro/*", "examples/*/opro/*"],
     "optimizers": ["hermit/agent/evolver/methods/gepa/*", "hermit/agent/evolver/methods/skillopt/*",
                    "examples/*/gepa/*", "examples/*/skillopt/*"],
     "reharness": ["hermit/agent/evolver/methods/reharness/*", "hermit/adapter/templates/reharness/*",
