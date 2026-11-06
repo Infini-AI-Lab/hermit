@@ -76,6 +76,12 @@ none), Codex's own sandbox mode, the CLI's home, the time limit (the full list i
 leaves the agent as it was. Running a task again when the provider could not serve it is Layer 3's: the workspace
 is placed anew first.
 
+Codex and Claude Code share one runner, `CliAgent`: the isolation, the home, the sign-in, the tool server and the
+process are the same for every CLI. Each CLI is a subclass whose hooks give what is its own: its command, its home,
+and how its event stream is read (the reply, the trajectory, the usage, whether the provider served it). A new CLI is
+a subclass listed in `CLIS`, a reader of its stream in `hermit/agent/base/trajectory.py`, and its model binding in
+Layer 1.
+
 ## Layer 3: Agent
 
 What the Base Agent is used for. Two kinds:

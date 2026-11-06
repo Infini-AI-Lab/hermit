@@ -220,6 +220,20 @@ def test_the_chatgpt_login_is_copied_refreshed_back_and_removed(fake, monkeypatc
     assert out.cost_usd is None
 
 
+def test_every_cli_base_agent_fills_in_its_hooks_and_is_made_by_each_of_its_names():
+    """A CLI is added as one CliAgent subclass in CLIS: a hook it leaves out would fail only in its first session."""
+    from inspect import getattr_static
+    from hermit.isolate import CLI_HOMES
+    hooks = ("command", "web_search_args", "system_settings", "last_message", "parse", "steps")
+    for name, cls in base_cli.CLIS.items():
+        assert type(make(name)) is cls and name in (cls.backend, *cls.aliases)
+        for hook in hooks:                       # its own, not CliAgent's NotImplementedError
+            assert getattr_static(cls, hook) is not vars(base_cli.CliAgent)[hook], (cls, hook)
+        assert cls.label and cls.home_var and cls.user_folder and cls.home_files and cls.turn_done, cls
+        assert set(cls.isolations) <= set(base_cli.ISOLATIONS)
+        assert CLI_HOMES[cls.backend] == (cls.user_folder, cls.home_var, cls.home_files[0])
+
+
 def test_web_search_is_set_explicitly_either_way(fake, tmp_path):
     from hermit.agent.base.cli import web_search_args
     assert web_search_args("codex", False) == ["-c", 'web_search="disabled"']

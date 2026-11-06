@@ -20,7 +20,8 @@ from pathlib import Path
 
 CODEX_STREAM = "agent-codex.jsonl"
 CLAUDE_STREAM = "agent-claude.jsonl"
-STREAMS = (CODEX_STREAM, CLAUDE_STREAM)
+STREAM_HOSTS = {CODEX_STREAM: "codex", CLAUDE_STREAM: "claude"}   # the file name a host's log keeps its events under
+STREAMS = tuple(STREAM_HOSTS)
 OTHER_STREAMS = ("agent/codex.txt", "codex.txt")   # a Harbor trial's Codex events: from the trial or its agent/
 
 
@@ -147,23 +148,26 @@ def claude_steps(stream: list[dict]) -> list[Step]:
     return steps
 
 
+# Each host's stream: the reader of its events, and the event types that mark it (tried in this order when a stream
+# is found by its events). A host's stream is added here and in STREAM_HOSTS.
+READERS = {"codex": codex_steps, "claude": claude_steps}
+MARKS =(("codex", {"thread.started", "turn.started", "turn.completed", "turn.failed", "item.completed"}),
+         ("claude", {"system", "assistant", "user", "result"}))
+
+
 def _host(stream: list[dict]) -> str | None:
-    """Which host wrote a stream, by its events: Codex's (thread, turn and item events) or Claude Code's."""
+    """Which host wrote a stream, by its events (MARKS)."""
     kinds = {str(e.get("type")) for e in stream}
-    if kinds & {"thread.started", "turn.started", "turn.completed", "turn.failed", "item.completed"}:
-        return "codex"
-    if kinds & {"system", "assistant", "user", "result"}:
-        return "claude"
-    return None
+    return next((host for host, marks in MARKS if kinds & marks), None)
 
 
 def _steps_of(path: Path, name: str | None = None) -> list[Step] | None:
     stream = events(path)
-    known = name == CODEX_STREAM or (path.name == "codex.txt" and stream)    # Harbor's Codex events, by name
-    host = "codex" if known else "claude" if name == CLAUDE_STREAM else _host(stream)
+    harbor = "codex" if path.name == "codex.txt" and stream else None          # Harbor's Codex events, by name
+    host = STREAM_HOSTS.get(name) or harbor or _host(stream)
     if host is None:
         return None
-    return codex_steps(stream) if host == "codex" else claude_steps(stream)
+    return READERS[host](stream)
 
 
 def log_steps(log: Path) -> list[Step] | None:

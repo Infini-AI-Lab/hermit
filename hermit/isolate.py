@@ -39,6 +39,7 @@ from urllib.parse import urlparse
 import uuid
 
 from hermit.agent.base import login as codex_login
+from hermit.agent.base.cli import CLIS
 from hermit.sandbox import FRAMEWORK, PACKAGE, AllowlistProxy, Sandbox, framework_env, network_mode
 from hermit.task import RunOutput
 
@@ -46,7 +47,7 @@ ROLES = ("learner", "rollout", "eval", "check", "tool")
 AGENT_ROLES = ("rollout", "eval", "check")
 WORKER = PACKAGE / "worker.py"
 PROFILE_KEYS = {"enabled", "inherit", "read", "write", "allow", "packages", "mask", "network", "env"}
-CLI_HOMES = {"codex": (".codex", "CODEX_HOME", "auth.json"), "claude": (".claude", "CLAUDE_CONFIG_DIR", ".credentials.json")}
+CLI_HOMES = {c.backend: (c.user_folder, c.home_var, c.home_files[0]) for c in CLIS.values()}   # folder, var, sign-in
 
 
 def profile(sandbox: dict, role: str) -> dict:

@@ -29,6 +29,9 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   shared layer every group); the header says which groups ran and why. Tests that run an agent CLI installed on the
   machine are marked `integration` and run only with `--integration`. Tests another test already covers were
   removed and tests that repeat one setup share it: the full suite runs in about half the time.
+- The CLI Base Agents share one runner, `CliAgent` (`hermit/agent/base/cli.py`): what differs per CLI (its command,
+  its home, how its event stream is read) is its subclass's hooks, and `CLIS` names every CLI. `codex` and `claude`
+  behave as before; a new CLI is one subclass.
 
 ### Fixed
 

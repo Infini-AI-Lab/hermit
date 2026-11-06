@@ -4,6 +4,12 @@ One `run` is one session of the CLI in print mode: the prompt is given, the CLI 
 tools and the call's `tools` (served over MCP by the framework's tool server), and its last message is the reply.
 The CLI's event stream is kept unchanged (`Result.log`) and read into the trajectory and the usage.
 
+`CliAgent` runs every CLI the same way (isolation, home, sign-in, tool server, process, the stream's safety); what
+differs per CLI is its subclass's hooks: its command, its home (`home_env`, `prepare_home`, `user_home`), how its
+stream is read (`served`, `notices`, `last_message`, `parse`, `steps`, `adjust_usage`), its web search, its system
+instructions and its isolations. `CLIS` names every CLI; a new one is a subclass there, its stream's reader in
+hermit.agent.base.trajectory, and its model binding in hermit.agent.model.backends.
+
 Settings (given once; `configured(...)` for a call's own):
   model             the CLI's model (absent: its default); with `binding`, the provider settings are in `args`/`env`
   binding           the resolved `<backend>/<model>` reference (hermit.agent.model.backends), for the key and price
@@ -73,7 +79,7 @@ from typing import Any, Sequence
 
 from hermit.agent.base import container, login as codex_login
 from hermit.agent.base.interface import BaseAgent, Limits, Mount, Result, Unsupported
-from hermit.agent.base.records import parse_log, price_usage
+from hermit.agent.base.records import parse_claude, parse_codex, price_usage
 from hermit.agent.base.tool import Tool
 from hermit.agent.base.trajectory import claude_steps, codex_steps, events
 
@@ -90,13 +96,14 @@ CODEX_HOME_SETTINGS = ["features.shell_snapshot = false",          # a snapshot 
 _ready: set = set()
 
 
+def _of(backend: str) -> type["CliAgent"]:
+    """The CLI a module-level helper's `backend` names: Codex's, else Claude Code's (as these helpers always read)."""
+    return CLIS.get(backend, Claude)
+
+
 def web_search_args(backend: str, enabled: bool) -> list[str]:
-    """A CLI session's web search, set explicitly either way: Codex's hosted search (`web_search`, `live` or
-    `disabled`), Claude Code's WebSearch and WebFetch tools (denied when off). The hosted search runs at the provider,
-    so no sandbox, container or proxy can stop it: only this setting does."""
-    if backend == "codex":
-        return ["-c", f'web_search="{'live' if enabled else 'disabled'}"']
-    return [] if enabled else ["--disallowedTools", "WebSearch,WebFetch"]
+    """A CLI session's web search, set explicitly either way (CliAgent.web_search_args)."""
+    return _of(backend).web_search_args(enabled)
 
 
 def _regular(path) -> bool:
@@ -220,18 +227,8 @@ def write_home(home: Path, settings: dict, roles: Sequence[dict] = (), tools_url
 
 
 def last_message(backend: str, log: Path, last: Path | None = None) -> str:
-    """The session's last message: Codex's `-o` file (never read through a link the session left), else the last
-    message in its stream; Claude Code's result."""
-    if backend == "codex":
-        if last is not None and not last.is_symlink() and last.is_file() and last.read_text(errors="replace").strip():
-            return last.read_text(errors="replace")
-        replies = [s.text for s in codex_steps(events(log)) if s.kind == "message"]
-        return replies[-1] if replies else ""
-    text = ""
-    for event in events(log):
-        if event.get("type") == "result" and isinstance(event.get("result"), str):
-            text = event["result"]
-    return text
+    """The session's last message (CliAgent.last_message)."""
+    return _of(backend).last_message(log, last)
 
 
 def _objects(raw: str):
@@ -250,35 +247,13 @@ def _objects(raw: str):
 
 
 def served(backend: str, raw: str) -> bool:
-    """Whether the provider served the session: it finished a turn (an event of that type, not the words)."""
-    kind = "turn.completed" if backend == "codex" else "result"
-    return any(e.get("type") == kind for e in _objects(raw)[0])
+    """Whether the provider served the session (CliAgent.served)."""
+    return _of(backend).served(raw)
 
 
 def notices(backend: str, raw: str) -> str:
-    """What the CLI itself reported, apart from the session's own work: its lines that are no event (its stderr),
-    and its error events (Codex: `error`, `turn.failed`, an `error` item; Claude Code: a failed `result`). A
-    message, a command's output or a file the session wrote is not among them, so a session that read the words of
-    an outage or of a usage limit (a log it grepped) is not taken for one that met it."""
-    objects, other = _objects(raw)
-    found = list(other)
-    for e in objects:
-        kind, item = e.get("type"), e.get("item") if isinstance(e.get("item"), dict) else {}
-        if backend == "codex":
-            if kind == "error":
-                found.append(str(e.get("message") or ""))
-            elif kind == "turn.failed":
-                error = e.get("error")
-                found.append(str(error.get("message") if isinstance(error, dict) else error or ""))
-            elif kind == "item.completed" and item.get("type") == "error":
-                found.append(str(item.get("message") or ""))
-        elif kind == "result" and (e.get("is_error") or str(e.get("subtype") or "").startswith("error")):
-            found.append(str(e.get("result") or e.get("subtype") or ""))
-            errors = e.get("errors")                     # an error result's own diagnostics
-            found += [str(x) for x in errors if x] if isinstance(errors, list) else [str(errors)] if errors else []
-        elif kind == "error":
-            found.append(json.dumps(e.get("error") or e, default=str))
-    return "\n".join(found)
+    """What the CLI itself reported, apart from the session's own work (CliAgent.notices)."""
+    return _of(backend).notices(raw)
 
 
 ARG_MAX = 120_000            # bytes of one command-line argument to stay under (Linux allows 128 KiB per argument)
@@ -373,13 +348,84 @@ def _descendants(pid: int) -> list[int]:
     return out
 
 
-def _user_home(backend: str) -> Path:
-    return codex_login.source().parent if backend == "codex" else Path.home() / ".claude"
-
-
 class CliAgent(BaseAgent):
-    backend = ""
-    home_files: tuple[str, ...] = ()
+    """One CLI's session as a Base Agent: the shared run, and the hooks each CLI's subclass fills in."""
+    backend = ""                                  # the CLI's name (make, CLIS, its stream agent-<backend>.jsonl)
+    label = ""                                    # its name in messages
+    aliases: tuple[str, ...] = ()                 # other names make() takes for it
+    isolations: tuple[str, ...] = ("none", "sandbox")   # of ISOLATIONS, the ones it runs under
+    home_var = ""                                 # the variable that points the CLI at its home
+    user_folder = ""                              # the user's own home of the CLI, under ~
+    home_files: tuple[str, ...] = ()              # files of the user's home a session's home gets (the sign-in first)
+    turn_done = ""                                # the event type of a turn the provider served
+
+    # ---------- the CLI's own: its command and its home ----------
+    def command(self, prompt: str, workspace: Path, last_file: Path, *, session=None, roles=(), tools_url=None) -> list:
+        raise NotImplementedError
+
+    def home_env(self, home: Path) -> dict[str, str]:
+        """The variables that point the CLI at the session's home."""
+        return {self.home_var: str(home)}
+
+    def prepare_home(self, home: Path, roles: Sequence[dict], tools_url: str | None, tools_name: str) -> None:
+        """The session's configuration in its home, before the call (nothing, for a CLI given it on its command
+        line)."""
+
+    @classmethod
+    def user_home(cls) -> Path:
+        """The user's own home of the CLI, where `home_files` are copied from."""
+        return Path.home() / cls.user_folder
+
+    @classmethod
+    def web_search_args(cls, enabled: bool) -> list[str]:
+        """The CLI's arguments that set its web search, on or off."""
+        raise NotImplementedError
+
+    def system_settings(self, system: str, prompt: str) -> tuple[dict, str]:
+        """System instructions for one call: (settings for `configured`, the prompt)."""
+        raise NotImplementedError
+
+    # ---------- the CLI's own: reading its stream ----------
+    @classmethod
+    def served(cls, raw: str) -> bool:
+        """Whether the provider served the session: it finished a turn (an event of that type, not the words)."""
+        return any(e.get("type") == cls.turn_done for e in _objects(raw)[0])
+
+    @classmethod
+    def notices(cls, raw: str) -> str:
+        """What the CLI itself reported, apart from the session's own work: its lines that are no event (its stderr),
+        and its error events (`errors`). A message, a command's output or a file the session wrote is not among
+        them, so a session that read the words of an outage or of a usage limit (a log it grepped) is not taken for
+        one that met it."""
+        objects, other = _objects(raw)
+        found = list(other)
+        for e in objects:
+            found += cls.errors(e)
+        return "\n".join(found)
+
+    @classmethod
+    def errors(cls, event: dict) -> list[str]:
+        """The error texts the CLI reported in one event."""
+        return []
+
+    @classmethod
+    def last_message(cls, log: Path, last: Path | None = None) -> str:
+        """The session's last message, from its stream (or the file `last` the CLI wrote it to)."""
+        raise NotImplementedError
+
+    @classmethod
+    def parse(cls, log: Path, model: str):
+        """(session handle, usage) from the stream (hermit.agent.base.records)."""
+        raise NotImplementedError
+
+    @classmethod
+    def steps(cls, stream: list[dict]) -> list:
+        """The stream's events as trajectory steps (hermit.agent.base.trajectory)."""
+        raise NotImplementedError
+
+    def adjust_usage(self, home: Path, handle, usage: list, resumed: bool) -> list:
+        """This call's usage from what the stream reported (unchanged, for a CLI that reports each call's own)."""
+        return usage
 
     # ---------- what the call may do ----------
     def _isolation(self, workspace: Path, limits: Limits):
@@ -422,8 +468,9 @@ class CliAgent(BaseAgent):
                 from hermit.sandbox import HidingSandbox
                 sandbox = HidingSandbox(sandbox, list(limits.hidden), keep=[m.source for m in limits.readable])
             return isolation, None, sandbox
-        if self.backend != "codex":
-            raise Unsupported("isolation: container runs Codex; Claude Code takes isolation none or sandbox")
+        if isolation not in self.isolations:
+            raise Unsupported(f"isolation: container runs Codex; {self.label} takes isolation "
+                              f"{' or '.join(self.isolations)}")
         shown = [workspace, *(m.source for m in limits.readable)]         # every mount the container is given
         if s.get("home"):                         # a fresh home is a new directory: nothing hidden lies in it
             shown.append(Path(os.path.expanduser(str(s["home"]))))
@@ -462,7 +509,7 @@ class CliAgent(BaseAgent):
             return []
         copied = []
         for name in self.home_files if s.get("home_files") is None else s["home_files"]:
-            source = _user_home(self.backend) / name
+            source = self.user_home() / name
             if source.is_file():
                 _clear(home / name)                     # a link the last session left would take the copy elsewhere
                 shutil.copy2(source, home / name)
@@ -564,11 +611,8 @@ class CliAgent(BaseAgent):
             if server is not None and s.get("tools_env"):
                 own[s["tools_env"]] = server.url                  # the tools' JSON entrance, for the session's shell
             env = dict(own)
-            if self.backend == "codex":
-                write_home(home, s, roles, server.mcp_url if server else None, name)
-                env["CODEX_HOME"] = str(home)
-            else:
-                env["CLAUDE_CONFIG_DIR"] = str(home)
+            self.prepare_home(home, roles, server.mcp_url if server else None, name)
+            env.update(self.home_env(home))
             command = self.command(prompt, workspace, last_file, session=session, roles=roles,
                                    tools_url=server.mcp_url if server else None)
             started = time.time()
@@ -617,31 +661,81 @@ class CliAgent(BaseAgent):
         # and put a link (or a pipe, or another file) there has left nothing of it to read.
         readable = stream if wrote is not None and _identity(stream) == wrote else Path(os.devnull)
         raw = readable.read_text(encoding="utf-8", errors="replace") if readable is stream else ""
-        notes = notices(self.backend, raw)
-        reply = last_message(self.backend, readable, last_file)
-        handle, usage = parse_log(readable, self.backend, (s.get("binding") or {}).get("ref") or s.get("model")
-                                  or self.backend)
-        if self.backend == "codex" and handle and usage:
-            usage = [_this_call(home, str(handle), usage[0], resumed=bool(session))]
+        notes = self.notices(raw)
+        reply = self.last_message(readable, last_file)
+        handle, usage = self.parse(readable, (s.get("binding") or {}).get("ref") or s.get("model") or self.backend)
+        usage = self.adjust_usage(home, handle, usage, resumed=bool(session))
         price_usage(usage, s)
-        steps = (codex_steps if self.backend == "codex" else claude_steps)(events(readable))
+        steps = self.steps(events(readable))
         if fresh:
             shutil.rmtree(home, ignore_errors=True)
+        done = self.served(raw)
         return Result(reply=reply, trajectory=steps, usage=usage, session=handle, exit_code=code,
                       timed_out=timed_out, log=stream,
-                      extra={"served": served(self.backend, raw), "unavailable": bool(UNAVAILABLE.search(notes)),
-                             "refused": codex_login.refused(notes) and not served(self.backend, raw),
+                      extra={"served": done, "unavailable": bool(UNAVAILABLE.search(notes)),
+                             "refused": codex_login.refused(notes) and not done,
                              "started": any(line.lstrip().startswith("{") for line in raw.splitlines()),
                              "cancelled": cancelled, "isolation": isolation, "wall_s": round(wall_s, 1),
                              "output_tail": raw[-2000:]})
 
-    def command(self, prompt: str, workspace: Path, last_file: Path, *, session=None, roles=(), tools_url=None) -> list:
-        raise NotImplementedError
-
 
 class Codex(CliAgent):
     name = backend = "codex"
+    label = "Codex"
+    isolations = ISOLATIONS
+    home_var, user_folder = "CODEX_HOME", ".codex"
     home_files = (codex_login.FILE,)
+    turn_done = "turn.completed"
+
+    def prepare_home(self, home, roles, tools_url, tools_name):
+        write_home(home, self.settings, roles, tools_url, tools_name)
+
+    @classmethod
+    def user_home(cls) -> Path:
+        return codex_login.source().parent
+
+    @classmethod
+    def web_search_args(cls, enabled: bool) -> list[str]:
+        """Codex's hosted search (`web_search`, `live` or `disabled`): it runs at the provider, so no sandbox,
+        container or proxy can stop it, only this setting does."""
+        return ["-c", f'web_search="{'live' if enabled else 'disabled'}"']
+
+    def system_settings(self, system, prompt):
+        extra, prompt = codex_instructions(system, prompt)
+        return {"args": [*(self.settings.get("args") or []), *extra]}, prompt
+
+    @classmethod
+    def errors(cls, event):
+        """`error`, `turn.failed` and an `error` item."""
+        kind, item = event.get("type"), event.get("item") if isinstance(event.get("item"), dict) else {}
+        if kind == "error":
+            return [str(event.get("message") or "")]
+        if kind == "turn.failed":
+            error = event.get("error")
+            return [str(error.get("message") if isinstance(error, dict) else error or "")]
+        if kind == "item.completed" and item.get("type") == "error":
+            return [str(item.get("message") or "")]
+        return []
+
+    @classmethod
+    def last_message(cls, log, last=None):
+        """Codex's `-o` file (never read through a link the session left), else the last message in its stream."""
+        if last is not None and not last.is_symlink() and last.is_file() and last.read_text(errors="replace").strip():
+            return last.read_text(errors="replace")
+        replies = [s.text for s in codex_steps(events(log)) if s.kind == "message"]
+        return replies[-1] if replies else ""
+
+    @classmethod
+    def parse(cls, log, model):
+        return parse_codex(log, model)
+
+    @classmethod
+    def steps(cls, stream):
+        return codex_steps(stream)
+
+    def adjust_usage(self, home, handle, usage, resumed):
+        """Codex reports a thread's running total: a resumed thread's earlier calls are taken off (_this_call)."""
+        return [_this_call(home, str(handle), usage[0], resumed=resumed)] if handle and usage else usage
 
     def command(self, prompt, workspace, last_file, *, session=None, roles=(), tools_url=None):
         s = self.settings
@@ -659,7 +753,48 @@ class Codex(CliAgent):
 
 class Claude(CliAgent):
     name = backend = "claude"
+    label = "Claude Code"
+    aliases = ("claude-code",)
+    home_var, user_folder = "CLAUDE_CONFIG_DIR", ".claude"
     home_files = (".credentials.json",)
+    turn_done = "result"
+
+    @classmethod
+    def web_search_args(cls, enabled: bool) -> list[str]:
+        """Claude Code's WebSearch and WebFetch tools, denied when off."""
+        return [] if enabled else ["--disallowedTools", "WebSearch,WebFetch"]
+
+    def system_settings(self, system, prompt):
+        return {"append_system_prompt": system}, prompt
+
+    @classmethod
+    def errors(cls, event):
+        """A failed `result` with its own diagnostics, and an `error` event."""
+        kind = event.get("type")
+        if kind == "result" and (event.get("is_error") or str(event.get("subtype") or "").startswith("error")):
+            errors = event.get("errors")
+            return [str(event.get("result") or event.get("subtype") or ""),
+                    *([str(x) for x in errors if x] if isinstance(errors, list) else [str(errors)] if errors else [])]
+        if kind == "error":
+            return [json.dumps(event.get("error") or event, default=str)]
+        return []
+
+    @classmethod
+    def last_message(cls, log, last=None):
+        """The text of its last `result`."""
+        text = ""
+        for event in events(log):
+            if event.get("type") == "result" and isinstance(event.get("result"), str):
+                text = event["result"]
+        return text
+
+    @classmethod
+    def parse(cls, log, model):
+        return parse_claude(log, model)
+
+    @classmethod
+    def steps(cls, stream):
+        return claude_steps(stream)
 
     def command(self, prompt, workspace, last_file, *, session=None, roles=(), tools_url=None):
         s = self.settings
@@ -674,10 +809,14 @@ class Claude(CliAgent):
                 *(["--tools", ",".join(s["allowed_tools"])] if s.get("allowed_tools") else []),
                 *(["--no-session-persistence"] if s.get("persist_session") is False else []),
                 *(["--append-system-prompt", s["append_system_prompt"]] if s.get("append_system_prompt") else []),
-                *web_search_args("claude", bool(s.get("web_search"))),
+                *self.web_search_args(bool(s.get("web_search"))),
                 *(["--mcp-config", json.dumps(mcp)] if tools_url else []),
                 *(["--agents", json.dumps(agents, ensure_ascii=False)] if agents else []),
                 *(["--resume", str(session)] if session else []), *(s.get("args") or [])]
+
+
+# Every CLI Base Agent, by each name make() takes for it.
+CLIS: dict[str, type[CliAgent]] = {n: c for c in (Codex, Claude) for n in (c.backend, *c.aliases)}
 
 
 def _this_call(home: Path, handle: str, reported, resumed: bool):
