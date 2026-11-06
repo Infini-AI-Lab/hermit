@@ -13,8 +13,8 @@ whole training set):
    instruction (score recorded at step -1, as upstream); later, the current best again (recorded, not merged:
    upstream scores an instruction once);
 2. the exemplars are `num_exemplars` of those training records whose run did not fail, drawn at random per step;
-   the answer shown is the agent's answer when the judge scored it right, else the judge's feedback (the task has no gold field: the judge
-   holds the reference answer, and OfficeQA's feedback names it);
+   the answer shown is the agent's answer when the judge scored it right, else the judge's feedback (the task has
+   no gold field: the judge holds the reference answer, and OfficeQA's feedback names it);
 3. the meta-prompt (meta_prompt.py, the GPT optimizers' version, instruction at Q_begin without "Q:"/"A:"), the
    `n_candidates` calls (a failed call tried once more), the <INS> extraction, polish_sentence and the md5
    de-duplication against every instruction generated before (not the initial one, as upstream), then the filters
@@ -188,13 +188,13 @@ class OPROEvolver(Evolver):
                 raw.append(mp.extract_instruction(content))
         polished = [mp.polish_sentence(s) for s in raw]
         new, seen, skipped = [], set(state["hashes"]), []
+        limit = int(p.get("max_instruction_chars") or 0)
         for ins in polished:
             h = mp.instruction_to_filename(ins)
             if h in seen:
                 skipped.append("already evaluated")
                 continue
             seen.add(h)
-            limit = int(p.get("max_instruction_chars") or 0)
             reason = ("empty" if not ins else f"longer than {limit} characters" if limit and len(ins) > limit
                       else "contains 'INS'" if "INS" in ins else None)
             if reason:

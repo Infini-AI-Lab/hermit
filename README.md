@@ -215,6 +215,10 @@ Train and evaluate harness adapters on benchmarks using different evolution meth
 <td><a href="examples/officeqa/rrsi_adapter/">OfficeQA</a> (whole adapters evolved round by round under regularizers against overfitting, Codex + GPT-5.6-Luna acting and learning)</td>
 </tr>
 <tr>
+<td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/opro.html">OPRO</a></td>
+<td><a href="examples/officeqa/opro/">OfficeQA</a> (one instruction searched by a model that reads every earlier instruction's training score, Codex + GPT-5.6-Luna acting and optimizing)</td>
+</tr>
+<tr>
 <td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/evosafe.html">EvoSafeHarness</a></td>
 <td><a href="examples/agentdyn/evosafe/">AgentDyn</a> (a defense bundle of a system prompt and tool-call hooks searched around a frozen victim, on fixed benign and injected cases)</td>
 </tr>

@@ -86,6 +86,5 @@ the setting of their README's command; a test checks it against a stored output 
 
 The scorer is an acting agent, not a one-shot model call: an instruction is scored by running the agent on every
 training task, so one OPRO step costs `n_candidates × |train|` agent sessions (and the Trainer's pass of the current
-best, `|train|` more) and a single noisy pass per
-instruction decides its place in the history. The exemplars' answers come from the step's rollouts and the judge's
+best, `|train|` more) and a single noisy pass per instruction decides its place in the history. The exemplars' answers come from the step's rollouts and the judge's
 feedback, since the task has no gold field. Selection on validation is a reproduction decision; OPRO itself has none.
