@@ -1,6 +1,6 @@
 # Compatibility and current limits
 
-These docs target framework **0.1.0** in this checkout. Preserve the exact Git revision for experiments; version
+These docs target framework **0.2.0** in this checkout. Preserve the exact Git revision for experiments; version
 numbers alone may not distinguish unreleased changes.
 
 ## Execution support
@@ -11,7 +11,7 @@ numbers alone may not distinguish unreleased changes.
 | Local deterministic Quick Start | No model account, GPU, external dataset, or host CLI |
 | Context-only workspace generation | macOS and Linux |
 | Sandboxed learner programs | Linux with bubblewrap and permitted namespaces |
-| Built-in methods | Prompt-only (the Codex learner on the prompt-only template), Codex, Claude, GEPA, SkillOpt, MWM, ReHarness, Meta-Harness Adapter, ACE, RRSI Adapter |
+| Built-in methods | Prompt-only (the Codex learner on the prompt-only template), Codex, Claude, GEPA, SkillOpt, MWM, Harness², Continual Harness, ReHarness, Meta-Harness Adapter, ACE, AHE Adapter, RRSI Adapter, EvoSafeHarness |
 | Workspace deployment | Codex, Claude Code, and Pi |
 | Native plugin conversion | Claude Code, Codex, Pi, Hermes, with export restrictions |
 | Stdio tool server | `hermit serve DIR`; normally started by the host |
@@ -46,4 +46,4 @@ framework's stdio server. Neither command guarantees that arbitrary tool depende
 Older `evolve` / `run` instructions do not describe this interface. The current experiment commands are
 `check`, `train`, and `eval`; consumption uses `deploy` and `convert`. There is no documented automatic
 migration of old configurations or learner-state formats. Preserve an old experiment and create a separate
-0.1.0 configuration, validating the pipeline, judge, manifest, and splits before spending on a new run.
+0.2.0 configuration, validating the pipeline, judge, manifest, and splits before spending on a new run.

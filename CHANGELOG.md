@@ -4,6 +4,47 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ## Unreleased
 
+### Added
+
+- Benchmarks through one protocol: `agent.name: harbor` runs any task set in [Harbor](https://github.com/laude-institute/harbor)'s
+  format (`task.toml`, `environment/`, `tests/test.sh` writing the reward) as the acting pipeline. One rollout is
+  one Harbor trial: Harbor starts the task's container, installs the acting agent (Codex by default, with the
+  adapter deployed into the container as `hermit deploy` lays it out: context, skills, roles, hooks), runs the
+  instruction and the task's own verifier; `judge.path: hermit.harbor.judge` reads the reward. A multi-step task
+  (one environment through many steps, each with its instruction and verifier) is a stream: a driver keeps the
+  environment between the Trainer's steps so a learner acts between them, and `harbor run` evaluates the whole
+  stream with a frozen adapter. `python -m hermit.harbor.dataset` downloads a dataset, indexes task directories
+  into `tasks.jsonl` rows (per task, per rollout, per step), writes splits and a content lock. The container-side
+  half (`hermit/harbor/harborside/`: the Codex agent, a scripted agent for smoke tests, the stream driver) runs
+  under Harbor's own venv. Streams need the rollout role unconfined (`sandbox.profiles.rollout.enabled: false`)
+  for now, as every Docker-driving agent does.
+- A test workflow (`.github/workflows/tests.yml`): a pull request runs the test groups it touches
+  (`pytest --changed`); main, a daily schedule and a manual run run the whole suite.
+
+### Changed
+
+- The tests are in groups: `tests/core/` for the framework and `tests/methods/<name>/` for each method
+  (`tests/README.md`). `python -m pytest --changed` runs the groups the branch touches since `origin/main`
+  (`tests/selection.py`: the core group for every change but documentation, a method's own files its group, a
+  shared layer every group); the header says which groups ran and why. Tests that run an agent CLI installed on the
+  machine are marked `integration` and run only with `--integration`. Tests another test already covers were
+  removed and tests that repeat one setup share it: the full suite runs in about half the time.
+
+### Fixed
+
+- The harness2 Evolver refused to continue a stream (`library_from`) on a machine without the session CLI on its
+  PATH: its pin kept the bare name `claude` while the continuation's check compared the name's absolute path in the
+  current directory, so `claude_bin` always differed. Both now keep the bare name. With `backend: codex`, a step's
+  report also re-pinned the missing CLI as `claude`; it now keeps `codex`.
+- The AHE Adapter Evolver took a `change_manifest.json` an earlier step left for the current step's: a manifest
+  naming the next iteration was refused at its own step, then archived as the next step's when that step's session
+  wrote none. The file (or a directory a session made in its place) is now removed before each Evolve session.
+
+## 0.2.0 - 2026-11-04
+
+Three-layer agents, unified adapter deployment, Codex plan-backed acting and learning, and six new method
+integrations: ReHarness, Meta-Harness Adapter, ACE, AHE Adapter, RRSI Adapter and EvoSafeHarness.
+
 ### Breaking
 
 - The adapter layout changed: a learner may change every file of an adapter except `.git/` and the metadata, and
@@ -72,6 +113,8 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Added
 
+- A release workflow with Linux core and sandbox checks, distribution builds, an installed-wheel smoke and
+  tag-triggered PyPI Trusted Publishing; `docs/developer/releasing.md` records the repeatable release process.
 - An Evolver can choose the next step's tasks: one that sets `chooses_tasks = True` is given the epoch's training
   tasks still to run (`Progress.remaining`, also listed in the call's message) and names the next step's in
   `StepResult.next_tasks` (an external program in `output/step_result.json`). An epoch still runs every training task
@@ -234,13 +277,18 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Fixed
 
+- Exclude a Git worktree's root `.git` pointer file from workspace deployment, as for a root `.git/` directory.
+- Include MWM's hidden pattern-library resource `.lint_blacklist` in installed packages, and check packaging
+  coverage for every bundled method file as well as adapter templates.
+- EvoSafeHarness's Codex roles no longer require Daybreak by default; it is an explicit opt-in. The AgentDyn
+  documentation clarifies task-dependent utility judging and reports completed episodes and errors.
 - A workspace agent's run failed after its session had answered when tidying the kept workspace could not read or
   remove an empty mount point yet (`PermissionError` on `docs/root_1`: Docker Desktop can hold a bind mount's target
   a moment after its container exits); the answer was scored as a pipeline failure. Tidying now leaves such a
   directory in place (`hermit/agent/acting/workspace.py`, `_clean`).
 - The chat endpoint closed each connection after its reply without saying so (`Connection: close`); an HTTP/1.1
   client kept the connection for its next request and got a dropped connection instead of the answer, now and then
-  (`tests/test_base_agents.py`'s error test failed so, about one run in three under load).
+  (`tests/core/test_base_agents.py`'s error test failed so, about one run in three under load).
 - The Base Agent read and wrote a session's home, and its event stream, through what a session could have left
   there: after a session, a linked `auth.json` with a later refresh became the machine's shared login copy, a linked
   `usage/` received the usage ledger (a pipe there blocked the call), a linked last-message file was read as the

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hermit-harness"
-version = "0.1.0"
+version = "0.2.0"
 description = "Train harness adapters: templates, Evolvers, a Trainer and evolving tasks; deploy adapters into Codex and Claude Code"
 readme = "README-pypi.md"
 license = "Apache-2.0"
@@ -62,6 +62,7 @@ include = ["hermit*"]
 
 [tool.setuptools.package-data]
 hermit = ["defaults.yaml", "agent/model/backends.yaml", "agent/evolver/methods/**/*", "adapter/templates/**/*",
+          "agent/evolver/methods/**/.lint_blacklist",
           "adapter/templates/**/.agents/**/*", "adapter/templates/**/.codex/**/*",
           "adapter/templates/**/.hermit/**/*"]   # globs skip dot-directories
 
@@ -70,3 +71,7 @@ hermit = ["defaults.yaml", "agent/model/backends.yaml", "agent/evolver/methods/*
 
 [tool.setuptools]
 include-package-data = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "examples"]   # the framework's tests and an example's own (examples/*/utils/tests/)
+python_files = ["test_*.py"]        # the one name tests/core/test_selection.py's guards look for

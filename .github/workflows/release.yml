@@ -1,0 +1,98 @@
+name: Release checks and PyPI
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test and build requirements
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap strace
+          python -m venv "$RUNNER_TEMP/test-env"
+          "$RUNNER_TEMP/test-env/bin/python" -m pip install --upgrade pip
+          "$RUNNER_TEMP/test-env/bin/python" -m pip install -e '.[test]' build twine
+          echo "$RUNNER_TEMP/test-env/bin" >> "$GITHUB_PATH"
+      - name: Check tagged version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          python - <<'PY'
+          import os, tomllib, hermit
+          from pathlib import Path
+          version = tomllib.loads(Path('pyproject.toml').read_text())['project']['version']
+          assert os.environ['GITHUB_REF_NAME'] == f'v{version}'
+          assert hermit.__version__ == version
+          PY
+      - name: Core and Linux sandbox regression checks
+        run: |
+          python -m pytest -q tests/core/test_training.py tests/core/test_spec.py tests/core/test_deploy.py \
+            tests/core/test_convert.py tests/core/test_backends.py tests/core/test_session.py \
+            tests/core/test_layers.py tests/core/test_packaging.py tests/core/test_sandbox.py \
+            tests/core/test_isolate.py tests/core/test_session_sandbox.py \
+            tests/core/test_sandboxed_evolvers.py::test_command_evolver_in_sandbox \
+            tests/core/test_context_tool.py::test_the_codex_agent_gives_each_task_its_own_context \
+            tests/methods/ahe/test_ahe_template.py::test_template_root_is_a_built_in_id_and_passes_the_check
+      - name: Build and check distributions
+        run: |
+          python -m build
+          python -m twine check dist/*
+      - name: Test the installed wheel outside the checkout
+        run: |
+          python -m venv "$RUNNER_TEMP/wheel-test"
+          wheel_python="$RUNNER_TEMP/wheel-test/bin/python"
+          wheel_hermit="$RUNNER_TEMP/wheel-test/bin/hermit"
+          "$wheel_python" -m pip install dist/*.whl
+          cp -R docs/_examples/first_training "$RUNNER_TEMP/first-training"
+          cd "$RUNNER_TEMP"
+          "$wheel_python" -m pip check
+          "$wheel_hermit" --help
+          "$wheel_hermit" check --config first-training/run.yaml trainer.output_dir="$RUNNER_TEMP/runs"
+          "$wheel_hermit" train --config first-training/run.yaml trainer.output_dir="$RUNNER_TEMP/runs"
+          "$wheel_hermit" eval --config first-training/run.yaml --adapter final trainer.output_dir="$RUNNER_TEMP/runs"
+          "$wheel_hermit" deploy --adapter "$RUNNER_TEMP/runs/first-training/checkout" \
+            --workspace "$RUNNER_TEMP/deployed" --host codex
+          "$wheel_python" - <<'PY'
+          import json, os
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP'])
+          result = json.loads((root / 'runs/first-training/eval/final/summary.json').read_text())
+          assert result['mean_score'] == 1.0 and result['errors'] == 0, result
+          assert not (root / 'deployed/hermit/prompt-only/.git').exists()
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: distributions
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: check
+    runs-on: ubuntu-22.04
+    environment:
+      name: pypi
+      url: https://pypi.org/project/hermit-harness/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: distributions
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1

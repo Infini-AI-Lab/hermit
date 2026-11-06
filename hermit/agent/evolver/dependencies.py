@@ -3,7 +3,7 @@
 `pyproject.toml` declares the same requirements as dependency groups, which pip installs only from a checkout
 (`python -m pip install -e . --group <name>`, pip 25.1+). The groups are not in the published wheel's metadata, so
 a user who installed hermit-harness from PyPI needs the requirements themselves; the error names both ways.
-tests/test_optimizer_evolvers.py checks that these requirements equal the dependency groups.
+tests/methods/optimizers/test_optimizer_evolvers.py checks that these requirements equal the dependency groups.
 """
 from __future__ import annotations
 

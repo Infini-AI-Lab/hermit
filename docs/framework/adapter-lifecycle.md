@@ -192,9 +192,10 @@ Recording a trajectory during training alone does not make it part of the deploy
 
 ## Available in this version
 
-Version 0.1.0 includes the `prompt-only`, `lean-collab`, `mwm`, `harness2-codex`, `continual-harness` and `reharness` templates and
-the `codex`, `claude`, `gepa`, `skillopt`, `mwm`, `harness2_upstream`, `continual_harness` and `reharness` Evolvers. OfficeQA and CL-Bench (database, poker) provide end-to-end task integrations;
-the Lean template can be deployed, but its complete training pipeline has not been migrated.
+Version 0.2.0 includes prompt-only and whole-adapter learning, memory and reflection banks, playbooks, hooks and
+multi-agent templates. The [method catalog](../methods/index.md) lists the built-in Evolvers and their templates;
+the [recipe catalog](../recipes/index.md) lists task integrations including OfficeQA, CL-Bench and AgentDyn.
+The Lean template can be deployed, but its complete training pipeline has not been migrated.
 
 For detailed contracts, continue to [Adapter](adapter.md), [Evolver](evolver.md), [Trainer](trainer.md), or
 [Task integration](task.md). To implement a method, see [Custom Evolver integration](custom-evolver.md).

@@ -1,0 +1,55 @@
+# OfficeQA in the SkillOpt paper's setting with the GEPA Evolver, the Codex harness through Harbor: as
+# gepa/run_codex.yaml (GLM 5.3 Flash acts in Codex, the skill as SKILL.md, the whole corpus under docs/), but each
+# question is a Harbor task (utils/harbor/build_tasks.py) and the session runs in a container Harbor starts, installs
+# Codex into and verifies (the judge inside the container, utils/harbor/judge.py), instead of utils/agent/codex_sandbox.py.
+# Before: python examples/officeqa/utils/harbor/build_tasks.py, and export OFFICEQA_DOCS_ROOT as it prints (the corpus,
+# mounted read-only at /app/docs/root_1). The recipe's "Through Harbor" section has the rest.
+data:
+  tasks: ../utils/.private/harbor_tasks/tasks.jsonl     # the same UIDs as ../utils/tasks.jsonl: the splits apply
+  train: ../utils/splits/train.txt
+  val: ../utils/splits/val.txt
+  test: ../utils/splits/test.txt
+  step_size: 3
+  shuffle_seed: 42
+task_info: ../utils/task-info/
+agent:
+  name: harbor
+  concurrency: 8
+  params:
+    tasks_dir: ../utils/.private/harbor_tasks
+    model: fireworks/accounts/fireworks/models/glm-5p3-flash   # the backend's endpoint and key go to Codex in the container
+    effort: medium
+    codex_version: "0.134.0"             # the Codex of the GLM 5.3 Flash row (utils/agent/docker/Dockerfile)
+    agent_timeout_sec: 3600              # one session's wall clock, as the Codex route's timeout_s
+    environment:
+      delete: true
+      mounts:                            # the corpus, where the instruction's candidate paths point
+        - {type: bind, source: $OFFICEQA_DOCS_ROOT, target: /app/docs/root_1, read_only: true}
+    jobs_dir: ~/.cache/hermit/officeqa-harbor/jobs
+    docker_cleanup: images_keep          # one image for every task: nothing to reclaim between trials
+judge:
+  path: hermit.harbor.judge              # the reward the container's judge wrote (exact match), its feedback line
+template: prompt-only@1.0
+start_from: ../utils/seed_adapter  # SkillOpt's initial OfficeQA skill
+evolver:
+  name: gepa
+llm:                           # the optimizer: GLM 5.3 at medium effort (the paper: GPT-5.5, medium)
+  model: fireworks/accounts/fireworks/models/glm-5p3     # <backend>/<model id>; the price is the backend's
+  extra_body: {reasoning_effort: medium}
+sandbox:
+  enabled: true
+  network: restricted
+  allow: []                  # the Evolver's own model endpoint is always reachable
+  read: []
+  env: []                    # the Evolver's model key variable is always passed; nothing else is
+  profiles:                  # the agent's role runs unconfined: it drives Docker through Harbor (the daemon's
+    rollout: {enabled: false}   # socket, the jobs under ~/.cache); each session is in a container of its own
+trainer:
+  run_name: codex-harbor-gepa
+  output_dir: runs
+  tree_dir: runs/trees/codex-harbor-gepa   # one adapter tree per run: runs can train side by side
+  epochs: 4
+  budget: {usd: null, hours: null}
+  call_timeout_min: 180       # Codex sessions are slower
+eval:
+  repeats: 3                 # the target samples: three passes over the test questions

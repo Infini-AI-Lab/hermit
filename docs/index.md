@@ -4,12 +4,13 @@ Train the instructions, skills, roles, and tools used by an existing agent, usin
 The learned files form a **harness adapter**: a versioned directory your agent consumes. Model weights stay
 unchanged. You bring an acting pipeline, tasks, and a judge; the framework manages training, checks, and records.
 
-These docs describe the **0.1.0** code in this checkout.
+These docs describe the **0.2.0** code in this checkout.
 
 | Your goal | Start here | What you will produce |
 |---|---|---|
 | Run a complete training cycle without model access | [Quick Start](get-started/quickstart.md) | A changed adapter, held-out scores, and a host workspace |
 | Run with your model API | [First real-model training](get-started/first-model.md) | Acting calls, learner edits, and held-out evaluation on included data |
+| Run with your coding plan | [Harness evolution with your coding plan](tutorials/codex-plan.md) | A small benchmark run with Codex acting and learning |
 | Reproduce a benchmark experiment | [Recipe catalog](recipes/index.md) | A run using the recipe's data and model setup |
 | Choose a learning method | [Choose a method](methods/index.md) | A suitable template, Evolver, and split plan |
 | Improve your own agent | [Bring your task](tutorials/your-own-task.md) | A pipeline, judge, task description, and run config |
@@ -36,6 +37,7 @@ Passing file checks establishes structural validity. Performance improvement req
 get-started/installation
 get-started/quickstart
 get-started/first-model
+tutorials/codex-plan
 framework/what-is-a-harness-adapter
 faq
 ```
@@ -94,6 +96,7 @@ recipes/lean-collaboration
 :caption: Developer Guide
 
 developer/index
+developer/releasing
 developer/reproducing-a-method
 developer/service-design
 framework/agent-layers

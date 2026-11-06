@@ -162,7 +162,7 @@ def adapter_files(adapter: Path, output: Path, manifest: dict, previous: dict) -
                                  "holds files and directories only")
         for name in sorted(names):
             source = here / name
-            if name.endswith(".pyc"):
+            if name.endswith(".pyc") or (here == adapter and name in NOT_COPIED):
                 continue
             if is_internal(source.relative_to(adapter).as_posix(), manifest):
                 continue                          # the harness's own: not the agent's

@@ -41,12 +41,14 @@ for frozen evaluation. See [execution details](EXPERIMENT_RUNTIME.md).
 
 ## Results
 
-| Method | Clean utility ↑ | Attack success rate ↓ |
-|---|---|---|
-| No-defense | 50.0% | 30.3% |
-| EvoSafeHarness | 52.9% | 8.8% |
+| Method | Clean utility ↑ | Clean episode errors | Attack success rate ↓ | Injected episode errors |
+|---|---:|---:|---:|---:|
+| No-defense | 50.0% | 0 | 30.3% | 3 |
+| EvoSafeHarness | 52.9% | 1 | 8.8% | 2 |
 
-Rates use completed episodes in each condition.
+Rates use completed episodes. On the [held-out split](../utils/DATA.md#the-protocol)
+of 18 clean and 36 injected episodes, clean successes were 9/18 for No-defense and
+9/17 for EvoSafeHarness. Successful attacks were 10/33 and 3/34, respectively.
 
 `hermit eval`'s scalar `mean_score` is not the defense objective. To report utility, ASR and errors:
 

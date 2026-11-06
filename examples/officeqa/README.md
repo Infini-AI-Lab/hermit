@@ -192,6 +192,9 @@ The earlier direct-chat runs (`run.yaml`, `stream.yaml`: SkillOpt's rollout, thr
 utils/agent/        OfficeQAAgent (agent.py): SkillOpt's rollout in direct chat, with ADAPTER.md as the skill
 utils/task.py       OfficeQA's task functions for the framework's Codex agent (task.md, the corpus, the answer), with
                     utils/prompt.md; docker/codex/ builds the agent's image and egress proxy
+utils/harbor/       the Codex harness through Harbor: build_tasks.py writes one Harbor task per question (private,
+                    with the answers in tests/), judge.py is the exact-match judge run inside the container;
+                    gepa/run_codex_harbor.yaml runs it (agent.name: harbor; recipe: "Through Harbor")
 utils/prepare.py    tasks.jsonl, the splits, data.json and seed_adapter/      utils/judge.py   SkillOpt's exact match
 utils/task-info/    the task for the learner
 gepa/ skillopt/     smoke.yaml and run.yaml per method, smoke_codex.yaml and run_codex.yaml for the Codex harness,
