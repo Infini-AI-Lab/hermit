@@ -1,0 +1,53 @@
+<figure class="ha-sbx">
+<div class="ha-sbx-scroll">
+<svg viewBox="0 0 680 336" role="img" aria-label="Inside its own network namespace a process reaches only the relay on 127.0.0.1; the relay forwards declared ports over Unix sockets to the model server or meter, the tool endpoint and the allowlist proxy, which forwards only to allowed hosts and refuses every other">
+<defs>
+<marker id="sbx3-gen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-gen" d="M0,0 L10,5 L0,10 z"/></marker>
+<marker id="sbx3-host" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-host" d="M0,0 L10,5 L0,10 z"/></marker>
+<marker id="sbx3-deny" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-deny" d="M0,0 L10,5 L0,10 z"/></marker>
+</defs>
+<!-- the sandbox -->
+<rect class="b-gen" x="16" y="16" width="234" height="290" rx="10"/>
+<text class="t-h c-gen" x="32" y="40">sandbox</text>
+<text class="t-m" x="32" y="58">its own network namespace,</text>
+<text class="t-m" x="32" y="74">loopback only</text>
+<rect class="b-inner" x="40" y="96" width="186" height="44" rx="6"/>
+<text class="t-b" x="133" y="123" text-anchor="middle">process</text>
+<line class="a a-gen" x1="133" y1="142" x2="133" y2="186" marker-end="url(#sbx3-gen)"/>
+<text class="t-m mono" x="141" y="168">127.0.0.1:port</text>
+<rect class="b-inner" x="40" y="190" width="186" height="64" rx="6"/>
+<text class="t-b" x="133" y="212" text-anchor="middle">relay</text>
+<text class="t-m mono" x="133" y="229" text-anchor="middle">sandbox_relay.py</text>
+<text class="t-m" x="133" y="245" text-anchor="middle">ports over Unix sockets</text>
+<line class="a a-deny" x1="228" y1="118" x2="244" y2="118"/>
+<line class="a a-deny" x1="245" y1="111" x2="259" y2="125"/>
+<line class="a a-deny" x1="259" y1="111" x2="245" y2="125"/>
+<text class="t-m c-deny" x="266" y="108">any other address:</text>
+<text class="t-m c-deny" x="266" y="124">no route</text>
+<!-- the host side -->
+<line class="a a-gen" x1="228" y1="222" x2="316" y2="160" marker-end="url(#sbx3-gen)"/>
+<line class="a a-gen" x1="228" y1="222" x2="316" y2="216" marker-end="url(#sbx3-gen)"/>
+<line class="a a-gen" x1="228" y1="222" x2="316" y2="268" marker-end="url(#sbx3-gen)"/>
+<rect class="b-host" x="320" y="134" width="164" height="50" rx="8"/>
+<text class="t-b" x="332" y="155">model server or meter</text>
+<text class="t-m" x="332" y="172">the sandbox's model calls</text>
+<rect class="b-host" x="320" y="192" width="164" height="50" rx="8"/>
+<text class="t-b" x="332" y="213">tool endpoint</text>
+<text class="t-m mono" x="332" y="230">HA_TOOL_URL</text>
+<rect class="b-host" x="320" y="250" width="164" height="56" rx="8"/>
+<text class="t-b" x="332" y="272">allowlist proxy</text>
+<text class="t-m" x="332" y="290">in the host process</text>
+<!-- out of the proxy -->
+<line class="a a-host" x1="486" y1="290" x2="520" y2="290" marker-end="url(#sbx3-host)"/>
+<rect class="b-host" x="524" y="262" width="140" height="58" rx="8"/>
+<text class="t-b" x="536" y="282">allowed hosts</text>
+<text class="t-m" x="536" y="298">its models' providers,</text>
+<text class="t-m mono" x="536" y="313">allowed_hosts</text>
+<line class="a a-deny" x1="486" y1="268" x2="540" y2="236" marker-end="url(#sbx3-deny)"/>
+<rect class="b-deny" x="524" y="186" width="140" height="48" rx="8"/>
+<text class="t-b c-deny" x="536" y="206">any other host</text>
+<text class="t-m" x="536" y="223">refused</text>
+</svg>
+</div>
+<figcaption><code>no-network</code> and <code>allowlist</code> give the sandbox its own network namespace; the relay forwards only the ports the sandbox needs (no proxy with <code>no-network</code>). The proxy goes out through <code>HTTPS_PROXY</code> when it is set, except to the hosts <code>NO_PROXY</code> names. <code>public</code> is the host's network, unfiltered.</figcaption>
+</figure>
