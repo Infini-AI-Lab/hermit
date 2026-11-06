@@ -21,6 +21,8 @@ affected interfaces, and the validation evidence available.
   [method checklist](../reproduce-method/references/reproduction-checklist.md).
 - For PRs that add or change tests, also complete the
   [test checklist](references/test-checklist.md).
+- For PRs that add or change a method or a dataset and start a process or change
+  what a sandbox shows, also complete the [sandbox checklist](references/sandbox-checklist.md).
 
 Keep checklist questions in their owning files. Answer shared items once, using
 actual code, checks and records rather than planned work.

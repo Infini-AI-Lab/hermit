@@ -54,6 +54,11 @@ A pull request that adds or changes tests also answers the
 [test checklist](.agents/skills/prepare-pr/references/test-checklist.md): where a test goes, how it is named and
 documented, what it asserts, and what it may touch.
 
+A pull request that adds or changes a method or a dataset and starts a process or changes what a sandbox shows
+also answers the [sandbox checklist](.agents/skills/prepare-pr/references/sandbox-checklist.md): it reuses the
+framework's sandbox, states why for anything that cannot, and treats a change to the sandbox itself as a core
+change agreed with the core team first.
+
 GitHub Actions (`.github/workflows/tests.yml`) runs `python -m pytest --changed` against the base branch on every
 pull request, and the complete suite on main, daily and on demand, on Ubuntu with bubblewrap. Tests whose
 dependencies it does not install (agent CLIs, AgentDyn, prepared benchmark data) skip there, as they do locally.
