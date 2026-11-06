@@ -397,12 +397,15 @@ def test_opro_learns_the_rules_through_the_trainer(tmp_path):
     assert evaluate(config, "root", log=lambda *_: None)["mean_score"] == 0.0
 
 
-def test_a_run_with_an_unknown_select_stops_before_its_first_rollouts(tmp_path):
-    """The check is in setup: a misconfigured run spends no training pass (the step's own check covers a resume)."""
-    config = make_run(tmp_path, {"select": "best"})
+@pytest.mark.parametrize("params, model, error", [({"select": "best"}, ScriptedOptimizer, "unknown select"),
+                                                  ({}, None, "needs the run's model")])
+def test_a_misconfigured_run_stops_before_its_first_rollouts(tmp_path, params, model, error):
+    """The checks are in setup: a run without `llm` or with an unknown `select` spends no training pass (the step's
+    own checks cover a resume)."""
+    config = make_run(tmp_path, params)
     trainer = Trainer(config, log=lambda *_: None)
-    trainer.llm = ScriptedOptimizer()
-    with pytest.raises(SystemExit, match="unknown select"):
+    trainer.llm = model() if model else None
+    with pytest.raises(SystemExit, match=error):
         trainer.train()
     assert not list((tmp_path / "runs" / "opro-toy").glob("step_*"))
 
