@@ -55,7 +55,7 @@ seen["cwd"] = os.getcwd()
 seen["relative_evidence"] = os.path.exists("../evidence/README.md")
 seen["world_model_ro"] = not os.access("/world-model/memory", os.W_OK)
 ws = Path(os.environ["FAKE_WORKSPACE"])
-areas = [ws / n for n in os.listdir(ws) if n not in ("adapter", "agent_home")] + [ws.parent / "learning_material"]
+areas = [ws / n for n in ("history", "state", "scratch", "output", "task-info")] + [ws.parent / "learning_material"]
 import hermit
 repo = Path(hermit.__file__).resolve().parents[1]
 areas += [repo / "examples", repo / "hermit" / "agent" / "evolver" / "methods" / "mwm" / "materials"]
@@ -119,7 +119,8 @@ def make(tmp: Path, monkeypatch, steps: int = 2, deployment_param: bool = False)
     rows = [{"id": f"q{i}", "n": i, "block": i} for i in range(1, steps + 1)]
     (tmp / "tasks.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
     (tmp / "train.txt").write_text("".join(f"q{i}\n" for i in range(1, steps + 1)))
-    (tmp / "pipeline.py").write_text(PIPELINE)
+    (tmp / "agent").mkdir(exist_ok=True)
+    (tmp / "agent" / "pipeline.py").write_text(PIPELINE)            # the task sandbox's one declared path
     (tmp / "judge.py").write_text("def score(task, output):\n    return 1.0\n")
     (tmp / "echo.py").write_text("def echo(text):\n    return {'text': text}\n")
     deployment = Path(__file__).resolve().parents[3] / "examples/clbench_database/utils/task-info/mwm"
@@ -131,15 +132,16 @@ def make(tmp: Path, monkeypatch, steps: int = 2, deployment_param: bool = False)
     else:
         shutil.copytree(deployment, tmp / "task-info" / "mwm")
     config = {"data": {"tasks": "tasks.jsonl", "train": "train.txt", "step_size": 1, "shuffle": False},
-              "task_info": "task-info", "agent": {"name": "pipeline.py:run", "concurrency": 1},
+              "task_info": "task-info", "agent": {"name": "agent/pipeline.py:run", "concurrency": 1},
               "judge": {"path": "judge.py"}, "template": "mwm",
               "evolver": {"name": "mwm", "params": params},
               "evolver_access": {"environment": [str(evidence)],
                                  "tools": [{"name": "echo", "description": "Echo a text.", "entrypoint": "echo.py:echo",
                                             "input_schema": {"type": "object", "properties": {"text": {"type": "string"}}},
                                             "output_schema": {"type": "object"}}]},
-              "sandbox": {"enabled": bool(shutil.which("bwrap")), "network": "none",
-                          "profiles": {"rollout": {"write": [str(tmp / "taskdir")]}}},   # the host's task directory
+              "sandbox": {"enabled": bool(shutil.which("bwrap")), "evolver": {"env": ["FAKE_*"]}},
+              "environment": {"read": ["agent"], "write": [str(tmp / "taskdir")],    # the host's task directory
+                              "env": ["MWM_TEST_EVIDENCE"]},
               "trainer": {"run_name": "mwm-test", "output_dir": "runs", "epochs": 1, "call_timeout_min": 10}}
     path = tmp / "run.yaml"
     path.write_text(yaml.safe_dump(config))

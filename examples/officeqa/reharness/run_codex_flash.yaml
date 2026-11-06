@@ -32,8 +32,6 @@ agent:
     timeout_s: 3600
     project_doc_max_bytes: 204800           # 200 KiB: five retrieved reflections exceed Codex's default 32 KiB,
                                        # past which it silently drops the rest of AGENTS.md
-    isolation: container               # each session in a container of its own (hermit/agent/base/container.py)
-    container: {image: "officeqa-codex:0.162.0", network: oq-sandbox, proxy: "http://oq-egress:3128"}
 judge:
   path: ../utils/judge.py
 template: reharness
@@ -47,14 +45,11 @@ evolver:
 llm:
   model: fireworks/accounts/fireworks/models/glm-5p3-flash
   extra_body: {reasoning_effort: medium}
+environment:                         # the acting agent: Codex in a container of its own
+  image: "officeqa-codex:0.162.0"
+  container: {"network": "oq-sandbox", "proxy": "http://oq-egress:3128"}
 sandbox:
   enabled: true
-  network: restricted
-  allow: []
-  read: []
-  env: []
-  profiles:
-    rollout: {enabled: false}          # the agent drives Docker; each Codex session is in a container of its own
 trainer:
   run_name: flash-codex-reharness
   output_dir: runs

@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """Inside a sandbox with its own network namespace: re-create the forwarded ports, check the isolation, then run.
 
-    python -m hermit.sandbox_relay [--forward PORT=SOCKET ...] [--deny PATH ...] [--report SOCKET] -- COMMAND
+    python -m hermit.sandbox_relay [--forward PORT=SOCKET ...] [--deny PATH ...] [--limit KEY=VALUE ...]
+                                   [--report SOCKET] -- COMMAND
 
 The namespace has loopback only. Each `--forward PORT=SOCKET` listens on 127.0.0.1:PORT and relays every connection
 to a Unix socket the host side serves (the host bridges it to its own 127.0.0.1:PORT): the run's tool endpoint, the
 allowlist proxy, a model meter. Before the command starts the relay checks the isolation: an outside TCP connection
 must fail, every forwarded port must answer, every `--deny` path must not exist. The result goes to the host over
 `--report` (a socket, not a file the command could later rewrite); the command does not start unless it passed.
+Each `--limit` (memory_mb, file_mb, cpu_s) is set on the command before it starts.
 
 Standard library only: it runs under whatever Python the sandbox shows.
 """
@@ -17,8 +19,8 @@ import argparse
 import errno
 import json
 import os
+import resource
 import socket
-import stat
 import subprocess
 import sys
 import threading
@@ -75,9 +77,8 @@ def listen_forward(port: int, sock_path: str) -> bool:
     return True
 
 
-def probe(ports: list[int], deny: list[str] = (), keep: list[str] = (), open_network: bool = False) -> dict:
-    """The isolation as seen from inside: outside TCP blocked, forwarded ports open, denied paths absent or covered.
-    `keep` are the paths this command mounted on top of a covered directory: they are all it may hold. On an open
+def probe(ports: list[int], deny: list[str] = (), open_network: bool = False) -> dict:
+    """The isolation as seen from inside: outside TCP blocked, forwarded ports open, denied paths absent. On an open
     network only the paths are checked."""
     outside = {}
     for host, port in ([] if open_network else OUTSIDE):
@@ -93,27 +94,23 @@ def probe(ports: list[int], deny: list[str] = (), keep: list[str] = (), open_net
             forwarded[str(port)] = "open"
         except OSError as exc:
             forwarded[str(port)] = f"closed ({type(exc).__name__})"
-    denied = {path: _hidden(path, keep) for path in deny}
+    denied = {path: ("absent" if not os.path.lexists(path) else "visible") for path in deny}
     passed = (all(v != "reachable" for v in outside.values()) and all(v == "open" for v in forwarded.values())
-              and all(v in ("absent", "masked") for v in denied.values()))
+              and all(v == "absent" for v in denied.values()))
     return {"passed": passed, "outside": outside, "forwarded": forwarded, "denied": denied}
 
 
-def _hidden(path: str, keep: list[str] = ()) -> str:
-    """absent (not there), masked (a covered file reads as empty, a covered directory holds nothing but the paths
-    this command mounted on top of it), or visible."""
-    if not os.path.lexists(path):
-        return "absent"
-    try:
-        if os.path.isdir(path):
-            def kept(entry):
-                full = os.path.join(path, entry)
-                return any(k == full or k.startswith(full + "/") for k in keep)
-            return "masked" if all(kept(e) for e in os.listdir(path)) else "visible"
-        st = os.stat(path)
-        return "masked" if stat.S_ISCHR(st.st_mode) or (stat.S_ISREG(st.st_mode) and st.st_size == 0) else "visible"
-    except OSError:
-        return "absent"
+LIMITS = {"memory_mb": (resource.RLIMIT_AS, 1 << 20), "file_mb": (resource.RLIMIT_FSIZE, 1 << 20),
+          "cpu_s": (resource.RLIMIT_CPU, 1)}
+
+
+def _limiter(limits: dict):
+    """A preexec function that sets each limit on the command (soft and hard: the command cannot raise it)."""
+    def apply():
+        for key, value in limits.items():
+            which, unit = LIMITS[key]
+            resource.setrlimit(which, (value * unit, value * unit))
+    return apply
 
 
 def _report(sock_path: str, result: dict) -> None:
@@ -128,12 +125,13 @@ def _report(sock_path: str, result: dict) -> None:
 def main(argv: list[str] | None = None) -> None:
     argv = sys.argv[1:] if argv is None else argv
     if "--" not in argv:
-        raise SystemExit("usage: sandbox_relay [--forward PORT=SOCKET] [--deny PATH] [--report SOCKET] -- COMMAND")
+        raise SystemExit("usage: sandbox_relay [--forward PORT=SOCKET] [--deny PATH] [--limit KEY=VALUE] "
+                         "[--report SOCKET] -- COMMAND")
     split = argv.index("--")
     parser = argparse.ArgumentParser()
     parser.add_argument("--forward", action="append", default=[])
     parser.add_argument("--deny", action="append", default=[])
-    parser.add_argument("--keep", action="append", default=[])
+    parser.add_argument("--limit", action="append", default=[])
     parser.add_argument("--report")
     parser.add_argument("--open-network", action="store_true")
     args = parser.parse_args(argv[:split])
@@ -142,7 +140,7 @@ def main(argv: list[str] | None = None) -> None:
         port, _, sock_path = item.partition("=")
         listen_forward(int(port), sock_path)
         ports.append(int(port))
-    result = probe(ports, args.deny, args.keep, open_network=args.open_network)
+    result = probe(ports, args.deny, open_network=args.open_network)
     if args.report:
         _report(args.report, result)
     if not result["passed"]:
@@ -151,7 +149,11 @@ def main(argv: list[str] | None = None) -> None:
     command = argv[split + 1:]
     # The command keeps the descriptors it was started with (a worker's result pipe); the relay's own sockets are
     # created non-inheritable, so nothing of the relay leaks into it.
-    proc = subprocess.Popen(command, close_fds=False)
+    limits = {k: int(v) for k, _, v in (item.partition("=") for item in args.limit)}
+    unknown = set(limits) - set(LIMITS)
+    if unknown:
+        raise SystemExit(f"sandbox_relay: unknown limits {sorted(unknown)}")
+    proc = subprocess.Popen(command, close_fds=False, preexec_fn=_limiter(limits) if limits else None)
     # The relay's own copy of a result pipe (a worker's) closes now: only the command holds it.
     if os.environ.get("HA_RESULT_FD", "").isdigit():
         try:

@@ -1,4 +1,5 @@
-"""One CLI session in a Docker container of its own (`agent.params.isolation: container`).
+"""One CLI session in a Docker container of its own (the acting agent's `environment.image`, an `llm: {cli: codex}`
+endpoint's `isolation: container`).
 
 The container has: the image (a CLI, ripgrep and python3; docker/codex/Dockerfile builds Codex's); the workspace and
 the session's home read-write, and the task's mounts (read-only unless a mount says otherwise), each at the path the
@@ -8,8 +9,9 @@ model provider) and nothing else. Codex's own workspace-write sandbox (bubblewra
 commands write only the workspace, /tmp and parts of its home, and have no network at all; bubblewrap needs
 namespaces, which Docker allows only with SYS_ADMIN, seccomp and AppArmor off.
 
-`agent.params.container` names the image, the network and the proxy; each defaults to the environment's
-HERMIT_CODEX_IMAGE, HERMIT_CODEX_NETWORK and HERMIT_CODEX_PROXY, else to the names below.
+The session's `container` setting names the image, the network and the proxy (for the acting agent the run
+config's `environment.image` and `environment.container`, for a CLI model endpoint `llm.container`); each defaults
+to the environment's HERMIT_CODEX_IMAGE, HERMIT_CODEX_NETWORK and HERMIT_CODEX_PROXY, else to the names below.
 """
 from __future__ import annotations
 
@@ -38,7 +40,7 @@ def settings(params: dict) -> dict[str, str]:
     given = params.get("container") or {}
     unknown = set(given) - set(DEFAULTS)
     if unknown:
-        raise ValueError(f"agent.params.container: unknown keys {sorted(unknown)}; known: {sorted(DEFAULTS)}")
+        raise ValueError(f"container settings: unknown keys {sorted(unknown)}; known: {sorted(DEFAULTS)}")
     return {k: str(given.get(k) or os.environ.get(env) or default) for k, (env, default) in DEFAULTS.items()}
 
 

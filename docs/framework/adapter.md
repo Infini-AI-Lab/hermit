@@ -228,7 +228,7 @@ the same record `hermit serve` writes; the log must live outside the adapter dir
 keeps under version control, and `Session` refuses a path inside it. The [task interface](task.md) leaves host
 integration to the pipeline; it does not automatically implement every export.
 
-Outside a run's rollout sandbox (a production program, say), `Session(adapter, sandbox=True)` keeps the adapter's code
+Outside a run's task sandbox (a production program, say), `Session(adapter, sandbox=True)` keeps the adapter's code
 out of the program: the tools run in a `hermit serve` inside a sandbox (no network, the adapter read-only,
 nothing writable but the evidence store), reached over MCP, and the audit log is still written by the program. Pass a
 configured `hermit.sandbox.Sandbox` instead of `True` to grant more. `deployment`, `learning_material` and

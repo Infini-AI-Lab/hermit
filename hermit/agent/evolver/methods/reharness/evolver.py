@@ -193,8 +193,8 @@ class ReHarnessEvolver(Evolver):
             if ctx.sandbox is not None and getattr(ctx.sandbox, "enabled", False) and \
                     not re.match(r"https?://(?:127\.0\.0\.1|localhost)[:/]", url):
                 raise RuntimeError(f"{url_env}={url}: a sandboxed adapter reaches loopback endpoints (127.0.0.1 or "
-                                   "localhost) only; put a relay on the loopback in front of the provider, or run with "
-                                   "sandbox.enabled: false")
+                                   "localhost) only; put a relay on the loopback in front of the provider (the examples' "
+                                   "launch.sh starts one)")
             vectors, _ = client.embed(["ping"])       # fail now, not at the first instance
             self._dim = len(vectors[0])
 

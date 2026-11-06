@@ -127,21 +127,38 @@ def test_direct_and_react_refuse_a_time_limit_they_cannot_keep():
             make(name, {}, FunctionModel(lambda **_: {"content": "x"})).run("hi", limits=Limits(timeout_s=1))
 
 
-def test_a_sandboxed_cli_refuses_data_it_cannot_place_or_hosts_it_cannot_limit(tmp_path):
+def test_a_sandboxed_cli_refuses_what_its_sandbox_cannot_keep(tmp_path):
+    shown = tmp_path / "shown"
+    shown.mkdir()
+
     class Box:
         enabled, network, allow = True, "isolated", ["example.com"]
+        readable, writable, binds = [shown], [], []
 
         def wrap(self, command, **kw):
             return command, kw["env"]
     agent = make("codex", {"web_search": False, "isolation": "sandbox", "sandbox": Box()})
-    data = tmp_path / "data"
-    data.mkdir()
-    with pytest.raises(Unsupported, match="its own path"):
-        agent.run("go", workspace=tmp_path, limits=Limits(readable=[Mount(data, Path("docs"))]))
-    with pytest.raises(Unsupported, match="sandbox.allow"):
+    with pytest.raises(Unsupported, match="allowed hosts"):
         agent.run("go", workspace=tmp_path, limits=Limits(network=[]))
-    with pytest.raises(Unsupported, match="did not isolate"):        # a wrap without bubblewrap hides nothing
-        agent.run("go", workspace=tmp_path, limits=Limits(hidden=[tmp_path / "secret"]))
+    with pytest.raises(Unsupported, match="lies in what the sandbox shows"):    # an allowlist shows what it grants
+        agent.run("go", workspace=tmp_path, limits=Limits(hidden=[shown / "secret"]))
+    home = tmp_path / "home"
+    agent = make("codex", {"web_search": False, "isolation": "sandbox", "sandbox": Box(), "home": str(home)})
+    for hidden in (home / "private", tmp_path / "work" / "private", Path("/usr/bin/true")):   # its own, the system
+        with pytest.raises(Unsupported, match="lies in what the sandbox shows"):
+            agent.run("go", workspace=tmp_path / "work", limits=Limits(hidden=[hidden]))
+    from hermit.sandbox import PACKAGE, Sandbox
+    framework = make("codex", {"web_search": False, "isolation": "sandbox", "sandbox": Sandbox(framework=True)})
+    with pytest.raises(Unsupported, match="lies in what the sandbox shows"):    # the framework it shows
+        framework.run("go", workspace=tmp_path / "work", limits=Limits(hidden=[PACKAGE / "config.py"]))
+    install = tmp_path / "opt" / "private-cli"
+    (install / "bin").mkdir(parents=True)
+    (install / "bin" / "codex").write_text("#!/bin/sh\n")
+    (install / "bin" / "codex").chmod(0o755)
+    cli = make("codex", {"web_search": False, "isolation": "sandbox", "sandbox": Sandbox(framework=True),
+                         "bin": str(install / "bin" / "codex")})
+    with pytest.raises(Unsupported, match="lies in what the sandbox shows"):    # the CLI's own installation
+        cli.run("go", workspace=tmp_path / "work", limits=Limits(hidden=[install / "secret.txt"]))
 
 
 def test_an_interrupted_caller_stops_the_session(tmp_path):
@@ -595,18 +612,24 @@ def test_without_isolation_data_is_linked_inside_the_workspace_only(tmp_path):
     assert (work / "docs").resolve() == new
 
 
-def test_the_sandbox_places_a_relative_target_under_the_workspace(tmp_path, monkeypatch):
+def test_the_sandbox_shows_a_mount_at_its_target(tmp_path):
+    """A mount is a bind in the run's sandbox: shown under its target (a relative one under the workspace), not at
+    its own path."""
+    seen = {}
+
     class Box:
         enabled, network, allow = True, "isolated", []
 
         def wrap(self, command, **kw):
+            seen.update(kw)
             return command, kw["env"]
-    data = tmp_path / "data"
+    data, work = tmp_path / "data", tmp_path / "work"
     data.mkdir()
-    monkeypatch.chdir(tmp_path)                                           # "data" from here is the source itself
-    with pytest.raises(Unsupported, match="its own path"):
-        make("codex", {"web_search": False, "isolation": "sandbox", "sandbox": Box()}).run(
-            "go", workspace=tmp_path / "work", limits=Limits(readable=[Mount(data, Path("data"))]))
+    work.mkdir()
+    make("codex", {"web_search": False, "isolation": "sandbox", "sandbox": Box(), "bin": "true"}).run(
+        "go", workspace=work, limits=Limits(readable=[Mount(data, Path("docs")), Mount(data, Path("/data"))]))
+    assert (data, str(work.resolve() / "docs"), False) in seen["binds"] and (data, "/data", False) in seen["binds"]
+    assert seen["chdir"] == work.resolve()
 
 
 def test_a_call_given_up_while_a_proxy_holds_its_connect_stops(monkeypatch):
@@ -640,3 +663,123 @@ def test_without_isolation_a_target_cannot_climb_out_of_the_workspace(tmp_path):
         make("codex", {"web_search": False}).run(
             "go", workspace=tmp_path / "work", limits=Limits(readable=[Mount(tmp_path / "data", Path("../escaped"))]))
     assert not (tmp_path / "escaped").exists()
+
+
+def test_a_model_only_network_limit_holds_where_the_sandbox_allows_just_that_model(tmp_path):
+    """The run's sandbox allows the session's provider (its key and host are given to it): limiting the session to
+    its model is kept; another allowed host still refuses it."""
+    from hermit.sandbox import Sandbox
+    binding = {"base_url": "https://api.example.com/v1", "model": "m", "api_key_env": "EXAMPLE_KEY"}
+    cases = ((["api.example.com"], [], {}, False), (["api.example.com", "other.example.com"], [], {}, True),
+             (["api.example.com"], [5432], {}, True),               # a database forwarded besides
+             (["api.example.com"], [], {3130: tmp_path / "svc.sock"}, True))     # a service through a socket
+    for allow, forward, sockets, refused in cases:
+        box = Sandbox(network="allowlist", allow=allow, forward=forward, sockets=sockets)
+        agent = make("codex", {"web_search": False, "isolation": "sandbox", "sandbox": box, "binding": binding}, None)
+        if refused:
+            with pytest.raises(Unsupported, match="more than the model"):
+                agent._isolation(tmp_path, Limits(network=[]))
+        else:
+            assert agent._isolation(tmp_path, Limits(network=[]))[0] == "sandbox"
+
+
+def test_a_login_sessions_plan_waits_come_off_its_callers_deadline(tmp_path, monkeypatch):
+    """A container session's caller is stopped at its deadline: time spent waiting for the login's plan (and a
+    refused session's rerun) is not given back to the session's timeout; past the deadline no session starts."""
+    import contextlib
+    import time as _time
+    from hermit.agent.base import cli as base_cli
+    given = []
+    monkeypatch.setattr(base_cli.codex_login, "wait", lambda *a: _time.sleep(2) or None)
+    monkeypatch.setattr(base_cli.codex_login, "slot", lambda *a: contextlib.nullcontext(True))
+    monkeypatch.setattr(base_cli.codex_login, "held", lambda plan: False)
+    agent = make("codex", {"web_search": False, "login": "chatgpt", "plan_dir": str(tmp_path / "plan"),
+                           "deadline": _time.time() + 10}, None)
+    monkeypatch.setattr(type(agent), "_session", lambda self, prompt, **kw: given.append(kw["limits"].timeout_s)
+                        or base_cli.Result(reply="ok", extra={"served": True}))
+    agent.run("go", workspace=tmp_path, limits=Limits(timeout_s=3600))
+    assert given and given[0] <= 8.1
+    far = agent.configured(deadline=_time.time() + 7200)            # a distant deadline keeps the default hour
+    assert far._within(None).timeout_s == 3600
+    late = agent.configured(deadline=_time.time() + 1)
+    result = late.run("go", workspace=tmp_path, limits=Limits(timeout_s=3600))
+    assert result.extra["unavailable"] and "deadline passed" in result.extra["output_tail"] and len(given) == 1
+
+
+def test_a_session_without_limits_or_deadline_runs(tmp_path, monkeypatch):
+    """No deadline and no limits: the session runs (a caller's None limits are no expired deadline)."""
+    from hermit.agent.base import cli as base_cli
+    ran = []
+    agent = make("codex", {"web_search": False}, None)
+    monkeypatch.setattr(type(agent), "_session", lambda self, prompt, **kw: ran.append(kw["limits"])
+                        or base_cli.Result(reply="ok", extra={"served": True}))
+    assert agent.run("go", workspace=tmp_path).reply == "ok" and ran == [None]
+
+
+def test_the_sessions_preparation_comes_off_its_callers_deadline(tmp_path, monkeypatch):
+    """The sign-in copy, the tool server and the container checks take time before the CLI starts: the process is
+    given what is left of the deadline, and none is started past it."""
+    import time as _time
+    from hermit.agent.base import cli as base_cli
+    given = []
+    monkeypatch.setattr(base_cli.CliAgent, "_sign_in", lambda self, home: _time.sleep(1.5) or [])
+    monkeypatch.setattr(base_cli, "run_process", lambda command, **kw: given.append(kw["timeout"]) or (0, False, False))
+    agent = make("codex", {"web_search": False, "deadline": _time.time() + 5}, None)
+    agent.run("go", workspace=tmp_path, limits=Limits(timeout_s=3600))
+    assert given and given[0] <= 3.6
+    late = agent.configured(deadline=_time.time() + 1)
+    assert late.run("go", workspace=tmp_path, limits=Limits(timeout_s=3600)).extra["unavailable"] and len(given) == 1
+
+
+def test_a_slow_sandbox_wrap_comes_off_the_deadline_too(tmp_path, monkeypatch):
+    """The run's sandbox prepares the command (packages, binds, the relay) after the sign-in: what that takes comes
+    off the deadline as well, checked just before the CLI starts."""
+    import time as _time
+    from hermit.agent.base import cli as base_cli
+    from hermit.sandbox import Sandbox
+    given = []
+    box = Sandbox(enabled=False)
+    monkeypatch.setattr(Sandbox, "wrap", lambda self, command, **kw: (_time.sleep(1.5), (command, kw["env"]))[1])
+    monkeypatch.setattr(base_cli, "run_process", lambda command, **kw: given.append(kw["timeout"]) or (0, False, False))
+    agent = make("codex", {"web_search": False, "isolation": "sandbox", "sandbox": box,
+                           "deadline": _time.time() + 5}, None)
+    agent.run("go", workspace=tmp_path, limits=Limits(timeout_s=3600))
+    assert given and given[0] <= 3.6
+
+
+def test_the_logins_waits_never_sleep_past_what_the_caller_has_left(tmp_path, monkeypatch):
+    """A paused plan with a second left: the wait returns at that second, not after its 30 s poll; a hold that cannot
+    be written waits at most what is left, not five minutes."""
+    import threading
+    import time as _time
+    from hermit.agent.base import login as L
+    (tmp_path / "PAUSE").write_text("")
+    started = _time.time()
+    assert L.wait(tmp_path, None, None, max_s=0.5) == "timeout"
+    assert _time.time() - started < 5
+    def unwritable(plan=None):
+        raise OSError("read-only")
+    monkeypatch.setattr(L, "_hold", unwritable)
+    started = _time.time()
+    L.hold(tmp_path, threading.Event(), max_s=0.3)
+    assert _time.time() - started < 5
+
+
+def test_hiding_a_path_under_the_interpreters_prefix_that_no_grant_shows_is_kept(tmp_path):
+    """The check compares a path to hide with what the sandbox really shows, not with the whole interpreter
+    prefix: a file under sys.prefix that no grant holds can be hidden."""
+    import sys
+    from hermit.sandbox import Sandbox
+    if Path(sys.prefix).resolve().is_relative_to("/usr"):
+        pytest.skip("a system Python: its prefix lies in /usr, which every sandbox shows")
+    box = Sandbox(network="isolated")
+    agent = make("codex", {"web_search": False, "isolation": "sandbox", "sandbox": box}, None)
+    assert agent._isolation(tmp_path, Limits(hidden=[Path(sys.prefix) / "private-data" / "answers.json"]))[0] == \
+        "sandbox"
+
+
+def test_a_system_file_every_sandbox_shows_cannot_be_hidden(tmp_path):
+    from hermit.sandbox import Sandbox
+    agent = make("codex", {"web_search": False, "isolation": "sandbox", "sandbox": Sandbox(network="isolated")}, None)
+    with pytest.raises(Unsupported, match="lies in what the sandbox shows"):
+        agent._isolation(tmp_path, Limits(hidden=[Path("/etc/passwd")]))

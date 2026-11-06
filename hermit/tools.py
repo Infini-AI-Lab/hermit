@@ -13,6 +13,7 @@ import importlib.util
 import inspect
 import json
 from pathlib import Path
+import shutil
 from typing import Callable
 
 from hermit.agent.base.tool import Tool, ToolError, _clip   # noqa: F401 (ToolError: raised by the Trainer's tools)
@@ -39,11 +40,11 @@ def declared(decl: dict, base: Path, source: str, bound: dict, runner=None) -> F
     """A tool declared like an adapter tool: name, description, entrypoint, input_schema, output_schema (none, or
     an empty one, asks for a JSON object back).
     Keyword arguments the function declares among `bound` (for example `_adapter`) are filled by the framework.
-    With a `runner` (the `tool` role's sandbox, isolate.ToolRunner) the code is never imported here: every call runs
-    in a sandboxed worker."""
+    With a `runner` (isolate.ToolRunner) the code is never imported here: every call runs in a sandboxed worker, a
+    template's tool in a strict sandbox, a task's in one built from the run config's `environment`."""
     if runner is not None:
         def call(**arguments):
-            return runner(decl["entrypoint"], base, arguments, bound)
+            return runner(decl["entrypoint"], base, arguments, bound, kind=source)
         return FunctionTool(decl["name"], decl["description"], call, source=source,
                             input_schema=decl.get("input_schema"), output_schema=decl.get("output_schema") or None)
     fn = _load_entry(decl["entrypoint"], base)
@@ -93,8 +94,9 @@ class MeteredModel:
             raise
         finally:
             if self.log_path is not None:
+                from hermit.redact import redact_value      # a key the learner put in a message is not kept
                 with open(self.log_path, "a") as stream:
-                    stream.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+                    stream.write(json.dumps(redact_value(record), ensure_ascii=False, default=str) + "\n")
 
 
 def evolver_agent(client, budget, metered: list | None = None, cancel=None, log_path: Path | None = None):
@@ -105,21 +107,33 @@ def evolver_agent(client, budget, metered: list | None = None, cancel=None, log_
 
 def assemble(*, adapter: Path, root: Path, template_decls: list, task_decls: list, task_base: Path,
              budget, agent=None, python: str | None = None, runner=None,
-             within: list[Path] = ()) -> dict[str, FunctionTool]:
+             within: list[Path] = (), enforce: str | None = "best_effort", resolve=None,
+             snapshot=None) -> dict[str, FunctionTool]:
     """One toolset for one call. `adapter` is the workspace copy the tools act on; `root` the template's files;
     `within` are the learner's other writable directories (scratch, state), where an Evolver keeps a candidate.
-    `agent` is the call's metered `direct` Base Agent (evolver_agent); the `llm` tool calls it."""
+    `agent` is the call's metered `direct` Base Agent (evolver_agent); the `llm` tool calls it. `enforce` is the run's
+    sandbox.enforce for the spec check (None: the run's sandbox is off). `resolve` turns a path the learner names
+    (inside its sandbox) into the path outside. `snapshot` copies what is checked where the learner cannot change it
+    while it is checked (the Trainer's copy, made inside the learner's sandbox); the copy is removed after."""
     from hermit.spec import check_spec
     tools: dict[str, FunctionTool] = {}
     checkable = [Path(p).resolve() for p in (adapter, *within)]
 
-    def check(path: str | None = None) -> dict:
-        target = Path(path) if path else adapter
+    def check(path: str | None = None, _snapshot=None) -> dict:
+        target = (resolve(path) if resolve else Path(path)) if path else adapter
         # The learner's own work only: its working copy, or a candidate it wrote in its scratch or state directory.
         if not any(target.resolve().is_relative_to(c) for c in checkable):
             raise ValueError("check_spec checks your working copy of the adapter, or a copy under your scratch or "
                              "state directory")
-        return check_spec(target, root, python=python).to_dict()
+        take = _snapshot or snapshot          # `_snapshot`: a caller's own (a session's narrower view), never a model's
+        if take is None:
+            return check_spec(target, root, python=python, enforce=enforce).to_dict()
+        copy = take(target)
+        try:
+            result = check_spec(copy, root, python=python, enforce=enforce).to_dict()
+        finally:
+            shutil.rmtree(copy, ignore_errors=True)
+        return json.loads(json.dumps(result).replace(json.dumps(str(copy))[1:-1], json.dumps(str(target))[1:-1]))
     tools["check_spec"] = FunctionTool(
         "check_spec", "Check whether the adapter (default: your working copy) conforms to its template's "
         "specification and deploys. Returns {passed, issues: [{path, check, problem}]}.", check, source="template",

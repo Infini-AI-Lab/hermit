@@ -22,18 +22,19 @@ evolver:
     evidence: null                 # launch.sh: <task workdir>/evidence
     block_size: null               # every block gets a session, the stream's last one included
     learner_tools: []
-    hide: ["module:servelearnbench"]   # the benchmark's evaluator and test generator live in the installed package
 evolver_access:
   environment: []                  # launch.sh: [<task workdir>/evidence]
   tools: []                        # the venue has no channel: the learner reads /evidence and /environment only
+environment:                         # the task sandbox: the agent, MWM's venue texts, the benchmark
+  read: [../utils/agent, ../utils/task-info/mwm, ../utils/windows.json]   # windows.json: the task -> window map
+                                    # (prepare.py; its ids are the package's own test sets, shown already)
+  packages: [servelearnbench]       # its environment and its scoring live in one package
+  write: [$SLB_WORKDIR]            # the run's task directory: rows, episodes, evidence
+  env: ["SLB_*"]                     # the launcher's settings; SLB_API_KEY is the benchmark's own client's key
+                                    # (it calls the model through the launcher's wire meter): a recorded exception
 sandbox:
-  enabled: true
-  network: none                    # the learner's own namespace forwards only its meter and the tool gate
-  allow: []
-  env: [MW_TOOLSRV]                # the channel client's URL (the Evolver's tool gate); the learner's model key
-                                   # variable is always passed
-  profiles:                        # the agent's sandbox (rollout; eval and check take it too); launch.sh sets it
-    rollout: {write: [$SLB_WORKDIR]}                               # the run's task directory: rows, episodes, evidence
+  evolver:
+    env: [MW_TOOLSRV]
 trainer:
   run_name: null                   # launch.sh: <tag>
   output_dir: runs

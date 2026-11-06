@@ -1,6 +1,8 @@
-"""The roles besides the learner (#11): the task's agent in rollout, eval and check, and declared tools, each in a
-sandbox of its own, with the run's secrets covered and only the worker able to hand a result back."""
+"""The task sandbox (docs/developer/sandbox-design.md): the acting agent in a worker inside bubblewrap, shown only what
+the run config's `environment` declares, its model's key and host passed in; the judge's sandboxes; the
+declared tools' strict sandbox; and only the worker able to hand a result back."""
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -11,9 +13,9 @@ import yaml
 
 import hermit.sandbox as sandbox_module
 from hermit.config import Config
-from hermit.isolate import (SandboxedAgent, ToolRunner, _model_access, _owned_log, agent_pipeline,
-                                    config_paths, profile, project_records, project_root, run_secrets, validate)
-from hermit.sandbox import Sandbox
+from hermit.isolate import (SandboxedAgent, SandboxedJudge, ToolRunner, _owned_log, agent_pipeline,
+                            host_pipeline, judge_for, run_secrets, sanitized_copy)
+from hermit.sandbox import Bind, Sandbox
 from hermit.tools import assemble
 from toy_task import make_task
 
@@ -35,118 +37,161 @@ def _bwrap_works() -> bool:
 needs_bwrap = pytest.mark.skipif(not _bwrap_works(), reason="needs a working bubblewrap (unprivileged user namespaces)")
 
 
+def sandboxed_task(tmp_path, pipeline=None, **environment):
+    """The toy task with its agent's code in agent/ (declared read-only) and the data, the judge and the runs beside
+    it (never declared)."""
+    path = make_task(tmp_path, sandbox={"enabled": True}, agent={"name": "agent/pipeline.py:run", "concurrency": 2},
+                     environment={"read": ["agent"], **environment})
+    (tmp_path / "agent").mkdir(exist_ok=True)
+    (tmp_path / "agent" / "pipeline.py").write_text(pipeline if pipeline is not None else SNOOP)
+    return path
+
+
+def load_error(path, *overrides) -> str:
+    with pytest.raises(ValueError) as exc:
+        Config.load(path, list(overrides))
+    return str(exc.value)
+
+
 # --- configuration --------------------------------------------------------------------------------------------------
 
-def test_profiles_merge_with_the_top_level_unless_told_not_to():
-    s = {"enabled": True, "read": ["shared"], "allow": ["a.example"], "packages": ["p"],
-         "profiles": {"rollout": {"read": ["env"], "write": ["out"]}, "eval": {"inherit": False, "allow": ["b"]},
-                      "check": {"enabled": False}}}
-    assert profile(s, "rollout") == {"enabled": True, "read": ["shared", "env"], "write": ["out"],
-                                     "allow": ["a.example"], "packages": ["*", "p"], "mask": [],
-                                     "network": "open", "env": None}
-    assert profile(s, "eval")["read"] == [] and profile(s, "eval")["allow"] == ["b"]
-    assert profile(s, "check")["enabled"] is False and profile(s, "learner")["read"] == ["shared"]
-    assert profile({**s, "enabled": False}, "rollout")["enabled"] is False     # the global switch wins
+def test_the_old_sandbox_keys_are_refused_with_where_they_went(tmp_path):
+    for key, word in (("profiles", "environment"), ("network", "environment.network"), ("allow", "allowed_hosts"),
+                      ("read", "evolver_access"), ("packages", "environment.packages"), ("audit", "removed")):
+        path = make_task(tmp_path / key, sandbox={"enabled": True, key: {} if key == "profiles" else []}) \
+            if (tmp_path / key).mkdir() is None else None
+        assert word in load_error(path)
+    (tmp_path / "clean").mkdir()
+    clean = make_task(tmp_path / "clean")
+    assert "environment.network" in load_error(clean, "sandbox.network=open")          # an override too
+    assert "allowlist" in load_error(clean, "evolver.params.hide=null")                # hide, whatever its value
+    assert "environment" in load_error(clean, "sandbox={enabled: true, profiles: {rollout: {network: open}}}")
 
 
-def test_the_agent_roles_preset_and_the_strict_roles():
-    s = {"network": "isolated", "env": ["A"], "packages": [],
-         "profiles": {"rollout": {"read": ["../env"], "mask": ["../utils/.private"]}}}
-    for role in ("eval", "check"):                                # the same agent: rollout's profile
-        assert profile(s, role)["read"] == ["../env"] and profile(s, role)["mask"] == ["../utils/.private"]
-    for role in ("rollout", "eval", "check"):                     # task code: open network, its environment, all packages
-        p = profile(s, role)
-        assert p["network"] == "open" and p["env"] is None and "*" in p["packages"]
-    for role in ("learner", "tool"):                              # strict: the top-level settings
-        p = profile(s, role)
-        assert p["network"] == "isolated" and p["env"] == ["A"] and "*" not in p["packages"]
-    tight = {"profiles": {"rollout": {"network": "isolated", "env": ["SLB_WORKDIR"]}}}
-    assert profile(tight, "rollout")["network"] == "isolated" and profile(tight, "eval")["env"] == ["SLB_WORKDIR"]
-    with pytest.raises(ValueError):
-        profile({"profiles": {"rollout": {"network": "sideways"}}}, "rollout")
+def test_the_sections_are_checked(tmp_path):
+    (tmp_path / "t").mkdir()
+    path = make_task(tmp_path / "t")
+    assert "environment.network" in load_error(path, "environment.network=restricted")
+    assert "needs environment.network: allowlist" in load_error(path, "environment.allowed_hosts=[a.example]")
+    assert "judge.mode" in load_error(path, "judge.mode=inside")
+    assert "shared or separate" in load_error(path, "judge.tests=[answers]")
+    assert "separate" in load_error(path, "judge.mode=shared", "judge.collect=[out]")
+    assert "memory_mb" in load_error(path, "environment.resources={processes: 4}")
+    assert "environment.image" in load_error(path, "agent.params.isolation=container")
+    assert "evolver sandbox" in load_error(path, "evolver.params.isolation=none")      # never unconfined
+    assert "evolver sandbox" in load_error(path, "evolver.params.isolation=container")
+    assert "codex" in load_error(path, "environment.image=some:image")       # the toy agent is no Codex
+    assert "model reference" in load_error(path, "sandbox.enabled=true", "agent.name=codex",
+                                           "agent.params={web_search: false}")   # a CLI agent with no sign-in
+    custom = Config.load(path, ["sandbox.enabled=true", "agent.base=codex",   # a task's own agent on Codex, with a
+                                "agent.model={ref: fireworks/accounts/fireworks/models/glm-5p3-flash}"])   # model
+    assert custom.data["agent"]["params"]["binding"] and custom.data["agent"]["params"]["model"] == \
+        "accounts/fireworks/models/glm-5p3-flash"             # bound as the CLI's model, not a dictionary for -m
+    assert "positive whole number" in load_error(path, "environment.resources={memory_mb: garbage}")
+    assert "positive whole number" in load_error(path, "sandbox.evolver.resources={cpu_s: -1}")
+    assert "must be a list" in load_error(path, "environment.env=false")
+    assert "must be a list" in load_error(path, "judge.collect=false")
+    assert "llm.cli runs in a sandbox of its own" in load_error(path, "sandbox.enabled=true",
+                                                                "llm={cli: codex, model: gpt-5, web_search: false}")
+    Config.load(path, ["llm={cli: codex, model: gpt-5, login: chatgpt, web_search: false}"])
+    assert "sandbox.hide must be a list" in load_error(path, "sandbox.hide=json")
+    for falsy in ("false", "0", '""', "{}"):                        # never read as no hide list
+        assert "sandbox.hide must be a list" in load_error(path, f"sandbox.hide={falsy}")
+    assert "not installed" in load_error(path, "sandbox.hide=[no_such_package_anywhere]")
+    Config.load(path, ["sandbox.hide=[json.decoder]"])
+    assert "sandbox.evolver takes" in load_error(path, "sandbox.evolver=null")
+    assert "sandbox.evolver takes" in load_error(path, "sandbox.evolver=false")
+    assert "container" in load_error(path, "agent.name=codex", "environment.image=some:image",
+                                     "environment.resources={memory_mb: 128}")      # limits a container ignores
 
 
-def test_the_project_is_the_directory_holding_the_config_and_the_task(tmp_path):
-    """An example keeps its config in a method's directory and the task in ../utils."""
-    utils, method = tmp_path / "ex" / "utils", tmp_path / "ex" / "prompt_only"
-    (utils / "agent").mkdir(parents=True)
-    method.mkdir()
-    for f in ("tasks.jsonl", "train.txt", "judge.py", "agent/agent.py"):
-        (utils / f).write_text("")
-    (method / "run.yaml").write_text(yaml.safe_dump({
-        "data": {"tasks": "../utils/tasks.jsonl", "train": "../utils/train.txt"}, "task_info": "../utils",
-        "agent": {"name": "../utils/agent/agent.py:A"}, "judge": {"path": "../utils/judge.py"},
-        "template": "prompt-only@1.0", "evolver": {"name": "prompt_only"}}))
-    config = Config.load(method / "run.yaml", [])
-    assert project_root(config) == [(tmp_path / "ex").resolve()]
+def test_a_declared_path_may_not_hold_or_lie_in_a_secret(tmp_path):
+    (tmp_path / "t").mkdir()
+    path = make_task(tmp_path / "t")
+    assert "overlaps" in load_error(path, "environment.read=[.]")             # holds the data and the judge
+    assert "overlaps" in load_error(path, "environment.read=[runs]")          # every run's records, this one's too
+    assert "overlaps" in load_error(path, "environment.read=[runs/toy-run/x]")   # inside this run's directory
+    Config.load(path, ["environment.write=[runs/task]"])                     # a launcher's task directory: fine
+    assert "overlaps" in load_error(path, "environment.write=[judge.py]")
+    (tmp_path / "t" / "agent").mkdir()
+    Config.load(path, ["environment.read=[agent]"])                           # beside them: fine
+    assert "a judge test" in load_error(path, "sandbox.enabled=true", "judge.mode=shared",
+                                        "judge.tests=[agent/answers.json]", "environment.read=[agent]")
+    (tmp_path / "t" / "agent" / "old" / "other-run").mkdir(parents=True)
+    (tmp_path / "t" / "agent" / "old" / "other-run" / "steps.jsonl").write_text("{}\n")
+    assert "a run's records" in load_error(path, "environment.read=[agent]")   # another output directory's run
+    assert "a run's records" in load_error(path, "environment.read=[agent/old/other-run/steps.jsonl]")  # or in one
+    import hermit.isolate as isolate_module
+    with pytest.raises(ValueError, match="too many to search"):
+        isolate_module._run_records(tmp_path / "t", limit=1)
+    (tmp_path / "t" / "agent" / "old" / "other-run" / "steps.jsonl").unlink()
+    # What the learner reads (evolver_access.environment, shown at /w/environment/<name>) is checked the same way.
+    assert "overlaps" in load_error(path, "evolver_access.environment=[.]")
+    Config.load(path, ["evolver_access.environment=[agent]"])
+    assert "a judge test" in load_error(path, "sandbox.enabled=true", "judge.mode=shared", "judge.tests=[task-info]",
+                                        "environment.read=[agent]")          # the learner's task description
 
 
-def test_a_profile_path_naming_an_unset_variable_is_an_error(tmp_path, monkeypatch):
-    monkeypatch.delenv("HA_TEST_UNSET", raising=False)
-    config = Config.load(make_task(tmp_path, sandbox={"profiles": {"rollout": {"read": ["$HA_TEST_UNSET/x"]}}}), [])
-    with pytest.raises(ValueError, match="unset environment variable"):
-        config_paths(config, "rollout", "read", profile(config.data["sandbox"], "rollout")["read"])
-    monkeypatch.setenv("HA_TEST_UNSET", str(tmp_path))
-    assert config_paths(config, "rollout", "read", ["$HA_TEST_UNSET/x"]) == [tmp_path / "x"]
-
-
-def test_profiles_reject_unknown_roles_and_keys():
-    with pytest.raises(ValueError, match="unknown role"):
-        validate({"profiles": {"judge": {}}})
-    with pytest.raises(ValueError, match="unknown keys"):
-        validate({"profiles": {"rollout": {"reed": []}}})
-
-
-def test_run_secrets_name_the_data_the_judge_the_runs_and_the_logs(tmp_path):
-    config = Config.load(make_task(tmp_path), [])
+def test_run_secrets_name_the_data_the_judge_its_tests_and_the_runs(tmp_path):
+    config = Config.load(make_task(tmp_path), ["sandbox.enabled=true", "judge.mode=shared", "judge.tests=[gold]"])
     secrets = {p.name for p in run_secrets(config)}
-    assert {"tasks.jsonl", "train.txt", "val.txt", "test.txt", "judge.py", "runs", ".logs"} <= secrets
+    assert {"tasks.jsonl", "train.txt", "val.txt", "test.txt", "judge.py", "runs", "gold"} <= secrets
 
 
-def test_the_agents_model_endpoint_is_allowed_or_forwarded(tmp_path):
-    remote = {"agent": {"name": "react", "params": {"model": {"base_url": "https://api.example.com/v1", "model": "m",
-                                                             "api_key_env": "EXAMPLE_KEY"}}}}
-    allow, keys, ports = _model_access(remote)
-    assert "https://api.example.com/v1" in allow and {u.split("/")[2] for u in allow} == {"api.example.com"}
-    assert keys == ["EXAMPLE_KEY"] and ports == []
-    local = {"agent": {"name": "react", "params": {"model": {"base_url": "http://127.0.0.1:8123/v1", "model": "m"}}}}
-    assert _model_access(local)[0] == [] and _model_access(local)[2] == [8123]
-
-
-def test_a_disabled_role_runs_the_agent_in_process(tmp_path):
-    config = Config.load(make_task(tmp_path, sandbox={"enabled": True, "network": "isolated",
-                                                      "profiles": {"rollout": {"enabled": False}}}), [])
-    pipeline, close = agent_pipeline(config, "rollout", records=None)
+def test_where_the_pipeline_runs(tmp_path):
+    (tmp_path / "a").mkdir()
+    off = Config.load(make_task(tmp_path / "a"), [])
+    assert host_pipeline(off) == "sandbox.enabled is false"
+    pipeline, close = agent_pipeline(off, "rollout", records=None)
     assert not isinstance(pipeline, SandboxedAgent)
     close()
+    (tmp_path / "b").mkdir()
+    on = Config.load(sandboxed_task(tmp_path / "b"), [])
+    assert host_pipeline(on) is None
 
 
-# --- masks ----------------------------------------------------------------------------------------------------------
-
-def test_masks_cover_secrets_and_a_calls_paths_go_on_top(tmp_path, monkeypatch):
+def test_the_judge_runs_where_its_mode_says(tmp_path, monkeypatch):
     fake_bwrap(monkeypatch)
-    base, runs = tmp_path / "base", tmp_path / "base" / "runs"
-    (runs / "r" / "adapter").mkdir(parents=True)
-    (runs / "trees" / "t").mkdir(parents=True)
-    (base / "tasks.jsonl").write_text("secret")
-    outside = tmp_path / "outside.txt"
-    outside.write_text("x")
-    box = Sandbox(network="open", readable=[base], writable=[base],
-                  masked=[base / "tasks.jsonl", runs / "trees" / "t", runs, outside, base / "missing"])
-    args, _ = box.wrap(["true"], readable=[runs / "r" / "adapter"])
-    tasks, runs_s, adapter = str((base / "tasks.jsonl").resolve()), str(runs.resolve()), str((runs / "r" / "adapter").resolve())
-    # A file is covered by an empty regular file (/dev/null cannot be opened where devices are not allowed).
-    cover = args[args.index(tasks) - 1]
-    assert args[args.index(tasks) - 2] == "--ro-bind" and Path(cover).is_file() and Path(cover).stat().st_size == 0
-    tmpfs = next(i for i, a in enumerate(args) if a == "--tmpfs" and args[i + 1] == runs_s)
-    # A path under a covered directory is hidden already; covering it again would leave its mount point visible.
-    assert str((runs / "trees" / "t").resolve()) not in args
-    # The writable base is bound before the masks, so it cannot uncover them; the adapter goes on top of the mask,
-    # and the mask is made read-only only after that.
-    assert args.index(str(base.resolve())) < tmpfs < args.index(adapter) < args.index("--remount-ro")
-    assert str(outside.resolve()) not in args                     # not shown, so nothing to cover
-    box.close()
-    assert not Path(cover).exists()
+    (tmp_path / "a").mkdir()
+    config = Config.load(sandboxed_task(tmp_path / "a"), ["judge.mode=separate", "judge.collect=[logs]",
+                                                          "sandbox.hide=[json.decoder]"])
+    monkeypatch.delenv(sandbox_module.ENV_HIDE, raising=False)
+    pipeline, close_pipeline = agent_pipeline(config, "rollout", records=None)       # sets the run's hide list
+    close_pipeline()
+    hidden = sandbox_module.hidden_paths(["json.decoder"])
+    assert os.environ[sandbox_module.ENV_HIDE].split(os.pathsep) == [str(p) for p in hidden]
+    agent = SandboxedAgent(config, "rollout", records=None)
+    try:
+        judge = judge_for(config, agent)
+        assert isinstance(judge, SandboxedJudge) and judge.mode == "separate"
+        assert judge.box.probe_absent != agent.sandbox.probe_absent        # the judge may read its tests and data
+        assert agent.sandbox.hide == hidden and judge.box.hide == []       # and what the hide list covers
+        judge_file = (tmp_path / "a" / "judge.py").resolve()
+        assert judge.readable[:1] == [judge_file]                           # the file, not its directory
+        (tmp_path / "b").mkdir()
+        host = judge_for(Config.load(sandboxed_task(tmp_path / "b"), []), agent)
+        assert callable(host) and not isinstance(host, SandboxedJudge)
+        # With the sandbox off the task's judge mode stays valid and the judge runs in this process.
+        (tmp_path / "c").mkdir()
+        off = Config.load(sandboxed_task(tmp_path / "c"), ["judge.mode=shared", "sandbox.enabled=false"])
+        pipeline, close = agent_pipeline(off, "rollout", records=None)
+        assert not isinstance(judge_for(off, pipeline), SandboxedJudge)
+        close()
+    finally:
+        agent.close()
+
+
+def test_a_sanitized_copy_drops_what_leaves_it(tmp_path):
+    src = tmp_path / "src"
+    (src / "out").mkdir(parents=True)
+    (src / "out" / "a.txt").write_text("a")
+    (tmp_path / "secret").write_text("gold")
+    (src / "out" / "leak").symlink_to(tmp_path / "secret")
+    (src / "out" / "near").symlink_to("a.txt")
+    skipped = sanitized_copy(src, tmp_path / "dst", ["out", "missing"])
+    assert (tmp_path / "dst" / "out" / "a.txt").read_text() == "a"
+    assert not (tmp_path / "dst" / "out" / "leak").exists() and (tmp_path / "dst" / "out" / "near").is_symlink()
+    assert any("missing" in s for s in skipped) and any("leak" in s for s in skipped)
 
 
 # --- declared tools -------------------------------------------------------------------------------------------------
@@ -158,31 +203,52 @@ def test_a_declared_tool_with_a_runner_is_never_imported_here(tmp_path):
         {"name": "probe", "description": "d", "entrypoint": "tools.py:probe",
          "input_schema": {"type": "object", "properties": {"x": {"type": "integer"}}}}],
         task_decls=[], task_base=tmp_path, budget=type("B", (), {"remaining": lambda s: {}, "snapshot": lambda s: {}})(),
-        runner=lambda entry, base, arguments, bound: calls.append((entry, arguments)) or {"ok": 1})
+        runner=lambda entry, base, arguments, bound, kind="template": calls.append((entry, arguments, kind))
+        or {"ok": 1})
     assert tools["probe"](x=3) == {"ok": 1}
-    assert calls == [("tools.py:probe", {"x": 3})]
+    assert calls == [("tools.py:probe", {"x": 3}, "template")]
 
 
 def test_check_spec_takes_a_candidate_under_scratch_or_state_and_nothing_else(tmp_path, monkeypatch):
-    """GEPA and SkillOpt write each candidate under scratch/ and check it before adopting it (#17 refused those)."""
+    """GEPA and SkillOpt write each candidate under scratch/ and check it before adopting it; a learner names it by
+    its path inside its sandbox, resolved outside."""
     from hermit import tools as module
     seen = []
 
     class Result:
         def to_dict(self):
             return {"passed": True, "issues": []}
-    monkeypatch.setattr("hermit.spec.check_spec", lambda target, root, python=None: seen.append(target) or Result())
+    monkeypatch.setattr("hermit.spec.check_spec",
+                        lambda target, root, python=None, enforce=None: seen.append((target, enforce)) or Result())
     budget = type("B", (), {"remaining": lambda s: {}, "snapshot": lambda s: {}})()
     for d in ("adapter", "scratch", "state", "elsewhere"):
         (tmp_path / d).mkdir()
+    box = Sandbox(binds=[Bind(tmp_path / "scratch", "/w/scratch", True)], layout=(tmp_path, "/w"))
     tools = module.assemble(adapter=tmp_path / "adapter", root=tmp_path, template_decls=[], task_decls=[],
-                            task_base=tmp_path, budget=budget, within=[tmp_path / "scratch", tmp_path / "state"])
+                            task_base=tmp_path, budget=budget, within=[tmp_path / "scratch", tmp_path / "state"],
+                            enforce="required", resolve=box.outside)
     assert tools["check_spec"]()["passed"]
-    assert tools["check_spec"](path=str(tmp_path / "scratch" / "candidate"))["passed"]
+    assert tools["check_spec"](path="scratch/candidate")["passed"]                 # as the learner names it
     assert tools["check_spec"](path=str(tmp_path / "state" / "pool" / "3"))["passed"]
     with pytest.raises(ValueError, match="scratch or state"):
         tools["check_spec"](path=str(tmp_path / "elsewhere"))
-    assert [p.name for p in seen] == ["adapter", "candidate", "3"]
+    assert [p.name for p, _ in seen] == ["adapter", "candidate", "3"] and {e for _, e in seen} == {"required"}
+    # With a snapshot function (the Trainer's copy made inside the learner's sandbox), the copy is what is
+    # checked, never the path the learner can still change; the copy is gone after.
+    copies = []
+
+    def snapshot(source):
+        copy = tmp_path / f"copy{len(copies)}"
+        copy.mkdir()
+        copies.append((source, copy))
+        return copy
+    tools = module.assemble(adapter=tmp_path / "adapter", root=tmp_path, template_decls=[], task_decls=[],
+                            task_base=tmp_path, budget=budget, within=[tmp_path / "scratch"], enforce="required",
+                            resolve=box.outside, snapshot=snapshot)
+    seen.clear()
+    tools["check_spec"](path="scratch/candidate")
+    assert copies[0][0] == tmp_path / "scratch" / "candidate" and seen[0][0] == copies[0][1]
+    assert not copies[0][1].exists()
 
 
 # --- inside a real sandbox ------------------------------------------------------------------------------------------
@@ -239,7 +305,8 @@ def _host_marker_visible():
     return None
 
 def run(task, adapter):
-    here = Path(__file__).resolve().parent
+    code = Path(__file__).resolve().parent
+    here = code.parent                                  # the task's directory: the data, the judge, the runs
     text = (Path(adapter) / "ADAPTER.md").read_text() if adapter else ""
     runs = here / "runs"
     seen = {"tasks": _peek(here / "tasks.jsonl"), "judge": _peek(here / "judge.py"), "test": _peek(here / "test.txt"),
@@ -247,7 +314,7 @@ def run(task, adapter):
             "result_fd_env": os.environ.get("HA_RESULT_FD"),
             "sibling_runs": _peek(here / "other_method" / "runs" / "r" / "feedback.txt"),
             "sibling_logs": _peek(here / "other_method" / ".logs" / "x.txt"),
-            "write_code": _try_write(here / "pipeline.py"), "write_helper": _try_write(here / "helper.py"),
+            "write_code": _try_write(code / "pipeline.py"), "write_helper": _try_write(code / "helper.py"),
             "home": sorted(n for n in (".ssh", ".bashrc", ".codex", ".claude")
                            if os.path.lexists(os.path.join(task.get("home", "/nonexistent"), n))),
             "host_marker": _host_marker_visible()}
@@ -256,7 +323,7 @@ def run(task, adapter):
     forged = subprocess.run([sys.executable, "-c",
         "import os\nn=0\nfor fd in range(3, 64):\n    try:\n        os.write(fd, b'{\"ok\": true, \"output\": {\"output\": \"FORGED\"}}'); n += 1\n    except OSError:\n        pass\nprint(n)"],
         capture_output=True, text=True, close_fds=False).stdout.strip()
-    log = here / ".logs" / f"{task['id']}.txt"        # beside its own code, as real agents do
+    log = code / ".logs" / f"{task['id']}.txt"        # beside its own code, as real agents do
     log.parent.mkdir(exist_ok=True)
     log.write_text("ok")
     answer = str(task["a"] + task["b"]) if "add the numbers" in text else "?"
@@ -265,31 +332,26 @@ def run(task, adapter):
 '''
 
 
-def sandboxed_task(tmp_path, **sandbox):
-    path = make_task(tmp_path, sandbox={"enabled": True, "network": "isolated", **sandbox})
-    (tmp_path / "pipeline.py").write_text(SNOOP)
-    return path
-
 
 def an_adapter(tmp_path, text="Always add the numbers.\n") -> Path:
-    adapter = tmp_path / "runs" / "some-run" / "rollout_adapter"        # under runs/, which is covered
+    adapter = tmp_path / "runs" / "some-run" / "rollout_adapter"        # under runs/, never declared
     adapter.mkdir(parents=True)
     (adapter / "ADAPTER.md").write_text(text)
     return adapter
 
 
 @needs_bwrap
-def test_a_rollout_sees_its_adapter_and_not_the_runs_secrets(tmp_path, monkeypatch):
-    # Attacks from inside: another method's runs and logs beside this one (judge feedback carries the answers),
-    # the agent's own code and a helper beside it, the host's processes (their environment), and the result pipe
-    # through /proc.
+def test_a_rollout_sees_what_is_declared_and_nothing_else(tmp_path, monkeypatch):
+    # Attacks from inside: another method's runs and logs beside this one (judge feedback carries the answers), the
+    # data and the judge beside the agent's code, the agent's own code and a helper beside it, the host's processes
+    # (their environment), the result pipe through /proc.
     for rel, text in (("other_method/runs/r/feedback.txt", "expected '42'"), ("other_method/.logs/x.txt", "log"),
-                      ("helper.py", "X = 1\n")):
+                      ("agent/helper.py", "X = 1\n")):
         (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / rel).write_text(text)
     monkeypatch.setenv("HA_HOST_MARKER", "1")             # in the host's environment, not passed to the agent
-    config = Config.load(sandboxed_task(tmp_path, profiles={"rollout": {"env": ["PYTHONPATH"]}}), [])
-    code_before = (tmp_path / "pipeline.py").read_text() + (tmp_path / "helper.py").read_text()
+    config = Config.load(sandboxed_task(tmp_path), [])
+    code_before = (tmp_path / "agent" / "pipeline.py").read_text() + (tmp_path / "agent" / "helper.py").read_text()
     agent = SandboxedAgent(config, "rollout", records=tmp_path / "records")
     try:
         out = agent({"id": "t1", "a": 1, "b": 2, "home": str(Path.home())}, an_adapter(tmp_path))
@@ -297,30 +359,129 @@ def test_a_rollout_sees_its_adapter_and_not_the_runs_secrets(tmp_path, monkeypat
         agent.close()
     assert out.output == "3"                                          # the adapter was readable
     seen = out.extra["seen"]
-    assert seen["tasks"] == "" and seen["judge"] == "" and seen["test"] == ""   # covered: they read as empty
+    missing = "ERR FileNotFoundError"
+    assert seen["tasks"] == missing and seen["judge"] == missing and seen["test"] == missing   # never shown
     assert seen["runs"] == ["some-run"]                              # only the call's own adapter is under runs/
     assert seen["result_fd_env"] is None and out.extra["forged_writes"] == "0"
     assert out.extra["forged_proc"] == "0" and out.output != "FORGED"    # no pipe of another process reachable
-    assert seen["sibling_runs"] in ("", "ERR FileNotFoundError") and seen["sibling_logs"] in ("", "ERR FileNotFoundError")
+    assert seen["sibling_runs"] == missing and seen["sibling_logs"] == missing
     assert seen["write_code"].startswith("ERR") and seen["write_helper"].startswith("ERR")   # code is read-only
-    assert (tmp_path / "pipeline.py").read_text() + (tmp_path / "helper.py").read_text() == code_before
-    # The home holds only the folders on the way to bound paths (the interpreter, the checkout), none of its own.
+    assert (tmp_path / "agent" / "pipeline.py").read_text() + (tmp_path / "agent" / "helper.py").read_text() == \
+        code_before
     assert seen["home"] == [] and seen["host_marker"] is None           # own process namespace
-    assert (tmp_path / ".logs" / "t1.txt").read_text() == "ok"       # written beside the agent's code, kept
+    # The log beside the agent's code went to a directory of this call's own, which the host reads back.
+    assert out.log is not None and out.log.read_text() == "ok"
+    assert not list((tmp_path / "agent" / ".logs").glob("*.txt"))   # nothing a later call could read
     record = json.loads((tmp_path / "records" / "rollout-1.json").read_text())
-    assert record["probe"]["passed"] and str((tmp_path / "tasks.jsonl").resolve()) in record["masked"]
+    assert record["probe"]["passed"]
+    assert record["probe"]["denied"][str((tmp_path / "tasks.jsonl").resolve())] == "absent"
 
 
 @needs_bwrap
 def test_a_failed_agent_reports_its_error_through_the_worker(tmp_path):
-    config = Config.load(sandboxed_task(tmp_path), [])
-    (tmp_path / "pipeline.py").write_text("def run(task, adapter):\n    raise ValueError('no answer here')\n")
+    config = Config.load(sandboxed_task(tmp_path, "def run(task, adapter):\n    raise ValueError('no answer here')\n"),
+                         [])
     agent = SandboxedAgent(config, "rollout", records=None)
     try:
         with pytest.raises(RuntimeError, match="ValueError: no answer here"):
             agent({"id": "t1", "a": 1, "b": 2}, None)
     finally:
         agent.close()
+
+
+PIPELINE_SWAPS_ITS_LOG = """
+import os, sys
+def run(task, adapter):
+    print("before the swap", flush=True)
+    os.unlink("worker.log")
+    os.symlink("/etc/hostname", "worker.log")      # the host must not read this file back
+    os._exit(3)                                      # no result: the host reports the log's tail
+"""
+
+
+@needs_bwrap
+def test_a_worker_that_returns_nothing_is_reported_from_its_own_log(tmp_path):
+    agent = SandboxedAgent(Config.load(sandboxed_task(tmp_path, PIPELINE_SWAPS_ITS_LOG), []), "rollout", records=None)
+    try:
+        with pytest.raises(RuntimeError, match="before the swap") as caught:
+            agent({"id": "t1", "a": 1, "b": 2}, None)
+    finally:
+        agent.close()
+    assert open("/etc/hostname").read().strip() not in str(caught.value).split("before the swap")[-1]
+
+
+JUDGE_SHARED = """
+from pathlib import Path
+
+def score(task, out):
+    gold = Path(__file__).resolve().parent / "gold.txt"
+    work = Path(out.extra.get("where", ""))
+    planted = (work / "reward.txt").read_text() if (work / "reward.txt").exists() else None
+    base = Path(__file__).resolve().parents[1]
+    read = lambda p: p.read_text() if p.exists() else None
+    return {"score": float(out.output == gold.read_text().strip()), "feedback": "", "planted": planted,
+            "logged": read(base / "agent" / ".logs" / "note.txt"), "state": read(base / "state" / "planted.txt"),
+            "collected": read(work / "logs" / "answer.txt"), "log": read(Path(out.log)) if out.log else None}
+"""
+
+PIPELINE_PLANTS = """
+import os
+from hermit.task import RunOutput
+
+def run(task, adapter):
+    work = os.getcwd()
+    open(os.path.join(work, "reward.txt"), "w").write("1")       # what a cheating agent leaves behind
+    os.makedirs(os.path.join(work, "logs"), exist_ok=True)
+    open(os.path.join(work, "logs", "answer.txt"), "w").write("3")   # what a separate judge collects
+    here = os.path.dirname(__file__)
+    open(os.path.join(here, ".logs", "note.txt"), "w").write("log")             # its per-call .logs
+    if os.path.isdir(os.path.join(here, "..", "state")):
+        open(os.path.join(here, "..", "state", "planted.txt"), "w").write("1")  # state outside its work directory
+    gold = "/".join(__file__.split("/")[:-2]) + "/judging/gold.txt"
+    return RunOutput(output="3", log=os.path.join(work, "logs", "answer.txt"),
+                     extra={"where": work, "gold_visible": os.path.exists(gold)})
+"""
+
+
+@needs_bwrap
+def test_a_shared_judge_sees_its_tests_the_agent_did_not(tmp_path):
+    (tmp_path / "judging").mkdir()
+    (tmp_path / "judging" / "gold.txt").write_text("3")
+    (tmp_path / "judging" / "judge.py").write_text(JUDGE_SHARED)
+    path = sandboxed_task(tmp_path, PIPELINE_PLANTS)
+    config = Config.load(path, ["judge.path=judging/judge.py", "judge.mode=shared", "judge.tests=[judging/gold.txt]"])
+    agent = SandboxedAgent(config, "rollout", records=tmp_path / "records")
+    try:
+        out = agent({"id": "t1", "a": 1, "b": 2}, None)
+        verdict = judge_for(config, agent)({"id": "t1"}, out)
+    finally:
+        agent.close()
+    assert out.extra["gold_visible"] is False                        # the judge's file and tests: not the agent's
+    assert verdict["score"] == 1.0 and verdict["planted"] == "1"     # the shared judge sees the agent's work
+    assert verdict["logged"] == "log"                                # its .logs as the agent wrote them
+    assert verdict["log"] == "3"                                     # and the returned log (its sanitized copy)
+
+
+@needs_bwrap
+def test_a_separate_judge_gets_only_the_collected_paths(tmp_path):
+    (tmp_path / "judging").mkdir()
+    (tmp_path / "judging" / "gold.txt").write_text("3")
+    (tmp_path / "judging" / "judge.py").write_text(JUDGE_SHARED)
+    path = sandboxed_task(tmp_path, PIPELINE_PLANTS)
+    (tmp_path / "state").mkdir()
+    config = Config.load(path, ["judge.path=judging/judge.py", "judge.mode=separate", "judge.collect=[logs]",
+                                "judge.tests=[judging/gold.txt]",
+                                "environment.write=[state]"])
+    agent = SandboxedAgent(config, "rollout", records=None)
+    try:
+        out = agent({"id": "t1", "a": 1, "b": 2}, None)
+        verdict = judge_for(config, agent)({"id": "t1"}, out)
+    finally:
+        agent.close()
+    assert verdict["score"] == 1.0 and verdict["planted"] is None    # what the agent left besides logs/: not there
+    assert verdict["collected"] == "3"                               # what it collects: there, at the agent's path
+    assert verdict["log"] == "3"                                     # the returned log (its sanitized copy)
+    assert (tmp_path / "state" / "planted.txt").exists() and verdict["state"] is None   # nor its writable state
 
 
 TOOL = r'''
@@ -343,8 +504,7 @@ def test_a_declared_tool_runs_in_the_tool_sandbox(tmp_path):
     root.mkdir()
     runner = ToolRunner(config, records=tmp_path / "records", work_root=tmp_path / "calls")
     try:
-        # the real home's .ssh (HOME inside is the call's own), which the sandbox does not show
-        result = runner("tools.py:probe", tools_dir, {"x": 5, "secret": str(Path.home() / ".ssh")},
+        result = runner("tools.py:probe", tools_dir, {"x": 5, "secret": str(tmp_path / "tasks.jsonl")},
                         {"_adapter": adapter, "_root": root})
     finally:
         runner.close()
@@ -353,61 +513,11 @@ def test_a_declared_tool_runs_in_the_tool_sandbox(tmp_path):
     assert json.loads((tmp_path / "records" / "tool-1.json").read_text())["probe"]["passed"]
 
 
-# --- the holes an independent review found, closed ------------------------------------------------------------------
-
-def test_other_methods_run_records_in_the_project_are_covered(tmp_path):
-    utils, method, other = tmp_path / "ex" / "utils", tmp_path / "ex" / "prompt_only", tmp_path / "ex" / "gepa"
-    (utils / "agent" / ".logs").mkdir(parents=True)
-    for d in (method / "runs", other / "runs" / "r", other / ".logs", tmp_path / "ex" / ".git" / "runs"):
-        d.mkdir(parents=True)
-    (method / "run.yaml").write_text(yaml.safe_dump({"data": {"tasks": "../utils/t.jsonl", "train": "../utils/s.txt"},
-                                                     "agent": {"name": "../utils/agent/a.py:A"}, "judge": {"path": "../utils/j.py"},
-                                                     "template": "prompt-only@1.0", "evolver": {"name": "prompt_only"}}))
-    config = Config.load(method / "run.yaml", [])
-    found = {p.relative_to(tmp_path / "ex").as_posix()
-             for p in project_records([tmp_path / "ex"], config, keep=[utils / "agent" / ".logs"])}
-    assert found == {"prompt_only/runs", "gepa/runs", "gepa/.logs"}          # not the agent's own logs, not .git
-
-
-def test_every_package_is_shown_but_not_the_working_directory_or_the_home(tmp_path, monkeypatch):
-    from hermit.sandbox import _installed_paths
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(sys, "path", [str(tmp_path), str(Path.home()), *sys.path])   # `python -m` from the home
-    shown = {p.resolve() for p in _installed_paths()}
-    assert tmp_path.resolve() not in shown and Path.home().resolve() not in shown
-    assert not any(Path.home().resolve().is_relative_to(p) for p in shown)
-    import site
-    assert Path(site.getsitepackages()[0]).resolve() in shown
-
-
-def test_the_isolation_check_keeps_a_secret_shown_by_accident(tmp_path):
-    home = tmp_path / "home"
-    (home / ".ssh").mkdir(parents=True)
-    box = Sandbox(probe_absent=[home / ".ssh"])
-    assert box._absent([str(home.resolve())]) == [str((home / ".ssh").resolve())]   # bound by accident: checked
-
-
-def test_a_calls_path_holding_a_mask_goes_in_before_it(tmp_path, monkeypatch):
-    """A tool's task directory holds the run records: bound after the mask, it would uncover them."""
-    fake_bwrap(monkeypatch)
-    base = tmp_path / "base"
-    (base / "runs" / "r").mkdir(parents=True)
-    box = Sandbox(network="open", masked=[base / "runs"])
-    args, _ = box.wrap(["true"], readable=[base])
-    b, runs = str(base.resolve()), str((base / "runs").resolve())
-    bind_at = args.index(b)
-    tmpfs_at = next(i for i, a in enumerate(args) if a == "--tmpfs" and args[i + 1] == runs)
-    assert bind_at < tmpfs_at and args.count(b) == 2               # bound once (src and dest), before the mask
-    box.close()
-
-
 def test_the_sandbox_has_its_own_process_namespace(monkeypatch):
     fake_bwrap(monkeypatch)
     args, _ = Sandbox(network="open").wrap(["true"])
     assert "--unshare-pid" in args
 
-
-# --- the second review's holes, closed ------------------------------------------------------------------------------
 
 def test_a_returned_log_must_lie_where_the_call_could_write(tmp_path):
     work, outside = tmp_path / "work", tmp_path / "answers.jsonl"
@@ -419,6 +529,10 @@ def test_a_returned_log_must_lie_where_the_call_could_write(tmp_path):
     assert _owned_log(str(outside), [work]) is None                     # a file it merely names
     assert _owned_log(str(work / "logs" / "link.txt"), [work]) is None  # a link out of its directory
     assert _owned_log(str(work / ".." / "answers.jsonl"), [work]) is None
+    bound = Bind(work / "agent-logs", "/code/.logs", True)               # a log under a bind's name inside
+    (work / "agent-logs").mkdir()
+    (work / "agent-logs" / "t2.txt").write_text("ok")
+    assert _owned_log("/code/.logs/t2.txt", [work], [bound]) == work / "agent-logs" / "t2.txt"
 
 
 def test_the_material_copy_does_not_follow_a_link(tmp_path):
@@ -434,36 +548,6 @@ def test_the_material_copy_does_not_follow_a_link(tmp_path):
                                            "cost_usd": 0}], None)
     copied = d / "trajectories" / "t1" / "inner"
     assert copied.is_symlink() and not (d / "trajectories" / "t2").exists()
-
-
-def test_a_run_under_any_name_is_found_and_a_later_one_too(tmp_path):
-    utils, method = tmp_path / "ex" / "utils", tmp_path / "ex" / "m"
-    utils.mkdir(parents=True)
-    method.mkdir()
-    (method / "run.yaml").write_text(yaml.safe_dump({"data": {"tasks": "../utils/t.jsonl", "train": "../utils/s.txt"},
-                                                     "agent": {"name": "react"}, "judge": {"path": "../utils/j.py"},
-                                                     "template": "prompt-only@1.0", "evolver": {"name": "prompt_only"}}))
-    config = Config.load(method / "run.yaml", [])
-    assert project_records([tmp_path / "ex"], config) == []
-    run = tmp_path / "ex" / "sweep" / "out_lr3" / "trial-1"            # another method's run, started later
-    run.mkdir(parents=True)
-    (run / "steps.jsonl").write_text("{}\n")
-    assert project_records([tmp_path / "ex"], config) == [run]
-    with pytest.raises(OverflowError):
-        project_records([tmp_path / "ex"], config, limit=1)
-
-
-def test_a_secret_is_covered_under_a_linked_name_too(tmp_path, monkeypatch):
-    fake_bwrap(monkeypatch)
-    data = tmp_path / "real" / "data"
-    data.mkdir(parents=True)
-    (data / "test.jsonl").write_text("gold")
-    (tmp_path / "link").symlink_to(data)
-    box = Sandbox(network="open", read=[tmp_path / "link"], masked=[data / "test.jsonl"])
-    args, _ = box.wrap(["true"])
-    covered = [args[i + 2] for i, a in enumerate(args[:-2]) if a == "--ro-bind" and args[i + 2].endswith("test.jsonl")]
-    assert str(tmp_path / "link" / "test.jsonl") in covered and str(data / "test.jsonl") in covered
-    box.close()
 
 
 ADAPTER_EVIL = """
@@ -515,13 +599,12 @@ def run(task, adapter):
 @needs_bwrap
 def test_the_adapters_code_runs_outside_the_workers_process(tmp_path):
     from test_session_sandbox import adapter_copy
-    config = Config.load(sandboxed_task(tmp_path), [])
-    (tmp_path / "pipeline.py").write_text(PIPELINE_WITH_ADAPTER)
+    config = Config.load(sandboxed_task(tmp_path, PIPELINE_WITH_ADAPTER), [])
     adapter = adapter_copy(tmp_path / "runs" / "r")
     exports = yaml.safe_load((adapter / "exports.yaml").read_text())
     exports["tools"].append({"name": "evil", "description": "x", "entrypoint": "tools.py:evil",
-                                         "input_schema": {"type": "object"},
-                                         "output_schema": {"type": "object", "properties": {"text": {"type": "string"}}}})
+                             "input_schema": {"type": "object"},
+                             "output_schema": {"type": "object", "properties": {"text": {"type": "string"}}}})
     (adapter / "exports.yaml").write_text(yaml.safe_dump(exports, sort_keys=False))
     (adapter / "tools.py").write_text((adapter / "tools.py").read_text() + ADAPTER_EVIL)
     agent = SandboxedAgent(config, "rollout", records=None)
@@ -533,14 +616,11 @@ def test_the_adapters_code_runs_outside_the_workers_process(tmp_path):
     assert out.extra["wrote"] == "0"                                # no pipe of the agent's reachable from the adapter
 
 
-# --- the third review's holes, closed -------------------------------------------------------------------------------
-
 @needs_bwrap
-def test_the_spec_check_runs_the_adapters_code_in_a_sandbox(tmp_path, monkeypatch):
+def test_the_spec_check_runs_the_adapters_code_in_a_sandbox(tmp_path):
     """check_spec imports the adapter's tool modules (the learner's work): top-level code there sees nothing."""
     import hermit.spec as spec_module
     from test_session_sandbox import EXAMPLE
-    monkeypatch.setattr(spec_module, "SANDBOX_ENFORCE", "required")
     adapter = tmp_path / "adapter"
     shutil.copytree(EXAMPLE, adapter)
     secret, planted = tmp_path / "answers.jsonl", tmp_path / "planted.txt"
@@ -548,16 +628,17 @@ def test_the_spec_check_runs_the_adapters_code_in_a_sandbox(tmp_path, monkeypatc
     (adapter / "tools.py").write_text(
         f"import os\ntry:\n    open({str(planted)!r}, 'w').write(open({str(secret)!r}).read())\nexcept Exception:\n"
         "    pass\n" + (EXAMPLE / "tools.py").read_text())
-    spec_module._deploy_check(adapter, sys.executable)
+    assert spec_module._deploy_check(adapter, sys.executable, "required") == []      # it deployed
     assert not planted.exists()                                      # neither read the secret nor wrote outside
+    spec_module._deploy_check(adapter, sys.executable, None)         # the control: unconfined (the sandbox off), the
+    assert planted.read_text() == "gold"                             # same check runs that code and it reads it
 
 
 @needs_bwrap
 def test_a_session_in_a_process_the_agent_starts_is_sandboxed_too(tmp_path):
     """A benchmark's own runner (another process) holding a Session: the setting is inherited."""
     from test_session_sandbox import adapter_copy
-    config = Config.load(sandboxed_task(tmp_path), [])
-    (tmp_path / "pipeline.py").write_text(
+    pipeline = (
         "import subprocess, sys\nfrom hermit.task import RunOutput\n\n"
         "def run(task, adapter):\n"
         "    code = ('from hermit.adapter.session import Session\\n'\n"
@@ -565,6 +646,7 @@ def test_a_session_in_a_process_the_agent_starts_is_sandboxed_too(tmp_path):
         "    out = subprocess.run([sys.executable, '-c', 'import sys\\n' + code, str(adapter)], capture_output=True,\n"
         "                         text=True)\n"
         "    return RunOutput(output=out.stdout.strip().splitlines()[-1] if out.stdout.strip() else out.stderr[-500:])\n")
+    config = Config.load(sandboxed_task(tmp_path, pipeline), [])
     adapter = adapter_copy(tmp_path / "runs" / "r")
     agent = SandboxedAgent(config, "rollout", records=None)
     try:
@@ -589,10 +671,8 @@ def test_an_adapter_without_tools_starts_no_server(tmp_path, monkeypatch):
 @needs_bwrap
 def test_a_cli_deploy_renders_the_adapter_in_a_sandbox(tmp_path, monkeypatch):
     """A CLI agent (codex/claude-code) deploys the adapter; its modules must not run with the agent's access."""
-    import hermit.spec as spec_module
     from hermit.hosts.codex import prepare
     from test_session_sandbox import EXAMPLE
-    monkeypatch.setattr(spec_module, "SANDBOX_ENFORCE", "required")
     monkeypatch.setenv("HA_ADAPTER_SANDBOX", "1")
     monkeypatch.setenv("HA_ADAPTER_SANDBOX_ENFORCE", "required")
     secret, planted = tmp_path / "secret.txt", tmp_path / "planted.txt"
@@ -602,12 +682,10 @@ def test_a_cli_deploy_renders_the_adapter_in_a_sandbox(tmp_path, monkeypatch):
     (adapter / "tools.py").write_text(
         f"import os\ntry:\n    open({str(planted)!r}, 'w').write(open({str(secret)!r}).read())\nexcept Exception:\n"
         "    pass\n" + (EXAMPLE / "tools.py").read_text())
-    result = prepare(adapter, tmp_path / "ws", sys.executable)        # imports the adapter's modules to render
+    prepare(adapter, tmp_path / "ws", sys.executable)                 # imports the adapter's modules to render
     assert not planted.exists()                                       # the module could not read or write outside
-    server_env = result.get("server", {}).get("env", {}) if isinstance(result.get("server"), dict) else {}
-    # The generated tool server carries the variables that sandbox its Session.
     toml = (tmp_path / "ws" / ".codex" / "config.toml")
-    assert "HA_ADAPTER_SANDBOX" in toml.read_text()
+    assert "HA_ADAPTER_SANDBOX" in toml.read_text()                   # the tool server's Session is sandboxed too
 
 
 def test_a_rollout_that_replaced_its_home_by_a_link_deletes_no_login_outside(tmp_path, monkeypatch, shared_login):
@@ -691,5 +769,439 @@ def test_a_sandboxed_codex_call_takes_the_shared_login_and_hands_its_refresh_bac
         other({"id": "t3"}, None)
     finally:
         other.close()
-    assert seen["plan_dir"] == str(mine) and mine in [Path(w) for w in other.box.sandbox.writable]
-    assert login.plan_dir() in [Path(w) for w in agent.box.sandbox.writable]
+    assert seen["plan_dir"] == str(mine) and mine in [Path(w) for w in other.sandbox.writable]
+    assert login.plan_dir() in [Path(w) for w in agent.sandbox.writable]
+
+
+def test_a_container_agent_runs_from_a_worker_that_sandboxes_the_adapters_code(tmp_path):
+    """environment.image: the CLI's container is started from a worker on the host, never from this process, and the
+    worker puts the adapter's code (its context, its tools) in the strict sandbox."""
+    from hermit.isolate import ContainerAgent
+    (tmp_path / "t").mkdir()
+    config = Config.load(make_task(tmp_path / "t"), [])
+    (tmp_path / "t" / "probe.py").write_text(
+        "import os\nfrom hermit.task import RunOutput\n"
+        "def run(task, adapter):\n"
+        "    sandboxed, enforce = os.environ.get('HA_ADAPTER_SANDBOX'), os.environ.get('HA_ADAPTER_SANDBOX_ENFORCE')\n"
+        "    return RunOutput(output=f'{sandboxed} {enforce} {os.getpid()}')\n")
+    config.data["agent"]["name"] = "probe.py:run"
+    agent = ContainerAgent(config, "rollout", {}, work_root=tmp_path / "work")
+    sandboxed, enforce, pid = agent({"id": "q1"}, None).output.split()
+    assert sandboxed == "1" and enforce == "required" and int(pid) != os.getpid()
+
+
+def test_a_tasks_own_agent_on_a_cli_base_is_that_cli():
+    from hermit.isolate import _cli_kind
+    assert _cli_kind("agent.py:Custom", {"base": "codex"}) == "codex"
+    assert _cli_kind("agent.py:Custom", {"base": "claude-code"}) == "claude"
+    assert _cli_kind("agent.py:Custom", {}) is None
+
+
+PIPELINE_LINKED_LOG = """
+import os
+from pathlib import Path
+from hermit.task import RunOutput
+
+def run(task, adapter):
+    trace = Path(os.getcwd()) / "trace"
+    trace.mkdir()
+    (trace / "steps.txt").write_text("ok")
+    os.symlink("/etc/hostname", trace / "task.md")        # a host file a method's reader would copy along
+    return RunOutput(output="3", log=trace)
+"""
+
+
+@needs_bwrap
+def test_a_returned_log_reaches_the_host_as_a_sanitized_copy(tmp_path):
+    path = sandboxed_task(tmp_path, PIPELINE_LINKED_LOG)
+    agent = SandboxedAgent(Config.load(path, []), "rollout", records=None)
+    try:
+        out = agent({"id": "t1", "a": 1, "b": 2}, None)
+    finally:
+        agent.close()
+    work = Path(out.extra["sandbox_work"])
+    assert out.log.parent.parent == work.parent and out.log.name == "trace"     # beside the call's directory
+    assert (out.log / "steps.txt").read_text() == "ok" and not os.path.lexists(out.log / "task.md")
+
+
+def test_a_declared_path_that_comes_to_hold_a_run_is_refused_before_the_next_call(tmp_path, monkeypatch):
+    fake_bwrap(monkeypatch)
+    agent = SandboxedAgent(Config.load(sandboxed_task(tmp_path), []), "rollout", records=None)
+    try:
+        agent._recheck()                                             # clean when the run starts
+        (tmp_path / "agent" / "later-run").mkdir()
+        (tmp_path / "agent" / "later-run" / "steps.jsonl").write_text("{}\n")
+        agent._recheck._checked = float("-inf")                      # a minute later
+        with pytest.raises(RuntimeError, match="now holds a run's records"):
+            agent._recheck()
+    finally:
+        agent.close()
+
+
+def test_a_container_session_ends_before_the_outer_deadline(tmp_path):
+    """Killed at agent.timeout_min, the host worker could not remove the container: its session's own clock ends
+    first."""
+    from hermit.isolate import ContainerAgent
+    (tmp_path / "t").mkdir()
+    config = Config.load(make_task(tmp_path / "t"), ["agent.timeout_min=10"])
+    assert ContainerAgent(config, "rollout", {"timeout_s": 3600}).params["timeout_s"] == 540
+    assert ContainerAgent(config, "rollout", {"timeout_s": 3600}).params["deadline_s"] == 540   # retries included
+    assert ContainerAgent(config, "rollout", {"timeout_s": 60}).params["timeout_s"] == 60
+
+
+def test_the_agent_gets_its_models_key_and_host_as_harbors_do(tmp_path, monkeypatch):
+    """The task sandbox passes the agent model's key variable, allows its provider's host (the network becomes an
+    allowlist) and forwards a model server on the loopback."""
+    fake_bwrap(monkeypatch)
+    path = sandboxed_task(tmp_path)
+    model = "{base_url: 'https://api.example.com/v1', model: m, api_key_env: EXAMPLE_KEY}"
+    agent = SandboxedAgent(Config.load(path, [f"agent.params.model={model}"]), "rollout", records=None)
+    try:
+        assert "EXAMPLE_KEY" in agent.sandbox.env_allow and agent.sandbox.allow == ["api.example.com"]
+        assert agent.sandbox.network == "isolated" and agent.sandbox.proxy_url
+    finally:
+        agent.close()
+    local = "{base_url: 'http://127.0.0.1:8123/v1', model: m}"
+    agent = SandboxedAgent(Config.load(path, [f"agent.params.model={local}"]), "rollout", records=None)
+    try:
+        assert agent.forward == [8123] and agent.sandbox.allow == []
+    finally:
+        agent.close()
+
+
+def test_what_a_run_keeps_is_scrubbed_of_model_keys(tmp_path, monkeypatch):
+    from hermit.redact import redact_tree
+    monkeypatch.setenv("EXAMPLE_API_KEY", "sk-the-real-key-0123456789")
+    (tmp_path / "trajectories").mkdir()
+    (tmp_path / "trajectories" / "t1.jsonl").write_text('{"env": "EXAMPLE_API_KEY=sk-the-real-key-0123456789"}\n')
+    (tmp_path / "ADAPTER.md").write_text("no key here\n")
+    (tmp_path / "trajectories" / "t1.jsonl").chmod(0o444)        # a container's log, copied with its mode
+    assert redact_tree(tmp_path) == ["trajectories/t1.jsonl"]
+    assert "<EXAMPLE_API_KEY>" in (tmp_path / "trajectories" / "t1.jsonl").read_text()
+    assert (tmp_path / "trajectories" / "t1.jsonl").stat().st_mode & 0o777 == 0o444
+
+
+def test_a_large_file_and_a_tools_result_are_scrubbed_too(tmp_path, monkeypatch):
+    """A file past the in-memory size is scrubbed in chunks, a key across two chunks included; a structured result
+    (run_agent's, a step's report) is scrubbed string by string."""
+    import hermit.redact as redact
+    key = "sk-the-real-key-0123456789"
+    monkeypatch.setenv("EXAMPLE_API_KEY", key)
+    monkeypatch.setattr(redact, "MAX_BYTES", 64)
+    text = "x" * 50 + key + "y" * 100 + key + "\n"                # the first key crosses the first 64-byte chunk
+    (tmp_path / "long.log").write_text(text)
+    (tmp_path / "long.log.redact").write_text("an unrelated file\n")        # a sibling the scrub must not touch
+    assert redact.redact_tree(tmp_path) == ["long.log"]
+    assert (tmp_path / "long.log.redact").read_text() == "an unrelated file\n"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["long.log", "long.log.redact"]
+    script = tmp_path / ("s" * 250)                                       # the longest name a file may have, and
+    script.write_text(text)                                               # executable
+    script.chmod(0o755)
+    assert redact.redact_tree(tmp_path) == [script.name]
+    assert script.stat().st_mode & 0o777 == 0o755 and key not in script.read_text()
+    assert (tmp_path / "long.log").read_text() == text.replace(key, "<EXAMPLE_API_KEY>")
+    assert redact.redact_value({"results": [{"output": f"key={key}", "score": 1.0, key: True}]}) == \
+        {"results": [{"output": "key=<EXAMPLE_API_KEY>", "score": 1.0, "<EXAMPLE_API_KEY>": True}]}
+    assert redact.redact_value({"file": Path("/tmp") / key}) == {"file": "/tmp/<EXAMPLE_API_KEY>"}
+
+    class BytesPath:                                               # an os.PathLike whose path is bytes
+        def __fspath__(self):
+            return b"/tmp/" + key.encode()
+
+        def __str__(self):
+            return f"BytesPath({key})"
+    assert redact.redact_value(BytesPath()) == "BytesPath(<EXAMPLE_API_KEY>)"
+    from collections import namedtuple
+    Point = namedtuple("Point", "x y")
+    assert redact.redact_value({"stdout": key.encode(), "p": Point(key, 2)}) == \
+        {"stdout": b"<EXAMPLE_API_KEY>", "p": Point("<EXAMPLE_API_KEY>", 2)}
+    from types import SimpleNamespace
+    assert redact.redact_value({"s": {key}, "ns": SimpleNamespace(k=key), "n": 3, "none": None}) == \
+        {"s": ["<EXAMPLE_API_KEY>"], "ns": "namespace(k='<EXAMPLE_API_KEY>')", "n": 3, "none": None}
+
+
+def test_a_tool_runner_that_cannot_resolve_its_grants_starts_no_proxy(tmp_path, monkeypatch):
+    import hermit.isolate as isolate
+    started = []
+    monkeypatch.setattr(isolate, "AllowlistProxy", lambda *a, **k: started.append(a) or pytest.fail("proxy started"))
+    monkeypatch.delenv("HERMIT_TEST_UNSET", raising=False)
+    path = sandboxed_task(tmp_path, network="allowlist", allowed_hosts=["example.com"],
+                          write=["${HERMIT_TEST_UNSET}/out"])
+    with pytest.raises(ValueError, match="unset environment variable"):
+        ToolRunner(Config.load(path, []), records=None, work_root=tmp_path / "tools")
+    assert started == []
+
+
+def test_a_worker_whose_log_cannot_be_opened_leaves_no_descriptor_open(tmp_path):
+    import hermit.isolate as isolate
+    box = Sandbox(enabled=False)
+    work = tmp_path / "work"
+    (work / "worker.log").mkdir(parents=True)                # opening the log fails
+    before = len(os.listdir("/proc/self/fd"))
+    with pytest.raises(IsADirectoryError):
+        isolate._run_worker(box, {"kind": "agent"}, work, home=tmp_path / "home")
+    assert len(os.listdir("/proc/self/fd")) == before
+
+
+def test_a_declared_path_that_comes_to_hold_anothers_records_is_refused_this_runs_own_are_not(tmp_path):
+    """The learner's grants (evolver_access.environment, task_info) and a task tool's are searched again before
+    calls, like the acting agent's; this run's own directory (a default task_info lies in it) is not another's."""
+    from hermit.isolate import Recheck
+    run, shared = tmp_path / "runs" / "me", tmp_path / "shared"
+    (run / "workspace" / "task-info").mkdir(parents=True)
+    (run / "steps.jsonl").write_text("")
+    shared.mkdir()
+    check = Recheck([shared, run / "workspace" / "task-info"], own=run)
+    check()                                                        # nothing else's records: the call goes on
+    (shared / "other").mkdir()
+    (shared / "other" / "steps.jsonl").write_text("")             # another experiment starts writing there
+    check._checked = float("-inf")                                 # a minute later
+    with pytest.raises(RuntimeError, match="now holds a run's records"):
+        check()
+
+
+def test_with_the_pipeline_on_the_host_a_task_tool_keeps_its_sandbox(tmp_path):
+    """environment.runner: host moves the pipeline into the Trainer's process, not a task's declared tools."""
+    (tmp_path / "t").mkdir()
+    (tmp_path / "t" / "tools").mkdir(parents=True)
+    config = Config.load(make_task(tmp_path / "t", sandbox={"enabled": True}),
+                         ["environment.runner=host", "environment.read=[tools]"])    # the tools' grant: accepted
+    runner = ToolRunner(config, records=None, work_root=tmp_path / "calls")
+    try:
+        assert runner.task_box.enabled and runner.box.enabled
+        assert runner.task_box.readable == [(tmp_path / "t" / "tools").resolve()]
+    finally:
+        runner.close()
+
+
+PIPELINE_LOGS_ITS_KEY = """
+import os
+from pathlib import Path
+from hermit.task import RunOutput
+def run(task, adapter):
+    log = Path("logs") / "t1.txt"
+    log.parent.mkdir(exist_ok=True)
+    log.write_text("called with " + os.environ["ACTOR_API_KEY"])
+    Path("notes.txt").write_text(os.environ["ACTOR_API_KEY"])
+    return RunOutput(output="3", log=str(log.resolve()))
+"""
+
+
+@needs_bwrap
+def test_what_the_run_keeps_of_an_agents_call_holds_no_model_key(tmp_path, monkeypatch):
+    """The acting agent holds its key: its work directory and the log copy the host reads are scrubbed."""
+    key = "sk-actor-key-0123456789abcdef"
+    monkeypatch.setenv("ACTOR_API_KEY", key)
+    config = Config.load(sandboxed_task(tmp_path, PIPELINE_LOGS_ITS_KEY, env=["ACTOR_API_KEY"]), [])
+    agent = SandboxedAgent(config, "rollout", records=None)
+    try:
+        out = agent({"id": "t1", "a": 1, "b": 2}, None)
+    finally:
+        agent.close()
+    work = Path(out.extra["sandbox_work"])
+    assert Path(out.log).read_text() == "called with <ACTOR_API_KEY>"
+    assert key not in (work / "notes.txt").read_text() and key not in (work / "logs" / "t1.txt").read_text()
+
+
+def test_a_container_calls_logs_and_session_are_scrubbed_whether_it_returned_or_failed(tmp_path, monkeypatch):
+    """environment.image: the agent's logs go to the call's own directory; its workspaces stay at
+    agent.params.workspaces, where the call's session is named by the caller; both are scrubbed whether the call
+    returned or failed."""
+    import hermit.isolate as isolate_module
+    from hermit.isolate import ContainerAgent
+    key = "sk-container-key-0123456789abcdef"
+    monkeypatch.setenv("CONTAINER_API_KEY", key)
+    (tmp_path / "t").mkdir()
+    config = Config.load(make_task(tmp_path / "t"), [])
+    seen = {}
+
+    def session_of(job):
+        return Path(job["params"]["workspaces"]) / job["params"]["session_name"]
+
+    def failed(box, job, work, **kw):
+        seen["params"] = job["params"]
+        (work / "logs").mkdir()
+        (work / "logs" / "events.jsonl").write_text(key)
+        (session_of(job) / "home").mkdir(parents=True)
+        (session_of(job) / "home" / "transcript.jsonl").write_text(key)
+        raise RuntimeError("the session failed")
+    monkeypatch.setattr(isolate_module, "_run_worker", failed)
+    agent = ContainerAgent(config, "rollout", {"workspaces": str(tmp_path / "ws")}, work_root=tmp_path / "calls")
+    with pytest.raises(RuntimeError):
+        agent({"id": "t1"}, None)
+    work = next((tmp_path / "calls").iterdir())
+    assert seen["params"]["logs"] == str(work / "logs")
+    assert seen["params"]["workspaces"] == str((tmp_path / "ws").resolve())      # the task's own
+    assert (work / "logs" / "events.jsonl").read_text() == "<CONTAINER_API_KEY>"
+    assert (session_of(seen) / "home" / "transcript.jsonl").read_text() == "<CONTAINER_API_KEY>"
+
+    def returned(box, job, work, **kw):
+        seen["params"] = job["params"]
+        (session_of(job) / "work").mkdir(parents=True)
+        (session_of(job) / "home").mkdir()
+        (session_of(job) / "home" / "transcript.jsonl").write_text(key)
+        return {"output": {"output": "3", "extra": {"workspace": str(session_of(job) / "work")}}}
+    monkeypatch.setattr(isolate_module, "_run_worker", returned)
+    agent({"id": "t1"}, None)
+    assert (session_of(seen) / "home" / "transcript.jsonl").read_text() == "<CONTAINER_API_KEY>"
+
+
+def test_a_worker_that_never_starts_leaves_no_report_waiting(tmp_path, monkeypatch):
+    import hermit.isolate as isolate_module
+    from hermit.isolate import _run_worker
+    fake_bwrap(monkeypatch)
+    box = Sandbox(network="isolated")
+
+    def refuse(*a, **k):
+        raise OSError("cannot start")
+    monkeypatch.setattr(isolate_module.subprocess, "Popen", refuse)
+    (tmp_path / "w").mkdir()
+    try:
+        with pytest.raises(OSError):
+            _run_worker(box, {"kind": "agent"}, tmp_path / "w", home=tmp_path / "w")
+        assert not box._bridges._reports
+    finally:
+        box.close()
+
+
+@needs_bwrap
+def test_a_failed_agents_call_is_scrubbed_too(tmp_path, monkeypatch):
+    key = "sk-failing-key-0123456789abcdef"
+    monkeypatch.setenv("ACTOR_API_KEY", key)
+    pipeline = ("import os\nfrom pathlib import Path\ndef run(task, adapter):\n"
+                "    Path('notes.txt').write_text(os.environ['ACTOR_API_KEY'])\n    raise ValueError('failed')\n")
+    agent = SandboxedAgent(Config.load(sandboxed_task(tmp_path, pipeline, env=["ACTOR_API_KEY"]), []), "rollout",
+                           records=None, work_root=tmp_path / "calls")
+    try:
+        with pytest.raises(RuntimeError, match="failed"):
+            agent({"id": "t1", "a": 1, "b": 2}, None)
+    finally:
+        agent.close()
+    notes = list((tmp_path / "calls").rglob("notes.txt"))
+    assert notes and notes[0].read_text() == "<ACTOR_API_KEY>"
+
+
+def test_a_sandboxed_judges_directory_and_the_agents_it_wrote_are_scrubbed(tmp_path, monkeypatch):
+    import hermit.isolate as isolate_module
+    from hermit.task import RunOutput
+    fake_bwrap(monkeypatch)
+    key = "sk-judge-key-0123456789abcdef"
+    monkeypatch.setenv("JUDGE_API_KEY", key)
+    (tmp_path / "a").mkdir()
+    config = Config.load(sandboxed_task(tmp_path / "a"), ["judge.mode=shared"])
+    agent = SandboxedAgent(config, "rollout", records=None)
+    work = tmp_path / "calls" / "t1-abc"
+    work.mkdir(parents=True)
+
+    def worker(box, job, place, **kw):
+        (place / "worker.log").write_text(f"printed {key}")
+        (work / "graded.txt").write_text(key)
+        raise RuntimeError("the judge failed")
+    monkeypatch.setattr(isolate_module, "_run_worker", worker)
+    try:
+        judge = judge_for(config, agent)
+        with pytest.raises(RuntimeError):
+            judge({"id": "t1"}, RunOutput(output="3", extra={"sandbox_work": str(work)}))
+    finally:
+        agent.close()
+    logs = list((tmp_path / "calls").glob("t1-abc-judge-*/worker.log"))
+    assert logs and logs[0].read_text() == "printed <JUDGE_API_KEY>"
+    assert (work / "graded.txt").read_text() == "<JUDGE_API_KEY>"
+
+
+@needs_bwrap
+def test_an_agent_file_beside_the_config_keeps_its_calls_directory(tmp_path):
+    """The default work root is the config's .logs/<role>; the agent's own .logs (beside its file) is bound to the
+    call's fresh directory: with the agent file beside the config, the call's directory (its HOME, its cwd) lies in
+    that .logs and is bound again after it."""
+    path = make_task(tmp_path, sandbox={"enabled": True}, agent={"name": "pipeline.py:run", "concurrency": 1},
+                     environment={"read": ["pipeline.py"]})
+    (tmp_path / "pipeline.py").write_text(
+        "import os\nfrom pathlib import Path\nfrom hermit.task import RunOutput\n"
+        "def run(task, adapter):\n"
+        "    (Path(os.environ['HOME']) / 'mark').write_text('home')\n"
+        "    return RunOutput(output=os.getcwd())\n")
+    agent = SandboxedAgent(Config.load(path, []), "rollout", records=None)
+    try:
+        out = agent({"id": "t1", "a": 1, "b": 2}, None)
+    finally:
+        agent.close()
+    work = Path(out.extra["sandbox_work"])
+    assert out.output == str(work) and (work / "home" / "mark").read_text() == "home"
+
+
+def test_without_bubblewrap_a_best_effort_call_keeps_its_log(tmp_path, monkeypatch):
+    """best_effort with no bubblewrap runs the agent at the host's paths: its log, under the real .logs beside its
+    file, is the one kept (no bind was applied to map it through)."""
+    monkeypatch.setattr(sandbox_module.shutil, "which", lambda name, *a, **k: None if name == "bwrap"
+                        else REAL_WHICH(name, *a, **k))
+    pipeline = ("from pathlib import Path\nfrom hermit.task import RunOutput\n"
+                "def run(task, adapter):\n"
+                "    log = Path(__file__).resolve().parent / '.logs' / 't1.txt'\n"
+                "    log.parent.mkdir(exist_ok=True)\n    log.write_text('trajectory')\n"
+                "    return RunOutput(output='3', log=str(log))\n")
+    config = Config.load(sandboxed_task(tmp_path, pipeline), ["sandbox.enforce=best_effort"])
+    agent = SandboxedAgent(config, "rollout", records=None)
+    try:
+        out = agent({"id": "t1", "a": 1, "b": 2}, None)
+    finally:
+        agent.close()
+    assert out.log is not None and Path(out.log).read_text() == "trajectory"
+
+
+def test_a_shared_judge_sees_the_agents_log_copy_under_a_root_layout(tmp_path):
+    """The agent file beside the config: the call's directory, the judge's and the agent's log copy beside them all
+    lie in the .logs that is bound to the call's fresh directory; each is bound again after it, the copy read-only."""
+    from hermit.isolate import _log_binds
+    logs = tmp_path / ".logs"
+    work = logs / "rollout" / "t1-abc"
+    (work / "agent-logs" / "0").mkdir(parents=True)
+    place, copy = work.parent / "t1-abc-judge-x", work.parent / "t1-abc.log"
+    place.mkdir()
+    copy.mkdir()
+    binds = _log_binds(work, [logs], [work, place], existing=True, shown=[copy])
+    assert binds[0] == Bind(work / "agent-logs" / "0", str(logs), True)
+    assert Bind(work, str(work), True) in binds and Bind(place, str(place), True) in binds
+    assert Bind(copy, str(copy), False) in binds
+
+
+def test_a_returned_log_whose_name_held_a_key_is_the_renamed_file(tmp_path, monkeypatch):
+    """The agent returns logs/<name with its key>.txt: after the scrub renames it, RunOutput.log names the renamed
+    copy, which exists and holds the log."""
+    import hermit.isolate as isolate_module
+    fake_bwrap(monkeypatch)
+    key = "sk-logname-key-0123456789abcdef"
+    monkeypatch.setenv("LOGNAME_API_KEY", key)
+    (tmp_path / "a").mkdir()
+    agent = SandboxedAgent(Config.load(sandboxed_task(tmp_path / "a"), []), "rollout", records=None,
+                           work_root=tmp_path / "calls")
+
+    def worker(box, job, work, **kw):
+        (work / "logs").mkdir()
+        log = work / "logs" / f"trace-{key}.txt"
+        log.write_text("the trajectory")
+        return {"ok": True, "output": {"output": "3", "log": str(log)}}
+    monkeypatch.setattr(isolate_module, "_run_worker", worker)
+    try:
+        out = agent({"id": "t1", "a": 1, "b": 2}, None)
+    finally:
+        agent.close()
+    assert key not in str(out.log) and Path(out.log).read_text() == "the trajectory"
+
+
+def test_a_container_agents_returned_log_is_found_after_the_scrub_renames_it(tmp_path, monkeypatch):
+    import hermit.isolate as isolate_module
+    from hermit.isolate import ContainerAgent
+    key = "sk-container-log-0123456789abcdef"
+    monkeypatch.setenv("CLOG_API_KEY", key)
+    (tmp_path / "t").mkdir()
+    config = Config.load(make_task(tmp_path / "t"), [])
+
+    def worker(box, job, work, **kw):
+        log = Path(job["params"]["logs"]) / f"{key}.jsonl"
+        log.parent.mkdir(parents=True)
+        log.write_text("events")
+        return {"output": {"output": "3", "log": str(log)}}
+    monkeypatch.setattr(isolate_module, "_run_worker", worker)
+    out = ContainerAgent(config, "rollout", {}, work_root=tmp_path / "calls")({"id": "t1"}, None)
+    assert key not in str(out.log) and Path(out.log).read_text() == "events"

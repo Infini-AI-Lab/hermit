@@ -117,7 +117,8 @@ it. Layer 3 gathers tools from three sources and passes only the allowed ones to
 | The adapter | MWM's `wm`, lean_collab's team tools |
 | The Trainer | `check_spec`, `run_agent`, `budget`, and `llm` (the Evolver's `direct`, for programs outside the process) |
 
-A tool always runs on the framework's side, with Layer 3's permissions; an adapter's tools run in the tool sandbox.
+A tool always runs on the framework's side, with Layer 3's permissions; a declared tool runs in a sandbox of its own
+(a template's strict, a task's built from `environment`).
 Each Base Agent offers the tools to the model in its own way:
 
 | Base Agent | How the model gets the tools | Who runs a call |
@@ -144,9 +145,9 @@ cannot enforce (`Unsupported`) rather than ignore it. For Codex and Claude Code:
 | Limit | In a container | In the run's sandbox | No isolation |
 |---|---|---|---|
 | `workspace` (read-write) | mounted read-write | as the sandbox shows it | the working directory |
-| `readable` (data, at its target; a relative target is in the workspace) | mounted read-only | granted read-only for the call, at its own path only (another target is refused); kept visible past `hidden` | linked into the workspace (not made read-only) |
-| `hidden` (paths it must not see) | not mounted (refused inside the workspace or the data) | covered under every name the sandbox shows it by (its real one, and below a place bound under a link's name); the places the call and the sandbox give the session stay visible below a covered directory, and what is hidden below them is covered again; a place the call gives stays visible when it is hidden too; a path reached through a link inside a place the session can write (which the session could have left) is covered only inside a place the session is given, never the place itself, the system or the interpreter; refused when the sandbox does not isolate the call (off, or no bubblewrap) | refused |
-| `network` (hosts besides the model; `None`: not limited) | `[]` only: the egress proxy's allowlist | `[]` only; refused when the network is open, `sandbox.allow` lets other hosts through, or the sandbox does not isolate the call | refused |
+| `readable` (data, at its target; a relative target is in the workspace) | mounted read-only | shown read-only at its target (a bind) | linked into the workspace (not made read-only) |
+| `hidden` (paths it must not see) | not mounted (refused inside the workspace or the data) | the sandbox is an allowlist: refused when the path lies in what the sandbox or the call shows | refused |
+| `network` (hosts besides the model; `None`: not limited) | `[]` only: the egress proxy's allowlist | `[]` only; refused when the network is open or the sandbox lets other hosts through | refused |
 | `timeout_s` | the container is removed | the process group is killed | the process group is killed |
 
 A session is stopped the same way when the caller cancels it (the `cancel` setting) or is interrupted. `direct` and
@@ -167,7 +168,8 @@ agent:
     prepare: ../utils/task.py:prepare
     answer: ../utils/task.py:answer
   model: {name: gpt-6-luna, login: chatgpt, effort: medium}           # Layer 1
-  codex: {web_search: false, isolation: container, timeout_s: 3600}  # Layer 2
+  codex: {web_search: false, timeout_s: 3600}         # Layer 2
+environment: {image: "officeqa-codex:0.164.0"}         # where it runs: a container of its own
 
 evolver:
   name: meta_harness_adapter                           # Layer 3
@@ -206,7 +208,7 @@ accepted; a key given in two layers is refused. On the command line a layer's se
 | Meta-Harness Adapter, `codex` and `claude` Evolvers | Evolver Agent | `codex` or `claude` |
 | RRSI Adapter | Evolver Agent: upstream's rules and roles, the proposer's prompt | `codex` or `claude` for the proposer; `codex`, one call per upstream `generate`, for the analyst, digesters and critic |
 | CL-Bench, ServeLearnBench | Acting Agent running the benchmark's loop | `direct`, per call, through the local endpoint |
-| MWM | Evolver Agent | `codex`, in MWM's native mounts (`NativeMounts` as the sandbox, told `/w`) |
+| MWM | Evolver Agent | `codex`, in a view of the run's sandbox with MWM's native mounts (`/w`, `/evidence`, ...) |
 | Harness² | Evolver Agent: upstream's proposer | `claude`, one call per upstream session |
 
 ## Outside the layers

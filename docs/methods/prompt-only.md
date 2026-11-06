@@ -21,12 +21,10 @@ evolver:
     args: ["-c", 'model_reasoning_effort="high"']
     home: []                     # no login files: the provider key is the backend's variable
     tools: [check_spec]          # the specification check only
-    hide: []                     # the framework's examples, tests, docs and .git
 sandbox:
-  enabled: true
-  network: restricted
+  enabled: true                  # the learner sees its workspace under /w and nothing else
 trainer:
-  output_dir: ~/runs/my-task     # outside the checkout: see `hide` below
+  output_dir: ~/runs/my-task
 ```
 
 This fragment belongs in a complete [run config](../framework/configuration.md). The acting model is configured by
@@ -50,9 +48,9 @@ structurally valid update can reduce task performance. The final adapter is the 
 
 `model` binds the learner to a backend, which supplies its endpoint, key variable and price. `args` passes Codex
 settings, such as the reasoning effort or the model's context window (`-c model_context_window=...`).
-`tools: [check_spec]` leaves the session only the specification check. `hide` lists paths the session must not read;
-any value, even `[]`, also hides the framework checkout's `examples/`, `tests/`, `docs/` and `.git`, and with them a
-run written there, so keep `trainer.output_dir` outside the checkout.
+`tools: [check_spec]` leaves the session only the specification check. The session sees its workspace under `/w`
+(the adapter, the learning material, the task description, its state) and nothing else of the machine: the
+framework's checkout, the task's data and other runs are not there.
 
 `examples/clbench_poker/prompt_only/`, `examples/clbench_database/prompt_only/` and
 `examples/servelearnbench/prompt_only/` run this method as their streams' baseline; their `launch.sh` sets the

@@ -5,7 +5,7 @@ One copy of the login is kept for every session, acting and learning alike (`ROO
 run's directory); every session's home starts from it, and a token a session refreshed is written back to it under a
 lock, so that no session starts from a token a refresh has replaced (ChatGPT rotates its refresh tokens). The user's
 own file is read, never written: it replaces the copy when it is newer (a later `codex login`). A session in the
-rollout sandbox, which cannot write that copy, gets it from the sandbox's caller and hands its refresh back the same
+task sandbox, which cannot write that copy, gets it from the sandbox's caller and hands its refresh back the same
 way (hermit.isolate).
 """
 from __future__ import annotations
@@ -147,7 +147,7 @@ def take_back(root: Path, path: Path, within: Path | None = None) -> None:
 
 # ---- the plan: what a ChatGPT login allows, shared by every session on this machine -------------------------------
 # A login's sessions draw on its plan's usage windows and its rate limit. One plan directory (PLAN, `plan_dir` to name
-# another) steers every session on the machine, whatever login copy a session signs in with (a rollout sandbox's
+# another) steers every session on the machine, whatever login copy a session signs in with (a task sandbox's
 # included: it is given this directory), through files read again before each session:
 #   PAUSE       while it exists, no session starts
 #   MAX_USED    a number: no session starts while a window of the plan that has not reset is at or above that percent
@@ -240,10 +240,11 @@ def wait(plan: Path | str | None = None, cancel=None, log=None, max_s: float | N
             told = time.time()
         if max_s is not None and time.time() - started >= max_s:
             return "timeout"
-        if cancel is not None and cancel.wait(30):
+        poll = 30.0 if max_s is None else min(30.0, max(0.0, max_s - (time.time() - started)))   # never past max_s
+        if cancel is not None and cancel.wait(poll):
             return "cancelled"
         if cancel is None:
-            time.sleep(30)
+            time.sleep(poll)
     return ""
 
 
@@ -346,14 +347,18 @@ def refused(output: str) -> bool:
     return bool(LIMIT.search(output or ""))
 
 
-def hold(plan: Path | str | None = None) -> None:
+def hold(plan: Path | str | None = None, cancel=None, max_s: float | None = None) -> None:
     """A session was refused for the plan's limit: hold every session back until a report says otherwise (or for an
     hour, when no report says when the window resets). If the hold cannot be written, this session waits five minutes
-    itself rather than ask again at once."""
+    itself rather than ask again at once (at most `max_s`, until `cancel` is set)."""
     try:
         _hold(plan)
     except OSError:
-        time.sleep(300)
+        pause = 300.0 if max_s is None else min(300.0, max(0.0, max_s))
+        if cancel is not None:
+            cancel.wait(pause)
+        else:
+            time.sleep(pause)
 
 
 def _hold(plan: Path | str | None = None) -> None:

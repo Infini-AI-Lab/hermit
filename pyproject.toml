@@ -19,6 +19,9 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest"]
+# The bubblewrap sandboxes show the framework's environment: what is installed here is what agents and learners can
+# import (python -m pip install "hermit-harness[sandbox]").
+sandbox = ["numpy>=1.26", "pandas>=2.2", "scipy>=1.13", "torch>=2.8"]
 
 # Source-only method dependencies: groups are not included in PyPI package metadata.
 # From the checkout root, use pip >=25.1: python -m pip install -e . --group <method>.

@@ -4,7 +4,8 @@
     python worker.py          # the job arrives as JSON on stdin; HA_RESULT_FD names the pipe the result leaves by
 
 A job is {"kind": "agent", "name", "params", "base", "task", "adapter"} (what `load_agent(...).run(task, adapter)`
-takes) or {"kind": "tool", "entrypoint", "base", "arguments", "bound"} (a template's or task's declared tool). The
+takes), {"kind": "judge", "spec", "base", "task", "output"} (the judge on an output record, in a sandboxed judge
+mode) or {"kind": "tool", "entrypoint", "base", "arguments", "bound"} (a template's or task's declared tool). The
 result is {"ok": true, "output": <RunOutput record>} / {"ok": true, "result": ...} or {"ok": false, "error",
 "traceback"}.
 
@@ -34,6 +35,14 @@ def _run(job: dict) -> dict:
         if not isinstance(out, RunOutput):
             raise TypeError(f"the pipeline returned {type(out).__name__}, not RunOutput")
         return {"ok": True, "output": output_record(out)}
+    if job["kind"] == "judge":
+        from dataclasses import asdict
+        from hermit.task import RunOutput, load_callable, normalise_judge
+        rec = dict(job["output"])
+        out = RunOutput(**{**rec, "log": Path(rec["log"]) if rec.get("log") else None})
+        verdict = normalise_judge(load_callable(job["spec"], Path(job["base"]))(dict(job["task"]), out))
+        result = asdict(verdict)
+        return {"ok": True, "result": {**(result.pop("extra", None) or {}), **result}}
     if job["kind"] == "tool":
         import inspect
         from hermit.tools import _load_entry

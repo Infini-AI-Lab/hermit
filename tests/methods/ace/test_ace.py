@@ -554,7 +554,7 @@ def make_run(tmp: Path, params: dict, step_size: int = 2) -> Config:
               "task_info": "task-info", "agent": {"name": "pipeline.py:run", "concurrency": 2},
               "judge": {"path": "judge.py"}, "template": str(TEMPLATE),
               "evolver": {"name": "ace", "params": params},
-              "sandbox": {"enabled": False, "network": "none", "env": []},
+              "sandbox": {"enabled": False},
               "trainer": {"run_name": "ace-toy", "output_dir": "runs", "epochs": 2, "budget": {"hours": 1}}}
     (tmp / "run.yaml").write_text(yaml.safe_dump(config))
     return Config.load(tmp / "run.yaml")

@@ -74,11 +74,13 @@ def test_the_configs_resolve_the_template_and_the_evolver_on_the_luna_row(tmp_pa
     agent, gepa = d["agent"], Config.load(EXAMPLE.parent / "gepa" / "run_codex_luna.yaml").data["agent"]
     assert (agent["name"], agent["concurrency"]) == ("codex", concurrency)
     params = agent["params"]
-    same = ("prompt", "answer", *LUNA, "timeout_s", "project_doc_max_bytes", "isolation", "container")
+    same = ("prompt", "answer", *LUNA, "timeout_s", "project_doc_max_bytes")
     assert {k: params[k] for k in same} == {k: gepa["params"][k] for k in same}
+    gepa_env = Config.load(EXAMPLE.parent / "gepa" / "run_codex_luna.yaml").data["environment"]
+    assert (d["environment"]["image"], d["environment"]["container"]) == (gepa_env["image"], gepa_env["container"])
     assert {k: params[k] for k in LUNA} == LUNA
-    assert (params["prepare"], params["collect"], d["judge"]) == ("trials.py:prepare", "trials.py:collect",
-                                                                  {"path": "trials.py", "name": "score"})
+    assert (params["prepare"], params["collect"], d["judge"]["path"], d["judge"]["name"], d["judge"]["mode"]) == \
+        ("trials.py:prepare", "trials.py:collect", "trials.py", "score", "host")
     assert params["workspaces"] != gepa["params"]["workspaces"]
     # the Evolver: the per-layer form read into its params, as the Trainer instantiates it
     evolver, p = instantiate(find(d["evolver"]["name"], config.base), d["evolver"]["params"],
@@ -94,8 +96,8 @@ def test_the_configs_resolve_the_template_and_the_evolver_on_the_luna_row(tmp_pa
         D.Job(task="UID0002"), tmp_path / "job", 1, 600.0)  # ... and one attempt of the Agent Debugger
     for role in (evolve, debugger):
         assert {k: role[k] for k in LUNA} == LUNA
-    assert d["sandbox"]["allow"] == ["chatgpt.com", "auth.openai.com"] and d["sandbox"]["network"] == "restricted"
-    assert d["sandbox"]["profiles"]["rollout"] == {"enabled": False}       # the agent's role drives Docker
+    assert d["sandbox"]["evolver"]["allowed_hosts"] == ["chatgpt.com", "auth.openai.com"]
+    assert d["environment"]["image"].startswith("officeqa-codex:")          # the acting agent's own container
 
 
 # ---------- make_rows.py ----------
@@ -267,8 +269,7 @@ def test_a_rollout_brings_the_hook_logs_where_the_debugger_reads_them(tmp_path, 
                                                         "    body = _memory_body(inp.adapter_dir)\n", 1))
     (tmp_path / "task.md").write_text("## Question\nWhat were the expenditures in FY 1934?\n")
     params = dict(Config.load(EXAMPLE / "run_codex_luna.yaml").data["agent"]["params"])
-    for key in ("prepare", "container"):
-        params.pop(key)
+    params.pop("prepare")
     params.update(isolation="none", workspaces=str(tmp_path / "ws"), files=[str(tmp_path / "task.md")])
     row = {"id": "UID0002#2", "question": "What were the expenditures in FY 1934?", "uid": "UID0002", "rollout": 2}
     record = run_one(row, adapter, lambda task, a: cli.run(task, a, params=params, base=EXAMPLE),

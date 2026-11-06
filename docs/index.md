@@ -53,6 +53,7 @@ guides/training
 guides/evaluation
 guides/model-backends
 guides/runs
+guides/sandbox
 guides/troubleshooting
 tutorials/your-own-task
 tutorials/customize-an-adapter
@@ -99,6 +100,7 @@ developer/index
 developer/releasing
 developer/reproducing-a-method
 developer/service-design
+developer/sandbox-design
 framework/agent-layers
 tutorials/custom-evolver
 framework/custom-evolver

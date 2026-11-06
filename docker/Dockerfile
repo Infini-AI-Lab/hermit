@@ -22,8 +22,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # /opt/venv: the dependencies as pyproject.toml pins them (hermit_dist.py reads them), plus the launchers' needs.
-# hermit itself is not installed; hermit_dist.py registers the distribution's metadata, which hermit/sandbox.py
-# looks up to bind the framework's dependencies into a sandbox. /opt/venv/pip-freeze.txt records the versions.
+# hermit itself is not installed; hermit_dist.py registers the distribution's metadata (pip and an
+# environment.packages entry find it); a sandbox shows /opt/venv as installed. /opt/venv/pip-freeze.txt records the versions.
 COPY pyproject.toml /tmp/pyproject.toml
 COPY docker/hermit_dist.py /opt/hermit_dist.py
 RUN python3 -m venv /opt/venv \

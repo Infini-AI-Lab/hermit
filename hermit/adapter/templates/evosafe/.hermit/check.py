@@ -1,4 +1,4 @@
-"""Syntax/shape checks only; runtime hook validation happens in the rollout sandbox."""
+"""Syntax/shape checks only; runtime hook validation happens in the task sandbox."""
 import ast
 from pathlib import Path
 

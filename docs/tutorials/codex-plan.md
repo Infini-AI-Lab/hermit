@@ -130,7 +130,7 @@ There are two learner configurations, depending on how the method calls its mode
 
 | Method's learner | Configuration | Examples |
 |---|---|---|
-| Requests text replies for reflection or revision | `llm.cli: codex` with `login: chatgpt`; each request becomes a Codex session in its own container | GEPA, SkillOpt, ACE, Continual Harness |
+| Requests text replies for reflection or revision | `llm.cli: codex` with `login: chatgpt`; each request becomes a Codex session in a sandbox of its own | GEPA, SkillOpt, ACE, Continual Harness |
 | Edits files as an agent | `evolver.base: codex` and `evolver.model.login: chatgpt`; sessions run in the method's workspace | Harness², Meta-Harness Adapter, AHE Adapter, RRSI Adapter |
 
 For the first form, the model settings look like this; use the method's existing recipe for its remaining fields:
@@ -142,13 +142,11 @@ llm:
   login: chatgpt
   effort: medium
   web_search: false
-  isolation: container
-  container:
-    image: officeqa-codex:0.164.0
-    network: oq-sandbox
-    proxy: http://oq-egress-login:3128
+  isolation: sandbox     # the default: a bubblewrap sandbox of its own, the login's hosts through a proxy
   timeout: 3600
 ```
+
+`isolation: container` with `container: {image, network, proxy}` runs each session in that image instead.
 
 For the second form, keep the method's `evolver.name` and parameters, and configure its Base Agent and model:
 

@@ -4,8 +4,8 @@ Upstream starts `claude -p` with Vertex settings and no sandbox. Here the sessio
 Agent (Layer 2): it talks to the bound backend's
 Messages API (the binding's Claude Code environment: base URL, key, model for every alias), gets a fresh config
 directory, sees only its own copy of the evidence (the run's sandbox: system files, the Claude install, the session
-directory; the network only through the forwarded model endpoint), and its cost is priced from its token usage at the
-backend's prices. Everything else - the stdin mission, the JSON reply, retries, harvesting the edited
+directory; the network only to its model: the provider's host, or the forwarded endpoint of a model on the loopback),
+and its cost is priced from its token usage at the backend's prices. Everything else - the stdin mission, the JSON reply, retries, harvesting the edited
 `context/harness`, the audit and its cache - is upstream's `Proposer.call`.
 """
 from __future__ import annotations

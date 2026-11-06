@@ -131,14 +131,16 @@ def make_run(tmp: Path, params: dict, *, sandbox: bool = False, llm: bool = True
     (tmp / "tasks.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
     (tmp / "train.txt").write_text("".join(f"t{i:02d}\n" for i in range(6)))
     (tmp / "test.txt").write_text("t06\nt07\n")
-    (tmp / "pipeline.py").write_text(PIPELINE)
+    (tmp / "agent").mkdir(exist_ok=True)
+    (tmp / "agent" / "pipeline.py").write_text(PIPELINE)            # the task sandbox's one declared path
     (tmp / "judge.py").write_text(JUDGE)
     config = {"data": {"tasks": "tasks.jsonl", "train": "train.txt", "test": "test.txt", "step_size": 1,
                        "shuffle": False},
-              "task_info": "task-info", "agent": {"name": "pipeline.py:run", "concurrency": 1},
+              "task_info": "task-info", "agent": {"name": "agent/pipeline.py:run", "concurrency": 1},
               "judge": {"path": "judge.py"}, "template": str(TEMPLATE),
               "evolver": {"name": "reharness", "params": params},
-              "sandbox": {"enabled": sandbox, "network": "none", "env": [], "enforce": "required"},
+              "environment": {"read": ["agent"], "env": ["REHARNESS_*"]},   # the reader's embedding relay
+              "sandbox": {"enabled": sandbox, "enforce": "required"},
               "trainer": {"run_name": "reharness-toy", "output_dir": "runs", "epochs": 1, "budget": {"hours": 1}}}
     if llm:
         config["llm"] = {"base_url": "http://127.0.0.1:9/v1", "model": "scripted"}   # replaced by the scripted model
@@ -482,7 +484,7 @@ def test_without_a_recorded_context_tool_result_nothing_is_revised(tmp_path, emb
     reflections; `recompute_retrieval: true` ranks the bank again instead and says so."""
     monkeypatch.setenv("REHARNESS_EMBED_URL", embeddings)
     config = make_run(tmp_path, {"k": 2, "embedding": {"base_url": embeddings, "model": "stub-embed"}})
-    (tmp_path / "pipeline.py").write_text(PIPELINE.replace(
+    (tmp_path / "agent" / "pipeline.py").write_text(PIPELINE.replace(
         'extra = {"context_tool": session.last_context} if session is not None and session.last_context is not None else {}',
         "extra = {}"))
     _, model = train(config)

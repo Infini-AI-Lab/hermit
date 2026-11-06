@@ -47,9 +47,9 @@ ENV_PYTHON = "HA_FRAMEWORK_PYTHON"                    # the framework's interpre
 
 def _adapter_sandbox():
     """Strict, like the learner's: no network but the loopback endpoints the environment names (forwarded), none of
-    the environment's keys, and the framework's own packages (the templates' tools need nothing else)."""
-    from hermit.sandbox import LOCAL_URL, Sandbox
-    loopback = [k for k, v in os.environ.items() if LOCAL_URL.search(str(v))]
+    the environment's keys; the framework's environment (sandbox.hide covered, carried in HA_SANDBOX_HIDE)."""
+    from hermit.sandbox import LOCAL_ANY, Sandbox
+    loopback = [k for k, v in os.environ.items() if LOCAL_ANY.search(str(v))]
     return Sandbox(role="adapter", network="isolated", env_allow=loopback,
                    enforce=os.environ.get(ENV_ENFORCE, "required"))
 

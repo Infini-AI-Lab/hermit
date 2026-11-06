@@ -41,11 +41,11 @@ model of the CLI's own provider (`gpt-5.4`), as before. So a provider id that ha
 name (`openai/...`) is read as a reference to that backend.
 
 The top-level `model` is a default: `model=vllm/qwen` on the command line moves every caller that names no model
-of its own. The OfficeQA configs leave the acting agent's model to it but set the learner's `llm` (GLM 5.3; the
-SkillOpt paper used GPT-5.5), so `model=vllm/qwen` moves the agent and `llm=vllm/qwen` the learner; a config that
-sets `llm` or `agent.params.model` itself keeps them unless they are overridden too
-(`llm=vllm/qwen agent.params.model=vllm/qwen`). An agent Evolver such as `codex` takes its model
-from `evolver.params.model`; `evolver.params.model=vllm/qwen` moves it.
+of its own. The OfficeQA configs set it to the acting agent's model (GLM 5.3 Flash, which the task sandbox is given
+the key and host of) and set the learner's `llm` (GLM 5.3; the SkillOpt paper used GPT-5.5), so `model=vllm/qwen`
+moves the agent and `llm=vllm/qwen` the learner; a config that sets `llm` or `agent.params.model` itself keeps them
+unless they are overridden too (`llm=vllm/qwen agent.params.model=vllm/qwen`). An agent Evolver such as `codex` takes
+its model from `evolver.params.model`; `evolver.params.model=vllm/qwen` moves it.
 
 ## Where backends are declared
 
@@ -148,10 +148,12 @@ What the binding gives each CLI:
   `accounts/fireworks/models/...` on Fireworks) in print mode; vLLM's own guide still recommends a plain served
   name (`vllm serve ... --served-model-name qwen3`).
 
-The Evolver's own endpoint and key variable always reach the sandbox: the Trainer adds the binding's URLs to
-`sandbox.allow` and its `api_key_env` to `sandbox.env`, so a config lists neither. Claude Code's token is written
-into the Evolver's settings as `$<api_key_env>` and expanded when the agent starts, so the run's `config.yaml`
-records the variable's name, never the key.
+A sandboxed session (the learner's, the acting agent's) gets its model as Harbor's agents do: the bound endpoint's
+key variable passes into the sandbox, its host joins the sandbox's allowlist, and an endpoint on the loopback (a
+meter) is forwarded. A config therefore lists neither the endpoint's host nor its key variable. What the run keeps is
+scrubbed of key values. Claude Code's token is written into the Evolver's settings as
+`$<api_key_env>` and expanded when the agent starts, so the run's `config.yaml` records the variable's name, never
+the key.
 
 ## A local server
 

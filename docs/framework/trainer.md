@@ -187,8 +187,9 @@ hermit eval --config docs/_examples/interface_task/run.yaml --adapter final
 ```
 
 The pipeline echoes input text and the Evolver records scores without changing the adapter. It exercises two
-training steps, state snapshots, finalization, and test evaluation without model calls. The config disables the
-learner sandbox for this trusted local example.
+training steps, state snapshots, finalization, and test evaluation without model calls. The Evolver is trusted
+Python in the Trainer's process; the pipeline runs in the task sandbox (`enforce: best_effort`: unconfined and
+recorded where bubblewrap is missing).
 
 Outputs go under `.demo/interface-example/interface-demo/`. A completed run is not resumed; use a new
 `trainer.run_name` override for another experiment and the same override when evaluating it.

@@ -23,8 +23,8 @@ is Hermit's:
 2. The proposer is a session of the `codex` (or `claude`) Base Agent, as Meta-Harness Adapter's is, instead of
    upstream's JSON-action agent: it edits a copy of the incumbent adapter in place with its own tools and writes
    done.json, whose contract (budget, tags, reserved slot) is upstream's done() check; an invalid done.json, and
-   each critic objection, goes back to the same session (resumed) with upstream's repair text. What it must not
-   see is the call's `Limits.hidden`, which the Base Agent enforces or refuses. A session that fails (exits
+   each critic objection, goes back to the same session (resumed) with upstream's repair text. It sees only its
+   variant's directory and the task description (a view of the run's sandbox). A session that fails (exits
    non-zero) without a proposal fails the step, and the variant is drafted again at the next one.
 3. Candidates are stored as Meta-Harness Adapter stores them (state/candidates/<id>/adapter/ with a digest) and
    checked with check_spec; the smoke is `run_agent` on the domain's smoke tasks.
@@ -52,7 +52,7 @@ import sys
 import time
 
 from hermit.agent.base import login as codex_login
-from hermit.agent.base.interface import Limits, Mount, make
+from hermit.agent.base.interface import Limits, make
 from hermit.agent.evolver.agent import AgentEvolver
 from hermit.agent.evolver.base import FinalResult, StepContext, StepResult, Usage
 from hermit.agent.evolver.methods.rrsi_adapter.store import _copy_tree, _install, _real, _store, _write
@@ -275,6 +275,63 @@ NOT_HERE = {"proposer_model": "the proposer's model is the Evolver's own (evolve
             "eval_parallel": "the Trainer evaluates one candidate per step (1 is accepted)"}
 
 
+def _view_snapshot(box):
+    """A copy of a candidate made inside one proposer's own view (so a link swapped in while it is copied reaches
+    only what that session sees), then sanitized into a directory of this process; None without a sandbox."""
+    if box is None or not getattr(box, "enabled", False) or not shutil.which("bwrap"):
+        return None
+    import tempfile
+    from hermit.sandbox import sanitized_copy
+
+    def snapshot(source: Path) -> Path:
+        raw = Path(tempfile.mkdtemp(prefix="rrsi-raw-"))
+        clean = None
+        try:
+            clean = Path(tempfile.mkdtemp(prefix="rrsi-check-"))
+            args, env = box.wrap(["cp", "-a", "--no-preserve=ownership", f"{source}/.", str(raw)], writable=[raw])
+            run = subprocess.run(args, env=env, capture_output=True, text=True, timeout=300)
+            if run.returncode != 0:
+                raise ValueError(f"the candidate could not be copied: {run.stderr.strip()[-300:]}")
+            sanitized_copy(raw, clean)
+        except BaseException:
+            if clean is not None:                        # the caller gets no path to remove: removed here
+                shutil.rmtree(clean, ignore_errors=True)
+            raise
+        finally:
+            shutil.rmtree(raw, ignore_errors=True)
+        return clean
+    return snapshot
+
+
+def _in_view(name: str, tool, work: Path, box=None):
+    """A Trainer tool as one proposer session uses it: a path it names (check_spec's, run_agent's adapter) is
+    resolved against the session's own directory, defaults to its candidate (work/adapter), and must lie there: the
+    session neither checks the run's working copy by default nor reaches another variant's files through a tool."""
+    import copy
+    names = {"check_spec": "path", "run_agent": "adapter"}
+    if name not in names:
+        return tool
+    key, fn = names[name], getattr(tool, "fn", tool)
+
+    def call(**arguments):
+        value = arguments.get(key)
+        target = Path(os.path.normpath(work / value)) if value else work / "adapter"
+        # named under the directory and, through any link on the way, still there
+        if not target.is_relative_to(work) or \
+                not Path(os.path.realpath(target)).is_relative_to(Path(os.path.realpath(work))):
+            raise ValueError(f"{name} takes a path under your directory ({work.name}/), as your session sees it")
+        snapshot = _view_snapshot(box)
+        out = fn(**{**arguments, key: str(target), **({"_snapshot": snapshot} if snapshot else {})})
+        if name == "run_agent":                   # the logs lie in the run's agent_logs/, outside this view
+            out = {**out, "results": [{k: v for k, v in r.items() if k != "log"} for r in out.get("results", [])]}
+        return out
+    if not hasattr(tool, "fn"):                   # a plain function (a test's tools)
+        return call
+    out = copy.copy(tool)
+    out.fn = call
+    return out
+
+
 class RRSIAdapterEvolver(AgentEvolver):
     supports_resume = False             # every session starts afresh from the files of its round
 
@@ -374,7 +431,9 @@ class RRSIAdapterEvolver(AgentEvolver):
             raise ValueError(f"evolver.params.rrsi: m = {cfg.m} variants a round; at most {len(VARIANTS)} "
                              f"({VARIANTS})")
         self._domain(ctx)
-        self._more_hidden(ctx)                               # a "module:" entry naming no installed package
+        if ctx.params.get("hide") is not None:
+            raise ValueError("evolver.params.hide was removed: each proposer and role session sees only its own "
+                             "directory (the evolver sandbox's view), so nothing else needs hiding")
 
     def step(self, ctx: StepContext) -> StepResult:
         _require_rrsi()
@@ -516,9 +575,7 @@ class RRSIAdapterEvolver(AgentEvolver):
             settings.pop("login", None)
         if not isinstance(role.get("binding"), dict) and role.get("args") is not None and provider:
             settings["args"] = [*provider, *role["args"]]    # their own arguments, on the proposer's provider still
-        hide = [ws.learning_material, ws.state, ws.adapter, ws.history, ws.output, ws.scratch / "rrsi",
-                *self._more_hidden(ctx)]
-        return Roles(ctx, settings, ws.scratch / "rrsi_roles", hide=hide, records=ws.output / "rrsi_roles")
+        return Roles(ctx, settings, ws.scratch / "rrsi_roles", records=ws.output / "rrsi_roles")
 
     def _advance(self, ctx, st: dict, cfg, dom, n: int, roles: Roles) -> tuple[str, str]:
         # 1. The step's rollouts evaluated the candidate handed back last time.
@@ -824,7 +881,7 @@ class RRSIAdapterEvolver(AgentEvolver):
             ga = R / "global_analysis.json"
             prior = json.loads(ga.read_text()) if ga.is_file() else {}
             # upstream's analyze() renders the traces first; rendered here too, so the digesters' sessions can run
-            # in a copy of them (the state is hidden from every role session)
+            # in a copy of them (no role session's view shows the state)
             from rrsi.analyst import prepare_rendered
             prepare_rendered(dom, traces, rdir / "analysis" / "rendered")
             shared = ctx.workspace.scratch / "rrsi_roles" / f"rendered_r{t}"
@@ -935,33 +992,11 @@ class RRSIAdapterEvolver(AgentEvolver):
         (cdir / "PATTERNS.md").write_text(patterns_md)
         return cdir
 
-    @staticmethod
-    def _more_hidden(ctx) -> list[Path]:
-        """`hide`: more paths hidden from the proposer and the roles, read as AgentEvolver's `hide` reads them (a path,
-        or "module:<name>" for an installed package), without the framework's directories it adds."""
-        from hermit.sandbox import hidden_paths
-        return hidden_paths(ctx.params.get("hide") or [])[len(hidden_paths(None)):]
-
-    def _hidden_from_proposer(self, ctx, work: Path) -> list[Path]:
-        """What a proposer session must not see: the learning material and the state (the evaluations, every
-        candidate, upstream's records), the adapter's history and working copy, the step's output (other sessions'
-        logs), the roles' calls, and every other variant's or round's working directory. Upstream's proposer reads only
-        its own worktree and the round's context."""
-        ws = ctx.workspace
-        hide = [ws.learning_material, ws.state, ws.history, ws.adapter, ws.output, ws.scratch / "rrsi_roles"]
-        root = ws.scratch / "rrsi"
-        hide += [p for p in sorted(root.iterdir()) if not p.is_symlink() and p.resolve() != work.resolve()] \
-            if root.is_dir() else []
-        hide += [p for p in sorted(ws.scratch.iterdir()) if p.name not in ("rrsi", "rrsi_roles")] \
-            if ws.scratch.is_dir() else []
-        return [p for p in hide if p.exists()]
-
     def _session(self, ctx, prompt: str, path: Path, work: Path, session: str | None, log: Path) -> StepResult:
         """One proposer session (or a resumed one) of the `codex` or `claude` Base Agent, in the variant's working
-        directory (its candidate under adapter/, its context under context/), with everything else the run keeps
-        hidden (`Limits.hidden`: the run's sandbox covers it, or the Base Agent refuses the call), the Trainer's
-        allowed tools, and its event log at `log`. Its home is the variant's own: a later variant never reads an
-        earlier one's sessions."""
+        directory (its candidate under adapter/, its context under context/) and the task description, nothing else the
+        run keeps (a view of the run's sandbox), the Trainer's allowed tools, and its event log at `log`. Its home is
+        the variant's own: a later variant never reads an earlier one's sessions."""
         params = ctx.params
         backend = params.get("backend", "codex")
         home = work / f".{backend}-home"
@@ -970,19 +1005,21 @@ class RRSIAdapterEvolver(AgentEvolver):
                               extra={"proposer_fault": True})
         _write(path, prompt)
         allowed = params.get("tools")
-        tools = [t for name, t in ctx.tools.items() if allowed is None or name in allowed]
-        # The paths are hidden here rather than through AgentEvolver's `hide`, which also covers the framework's
-        # examples/: a run whose output_dir lies under examples/ would lose its own workspace. With the run's sandbox
-        # off nothing can be hidden, and the session runs as every learner of such a run does.
-        hidden = [*self._hidden_from_proposer(ctx, work), *self._more_hidden(ctx)] \
-            if getattr(ctx.sandbox, "enabled", False) else []
+        tools = None                              # bound below, once the session's view exists
+        # The session sees its own variant directory and the task description, nothing else the run keeps (the
+        # learning material, the state, the history, the working copy, the other variants and rounds): the run's
+        # evolver sandbox with this view. With the run's sandbox off it runs as every learner of such a run does.
         ws = ctx.workspace
-        limits = Limits(hidden=hidden, readable=[Mount(ctx.workspace.task_info, ctx.workspace.task_info)])
+        limits = Limits()
+        box = ctx.sandbox.view(readable=[ws.task_info], writable=[work]) \
+            if ctx.sandbox is not None and getattr(ctx.sandbox, "enabled", False) else ctx.sandbox
+        view = box if box is not ctx.sandbox else None
+        tools = [_in_view(name, t, work, view) for name, t in ctx.tools.items() if allowed is None or name in allowed]
         tries = int(params.get("session_retries", 2))
         tail = ""
         for attempt in range(1 + tries):
-            # a session can write its directory's parent (the run's scratch): its directory or home replaced by a
-            # link would be bound into the next session read-write, past what is hidden; and the host writes into
+            # a session's view writes only its own directory: its home there replaced by a link would be bound into
+            # the next session read-write, past its view (the directory is checked too); and the host writes into
             # the home (the sign-in, the settings), so a link left inside it is removed, never followed
             if not _owned(work, ws.scratch) or not _owned(home, ws.scratch):
                 return StepResult("failed", "the proposer's directory or home was replaced by a link or a file",
@@ -990,8 +1027,13 @@ class RRSIAdapterEvolver(AgentEvolver):
             _unlink_links(home)
             kept = log if attempt == 0 else log.with_name(f"{log.stem}.retry{attempt}{log.suffix}")
             kept.parent.mkdir(parents=True, exist_ok=True)
-            agent = make(backend, {**self.settings(ctx, backend), "home": home, "log": kept})
-            result = agent.run(prompt, workspace=work, tools=tools, limits=limits, session=session)
+            agent = make(backend, {**self.settings(ctx, backend), "home": home, "log": kept,
+                                   **({"sandbox": box} if box is not None else {})})
+            try:
+                result = agent.run(prompt, workspace=work, tools=tools, limits=limits, session=session)
+            finally:
+                if box is not ctx.sandbox and box is not None:
+                    box.close()
             self._usage += result.usage
             extra, tail = result.extra, str(result.extra.get("output_tail") or "")
             if extra.get("cancelled") or (ctx.cancel is not None and ctx.cancel.is_set()):

@@ -138,7 +138,7 @@ The teaching agent starts by echoing lowercase text. After a failed attempt, the
 
 **Expected in this demo:** baseline `0.0` → final `1.0`, with zero execution errors.
 
-This deterministic example verifies the training contract. Its constructed score gain is not a real-model performance result. The example uses trusted local Python with the learner-program sandbox disabled.
+This deterministic example verifies the training contract. Its constructed score gain is not a real-model performance result. Its agent runs in the task sandbox; the learner is trusted local Python in the Trainer's process.
 
 #### Inspect and Deploy
 
