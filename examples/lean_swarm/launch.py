@@ -376,6 +376,9 @@ def main() -> None:
     a = ap.parse_args()
 
     sys.path.insert(0, str(FRAMEWORK))
+    # The jails (`python -m hermit.sandbox`) start in the checkout or a workspace: they import this checkout's hermit,
+    # not one installed elsewhere. What runs inside a jail gets only its spec's variables.
+    os.environ["PYTHONPATH"] = os.pathsep.join([str(FRAMEWORK), *filter(None, [os.environ.get("PYTHONPATH")])])
     from hermit.agent.model.backends import problems_of, registry, resolve
     try:
         binding = resolve(a.model, registry())
@@ -676,6 +679,11 @@ def main() -> None:
     except ValueError:
         ledger = {}
     shutdown()
+    # What the run keeps holds no key value, as a Trainer's run (the agents' codex homes snapshot their environment).
+    from hermit.redact import redact_tree
+    if binding.key_env_if_set() and key:
+        os.environ.setdefault(binding.key_env_if_set(), key)
+    redact_tree(base)
 
     res = dict(problem=rel, theorem=a.theorem, model=a.model, n_agents=a.agents, cap_s=a.cap, solved=winner is not None,
                winner=winner, time_to_solve=round(t_solved) if t_solved is not None else None, wall=round(time.time() - t0), agents={})

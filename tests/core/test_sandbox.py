@@ -1528,6 +1528,24 @@ def test_a_programs_own_installation_shows_no_python_packages_of_its_own(tmp_pat
     assert str(local) in binds(args, "--ro-bind") and str(site) in binds(args, "--tmpfs")
 
 
+@pytest.mark.skipif(not _bwrap_works(), reason="needs a working bubblewrap (unprivileged user namespaces)")
+def test_python3_on_the_path_inside_is_the_frameworks_own(tmp_path):
+    """Started from an unactivated venv, another python3 comes first on the host's PATH: inside, the framework's own
+    interpreter does, with its packages."""
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "python3").symlink_to("/usr/bin/python3")
+    box = Sandbox(network="isolated")
+    try:
+        args, env = box.wrap(["/usr/bin/env", "python3", "-c", "import yaml, sys; print(sys.prefix)"],
+                             env={**os.environ, "PATH": f"{other}:/usr/bin:/bin"}, readable=[other])
+        proc = subprocess.run(args, env=env, capture_output=True, text=True, timeout=120)
+        assert proc.returncode == 0, proc.stderr[-2000:]
+        assert proc.stdout.strip() == sys.prefix
+    finally:
+        box.close()
+
+
 def test_a_python_clis_own_installation_keeps_its_packages(tmp_path, monkeypatch):
     """A CLI that runs on Python (a pipx or venv install) imports from its own site directory: it is not emptied."""
     fake_bwrap(monkeypatch)

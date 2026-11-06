@@ -478,7 +478,10 @@ def _interpreter() -> tuple[list[Path], list[Path]]:
     extensions load), its ssl/ (a conda installation's certificates), the executable and the virtual environment's
     own files. Every site-packages directory under them, and every system Python's under /usr, is replaced by an empty
     one; the distributions a sandbox shows are bound back into it."""
-    shown, sites = [Path(sys.executable), Path(sys.executable).resolve(), *_venv_paths()], []
+    real = Path(sys.executable).resolve()
+    # Its other names beside it (python3 next to python): PATH inside leads with this directory.
+    siblings = [p for p in Path(sys.executable).parent.glob("python*") if p.resolve() == real]
+    shown, sites = [Path(sys.executable), real, *siblings, *_venv_paths()], []
     prefixes = [Path(sys.base_prefix), Path(sys.prefix), Path(sys.executable).resolve().parent.parent]
     for prefix in dict.fromkeys(prefixes):
         for name in ("lib", "lib64", "ssl"):
@@ -1069,6 +1072,11 @@ class Sandbox:
                                    "or set sandbox.enforce: best_effort to run unconfined and record that")
             self._record(command, {"enforced": False, "reason": "bubblewrap is not installed"}, env)
             return command, env
+        if "PATH" in env:
+            # `python3` inside is this environment's: a script started by `#!/usr/bin/env python3` must not find
+            # another interpreter first (an unactivated venv), whose packages are emptied below.
+            own = os.path.dirname(sys.executable)
+            env["PATH"] = os.pathsep.join([own, *(p for p in env["PATH"].split(os.pathsep) if p and p != own)])
         found = shutil.which(command[0]) if command else None
         if found:      # run the program by its real path: PATH entries outside the sandbox do not exist inside
             real = Path(found).resolve()     # ... except this Python, which must keep its environment's path

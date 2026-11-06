@@ -2,7 +2,8 @@
 
 This page records the design of the sandboxes the framework starts. It replaced every earlier sandbox mode in one
 change (no old configuration keeps working; an old key fails with where it went). The configuration fields are in
-[Configuration](../framework/configuration.md#sandboxes).
+[Configuration](../framework/configuration.md#sandboxes); how a sandbox is built, with its warnings, in
+[How the sandbox works](../guides/sandbox.md).
 
 ## Scope
 
@@ -49,8 +50,10 @@ use), a `separate` judge in a sanitized copy of the collected paths, so the orig
   (`hermit-harness[sandbox]` installs a base: numpy, pandas, scipy, torch). Never what their `.pth` files add beside
   them (an editable install's checkout: hermit's own, a benchmark's with its data); `packages` names such a
   distribution, or one on `PYTHONPATH`, to show its package. Every other interpreter's site directory (a venv's base
-  installation, a system Python under `/usr`) is replaced by an empty one. The hermit package itself (not the
-  checkout) is shown when `framework`; a hermit installed in the environment is covered without it.
+  installation, a system Python under `/usr`) is replaced by an empty one. The interpreter's directory leads `PATH`
+  inside (its `python3` beside `python` shown), so `#!/usr/bin/env python3` runs on this environment. The hermit
+  package itself (not the checkout) is shown when `framework`; a hermit installed in the environment is covered
+  without it.
 - `hide` (the run's `sandbox.hide`: module or package names, resolved to their files without importing them) is
   covered in every sandbox but the judge's, under every name it is shown by: a directory by an empty one, a file
   by an empty file and its package's `__pycache__` by an empty directory (a cache the judge's import writes later
@@ -155,16 +158,16 @@ way. A task whose own code calls a model (CL-Bench's and ServeLearnBench's runne
 `environment.env`. A Codex ChatGPT login is copied in, its hosts allowed; a CLI learner that names no model reference
 copies the CLI's own login from the user's home.
 
-What a run keeps and may share is scrubbed of every key value (`hermit/redact.py`); each value of a key-like
-variable of the Trainer (`..._API_KEY`, `..._KEY`, `..._TOKEN`, `..._SECRET`, at least 16 characters) becomes
-`<VARIABLE>`. Scrubbed: the learning material and the copies of `run_agent` logs the learner opens; each acting
-call's directory and its log copy, and each sandboxed judge's directory, after the call (a failed one too), and
-with `environment.image` the session's directory in `agent.params.workspaces`, after a failed call too; the
-step records, `steps.jsonl`, the commits, the card, `summary.json` and `hermit eval`'s `results.jsonl`; the adapter
-before each commit; `evolver_access.environment` before each learner call; at the end of the run the learner's
-workspace (output, state, scratch, its CLI's home), `environment.write` and a configured `llm.cli` home; `llm.cli`'s
-kept streams after each call; the sandbox and proxy records. Not inspected: what a process writes anywhere else (a
-benchmark's own files outside its declared paths), and what a sandbox sends to its allowed hosts.
+What a run keeps and may share is scrubbed of every key value (`hermit/redact.py`); each value of a key-like variable
+of the Trainer (`..._API_KEY`, `..._KEY`, `..._TOKEN`, `..._SECRET`, at least 16 characters) becomes `<VARIABLE>`.
+Scrubbed: the learning material and the copies of `run_agent` logs the learner opens; each acting call's directory and
+its log copy, and each sandboxed judge's directory, after the call (a failed one too), and with `environment.image`
+the session's directory in `agent.params.workspaces`, after a failed call too; the step records, `steps.jsonl`, the
+commits, the card, `summary.json` and `hermit eval`'s `results.jsonl`; the adapter before each commit;
+`evolver_access.environment` before each learner call; at the end of the run the learner's workspace (output, state,
+scratch, its CLI's home), `environment.write` and a configured `llm.cli` home; `llm.cli`'s kept streams after each
+call; the sandbox and proxy records; the Lean swarm's run directory at its end. Not inspected: what a process writes
+anywhere else (a benchmark's own files outside its declared paths), and what a sandbox sends to its allowed hosts.
 
 Web search runs at the provider; the CLI setting (`web_search`, required and explicit) switches it off.
 

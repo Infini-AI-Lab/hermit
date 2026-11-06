@@ -53,6 +53,7 @@ guides/training
 guides/evaluation
 guides/model-backends
 guides/runs
+guides/sandbox
 guides/troubleshooting
 tutorials/your-own-task
 tutorials/customize-an-adapter

@@ -90,8 +90,8 @@ in-flight work can overshoot it. Dollar accounting needs reported usage and appl
 
 ## Sandboxes
 
-Every process the framework starts runs in a sandbox ([design](../developer/sandbox-design.md)). It requires Linux and
-bubblewrap. Each sandbox is an allowlist: inside, only what is declared exists, besides the Python environment the
+Every process the framework starts runs in a sandbox ([how it works](../guides/sandbox.md),
+[design](../developer/sandbox-design.md)). It requires Linux and bubblewrap. Each sandbox is an allowlist: inside, only what is declared exists, besides the Python environment the
 framework runs in (shown as installed; `sandbox.hide` covers a module of it in every sandbox but the judge's).
 Only the Trainer, `eval` and `check` themselves stay outside, holding the data, the answers, the run records and the
 model keys.
