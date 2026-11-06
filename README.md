@@ -15,7 +15,7 @@
 [![WeChat](https://img.shields.io/badge/WeChat-community-07C160?logo=wechat&logoColor=white)](assets/community/wechat.md)
 [![Discord](https://img.shields.io/badge/Discord-community-5865F2?logo=discord&logoColor=white)](https://discord.gg/CKjBjgVQDV)
 
-**[Get Started](#get-started)** · **[Harness Adapters](#what-is-a-harness-adapter)** · **[Methods](#supported-harness-evolution-methods)** · **[Examples and Recipes](#examples-and-recipes)** · **[FAQ](#faq)** · **[Docs](https://infini-ai-lab.github.io/hermit/docs/)**
+**[Get Started](#get-started)** · **[Harness Adapters](#what-is-a-harness-adapter)** · **[Methods](#supported-harness-evolution-methods-more-to-come)** · **[Examples and Recipes](#examples-and-recipes)** · **[FAQ](#faq)** · **[Docs](https://infini-ai-lab.github.io/hermit/docs/)**
 
 </div>
 
@@ -25,6 +25,7 @@ Hermit is a framework for training, evaluating, and deploying harness adapters, 
 
 ## News
 
+- **[2026/11]** **Harness evolving with your coding plan. No API key needed.** Check out the [tutorial](docs/tutorials/codex-plan.md).
 - **[2026/11]** **Hermit v0.2.0** released — three-layer agents, Codex plan-backed acting and learning, and six new harness evolution methods. See the [release notes](https://github.com/Infini-AI-Lab/hermit/releases/tag/v0.2.0).
 - **[2026/10]** New harness evolution supported: **[Meta-Harness Adapter](https://infini-ai-lab.github.io/hermit/docs/methods/meta_harness_adapter.html)**, **[ReHarness](https://infini-ai-lab.github.io/hermit/docs/methods/reharness.html)**, and **[Harness²](https://infini-ai-lab.github.io/hermit/docs/methods/harness2.html)**.
 - **[2026/10]** **Hermit v0.1.0** released — the first public release for training, evaluating, and deploying harness adapters. See the [release post](https://x.com/haizhong_zheng/status/2114768121705775463).
@@ -43,22 +44,19 @@ Many harnesses are black boxes; even open-source ones have carefully designed co
 
 ## A Unified Framework for Harness Evolution
 
-### Supported Harness Evolution Methods
+### Supported Harness Evolution Methods (More to Come)
 
-<table align="center">
-<thead>
-<tr>
-<th>Status</th>
-<th>Methods</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>✅ <strong>Supported</strong></td>
-<td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/gepa.html">GEPA</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/skillopt.html">SkillOpt</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/mwm.html">MetaWorld Model</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/harness2.html">Harness²</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/continual_harness.html">Continual Harness</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/reharness.html">ReHarness</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/meta_harness_adapter.html">Meta-Harness Adapter</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/ace.html">ACE</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/ahe_adapter.html">AHE Adapter</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/rrsi_adapter.html">RRSI Adapter</a> · <a href="https://infini-ai-lab.github.io/hermit/docs/methods/evosafe.html">EvoSafeHarness</a></td>
-</tr>
-</tbody>
-</table>
+- [GEPA](https://infini-ai-lab.github.io/hermit/docs/methods/gepa.html)
+- [SkillOpt](https://infini-ai-lab.github.io/hermit/docs/methods/skillopt.html)
+- [MetaWorld Model](https://infini-ai-lab.github.io/hermit/docs/methods/mwm.html)
+- [Harness²](https://infini-ai-lab.github.io/hermit/docs/methods/harness2.html)
+- [Continual Harness](https://infini-ai-lab.github.io/hermit/docs/methods/continual_harness.html)
+- [ReHarness](https://infini-ai-lab.github.io/hermit/docs/methods/reharness.html)
+- [Meta-Harness Adapter](https://infini-ai-lab.github.io/hermit/docs/methods/meta_harness_adapter.html)
+- [ACE](https://infini-ai-lab.github.io/hermit/docs/methods/ace.html)
+- [AHE Adapter](https://infini-ai-lab.github.io/hermit/docs/methods/ahe_adapter.html)
+- [RRSI Adapter](https://infini-ai-lab.github.io/hermit/docs/methods/rrsi_adapter.html)
+- [EvoSafeHarness](https://infini-ai-lab.github.io/hermit/docs/methods/evosafe.html)
 
 Hermit provides an RL-style training loop for evolving harness adapters:
 
@@ -75,12 +73,6 @@ Hermit provides an RL-style training loop for evolving harness adapters:
 
 <p align="center">
 <img src="assets/training-loop.gif" alt="Training pseudocode: initialize the adapter, run and judge tasks, call evolver.step, check and commit the proposal, then finalize." width="100%">
-</p>
-
-#### Run from the Command Line:
-
-<p align="center">
-<img src="assets/install-and-use.gif" alt="An animated command overview of installing Hermit, training an adapter, deploying it, and converting it into a plugin." width="100%">
 </p>
 
 ## Get Started
@@ -162,6 +154,8 @@ cat .demo/first-training/workspace/AGENTS.md
 The generated `AGENTS.md` contains the learned rule. Start Codex in that workspace to use it.
 
 [Full walkthrough, expected outputs, and repeat-run instructions →](https://infini-ai-lab.github.io/hermit/docs/get-started/quickstart.html)
+
+**Run harness evolution with your coding plan.** Use your Codex/ChatGPT subscription for both acting and learning, with no separate model API key required. Plan-backed recipes are available for GEPA, SkillOpt, Harness², Continual Harness, ACE, AHE Adapter, and RRSI Adapter. See the [setup guide and recipes](https://infini-ai-lab.github.io/hermit/docs/recipes/officeqa.html#a-model-on-a-chatgpt-login) to get started; model access and usage follow your plan.
 
 **Ready for a real agent?** [Train with an API model](https://infini-ai-lab.github.io/hermit/docs/get-started/first-model.html) · [Run OfficeQA](https://infini-ai-lab.github.io/hermit/docs/recipes/officeqa.html) · [Bring your own task](https://infini-ai-lab.github.io/hermit/docs/tutorials/your-own-task.html)
 
