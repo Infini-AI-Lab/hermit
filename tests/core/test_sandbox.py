@@ -22,6 +22,20 @@ from hermit.sandbox import (FRAMEWORK, PACKAGE, RELAY, AllowlistProxy, Bind, San
 REAL_WHICH = shutil.which
 
 
+@pytest.fixture(autouse=True)
+def close_the_sandboxes_a_test_makes(monkeypatch):
+    """A test that wraps a command it never runs leaves a report listener: every sandbox made is closed after it."""
+    made, real = [], sandbox_module.Sandbox.__post_init__
+
+    def tracked(self):
+        real(self)
+        made.append(self)
+    monkeypatch.setattr(sandbox_module.Sandbox, "__post_init__", tracked)
+    yield
+    for box in made:
+        box.close()
+
+
 def fake_bwrap(monkeypatch):
     """Pretend bubblewrap is installed, to inspect the command without running it."""
     monkeypatch.setattr(sandbox_module.shutil, "which",
@@ -1345,8 +1359,8 @@ def test_a_sanitized_copy_reads_a_tree_sealed_from_its_root(tmp_path):
     os.chmod(src / "inner" / "a.txt", 0o000)
     os.chmod(src / "inner", 0o000)
     os.chmod(src, 0o000)
-    sanitized_copy(tmp_path, tmp_path.parent / f"{tmp_path.name}-copy", ["log"])
-    assert (tmp_path.parent / f"{tmp_path.name}-copy" / "log" / "inner" / "a.txt").read_text() == "a"
+    sanitized_copy(tmp_path, tmp_path / "copy", ["log"])
+    assert (tmp_path / "copy" / "log" / "inner" / "a.txt").read_text() == "a"
 
 
 def test_the_command_line_keeps_chdir_when_it_runs_unconfined(tmp_path, capfd):
@@ -1531,3 +1545,26 @@ def test_unsafe_entries_are_dropped_under_a_read_only_directory(tmp_path):
         assert drop_unsafe(out) == ["sealed/leak"] and not os.path.lexists(sealed / "leak")
     finally:
         os.chmod(sealed, 0o755)
+
+
+def test_an_editable_native_module_under_another_name_is_shown(tmp_path):
+    import importlib.machinery
+    from hermit.sandbox import _dist_sources
+    src = tmp_path / "build"
+    src.mkdir()
+    native = src / f"_native{importlib.machinery.EXTENSION_SUFFIXES[0]}"
+    native.write_bytes(b"")
+    site = tmp_path / "site"
+    site.mkdir()
+    (site / "_my_native.pth").write_text(str(src) + "\n")
+
+    class Dist:
+        files = ["_my_native.pth"]
+        metadata = {"Name": "my-native"}
+
+        def locate_file(self, f):
+            return site / f
+
+        def read_text(self, name):
+            return None
+    assert _dist_sources(Dist()) == [native.resolve()]

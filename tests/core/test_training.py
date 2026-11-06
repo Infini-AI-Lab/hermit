@@ -807,3 +807,19 @@ def test_a_link_target_and_a_name_not_utf8_lose_their_key(tmp_path, monkeypatch)
     assert (tmp_path / "current").is_dir()                         # leads where the renamed directory is
     raw = os.fsdecode(b"raw\xff-" + key.encode() + b".txt")
     assert redact_name(raw) == os.fsdecode(b"raw\xff-<TARGET_API_KEY>.txt")
+
+
+def test_a_link_follows_its_directory_through_a_name_collision(tmp_path, monkeypatch):
+    """sessions/<value>/ is renamed to <VAR>_1 when <VAR> is taken: current -> sessions/<value> follows it there,
+    not to the other directory."""
+    from hermit.redact import redact_tree
+    key = "sk-collide-key-0123456789abcdef"
+    monkeypatch.setenv("COLLIDE_API_KEY", key)
+    (tmp_path / "sessions" / key).mkdir(parents=True)
+    (tmp_path / "sessions" / key / "mine.txt").write_text("mine")
+    (tmp_path / "sessions" / "<COLLIDE_API_KEY>").mkdir()
+    (tmp_path / "sessions" / "<COLLIDE_API_KEY>" / "other.txt").write_text("other")
+    (tmp_path / "current").symlink_to(f"sessions/{key}")
+    redact_tree(tmp_path)
+    assert (tmp_path / "current" / "mine.txt").read_text() == "mine"
+    assert key not in os.readlink(tmp_path / "current")

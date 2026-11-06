@@ -487,13 +487,15 @@ def _python_code(directory: Path, top: bool = False) -> list[Path]:
     """The Python code in `directory`, never the data beside it: a package (with __init__.py) whole, a module file,
     and below a directory without __init__.py (a namespace package, PEP 420) its own packages and modules only; at
     the top (`top`), setup.py left out."""
+    import importlib.machinery as m
     out = []
     for c in sorted(directory.iterdir()):
         if c.name.startswith(".") or c.is_symlink():
             continue
         if c.is_dir():
             out += [c] if (c / "__init__.py").is_file() else _python_code(c)
-        elif c.suffix == ".py" and not (top and c.name == "setup.py"):
+        elif (c.suffix == ".py" and not (top and c.name == "setup.py")) or \
+                c.name.endswith(tuple(m.EXTENSION_SUFFIXES)):      # a native module too
             out.append(c)
     return out
 

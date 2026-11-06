@@ -1181,3 +1181,21 @@ def test_a_returned_log_whose_name_held_a_key_is_the_renamed_file(tmp_path, monk
     finally:
         agent.close()
     assert key not in str(out.log) and Path(out.log).read_text() == "the trajectory"
+
+
+def test_a_container_agents_returned_log_is_found_after_the_scrub_renames_it(tmp_path, monkeypatch):
+    import hermit.isolate as isolate_module
+    from hermit.isolate import ContainerAgent
+    key = "sk-container-log-0123456789abcdef"
+    monkeypatch.setenv("CLOG_API_KEY", key)
+    (tmp_path / "t").mkdir()
+    config = Config.load(make_task(tmp_path / "t"), [])
+
+    def worker(box, job, work, **kw):
+        log = Path(job["params"]["logs"]) / f"{key}.jsonl"
+        log.parent.mkdir(parents=True)
+        log.write_text("events")
+        return {"output": {"output": "3", "log": str(log)}}
+    monkeypatch.setattr(isolate_module, "_run_worker", worker)
+    out = ContainerAgent(config, "rollout", {}, work_root=tmp_path / "calls")({"id": "t1"}, None)
+    assert key not in str(out.log) and Path(out.log).read_text() == "events"

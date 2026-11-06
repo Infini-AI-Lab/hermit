@@ -684,10 +684,9 @@ class CliAgent(BaseAgent):
                         command, env=full_env, cwd=workspace, stream=stream, timeout=timeout, cancel=s.get("cancel"),
                         stdin=prompt if s.get("stdin") else None,
                         stderr=Path(s["stderr_log"]) if s.get("stderr_log") else None)
-                except BaseException:
+                finally:                                 # ended, raised, or bwrap exited before the relay ran:
                     if sandbox is not None and hasattr(sandbox, "abandon"):
-                        sandbox.abandon(command)         # not started (or no report to wait for): its listener goes
-                    raise
+                        sandbox.abandon(command)         # a report that never came is not waited for
             wall_s = time.time() - started
             failed = False
         finally:

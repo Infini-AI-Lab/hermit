@@ -289,6 +289,17 @@ def _agent_logs(name: str, base: Path) -> list[Path]:
     return [(Path(base) / target).resolve().parent / ".logs"]
 
 
+def _after_scrub(log: Path | None, roots) -> Path | None:
+    """A returned log as the scrub left it: a name that held a key value was renamed (redact_name), under one of
+    `roots`."""
+    if log is None or os.path.lexists(log):
+        return log
+    for root in roots:
+        if Path(log).is_relative_to(root):
+            return Path(root).joinpath(*(redact_name(part) for part in Path(log).relative_to(root).parts))
+    return log
+
+
 def _log_binds(work: Path, logs: list[Path], own: list[Path], existing: bool = False, shown=()) -> list[Bind]:
     """Each `.logs` beside the agent's file bound to this call's fresh directory (`existing`: only those it made);
     and a directory of the call's own that lies in one of them (an agent file beside the config: the default
@@ -519,9 +530,7 @@ class SandboxedAgent:
         finally:                                         # what the run keeps of the call, a failed one too:
             redact_tree(work)                            # no model key in it
             redact_tree(clean)
-        if result.log is not None and not os.path.lexists(result.log):   # a name the scrub renamed (it held a key)
-            parts = Path(result.log).relative_to(clean).parts
-            result.log = Path(clean).joinpath(*(redact_name(part) for part in parts))
+        result.log = _after_scrub(result.log, [clean, work])
         return result
 
     def close(self) -> None:
@@ -571,7 +580,8 @@ class ContainerAgent:
             if session is not None and session.is_dir():
                 redact_tree(session)
         rec = payload["output"]
-        return RunOutput(output=rec.get("output"), log=Path(rec["log"]) if rec.get("log") else None,
+        log = _after_scrub(Path(rec["log"]) if rec.get("log") else None, [work, *([session] if session else [])])
+        return RunOutput(output=rec.get("output"), log=log,
                          cost_usd=rec.get("cost_usd"), wall_s=rec.get("wall_s") or 0.0, api_speed=rec.get("api_speed"),
                          messages=rec.get("messages"), tokens=rec.get("tokens"), extra=dict(rec.get("extra") or {}))
 

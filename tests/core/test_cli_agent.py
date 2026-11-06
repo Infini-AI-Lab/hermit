@@ -1070,3 +1070,24 @@ def test_a_cli_chat_log_written_through_a_link_is_scrubbed_at_its_target(fake, m
     with ChatEndpoint(make("codex", {"model": "gpt-x", "web_search": False, "log": str(link)})) as endpoint:
         ChatClient(endpoint.url, "gpt-x").chat([{"role": "user", "content": "Sum it."}])
     assert key not in target.read_text() and "<LINKED_API_KEY>" in target.read_text()
+
+
+def test_a_session_whose_bwrap_exits_before_the_relay_closes_its_report_listener(fake, monkeypatch):
+    """bubblewrap exiting non-zero (no user namespaces) returns from run_process instead of raising: the wrapped
+    command's report listener is closed either way."""
+    import hermit.sandbox as sandbox_module
+    from hermit.sandbox import Sandbox
+    real_which = sandbox_module.shutil.which
+    monkeypatch.setattr(sandbox_module.shutil, "which",
+                        lambda name, *a, **k: "/usr/bin/bwrap" if name == "bwrap" else real_which(name, *a, **k))
+    box = Sandbox(network="isolated")
+    abandoned = []
+    real = box.abandon
+    monkeypatch.setattr(box, "abandon", lambda args: (abandoned.append(1), real(args)))
+    monkeypatch.setattr(base_cli, "run_process", lambda *a, **k: (1, False, False))
+    try:
+        make("codex", {"model": "gpt-x", "web_search": False, "isolation": "sandbox", "sandbox": box}).run(
+            "Sum it.", workspace=fake / "ws")
+    finally:
+        box.close()
+    assert abandoned

@@ -26,7 +26,7 @@ Three roles run in three kinds of sandbox.
 | Sandbox | Contents | Never inside | Backend |
 |---|---|---|---|
 | task | the declared task paths, packages and variables, the framework's environment, the acting layer, the frozen adapter, its model's key | the data and split files, the judge and its tests, the runs and trees | bubblewrap; Docker for `environment.image` |
-| judge | the task sandbox's settings, the judge's file and `judge.tests`; `separate`: only the collected paths of the agent's work, none of `environment.write` | | as the task |
+| judge | the task sandbox's settings, the judge's file and `judge.tests`; `separate`: only the collected paths of the agent's work, none of `environment.write` | | bubblewrap: `shared` and `separate` need the bubblewrap task sandbox (with `environment.image`, Harbor or `environment.runner: host` the judge runs on the host) |
 | evolver | the learner CLI, the workspace under fixed names below `/w`, the framework's environment, what the method declares, its models' keys | the framework's code (unless the method needs it), the data, the judge, the test split | bubblewrap |
 
 Every sandbox is an allowlist: a path, a variable or a host that is not declared does not exist inside. Python

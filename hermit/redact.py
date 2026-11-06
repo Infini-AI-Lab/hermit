@@ -176,29 +176,51 @@ def redact_tree(root: Path) -> list[str]:
         for name in files:
             if redact_file(Path(directory) / name, values):
                 changed.append(os.path.relpath(Path(directory) / name, root))
-    # A name that holds a key value (a learner's skills/<value>/), files and directories alike, deepest first; a
-    # link's target is a name too (current -> sessions/<value>), rewritten as the names it leads to are, unfollowed.
+    # A name that holds a key value (a learner's skills/<value>/), files and directories alike: every new name is
+    # chosen first (a name already taken gets a suffix), each link's target rewritten through that plan (current ->
+    # sessions/<value> follows its directory, unfollowed), then the renames done, deepest first.
+    plan: dict[str, str] = {}
     for directory, dirs, files in os.walk(root, topdown=False):
+        taken = set(os.listdir(directory))
         for name in [*files, *dirs]:
-            path = Path(directory) / name
-            if path.is_symlink():
-                target = os.readlink(path)
-                new_target = "/".join(redact_name(part, values) for part in target.split("/"))
-                if new_target != target:
-                    if not os.access(directory, os.W_OK | os.X_OK):
-                        os.chmod(directory, stat.S_IMODE(os.lstat(directory).st_mode) | stat.S_IRWXU)
-                    path.unlink()
-                    os.symlink(new_target, path)
-                    changed.append(os.path.relpath(path, root))
             new = redact_name(name, values)
             if new != name:
-                target = Path(directory) / new
                 n = 0
-                while os.path.lexists(target):
+                while new in taken:
                     n += 1
-                    target = Path(directory) / redact_name(f"{name}", values, suffix=f"_{n}")
-                if not os.access(directory, os.W_OK | os.X_OK):     # a directory left read-only: the owner's again
-                    os.chmod(directory, stat.S_IMODE(os.lstat(directory).st_mode) | stat.S_IRWXU)
-                os.rename(Path(directory) / name, target)
-                changed.append(os.path.relpath(target, root))
+                    new = redact_name(name, values, suffix=f"_{n}")
+                taken.add(new)
+                plan[os.path.join(directory, name)] = new
+
+    def renamed(path: str) -> str:
+        parts = Path(path).parts
+        return str(Path(parts[0]).joinpath(*(plan.get(os.path.join(*parts[:i + 1]), part)
+                                             for i, part in enumerate(parts[1:], 1))))
+
+    def writable(directory: str) -> None:
+        if not os.access(directory, os.W_OK | os.X_OK):     # a directory left read-only: the owner's again
+            os.chmod(directory, stat.S_IMODE(os.lstat(directory).st_mode) | stat.S_IRWXU)
+    top = os.path.realpath(root)
+    for directory, dirs, files in os.walk(root):
+        for name in [*files, *dirs]:
+            path = os.path.join(directory, name)
+            if not os.path.islink(path):
+                continue
+            target = os.readlink(path)
+            lexical = os.path.normpath(target if os.path.isabs(target) else os.path.join(directory, target))
+            if lexical == top or lexical.startswith(top.rstrip("/") + "/") or \
+                    lexical.startswith(str(root).rstrip("/") + "/"):
+                moved = renamed(lexical)
+                new_target = moved if os.path.isabs(target) else os.path.relpath(moved, renamed(directory))
+            else:
+                new_target = "/".join(redact_name(part, values) for part in target.split("/"))
+            if os.path.normpath(new_target) != os.path.normpath(target):
+                writable(directory)
+                os.unlink(path)
+                os.symlink(new_target, path)
+                changed.append(os.path.relpath(path, root))
+    for old, new in sorted(plan.items(), key=lambda kv: -kv[0].count(os.sep)):
+        writable(os.path.dirname(old))
+        os.rename(old, os.path.join(os.path.dirname(old), new))
+        changed.append(os.path.relpath(os.path.join(os.path.dirname(old), new), root))
     return changed
