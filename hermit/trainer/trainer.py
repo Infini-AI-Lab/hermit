@@ -41,7 +41,7 @@ from hermit.agent.evolver.loader import find, instantiate
 from hermit.agent.model.llm import ChatClient
 from hermit.isolate import CHATGPT_HOSTS, HOME_SECRETS, Recheck, ToolRunner, _safe, agent_pipeline, config_paths, \
     judge_for, run_secrets, sanitized_copy
-from hermit.redact import redact_path, redact_tree, redact_value
+from hermit.redact import redact_name, redact_path, redact_tree, redact_value
 from hermit.sandbox import (AllowlistProxy, Bind, Sandbox, drop_unsafe, hidden_paths, inside_tools, model_access,
                             set_hidden)
 from hermit.spec import check_spec, repair
@@ -528,7 +528,7 @@ class Trainer:
         except OSError:
             return None                      # the run's result stands without its log
         redact_tree(place)                   # the agent held its model's key; the learner's may be another's
-        return str(place / log.name)
+        return str(place / redact_name(log.name))     # as the scrub may have renamed it
 
     def _message(self, progress: Progress | None, tools: dict) -> str:
         lines = ["# This call", ""]

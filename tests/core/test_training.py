@@ -794,9 +794,16 @@ def test_a_key_in_a_name_under_a_read_only_directory_and_a_long_name(tmp_path, m
         os.chmod(sealed, 0o755)
 
 
-def test_a_returned_log_whose_name_held_a_key_is_found_after_the_scrub(tmp_path, monkeypatch):
-    """The scrub renames a log whose name holds a key: the RunOutput names the renamed file, not a missing one."""
-    from hermit.redact import redact_name
-    key = "sk-logname-0123456789abcdef"
-    monkeypatch.setenv("LOGNAME_API_KEY", key)
-    assert redact_name(f"trace-{key}.jsonl") == "trace-<LOGNAME_API_KEY>.jsonl"
+
+
+def test_a_link_target_and_a_name_not_utf8_lose_their_key(tmp_path, monkeypatch):
+    from hermit.redact import redact_name, redact_tree
+    key = "sk-target-key-0123456789abcdef"
+    monkeypatch.setenv("TARGET_API_KEY", key)
+    (tmp_path / "sessions" / key).mkdir(parents=True)
+    (tmp_path / "current").symlink_to(f"sessions/{key}")
+    redact_tree(tmp_path)
+    assert os.readlink(tmp_path / "current") == "sessions/<TARGET_API_KEY>"
+    assert (tmp_path / "current").is_dir()                         # leads where the renamed directory is
+    raw = os.fsdecode(b"raw\xff-" + key.encode() + b".txt")
+    assert redact_name(raw) == os.fsdecode(b"raw\xff-<TARGET_API_KEY>.txt")

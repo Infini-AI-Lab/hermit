@@ -1501,3 +1501,33 @@ def test_the_allowlist_proxy_parses_a_bracketed_ipv6_connect(monkeypatch):
         assert b"502" in reply or b"200" in reply                  # allowed and tried, not a parse failure
     finally:
         proxy.close()
+
+
+def test_a_trusted_framework_interpreters_packages_stay_where_a_program_grant_holds_them(tmp_path, monkeypatch):
+    """A benchmark's Python starts the adapter server on the framework's interpreter (HA_FRAMEWORK_PYTHON), named as
+    trusted: its site-packages stay (the server imports mcp from there); another program's are emptied."""
+    fake_bwrap(monkeypatch)
+    fw = tmp_path / "fw"
+    (fw / "bin").mkdir(parents=True)
+    python = fw / "bin" / "python3"
+    python.write_text("#!/bin/sh\nexit 0\n")
+    python.chmod(0o755)
+    site = fw / "lib" / "python3.12" / "site-packages"
+    (site / "mcp").mkdir(parents=True)
+    trusted, _ = Sandbox(network="open").wrap([str(python)], interpreters=[fw])
+    assert str(site) not in binds(trusted, "--tmpfs")
+    plain, _ = Sandbox(network="open").wrap([str(python)])
+    assert str(site) in binds(plain, "--tmpfs")
+
+
+def test_unsafe_entries_are_dropped_under_a_read_only_directory(tmp_path):
+    from hermit.sandbox import drop_unsafe
+    out = tmp_path / "out"
+    sealed = out / "sealed"
+    sealed.mkdir(parents=True)
+    (sealed / "leak").symlink_to("/etc/passwd")
+    os.chmod(sealed, 0o555)
+    try:
+        assert drop_unsafe(out) == ["sealed/leak"] and not os.path.lexists(sealed / "leak")
+    finally:
+        os.chmod(sealed, 0o755)

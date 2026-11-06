@@ -143,13 +143,13 @@ def redact_name(name: str, values: dict[str, bytes] | None = None, suffix: str =
     values = key_values() if values is None else values
     new = name
     for variable, value in values.items():
-        new = new.replace(value.decode(errors="replace"), f"<{variable}>")
+        new = new.replace(os.fsdecode(value), f"<{variable}>")
     if new == name and not suffix:
         return name
     new += suffix
-    if len(new.encode()) > 255:
-        tail = "~" + hashlib.sha256(name.encode()).hexdigest()[:8] + suffix
-        new = new.encode()[:255 - len(tail.encode())].decode(errors="ignore") + tail
+    if len(os.fsencode(new)) > 255:                    # bytes as the filesystem has them (a name not UTF-8 too)
+        tail = os.fsencode("~" + hashlib.sha256(os.fsencode(name)).hexdigest()[:8] + suffix)
+        new = os.fsdecode(os.fsencode(new)[:255 - len(tail)] + tail)
     return new
 
 
@@ -176,9 +176,20 @@ def redact_tree(root: Path) -> list[str]:
         for name in files:
             if redact_file(Path(directory) / name, values):
                 changed.append(os.path.relpath(Path(directory) / name, root))
-    # A name that holds a key value (a learner's skills/<value>/), files and directories alike, deepest first.
+    # A name that holds a key value (a learner's skills/<value>/), files and directories alike, deepest first; a
+    # link's target is a name too (current -> sessions/<value>), rewritten as the names it leads to are, unfollowed.
     for directory, dirs, files in os.walk(root, topdown=False):
         for name in [*files, *dirs]:
+            path = Path(directory) / name
+            if path.is_symlink():
+                target = os.readlink(path)
+                new_target = "/".join(redact_name(part, values) for part in target.split("/"))
+                if new_target != target:
+                    if not os.access(directory, os.W_OK | os.X_OK):
+                        os.chmod(directory, stat.S_IMODE(os.lstat(directory).st_mode) | stat.S_IRWXU)
+                    path.unlink()
+                    os.symlink(new_target, path)
+                    changed.append(os.path.relpath(path, root))
             new = redact_name(name, values)
             if new != name:
                 target = Path(directory) / new

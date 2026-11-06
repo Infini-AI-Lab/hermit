@@ -1157,3 +1157,27 @@ def test_a_shared_judge_sees_the_agents_log_copy_under_a_root_layout(tmp_path):
     assert binds[0] == Bind(work / "agent-logs" / "0", str(logs), True)
     assert Bind(work, str(work), True) in binds and Bind(place, str(place), True) in binds
     assert Bind(copy, str(copy), False) in binds
+
+
+def test_a_returned_log_whose_name_held_a_key_is_the_renamed_file(tmp_path, monkeypatch):
+    """The agent returns logs/<name with its key>.txt: after the scrub renames it, RunOutput.log names the renamed
+    copy, which exists and holds the log."""
+    import hermit.isolate as isolate_module
+    fake_bwrap(monkeypatch)
+    key = "sk-logname-key-0123456789abcdef"
+    monkeypatch.setenv("LOGNAME_API_KEY", key)
+    (tmp_path / "a").mkdir()
+    agent = SandboxedAgent(Config.load(sandboxed_task(tmp_path / "a"), []), "rollout", records=None,
+                           work_root=tmp_path / "calls")
+
+    def worker(box, job, work, **kw):
+        (work / "logs").mkdir()
+        log = work / "logs" / f"trace-{key}.txt"
+        log.write_text("the trajectory")
+        return {"ok": True, "output": {"output": "3", "log": str(log)}}
+    monkeypatch.setattr(isolate_module, "_run_worker", worker)
+    try:
+        out = agent({"id": "t1", "a": 1, "b": 2}, None)
+    finally:
+        agent.close()
+    assert key not in str(out.log) and Path(out.log).read_text() == "the trajectory"

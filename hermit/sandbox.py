@@ -171,6 +171,8 @@ def drop_unsafe(root) -> list[str]:
             leaves = stat.S_ISLNK(mode) and not (os.path.realpath(path) + "/").startswith(real.rstrip("/") + "/")
             special = not (stat.S_ISLNK(mode) or stat.S_ISREG(mode) or stat.S_ISDIR(mode))
             if leaves or special:
+                if not os.access(directory, os.W_OK | os.X_OK):   # left read-only by the session: the owner's again
+                    os.chmod(directory, stat.S_IMODE(os.lstat(directory).st_mode) | stat.S_IRWXU)
                 os.unlink(path)
                 removed.append(os.path.relpath(path, root))
         dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(directory, d))]
@@ -1108,10 +1110,12 @@ class Sandbox:
         found = shutil.which(command[0]) if command else None
         program = program_paths(command[0]) if found and Path(found).resolve() != Path(sys.executable).resolve() \
             else []                             # a CLI's own installation (~/.local): its Python packages masked too
+        mine = [os.path.realpath(i) for i in interpreters]      # a trusted interpreter's own packages stay
         for base in [*_venv_bases(self.readable, [*self.writable, *writable]), *trusted,
                      *(p for p in program if Path(p).is_dir())]:
             sites += [Path(p) for p in sorted(glob.glob(str(base / "lib*" / "python3*" / "*-packages")))
-                      if p.endswith(("/site-packages", "/dist-packages")) and os.path.realpath(p) not in own]
+                      if p.endswith(("/site-packages", "/dist-packages")) and os.path.realpath(p) not in own
+                      and not any(os.path.realpath(p).startswith(m.rstrip("/") + "/") for m in mine)]
         sites = list(dict.fromkeys(sites))
         visible = self.visible(command, writable)
         bind([p for p in [*visible, *interpreters, *trusted] if not any(_under(p, s) for s in sites)], "--ro-bind", ro)
