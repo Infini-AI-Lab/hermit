@@ -1,0 +1,20 @@
+# The Evo-Harness adapter (Wei et al., arXiv:2608.15071): skills at two levels. ADAPTER.md's text before the block (for
+# example a task skill the adapter started from) is kept as it is; the evo_harness Evolver writes the skills and renders
+# the block from them.
+template:
+  id: evo-harness
+  version: "1.0"
+  contract: "2"
+  name: Evo-Harness skills
+structure:
+  learnable:
+    - path: ADAPTER.md
+      format: {text: true, max_bytes: 200000}
+    - path: general/*/SKILL.md
+      format: {text: true, max_bytes: 24000, max_files: 40, frontmatter: [description]}
+    - path: skills/*/SKILL.md
+      format: {text: true, max_bytes: 24000, max_files: 400, frontmatter: [description]}
+  fixed:
+    - exports.yaml
+    - README.md
+check: .hermit/check.py:check

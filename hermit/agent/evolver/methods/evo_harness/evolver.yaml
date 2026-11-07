@@ -1,0 +1,19 @@
+description: Evo-Harness (Wei et al., EMNLP 2026, arXiv:2608.15071; A-EVO-Lab/a-evolve, release/evo-harness) on the
+  `evo-harness` template. Online harness learning - the acting agent stays frozen and a two-level skill harness grows
+  over a stream of task batches. Each step, every failed rollout of the batch is reflected on (a candidate skill with a
+  topic), a curator per topic accepts, merges or skips the candidates under a budget, and a general curator distills the
+  batch's failures into cross-task skills. No validation and no selection; the last harness is final. Uses the run's
+  `llm`; data.step_size is the batch.
+class: evolver.py:EvoHarnessEvolver
+needs: []
+params:
+  feedback_level: standard           # what a reflection sees of the judge: minimal (FAILED only), standard (its feedback,
+                                     # 500 chars), full (2000 chars). On OfficeQA the feedback names the expected answer
+  success_score: 1.0                 # a judge score at or above this is a pass
+  max_general_skills: 5              # upstream's launchers and the paper; 0 turns the general curator off
+  max_skills_per_topic: 5            # upstream's launchers and the paper; 0 turns the topic curators off
+  workers: 16                        # reflections at once (upstream: the batch's workers)
+  trace_chars: 12000                 # characters of a trajectory a reflection reads (the middle is cut)
+  question_chars: 6000               # characters of the task a reflection reads
+  max_tokens: 32000                  # upstream: 1536, 2048 and 4096 by role, for a non-reasoning model
+  temperature: null                  # null: the endpoint's default (upstream: 0.3 reflecting, 0.0 curating)

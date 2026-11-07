@@ -1,0 +1,21 @@
+prompts.py holds prompt text from A-EVO-Lab/a-evolve (https://github.com/A-EVO-Lab/a-evolve, branch release/evo-harness,
+commit 3c7c7b8c62a3f07da1d4407aa03f0ca079954bcf): evo_harness/terminal_bench.py's ANALYZE_AND_PROPOSE_FAIL_PROMPT
+verbatim, CURATOR_PROMPT and GENERAL_CURATOR_PROMPT with the word "terminal" taken out, and the lazy-load skill list's
+text of evo_harness/swe_bench.py's build_system_prompt adapted. evolver.py reimplements, function by function,
+evo_harness/swe_bench.py's _extract_trajectory_signals, _format_signals, _parse_proposal, _curate_topic_proposals,
+_execute_topic_curation, _curate_general_skills, _execute_general_curation and evolve_batch. The Evo-Harness code is
+Copyright (c) 2026 A-EVO-Lab (Wei et al., "Evo-Harness: Context-to-Harness Skill Compilation for Self-Evolving Agents",
+arXiv:2608.15071), licensed under the MIT License:
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the Software without restriction, including without limitation the
+rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit
+persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the
+Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
+WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
+OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.

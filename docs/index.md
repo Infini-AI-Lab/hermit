@@ -77,6 +77,7 @@ methods/ace
 methods/ahe_adapter
 methods/rrsi_adapter
 methods/evosafe
+methods/evo_harness
 ```
 
 ```{toctree}
