@@ -797,6 +797,24 @@ def test_a_tasks_own_agent_on_a_cli_base_is_that_cli():
     assert _cli_kind("agent.py:Custom", {}) is None
 
 
+def test_the_task_sandbox_shows_the_installation_of_the_clis_own_program(tmp_path, monkeypatch):
+    """A CLI's installation is looked up by its program, which need not be its backend's name."""
+    import hermit.isolate as isolate
+    from hermit.agent.base import cli as base_cli
+
+    class Other(base_cli.Codex):
+        program = "other-codex-program"
+    monkeypatch.setitem(base_cli.CLIS, "codex", Other)
+    asked = []
+    monkeypatch.setattr(isolate, "program_paths", lambda name, *a, **k: asked.append(name) or [])
+    fake_bwrap(monkeypatch)
+    model = "agent.model={ref: fireworks/accounts/fireworks/models/glm-5p3-flash}"
+    config = Config.load(sandboxed_task(tmp_path), ["agent.base=codex", model])
+    agent = SandboxedAgent(config, "rollout", records=None)
+    agent.close()
+    assert "other-codex-program" in asked and "codex" not in asked
+
+
 PIPELINE_LINKED_LOG = """
 import os
 from pathlib import Path

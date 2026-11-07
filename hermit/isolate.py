@@ -440,7 +440,7 @@ class SandboxedAgent:
             log_dir.mkdir(exist_ok=True)
         self.others: list[Sandbox] = []                  # the judge's sandboxes, closed with this one
         if self.cli:                                     # the CLI and the node it may run on, as installed
-            readable += program_paths(self.cli)
+            readable += program_paths(CLIS[self.cli].program)
         # A Codex agent on a ChatGPT login waits for the login's plan with every session on the machine: the plan's
         # directory (its PAUSE, MAX_USED, SLOTS and report) is the one outside, shared into every call.
         self.chatgpt = self.cli == "codex" and self.params.get("login") == "chatgpt"

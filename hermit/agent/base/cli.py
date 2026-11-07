@@ -439,6 +439,9 @@ class CliAgent(BaseAgent):
         isolation = s.get("isolation") or "none"
         if isolation not in ISOLATIONS:
             raise ValueError(f"isolation must be one of {ISOLATIONS}, not {isolation!r}")
+        if isolation not in self.isolations:
+            why = "container runs Codex" if isolation == "container" else f"{isolation} is not for {self.label}"
+            raise Unsupported(f"isolation: {why}; {self.label} takes isolation {' or '.join(self.isolations)}")
         network = None if limits.network is None else list(limits.network)
         if isolation == "none":
             if limits.hidden:
@@ -489,9 +492,6 @@ class CliAgent(BaseAgent):
                 if any(_overlap(Path(path), Path(p)) for p in shown):
                     raise Unsupported(f"{path} is to be hidden but lies in what the sandbox shows")
             return isolation, None, sandbox
-        if isolation not in self.isolations:
-            raise Unsupported(f"isolation: container runs Codex; {self.label} takes isolation "
-                              f"{' or '.join(self.isolations)}")
         shown = [workspace, *(m.source for m in limits.readable)]         # every mount the container is given
         if s.get("home"):                         # a fresh home is a new directory: nothing hidden lies in it
             shown.append(Path(os.path.expanduser(str(s["home"]))))
@@ -707,7 +707,7 @@ class CliAgent(BaseAgent):
                     # the loopback (a meter) is forwarded; the provider's host is allowed by the run's sandbox.
                     from hermit.sandbox import model_access
                     keys, _, local = model_access([s.get("binding")])
-                    keep = [*own, *keys]
+                    keep = [*own, *keys, *self.home_env(home)]          # and its home's variables
                     command, full_env = sandbox.wrap(command, writable=[home, *map(Path, s.get("writable") or ())],
                                                      env=full_env, home=home, keep=keep,
                                                      forward=[*([server.port] if server else []), *local],
