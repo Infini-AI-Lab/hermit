@@ -1,0 +1,2 @@
+{"type": "system", "subtype": "init", "cwd": "/probe/ws", "session_id": "844247a6-0cde-4c71-bbd9-480aa6f2810d", "tools": [], "mcp_servers": [], "model": "claude-sonnet-5-5", "permissionMode": "default", "apiKeySource": "none", "claude_code_version": "2.1.318"}
+{"type": "user", "message": {"role": "user", "content": [{"type": "text", "text": "[Request interrupted by user]"}]}, "parent_tool_use_id": null, "session_id": "844247a6-0cde-4c71-bbd9-480aa6f2810d", "uuid": "f64d21f5-a216-4048-bc44-7aca29a2ed19", "timestamp": "2026-11-05T04:34:06.872Z"}

@@ -99,9 +99,10 @@ never shown).
 | GEPA | `python -m pip install -e . --group gepa`, learner endpoint, validation split |
 | SkillOpt | `python -m pip install -e . --group skillopt`, learner endpoint, validation split |
 | Harness² | Python 3.12 or 3.13, `python -m pip install -e . --group harness2`, Claude Code, and the execution environment described in [Harness²](../methods/harness2.md) |
-| RRSI Adapter | `python -m pip install -e . --group rrsi`, the proposer CLI (Codex or Claude Code), the Codex CLI for its analyst, digesters and critic, a training split evaluated k times per task |
+| RRSI Adapter | `python -m pip install -e . --group rrsi`, a CLI for the proposer and its analyst, digesters and critic (Codex or Claude Code), a training split evaluated k times per task |
 | Codex / Claude learner | Selected authenticated CLI and supported program-execution environment |
-| MWM | Linux learner environment, Codex, evidence store, task deployment contract, model access |
+| MWM | Linux learner environment, Codex or Claude Code, evidence store, task deployment contract, model access |
+| Acting and learning on a Claude subscription | Claude Code 2.1.248 or later, `claude setup-token`, Linux with bubblewrap for its sandboxes; see [Claude subscription](../guides/claude-subscription.md) |
 | Benchmark recipe | Its dataset, scorer, model settings, and environment; see [catalog](../recipes/index.md) |
 
 Core installation and the deterministic tutorial work on macOS. The sandboxes (the acting agent's, the judge's, the

@@ -14,7 +14,8 @@ What is upstream's code, unchanged (the pinned `rrsi` package): the schedule (rr
 and its summaries (rrsi.history: L_t, T_t, U_t, sigma_t, E_t, g_t, B_t, the rendered rows), the component tags
 (rrsi.components.normalize), the scores (rrsi.evaluate), delta's calibration (rrsi.calibrate), the selection
 (rrsi.selection.select_round), the analyst with its digesters (rrsi.analyst.analyze) and the critic (rrsi.critic.
-review), the last two with `generate` rebound to one session of the `codex` Base Agent per call (roles.py). What
+review), the last two with `generate` rebound to one session of the proposer's CLI Base Agent (`codex` or `claude`)
+per call (roles.py). What
 is Hermit's:
 
 1. The evaluation is the Trainer's: one candidate per step (data.step_size covers the training split, k rows per
@@ -25,7 +26,8 @@ is Hermit's:
    done.json, whose contract (budget, tags, reserved slot) is upstream's done() check; an invalid done.json, and
    each critic objection, goes back to the same session (resumed) with upstream's repair text. It sees only its
    variant's directory and the task description (a view of the run's sandbox). A session that fails (exits
-   non-zero) without a proposal fails the step, and the variant is drafted again at the next one.
+   non-zero, or ends without a result) fails the step whatever it left, a proposal included, and the variant is
+   drafted again at the next one.
 3. Candidates are stored as Meta-Harness Adapter stores them (state/candidates/<id>/adapter/ with a digest) and
    checked with check_spec; the smoke is `run_agent` on the domain's smoke tasks.
 
@@ -52,7 +54,8 @@ import sys
 import time
 
 from hermit.agent.base import login as codex_login
-from hermit.agent.base.interface import Limits, make
+from hermit.agent.base.interface import Limits, LoginFailed, make
+from hermit.agent.model.backends import CLAUDE_ENV
 from hermit.agent.evolver.agent import AgentEvolver
 from hermit.agent.evolver.base import FinalResult, StepContext, StepResult, Usage
 from hermit.agent.evolver.methods.rrsi_adapter.store import _copy_tree, _install, _real, _store, _write
@@ -418,8 +421,13 @@ class RRSIAdapterEvolver(AgentEvolver):
             raise ValueError("evolver.params.web_search must be set, true or false")
         role = ctx.params.get("roles") or {}
         if "/" in str(role.get("model") or "") and role.get("binding") is None:
-            raise ValueError("evolver.params.roles.model: a Codex model name (with roles.login), or give "
+            raise ValueError("evolver.params.roles.model: the CLI's model name (with roles.login), or give "
                              "roles.binding too; a `<backend>/<model>` reference is resolved for the proposer only")
+        backend = ctx.params.get("backend", "codex")
+        if role.get("login") is not None and codex_login.LOGINS.get(role["login"]) != backend:
+            # the roles run on the proposer's CLI: refused here, not by every role call
+            raise ValueError(f"evolver.params.roles.login: {role['login']} is not the sign-in of backend {backend} "
+                             "(codex: login chatgpt; claude: login claude)")
         if isinstance(role.get("binding"), dict):        # read at every step (_roles), before its errors count
             from hermit.agent.model.backends import Binding
             try:
@@ -532,22 +540,24 @@ class RRSIAdapterEvolver(AgentEvolver):
         proposer = self.settings(ctx, backend).get("model")
         roles = ctx.params.get("roles") or {}
         binding = roles.get("binding") if isinstance(roles.get("binding"), dict) else {}
-        role = roles.get("model") or binding.get("model") or self.settings(ctx, "codex").get("model")
+        role = roles.get("model") or binding.get("model") or self.settings(ctx, backend).get("model")
         return {"proposer_model": proposer, "analyst_model": role, "critic_model": role}
 
     def _roles(self, ctx) -> Roles:
-        """The roles' sessions: the proposer's Base Agent settings for Codex (its model, login and effort unless
+        """The roles' sessions: the proposer's Base Agent and its settings (its model, login and effort unless
         `roles` gives the roles' own; with the roles' own model, the proposer's binding, price and the provider
-        arguments its binding put in `args` are not theirs; `roles.args` replaces the proposer's own arguments, not
-        those provider arguments), Codex's own sandbox read-only, `role_timeout_s` each. They do not see the run's
+        settings its binding put in `args` or `env` are not theirs; `roles.args` replaces the proposer's own arguments,
+        not those provider arguments), read-only (Codex's own sandbox mode; Claude Code's by its tools,
+        Roles._session), `role_timeout_s` each. They do not see the run's
         records, the step's output, the proposers' directories or the other calls' (Roles._session; upstream's roles
         see only the text they are given). Each call's prompt, events and reply are kept in the step's output
         (`rrsi_roles/`), its home and working directory in the scratch."""
         params, ws = ctx.params, ctx.workspace
         role = params.get("roles") or {}
-        base = self.settings(ctx, "codex")
+        backend = params.get("backend", "codex")
+        base = self.settings(ctx, backend)
         provider = []                                        # the provider arguments the proposer's binding put
-        if base.get("binding"):                              # ahead of the user's own in `args`
+        if base.get("binding") and backend == "codex":       # ahead of the user's own in `args`
             from hermit.agent.model.backends import Binding
             try:
                 provider = Binding.from_spec(base["binding"]).codex_args()
@@ -558,24 +568,29 @@ class RRSIAdapterEvolver(AgentEvolver):
             args = list(base.get("args") or [])[len(provider):]
             base = {k: v for k, v in base.items() if k not in ("binding", "price", "args")} | (
                 {"args": args} if args else {})
+            base["env"] = {k: v for k, v in (base.get("env") or {}).items() if k not in CLAUDE_ENV}
             provider = []
         settings = {**base,
                     **{k: role[k] for k in ("model", "binding", "login", "effort", "args", "price")
                        if role.get(k) is not None},
                     "codex_sandbox": "read-only", "timeout_s": float(params.get("role_timeout_s", 1800))}
-        if isinstance(role.get("binding"), dict):            # the roles' own provider, as a binding configures Codex
+        if isinstance(role.get("binding"), dict):            # the roles' own provider, as a binding configures the CLI
             from hermit.agent.model.backends import Binding
             binding = Binding.from_spec(role["binding"])
-            settings["args"] = [*binding.codex_args(), *(role.get("args") or [])]
+            if backend == "codex":
+                settings["args"] = [*binding.codex_args(), *(role.get("args") or [])]
+            else:                                            # the proposer's provider settings give way to the roles'
+                own = {k: v for k, v in (settings.get("env") or {}).items() if k not in CLAUDE_ENV}
+                settings["env"] = {**own, **binding.claude_env()}
             settings["model"] = role.get("model") or binding.model
             settings["price"] = role.get("price") or binding.price
-            if role.get("login") is None:                    # not the proposer's ChatGPT login: an API provider
+            if role.get("login") is None:                    # not the proposer's login: an API provider
                 settings.pop("login", None)
         elif "login" in role and role["login"] is None:      # `roles.login: null` clears the proposer's
             settings.pop("login", None)
         if not isinstance(role.get("binding"), dict) and role.get("args") is not None and provider:
             settings["args"] = [*provider, *role["args"]]    # their own arguments, on the proposer's provider still
-        return Roles(ctx, settings, ws.scratch / "rrsi_roles", records=ws.output / "rrsi_roles")
+        return Roles(ctx, settings, ws.scratch / "rrsi_roles", records=ws.output / "rrsi_roles", backend=backend)
 
     def _advance(self, ctx, st: dict, cfg, dom, n: int, roles: Roles) -> tuple[str, str]:
         # 1. The step's rollouts evaluated the candidate handed back last time.
@@ -1038,6 +1053,8 @@ class RRSIAdapterEvolver(AgentEvolver):
             extra, tail = result.extra, str(result.extra.get("output_tail") or "")
             if extra.get("cancelled") or (ctx.cancel is not None and ctx.cancel.is_set()):
                 raise Stop("stopped by the Trainer during a proposer session")
+            if extra.get("login_failed"):
+                raise LoginFailed(f"a proposer session: {extra.get('failure')}")
             # the Base Agent says whether the plan refused it (hermit >= #69); before, its output's tail is read
             refused = extra["refused"] if "refused" in extra else codex_login.refused(tail)
             if (not extra.get("started") and extra.get("unavailable")) or (not extra.get("served") and refused):
@@ -1045,7 +1062,8 @@ class RRSIAdapterEvolver(AgentEvolver):
                 # the variant is drafted again later, never recorded as a gate failure
                 raise Stop(f"the model's plan did not serve a proposer session: {tail[-200:]}")
             if result.exit_code == 0 or extra.get("served") or not extra.get("unavailable"):
-                return StepResult("done" if result.exit_code == 0 else "failed",
+                ended = result.exit_code == 0 and not extra.get("failed")    # exit 0 with no result is no finished edit
+                return StepResult("done" if ended else "failed",
                                   f"{backend} session exited with {result.exit_code}", session=result.session,
                                   usage=result.usage)
             # the provider could not serve it (429, 5xx, overloaded): not the proposer's doing either; the same
@@ -1197,12 +1215,12 @@ class RRSIAdapterEvolver(AgentEvolver):
                 links, not_text, digest = current()
                 prop, problems, final = self._check_done(done, bundle["budget"], reserved, bundle["explore"],
                                                          digest is not None and digest != since, links, not_text)
-                if prop is None and result.status != "done" and not (result.extra or {}).get("proposer_fault"):
-                    # The session failed (it exited non-zero) and left no proposal: no choice of the proposer's.
-                    # Upstream's driver stops on a proposer call that raises; here the step fails (counted toward
-                    # max_failures) and the variant is drafted again at the next step.
-                    raise RuntimeError(f"r{t}{vid}: a proposer session failed without a proposal "
-                                       f"({result.summary})")
+                if result.status != "done" and not (result.extra or {}).get("proposer_fault"):
+                    # The session failed (it exited non-zero, or ended with no result): whatever it left, a proposal
+                    # included, is no finished edit. Upstream's driver stops on a proposer call that raises; here the
+                    # step fails (counted toward max_failures) and the variant is drafted again at the next step.
+                    taken = " without a proposal" if prop is None else " (its proposal is not taken)"
+                    raise RuntimeError(f"r{t}{vid}: a proposer session failed{taken} ({result.summary})")
                 if prop is not None or final or session is None or attempt == 3:
                     return prop, session, problems, final
                 _remove(done)

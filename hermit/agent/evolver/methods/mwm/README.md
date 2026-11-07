@@ -7,13 +7,14 @@ The native MetaWorld Model learner (V2 default: docket on, hypothesis off) on th
   native bootstrap session; with `block_size` set, a shorter final block gets no session.
 - Before the session: maintenance (`maintenance/`: journal roll, docket caps, gate advice) and the contract
   (`materials/core.md` + `agenda.md` + the venue's slots from the `deployment` directory (`params.deployment`, default `task-info/mwm/`; the method's own slots are in `deployment.py`)), by `prompt.py`.
-- The session: one call of the `codex` Base Agent (docs/framework/agent-layers.md) with the native prompt, in the
-  adapter directory at `/w`, with `/evidence`, `/environment`, `/skills`, `/patterns` and `/world-model` mounted: the
-  run's evolver sandbox with MWM's native view in place of the run's layout (`Sandbox.view`), in its own network
-  namespace. It reaches its model (the meter on the loopback, forwarded), the session's tool server (the venue's
-  channels and nothing else of the Trainer's, over MCP, `learner_tools`, and as JSON for the venue's shell client,
-  `MW_TOOLSRV`) and `sandbox.evolver.allowed_hosts`; every session measures that first and does not start if it
-  fails. `bin/captest` is the native tool-test command.
+- The session: one call of the learner's CLI Base Agent (`codex`, or `claude` with `backend: claude`;
+  docs/framework/agent-layers.md) with the native prompt, in the adapter directory at `/w`, with `/evidence`,
+  `/environment`, `/skills`, `/patterns` and `/world-model` mounted: the run's evolver sandbox with MWM's native view
+  in place of the run's layout (`Sandbox.view`), in its own network namespace. It reaches its model (the meter on the
+  loopback, forwarded, or a login's hosts), the session's tool server (the venue's channels and nothing else of the
+  Trainer's, over MCP, `learner_tools`, and as JSON for the venue's shell client, `MW_TOOLSRV`) and
+  `sandbox.evolver.allowed_hosts`; every session measures that first and does not start if it fails. `bin/captest`
+  is the native tool-test command.
 - After it: adopted if it exited cleanly, took an action, and left the serving code alone; then every tool's own
   test runs and failures are parked in `tools/_rejected/`. Otherwise the adapter is restored; a session that took no
   action is retried once.

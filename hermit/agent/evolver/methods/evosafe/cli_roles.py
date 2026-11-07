@@ -8,12 +8,12 @@ from dataclasses import asdict
 import json
 import re
 
-from hermit.agent.base.interface import Limits, make
+from hermit.agent.base.interface import Limits, LoginFailed, make
 from .experience import role_tools
 
 # The Layer 1/2 settings a configuration may give the role CLI; the rest are set per call below.
-CLI_SETTINGS = ("model", "binding", "login", "login_root", "plan_dir", "plan_max_wait_s", "plan_rerun", "effort",
-                "codex_sandbox", "permission_mode", "shell_env", "project_doc_max_bytes",
+CLI_SETTINGS = ("model", "binding", "login", "login_root", "plan_dir", "plan_max_wait_s", "plan_rerun", "usage_credits",
+                "effort", "codex_sandbox", "permission_mode", "shell_env", "project_doc_max_bytes",
                 "home_files", "args", "env", "env_drop", "price", "timeout_s", "bin")
 
 # Provider messages that mean the role request itself was refused (stop, never retried).
@@ -40,7 +40,10 @@ def parse_answer(reply, schema):
 
 
 def refused(result):
-    """A provider refusal of the role request, seen in the reply or in an error step of the trajectory."""
+    """A provider refusal of the role request: the Base Agent's own field (Claude Code's stop reason), else seen in the
+    reply or in an error step of the trajectory."""
+    if result.extra.get("model_refusal"):
+        return True
     texts = [result.reply or ""] + [step.text for step in result.trajectory if step.kind == "error"]
     return any(marker in text.lower() for text in texts for marker in REFUSAL)
 
@@ -95,6 +98,9 @@ def call_role(ctx, messages, schema, name, backend):
                                        limits=Limits(timeout_s=settings["timeout_s"]), session=None)
     (ctx.workspace.output / f"{backend}-{name}-trajectory.json").write_text(
         json.dumps([asdict(step) for step in result.trajectory], indent=2))
+    if result.extra.get("login_failed"):
+        # the Base Agent's own field: a sign-in that cannot serve ends the run, past the method's own error handling
+        raise LoginFailed(f"an EvoSafe {name} session: {result.extra.get('failure') or 'the sign-in cannot serve'}")
     if result.extra.get("cancelled"):
         return None, result.usage, f"{backend} role cancelled"
     if result.timed_out:

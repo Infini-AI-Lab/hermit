@@ -87,14 +87,18 @@ task, and only the worker can hand a result back. The sandbox is built from the 
 `read` and `write` (task paths), `packages`, `env`, `network` with `allowed_hosts`, `resources`. The call's own work
 directory is writable; the `.logs` beside a task's agent file is a fresh directory each call. A declared path that
 holds or lies inside a run secret (the data and split files, the judge and its tests, the runs and trees) refuses
-the config; the isolation check proves the secrets absent at every start.
+the config; the isolation check proves the secrets absent at every start. A CLI agent on a login (`login: chatgpt`,
+`login: claude`) also gets the login's plan directory writable, which every session on the machine shares (its
+pause, its limits and its slots); the judge's sandbox does not, and a Claude Code session's own commands see an empty
+directory in its place (a nested bubblewrap; where it cannot nest, a required sandbox runs no such session).
 
-With `environment.image` a Codex acting agent runs in a container of its own (the Base Agent's container isolation),
-started from a worker on the host, one per call; the worker puts the adapter's code the agent renders or serves in the
-strict sandbox below. The pipeline runs in the host process instead in three cases, each recorded: `sandbox.enabled:
-false`; a Harbor task set (`agent.name: harbor`, whose environment is Harbor's container); and `environment.runner:
-host`, for a task whose own code isolates the adapter's code it runs (AgentDyn runs learned hooks in containers of their
-own); a task's declared tools still run in their sandbox.
+With `environment.image` a Codex or Claude Code acting agent runs in a container of its own (the Base Agent's container
+isolation; `docker/codex/` and `docker/claude/` build the images), started from a worker on the host, one per call; the
+worker puts the adapter's code the agent renders or serves in the strict sandbox below. The pipeline runs in the host
+process instead in three cases, each recorded: `sandbox.enabled: false`; a Harbor task set (`agent.name: harbor`, whose
+environment is Harbor's container); and `environment.runner: host`, for a task whose own code isolates the adapter's
+code it runs (AgentDyn runs learned hooks in containers of their own); a task's declared tools still run in their
+sandbox.
 
 Inside the task sandbox the adapter's modules (its tools, its renders) still run in a nested strict sandbox of their
 own (`HA_ADAPTER_SANDBOX`, set by the worker for the code the agent starts), which only narrows what the task sandbox
@@ -140,10 +144,13 @@ each proposer and role its own directory, harness2 each session its own director
 and so is a learner's `isolation` setting: the learner and its roles (EvoSafe's) run in the evolver sandbox whenever
 the run's sandbox is on.
 
-A model only a CLI reaches (`llm: {cli: codex}`, the run's `llm` tool for GEPA, SkillOpt, ACE and the like) is an
-agent that can run commands: each call is one Codex session in a sandbox of its own (`isolation: sandbox`, the
-default; role `llm`): its empty workspace and home writable, its model's hosts (a ChatGPT login's) through a proxy of
-its own, its key, nothing of the run. `isolation: container` gives it a container instead.
+A model only a CLI reaches (`llm: {cli: codex}` or `{cli: claude}`, the run's `llm` tool for GEPA, SkillOpt, ACE and
+the like; an acting pipeline's `agent.params.model: {cli: ...}`) runs each call as one session in a sandbox of its own
+(`isolation: sandbox`, the default; role `llm`, an acting pipeline's `agent-model`; `cli_sandbox` in
+`hermit/isolate.py` builds both): its empty workspace and home writable, its model's hosts (a ChatGPT login's,
+`api.anthropic.com` for a Claude login) through a proxy of its own, its key or the login's token, nothing of the run. A
+Codex session is an agent that can run commands; a Claude Code session has no tools and can only reply.
+`isolation: container` gives it a container instead.
 
 The adapter leaves the learner's sandbox as a copy made inside it and then sanitized: links that leave it, special
 files and setuid bits are dropped.
@@ -155,8 +162,11 @@ passes in (the acting agent's binding or model spec in the task sandbox; the Evo
 the provider's host joins the allowlist (an isolated network becomes an allowlist; `public` needs nothing), and a
 model server or meter on the loopback is forwarded. A container (`environment.image`, Harbor) gets the key the same
 way. A task whose own code calls a model (CL-Bench's and ServeLearnBench's runners) passes its key variable in
-`environment.env`. A Codex ChatGPT login is copied in, its hosts allowed; a CLI learner that names no model reference
-copies the CLI's own login from the user's home.
+`environment.env`. A Codex ChatGPT login is copied in, its hosts allowed. A Claude subscription (`login: claude`) is
+not copied: `CLAUDE_CODE_OAUTH_TOKEN` passes by name for the call that runs the session, never in a sandbox's own
+variables (so neither its other commands nor its judge get it), and `api.anthropic.com` is allowed; in a container it
+reaches the CLI on a file descriptor. A CLI learner that names neither a model reference nor a login copies the CLI's
+own sign-in from the user's home.
 
 What a run keeps and may share is scrubbed of every key value (`hermit/redact.py`); each value of a key-like variable
 of the Trainer (`..._API_KEY`, `..._KEY`, `..._TOKEN`, `..._SECRET`, at least 16 characters) becomes `<VARIABLE>`.
@@ -197,9 +207,13 @@ check (`spec`) and host-side renders run the adapter's modules in the same stric
   runner grades each question beside the host it plays).
 - A sandbox holds its models' keys (as Harbor's agents do): an agent or a learner can read them. What the run keeps
   is scrubbed of them; what a sandbox sends to its allowed hosts is not inspected.
-- A Claude Code acting agent on a Claude subscription is not supported in the task sandbox yet (only a model
-  reference or, for Codex, a ChatGPT login): its login file would need the shared copy and write-back a ChatGPT
-  login has (roadmap).
+- A Claude Code session on a Claude subscription holds its token (`CLAUDE_CODE_OAUTH_TOKEN`, passed by name for the call
+  rather than in the sandbox's variables as a model key is; there is no login file, so nothing to copy or write back):
+  outside a container a command of the session can read it from its parent process and send it where the sandbox's
+  network allows (in the task sandbox, `api.anthropic.com` alone by default); in a container (`environment.image`) it
+  reaches Claude Code on a file descriptor and the CLI is undumpable. Right after each session its value is replaced by
+  `<CLAUDE_CODE_OAUTH_TOKEN>` in what the session left ([Claude
+  subscription](../guides/claude-subscription.md#execution-boundaries)).
 - What a sandbox can import depends on the framework's environment: two machines with different packages installed
   give different sandboxes (each start's record lists what was bound). A benchmark package installed there is shown
   unless `sandbox.hide` names its scoring module; OfficeQA's agent imports SkillOpt's scorer

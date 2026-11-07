@@ -1,25 +1,28 @@
-"""RRSI's one-call search roles (the analyst, its digesters, the critic), each call one `codex` Base Agent session.
+"""RRSI's one-call search roles (the analyst, its digesters, the critic), each call one session of a CLI Base Agent.
 
 Upstream's analyst, digester and critic (rrsi.analyst, rrsi.digester, rrsi.critic) call `generate(prompt, system,
 json_only, ...)`, Claude Opus 4.8 on Vertex AI (rrsi.llm). Here `generate` is rebound in those three modules, for the
-duration of a call, to `Roles.generate`: one call of the `codex` Base Agent (`make("codex", settings).run`,
-docs/framework/agent-layers.md), the way the Evolver's proposer is one, with the role's system text as the session's
-developer instructions and the prompt on stdin. The session runs in a view of the run's sandbox that shows its own call
-directory and nothing else the run keeps, Codex's own sandbox read-only, in an empty directory, so a role answers from
-the text it is given, as upstream's do; a digester's session runs in the round's rendered traces instead, the directory
-upstream's digester reads with its read_file/grep/bash actions. The reply is the session's last message; with
-`json_only`, upstream's own `extract_json` cuts the JSON out of it, as upstream's `generate` does.
+duration of a call, to `Roles.generate`: one call of the `codex` or `claude` Base Agent the proposer runs on
+(`make(backend, settings).run`, docs/framework/agent-layers.md), the way the Evolver's proposer is one, with the role's
+system text as the session's instructions (`instructed`) and the prompt on stdin. The session runs in a view of the
+run's sandbox that shows its own call directory and nothing else the run keeps, in an empty directory, read-only
+(Codex's own sandbox mode; on Claude Code the analyst and the critic have no tools, `text_only`, and a digester only
+the tools that read), so a role answers from the text it is given, as upstream's do; a digester's session runs in the
+round's rendered traces instead (shown read-only in its view), the directory upstream's digester reads with its
+read_file/grep/bash actions. The reply is the session's last message; with `json_only`, upstream's own
+`extract_json` cuts the JSON out of it, as upstream's `generate` does.
 
 The roles are not calls of the run's model (`ctx.agent`): through the Trainer's chat endpoint a session for a model
-only Codex serves runs in an empty workspace of its own, and a digester there, told its trace is in its working
+only a CLI serves runs in an empty workspace of its own, and a digester there, told its trace is in its working
 directory, finds none and answers so instead of with an action. Everything upstream does with the reply (parsing
 actions, the digesters' tool loop, the critic's three tries) is upstream's code, unchanged. Each call keeps its
 prompt, system text, events, reply and meta under `records` (the step's output, kept with the run's records), its home
 and working directory under `log_dir`; its usage is the Base Agent's. A reply counts only from a session that ended
-(exit 0, no timeout); a call whose session timed out twice fails. A session the Trainer stopped, or that the model's
-plan held back or refused, ends the call (`Stop`); one the provider could not serve is tried again after a longer
-pause, and a call whose every session the provider could not serve ends the same way (`Stop`, not counted toward
-max_failures, as a proposer's).
+with a result (exit 0, no timeout, not failed); a request the provider rejects (a refusal, a prompt too long, no such
+model) fails the call at once, and a call whose session timed out twice fails. A session the Trainer stopped, or that
+the model's plan held back or refused, ends the call (`Stop`); one the provider could not serve is tried again after a
+longer pause, and a call whose every session the provider could not serve ends the same way (`Stop`, not counted
+toward max_failures, as a proposer's).
 """
 from __future__ import annotations
 
@@ -34,11 +37,12 @@ import threading
 import time
 
 from hermit.agent.base import login as codex_login
-from hermit.agent.base.cli import codex_instructions
-from hermit.agent.base.interface import Limits, Result, make
+from hermit.agent.base.interface import Limits, LoginFailed, Result, make
 from hermit.agent.evolver.base import Usage
 
 ROLE_MODULES = ("rrsi.analyst", "rrsi.digester", "rrsi.critic")
+DIGESTER_TOOLS = ["Read", "Grep", "Glob"]   # Claude Code's tools that only read, as Codex's read-only sandbox allows
+LABELS = {"codex": "Codex", "claude": "Claude Code"}
 
 
 class Stop(BaseException):
@@ -98,10 +102,10 @@ class SandboxedSubprocess:
 
 
 class Roles:
-    """`generate` for upstream's one-call roles, each call one session of the `codex` Base Agent with `settings`."""
+    """`generate` for upstream's one-call roles, each call one session of the `backend` Base Agent with `settings`."""
 
-    def __init__(self, ctx, settings: dict, log_dir: Path, records: Path | None = None):
-        self.ctx, self.settings, self.log_dir = ctx, dict(settings), Path(log_dir)
+    def __init__(self, ctx, settings: dict, log_dir: Path, records: Path | None = None, backend: str = "codex"):
+        self.ctx, self.settings, self.log_dir, self.backend = ctx, dict(settings), Path(log_dir), backend
         self.records = Path(records) if records is not None else self.log_dir
         self.usage: list[Usage] = []
         self.calls = 0
@@ -141,26 +145,34 @@ class Roles:
             extra, tail = result.extra, str(result.extra.get("output_tail") or "")
             if extra.get("cancelled") or self._cancelled():
                 raise Stop("stopped by the Trainer")
+            if extra.get("login_failed"):
+                raise LoginFailed(f"a role's session: {extra.get('failure')}")
             # the Base Agent says whether the plan refused it (hermit >= #69); before, its output's tail is read
             refused = extra["refused"] if "refused" in extra else codex_login.refused(tail)
             if (not extra.get("started") and extra.get("unavailable")) or (not extra.get("served") and refused):
                 raise Stop(f"the model's plan did not serve a role's session: {tail[-200:]}")
-            if result.reply.strip() and result.exit_code == 0 and not result.timed_out:
+            if result.reply.strip() and result.exit_code == 0 and not result.timed_out and not extra.get("failed"):
                 return extract_json(result.reply) if json_only else result.reply
-            last = tail[-300:] or ("timed out" if result.timed_out else f"exit code {result.exit_code}")
+            if extra.get("rejected"):
+                # a refusal, a prompt too long, no such model: the same request fails the same way again
+                raise RuntimeError(f"generate: a role's session cannot be served as asked: "
+                                   f"{str(extra.get('failure') or tail)[-300:]}")
+            last = str(extra.get("failure") or tail)[-300:] or (
+                "timed out" if result.timed_out else f"exit code {result.exit_code}")
             provider = provider and bool(extra.get("unavailable")) and not extra.get("served")
             timeouts += bool(result.timed_out)
             if timeouts >= 2:
                 # upstream retries a failed API call; a session that ran out of its clock twice (role_timeout_s
                 # each) is no transient error: the call fails, and so does the step (counted toward max_failures)
-                raise RuntimeError(f"generate: two of this call's Codex sessions ran out of role_timeout_s: {last}")
+                raise RuntimeError(f"generate: two of this call's {LABELS[self.backend]} sessions ran out of "
+                                   f"role_timeout_s: {last}")
             if self._wait(min(2 ** attempt, 30) * (4 if extra.get("unavailable") else 1)):
                 raise Stop("stopped by the Trainer")
         if provider:
             # every session failed on the provider (429, 5xx, overloaded), as a proposer session that keeps failing
             # on it does: not the step's doing, so it is not counted toward max_failures
             raise Stop(f"the model's provider kept failing a role's sessions: {last}")
-        raise RuntimeError(f"generate failed after {max_retries} Codex sessions: {last}")
+        raise RuntimeError(f"generate failed after {max_retries} {LABELS[self.backend]} sessions: {last}")
 
     def _session(self, system: str, prompt: str) -> Result:
         with self._lock:
@@ -174,21 +186,23 @@ class Roles:
         (rec / "prompt.txt").write_text(prompt)
         (rec / "system.txt").write_text(system)
         # Upstream's digester reads "the rendered trajectory files in your working directory" through its JSON
-        # actions; a Codex session reads its working directory with its own tools as well, so a digester's session
-        # runs in the round's rendered traces (Codex's read-only sandbox), and every other role's in an empty one.
-        cwd = self.traces if self.traces is not None and "trajectory digester" in system else work
-        extra, text = codex_instructions(system, prompt)
+        # actions; a CLI session reads its working directory with its own tools as well, so a digester's session
+        # runs in the round's rendered traces (read-only), and every other role's in an empty one, with no tools.
+        digester = self.traces is not None and "trajectory digester" in system
+        cwd = self.traces if digester else work
         settings = {**self.settings, "home": call / "home", "log": rec / "events.jsonl", "stdin": True,
-                    "args": [*(self.settings.get("args") or []), *extra], "cancel": self.ctx.cancel}
+                    "cancel": self.ctx.cancel,
+                    **({"allowed_tools": DIGESTER_TOOLS} if digester else {"text_only": True})}
         # Each session sees only its own call directory and, a digester, the round's traces: not the run's records,
         # the other calls' homes or the records in progress.
         box = None
         if self.ctx.sandbox is not None and getattr(self.ctx.sandbox, "enabled", False):
             box = self.ctx.sandbox.view(readable=[Path(cwd)] if Path(cwd) != work else [], writable=[call])
-            settings["sandbox"] = box
+            settings["sandbox"] = box                       # before `instructed`: its configured copy keeps it
         started = time.time()
         try:
-            result = make("codex", settings).run(text, workspace=cwd, limits=Limits())
+            agent, text = make(self.backend, settings).instructed(system, prompt)
+            result = agent.run(text, workspace=cwd, limits=Limits())
         finally:
             if box is not None:
                 box.close()

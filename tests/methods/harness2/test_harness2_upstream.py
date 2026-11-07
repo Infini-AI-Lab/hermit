@@ -349,3 +349,56 @@ def test_the_channel_reads_its_own_files_only_as_regular_files(tmp_path):
     (tmp_path / "link").symlink_to(tmp_path / "file")
     os.mkfifo(tmp_path / "pipe")
     assert [_read_own(tmp_path / n) for n in ("dir", "link", "pipe", "file")] == ["", "", "", "ok"]
+
+
+def test_a_login_that_cannot_sign_the_editors_in_is_refused_before_the_stream():
+    """Upstream turns a session's error into the starting harness: a login the backend cannot use, a model reference
+    a login cannot serve, or a variable that would pay instead of the login, would make every question's editors fall
+    back to H0. setup() refuses them first."""
+    from types import SimpleNamespace
+    from hermit.agent.evolver.methods.harness2_upstream.evolver import Harness2UpstreamEvolver
+
+    def setup(**params):
+        Harness2UpstreamEvolver().setup(SimpleNamespace(params=params, base=None, workspace=None))
+    with pytest.raises(ValueError, match="not the sign-in of backend claude"):
+        setup(backend="claude", login="chatgpt", model="gpt-5.6-luna")
+    with pytest.raises(ValueError, match="not the sign-in of backend codex"):
+        setup(backend="codex", login="claude", model="claude-haiku-5-5")
+    with pytest.raises(ValueError, match="model name"):
+        setup(backend="claude", login="claude", model="learner/accounts/fireworks/models/glm-5p3-flash")
+    with pytest.raises(ValueError, match="model name"):
+        setup(backend="claude", login="claude", model="")
+    with pytest.raises(ValueError, match="model name"):
+        setup(backend="claude", login="claude", model="claude-haiku-5-5", binding={"ref": "learner/m"})
+    with pytest.raises(ValueError, match="would pay instead: \\['ANTHROPIC_API_KEY'\\]"):
+        setup(backend="claude", login="claude", model="claude-haiku-5-5", env={"ANTHROPIC_API_KEY": "k", "X": "1"})
+    setup(backend="claude", login="claude", model="claude-haiku-5-5", env={"X": "1"})
+    setup(backend="codex", login="chatgpt", model="gpt-5.6-luna")
+    setup(backend="claude", model="learner/glm")                   # no login: a bound model, as before
+
+
+def test_codex_editors_take_the_plan_settings(tmp_path, monkeypatch):
+    """The plan's directory, its longest wait and usage credits reach the Codex editors' sessions as the Claude ones'."""
+    from harness2.core.spec import ChannelSpec
+    from hermit.agent.base.interface import Result
+    from hermit.agent.evolver.methods.harness2_upstream import channel
+    seen = {}
+
+    class Agent:
+        def __init__(self, settings):
+            seen.update(settings)
+
+        def run(self, mission, workspace):
+            return Result(reply="edited", exit_code=0, extra={"served": True, "cancelled": False})
+    monkeypatch.setattr(channel, "make", lambda backend, settings: Agent(settings))
+    proposer = channel.FrameworkProposer(spec=ChannelSpec(kind="claude_cli", model="gpt-x", effort="high"),
+                                         params={"backend": "codex", "model": "gpt-x", "login": "chatgpt",
+                                                 "plan_dir": str(tmp_path / "plan"), "plan_max_wait_s": 60,
+                                                 "usage_credits": True})
+    (tmp_path / "s").mkdir()
+    proposer._codex_cli(tmp_path / "s", "the mission", "be brief", wall=60)
+    assert (seen["plan_dir"], seen["plan_max_wait_s"], seen["usage_credits"]) == (str(tmp_path / "plan"), 60, True)
+    seen.clear()
+    proposer.params = {**proposer.params, "plan_max_wait_s": None}         # null: no limit, as everywhere else
+    proposer._codex_cli(tmp_path / "s", "the mission", "be brief", wall=60)
+    assert "plan_max_wait_s" in seen and seen["plan_max_wait_s"] is None

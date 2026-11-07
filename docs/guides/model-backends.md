@@ -22,7 +22,7 @@ hermit train --config run.yaml model=vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8  
 
 | Setting | Who calls the model | Dialect it speaks |
 |---|---|---|
-| `llm` (or `evolver.model` with `evolver.base: direct`) | the Evolver's `direct` agent and the run's `llm` tool: the `gepa`, `skillopt`, `reharness` and `continual_harness` Evolvers | chat completions |
+| `llm` (or `evolver.model` with `evolver.base: direct`) | the Evolver's `direct` agent and the run's `llm` tool: the `gepa`, `skillopt`, `ace`, `reharness` and `continual_harness` Evolvers | chat completions |
 | `agent.params.model` (or `agent.model`) with `agent.name: react` | the built-in tool-calling agent | chat completions |
 | `agent.params.model` (or `agent.model`) with `agent.name: codex` / `claude-code` | the CLI acting agent | Responses API / Messages API |
 | `evolver.params.model` of the `codex`, `claude` and `mwm` Evolvers | the learner's CLI session | Responses API / Messages API |
@@ -39,6 +39,9 @@ backend may define aliases (`models: {qwen: Qwen/Qwen3-30B-A3B-Instruct-2507-FP8
 A string whose first segment is no backend's name is not a reference: for a Codex or Claude Code agent it is a
 model of the CLI's own provider (`gpt-5.4`), as before. So a provider id that happens to start with a backend's
 name (`openai/...`) is read as a reference to that backend.
+
+To run on a subscription and no key at all, name the model with a login: [Claude Code](claude-subscription.md) takes
+`login: claude`, Codex `login: chatgpt`; `llm` and an acting pipeline's model take `{cli: ..., ...}`.
 
 The top-level `model` is a default: `model=vllm/qwen` on the command line moves every caller that names no model
 of its own. The OfficeQA configs set it to the acting agent's model (GLM 5.3 Flash, which the task sandbox is given
@@ -155,6 +158,10 @@ scrubbed of key values. Claude Code's token is written into the Evolver's settin
 `$<api_key_env>` and expanded when the agent starts, so the run's `config.yaml` records the variable's name, never
 the key.
 
+A login reaches a sandbox by itself too: `login: chatgpt` as a copy of the login, with chatgpt.com and auth.openai.com
+allowed; `login: claude` as `CLAUDE_CODE_OAUTH_TOKEN`, passed by name for the call that runs the session (not as one of
+the sandbox's variables), with `api.anthropic.com` allowed.
+
 ## A local server
 
 ```bash
@@ -183,7 +190,8 @@ and a `backends.learner={from: <backend>, base_url: <the meter's URL>}` override
 Prices: a hosted backend's models have prices in the built-in table; a local model has none, so its cost is
 recorded as unknown. Give it a price of zero in your backends file when a bill of zero is what you mean. The
 wire-level token counts are recorded regardless. Claude Code reports a cost of its own, at Anthropic's prices; for a
-model on another backend that figure is replaced by the backend's price (unknown without one).
+model on another backend that figure is replaced by the backend's price (unknown without one), and on a subscription
+(`login: claude`) it is not kept: nothing is billed per token.
 
 Context length: a local server is often started with a shorter context than the hosted model has, and a request
 whose prompt plus `max_tokens` exceeds it fails (vLLM: HTTP 400, "maximum context length"). The built-in `react`

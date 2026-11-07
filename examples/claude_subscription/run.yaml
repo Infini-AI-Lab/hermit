@@ -1,0 +1,54 @@
+# Acting and learning on your own Claude subscription (docs/guides/claude-subscription.md), on nine small tasks. The
+# acting agent is Claude Code in a workspace (`agent.base: claude` with `login: claude`), and the learner is ACE, a method
+# whose Reflector and Curator only exchange text with their model: each of its chat calls is one Claude Code session that
+# can only reply (`llm: {cli: claude, ...}`). No API key is involved: `claude setup-token` once, then
+#
+#   export CLAUDE_CODE_OAUTH_TOKEN=...      # with `read -r -s CLAUDE_CODE_OAUTH_TOKEN` so that it stays out of your history
+#   hermit check --config examples/claude_subscription/run.yaml --no-probe
+#   hermit train --config examples/claude_subscription/run.yaml
+#   hermit eval --config examples/claude_subscription/run.yaml --adapter final
+#
+# run_react.yaml acts through the same model endpoint instead of in a workspace; run_workspace_learner.yaml learns with a
+# Claude Code session that edits the adapter. Every session runs in a bubblewrap sandbox (Linux): the acting agent's in
+# the task sandbox, each chat call's in one of its own. Sessions on the login share its plan: the files under
+# ~/.cache/hermit/claude-login/plan/ pause them, cap the plan's usage and the sessions at once (hermit.agent.base.login).
+data:
+  tasks: tasks.jsonl
+  train: train.txt
+  val: val.txt
+  test: test.txt
+  step_size: 3
+  shuffle: false
+task_info: task-info
+judge:
+  path: judge.py
+template: ace@1.0
+agent:
+  base: claude                               # Layer 2: the Claude Code CLI, in a workspace
+  concurrency: 2
+  model: {name: claude-haiku-5-5, login: claude, effort: low}   # Layer 1: the subscription, by the CLI's model name
+  claude: {web_search: false, timeout_s: 600, retries: 2, retry_wait_s: 30}
+llm:                                         # the learner's model: one session per chat call (base/endpoint.py)
+  cli: claude
+  model: claude-haiku-5-5
+  login: claude
+  effort: low
+  isolation: sandbox                         # the default: a bubblewrap sandbox of its own, the login's host
+  timeout_s: 600                             # one session's clock
+  timeout: 700                               # the chat client's, past the session's
+evolver:
+  name: ace
+  params:
+    max_num_rounds: 1
+    val_every: 0
+environment:
+  network: no-network                        # the default: the acting session reaches its model (api.anthropic.com)
+                                             # and nothing else; the token passes by name (see the guide on the token)
+trainer:
+  run_name: claude-subscription
+  output_dir: runs
+  epochs: 1
+  call_timeout_min: 45                       # a step's learner waits for the plan like any session
+  budget:
+    tokens: 2000000
+    hours: 1

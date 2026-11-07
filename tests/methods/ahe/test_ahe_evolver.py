@@ -421,8 +421,8 @@ def test_a_separate_debugger_model_is_refused_with_a_price_or_a_binding(tmp_path
 def test_the_setup_refuses_another_base_agent_and_an_unset_web_search(tmp_path):
     (tmp_path / "a").mkdir()
     (tmp_path / "b").mkdir()
-    with pytest.raises(SystemExit, match="sessions of the codex Base Agent"):
-        Trainer(Config.load(_task(tmp_path / "a", evolver={"backend": "claude"}), ["trainer.epochs=1"]),
+    with pytest.raises(SystemExit, match="sessions of a CLI Base Agent"):
+        Trainer(Config.load(_task(tmp_path / "a", evolver={"backend": "react"}), ["trainer.epochs=1"]),
                 log=lambda *_: None).train()
     with pytest.raises(SystemExit, match="web_search must be set"):
         Trainer(Config.load(_task(tmp_path / "b", evolver={"web_search": None}), ["trainer.epochs=1"]),

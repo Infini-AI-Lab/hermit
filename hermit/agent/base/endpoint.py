@@ -21,6 +21,10 @@ KEEPALIVE_S, so that the client's read timeout does not fire; an error after tha
 
 The URL carries a random token, so that only whoever was handed it can call the model; it listens on loopback
 unless told otherwise.
+
+Over a CLI Base Agent (`codex`, `claude`) the endpoint is no relay: each request is one session of it, for code that
+calls a chat API and a model only the CLI reaches (cli_answer, cli_model). A session is not a model API, and what it
+cannot do is refused rather than dropped: docs/guides/claude-subscription.md has the contract.
 """
 from __future__ import annotations
 
@@ -33,11 +37,12 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from hermit.agent.base.interface import BaseAgent
+from hermit.agent.base.interface import LOGIN_FAILED, BaseAgent
 
 HEADER_WAIT_S = 120.0
 KEEPALIVE_S = 15.0
 _DROP = object()                                  # no answer: close the client's connection without one
+UNAPPLIED = ("max_tokens", "max_completion_tokens")   # a cap, no requirement on the answer: accepted, said not applied
 
 
 class ChatEndpoint:
@@ -145,6 +150,7 @@ class ChatEndpoint:
         self.port = self._server.server_address[1]
         self.url = f"http://{host}:{self.port}/{self.token}"
         self._thread: threading.Thread | None = None
+        self.closing: list = []                         # what goes with it (a session sandbox and its proxy)
 
     def answer(self, request: dict, authorization: str | None, abort: threading.Event | None = None):
         """One request (its JSON body, not streamed): (status, response body, headers to pass on), or _DROP when the
@@ -191,6 +197,8 @@ class ChatEndpoint:
     def close(self) -> None:
         self._server.shutdown()
         self._server.server_close()
+        for thing in self.closing:
+            thing.close()
 
     def __enter__(self) -> "ChatEndpoint":
         return self.start()
@@ -207,8 +215,9 @@ def _chunks(status: int, reply: bytes, model, include_usage: bool):
         except ValueError:
             error = {"message": reply.decode(errors="replace")}
         error = error.get("error", error) if isinstance(error, dict) else {"message": str(error)}
-        yield json.dumps({"error": {**(error if isinstance(error, dict) else {"message": str(error)}),
-                                    "code": status}}).encode()
+        error = error if isinstance(error, dict) else {"message": str(error)}
+        # the error's own code stays (a lost sign-in's ends the run), the status beside it
+        yield json.dumps({"error": {"code": status, **error, "status": status}}).encode()
         return
     response = json.loads(reply)
     head = {"id": response.get("id") or "chatcmpl-relay", "object": "chat.completion.chunk",
@@ -248,29 +257,103 @@ def split_messages(messages: list[dict]) -> tuple[str, str]:
                     + "\n\n".join(turns))
 
 
+def contract_problems(agent: BaseAgent, request: dict) -> tuple[list[str], list[str]]:
+    """(what a session of `agent` cannot do of this request, the fields it accepts and does not apply). A session takes
+    text messages and gives one text reply, on the model it was started with; the CLI has no setting for the rest, so a
+    request that asks for it is told, not answered as if it had got it. `unapplied` in the spec names sampling fields
+    the user accepts going unapplied. Fields sent as null ask for nothing."""
+    problems, unapplied, accepted = [], [], set(agent.settings.get("unapplied") or ())
+    messages = request.get("messages")
+    if not isinstance(messages, list) or not messages or not all(isinstance(m, dict) for m in messages):
+        problems.append("messages: a non-empty list of messages")
+        messages = []
+    for m in messages:
+        if m.get("role") not in ("system", "developer", "user", "assistant"):
+            problems.append(f"a message of role {m.get('role')!r}: a session takes text turns, not tool results")
+        if m.get("tool_calls") or m.get("function_call"):
+            problems.append("a message with tool calls: a session takes text turns")
+        if isinstance(m.get("content"), list) and any(
+                not isinstance(p, dict) or p.get("type") not in ("text", "input_text", "output_text")
+                for p in m["content"]):
+            problems.append("a message part that is not text: a session takes text")
+    session = agent.settings.get("model")
+    if session and request.get("model") and request["model"] != session:
+        problems.append(f"model {request['model']!r}: this endpoint's sessions run {session!r}")
+    effort, efforts = request.get("reasoning_effort"), getattr(agent, "efforts", None)
+    if effort and efforts and effort not in efforts:
+        problems.append(f"reasoning_effort {effort!r}: {agent.name} takes {list(efforts)}")
+    for key, value in request.items():
+        if value is None or key in ("model", "messages", "reasoning_effort", "parallel_tool_calls"):
+            continue
+        if key in UNAPPLIED:
+            unapplied.append(key)
+        elif key in ("tools", "functions"):
+            if value:
+                problems.append(f"{key}: a session cannot return tool calls to its caller; a role that needs tools "
+                                "runs a Base Agent session with them")
+        elif key == "tool_choice":
+            if value not in ("none", "auto"):
+                problems.append("tool_choice: a session cannot return tool calls to its caller")
+        elif key == "n":
+            if value != 1:
+                problems.append("n: a session gives one reply")
+        elif key == "response_format":
+            if not (isinstance(value, dict) and value.get("type") == "text"):
+                problems.append("response_format: a session gives plain text; ask for the form in the prompt")
+        elif key in accepted:
+            unapplied.append(key)
+        else:
+            problems.append(f"{key}: a {agent.name} session has no such setting (llm.unapplied: [{key}] accepts it "
+                            "going unapplied)")
+    return problems, unapplied
+
+
+def _no_reply(agent: BaseAgent, result) -> tuple:
+    """A session that gave no reply, as the client is to read it: past its clock 504, one the provider could not serve
+    503 and one the plan refused 429 (the client retries), a lost sign-in 401, a request no retry can help 400, anything
+    else 502. What it spent comes with it: a failed session can have used tokens (a refused answer)."""
+    extra = result.extra
+    status = 504 if result.timed_out else 401 if extra.get("login_failed") else 503 if extra.get("unavailable") \
+        else 429 if extra.get("refused") else 400 if extra.get("rejected") else 502
+    why = "timed out" if result.timed_out else f"exit {result.exit_code}"
+    # the code first: a client's error text keeps only the start of the body
+    error = {"code": LOGIN_FAILED} if extra.get("login_failed") else {}
+    error["message"] = (f"the {agent.name} session gave no reply ({why}): "
+                        f"{(extra.get('failure') or extra.get('output_tail', ''))[-600:]}")
+    # a session that ran out its clock would run it out again: a client is told not to retry it (OpenAI's header)
+    headers = {"x-should-retry": "false"} if result.timed_out else {}
+    return status, json.dumps({"error": error, **_usage_of(result)}).encode(), headers
+
+
+def _usage_of(result) -> dict:
+    u = result.usage[0] if result.usage else None
+    prompt_tokens, completion = (u.input_tokens, u.output_tokens) if u else (0, 0)
+    return {"usage": {"prompt_tokens": prompt_tokens, "completion_tokens": completion,
+                      "total_tokens": prompt_tokens + completion,
+                      "prompt_tokens_details": {"cached_tokens": u.cached_input_tokens if u else 0}}}
+
+
 def cli_answer(agent: BaseAgent, request: dict, abort: threading.Event | None = None):
     """A chat-completions request answered by one session of a CLI Base Agent (`codex`, `claude`): a model reachable
-    only through the CLI (a ChatGPT login) for code that calls a chat API (an Evolver's `llm`). The system messages
-    are the session's instructions, the rest its prompt (split_messages), given on stdin; the session works in an
-    empty workspace of its own, and its last message is the reply, with its token usage. `reasoning_effort` is the
-    session's effort; sampling settings a CLI has none for (max_tokens, temperature) are not applied. A session the
-    provider could not serve answers 503 (the client retries), one past its clock 504, one without a reply 502.
-    The session sees no files: a caller that wants a session to read files runs one itself (`make(...).run`). Its
-    event stream is kept under the agent's `log_dir` setting when there is one (the Trainer gives the run's
-    `llm_sessions/`), and is removed after the call otherwise."""
+    only through the CLI (a subscription) for code that calls a chat API (an Evolver's `llm`, an acting pipeline's
+    model). The system messages are the session's instructions, the rest its prompt (split_messages), given on stdin;
+    the session works in an empty workspace of its own and only replies (`text_only`: Claude Code's session has no
+    tools; a Codex session's commands are held by its sandbox or container), and its reply is the content, with its
+    token usage. `reasoning_effort` is the session's effort; max_tokens is not applied and the reply says so
+    (`unapplied`); what else a session cannot do is refused (contract_problems). A session that gave no reply is never
+    an answer (_no_reply). The session sees no files: a caller that wants a session to read files runs one itself
+    (`make(...).run`). Its event stream is kept under the agent's `log_dir` setting when there is one (the Trainer
+    gives the run's `llm_sessions/`), and is removed after the call otherwise."""
     import shutil
     import tempfile
     from pathlib import Path
-    messages = request.get("messages")
-    if not isinstance(messages, list) or not messages:
-        return 400, json.dumps({"error": {"message": "messages: a non-empty list"}}).encode(), {}
-    system, prompt = split_messages(messages)
-    own = {"stdin": True, **({"cancel": abort} if abort is not None else {})}
+    problems, unapplied = contract_problems(agent, request)
+    if problems:
+        return 400, json.dumps({"error": {"message": "; ".join(problems)}}).encode(), {}
+    system, prompt = split_messages(request["messages"])
+    own = {"stdin": True, "text_only": True, **({"cancel": abort} if abort is not None else {})}
     if request.get("reasoning_effort"):
         own["effort"] = str(request["reasoning_effort"])
-    if system:
-        extra, prompt = agent.system_settings(system, prompt)
-        own.update(extra)
     log_dir, scratch = agent.settings.get("log_dir"), None
     if log_dir:
         own["log"] = Path(log_dir) / f"{time.strftime('%Y%m%dT%H%M%S')}-{secrets.token_hex(4)}-{agent.name}.jsonl"
@@ -278,10 +361,10 @@ def cli_answer(agent: BaseAgent, request: dict, abort: threading.Event | None = 
         scratch = Path(tempfile.mkdtemp(prefix=f"hermit-chat-log-{agent.name}-"))
         own["log"] = scratch / f"agent-{agent.name}.jsonl"
     work = Path(tempfile.mkdtemp(prefix=f"hermit-chat-{agent.name}-"))
-    if agent.settings.get("isolation") == "sandbox":          # the empty workspace is the session's to write
-        own["writable"] = [*(agent.settings.get("writable") or []), str(work)]
+    own["writable"] = [*(agent.settings.get("writable") or ()), str(work)]   # a sandbox shows it no other way
     try:
-        result = agent.configured(**own).run(prompt, workspace=work)
+        session, prompt = agent.configured(**own).instructed(system, prompt)
+        result = session.run(prompt, workspace=work)
     finally:
         shutil.rmtree(work, ignore_errors=True)
         if scratch is not None:                                # also when the call raised
@@ -294,19 +377,12 @@ def cli_answer(agent: BaseAgent, request: dict, abort: threading.Event | None = 
     if result.extra.get("cancelled"):
         return _DROP
     if not result.extra.get("served") or not result.reply.strip():
-        why = "timed out" if result.timed_out else f"exit {result.exit_code}"
-        status = 504 if result.timed_out else 503 if result.extra.get("unavailable") else 502
-        return status, json.dumps({"error": {"message": f"the {agent.name} session gave no reply ({why}): "
-                                             f"{result.extra.get('output_tail', '')[-600:]}"}}).encode(), {}
-    u = result.usage[0] if result.usage else None
-    prompt_tokens, completion = (u.input_tokens, u.output_tokens) if u else (0, 0)
+        return _no_reply(agent, result)
     body = {"id": f"chatcmpl-{secrets.token_hex(6)}", "object": "chat.completion", "created": int(time.time()),
-            "model": request.get("model") or agent.settings.get("model"),
+            "model": result.extra.get("served_model") or request.get("model") or agent.settings.get("model"),
             "choices": [{"index": 0, "message": {"role": "assistant", "content": result.reply},
-                         "finish_reason": "stop"}],
-            "usage": {"prompt_tokens": prompt_tokens, "completion_tokens": completion,
-                      "total_tokens": prompt_tokens + completion,
-                      "prompt_tokens_details": {"cached_tokens": u.cached_input_tokens if u else 0}}}
+                         "finish_reason": result.finish_reason or "stop"}],
+            **_usage_of(result), **({"unapplied": unapplied} if unapplied else {})}
     return 200, json.dumps(body, ensure_ascii=False).encode(), {}
 
 
@@ -329,32 +405,109 @@ def relay(upstream: str, *, timeout: float | None = None) -> str:
         return _relays[key].url
 
 
-def cli_model(spec: dict, log_dir=None, sandbox=None):
-    """The run's `llm` when it names a CLI (`llm: {cli: codex, model: ..., login: chatgpt, ...}`): a chat client over
-    a ChatEndpoint that answers each request with one session of that CLI Base Agent (cli_answer), for a model only
-    the CLI reaches. Every key but `cli` and `timeout` is the Base Agent's setting (hermit.agent.base.cli); `web_search`
-    must be given. The model is an agent that can run commands, and Codex's own read-only sandbox still reads the whole
-    machine (the test answers, the keys), so the session runs in a sandbox of its own: `isolation: sandbox` (the
-    default), the run's bubblewrap sandbox for it (`sandbox`, which the Trainer makes: its empty workspace, its
-    model's hosts and nothing else), or `isolation: container` (with container: {image, network, proxy}), where its
-    commands may only read (codex_sandbox read-only) unless the spec says otherwise."""
-    from hermit.agent.base.interface import make
-    from hermit.agent.model.llm import ChatClient
+CODEX_BOUNDARY = ("cli: codex: the model is a Codex agent that can run commands; it needs isolation: sandbox (the "
+                  "default: a bubblewrap sandbox of its own) or isolation: container (with container: {image, network, "
+                  "proxy}), which show it only its empty workspace")
+
+
+def cli_problems(spec: dict) -> list[str]:
+    """What is wrong with a model spec that names a CLI, before any session. Each request is one session in a sandbox
+    of its own (`isolation: sandbox`, the default; the run makes it, hermit.isolate.cli_sandbox) or in a container of
+    its own (`isolation: container`, with container: {image, network, proxy}); a machine without bubblewrap runs it
+    unconfined only as the run says (sandbox.enforce: best_effort, sandbox.enabled: false), which the run's records
+    keep. Codex's model can run commands, and Codex's own read-only sandbox still reads the whole machine (the test
+    answers, the keys); Claude Code's has no tools at all (the Base Agent's `text_only`), and the sandbox holds what
+    the CLI might do besides. A login is the CLI's own: chatgpt for codex, claude for claude."""
     isolation = spec.get("isolation") or "sandbox"
-    if spec["cli"] != "codex" or isolation not in ("sandbox", "container"):
-        raise ValueError("llm.cli: the learner's model is a Codex agent that can run commands; it needs cli: codex "
-                         "and isolation: sandbox (the default: a bubblewrap sandbox of its own) or container, which "
-                         "show it only its empty workspace")
-    if isolation == "sandbox" and sandbox is None:
-        raise ValueError("llm.cli runs in a sandbox of its own, which the Trainer makes (settings.sandbox)")
+    if spec.get("cli") == "codex":
+        out = [] if isolation in ("sandbox", "container") else [CODEX_BOUNDARY]
+        if spec.get("login") and spec["login"] != "chatgpt":
+            out.append(f"cli: codex signs in with login: chatgpt (Codex's sign-in), not login: {spec['login']}")
+        return out
+    if spec.get("cli") != "claude":
+        return [f"cli must be codex or claude, not {spec.get('cli')!r}"]
+    out = []
+    if not spec.get("binding") and spec.get("login") != "claude":
+        out.append("cli: claude needs login: claude (your subscription) or a <backend>/<model> reference (that "
+                   "backend's key): without one, whatever the CLI finds in the environment would pay")
+    if spec.get("binding") and spec.get("login"):
+        out.append("cli: claude takes login or a <backend>/<model> reference, not both")
+    if spec.get("login") and not spec.get("model"):
+        out.append("with login: claude, model is required: Claude Code's default differs by sign-in")
+    if isolation not in ("sandbox", "container"):
+        out.append("cli: claude needs isolation: sandbox (the default: a bubblewrap sandbox of its own) or container "
+                   "(a Docker container of its own, with container: {image, network, proxy}); without bubblewrap, "
+                   "sandbox.enforce: best_effort runs it unconfined and records that")
+    elif isolation == "container":
+        from hermit.agent.base import container
+        try:
+            container.settings(spec, "claude")
+        except ValueError as e:
+            out.append(f"cli: claude: {e}")
+    if spec.get("web_search") is True:
+        out.append("cli: claude: a text session has no tools, so web_search cannot be on")
+    from hermit.agent.base.cli import Claude
+    if spec.get("effort") is not None and spec["effort"] not in Claude.efforts:   # the CLI would ignore it
+        out.append(f"cli: claude takes effort {', '.join(Claude.efforts)}, not {spec['effort']!r}")
+    return out
+
+
+def cli_endpoint(spec: dict, log_dir=None, *, sandbox=None) -> ChatEndpoint:
+    """A chat endpoint over the CLI a spec names (`{cli: codex | claude, model: ..., login: ..., ...}`), started: each
+    request is one session of that Base Agent (cli_answer). Every key but `cli` and `timeout` is the Base Agent's
+    setting (hermit.agent.base.cli). With `isolation: sandbox` (the default) every session runs in `sandbox`, the one
+    the run made for them (hermit.isolate.cli_sandbox: its empty workspace and home, its model's or its login's
+    hosts, nothing of the run); with `isolation: container` each in a container of its own. What the caller hands
+    over to close with the endpoint goes in its `closing`. Close it after use."""
+    from hermit.agent.base.interface import make
+    problems = cli_problems(spec)
+    if problems:
+        raise ValueError("; ".join(problems))
     settings = {k: v for k, v in spec.items() if k not in ("cli", "timeout")}
-    settings["isolation"] = isolation
+    isolation = settings["isolation"] = spec.get("isolation") or "sandbox"   # the Base Agent's own default is none
     if isolation == "sandbox":
+        if sandbox is None:
+            raise ValueError("llm.cli runs in a sandbox of its own, which the Trainer makes (settings.sandbox)")
         settings["sandbox"] = sandbox
-        settings.setdefault("codex_sandbox", "danger-full-access")   # the bubblewrap sandbox is the boundary
-    settings.setdefault("codex_sandbox", "read-only")
+        if spec["cli"] == "codex":
+            settings.setdefault("codex_sandbox", "danger-full-access")   # the bubblewrap sandbox is the boundary
+    if spec["cli"] == "codex":
+        settings.setdefault("codex_sandbox", "read-only")
+    else:
+        settings.setdefault("web_search", False)
     if log_dir is not None:
         settings.setdefault("log_dir", str(log_dir))           # each call's event stream, with the run's records
-    endpoint = ChatEndpoint(make(spec["cli"], settings)).start()
-    return ChatClient(endpoint.url, str(settings.get("model") or spec["cli"]), price=settings.get("price"),
-                      timeout=float(spec.get("timeout", 3600)))
+    return ChatEndpoint(make(spec["cli"], settings)).start()
+
+
+def endpoint_spec(endpoint: ChatEndpoint, spec: dict) -> dict:
+    """The plain model spec of an endpoint over a CLI, for code that takes a model spec or a base URL (an acting
+    pipeline): it needs no key, and its URL holds the endpoint's token (never written to a run's records)."""
+    settings = endpoint.agent.settings
+    model = str(settings.get("model") or spec["cli"])
+    timeout = float(spec.get("timeout", 3600))
+    if settings.get("login"):
+        # On a login the session waits for the plan inside the request (CliAgent.run), as long as plan_max_wait_s: the
+        # client waits as long, or a hold would make it hang up and try again until it gives up, a failed call instead
+        # of one served after the hold. None: no limit (30 days, as a socket takes a number).
+        from hermit.agent.base.login import MAX_WAIT_S
+        wait = settings.get("plan_max_wait_s", MAX_WAIT_S)
+        timeout += 30 * 86400 if wait is None else float(wait)
+    return {"base_url": endpoint.url, "model": model, "api_key_env": None, "key_required": False,
+            "price": spec.get("price"), "timeout": timeout}
+
+
+def cli_model(spec: dict, log_dir=None, sandbox=None):
+    """The run's `llm` when it names a CLI (`llm: {cli: codex | claude, model: ..., login: chatgpt | claude, ...}`): a
+    chat client over a ChatEndpoint over that CLI (cli_endpoint), for a model only the CLI reaches; its sessions run
+    in `sandbox`, which the Trainer makes (isolation: sandbox, the default), or each in a container of its own.
+    `close()` closes the endpoint."""
+    from hermit.agent.model.llm import ChatClient
+    endpoint = cli_endpoint(spec, log_dir, sandbox=sandbox)
+    try:
+        client = ChatClient.from_spec(endpoint_spec(endpoint, spec))
+    except BaseException:
+        endpoint.close()                                  # a client that could not be made: nothing is left serving
+        raise
+    client.close = endpoint.close
+    return client

@@ -76,7 +76,7 @@ dialects it serves, prices). See [Model backends](../guides/model-backends.md).
 |---|---|---|
 | `model` | string / null | The run's default model, a `<backend>/<model id>` reference; used by `llm`, `agent.params.model` and the `codex`, `claude` and `mwm` Evolvers' `evolver.params.model` when they name none |
 | `backends` | mapping / {} | Backends declared for this run by name, over `~/.config/hermit/backends.yaml` and the built-ins. Fields: `base_url`, `api_key_env`, `key_required`, `apis`, `messages_url`, `litellm`, `prices`, `extra_body`, `context_window`, `models`, or `from: <other>` to copy one |
-| `llm` | reference, mapping / null | The run's chat-completions `llm` tool: a reference, `{model: <reference>, price, extra_body}`, or the endpoint itself (below) |
+| `llm` | reference, mapping / null | The run's chat-completions `llm` tool: a reference, `{model: <reference>, price, extra_body}`, the endpoint itself (below), or a CLI's sessions, `{cli: ..., ...}` (below) |
 
 `agent.params.model` takes the same forms. For a Codex or Claude Code acting agent or Evolver a reference becomes
 the CLI's provider settings (`args` for Codex, `env` for Claude Code) and the model's id; a plain id without a
@@ -98,6 +98,24 @@ model in your pipeline or automatically configure an external learner CLI. The e
 Without prices, cost is unknown. With a price mapping, omitted input/output prices default to zero, and omitted
 cached-input price falls back to the input price. Supply all applicable prices rather than relying on those defaults.
 Per-call arguments override matching `extra_body` fields. The underlying client defaults to a 600-second HTTP timeout and four retries; `llm.timeout` (seconds) is forwarded, `llm.max_retries` is not.
+
+A model only a CLI reaches, as `llm` or as an acting pipeline's `agent.model`: each chat call is one session with no
+tools, which on Claude Code can only reply ([Claude subscription](../guides/claude-subscription.md)). Any other key is
+the Base Agent's setting (`hermit/agent/base/cli.py`).
+
+| Field | Type / default | Meaning |
+|---|---|---|
+| `cli` | `codex`, `claude` | The Base Agent |
+| `model` | string | The CLI's model name; required with `login: claude`. A `<backend>/<model id>` reference binds it to that backend's key instead |
+| `login` | `chatgpt`, `claude` | The user's subscription on that CLI |
+| `isolation` | string / `sandbox` | `sandbox`: a bubblewrap sandbox of its own (role `llm`, an acting pipeline's `agent-model`: its empty workspace and home, its model's or login's hosts through a proxy of its own, its key or token, nothing of the run); `container`: a Docker container of its own. With `sandbox.enabled: false` it runs unconfined |
+| `container` | mapping / {} | With `isolation: container`: `image`, `network`, `proxy` (else `HERMIT_CODEX_*` or `HERMIT_CLAUDE_*`) |
+| `web_search` | boolean | Required on Codex; on Claude Code false by default, and it cannot be on |
+| `effort` | string / null | The default reasoning effort; a request's `reasoning_effort` overrides it |
+| `timeout_s` | number / 3600 | One session's clock |
+| `timeout` | number / 3600 | The chat client's; give it more than `timeout_s`. With a `login` the client also waits out the plan: `plan_max_wait_s` is added (none: no limit) |
+| `unapplied` | list / [] | Request fields accepted without being applied (`temperature`); others the CLI has no setting for are refused |
+| `plan_dir`, `plan_max_wait_s`, `plan_rerun`, `usage_credits` | see the guide | The login's plan. For a workspace session they are the Base Agent's settings (`agent.claude`, `evolver.claude`), not Layer 1's (`agent.model`) |
 
 ## Trainer and evaluation
 
@@ -133,7 +151,7 @@ Checkpoint frequency controls tags; completed steps still have records and accep
 | `environment.network` | string / `no-network` | `no-network`, `allowlist` or `public`; the agent's model provider stays reachable |
 | `environment.allowed_hosts` | list / [] | With `allowlist`: hosts reachable through the proxy |
 | `environment.resources` | mapping / {} | `memory_mb`, `file_mb`, `cpu_s` per process (positive whole numbers; null: no limit); not with `environment.image` (the container keeps its own) |
-| `environment.image` | string / null | A Docker image: a Codex acting agent runs in a container of its own |
+| `environment.image` | string / null | A Docker image: a Codex or Claude Code acting agent runs in a container of its own |
 | `environment.container` | mapping / {} | With `image`: the container's `network` and `proxy` |
 | `judge.mode` | string / `host` | `host`, `shared` or `separate` |
 | `judge.tests` | list / [] | `shared`, `separate`: paths only the judge sees (its own file is shown; a file beside it is not unless listed here) |
