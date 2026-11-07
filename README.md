@@ -57,6 +57,7 @@ Many harnesses are black boxes; even open-source ones have carefully designed co
 - [AHE Adapter](https://infini-ai-lab.github.io/hermit/docs/methods/ahe_adapter.html)
 - [RRSI Adapter](https://infini-ai-lab.github.io/hermit/docs/methods/rrsi_adapter.html)
 - [EvoSafeHarness](https://infini-ai-lab.github.io/hermit/docs/methods/evosafe.html)
+- [Evo-Harness](https://infini-ai-lab.github.io/hermit/docs/methods/evo_harness.html)
 
 Hermit provides an RL-style training loop for evolving harness adapters:
 
@@ -216,6 +217,10 @@ Train and evaluate harness adapters on benchmarks using different evolution meth
 <tr>
 <td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/evosafe.html">EvoSafeHarness</a></td>
 <td><a href="examples/agentdyn/evosafe/">AgentDyn</a> (a defense bundle of a system prompt and tool-call hooks searched around a frozen victim, on fixed benign and injected cases)</td>
+</tr>
+<tr>
+<td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/evo_harness.html">Evo-Harness</a></td>
+<td><a href="examples/officeqa/evo_harness/">OfficeQA</a> (failures compiled into a two-level skill harness over task batches, Codex as the acting agent)</td>
 </tr>
 <tr>
 <td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/prompt-only.html">Prompt-only</a></td>

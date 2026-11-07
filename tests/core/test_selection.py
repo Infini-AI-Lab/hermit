@@ -57,8 +57,8 @@ def test_the_rest_of_the_framework_runs_core_and_documentation_runs_nothing():
 
 def test_a_benchmarks_shared_files_run_the_methods_with_an_example_there():
     assert groups_for("examples/officeqa/utils/task.py") == {
-        "ace", "ahe", "continual_harness", "harness2", "meta_harness_adapter", "optimizers", "reharness",
-        "rrsi_adapter", "core"}
+        "ace", "ahe", "continual_harness", "evo_harness", "harness2", "meta_harness_adapter", "optimizers",
+        "reharness", "rrsi_adapter", "core"}
     assert groups_for("examples/servelearnbench/utils/x.py") == {"mwm", "core"}
     groups, why = select(["hermit/cli.py", "examples/officeqa/rrsi_adapter/README.md", "docs/index.md"])
     assert groups == {"core", "rrsi_adapter"} and why == {"core": "hermit/cli.py",

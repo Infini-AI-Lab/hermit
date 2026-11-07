@@ -11,8 +11,9 @@ with no skill and with SkillOpt's initial skill, in both of the paper's harnesse
 tools limited to the question's source files, and Codex, a `codex exec` session with the whole corpus. The same
 methods, Meta-Harness Adapter aside, are run a second time with Codex and GPT-5.6-Luna acting and learning on a
 ChatGPT login, the second column of the [Results](#results) table, where RRSI Adapter joins them, [ACE](ace/)
-also grows a playbook of bullets after that skill and [AHE Adapter](ahe_adapter/) evolves a Codex harness
-(system prompt, middleware, scripts, skills, sub-agents, memory) from it.
+also grows a playbook of bullets after that skill, [AHE Adapter](ahe_adapter/) evolves a Codex harness
+(system prompt, middleware, scripts, skills, sub-agents, memory) from it and [Evo-Harness](evo_harness/) compiles
+failures into general and topic skills.
 
 ## Setup
 
@@ -93,6 +94,10 @@ python examples/officeqa/ahe_adapter/make_rows.py                               
 python examples/officeqa/ahe_adapter/make_seed.py                                                        # its H_0
 hermit train --config examples/officeqa/ahe_adapter/run_codex_luna.yaml                                  # 50 training questions x 2, ten iterations
 hermit eval  --config examples/officeqa/ahe_adapter/run_codex_luna.yaml --adapter final                  # the best-ever iteration
+python examples/officeqa/evo_harness/make_seed.py                                                        # Evo-Harness
+hermit train --config examples/officeqa/evo_harness/stream_codex_luna.yaml                               # the 172 as one stream, batches of 16
+hermit train --config examples/officeqa/evo_harness/run_codex_luna.yaml                                  # 50 training questions
+hermit eval  --config examples/officeqa/evo_harness/run_codex_luna.yaml --adapter final                  # the harness, frozen
 ```
 
 Sessions on the login share its plan; the files under `~/.cache/hermit/codex-login/plan/` steer every running session:
@@ -121,6 +126,7 @@ container per session. Each evaluation makes one pass over the 172 test question
 <tr><td><b>Harness²</b></td><td>0.651</td><td>0.611</td></tr>
 <tr><td><b>ACE</b></td><td>not run</td><td>0.640</td></tr>
 <tr><td><b>AHE Adapter</b></td><td>not run</td><td>0.616</td></tr>
+<tr><td><b>Evo-Harness</b></td><td>not run</td><td>0.570</td></tr>
 </tbody>
 </table>
 
@@ -169,12 +175,16 @@ raise it to 200 KiB (`project_doc_max_bytes: 204800`); no session's `AGENTS.md` 
 Paired differences with 95% intervals, each run's selection and cost, the Codex sessions' isolation and the
 differences from the paper: the [recipe](../../docs/recipes/officeqa.md#the-flash-row).
 
+**Evo-Harness**'s row is train/test, as ACE's: the harness compiled on the 50 training questions, frozen on the 172. Its
+paper's own protocol, a stream over the 172 whose reflections read the judge's feedback, is online supervision and so
+not in the table beside the label-free streams; that run scored 0.552 ([`evo_harness/`](evo_harness/#result)).
+
 The GPT-5.6-Luna column is the same methods with the model changed and nothing else of the protocol: GPT-5.6-Luna
 acting and learning on the machine's ChatGPT login instead of GLM 5.3 Flash on Fireworks, the same data, split, seed
 skill, judge, parameters, stream order and one pass (Meta-Harness Adapter was not run; RRSI Adapter and ACE ran on
 this column only). It starts 22–23 points lower and gains more from every method, most from ACE, RRSI Adapter,
 Harness² and GEPA (0.600–0.640), and almost all of the gain is the answer's form: a check of every answer finds the
-share with the right value at 0.66–0.72 in every cell of the column it was run on (all but ACE's). RRSI Adapter, which
+share with the right value at 0.66–0.72 in every cell of the column it was run on (all but ACE's and Evo-Harness's). RRSI Adapter, which
 searches whole adapters in the Codex harness the streams use, reaches GEPA and Harness² too, from 0.355 for its
 starting adapter in its own harness and window (its four trainings averaged per question − GEPA +1.6 [−1.6, +4.8], −
 its start +26.2 [+20.1, +32.6], almost all of it the answer's form: checked answer by answer, the share with the right
@@ -218,4 +228,6 @@ rrsi_adapter/       RRSI Adapter on the GPT-5.6-Luna column: run_luna.yaml and s
                     weights), domain.py and texts/ (the benchmark's rules and the roles' texts, adapted from
                     upstream's), trials.py and make_rows.py (two trials per training question as rows <id>#k),
                     make_seed.py
+evo_harness/        Evo-Harness: stream_codex_luna.yaml, run_codex_luna.yaml and smoke_codex_luna.yaml in the GPT-5.6-Luna
+                    setting; make_seed.py writes seed_adapter/; stream_s0.txt is the stream's order
 ```

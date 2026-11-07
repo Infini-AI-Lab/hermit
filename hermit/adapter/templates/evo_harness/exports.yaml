@@ -1,0 +1,4 @@
+context: ADAPTER.md
+# The general skills reach the agent as text in ADAPTER.md's block; their files are the Evolver's source of it.
+skills: skills
+internal: [general/]

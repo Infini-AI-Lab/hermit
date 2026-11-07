@@ -237,6 +237,10 @@ integrations: ReHarness, Meta-Harness Adapter, ACE, AHE Adapter, RRSI Adapter an
   acting agent); the Reflector and Curator run through the run's `llm` tool; documented in `docs/methods/ace.md`.
 - The `ace` adapter template: an `ADAPTER.md` whose playbook section holds the bullets, after the skill.
 - ACE on OfficeQA: `examples/officeqa/ace/`, in the GPT-5.6-Luna setting (`run_codex_luna.yaml`). The run's `final` playbook is included as `examples/officeqa/ace/adapter/`, with its card.
+- The Evo-Harness method (Wei et al., EMNLP 2026, arXiv:2608.15071): the `evo_harness` Evolver, reflection on each failed
+  rollout and per-topic and general compilation of the candidates under budgets, with the release's prompts; the
+  `evo-harness` template, general skills in `ADAPTER.md`'s block and topic skills as host skills; documented in
+  `docs/methods/evo_harness.md`. On OfficeQA: `examples/officeqa/evo_harness/`, in the GPT-5.6-Luna setting.
 - The ReHarness method (Xiao et al., arXiv:2610.12668): the `reharness` Evolver, one step per instance of an ordered
   stream, revising the retrieved reflections from their source trajectories and writing the instance's reflection
   through the run's `llm` tool, with Qwen3-Embedding-8B or BM25 retrieval; `feedback: false` keeps the judge's verdict

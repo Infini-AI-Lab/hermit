@@ -494,6 +494,60 @@ Paired per question, 95% bootstrap intervals; bold where the interval lies above
 - Training pass@1 by iteration: 0.42, 0.61, 0.65, 0.66, 0.64, 0.64, 0.69, 0.67, 0.63, 0.65; no change was judged
   HARMFUL, so no automatic rollback ran.
 
+## Evo-Harness
+
+[Evo-Harness](https://arxiv.org/abs/2608.15071) (Wei et al., EMNLP 2026) keeps the agent frozen and compiles failures into
+a harness of general and topic skills, batch by batch ([Evo-Harness](../methods/evo_harness.md) has its controls and its
+differences from the authors' code). `examples/officeqa/evo_harness/` starts from SkillOpt's initial skill and an empty
+block (`make_seed.py` writes `seed_adapter/`) on the `evo-harness` template, with batches of 16 and 16 sessions at once.
+
+| Config | Protocol | `run_name` | The number |
+|---|---|---|---|
+| `evo_harness/smoke_codex_luna.yaml` | train / test | `smoke-luna-evo-harness` | none: a smoke, 4 training questions |
+| `evo_harness/stream_codex_luna.yaml` | online, the paper's: the 172 in the seed-0 order | `luna-evo-harness-stream` | the mean judge score of its `learning_material/step_*/tasks/` |
+| `evo_harness/run_codex_luna.yaml` | train on 50, frozen on the 172 | `luna-evo-harness` | `mean_score` in `evo_harness/runs/luna-evo-harness/eval/final/summary.json` |
+
+All three are in [the GPT-5.6-Luna setting](#the-flash-row-with-gpt-56-luna): the acting sessions on the machine's ChatGPT
+login, the reflections and curators one Codex session per call (`llm: {cli: codex}`). The runs below are one stream and
+one training with its three evaluations, one pass each.
+
+- Models: `gpt-5.6-luna` acting and learning, reasoning effort medium, on a ChatGPT login (2026-11-07).
+- Harness: the Codex agent, a container per session (`officeqa-codex:0.164.0`), sixteen side by side.
+- Data: the 50 / 172 of SkillOpt `79124b3`, `data.shuffle_seed: 42`; the stream in `evo_harness/stream_s0.txt`;
+  `officeqa_full.csv` with SHA-256 `b5eb1ce0cb34…`, eight items drifted from the split ([Reproduction limits](#reproduction-limits)).
+- Run: the configs here: every acting session in its container, every learner session in bubblewrap with only
+  the login's hosts reachable and neither the corpus nor the answers present, `sandbox.enforce: required`.
+- Spending: a subscription has no per-token price. Stream 0.55 h: 32.5 M tokens of sessions, 1.9 M of learner calls.
+  Training 0.18 h: 9.8 M and 0.6 M. The evaluations: 9 min and 36.6 M (`final`), 45 min and 32.7 M (initial skill, 39 min
+  of it one session below), 7 min and 29.9 M (none).
+
+| Adapter or protocol | accuracy [95% bootstrap interval] | − the initial skill, points | won / lost |
+|---|---|---|---|
+| none | 0.331 [0.262, 0.401] | −1.7 [−7.6, +4.1] | 12 / 15 |
+| the initial skill (`seed_adapter`) | 0.349 [0.279, 0.424] | | |
+| **`final`: trained on 50, frozen, on the 172** | **0.570** [0.494, 0.645] | **+22.1** [+14.5, +29.7] | 46 / 8 |
+| **the stream's own answers over the 172** | **0.552** [0.477, 0.628] | **+20.3** [+13.4, +27.3] | 40 / 5 |
+
+Paired per question, 95% bootstrap intervals; one run of each, one pass. The stream against `final`: −1.7 [−8.1, +4.7].
+A one-pass evaluation carries a standard error of about 3.7 points: the initial skill scored 0.360 and 0.378 in the
+earlier passes above and below. One initial-skill session stopped at `max_output_tokens` after 39 min without an answer
+and scores 0; every other session of these runs answered.
+
+- Feedback: every reflection reads the judge's feedback, which names the expected answer, so the stream is online
+  supervision, on a different footing from the label-free streams of Continual Harness, ReHarness and Harness² above.
+- The stream by batch, against the initial skill on the same questions: batch 1, before any skill, −12.5 [−37.5, +12.5]
+  (16 questions, where the two are the same adapter: how much one pass moves); batches 2-6 +25.0 [+15.0, +35.0];
+  batches 7-11 +22.4 [+13.2, +32.9].
+- The agent read a topic skill in 152 of the stream's 156 sessions after the first batch and 154 of the 172 in `final`'s
+  evaluation. The stream ended with 4 general and 30 topic skills, the training with 2 and 11.
+- Learner sessions: not reply-only. 28 commands in 11 of the 179 sessions: arithmetic, looking for the corpus they do not
+  have (`docs/`, `find /`), one `curl` that failed. None reached outside data: the learner's sandbox allows only the
+  login's hosts, and its workspace is empty.
+- Network: commands in the acting sessions that tried or looked for a way to fetch outside data (`urllib`, `curl`, `wget`):
+  9 in the stream, 7 in training, 24, 12 and 12 in the three evaluations. None fetched anything, the egress proxy allowed only
+  `chatgpt.com` and `auth.openai.com`, and none of the 2,797 commands in the evaluations touched the answers or the judge.
+  One topic skill of the frozen run's harness mentions a download or a network request.
+
 ## Outputs and scoring
 
 A run's records are under `examples/officeqa/<method>/runs/<run name>/` (`<run>` below):
