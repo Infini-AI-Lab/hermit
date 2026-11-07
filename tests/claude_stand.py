@@ -36,7 +36,7 @@ It reads what to do from script.json beside it, one entry per call (the last one
 "resets_in": seconds, "stderr": text printed there first, "probe": a path whose listing it records, where it then tries
 to write PAUSE and remove MAX_USED}}. A call it cannot number (its directory is read-only in a
 sandbox) takes the first entry."""
-import json, os, re, sys, time
+import fcntl, json, os, re, sys, time
 from pathlib import Path
 here = Path(__file__).resolve().parent
 args = sys.argv[1:]
@@ -45,9 +45,11 @@ if args[:1] == ["--version"]:
     raise SystemExit(0)
 prompt = sys.stdin.read()
 script = json.loads((here / "script.json").read_text())
-try:
-    number = int((here / "count").read_text()) if (here / "count").exists() else 0
-    (here / "count").write_text(str(number + 1))
+try:            # calls run side by side (an agent's concurrency): the count is read and written under a lock, else one
+    with open(here / "count.lock", "a") as lock:      # reads the file another has just emptied and the call crashes
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        number = int((here / "count").read_text() or 0) if (here / "count").exists() else 0
+        (here / "count").write_text(str(number + 1))
 except OSError:
     number = 0
 entry = script[min(number, len(script) - 1)]
