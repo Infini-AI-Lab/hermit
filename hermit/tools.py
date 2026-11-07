@@ -16,8 +16,11 @@ from pathlib import Path
 import shutil
 from typing import Callable
 
+from hermit.agent.base.interface import LoginFailed, login_failure
 from hermit.agent.base.tool import Tool, ToolError, _clip   # noqa: F401 (ToolError: raised by the Trainer's tools)
 from hermit.agent.evolver.base import ask
+from hermit.agent.model.llm import ChatClient, ChatHTTPError
+from hermit.agent.model.usage import Usage
 from hermit.agent.base.tool_server import ToolServer   # noqa: F401 (the Trainer's endpoint)
 
 
@@ -80,10 +83,17 @@ class MeteredModel:
             if self.cancel is not None and self.cancel.is_set():
                 raise ToolError("the call was stopped by the Trainer (budget or timeout)")
             self.budget.check()
-            message, usage = self.client.chat(messages, **kwargs)
-            self.budget.add("evolver", usage)
-            if self.metered is not None:
-                self.metered.append(usage)
+            if self.cancel is not None and isinstance(self.client, ChatClient):
+                kwargs = {**kwargs, "abort": self.cancel}      # a stopped Evolver's call in flight ends with it
+            try:
+                message, usage = self.client.chat(messages, **kwargs)
+            except ChatHTTPError as exc:
+                self._spent(failed_usage(exc, self.client.model))
+                why = login_failure(exc)
+                if why is not None:
+                    raise LoginFailed(why) from None
+                raise
+            self._spent(usage)
             record.update(status="ok", result=_clip({"content": message.get("content") or "",
                                                      "reasoning": message.get("reasoning_content") or "",
                                                      "finish_reason": message.get("finish_reason"),
@@ -92,11 +102,31 @@ class MeteredModel:
         except Exception as exc:
             record.update(status="error", error=f"{type(exc).__name__}: {exc}")
             raise
+        except LoginFailed as exc:                     # not an Exception: the run ends, and the record says why
+            record.update(status="error", error=f"LoginFailed: {exc}")
+            raise
         finally:
             if self.log_path is not None:
                 from hermit.redact import redact_value      # a key the learner put in a message is not kept
                 with open(self.log_path, "a") as stream:
                     stream.write(json.dumps(redact_value(record), ensure_ascii=False, default=str) + "\n")
+
+    def _spent(self, usage: Usage | None) -> None:
+        if usage is not None:
+            self.budget.add("evolver", usage)
+            if self.metered is not None:
+                self.metered.append(usage)
+
+
+def failed_usage(error: ChatHTTPError, model: str) -> Usage | None:
+    """What a failed call spent, when its error body says so (a CLI session can use tokens and give no reply)."""
+    try:
+        u = json.loads(error.body)["usage"]
+        tokens = (int(u["prompt_tokens"]), int((u.get("prompt_tokens_details") or {}).get("cached_tokens") or 0),
+                  int(u["completion_tokens"]))
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return None
+    return Usage(model, *tokens, 1) if any(tokens) else None
 
 
 def evolver_agent(client, budget, metered: list | None = None, cancel=None, log_path: Path | None = None):

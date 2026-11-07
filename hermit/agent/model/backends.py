@@ -418,11 +418,8 @@ def normalize_config(data: dict) -> None:
     llm = data.get("llm")
     if llm is None and default is not None and resolve(default, backends).serves("chat"):
         llm = default           # a backend that cannot speak chat completions (Anthropic) makes no `llm` tool
-    if isinstance(llm, dict) and llm.get("cli"):           # a model reached through a CLI (llm_endpoint)
-        if llm["cli"] != "codex":
-            raise ValueError(f"llm.cli must be codex (one session per call, in a sandbox of its own), not {llm['cli']!r}")
-        data["llm"] = bind_agent_params(dict(llm), llm["cli"], backends) if is_ref(llm.get("model"), backends) \
-            else dict(llm)
+    if isinstance(llm, dict) and llm.get("cli"):           # a model reached through a CLI (cli_model)
+        data["llm"] = _cli_model(llm, backends, "llm")
         llm = None
     binding = as_binding(llm, backends) if llm is not None else None
     if binding is not None:
@@ -437,13 +434,28 @@ def normalize_config(data: dict) -> None:
     model = params.get("model")
     if model is None and default is not None:
         model = default
-    if model is not None and kind in ("codex", "claude"):
+    if isinstance(model, dict) and model.get("cli"):        # started on the host, for a pipeline (agent_pipeline)
+        if kind in ("codex", "claude"):
+            raise ValueError(f"agent.params.model: cli is a model for an agent that calls a chat API; agent "
+                             f"{agent.get('name')} is that CLI itself: give its model a name")
+        params = {**params, "model": _cli_model(model, backends, "agent.params.model")}
+    elif model is not None and kind in ("codex", "claude"):
         params = bind_agent_params({**params, "model": model}, kind, backends)
     elif model is not None:
         binding = as_binding(model, backends)
         params = {**params, "model": _spec_of(model, binding) if binding is not None else model}
     if params:
         agent["params"] = params
+
+
+def _cli_model(spec: dict, backends: dict[str, Backend], where: str) -> dict:
+    """A model reached through a CLI: its `cli` the Base Agent's name, its model bound when it is a reference. It stays
+    in this form and is never read as a chat endpoint's spec: the key or the login that pays is the session's."""
+    cli = {"claude-code": "claude"}.get(spec["cli"], spec["cli"])
+    if cli not in ("codex", "claude"):
+        raise ValueError(f"{where}.cli must be codex or claude, not {spec['cli']!r}")
+    spec = {**spec, "cli": cli}
+    return bind_agent_params(spec, cli, backends) if is_ref(spec.get("model"), backends) else spec
 
 
 def _split(ref: str) -> dict:
@@ -459,10 +471,14 @@ def bindings_of(data: dict, evolver_params: dict | None = None) -> list[tuple[st
         out.append(("llm tool", Binding.from_spec(data["llm"]), "chat"))
     agent = data.get("agent") or {}
     params = agent.get("params") or {}
+    for who, spec in (("llm tool", data.get("llm")), (f"model of agent {agent.get('name')}", params.get("model"))):
+        if isinstance(spec, dict) and spec.get("cli") and isinstance(spec.get("binding"), dict):
+            out.append((f"{who} through {spec['cli']}", Binding.from_spec(spec["binding"]), NEEDS[spec["cli"]]))
     kind = _cli_kind(agent, params)
     if kind in ("codex", "claude") and isinstance(params.get("binding"), dict):
         out.append((f"agent ({agent['name']})", Binding.from_spec(params["binding"]), NEEDS[kind]))
     elif isinstance(params.get("model"), dict) and params["model"].get("base_url") and params["model"].get("model"):
+        # (a model through a CLI has no base_url: its binding is above)
         out.append((f"agent ({agent['name']})", Binding.from_spec(params["model"]), "chat"))
     if evolver_params and isinstance(evolver_params.get("binding"), dict):
         kind = evolver_params.get("backend", "codex")

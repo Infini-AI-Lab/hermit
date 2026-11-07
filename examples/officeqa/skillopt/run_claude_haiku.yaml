@@ -1,0 +1,79 @@
+# OfficeQA with the SkillOpt Evolver on Claude Haiku 5.5 through Claude Code (the README's third column):
+# run_codex_luna.yaml with the agent and the models changed and nothing else of the protocol. Claude Haiku 5.5 at medium
+# effort acts and learns on the user's own Claude subscription (`claude setup-token` once, the token exported as
+# CLAUDE_CODE_OAUTH_TOKEN; no API key): the acting agent is Claude Code on the login (`login: claude`), and the learner
+# is the same model, one Claude Code session per chat call that can only reply (`llm: {cli: claude}`). Sessions on the
+# login share the plan: the files under ~/.cache/hermit/claude-login/plan/ pause them, cap the plan's usage and the
+# sessions at once (hermit.agent.base.login). Every acting session runs in a container of its own, as Codex's do: the
+# image holds the machine's Claude Code (docker/claude/Dockerfile), whose own sandbox holds the session's commands, and
+# the egress proxy lets through api.anthropic.com; each learner call is one session in a bubblewrap sandbox of its own,
+# as the luna learner's is (docs/guides/claude-subscription.md; the recipe's "The Flash row with Claude Haiku 5.5").
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/train.txt
+  val: ../utils/splits/val.txt
+  test: ../utils/splits/test.txt
+  step_size: 40
+  shuffle_seed: 42
+task_info: ../utils/task-info/
+agent:
+  base: claude                         # Layer 2: Claude Code as a Base Agent (hermit/agent/base/cli.py)
+  concurrency: 8
+  params:                              # Layer 3: the Acting Agent with OfficeQA's task functions
+    prompt: ../utils/prompt.md
+    prepare: ../utils/task.py:prepare  # task.md and the corpus under docs/
+    answer: ../utils/task.py:answer    # the last <answer>...</answer>
+    collect: ../utils/task.py:collect  # task.md into the log
+    workspaces: ~/.cache/hermit/officeqa-claude-actor-haiku
+  model:                               # Layer 1
+    name: claude-haiku-5-5             # a Claude model on the user's Claude subscription, by its name
+    login: claude
+    effort: medium                     # Claude Code's --effort (Haiku 5.5's own default, said explicitly)
+  claude:                              # Layer 2: how Claude Code runs
+    web_search: false                  # set explicitly: WebSearch and WebFetch denied (they run at Anthropic)
+    timeout_s: 3600
+judge:
+  path: ../utils/judge.py
+template: prompt-only@1.0
+start_from: ../utils/seed_adapter  # SkillOpt's initial OfficeQA skill
+evolver:
+  name: skillopt
+  params:
+    total_steps: 8
+    minibatch_size: 8
+    merge_batch_size: 8
+    analyst_workers: 16
+    learning_rate: 4
+    min_learning_rate: 2
+    lr_scheduler: cosine
+    slow_update_samples: 20
+    slow_update_gate: true        # the paper gates the slow update on validation
+    use_meta_skill: true
+    prompt_env: officeqa
+    trajectory_view: paper        # trajectories as the paper-time analyst saw them
+    promote_final: false          # the paper-time code hands back the best skill as is
+    seed: 42
+llm:                                   # the learner: Claude Haiku 5.5 at medium effort, the acting model
+  cli: claude                          # only Claude Code reaches the model: one session per chat call (base/endpoint.py)
+  model: claude-haiku-5-5
+  login: claude
+  effort: medium
+  web_search: false
+  isolation: sandbox                   # a bubblewrap sandbox of its own: its empty workspace, the login's host (or
+                                       # isolation: container with container: {image: "officeqa-claude:2.1.318",
+                                       # network: oq-sandbox, proxy: "http://oq-egress-claude:3128"})
+  timeout: 3600                        # a Claude Code session answers more slowly than a chat completion
+environment:                         # the acting agent: Claude Code in a container of its own
+  image: "officeqa-claude:2.1.318"
+  container: {"network": "oq-sandbox", "proxy": "http://oq-egress-claude:3128"}
+sandbox:
+  enabled: true
+trainer:
+  run_name: haiku-skillopt
+  output_dir: runs
+  tree_dir: runs/trees/haiku-skillopt       # one adapter tree per run: runs can train side by side
+  epochs: 4
+  budget: {usd: null, hours: null}   # a subscription has no price: usd bounds nothing here
+  call_timeout_min: 360       # Claude Code sessions are slower than a chat completion
+eval:
+  repeats: 1                 # one pass over the test questions, as the README's table

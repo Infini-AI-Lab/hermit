@@ -170,20 +170,15 @@ ReHarness's embedding model, for example, is not provided by this Codex text-mod
 
 ## What about a Claude Code plan?
 
-Claude Code also supports subscription sign-in, including Pro and Max; see
-[Claude's subscription setup](https://support.claude.com/en/articles/11145838-use-claude-code-with-your-pro-max-or-ultra-plan).
-Hermit already has a Claude Code Base Agent, but its current coverage differs from the Codex walkthrough above:
-
-| Path | Current support |
-|---|---|
-| Acting agent | `agent.base: claude` uses Claude Code with the task's preparation and scoring functions. The current container runner is Codex-only, so it needs its own execution setup. |
-| Agent-style learner | The built-in `claude` Evolver and Meta-Harness Adapter support Claude Code sessions. RRSI Adapter supports a Claude proposer, but its analyst, digesters and critic still require Codex. AHE Adapter's learners are Codex-only. |
-| Text-reply learner (`llm.cli`) | Only `codex` is accepted today. Switching GEPA, SkillOpt or ACE to `llm.cli: claude` requires shared-layer support first. |
-
-Hermit's Claude sign-in path copies `~/.claude/.credentials.json` into the session's home when no API binding is
-configured; it does not read a login stored only in macOS Keychain. The Codex-specific `login: chatgpt`, container
-and plan-management settings above do not configure Claude Code. A complete Claude-plan recipe has not been
-validated in this tutorial.
+A Claude subscription (Pro, Max, Ultra, Team or Enterprise) runs the same way through Claude Code, with no API key:
+`claude setup-token` once, the token exported as `CLAUDE_CODE_OAUTH_TOKEN`, and `login: claude` in place of
+`login: chatgpt` with Claude Code as the CLI (`agent.base: claude` with its `agent.claude` section,
+`llm: {cli: claude, ...}`, `evolver.base: claude`) and, for a container, the Claude Code image and egress proxy;
+start from the Claude configs named here, not from this page's Codex smoke with its login changed. Hermit copies no
+credential: the token passes by name with each session. [Acting and learning on a Claude
+subscription](../guides/claude-subscription.md) has the sign-in, the plan (`~/.cache/hermit/claude-login/plan/`), the
+boundaries and which methods' roles go which way; `examples/claude_subscription/` is a small run on nine tasks, and
+OfficeQA's `skillopt/run_claude_haiku.yaml` is `run_codex_luna.yaml` with the agent and the models changed.
 
 Continue with [Choose a method](../methods/index.md), the [OfficeQA recipe](../recipes/officeqa.md), or
 [Bring your task](your-own-task.md) to use your own benchmark.

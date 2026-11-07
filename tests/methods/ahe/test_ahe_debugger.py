@@ -635,7 +635,7 @@ def test_run_jobs_falls_back_after_failures(tmp_path, monkeypatch):
     _, results, usage = run(tmp_path, jobs, retries=2)
     r = results[0]
     assert r["status"] == "fallback" and r["attempts"] == 2
-    assert r["response"].startswith('[adb error] exit=3: {"type": "error", "message": "stream disconnected"}')
+    assert r["response"].startswith("[adb error] exit=3: stream disconnected")   # the CLI's own message
     assert "FAILED tests/test_outputs.py::test_merge - AssertionError: bio" in r["response"]
     assert "**NOTE**: Debugger LLM analysis was not available for this task." in r["response"]
     assert usage.calls == 0 and usage.input_tokens == 0 and usage.cost_usd is None    # no attempt reached the model

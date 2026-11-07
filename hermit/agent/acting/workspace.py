@@ -8,10 +8,11 @@ They are the framework's one way to act with a coding-agent CLI; a task adds onl
                                              # (hermit.agent.model.backends) binds the CLI to that backend: its provider
                                              # settings go into args (Codex) or env (Claude Code), its price is used
                                              # (Claude Code's own cost figure only for Anthropic's backend)
-        login: chatgpt                       # Codex: the user's own ChatGPT login (`model` is then a Codex model
-                                             # name; no key, no price); absent: the backend's key, or for a model
-                                             # that is no reference the user's own Codex sign-in (on the host or in
-                                             # a container; the task sandbox refuses it: give a reference or login)
+        login: chatgpt                       # the user's own subscription (`model` is then the CLI's model name; no
+                                             # key, no price): chatgpt for Codex, claude for Claude Code. Absent: the
+                                             # backend's key, or for a model that is no reference the CLI's own
+                                             # sign-in (on the host or in a container; the task sandbox refuses it:
+                                             # give a reference or a login)
         effort: medium                       # Codex's model_reasoning_effort; absent: the CLI's default
         prompt: environment/prompt.md        # the task prompt; `{field}` placeholders take the task's fields; or
                                              # `file.py:function` (task) -> the prompt
@@ -24,7 +25,7 @@ They are the framework's one way to act with a coding-agent CLI; a task adds onl
                                              # last message is the output
         collect: utils/task.py:collect       # optional: (task, workspace, log) -> facts, after the run
         context_query: question              # the task field an adapter's context tool retrieves for
-        # (a Codex agent in a Docker container of its own: the run config's environment.image and
+        # (the CLI, Codex or Claude Code, in a Docker container of its own: the run config's environment.image and
         #  environment.container, not these params; hermit.agent.base.container)
         project_doc_max_bytes: null          # Codex's cap on AGENTS.md; null: Codex's default
         shell_env: core                      # the variables Codex's commands get: core (no keys, no PYTHONPATH) or all
@@ -46,8 +47,9 @@ approvals and its sub-agents. Then the task's files and mounts are added, the pr
 print mode, and the answer is read from the agent's last message. The log is what the run records: the host's own
 event stream (`agent-codex.jsonl`, `agent-claude.jsonl`; in a run, a model key's value scrubbed), the prompt, the last message, the deployment
 and what `collect` adds; Evolvers read it (hermit.agent.base.trajectory). `RunOutput.extra` has the same keys for every task:
-backend, model, effort, web_search, deploy, isolation, deployed, exit_code, timed_out, attempts, workspace, and context_tool
-and task when there are any. Usage is read from the event stream, as the AgentEvolver reads it.
+backend, model, effort, web_search, deploy, isolation, deployed, exit_code, timed_out, attempts, workspace, mounts (where
+each task mount inside the workspace is: bound or linked), and context_tool, task and session_failed (a session that
+gave no answer) when there are any. Usage is read from the event stream, as the AgentEvolver reads it.
 """
 from __future__ import annotations
 
@@ -63,7 +65,8 @@ import uuid
 
 from hermit.agent.acting.agent import Agent
 from hermit.agent.base import container
-from hermit.agent.base.interface import BaseAgent, Limits, Mount, make
+from hermit.agent.base.interface import BaseAgent, Limits, LoginFailed, Mount, make
+from hermit.agent.base.login import LOGINS
 from hermit.task import RunOutput, load_callable
 
 BACKENDS = ("codex", "claude")
@@ -139,7 +142,7 @@ def deploy(adapter: Path, workspace: Path, backend: str, *, context: str | None 
         return prepare(adapter, workspace, sys.executable, context=context, context_limit=context_limit or DOC_BYTES,
                        approve_tools=approve_tools, serve_tools=serve_tools)
     from hermit.hosts.claude_code import prepare
-    return prepare(adapter, workspace, sys.executable, context=context)
+    return prepare(adapter, workspace, sys.executable, context=context, serve_tools=serve_tools)
 
 
 def _deploy(task: dict, adapter: Path | None, work: Path, backend: str, params: dict) -> tuple[dict, dict | None]:
@@ -261,25 +264,30 @@ def _check(backend: str, params: dict) -> str:
     if not isinstance(params.get("web_search"), bool):
         raise ValueError("agent.params.web_search must be set, true or false: Codex's hosted search runs at the "
                          "provider, past any sandbox or proxy, so it is never left to a default")
-    if params.get("login") not in (None, "chatgpt"):
-        raise ValueError(f"agent.params.login is chatgpt or absent, not {params['login']!r}")
-    if params.get("login") and backend != "codex":
-        raise ValueError("login: chatgpt is Codex's sign-in; agent claude-code takes its own")
-    if params.get("login") and (not params.get("model") or params.get("binding")):
-        raise ValueError("with login: chatgpt, agent.params.model is a Codex model name, not empty or a "
+    login, label = params.get("login"), {"codex": "Codex", "claude": "Claude Code"}[backend]
+    if login is not None and login not in LOGINS:
+        raise ValueError(f"agent.params.login is {' or '.join(sorted(LOGINS))} or absent, not {login!r}")
+    if login and LOGINS[login] != backend:
+        raise ValueError(f"login: {login} is {'Codex' if login == 'chatgpt' else 'Claude Code'}'s sign-in; agent "
+                         f"{backend} takes login: {'chatgpt' if backend == 'codex' else 'claude'}")
+    if login and (not params.get("model") or params.get("binding")):
+        raise ValueError(f"with login: {login}, agent.params.model is a {label} model name, not empty or a "
                          "<backend>/<model> reference")
     if params.get("isolation") == "container":
-        if backend != "codex":
-            raise ValueError("isolation: container runs Codex; agent claude-code takes isolation: none")
-        container.settings(params)                  # refuses unknown keys
+        container.settings(params, backend)         # refuses unknown keys
+    if backend == "claude" and params.get("effort") is not None:
+        from hermit.agent.base.cli import Claude
+        if params["effort"] not in Claude.efforts:       # the CLI would warn and go on at its default
+            raise ValueError(f"agent.params.effort is one of {', '.join(Claude.efforts)} for Claude Code, not "
+                             f"{params['effort']!r}")
     return backend
 
 
 def base_agent(backend: str, params: dict) -> BaseAgent:
     """The Base Agent (Layer 2) these params describe: the CLI and how it is run, nothing of the task."""
-    settings = {k: params[k] for k in ("model", "binding", "login", "plan_dir", "plan_max_wait_s", "effort",
-                                       "isolation", "container", "codex_sandbox", "shell_env", "project_doc_max_bytes",
-                                       "args", "env", "price")
+    settings = {k: params[k] for k in ("model", "binding", "login", "plan_dir", "plan_max_wait_s", "usage_credits",
+                                       "effort", "isolation", "container", "codex_sandbox", "shell_env",
+                                       "project_doc_max_bytes", "args", "env", "price")
                 if k in params and (params[k] is not None or k == "plan_max_wait_s")}
     if params.get("claude_permission_mode"):
         settings["permission_mode"] = params["claude_permission_mode"]
@@ -341,6 +349,8 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path) -> RunOutpu
                 served.close()
         if result.extra["served"] or result.timed_out:
             break
+        if result.extra.get("login_failed"):
+            raise LoginFailed(f"agent {backend}: {result.extra.get('failure')}")
         if not result.extra["unavailable"]:
             if result.exit_code and not result.extra["started"]:
                 # The CLI exited before it wrote one event: the run never started, which is no wrong answer.
@@ -356,7 +366,9 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path) -> RunOutpu
     (log / "last_message.txt").write_text(last, encoding="utf-8")
     if memory is not None and memory.parent.is_dir():                  # the notes the session left
         shutil.copytree(memory.parent, log / "memory", dirs_exist_ok=True)
-    output = _output(last, task, params, base, code, timed_out, timeout_s)
+    # A session the CLI itself reports as failed has no answer to read or to judge (trainer.rollout: an error record).
+    failed = result.extra.get("failed")
+    output = None if failed else _output(last, task, params, base, code, timed_out, timeout_s)
     facts = None
     fn = _task_function(params.get("collect"), base)
     if fn is not None:
@@ -369,7 +381,10 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path) -> RunOutpu
              "web_search": params["web_search"],
              "deploy": deployed.get("mode"), "isolation": params.get("isolation") or "none",
              "deployed": {k: v for k, v in deployed.items() if k not in ("mode", "files")},
-             "exit_code": code, "timed_out": timed_out, "attempts": attempt, "workspace": str(work)}
+             "exit_code": code, "timed_out": timed_out, "attempts": attempt, "workspace": str(work),
+             "mounts": result.extra.get("mounts") or {}}       # a task's data in the workspace: bound or linked
+    if failed:
+        extra["session_failed"] = str(result.extra.get("failure") or f"the CLI exited {code} without a result")
     if context_tool is not None:
         extra["context_tool"] = context_tool
     if facts:

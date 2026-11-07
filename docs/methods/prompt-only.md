@@ -9,7 +9,8 @@ inspect.
 ## Setup
 
 The learner is a [Codex agent learner](agent.md), so it needs the Codex CLI on `PATH`, Linux with bubblewrap for
-its sandbox, and a learner model on a backend that serves the Responses API.
+its sandbox, and a learner model on a backend that serves the Responses API. The `claude` Evolver does the same on
+Claude Code, on a backend's key or [your subscription](../guides/claude-subscription.md).
 
 ```yaml
 template: prompt-only@1.0
@@ -32,12 +33,13 @@ your agent, separately from the learner.
 
 ## How an update works
 
-Each step is one Codex session. It reads the task description and the adapter's `.hermit/EVOLVER.md`, studies the step's
-results, edits `ADAPTER.md`, calls `check_spec`, and writes a report whose first line says what it changed. The run
-records each session as one call with its token totals; to count the session's individual model requests, put a
-metering relay in front of the learner, as the examples' `launch.sh` does (`hermit/runtime/wire_meter.py`).
-The Trainer then applies its specification checks. There is no validation-based improvement gate in this method: a
-structurally valid update can reduce task performance. The final adapter is the current one.
+Each step is one Codex (or, with the `claude` Evolver, Claude Code) session. It reads the task description and the
+adapter's `.hermit/EVOLVER.md`, studies the step's results, edits `ADAPTER.md`, calls `check_spec`, and writes a report
+whose first line says what it changed. The run records each session as one call with its token totals; to count the
+session's individual model requests, put a metering relay in front of the learner, as the examples' `launch.sh` does
+(`hermit/runtime/wire_meter.py`). The Trainer then applies its specification checks. There is no validation-based
+improvement gate in this method: a structurally valid update can reduce task performance. The final adapter is the
+current one.
 
 ## Parameters and defaults
 

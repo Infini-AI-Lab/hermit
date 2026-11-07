@@ -133,7 +133,8 @@ class ChatClient:
             except urllib.error.HTTPError as exc:
                 if abort is not None and abort.is_set():
                     raise ChatAborted("the call was given up") from None
-                retriable = exc.code in (408, 409, 429, 500, 502, 503, 504)
+                retriable = exc.code in (408, 409, 429, 500, 502, 503, 504) and \
+                    str((exc.headers or {}).get("x-should-retry") or "").lower() != "false"   # the server says no
                 body = exc.read()
                 if not retriable or attempt == self.max_retries:
                     raise ChatHTTPError(exc.code, body, dict(exc.headers or {})) from None

@@ -381,6 +381,11 @@ def test_a_container_session_gets_the_adapters_tools_from_its_own_tool_server(tm
     deployed, _ = cli._deploy({"id": "t"}, a, tmp_path / "w", "codex", {"isolation": "container"})
     assert deployed["harness_tools"] == "file-example" and deployed["server_name"] is None
     assert "mcp_servers" not in tomllib.loads((tmp_path / "w" / ".codex" / "config.toml").read_text())
+    # Claude Code's as well: a stdio server of the deployment would take the tool server's name and fail in the image
+    deployed, _ = cli._deploy({"id": "t"}, a, tmp_path / "c", "claude", {"isolation": "container"})
+    assert deployed["harness_tools"] == "file-example" and deployed["server_name"] is None
+    assert json.loads((tmp_path / "c" / ".mcp.json").read_text()) == {"mcpServers": {}}
+    assert cli._session_args("claude", deployed, tmp_path / "c") == []         # no second --mcp-config
 
 
 def test_an_adapter_only_hermit_runs_is_deployed_by_the_acting_agent(tmp_path):

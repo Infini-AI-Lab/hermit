@@ -8,6 +8,9 @@ import tempfile
 import time
 
 from hermit.adapter.manifest import MANIFEST, read_manifest
+from hermit.agent.base import login as subscription
+from hermit.agent.base.endpoint import cli_problems
+from hermit.agent.base.interface import LoginFailed
 from hermit.agent.model.backends import bindings_of, list_models, probe as probe_model, problems_of, registry, warnings_of
 from hermit.config import Config
 from hermit.sandbox import hidden_paths, set_hidden
@@ -77,6 +80,16 @@ def run_check(config: Config, *, probe: bool = True, log=print) -> bool:
             else:
                 note += f", {api} request answered"
         report(f"model: {who}", problems, note)
+    # Subscriptions: whether each login's sign-in and CLI are there (no model call), and the spec of a model reached
+    # through a CLI, which `train` would refuse only when it builds the endpoint.
+    for who, login, program, contained in subscription.logins_of(d, evolver_params):
+        report(f"login: {who}", subscription.problems_of(login, program, contained) +
+               (subscription.evolver_problems(evolver_params) if who == "evolver" else []), login)
+    params = d["agent"].get("params") or {}
+    for who, spec in (("llm", d.get("llm")), ("agent's model", params.get("model"))):
+        if isinstance(spec, dict) and spec.get("cli"):
+            report(f"model through a CLI: {who}", cli_problems(spec),
+                   f"{spec['cli']}, isolation {spec.get('isolation') or 'sandbox'}")
     # Task.
     problems = []
     info = config.path(d["task_info"])
@@ -151,6 +164,9 @@ def run_check(config: Config, *, probe: bool = True, log=print) -> bool:
         if probe_pipeline is not None:
             try:
                 record = run_one(task, None, probe_pipeline, judge)
+            except LoginFailed as exc:
+                record = {"status": "error", "error": str(exc), "judge": {"score": 0.0}, "api_speed": None,
+                          "cost_usd": None}
             finally:
                 close()
         problems = [record["error"]] if record["status"] != "ok" else []

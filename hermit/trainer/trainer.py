@@ -33,14 +33,16 @@ from pathlib import Path
 import yaml
 
 from hermit.adapter.manifest import CARD, MANIFEST, read_manifest
+from hermit.agent.base import login as subscription
+from hermit.agent.base.interface import LoginFailed
 from hermit.agent.model.backends import bindings_of, problems_of, registry
 from hermit.config import Config
 from hermit.agent.evolver.base import (Access, Context, Evolver, FinalResult, Progress, StepContext, StepResult, Usage,
                                          Workspace)
 from hermit.agent.evolver.loader import find, instantiate
 from hermit.agent.model.llm import ChatClient
-from hermit.isolate import CHATGPT_HOSTS, HOME_SECRETS, Recheck, ToolRunner, _safe, agent_pipeline, config_paths, \
-    judge_for, run_secrets, sanitized_copy
+from hermit.isolate import CHATGPT_HOSTS, HOME_SECRETS, Recheck, ToolRunner, _cli_kind, _safe, agent_pipeline, \
+    cli_sandbox, config_paths, host_pipeline, judge_for, run_secrets, sanitized_copy
 from hermit.redact import redact_name, redact_path, redact_tree, redact_value
 from hermit.sandbox import (AllowlistProxy, Bind, Sandbox, drop_unsafe, hidden_paths, inside_tools, model_access,
                             set_hidden)
@@ -77,6 +79,35 @@ def warnings_for(config: Config, val_given: bool) -> list[str]:
         out.append("environment.network is public: the acting agent and the adapter's code reach any host.")
     if d["evolver_access"]["send_material_out"]:
         out.append("evolver_access.send_material_out is true: learning material is sent to an outside service.")
+    acting = d["agent"].get("params") or {}
+    # With environment.image (the sandbox on) each session is in a container of its own (docker/claude/): it sees only
+    # its workspace, home and mounts, reaches only the egress proxy, and its commands run in Claude Code's own sandbox.
+    # In the task sandbox the session's commands share its network; on the host nothing holds them.
+    contained = bool(d["environment"].get("image")) and d["sandbox"]["enabled"]
+    reason = host_pipeline(config)                       # why the pipeline is not in the task sandbox; None: it is
+    if acting.get("login") == "claude" and reason is None and d["environment"].get("network") == "public":
+        out.append("the acting agent runs on login: claude with an open network (environment.network: public): a "
+                   "command it runs (an adapter's hook, say) can read the token from its parent process and send it "
+                   "out. Leave environment.network at no-network (api.anthropic.com is allowed by itself), or give "
+                   "each session a container (environment.image).")
+    if acting.get("login") == "claude" and reason and not contained:
+        out.append(f"the acting agent runs on login: claude on the host ({reason}): its sessions run unconfined, with "
+                   "the token in their CLI's environment and the machine's files (the test answers among them) in "
+                   "reach. With the sandbox on, run it in the task sandbox, or give each session a container "
+                   "(environment.image).")
+    # A CLI agent with no sign-in copies the user's own where the pipeline runs on the host or in a container; the task
+    # sandbox refuses it (validate).
+    on_claude = _cli_kind(d["agent"]["name"], acting) == "claude" and bool(reason)
+    learner = d["evolver"].get("params") or {}             # an agent Evolver's base and model land here
+    unsigned = [who for who, on, params in (("agent", on_claude, acting),
+                                            ("evolver", learner.get("backend") in ("claude", "claude-code"), learner))
+                if on and not params.get("login") and not params.get("binding")
+                and "/" not in str(params.get("model") or "")]   # a <backend>/<model> reference pays with its key
+    if unsigned:
+        out.append(f"Claude Code ({', '.join(unsigned)}) runs with no login and no model binding: each session signs "
+                   "in with a copy of your own Claude Code login (~/.claude), whose refresh can sign your own sessions "
+                   "out, and an ANTHROPIC_API_KEY in the environment pays before any sign-in. For your subscription "
+                   "set login: claude (docs/guides/claude-subscription.md).")
     if val_given and d["data"].get("val"):
         out.append("validation data is given to the Evolver with whatever it contains; if it contains answers, the "
                    "Evolver may overfit to the validation split.")
@@ -184,21 +215,13 @@ class Trainer:
             redact_path(Path(path).resolve())            # a configured link: its target, which the sandbox shows
 
     def _llm_sandbox(self, d: dict) -> Sandbox | None:
-        """The sandbox of a model only a CLI reaches (`llm.cli`, isolation: sandbox, the default): each session sees
-        its empty workspace and home, reaches its model's hosts (a ChatGPT login's) through a proxy of its own and
-        holds its model's key; nothing of the run."""
-        spec = d["llm"]
-        if (spec.get("isolation") or "sandbox") != "sandbox":
-            return None
-        keys, hosts, ports = model_access([spec.get("binding")])
-        allow = [*hosts, *(h for h in CHATGPT_HOSTS if spec.get("login") == "chatgpt" and h not in hosts)]
-        records = self.run_dir / "sandbox"
-        self._llm_proxy = AllowlistProxy(allow, log=records / "network-llm.jsonl") if allow else None
-        self._llm_box = Sandbox(enabled=d["sandbox"]["enabled"], network="allowlist" if allow else "no-network",
-                                allow=allow, proxy_url=self._llm_proxy.url if self._llm_proxy else None,
-                                env_allow=keys, forward=ports, enforce=d["sandbox"].get("enforce", "required"),
-                                framework=False, record_dir=records, role="llm",
-                                probe_absent=[*run_secrets(self.config), *HOME_SECRETS])
+        """The sandbox of a model only a CLI reaches (`llm.cli`, isolation: sandbox, the default; cli_sandbox): each
+        session sees its empty workspace and home, reaches its model's hosts (a ChatGPT login's; a Claude login's
+        api.anthropic.com, its token passed by name with the session) through a proxy of its own and holds its model's
+        key; nothing of the run. None with isolation: container."""
+        self._llm_box, self._llm_proxy = cli_sandbox(
+            d["llm"], records=self.run_dir / "sandbox", enabled=d["sandbox"]["enabled"],
+            enforce=d["sandbox"].get("enforce", "required"), probe_absent=[*run_secrets(self.config), *HOME_SECRETS])
         return self._llm_box
 
     # ---------- setup ----------
@@ -207,6 +230,9 @@ class Trainer:
         errors = needs_errors(self.config, self.spec.needs, self.evolver.supports_resume)
         for who, binding, api in bindings_of(d, self.params):
             errors += [f"{who}: {p}" for p in problems_of(binding, api)]
+        for who, login, program, contained in subscription.logins_of(d, self.params):
+            errors += [f"{who}: {p}" for p in subscription.problems_of(login, program, contained)]
+        errors += [f"evolver: {p}" for p in subscription.evolver_problems(self.params)]
         if errors:
             raise SystemExit("train refuses to start: " + "; ".join(errors))
         for w in self.warnings:
@@ -251,7 +277,7 @@ class Trainer:
         self._recheck_grants = Recheck([*env, self.ws.task_info], own=self.run_dir)
         # The learner's sandbox (docs/developer/sandbox-design.md): the workspace under fixed names below /w, its
         # models, the Trainer's tool endpoint, and the hosts the run declares. A Codex learner on a ChatGPT login
-        # reaches its plan's hosts.
+        # reaches its plan's hosts, a Claude Code learner on a Claude login api.anthropic.com.
         ev = d["sandbox"]["evolver"]
         records = self.run_dir / "sandbox"
         allow = list(ev.get("allowed_hosts") or [])
@@ -259,6 +285,10 @@ class Trainer:
         if "chatgpt" in (self.params.get("login"), roles.get("login"),
                          d["llm"].get("login") if isinstance(d.get("llm"), dict) else None):
             allow += [h for h in CHATGPT_HOSTS if h not in allow]
+        # The Evolver's and its roles' sessions on a login reach the login's hosts; a Claude login's token goes with
+        # each session by name (the Base Agent keeps it), never to the learner's other commands. A Claude llm's
+        # sessions run in a sandbox of their own (_llm_sandbox): nothing of it here.
+        allow += [h for h in subscription.hosts(self.params.get("login"), roles.get("login")) if h not in allow]
         # The learner reaches its models as Harbor's agents do: the key variables pass, the providers' hosts are
         # allowed, a server on the loopback (a meter) is forwarded. Its models: the Evolver's, and its roles'.
         model_keys, model_hosts, model_ports = model_access([self.params.get("binding"), roles.get("binding")])
@@ -491,11 +521,12 @@ class Trainer:
             finally:
                 shutil.rmtree(snapshot, ignore_errors=True)
             # A training task's run also names its log (the trajectory, when the pipeline keeps one), copied into the
-            # run's agent_logs/ (shown read-only at /w/agent-logs); and a run whose pipeline reports how its session
-            # ended (a CLI agent's exit code and timeout) says so.
+            # run's agent_logs/ (shown read-only at /w/agent-logs); a run that failed says why; and a run whose
+            # pipeline reports how its session ended (a CLI agent's exit code and timeout) says so.
             # Scrubbed of model keys: the agent held its own, and the learner's may be another provider's.
             shown = [{k: r[k] for k in ("id", "status", "output", "judge", "cost_usd", "wall_s")}
                      | ({"log": self._visible_log(r)} if r["id"] in allowed["train"] else {})
+                     | ({"error": r.get("error")} if r.get("status") == "error" else {})
                      | {k: (r.get("pipeline_extra") or {})[k] for k in ("exit_code", "timed_out")
                         if k in (r.get("pipeline_extra") or {})} for r in results]
             return {"results": redact_value(shown)}
@@ -655,6 +686,8 @@ class Trainer:
         for place in (self.ws.adapter, self.ws.state, self.ws.scratch, self.ws.output):
             drop_unsafe(place)
         result: StepResult
+        if isinstance(box.get("error"), LoginFailed):
+            raise box["error"]                          # the run ends, unfinished: this step is not recorded
         if "error" in box:
             result = StepResult("failed", f"{what} raised {type(box['error']).__name__}: {box['error']}")
         elif stopped:
@@ -795,6 +828,10 @@ class Trainer:
         self._scrub_access()
         box, stopped, _ = self._call("finalize", lambda: self.evolver.finalize(ctx), progress=None,
                                      timeout_s=float(d["trainer"]["call_timeout_min"]) * 60)
+        if isinstance(box.get("error"), LoginFailed) and reason == "completed all epochs":
+            # Unfinished, as at a step: `hermit train` comes straight back here once the sign-in is restored. A run that
+            # stopped early (the Evolver, a budget) would go back into training instead, so it ends as finalize failed.
+            raise box["error"]
         final: FinalResult | None = box.get("value") if isinstance(box.get("value"), FinalResult) else None
         note = final.summary if final else f"finalize failed ({box.get('error') or stopped}); the last adapter is final"
         note = redact_value(note)            # the final commit, the card and summary.json keep it
@@ -845,6 +882,7 @@ class Trainer:
 
     def _close_sandboxes(self) -> None:
         for close in (getattr(self, "_close_pipeline", None), getattr(getattr(self, "tool_runner", None), "close", None),
+                      getattr(getattr(self, "llm", None), "close", None),       # a CLI model's endpoint (cli_model)
                       getattr(getattr(self, "proxy", None), "close", None),
                       getattr(getattr(self, "sandbox", None), "close", None),
                       getattr(getattr(self, "_llm_proxy", None), "close", None),

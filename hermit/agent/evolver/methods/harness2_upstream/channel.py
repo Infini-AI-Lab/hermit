@@ -22,7 +22,7 @@ from typing import Any
 
 from harness2.core.proposer import SYSTEM_ARG_MAX, Proposer, _DROP_ENV, _parse_json
 
-from hermit.agent.base.interface import make
+from hermit.agent.base.interface import LoginFailed, make
 from hermit.agent.base.records import price_usage
 from hermit.agent.evolver.base import Usage
 
@@ -72,19 +72,30 @@ class FrameworkProposer(Proposer):
             system = "Follow the SYSTEM INSTRUCTIONS block at the top of the message."
         own = {k: str(v) for k, v in (self.params.get("env") or {}).items()}   # the Base Agent expands $NAME
         err = Path(cwd) / ".session.err"
+        # upstream reads one JSON result object; on a login the whole event stream (its last line is that object): the
+        # Base Agent reads from it what paid for the session, the plan's windows and a refusal's reset
         settings = {"web_search": False, "bin": self.params.get("claude_bin") or "claude", "stdin": True,
-                    "output_format": "json", "effort": self.spec.effort, "persist_session": False,
+                    "output_format": "stream-json" if self.params.get("login") else "json",
+                    "effort": self.spec.effort, "persist_session": False,
                     "allowed_tools": str(self.params.get("tools") or "Read,Write,Edit,Glob,Grep,Bash").split(","),
                     "append_system_prompt": system or None, "home": home, "home_files": [],
                     "log": Path(cwd) / ".session.out", "stderr_log": err, "env": {**QUIET, **own},
                     "env_drop": sorted(_DROP_ENV),
                     "isolation": "sandbox" if self.sandbox is not None else "none", "sandbox": self.sandbox,
                     "writable": [Path(cwd)], "timeout_s": wall, "cancel": self.cancel}
+        if self.params.get("login"):      # the user's subscription: its model by name, its plan's waits (Base Agent)
+            keys = ("login", "model", "plan_dir", "plan_max_wait_s", "usage_credits")
+            settings.update({k: self.params[k] for k in keys      # plan_max_wait_s: null is no limit
+                             if self.params.get(k) is not None or (k == "plan_max_wait_s" and k in self.params)})
         result = make("claude", settings).run(stdin, workspace=Path(cwd))
+        if result.extra.get("login_failed"):
+            raise LoginFailed(f"a Harness² session: {result.extra.get('failure')}")
         if result.extra["cancelled"]:
             raise RuntimeError("the session was stopped by the Trainer (budget or timeout)")
         if result.timed_out:
             raise subprocess.TimeoutExpired(["claude"], wall)
+        if result.log is None:              # never started: the plan held it past plan_max_wait_s, or no slot came
+            return "", 0.0, f"not run: {result.extra.get('failure') or 'the session did not start'}"
         payload = _parse_json(_read_own(Path(result.log)))
         text = str(payload.get("result") or payload.get("text") or "")
         problem = ""
@@ -108,6 +119,8 @@ class FrameworkProposer(Proposer):
                     "effort": EFFORTS.get(self.spec.effort, self.spec.effort),     # Claude Code's max is Codex's xhigh
                     "model": self.params.get("model") or self.spec.model,
                     "login": self.params.get("login"), "login_root": self.params.get("login_root"),
+                    "plan_dir": self.params.get("plan_dir"), "plan_max_wait_s": self.params.get("plan_max_wait_s"),
+                    "usage_credits": self.params.get("usage_credits"),
                     "binding": self.params.get("binding"), "price": self.params.get("price"),
                     "args": [*(self.params.get("args") or []), *extra],
                     "codex_sandbox": "danger-full-access",      # the run's sandbox is the boundary, as for Claude Code
@@ -115,7 +128,8 @@ class FrameworkProposer(Proposer):
                     "stderr_log": err, "env": {**QUIET, **own}, "env_drop": sorted(_DROP_ENV),
                     "isolation": "sandbox" if self.sandbox is not None else "none", "sandbox": self.sandbox,
                     "writable": [Path(cwd)], "timeout_s": wall, "cancel": self.cancel}
-        result = make("codex", {k: v for k, v in settings.items() if v is not None}).run(mission, workspace=Path(cwd))
+        settings = {k: v for k, v in settings.items() if v is not None or k == "plan_max_wait_s" and k in self.params}
+        result = make("codex", settings).run(mission, workspace=Path(cwd))     # plan_max_wait_s: null is no limit
         if result.extra["cancelled"]:
             raise RuntimeError("the session was stopped by the Trainer (budget or timeout)")
         if result.timed_out:

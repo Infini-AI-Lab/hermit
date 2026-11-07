@@ -120,6 +120,102 @@ def test_bench_reads_a_codex_session(tmp_path):
     assert (h0 / ".codex" / "README.md").is_file()                           # the editors see the placeholders
 
 
+def test_bench_reads_a_claude_session(tmp_path, monkeypatch):
+    """A Claude Code execution (the harness2-codex tree deployed on Claude Code) reaches the editors in upstream's
+    grammar: every tool's call and result (two alike are two), errors, what a hook printed, a sub-agent's turns and
+    hand-back, the clip marker; never the login's token."""
+    from hermit.agent.evolver.methods.harness2_upstream.bench import FrameworkBench
+    from harness2.core.spec import BenchPrompts, ChannelSpec
+    token = "sk-ant-oat01-" + "x" * 80
+    monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", token)
+    seed = tmp_path / "seed"
+    shutil.copytree(TEMPLATE, seed, ignore=shutil.ignore_patterns("__pycache__"))
+    material = tmp_path / "material" / "current"
+    log = material / "logs" / "t0"
+    log.mkdir(parents=True)
+
+    def assistant(*blocks, **extra):
+        return {"type": "assistant", "message": {"id": "m", "role": "assistant", "content": list(blocks)}, **extra}
+
+    def results(*blocks, **extra):
+        return {"type": "user", "message": {"role": "user", "content": list(blocks)}, **extra}
+    events = [{"type": "system", "subtype": "init", "model": "claude-haiku-5-5", "tools": ["Bash", "Read"],
+               "agents": ["reader"], "skills": ["tables"]},
+              {"type": "system", "subtype": "thinking_tokens", "estimated_tokens": 3},
+              assistant({"type": "thinking", "thinking": "look for 1934"}),
+              assistant({"type": "tool_use", "id": "a", "name": "Bash", "input": {"command": "rg -n 1934 docs/"}}),
+              results({"type": "tool_result", "tool_use_id": "a", "content": "docs/a.txt:3: 1934 ... 557"}),
+              assistant({"type": "tool_use", "id": "b", "name": "Read", "input": {"file_path": "docs/a.txt"}}),
+              results({"type": "tool_result", "tool_use_id": "b",
+                       "content": [{"type": "text", "text": "row " * 5000}]}),
+              assistant({"type": "tool_use", "id": "c", "name": "Bash", "input": {"command": "cat /proc/$PPID/environ"}}),
+              results({"type": "tool_result", "tool_use_id": "c", "is_error": True,
+                       "content": f"CLAUDE_CODE_OAUTH_TOKEN={token} exit 1"}),
+              assistant({"type": "tool_use", "id": "d", "name": "Bash", "input": {"command": "grep -c 557 docs/a.txt"}}),
+              assistant({"type": "tool_use", "id": "e", "name": "Bash", "input": {"command": "grep -c 557 docs/b.txt"}}),
+              results({"type": "tool_result", "tool_use_id": "d", "content": "2"}),
+              results({"type": "tool_result", "tool_use_id": "e", "content": "2"}),
+              # as `--include-hook-events` prints them (the real CLI's fields; its test is in tests/core)
+              {"type": "system", "subtype": "hook_started", "hook_name": "PostToolUse:Bash", "hook_event": "PostToolUse"},
+              {"type": "system", "subtype": "hook_response", "hook_name": "PostToolUse:Bash", "hook_event": "PostToolUse",
+               "output": '{"decision":"block","reason":"check the unit"}\n', "stderr": "", "exit_code": 0,
+               "outcome": "success"},
+              {"type": "system", "subtype": "hook_response", "hook_name": "PostToolUse:Bash", "output": "",
+               "exit_code": 0, "outcome": "success"},                       # a hook that said nothing: no line
+              assistant({"type": "text", "text": "summary of the file"}, parent_tool_use_id="t1"),
+              {"type": "system", "subtype": "task_notification", "task_id": "t1", "status": "completed",
+               "summary": "the table is on page 3"},
+              results({"type": "text", "text": "<system-reminder>a reminder</system-reminder>"}),
+              {"type": "system", "subtype": "api_retry", "attempt": 1, "max_retries": 10, "error": "overloaded",
+               "error_status": 529},
+              {"type": "rate_limit_event", "rate_limit_info": {"status": "allowed"}},
+              assistant({"type": "text", "text": "<answer>557</answer>"}),
+              {"type": "result", "subtype": "success", "is_error": False, "num_turns": 4, "result": "<answer>557</answer>",
+               "usage": {"input_tokens": 10, "cache_creation_input_tokens": 20, "cache_read_input_tokens": 70,
+                         "output_tokens": 5}}]
+    (log / "agent-claude.jsonl").write_text("not json\n" + "".join(json.dumps(e) + "\n" for e in events) + "[1]\n")
+    (log / "task.md").write_text("## Question\nWhat was it in 1934?\n")
+    (log / "prompt.txt").write_text("Read `task.md` and answer.")
+    ctx = SimpleNamespace(workspace=SimpleNamespace(adapter=seed, learning_material=material.parent, output=tmp_path / "out"),
+                          tools={})
+    (tmp_path / "out").mkdir()
+    record = {"id": "t0", "input": {"id": "t0"}, "status": "ok", "output": {"answer": "557", "fail_reason": ""},
+              "judge": {"score": 1.0}, "trajectory": "logs/t0"}
+    channel = ChannelSpec("claude_cli", "claude-haiku-5-5", effort="medium", timeout=60)
+    bench = FrameworkBench(ctx, record, prompts=BenchPrompts(work="Answering a question."), channel=channel,
+                           runs_root=tmp_path / "h2", domain="d", name="toy", obs_trunc=10000)
+    assert bench.task_prompt("t0").startswith("Read `task.md` and answer.\n\n# task.md\n\n## Question")
+    text = bench.trajectory(bench.execute("t0", None, "base1"), obs_trunc=10000)
+    lines = text.splitlines()
+    assert lines[0] == "[HARNESS] session started | model=claude-haiku-5-5 tools=Bash,Read agents=reader skills=tables"
+    assert "[REASONING] look for 1934" in lines and "[ACTION] Bash: rg -n 1934 docs/" in lines
+    assert "[OBSERVATION] docs/a.txt:3: 1934 ... 557" in lines
+    assert '[ACTION] Read: {"file_path": "docs/a.txt"}' in lines
+    read = next(line for line in lines if line.startswith("[OBSERVATION] row"))
+    assert read.endswith("…(+10000 chars — render truncation)") and len(read) < 10100   # upstream's clip and marker
+    assert "[OBSERVATION ERROR] CLAUDE_CODE_OAUTH_TOKEN=<CLAUDE_CODE_OAUTH_TOKEN> exit 1" in lines
+    assert token not in text
+    assert lines.count("[OBSERVATION] 2") == 2                    # two calls alike, two results
+    assert ('[HARNESS] hook PostToolUse:Bash (exit 0, success): {"decision":"block","reason":"check the unit"}'
+            in lines) and sum(line.startswith("[HARNESS] hook") for line in lines) == 1
+    assert "[ASSISTANT] (sub-agent) summary of the file" in lines
+    assert "[HARNESS] task_notification: completed | the table is on page 3" in lines
+    assert "[HARNESS] <system-reminder>a reminder</system-reminder>" in lines
+    assert "[HARNESS] api retry 1/10: overloaded 529" in lines
+    assert lines[-2:] == ["[ASSISTANT] <answer>557</answer>",
+                          "[HARNESS] session completed | turns=4 tokens in=100 cached=70 out=5"]
+    from hermit.agent.evolver.methods.harness2_upstream.render import render_claude_events
+    failed = log / "failed.jsonl"
+    failed.write_text(json.dumps(assistant({"type": "text", "text": "API Error: 500"}, error="server_error")) + "\n" +
+                      json.dumps({"type": "result", "subtype": "success", "is_error": True, "result": "API Error: 500",
+                                  "num_turns": 1, "usage": {}}) + "\n")
+    rendered = render_claude_events(failed, obs_trunc=100, max_chars=1000).splitlines()
+    assert rendered == ["[ERROR] API Error: 500",                 # the failed request, then the result (one line)
+                        "[HARNESS] session completed | turns=1 tokens in=0 cached=None out=None"]
+    assert render_claude_events(log / "missing.jsonl", obs_trunc=100, max_chars=10).startswith("(failed to read")
+    assert render_claude_events(log / "task.md", obs_trunc=100, max_chars=10) == "(no parseable events in trajectory)"
+
+
 # The scripted channel on the Codex tree: the INV and DOM editors add a triggered skill, the composer writes the rule
 # the toy pipeline needs into AGENTS.md, the reflector writes a lesson naming AGENTS.md.
 PROPOSER = r'''
@@ -198,3 +294,28 @@ def test_paper_protocol_on_the_codex_template(tmp_path):
     assert "harness/.agents/skills/README.md" in inv["files"]                 # the on-demand levers' placeholders
     probe = next((ns / "t0").glob("harnesses/inv1/.agents/skills/sum_check/SKILL.md"))
     assert probe.is_file()
+
+
+def test_bench_says_an_execution_failed_rather_than_answered_wrong(tmp_path):
+    """A session that failed scores 0, as in the Trainer's records (status error), and the step's records say why: it
+    is not a wrong answer. An answer the editors see has no login token in it."""
+    from hermit.agent.evolver.methods.harness2_upstream.bench import FrameworkBench
+    from harness2.core.spec import BenchPrompts, ChannelSpec
+    seed = tmp_path / "seed"
+    shutil.copytree(TEMPLATE, seed, ignore=shutil.ignore_patterns("__pycache__"))
+    material = tmp_path / "material" / "current"
+    material.mkdir(parents=True)
+    failed = {"id": "t0", "status": "error", "error": "the agent's session failed: overloaded", "output": None,
+              "judge": {"score": 0.0, "feedback": "the agent's session failed: overloaded"}, "log": None}
+    ctx = SimpleNamespace(workspace=SimpleNamespace(adapter=seed, learning_material=material.parent,
+                                                    output=tmp_path / "out"),
+                          tools={"run_agent": lambda task_ids, adapter: {"results": [failed]}})
+    (tmp_path / "out").mkdir()
+    record = {"id": "t0", "input": {"id": "t0"}, **failed}          # the Trainer's own rollout failed too: run again
+    bench = FrameworkBench(ctx, record, prompts=BenchPrompts(work="Answering a question."),
+                           channel=ChannelSpec("claude_cli", "claude-haiku-5-5", effort="medium", timeout=60),
+                           runs_root=tmp_path / "h2", domain="d", name="toy", obs_trunc=10000)
+    out = bench.execute("t0", None, "base1")
+    assert bench.score(out, "t0")["score"] == 0.0 and bench.private["base1"]["error"] == failed["error"]
+    line = json.loads((tmp_path / "out" / "scores.jsonl").read_text().splitlines()[-1])
+    assert line == {"run_id": "base1", "answered": False, "score": 0.0, "error": failed["error"]}

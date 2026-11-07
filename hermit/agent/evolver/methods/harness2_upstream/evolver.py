@@ -91,6 +91,22 @@ class Harness2UpstreamEvolver(Evolver):
         if ctx.params.get("proposer") is None and ctx.params.get("backend") not in ("claude", "codex"):
             raise ValueError("harness2_upstream runs its sessions as Claude Code or Codex: set params.backend: claude "
                              "or codex")
+        login = ctx.params.get("login")
+        if ctx.params.get("proposer") is None and login is not None:
+            # refused here, not by every session: upstream turns a session's error into the starting harness
+            backend = ctx.params.get("backend")
+            if login != {"claude": "claude", "codex": "chatgpt"}[backend]:
+                raise ValueError(f"evolver.params.login: {login} is not the sign-in of backend {backend} "
+                                 f"(claude: login claude; codex: login chatgpt)")
+            model = str(ctx.params.get("model") or "")
+            if not model or "/" in model or ctx.params.get("binding"):
+                raise ValueError(f"with login: {login}, evolver.params.model is the CLI's model name (not empty, not a "
+                                 f"<backend>/<model> reference, no binding): {model!r}")
+            from hermit.agent.base.cli import CLAUDE_BILLING
+            named = sorted(set(ctx.params.get("env") or ()) & set(CLAUDE_BILLING)) if login == "claude" else []
+            if named:                         # every session would refuse it (the Base Agent), each stage fall back
+                raise ValueError(f"login: claude is the subscription; evolver.params.env names what would pay instead: "
+                                 f"{named}")
         if ctx.params.get("library_from"):
             _markers(context, ctx.params.get("verdict_markers"))
             self._import_library(_path(ctx.params["library_from"], ctx.base), ctx.workspace, ctx.params, ctx.base,
@@ -155,7 +171,8 @@ class Harness2UpstreamEvolver(Evolver):
         runs = {}
         for run_id, judged in bench.private.items():
             run_dir = root / "executions" / run_id
-            runs[run_id.rsplit("/", 1)[-1]] = {"answered": bench.delivered(run_dir), "score": judged.get("score")}
+            runs[run_id.rsplit("/", 1)[-1]] = {"answered": bench.delivered(run_dir), "score": judged.get("score"),
+                                                **({"error": judged["error"]} if judged.get("error") else {})}
         finals = [f"agg{i}" for i in range(1, k + 1)]
         added = sorted(set(lib.entries()) - set(before))
         mode_rec = (summary.get("modes") or {}).get(MODE) or {}

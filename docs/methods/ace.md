@@ -22,7 +22,8 @@ llm: {model: <backend>/<model>}   # the Reflector's and the Curator's model
 ```
 
 The Reflector, the Curator and the merges are calls of the run's model (`llm`). On a model reachable only through a
-ChatGPT login, OfficeQA's GPT-5.6-Luna setting makes each call one Codex session (`llm: {cli: codex}`).
+subscription, each call is one CLI session: OfficeQA's GPT-5.6-Luna setting (`llm: {cli: codex}`), or
+[`examples/claude_subscription/`](https://github.com/Infini-AI-Lab/hermit/tree/main/examples/claude_subscription) (`llm: {cli: claude}`).
 
 The template's `ADAPTER.md` is the acting agent's context: any text the adapter started with (for example a task
 skill), then the generator instructions and the playbook between markers. Starting from an adapter without a

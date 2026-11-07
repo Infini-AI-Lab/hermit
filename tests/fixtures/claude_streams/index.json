@@ -1,0 +1,114 @@
+{
+ "reply": {
+  "exit": 0,
+  "what": "a normal reply on an env token"
+ },
+ "text_session": {
+  "exit": 0,
+  "what": "the text session's flags, on the first-party host"
+ },
+ "two_blocks": {
+  "exit": 0,
+  "what": "thinking and two text blocks: `result` holds the last"
+ },
+ "cut_then_continued": {
+  "exit": 0,
+  "what": "a message cut at max_tokens, continued by the CLI: `result` holds the second part"
+ },
+ "limit_five_hour": {
+  "exit": 1,
+  "what": "the plan's 5-hour limit"
+ },
+ "limit_seven_day": {
+  "exit": 1,
+  "what": "the plan's weekly limit"
+ },
+ "limit_opus": {
+  "exit": 1,
+  "what": "the plan's Opus limit"
+ },
+ "throttled": {
+  "exit": 1,
+  "what": "a plain 429: a throttle, no usage limit"
+ },
+ "overloaded": {
+  "exit": 1,
+  "what": "529"
+ },
+ "server_error": {
+  "exit": 1,
+  "what": "500"
+ },
+ "bad_token": {
+  "exit": 1,
+  "what": "401"
+ },
+ "no_access": {
+  "exit": 1,
+  "what": "403"
+ },
+ "not_logged_in": {
+  "exit": 1,
+  "what": "no credential at all"
+ },
+ "too_long": {
+  "exit": 1,
+  "what": "a prompt past the context window"
+ },
+ "no_model": {
+  "exit": 1,
+  "what": "a model that does not exist"
+ },
+ "model_refusal": {
+  "exit": 1,
+  "what": "the model refuses, tokens spent"
+ },
+ "always_cut": {
+  "exit": 1,
+  "what": "max_tokens every time"
+ },
+ "connection_refused": {
+  "exit": 1,
+  "what": "no server"
+ },
+ "credit_balance": {
+  "exit": 1,
+  "what": "credit balance too low"
+ },
+ "empty_reply": {
+  "exit": 0,
+  "what": "an empty message"
+ },
+ "pause_turn": {
+  "exit": 0,
+  "what": "stop_reason pause_turn"
+ },
+ "window_allowed": {
+  "exit": 0,
+  "what": "rate_limit_event, allowed"
+ },
+ "window_warning": {
+  "exit": 0,
+  "what": "rate_limit_event, allowed_warning"
+ },
+ "usage_credits": {
+  "exit": 0,
+  "what": "a served session on usage credits"
+ },
+ "api_key_won": {
+  "exit": 0,
+  "what": "an API key beside the token: the key pays"
+ },
+ "interrupted": {
+  "exit": 0,
+  "what": "SIGINT: exit 0, no result"
+ },
+ "terminated": {
+  "exit": 143,
+  "what": "SIGTERM: exit 143, no result"
+ },
+ "unknown_session": {
+  "exit": 1,
+  "what": "--resume of an unknown id"
+ }
+}
