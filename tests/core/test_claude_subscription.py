@@ -19,7 +19,7 @@ import yaml
 from hermit.agent.acting import workspace as acting
 from hermit.agent.base import cli as base_cli, login as subscription
 from hermit.agent.base.endpoint import cli_endpoint, cli_model, cli_problems, endpoint_spec
-from hermit.agent.base.interface import Limits, LoginFailed, Unsupported, make
+from hermit.agent.base.interface import Limits, LoginFailed, Result, Unsupported, make
 from hermit.agent.base.records import parse_log
 from hermit.agent.model.backends import normalize_config
 from hermit.agent.model.llm import ChatAborted, ChatClient, ChatHTTPError
@@ -737,6 +737,34 @@ def test_a_session_on_usage_credits_holds_the_next_ones_unless_allowed(stand, tm
     assert subscription.held(tmp_path / "plan", credits=True) == ""
     result = session_agent(usage_credits=True, plan_max_wait_s=0).run("go", workspace=work)
     assert result.extra["served"] and "refused" in subscription.held(tmp_path / "plan")
+
+
+def test_a_refusal_after_a_credits_hold_holds_the_sessions_allowed_credits(tmp_path, monkeypatch):
+    """A credits hold lets the sessions allowed credits through; a refusal holds every session. A session allowed credits
+    that is refused while another run's credits hold stands waits for the plan, never reruns at once (one refused session
+    here, then the wait ends at its limit; before, the reason stayed `usage_credits` and the session reran in a loop)."""
+    plan = tmp_path / "plan"
+    subscription.hold(plan, time.time() + 3600, "usage_credits", max_s=0.0)
+    assert subscription.held(plan, credits=True) == "" and "refused" in subscription.held(plan)
+    subscription.hold(plan, time.time() + 7200, "session_refused", max_s=0.0)
+    assert json.loads((plan / "plan.json").read_text())["rate_limit_reached_type"] == "session_refused"
+    assert "refused" in subscription.held(plan, credits=True)
+    subscription.hold(plan, time.time() + 600, "usage_credits", max_s=0.0)      # a weaker hold never replaces it
+    assert json.loads((plan / "plan.json").read_text())["rate_limit_reached_type"] == "session_refused"
+
+    (plan / "plan.json").unlink()
+    subscription.hold(plan, time.time() + 3600, "usage_credits", max_s=0.0)
+    calls = []
+
+    def refused(self, prompt, **_):
+        calls.append(prompt)
+        assert len(calls) < 3, "a refused session ran again without waiting for the plan"
+        return Result(reply="", exit_code=1, extra={"served": False, "refused": True, "unavailable": False,
+                                                    "failed": True, "held_until": time.time() + 7200})
+    monkeypatch.setenv(subscription.TOKEN_ENV, TOKEN)
+    monkeypatch.setattr(base_cli.CliAgent, "_session", refused)
+    result = session_agent(usage_credits=True, plan_dir=str(plan), plan_max_wait_s=0).run("go", workspace=tmp_path)
+    assert len(calls) == 1 and not result.extra.get("served") and "refused" in subscription.held(plan, credits=True)
 
 
 def test_a_served_session_never_waits_for_a_hold_it_cannot_write(stand, tmp_path, monkeypatch):

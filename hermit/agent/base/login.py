@@ -553,7 +553,11 @@ def _hold(plan: Path | str | None = None, until: float | None = None, why: str =
             until = min(float(until), now + LONGEST_HOLD_S) if until and float(until) > now else None
         except (TypeError, ValueError):             # read from a stream: not a time
             until = None
-        current["rate_limit_reached_type"] = current.get("rate_limit_reached_type") or why
+        # A refusal outranks a credits hold: the credits hold lets the sessions that may draw credits through, a refusal
+        # holds every session (a session allowed credits refused while a credits hold stands must wait, not rerun).
+        prior = current.get("rate_limit_reached_type")
+        current["rate_limit_reached_type"] = why if not prior or (prior == "usage_credits" and why != "usage_credits") \
+            else prior
         # The refusal's own reset, else the full window's, else an hour; never sooner than a hold already in force (a
         # session that started before a long hold may end on a short window's refusal).
         try:

@@ -187,13 +187,14 @@ is served after the hold instead of given up.
 Usage credits are a bill apart from the plan, and the CLI has no switch against them: past the limit, an account with
 credits on keeps being served. Hermit reads `isUsingOverage` from each session: the session that drew credits has
 already run, and the ones after it wait for the plan's window, unless you set `usage_credits: true`, which also lets
-your run's sessions past a credits hold another run wrote (`MAX_USED` still holds them). To be sure of no extra bill,
-turn credits off at claude.ai.
+your run's sessions past a credits hold another run wrote (`MAX_USED` still holds them). A refusal holds every
+session, credits allowed or not: it replaces a credits hold's reason, never the other way round. To be sure of no
+extra bill, turn credits off at claude.ai.
 
 `plan_dir`, `plan_max_wait_s`, `usage_credits` and `plan_rerun` are the Base Agent's settings: for a workspace session
 in `agent.claude` or `evolver.claude`, beside `web_search` (an acting agent takes the first three), and on a chat route
 in the `{cli: claude, ...}` spec, beside `login`. They are not Layer 1's: under `agent.model` or `evolver.model`, which
-take a model's name, login, effort and price, the session fails.
+take a model's name, login, effort and price, the config is refused when it loads.
 
 The directory is shared with the sessions it steers and written by processes outside any sandbox (a learner's sessions,
 other runs) and by the task sandbox's workers, so Hermit reads and writes its files only as regular files of its own: a
