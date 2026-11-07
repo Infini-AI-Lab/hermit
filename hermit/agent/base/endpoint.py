@@ -149,7 +149,8 @@ class ChatEndpoint:
     def answer(self, request: dict, authorization: str | None, abort: threading.Event | None = None):
         """One request (its JSON body, not streamed): (status, response body, headers to pass on), or _DROP when the
         upstream gave no answer."""
-        if self.agent.name in ("codex", "claude"):
+        from hermit.agent.base.cli import CliAgent
+        if isinstance(self.agent, CliAgent):
             from hermit.agent.base.interface import Unsupported
             try:
                 return cli_answer(self.agent, request, abort)
@@ -267,12 +268,9 @@ def cli_answer(agent: BaseAgent, request: dict, abort: threading.Event | None = 
     own = {"stdin": True, **({"cancel": abort} if abort is not None else {})}
     if request.get("reasoning_effort"):
         own["effort"] = str(request["reasoning_effort"])
-    if system and agent.name == "codex":
-        from hermit.agent.base.cli import codex_instructions
-        extra, prompt = codex_instructions(system, prompt)
-        own["args"] = [*(agent.settings.get("args") or []), *extra]
-    elif system:
-        own["append_system_prompt"] = system
+    if system:
+        extra, prompt = agent.system_settings(system, prompt)
+        own.update(extra)
     log_dir, scratch = agent.settings.get("log_dir"), None
     if log_dir:
         own["log"] = Path(log_dir) / f"{time.strftime('%Y%m%dT%H%M%S')}-{secrets.token_hex(4)}-{agent.name}.jsonl"

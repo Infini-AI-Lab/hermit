@@ -39,6 +39,7 @@ import time
 import uuid
 
 from hermit.agent.base import login as codex_login
+from hermit.agent.base.cli import CLIS
 from hermit.redact import redact_name, redact_tree
 from hermit.sandbox import (LIMITS, NETWORK_MODES, PACKAGE, AllowlistProxy, Bind, Sandbox, framework_env,
                             hidden_paths, model_access, network_mode, owner_readable, package_closure,
@@ -46,7 +47,7 @@ from hermit.sandbox import (LIMITS, NETWORK_MODES, PACKAGE, AllowlistProxy, Bind
 from hermit.task import RunOutput, load_callable, output_record
 
 WORKER = PACKAGE / "worker.py"
-CLI_HOMES = {"codex": (".codex", "CODEX_HOME", "auth.json"), "claude": (".claude", "CLAUDE_CONFIG_DIR", ".credentials.json")}
+CLI_HOMES = {c.backend: (c.user_folder, c.home_var, c.home_files[0]) for c in CLIS.values()}   # folder, var, sign-in
 CHATGPT_HOSTS = ["chatgpt.com", "auth.openai.com"]       # a Codex ChatGPT login reaches its plan here (recorded)
 JUDGE_MODES = ("host", "shared", "separate")
 HOME_SECRETS = [Path.home() / ".ssh", Path.home() / ".bashrc"]   # proven absent inside a sandbox
@@ -439,7 +440,7 @@ class SandboxedAgent:
             log_dir.mkdir(exist_ok=True)
         self.others: list[Sandbox] = []                  # the judge's sandboxes, closed with this one
         if self.cli:                                     # the CLI and the node it may run on, as installed
-            readable += program_paths(self.cli)
+            readable += program_paths(CLIS[self.cli].program)
         # A Codex agent on a ChatGPT login waits for the login's plan with every session on the machine: the plan's
         # directory (its PAUSE, MAX_USED, SLOTS and report) is the one outside, shared into every call.
         self.chatgpt = self.cli == "codex" and self.params.get("login") == "chatgpt"
