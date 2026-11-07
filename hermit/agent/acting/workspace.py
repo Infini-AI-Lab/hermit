@@ -196,7 +196,8 @@ def _mounts(task: dict, work: Path, params: dict, base: Path) -> list[Mount]:
 
 def _clean(work: Path) -> None:
     """The workspace kept for inspection: no links out of it, no mount points left empty. A link is never followed,
-    so nothing it leads to (a task's data) is touched."""
+    so nothing it leads to (a task's data) is touched. A mount point that cannot be read or removed yet (Docker
+    Desktop may still hold one a moment after its container exits) is left in place instead of failing the run."""
     root = work.resolve()
     for directory, dirs, files in os.walk(work, topdown=False):          # followlinks=False: links are entries
         for name in dirs + files:
@@ -204,8 +205,12 @@ def _clean(work: Path) -> None:
             if path.is_symlink():
                 if not path.resolve().is_relative_to(root):
                     path.unlink()
-            elif path.is_dir() and not any(path.iterdir()):
-                path.rmdir()
+            elif path.is_dir():
+                try:
+                    if not any(path.iterdir()):
+                        path.rmdir()
+                except OSError:      # a mount point the container runtime has not released yet: left as it is
+                    pass
 
 
 def _output(last: str, task: dict, params: dict, base: Path, code: int, timed_out: bool, timeout_s: float):
