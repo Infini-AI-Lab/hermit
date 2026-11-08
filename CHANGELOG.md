@@ -72,6 +72,10 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 - The AHE Adapter Evolver took a `change_manifest.json` an earlier step left for the current step's: a manifest
   naming the next iteration was refused at its own step, then archived as the next step's when that step's session
   wrote none. The file (or a directory a session made in its place) is now removed before each Evolve session.
+- Nine example launchers left their wire meters running after the run (#82), so a later run on the same port
+  reused one and wrote its records into the earlier run's ledger. The meters a launch starts now stop once its
+  trainings (and, for ServeLearnBench, the tests after them) have ended, the harness2 restart loop included; a meter
+  found already running is left to the launch that started it.
 
 ## 0.2.0 - 2026-11-04
 

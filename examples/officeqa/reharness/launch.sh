@@ -75,6 +75,15 @@ if [ "${EMBED_KEY_REQUIRED:-1}" = 1 ] && [ -n "$KEY_ENV" ] && [ -z "${!KEY_ENV:-
 fi
 # The meter: one per port, started here if none answers; a meter facing another upstream is refused.
 mkdir -p runs
+# The meters this launch starts stop once the processes it names have ended (#82); a meter found already running is
+# left to the launch that started it.
+METERS=()
+stop_meters_after() {  # pid...
+  [ ${#METERS[@]} -gt 0 ] || return 0
+  setsid nohup bash -c 'for p in $1; do while kill -0 "$p" 2>/dev/null; do sleep 30; done; done
+    for m in $2; do kill -- "-$m" 2>/dev/null || kill "$m" 2>/dev/null || true; done' _ "$*" "${METERS[*]}" \
+    > /dev/null 2>&1 < /dev/null &
+}
 LEDGER=$HERE/runs/wire_ledger-$WM_PORT.json
 if health=$(curl -s -m 2 "http://127.0.0.1:$WM_PORT/health" 2>/dev/null); then
   case "$health" in
@@ -88,6 +97,7 @@ if health=$(curl -s -m 2 "http://127.0.0.1:$WM_PORT/health" 2>/dev/null); then
 else
   env PORT=$WM_PORT UPSTREAM=$EMBED_ORIGIN ${KEY_ENV:+UPSTREAM_KEY_ENV=$KEY_ENV} LEDGER=$LEDGER \
     setsid nohup "$PY" -m hermit.runtime.wire_meter >> "runs/wire_meter-$WM_PORT.log" 2>&1 < /dev/null &
+  METERS+=("$!"); stop_meters_after $$   # $$: this launcher, then the hermit command it execs
   echo "wire meter pid $! port $WM_PORT -> $EMBED_ORIGIN (ledger $LEDGER)"; sleep 2
   curl -s -m 2 "http://127.0.0.1:$WM_PORT/health" > /dev/null \
     || { echo "REFUSING: the wire meter did not come up (runs/wire_meter-$WM_PORT.log)"; exit 1; }

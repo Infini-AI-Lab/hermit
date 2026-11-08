@@ -90,6 +90,16 @@ fi
 
 [ -f "$TASKDIR/tasks.jsonl" ] || { echo "REFUSING: run $TASKDIR/prepare.py first"; exit 1; }
 
+# The meters this launch starts stop once the processes it names have ended (#82); a meter found already running is
+# left to the launch that started it.
+METERS=()
+stop_meters_after() {  # pid...
+  [ ${#METERS[@]} -gt 0 ] || return 0
+  setsid nohup bash -c 'for p in $1; do while kill -0 "$p" 2>/dev/null; do sleep 30; done; done
+    for m in $2; do kill -- "-$m" 2>/dev/null || kill "$m" 2>/dev/null || true; done' _ "$*" "${METERS[*]}" \
+    > /dev/null 2>&1 < /dev/null &
+}
+trap 'stop_meters_after ${PIDS[@]+"${PIDS[@]}"}' EXIT   # after the trainings started below, if any
 start_meter() {  # port upstream ledger log [extra env...]: a meter already on the port must face the same upstream
   local port=$1 upstream=$2 ledger=$3 log=$4 health; shift 4
   if health=$(curl -s -m 2 "http://127.0.0.1:$port/health" 2>/dev/null); then
@@ -98,6 +108,7 @@ start_meter() {  # port upstream ledger log [extra env...]: a meter already on t
   else
     env "$@" PORT=$port LEDGER="$ledger" UPSTREAM="$upstream" \
       setsid nohup "$PY" "$METER" > "$log" 2>&1 < /dev/null &
+    METERS+=("$!")
     echo "wire meter pid $! port $port -> $upstream"; sleep 2
     curl -s -m 2 "http://127.0.0.1:$port/health" > /dev/null \
       || { echo "REFUSING: the wire meter on port $port did not come up (see $log)"; exit 1; }
