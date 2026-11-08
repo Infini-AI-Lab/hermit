@@ -143,10 +143,10 @@ class Roles:
                 raise Stop("stopped by the Trainer")
             result = self._session(system_text, text)
             extra, tail = result.extra, str(result.extra.get("output_tail") or "")
+            if extra.get("login_failed"):                # before a stop: the sign-in is what ended it
+                raise LoginFailed(f"a role's session: {extra.get('failure')}")
             if extra.get("cancelled") or self._cancelled():
                 raise Stop("stopped by the Trainer")
-            if extra.get("login_failed"):
-                raise LoginFailed(f"a role's session: {extra.get('failure')}")
             # the Base Agent says whether the plan refused it (hermit >= #69); before, its output's tail is read
             refused = extra["refused"] if "refused" in extra else codex_login.refused(tail)
             if (not extra.get("started") and extra.get("unavailable")) or (not extra.get("served") and refused):

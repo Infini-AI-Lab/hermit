@@ -51,6 +51,7 @@ class FrameworkProposer(Proposer):
     sandbox: Any = None                           # hermit.sandbox.Sandbox for the sessions, or None
     cancel: Any = None                            # threading.Event set by the Trainer to stop the step
     usages: list = field(default_factory=list)    # one Usage per session attempt, for the step's StepResult
+    served: int = 0                               # sessions the provider served (a failed one's usage is in usages)
     _usage_lock: threading.Lock = field(default_factory=threading.Lock)
 
     def env(self) -> dict[str, str]:
@@ -84,7 +85,7 @@ class FrameworkProposer(Proposer):
                     "isolation": "sandbox" if self.sandbox is not None else "none", "sandbox": self.sandbox,
                     "writable": [Path(cwd)], "timeout_s": wall, "cancel": self.cancel}
         if self.params.get("login"):      # the user's subscription: its model by name, its plan's waits (Base Agent)
-            keys = ("login", "model", "plan_dir", "plan_max_wait_s", "usage_credits")
+            keys = ("login", "model", "plan_dir", "plan_max_wait_s", "plan_rerun", "usage_credits")
             settings.update({k: self.params[k] for k in keys      # plan_max_wait_s: null is no limit
                              if self.params.get(k) is not None or (k == "plan_max_wait_s" and k in self.params)})
         result = make("claude", settings).run(stdin, workspace=Path(cwd))
@@ -97,15 +98,23 @@ class FrameworkProposer(Proposer):
         if result.log is None:              # never started: the plan held it past plan_max_wait_s, or no slot came
             return "", 0.0, f"not run: {result.extra.get('failure') or 'the session did not start'}"
         payload = _parse_json(_read_own(Path(result.log)))
+        if not result.extra.get("served"):  # a startup error's text is no reply (upstream would take plain text)
+            usage = None if result.usage else self._usage(payload)        # what it spent before it failed is kept
+            cost = self._spent(result.usage) if result.usage else float(usage.cost_usd or 0.0) if usage else 0.0
+            return "", cost, f"rc={result.exit_code}: {(result.extra.get('failure') or _read_own(err))[-300:]}"
+        with self._usage_lock:
+            self.served += 1
         # A served session's reply as the Base Agent read it, as the Codex route takes it: the stream's final message
         # whole, where the CLI's `result` keeps only the last part of a message it continued past its output limit.
-        text = result.reply if result.extra.get("served") else str(payload.get("result") or payload.get("text") or "")
+        text = result.reply
         problem = ""
         if payload.get("is_error") or payload.get("subtype") not in (None, "success"):
             problem = f"CLI error: {payload.get('subtype')} {str(text)[:200]}"
             text = ""
         elif result.exit_code != 0 and not text.strip():
             problem = f"rc={result.exit_code}: {_read_own(err)[-300:]}"
+        if self.params.get("login") and result.usage:     # the stream's every result, sub-agents' included
+            return text, self._spent(result.usage), problem
         usage = self._usage(payload)
         return text, float(usage.cost_usd or 0.0) if usage else 0.0, problem
 
@@ -122,7 +131,7 @@ class FrameworkProposer(Proposer):
                     "model": self.params.get("model") or self.spec.model,
                     "login": self.params.get("login"), "login_root": self.params.get("login_root"),
                     "plan_dir": self.params.get("plan_dir"), "plan_max_wait_s": self.params.get("plan_max_wait_s"),
-                    "usage_credits": self.params.get("usage_credits"),
+                    "plan_rerun": self.params.get("plan_rerun"), "usage_credits": self.params.get("usage_credits"),
                     "binding": self.params.get("binding"), "price": self.params.get("price"),
                     "args": [*(self.params.get("args") or []), *extra],
                     "codex_sandbox": "danger-full-access",      # the run's sandbox is the boundary, as for Claude Code
@@ -140,6 +149,8 @@ class FrameworkProposer(Proposer):
             tail = (_read_own(err) or result.extra.get("output_tail", ""))[-300:]
             return "", 0.0, f"rc={result.exit_code}: {tail}"
         cost = 0.0
+        with self._usage_lock:
+            self.served += 1
         for usage in result.usage:
             with self._usage_lock:
                 self.usages.append(usage)
@@ -165,6 +176,13 @@ class FrameworkProposer(Proposer):
         for link in [q for q in dest.rglob("*") if q.is_symlink()]:
             link.unlink()
         return dest
+
+    def _spent(self, usage: list) -> float:
+        """The Base Agent's usage of one session, priced as the backend bills it and kept; its cost."""
+        price_usage(usage, self.params)              # the backend's price, not Claude Code's own
+        with self._usage_lock:
+            self.usages.extend(usage)
+        return sum(float(u.cost_usd or 0.0) for u in usage)
 
     def _usage(self, payload: dict) -> Usage | None:
         u = payload.get("usage") or {}

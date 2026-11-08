@@ -1,6 +1,6 @@
 # Upstream Harness²'s prompt slots for OfficeQA answered by Claude Code (run_claude_haiku.yaml): slots_codex.yaml with
 # the words that name the agent and its tools changed, and nothing else (Claude Code 2.1.318's default tools have no
-# Glob or Grep, so it searches in Bash; rg is not named, as slots_codex.yaml does not name it). The per-task text its stage
+# Glob or Grep, so it searches in Bash; slots_codex.yaml names rg, this file does not). The per-task text its stage
 # prompts interpolate. They describe the work, never its measurement: upstream refuses the words benchmark, evaluation,
 # grader, rubric and score here. `work` names the deliverable's form, as upstream's own benchmarks do: the final answer
 # is the value alone, which is how the task's answers are taken (../utils/task-info/README.md). No session sees an

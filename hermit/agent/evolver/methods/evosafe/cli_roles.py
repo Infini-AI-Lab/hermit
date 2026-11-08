@@ -62,7 +62,8 @@ def call_role(ctx, messages, schema, name, backend):
     params = ctx.params
     # Config has already resolved model bindings and flattened evolver.<base>; only the CLI's own settings
     # (hermit/agent/base/cli.py) reach the Base Agent, not the method's parameters.
-    settings = {k: params[k] for k in CLI_SETTINGS if params.get(k) is not None}
+    settings = {k: params[k] for k in CLI_SETTINGS
+                if params.get(k) is not None or (k == "plan_max_wait_s" and k in params)}   # None: no limit
     for key in ("bin", "model", "timeout_s"):
         if settings.get(key) is None and params.get(f"{backend}_{key}") is not None:
             settings[key] = params[f"{backend}_{key}"]

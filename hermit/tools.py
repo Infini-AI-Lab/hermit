@@ -124,7 +124,7 @@ def failed_usage(error: ChatHTTPError, model: str) -> Usage | None:
         u = json.loads(error.body)["usage"]
         tokens = (int(u["prompt_tokens"]), int((u.get("prompt_tokens_details") or {}).get("cached_tokens") or 0),
                   int(u["completion_tokens"]))
-    except (ValueError, KeyError, TypeError, AttributeError):
+    except (ValueError, KeyError, TypeError, AttributeError, OverflowError):
         return None
     return Usage(model, *tokens, 1) if any(tokens) else None
 

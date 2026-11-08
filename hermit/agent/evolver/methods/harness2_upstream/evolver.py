@@ -188,8 +188,9 @@ class Harness2UpstreamEvolver(Evolver):
                  "sessions_usd": round(sum(u.cost_usd or 0.0 for u in getattr(prop, "usages", [])), 6),
                  "claude": params.get("claude_bin") or self._claude(ws, params.get("backend"))}
         # Every editor stage fell back without a session reply: the model endpoint failed, and the deliverable is H0's.
+        # (A failed session's usage is counted too, so a reply is a served session, not a usage.)
         extra["editors_failed"] = bool(stages) and all(s["fell_back"] for s in stages) \
-            and not getattr(prop, "usages", [])
+            and not getattr(prop, "served", 0)
         self._keep(root, ws.output / "h2")
         (ws.output / "harness2.json").write_text(json.dumps(extra, indent=1, default=str))
         (ws.output / "report.md").write_text(self._report(tid, res, stages, selection, added))

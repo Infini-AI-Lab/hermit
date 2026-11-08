@@ -64,3 +64,24 @@ def test_the_mwm_learner_runs_on_the_evolvers_cli(tmp_path, monkeypatch):
     # The session had the token's value; the tree keeps its marker, as it keeps no key a learner held (hermit/redact.py)
     assert saw["cwd"] == "/w" and saw["token"] == f"<{subscription.TOKEN_ENV}>" and "--model" in saw["args"]
     assert saw["args"][saw["args"].index("--effort") + 1] == "low" and saw["args"][-2] == "--settings"
+
+
+def test_mwm_keeps_an_unlimited_plan_wait(tmp_path, monkeypatch):
+    """plan_max_wait_s: null is no limit, as for every other learner: it reaches the session, not the default."""
+    from types import SimpleNamespace
+    from hermit.agent.evolver.methods.mwm.evolver import MwmEvolver
+    evolver = MwmEvolver.__new__(MwmEvolver)
+    monkeypatch.setattr(MwmEvolver, "_mcp_tools", lambda self, ctx: [])
+    ctx = SimpleNamespace(params={"web_search": False, "login": "claude", "plan_max_wait_s": None}, cancel=None)
+    settings = evolver._settings(ctx, tmp_path / "home", tmp_path / "log", None)
+    assert "plan_max_wait_s" in settings and settings["plan_max_wait_s"] is None
+
+
+def test_mwm_sessions_use_the_login_root_its_preflight_checked(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from hermit.agent.evolver.methods.mwm.evolver import MwmEvolver
+    monkeypatch.setattr(MwmEvolver, "_mcp_tools", lambda self, ctx: [])
+    ctx = SimpleNamespace(params={"web_search": False, "login": "chatgpt", "login_root": str(tmp_path / "root")},
+                          cancel=None)
+    settings = MwmEvolver.__new__(MwmEvolver)._settings(ctx, tmp_path / "home", tmp_path / "log", None)
+    assert settings["login_root"] == str(tmp_path / "root")

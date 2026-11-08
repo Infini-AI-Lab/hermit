@@ -347,10 +347,10 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path) -> RunOutpu
         finally:
             if served is not None:
                 served.close()
+        if result.extra.get("login_failed"):          # before a timeout: a session that then hung is no attempt
+            raise LoginFailed(f"agent {backend}: {result.extra.get('failure')}")
         if result.extra["served"] or result.timed_out:
             break
-        if result.extra.get("login_failed"):
-            raise LoginFailed(f"agent {backend}: {result.extra.get('failure')}")
         if not result.extra["unavailable"]:
             if result.exit_code and not result.extra["started"]:
                 # The CLI exited before it wrote one event: the run never started, which is no wrong answer.

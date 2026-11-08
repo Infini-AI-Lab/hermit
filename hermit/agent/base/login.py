@@ -450,15 +450,22 @@ def usage_of(home: Path) -> dict | None:
     return None
 
 
+def opted_in(value) -> bool:
+    """A yes/no setting that opts into something billed apart (usage_credits): true, or its spelling as text."""
+    return value is True or str(value).strip().lower() in ("true", "1", "yes", "on")
+
+
 def claude_report(events: list[dict]) -> dict | None:
     """The plan's usage a Claude Code session reports (its stream's last `rate_limit_event`), in the form `held` reads:
     each window's percent used and reset time. `status` and the top-level window say only how this one request went (a
     throttled request is `rejected` too): they are no refusal; `hermit.agent.base.cli` reads that from the failed
     result. `using_credits`: the session drew the account's usage credits, billed apart from the plan."""
-    info = None
+    info = credits = None
     for event in events:
         if event.get("type") == "rate_limit_event" and isinstance(event.get("rate_limit_info"), dict):
             info = event["rate_limit_info"]
+            if info.get("isUsingOverage") is True:     # a later request on the plan does not undo a drawn credit
+                credits = info
     if info is None:
         return None
     windows = {}
@@ -470,7 +477,8 @@ def claude_report(events: list[dict]) -> dict | None:
         except (KeyError, TypeError, ValueError):       # a window that says nothing of its use: no limit to hold at
             continue
     return {"time": datetime.now(timezone.utc).isoformat(), "windows": windows, "status": info.get("status"),
-            "resets_at": info.get("resetsAt"), "using_credits": info.get("isUsingOverage") is True}
+            "resets_at": info.get("resetsAt"), "using_credits": credits is not None,
+            **({"credits_resets_at": credits.get("resetsAt")} if credits is not None else {})}
 
 
 def note_usage(plan: Path | str | None, home: Path | None, seen: dict | None = None) -> dict | None:
@@ -611,6 +619,9 @@ def evolver_problems(params: dict | None) -> list[str]:
     if own == "claude" and not params.get("model"):
         out.append("login: claude runs the model it is given by name (a Claude Code model name): give "
                    "evolver.model.name")
+    if own == "claude" and params.get("binding"):
+        out.append("login: claude is the subscription, and a <backend>/<model> reference (evolver.model.ref) pays "
+                   "with that backend's key, which every session on the login refuses: give evolver.model.name")
     return out
 
 

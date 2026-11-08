@@ -2107,3 +2107,152 @@ def test_a_lost_sign_in_at_finalize_leaves_a_run_unfinished_only_when_a_resume_w
         Trainer(Config.load(path, ["trainer.run_name=all-epochs", "evolver.params.mode=learn"]),
                 log=lambda *_: None).train()
     assert not (tmp_path / "runs" / "all-epochs" / "summary.json").exists()
+
+
+def test_a_kept_home_never_shows_the_token_in_a_tool_result_the_cli_kept(stand, tmp_path):
+    """Claude Code keeps a long tool result as a file of its own beside the transcript (projects/<project>/<session>/
+    tool-results/): a token a command printed there is scrubbed like the transcripts."""
+    work, home = tmp_path / "w", tmp_path / "home"
+    work.mkdir()
+    kept = home / "projects" / "p" / "s" / "tool-results" / "r.txt"
+    kept.parent.mkdir(parents=True)
+    stand.play({"case": "reply", "edit": [str(kept), f"printed: {TOKEN}"]})
+    session_agent(home=home).run("go", workspace=work)
+    assert kept.read_text() == f"printed: <{subscription.TOKEN_ENV}>"
+
+
+def test_a_session_stopped_by_an_exception_leaves_no_token_in_its_stream(stand, tmp_path, monkeypatch):
+    """The scrub runs however the session ends: an interrupt after the CLI printed the token leaves its name."""
+    work, log = tmp_path / "w", tmp_path / "log" / "agent-claude.jsonl"
+    work.mkdir()
+
+    def interrupted(command, *, stream, **_):
+        Path(stream).write_text(f"{TOKEN}\n")
+        raise KeyboardInterrupt
+    monkeypatch.setattr(base_cli, "run_process", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        session_agent(home=tmp_path / "home", log=str(log)).run("go", workspace=work)
+    assert TOKEN not in log.read_text() and f"<{subscription.TOKEN_ENV}>" in log.read_text()
+
+
+def test_a_session_that_paid_another_way_is_returned_not_held_though_also_refused(stand, tmp_path, monkeypatch):
+    """A failed sign-in (another payer) that also reads as the plan's refusal ends the session: no wait restores it,
+    so it is neither held for nor run again, and it keeps saying the sign-in failed."""
+    calls = []
+
+    def session(self, *args, **kwargs):
+        calls.append(1)
+        return Result(reply="", extra={"served": False, "refused": True, "login_failed": True, "failed": True,
+                                       "held_until": time.time() + 3600})
+    monkeypatch.setattr(base_cli.Claude, "_session", session)
+    result = session_agent(plan_max_wait_s=0).run("go", workspace=tmp_path)
+    assert calls == [1] and result.extra["login_failed"]
+    assert not subscription.held(subscription.plan_dir(None, "claude"), False)
+
+
+def test_a_failed_call_whose_usage_is_no_count_keeps_its_error():
+    from hermit.tools import failed_usage
+    assert failed_usage(ChatHTTPError(500, b'{"usage": {"prompt_tokens": 1e400, "completion_tokens": 0}}', {}), "m") \
+        is None
+
+
+def test_a_login_that_fails_in_a_learners_tool_call_ends_the_run(tmp_path):
+    """A learner's `llm` or `run_agent` call runs in the tool server's thread, where a failed sign-in would reach the
+    learner as a failed call: the Trainer keeps it, stops the learner, and ends the run after the call."""
+    from hermit.trainer.trainer import Trainer
+    trainer = Trainer.__new__(Trainer)
+    trainer._login_failed = None
+    cancel = threading.Event()
+
+    def call(**arguments):
+        raise LoginFailed("the token was revoked")
+    with pytest.raises(LoginFailed):
+        trainer._latched(call, cancel)(prompt="go")
+    assert cancel.is_set()
+    with pytest.raises(LoginFailed, match="revoked"):
+        trainer._raise_login_failed({"value": "the learner went on"})
+
+
+@NEEDS_BWRAP
+def test_the_task_sandbox_grants_and_covers_the_plan_under_its_real_name(stand, tmp_path, monkeypatch):
+    """A plan under a linked directory (a ~/.cache that is a link) is granted and covered by its real name only: the
+    sandbox would show a linked path under both names, and the session's cover hides the one it is given."""
+    from hermit.isolate import agent_pipeline
+    real = tmp_path / "disk"
+    real.mkdir()
+    (tmp_path / "alias").symlink_to(real)
+    monkeypatch.setattr(subscription, "CLAUDE_PLAN", tmp_path / "alias" / "plan")
+    config = Config.load(_project(tmp_path, stand))
+    pipeline, close = agent_pipeline(config, "rollout", records=tmp_path / "records", work_root=tmp_path / "calls")
+    try:
+        assert pipeline.plan == real / "plan"
+        assert real / "plan" in [Path(w) for w in pipeline.sandbox.writable]
+        assert not any("alias" in str(w) for w in pipeline.sandbox.writable)
+    finally:
+        close()
+
+
+def test_usage_credits_opt_in_only_on_a_real_yes():
+    assert [subscription.opted_in(v) for v in (True, "true", "Yes", 1)] == [True, True, True, True]
+    assert [subscription.opted_in(v) for v in (False, "false", "no", 0, None, "")] == [False] * 6
+
+
+def test_a_session_that_drew_credits_on_an_earlier_request_still_says_so():
+    """Only the last rate-limit event used to be read: a later request on the plan hid a credit an earlier one drew."""
+    events = [{"type": "rate_limit_event", "rate_limit_info": {"isUsingOverage": True, "resetsAt": 100}},
+              {"type": "rate_limit_event", "rate_limit_info": {"isUsingOverage": False, "resetsAt": 200}}]
+    report = subscription.claude_report(events)
+    assert report["using_credits"] and report["credits_resets_at"] == 100 and report["resets_at"] == 200
+
+
+def test_a_learner_on_the_subscription_with_a_backend_reference_is_refused_before_the_first_step():
+    problems = subscription.evolver_problems({"login": "claude", "backend": "claude", "model": "m",
+                                              "binding": {"ref": "vllm/test-model"}})
+    assert any("evolver.model.name" in p and "reference" in p for p in problems)
+
+
+def test_a_session_that_paid_another_way_and_then_hung_still_ends_the_run(tmp_path, monkeypatch):
+    """A failed sign-in outranks the timeout that followed it: the attempt is not judged as one."""
+    def hung(self, prompt, workspace=None, tools=(), limits=None, session=None, roles=()):
+        return Result(reply="", timed_out=True, extra={"served": False, "login_failed": True, "unavailable": False,
+                                                       "started": True, "failure": "the session paid with apiKey"})
+    monkeypatch.setattr(base_cli.Claude, "run", hung)
+    with pytest.raises(LoginFailed, match="paid with apiKey"):
+        acting.run({"id": "q", "question": "q"}, None, params=acting_params(tmp_path), base=tmp_path)
+
+
+def test_an_agent_evolvers_sessions_use_the_login_root_its_preflight_checked(tmp_path):
+    """Preflight reads the learner's login_root; the sessions it starts sign in from the same one."""
+    from types import SimpleNamespace as NS
+    from hermit.agent.evolver.agent import AgentEvolver
+    ws = NS(state=tmp_path / "state", output=tmp_path / "out")
+    ctx = NS(params={"login": "chatgpt", "login_root": str(tmp_path / "root"), "model": "gpt-x", "web_search": False},
+             sandbox=None, workspace=ws, cancel=None)
+    settings = AgentEvolver.settings(AgentEvolver.__new__(AgentEvolver), ctx, "codex")
+    assert settings["login_root"] == str(tmp_path / "root")
+
+
+def test_an_agent_evolvers_failed_sign_in_outranks_the_stop_that_followed(tmp_path, monkeypatch):
+    """A session that reported a lost sign-in and then hung until the Trainer (or a method's own deadline) stopped it
+    ends the run: it is no ordinary failed step, whose edits a method could adopt."""
+    import threading
+    from hermit.agent.evolver import agent as evolver_agent
+    from hermit.agent.evolver.base import Access, StepContext, Workspace
+    ws = Workspace(*(tmp_path / n for n in ("adapter", "lm", "info", "hist", "state", "scratch", "out")))
+    for d in (ws.adapter, ws.state, ws.output):
+        d.mkdir(parents=True)
+    (tmp_path / "START.md").write_text("go")
+    cancel = threading.Event()
+    ctx = StepContext(workspace=ws, access=Access(), tools={}, cancel=cancel,
+                      params={"backend": "claude", "login": "claude", "model": "m", "web_search": False,
+                              "prompt": "START.md"})
+
+    class Hung:
+        def run(self, *args, **kwargs):
+            cancel.set()
+            return Result(reply="", extra={"login_failed": True, "failure": "Not logged in"})
+    monkeypatch.setattr(evolver_agent, "make", lambda backend, settings: Hung())
+    evolver = evolver_agent.AgentEvolver()
+    evolver.directory = tmp_path
+    with pytest.raises(LoginFailed, match="Not logged in"):
+        evolver.step(ctx)

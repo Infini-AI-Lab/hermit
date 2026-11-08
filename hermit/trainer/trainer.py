@@ -193,6 +193,7 @@ class Trainer:
         self.enforce = d["sandbox"].get("enforce", "required") if d["sandbox"]["enabled"] else None
         self.pipeline = None             # set when the run starts: the agent runs in its sandbox, never imported here
         self.judge = None                # set when the run starts (judge_for): a sandboxed judge is never imported here
+        self._login_failed: LoginFailed | None = None   # a sign-in that failed inside a learner's tool call
         self.spec = find(d["evolver"]["name"], config.base)
         self.evolver, self.params = instantiate(self.spec, d["evolver"]["params"],
                                                 backends=registry(d.get("backends")), default_model=d.get("model"))
@@ -474,7 +475,28 @@ class Trainer:
         for tool in tools.values():
             tool.log_path = self.run_dir / "tools.jsonl"
             tool.cancel = cancel
+            tool.fn = self._latched(tool.fn, cancel)
         return tools
+
+    def _latched(self, fn, cancel: threading.Event | None):
+        """A tool's function whose LoginFailed the Trainer keeps: raised in the tool server's thread (a learner's `llm`
+        or `run_agent` call) it would reach the learner as a failed call, and the step would go on after the sign-in
+        failed. The learner is stopped, and the call it was in ends the run (_raise_login_failed)."""
+        def call(**arguments):
+            try:
+                return fn(**arguments)
+            except LoginFailed as exc:
+                self._login_failed = self._login_failed or exc
+                if cancel is not None:
+                    cancel.set()
+                raise
+        return call
+
+    def _raise_login_failed(self, box: dict) -> None:
+        """The run ends, unfinished, when the Evolver's call or a tool call in it met a failed sign-in."""
+        failed = box["error"] if isinstance(box.get("error"), LoginFailed) else self._login_failed
+        if failed is not None:
+            raise failed
 
     def _snapshot_adapter(self, source: Path) -> Path:
         """A private copy of the adapter the learner names, made inside the learner's own sandbox (a link it swaps in
@@ -686,8 +708,7 @@ class Trainer:
         for place in (self.ws.adapter, self.ws.state, self.ws.scratch, self.ws.output):
             drop_unsafe(place)
         result: StepResult
-        if isinstance(box.get("error"), LoginFailed):
-            raise box["error"]                          # the run ends, unfinished: this step is not recorded
+        self._raise_login_failed(box)                   # the run ends, unfinished: this step is not recorded
         if "error" in box:
             result = StepResult("failed", f"{what} raised {type(box['error']).__name__}: {box['error']}")
         elif stopped:
@@ -828,10 +849,10 @@ class Trainer:
         self._scrub_access()
         box, stopped, _ = self._call("finalize", lambda: self.evolver.finalize(ctx), progress=None,
                                      timeout_s=float(d["trainer"]["call_timeout_min"]) * 60)
-        if isinstance(box.get("error"), LoginFailed) and reason == "completed all epochs":
+        if reason == "completed all epochs":
             # Unfinished, as at a step: `hermit train` comes straight back here once the sign-in is restored. A run that
             # stopped early (the Evolver, a budget) would go back into training instead, so it ends as finalize failed.
-            raise box["error"]
+            self._raise_login_failed(box)
         final: FinalResult | None = box.get("value") if isinstance(box.get("value"), FinalResult) else None
         note = final.summary if final else f"finalize failed ({box.get('error') or stopped}); the last adapter is final"
         note = redact_value(note)            # the final commit, the card and summary.json keep it

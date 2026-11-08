@@ -99,10 +99,10 @@ class AgentEvolver(Evolver):
         prompt = _fill((directory / prompt_file).read_text(), ctx)
         result = make(backend, self.settings(ctx, backend)).run(prompt, workspace=ctx.workspace.adapter.parent,
                                                                 tools=tools, limits=Limits(), session=ctx.session)
+        if result.extra.get("login_failed"):          # before a stop: a session that then hung is no step's failure
+            raise LoginFailed(f"evolver {backend}: {result.extra.get('failure')}")
         if ctx.cancel is not None and ctx.cancel.is_set():
             return StepResult("failed", "stopped by the Trainer", session=result.session, usage=result.usage)
-        if result.extra.get("login_failed"):
-            raise LoginFailed(f"evolver {backend}: {result.extra.get('failure')}")
         from hermit.sandbox import read_regular
         report = (read_regular(ctx.workspace.output / "report.md") or "").strip()   # never through a link or a pipe
         summary = report.splitlines()[0][:300] if report else f"{backend} session finished"
@@ -122,8 +122,8 @@ class AgentEvolver(Evolver):
         params = ctx.params
         env = {**(params.get("env") or {}),
                "PYTHONPATH": str(Path(__file__).resolve().parents[3]) + os.pathsep + os.environ.get("PYTHONPATH", "")}
-        return {**{k: params[k] for k in ("model", "binding", "login", "plan_dir", "plan_max_wait_s", "plan_rerun",
-                                          "usage_credits", "args", "price", "effort")
+        return {**{k: params[k] for k in ("model", "binding", "login", "login_root", "plan_dir", "plan_max_wait_s",
+                                          "plan_rerun", "usage_credits", "args", "price", "effort")
                    if params.get(k) is not None or (k == "plan_max_wait_s" and k in params)},   # None: no limit
                 "web_search": params["web_search"], "env": env,
                 "isolation": "sandbox" if ctx.sandbox is not None else "none", "sandbox": ctx.sandbox,

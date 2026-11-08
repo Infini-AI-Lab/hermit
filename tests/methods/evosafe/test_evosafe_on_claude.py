@@ -26,3 +26,27 @@ def test_evosafes_roles_read_a_lost_sign_in_and_a_refusal_from_the_base_agent(st
     response, _, error = claude_code.call_role(ctx, [{"role": "user", "content": "x"}],
                                                {"type": "object", "properties": {}}, "trial-002-designer")
     assert response is None and error.startswith("SAFETY_REVIEW_REFUSAL")
+
+
+def test_evosafes_roles_keep_an_unlimited_plan_wait(tmp_path, monkeypatch):
+    """plan_max_wait_s: null is no limit, as for every other learner: it reaches the role's session."""
+    from types import SimpleNamespace as NS
+    from hermit.agent.evolver.methods.evosafe import cli_roles
+    seen = {}
+
+    class Agent:
+        def __init__(self, settings):
+            seen.update(settings)
+
+        def run(self, *args, **kwargs):
+            raise KeyboardInterrupt                  # the settings are all this test needs
+    monkeypatch.setattr(cli_roles, "make", lambda backend, settings: Agent(settings))
+    ws = NS(scratch=tmp_path / "scratch", output=tmp_path / "out")
+    ws.scratch.mkdir()
+    ws.output.mkdir()
+    ctx = NS(workspace=ws, params={"login": "claude", "model": "m", "plan_max_wait_s": None}, sandbox=None,
+             cancel=None, tools={})
+    with pytest.raises(KeyboardInterrupt):
+        cli_roles.call_role(ctx, [{"role": "user", "content": "x"}], {"type": "object", "properties": {}},
+                            "trial-001-designer", "claude")
+    assert "plan_max_wait_s" in seen and seen["plan_max_wait_s"] is None

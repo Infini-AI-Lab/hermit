@@ -243,9 +243,9 @@ class MwmEvolver(Evolver):
         params = ctx.params
         if not isinstance(params.get("web_search"), bool):
             raise ValueError("evolver.params.web_search must be set, true or false")
-        return {**{k: params[k] for k in ("model", "binding", "args", "login", "effort", "price", "plan_dir",
-                                          "plan_max_wait_s", "plan_rerun", "usage_credits")
-                   if params.get(k) is not None},
+        return {**{k: params[k] for k in ("model", "binding", "args", "login", "login_root", "effort", "price",
+                                          "plan_dir", "plan_max_wait_s", "plan_rerun", "usage_credits")
+                   if params.get(k) is not None or (k == "plan_max_wait_s" and k in params)},   # None: no limit
                 "web_search": params["web_search"], "isolation": "sandbox", "sandbox": box,
                 "codex_sandbox": "danger-full-access", "shell_env": "all", "home": home,
                 "home_files": params.get("home", []), "log": log, "cancel": ctx.cancel,

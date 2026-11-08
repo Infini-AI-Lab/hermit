@@ -488,7 +488,9 @@ class SandboxedAgent:
         login = self.params.get("login")
         self.chatgpt = self.cli == "codex" and login == "chatgpt"
         self.claude_login = self.cli == "claude" and login == "claude"
-        self.plan = codex_login.plan_dir(self.params.get("plan_dir"), login) \
+        # Under its real name: the sandbox shows a linked path under both names, and the session's cover (the Base
+        # Agent's _bound) hides the one it is given.
+        self.plan = codex_login.plan_dir(self.params.get("plan_dir"), login).resolve() \
             if self.cli and codex_login.LOGINS.get(login) == self.cli else None
         if self.plan is not None:
             self.plan.mkdir(parents=True, exist_ok=True)

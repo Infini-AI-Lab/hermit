@@ -229,6 +229,11 @@ def _session_output(path, places) -> None:
         _clear(path)
 
 
+def _files(root: Path) -> list[Path]:
+    """Every file under `root`, no link followed."""
+    return [Path(directory) / name for directory, _, names in os.walk(root) for name in names]
+
+
 def _scrub_token(paths) -> None:
     """The login's token, wherever it is printed in `paths` (regular files, not followed through a link), replaced by
     its name."""
@@ -705,7 +710,7 @@ class CliAgent(BaseAgent):
             deadline = float(s["deadline"]) if deadline is None else min(deadline, float(s["deadline"]))
         say = lambda m: print(f"hermit {self.name}: {m}", file=sys.stderr, flush=True)
         while True:
-            credits = bool(s.get("usage_credits"))
+            credits = codex_login.opted_in(s.get("usage_credits"))
             waited = codex_login.wait(plan, cancel, say, None if deadline is None else max(0.0, deadline - time.time()),
                                       credits)
             if waited:
@@ -726,12 +731,14 @@ class CliAgent(BaseAgent):
                 report = result.extra.pop("plan_report", None)
                 if report is not None:              # a report in the session's stream, not in its home
                     codex_login.note_usage(plan, None, report)
-                    if report["using_credits"] and not s.get("usage_credits"):
+                    if report["using_credits"] and not codex_login.opted_in(s.get("usage_credits")):
                         say("a session drew the account's usage credits, billed apart from the plan: sessions wait for "
                             "the plan's window (usage_credits: true allows them)")
                         # a hold for the sessions to come: this one does not wait on it
-                        codex_login.hold(plan, report["resets_at"], "usage_credits", cancel=cancel, max_s=0.0)
-                done = result.extra.get("served") or not result.extra.get("refused")
+                        codex_login.hold(plan, report.get("credits_resets_at") or report["resets_at"], "usage_credits",
+                                         cancel=cancel, max_s=0.0)
+                done = result.extra.get("served") or not result.extra.get("refused") or \
+                    result.extra.get("login_failed")      # a sign-in no wait restores: returned, never held or rerun
                 if not done:     # never ran: no answer; every session waits for the window (the refusal's reset)
                     codex_login.hold(plan, until=result.extra.get("held_until") or None, cancel=cancel,
                                      max_s=None if deadline is None else max(0.0, deadline - time.time()))
@@ -926,6 +933,14 @@ class CliAgent(BaseAgent):
                 for place in {*map(str, getattr(sandbox, "writable", ())), *map(str, s.get("writable") or ()),
                               *(str(b.source) for b in getattr(sandbox, "binds", ()) if b.writable)}:
                     drop_unsafe(place)
+            if s.get("login") == "claude":
+                # Outside a container a command of the session can read the login's token from a parent's environment
+                # and print it (in one, nothing the session runs reaches it: CLAUDE_SANDBOX, by_fd, docker/claude/):
+                # what the session leaves (its stream, its stderr, whatever its CLI kept in a kept home: transcripts,
+                # tool results) never carries it, however the session ended.
+                _scrub_token([*([stream] if _identity(stream) == wrote else []),
+                              *([Path(s["stderr_log"])] if s.get("stderr_log") else []),
+                              *([] if fresh else _files(Path(home)))])
             if s.get("login") == "chatgpt":
                 codex_login.keep_refreshed(Path(s.get("login_root") or codex_login.ROOT), home)
                 codex_login.note_usage(codex_login.plan_dir(s.get("plan_dir")), home)
@@ -936,13 +951,6 @@ class CliAgent(BaseAgent):
         # The stream is read back only from the file this process wrote: a session that could write its directory
         # and put a link (or a pipe, or another file) there has left nothing of it to read.
         readable = stream if wrote is not None and _identity(stream) == wrote else Path(os.devnull)
-        if s.get("login") == "claude":
-            # Outside a container a command of the session can read the login's token from a parent's environment and
-            # print it (in one, nothing the session runs reaches it: CLAUDE_SANDBOX, by_fd, docker/claude/): what the
-            # session leaves (its stream, its stderr, its CLI's transcripts in a kept home) never carries it.
-            _scrub_token([*([stream] if readable is stream else []),
-                          *([Path(s["stderr_log"])] if s.get("stderr_log") else []),
-                          *([] if fresh else Path(home).glob("projects/**/*.jsonl"))])
         raw = readable.read_text(encoding="utf-8", errors="replace") if readable is stream else ""
         said = self.outcome(raw, readable, last_file)
         said["failed"] = said.get("failed", False) and not timed_out and not cancelled

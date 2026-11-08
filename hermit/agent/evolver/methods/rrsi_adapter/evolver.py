@@ -1051,10 +1051,10 @@ class RRSIAdapterEvolver(AgentEvolver):
                     box.close()
             self._usage += result.usage
             extra, tail = result.extra, str(result.extra.get("output_tail") or "")
+            if extra.get("login_failed"):                # before a stop: the sign-in is what ended it
+                raise LoginFailed(f"a proposer session: {extra.get('failure')}")
             if extra.get("cancelled") or (ctx.cancel is not None and ctx.cancel.is_set()):
                 raise Stop("stopped by the Trainer during a proposer session")
-            if extra.get("login_failed"):
-                raise LoginFailed(f"a proposer session: {extra.get('failure')}")
             # the Base Agent says whether the plan refused it (hermit >= #69); before, its output's tail is read
             refused = extra["refused"] if "refused" in extra else codex_login.refused(tail)
             if (not extra.get("started") and extra.get("unavailable")) or (not extra.get("served") and refused):

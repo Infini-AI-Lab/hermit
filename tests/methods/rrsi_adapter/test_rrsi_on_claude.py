@@ -92,3 +92,23 @@ def test_rrsi_roles_on_a_binding_take_claudes_provider_settings(stand, tmp_path)
     assert roles.settings["env"]["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:9"
     assert "CLAUDE_CODE_MAX_CONTEXT_TOKENS" not in roles.settings["env"] and roles.settings["env"]["KEEP_ME"] == "1"
     assert not any("model_provider" in str(a) for a in roles.settings.get("args") or [])
+
+
+def test_an_rrsi_roles_failed_sign_in_outranks_the_stop_that_followed(stand, tmp_path, monkeypatch):
+    pytest.importorskip("rrsi")
+    import threading
+    from hermit.agent.base.interface import Result
+    from hermit.agent.evolver.methods.rrsi_adapter.evolver import RRSIAdapterEvolver
+    from hermit.agent.evolver.methods.rrsi_adapter import roles as R
+    ctx = roles_ctx(tmp_path)
+    ctx.cancel = threading.Event()
+    evolver = RRSIAdapterEvolver()
+    evolver.directory = Path(R.__file__).parent
+    roles = evolver._roles(ctx)
+
+    def hung(system, prompt):
+        ctx.cancel.set()
+        return Result(reply="", extra={"login_failed": True, "cancelled": True, "failure": "Not logged in"})
+    monkeypatch.setattr(roles, "_session", hung)
+    with pytest.raises(LoginFailed, match="Not logged in"):
+        roles.generate("again", system="You are the critic.")
