@@ -57,7 +57,7 @@ The rest of the context supplies:
 | `access` | Optional validation data and granted environment paths. |
 | `tools` | Run, task, and template capabilities available to the method. |
 | `message` | Human-readable description of the call and available resources. |
-| `sandbox`, `cancel`, `tool_url` | Program execution helper, cancellation signal, and tool endpoint. |
+| `sandbox`, `cancel`, `tool_url` | The learner's sandbox (it wraps the programs an Evolver starts: the workspace under fixed names below `/w`, paths translated; `sandbox.view(...)` gives a method a view of its own), cancellation signal, and tool endpoint. |
 | `progress` | On step and bootstrap calls: epoch, step, whether the epoch ends here, and, for an Evolver that chooses its tasks, the epoch's training tasks still to run (`remaining`). |
 | `session` | Optional previous learner-session handle when session resume is enabled. |
 

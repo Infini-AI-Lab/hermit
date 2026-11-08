@@ -46,7 +46,8 @@ before that window's checkpoint is tested.
 
 `session_timeout_s` bounds a native session; the Trainer has its own call timeout. Provider arguments and model
 settings belong to the learner session, while acting-model settings belong to the task integration.
-`network_isolation` is a separate MWM setting; understand both that and the outer sandbox configuration.
+The learner's network is the run's evolver sandbox's: its model (the meter), the tool endpoint and
+`sandbox.evolver.allowed_hosts` (the removed `network_isolation` setting is refused).
 
 Use benchmark-specific scoring for streaming experiments. A single aggregate test call cannot express all
 per-window or environment-state protocols; see [Evaluation](../guides/evaluation.md#ordered-streams).

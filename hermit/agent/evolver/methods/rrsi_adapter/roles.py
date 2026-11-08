@@ -4,11 +4,11 @@ Upstream's analyst, digester and critic (rrsi.analyst, rrsi.digester, rrsi.criti
 json_only, ...)`, Claude Opus 4.8 on Vertex AI (rrsi.llm). Here `generate` is rebound in those three modules, for the
 duration of a call, to `Roles.generate`: one call of the `codex` Base Agent (`make("codex", settings).run`,
 docs/framework/agent-layers.md), the way the Evolver's proposer is one, with the role's system text as the session's
-developer instructions and the prompt on stdin. The session runs under the run's sandbox with the workspace's records
-hidden (`Limits.hidden`), Codex's own sandbox read-only, in an empty directory, so a role answers from the text it is
-given, as upstream's do; a digester's session runs in the round's rendered traces instead, the directory upstream's
-digester reads with its read_file/grep/bash actions. The reply is the session's last message; with `json_only`,
-upstream's own `extract_json` cuts the JSON out of it, as upstream's `generate` does.
+developer instructions and the prompt on stdin. The session runs in a view of the run's sandbox that shows its own call
+directory and nothing else the run keeps, Codex's own sandbox read-only, in an empty directory, so a role answers from
+the text it is given, as upstream's do; a digester's session runs in the round's rendered traces instead, the directory
+upstream's digester reads with its read_file/grep/bash actions. The reply is the session's last message; with
+`json_only`, upstream's own `extract_json` cuts the JSON out of it, as upstream's `generate` does.
 
 The roles are not calls of the run's model (`ctx.agent`): through the Trainer's chat endpoint a session for a model
 only Codex serves runs in an empty workspace of its own, and a digester there, told its trace is in its working
@@ -69,48 +69,40 @@ def bound(generate, digester_subprocess=None):
 
 class SandboxedSubprocess:
     """What the digester sees as `subprocess` while bound: its `run(cmd, shell=True, cwd=...)` runs the command
-    under the run's sandbox with the workspace's records covered, as every other command a learner starts does.
-    Upstream's allowlist of read-only commands (rrsi.digester._bash_ok) still applies before it is called.
-
-    The digester runs its shell in the round's rendered traces, which upstream writes under the run's state, and the
-    sandbox covers the state: a working directory under a covered path is replaced by `visible`, a copy of those
-    traces outside the state, so relative paths name the same files."""
+    under the run's evolver sandbox with nothing shown but its working directory (the round's rendered traces,
+    read-only), as every other command a learner starts runs in a sandbox. Upstream's allowlist of read-only commands
+    (rrsi.digester._bash_ok) still applies before it is called."""
 
     TimeoutExpired = subprocess.TimeoutExpired
     CalledProcessError = subprocess.CalledProcessError
 
-    def __init__(self, sandbox, hide: list[Path], visible: Path | None = None):
-        self.sandbox, self.hide, self.visible = sandbox, list(hide), visible
-
-    def _cwd(self, cwd):
-        if cwd is None or self.visible is None:
-            return cwd
-        c = Path(cwd).resolve()
-        covered = any(c == h.resolve() or h.resolve() in c.parents for h in self.hide)
-        return str(self.visible) if covered else cwd
+    def __init__(self, sandbox, visible: Path | None = None):
+        self.sandbox, self.visible = sandbox, visible
 
     def run(self, cmd, shell: bool = False, cwd=None, **kw):
         args = ["bash", "-c", cmd] if shell else list(cmd)
         env = kw.pop("env", None)
-        cwd = self._cwd(cwd)
-        if self.sandbox is not None:
-            from hermit.sandbox import HidingSandbox
-            args, env = HidingSandbox(self.sandbox, self.hide).wrap(args, env=dict(env or os.environ))
-            if self.hide and getattr(self.sandbox, "enabled", False) and \
-                    not any(os.path.basename(str(a)) == "bwrap" for a in args):
-                # the run's sandbox ran unconfined (no bubblewrap, enforce: best_effort): nothing would be covered,
-                # so the command is refused, as the Base Agent refuses a session it cannot hide paths from
-                raise RuntimeError("the digester's shell needs bubblewrap to hide the run's records")
-        return subprocess.run(args, cwd=cwd, env=env, **kw)
+        cwd = cwd if cwd is not None else self.visible
+        if self.sandbox is None:
+            return subprocess.run(args, cwd=cwd, env=env, **kw)
+        box = self.sandbox.view(readable=[Path(cwd)] if cwd is not None else [])
+        try:
+            args, env = box.wrap(args, env=dict(env or os.environ), chdir=cwd)
+            if getattr(self.sandbox, "enabled", False) and not any(os.path.basename(str(a)) == "bwrap" for a in args):
+                # the run's sandbox ran unconfined (no bubblewrap, enforce: best_effort): the command would see the
+                # run's records, so it is refused, as an unconfined learner session would be recorded
+                raise RuntimeError("the digester's shell needs bubblewrap to keep it to the round's traces")
+            return subprocess.run(args, cwd=cwd, env=env, **kw)
+        finally:
+            box.close()
 
 
 class Roles:
     """`generate` for upstream's one-call roles, each call one session of the `codex` Base Agent with `settings`."""
 
-    def __init__(self, ctx, settings: dict, log_dir: Path, hide: list[Path] = (), records: Path | None = None):
+    def __init__(self, ctx, settings: dict, log_dir: Path, records: Path | None = None):
         self.ctx, self.settings, self.log_dir = ctx, dict(settings), Path(log_dir)
         self.records = Path(records) if records is not None else self.log_dir
-        self.hide = [Path(p) for p in hide]
         self.usage: list[Usage] = []
         self.calls = 0
         self.traces: Path | None = None          # the round's rendered traces, the digesters' working directory
@@ -120,7 +112,7 @@ class Roles:
         self.records.mkdir(parents=True, exist_ok=True)
 
     def sandboxed_subprocess(self) -> SandboxedSubprocess:
-        return SandboxedSubprocess(self.ctx.sandbox, self.hide, visible=self.traces)
+        return SandboxedSubprocess(self.ctx.sandbox, visible=self.traces)
 
     def _cancelled(self) -> bool:
         return self.ctx.cancel is not None and self.ctx.cancel.is_set()
@@ -188,11 +180,18 @@ class Roles:
         extra, text = codex_instructions(system, prompt)
         settings = {**self.settings, "home": call / "home", "log": rec / "events.jsonl", "stdin": True,
                     "args": [*(self.settings.get("args") or []), *extra], "cancel": self.ctx.cancel}
-        # nor the other calls' homes and records-in-progress, nor the round's traces unless it is a digester
-        others = [p for p in sorted(self.log_dir.iterdir()) if p.resolve() not in (call.resolve(), Path(cwd).resolve())]
-        hidden = [*self.hide, *others] if getattr(self.ctx.sandbox, "enabled", False) else []
+        # Each session sees only its own call directory and, a digester, the round's traces: not the run's records,
+        # the other calls' homes or the records in progress.
+        box = None
+        if self.ctx.sandbox is not None and getattr(self.ctx.sandbox, "enabled", False):
+            box = self.ctx.sandbox.view(readable=[Path(cwd)] if Path(cwd) != work else [], writable=[call])
+            settings["sandbox"] = box
         started = time.time()
-        result = make("codex", settings).run(text, workspace=cwd, limits=Limits(hidden=hidden))
+        try:
+            result = make("codex", settings).run(text, workspace=cwd, limits=Limits())
+        finally:
+            if box is not None:
+                box.close()
         with self._lock:
             self.usage += result.usage
         (rec / "reply.txt").write_text(result.reply)

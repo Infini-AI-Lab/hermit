@@ -13,6 +13,7 @@ import pytest
 from hermit.agent.base import trajectory
 from hermit.agent.acting import workspace as cli
 from hermit.agent.base import cli as base_cli
+from hermit.agent.base.interface import Limits as LIMITS
 from hermit.agent.base import container, login
 from hermit.agent.base.interface import make
 
@@ -176,6 +177,26 @@ def test_a_provider_that_could_not_serve_is_run_again(fake, monkeypatch):
     with pytest.raises(RuntimeError, match="could not be served after 2 attempts"):
         cli.run({"id": "q2"}, None, params={"web_search": False, "prompt": "go", "workspaces": "ws", "retries": 2, "retry_wait_s": 0},
                 base=tmp_path)
+    # deadline_s bounds every attempt and wait together: past it no attempt starts and no wait is slept out
+    import time as _time
+    t0 = _time.time()
+    with pytest.raises(RuntimeError, match="could not be served"):
+        cli.run({"id": "q3"}, None, params={"web_search": False, "prompt": "go", "workspaces": "ws", "retries": 5,
+                                            "retry_wait_s": 30, "deadline_s": 1}, base=tmp_path)
+    assert _time.time() - t0 < 20
+
+
+def test_the_session_is_given_what_is_left_of_deadline_s_after_its_preparation(fake, monkeypatch):
+    """A container session must end before its worker is stopped: the time the deployment takes comes off the
+    session's timeout."""
+    import time as _time
+    tmp_path = fake
+    deploy, given = cli._deploy, []
+    monkeypatch.setattr(cli, "_deploy", lambda *a, **k: (_time.sleep(1.5), deploy(*a, **k))[1])
+    monkeypatch.setattr(cli, "Limits", lambda **kw: given.append(kw["timeout_s"]) or LIMITS(**kw))
+    cli.run({"id": "q1"}, None, params={"web_search": False, "prompt": "go", "workspaces": "ws", "deadline_s": 10},
+            base=tmp_path)
+    assert given and given[0] <= 8.6
 
 
 def test_a_line_of_the_clis_own_output_that_parses_as_json_is_not_an_event(fake):
@@ -218,6 +239,50 @@ def test_the_chatgpt_login_is_copied_refreshed_back_and_removed(fake, monkeypatc
     assert master["last_refresh"] == "2026-10-30T12:00:00Z"                       # the session's refresh came back
     assert json.loads((user / "auth.json").read_text())["last_refresh"] == "2026-10-01T00:00:00Z"   # never written
     assert out.cost_usd is None
+
+
+def test_every_cli_base_agent_fills_in_its_hooks_and_is_made_by_each_of_its_names():
+    """A CLI is added as one CliAgent subclass in CLIS: a hook it leaves out would fail only in its first session."""
+    from inspect import getattr_static
+    from hermit.agent.base.trajectory import READERS, STREAM_HOSTS
+    from hermit.isolate import CLI_HOMES
+    hooks = ("command", "web_search_args", "system_settings", "last_message", "parse", "steps")
+    for name, cls in base_cli.CLIS.items():
+        assert type(make(name)) is cls and name in (cls.backend, *cls.aliases)
+        for hook in hooks:                       # its own, not CliAgent's NotImplementedError
+            assert getattr_static(cls, hook) is not vars(base_cli.CliAgent)[hook], (cls, hook)
+        assert cls.label and cls.program and cls.home_var and cls.user_folder and cls.home_files and cls.turn_done, cls
+        assert set(cls.isolations) <= set(base_cli.ISOLATIONS)
+        assert CLI_HOMES[cls.backend] == (cls.user_folder, cls.home_var, cls.home_files[0])
+        assert cls.backend in READERS and cls.backend in STREAM_HOSTS.values(), cls     # its stream is read back
+
+
+def test_a_new_cli_keeps_its_home_variable_in_the_sandbox_and_its_isolations(fake, monkeypatch):
+    """A CLI subclass's own home variable passes the sandbox's environment filter, and an isolation it does not
+    declare is refused whichever it is."""
+    from hermit.sandbox import Sandbox
+
+    class Other(base_cli.Codex):
+        home_var = "OTHER_CLI_HOME"
+        isolations = ("sandbox",)
+
+        def home_env(self, home):                # the fake Codex still finds its home by CODEX_HOME
+            return {**super().home_env(home), "CODEX_HOME": str(home)}
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    seen = []
+    box = Sandbox(enabled=False, role="agent")
+    real = box.wrap
+
+    def wrap(command, **kw):
+        seen.append(list(kw.get("keep") or []))
+        return real(command, **kw)
+    monkeypatch.setattr(box, "wrap", wrap)
+    (fake / "w").mkdir()
+    result = Other({"web_search": False, "model": "gpt-x", "home_files": [], "isolation": "sandbox",
+                    "sandbox": box}).run("go", workspace=fake / "w")
+    assert result.extra["served"] and seen and "OTHER_CLI_HOME" in seen[0]
+    with pytest.raises(base_cli.Unsupported, match="takes isolation sandbox"):
+        Other({"web_search": False, "isolation": "none"})._isolation(fake / "w", LIMITS())
 
 
 def test_web_search_is_set_explicitly_either_way(fake, tmp_path):
@@ -411,7 +476,7 @@ def test_a_login_session_waits_for_the_plan_and_runs_again_when_refused(fake, mo
     seen = {"waits": 0, "sessions": 0, "holds": 0}
     monkeypatch.setattr(L, "wait", lambda plan=None, cancel=None, log=None, max_s=None:
                         seen.__setitem__("waits", seen["waits"] + 1) or "")
-    monkeypatch.setattr(L, "hold", lambda plan=None: seen.__setitem__("holds", seen["holds"] + 1))
+    monkeypatch.setattr(L, "hold", lambda plan=None, *_: seen.__setitem__("holds", seen["holds"] + 1))
     agent = make("codex", {"web_search": False, "login": "chatgpt", "model": "gpt-x", "login_root": str(root),
                            "plan_dir": str(tmp_path / "plan")})
     real = type(agent)._session
@@ -498,13 +563,13 @@ def test_the_plan_holds_sessions_after_a_refusal_and_counts_slots(tmp_path):
 def test_a_cli_answers_chat_requests_for_code_that_calls_a_chat_api(fake):
     """`llm: {cli: codex, ...}`: each chat request is one session; the system messages are its developer instructions,
     the rest its prompt on stdin, the effort the request's; the reply is the session's last message with its usage.
-    The learner is an agent that can run commands: only a container of its own is accepted."""
+    The learner is an agent that can run commands: only a sandbox of its own (the Trainer's) or a container."""
     from hermit.agent.base.endpoint import ChatEndpoint, cli_model, split_messages
     from hermit.agent.model.llm import ChatClient
-    for spec in ({"cli": "codex", "model": "gpt-x", "web_search": False},
-                 {"cli": "codex", "isolation": "sandbox", "web_search": False}):
-        with pytest.raises(ValueError, match="isolation: container"):
-            cli_model(spec)
+    with pytest.raises(ValueError, match="which the Trainer makes"):
+        cli_model({"cli": "codex", "model": "gpt-x", "web_search": False})          # isolation: sandbox, the default
+    with pytest.raises(ValueError, match="isolation: sandbox"):
+        cli_model({"cli": "codex", "isolation": "none", "web_search": False})
     endpoint = ChatEndpoint(make("codex", {"model": "gpt-x", "web_search": False})).start()   # the answering path
     client = ChatClient(endpoint.url, "gpt-x")
     message, usage = client.chat([{"role": "system", "content": "Be terse."}, {"role": "user", "content": "Sum it."}],
@@ -617,7 +682,7 @@ def test_the_longest_wait_counts_over_every_wait_of_a_session(fake, monkeypatch)
         given.append(max_s)
         return "" if len(given) == 1 else "timeout"
     monkeypatch.setattr(L, "wait", wait)
-    monkeypatch.setattr(L, "hold", lambda plan=None: None)
+    monkeypatch.setattr(L, "hold", lambda plan=None, *_: None)
     agent = make("codex", {"web_search": False, "login": "chatgpt", "model": "gpt-x", "login_root": str(root),
                            "plan_dir": str(tmp_path / "plan"), "plan_max_wait_s": 1000})
     real = type(agent)._session
@@ -696,7 +761,7 @@ def test_a_refused_session_is_returned_when_plan_rerun_is_off(fake, monkeypatch)
                                                           "last_refresh": "2026-01-01T00:00:00Z"}))
     holds = []
     monkeypatch.setattr(L, "wait", lambda plan=None, cancel=None, log=None, max_s=None: "")
-    monkeypatch.setattr(L, "hold", lambda plan=None: holds.append(1))
+    monkeypatch.setattr(L, "hold", lambda plan=None, *_: holds.append(1))
     monkeypatch.setenv("FAKE_REFUSED", "1")
     agent = make("codex", {"web_search": False, "login": "chatgpt", "model": "gpt-x", "login_root": str(root),
                            "plan_dir": str(fake / "plan"), "plan_rerun": False})
@@ -975,3 +1040,98 @@ def test_a_session_the_plan_served_is_not_refused(fake, monkeypatch):
     assert result.extra["served"] and not result.extra["refused"] and result.reply.endswith("<answer>44,463</answer>")
 
 
+
+
+def test_a_cli_chat_session_in_a_sandbox_is_granted_its_empty_workspace(fake, monkeypatch):
+    """llm.cli in the Trainer's sandbox for it: each chat session's empty workspace is the one path it writes besides
+    its home (it lies in nothing the sandbox grants)."""
+    from hermit.agent.base.endpoint import cli_model
+    from hermit.sandbox import Sandbox
+    seen = []
+    box = Sandbox(enabled=False, role="llm")
+    real = box.wrap
+
+    def wrap(command, **kw):
+        seen.append([str(p) for p in kw.get("writable") or []])
+        return real(command, **kw)
+    monkeypatch.setattr(box, "wrap", wrap)
+    client = cli_model({"cli": "codex", "model": "gpt-x", "web_search": False}, sandbox=box)
+    client.chat([{"role": "user", "content": "Sum it."}])
+    assert seen and any("hermit-chat-codex-" in p for p in seen[0])
+
+
+def test_a_kept_cli_chat_stream_is_scrubbed_of_model_keys(fake, monkeypatch):
+    """llm.cli's streams the run keeps (log_dir: the run's llm_sessions/) hold no model key's value."""
+    from hermit.agent.base.endpoint import ChatEndpoint
+    from hermit.agent.model.llm import ChatClient
+    key = "sk-session-key-0123456789abcdef"
+    monkeypatch.setenv("SESSION_API_KEY", key)
+    monkeypatch.setenv("FAKE_OWN_TEXT", f"printed {key}")
+    logs = fake / "llm_sessions"
+    with ChatEndpoint(make("codex", {"model": "gpt-x", "web_search": False, "log_dir": str(logs)})) as endpoint:
+        ChatClient(endpoint.url, "gpt-x").chat([{"role": "user", "content": "Sum it."}])
+    kept = list(logs.glob("*-codex.jsonl"))
+    assert len(kept) == 1 and key not in kept[0].read_text() and "<SESSION_API_KEY>" in kept[0].read_text()
+
+
+def test_a_cli_chat_calls_separate_stderr_log_is_scrubbed_too(fake, monkeypatch, tmp_path):
+    from hermit.agent.base.endpoint import cli_answer
+    key = "sk-stderr-key-0123456789abcdef"
+    monkeypatch.setenv("STDERR_API_KEY", key)
+    stderr_log = tmp_path / "stderr.log"
+
+    def run(self, *a, **k):
+        stderr_log.write_text(f"printed {key}\n")
+        raise RuntimeError("the session failed")
+    monkeypatch.setattr(base_cli.CliAgent, "run", run)
+    with pytest.raises(RuntimeError):
+        cli_answer(make("codex", {"model": "gpt-x", "web_search": False, "stderr_log": str(stderr_log)}),
+                   {"messages": [{"role": "user", "content": "Sum it."}]})
+    assert stderr_log.read_text() == "printed <STDERR_API_KEY>\n"
+
+
+def test_a_cli_chat_calls_own_log_is_scrubbed_too(fake, monkeypatch, tmp_path):
+    from hermit.agent.base.endpoint import ChatEndpoint
+    from hermit.agent.model.llm import ChatClient
+    key = "sk-own-log-key-0123456789abcdef"
+    monkeypatch.setenv("OWNLOG_API_KEY", key)
+    monkeypatch.setenv("FAKE_OWN_TEXT", f"printed {key}")
+    mine = tmp_path / "mine.jsonl"
+    with ChatEndpoint(make("codex", {"model": "gpt-x", "web_search": False, "log": str(mine)})) as endpoint:
+        ChatClient(endpoint.url, "gpt-x").chat([{"role": "user", "content": "Sum it."}])
+    assert key not in mine.read_text() and "<OWNLOG_API_KEY>" in mine.read_text()
+
+
+def test_a_cli_chat_log_written_through_a_link_is_scrubbed_at_its_target(fake, monkeypatch, tmp_path):
+    from hermit.agent.base.endpoint import ChatEndpoint
+    from hermit.agent.model.llm import ChatClient
+    key = "sk-linked-key-0123456789abcdef"
+    monkeypatch.setenv("LINKED_API_KEY", key)
+    monkeypatch.setenv("FAKE_OWN_TEXT", f"printed {key}")
+    target, link = tmp_path / "target.jsonl", tmp_path / "link.jsonl"
+    target.write_text("")
+    link.symlink_to(target)
+    with ChatEndpoint(make("codex", {"model": "gpt-x", "web_search": False, "log": str(link)})) as endpoint:
+        ChatClient(endpoint.url, "gpt-x").chat([{"role": "user", "content": "Sum it."}])
+    assert key not in target.read_text() and "<LINKED_API_KEY>" in target.read_text()
+
+
+def test_a_session_whose_bwrap_exits_before_the_relay_closes_its_report_listener(fake, monkeypatch):
+    """bubblewrap exiting non-zero (no user namespaces) returns from run_process instead of raising: the wrapped
+    command's report listener is closed either way."""
+    import hermit.sandbox as sandbox_module
+    from hermit.sandbox import Sandbox
+    real_which = sandbox_module.shutil.which
+    monkeypatch.setattr(sandbox_module.shutil, "which",
+                        lambda name, *a, **k: "/usr/bin/bwrap" if name == "bwrap" else real_which(name, *a, **k))
+    box = Sandbox(network="isolated")
+    abandoned = []
+    real = box.abandon
+    monkeypatch.setattr(box, "abandon", lambda args: (abandoned.append(1), real(args)))
+    monkeypatch.setattr(base_cli, "run_process", lambda *a, **k: (1, False, False))
+    try:
+        make("codex", {"model": "gpt-x", "web_search": False, "isolation": "sandbox", "sandbox": box}).run(
+            "Sum it.", workspace=fake / "ws")
+    finally:
+        box.close()
+    assert abandoned

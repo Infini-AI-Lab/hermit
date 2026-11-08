@@ -71,6 +71,22 @@ Evolver's missing-dependency error prints them. Documentation build dependencies
 The upstream Harness² package supports Python 3.12 and 3.13 only, so `--group harness2` and `--group all` fail on
 Python 3.14; install `gepa` and `skillopt` separately there.
 
+## Install the sandbox's packages
+
+The bubblewrap sandboxes (the acting agent's, the learner's, the adapter's) show the environment Hermit runs in:
+what is installed there is what their code can import. The `sandbox` extra installs a base, numpy, pandas, scipy
+and torch:
+
+```bash
+python -m pip install -e ".[sandbox]"      # a checkout
+python -m pip install "hermit-harness[sandbox]"
+```
+
+PyPI's torch for Linux is the CUDA build; for the CPU one, install torch first from
+`https://download.pytorch.org/whl/cpu`. Install Hermit in an environment of its own: a package installed beside it
+is shown to the sandboxes too (`sandbox.hide` covers a benchmark's scoring module; an editable install's checkout is
+never shown).
+
 ## Choose the additional requirements
 
 | Workflow | Additional requirements |
@@ -88,8 +104,8 @@ Python 3.14; install `gepa` and `skillopt` separately there.
 | MWM | Linux learner environment, Codex, evidence store, task deployment contract, model access |
 | Benchmark recipe | Its dataset, scorer, model settings, and environment; see [catalog](../recipes/index.md) |
 
-Core installation and the deterministic tutorial work on macOS. Sandboxed learner **programs** use a
-Linux-specific bubblewrap backend. For Ubuntu/Debian:
+Core installation and the deterministic tutorial work on macOS. The sandboxes (the acting agent's, the judge's, the
+learner's) use a Linux-specific bubblewrap backend; macOS has no evolver sandbox. For Ubuntu/Debian:
 
 ```bash
 sudo apt-get install bubblewrap
@@ -97,8 +113,9 @@ bwrap --version
 ```
 
 The environment must permit the required namespaces. Installing the binary alone may not satisfy a container or
-cluster's namespace policy. The sandbox does not isolate your acting pipeline or arbitrary in-process Python.
-See [sandbox boundaries](../framework/configuration.md#sandbox-network-and-warnings).
+cluster's namespace policy (on Ubuntu 24.04, unprivileged user namespaces need an AppArmor profile for bwrap or the
+`kernel.apparmor_restrict_unprivileged_userns=0` setting). The sandbox does not isolate arbitrary in-process Python.
+See [sandbox boundaries](../framework/configuration.md#sandboxes).
 
 A recipe or method can support fewer Python versions than the core. Check external dependencies separately.
 For exact experiment reproduction, record the framework commit and dependency revisions.
@@ -111,8 +128,8 @@ From the source checkout:
 hermit check --config docs/_examples/first_training/run.yaml
 ```
 
-The probe should score the first toy task zero without execution errors. Its sandbox-disabled warning is expected
-for the included in-process, offline teaching learner. Continue to [Quick Start](quickstart.md) to train and evaluate it.
+The probe should score the first toy task zero without execution errors, its agent in the task sandbox. The
+`best_effort` warning is expected: the example runs where bubblewrap is missing too, unconfined and recorded. Continue to [Quick Start](quickstart.md) to train and evaluate it.
 
 ## Optional: build documentation
 

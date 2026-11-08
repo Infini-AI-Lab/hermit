@@ -29,10 +29,10 @@ Also needed:
   Responses API ([Run in the Codex harness](#run-in-the-codex-harness)).
 
 The models are backend references ([Model backends](../guides/model-backends.md)). The acting agent is GLM 5.3 Flash
-on Fireworks (`fireworks/accounts/fireworks/models/glm-5p3-flash`, the default of `utils/agent/agent.py`) and the
-configs' learner (`llm`) GLM 5.3 on Fireworks, both at reasoning effort medium; the paper's learner is GPT-5.5 at
-medium. `model=<backend>/<model id>` on the command line moves the acting agent; the configs set `llm` and keep their
-learner unless `llm=...` is given too. Dollar accounting uses the backend's prices; verify them for your endpoint.
+on Fireworks (`fireworks/accounts/fireworks/models/glm-5p3-flash`, the configs' top-level `model`) and the configs'
+learner (`llm`) GLM 5.3 on Fireworks, both at reasoning effort medium; the paper's learner is GPT-5.5 at medium.
+`model=<backend>/<model id>` on the command line moves the acting agent; the configs set `llm` and keep their learner
+unless `llm=...` is given too. Dollar accounting uses the backend's prices; verify them for your endpoint.
 
 The agent acts in one of the paper's two harnesses (`agent.params.harness`), with the question and its parsed source
 pages in either:
@@ -59,7 +59,7 @@ splits/                   train.txt, val.txt and test.txt (50 / 24 / 172 ids), a
 data.json                 absolute paths of the corpus, the answers and the CSV, and drifted_from_split
 seed_adapter/             SkillOpt's initial OfficeQA skill as a prompt-only@1.0 adapter, where every config starts
 .private/answers.jsonl    the answers, which the judge reads
-documents                 a link to the corpus: what the agent's sandbox is granted (`.private/` is covered inside)
+documents                 a link to the corpus: what the agent's sandbox shows (`environment.read`); `.private/` is not
 ```
 
 The split comes from SkillOpt's repository at a pinned commit unless `--split-dir` names a local copy of its
@@ -91,9 +91,10 @@ three passes each (`eval.repeats`): `final`, the seed skill the run started from
 that the integration works; four test questions cannot establish a performance gain, and no smoke scores are
 reported on this page.
 
-The configs request the Evolver's sandbox (`sandbox.network: restricted`, allowing only the learner's model endpoint
-and passing only its key variable). The in-process `gepa` method calls the run's model tool directly; enabling the
-sandbox does not turn the whole Python process into an isolated environment.
+The configs run the acting agent in the task sandbox (`environment`: its code, `data.json` and the corpus, the
+`skillopt` package; never `.private/` or the judge) and the learner in the evolver sandbox, each given its model's
+key variable and provider host. The in-process `gepa` method calls the run's model tool directly;
+enabling the sandbox does not turn the whole Python process into an isolated environment.
 
 Paths in a config are relative to its file, so the run is under `examples/officeqa/gepa/runs/smoke-gepa/`
 ([Outputs and scoring](#outputs-and-scoring) lists what it holds). Read the trained skill and its card, and deploy
@@ -200,7 +201,7 @@ trace summary for its analyst. Harness², Continual Harness, ReHarness's Codex s
 made with this agent's deployment and session (formerly `utils/agent/codex_agent.py`, now removed). Compare rows made with one
 harness; SkillOpt's Evolver now builds its Codex trace summary from the session's event stream.
 
-Each Codex session runs in a Docker container of its own (`isolation: container`, `hermit/agent/base/container.py`):
+Each Codex session runs in a Docker container of its own (`environment.image`, `hermit/agent/base/container.py`):
 
 - Files: only its workspace, a fresh Codex home and the corpus (read-only), with a private `/tmp`.
 - Network: the containers sit on an internal Docker network with no route out; their only way out is an HTTPS proxy
@@ -230,9 +231,10 @@ docker network connect oq-sandbox oq-egress
 cd -    # back to the repository root
 ```
 
-Each config names its image, network and proxy in `agent.codex.container` (`run_codex.yaml` and `smoke_codex.yaml`
-`officeqa-codex:0.134.0`, the Flash row's configs `officeqa-codex:0.162.0`; build that one the same way); override
-them on the command line (`agent.codex.container.image=...`). The proxy above lets through only Fireworks: for
+Each config names its image in `environment.image` and its network and proxy in `environment.container`
+(`run_codex.yaml` and `smoke_codex.yaml` `officeqa-codex:0.134.0`, the Flash row's configs `officeqa-codex:0.162.0`;
+build that one the same way); override them on the command line (`environment.image=...`,
+`environment.container.proxy=...`). The proxy above lets through only Fireworks: for
 another backend, start one with that backend's `host:port` (a plain-HTTP or local endpoint cannot be reached from the
 network); for a ChatGPT login, with `chatgpt.com:443 auth.openai.com:443`, and the model named by the login
 (`agent.model.ref=null agent.model.name=gpt-6-luna agent.model.login=chatgpt`).
@@ -261,8 +263,8 @@ checkout, so no repository instructions reach the session; each rollout's events
 
 ### Through Harbor
 
-The same Codex harness runs through [Harbor](../framework/task.md#benchmarks) instead of
-`codex_sandbox.py`: each question is a Harbor task, and Harbor starts the container, installs Codex, deploys the
+The same Codex harness runs through [Harbor](../framework/task.md#benchmarks) instead of a container of the
+acting agent's own (`environment.image`): each question is a Harbor task, and Harbor starts the container, installs Codex, deploys the
 skill and runs the judge inside, after the session. Build the task set once (private: it holds the answers), then
 run a method's `run_codex_harbor.yaml` with the corpus mounted where the tasks expect it:
 
@@ -298,8 +300,9 @@ For a model the ChatGPT login serves ([the Flash row with GPT-5.6-Luna](#the-fla
 carries the machine's own standalone Codex and the egress proxy lets through chatgpt.com and auth.openai.com. `codex
 login` on the machine once: the Codex agent (`login: chatgpt`) gives each session a copy of the login from one shared
 copy (`~/.cache/hermit/codex-login/`), to which each session's refreshed token is written back, so a rotated token
-reaches the next session. The learners' calls (`llm: {cli: codex, ...}`) are each one Codex session with the same
-login, image and proxy, started by the Trainer itself; Harness²'s editors are Codex sessions in the run's sandbox
+reaches the next session. The learners' calls (`llm: {cli: codex, ...}`) are each one Codex session on the same
+login in a bubblewrap sandbox of its own, started by the Trainer (its empty workspace, the login's hosts through a
+proxy of its own; `isolation: container` gives it this image and proxy instead); Harness²'s editors are Codex sessions in the run's sandbox
 (`evolver.params.backend: codex`). Sessions on the login share its plan, and files under
 `~/.cache/hermit/codex-login/plan/` steer every running session: `PAUSE` holds new sessions back, a number in
 `MAX_USED` holds them while the plan's fullest window is at or above that percent, a number in `SLOTS` caps how many
@@ -547,8 +550,8 @@ A run's records are under `examples/officeqa/<method>/runs/<run name>/` (`<run>`
 | `<run>/eval/<selector>/summary.json` | `mean_score` over all attempts, `solved_once`, `errors`, `cost_usd` |
 | `<run>/eval/<selector>/results.jsonl` | per attempt: the judge's score and feedback, `tokens`, `wall_s`, log path |
 | `examples/officeqa/<method>/runs/trees/<run name>/` | Git history of the adapter versions |
-| `examples/officeqa/utils/agent/.logs/` | direct-chat rollouts: SkillOpt's prediction files |
-| `~/.cache/hermit/officeqa-*-codex*/<task>-<id>/` | Codex-harness runs: `work/` (the workspace), `log/` (the session's `agent-codex.jsonl`, prompt, last message, deployment, `task.md`) |
+| `examples/officeqa/<method>/.logs/rollout/<task>-<id>/agent-logs/0/` | direct-chat rollouts: SkillOpt's prediction files (each call's own `.logs`, the directory the agent sees beside its file; `agent.params.logs` moves them); the learner reads the rollouts' copies in `<run>/learning_material/step_NNNN/trajectories/`, and its own `run_agent` calls' in `<run>/agent_logs/` |
+| `~/.cache/hermit/officeqa-*-codex*/<task>-<id>/` | Codex-harness runs: `work/` (the workspace), `log/` (the session's `agent-codex.jsonl`, prompt, last message, deployment, `task.md`), a model key's value scrubbed after the call |
 | `docker logs oq-egress` | every connection the Codex sessions made or were refused |
 
 `<selector>` is `final`, `none`, `adapter`, or a directory's name such as `seed_adapter`; re-evaluating a selector
@@ -738,14 +741,14 @@ Meta-Harness Adapter was not run. RRSI Adapter ran later (`rrsi_adapter/run_luna
 the agent layers: the framework's Codex agent with its deployment (`ADAPTER.md` in `AGENTS.md`, every other file under
 `hermit/rrsi-adapter/` and named there), the proposer and the search roles sessions of the `codex` Base Agent, behind
 an egress proxy that lets through chatgpt.com only (`agent.codex.container.proxy` and `sandbox.allow` on the command
-line). What differs:
+line; today's keys: `environment.container.proxy` and `sandbox.evolver.allowed_hosts`). What differs:
 
 | Setting | The Flash row | With GPT-5.6-Luna |
 |---|---|---|
 | acting model | `fireworks/accounts/fireworks/models/glm-5p3-flash` through a Codex custom provider | `gpt-5.6-luna` with `login: chatgpt`: Codex's built-in provider on a per-session copy of the ChatGPT login (`hermit/agent/base/login.py`) |
 | Codex's tools and prompt for the model | GLM is not in Codex's model catalog: default function tools (`exec_command`), the 20,751-character fallback prompt | Codex fetches gpt-5.6-luna's catalog entry from chatgpt.com at each session start: code mode only (a JavaScript `exec` tool that calls `exec_command`), a 17,730-character base prompt, verbosity low, tool output cut at 10,000 tokens; it stayed the same throughout the runs |
-| learner (`llm`: GEPA, SkillOpt, Continual Harness, ReHarness's reflection and revision agents) | a chat completion to the same GLM (system prompt as such, `max_tokens` applied, 600 s timeout) | `llm: {cli: codex, model: gpt-5.6-luna, login: chatgpt}`: each call is one `codex exec` in a container (`hermit/agent/base/endpoint.py`), with Codex's base prompt and the call's system text as developer instructions; `max_tokens` is recorded, not applied (no reply came near one); `llm.timeout` 3,600 s |
-| Harness² editors | Claude Code (`claude -p`) on GLM through a wire meter | Codex sessions in hermit's sandbox (`evolver.params.backend: codex`), `sandbox.allow: [chatgpt.com, auth.openai.com]`, a tree of its own |
+| learner (`llm`: GEPA, SkillOpt, Continual Harness, ReHarness's reflection and revision agents) | a chat completion to the same GLM (system prompt as such, `max_tokens` applied, 600 s timeout) | `llm: {cli: codex, model: gpt-5.6-luna, login: chatgpt}`: each call is one `codex exec` in a sandbox of its own (`hermit/agent/base/endpoint.py`; the runs reported here gave it a container, `isolation: container`), with Codex's base prompt and the call's system text as developer instructions; `max_tokens` is recorded, not applied (no reply came near one); `llm.timeout` 3,600 s |
+| Harness² editors | Claude Code (`claude -p`) on GLM through a wire meter | Codex sessions in hermit's sandbox (`evolver.params.backend: codex`), `sandbox.allow: [chatgpt.com, auth.openai.com]` (today `sandbox.evolver.allowed_hosts`), a tree of its own |
 | Codex | 0.162.0 (npm package), image `officeqa-codex:0.162.0` | the machine's standalone 0.164.0, pinned, image `officeqa-codex:0.164.0` (`docker/codex/Dockerfile.standalone`) |
 | egress | `oq-egress`: api.fireworks.ai:443 only | `oq-egress-login`: chatgpt.com:443 and auth.openai.com:443 |
 | concurrency on the machine | each run's own | each session on the login, acting or learning, holds one of the machine's session slots (`hermit/agent/base/login.py`: a number in the file `SLOTS`, read at every try) |

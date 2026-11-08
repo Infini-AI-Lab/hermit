@@ -10,7 +10,7 @@ import pytest
 
 from hermit.config import Config
 from hermit.trainer.trainer import Trainer
-from toy_task import make_task
+from toy_task import make_sandboxed_task
 
 pytestmark = pytest.mark.skipif(not shutil.which("bwrap"), reason="needs bubblewrap")
 
@@ -26,6 +26,7 @@ def call(name, **args):
 adapter = Path(ctx["workspace"]["adapter"])
 (adapter / "ADAPTER.md").write_text("Always add the numbers.\n")
 hidden = all(not Path(p).exists() for p in sys.argv[1:])   # the task's files and the home directory
+assert str(adapter) == "/w/adapter", adapter                # the layout's names, in the context it is given
 check = call("check_spec")["result"]
 Path(ctx["workspace"]["output"], "step_result.json").write_text(json.dumps({
     "status": "done", "summary": f"hidden={hidden} passed={check['passed']}",
@@ -34,10 +35,11 @@ Path(ctx["workspace"]["output"], "step_result.json").write_text(json.dumps({
 
 
 def test_command_evolver_in_sandbox(tmp_path):
-    """The learner and every rollout and eval call each run in a sandbox of their own (the rollout's profile is
-    preset to an open network whatever the top level says), every call's isolation checked from inside."""
+    """The learner (its workspace under /w, the paths it is given spelled so) and every rollout and eval call (the
+    task sandbox, shown only agent/) each run in a sandbox of their own, every call's isolation checked from
+    inside."""
     from hermit.evaluate import evaluate
-    path = make_task(tmp_path, sandbox={"enabled": True, "network": "restricted", "allow": []})
+    path = make_sandboxed_task(tmp_path)
     (tmp_path / "cmd").mkdir()
     script = tmp_path / "cmd" / "evolve.py"      # the Evolver's own directory stays readable in the sandbox
     script.write_text(SCRIPT)
@@ -87,7 +89,7 @@ def test_agent_evolver_with_a_fake_codex(tmp_path, monkeypatch):
     no Trainer endpoint."""
     # The fake codex lives in the Evolver's own directory: the sandbox hides the task directory and /tmp, so a fake
     # placed there would not be found and the real codex on PATH would run instead.
-    path = make_task(tmp_path, sandbox={"enabled": True, "network": "open"})
+    path = make_sandboxed_task(tmp_path)
     evolver = tmp_path / "fakecodex"
     evolver.mkdir()
     (evolver / "codex").write_text(FAKE_CODEX)
@@ -109,3 +111,5 @@ def test_agent_evolver_with_a_fake_codex(tmp_path, monkeypatch):
     assert steps[0]["evolver"]["usage"][0]["output_tokens"] == 7
     # (100 - 40) × 1.0 + 40 × 0.5 + 7 × 10.0 = 150 per million tokens
     assert steps[0]["evolver"]["usage"][0]["cost_usd"] == pytest.approx(150e-6)
+
+

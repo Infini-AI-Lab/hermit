@@ -64,6 +64,10 @@ HOST_KEY=""; [ -n "$HOST_API_KEY_ENV" ] && HOST_KEY=${!HOST_API_KEY_ENV:-}
 [ -n "${!HOST_LITELLM_KEY_ENV:-}" ] || export "$HOST_LITELLM_KEY_ENV=${HOST_KEY:-local}"
 [ -n "$HOST_PRICE_INPUT" ] && export MW_COST_IN_PER_M=$HOST_PRICE_INPUT MW_COST_OUT_PER_M=$HOST_PRICE_OUTPUT
 export CLB_SKIP_BASELINE=1 CLB_REQUEST_TIMEOUT=600 CLB_REASONING_EFFORT=$EFFORT
+# clbench's host calls litellm, which runs offline in the task sandbox (no network but the meter): its bundled model
+# map does not know GLM 5.3 Flash on Fireworks and would refuse the host's tool_choice="auto" unless unsupported
+# parameters are dropped, and it reads that map without trying the network first. litellm reads both as bool(str).
+export LITELLM_DROP_PARAMS=${LITELLM_DROP_PARAMS:-True} LITELLM_LOCAL_MODEL_COST_MAP=${LITELLM_LOCAL_MODEL_COST_MAP:-True}
 export MWM_CLBENCH=$CLBENCH MWM_METAWORLD=$METAWORLD
 
 command -v codex >/dev/null || { echo "REFUSING: codex CLI not on PATH"; exit 1; }
@@ -99,7 +103,8 @@ for i in ${MW_ORDERS:-0}; do
   # The store's README exists before the bootstrap session, as natively (the wrapper wrote it before block 0).
   "$PY" -m hermit.agent.evolver.methods.mwm.evidence.readme --evidence "$WD/evidence" --from "$HERE/../utils/task-info/mwm/contract/env_evidence.md"
   # The learner's model through its meter: the backend copied to the metered URL, the Evolver bound to it (the
-  # Trainer derives codex's provider settings from the binding and passes the key variable into the sandbox).
+  # Trainer derives codex's provider settings from the binding and passes its key variable into the learner's
+  # sandbox, the meter's port forwarded).
   LEARNER="{from: '$EVOLVER_BACKEND', base_url: 'http://127.0.0.1:$META_PORT/${TAG}_o${i}_meta$EVOLVER_PATH'}"
   LOG="$RUNS/$TAG/order$i/run.log"
   echo "=== setting stamp: venue=$VENUE method=mwm framework=$HEAD clbench=$CLB_HEAD metaworld=$MW_HEAD" \
@@ -108,6 +113,7 @@ for i in ${MW_ORDERS:-0}; do
   MWM_TASK_WORKDIR="$WD" CLB_API_BASE="http://127.0.0.1:$WM_PORT/${TAG}_o$i$HOST_PATH" \
     setsid -w nohup "$PY" -m hermit.cli train --config "$HERE/run.yaml" \
       "trainer.run_name=$TAG-o$i" "trainer.output_dir=$RUNS/$TAG" \
+      "environment.env=[MWM_*, CLB_*, MW_*, LITELLM_*, $HOST_LITELLM_KEY_ENV]" \
       "data.train=${MW_TRAIN_SPLIT:-$TASKDIR/splits/order$i.txt}" \
       "backends.learner=$LEARNER" "evolver.params.model=learner/$EVOLVER_MODEL_ID" \
       "evolver.params.args=[-c, model_reasoning_effort=\"$EFFORT\"]" \

@@ -167,7 +167,7 @@ def _task(tmp: Path, *, evolver: dict | None = None, **overrides) -> Path:
     path = make_task(tmp, data={"tasks": "tasks.jsonl", "train": "train.txt", "test": "test.txt", "step_size": 4,
                                 "shuffle": False},
                      template=str(TEMPLATE), evolver={"name": "ahe_adapter", "params": params},
-                     sandbox={"enabled": False, "network": "open"}, **overrides)
+                     sandbox={"enabled": False}, **overrides)
     _write_rows(tmp)
     return path
 

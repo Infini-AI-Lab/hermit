@@ -4,7 +4,38 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ## Unreleased
 
+### Breaking
+
+- One sandbox design replaces every earlier sandbox mode ([design](docs/developer/sandbox-design.md)); no old
+  configuration keeps working, and an old key fails with where it went:
+
+  | Old | New |
+  |---|---|
+  | `sandbox.profiles.rollout` (`read`, `write`, `mask`, `env`, `network`, `allow`, `packages`) | `environment` (`read`, `write`, `env`, `network`, `allowed_hosts`, `packages`, `resources`); no masks: a declared path may not hold the data, the judge or the runs |
+  | `sandbox.profiles.rollout.enabled: false` with the agent's `isolation: container` | `environment.image` (+ `environment.container`) |
+  | `sandbox.profiles.rollout.enabled: false` for a pipeline that starts containers itself | `environment.runner: host` |
+  | `sandbox.network`, `sandbox.allow`, `sandbox.env` (the learner's) | `sandbox.evolver.allowed_hosts`, `sandbox.evolver.env`; the learner's model key variable and provider host are passed in by themselves |
+  | `sandbox.read` | `evolver_access.environment` |
+  | `sandbox.profiles.tool` | a task's declared tool runs with `environment`; a template's in a strict sandbox |
+  | `evolver.params.hide`, `HidingSandbox`, masks | removed: every sandbox is an allowlist |
+  | `sandbox.audit: files` | removed; the launch records and the proxies' logs remain |
+  | `spec.SANDBOX_ENFORCE` | `check_spec(..., enforce=...)` |
+
+- The learner works in `/w` (`/w/adapter`, `/w/material`, `/w/task-info`, ...): its prompt names the workspace
+  relative to `/w`, and the tools it calls resolve the paths it names. Every sandbox shows the Python environment
+  the framework runs in as installed (`hermit-harness[sandbox]` adds numpy, pandas, scipy and torch), never an
+  editable install's checkout; `sandbox.hide` covers a module of it in every sandbox but the judge's.
+
 ### Added
+
+- Models in sandboxes as Harbor's agents get theirs: each sandbox gets its models' key variables and provider hosts
+  (an isolated network becomes an allowlist) and forwards a model meter on the loopback; what a run keeps (the
+  learning material, the step records, the adapter) is scrubbed of key values (`hermit/redact.py`). The allowlist
+  proxy goes out through the host's own proxy when it has one.
+- `judge.mode`: `host`, `shared` (in the task sandbox after the agent, `judge.tests` shown to it alone) and
+  `separate` (a fresh sandbox holding the paths `judge.collect` names, copied through a sanitized archive).
+- Sandbox resource limits (`resources`: memory, file size, CPU time), environment-variable patterns (`MWM_*`), and
+  `Sandbox.view` for a method's own view of the run's sandbox.
 
 - Benchmarks through one protocol: `agent.name: harbor` runs any task set in [Harbor](https://github.com/laude-institute/harbor)'s
   format (`task.toml`, `environment/`, `tests/test.sh` writing the reward) as the acting pipeline. One rollout is
@@ -16,8 +47,7 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   stream with a frozen adapter. `python -m hermit.harbor.dataset` downloads a dataset, indexes task directories
   into `tasks.jsonl` rows (per task, per rollout, per step), writes splits and a content lock. The container-side
   half (`hermit/harbor/harborside/`: the Codex agent, a scripted agent for smoke tests, the stream driver) runs
-  under Harbor's own venv. Streams need the rollout role unconfined (`sandbox.profiles.rollout.enabled: false`)
-  for now, as every Docker-driving agent does.
+  under Harbor's own venv. A Harbor task set's pipeline runs on the host, the task's container being its sandbox.
 - A test workflow (`.github/workflows/tests.yml`): a pull request runs the test groups it touches
   (`pytest --changed`); main, a daily schedule and a manual run run the whole suite.
 - The OPRO method (Yang et al., ICLR 2024, arXiv:2309.03409): the `opro` Evolver on the `prompt-only` template, one
@@ -32,6 +62,9 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   shared layer every group); the header says which groups ran and why. Tests that run an agent CLI installed on the
   machine are marked `integration` and run only with `--integration`. Tests another test already covers were
   removed and tests that repeat one setup share it: the full suite runs in about half the time.
+- The CLI Base Agents share one runner, `CliAgent` (`hermit/agent/base/cli.py`): what differs per CLI (its command,
+  its home, how its event stream is read) is its subclass's hooks, and `CLIS` names every CLI. `codex` and `claude`
+  behave as before; a new CLI is one subclass.
 
 ### Fixed
 

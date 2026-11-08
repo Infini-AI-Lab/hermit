@@ -1,10 +1,11 @@
 """Generic Linux/bubblewrap Python execution. Never falls back to host execution.
 
-MWM owns discovery and admission policy; this module supplies the execution
-primitive. macOS sandbox-exec is intentionally not treated as equivalent.
+MWM owns discovery and admission policy; this module supplies the execution primitive: the framework's sandbox
+(hermit.sandbox) with no network, no environment variables but the interpreter's, the adapter read-only at /w and the
+tool's directory at /work, on the framework's interpreter (its environment's packages, as every sandbox shows them).
+macOS sandbox-exec is intentionally not treated as equivalent.
 """
 import json
-import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -21,30 +22,28 @@ class PythonSandbox:
                 "reason": "" if available else "Linux bubblewrap is unavailable; executable admission and execution are disabled."}
 
     def _run(self, directory: str | None, argv: list[str], timeout=20):
+        from hermit.sandbox import Bind, Sandbox
         state = self.status()
         if not state["available"]:
             return {**state, "passed": False, "output": state["reason"]}
-        command = [shutil.which("bwrap"), "--unshare-all", "--die-with-parent", "--new-session",
-                   "--ro-bind", "/usr", "/usr", "--ro-bind", "/bin", "/bin",
-                   "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp"]
-        for path in ("/lib", "/lib64", "/etc/ld.so.cache"):
-            if os.path.exists(path):
-                command += ["--ro-bind", path, path]
+        binds, chdir = [], Path("/tmp")
         if directory is not None:
             work = (self.root / directory).resolve()
             if not work.is_relative_to(self.root) or not work.is_dir():
                 raise ValueError("Sandbox work directory must be inside the bound adapter")
-            command += ["--ro-bind", str(self.root), "/w", "--ro-bind", str(work), "/work", "--chdir", "/work"]
-        else:
-            command += ["--chdir", "/tmp"]
+            binds, chdir = [Bind(self.root, "/w"), Bind(work, "/work")], work
+        box = Sandbox(network="no-network", binds=binds, env_allow=[], framework=False, enforce="required",
+                      role="python")
         try:
-            result = subprocess.run(command + ["/usr/bin/python3", "-B", *argv],
-                                    env={"PATH": "/usr/bin:/bin", "PYTHONDONTWRITEBYTECODE": "1"},
-                                    capture_output=True, text=True, timeout=timeout)
+            env = {"PATH": "/usr/bin:/bin", "PYTHONDONTWRITEBYTECODE": "1"}
+            command, env = box.wrap([sys.executable, "-B", *argv], env=env, keep=list(env), chdir=chdir)
+            result = subprocess.run(command, env=env, capture_output=True, text=True, timeout=timeout)
             return {**state, "passed": result.returncode == 0, "exit_code": result.returncode,
                     "output": (result.stdout + result.stderr)[-4000:], "stdout": result.stdout[-4000:]}
-        except (OSError, subprocess.TimeoutExpired) as exc:
+        except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
             return {**state, "passed": False, "output": str(exc)}
+        finally:
+            box.close()
 
     def test(self, directory: str):
         return self._run(directory, ["test.py"])

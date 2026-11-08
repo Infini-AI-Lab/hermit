@@ -23,15 +23,14 @@ evolver:
     model: fireworks/accounts/fireworks/models/glm-5p3-flash   # launch.sh: the learner's backend through its meter
     home: []                       # no login files: the provider key is the backend's variable
     tools: [check_spec]            # no run_agent, llm or budget: the MWM learner of this venue has none either
-    hide: []                       # the framework's examples, tests, docs and .git
+environment:                         # the task sandbox: the host runner, clbench's checkout and venv
+  read: [../utils/agent, ../utils/task-info/mwm, $MWM_CLBENCH]
+  write: [$MWM_TASK_WORKDIR]       # the run's task directory: evidence, host records
+  env: ["MWM_*", "CLB_*", "MW_*", "LITELLM_*"]   # the launcher's settings (launch.sh)
+                                   # + the host's litellm key variable (launch.sh): the benchmark's own loop calls
+                                   # its model, the recorded exception (docs/developer/sandbox-design.md)
 sandbox:
   enabled: true
-  network: restricted              # the learner's meter is on the loopback; the allowlist proxy refuses everything else
-  allow: []
-  read: []
-  env: []                          # the learner's model key variable is always passed; nothing else is
-  profiles:                        # the agent's sandbox (rollout; eval and check take it too); launch.sh sets both
-    rollout: {read: [$MWM_CLBENCH], write: [$MWM_TASK_WORKDIR]}   # CL-Bench and its .venv; the task's directory
 trainer:
   run_name: null                   # launch.sh: <tag>-o<i>
   output_dir: runs

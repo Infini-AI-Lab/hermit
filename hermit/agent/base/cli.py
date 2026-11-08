@@ -4,6 +4,12 @@ One `run` is one session of the CLI in print mode: the prompt is given, the CLI 
 tools and the call's `tools` (served over MCP by the framework's tool server), and its last message is the reply.
 The CLI's event stream is kept unchanged (`Result.log`) and read into the trajectory and the usage.
 
+`CliAgent` runs every CLI the same way (isolation, home, sign-in, tool server, process, the stream's safety); what
+differs per CLI is its subclass's hooks: its command, its home (`home_env`, `prepare_home`, `user_home`), how its
+stream is read (`served`, `notices`, `last_message`, `parse`, `steps`, `adjust_usage`), its web search, its system
+instructions and its isolations. `CLIS` names every CLI; a new one is a subclass there, its stream's reader in
+hermit.agent.base.trajectory, and its model binding in hermit.agent.model.backends.
+
 Settings (given once; `configured(...)` for a call's own):
   model             the CLI's model (absent: its default); with `binding`, the provider settings are in `args`/`env`
   binding           the resolved `<backend>/<model>` reference (hermit.agent.model.backends), for the key and price
@@ -12,6 +18,8 @@ Settings (given once; `configured(...)` for a call's own):
   plan_dir          the plan's directory the sessions on a login share (default: the machine's one, login.PLAN)
   plan_max_wait_s   how long a session on a login waits for the plan before it is unavailable (default 12 h;
                     None: no limit)
+  deadline          a time (time.time()) past which no session starts and none runs on: the plan's waits and a
+                    refused session's rerun come off its timeout (a caller stopped at that time: a container session's)
   effort            Codex's model_reasoning_effort
   web_search        the CLI's web search, on or off (required: set either way)
   isolation         none: the CLI on this machine; sandbox: inside `sandbox` (the run's hermit.sandbox.Sandbox);
@@ -52,11 +60,12 @@ Limits are enforced by the isolation, or the call is refused (Unsupported):
 
   isolation   readable                          hidden                         network
   none        linked into the workspace          refused                        refused (any list)
-  sandbox     must be readable in the sandbox    covered (HidingSandbox)        the sandbox's own: [] only
+  sandbox     shown at its target (a bind)       refused when the sandbox shows it    the sandbox's own: [] only
   container   bound read-only at their target    all but workspace, home, data  the container's proxy: [] only
 """
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 from pathlib import Path
@@ -73,7 +82,7 @@ from typing import Any, Sequence
 
 from hermit.agent.base import container, login as codex_login
 from hermit.agent.base.interface import BaseAgent, Limits, Mount, Result, Unsupported
-from hermit.agent.base.records import parse_log, price_usage
+from hermit.agent.base.records import parse_claude, parse_codex, price_usage
 from hermit.agent.base.tool import Tool
 from hermit.agent.base.trajectory import claude_steps, codex_steps, events
 
@@ -90,13 +99,14 @@ CODEX_HOME_SETTINGS = ["features.shell_snapshot = false",          # a snapshot 
 _ready: set = set()
 
 
+def _of(backend: str) -> type["CliAgent"]:
+    """The CLI a module-level helper's `backend` names: Codex's, else Claude Code's (as these helpers always read)."""
+    return CLIS.get(backend, Claude)
+
+
 def web_search_args(backend: str, enabled: bool) -> list[str]:
-    """A CLI session's web search, set explicitly either way: Codex's hosted search (`web_search`, `live` or
-    `disabled`), Claude Code's WebSearch and WebFetch tools (denied when off). The hosted search runs at the provider,
-    so no sandbox, container or proxy can stop it: only this setting does."""
-    if backend == "codex":
-        return ["-c", f'web_search="{'live' if enabled else 'disabled'}"']
-    return [] if enabled else ["--disallowedTools", "WebSearch,WebFetch"]
+    """A CLI session's web search, set explicitly either way (CliAgent.web_search_args)."""
+    return _of(backend).web_search_args(enabled)
 
 
 def _regular(path) -> bool:
@@ -220,18 +230,8 @@ def write_home(home: Path, settings: dict, roles: Sequence[dict] = (), tools_url
 
 
 def last_message(backend: str, log: Path, last: Path | None = None) -> str:
-    """The session's last message: Codex's `-o` file (never read through a link the session left), else the last
-    message in its stream; Claude Code's result."""
-    if backend == "codex":
-        if last is not None and not last.is_symlink() and last.is_file() and last.read_text(errors="replace").strip():
-            return last.read_text(errors="replace")
-        replies = [s.text for s in codex_steps(events(log)) if s.kind == "message"]
-        return replies[-1] if replies else ""
-    text = ""
-    for event in events(log):
-        if event.get("type") == "result" and isinstance(event.get("result"), str):
-            text = event["result"]
-    return text
+    """The session's last message (CliAgent.last_message)."""
+    return _of(backend).last_message(log, last)
 
 
 def _objects(raw: str):
@@ -250,35 +250,13 @@ def _objects(raw: str):
 
 
 def served(backend: str, raw: str) -> bool:
-    """Whether the provider served the session: it finished a turn (an event of that type, not the words)."""
-    kind = "turn.completed" if backend == "codex" else "result"
-    return any(e.get("type") == kind for e in _objects(raw)[0])
+    """Whether the provider served the session (CliAgent.served)."""
+    return _of(backend).served(raw)
 
 
 def notices(backend: str, raw: str) -> str:
-    """What the CLI itself reported, apart from the session's own work: its lines that are no event (its stderr),
-    and its error events (Codex: `error`, `turn.failed`, an `error` item; Claude Code: a failed `result`). A
-    message, a command's output or a file the session wrote is not among them, so a session that read the words of
-    an outage or of a usage limit (a log it grepped) is not taken for one that met it."""
-    objects, other = _objects(raw)
-    found = list(other)
-    for e in objects:
-        kind, item = e.get("type"), e.get("item") if isinstance(e.get("item"), dict) else {}
-        if backend == "codex":
-            if kind == "error":
-                found.append(str(e.get("message") or ""))
-            elif kind == "turn.failed":
-                error = e.get("error")
-                found.append(str(error.get("message") if isinstance(error, dict) else error or ""))
-            elif kind == "item.completed" and item.get("type") == "error":
-                found.append(str(item.get("message") or ""))
-        elif kind == "result" and (e.get("is_error") or str(e.get("subtype") or "").startswith("error")):
-            found.append(str(e.get("result") or e.get("subtype") or ""))
-            errors = e.get("errors")                     # an error result's own diagnostics
-            found += [str(x) for x in errors if x] if isinstance(errors, list) else [str(errors)] if errors else []
-        elif kind == "error":
-            found.append(json.dumps(e.get("error") or e, default=str))
-    return "\n".join(found)
+    """What the CLI itself reported, apart from the session's own work (CliAgent.notices)."""
+    return _of(backend).notices(raw)
 
 
 ARG_MAX = 120_000            # bytes of one command-line argument to stay under (Linux allows 128 KiB per argument)
@@ -359,12 +337,12 @@ def _stop(proc) -> None:
 
 def _descendants(pid: int) -> list[int]:
     children: dict[int, list[int]] = {}
-    for stat in Path("/proc").glob("[0-9]*/stat"):
+    for entry in Path("/proc").glob("[0-9]*/stat"):
         try:
-            fields = stat.read_text().rsplit(")", 1)[1].split()
+            fields = entry.read_text().rsplit(")", 1)[1].split()
         except (OSError, IndexError):
             continue
-        children.setdefault(int(fields[1]), []).append(int(stat.parent.name))
+        children.setdefault(int(fields[1]), []).append(int(entry.parent.name))
     out, todo = [], [pid]
     while todo:
         for child in children.get(todo.pop(), []):
@@ -373,13 +351,85 @@ def _descendants(pid: int) -> list[int]:
     return out
 
 
-def _user_home(backend: str) -> Path:
-    return codex_login.source().parent if backend == "codex" else Path.home() / ".claude"
-
-
 class CliAgent(BaseAgent):
-    backend = ""
-    home_files: tuple[str, ...] = ()
+    """One CLI's session as a Base Agent: the shared run, and the hooks each CLI's subclass fills in."""
+    backend = ""                                  # the CLI's name (make, CLIS, its stream agent-<backend>.jsonl)
+    label = ""                                    # its name in messages
+    program = ""                                  # its program, unless the `bin` setting names another
+    aliases: tuple[str, ...] = ()                 # other names make() takes for it
+    isolations: tuple[str, ...] = ("none", "sandbox")   # of ISOLATIONS, the ones it runs under
+    home_var = ""                                 # the variable that points the CLI at its home
+    user_folder = ""                              # the user's own home of the CLI, under ~
+    home_files: tuple[str, ...] = ()              # files of the user's home a session's home gets (the sign-in first)
+    turn_done = ""                                # the event type of a turn the provider served
+
+    # ---------- the CLI's own: its command and its home ----------
+    def command(self, prompt: str, workspace: Path, last_file: Path, *, session=None, roles=(), tools_url=None) -> list:
+        raise NotImplementedError
+
+    def home_env(self, home: Path) -> dict[str, str]:
+        """The variables that point the CLI at the session's home."""
+        return {self.home_var: str(home)}
+
+    def prepare_home(self, home: Path, roles: Sequence[dict], tools_url: str | None, tools_name: str) -> None:
+        """The session's configuration in its home, before the call (nothing, for a CLI given it on its command
+        line)."""
+
+    @classmethod
+    def user_home(cls) -> Path:
+        """The user's own home of the CLI, where `home_files` are copied from."""
+        return Path.home() / cls.user_folder
+
+    @classmethod
+    def web_search_args(cls, enabled: bool) -> list[str]:
+        """The CLI's arguments that set its web search, on or off."""
+        raise NotImplementedError
+
+    def system_settings(self, system: str, prompt: str) -> tuple[dict, str]:
+        """System instructions for one call: (settings for `configured`, the prompt)."""
+        raise NotImplementedError
+
+    # ---------- the CLI's own: reading its stream ----------
+    @classmethod
+    def served(cls, raw: str) -> bool:
+        """Whether the provider served the session: it finished a turn (an event of that type, not the words)."""
+        return any(e.get("type") == cls.turn_done for e in _objects(raw)[0])
+
+    @classmethod
+    def notices(cls, raw: str) -> str:
+        """What the CLI itself reported, apart from the session's own work: its lines that are no event (its stderr),
+        and its error events (`errors`). A message, a command's output or a file the session wrote is not among
+        them, so a session that read the words of an outage or of a usage limit (a log it grepped) is not taken for
+        one that met it."""
+        objects, other = _objects(raw)
+        found = list(other)
+        for e in objects:
+            found += cls.errors(e)
+        return "\n".join(found)
+
+    @classmethod
+    def errors(cls, event: dict) -> list[str]:
+        """The error texts the CLI reported in one event."""
+        return []
+
+    @classmethod
+    def last_message(cls, log: Path, last: Path | None = None) -> str:
+        """The session's last message, from its stream (or the file `last` the CLI wrote it to)."""
+        raise NotImplementedError
+
+    @classmethod
+    def parse(cls, log: Path, model: str):
+        """(session handle, usage) from the stream (hermit.agent.base.records)."""
+        raise NotImplementedError
+
+    @classmethod
+    def steps(cls, stream: list[dict]) -> list:
+        """The stream's events as trajectory steps (hermit.agent.base.trajectory)."""
+        raise NotImplementedError
+
+    def adjust_usage(self, home: Path, handle, usage: list, resumed: bool) -> list:
+        """This call's usage from what the stream reported (unchanged, for a CLI that reports each call's own)."""
+        return usage
 
     # ---------- what the call may do ----------
     def _isolation(self, workspace: Path, limits: Limits):
@@ -389,6 +439,9 @@ class CliAgent(BaseAgent):
         isolation = s.get("isolation") or "none"
         if isolation not in ISOLATIONS:
             raise ValueError(f"isolation must be one of {ISOLATIONS}, not {isolation!r}")
+        if isolation not in self.isolations:
+            why = "container runs Codex" if isolation == "container" else f"{isolation} is not for {self.label}"
+            raise Unsupported(f"isolation: {why}; {self.label} takes isolation {' or '.join(self.isolations)}")
         network = None if limits.network is None else list(limits.network)
         if isolation == "none":
             if limits.hidden:
@@ -412,18 +465,33 @@ class CliAgent(BaseAgent):
                 raise Unsupported("isolation: sandbox needs the run's sandbox (settings.sandbox)")
             if not getattr(sandbox, "enabled", True) and (limits.hidden or network is not None):
                 raise Unsupported("the run's sandbox is off: it cannot hide paths or limit the network")
-            if network is not None and (getattr(sandbox, "network", None) == "open" or getattr(sandbox, "allow", None)):
-                raise Unsupported("the run's sandbox lets more than the model through (an open network or "
-                                  "sandbox.allow): it cannot limit the network to the model")
-            for m in limits.readable:
-                if _target(m, workspace).resolve() != Path(m.source).resolve():
-                    raise Unsupported(f"the run's sandbox shows data at its own path, not at {m.target}")
-            if limits.hidden:
-                from hermit.sandbox import HidingSandbox
-                sandbox = HidingSandbox(sandbox, list(limits.hidden), keep=[m.source for m in limits.readable])
+            if network is not None:
+                # The session's own model (its provider's host, a plan login's hosts) is allowed in any case.
+                from hermit.isolate import CHATGPT_HOSTS
+                from hermit.sandbox import model_access
+                _, hosts, ports = model_access([s.get("binding")])
+                own = [*hosts, *(CHATGPT_HOSTS if s.get("login") == "chatgpt" else [])]
+                if getattr(sandbox, "network", None) == "open" or \
+                        [h for h in getattr(sandbox, "allow", None) or () if h not in own] or \
+                        [p for p in getattr(sandbox, "forward", None) or () if p not in ports] or \
+                        getattr(sandbox, "sockets", None):
+                    raise Unsupported("the run's sandbox lets more than the model through (an open network, allowed "
+                                      "hosts, forwarded ports or sockets): it cannot limit the network to the model")
+            from hermit.sandbox import SYSTEM_ETC
+            # An allowlist shows what is granted: a path to keep hidden must not lie in anything granted.
+            shown = [*getattr(sandbox, "readable", ()), *getattr(sandbox, "writable", ()),
+                     *(b.source for b in getattr(sandbox, "binds", ())), *(m.source for m in limits.readable),
+                     *(map(Path, s.get("writable") or ())), workspace,           # the session's own, bound writable
+                     *([Path(os.path.expanduser(str(s["home"])))] if s.get("home") else []),
+                     # and what every sandbox shows: the system, the interpreter's installation, the packages and
+                     # the framework it shows (visible() lists them)
+                     *map(Path, ("/usr", "/bin", "/sbin", "/lib", "/lib64", *SYSTEM_ETC)),
+                     *(sandbox.visible([str(s.get("bin") or self.program)])
+                       if hasattr(sandbox, "visible") else [])]           # with the CLI's own installation
+            for path in limits.hidden:
+                if any(_overlap(Path(path), Path(p)) for p in shown):
+                    raise Unsupported(f"{path} is to be hidden but lies in what the sandbox shows")
             return isolation, None, sandbox
-        if self.backend != "codex":
-            raise Unsupported("isolation: container runs Codex; Claude Code takes isolation none or sandbox")
         shown = [workspace, *(m.source for m in limits.readable)]         # every mount the container is given
         if s.get("home"):                         # a fresh home is a new directory: nothing hidden lies in it
             shown.append(Path(os.path.expanduser(str(s["home"]))))
@@ -462,7 +530,7 @@ class CliAgent(BaseAgent):
             return []
         copied = []
         for name in self.home_files if s.get("home_files") is None else s["home_files"]:
-            source = _user_home(self.backend) / name
+            source = self.user_home() / name
             if source.is_file():
                 _clear(home / name)                     # a link the last session left would take the copy elsewhere
                 shutil.copy2(source, home / name)
@@ -483,11 +551,16 @@ class CliAgent(BaseAgent):
         machine's session slots, and is run again when the plan refused it (hermit.agent.base.login's plan)."""
         s = self.settings
         if s.get("login") != "chatgpt":
+            limits = self._within(limits)
+            if limits is False:
+                return self._not_run("deadline", None)
             return self._session(prompt, workspace=workspace, tools=tools, limits=limits, session=session,
                                  roles=roles)
         plan, cancel = codex_login.plan_dir(s.get("plan_dir")), s.get("cancel")
         max_s = s.get("plan_max_wait_s", codex_login.MAX_WAIT_S)
         deadline = None if max_s is None else time.time() + float(max_s)    # over every wait of this session
+        if s.get("deadline") is not None:
+            deadline = float(s["deadline"]) if deadline is None else min(deadline, float(s["deadline"]))
         say = lambda m: print(f"hermit {self.name}: {m}", file=sys.stderr, flush=True)
         while True:
             waited = codex_login.wait(plan, cancel, say, None if deadline is None else max(0.0, deadline - time.time()))
@@ -498,21 +571,48 @@ class CliAgent(BaseAgent):
                     return self._not_run(got, max_s)
                 if codex_login.held(plan):           # paused or held while it waited for a slot: wait again
                     continue
-                result = self._session(prompt, workspace=workspace, tools=tools, limits=limits, session=session,
+                left = self._within(limits)              # what the waits left of the caller's deadline
+                if left is False:
+                    return self._not_run("deadline", None)
+                result = self._session(prompt, workspace=workspace, tools=tools, limits=left, session=session,
                                        roles=roles)
             if result.extra.get("served") or not result.extra.get("refused"):
                 return result
-            codex_login.hold(plan)                  # never ran: no answer; every session waits for the window
+            codex_login.hold(plan, cancel, None if deadline is None else max(0.0, deadline - time.time()))
             if str(s.get("plan_rerun", True)).strip().lower() in ("false", "0", "no", "off"):
                 say("a session was refused for the plan's usage limit; it is returned (plan_rerun: false)")
                 return result
             say("a session was refused for the plan's usage limit; it runs again once the plan allows")
 
+    def _within(self, limits: Limits | None):
+        """`limits` with its timeout cut to what is left before the `deadline` setting (as given without one);
+        False when nothing is left."""
+        if self.settings.get("deadline") is None:
+            return limits
+        left = float(self.settings["deadline"]) - time.time()
+        if left <= 0:
+            return False
+        limits = limits or Limits()
+        own = limits.timeout_s or self.settings.get("timeout_s", 3600)     # as the session's own default
+        return dataclasses.replace(limits, timeout_s=min(left, float(own)) if own else left)
+
+    def _left(self, timeout: float | None):
+        """`timeout` cut to what the preparation left before the `deadline` setting, just before the CLI starts;
+        False when nothing is."""
+        if self.settings.get("deadline") is None:
+            return timeout
+        left = float(self.settings["deadline"]) - time.time()
+        if left <= 0:
+            return False
+        return min(timeout, left) if timeout else left
+
     def _not_run(self, why: str, max_s) -> Result:
         """A session that never started: its caller stopped it, or the plan held it back past `plan_max_wait_s` (a
         provider that could not serve, for the caller to retry or report; no answer)."""
-        tail = "" if why == "cancelled" else f"hermit: the plan held the session back for {max_s} s"
-        return Result(reply="", exit_code=-1, extra={"served": False, "unavailable": why == "timeout", "refused": False,
+        tail = {"cancelled": "", "deadline": "hermit: the caller's deadline passed before the session started"}.get(
+            why, f"hermit: the plan held the session back for {max_s} s")
+        return Result(reply="", exit_code=-1, extra={"served": False, "unavailable": why in ("timeout", "deadline"),
+                                                     "refused": False,
                                                      "started": False,
                                                      "cancelled": why == "cancelled", "isolation":
                                                      self.settings.get("isolation") or "none", "wall_s": 0.0,
@@ -552,23 +652,35 @@ class CliAgent(BaseAgent):
         timeout = limits.timeout_s or s.get("timeout_s", 3600)       # None: no clock (the caller cancels)
         timeout = float(timeout) if timeout else None
         mounts = [Mount(Path(m.source), _target(m, workspace), m.readonly) for m in limits.readable]
+        # In the run's sandbox a mount is shown at its target (a bind); paths in the prompt, the command and the
+        # environment are spelled as they are inside, relative to the working directory when that is the layout's
+        # root (the learner's /w).
+        binds = [(m.source, sandbox.translate(str(m.target)) if hasattr(sandbox, "translate") else str(m.target),
+                  not m.readonly) for m in mounts
+                 if Path(m.target).resolve() != Path(m.source).resolve()] if sandbox is not None else []
+        if sandbox is not None and hasattr(sandbox, "translate"):
+            layout = getattr(sandbox, "layout", None)
+            at_root = bool(layout) and sandbox.translate(str(workspace), binds) == layout[1]
+            spell = (lambda text: sandbox.relative(text, binds)) if at_root else \
+                (lambda text: sandbox.translate(text, binds))
+            prompt = spell(prompt)
+            roles = [{**r, "instructions": spell(str(r.get("instructions", "")))} for r in roles]
         server, copied, failed = None, [], True
         try:
             copied = self._sign_in(home)
             if tools:
                 from hermit.agent.base.tool_server import ToolServer
-                server = ToolServer(tools, host=container.gateway(conf) if conf else "127.0.0.1",
+                from hermit.sandbox import inside_tools        # results name paths as the session sees them
+                server = ToolServer(inside_tools(tools, sandbox, binds),
+                                    host=container.gateway(conf) if conf else "127.0.0.1",
                                     mcp_only=s.get("mcp_tools")).start()
             name = s.get("tools_name") or "hermit_tools"
             own = {k: os.path.expandvars(str(v)) for k, v in (s.get("env") or {}).items()}   # $KEY_VAR -> the key
             if server is not None and s.get("tools_env"):
                 own[s["tools_env"]] = server.url                  # the tools' JSON entrance, for the session's shell
             env = dict(own)
-            if self.backend == "codex":
-                write_home(home, s, roles, server.mcp_url if server else None, name)
-                env["CODEX_HOME"] = str(home)
-            else:
-                env["CLAUDE_CONFIG_DIR"] = str(home)
+            self.prepare_home(home, roles, server.mcp_url if server else None, name)
+            env.update(self.home_env(home))
             command = self.command(prompt, workspace, last_file, session=session, roles=roles,
                                    tools_url=server.mcp_url if server else None)
             started = time.time()
@@ -578,6 +690,9 @@ class CliAgent(BaseAgent):
                         m.target.mkdir(parents=True, exist_ok=True)   # the mount point, a real directory inside
                 key_env = self._key_env()
                 keys = {**env, **({key_env: os.environ.get(key_env, "")} if key_env else {})}
+                timeout = self._left(timeout)
+                if timeout is False:
+                    return self._not_run("deadline", None)
                 code, timed_out, cancelled = container.run(command, conf=conf, work=workspace, home=home,
                                                            mounts=mounts, env=keys, timeout=timeout, stdout=stream,
                                                            cancel=s.get("cancel"),
@@ -588,24 +703,48 @@ class CliAgent(BaseAgent):
                 drop = set(s.get("env_drop") or ())
                 full_env = {**{k: v for k, v in os.environ.items() if k not in drop}, **env}
                 if sandbox is not None:
+                    # The session reaches its provider as Harbor's agents do: its key variable passes, a server on
+                    # the loopback (a meter) is forwarded; the provider's host is allowed by the run's sandbox.
+                    from hermit.sandbox import model_access
+                    keys, _, local = model_access([s.get("binding")])
+                    keep = [*own, *keys, *self.home_env(home)]          # and its home's variables
                     command, full_env = sandbox.wrap(command, writable=[home, *map(Path, s.get("writable") or ())],
-                                                     env=full_env, home=home, keep=own,
-                                                     forward=[server.port] if server else [],
-                                                     readable=[m.source for m in mounts])
+                                                     env=full_env, home=home, keep=keep,
+                                                     forward=[*([server.port] if server else []), *local],
+                                                     readable=[m.source for m in mounts
+                                                               if Path(m.target).resolve() == Path(m.source).resolve()],
+                                                     binds=binds, chdir=workspace,
+                                                     env_ports=limits.network is None)   # model-only: no more
                     if (limits.hidden or limits.network is not None) and \
                             not any(Path(a).name == "bwrap" for a in command):
                         raise Unsupported("the run's sandbox did not isolate the call (no bubblewrap): it cannot hide "
                                           "paths or limit the network")
-                code, timed_out, cancelled = run_process(command, env=full_env, cwd=workspace, stream=stream,
-                                                         timeout=timeout, cancel=s.get("cancel"),
-                                                         stdin=prompt if s.get("stdin") else None,
-                                                         stderr=Path(s["stderr_log"]) if s.get("stderr_log") else None)
+                timeout = self._left(timeout)
+                if timeout is False:
+                    if sandbox is not None and hasattr(sandbox, "abandon"):
+                        sandbox.abandon(command)         # its isolation report will not come
+                    return self._not_run("deadline", None)
+                try:
+                    code, timed_out, cancelled = run_process(
+                        command, env=full_env, cwd=workspace, stream=stream, timeout=timeout, cancel=s.get("cancel"),
+                        stdin=prompt if s.get("stdin") else None,
+                        stderr=Path(s["stderr_log"]) if s.get("stderr_log") else None)
+                finally:                                 # ended, raised, or bwrap exited before the relay ran:
+                    if sandbox is not None and hasattr(sandbox, "abandon"):
+                        sandbox.abandon(command)         # a report that never came is not waited for
             wall_s = time.time() - started
             failed = False
         finally:
             if server is not None:
                 server.close()
             _restore_home(home)                         # a home the session replaced: never read or written through
+            if sandbox is not None and getattr(sandbox, "enabled", False):
+                # What the session could write is read and written by the host after it (an Evolver's own code):
+                # no link out of it and no pipe is left there.
+                from hermit.sandbox import drop_unsafe
+                for place in {*map(str, getattr(sandbox, "writable", ())), *map(str, s.get("writable") or ()),
+                              *(str(b.source) for b in getattr(sandbox, "binds", ()) if b.writable)}:
+                    drop_unsafe(place)
             if s.get("login") == "chatgpt":
                 codex_login.keep_refreshed(Path(s.get("login_root") or codex_login.ROOT), home)
                 codex_login.note_usage(codex_login.plan_dir(s.get("plan_dir")), home)
@@ -617,37 +756,87 @@ class CliAgent(BaseAgent):
         # and put a link (or a pipe, or another file) there has left nothing of it to read.
         readable = stream if wrote is not None and _identity(stream) == wrote else Path(os.devnull)
         raw = readable.read_text(encoding="utf-8", errors="replace") if readable is stream else ""
-        notes = notices(self.backend, raw)
-        reply = last_message(self.backend, readable, last_file)
-        handle, usage = parse_log(readable, self.backend, (s.get("binding") or {}).get("ref") or s.get("model")
-                                  or self.backend)
-        if self.backend == "codex" and handle and usage:
-            usage = [_this_call(home, str(handle), usage[0], resumed=bool(session))]
+        notes = self.notices(raw)
+        reply = self.last_message(readable, last_file)
+        handle, usage = self.parse(readable, (s.get("binding") or {}).get("ref") or s.get("model") or self.backend)
+        usage = self.adjust_usage(home, handle, usage, resumed=bool(session))
         price_usage(usage, s)
-        steps = (codex_steps if self.backend == "codex" else claude_steps)(events(readable))
+        steps = self.steps(events(readable))
         if fresh:
             shutil.rmtree(home, ignore_errors=True)
+        done = self.served(raw)
         return Result(reply=reply, trajectory=steps, usage=usage, session=handle, exit_code=code,
                       timed_out=timed_out, log=stream,
-                      extra={"served": served(self.backend, raw), "unavailable": bool(UNAVAILABLE.search(notes)),
-                             "refused": codex_login.refused(notes) and not served(self.backend, raw),
+                      extra={"served": done, "unavailable": bool(UNAVAILABLE.search(notes)),
+                             "refused": codex_login.refused(notes) and not done,
                              "started": any(line.lstrip().startswith("{") for line in raw.splitlines()),
                              "cancelled": cancelled, "isolation": isolation, "wall_s": round(wall_s, 1),
                              "output_tail": raw[-2000:]})
 
-    def command(self, prompt: str, workspace: Path, last_file: Path, *, session=None, roles=(), tools_url=None) -> list:
-        raise NotImplementedError
-
 
 class Codex(CliAgent):
-    name = backend = "codex"
+    name = backend = program = "codex"
+    label = "Codex"
+    isolations = ISOLATIONS
+    home_var, user_folder = "CODEX_HOME", ".codex"
     home_files = (codex_login.FILE,)
+    turn_done = "turn.completed"
+
+    def prepare_home(self, home, roles, tools_url, tools_name):
+        write_home(home, self.settings, roles, tools_url, tools_name)
+
+    @classmethod
+    def user_home(cls) -> Path:
+        return codex_login.source().parent
+
+    @classmethod
+    def web_search_args(cls, enabled: bool) -> list[str]:
+        """Codex's hosted search (`web_search`, `live` or `disabled`): it runs at the provider, so no sandbox,
+        container or proxy can stop it, only this setting does."""
+        return ["-c", f'web_search="{'live' if enabled else 'disabled'}"']
+
+    def system_settings(self, system, prompt):
+        extra, prompt = codex_instructions(system, prompt)
+        return {"args": [*(self.settings.get("args") or []), *extra]}, prompt
+
+    @classmethod
+    def errors(cls, event):
+        """`error`, `turn.failed` and an `error` item."""
+        kind, item = event.get("type"), event.get("item") if isinstance(event.get("item"), dict) else {}
+        if kind == "error":
+            return [str(event.get("message") or "")]
+        if kind == "turn.failed":
+            error = event.get("error")
+            return [str(error.get("message") if isinstance(error, dict) else error or "")]
+        if kind == "item.completed" and item.get("type") == "error":
+            return [str(item.get("message") or "")]
+        return []
+
+    @classmethod
+    def last_message(cls, log, last=None):
+        """Codex's `-o` file (never read through a link the session left), else the last message in its stream."""
+        if last is not None and not last.is_symlink() and last.is_file() and last.read_text(errors="replace").strip():
+            return last.read_text(errors="replace")
+        replies = [s.text for s in codex_steps(events(log)) if s.kind == "message"]
+        return replies[-1] if replies else ""
+
+    @classmethod
+    def parse(cls, log, model):
+        return parse_codex(log, model)
+
+    @classmethod
+    def steps(cls, stream):
+        return codex_steps(stream)
+
+    def adjust_usage(self, home, handle, usage, resumed):
+        """Codex reports a thread's running total: a resumed thread's earlier calls are taken off (_this_call)."""
+        return [_this_call(home, str(handle), usage[0], resumed=resumed)] if handle and usage else usage
 
     def command(self, prompt, workspace, last_file, *, session=None, roles=(), tools_url=None):
         s = self.settings
         effort = s.get("effort")
         hooks = (workspace / ".codex" / "hooks.json").is_file()     # the deployment's hooks, trusted as deployed
-        return [str(s.get("bin") or "codex"), "exec", "--json", "--skip-git-repo-check",
+        return [str(s.get("bin") or self.program), "exec", "--json", "--skip-git-repo-check",
                 "-C", str(s.get("cwd") or workspace),
                 "-s", s.get("codex_sandbox") or "workspace-write", "-o", str(last_file),
                 *(["-m", s["model"]] if s.get("model") else []),
@@ -658,15 +847,56 @@ class Codex(CliAgent):
 
 
 class Claude(CliAgent):
-    name = backend = "claude"
+    name = backend = program = "claude"
+    label = "Claude Code"
+    aliases = ("claude-code",)
+    home_var, user_folder = "CLAUDE_CONFIG_DIR", ".claude"
     home_files = (".credentials.json",)
+    turn_done = "result"
+
+    @classmethod
+    def web_search_args(cls, enabled: bool) -> list[str]:
+        """Claude Code's WebSearch and WebFetch tools, denied when off."""
+        return [] if enabled else ["--disallowedTools", "WebSearch,WebFetch"]
+
+    def system_settings(self, system, prompt):
+        return {"append_system_prompt": system}, prompt
+
+    @classmethod
+    def errors(cls, event):
+        """A failed `result` with its own diagnostics, and an `error` event."""
+        kind = event.get("type")
+        if kind == "result" and (event.get("is_error") or str(event.get("subtype") or "").startswith("error")):
+            errors = event.get("errors")
+            return [str(event.get("result") or event.get("subtype") or ""),
+                    *([str(x) for x in errors if x] if isinstance(errors, list) else [str(errors)] if errors else [])]
+        if kind == "error":
+            return [json.dumps(event.get("error") or event, default=str)]
+        return []
+
+    @classmethod
+    def last_message(cls, log, last=None):
+        """The text of its last `result`."""
+        text = ""
+        for event in events(log):
+            if event.get("type") == "result" and isinstance(event.get("result"), str):
+                text = event["result"]
+        return text
+
+    @classmethod
+    def parse(cls, log, model):
+        return parse_claude(log, model)
+
+    @classmethod
+    def steps(cls, stream):
+        return claude_steps(stream)
 
     def command(self, prompt, workspace, last_file, *, session=None, roles=(), tools_url=None):
         s = self.settings
         mcp = {"mcpServers": {s.get("tools_name") or "hermit_tools": {"type": "http", "url": tools_url}}}
         agents = {r["name"]: {"description": r["description"], "prompt": r["instructions"]} for r in roles}
         stream = (s.get("output_format") or "stream-json") == "stream-json"
-        return [str(s.get("bin") or "claude"), "-p", *([] if s.get("stdin") else [prompt]),
+        return [str(s.get("bin") or self.program), "-p", *([] if s.get("stdin") else [prompt]),
                 "--output-format", s.get("output_format") or "stream-json", *(["--verbose"] if stream else []),
                 "--permission-mode", s.get("permission_mode") or "bypassPermissions",
                 *(["--model", s["model"]] if s.get("model") else []),
@@ -674,10 +904,14 @@ class Claude(CliAgent):
                 *(["--tools", ",".join(s["allowed_tools"])] if s.get("allowed_tools") else []),
                 *(["--no-session-persistence"] if s.get("persist_session") is False else []),
                 *(["--append-system-prompt", s["append_system_prompt"]] if s.get("append_system_prompt") else []),
-                *web_search_args("claude", bool(s.get("web_search"))),
+                *self.web_search_args(bool(s.get("web_search"))),
                 *(["--mcp-config", json.dumps(mcp)] if tools_url else []),
                 *(["--agents", json.dumps(agents, ensure_ascii=False)] if agents else []),
                 *(["--resume", str(session)] if session else []), *(s.get("args") or [])]
+
+
+# Every CLI Base Agent, by each name make() takes for it.
+CLIS: dict[str, type[CliAgent]] = {n: c for c in (Codex, Claude) for n in (c.backend, *c.aliases)}
 
 
 def _this_call(home: Path, handle: str, reported, resumed: bool):
@@ -702,6 +936,11 @@ def _this_call(home: Path, handle: str, reported, resumed: bool):
         f.write(json.dumps({f_: getattr(reported, f_) for f_ in fields}))
     return Usage(reported.model, **{f: max(0, getattr(reported, f) - int(before.get(f, 0))) for f in fields},
                  calls=reported.calls, cost_usd=None if before else reported.cost_usd)
+
+
+def _overlap(a: Path, b: Path) -> bool:
+    a, b = Path(os.path.realpath(a)), Path(os.path.realpath(b))
+    return a == b or a.is_relative_to(b) or b.is_relative_to(a)
 
 
 def _target(m: Mount, workspace: Path) -> Path:

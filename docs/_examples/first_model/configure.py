@@ -22,6 +22,9 @@ def main() -> None:
     config["llm"]["base_url"] = endpoint
     config["llm"]["model"] = os.environ.get("LEARNER_MODEL") or model
     config["llm"]["api_key_env"] = key_env
+    actor = urlsplit(os.environ.get("ACTOR_BASE_URL") or os.environ.get("MODEL_BASE_URL", "")).hostname or ""
+    # the acting pipeline's sandbox reaches its endpoint (a loopback one is forwarded without a host)
+    config["environment"]["allowed_hosts"] = [] if actor in ("127.0.0.1", "localhost") else [actor]
     path.write_text(yaml.safe_dump(config, sort_keys=False))
     print("Configured learner endpoint/model in run.yaml; API credential remains in the environment.")
 

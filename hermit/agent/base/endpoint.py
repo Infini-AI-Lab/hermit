@@ -25,6 +25,7 @@ unless told otherwise.
 from __future__ import annotations
 
 import json
+import os
 import secrets
 import select
 import socket
@@ -148,7 +149,8 @@ class ChatEndpoint:
     def answer(self, request: dict, authorization: str | None, abort: threading.Event | None = None):
         """One request (its JSON body, not streamed): (status, response body, headers to pass on), or _DROP when the
         upstream gave no answer."""
-        if self.agent.name in ("codex", "claude"):
+        from hermit.agent.base.cli import CliAgent
+        if isinstance(self.agent, CliAgent):
             from hermit.agent.base.interface import Unsupported
             try:
                 return cli_answer(self.agent, request, abort)
@@ -266,12 +268,9 @@ def cli_answer(agent: BaseAgent, request: dict, abort: threading.Event | None = 
     own = {"stdin": True, **({"cancel": abort} if abort is not None else {})}
     if request.get("reasoning_effort"):
         own["effort"] = str(request["reasoning_effort"])
-    if system and agent.name == "codex":
-        from hermit.agent.base.cli import codex_instructions
-        extra, prompt = codex_instructions(system, prompt)
-        own["args"] = [*(agent.settings.get("args") or []), *extra]
-    elif system:
-        own["append_system_prompt"] = system
+    if system:
+        extra, prompt = agent.system_settings(system, prompt)
+        own.update(extra)
     log_dir, scratch = agent.settings.get("log_dir"), None
     if log_dir:
         own["log"] = Path(log_dir) / f"{time.strftime('%Y%m%dT%H%M%S')}-{secrets.token_hex(4)}-{agent.name}.jsonl"
@@ -279,12 +278,19 @@ def cli_answer(agent: BaseAgent, request: dict, abort: threading.Event | None = 
         scratch = Path(tempfile.mkdtemp(prefix=f"hermit-chat-log-{agent.name}-"))
         own["log"] = scratch / f"agent-{agent.name}.jsonl"
     work = Path(tempfile.mkdtemp(prefix=f"hermit-chat-{agent.name}-"))
+    if agent.settings.get("isolation") == "sandbox":          # the empty workspace is the session's to write
+        own["writable"] = [*(agent.settings.get("writable") or []), str(work)]
     try:
         result = agent.configured(**own).run(prompt, workspace=work)
     finally:
         shutil.rmtree(work, ignore_errors=True)
         if scratch is not None:                                # also when the call raised
             shutil.rmtree(scratch, ignore_errors=True)
+        from hermit.redact import redact_file                 # what the caller keeps: no model key in it
+        for kept in (own.get("log") if scratch is None else None, agent.settings.get("log"),
+                     agent.settings.get("stderr_log")):
+            if kept:
+                redact_file(Path(os.path.realpath(kept)))     # through a link the caller made: its target
     if result.extra.get("cancelled"):
         return _DROP
     if not result.extra.get("served") or not result.reply.strip():
@@ -323,20 +329,29 @@ def relay(upstream: str, *, timeout: float | None = None) -> str:
         return _relays[key].url
 
 
-def cli_model(spec: dict, log_dir=None):
+def cli_model(spec: dict, log_dir=None, sandbox=None):
     """The run's `llm` when it names a CLI (`llm: {cli: codex, model: ..., login: chatgpt, ...}`): a chat client over
     a ChatEndpoint that answers each request with one session of that CLI Base Agent (cli_answer), for a model only
     the CLI reaches. Every key but `cli` and `timeout` is the Base Agent's setting (hermit.agent.base.cli); `web_search`
     must be given. The model is an agent that can run commands, and Codex's own read-only sandbox still reads the whole
-    machine (the test answers, the keys), so the session must run in a container of its own (`isolation:
-    container`), where its commands may only read (codex_sandbox read-only) unless the spec says otherwise."""
+    machine (the test answers, the keys), so the session runs in a sandbox of its own: `isolation: sandbox` (the
+    default), the run's bubblewrap sandbox for it (`sandbox`, which the Trainer makes: its empty workspace, its
+    model's hosts and nothing else), or `isolation: container` (with container: {image, network, proxy}), where its
+    commands may only read (codex_sandbox read-only) unless the spec says otherwise."""
     from hermit.agent.base.interface import make
     from hermit.agent.model.llm import ChatClient
-    if spec["cli"] != "codex" or spec.get("isolation") != "container":
+    isolation = spec.get("isolation") or "sandbox"
+    if spec["cli"] != "codex" or isolation not in ("sandbox", "container"):
         raise ValueError("llm.cli: the learner's model is a Codex agent that can run commands; it needs cli: codex "
-                         "and isolation: container (with container: {image, network, proxy}), which shows it only "
-                         "its empty workspace")
+                         "and isolation: sandbox (the default: a bubblewrap sandbox of its own) or container, which "
+                         "show it only its empty workspace")
+    if isolation == "sandbox" and sandbox is None:
+        raise ValueError("llm.cli runs in a sandbox of its own, which the Trainer makes (settings.sandbox)")
     settings = {k: v for k, v in spec.items() if k not in ("cli", "timeout")}
+    settings["isolation"] = isolation
+    if isolation == "sandbox":
+        settings["sandbox"] = sandbox
+        settings.setdefault("codex_sandbox", "danger-full-access")   # the bubblewrap sandbox is the boundary
     settings.setdefault("codex_sandbox", "read-only")
     if log_dir is not None:
         settings.setdefault("log_dir", str(log_dir))           # each call's event stream, with the run's records

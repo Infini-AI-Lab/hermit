@@ -80,13 +80,11 @@ def make(name: str, settings: dict | None = None, model: Any = None) -> BaseAgen
     if name == "react":
         from hermit.agent.base.react import React
         return React(settings, model)
-    if name == "codex":
-        from hermit.agent.base.cli import Codex
-        return Codex(settings, model)
-    if name in ("claude", "claude-code"):
-        from hermit.agent.base.cli import Claude
-        return Claude(settings, model)
-    raise ValueError(f"no Base Agent {name!r}: direct, react, codex or claude")
+    from hermit.agent.base.cli import CLIS
+    if name in CLIS:
+        return CLIS[name](settings, model)
+    known = ["direct", "react", *dict.fromkeys(c.backend for c in CLIS.values())]
+    raise ValueError(f"no Base Agent {name!r}: {', '.join(known[:-1])} or {known[-1]}")
 
 
 def configured(agent: BaseAgent, **settings) -> BaseAgent:

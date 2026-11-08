@@ -9,6 +9,7 @@ Start with the extension boundary you need. A task integration normally requires
 | New learning method | [Evolver tutorial](../tutorials/custom-evolver.md), [full contract](../framework/custom-evolver.md) | Failure handling, state persistence, usage, final selection |
 | Reproduction of a published method | [Reproduce a published method](reproducing-a-method.md) | The adapter and the Evolver named, the differences from the authors' code, the protocol, the first evaluation on the shared settings |
 | New host exporter | `hermit/hosts/`, `hermit/plugins/` | Supported exports, refusal/omission behavior, repeat generation |
+| New CLI Base Agent | A `CliAgent` subclass in `CLIS` (`hermit/agent/base/cli.py`), [agent layers](../framework/agent-layers.md#layer-2-base-agent) | Every hook, limits it cannot keep refused, its stream read (reply, steps, usage, served) from a recorded stream |
 | Trainer behavior | [Trainer contract](../framework/trainer.md), `hermit/trainer/` | Rollback, resume boundaries, records, budget observations |
 
 ## Repository map
@@ -74,3 +75,4 @@ component contracts are described in [Adapter](../framework/adapter.md), [Evolve
 Describe the user-visible behavior, the affected contract, how you verified it, and any environment requirements.
 Include a small reproducer for failures. Update commands, defaults, and docs together; do not describe a proposed
 feature as available. The generic [service lifecycle proposal](service-design.md) is kept separately from supported usage.
+The [sandbox design](sandbox-design.md) records how the task, judge and evolver sandboxes are built.

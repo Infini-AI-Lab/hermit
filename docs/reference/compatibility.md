@@ -33,8 +33,8 @@ framework's stdio server. Neither command guarantees that arbitrary tool depende
 
 - `agent.name` is the current acting-agent selector. Legacy `pipeline.run` settings remain supported when no agent is named; function-based agents receive `params` and `base` when their signatures declare those keywords.
 - Trainer acceptance checks structure; performance selection belongs to the Evolver or your experiment protocol.
-- The sandbox covers launched learner programs, not the whole Python process or the acting pipeline.
-- Restricted network mode uses a proxy that a program can bypass by ignoring proxy settings.
+- The Trainer's own process is not sandboxed; the acting agent, the judge (when sandboxed), the declared tools and the learner run in sandboxes of their own ([Sandbox design](../developer/sandbox-design.md)), except where the pipeline runs on the host by design (`sandbox.enabled: false`, Harbor, `environment.runner: host`).
+- An isolated network is a network namespace: the only ways out are the forwarded ports and the allowlist proxy, so a program that ignores proxy settings has no route out.
 - Budget observation can overshoot with in-flight work; missing usage remains unknown.
 - Crash recovery restores the last completed framework step, not arbitrary external service state.
 - The evaluator's `solved_once` threshold is fixed at score 1.0.

@@ -21,10 +21,12 @@ The `llm` section configures the run's model tool, which the GEPA learner uses.
 Models are named by reference, `<backend>/<model id>` (`fireworks/accounts/fireworks/models/glm-5p3-flash`,
 `vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8`); the backend decides the endpoint, the key variable and the price,
 so the same config runs against another provider or a local vLLM or SGLang server with one override:
-`hermit train --config run.yaml model=vllm/...`. See [Model backends](../guides/model-backends.md).
+`hermit train --config run.yaml model=vllm/...` for every caller that names no model of its own (a caller that names
+one keeps it: the OfficeQA configs name `llm`, which takes `llm=...` too). See
+[Model backends](../guides/model-backends.md).
 
 The acting agent owns its own model configuration. Changing `llm.model` does not change the acting agent's model;
-a built-in agent takes it from `agent.params.model`, and so does OfficeQA's own agent (GLM 5.3 Flash when unset).
+a built-in agent takes it from `agent.params.model`, and so does OfficeQA's own agent (its configs name GLM 5.3 Flash).
 The top-level `model` is the default for both.
 
 For every field, its default, type, and path rules, use the [complete field reference](../reference/config-fields.md). Method defaults are included in the [method guides](../methods/index.md).
@@ -58,7 +60,7 @@ Use the same run name for training and evaluation. Unknown configuration keys ar
 | `evolver.params` | Parameters layered over that Evolver's defaults. |
 | `evolver.resume` | Request a continued learner session between steps; the Evolver must support it. |
 | `evolver_access` | Additional task resources and tools given to the learner. |
-| `llm` | Optional model endpoint, model ID, key environment variable, prices, and `extra_body` (fields added to every request, such as `reasoning_effort`) for the run's `llm` tool; or `cli: codex` with that Base Agent's settings (`model`, `login`, `effort`, `web_search`, `container`, ...), `isolation: container` (required: the learner is an agent that can run commands) and `timeout`, for a model only Codex reaches: each call is one session in a container of its own ([Agent layers](agent-layers.md#layer-3-agent)). |
+| `llm` | Optional model endpoint, model ID, key environment variable, prices, and `extra_body` (fields added to every request, such as `reasoning_effort`) for the run's `llm` tool; or `cli: codex` with that Base Agent's settings (`model`, `login`, `effort`, `web_search`, ...), `isolation` and `timeout`, for a model only Codex reaches: each call is one session (the learner's model is an agent that can run commands) in a bubblewrap sandbox of its own (`isolation: sandbox`, the default: its empty workspace, its model's hosts through a proxy, its key, nothing of the run; its model is a `<backend>/<model>` reference or `login: chatgpt`, whose hosts it reaches) or in a container (`isolation: container` with `container`) ([Agent layers](agent-layers.md#layer-3-agent)). |
 | `trainer` | Run name and directories, epochs, budgets, checkpoint frequency, and recovery mode. |
 | `eval.repeats` | Repetitions per test task in the separate evaluation command. |
 
@@ -86,119 +88,95 @@ The Trainer accounts for rollouts and learner calls. It stops at the next point 
 in-flight work can overshoot it. Dollar accounting needs reported usage and applicable prices. The separate
 `check` probe and `eval` are outside this training budget. See [Trainer](trainer.md#budgets) for the observation points.
 
-## Sandbox, network and warnings
+## Sandboxes
 
-Every process the framework starts runs in a sandbox, in one of five roles. Only the Trainer itself and the judge
-(which scores in the Trainer, on the task's answer) stay outside. It requires Linux and bubblewrap.
+Every process the framework starts runs in a sandbox ([how it works](../guides/sandbox.md),
+[design](../developer/sandbox-design.md)). It requires Linux and bubblewrap. Each sandbox is an allowlist: inside, only what is declared exists, besides the Python environment the
+framework runs in (shown as installed; `sandbox.hide` covers a module of it in every sandbox but the judge's).
+Only the Trainer, `eval` and `check` themselves stay outside, holding the data, the answers, the run records and the
+model keys.
 
-| Role | What runs in it |
-|---|---|
-| `learner` | The Evolver's learner program (a coding agent or a script). |
-| `rollout` | The task pipeline during training: each task's agent runs in its own worker process. |
-| `eval` | The same worker, for `hermit eval`. |
-| `check` | The same worker, for the probe of `hermit check`. |
-| `tool` | A tool the template or task declares for the Evolver; its code is never imported in the Trainer. |
+| Sandbox | What runs in it | Declared by |
+|---|---|---|
+| task | the acting agent, one worker per task (rollouts, `run_agent`, `eval`, the probe of `check`), and a task's declared tools | `environment` |
+| judge | the judge, when `judge.mode` is `shared` or `separate` | `judge` |
+| evolver | the learner's sessions and programs | the Trainer's layout, `sandbox.evolver`, `evolver_access` |
 
-A custom Evolver's own Python code runs in the Trainer, as before; what it starts goes through the learner sandbox.
+A template's declared tools run in a strict sandbox (their code and the template read-only, the adapter they act on
+writable, no network, no variables); the spec check and host-side renders run the adapter's modules in the same
+strict preset with the adapter read-only. A task's declared tools run with `environment`, like its agent.
 
-It is a positive allowlist: inside, only what is granted exists. Read-only: the system's `/usr` and a few `/etc`
-files, the Python interpreter, the Python distributions the framework depends on (not every package installed beside
-it), the `hermit` package (not the checkout around it), the learner program's installation, the Evolver's
-directory, the granted accesses and `sandbox.read`. Read-write: the adapter, state, scratch and output directories.
-The task's data, other runs and the user's home are not there at all.
-
-The agent's roles (`rollout`, `eval`, `check`) use a preset for task code, which needs far more than a learner: its
-helpers beside the config, its benchmark's packages, the variables its launcher exported, the endpoints those name.
-What the preset keeps from the agent is the run's secrets:
-
-- read-only: the task's project (the deepest directory holding the config, the data, the task info, the judge and
-  the agent; an example's `<method>/` config and its `../utils/`), the whole Python environment, the adapter under
-  test, `sandbox.read` and `profiles.rollout.read`; a granted directory holding a virtual environment (an external
-  benchmark's `.venv`) comes with the Python installation that environment was made from. "Every package" means the
-  environment's site directories and what their `.pth` files add, not the directory a program was started from;
-- read-write: only `.logs` beside the agent's own code (examples/officeqa keeps its logs there), a work
-  directory per call (its HOME, logs and workspaces) and `profiles.rollout.write`; the agent's code, the config and
-  the task's helpers are read-only, so an agent cannot change what later calls run;
-- covered, wherever they fall in the above and under every name they are shown by (a directory reached through a
-  link): the task, split and judge files read as empty; every `runs` and `.logs` directory in the project and any
-  directory holding a run (this run's and the other methods' beside it, whose judge feedback can carry answers,
-  found again for each call), the other calls' work, the tree directory, and `profiles.rollout.mask` (a judge's
-  answers kept beside the task) are empty. A project too large to search is shown path by path instead;
-- environment: inherited, unless `profiles.rollout.env` lists the variables (`sandbox.env` is the learner's);
-- network: open, unless `profiles.rollout.network: isolated`, which allows the agent's bound model endpoint (a
-  `127.0.0.1` endpoint is forwarded) and the role's `allow` through its own proxy;
-- a CLI agent (codex, claude-code) gets its CLI as installed: the links to it, its package, the interpreter it
-  names (node) and what a short wrapper script runs; its login is copied into its own `CODEX_HOME` or
-  `CLAUDE_CONFIG_DIR` for the call and removed after it;
-- the adapter's tools never run in the agent's process, nor in any process it starts (a benchmark's own runner, a
-  CLI agent's tool server): a `Session` made there serves them from a sandbox of its own, as strict as the
-  learner's (no network but the loopback endpoints the environment names, none of its keys, the framework's
-  packages), under the run's `enforce`; an adapter without tools starts nothing.
-
-Every sandbox has its own process namespace: the host's processes, their environment and their files are not
-reachable through `/proc`. `agent.timeout_min` stops a task call that runs longer and records it as an error. The
-agent is never imported in the framework's process while its role is sandboxed.
-
-The result's `log` is copied into the learner's material outside any sandbox, so it must lie where the call could
-write (its work directory, the agent's logs, the role's `write`); another path is dropped with a warning, and a link
-is never followed.
-
-`eval` and `check` take `profiles.rollout` unless they have one of their own. A profile path may name an environment
-variable (`$SLB_WORKDIR`, set by a launcher); an unset one is an error. The result comes back on a pipe only the worker
-can write, so nothing the agent starts can report a result. A pipeline that needs what the preset does not give (a
-GPU, a docker socket) gets it through the profile's `read` or `write`, or runs unconfined with
-`profiles.rollout.enabled: false`. The examples' configs show each case: officeqa grants its documents (a link
-`prepare.py` makes) and covers the answers beside them (`.private/`), clbench grants its checkout
-and task directory from the launcher's variables.
-
-Wherever else the framework executes the adapter, the learner's work, it does so in a sandbox: the spec check's
-deploy and template checks (the adapter and the template read-only, no network, no keys), the mwm Evolver's
-maintenance, admission gates and context rendering (in the learner's own sandbox), and a CLI acting agent's deploy —
-rendering the adapter's exports and the tool server it starts — so the adapter's modules never run with the agent's
-login or network. `run_agent` runs a copy of the adapter the learner names, made inside the learner's sandbox. (A
-standalone `deploy`, `convert` or `serve` the user runs for their own host, outside a run, still renders on the host.)
-
-The `learner` and `tool` roles are strict: `sandbox.network`, `sandbox.env` and the framework's own packages. A
-declared tool that needs more says so in `profiles.tool` (examples/clbench_database/mwm's `sql` tool reads the
-registered database and writes the task directory).
+### The task sandbox: `environment`
 
 | Setting | Effect |
 |---|---|
-| `sandbox.enabled` | Wrap launched learner programs in the sandbox; false runs them unconfined. |
+| `environment.read` | Task paths shown read-only (relative to the config; `$VAR` names a launcher's variable, an unset one is an error): the agent's code, its data, a corpus. A path that holds or lies in the data and split files, the judge, its tests, or the runs and trees is refused. |
+| `environment.write` | Paths the agent may write besides its own work directory. |
+| `environment.packages` | Python distributions shown besides the framework's environment (whose site directories every sandbox shows as installed), with their dependencies: an editable install's package, one on `PYTHONPATH`. |
+| `environment.env` | Environment variables passed in: names or patterns (`MWM_*`). The agent's model key variable passes by itself. |
+| `environment.network` | `no-network` (default), `allowlist` (with `environment.allowed_hosts`, through a proxy), or `public`. The agent's model provider (as an allowed host) and the tool endpoint stay reachable. |
+| `environment.resources` | `memory_mb`, `file_mb`, `cpu_s` per process (positive whole numbers; null: no limit); not with `environment.image`, whose container keeps its own. |
+| `environment.image` | A Docker image: a Codex acting agent runs in a container of its own; `environment.container` gives its network and egress proxy. |
+| `environment.runner: host` | The pipeline runs in the Trainer's process, for a task whose own code isolates the adapter's code it runs (AgentDyn's hooks in containers). Warned. `environment.read`, `write` and `packages` then build only the sandbox of the task's declared tools. |
+
+Each call gets a work directory of its own (its HOME, logs and workspaces), and a fresh directory in place of the
+`.logs` beside a task's agent file. The agent gets its model as Harbor's agents do: its key variable passes, its
+provider's host is allowed and a model server or meter on the loopback is forwarded. A Codex ChatGPT login is copied in;
+its hosts are allowed. What the run keeps (the learning material, the adapter) is scrubbed of key values. The adapter's
+modules, when the agent's code runs them (its tools, a CLI agent's deploy render), run in a nested strict sandbox. The
+result comes back on a pipe only the worker can write, and its `log` must lie where the call could write; a link is
+never followed. A Harbor task set (`agent.name: harbor`) runs in Harbor's container. `agent.timeout_min` stops a call
+that runs longer.
+
+### The judge: `judge.mode`
+
+| Mode | Where the judge runs |
+|---|---|
+| `host` (default) | the Trainer's process, on the output |
+| `shared` | the task sandbox, after the agent, over its work directory, with the judge's file and `judge.tests` shown to it alone |
+| `separate` | a sandbox holding only the paths `judge.collect` names, copied from the agent's work directory through a sanitized archive |
+
+With `sandbox.enabled: false` every mode runs the judge in the Trainer's process.
+
+### The evolver sandbox: `sandbox`
+
+The learner works in `/w`: `/w/adapter`, `/w/material`, `/w/task-info`, `/w/history`, `/w/state`, `/w/scratch`,
+`/w/output`, `/w/root`, `/w/method`, `/w/agent-logs` (the logs `run_agent` returns, read-only), and `evolver_access` as
+`/w/validation` and `/w/environment/<name>`; its prompt names them relative to `/w`. Its network reaches only its
+models (their providers' hosts, a meter on the loopback; their key variables pass), the Trainer's tool endpoint and the
+hosts below; a Codex ChatGPT login's hosts are added.
+
+| Setting | Effect |
+|---|---|
+| `sandbox.enabled` | False runs everything unconfined (warned; not for reported results). |
 | `sandbox.enforce: required` | Default. Refuse to run when bubblewrap is missing. |
 | `sandbox.enforce: best_effort` | Run unconfined when bubblewrap is missing, and record that the sandbox was not applied. |
-| `sandbox.network: isolated` | Default. A separate network namespace with loopback only; see below. |
-| `sandbox.network: open` | Use the host network, unrestricted. |
-| `sandbox.allow` | Hosts reachable through the allowlist proxy when the network is isolated; empty means no proxy. |
-| `sandbox.read` | Additional filesystem paths those programs may read. |
-| `sandbox.packages` | Additional Python distributions to show, by name, beside the framework's own dependencies. |
-| `sandbox.env` | Environment variables passed on, in addition to required runtime variables; null inherits the environment. |
-| `sandbox.profiles.<role>` | Per role: `enabled`, `read`, `write`, `mask`, `allow`, `packages`, `network`, `env`; `inherit: false` drops the shared lists. |
-| `sandbox.audit: files` | Trace every file a sandboxed process opens, with strace running outside, beside its record. |
+| `sandbox.hide` | Modules or packages of the framework's environment (`pkg.scoring`) covered in every bubblewrap sandbox but the judge's: a benchmark's scoring code the agent does not import. Each must be installed, not from a zip or wheel. A container (`environment.image`, `llm.cli` with `isolation: container`) holds its own image's copies, which it does not reach. |
+| `sandbox.evolver.allowed_hosts` | More hosts the learner may reach, through the allowlist proxy. |
+| `sandbox.evolver.env` | Environment variables passed to the learner's sessions (names or patterns); its models' key variables pass by themselves. |
+| `sandbox.evolver.resources` | `memory_mb`, `file_mb`, `cpu_s` per process (positive whole numbers; null: no limit). |
 
-The older values still work: `network: restricted` means `isolated`, and `network: none` means `isolated` without the
-proxy.
+An old key (`sandbox.profiles`, `sandbox.network`, `sandbox.allow`, `sandbox.read`, `sandbox.packages`,
+`sandbox.env`, `sandbox.audit`, `evolver.params.hide`, the acting agent's `isolation: container`) fails with where
+it went.
 
-With an isolated network the only ways out are forwarded ports: every `127.0.0.1` URL in the learner's command or
-environment (the run's tool endpoint, a tool gate, a model meter) and the allowlist proxy. Each is re-created inside
-and relayed over a Unix socket, so a program that ignores the proxy variables has no route out. Before the learner
-starts, a check inside the sandbox confirms that an outside connection fails, that every forwarded port answers, and
-that the task's data file and the home's `.ssh` and `.bashrc` are absent; the learner does not start unless it passes.
-On an open network (the agent's default) the same check runs for the paths only: what must be absent is, and every
-covered secret is empty.
+### Records
 
-Every wrapped program leaves a record, `sandbox/<role>-<n>.json` in the run's directory (`eval` writes its own beside
-its results): what was bound read-only and read-write, what was covered, which ports were forwarded, which
-environment variables passed, and the result of that check, which for a worker also proves the covered paths empty.
-Framework-internal checks that run the adapter's own modules (the spec check, a CLI agent's deploy render, a sandboxed `Session`) leave records under their own labels — `spec-`, `render-`, `adapter-`, `session-` — beside the role records; they are not configurable roles. Each role's proxy writes one line per request, allowed or refused, to `sandbox/network*.jsonl`. With `audit: files`,
-`<role>-<n>.strace` lists the file accesses; strace is bubblewrap's parent, out of the sandbox's reach.
+Before a task, judge, tool or learner sandbox starts its command, a check inside it confirms that an outside
+connection fails (with an isolated network), that every forwarded port answers, and that the run's secrets and the
+home's `.ssh` and `.bashrc` are absent; the command does not start unless it passes. Each such start leaves a
+record, `sandbox/<role>-<n>.json` in the run's directory (`eval` writes its own beside its results): what was bound
+and under which names, which ports were forwarded, which variables passed, and that check. The strict spec and
+render checks (which show only the adapter and the template), `hermit check`'s probes (which run that check but keep
+no run directory), a container's start (`environment.image`, Harbor) and a pipeline in the host process keep no such
+record; the run's card records which ran. The allowlist proxies log
+each request to `sandbox/network*.jsonl`.
 
-Giving more read paths or inheriting credentials changes what the learner can access. Warnings are recorded with the
+Giving more read paths or passing more variables changes what a sandbox can access. Warnings are recorded with the
 run.
 
 `evolver_access.send_material_out` declares that sending learning material to an outside service is allowed; it is
-checked when an Evolver declares that need. It is not a network filter. Likewise, the framework does not supply test
-tasks through the learner interface, but broad filesystem grants or disabled isolation can expose them.
+checked when an Evolver declares that need. It is not a network filter.
 
 ## What is checked at startup?
 

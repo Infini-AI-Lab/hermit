@@ -88,7 +88,7 @@ def make_run(tmp: Path, evolver: str, params: dict) -> Config:
               "task_info": "task-info", "agent": {"name": "pipeline.py:run", "concurrency": 4},
               "judge": {"path": "judge.py"}, "template": str(TEMPLATE),
               "evolver": {"name": evolver, "params": params},
-              "sandbox": {"enabled": False, "network": "none", "env": []},
+              "sandbox": {"enabled": False},
               "trainer": {"run_name": f"{evolver}-toy", "output_dir": "runs", "epochs": 2,
                           "budget": {"hours": 1}}}
     (tmp / "run.yaml").write_text(yaml.safe_dump(config))

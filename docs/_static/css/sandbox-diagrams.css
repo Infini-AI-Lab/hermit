@@ -1,0 +1,74 @@
+/* Sandbox diagrams (docs/_includes/sandbox-*.html): one colour per role, red for what is kept out. */
+.ha-sbx {
+  --sbx-text: #1c2321;
+  --sbx-muted: #5d6a66;
+  --sbx-line: #c9d1ce;
+  --sbx-surface: #fff;
+  --sbx-band: #f3f5f4;
+  --sbx-host: #3d4a46;
+  --sbx-task: #0f7a6c;
+  --sbx-task-soft: #e3f2ef;
+  --sbx-judge: #a8620b;
+  --sbx-judge-soft: #f8eedf;
+  --sbx-evo: #4b55b8;
+  --sbx-evo-soft: #e8eaf8;
+  --sbx-gen: #3d5a80;
+  --sbx-gen-soft: #eaf0f7;
+  --sbx-deny: #b3402e;
+  margin: 1.5rem 0;
+  color: var(--sbx-text);
+}
+html.dark .ha-sbx {
+  --sbx-text: #e4ebe8;
+  --sbx-muted: #9aa8a3;
+  --sbx-line: #34403c;
+  --sbx-surface: #1b2220;
+  --sbx-band: #222a28;
+  --sbx-host: #b9c6c1;
+  --sbx-task: #4cc2b1;
+  --sbx-task-soft: #183330;
+  --sbx-judge: #e0a24f;
+  --sbx-judge-soft: #33281a;
+  --sbx-evo: #9aa3f0;
+  --sbx-evo-soft: #23264a;
+  --sbx-gen: #8fb3dc;
+  --sbx-gen-soft: #1c2836;
+  --sbx-deny: #ef7d69;
+}
+.ha-sbx-scroll { overflow-x: auto; }
+.ha-sbx svg { display: block; width: 100%; min-width: 600px; height: auto; }
+.ha-sbx figcaption { margin-top: 0.5rem; font-size: 0.875em; color: var(--sbx-muted); }
+.ha-sbx text { fill: var(--sbx-text); font-size: 12px; }
+.ha-sbx .t-h { font-size: 14px; font-weight: 700; }
+.ha-sbx .t-b { font-weight: 600; }
+.ha-sbx .t-m { fill: var(--sbx-muted); font-size: 11px; }
+.ha-sbx .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; }
+.ha-sbx .c-host { fill: var(--sbx-host); }
+.ha-sbx .c-task { fill: var(--sbx-task); }
+.ha-sbx .c-judge { fill: var(--sbx-judge); }
+.ha-sbx .c-evo { fill: var(--sbx-evo); }
+.ha-sbx .c-gen { fill: var(--sbx-gen); }
+.ha-sbx .c-deny { fill: var(--sbx-deny); }
+.ha-sbx .b-host { fill: var(--sbx-surface); stroke: var(--sbx-host); stroke-width: 2; }
+.ha-sbx .b-task { fill: var(--sbx-task-soft); stroke: var(--sbx-task); stroke-width: 2; }
+.ha-sbx .b-judge { fill: var(--sbx-judge-soft); stroke: var(--sbx-judge); stroke-width: 2; }
+.ha-sbx .b-evo { fill: var(--sbx-evo-soft); stroke: var(--sbx-evo); stroke-width: 2; }
+.ha-sbx .b-gen { fill: var(--sbx-gen-soft); stroke: var(--sbx-gen); stroke-width: 2; }
+.ha-sbx .b-inner { fill: var(--sbx-surface); stroke: var(--sbx-line); stroke-width: 1.2; }
+.ha-sbx .b-band { fill: var(--sbx-band); stroke: none; }
+.ha-sbx .b-deny { fill: none; stroke: var(--sbx-deny); stroke-width: 1.6; stroke-dasharray: 5 4; }
+.ha-sbx .b-muted { fill: none; stroke: var(--sbx-muted); stroke-width: 1.4; stroke-dasharray: 5 4; }
+.ha-sbx .dash { stroke-dasharray: 6 4; }
+.ha-sbx .a { fill: none; stroke-width: 1.6; }
+.ha-sbx .a-host { stroke: var(--sbx-host); }
+.ha-sbx .a-task { stroke: var(--sbx-task); }
+.ha-sbx .a-judge { stroke: var(--sbx-judge); }
+.ha-sbx .a-evo { stroke: var(--sbx-evo); }
+.ha-sbx .a-gen { stroke: var(--sbx-gen); }
+.ha-sbx .a-deny { stroke: var(--sbx-deny); }
+.ha-sbx .ah-host { fill: var(--sbx-host); }
+.ha-sbx .ah-task { fill: var(--sbx-task); }
+.ha-sbx .ah-judge { fill: var(--sbx-judge); }
+.ha-sbx .ah-evo { fill: var(--sbx-evo); }
+.ha-sbx .ah-gen { fill: var(--sbx-gen); }
+.ha-sbx .ah-deny { fill: var(--sbx-deny); }

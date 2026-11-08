@@ -95,6 +95,43 @@ def show(adapter: Path, commit: str, path: str) -> State:
     return (blob.stdout, fields[0] == "100755") if blob.returncode == 0 else None
 
 
+def export(adapter: Path, commit: str, dest: Path) -> bool:
+    """The files of `commit` written under `dest` (bytes and executable bit), read object by object: never `git
+    archive`, which applies the filters a repository the learner could write configures. A link stays when it points
+    inside the adapter (relative, not out of it); one that leaves it is left out. False when the commit is unknown."""
+    listing = subprocess.run(["git", "-C", str(adapter), "ls-tree", "-r", "-z", commit], capture_output=True)
+    if listing.returncode != 0:
+        return False
+    for entry in listing.stdout.split(b"\0"):
+        if not entry:
+            continue
+        meta, _, name = entry.partition(b"\t")
+        mode, kind, sha = meta.decode().split()
+        rel = Path(name.decode("utf-8", errors="surrogateescape"))
+        if kind != "blob" or rel.is_absolute() or ".." in rel.parts:
+            continue
+        blob = subprocess.run(["git", "-C", str(adapter), "cat-file", "blob", sha], capture_output=True)
+        if blob.returncode != 0:
+            return False
+        target = dest / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if mode == "120000":                               # a link: kept only inside the adapter
+            to = blob.stdout.decode("utf-8", errors="surrogateescape")
+            inside = os.path.normpath(os.path.join(os.path.dirname(str(rel)), to))
+            if not os.path.isabs(to) and inside != ".." and not inside.startswith("../"):
+                os.symlink(to, target)
+            continue
+        target.write_bytes(blob.stdout)
+        if mode == "100755":
+            target.chmod(0o755)
+    root = os.path.realpath(dest)                          # a link that leaves through another link: dropped
+    for link in [p for p in Path(dest).rglob("*") if p.is_symlink()]:
+        real = os.path.realpath(link)
+        if real != root and not real.startswith(root + os.sep):
+            link.unlink()
+    return True
+
+
 def _read(path: Path) -> State:
     return (path.read_bytes(), bool(path.stat().st_mode & 0o111)) if path.is_file() else None
 

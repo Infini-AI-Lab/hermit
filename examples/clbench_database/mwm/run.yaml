@@ -30,18 +30,15 @@ evolver_access:
       entrypoint: sql_tool.py:sql
       input_schema: {type: object, properties: {query: {type: string}}, required: [query], additionalProperties: false}
       output_schema: {type: object}
+environment:                         # the task sandbox: the host runner, clbench's checkout and venv
+  read: [../utils/agent, ../utils/task-info/mwm, $MWM_CLBENCH]
+  write: [$MWM_TASK_WORKDIR]       # the run's task directory: evidence, host records
+  env: ["MWM_*", "CLB_*", "MW_*", "LITELLM_*"]   # the launcher's settings (launch.sh)
+                                   # + the host's litellm key variable (launch.sh): the benchmark's own loop calls
+                                   # its model, the recorded exception (docs/developer/sandbox-design.md)
 sandbox:
-  enabled: true
-  network: none                    # the learner's own namespace forwards only its meter and the tool gate
-  allow: []
-  env: [MW_TOOLSRV]                # the channel client's URL (the Evolver's tool gate); the learner's model key
-                                   # variable is always passed
-  profiles:                        # the agent's sandbox (rollout; eval and check take it too); launch.sh sets both
-    rollout: {read: [$MWM_CLBENCH], write: [$MWM_TASK_WORKDIR]}   # CL-Bench and its .venv; the task's directory
-    tool:                          # the learner's `sql` tool: the registered database (in CL-Bench), current_db and its log
-      read: [$MWM_CLBENCH]
-      write: [$MWM_TASK_WORKDIR]
-      env: [MW_TOOLSRV, MWM_TASK_WORKDIR]
+  evolver:
+    env: [MW_TOOLSRV]
 trainer:
   run_name: null                   # launch.sh: <tag>-o<i>
   output_dir: runs

@@ -8,8 +8,9 @@ import time
 
 from hermit.adapter.manifest import CARD, MANIFEST
 from hermit.config import Config
-from hermit.isolate import agent_pipeline
-from hermit.task import TaskData, load_callable
+from hermit.isolate import agent_pipeline, judge_for
+from hermit.redact import redact_path, redact_value
+from hermit.task import TaskData
 from hermit.trainer.budget import Budget
 from hermit.trainer.rollout import run_tasks
 from hermit.tree import ROOT_TAG, Tree
@@ -22,7 +23,6 @@ def evaluate(config: Config, adapter: str, *, log=print) -> dict:
     tests = data.rows("test")
     if not tests:
         raise SystemExit("eval needs data.test")
-    judge = load_callable(f"{d['judge']['path']}:{d['judge']['name']}", config.base)
     run_name = config.run_name()
     run_dir = config.run_dir()
     from hermit.adapter.manifest import read_manifest
@@ -46,6 +46,11 @@ def evaluate(config: Config, adapter: str, *, log=print) -> dict:
     out = run_dir / "eval" / label
     out.mkdir(parents=True, exist_ok=True)
     pipeline, close = agent_pipeline(config, "eval", records=out / "sandbox")
+    try:
+        judge = judge_for(config, pipeline)
+    except BaseException:
+        close()                      # the pipeline's sandbox and proxies, before the error leaves
+        raise
     budget = Budget()
     t0 = time.time()
     per_task: dict[str, list[float]] = {t["id"]: [] for t in tests}
@@ -58,11 +63,14 @@ def evaluate(config: Config, adapter: str, *, log=print) -> dict:
                                      budget=budget, part="rollout"):
                     per_task[rec["id"]].append(rec["judge"]["score"])
                     errors += rec["status"] != "ok"
-                    f.write(json.dumps({"repeat": r, **{k: rec[k] for k in ("id", "status", "error", "output",
-                                        "judge", "cost_usd", "wall_s", "api_speed", "tokens", "log")}},
-                                       default=str) + "\n")
+                    row = {"repeat": r, **{k: rec[k] for k in ("id", "status", "error", "output", "judge",
+                                                               "cost_usd", "wall_s", "api_speed", "tokens", "log")}}
+                    f.write(json.dumps(redact_value(row), default=str) + "\n")     # no model key is kept
     finally:
         close()
+        from hermit.isolate import config_paths
+        for place in config_paths(config, "environment.write", d["environment"].get("write")):
+            redact_path(Path(place).resolve())       # what the agents wrote there: no model key kept
     scores = [s for v in per_task.values() for s in v]
     spent = budget.snapshot()
     summary = {"adapter": adapter, "commit": commit, "tasks": len(tests), "repeats": repeats,

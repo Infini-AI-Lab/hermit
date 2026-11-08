@@ -58,6 +58,7 @@ SHARED = ["hermit/agent/__init__.py", "hermit/agent/base/*", "hermit/agent/actin
           "hermit/agent/evolver/methods/__init__.py",
           "hermit/agent/model/*", "hermit/trainer/*", "hermit/tree.py", "hermit/evaluate.py",
           "hermit/sandbox.py", "hermit/sandbox_relay.py", "hermit/isolate.py", "hermit/worker.py", "hermit/spec.py",
+          "hermit/redact.py",
           "hermit/hosts/*",
           "hermit/runtime/*", "hermit/adapter/*.py", "hermit/config.py", "hermit/defaults.yaml", "hermit/tools.py",
           "hermit/task.py", "hermit/__init__.py", "hermit/adapter/templates/prompt_only/*",   # the toy task's

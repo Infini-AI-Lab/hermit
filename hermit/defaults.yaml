@@ -23,9 +23,28 @@ pipeline:                     # the older spelling of `agent`: run -> name
   run: null
   concurrency: null
   params: {}
+environment:                   # the task sandbox, where the acting agent runs (rollouts, eval, check)
+  runner: sandbox              # sandbox: in the task sandbox | host: in the Trainer's process, for a task whose own
+                               # code isolates what it runs (AgentDyn's hooks in containers); warned
+  image: null                  # a Docker image: a CLI acting agent runs in a container of its own (Codex)
+  container: {}                # with image: the container's network and egress proxy (hermit/agent/base/container.py)
+  packages: []                 # no image: Python distributions shown besides the framework's environment (an editable
+                               # install's package, one on PYTHONPATH), with their dependencies
+  read: []                     # no image: task paths shown read-only (relative to this file); never the data, the
+                               # judge or the runs
+  write: []                    # paths the acting agent may write besides its own work directory
+  env: []                      # environment variables passed in, names or patterns (MWM_*); the agent's model key
+                               # passes anyway
+  network: no-network          # no-network | allowlist | public; the agent's model and the tool endpoint stay reachable
+  allowed_hosts: []            # allowlist: hosts reachable through the allowlist proxy
+  resources: {}                # memory_mb, file_mb, cpu_s: per process
 judge:
   path: null
   name: score
+  mode: host                   # host: on the host, from the answer | shared: in the task sandbox after the agent |
+                               # separate: in a fresh judge sandbox holding the collected paths
+  tests: []                    # shared, separate: paths only the judge sees, read-only (its answers, test files)
+  collect: []                  # separate: paths of the agent's work directory carried to the judge sandbox
 template: null
 start_from: null
 evolver:
@@ -41,19 +60,15 @@ evolver_access:
   environment: []
   tools: []
   send_material_out: false
-sandbox:
-  enabled: true
+sandbox:                       # docs/developer/sandbox-design.md
+  enabled: true                # false: everything the run starts runs unconfined (a warning; not for reported results)
   enforce: required            # required: refuse to run without bubblewrap | best_effort: run unconfined, recorded
-  network: isolated            # isolated: own network namespace, only the forwarded ports | open: the host network
-  allow: []                    # hosts reachable through the allowlist proxy when the network is isolated
-  read: []                     # more paths the Evolver may read (an allowlist; nothing else is visible)
-  packages: []                 # more Python distributions to show, beside the framework's own dependencies
-  env: null                    # environment variables passed to what the Evolver starts; null = all of them
-  audit: null                  # files: strace each sandboxed process's file accesses (from outside) beside its record
-  profiles: {}                 # per role (learner, rollout, eval, check, tool): {enabled, inherit, read, write, mask,
-                               # allow, packages, network, env}; eval and check take rollout's. The agent's roles see
-                               # the task's project, every package, the environment and an open network; e.g.
-                               # profiles: {rollout: {read: [$DATA/corpus], mask: [../utils/.private]}}
+  hide: []                     # modules or packages of the framework's environment covered in every sandbox but the
+                               # judge's (a benchmark's scoring the agent does not import): `pkg.scoring`
+  evolver:                     # the learner's sandbox: a fixed layout under /w, its models, the tool endpoint
+    allowed_hosts: []          # more hosts the learner may reach, through the allowlist proxy
+    env: []                    # environment variables passed to the learner's sessions (its models' keys pass anyway)
+    resources: {}              # memory_mb, file_mb, cpu_s: per process
 model: null                    # the run's default model, a `<backend>/<model id>` reference (see backends): what `llm`,
                                # agent.params.model and evolver.params.model use when they name none
 backends: {}                   # this run's model backends by name: {base_url, api_key_env, apis, prices, ...} or

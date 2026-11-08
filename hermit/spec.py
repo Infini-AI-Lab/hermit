@@ -50,7 +50,7 @@ def _content(path: Path) -> bytes | None:
 
 
 def library_checks(adapter: Path, root: Path, *, deploy: bool = True, python: str | None = None,
-                   parent: Path | None = None) -> list[Issue]:
+                   parent: Path | None = None, enforce: str | None = "best_effort") -> list[Issue]:
     """Checks 1–5. `root` is a copy of the tree's root (the template) used as the reference; `parent`, when given, is
     the version the learner started from, against which `.hermit/CARD.md` is compared."""
     adapter, root = Path(adapter), Path(root)
@@ -122,7 +122,7 @@ def library_checks(adapter: Path, root: Path, *, deploy: bool = True, python: st
     # 5. deploys: context renders, tool entry points import, roles convert. Only when the metadata and the exports
     # are sound.
     if deploy and not any(i.check == 3 or is_meta(i.path) for i in issues):
-        issues.extend(_deploy_check(adapter, python or sys.executable))
+        issues.extend(_deploy_check(adapter, python or sys.executable, enforce))
     return issues
 
 
@@ -140,26 +140,23 @@ def _frontmatter(text: str) -> dict | None:
 
 
 # Checks 5 and 6 run code: the adapter's modules (the learner's work) and the template's check. They run in a
-# sandbox of their own (#11): the adapter and the template read-only, no network, none of the environment's keys.
-# `required` refuses to run without bubblewrap; a run sets its sandbox.enforce here (the Trainer does).
-SANDBOX_ENFORCE = "best_effort"
+# strict sandbox: the adapter and the template read-only, no network, none of the environment's keys. `enforce` is
+# the run's sandbox.enforce (required refuses to run without bubblewrap), or None when the run's sandbox is off
+# (sandbox.enabled: false), and the code then runs unconfined as the rest of that run does. A caller outside a run
+# (a seed script, a test) gets best_effort.
 
 
-def _run_sandboxed(command: list[str], readable: list[Path], timeout: float) -> subprocess.CompletedProcess:
-    # SANDBOX_ENFORCE is None when the run's sandbox is off (sandbox.enabled: false): run unconfined, as the rest of
-    # that run does. Otherwise the adapter's modules run in a strict sandbox under the run's enforce.
-    from hermit.sandbox import framework_env, run_in_strict_sandbox
-    if SANDBOX_ENFORCE is None:
-        return subprocess.run(command, capture_output=True, text=True, timeout=timeout,
-                              env=framework_env(no_bytecode=True))
-    return run_in_strict_sandbox(command, role="spec", readable=readable, enforce=SANDBOX_ENFORCE, timeout=timeout,
+def _run_sandboxed(command: list[str], readable: list[Path], timeout: float,
+                   enforce: str | None) -> subprocess.CompletedProcess:
+    from hermit.sandbox import run_in_strict_sandbox
+    return run_in_strict_sandbox(command, role="spec", readable=readable, enforce=enforce, timeout=timeout,
                                  no_bytecode=True)
 
 
-def _deploy_check(adapter: Path, python: str) -> list[Issue]:
+def _deploy_check(adapter: Path, python: str, enforce: str | None = "best_effort") -> list[Issue]:
     try:
         run = _run_sandboxed([python, "-m", "hermit.adapter.render_context", "--adapter", str(adapter)],
-                             [adapter], DEPLOY_TIMEOUT)
+                             [adapter], DEPLOY_TIMEOUT, enforce)
     except subprocess.TimeoutExpired:
         return [Issue("", 5, f"rendering the exports took longer than {DEPLOY_TIMEOUT} s")]
     if run.returncode != 0:
@@ -176,7 +173,8 @@ def _path_in(adapter: Path, text: str) -> str:
     return ""
 
 
-def template_check(adapter: Path, root: Path, python: str | None = None) -> list[Issue]:
+def template_check(adapter: Path, root: Path, python: str | None = None,
+                   enforce: str | None = "best_effort") -> list[Issue]:
     """Check 6: the template's own function, if declared; run without network when bubblewrap is available."""
     manifest = read_meta(root)
     declaration = manifest.get("check")
@@ -191,7 +189,7 @@ def template_check(adapter: Path, root: Path, python: str | None = None) -> list
         "print(json.dumps(r))\n")
     command = [python or sys.executable, "-c", script, str(adapter)]
     try:
-        run = _run_sandboxed(command, [adapter, root], TEMPLATE_CHECK_TIMEOUT)
+        run = _run_sandboxed(command, [adapter, root], TEMPLATE_CHECK_TIMEOUT, enforce)
     except subprocess.TimeoutExpired:
         return [Issue("", 6, f"the template check took longer than {TEMPLATE_CHECK_TIMEOUT} s")]
     if run.returncode != 0:
@@ -204,16 +202,32 @@ def template_check(adapter: Path, root: Path, python: str | None = None) -> list
     return [Issue(str(i.get("path", "")), 6, str(i.get("problem", i))) for i in raw or []]
 
 
+SNAPSHOT_BYTES = 256 << 20                  # the largest adapter a check copies
+
+
 def check_spec(adapter: Path, root: Path, *, deploy: bool = True, python: str | None = None,
-               parent: Path | None = None) -> CheckResult:
-    issues = library_checks(adapter, root, deploy=deploy, python=python, parent=parent)
-    if not any(i.check == 3 or is_meta(i.path) for i in issues):
-        issues.extend(template_check(adapter, root, python))
+               parent: Path | None = None, enforce: str | None = "best_effort") -> CheckResult:
+    """The checks run on a sanitized snapshot of the adapter (the learner's work, read here on the host): no link
+    that leaves it is followed, no pipe or device is read, and the learner cannot change it while it is checked."""
+    import tempfile
+    from hermit.sandbox import sanitized_copy
+    with tempfile.TemporaryDirectory(prefix="ha-spec-") as tmp:
+        snapshot = Path(tmp) / "adapter"
+        try:
+            sanitized_copy(Path(adapter), snapshot, max_bytes=SNAPSHOT_BYTES,
+                           exclude=(".git", "__pycache__"))         # what the checks skip anyway
+        except ValueError as exc:
+            return CheckResult(False, [Issue("", 5, str(exc))])
+        issues = library_checks(snapshot, root, deploy=deploy, python=python, parent=parent, enforce=enforce)
+        if not any(i.check == 3 or is_meta(i.path) for i in issues):
+            issues.extend(template_check(snapshot, root, python, enforce))
+        # A problem names the adapter, not the snapshot.
+        issues = [Issue(i.path, i.check, i.problem.replace(str(snapshot), str(adapter))) for i in issues]
     return CheckResult(not issues, issues)
 
 
 def repair(adapter: Path, root: Path, parent: Path, *, python: str | None = None,
-           max_rounds: int = 20) -> tuple[CheckResult, list[dict]]:
+           max_rounds: int = 20, enforce: str | None = "best_effort") -> tuple[CheckResult, list[dict]]:
     """Make the adapter conform with the smallest change; return the final result and what was repaired.
 
     metadata or fixed file → root's version (the card: the parent's); exports.yaml that does not parse → parent's
@@ -223,7 +237,7 @@ def repair(adapter: Path, root: Path, parent: Path, *, python: str | None = None
     """
     adapter, root, parent = Path(adapter), Path(root), Path(parent)
     repaired: list[dict] = []
-    result = check_spec(adapter, root, python=python, parent=parent)
+    result = check_spec(adapter, root, python=python, parent=parent, enforce=enforce)
     rounds = 0
     while not result.passed and rounds < max_rounds:
         rounds += 1
@@ -246,13 +260,13 @@ def repair(adapter: Path, root: Path, parent: Path, *, python: str | None = None
         for rel, (source, why) in targets.items():
             _restore(adapter, root if source == "root" else parent, rel)
             repaired.append({"path": rel, "restored_from": source, "reason": why})
-        result = check_spec(adapter, root, python=python, parent=parent)
+        result = check_spec(adapter, root, python=python, parent=parent, enforce=enforce)
     if not result.passed:
         # Last resort: the parent itself (always valid: it was committed only after passing).
         for rel in _changed(adapter, parent):
             _restore(adapter, parent, rel)
             repaired.append({"path": rel, "restored_from": "parent", "reason": "repair did not converge"})
-        result = check_spec(adapter, root, python=python, parent=parent)
+        result = check_spec(adapter, root, python=python, parent=parent, enforce=enforce)
     return result, repaired
 
 

@@ -43,9 +43,10 @@ other target. Every client in the container is pointed at it: `HTTPS_PROXY` and 
 Evolvers' HTTP clients, clbench's litellm, curl), `PROXY` (the wire meters read it and reach their upstream through
 it), with `NO_PROXY=127.0.0.1,localhost` so that the meters on the loopback are reached directly. Inside hermit's own
 sandboxes the adapter's tools (a context tool that retrieves, say) and the template's checks are isolated further: they see only the
-forwarded `127.0.0.1` ports of the run (the meters), whose traffic leaves through the proxy. The acting agent itself
-(the rollout role) keeps the container's network, which is the internal one, unless the run sets
-`profiles.rollout.network: isolated`. The TLS session is end to end between the client and Fireworks; the proxy sees
+forwarded `127.0.0.1` ports of the run (the meters), whose traffic leaves through the proxy. The acting agent and the
+learner run in network namespaces of their own (`environment.network`, default `no-network`; `sandbox.evolver`):
+they reach their models' providers through hermit's allowlist proxy, which goes out through this egress proxy, and
+the meters on the loopback directly. The TLS session is end to end between the client and Fireworks; the proxy sees
 host names, not contents.
 
 `docker logs hermit-egress` shows every connection the containers tried, one line each:
@@ -82,7 +83,7 @@ the bind mounts. The containers are not privileged, have no Docker socket and ar
 | Mount | Access | Why the same path |
 |---|---|---|
 | `HERMIT_DIR` | read-write | `PYTHONPATH`; the examples' `utils/` (tasks, splits, `data.json` with absolute paths, the `documents` link) and `runs/`. |
-| `CLBENCH_DIR` | read-write | `.venv/bin/python` is a link to the interpreter under `.uv-python/`, and `pyvenv.cfg` names it by absolute path; hermit's rollout sandbox grants `$MWM_CLBENCH` and binds the interpreter the venv names. `prepare` puts the interpreter, the venv and uv's cache under the checkout (`UV_PYTHON_INSTALL_DIR`, `UV_CACHE_DIR`) so they resolve on the host too. A venv made on the host with an interpreter elsewhere does not resolve inside. |
+| `CLBENCH_DIR` | read-write | `.venv/bin/python` is a link to the interpreter under `.uv-python/`, and `pyvenv.cfg` names it by absolute path; hermit's task sandbox grants `$MWM_CLBENCH` and binds the interpreter the venv names. `prepare` puts the interpreter, the venv and uv's cache under the checkout (`UV_PYTHON_INSTALL_DIR`, `UV_CACHE_DIR`) so they resolve on the host too. A venv made on the host with an interpreter elsewhere does not resolve inside. |
 | `OFFICEQA_DIR` | read-only | `examples/officeqa/utils/documents` links to it and `data.json` names it. |
 | `RUN_HOME` | read-write | `HOME` inside: `~/.cache` (uv, Hugging Face, the tests' `hermit-tests`), a CLI agent's home; the launchers' `$HOME/code/...` defaults land here unless overridden. |
 | `/tmp` | tmpfs | A fresh, memory-backed `/tmp` per container (`exec`, 8 GB); hermit's sandbox bridges live there. |
@@ -92,8 +93,8 @@ The container's Python is `/opt/venv/bin/python` (Ubuntu's 3.12 with `pyproject.
 `run` sets `MW_FRAMEWORK_PYTHON` to it, so the launchers use it instead of the checkout's `.venv`. `hermit` is on
 `PATH`. The Codex CLI (the learner of the `prompt_only` and `mwm` examples) is in the image, release `CODEX_VERSION`
 of the Dockerfile (`CODEX_VERSION= docker/offline.sh build` leaves it out). hermit itself is not installed in the
-image; `hermit_dist.py` registers the distribution's metadata so that `hermit/sandbox.py` finds the framework's
-dependencies when it binds them into a sandbox.
+image; `hermit_dist.py` registers the distribution's metadata (pip finds it). Every sandbox shows `/opt/venv` as
+installed: what it holds is what sandboxed code can import.
 
 ## Where runs land
 

@@ -28,8 +28,6 @@ agent:
     timeout_s: 3600
     project_doc_max_bytes: 65536       # 64 KiB: the skill (up to 40 KB) with the deployment's notes; past
                                        # Codex's default 32 KiB it would cut AGENTS.md (deploy refuses that)
-    isolation: container               # each session in a container of its own (hermit/agent/base/container.py)
-    container: {image: "officeqa-codex:0.134.0", network: oq-sandbox, proxy: "http://oq-egress:3128"}
 judge:
   path: ../utils/judge.py
 template: prompt-only@1.0
@@ -39,14 +37,11 @@ evolver:
 llm:                           # the optimizer: GLM 5.3 at medium effort (the paper: GPT-5.5, medium)
   model: fireworks/accounts/fireworks/models/glm-5p3     # <backend>/<model id>; the price is the backend's
   extra_body: {reasoning_effort: medium}
+environment:                         # the acting agent: Codex in a container of its own
+  image: "officeqa-codex:0.134.0"
+  container: {"network": "oq-sandbox", "proxy": "http://oq-egress:3128"}
 sandbox:
   enabled: true
-  network: restricted
-  allow: []                  # the Evolver's own model endpoint is always reachable
-  read: []
-  env: []                    # the Evolver's model key variable is always passed; nothing else is
-  profiles:                  # the agent's role runs unconfined: it drives Docker (the daemon's socket, the sessions'
-    rollout: {enabled: false}   # homes under ~/.cache); each Codex session is in a container of its own (hermit/agent/base/container.py)
 trainer:
   run_name: codex-smoke-gepa
   output_dir: runs
