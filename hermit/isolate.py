@@ -481,7 +481,7 @@ class SandboxedAgent:
         if self.cli:         # a CLI agent's home; only a ChatGPT login is copied in (the recorded exception)
             folder, var, _ = CLI_HOMES[self.cli]
             agent_home = home / folder
-            agent_home.mkdir()
+            agent_home.mkdir(parents=True)               # a folder of more than one level (Pi's .pi/agent)
             if self.chatgpt:
                 codex_login.prepare(codex_login.ROOT, agent_home)      # the shared copy, refreshed by earlier calls
             env[var] = str(agent_home)

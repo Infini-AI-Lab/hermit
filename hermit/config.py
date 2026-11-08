@@ -44,8 +44,10 @@ def _merge(base: dict, extra: dict, prefix: str = "") -> dict:
 
 
 FREE = ("params", "llm", "backends", "container", "resources",   # sections whose keys the framework does not know
-        "model", *("codex", "claude", "react", "direct"))     # a layer's settings (docs/framework/agent-layers.md)
-BASES = {"codex": "codex", "claude": "claude-code", "claude-code": "claude-code", "react": "react", "direct": None}
+        "model", *("codex", "claude", "pi", "react", "direct"))   # a layer's settings (docs/framework/agent-layers.md)
+BASES = {"codex": "codex", "claude": "claude-code", "claude-code": "claude-code", "pi": "pi", "react": "react",
+         "direct": None}
+CLI_BASES = ("codex", "claude-code", "pi")          # the bases that are a CLI (their Layer 1 settings: _model)
 MODEL_KEYS = ("login", "effort", "price")           # Layer 1 settings a CLI takes beside its model
 
 
@@ -104,41 +106,41 @@ def layered(data: dict) -> None:
     agent = data["agent"]
     base = agent.pop("base", None)
     model = agent.pop("model", None)
-    sections = {b: agent.pop(b, None) for b in ("codex", "claude", "react", "direct")}
+    sections = {b: agent.pop(b, None) for b in ("codex", "claude", "pi", "react", "direct")}
     if base is None:
         if model is not None or any(sections.values()):
-            raise ValueError("agent.model and agent.<base> need agent.base (codex, claude, react or direct)")
+            raise ValueError("agent.model and agent.<base> need agent.base (codex, claude, pi, react or direct)")
     else:
         if base not in BASES:
             raise ValueError(f"agent.base must be one of {sorted(BASES)}, not {base!r}")
-        builtin = {"codex": "codex", "claude-code": "claude-code", "claude": "claude-code", "react": "react",
-                   "cli": None}
+        builtin = {"codex": "codex", "claude-code": "claude-code", "claude": "claude-code", "pi": "pi",
+                   "react": "react", "cli": None}
         if not agent.get("name"):
             if BASES[base] is None:
                 raise ValueError("agent.base: direct needs agent.name (the task's own loop calls it)")
             agent["name"] = BASES[base]
         params = dict(agent.get("params") or {})
         if agent["name"] in builtin:
-            if agent["name"] == "cli" and BASES[base] in ("codex", "claude-code"):
-                _put(params, "backend", "claude" if BASES[base] == "claude-code" else "codex", "agent")
+            if agent["name"] == "cli" and BASES[base] in CLI_BASES:
+                _put(params, "backend", "claude" if BASES[base] == "claude-code" else BASES[base], "agent")
             elif builtin[agent["name"]] != BASES[base]:
                 raise ValueError(f"agent.name {agent['name']} and agent.base {base} name different agents: give one")
         else:
             _put(params, "base", base, "agent")                 # a task's own agent picks its Base Agent itself
-        _model(params, model, "agent", cli=BASES[base] in ("codex", "claude-code"))
+        _model(params, model, "agent", cli=BASES[base] in CLI_BASES)
         for key, value in (sections.get("claude" if base == "claude-code" else base) or {}).items():
             _put(params, key, value, f"agent.{base}")
         agent["params"] = params
     evolver = data["evolver"]
     base = evolver.pop("base", None)
     model = evolver.pop("model", None)
-    sections = {b: evolver.pop(b, None) for b in ("codex", "claude", "react", "direct")}
+    sections = {b: evolver.pop(b, None) for b in ("codex", "claude", "pi", "react", "direct")}
     if base is None:
         if model is not None or any(sections.values()):
-            raise ValueError("evolver.model and evolver.<base> need evolver.base (codex, claude or direct)")
+            raise ValueError("evolver.model and evolver.<base> need evolver.base (codex, claude, pi or direct)")
         return
-    if base not in ("codex", "claude", "claude-code", "direct"):
-        raise ValueError(f"evolver.base must be codex, claude or direct, not {base!r}")
+    if base not in ("codex", "claude", "claude-code", "pi", "direct"):
+        raise ValueError(f"evolver.base must be codex, claude, pi or direct, not {base!r}")
     params = dict(evolver.get("params") or {})
     if base == "direct":
         if model is not None:

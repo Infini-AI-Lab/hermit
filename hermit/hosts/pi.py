@@ -3,8 +3,10 @@
 own places: AGENTS.md context, .pi/mcp.json tools, .pi/skills.
 
 Pi reads AGENTS.md from the working directory and its parents without any trust prompt; the project `.pi/`
-configuration (mcp.json, skills) loads only after the user trusts the project in Pi. Pi has no subagents and reads
-no hook file: an adapter's roles and hooks stay files of its copy, which AGENTS.md names with what to do with them
+configuration (mcp.json, skills) loads only after the user trusts the project in Pi, or for one run with `pi
+--approve` (what the `pi` acting agent passes). The tools are declared with `exposure: direct`, so the model is
+offered them as tools, not only through Pi's code mode (its default). Pi has no subagents and reads no hook file:
+an adapter's roles and hooks stay files of its copy, which AGENTS.md names with what to do with them
 (hermit.hosts.inputs.resources), as it names the other files. Global Pi settings (~/.pi/agent) are never changed.
 """
 import argparse
@@ -50,7 +52,7 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
     audit = output / "tool-calls.jsonl"
     server = None
     if has_tools:
-        server = {"command": python,
+        server = {"command": python, "exposure": "direct",
                   "args": ["-m", "hermit.runtime.mcp_server", "--adapter", str(adapter), "--audit-log", str(audit)],
                   "env": {"PYTHONPATH": PACKAGE_ROOT}}
         if learning_material is not None:

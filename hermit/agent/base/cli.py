@@ -1,4 +1,4 @@
-"""`codex` and `claude`: a coding-agent CLI as a Base Agent (docs/framework/agent-layers.md#layer-2-base-agent).
+"""`codex`, `claude` and `pi`: a coding-agent CLI as a Base Agent (docs/framework/agent-layers.md#layer-2-base-agent).
 
 One `run` is one session of the CLI in print mode: the prompt is given, the CLI works in `workspace` with its own
 tools and the call's `tools` (served over MCP by the framework's tool server), and its last message is the reply.
@@ -6,8 +6,8 @@ The CLI's event stream is kept unchanged (`Result.log`) and read into the trajec
 
 `CliAgent` runs every CLI the same way (isolation, home, sign-in, tool server, process, the stream's safety); what
 differs per CLI is its subclass's hooks: its command, its home (`home_env`, `prepare_home`, `user_home`), how its
-stream is read (`served`, `notices`, `last_message`, `parse`, `steps`, `adjust_usage`), its web search, its system
-instructions and its isolations. `CLIS` names every CLI; a new one is a subclass there, its stream's reader in
+stream is read (`served`, `notices`, `last_message`, `parse`, `steps`, `adjust_usage`, `exit_code`), its web
+search, its system instructions and its isolations. `CLIS` names every CLI; a new one is a subclass there, its stream's reader in
 hermit.agent.base.trajectory, and its model binding in hermit.agent.model.backends.
 
 Settings (given once; `configured(...)` for a call's own):
@@ -55,6 +55,9 @@ Settings (given once; `configured(...)` for a call's own):
                     caller that would rather start over from its own files
   Claude Code only: output_format (stream-json, or json: one result object), allowed_tools (its --tools),
   persist_session (false: --no-session-persistence), append_system_prompt, effort, permission_mode
+  Pi only: provider (its models.json entry for a bound model, from the binding: Binding.pi_provider),
+  append_system_prompt, effort (its --thinking level). Pi takes no roles, has no web search and runs under isolation
+  none or sandbox.
 
 Limits are enforced by the isolation, or the call is refused (Unsupported):
 
@@ -82,9 +85,9 @@ from typing import Any, Sequence
 
 from hermit.agent.base import container, login as codex_login
 from hermit.agent.base.interface import BaseAgent, Limits, Mount, Result, Unsupported
-from hermit.agent.base.records import parse_claude, parse_codex, price_usage
+from hermit.agent.base.records import parse_claude, parse_codex, parse_pi, price_usage
 from hermit.agent.base.tool import Tool
-from hermit.agent.base.trajectory import claude_steps, codex_steps, events
+from hermit.agent.base.trajectory import claude_steps, codex_steps, events, pi_steps
 
 ISOLATIONS = ("none", "sandbox", "container")
 # The CLI's own reports of a provider it could not reach (it retries those itself first), and of a container that
@@ -92,8 +95,9 @@ ISOLATIONS = ("none", "sandbox", "container")
 UNAVAILABLE = re.compile(r"unexpected status (?:429|5\d\d)|exceeded retry limit|stream disconnected|"
                          r"error sending request|too many requests|service unavailable|bad gateway|overloaded|"
                          r"model is at capacity|"
+                         r"^(?:429|5\d\d): |"                     # Pi's report of a provider's status
                          r"error response from daemon|cannot connect to the docker daemon|"
-                         + re.escape(container.MISSING), re.I)
+                         + re.escape(container.MISSING), re.I | re.M)
 CODEX_HOME_SETTINGS = ["features.shell_snapshot = false",          # a snapshot would bring back the whole environment
                        "sandbox_workspace_write.network_access = false", 'approval_policy = "never"']
 _ready: set = set()
@@ -364,8 +368,15 @@ class CliAgent(BaseAgent):
     turn_done = ""                                # the event type of a turn the provider served
 
     # ---------- the CLI's own: its command and its home ----------
-    def command(self, prompt: str, workspace: Path, last_file: Path, *, session=None, roles=(), tools_url=None) -> list:
+    def command(self, prompt: str, workspace: Path, last_file: Path, *, session=None, roles=(), tools_url=None,
+                home: Path | None = None) -> list:
+        """The CLI's command line; `home` is the session's home (where a CLI keeps the session to resume)."""
         raise NotImplementedError
+
+    def exit_code(self, code: int, raw: str) -> int:
+        """The session's exit code as the caller reads it: the CLI's own, for a CLI whose exit code says whether the
+        session failed."""
+        return code
 
     def home_env(self, home: Path) -> dict[str, str]:
         """The variables that point the CLI at the session's home."""
@@ -682,7 +693,7 @@ class CliAgent(BaseAgent):
             self.prepare_home(home, roles, server.mcp_url if server else None, name)
             env.update(self.home_env(home))
             command = self.command(prompt, workspace, last_file, session=session, roles=roles,
-                                   tools_url=server.mcp_url if server else None)
+                                   tools_url=server.mcp_url if server else None, home=home)
             started = time.time()
             if conf is not None:
                 for m in mounts:
@@ -765,13 +776,14 @@ class CliAgent(BaseAgent):
         if fresh:
             shutil.rmtree(home, ignore_errors=True)
         done = self.served(raw)
-        return Result(reply=reply, trajectory=steps, usage=usage, session=handle, exit_code=code,
+        read = self.exit_code(code, raw)
+        return Result(reply=reply, trajectory=steps, usage=usage, session=handle, exit_code=read,
                       timed_out=timed_out, log=stream,
                       extra={"served": done, "unavailable": bool(UNAVAILABLE.search(notes)),
                              "refused": codex_login.refused(notes) and not done,
                              "started": any(line.lstrip().startswith("{") for line in raw.splitlines()),
                              "cancelled": cancelled, "isolation": isolation, "wall_s": round(wall_s, 1),
-                             "output_tail": raw[-2000:]})
+                             "output_tail": raw[-2000:], **({"cli_exit_code": code} if read != code else {})})
 
 
 class Codex(CliAgent):
@@ -832,7 +844,7 @@ class Codex(CliAgent):
         """Codex reports a thread's running total: a resumed thread's earlier calls are taken off (_this_call)."""
         return [_this_call(home, str(handle), usage[0], resumed=resumed)] if handle and usage else usage
 
-    def command(self, prompt, workspace, last_file, *, session=None, roles=(), tools_url=None):
+    def command(self, prompt, workspace, last_file, *, session=None, roles=(), tools_url=None, home=None):
         s = self.settings
         effort = s.get("effort")
         hooks = (workspace / ".codex" / "hooks.json").is_file()     # the deployment's hooks, trusted as deployed
@@ -891,7 +903,7 @@ class Claude(CliAgent):
     def steps(cls, stream):
         return claude_steps(stream)
 
-    def command(self, prompt, workspace, last_file, *, session=None, roles=(), tools_url=None):
+    def command(self, prompt, workspace, last_file, *, session=None, roles=(), tools_url=None, home=None):
         s = self.settings
         mcp = {"mcpServers": {s.get("tools_name") or "hermit_tools": {"type": "http", "url": tools_url}}}
         agents = {r["name"]: {"description": r["description"], "prompt": r["instructions"]} for r in roles}
@@ -910,8 +922,148 @@ class Claude(CliAgent):
                 *(["--resume", str(session)] if session else []), *(s.get("args") or [])]
 
 
+PI_PROVIDER = "hermit"      # the models.json provider a bound model is given under
+PI_SETTINGS = {"cacheWarming": "off",                    # no provider requests besides the session's own
+               "enableInstallTelemetry": False}
+
+
+class Pi(CliAgent):
+    """Pi (`pi --mode json`). Its home is its agent directory (PI_CODING_AGENT_DIR) and its HOME, offline (no catalog,
+    update or download requests); a bound model is the models.json provider `hermit`, its key read by Pi from the
+    backend's variable; the call's tools are an MCP server whose tools the model is offered directly. Pi reports a
+    failed request in its stream and exits 0: the exit code is read from the stream (`exit_code`)."""
+    name = backend = program = "pi"
+    label = "Pi"
+    home_var, user_folder = "PI_CODING_AGENT_DIR", ".pi/agent"
+    home_files = ("auth.json",)
+    turn_done = "agent_settled"
+
+    def home_env(self, home):
+        """Every variable Pi reads goes here, so that it passes the sandbox's filter: its agent directory, its HOME
+        (Pi reads ~/.agents/skills), offline, no telemetry."""
+        return {"PI_CODING_AGENT_DIR": str(home), "HOME": str(home), "PI_OFFLINE": "1", "PI_TELEMETRY": "0"}
+
+    @classmethod
+    def user_home(cls) -> Path:
+        return Path(os.environ.get("PI_CODING_AGENT_DIR") or Path.home() / cls.user_folder)
+
+    def prepare_home(self, home, roles, tools_url, tools_name):
+        """models.json (the bound model), mcp.json (the call's tools, offered directly rather than through Pi's code
+        mode) and settings.json. No host path is written in them: a sandbox translates only the command, the
+        environment and the prompt."""
+        if roles:
+            raise Unsupported("pi has no sub-agents: it takes no roles")
+        s = self.settings
+        _clear(home / "models.json")
+        (home / "models.json").unlink(missing_ok=True)
+        if s.get("provider"):
+            provider = json.loads(json.dumps(s["provider"]))
+            if s.get("effort") and s["effort"] != "off":          # --thinking applies to a reasoning model only
+                for model in provider.get("models") or []:
+                    model["reasoning"] = True
+            (home / "models.json").write_text(json.dumps({"providers": {PI_PROVIDER: provider}}, indent=1))
+        servers = {tools_name: {"url": tools_url, "exposure": "direct"}} if tools_url else {}
+        for name, data in (("mcp.json", {"mcpServers": servers}), ("settings.json", PI_SETTINGS)):
+            _clear(home / name)
+            (home / name).write_text(json.dumps(data, indent=1))
+
+    @classmethod
+    def web_search_args(cls, enabled: bool) -> list[str]:
+        """Pi has no web search: off is its only setting."""
+        if enabled:
+            raise Unsupported("pi has no web search: set web_search to false")
+        return []
+
+    def system_settings(self, system, prompt):
+        return {"append_system_prompt": system}, prompt
+
+    @staticmethod
+    def _last_assistant(raw: str) -> dict:
+        found = {}
+        for event in _objects(raw)[0]:
+            message = event.get("message") if isinstance(event.get("message"), dict) else {}
+            if event.get("type") == "message_end" and message.get("role") == "assistant":
+                found = message
+        return found
+
+    @classmethod
+    def served(cls, raw):
+        """The session settled, not aborted, and its last request did not fail."""
+        settled = [e for e in _objects(raw)[0] if e.get("type") == cls.turn_done]
+        return bool(settled) and not settled[-1].get("aborted") and \
+            cls._last_assistant(raw).get("stopReason") not in ("error", "aborted")
+
+    @classmethod
+    def errors(cls, event):
+        """A request that ended in an error or an abort, a retry that gave up, a failed compaction."""
+        kind = event.get("type")
+        message = event.get("message") if isinstance(event.get("message"), dict) else {}
+        if kind == "message_end" and message.get("role") == "assistant" and \
+                message.get("stopReason") in ("error", "aborted"):
+            return [str(message.get("errorMessage") or f"request {message['stopReason']}")]
+        if kind == "auto_retry_end" and not event.get("success"):
+            return [str(event.get("finalError") or "retry failed")]
+        if kind in ("compaction_end", "extension_error") and (event.get("errorMessage") or event.get("error")):
+            return [str(event.get("errorMessage") or event.get("error"))]
+        return []
+
+    def exit_code(self, code, raw):
+        """1 for a session whose last request failed or was aborted although Pi exited 0 (its JSON mode does)."""
+        if code == 0 and self._last_assistant(raw).get("stopReason") in ("error", "aborted"):
+            return 1
+        return code
+
+    @classmethod
+    def last_message(cls, log, last=None):
+        """The text of the last assistant message."""
+        text = ""
+        for event in events(log):
+            message = event.get("message") if isinstance(event.get("message"), dict) else {}
+            if event.get("type") == "message_end" and message.get("role") == "assistant":
+                content = message.get("content")
+                text = content if isinstance(content, str) else "".join(
+                    str(b.get("text") or "") for b in content or [] if isinstance(b, dict) and b.get("type") == "text")
+        return text
+
+    @classmethod
+    def parse(cls, log, model):
+        return parse_pi(log, model)
+
+    @classmethod
+    def steps(cls, stream):
+        return pi_steps(stream)
+
+    def command(self, prompt, workspace, last_file, *, session=None, roles=(), tools_url=None, home=None):
+        s = self.settings
+        system = s.get("append_system_prompt")
+        if system and len(str(system).encode()) > ARG_MAX and home is not None:   # too long for one argument
+            _clear(home / "append_system.md")
+            (home / "append_system.md").write_text(str(system))
+            system = str(home / "append_system.md")                    # Pi reads a file named here
+        resume = _pi_session(home, session) if session and home is not None else None
+        return [str(s.get("bin") or self.program), "--mode", "json",
+                *(["--provider", PI_PROVIDER] if s.get("provider") else []),
+                *(["--model", s["model"]] if s.get("model") else []),
+                *(["--thinking", s["effort"]] if s.get("effort") else []),
+                *(["--append-system-prompt", system] if system else []),
+                *self.web_search_args(bool(s.get("web_search"))),
+                *(["--session", str(resume)] if resume else []), *(s.get("args") or []),
+                *([] if s.get("stdin") else ["--", prompt])]
+
+
+def _pi_session(home: Path, handle) -> Path | None:
+    """The file of Pi session `handle` in `home` (sessions/<its directory>/<time>_<id>.jsonl): resumed by its path,
+    which Pi opens wherever the session ran (by its id alone, Pi asks on the terminal before it forks a session of
+    another directory). None when the home keeps no such regular file: the call starts a new session."""
+    if not re.fullmatch(r"[A-Za-z0-9-]+", str(handle)):
+        return None
+    root = Path(home) / "sessions"
+    found = [p for p in root.glob(f"*/*_{handle}.jsonl") if _regular(p) and not p.parent.is_symlink()]
+    return sorted(found)[-1] if found else None
+
+
 # Every CLI Base Agent, by each name make() takes for it.
-CLIS: dict[str, type[CliAgent]] = {n: c for c in (Codex, Claude) for n in (c.backend, *c.aliases)}
+CLIS: dict[str, type[CliAgent]] = {n: c for c in (Codex, Claude, Pi) for n in (c.backend, *c.aliases)}
 
 
 def _this_call(home: Path, handle: str, reported, resumed: bool):

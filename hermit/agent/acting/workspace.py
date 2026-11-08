@@ -1,5 +1,5 @@
-"""The `codex` and `claude-code` agents: one task run by the agent CLI in a workspace the adapter is deployed into.
-They are the framework's one way to act with a coding-agent CLI; a task adds only what is its own.
+"""The `codex`, `claude-code` and `pi` agents: one task run by the agent CLI in a workspace the adapter is deployed
+into. They are the framework's one way to act with a coding-agent CLI; a task adds only what is its own.
 
     agent:
       name: codex                            # or claude-code; `cli` with params.backend is the same
@@ -66,7 +66,7 @@ from hermit.agent.base import container
 from hermit.agent.base.interface import BaseAgent, Limits, Mount, make
 from hermit.task import RunOutput, load_callable
 
-BACKENDS = ("codex", "claude")
+BACKENDS = ("codex", "claude", "pi")
 DEPLOYS = ("host",)
 ISOLATIONS = ("none", "container")
 INPUT_FIELDS = ("question", "prompt", "instruction", "input", "query")
@@ -138,6 +138,9 @@ def deploy(adapter: Path, workspace: Path, backend: str, *, context: str | None 
         from hermit.hosts.codex import DOC_BYTES, prepare
         return prepare(adapter, workspace, sys.executable, context=context, context_limit=context_limit or DOC_BYTES,
                        approve_tools=approve_tools, serve_tools=serve_tools)
+    if backend == "pi":
+        from hermit.hosts.pi import prepare as prepare_pi
+        return prepare_pi(adapter, workspace, sys.executable, context=context)
     from hermit.hosts.claude_code import prepare
     return prepare(adapter, workspace, sys.executable, context=context)
 
@@ -163,7 +166,10 @@ def _deploy(task: dict, adapter: Path | None, work: Path, backend: str, params: 
 
 def _session_args(backend: str, deployed: dict, work: Path) -> list[str]:
     """What the session needs to use what the deployment connected: the workspace's own Codex configuration (its
-    tools, roles and hooks) trusted, as a person trusts a deployed project, and its sub-agents enabled."""
+    tools, roles and hooks) trusted, as a person trusts a deployed project, and its sub-agents enabled; Pi's project
+    configuration (.pi/mcp.json, .pi/skills) trusted for the session (--approve), without which Pi skips it."""
+    if backend == "pi":
+        return ["--approve"]
     if backend == "codex":
         return ["-c", f'projects={{"{work}" = {{ trust_level = "trusted" }} }}',
                 *(["--enable", "multi_agent"] if deployed.get("roles") else [])]
@@ -242,6 +248,11 @@ def run(task: dict, adapter: Path | None, *, params: dict, base: Path) -> RunOut
     return _run(task, adapter, params, base)
 
 
+def _agent_name(backend: str) -> str:
+    """The acting agent's name for a backend (claude: claude-code)."""
+    return {"claude": "claude-code"}.get(backend, backend)
+
+
 def _check(backend: str, params: dict) -> str:
     """The backend; refuses what does not combine."""
     backend = params.get("backend", backend)
@@ -264,13 +275,13 @@ def _check(backend: str, params: dict) -> str:
     if params.get("login") not in (None, "chatgpt"):
         raise ValueError(f"agent.params.login is chatgpt or absent, not {params['login']!r}")
     if params.get("login") and backend != "codex":
-        raise ValueError("login: chatgpt is Codex's sign-in; agent claude-code takes its own")
+        raise ValueError(f"login: chatgpt is Codex's sign-in; agent {_agent_name(backend)} takes its own")
     if params.get("login") and (not params.get("model") or params.get("binding")):
         raise ValueError("with login: chatgpt, agent.params.model is a Codex model name, not empty or a "
                          "<backend>/<model> reference")
     if params.get("isolation") == "container":
         if backend != "codex":
-            raise ValueError("isolation: container runs Codex; agent claude-code takes isolation: none")
+            raise ValueError(f"isolation: container runs Codex; agent {_agent_name(backend)} takes isolation: none")
         container.settings(params)                  # refuses unknown keys
     return backend
 
@@ -279,7 +290,7 @@ def base_agent(backend: str, params: dict) -> BaseAgent:
     """The Base Agent (Layer 2) these params describe: the CLI and how it is run, nothing of the task."""
     settings = {k: params[k] for k in ("model", "binding", "login", "plan_dir", "plan_max_wait_s", "effort",
                                        "isolation", "container", "codex_sandbox", "shell_env", "project_doc_max_bytes",
-                                       "args", "env", "price")
+                                       "args", "env", "price", "provider")
                 if k in params and (params[k] is not None or k == "plan_max_wait_s")}
     if params.get("claude_permission_mode"):
         settings["permission_mode"] = params["claude_permission_mode"]

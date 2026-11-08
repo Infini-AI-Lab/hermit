@@ -28,6 +28,10 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Added
 
+- Pi as a CLI Base Agent (`pi`): the acting agent `agent.base: pi` and the `pi` Evolver run Pi 1.5's `--mode json`
+  in its own home, offline, with a model reference as Pi's `models.json` provider (the key as `$VARIABLE`); the
+  call's tools are an MCP server offered directly; a failed request fails the session although Pi exits 0. Pi takes
+  no roles and has no web search. `hermit deploy --host pi` declares the adapter's tools `exposure: direct`.
 - Models in sandboxes as Harbor's agents get theirs: each sandbox gets its models' key variables and provider hosts
   (an isolated network becomes an allowlist) and forwards a model meter on the loopback; what a run keeps (the
   learning material, the step records, the adapter) is scrubbed of key values (`hermit/redact.py`). The allowlist

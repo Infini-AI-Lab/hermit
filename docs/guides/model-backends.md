@@ -26,6 +26,7 @@ hermit train --config run.yaml model=vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8  
 | `agent.params.model` (or `agent.model`) with `agent.name: react` | the built-in tool-calling agent | chat completions |
 | `agent.params.model` (or `agent.model`) with `agent.name: codex` / `claude-code` | the CLI acting agent | Responses API / Messages API |
 | `evolver.params.model` of the `codex`, `claude` and `mwm` Evolvers | the learner's CLI session | Responses API / Messages API |
+| `agent.params.model` with `agent.name: pi`, `evolver.params.model` of the `pi` Evolver | Pi | chat completions, else the Messages API, else the Responses API: the first the backend serves |
 | `model` (top level) | the default for all of the above when they name none | |
 | the examples' task agents (`agent.params.model`, or the launchers' `MW_MODEL`) | CL-Bench's litellm host, ServeLearnBench's loop, the SkillOpt rollout | chat completions |
 
@@ -36,6 +37,9 @@ extra_body}` still works for the chat-completions callers and names the endpoint
 A reference's first segment is the backend; the rest is the model's id on it, with whatever slashes the backend
 uses (`fireworks/accounts/fireworks/models/glm-5p3-flash`, `vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8`). A
 backend may define aliases (`models: {qwen: Qwen/Qwen3-30B-A3B-Instruct-2507-FP8}`), so `vllm/qwen` works too.
+For Pi a reference becomes its `models.json` provider `hermit`: the backend's URL, the key as `$VARIABLE` (Pi reads it
+at each request, so no file holds the key), the backend's price (Pi's own cost figure follows it).
+
 A string whose first segment is no backend's name is not a reference: for a Codex or Claude Code agent it is a
 model of the CLI's own provider (`gpt-5.4`), as before. So a provider id that happens to start with a backend's
 name (`openai/...`) is read as a reference to that backend.

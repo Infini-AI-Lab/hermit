@@ -67,6 +67,36 @@ def _claude_event(event: dict, usage: Usage, session):
     return session
 
 
+def _pi_event(event: dict, usage: Usage, session):
+    """Pi: the session header's id, and each assistant message's usage as Pi kept it (`message_end`; the deltas'
+    running usage is left out). Pi's `input` leaves the cache out, so the input counted is input, cache reads and
+    cache writes, as Codex and Claude Code count it; its cost is Pi's own, at the price it was given. A request that
+    failed counts as a call only when it used tokens (Pi records each failed attempt it retries)."""
+    if event.get("type") == "session":
+        session = event.get("id") or session
+    message = event.get("message") if isinstance(event.get("message"), dict) else {}
+    if event.get("type") == "message_end" and message.get("role") == "assistant" and \
+            isinstance(message.get("usage"), dict):
+        u = message["usage"]
+        cached = int(u.get("cacheRead") or 0)
+        tokens = int(u.get("input") or 0) + cached + int(u.get("cacheWrite") or 0)
+        if not tokens and not u.get("output") and message.get("stopReason") in ("error", "aborted"):
+            return session
+        usage.input_tokens += tokens
+        usage.cached_input_tokens += cached
+        usage.output_tokens += int(u.get("output") or 0)
+        usage.calls += 1
+        cost = (u.get("cost") or {}).get("total") if isinstance(u.get("cost"), dict) else None
+        if cost is not None:
+            usage.cost_usd = (usage.cost_usd or 0.0) + float(cost)
+    return session
+
+
+def parse_pi(log: Path, model: str) -> tuple[str | None, list[Usage]]:
+    """Pi's `--mode json` events: the session id, and every assistant message's usage and cost."""
+    return _parse(log, model, _pi_event)
+
+
 def parse_codex(log: Path, model: str) -> tuple[str | None, list[Usage]]:
     """Codex's `exec --json` events: the thread id, and each completed turn's usage."""
     return _parse(log, model, _codex_event)
