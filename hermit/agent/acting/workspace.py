@@ -200,18 +200,25 @@ def _mounts(task: dict, work: Path, params: dict, base: Path) -> list[Mount]:
     return mounts
 
 
-def _clean(work: Path) -> None:
+def _clean(work: Path, mount_points=()) -> None:
     """The workspace kept for inspection: no links out of it, no mount points left empty. A link is never followed,
-    so nothing it leads to (a task's data) is touched."""
+    so nothing it leads to (a task's data) is touched. A mount point that cannot be read or removed yet (Docker
+    Desktop may still hold one a moment after its container exits) is left in place instead of failing the run; any
+    other entry that cannot be tidied still fails it."""
     root = work.resolve()
+    held = {os.path.abspath(p) for p in mount_points}
     for directory, dirs, files in os.walk(work, topdown=False):          # followlinks=False: links are entries
         for name in dirs + files:
             path = Path(directory) / name
-            if path.is_symlink():
-                if not path.resolve().is_relative_to(root):
-                    path.unlink()
-            elif path.is_dir() and not any(path.iterdir()):
-                path.rmdir()
+            try:
+                if path.is_symlink():
+                    if not path.resolve().is_relative_to(root):
+                        path.unlink()
+                elif path.is_dir() and not any(path.iterdir()):
+                    path.rmdir()
+            except OSError:
+                if os.path.abspath(path) not in held:      # only a mount point the container runtime has not
+                    raise                                   # released yet is left as it is
 
 
 def _output(last: str, task: dict, params: dict, base: Path, code: int, timed_out: bool, timeout_s: float):
@@ -372,7 +379,7 @@ def _run(task: dict, adapter: Path | None, params: dict, base: Path) -> RunOutpu
     fn = _task_function(params.get("collect"), base)
     if fn is not None:
         facts = _call(fn, task, work, log, params=params, base=base)
-    _clean(work)
+    _clean(work, [m.target for m in mounts])
     cost = tokens = None
     if usage:
         cost, tokens = usage[0].cost_usd, usage[0].input_tokens + usage[0].output_tokens
