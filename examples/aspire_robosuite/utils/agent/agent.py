@@ -2,17 +2,18 @@
 task's development seeds, diagnose from the per-primitive traces and keyframes, repair, and keep the best version
 (ASPIRE §2.1, the iterative-debugging loop of NVlabs/ASPIRE .claude/skills/iterative-debugging/subagent-prompt.md);
 optionally continue with the evolutionary search over the program (ASPIRE §2.3, Algorithm 1;
-.claude/skills/evosearch/); then measure the selected program once on the held-out evaluation seeds and write the
-findings the coordinator distills skills from.
+.claude/skills/evosearch/); then write the findings the coordinator distills skills from. The judge runs the
+selected program on the held-out seeds (utils/judge.py).
 
 The adapter is the shared skill library: its context (ADAPTER.md, and the skills it exports) is the "Shared skill
 library" section of the actor's instructions, the only thing that carries from one task to the next. adapter=None
 runs without one.
 
 Every model call is one call of the `direct` Base Agent (docs/framework/agent-layers.md); the loop is this file's.
-The robot execution engine is ASPIRE's harness in its own venv (sim.py).
+The robot execution engine is ASPIRE's harness in its own venv (sim.py), started in this process: this actor needs
+the GPU, so its configs run it on the host (environment.runner: host), a comparison, not the method.
 
-Output: the held-out success rate. Log: a compact directory (every program version, each sweep's records and
+Output: the development rate of the selected program. Log: a compact directory (every program version, each sweep's records and
 per-seed digests, the keyframes the model was shown, findings.md, skill_report.json, the transcript); ASPIRE's full
 run directories stay under `agent.params.scratch`.
 """
@@ -133,9 +134,6 @@ class AspireActor(Agent):
         # A task row's own settings win over agent.params: the verifier's rows carry its seeds and budget.
         p = {**p, **{k: task[k] for k in ROW_KEYS if k in task}}
         debug = seeds_of(p.get("debug_seeds") or "101-125")
-        held_out = [] if p.get("eval_seeds") == "none" else seeds_of(p.get("eval_seeds") or "1-20")
-        if set(debug) & set(held_out):
-            raise ValueError(f"{task['id']}: development and evaluation seeds overlap")
         if not debug:
             raise ValueError(f"{task['id']}: no development seeds")
         stamp = time.strftime("%Y%m%dT%H%M%S") + f"-{time.time_ns() % 10**6:06d}"
@@ -147,20 +145,17 @@ class AspireActor(Agent):
         best = run.debug_loop(int(p.get("max_versions", 8)))
         if p.get("search", "debug") == "evo":
             best = run.evolve(best, **(p.get("evo") or {}))
-        evaluation = run.evaluate(best, held_out) if held_out else []
         findings, report = run.findings(best) if p.get("findings", True) else ("", None)
         run.save()
 
-        if held_out:
-            passed = sum(r["task_success"] for r in evaluation)
-            rate = passed / len(evaluation)
-        else:   # the verifier: the development rate of the best version is the result
-            passed, rate = None, best.passed / len(debug)
+        rate = best.passed / len(debug)       # the development rate; the judge runs the held-out seeds (Stage 2)
         role = "verifier" if p.get("role") == "verifier" else "actor"
-        # the facts in the Codex actor's schema (utils/task.py:collect), which the judge and the coordinator read
+        # the facts in the Codex actor's schema (task.py:collect), which the judge and the coordinator read; a
+        # verifier's verdict is ASPIRE's rule on its own seeds (>= 4 of 5)
         facts = {"role": role, "suite": task["suite"], "findings": findings, "skill_report": report,
-                 "fix_code": best.source, "scored_seeds": held_out if held_out else debug,
-                 "scored_passed": passed if held_out else best.passed, "scored_refused": None, "unseen": None}
+                 "fix_code": best.source, "unseen": None,
+                 **({"verification": {"verdict": "verified" if best.passed >= 0.8 * len(debug) else "refuted"}}
+                    if role == "verifier" else {})}
         extra = {"task": facts, "selected": best.name, "debug_passed": best.passed, "debug_total": len(debug),
                  "versions": [v.summary() for v in run.versions], "usage": run.totals}
         return RunOutput(output=rate, log=log, wall_s=time.time() - started, cost_usd=run.totals["cost_usd"],
@@ -380,16 +375,6 @@ class _Run:
             if best.passed >= threshold * total:
                 break
         return best
-
-    # --- held-out evaluation, once -------------------------------------------------------------------------------
-    def evaluate(self, best: _Version, seeds: list[int]) -> list[dict]:
-        (self.log / "selected.py").write_text(best.source)
-        code = self.log / "selected.py"
-        records = self.engine.run(code, suite=self.suite, seeds=seeds, out=self.scratch / "eval",
-                                  task_id=self.task_id)
-        (self.log / "sweeps" / "eval").mkdir(parents=True, exist_ok=True)
-        (self.log / "sweeps" / "eval" / "records.json").write_text(json.dumps(records, indent=1))
-        return records
 
     # --- findings for the coordinator ------------------------------------------------------------------------------
     def findings(self, best: _Version):

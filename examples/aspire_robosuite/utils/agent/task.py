@@ -1,72 +1,73 @@
 """The task functions of the Codex actor (agent.base: codex): ASPIRE's fix-loop subagent and its skill verifier, as
-ASPIRE's own prompts run them, in a workspace that reaches the robot execution engine only through `bin/sim`.
+ASPIRE's own prompts run them. They run in the task sandbox with the session; the robot execution engine runs on the
+host, as the simulator service (sim_service.py), which the session reaches only through `bin/sim`.
 
-    prepare  the workspace: bin/sim (the engine, held to the assigned seeds), the API and artifact docs, the
-             scene-snapshot program, task.md; for a verifier, the proposals under test as proposed_skills.md
+    prepare  the workspace: bin/sim and its registration with the service (the session's seeds and budget, which the
+             service holds), the API and artifact docs, the scene-snapshot program, task.md; for a verifier, the
+             proposals under test as proposed_skills.md
     prompt   the adaptation page (prompts/codex_header.md), the assignment, then ASPIRE's template verbatim
     answer   the agent's last message (the record's output is the facts collect returns)
-    collect  the actor's files into the log, then the coordinator's Stage 2: fix_code.py once on the held-out seeds
-             (the verifier's selected program on its own seeds); the facts the judge and the coordinator read
+    collect  the actor's files into the log, and the facts the judge and the coordinator read: findings, skill report,
+             the selected program (fix_code.py, or the evolutionary search's best); the judge runs Stage 2 on it
 
-ASPIRE's checkout comes from agent.params.aspire_root (or ASPIRE_ROOT); the engine's environment from
-agent.params.sim_env. A task row may carry its own seeds and role (the verifier's rows do).
+ASPIRE's checkout comes from agent.params.aspire_root (its prompt templates, docs and snapshot program must be
+declared readable: environment.read); the service's URL from ASPIRE_SIM_URL (environment.env). A task row carries the
+seeds: development, unseen-check and held-out (utils/prepare.py).
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 from pathlib import Path
-import re
 import shutil
 import stat
 import sys
+import urllib.request
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE / "agent"))
+sys.path.insert(0, str(HERE))
 import sim  # noqa: E402
 
-ROW_KEYS = ("debug_seeds", "unseen_seeds", "eval_seeds", "role")
 TEMPLATES = {"actor": "subagent-prompt.md", "verifier": "verifier-prompt.md"}
 SKILLS = Path(".claude/skills/iterative-debugging")
 EVOSEARCH = Path(".claude/skills/evosearch")
 DOCS = ("api-reference.md", "run-artifacts.md", "robosuite.md")
+# The files of ASPIRE's checkout the task sandbox shows (environment.read): its prompts, docs and snapshot program;
+# not its shipped library, worked solutions or examples
+ASPIRE_FILES = [*(f"docs/{d}" for d in DOCS), str(SKILLS / "subagent-prompt.md"), str(SKILLS / "verifier-prompt.md"),
+                str(SKILLS / "scripts" / "scene_snapshot.py"), str(SKILLS / "skills" / "task-exploration.md"),
+                str(EVOSEARCH / "subagent-prompt.md"), str(EVOSEARCH / "skills" / "evosearch-iteration.md")]
 # The workspace files the log keeps (the run directories stay in the workspace)
 KEEP = ("task_analysis.md", "fix_code.py", "findings.md", "findings_report.md", "skill_report.json",
         "verification_report.json", "verification.md", "code", "debug/blocked")
 
 
 def settings(task: dict, params: dict) -> dict:
-    p = {**params, **{k: task[k] for k in ROW_KEYS if k in task}}
-    role = "verifier" if p.get("role") == "verifier" else "actor"     # a rerun is an actor with the final library
-    defaults = {"actor": ("101-125", "126-130", "1-100"), "verifier": ("101-105", "", "")}[role]
-    root = p.get("aspire_root") or os.environ.get("ASPIRE_ROOT")
+    """The session's assignment, from its task row (the seeds; utils/prepare.py) and agent.params (the checkout)."""
+    role = "verifier" if task.get("role") == "verifier" else "actor"     # a rerun is an actor with the final library
+    root = params.get("aspire_root") or os.environ.get("ASPIRE_ROOT")
     if not root:
         raise ValueError("agent.params.aspire_root (or ASPIRE_ROOT): an ASPIRE checkout with .venv-robosuite")
-    if role == "verifier":       # its own seeds only: no unseen check, no held-out run
-        p["unseen_seeds"] = p["eval_seeds"] = ""
     return {"role": role, "root": Path(os.path.expandvars(str(root))).expanduser().resolve(),
             "suite": task["suite"], "task_id": int(task.get("task_id", 0)),
-            "dev": str(p.get("debug_seeds") or defaults[0]),
-            "unseen": str(p.get("unseen_seeds") if p.get("unseen_seeds") is not None else defaults[1]),
-            "heldout": "" if p.get("eval_seeds") == "none" else str(p.get("eval_seeds") if p.get("eval_seeds")
-                                                                     is not None else defaults[2]),
-            "env": p.get("sim_env") or {}, "workers": int(p.get("workers", 4)), "max_steps": p.get("max_steps")}
+            "dev": str(task.get("debug_seeds") or ""), "unseen": str(task.get("unseen_seeds") or ""),
+            "heldout": str(task.get("eval_seeds") or ""), "max_steps": params.get("max_steps")}
 
 
 def prepare(task: dict, workspace: Path, params: dict, base: Path) -> list[dict]:
     s = settings(task, params)
     work = Path(workspace)
+    url = os.environ.get("ASPIRE_SIM_URL")
+    if not url:
+        raise ValueError("ASPIRE_SIM_URL: the simulator service's URL (launch.sh starts it; environment.env)")
+    # The session's seeds and budget, registered before the agent starts: the service holds them, not the workspace
+    register(url, {"workspace": str(work.resolve()), "role": s["role"], "suite": s["suite"], "task_id": s["task_id"],
+                   "dev_seeds": sim_seeds(s["dev"]), "unseen_seeds": sim_seeds(s["unseen"]),
+                   "max_programs": 2 if s["role"] == "verifier" else None, "max_steps": s["max_steps"]})
     bin_dir = work / "bin"
     bin_dir.mkdir(exist_ok=True)
-    shutil.copy2(HERE / "agent" / "sim_cli.py", bin_dir / "sim_cli.py")
-    (bin_dir / "sim.json").write_text(json.dumps({
-        "workspace": str(work.resolve()), "aspire_root": str(s["root"]), "suite": s["suite"], "task_id": s["task_id"],
-        "dev_seeds": sim_seeds(s["dev"]), "unseen_seeds": sim_seeds(s["unseen"]), "dev_seeds_text": s["dev"],
-        "unseen_seeds_text": s["unseen"], "env": {**service_env(), **s["env"]}, "workers": s["workers"],
-        "max_steps": s["max_steps"],
-        "max_programs": 2 if s["role"] == "verifier" else None},
-        indent=1))
+    shutil.copy2(HERE / "sim_cli.py", bin_dir / "sim_cli.py")
+    (bin_dir / "sim.json").write_text(json.dumps({"workspace": str(work.resolve()), "url": url}, indent=1))
     wrapper = bin_dir / "sim"
     wrapper.write_text(f"#!/bin/sh\nexec {sys.executable} \"$(dirname \"$0\")/sim_cli.py\" \"$@\"\n")
     wrapper.chmod(wrapper.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
@@ -89,10 +90,13 @@ def prepare(task: dict, workspace: Path, params: dict, base: Path) -> list[dict]
     return []
 
 
-def service_env() -> dict:
-    """The provider URLs set for this run (README, step 2): bin/sim gets them through sim.json, because the session's
-    commands see only Codex's core variables (shell_env: core), and Stage 2 runs in this process with them."""
-    return {k: os.environ[k] for k in ("CAP_HARNESS_SAM3_URL", "CAP_HARNESS_CUROBO_URL") if os.environ.get(k)}
+def register(url: str, body: dict) -> None:
+    request = urllib.request.Request(url.rstrip("/") + "/register", data=json.dumps(body).encode(),
+                                     headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(request, timeout=60) as reply:
+        answer = json.loads(reply.read())
+    if not answer.get("ok"):
+        raise RuntimeError(f"the simulator service refused the session: {answer.get('error')}")
 
 
 def task_dir(s: dict) -> str:
@@ -136,8 +140,8 @@ def prompt(task: dict, params: dict, base: Path) -> str:
                      "development seeds. Reply with the return message of each part you ran."
                      if s["role"] == "actor" and params.get("evosearch", True) else
                      "by replying with the template's return message."),
-        heldout_line=("is not yours: the harness scores `fix_code.py` on the held-out seeds after you finish "
-                      "(the template's Stage 2)." if s["role"] == "actor" else
+        heldout_line=("is not yours: the harness scores your selected program on the held-out seeds after you "
+                      "finish (the template's Stage 2)." if s["role"] == "actor" else
                       "does not apply: your verdict is scored on the program you select, on your seeds; write it "
                       "as `fix_code.py` in this workspace as well."))
     text = f"{header}\n\n{assignment(s)}\n---\n\n{body}\n"
@@ -168,6 +172,8 @@ def answer(last_message: str, task: dict) -> dict:
 
 
 def collect(task: dict, workspace: Path, log: Path, params: dict) -> dict:
+    """The actor's files into the log and the facts for the judge (which runs Stage 2 on `fix_code`, on the host) and
+    the coordinator."""
     s = settings(task, params)
     work = Path(workspace) / task_dir(s)
     files = Path(log) / "files"
@@ -180,8 +186,8 @@ def collect(task: dict, workspace: Path, log: Path, params: dict) -> dict:
             shutil.copy2(source, files / name)
     read = lambda name: (work / name).read_text(errors="replace") if (work / name).is_file() else None
     facts = {"role": s["role"], "suite": s["suite"], "findings": read("findings.md") or read("findings_report.md"),
-             "skill_report": _json(read("skill_report.json")), "fix_code": read("fix_code.py"),
-             "verification": _json(read("verification_report.json")), "unseen": _unseen(work)}
+             "skill_report": _json(read("skill_report.json")), "verification": _json(read("verification_report.json")),
+             "unseen": _unseen(work)}
     evo = Path(workspace) / evo_dir(s)
     if s["role"] == "actor" and evo.is_dir():
         for name in ("evosearch_best_code.py", "findings.md", "task_analysis.md", "BLOCKED"):
@@ -191,33 +197,11 @@ def collect(task: dict, workspace: Path, log: Path, params: dict) -> dict:
         facts["evosearch"] = {"findings": (evo / "findings.md").read_text(errors="replace")
                               if (evo / "findings.md").is_file() else None,
                               "best_code": (evo / "evosearch_best_code.py").is_file()}
-    # Stage 2 scores the search's best program when the search ran (it falls back to fix_code.py itself), else
-    # the fix loop's
+    # The selected program: the search's best when the search ran (it falls back to fix_code.py itself), else the fix
+    # loop's. The judge scores it.
     program = evo / "evosearch_best_code.py" if (evo / "evosearch_best_code.py").is_file() else work / "fix_code.py"
     facts["scored_program"] = str(program.relative_to(workspace)) if program.is_file() else None
-    if program.is_file():
-        facts["fix_code"] = program.read_text(errors="replace")           # the program Stage 2 scores
-    seeds = sim_seeds(s["heldout"] if s["role"] == "actor" else s["dev"])
-    facts["breach"] = audit(s, Path(workspace), Path(log))
-    if facts["breach"]:
-        # ASPIRE's `void`: a session that read past its rules is not scored, and its findings are not evidence
-        facts.update(scored_seeds=seeds, scored_passed=0,
-                     scored_refused="boundary breach: " + "; ".join(facts["breach"])[:400])
-    elif program.is_file() and seeds:
-        engine = sim.Engine(s["root"], env=s["env"], workers=s["workers"], max_steps=s["max_steps"],
-                            timeout_s=float(params.get("sweep_timeout_s", 7200)))
-        refused = engine.validate(program)
-        # Beside the workspace, not in the log: the coordinator reads the log, and held-out runs stay out of it.
-        out = Path(workspace).parent / "stage2"
-        out.mkdir(parents=True, exist_ok=True)
-        records = [] if refused else engine.run(program, suite=s["suite"], seeds=seeds, out=out,
-                                                 task_id=s["task_id"])
-        (out / "stage2.json").write_text(json.dumps({"refused": refused, "records": records}, indent=1))
-        facts.update(scored_seeds=seeds, scored_passed=sum(r["task_success"] for r in records),
-                     scored_refused=refused)
-    else:
-        facts.update(scored_seeds=seeds, scored_passed=0,
-                     scored_refused="no fix_code.py" if seeds else "no seeds to score")
+    facts["fix_code"] = program.read_text(errors="replace") if program.is_file() else None
     if params.get("prune_media", True):
         prune(Path(workspace).parent)
     return facts
@@ -225,83 +209,10 @@ def collect(task: dict, workspace: Path, log: Path, params: dict) -> dict:
 
 def prune(run_dir: Path) -> None:
     """The heavy part of a finished session's simulator runs: every run's media/ (keyframes, overlays, videos; a
-    session runs hundreds of episodes). The records, traces and programs stay; the audit has already read them."""
+    session runs hundreds of episodes). The records, traces and programs stay."""
     for media in run_dir.rglob("media"):
         if media.is_dir() and (media.parent / "run.json").is_file():
             shutil.rmtree(media, ignore_errors=True)
-
-
-# ASPIRE's worked solutions by name: a command that names one has gone looking for it.
-SOLUTIONS = re.compile(r"\b(?:cube_lifting|cube_restack|cube_stack|nut_assembly|spill_wipe|two_arm_handover|"
-                       r"two_arm_lift)_fix_code\.py|SUCCESS_RATES\.md")
-
-
-def audit(s: dict, workspace: Path, log: Path) -> list[str]:
-    """The breaches of the session's rules, found after the fact; empty when clean. Detection, not isolation:
-
-    - a command (heredoc bodies included) that names, in the ASPIRE checkout, its shipped library and worked
-      solutions (.claude/), its examples or outputs, or its cap-harness (past bin/sim); another session's workspace;
-      or one of ASPIRE's worked solutions by name (the harness's source and docs are the actor's to read, as in
-      ASPIRE);
-    - a run on a seed the session was not assigned, or of a program from outside its workspace (each run's
-      provenance names its input file);
-    - a run, or the scored program, whose code is byte-identical to one of ASPIRE's worked solutions or examples;
-    - for a verifier, more than two programs run on several seeds (its attempt budget);
-    - no session log to audit.
-    Relative paths that merely repeat a name from ASPIRE's own text (`.claude/skills/...`) are not breaches: inside
-    the workspace they name nothing."""
-    workspace, root = Path(workspace), Path(s["root"])
-    found = []
-    stream = log / "agent-codex.jsonl"
-    if not stream.is_file():
-        return ["no session log to audit (agent-codex.jsonl)"]
-    holder = workspace.parent.parent                       # the directory that holds every session's workspace
-    others = [d.name for d in holder.iterdir() if d.is_dir() and d.name != workspace.parent.name]
-    # In ASPIRE the actor works in the repository and may read the harness's source and docs; what it may not read is
-    # the shipped library and worked solutions (.claude/), the examples, other tasks' outputs, or run the engine past
-    # its seeds (here: cap-harness past bin/sim).
-    patterns = [re.compile(re.escape(str(root)) + r"/(?:\.claude|examples|outputs)\b|"
-                           + re.escape(str(root)) + r"/\.venv-robosuite/bin/cap-harness"), SOLUTIONS]
-    if others:
-        patterns.append(re.compile("|".join(re.escape(name) for name in others)))
-    for line in stream.read_text(errors="replace").splitlines():
-        try:
-            item = json.loads(line).get("item") or {}
-        except ValueError:
-            continue
-        if item.get("type") != "command_execution":
-            continue
-        for pattern in patterns:
-            match = pattern.search(item.get("command", ""))
-            if match:
-                found.append(f"a command named {match.group(0)!r}")
-    solutions = {_sha(p) for p in [*(root / SKILLS / "robosuite").glob("*.py"), *(root / "examples").rglob("*.py")]}
-    allowed = set(sim_seeds(s["dev"])) | set(sim_seeds(s["unseen"]))
-    programs: dict[str, set] = {}
-    for run in workspace.rglob("run.json"):
-        seed = (_json(run.read_text(errors="replace")) or {}).get("seed")
-        if isinstance(seed, int) and seed not in allowed:
-            found.append(f"a run on seed {seed}, not assigned")
-        provenance = _json((run.parent / "source" / "provenance.json").read_text(errors="replace")) \
-            if (run.parent / "source" / "provenance.json").is_file() else {}
-        source = Path(str((provenance or {}).get("input_path") or workspace))
-        if not source.resolve().is_relative_to(workspace.resolve()):
-            found.append(f"a run of a program from outside the workspace ({source.name})")
-        if (provenance or {}).get("sha256") in solutions:
-            found.append(f"a run of one of ASPIRE's worked solutions ({source.name})")
-        programs.setdefault((provenance or {}).get("sha256"), set()).add(seed)
-    for scored in (workspace / task_dir(s) / "fix_code.py", workspace / evo_dir(s) / "evosearch_best_code.py"):
-        if scored.is_file() and _sha(scored) in solutions:
-            found.append(f"{scored.name} is one of ASPIRE's worked solutions")
-    if s["role"] == "verifier":
-        sweeps = [sha for sha, seeds in programs.items() if sha and len(seeds) > 1]
-        if len(sweeps) > 2:
-            found.append(f"{len(sweeps)} programs run on several seeds, past the verifier's two")
-    return sorted(set(found))
-
-
-def _sha(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _json(text):

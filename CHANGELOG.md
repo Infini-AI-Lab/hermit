@@ -113,8 +113,9 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   under the CaP program rules, no privileged access) and the `aspire` Evolver (the coordinator: an agent Evolver with
   ASPIRE's guide that repairs graded entries, verifies proposals with `run_agent` on the task's verifier row, and
   chooses the next task through `StepResult.next_tasks`), with `examples/aspire_robosuite/`: the fix-loop subagent,
-  its evolutionary search and the verifier as the Codex acting agent in a workspace that reaches ASPIRE's robot
-  execution engine through `bin/sim`, on the Robosuite tasks of ASPIRE's harness.
+  its evolutionary search and the verifier as the Codex acting agent in the task sandbox, which reaches ASPIRE's robot
+  execution engine through a simulator service on the host (the sandbox has no GPU) that holds its seed rules; the
+  judge runs Stage 2 on the host.
 
 ### Changed
 

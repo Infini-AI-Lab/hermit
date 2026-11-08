@@ -12,14 +12,15 @@ only if a fresh verifier re-solves the task from the library and the proposals a
 
 | Folder | What it is |
 |---|---|
-| `utils/task.py` | The Codex actor's task functions: the workspace (`bin/sim`, docs, the snapshot program), the prompt (an adaptation page, the assignment, ASPIRE's template verbatim), the held-out run (`collect`) |
-| `utils/agent/sim_cli.py` | `bin/sim`: ASPIRE's `cap-harness` for the task, held to the assigned seeds and the workspace |
+| `utils/agent/task.py` | The Codex actor's task functions: the workspace (`bin/sim`, docs, the snapshot program) and its registration with the simulator service, the prompt (an adaptation page, the assignment, ASPIRE's template verbatim), the selected program (`collect`) |
+| `utils/agent/sim_service.py` | The simulator service on the host: ASPIRE's `cap-harness` for the sandboxed actors, holding their seed rules |
+| `utils/agent/sim_cli.py` | `bin/sim`: the actor's client of the simulator service |
 | `utils/agent/sim.py` | The robot execution engine from the harness's side (the held-out run) and the trace digest |
-| `utils/prompts/` | The pages that map ASPIRE's fix-loop, verifier and evolutionary-search templates onto the workspace |
+| `utils/agent/prompts/` | The pages that map ASPIRE's fix-loop, verifier and evolutionary-search templates onto the workspace (and the direct actor's prompts) |
 | `utils/agent/agent.py` | The structured direct-chat actor of `aspire/run_direct.yaml` (a comparison, not the method) |
-| `utils/prepare.py` | The seven Robosuite tasks; the verifier's rows; the reruns with the final library |
+| `utils/prepare.py` | The seven Robosuite tasks with their seeds; the verifier's rows; the reruns with the final library |
 | `utils/seg_service/` | A SAM3-wire-compatible segmentation service from ungated models (optional) |
-| `utils/judge.py` | The success rate on the seeds a program is scored on (held-out; the verifier's own) |
+| `utils/judge.py` | Stage 2 on the host: the selected program on the held-out seeds (a verifier's on its own), its success rate |
 | `aspire/` | `run.yaml` (ASPIRE's seeds), `smoke.yaml`, the `*_direct.yaml` comparison, `launch.sh` |
 
 ## Setup
@@ -54,10 +55,11 @@ only if a fresh verifier re-solves the task from the library and the proposals a
    MUJOCO_EGL_DEVICE_ID: "0"      # the EGL device of the GPU you render on; check it, see below
    ```
 
-4. **Codex.** The actor and the coordinator are Codex CLI sessions (`codex` on `PATH`; the configs bind them to GLM
-   5.3 Flash on Fireworks). The actor's commands drive a GPU simulator and local services, so it runs without a
-   container and with Codex's own sandbox off (`isolation: none`, `codex_sandbox: danger-full-access`); its seed and
-   directory rules are held by `bin/sim` and its prompt.
+4. **Codex and the sandboxes.** The actor and the coordinator are Codex CLI sessions (`codex` on `PATH`; the configs
+   bind them to GLM 5.3 Flash on Fireworks), each in the framework's sandbox (`sandbox.enabled: true`, `enforce:
+   required`; bubblewrap on `PATH`, docs/guides/sandbox.md). The task sandbox has no GPU, so the simulator runs on the
+   host as a service (`utils/agent/sim_service.py`, started by `launch.sh`), which the actor reaches through `bin/sim`
+   on a forwarded loopback port; see [The actor's rules](#the-actors-rules).
 
 5. **Run** on the host that serves the providers:
 
@@ -85,7 +87,7 @@ only if a fresh verifier re-solves the task from the library and the proposals a
 | Tasks | the 7 Robosuite tasks, in the order the coordinator chooses (it starts from `splits/all.txt`'s first) | `cube_lifting`, `cube_stack` |
 | Development seeds | 101-125 (ASPIRE's) | 101-103 |
 | Unseen-check seeds | 126-130 (ASPIRE's), run once by the actor | 126 |
-| Held-out seeds | 1-100 (ASPIRE's), run once by the harness | 1-3 |
+| Held-out seeds | 1-100 (ASPIRE's; `ASPIRE_EVAL_SEEDS` for others), run once by the judge | 1-3 |
 | Fix loop | ASPIRE's: 3 versions per failure mode, 8 in total | the same |
 | Evolutionary search | ASPIRE's, for a task the fix loop leaves below 90%: K = 8, top 3, stop at 80% or 5 rounds | the same |
 | Verifier | ASPIRE's: 5 seeds (101-105), 2 attempts, verified at ≥ 4/5 | the same |
@@ -95,22 +97,20 @@ only if a fresh verifier re-solves the task from the library and the proposals a
 
 Every actor session runs the simulator hundreds of times (a fix loop of up to 8 programs on 25 seeds, an
 evolutionary search of up to 40 more), and each run keeps its record, trace and images. `collect` deletes the images
-(`media/`) once the session is audited and scored (`agent.params.prune_media: false` keeps them); the rest still adds
+(`media/`) when the session ends (`agent.params.prune_media: false` keeps them); the rest still adds
 up over a campaign. Set `ASPIRE_OUT` to a large disk: `launch.sh` puts the runs and the workspaces there.
 
 ## The actor's rules
 
-The actor's commands run without a sandbox, because they drive a GPU simulator and local services. Its rules (ASPIRE's
-reading rules: no worked solution, no shipped library, no other task's directory; only its own seeds) are held three
-ways. The workspace holds only what it may read: the docs it is allowed, with the lines that name worked programs
-dropped, and no repository path in its environment (`shell_env: core`). `bin/sim` runs only its assigned seeds, the
-unseen check once, and a verifier's two programs. `collect` audits the session after the fact (`utils/task.py:audit`)
-and voids one that broke them (score 0, its report not used): commands that reach ASPIRE's shipped library, worked
-solutions, examples or outputs, its engine past `bin/sim`, another workspace, or a worked solution by name (the
-harness's source and docs are the actor's to read, as in ASPIRE); runs on unassigned seeds, of programs from outside
-the workspace, or of a worked solution's code; a verifier's third program; a session with no log to audit. This is
-detection, not isolation: `bin/sim.json` names the checkout, and a breach that leaves none of these traces goes
-undetected.
+The actor runs in the task sandbox, which shows it only what the config declares (`environment.read`): its own code
+(`utils/agent/`) and, of the ASPIRE checkout, the prompt templates, the docs and the snapshot program it is given.
+ASPIRE's shipped skill library, its worked solutions and examples, other sessions' workspaces, the task rows and the
+judge do not exist inside; its network reaches only its model and the simulator service's forwarded port. The
+simulator service is the trusted side of the seed rules: `prepare` registers the session's seeds before the agent
+starts, and the service runs only those, the unseen check once and a verifier's two programs, writing the runs into
+the workspace. The held-out seeds are run only by the judge, on the host (ASPIRE's Stage 2), on the program the
+session selected. The actor's Codex runs with its own sandbox off (`codex_sandbox: danger-full-access`), the task
+sandbox being the boundary.
 
 ## Segmentation without SAM3
 

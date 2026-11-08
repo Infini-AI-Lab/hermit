@@ -17,9 +17,14 @@ template: aspire                              # the skill library: skills/README
 data: {train: all.txt, val: verify.txt, test: rerun.txt, step_size: 1, shuffle: false}
 agent:
   base: codex                                 # the actor: ASPIRE's fix-loop subagent prompt, verbatim
-  params: {prompt: ../utils/task.py:prompt, prepare: ../utils/task.py:prepare, answer: ../utils/task.py:answer,
-           collect: ../utils/task.py:collect}
-  codex: {isolation: none, codex_sandbox: danger-full-access, shell_env: core, web_search: false}
+  params: {prompt: ../utils/agent/task.py:prompt, prepare: ../utils/agent/task.py:prepare,
+           answer: ../utils/agent/task.py:answer, collect: ../utils/agent/task.py:collect}
+  codex: {codex_sandbox: danger-full-access, shell_env: all, web_search: false}   # the task sandbox is the boundary
+environment:                                  # the task sandbox: its code, ASPIRE's prompts and docs, the service
+  read: [../utils/agent, $ASPIRE_ROOT/docs/api-reference.md, ...]
+  env: [ASPIRE_SIM_URL]
+judge: {path: ../utils/judge.py}              # on the host: Stage 2
+sandbox: {enabled: true, enforce: required}
 evolver:
   name: aspire                                # the coordinator: a Codex session with ASPIRE's guide
   base: codex
@@ -35,12 +40,15 @@ privileged access (simulator internals, success predicates, reflection), and ref
 No existing template fits: `prompt-only` is one file; `continual-harness` carries a policy, sub-agents and memory
 ASPIRE does not have; `reharness` retrieves per instance from an embedded bank.
 
-The example's task functions (`examples/aspire_robosuite/utils/task.py`) give the actor its workspace: `bin/sim`, the
-execution engine held to the actor's development and unseen-check seeds; ASPIRE's API, artifact and Robosuite docs;
-the scene-snapshot program; and a page that maps the template's paths and commands onto the workspace. After the
-session, `collect` runs the actor's `fix_code.py` once on the held-out seeds (ASPIRE's Stage 2, the coordinator's in
-ASPIRE). The verifier is the same actor on the task's verifier row (`verify-<task>`, `data.val`): ASPIRE's verifier
-prompt, five seeds, two attempts, scored on its own seeds.
+The example's task functions (`examples/aspire_robosuite/utils/agent/task.py`) give the actor its workspace in the
+task sandbox: `bin/sim`; ASPIRE's API, artifact and Robosuite docs; the scene-snapshot program; and a page that maps
+the template's paths and commands onto the workspace. The sandbox shows nothing else of ASPIRE's checkout: not its
+shipped library, worked solutions or examples. It has no GPU, so the simulator runs on the host as a service
+(`utils/agent/sim_service.py`), which `bin/sim` reaches on a forwarded loopback port; the session registers its seeds
+there before the agent starts, and the service runs only those, the unseen check once and a verifier's two programs.
+The judge (`utils/judge.py`, on the host) runs the selected program once on the held-out seeds: ASPIRE's Stage 2, the
+coordinator's in ASPIRE. The verifier is the same actor on the task's verifier row (`verify-<task>`, `data.val`):
+ASPIRE's verifier prompt, five seeds, two attempts, scored on its own seeds with its own verdict.
 
 ## The step
 
@@ -48,8 +56,8 @@ One step is one finished task.
 
 ```{mermaid}
 flowchart TD
-    A[actor: Codex with ASPIRE's fix-loop prompt, bin/sim on development and unseen-check seeds] --> S2[collect: fix_code.py once on the held-out seeds]
-    S2 --> R[the step's record: findings, skill report, fix_code.py, Stage 2]
+    A[actor in the task sandbox: Codex with ASPIRE's fix-loop prompt; bin/sim to the host's simulator service] --> S2[judge on the host: the selected program once on the held-out seeds]
+    S2 --> R[the step's record: findings, skill report, the selected program, Stage 2 score]
     R --> C[coordinator: Codex with ASPIRE's guide, sections 6, 7 and Curriculum]
     L[the library] --> C
     C -->|repairs on graded entries| L2[the library in the adapter]
@@ -66,8 +74,8 @@ flowchart TD
    groups failures by mode and repairs the largest, selects `fix_code.py`, runs it once on the unseen-check seeds, and
    writes `findings.md` and `skill_report.json`. When `fix_code.py` passes fewer than 90% of the development seeds, the
    same session goes on with ASPIRE's evolutionary-search template (§2.3: eight candidates per round from the top
-   three, until 80% or five rounds; its best program replaces `fix_code.py` only if it beats it). `collect` then runs
-   the selected program once on the held-out seeds; that rate is the task's score.
+   three, until 80% or five rounds; its best program replaces `fix_code.py` only if it beats it). The judge then runs
+   the selected program once on the held-out seeds, on the host; that rate is the task's score.
 2. The coordinator, a Codex session (`hermit/agent/evolver/methods/aspire/COORDINATOR.md`: a page that maps the guide
    onto the harness, then ASPIRE's own sections 6, 7 and Curriculum verbatim), reads the record, acts on the grades
    (repairs `wrong` and `misleading` entries, adds evidence to `useful` ones), stages the proposals in a copy of the
@@ -98,19 +106,19 @@ The actor's settings are the example's (`agent.params`): `debug_seeds`, `unseen_
 | When learning happens | after each subagent returns | after each task (one per step) | the Trainer's step |
 | Curriculum | the coordinator chooses each round's tasks and logs `curriculum.md` | the same, one task per step, through `StepResult.next_tasks` | the Trainer dispatches what the coordinator names |
 | Parallelism | one task per GPU | one task at a time | a decision: two GPUs |
-| Stage 2 (held-out) | the coordinator runs it after the subagent returns | `collect` runs it after the session | the score is the rollout's |
-| What the actor sees | the repository: library, docs, scripts, its own runs (and, against the rules, the shipped skills and worked examples) | a workspace with the library, the docs it is allowed (worked-program lines dropped), the snapshot program and `bin/sim`; no repository path in its environment, though `bin/sim.json` names it | a decision: the reading rules held by the layout and audited after the fact (a breach voids the session), not isolated |
-| Running episodes | `cap-harness run-batch` with the GPU's environment | `bin/sim`, which also refuses unassigned seeds, a second unseen check and a verifier's third program | a decision: the seed rules held by the wrapper and audited from every run's seed |
+| Stage 2 (held-out) | the coordinator runs it after the subagent returns | the judge runs it on the host, on the selected program | the score is the judge's; no session can run held-out seeds |
+| What the actor sees | the repository: library, docs, scripts, its own runs (and, against the rules, the shipped skills and worked examples) | the task sandbox: its workspace, the library, ASPIRE's prompts, docs and snapshot program; not the shipped library, worked solutions, examples or other workspaces | the reading rules enforced by the sandbox |
+| Running episodes | `cap-harness run-batch` on the GPU, in the repository | `bin/sim`, to the simulator service on the host, which holds the session's seeds, the unseen check once and a verifier's two programs | the task sandbox has no GPU; the seed rules held by the trusted side |
 | The update | promotion after a verified reproduction; repairs on grades | the same, by the coordinator session | — |
 | Verification | 5 seeds (the template's 51-55), 2 attempts, `verified` at ≥ 4/5; `void` never promoted | the same budget on 101-105 (two programs, held by `bin/sim`); the score counts only with the verifier's own `verified` and its selected program at ≥ 4/5 on rerun | the template's seeds are LIBERO's; ASPIRE says to change them for Robosuite |
 | Lint | `lint_skills.py` after every promotion | `check_spec` with the template's check (sandbox validity and privileged access in ```python snippets, the library's size) | the upstream linter imports ASPIRE |
 | Scene exploration | `skills/task-exploration.md` in the shipped library | the same file, given as `docs/task-exploration.md` (the procedure, not learned skills) | the empty library has no such file |
-| Stage 2 evidence | the coordinator runs it and keeps the failures out of development | `collect` runs it beside the workspace; the record carries only the pass count, and the coordinator is told not to look further (the per-seed results are reachable from the record's workspace path) | ASPIRE's rule: evaluation failures are not development evidence |
+| Stage 2 evidence | the coordinator runs it and keeps the failures out of development | the judge runs it on the host; the coordinator, in its own sandbox, sees only the score | ASPIRE's rule: evaluation failures are not development evidence |
 | Library history | `<file>-changelog.md` beside each file | `state/changelog.md` | the adapter holds only the library |
 | Phase 3 | rerun of tasks below 80% whose library changed | the test split reruns every task | the evaluation measures it per task |
 | Models | Claude Opus 4.6 (and others) | GLM 5.3 Flash in every role | the first-evaluation row of the framework |
 | Perception | SAM3 | SAM3, or any service with its wire format (`utils/seg_service/`: Grounding-DINO + SAM) | SAM3's weights are gated |
-| Evolutionary search (§2.3) | a separate evosearch subagent for tasks the fix loop leaves below 90%: K = 8 candidates per round from the top 3, stop at 80% or 5 rounds, Stage 2 on its best | the same template, verbatim, as Part 2 of the actor's session; `collect` runs Stage 2 on `evosearch_best_code.py` | a decision: one session keeps the task's rollout one call |
+| Evolutionary search (§2.3) | a separate evosearch subagent for tasks the fix loop leaves below 90%: K = 8 candidates per round from the top 3, stop at 80% or 5 rounds, Stage 2 on its best | the same template, verbatim, as Part 2 of the actor's session; the judge runs Stage 2 on `evosearch_best_code.py` | a decision: one session keeps the task's rollout one call |
 | Not ported | — | LIBERO-Pro and BEHAVIOR-1K, the real robot | scope |
 
 `examples/aspire_robosuite/aspire/run_direct.yaml` replaces the Codex actor with a structured loop of `direct` calls
@@ -119,15 +127,9 @@ The actor's settings are the example's (`agent.params`): `debug_seeds`, `unseen_
 ## What it is not
 
 A verified entry transmits (a fresh actor followed it to the fix on the task it came from); it is not shown to
-generalize. The reading rules (no worked solutions, no other task's directory, only the assigned seeds) are not
-isolation: the actor's commands run without a sandbox, because they drive a GPU simulator. They rest on the
-workspace's layout, `bin/sim` and the prompts, and the task's `collect` audits every session after the fact, voiding
-one that broke them: commands that reach ASPIRE's shipped library, worked solutions, examples or outputs (its source
-and docs are the actor's to read, as in ASPIRE), its engine past `bin/sim`, another workspace, or a worked solution by
-name; runs on unassigned seeds, of programs from outside the workspace, or of a worked solution's code; a verifier's
-third program. A breach that leaves none of these traces (a path assembled at run time) goes undetected. The
-coordinator, also unsandboxed, is held to the same reading rules by its prompt only. The reruns score the held-out
-seeds the first pass was scored on (as ASPIRE's Phase 3 does).
+generalize. The actor's simulator runs outside its sandbox, on the host: the service starts only ASPIRE's harness, on
+the session's own programs and seeds. The reruns score the held-out seeds the first pass was scored on (as ASPIRE's
+Phase 3 does).
 
 ## Example
 

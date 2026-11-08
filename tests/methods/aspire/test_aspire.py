@@ -1,7 +1,7 @@
 """ASPIRE: the aspire template (the skill library, its reader and its check), the coordinator's hook into the
-Trainer (next_tasks), and the example's Codex task functions (prompt assembly, the workspace, bin/sim's rules, the
-after-the-fact audit, the judge) and pure helpers; no simulator, no model, no network."""
-import hashlib
+Trainer (next_tasks), and the example's pieces: the Codex task functions (prompt assembly, the workspace and its
+registration), the simulator service's rules as bin/sim meets them (a real service on a loopback port, over a fake
+checkout), the judge's Stage 2 (a stand-in engine), and pure helpers; no simulator, no model, no network."""
 import importlib.util
 import json
 import os
@@ -208,15 +208,19 @@ def test_the_failure_keyframe_is_the_failing_calls_own(tmp_path):
 
 # ---------- the Codex actor's task functions ----------
 
-def _task_module():
-    sys.path.insert(0, str(EXAMPLE))
+def _load(name: str, path: Path):
+    sys.path.insert(0, str(path.parent))
     try:
-        spec_ = importlib.util.spec_from_file_location("aspire_task", EXAMPLE / "task.py")
+        spec_ = importlib.util.spec_from_file_location(name, path)
         module = importlib.util.module_from_spec(spec_)
         spec_.loader.exec_module(module)
         return module
     finally:
-        sys.path.remove(str(EXAMPLE))
+        sys.path.remove(str(path.parent))
+
+
+def _task_module():
+    return _load("aspire_task", EXAMPLE / "agent" / "task.py")
 
 
 def fake_aspire(tmp: Path) -> Path:
@@ -231,165 +235,134 @@ def fake_aspire(tmp: Path) -> Path:
                                                f"## What You Are\nfix-loop text\n{marks[1]}\n")
     (skills / "verifier-prompt.md").write_text(f"intro\n{marks[0]}\nYou are verifying. Seeds 51-55.\n{marks[1]}\n")
     (skills / "scripts" / "scene_snapshot.py").write_text("result = {}\n")
+    for name in ("api-reference.md", "run-artifacts.md", "robosuite.md"):
+        (root / "docs" / name).write_text(f"# {name}\nrun examples/robosuite/cube_lifting_seed1.py\nkept\n")
+    (skills / "skills").mkdir()
+    (skills / "skills" / "task-exploration.md").write_text("# exploration\n")
     evosearch = root / ".claude" / "skills" / "evosearch"
     (evosearch / "skills").mkdir(parents=True)
     (evosearch / "subagent-prompt.md").write_text("intro\n\n```\n## Task Assignment\n\nBENCHMARK: <x>\n\n---\n\n"
                                                   "## EVAL SET LOCKOUT\nsearch text\n```\n")
     (evosearch / "skills" / "evosearch-iteration.md").write_text("# iteration\n")
-    for name in ("api-reference.md", "run-artifacts.md", "robosuite.md"):
-        (root / "docs" / name).write_text(f"# {name}\nrun examples/robosuite/cube_lifting_seed1.py\nkept\n")
-    (skills / "skills").mkdir()
-    (skills / "skills" / "task-exploration.md").write_text("# exploration\n")
     return root
+
+
+ROW = {"id": "robosuite-cube_lifting", "suite": "cube_lifting", "task_id": 0, "debug_seeds": "101-103",
+       "unseen_seeds": "126", "eval_seeds": "1-3"}
+VERIFY = {"id": "verify-robosuite-cube_lifting", "suite": "cube_lifting", "task_id": 0, "role": "verifier",
+          "debug_seeds": "101-105", "eval_seeds": "none"}
 
 
 def test_the_actor_prompt_is_the_header_the_assignment_and_aspires_template(tmp_path):
     T = _task_module()
-    params = {"aspire_root": str(fake_aspire(tmp_path)), "debug_seeds": "101-103", "unseen_seeds": "126",
-              "eval_seeds": "1-3"}
-    text = T.prompt({"id": "robosuite-cube_lifting", "suite": "cube_lifting"}, params, tmp_path)
+    params = {"aspire_root": str(fake_aspire(tmp_path))}
+    text = T.prompt(ROW, params, tmp_path)
     assert "fix-loop subagent" in text and "`$TASK_DIR` is `robosuite/cube_lifting/task_0`" in text
     assert "DEV_SEEDS: 101-103" in text and "UNSEEN_SEEDS: 126" in text and "HELDOUT_COUNT: 3" in text
     assert "## What You Are\nfix-loop text" in text and "BENCHMARK: <x>" not in text   # ours replaces theirs
     # Part 2, the evolutionary search, follows the fix loop with its own page and its template after its assignment
     assert text.index("fix-loop text") < text.index("# Part 2: the evolutionary search") < text.index("search text")
     assert "`TASK_DIR` is `evosearch/robosuite/cube_lifting/task_0`" in text
-    assert "# Part 2" not in T.prompt({"id": "x", "suite": "cube_lifting"}, {**params, "evosearch": False}, tmp_path)
-    verifier = T.prompt({"id": "verify-x", "suite": "cube_lifting", "role": "verifier", "debug_seeds": "101-105"},
-                        params, tmp_path)
+    assert "# Part 2" not in T.prompt(ROW, {**params, "evosearch": False}, tmp_path)
+    verifier = T.prompt(VERIFY, params, tmp_path)
     assert "skill verifier" in verifier and "Development seeds: **101-105**" in verifier
     assert "You are verifying. Seeds 51-55." in verifier and "# Part 2" not in verifier
 
 
-def test_a_verifier_never_takes_the_actors_unseen_or_held_out_seeds(tmp_path):
-    T = _task_module()
-    params = {"aspire_root": str(fake_aspire(tmp_path)), "unseen_seeds": "126", "eval_seeds": "1-3"}
-    s = T.settings({"suite": "cube_lifting", "role": "verifier", "debug_seeds": "101-105"}, params)
-    assert (s["dev"], s["unseen"], s["heldout"]) == ("101-105", "", "")
-    assert T.settings({"suite": "cube_lifting", "role": "rerun"}, params)["role"] == "actor"
+class _Service:
+    """The simulator service on a free loopback port, over a fake checkout (no simulator: a run that passes the
+    rules fails to start cap-harness, which is not what these tests hold)."""
+
+    def __init__(self, tmp: Path, root: Path):
+        import threading
+        from http.server import ThreadingHTTPServer
+        S = _load("aspire_sim_service", EXAMPLE / "agent" / "sim_service.py")
+        self.sessions = tmp / "sessions"
+        self.sessions.mkdir()
+        service = S.Service(root, [self.sessions], S.Ledger(tmp / "ledger.json"), {}, 2)
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), S.handler(service))
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
+
+    def close(self):
+        self.server.shutdown()
 
 
-def test_prepare_lays_out_the_workspace_and_bin_sim_refuses_unassigned_seeds(tmp_path):
+@pytest.fixture
+def service(tmp_path, monkeypatch):
+    svc = _Service(tmp_path, fake_aspire(tmp_path))
+    monkeypatch.setenv("ASPIRE_SIM_URL", svc.url)
+    yield svc
+    svc.close()
+
+
+def _sim(work: Path, *args):
+    return subprocess.run([str(work / "bin" / "sim"), *args], capture_output=True, text=True, cwd=work)
+
+
+def test_prepare_registers_the_session_and_the_service_holds_its_rules(tmp_path, service):
     T = _task_module()
-    work = tmp_path / "work"
+    work = service.sessions / "s1" / "work"
     (work / "hermit" / "aspire" / "skills").mkdir(parents=True)
-    (work / "hermit" / "aspire" / "skills" / "proposed.md").write_text(ENTRY)
-    params = {"aspire_root": str(fake_aspire(tmp_path)), "debug_seeds": "101-103", "unseen_seeds": "126"}
-    T.prepare({"id": "verify-x", "suite": "cube_lifting", "role": "verifier", "debug_seeds": "101-105"}, work,
-              params, tmp_path)
-    assert (work / "proposed_skills.md").read_text() == ENTRY
-    T.prepare({"id": "robosuite-cube_lifting", "suite": "cube_lifting"}, work, params, tmp_path)
+    params = {"aspire_root": str(tmp_path / "ASPIRE")}
+    T.prepare(ROW, work, params, tmp_path)
     for name in ("task.md", "docs/api-reference.md", "docs/evosearch-iteration.md", "docs/task-exploration.md",
                  "scripts/scene_snapshot.py", "bin/sim", "bin/sim.json"):
         assert (work / name).is_file(), name
-    (work / "p.py").write_text("result = {}\n")
-    sim = lambda *args: subprocess.run([str(work / "bin" / "sim"), *args], capture_output=True, text=True, cwd=work)
     assert "examples/" not in (work / "docs" / "robosuite.md").read_text()
     assert "kept" in (work / "docs" / "robosuite.md").read_text()
-    held_out = sim("run-batch", "--seeds", "1-3", "--program", "p.py", "--output-root", "out")
+    (work / "p.py").write_text("result = {}\n")
+    held_out = _sim(work, "run-batch", "--seeds", "1-3", "--program", "p.py", "--output-root", "out")
     assert held_out.returncode == 2 and "not assigned to you" in held_out.stderr
-    outside = sim("run", "--seed", "101", "--program", "p.py", "--output-root", str(tmp_path / "elsewhere"))
+    outside = _sim(work, "run", "--seed", "101", "--program", "p.py", "--output-root", str(tmp_path / "elsewhere"))
     assert outside.returncode == 2 and "inside the workspace" in outside.stderr
+    _sim(work, "run", "--seed", "126", "--program", "p.py", "--output-root", "u", "--init-mode", "saved")
+    again = _sim(work, "run", "--seed", "126", "--program", "p.py", "--output-root", "u")
+    assert again.returncode == 2 and "run once" in again.stderr
+    with pytest.raises(RuntimeError, match="registered already"):
+        T.prepare(ROW, work, params, tmp_path)                    # a session cannot register itself again
 
 
-def test_a_verifier_may_run_two_programs(tmp_path):
+def test_a_verifier_may_run_two_programs_and_sees_the_staged_proposals(tmp_path, service):
     T = _task_module()
-    work = tmp_path / "work"
-    work.mkdir()
-    T.prepare({"id": "verify-x", "suite": "cube_lifting", "role": "verifier", "debug_seeds": "101-105"}, work,
-              {"aspire_root": str(fake_aspire(tmp_path))}, tmp_path)
+    work = service.sessions / "v1" / "work"
+    (work / "hermit" / "aspire" / "skills").mkdir(parents=True)
+    (work / "hermit" / "aspire" / "skills" / "proposed.md").write_text(ENTRY)
+    T.prepare(VERIFY, work, {"aspire_root": str(tmp_path / "ASPIRE")}, tmp_path)
+    assert (work / "proposed_skills.md").read_text() == ENTRY
     codes = []
     for name in ("a.py", "a.py", "c.py"):                       # the same path, rewritten: a new program
         (work / name).write_text(f"result = {{'v': {len(codes)}}}\n")
-        done = subprocess.run([str(work / "bin" / "sim"), "run-batch", "--seeds", "101-105", "--program", name,
-                               "--output-root", "out", "--init-mode", "saved"], capture_output=True, text=True,
-                              cwd=work)
-        codes.append((done.returncode, done.stderr))
-    assert "attempt budget" not in codes[0][1] and "attempt budget" not in codes[1][1]
-    assert codes[2][0] == 2 and "attempt budget is 2 programs" in codes[2][1]
+        codes.append(_sim(work, "run-batch", "--seeds", "101-105", "--program", name, "--output-root", "out"))
+    assert "attempt budget" not in codes[0].stderr and "attempt budget" not in codes[1].stderr
+    assert codes[2].returncode == 2 and "attempt budget is 2 programs" in codes[2].stderr
 
 
-def test_the_audit_voids_a_session_that_reached_past_its_rules_and_only_that(tmp_path):
-    T = _task_module()
-    root = fake_aspire(tmp_path)
-    solved = root / ".claude" / "skills" / "iterative-debugging" / "robosuite"
-    solved.mkdir()
-    (solved / "cube_lifting_fix_code.py").write_text("result = 'solved'\n")
-    holder = tmp_path / "workspaces"
-    (holder / "verify-robosuite-cube_lifting-def" / "work").mkdir(parents=True)
-    run_dir = holder / "robosuite-cube_lifting-abc"
-    work, log = run_dir / "work", run_dir / "log"
-    work.mkdir(parents=True)
-    log.mkdir()
-    s = T.settings({"suite": "cube_lifting"}, {"aspire_root": str(root), "debug_seeds": "101-103",
-                                               "unseen_seeds": "126", "eval_seeds": "1-3"})
-    command = lambda c: json.dumps({"item": {"type": "command_execution", "command": c}}) + "\n"
-    # what ASPIRE's own text makes actors type, inside their workspace: not a breach
-    clean = [command("bin/sim run-batch --seeds 101-103 --program code/v00.py --output-root debug/initial"),
-             command("ls .claude/skills/iterative-debugging/skills/ 2>/dev/null; ls .venv-robosuite/bin/cap-harness"),
-             command("cp fix_code.py code/v03_fix_code.py"),
-             command(f"cat {run_dir}/work/robosuite/cube_lifting/task_0/fix_code.py"),
-             command(f"sed -n '150,220p' {root}/src/cap_harness/runtime.py")]       # the harness's source: allowed
-    (log / "agent-codex.jsonl").write_text("".join(clean))
+def test_the_judge_runs_stage_two_on_the_rows_seeds_and_a_verifier_only_when_verified(tmp_path, monkeypatch):
+    J = _load("aspire_judge", EXAMPLE / "judge.py")
+    runs = []
 
-    def a_run(name, seed, source, code="result = {}\n"):
-        d = work / "debug" / name
-        (d / "source").mkdir(parents=True)
-        (d / "run.json").write_text(json.dumps({"seed": seed}))
-        sha = hashlib.sha256(code.encode()).hexdigest()
-        (d / "source" / "provenance.json").write_text(json.dumps({"input_path": str(source), "sha256": sha}))
-    a_run("0101", 101, work / "code" / "v00.py")
-    assert T.audit(s, work, log) == []
-    broken = [command(f"python3 - <<'PY'\nopen('{root}/examples/robosuite/x.py').read()\nPY"),
-              command("cat ../../verify-robosuite-cube_lifting-def/work/fix_code.py"),
-              command("find / -name cube_lifting_fix_code.py")]
-    (log / "agent-codex.jsonl").write_text("".join(clean + broken))
-    a_run("0002", 2, work / "code" / "v00.py")
-    a_run("0102", 102, root / "examples" / "x.py", code="result = 'solved'\n")
-    found = " ".join(T.audit(s, work, log))
-    for evidence in (f"{root}/examples", "verify-robosuite-cube_lifting-def", "cube_lifting_fix_code.py", "seed 2",
-                     "outside the workspace", "worked solutions"):
-        assert evidence in found, evidence
-    (log / "agent-codex.jsonl").unlink()
-    assert "no session log" in " ".join(T.audit(s, work, log))
-
-
-def test_a_refused_program_is_scored_zero_not_an_error(tmp_path, monkeypatch):
-    T = _task_module()
-    root = fake_aspire(tmp_path)
-    work, log = tmp_path / "ws" / "w" / "work", tmp_path / "ws" / "w" / "log"
-    (work / "robosuite" / "cube_lifting" / "task_0").mkdir(parents=True)
-    log.mkdir()
-    (log / "agent-codex.jsonl").write_text("")
-    (work / "robosuite" / "cube_lifting" / "task_0" / "fix_code.py").write_text("import os\n")
-
-    class Refusing:
+    class Engine:
         def __init__(self, *a, **k):
             pass
 
         def validate(self, program):
-            return "ValueError: only math"
-    monkeypatch.setattr(T.sim, "Engine", Refusing)
-    facts = T.collect({"id": "robosuite-cube_lifting", "suite": "cube_lifting"}, work, log,
-                      {"aspire_root": str(root), "eval_seeds": "1-3"})
-    assert facts["scored_passed"] == 0 and "only math" in facts["scored_refused"]
+            return "ValueError: only math" if "import os" in program.read_text() else None
 
-
-def test_the_judge_scores_the_scored_seeds_and_a_verifier_only_when_verified():
-    sys.path.insert(0, str(EXAMPLE))
-    try:
-        spec_ = importlib.util.spec_from_file_location("aspire_judge", EXAMPLE / "judge.py")
-        J = importlib.util.module_from_spec(spec_)
-        spec_.loader.exec_module(J)
-    finally:
-        sys.path.remove(str(EXAMPLE))
+        def run(self, program, *, suite, seeds, out, task_id=0):
+            runs.append(seeds)
+            return [{"task_success": s % 2 == 1} for s in seeds]
+    monkeypatch.setattr(J.sim, "Engine", Engine)
+    monkeypatch.setenv("ASPIRE_ROOT", str(tmp_path))
+    monkeypatch.setenv("ASPIRE_OUT", str(tmp_path / "out"))
     out = lambda facts: SimpleNamespace(extra={"task": facts}, output=None)
-    actor = {"role": "actor", "scored_seeds": [1, 2, 3, 4], "scored_passed": 3, "unseen": {"passed": 1, "total": 1}}
-    assert J.score({}, out(actor))["score"] == 0.75
-    verifier = {"role": "verifier", "scored_seeds": [101, 102, 103, 104, 105], "scored_passed": 5}
-    assert J.score({}, out({**verifier, "verification": {"verdict": "verified"}}))["score"] == 1.0
-    assert J.score({}, out({**verifier, "verification": {"verdict": "void"}}))["score"] == 0.0
-    assert J.score({}, out(verifier))["score"] == 0.0
+    actor = {"role": "actor", "fix_code": "result = {}\n", "unseen": {"passed": 1, "total": 1}}
+    assert J.score(ROW, out(actor))["score"] == 2 / 3 and runs[-1] == [1, 2, 3]   # the row's held-out seeds
+    assert J.score(ROW, out({**actor, "fix_code": "import os\n"}))["score"] == 0.0
+    verified = {"role": "verifier", "fix_code": "result = {}\n", "verification": {"verdict": "verified"}}
+    assert J.score(VERIFY, out(verified))["score"] == 3 / 5 and runs[-1] == [101, 102, 103, 104, 105]
+    assert J.score(VERIFY, out({**verified, "verification": {"verdict": "void"}}))["score"] == 0.0
+    assert J.score(ROW, out({"role": "actor"}))["score"] == 0.0                 # no program: not scored
 
 
 def test_prune_drops_the_runs_images_and_keeps_their_records(tmp_path):

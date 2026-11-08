@@ -12,8 +12,8 @@ these follow this page verbatim; this page says how they map onto the harness, a
 
 - **The finished task's record:** `{learning_material}/current/tasks/*.json`. Its `pipeline_extra.task` holds the
   actor's `findings` (findings.md), `skill_report` (skill_report.json), `fix_code` (fix_code.py, from which you
-  extract snippets to promote), the Stage 2 result (`scored_passed` of `scored_seeds`, the held-out seeds) and the
-  unseen check. `judge.score` is the Stage 2 success rate. The actor's other files are under the record's
+  extract snippets to promote) and the unseen check. `judge.score` is the Stage 2 success rate on the held-out seeds,
+  which the harness runs after the session. The actor's other files are under the record's
   `trajectory` directory (`files/`). Earlier tasks are in the other `{learning_material}/step_*` directories.
 - **The shared skill library:** `{adapter}/skills/` (`README.md` is the index; `localize.md`, `grasp.md`,
   `transport.md`, `manipulation.md`). It is the only thing you edit in `{adapter}`. Read `{adapter}/.hermit/EVOLVER.md`
@@ -38,11 +38,10 @@ these follow this page verbatim; this page says how they map onto the harness, a
   Promote only what a `verified` run supports, into the topic files of `{adapter}`, with the verifier's result on the
   Provenance line. A verifier's score is 0 unless its own verdict is `verified`, and its run was within its rules; a
   `void` result says nothing about the skill. Never leave `skills/proposed.md` in `{adapter}`.
-- **Evaluation results are not development evidence.** A task's Stage 2 pass count is in its record; the held-out
-  runs themselves are not given to you, and you never use held-out results to tune an entry (ASPIRE's Stage 2 rule).
+- **Evaluation results are not development evidence.** A task's Stage 2 result is its record's `judge` (score and
+  feedback); the held-out runs themselves are not given to you, and you never use held-out results to tune an entry
+  (ASPIRE's Stage 2 rule).
   Use `run_agent` only on `verify-*` rows: running a training task would run its held-out evaluation.
-- **A record whose `pipeline_extra.task.breach` is not empty** comes from a session that broke its rules: its score is
-  0, and nothing in its findings or skill report is evidence. Do not promote from it.
 - **Curriculum.** The tasks this epoch has still to run are listed above. Append your round to
   `{state}/curriculum.md` in the guide's format, then write the next task as a JSON list of one task id from that
   list to `{output}/next_tasks.json`, for example `["robosuite-nut_assembly"]`. When none remain, do not write it.
