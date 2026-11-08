@@ -151,12 +151,13 @@ def preflight_role(config, directory):
         raise ValueError('this experiment runner requires a CLI role backend')
     params['timeout_s'] = min(float(params.get('timeout_s', 60)), 60)
     # The role CLI in a sandbox as the run gives its roles: its model's key and hosts, its directory, nothing else.
-    from hermit.isolate import CHATGPT_HOSTS, HOME_SECRETS, run_secrets
+    from hermit.agent.base import login
+    from hermit.isolate import HOME_SECRETS, run_secrets
     from hermit.sandbox import AllowlistProxy, Sandbox, hidden_paths, model_access
     keys, hosts, ports = model_access([params.get('binding')])
     learner = data['sandbox'].get('evolver') or {}                  # what the run gives its learner, as the Trainer
     allow = list(learner.get('allowed_hosts') or [])
-    allow += [h for h in [*hosts, *(CHATGPT_HOSTS if params.get('login') == 'chatgpt' else [])] if h not in allow]
+    allow += [h for h in [*hosts, *login.hosts(params.get('login'))] if h not in allow]   # and a login's hosts
     proxy = AllowlistProxy(allow, log=directory / 'network.jsonl') if allow else None
     box = Sandbox(enabled=data['sandbox']['enabled'], network='allowlist' if allow else 'no-network', allow=allow,
                   proxy_url=proxy.url if proxy else None, env_allow=[*(learner.get('env') or []), *keys],

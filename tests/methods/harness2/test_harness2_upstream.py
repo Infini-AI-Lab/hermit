@@ -30,6 +30,10 @@ LEAKS = ("expected the sum", '"score"', '"judge"', '"feedback"')
 
 class Scripted(FrameworkProposer):
     def call(self, mission, context_dir, label, **kwargs):
+        if self.params.get("spent_then_down"):     # a session that spent tokens and then failed
+            from hermit.agent.model.usage import Usage
+            self.usages.append(Usage("scripted", 100, 0, 25, 2))
+            raise ProposerError(f"[{label}] overloaded", attempts=2)
         if self.params.get("endpoint_down"):
             raise ProposerError(f"[{label}] connection refused", attempts=2)
         root = Path(context_dir)
@@ -126,8 +130,10 @@ def test_one_task_per_step_is_required(tmp_path):
     assert not (tmp_path / "calls.jsonl").exists()
 
 
-def test_a_step_without_editor_sessions_is_marked_failed(tmp_path):
-    run_dir = run(tmp_path, endpoint_down=True)
+@pytest.mark.parametrize("failure", ["endpoint_down", "spent_then_down"])
+def test_a_step_without_editor_sessions_is_marked_failed(tmp_path, failure):
+    """No editor session was served: the step failed, though a failed session's usage is counted."""
+    run_dir = run(tmp_path, **{failure: True})
     steps = [json.loads(l) for l in (run_dir / "steps.jsonl").read_text().splitlines()]
     assert all(s["evolver"]["status"] == "failed" and "NO EDITOR SESSION RAN" in s["evolver"]["summary"] for s in steps)
     extra = json.loads((run_dir / "step_0001" / "output" / "harness2.json").read_text())
@@ -349,3 +355,136 @@ def test_the_channel_reads_its_own_files_only_as_regular_files(tmp_path):
     (tmp_path / "link").symlink_to(tmp_path / "file")
     os.mkfifo(tmp_path / "pipe")
     assert [_read_own(tmp_path / n) for n in ("dir", "link", "pipe", "file")] == ["", "", "", "ok"]
+
+
+def test_a_login_that_cannot_sign_the_editors_in_is_refused_before_the_stream():
+    """Upstream turns a session's error into the starting harness: a login the backend cannot use, a model reference
+    a login cannot serve, or a variable that would pay instead of the login, would make every question's editors fall
+    back to H0. setup() refuses them first."""
+    from types import SimpleNamespace
+    from hermit.agent.evolver.methods.harness2_upstream.evolver import Harness2UpstreamEvolver
+
+    def setup(**params):
+        Harness2UpstreamEvolver().setup(SimpleNamespace(params=params, base=None, workspace=None))
+    with pytest.raises(ValueError, match="not the sign-in of backend claude"):
+        setup(backend="claude", login="chatgpt", model="gpt-5.6-luna")
+    with pytest.raises(ValueError, match="not the sign-in of backend codex"):
+        setup(backend="codex", login="claude", model="claude-haiku-5-5")
+    with pytest.raises(ValueError, match="model name"):
+        setup(backend="claude", login="claude", model="learner/accounts/fireworks/models/glm-5p3-flash")
+    with pytest.raises(ValueError, match="model name"):
+        setup(backend="claude", login="claude", model="")
+    with pytest.raises(ValueError, match="model name"):
+        setup(backend="claude", login="claude", model="claude-haiku-5-5", binding={"ref": "learner/m"})
+    with pytest.raises(ValueError, match="would pay instead: \\['ANTHROPIC_API_KEY'\\]"):
+        setup(backend="claude", login="claude", model="claude-haiku-5-5", env={"ANTHROPIC_API_KEY": "k", "X": "1"})
+    setup(backend="claude", login="claude", model="claude-haiku-5-5", env={"X": "1"})
+    setup(backend="codex", login="chatgpt", model="gpt-5.6-luna")
+    setup(backend="claude", model="learner/glm")                   # no login: a bound model, as before
+
+
+def test_codex_editors_take_the_plan_settings(tmp_path, monkeypatch):
+    """The plan's directory, its longest wait and usage credits reach the Codex editors' sessions as the Claude ones'."""
+    from harness2.core.spec import ChannelSpec
+    from hermit.agent.base.interface import Result
+    from hermit.agent.evolver.methods.harness2_upstream import channel
+    seen = {}
+
+    class Agent:
+        def __init__(self, settings):
+            seen.update(settings)
+
+        def run(self, mission, workspace):
+            return Result(reply="edited", exit_code=0, extra={"served": True, "cancelled": False})
+    monkeypatch.setattr(channel, "make", lambda backend, settings: Agent(settings))
+    proposer = channel.FrameworkProposer(spec=ChannelSpec(kind="claude_cli", model="gpt-x", effort="high"),
+                                         params={"backend": "codex", "model": "gpt-x", "login": "chatgpt",
+                                                 "plan_dir": str(tmp_path / "plan"), "plan_max_wait_s": 60,
+                                                 "plan_rerun": False, "usage_credits": True})
+    (tmp_path / "s").mkdir()
+    proposer._codex_cli(tmp_path / "s", "the mission", "be brief", wall=60)
+    assert (seen["plan_dir"], seen["plan_max_wait_s"], seen["plan_rerun"], seen["usage_credits"]) == \
+        (str(tmp_path / "plan"), 60, False, True)
+    seen.clear()
+    proposer.params = {**proposer.params, "plan_max_wait_s": None}         # null: no limit, as everywhere else
+    proposer._codex_cli(tmp_path / "s", "the mission", "be brief", wall=60)
+    assert "plan_max_wait_s" in seen and seen["plan_max_wait_s"] is None
+
+
+def test_claude_editors_take_plan_rerun(tmp_path, monkeypatch):
+    """plan_rerun reaches the Claude Code editors' sessions as the plan's other settings do."""
+    from harness2.core.spec import ChannelSpec
+    from hermit.agent.evolver.methods.harness2_upstream import channel
+    seen = {}
+
+    class Agent:
+        def __init__(self, settings):
+            seen.update(settings)
+
+        def run(self, mission, workspace):
+            raise KeyboardInterrupt                  # the settings are all this test needs
+    monkeypatch.setattr(channel, "make", lambda backend, settings: Agent(settings))
+    proposer = channel.FrameworkProposer(spec=ChannelSpec(kind="claude_cli", model="claude-x", effort="high"),
+                                         params={"backend": "claude", "model": "claude-x", "login": "claude",
+                                                 "plan_rerun": False})
+    (tmp_path / "s").mkdir()
+    with pytest.raises(KeyboardInterrupt):
+        proposer._claude_cli(tmp_path / "s", "the mission", "be brief", wall=60)
+    assert seen["plan_rerun"] is False and seen["login"] == "claude"
+
+
+def _claude_proposer(monkeypatch, result, **params):
+    from harness2.core.spec import ChannelSpec
+    from hermit.agent.evolver.methods.harness2_upstream import channel
+
+    class Agent:
+        def __init__(self, settings):
+            pass
+
+        def run(self, mission, workspace):
+            return result
+    monkeypatch.setattr(channel, "make", lambda backend, settings: Agent(settings))
+    return channel.FrameworkProposer(spec=ChannelSpec(kind="claude_cli", model="claude-x", effort="high"),
+                                     params={"backend": "claude", "model": "claude-x", **params})
+
+
+def test_a_claude_editor_that_was_not_served_gives_no_text(tmp_path, monkeypatch):
+    """A startup error's plain text is no reply: upstream would take plain text as one."""
+    from hermit.agent.base.interface import Result
+    (tmp_path / "s").mkdir()
+    log = tmp_path / "s" / ".session.out"
+    log.write_text("Fatal: invalid configuration\n")
+    result = Result(reply="", exit_code=1, log=log, extra={"served": False, "cancelled": False, "failed": True,
+                                                           "failure": "Fatal: invalid configuration"})
+    text, cost, problem = _claude_proposer(monkeypatch, result)._claude_cli(tmp_path / "s", "m", "", wall=60)
+    assert text == "" and "Fatal: invalid configuration" in problem
+
+
+def test_a_claude_editor_on_a_login_counts_the_base_agents_usage(tmp_path, monkeypatch):
+    """The stream's every result (a continued reply, sub-agents) as the Base Agent read it, not the last payload's."""
+    from hermit.agent.base.interface import Result
+    from hermit.agent.model.usage import Usage
+    (tmp_path / "s").mkdir()
+    log = tmp_path / "s" / ".session.out"
+    log.write_text(json.dumps({"type": "result", "subtype": "success", "result": "done",
+                               "usage": {"input_tokens": 5, "output_tokens": 2}}) + "\n")
+    usage = [Usage("claude-x", 600, 0, 300, 1), Usage("claude-x", 400, 0, 200, 1)]
+    result = Result(reply="done", exit_code=0, log=log, usage=usage, extra={"served": True, "cancelled": False})
+    proposer = _claude_proposer(monkeypatch, result, login="claude")
+    text, _, problem = proposer._claude_cli(tmp_path / "s", "m", "", wall=60)
+    assert text == "done" and not problem
+    assert sum(u.input_tokens for u in proposer.usages) == 1000 and sum(u.output_tokens for u in proposer.usages) == 500
+
+
+def test_a_claude_editor_that_failed_after_spending_keeps_its_usage(tmp_path, monkeypatch):
+    """No reply from a session that was not served, but what it spent before it failed counts."""
+    from hermit.agent.base.interface import Result
+    from hermit.agent.model.usage import Usage
+    (tmp_path / "s").mkdir()
+    log = tmp_path / "s" / ".session.out"
+    log.write_text("overloaded\n")
+    result = Result(reply="", exit_code=1, log=log, usage=[Usage("claude-x", 100, 0, 25, 2)],
+                    extra={"served": False, "cancelled": False, "failed": True, "failure": "overloaded"})
+    proposer = _claude_proposer(monkeypatch, result, login="claude")
+    text, _, problem = proposer._claude_cli(tmp_path / "s", "m", "", wall=60)
+    assert text == "" and "overloaded" in problem and sum(u.input_tokens for u in proposer.usages) == 100

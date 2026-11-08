@@ -47,6 +47,8 @@ FREE = ("params", "llm", "backends", "container", "resources",   # sections whos
         "model", *("codex", "claude", "react", "direct"))     # a layer's settings (docs/framework/agent-layers.md)
 BASES = {"codex": "codex", "claude": "claude-code", "claude-code": "claude-code", "react": "react", "direct": None}
 MODEL_KEYS = ("login", "effort", "price")           # Layer 1 settings a CLI takes beside its model
+# A login's plan settings: Layer 2's (agent.<base>, evolver.<base>), refused beside the model's name.
+PLAN_KEYS = {"plan_dir", "plan_max_wait_s", "plan_rerun", "usage_credits", "login_root"}
 
 
 def _put(params: dict, key: str, value, where: str) -> None:
@@ -61,6 +63,8 @@ def _chat_spec(model, where: str):
     if not isinstance(model, dict):
         return model
     spec = dict(model)
+    if spec.get("cli"):                  # a model only a CLI reaches: the Base Agent's settings as they are
+        return spec
     if "name" in spec or "login" in spec:
         raise ValueError(f"{where}.model: name and login are a CLI's; react and direct take ref, a <backend>/<model> "
                          "reference")
@@ -94,6 +98,10 @@ def _model(params: dict, model, where: str, cli: bool = True) -> None:
     for key in MODEL_KEYS:
         if key in model:
             _put(params, key, model.pop(key), where)
+    misplaced = sorted(set(model) & PLAN_KEYS)
+    if misplaced:                 # the CLI's, not the model's: beside the name they would reach the CLI as its model
+        raise ValueError(f"{where}.model: {', '.join(misplaced)} belong to how the CLI runs, not to the model: give "
+                         f"them in {where}.<base> (for example {where}.claude or {where}.codex)")
     _put(params, "model", {"model": name, **model} if model else name, where)
 
 

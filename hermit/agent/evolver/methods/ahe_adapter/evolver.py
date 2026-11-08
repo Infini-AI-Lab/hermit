@@ -1,7 +1,8 @@
 """AHEAdapterEvolver: Agentic Harness Engineering (arXiv:2604.25850; china-qijizhifeng/agentic-harness-engineering @
 8b2a55d, `evolve.py`) as an Evolver on the `ahe` template, confined to the adapter (the acting agent is fixed).
 
-On the agent layers (docs/framework/agent-layers.md) both of its agents are Layer 3 over the `codex` Base Agent: the
+On the agent layers (docs/framework/agent-layers.md) both of its agents are Layer 3 over the Evolver's CLI Base Agent
+(`codex` or `claude`, `backend`): the
 Evolve Agent is AgentEvolver's session (the prompt on stdin, the run's sandbox, `check_spec` as its only tool), and
 the Agent Debugger is one call of the same Base Agent per attempt of each task (debugger.py), with the Evolve Agent's
 settings (the login and its plan, web search, the isolation, the price) and its own model, clock and home.
@@ -30,10 +31,10 @@ One step (`step`):
      rollback left there, kept as `state/rollbacks/step_{N-1}/<path>`), `ADAPTER.md` synced to a restored
      `AGENTS.md`; undone when `check_spec` then fails -> `state/rollbacks/step_N.json`. The framework's own
      `rb-*` entries are never rolled back. `rollback: agent` records that nothing was touched.
-  4. the Agent Debugger (B.5): one Codex session per task over the trial's trajectory and verdict
+  4. the Agent Debugger (B.5): one CLI session per task over the trial's trajectory and verdict
      -> `state/analysis/step_N/{overview.md, detail/<task>.md, jobs.json, usage.json}`, one Usage tagged `debugger`.
   5. the evolution query (`build_evolution_query`, the Debugger overview bounded to OVERVIEW_MAX_BYTES) ->
-     `state/queries/step_N.md`; `START.md` + the query -> `scratch/evolve_prompt.md`, given to Codex on stdin; the
+     `state/queries/step_N.md`; `START.md` + the query -> `scratch/evolve_prompt.md`, given to the CLI on stdin; the
      Evolve session through `AgentEvolver.step` (the `tools: [check_spec]` gate, a fresh session, `evolve_timeout_s`
      as a wall clock: the Trainer's cancel for the call, which stops the session).
   6. post-step (B.8): `state/change_manifest.json` (removed before the session: only the session's own counts)
@@ -72,7 +73,7 @@ CONTEXT = "ADAPTER.md"
 MANIFEST = "change_manifest.json"
 REPORT_CHARS = 2000              # characters of the agent's report appended to evolution_history.md (evolve.py:1959)
 EVOLVE_PROMPT = "evolve_prompt.md"
-# The Debugger overview the query embeds is bounded (the full overview stays on disk); the prompt goes to Codex on
+# The Debugger overview the query embeds is bounded (the full overview stays on disk); the prompt goes to the CLI on
 # stdin, so its length has no argv limit.
 OVERVIEW_MAX_BYTES = 40_000
 STATE_DIRS = ("stats", "manifests", "evaluations", "rollbacks", "analysis", "queries")
@@ -232,15 +233,22 @@ def evolve_prompt(start_md: str, query: str, scratch: Path) -> Path:
 # ---------- the Evolver ----------
 
 class AHEAdapterEvolver(AgentEvolver):
-    supports_resume = False          # a fresh Codex session per step, as run_evolve_agent builds a new agent each loop
+    supports_resume = False          # a fresh CLI session per step, as run_evolve_agent builds a new agent each loop
 
     def setup(self, ctx: Context) -> None:
-        if ctx.params.get("backend", "codex") != "codex":
-            raise ValueError("the AHE Adapter's Evolve Agent and Agent Debugger are sessions of the codex Base Agent: "
-                             f"evolver.params.backend is codex, not {ctx.params.get('backend')!r}")
+        if ctx.params.get("backend", "codex") not in ("codex", "claude"):
+            raise ValueError("the AHE Adapter's Evolve Agent and Agent Debugger are sessions of a CLI Base Agent: "
+                             f"evolver.params.backend is codex or claude, not {ctx.params.get('backend')!r}")
         if not isinstance(ctx.params.get("web_search"), bool):
             raise ValueError("evolver.params.web_search must be set, true or false")
         from hermit.agent.evolver.methods.ahe_adapter import debugger as D
+        if ctx.params.get("backend") == "claude":       # an effort Claude Code takes, for both agents (else refused)
+            from hermit.agent.base.cli import Claude
+            efforts = (("effort", ctx.params.get("effort")), ("debugger.effort", D.settings(ctx.params).get("effort")))
+            for name, effort in efforts:
+                if effort and effort not in Claude.efforts:
+                    raise ValueError(f"evolver.params.{name} is one of {', '.join(Claude.efforts)} for Claude Code, "
+                                     f"not {effort!r}")
         own = D.settings(ctx.params).get("model")
         if own != ctx.params.get("model") and (ctx.params.get("binding") or ctx.params.get("price")):
             # The Debugger's sessions take the Evolve Agent's binding (its provider and key) and price: under another
@@ -253,7 +261,7 @@ class AHEAdapterEvolver(AgentEvolver):
             dump_json(state / "ahe.json", {"k": ctx.params.get("k"), "steps": {}})
 
     def settings(self, ctx: Context, backend: str) -> dict:
-        """AgentEvolver's settings for the codex Base Agent, with the prompt on stdin (the evolve prompt and a
+        """AgentEvolver's settings for the CLI Base Agent, with the prompt on stdin (the evolve prompt and a
         Debugger question can be long) and the program `bin` names; the Agent Debugger starts from these too."""
         params = ctx.params
         return {**super().settings(ctx, backend), "stdin": True, **({"bin": params["bin"]} if params.get("bin") else {})}
@@ -358,7 +366,7 @@ class AHEAdapterEvolver(AgentEvolver):
                 dump_json(rollbacks_file, {**rollbacks, "discarded": True, "note": warning})
             return warning
 
-        # 4. the Agent Debugger: one call of the codex Base Agent per attempt, on the Evolve Agent's settings.
+        # 4. the Agent Debugger: one call of the Evolver's CLI Base Agent per attempt, on the Evolve Agent's settings.
         overview = None
         analysis_dir = state / "analysis" / name
         from hermit.agent.evolver.methods.ahe_adapter import debugger as D
@@ -366,7 +374,8 @@ class AHEAdapterEvolver(AgentEvolver):
         debugger_info = {"enabled": bool(dbg.get("enabled", True)), "jobs": 0}
         if dbg.get("enabled", True):
             jobs = D.build_jobs(records, {**dbg, "task_field": task_field}, base=Path(records[0]["_dir"]))
-            results, dbg_usage = D.run_jobs(jobs, ctx, dbg, base=self.settings(ctx, "codex"), scratch=ws.scratch)
+            backend = p.get("backend", "codex")
+            results, dbg_usage = D.run_jobs(jobs, ctx, dbg, base=self.settings(ctx, backend), scratch=ws.scratch)
             usage.append(role_usage(dbg_usage, "debugger"))
             # The Evolve Agent reads the overview in its sandbox: the details named as it sees them there.
             label = str(analysis_dir / "detail")

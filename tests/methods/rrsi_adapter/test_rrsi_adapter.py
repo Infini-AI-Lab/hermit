@@ -137,6 +137,15 @@ def rows(scores: dict) -> dict:
     return {f"{t}#{i + 1}": s for t, ss in scores.items() for i, s in enumerate(ss)}
 
 
+class CodexSession(BaseAgent):
+    """A stand-in for the `codex` Base Agent: a role's instructions go where Codex's do (hermit.agent.base.cli.Codex)."""
+
+    def instructed(self, system, prompt):
+        from hermit.agent.base.cli import Codex
+        settings, prompt = Codex.system_settings(self, system, prompt)
+        return self.configured(**settings), prompt
+
+
 def instructions(settings: dict, prompt: str) -> str:
     """The developer instructions a role's session was given (hermit.agent.base.cli.codex_instructions)."""
     args = list(settings.get("args") or [])
@@ -158,7 +167,7 @@ def role_reply(system: str, prompt: str) -> str:
     raise AssertionError(f"unexpected role: {system[:80]}")
 
 
-class Role(BaseAgent):
+class Role(CodexSession):
     """The `codex` Base Agent as a role's session sees it: one scripted reply per call."""
 
     def __init__(self, settings, reply=role_reply, extra=None, usage=()):
@@ -628,7 +637,7 @@ def test_a_plan_refusal_in_a_proposer_session_is_not_a_gate_failure(tmp_path, mo
     dom = domain_files(tmp_path)
     ev = evolver(monkeypatch, Script({}))
 
-    class Refused(BaseAgent):
+    class Refused(CodexSession):
         def run(self, prompt, **kw):
             return Result(reply="", exit_code=-1 if not extra["started"] else 1, extra=dict(extra))
     monkeypatch.setattr(E, "make", lambda name, settings=None, model=None: Refused(settings))
@@ -813,6 +822,8 @@ def test_setup_checks_what_every_step_needs(tmp_path):
         ev.setup(context(ws, 1, str(tmp_path / "dom" / "missing.py") + ":ToyDomain", tmp_path))
     with pytest.raises(ValueError, match="roles.model"):
         ev.setup(context(ws, 1, dom, tmp_path, roles={"model": "anthropic/claude-x"}))
+    with pytest.raises(ValueError, match="roles.login: claude is not the sign-in of backend codex"):
+        ev.setup(context(ws, 1, dom, tmp_path, roles={"model": "m", "login": "claude"}))   # the proposer's CLI's
     with pytest.raises(ValueError, match="roles.binding.*base_url"):       # not a failure at every step
         ev.setup(context(ws, 1, dom, tmp_path, roles={"binding": {"backend": "openai", "model": "m"}}))
     with pytest.raises(ValueError, match="roles.binding.*128k"):           # nor one its Codex arguments refuse
@@ -843,7 +854,7 @@ def test_a_failed_session_that_mentions_a_429_is_not_retried_as_the_providers(tm
     ev = evolver(monkeypatch, Script({}))
     calls = []
 
-    class Failed(BaseAgent):                 # served (a turn finished), failed, with "429" in what it read
+    class Failed(CodexSession):                 # served (a turn finished), failed, with "429" in what it read
         def run(self, prompt, **kw):
             calls.append(1)
             return Result(reply="", exit_code=1, extra={**SERVED, "unavailable": True,
@@ -854,6 +865,29 @@ def test_a_failed_session_that_mentions_a_429_is_not_retried_as_the_providers(tm
     # one session, not retried as the provider's failure; a failed session without a proposal fails the step
     assert len(calls) == 1 and r.status == "failed" and "failed without a proposal" in r.summary
     assert not (ws.state / "rrsi" / "r0" / "A" / "prep.json").exists()
+
+
+@pytest.mark.parametrize("exit_code", [0, 1])
+def test_a_proposal_a_failed_session_left_is_not_taken(tmp_path, monkeypatch, exit_code):
+    """A proposer session that wrote its edits and done.json, then failed (Claude Code: exit 0 with no result, or an
+    API error after the write): its proposal is no finished edit, never critiqued or evaluated; the step fails."""
+    ws = workspace(tmp_path)
+    dom = domain_files(tmp_path)
+
+    class Failing(Script):
+        def run(self, prompt, session, log):
+            r = super().run(prompt, session, log)
+            return Result(reply="", session=r.session, exit_code=exit_code, log=log,
+                          extra={**r.extra, "failed": True, "failure": "no result"})
+    script = Failing({(0, "A"): [{"files": {"ADAPTER.md": "# Skill\n\nAnswer with the bare number.\n"},
+                                  "done": {"summary": "form", "edits": [edit()]}}],
+                      (0, "B"): [{"files": {"ADAPTER.md": "# Skill\n\nShorter.\n"},
+                                  "done": {"summary": "s", "edits": [edit()]}}]})
+    ev = evolver(monkeypatch, script)
+    material(ws, 1, rows({"q1": [0, 1], "q2": [1, 0], "q3": [1, 1], "q4": [0, 0]}))
+    r = ev.step(context(ws, 1, dom, tmp_path))
+    assert r.status == "failed" and "r0A: a proposer session failed (its proposal is not taken)" in r.summary
+    assert not (ws.state / "rrsi" / "r0" / "A" / "prep.json").exists() and r.extra.get("next") == "h0"
 
 
 def test_a_proposer_session_that_fails_without_a_proposal_fails_the_step_and_is_drafted_again(tmp_path,
@@ -1280,7 +1314,7 @@ def test_a_role_call_sees_neither_other_calls_nor_traces_it_is_not_given(tmp_pat
 def test_a_role_call_whose_session_times_out_twice_fails(tmp_path, monkeypatch):
     calls = []
 
-    class Hangs(BaseAgent):
+    class Hangs(CodexSession):
         def run(self, prompt, **kw):
             calls.append(1)
             return Result(reply="", exit_code=1, timed_out=True, extra=dict(SERVED))
@@ -1294,7 +1328,7 @@ def test_a_role_call_whose_session_times_out_twice_fails(tmp_path, monkeypatch):
 def test_a_role_call_the_provider_keeps_failing_ends_the_step_uncounted(tmp_path, monkeypatch):
     outcomes = []
 
-    class Down(BaseAgent):
+    class Down(CodexSession):
         def run(self, prompt, **kw):
             unavailable = outcomes.pop(0)
             return Result(reply="", exit_code=1, extra={**SERVED, "served": False, "unavailable": unavailable,
@@ -1377,7 +1411,7 @@ def test_a_redraft_starts_without_the_failed_drafts_files(tmp_path, monkeypatch)
 def test_a_roles_reply_counts_only_from_a_session_that_ended(tmp_path, monkeypatch):
     replies = []
 
-    class Ended(BaseAgent):                    # the first session timed out after an intermediate message
+    class Ended(CodexSession):                    # the first session timed out after an intermediate message
         def run(self, prompt, **kw):
             replies.append(1)
             first = len(replies) == 1
@@ -1412,7 +1446,7 @@ def test_a_backend_failure_in_a_proposer_session_is_retried_not_recorded(tmp_pat
     ev = evolver(monkeypatch, script)
     calls = {"n": 0}
 
-    class Flaky(BaseAgent):
+    class Flaky(CodexSession):
         def run(self, prompt, *, session=None, **kw):
             calls["n"] += 1
             if calls["n"] == 1:                 # the first session dies on a 429 before doing anything

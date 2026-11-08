@@ -17,6 +17,7 @@ These docs describe the **0.2.0** code in this checkout.
 | Use an existing adapter | [Deploy an adapter](tutorials/deploy-an-adapter.md) | A host workspace or a native plugin |
 | Investigate a run | [Run records](guides/runs.md), [Troubleshooting](guides/troubleshooting.md) | Evidence for what ran, changed, failed, or resumed |
 | Point a run at another model | [Model backends](guides/model-backends.md) | One place binds a model to Fireworks, OpenAI, DeepSeek, or a local vLLM or SGLang server |
+| Act and learn on your Claude subscription | [Claude subscription](guides/claude-subscription.md) | Claude Code as the acting agent, the learner, or the model of code that calls a chat API, with no API key |
 
 ## The training loop
 
@@ -52,6 +53,7 @@ methods/index
 guides/training
 guides/evaluation
 guides/model-backends
+guides/claude-subscription
 guides/runs
 guides/sandbox
 guides/troubleshooting

@@ -124,6 +124,16 @@ def test_run_agent_says_how_a_session_ended_when_the_pipeline_reports_it(tmp_pat
     assert "/toy-run/agent_logs/" in probe["log"] and "question" in probe["log_text"]
 
 
+def test_run_agent_says_why_a_run_failed(tmp_path):
+    """An error record's reason reaches the Evolver (a method that tells a failed run from a wrong answer reads it)."""
+    path = make_task(tmp_path, evolver={"name": "toy", "params": {"mode": "probe"}})
+    (tmp_path / "pipeline.py").write_text(PIPELINE.replace("    text = ", "    raise RuntimeError('the session failed')\n"
+                                                                          "    text = "))
+    Trainer(load(path, "trainer.epochs=1"), log=lambda *_: None).train()
+    probe = json.loads((tmp_path / "runs/toy-run/step_0001/output/probe.json").read_text())
+    assert probe["status"] == "error" and probe["error"] == "RuntimeError: the session failed"
+
+
 def test_needs_are_enforced(tmp_path):
     path = make_task(tmp_path)
     (tmp_path / "toy" / "evolver.yaml").write_text("class: evolver.py:Toy\nneeds: [environment]\n")
@@ -479,8 +489,10 @@ def test_the_check_snapshot_leaves_out_git_history(tmp_path, monkeypatch):
     assert not any("bytes" in i.problem for i in result.issues)
 
 
-def test_the_learners_sandbox_reaches_every_ChatGPT_login_it_runs_on(tmp_path):
+def test_the_learners_sandbox_reaches_every_ChatGPT_login_it_runs_on(tmp_path, shared_login):
     """RRSI's role sessions on a ChatGPT login (the proposer on a model binding) reach the login's hosts too."""
+    (shared_login / "login").mkdir()                    # the roles' login, which the start checks for
+    (shared_login / "login" / "auth.json").write_text('{"last_refresh": "2026-01-01T00:00:00Z"}')
     trainer = Trainer(load(make_task(tmp_path), "evolver.params.roles={login: chatgpt}"), log=lambda *_: None)
     trainer._prepare()
     try:
@@ -677,11 +689,13 @@ def test_a_refused_run_closes_what_the_trainer_started(tmp_path, monkeypatch):
     assert closed
 
 
-def test_what_the_learner_is_shown_of_the_task_and_the_llms_home_are_scrubbed(tmp_path, monkeypatch):
+def test_what_the_learner_is_shown_of_the_task_and_the_llms_home_are_scrubbed(tmp_path, monkeypatch, shared_login):
     """evolver_access.environment (an evidence store the agents wrote) is scrubbed before the learner's calls;
     environment.write and a configured llm.cli home when the run finishes."""
     key = "sk-evidence-key-0123456789abcdef"
     monkeypatch.setenv("EVIDENCE_API_KEY", key)
+    (shared_login / "login").mkdir()                    # the llm's login, which train checks for before it starts
+    (shared_login / "login" / "auth.json").write_text('{"last_refresh": "2026-01-01T00:00:00Z"}')
     path = make_task(tmp_path)
     for name in ("evidence", "task-state", "llm-home"):
         (tmp_path / name).mkdir()

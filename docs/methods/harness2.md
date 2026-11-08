@@ -39,7 +39,8 @@ task through its benchmark seam. Each step hands the step's task to `harness2.co
    lesson enters the domain's library, with its full harness and an `EXPERIENCE.md`.
 
 The adapter is never written, so every task starts from H0; the library lives in the Training State. The editor
-sessions are upstream's `claude_cli` channel (Claude Code on the bound model, which must serve the Messages API),
+sessions are upstream's `claude_cli` channel (Claude Code on the bound model, which must serve the Messages API, or
+on your subscription with `evolver.params.login: claude` and a model name),
 each in a sandbox that shows only its evidence and reaches only the model. A task's score is the judge's score of
 its deliverable, in `step_NNNN/step_result.json` (`extra.harness2`), never seen by a session. At `k = 1` a task
 costs four executions and four sessions (two editors, the composer, the reflector).
@@ -69,6 +70,24 @@ recipe's Flash row](../recipes/officeqa.md#the-flash-row)). With Codex and GPT-5
 a ChatGPT login ([the Flash row with GPT-5.6-Luna](../recipes/officeqa.md#the-flash-row-with-gpt-56-luna)) the
 deliverable scores 0.611 against 0.390, +22.1 [+15.7, +29.1], almost all of it the answer's form, which the editors
 are told.
+
+## Claude Code as the acting agent
+
+With `agent.base: claude` the executions run the same `harness2-codex` tree on Claude Code; upstream has no Claude Code
+substrate, and the tree, H0 and every stage prompt stay as they are. Claude Code's deployment connects the tree's parts
+to its own places: `ADAPTER.md` (the tree's `AGENTS.md`) becomes the managed block of the workspace's `CLAUDE.md`, the
+skills `.claude/skills/<name>/`, the sub-agents `.claude/agents/<name>.md` and the hooks the `hooks` of
+`.claude/settings.json` (`.codex/hooks.json` already has Claude Code's hook schema), the rest copied under
+`hermit/harness2-codex/` as for Codex. The editors read a Claude Code execution's `stream-json` events in upstream's
+grammar (`render.py`: every tool's call and result, its errors, what a hook printed (the session runs with
+`--include-hook-events`), a sub-agent's turns and its hand-back, upstream's clip marker), with the login's token, which
+a command can read from its parent process, replaced by its name. An execution whose session failed scores 0, as in the
+Trainer's records, and the step's records (`harness2.json`'s runs, `scores.jsonl`) give its error. What the editors are
+told of the surface is still upstream's Codex text; the task's slots name the agent (OfficeQA: `slots_claude.yaml`). On
+OfficeQA each execution runs in a container of its own (`environment.image`, as in the Codex columns) and the editors
+are Claude Code sessions in the evolver sandbox, all on a Claude subscription; the two questions of `haiku-h2-s0` ran
+before the containers ([the Flash row with Claude Haiku
+5.5](../recipes/officeqa.md#the-flash-row-with-claude-haiku-55)).
 
 ## Continuing a stream
 

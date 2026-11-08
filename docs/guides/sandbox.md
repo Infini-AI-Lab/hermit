@@ -28,8 +28,8 @@ them.
 With `judge.mode: host` (the default) the judge runs in the host process on the downloaded output. Three cases run the
 acting pipeline in the host process instead of a task sandbox, and each is recorded: `sandbox.enabled: false`, a
 Harbor task set (Harbor's container is its environment), and `environment.runner: host` (a task whose own code
-isolates what it runs, such as AgentDyn's hooks). With `environment.image`, a Codex acting agent runs in a Docker
-container of its own, started by a worker on the host.
+isolates what it runs, such as AgentDyn's hooks). With `environment.image`, a Codex or Claude Code acting agent runs
+in a Docker container of its own, started by a worker on the host.
 
 ## How one sandbox is built
 
@@ -74,7 +74,8 @@ The pieces, in the order they are applied:
    covers it too.
 7. **Variables.** Only the declared ones (names or patterns such as `MWM_*`), the model key variables of the models
    this sandbox calls, and a fixed set the framework needs: `PATH`, `HOME`, `LANG`, `LC_ALL`, `TERM`, `PYTHONPATH`,
-   `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `HA_CONTEXT`, `HA_TOOL_URL`, `HA_SANDBOX_HIDE`.
+   `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `HA_CONTEXT`, `HA_TOOL_URL`, `HA_SANDBOX_HIDE`. A Claude subscription's token
+   (`CLAUDE_CODE_OAUTH_TOKEN`) is none of these: it passes by name with the one call that runs a session on it.
 8. **Limits.** `memory_mb`, `file_mb` and `cpu_s` become `RLIMIT_AS`, `RLIMIT_FSIZE` and `RLIMIT_CPU`, set on the
    command by the relay.
 
@@ -106,7 +107,9 @@ the strict spec and render sandboxes keep none.
 
 A sandbox gets the keys of the models it calls, the way Harbor gives its agents theirs: the key variable passes in, the
 provider's host is allowed, and a model server or meter on the loopback is forwarded. A Codex ChatGPT login is copied
-in and its hosts are allowed.
+in and its hosts are allowed. A Claude subscription (`login: claude`) is not copied: its token passes by name with the
+call that runs the session, so neither the sandbox's other commands nor its judge get it, and `api.anthropic.com` is
+allowed.
 
 What the run keeps is scrubbed of every key value (`hermit/redact.py`): each value of a key-like variable of the
 Trainer (`..._API_KEY`, `..._KEY`, `..._TOKEN`, `..._SECRET`, at least 16 characters) becomes `<VARIABLE>`, in file
@@ -150,9 +153,9 @@ The run's `sandbox.hide` (from `HA_SANDBOX_HIDE`) applies here too. The Lean swa
 ## Warnings
 
 :::{warning}
-**Agents and learners can read their model keys.** A sandbox holds the keys of the models it calls, as Harbor's
-agents do. The run's own outputs are scrubbed, but what a sandbox sends to its allowed hosts is not inspected, and
-neither is what a process writes outside its declared paths.
+**Agents and learners can read their model keys.** A sandbox holds the keys of the models it calls, as Harbor's agents
+do, and a Claude Code session on a Claude subscription its token. The run's own outputs are scrubbed, but what a sandbox
+sends to its allowed hosts is not inspected, and neither is what a process writes outside its declared paths.
 :::
 
 :::{warning}
@@ -181,9 +184,9 @@ provider, outside any sandbox; only the CLI's `web_search` setting turns it off.
 :::
 
 :::{warning}
-**Containers cover less of this page.** With `environment.image` only a Codex acting agent is supported, and the
-container holds its image's own packages: `sandbox.hide` does not reach them. The `shared` and `separate` judge modes
-need the bubblewrap task sandbox. With an image, a Harbor task set or `runner: host`, the judge runs on the host.
+**Containers cover less of this page.** With `environment.image` only a Codex or Claude Code acting agent is supported,
+and the container holds its image's own packages: `sandbox.hide` does not reach them. The `shared` and `separate` judge
+modes need the bubblewrap task sandbox. With an image, a Harbor task set or `runner: host`, the judge runs on the host.
 :::
 
 :::{warning}

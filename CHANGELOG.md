@@ -50,12 +50,96 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   under Harbor's own venv. A Harbor task set's pipeline runs on the host, the task's container being its sandbox.
 - A test workflow (`.github/workflows/tests.yml`): a pull request runs the test groups it touches
   (`pytest --changed`); main, a daily schedule and a manual run run the whole suite.
+- Claude Code on the user's subscription, acting and learning, with no API key
+  ([guide](docs/guides/claude-subscription.md), `examples/claude_subscription/`). `login: claude` signs a session in
+  with the token of `claude setup-token` in `CLAUDE_CODE_OAUTH_TOKEN`; nothing else may pay (an inherited or a
+  workspace's API key, key helper or base URL is dropped and blanked) and no credential is copied or kept: a sandbox
+  gets the token by name for the call that runs a session on the login (not for its other commands, nor for its
+  judge) and `api.anthropic.com` on its allowlist. Right after each session the token's value is replaced by its name
+  in what the session left (its stream, its stderr log, a kept home's transcripts), since a command of the session can
+  read it from a parent process. Its sessions share a plan under `~/.cache/hermit/claude-login/plan/` as Codex's do:
+  `PAUSE`, `MAX_USED`, `SLOTS`, each window's report, a hold and a rerun on a refusal, and a hold after a session that
+  drew usage credits unless `usage_credits: true` (which also lets a session past a credits hold another run wrote). A
+  Claude Code session outside a container (in the task sandbox, or with the pipeline on the host) has an empty
+  directory of its own in place of the plan's (a nested bubblewrap): its commands can neither change nor lock the plan.
+- Claude Code in a Docker container of its own, as Codex (`environment.image` for an acting agent, `isolation:
+  container` for `llm: {cli: claude}`): `docker/claude/` builds the image from the machine's own Claude Code, and the
+  container gets the network, the egress proxy, the mounts and the limits Codex's gets. Claude Code's own sandbox runs
+  inside, as Codex's workspace-write sandbox does: the session's commands have a process namespace of their own, no
+  network and writes to the workspace and `/tmp` only, set in the last `--settings`, which no project settings file can
+  widen, and the session's own file tools may not edit its Claude Code settings (a hook written there would run
+  outside the sandbox). The login's token goes to Docker by name and to Claude Code on a file descriptor, out of every
+  environment in the container; the image's CLI is execute-only, so the kernel keeps its memory and descriptors from a
+  hook or server beside it; the plan stays with the process outside. Before the first session the agent checks the
+  image's Claude Code (2.1.318 or later) and that its sandbox starts there, and `hermit check` does not ask for the
+  machine's own `claude`. An adapter's tools reach a Claude Code session in a container from the session's tool server,
+  as they reach Codex's.
+- `llm: {cli: claude, ...}` and, for acting pipelines, `agent.model: {cli: ...}`: a CLI as the model of code that calls
+  a chat API. Each request is one session in a bubblewrap sandbox of its own (`isolation: sandbox`, the default, as for
+  `cli: codex`) or in a container (`isolation: container`); a Claude Code session has no tools and can only reply.
+  `hermit check` and `train` check a run's logins. On a machine without bubblewrap (and `sandbox.enforce: required`)
+  such a sandbox is refused before anything starts (Codex's too, which failed at its first call).
+- Harness² with Claude Code as the acting agent: Claude Code runs the same `harness2-codex` tree in its own places
+  (`CLAUDE.md`, `.claude/skills/`, `.claude/agents/`, `.claude/settings.json`), and the editors read its event stream in
+  upstream's grammar (`harness2_upstream/render.py`: every tool's call and result, what a hook printed, a background
+  sub-agent's notices; the login's token replaced by its name there, in a deliverable and in the kept execution logs).
+  Working Claude Code sessions print their hook events (`--include-hook-events`). An execution whose session failed
+  still scores 0, and `harness2.json` and `scores.jsonl` say why. `setup()` refuses a variable in
+  `evolver.params.env` that would pay instead of `login: claude`, and Codex editors take `plan_dir`,
+  `plan_max_wait_s` and `usage_credits`.
+- OfficeQA's third column: Claude Haiku 5.5 with no skill, acting in Claude Code on a Claude subscription, one
+  container per session as in the luna column (`skillopt/run_claude_haiku.yaml`: 0.599 before the one sandbox design,
+  0.616 after it).
+  `harness2_stream/run_claude_haiku.yaml` sets up the Harness² stream to act and learn the same way
+  (`slots_claude.yaml`; `launch.sh` refuses a missing token, pins one Claude Code for the editors, and for an executor
+  outside a container also for it, and a resumed run keeps its pin); it ran on the stream's first two questions,
+  without containers, not in full.
 - The OPRO method (Yang et al., ICLR 2024, arXiv:2309.03409): the `opro` Evolver on the `prompt-only` template, one
   OPRO step per training step, with the authors' meta-prompt verbatim; the optimizer is the run's `llm`
   (`docs/methods/opro.md`). OPRO on OfficeQA: `examples/officeqa/opro/`, in the GPT-5.6-Luna setting.
 
 ### Changed
 
+- A chat request through a CLI session follows a stated contract, on Codex as on Claude Code: what a session cannot do
+  (tools, sampling, non-text parts, another model) is a 400, not dropped; `max_tokens` is accepted and said not to apply
+  (`unapplied` in the reply); `llm.unapplied` accepts a named field going unapplied.
+- RRSI's analyst, digesters and critic, AHE's Evolve Agent and Agent Debugger and MWM's learner run on the Evolver's
+  CLI, `codex` or `claude`; Harness²'s Claude channel takes a login.
+- Claude Code's prompt goes on stdin, so a prompt starting with `-` is no option, and a line break keeps one starting
+  with `/` from being run as a CLI command.
+- Outside a container (in the task sandbox, or with the pipeline on the host), a task's data mounted inside a Claude
+  Code workspace is bound there by a nested bubblewrap (a real read-only directory, as in a container), not linked: a
+  search that walks the tree (`grep -r`, `find`, Claude Code's Glob and Grep) does not follow a link. A rollout's
+  record says which (`pipeline_extra.mounts`), and a machine where bubblewrap cannot do it links them with a warning. A
+  working session's reply is its whole final message, not only its last text block: a message the CLI continued past
+  its output limit is joined where it was cut, and text before the harness's own message (a Stop hook that sent the
+  model back to work) or before a result that closed an earlier turn (a background sub-agent's hand-back) is left out.
+- Every Claude Code session Hermit starts is denied the tools whose work outlives it or reaches past it
+  (`RemoteTrigger`, `CronCreate`, `CronDelete`, `CronList`, `ScheduleWakeup`; `ListAgents` and `SendMessage`, the user's
+  other Claude sessions), with web search's in one `--disallowedTools` list.
+- A plan's hold (a refusal, or a session on usage credits) lasts to its own end: a later report from a session that
+  started before it no longer lifts it, and a later refusal that names an earlier reset no longer shortens it (Codex's
+  plan as well).
+- On a login, a chat client waits out the plan with its session (its `timeout` is extended by `plan_max_wait_s`)
+  instead of hanging up, retrying and failing the call; a session past its clock answers 504 with
+  `x-should-retry: false`, which the client honours; a streamed error keeps its `hermit_login_failed` code (Codex's
+  route as well).
+- The Claude Code Base Agent itself refuses, for every session, an effort outside the CLI's levels (it would warn and go
+  on at its default), `login: claude` without a model name (the CLI's default differs by sign-in), and `output_format:
+  json` on a login or a session that only replies (the payer, the plan's report and the reply are read from the event
+  stream). `instructed()` is part of the Base Agent interface (a caller's instructions in the agent's own place).
+  `hermit check` and `train` warn of an acting agent on `login: claude` that runs on the host (its sessions unconfined)
+  or in a task sandbox with `environment.network: public`, and of Claude Code with no login where it signs in with a
+  copy of the user's own login (a learner; an acting agent on the host or in a container).
+- What every session would refuse is refused before the first one, wherever the agent runs (the task sandbox, a
+  container, the host): when the config loads, a CLI acting agent's login that is not its CLI's own (Codex's or
+  Claude Code's, either way), a login with no model name or with a reference, an effort Claude Code does not take, a
+  login's plan setting given beside the model's name (it belongs in `agent.<base>` or `evolver.<base>`), and an
+  `environment.env` or `sandbox.evolver.env` pattern that would take the Claude login's token into a whole sandbox;
+  when `check` or `train` starts, an agent Evolver's login that is not its CLI's, or `login: claude` with no model.
+  A `plan_dir` given as `~/...` or a relative path is one directory for every worker (resolved where it is given).
+  A Claude Code session in the task sandbox whose plan a nested bubblewrap cannot cover is refused while
+  `sandbox.enforce` is `required`.
 - The tests are in groups: `tests/core/` for the framework and `tests/methods/<name>/` for each method
   (`tests/README.md`). `python -m pytest --changed` runs the groups the branch touches since `origin/main`
   (`tests/selection.py`: the core group for every change but documentation, a method's own files its group, a
@@ -76,6 +160,37 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   PATH: its pin kept the bare name `claude` while the continuation's check compared the name's absolute path in the
   current directory, so `claude_bin` always differed. Both now keep the bare name. With `backend: codex`, a step's
   report also re-pinned the missing CLI as `claude`; it now keeps `codex`.
+- A failed Claude Code session was read as served: its error result's text came back from the chat endpoint as a 200
+  reply, and the acting agent's judge scored it. Now it is no reply: the endpoint answers an error status, an acting
+  task is an error record (the workspace agent's with its tokens and log kept; through the acting endpoint the record
+  has neither), and an agent Evolver's session with no result commits nothing.
+- Claude Code's usage left out prompt-cache writes and later results of a session with background sub-agents; a resumed
+  session's cost counted its earlier invocations.
+- A Trainer's stop now ends an Evolver's chat call in flight (it ran to the session's clock), and what a failed chat
+  call spent is charged.
+- A lost sign-in with a long failure text reached a method as an ordinary HTTP error: the endpoint named it after the
+  message, which the client's error text cuts at 500 characters. The code now comes first, and the client reads the
+  body.
+- The login plan's files were read and written through whatever stood at their names: a link a session left in the
+  shared directory turned a host process's write into one on the link's target, a fifo blocked a reader, a report of
+  the wrong shape stopped every session. They are now read and written only as regular files of the plan's own (what a
+  session left is replaced, never followed), their values are checked (non-finite numbers ignored, resets clamped to 31
+  days, `SLOTS` to 0 to 1,024), `plan.json` is replaced whole, and a writer gives the plan's lock up after two minutes.
+- An agent Evolver dropped an explicit `plan_max_wait_s: null` (no limit) and waited the default 12 h.
+- Harness²'s editor sessions on a login asked for the one JSON result object, so neither the payer check nor the plan's
+  report saw them; they now print the whole event stream. A session the plan never started crashed the channel.
+- EvoSafeHarness's per-role Claude Code sessions turned a lost sign-in into a failed step, and the run went on; it now
+  ends the run. They also took Claude Code's refusal for an ordinary failure and retried it. The RRSI Adapter's roles
+  and the AHE Agent Debugger retried a session no retry can change (a refusal, a prompt too long), and the Debugger
+  took `answer.md` from a session that failed. After a lost sign-in the Debugger still started every queued job's
+  session, and it turned a setting Claude Code refuses into every job's fallback answer: both now end the stage, and
+  `setup()` checks both agents' efforts. The RRSI Adapter took the proposal a failed proposer session left (Codex's as
+  well); it is not taken now, and the step fails, as upstream's driver stops on a failed call.
+- The `run_agent` tool says why a run failed (`error`), which Harness²'s records quote; before, they said only that the
+  execution failed. Harness²'s `plan_max_wait_s: null` waited 12 h, where it means no limit everywhere else; the
+  default is now written out (43,200 s).
+- Tests copied the user's own sign-in (`~/.codex/auth.json`, `~/.claude/.credentials.json`) into a session's home for
+  the length of a call. No test does now: a test that copies one names its own.
 - The AHE Adapter Evolver took a `change_manifest.json` an earlier step left for the current step's: a manifest
   naming the next iteration was refused at its own step, then archived as the next step's when that step's session
   wrote none. The file (or a directory a session made in its place) is now removed before each Evolve session.

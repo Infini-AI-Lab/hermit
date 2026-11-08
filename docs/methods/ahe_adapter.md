@@ -28,13 +28,14 @@ trainer: {epochs: 10, allow_early_stop: true}        # the paper's ten iteration
 sandbox: {enabled: true, evolver: {allowed_hosts: [chatgpt.com, auth.openai.com]}}   # the learners' ChatGPT login
 ```
 
-Both learners are sessions of the `codex` Base Agent: the Agent Debugger one session per task and attempt, the Evolve
-Agent one session per step with `check_spec` as its only tool. A task's k rollouts are k rows of the training split
-that share `task_field` (a row without it is grouped by its id without the `#n`); the example's `make_rows.py` writes
-them. The learners are Codex sessions whatever the acting agent is. The acting agent must deploy the adapter as
-`hermit deploy` does for its host, so that the host's hooks run the middleware (Codex: `.codex/hooks.json`; Claude
-Code: `hooks` in `.claude/settings.json`). Pi runs no hooks: its deployment lists the hook commands for the agent to run
-by hand, and run so, without an event's payload, only `session_start` has something to do (it hands the memory over).
+Both learners are sessions of the `codex` or `claude` Base Agent (`evolver.base`): the Agent Debugger one session per
+task and attempt, the Evolve Agent one session per step with `check_spec` as its only tool. A task's k rollouts are k
+rows of the training split that share `task_field` (a row without it is grouped by its id without the `#n`); the
+example's `make_rows.py` writes them. The learners' CLI does not depend on the acting agent's. The acting agent must
+deploy the adapter as `hermit deploy` does for its host, so that the host's hooks run the middleware (Codex:
+`.codex/hooks.json`; Claude Code: `hooks` in `.claude/settings.json`). Pi runs no hooks: its deployment lists the hook
+commands for the agent to run by hand, and run so, without an event's payload, only `session_start` has something to do
+(it hands the memory over).
 
 ## The template
 
@@ -101,11 +102,11 @@ Step N is AHE iteration N: step 1 scores the seed, and step N's edits are scored
 2. Stop when pass@1 reaches `target_pass_rate` (with `trainer.allow_early_stop`).
 3. `rollback: auto`: the files of every change judged HARMFUL are restored from before the change (the paper's
    Algorithm 1), undone again if `check_spec` then fails; `rollback: agent` only reports, as the released code.
-4. The Agent Debugger: one Codex session per task over its rollouts' trajectories, hook audits and the judge's verdicts,
-   with upstream's query; a failed attempt is retried, and after `retries` upstream's fallback text stands in. The
-   reports and an overview go to `state/analysis/step_N/`.
-5. The Evolve Agent: one Codex session reads the overview, the verdicts and the history (`START.md` and the evolution
-   query on stdin), edits the adapter, and writes `state/change_manifest.json` for iteration N.
+4. The Agent Debugger: one session of the Evolver's CLI (Codex or Claude Code) per task over its rollouts' trajectories,
+   hook audits and the judge's verdicts, with upstream's query; a failed attempt is retried, and after `retries`
+   upstream's fallback text stands in. The reports and an overview go to `state/analysis/step_N/`.
+5. The Evolve Agent: one session of the same CLI reads the overview, the verdicts and the history (`START.md` and the
+   evolution query on stdin), edits the adapter, and writes `state/change_manifest.json` for iteration N.
 6. The manifest is validated and archived, and the iteration's scores and history are updated.
 
 ```mermaid
@@ -114,8 +115,8 @@ flowchart TD
     S["1. classify, diff against N-1, score manifest N-1,<br/>best-ever (strict >, the commit the rollouts ran)"]
     E{"pass@1 >= target_pass_rate?"}
     B["3. roll back the HARMFUL changes of manifest N-1"]
-    D["4. Agent Debugger: one codex session per task<br/>over its trajectories, hook audits and verdicts"]
-    V["5. Evolve Agent: one codex session edits the adapter<br/>(check_spec), writes manifest N"]
+    D["4. Agent Debugger: one CLI session per task<br/>over its trajectories, hook audits and verdicts"]
+    V["5. Evolve Agent: one CLI session edits the adapter<br/>(check_spec), writes manifest N"]
     P["6. archive the manifest, scores, history"]
     F["finalize: final = best_ever (its commit, exported object by object) or last"]
     R --> S --> E

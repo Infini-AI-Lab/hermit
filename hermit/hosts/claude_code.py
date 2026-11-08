@@ -21,9 +21,12 @@ HOOK_TYPES = {"command", "prompt"}
 
 
 def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path | None = None,
-            context: str | None = None) -> dict:
+            context: str | None = None, serve_tools: bool = True) -> dict:
     """`context`: the adapter's context for one task, which the harness computed (training and evaluation), in place
-    of the one rendered here; an adapter whose context is per task deploys only so."""
+    of the one rendered here; an adapter whose context is per task deploys only so. `serve_tools`: false when the caller
+    serves the adapter's tools to the session itself (a container session, whose image has neither this machine's
+    interpreter nor the adapter's path): the workspace then names no server for them, which would otherwise take the
+    caller's server's name and fail."""
     adapter, output = adapter.resolve(), output.resolve()
     refused = not_portable(load_manifest(adapter), "A Claude Code workspace")   # before anything is written
     if refused and context is None:
@@ -55,7 +58,7 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
         existing = PROJECT_CONTEXT + "\n\n" + existing
     context_text = append_context(existing, context, source=source_label(manifest), version=manifest["version"],
                                   adapter_id=manifest["id"])
-    has_tools = bool(agent_tools(manifest))     # the context tool is the harness's, not served
+    has_tools = bool(agent_tools(manifest)) and serve_tools     # the context tool is the harness's, not served
     if has_tools:
         subprocess.run([python, "-c", "import mcp.server"], check=True, capture_output=True)
     agents_dir = output / ".claude/agents"
