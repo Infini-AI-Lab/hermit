@@ -95,6 +95,8 @@ python examples/officeqa/ahe_adapter/make_rows.py                               
 python examples/officeqa/ahe_adapter/make_seed.py                                                        # its H_0
 hermit train --config examples/officeqa/ahe_adapter/run_codex_luna.yaml                                  # 50 training questions x 2, ten iterations
 hermit eval  --config examples/officeqa/ahe_adapter/run_codex_luna.yaml --adapter final                  # the best-ever iteration
+hermit train --config examples/officeqa/opro/run_codex_luna.yaml                                         # OPRO: 3 steps of 4 instructions
+hermit eval  --config examples/officeqa/opro/run_codex_luna.yaml     --adapter final                     # the best validation of the top 3
 ```
 
 Sessions on the login share its plan; the files under `~/.cache/hermit/codex-login/plan/` steer every running session:
@@ -145,6 +147,7 @@ Haiku 5.5 (effort medium) with Claude Code 2.1.318, one container per session. E
 <tr><td><b>Harness²</b></td><td>0.651</td><td>0.611</td><td>not run</td></tr>
 <tr><td><b>ACE</b></td><td>not run</td><td>0.640</td><td>not run</td></tr>
 <tr><td><b>AHE Adapter</b></td><td>not run</td><td>0.616</td><td>not run</td></tr>
+<tr><td><b>OPRO</b></td><td>not run</td><td>0.436</td><td>not run</td></tr>
 </tbody>
 </table>
 
@@ -167,6 +170,9 @@ Results use two settings:
   streams, through the framework's `codex` Base Agent with the adapter deployed (the streams' runs used this
   example's earlier Codex agent, `utils/agent/codex_agent.py`)
   ([`rrsi_adapter/run_luna.yaml`](rrsi_adapter/run_luna.yaml), [result](rrsi_adapter/#result)).
+  [OPRO](opro/) searches one `ADAPTER.md` from the initial skill on the 50, takes the best validation mean of its
+  top 3 and evaluates `final` once on the 172; one training, against the initial skill evaluated in the same setting
+  (0.355) ([result](opro/#result)).
 - **Test streaming:** [Continual Harness](../../docs/methods/continual_harness.md) and
   [Harness²](../../docs/methods/harness2.md) each process the 172 test questions once in the same order,
   updating the adapter as they go, without a separate training split or access to judge verdicts. These
@@ -264,4 +270,7 @@ rrsi_adapter/       RRSI Adapter on the GPT-5.6-Luna column: run_luna.yaml and s
                     weights), domain.py and texts/ (the benchmark's rules and the roles' texts, adapted from
                     upstream's), trials.py and make_rows.py (two trials per training question as rows <id>#k),
                     make_seed.py
+opro/               OPRO on the prompt-only template: run_codex_luna.yaml and smoke_codex_luna.yaml in the
+                    GPT-5.6-Luna setting, starting from utils/seed_adapter/; adapter/ is the measured run's final
+                    instruction, with its .hermit/CARD.md
 ```

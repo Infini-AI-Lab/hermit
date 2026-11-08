@@ -94,6 +94,9 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   (`slots_claude.yaml`; `launch.sh` refuses a missing token, pins one Claude Code for the editors, and for an executor
   outside a container also for it, and a resumed run keeps its pin); it ran on the stream's first two questions,
   without containers, not in full.
+- The OPRO method (Yang et al., ICLR 2024, arXiv:2309.03409): the `opro` Evolver on the `prompt-only` template, one
+  OPRO step per training step, with the authors' meta-prompt verbatim; the optimizer is the run's `llm`
+  (`docs/methods/opro.md`). OPRO on OfficeQA: `examples/officeqa/opro/`, in the GPT-5.6-Luna setting.
 
 ### Changed
 
@@ -149,6 +152,10 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Fixed
 
+- A workspace agent's run failed after its session had answered when tidying the kept workspace could not read or
+  remove an empty mount point yet (`PermissionError` on `docs/root_1`: Docker Desktop can hold a bind mount's target
+  a moment after its container exits); the answer was scored as a pipeline failure. Tidying now leaves such a
+  mount point in place (`hermit/agent/acting/workspace.py`, `_clean`).
 - The harness2 Evolver refused to continue a stream (`library_from`) on a machine without the session CLI on its
   PATH: its pin kept the bare name `claude` while the continuation's check compared the name's absolute path in the
   current directory, so `claude_bin` always differed. Both now keep the bare name. With `backend: codex`, a step's
