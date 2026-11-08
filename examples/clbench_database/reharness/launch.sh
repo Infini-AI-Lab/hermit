@@ -90,19 +90,23 @@ fi
 
 [ -f "$TASKDIR/tasks.jsonl" ] || { echo "REFUSING: run $TASKDIR/prepare.py first"; exit 1; }
 
-# The meters this launch starts stop once the processes it names have ended (#82); a meter found already running is
-# left to the launch that started it.
+# The meters this launch starts stop within a second or two of the processes it names ending (#82). A meter found
+# running belongs to the launch that started it: a launch reuses one only if it is still up on a second look.
 METERS=()
 stop_meters_after() {  # pid...
   [ ${#METERS[@]} -gt 0 ] || return 0
-  setsid nohup bash -c 'for p in $1; do while kill -0 "$p" 2>/dev/null; do sleep 30; done; done
+  setsid nohup bash -c 'for p in $1; do while kill -0 "$p" 2>/dev/null; do sleep 1; done; done
     for m in $2; do kill -- "-$m" 2>/dev/null || kill "$m" 2>/dev/null || true; done' _ "$*" "${METERS[*]}" \
     > /dev/null 2>&1 < /dev/null &
+}
+meter_health() {  # port: the /health of a meter still up three seconds on (one being stopped is gone by then)
+  curl -s -m 2 "http://127.0.0.1:$1/health" > /dev/null 2>&1 && sleep 3 \
+    && curl -s -m 2 "http://127.0.0.1:$1/health" 2>/dev/null
 }
 trap 'stop_meters_after ${PIDS[@]+"${PIDS[@]}"}' EXIT   # after the trainings started below, if any
 start_meter() {  # port upstream ledger log [extra env...]: a meter already on the port must face the same upstream
   local port=$1 upstream=$2 ledger=$3 log=$4 health; shift 4
-  if health=$(curl -s -m 2 "http://127.0.0.1:$port/health" 2>/dev/null); then
+  if health=$(meter_health $port); then
     case "$health" in *"\"upstream\": \"$upstream\""*) echo "wire meter already on port $port -> $upstream";;
       *) echo "REFUSING: port $port has a wire meter facing another or an unknown upstream ($health); choose another WM_PORT"; exit 1;; esac
   else
@@ -119,7 +123,7 @@ start_meter $WM_PORT "$HOST_ORIGIN" "$RUNS/$TAG/wire_ledger.json" "$RUNS/$TAG/wi
 start_meter $META_PORT "$EVOLVER_ORIGIN" "$RUNS/$TAG/meta_wire_ledger.json" "$RUNS/$TAG/meta_wire_meter.log"
 # The embedding relay signs the reader's keyless requests with the embedding backend's key (none for a keyless server);
 # a relay already on the port is refused unless its /health says it signs (`"signs": true`).
-if [ -n "$EMBED_API_KEY_ENV" ] && health=$(curl -s -m 2 "http://127.0.0.1:$EMBED_PORT/health" 2>/dev/null); then
+if [ -n "$EMBED_API_KEY_ENV" ] && health=$(meter_health $EMBED_PORT); then
   case "$health" in *'"signs": true'*) ;; *) echo "REFUSING: port $EMBED_PORT has a relay that does not sign requests (started without UPSTREAM_KEY_ENV); choose another WM_PORT"; exit 1;; esac
 fi
 start_meter $EMBED_PORT "$EMBED_ORIGIN" "$RUNS/$TAG/embed_wire_ledger.json" "$RUNS/$TAG/embed_wire_meter.log" \

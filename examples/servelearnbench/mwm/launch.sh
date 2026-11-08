@@ -81,19 +81,23 @@ HOST_KEY=""; [ -n "$HOST_API_KEY_ENV" ] && HOST_KEY=${!HOST_API_KEY_ENV:-}
 export SLB_MODEL=$HOST_MODEL_ID SLB_API_KEY=${HOST_KEY:-local}
 export SLB_REASONING_EFFORT=$EFFORT SLB_METHOD=$METHOD SLB_WORKDIR=$WD
 
-# The meters this launch starts stop once the processes it names have ended (#82); a meter found already running is
-# left to the launch that started it.
+# The meters this launch starts stop within a second or two of the processes it names ending (#82). A meter found
+# running belongs to the launch that started it: a launch reuses one only if it is still up on a second look.
 METERS=()
 stop_meters_after() {  # pid...
   [ ${#METERS[@]} -gt 0 ] || return 0
-  setsid nohup bash -c 'for p in $1; do while kill -0 "$p" 2>/dev/null; do sleep 30; done; done
+  setsid nohup bash -c 'for p in $1; do while kill -0 "$p" 2>/dev/null; do sleep 1; done; done
     for m in $2; do kill -- "-$m" 2>/dev/null || kill "$m" 2>/dev/null || true; done' _ "$*" "${METERS[*]}" \
     > /dev/null 2>&1 < /dev/null &
 }
-trap 'stop_meters_after ${TEST_PID:-}' EXIT   # train mode: after the tests that follow the training
+meter_health() {  # port: the /health of a meter still up three seconds on (one being stopped is gone by then)
+  curl -s -m 2 "http://127.0.0.1:$1/health" > /dev/null 2>&1 && sleep 3 \
+    && curl -s -m 2 "http://127.0.0.1:$1/health" 2>/dev/null
+}
+trap 'stop_meters_after ${TRAIN_PID:-} ${TEST_PID:-}' EXIT   # train mode: after the training and the tests after it
 start_meter() {  # port upstream ledger log [extra env...]: a meter already on the port must face the same upstream
   local port=$1 upstream=$2 ledger=$3 log=$4 health; shift 4
-  if health=$(curl -s -m 2 "http://127.0.0.1:$port/health" 2>/dev/null); then
+  if health=$(meter_health $port); then
     case "$health" in *"\"upstream\": \"$upstream\""*) echo "wire meter already on port $port -> $upstream";;
       *) echo "REFUSING: port $port has a wire meter facing another or an unknown upstream ($health); choose another WM_PORT"; exit 1;; esac
   else

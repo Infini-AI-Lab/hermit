@@ -75,17 +75,21 @@ if [ "${EMBED_KEY_REQUIRED:-1}" = 1 ] && [ -n "$KEY_ENV" ] && [ -z "${!KEY_ENV:-
 fi
 # The meter: one per port, started here if none answers; a meter facing another upstream is refused.
 mkdir -p runs
-# The meters this launch starts stop once the processes it names have ended (#82); a meter found already running is
-# left to the launch that started it.
+# The meters this launch starts stop within a second or two of the processes it names ending (#82). A meter found
+# running belongs to the launch that started it: a launch reuses one only if it is still up on a second look.
 METERS=()
 stop_meters_after() {  # pid...
   [ ${#METERS[@]} -gt 0 ] || return 0
-  setsid nohup bash -c 'for p in $1; do while kill -0 "$p" 2>/dev/null; do sleep 30; done; done
+  setsid nohup bash -c 'for p in $1; do while kill -0 "$p" 2>/dev/null; do sleep 1; done; done
     for m in $2; do kill -- "-$m" 2>/dev/null || kill "$m" 2>/dev/null || true; done' _ "$*" "${METERS[*]}" \
     > /dev/null 2>&1 < /dev/null &
 }
+meter_health() {  # port: the /health of a meter still up three seconds on (one being stopped is gone by then)
+  curl -s -m 2 "http://127.0.0.1:$1/health" > /dev/null 2>&1 && sleep 3 \
+    && curl -s -m 2 "http://127.0.0.1:$1/health" 2>/dev/null
+}
 LEDGER=$HERE/runs/wire_ledger-$WM_PORT.json
-if health=$(curl -s -m 2 "http://127.0.0.1:$WM_PORT/health" 2>/dev/null); then
+if health=$(meter_health $WM_PORT); then
   case "$health" in
     *"\"upstream\": \"$EMBED_ORIGIN\""*'"signs": true'*|*'"signs": true'*"\"upstream\": \"$EMBED_ORIGIN\""*)
       echo "wire meter already on port $WM_PORT -> $EMBED_ORIGIN (signs)";;

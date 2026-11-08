@@ -65,18 +65,22 @@ fi
 mkdir -p runs
 "$PY" make_seed_codex.py
 "$PY" stream.py --seed "$SEED" --split $SPLITS --out "$STREAM" ${MAX_TASKS:+--max "$MAX_TASKS"} ${SKIP_TASKS:+--skip "$SKIP_TASKS"}
-# The meters this launch starts stop once the processes it names have ended (#82); a meter found already running is
-# left to the launch that started it.
+# The meters this launch starts stop within a second or two of the processes it names ending (#82). A meter found
+# running belongs to the launch that started it: a launch reuses one only if it is still up on a second look.
 METERS=()
 stop_meters_after() {  # pid...
   [ ${#METERS[@]} -gt 0 ] || return 0
-  setsid nohup bash -c 'for p in $1; do while kill -0 "$p" 2>/dev/null; do sleep 30; done; done
+  setsid nohup bash -c 'for p in $1; do while kill -0 "$p" 2>/dev/null; do sleep 1; done; done
     for m in $2; do kill -- "-$m" 2>/dev/null || kill "$m" 2>/dev/null || true; done' _ "$*" "${METERS[*]}" \
     > /dev/null 2>&1 < /dev/null &
 }
+meter_health() {  # port: the /health of a meter still up three seconds on (one being stopped is gone by then)
+  curl -s -m 2 "http://127.0.0.1:$1/health" > /dev/null 2>&1 && sleep 3 \
+    && curl -s -m 2 "http://127.0.0.1:$1/health" 2>/dev/null
+}
 if [ "$EDITORS" = claude ]; then
   # The meter restarts if it dies; each start keeps its own ledger (sum runs/$TAG.wire_ledger-*.json for the bill).
-  if ! curl -s -m 2 "http://127.0.0.1:$WM_PORT/health" > /dev/null; then
+  if ! meter_health $WM_PORT > /dev/null; then
     setsid nohup bash -c "while true; do PORT=$WM_PORT UPSTREAM=https://api.fireworks.ai \
         LEDGER=$HERE/runs/$TAG.wire_ledger-\$(date -u +%Y%m%dT%H%M%SZ).json '$PY' -m hermit.runtime.wire_meter; \
         sleep 5; done" >> "runs/$TAG.wire_meter.log" 2>&1 < /dev/null &
