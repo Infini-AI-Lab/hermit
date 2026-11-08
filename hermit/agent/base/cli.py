@@ -328,6 +328,9 @@ def _stop(proc) -> None:
             os.killpg(proc.pid, sig)
         except ProcessLookupError:
             return
+        except PermissionError:  # macOS: only exited processes, not yet reaped, are left
+            if proc.poll() is None:
+                raise
         try:
             proc.wait(15)
             return
@@ -337,18 +340,32 @@ def _stop(proc) -> None:
 
 def _descendants(pid: int) -> list[int]:
     children: dict[int, list[int]] = {}
-    for entry in Path("/proc").glob("[0-9]*/stat"):
-        try:
-            fields = entry.read_text().rsplit(")", 1)[1].split()
-        except (OSError, IndexError):
-            continue
-        children.setdefault(int(fields[1]), []).append(int(entry.parent.name))
+    for child, parent in _parents():
+        children.setdefault(parent, []).append(child)
     out, todo = [], [pid]
     while todo:
         for child in children.get(todo.pop(), []):
             out.append(child)
             todo.append(child)
     return out
+
+
+def _parents() -> list[tuple[int, int]]:
+    """Every process with its parent: from /proc, else (macOS) from `ps`."""
+    if Path("/proc/self/stat").is_file():
+        pairs = []
+        for entry in Path("/proc").glob("[0-9]*/stat"):
+            try:
+                pairs.append((int(entry.parent.name), int(entry.read_text().rsplit(")", 1)[1].split()[1])))
+            except (OSError, IndexError, ValueError):
+                continue
+        return pairs
+    try:
+        out = subprocess.run(["ps", "-A", "-o", "pid=", "-o", "ppid="], capture_output=True, text=True,
+                             timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return [(int(p), int(q)) for p, q in (line.split() for line in out.splitlines() if len(line.split()) == 2)]
 
 
 class CliAgent(BaseAgent):
