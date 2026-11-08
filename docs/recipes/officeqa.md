@@ -497,7 +497,7 @@ Paired per question, 95% bootstrap intervals; bold where the interval lies above
 ## OPRO
 
 [OPRO](https://arxiv.org/abs/2309.03409) (Yang et al., ICLR 2024) searches one instruction document, `ADAPTER.md` on
-the `prompt-only` template, from SkillOpt's initial skill (`utils/seed_adapter`). Its optimizer reads the
+the `prompt-only` template, from SkillOpt's initial skill (`utils/seed_adapter`). Its optimizer reads the best
 instructions scored so far with their training scores and three training problems, and writes four new ones per
 step, each scored on the 50 training questions; `final` is the best validation mean of the top 3 on training
 ([OPRO](../methods/opro.md)).

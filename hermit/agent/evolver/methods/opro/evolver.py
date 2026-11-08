@@ -111,6 +111,8 @@ class OPROEvolver(Evolver):
         if not records:
             return StepResult("failed", "no training records in this step's learning material")
         rollout = {r["id"]: float((r.get("judge") or {}).get("score") or 0.0) for r in records}
+        if any(not 0.0 <= s <= 1.0 for s in rollout.values()):
+            return StepResult("failed", "OPRO shows scores from 0 to 100: the judge's scores must be in [0, 1]")
         text = (adapter / ADAPTER).read_text().strip() if (adapter / ADAPTER).exists() else ""
         record: dict = {"step": n, "i_step": i_step, "rollout_mean": _mean(rollout)}
 
@@ -123,7 +125,8 @@ class OPROEvolver(Evolver):
             failed = sorted(r["id"] for r in records if r.get("status") not in (None, "ok"))
             if failed:                                    # infrastructure failures: run those tasks again
                 try:
-                    again = self._scores(ctx, failed, self._write(ctx.workspace.scratch / "initial", adapter, text))
+                    again = self._scores(ctx, failed, self._write(ctx.workspace.scratch / "initial", adapter, text),
+                                         attempts=1)        # the rollout was the first attempt
                 except BudgetExceeded:
                     raise
                 except Exception as exc:                  # noqa: BLE001 — the initial score would be wrong
@@ -255,11 +258,11 @@ class OPROEvolver(Evolver):
         order = sorted(range(len(cands)), key=lambda i: (-_mean(cands[i]["train"]), i))
         best = order[0]
         how = f"the best training score ({_mean(cands[best]['train']):.3f})"
-        if p.get("select", "validation") == "validation" and ctx.access.validation is None:
+        val_ids = [json.loads(l)["id"] for l in (ctx.access.validation / "tasks.jsonl").read_text().splitlines()
+                   if l.strip()] if ctx.access.validation is not None else []
+        if p.get("select", "validation") == "validation" and not val_ids:
             how += "; no validation tasks (data.val)"
         elif p.get("select", "validation") == "validation":
-            val_ids = [json.loads(l)["id"] for l in (ctx.access.validation / "tasks.jsonl").read_text().splitlines()
-                       if l.strip()]
             top = order[:max(1, int(p.get("top_k", 3)))]
             stopped = ctx.cancel is not None and ctx.cancel.is_set()
             for i in top:
@@ -299,19 +302,29 @@ class OPROEvolver(Evolver):
         return StepResult("failed", "stopped by the Trainer")
 
     @staticmethod
-    def _scores(ctx, task_ids: list, adapter: Path) -> dict:
+    def _scores(ctx, task_ids: list, adapter: Path, attempts: int = ATTEMPTS) -> dict:
         """Mean-able judge scores on `task_ids`. A wrong answer scores 0 as upstream; a run that failed for an
-        infrastructure reason (status not ok) is run once more, and if it fails again the instruction is not scored."""
-        scores, todo = {}, list(task_ids)
-        for _ in range(ATTEMPTS):
-            results = ctx.tools["run_agent"](task_ids=todo, adapter=str(adapter))["results"]
+        infrastructure reason (status not ok, or run_agent raised) is run once more, and if it fails again the
+        instruction is not scored."""
+        scores, todo, error = {}, list(task_ids), ""
+        for _ in range(attempts):
+            try:
+                results = ctx.tools["run_agent"](task_ids=todo, adapter=str(adapter))["results"]
+            except BudgetExceeded:
+                raise
+            except Exception as exc:                      # noqa: BLE001 — as failed runs: tried once more
+                if ctx.cancel is not None and ctx.cancel.is_set():
+                    raise
+                results, error = [], f"; {type(exc).__name__}: {str(exc)[:200]}"
             for r in results:
                 if r.get("status") in (None, "ok"):
                     scores[r["id"]] = float((r.get("judge") or {}).get("score") or 0.0)
+                    if not 0.0 <= scores[r["id"]] <= 1.0:
+                        raise ValueError("OPRO shows scores from 0 to 100: the judge's scores must be in [0, 1]")
             todo = [t for t in task_ids if t not in scores]
             if not todo:
                 return scores
-        raise RuntimeError(f"{len(todo)} runs failed twice ({', '.join(todo[:3])})")
+        raise RuntimeError(f"{len(todo)} runs failed twice ({', '.join(todo[:3])}){error}")
 
     @staticmethod
     def _write(target: Path, source: Path, text: str) -> Path:

@@ -216,7 +216,7 @@ Train and evaluate harness adapters on benchmarks using different evolution meth
 </tr>
 <tr>
 <td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/opro.html">OPRO</a></td>
-<td><a href="examples/officeqa/opro/">OfficeQA</a> (one instruction searched by a model that reads every earlier instruction's training score, Codex + GPT-5.6-Luna acting and optimizing)</td>
+<td><a href="examples/officeqa/opro/">OfficeQA</a> (one instruction searched by a model that reads the best earlier instructions with their training scores, Codex + GPT-5.6-Luna acting and optimizing)</td>
 </tr>
 <tr>
 <td><a href="https://infini-ai-lab.github.io/hermit/docs/methods/evosafe.html">EvoSafeHarness</a></td>

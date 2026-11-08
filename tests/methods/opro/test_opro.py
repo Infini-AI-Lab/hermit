@@ -92,10 +92,12 @@ def test_the_meta_prompt_is_the_authors():
 
 
 def test_threshold_and_max_num_instructions_keep_the_best_ascending():
-    text = mp.gen_meta_prompt(HISTORY, "Q_begin", 0.3, 2, False, False, (), True, 100)
-    assert re.findall(r"text:\n(.*)\nscore:\n(\d+)", text) == [("Let's solve the problem.", "31"),
-                                                                ("Read the table **carefully**.", "50")]
-    assert "Below are some problems" not in text
+    shown = lambda text: re.findall(r"text:\n(.*)\nscore:\n(\d+)", text)              # noqa: E731
+    by_threshold = mp.gen_meta_prompt(HISTORY, "Q_begin", 0.3, 20, False, False, (), True, 100)
+    assert shown(by_threshold) == [("Let's solve the problem.", "31"), ("Read the table **carefully**.", "50")]
+    by_cap = mp.gen_meta_prompt(HISTORY, "Q_begin", 0.0, 1, False, False, (), True, 100)
+    assert shown(by_cap) == [("Read the table **carefully**.", "50")]
+    assert "Below are some problems" not in by_threshold
 
 
 @pytest.mark.parametrize("raw, ins", [("Sure. <INS>Check units.</INS> Done", "Check units."),
@@ -107,8 +109,8 @@ def test_the_instruction_is_taken_from_the_reply_as_upstream_parses_it(raw, ins)
 
 def test_an_instruction_is_polished_and_named_by_its_md5_as_upstream():
     assert mp.polish_sentence("  read **all** tables ") == "Read all tables"
-    assert mp.instruction_to_filename("Prüfe die Einheiten") == mp.instruction_to_filename("Prüfe die Einheiten")
-    assert mp.instruction_to_filename("a") != mp.instruction_to_filename("b")
+    assert mp.instruction_to_filename("a") == "0cc175b9c0f1b6a831c399e269772661"
+    assert mp.instruction_to_filename("Prüfe die Einheiten") == "49e2512e241cd2f1b09b75bf82073d7b"      # UTF-8: upstream's ASCII raises
 
 
 # ---------- the step, with a scripted model and run_agent ----------
@@ -482,6 +484,56 @@ def test_an_infrastructure_failure_is_run_again_and_never_scored_as_zero(tmp_pat
     assert result.status == "done"
 
 
+def test_a_candidate_scored_outside_zero_to_one_is_left_unscored(tmp_path):
+    adapter = seed(tmp_path)
+    material(tmp_path, dict.fromkeys(TRAIN, 0.0))
+    E.OPROEvolver().step(context(tmp_path, adapter, scripted(["<INS>Big.</INS>"]), {"n_candidates": 1},
+                                 run_agent=run_agent_by(lambda *_: 2)))
+    state = json.loads((tmp_path / "state" / "opro.json").read_text())
+    assert len(state["candidates"]) == 1 and "[0, 1]" in state["steps"][0]["evaluated"][0]["failed"]
+
+
+def test_finalize_with_an_empty_validation_split_keeps_the_training_best(tmp_path):
+    adapter = seed(tmp_path)
+    material(tmp_path, dict.fromkeys(TRAIN, 0.0))
+    E.OPROEvolver().step(context(tmp_path, adapter, scripted(["<INS>Report in millions.</INS>"]), {"n_candidates": 1},
+                                 run_agent=run_agent_by(lambda t, _: "millions" in t)))
+    final = E.OPROEvolver().finalize(context(tmp_path, adapter, scripted(["x"]), run_agent=run_agent_by(lambda *_: 0),
+                                             validation=validation(tmp_path, [])))
+    assert "no validation tasks" in final.summary and (adapter / "ADAPTER.md").read_text() == "Report in millions.\n"
+
+
+def test_a_run_agent_that_raises_is_tried_once_more(tmp_path):
+    """A raised tool error (the adapter's snapshot could not be copied) is a failed run like a status not ok."""
+    adapter = seed(tmp_path)
+    material(tmp_path, dict.fromkeys(TRAIN, 0.0))
+    inner, calls = run_agent_by(lambda *_: 1), []
+
+    def run_agent(task_ids, adapter):
+        calls.append(1)
+        if len(calls) == 1:
+            raise OSError("the adapter could not be copied")
+        return inner(task_ids, adapter)
+    E.OPROEvolver().step(context(tmp_path, adapter, scripted(["<INS>Once.</INS>"]), {"n_candidates": 1},
+                                 run_agent=run_agent))
+    state = json.loads((tmp_path / "state" / "opro.json").read_text())
+    assert len(calls) == 2 and state["candidates"][-1] == {"text": "Once.", "step": 0, "train": dict.fromkeys(TRAIN, 1.0)}
+
+
+def test_the_initial_instructions_failed_rollouts_are_run_once_more_not_twice(tmp_path):
+    """The step's rollout was the first attempt: one more, then the step fails."""
+    adapter = seed(tmp_path)
+    material(tmp_path, dict.fromkeys(TRAIN, 1.0))
+    mark_failed(tmp_path, "UID2")
+    calls = []
+
+    def down(task_ids, adapter):
+        calls.append(list(task_ids))
+        return {"results": [{"id": t, "status": "error", "judge": {"score": 0.0}} for t in task_ids]}
+    result = E.OPROEvolver().step(context(tmp_path, adapter, scripted(["<INS>x.</INS>"]), run_agent=down))
+    assert calls == [["UID2"]] and result.status == "failed" and "failed twice" in result.summary
+
+
 def test_a_failed_optimizer_call_is_tried_once_more(tmp_path):
     adapter = seed(tmp_path)
     material(tmp_path, dict.fromkeys(TRAIN, 0.0))
@@ -562,13 +614,23 @@ def test_a_stop_inside_run_agent_keeps_what_was_scored(tmp_path):
     assert mp.instruction_to_filename("Second.") not in state["hashes"]
 
 
-def test_unrounded_scores_with_num_score_buckets_null(tmp_path):
+def test_scores_are_rounded_to_three_decimals_with_num_score_buckets_null(tmp_path):
     adapter = seed(tmp_path)
-    material(tmp_path, {"UID1": 1.0, "UID2": 0.0, "UID3": 0.0, "UID4": 0.0})
+    material(tmp_path, {"UID1": 1.0, "UID2": 0.0, "UID3": 0.0})
     llm = scripted(["<INS>x.</INS>"])
     E.OPROEvolver().step(context(tmp_path, adapter, llm, {"n_candidates": 1, "num_score_buckets": None},
                                  run_agent=run_agent_by(lambda *_: 0)))
-    assert "score:\n0.25\n" in llm.seen[0][0]
+    assert "score:\n0.333\n" in llm.seen[0][0]
+
+
+def test_a_judge_score_outside_zero_to_one_fails_the_step_before_any_call(tmp_path):
+    """The meta-prompt shows scores from 0 to 100 (upstream's bucketing asserts the range); a task-specific scale is
+    refused with that reason rather than an AssertionError."""
+    adapter = seed(tmp_path)
+    material(tmp_path, {"UID1": 2.0, "UID2": 1.0})                  # mean 1.5: upstream asserts
+    llm = scripted(["<INS>x.</INS>"])
+    result = E.OPROEvolver().step(context(tmp_path, adapter, llm, run_agent=run_agent_by(lambda *_: 0)))
+    assert result.status == "failed" and "[0, 1]" in result.summary and not llm.seen
 
 
 def test_an_unknown_select_is_refused_before_any_call(tmp_path):

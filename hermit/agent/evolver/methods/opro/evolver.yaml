@@ -10,7 +10,7 @@ params:
   max_num_instructions: 20        # old instructions shown, the best ones (upstream: 20)
   score_threshold: 0.0            # old instructions scoring below this are left out (upstream: 0.0 for text-bison
                                   # scorers, 0.3 for GPT scorers)
-  num_score_buckets: 100          # scores shown as integers 0-100 (upstream: 100); null: unrounded
+  num_score_buckets: 100          # scores shown as integers 0-100 (upstream: 100); null: rounded to 3 decimals
   num_exemplars: 3                # random training problems per step (upstream: 3)
   question_field: null            # the task field shown as the problem; null: the task's fields
   success_score: 1.0              # a judge score at or above this shows the agent's answer as the exemplar's answer

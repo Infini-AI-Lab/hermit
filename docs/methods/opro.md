@@ -4,7 +4,8 @@ OPRO, Optimization by PROmpting ([Yang et al., ICLR 2024](https://arxiv.org/abs/
 [code](https://github.com/google-deepmind/opro)), uses a model as the optimizer: it reads earlier instructions with
 their training scores and a few training problems, and writes new instructions; every instruction it writes is
 scored on the whole training set and joins the history. Choose it when the adapter is one instruction document,
-the training split is small enough to run once per candidate, and you want the search to see every score so far.
+the training split is small enough to run once per candidate, and you want the search to see the best
+instructions so far with their scores.
 
 ## Setup
 
@@ -21,7 +22,9 @@ llm: {model: <backend>/<model>}   # the optimizer
 ```
 
 The instruction is `ADAPTER.md`. The optimizer is the run's model (`llm`); on a model reachable only through a
-ChatGPT login, OfficeQA's GPT-5.6-Luna setting makes each call one Codex session (`llm: {cli: codex}`).
+ChatGPT login, OfficeQA's GPT-5.6-Luna setting makes each call one Codex session (`llm: {cli: codex}`). The judge's
+scores must be in [0, 1]: the meta-prompt shows them from 0 to 100, and a step whose rollouts score outside that range
+fails.
 
 ## One framework step
 
