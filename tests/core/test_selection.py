@@ -36,7 +36,7 @@ def test_shared_layers_and_unknown_paths_run_everything():
                  "hermit/adapter/templates/ace/.hermit/adapter.yaml",      # every `<id>@<version>` is resolved
                                                                            # through all of them
                  "hermit/sandbox.py", "hermit/worker.py", "hermit/hosts/codex.py", "tests/conftest.py",
-                 "tests/toy_task.py",
+                 "tests/toy_task.py", "tests/claude_stand.py", "tests/fixtures/claude_streams/reply.jsonl",
                  "pyproject.toml", "hermit/adapter/templates/prompt_only/ADAPTER.md", "Makefile",
                  ".github/workflows/tests.yml"):
         assert groups_for(path) is None, path

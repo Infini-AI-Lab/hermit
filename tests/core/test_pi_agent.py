@@ -119,13 +119,13 @@ def test_pi_runs_offline_in_its_home_with_its_model_and_the_tools_offered_direct
 
 
 def test_a_failed_request_fails_the_session_although_pi_exits_zero(fake, monkeypatch):
-    """Pi's JSON mode exits 0 when its last request failed: read as Codex's exit code would have it, so a failed
-    learner step is not taken for a done one, and the provider's outage is retried by the acting agent."""
+    """Pi's JSON mode exits 0 when its last request failed: the session is `failed` (exit 0 with no result), so a
+    failed learner step is not taken for a done one, and the provider's outage is retried by the acting agent."""
     monkeypatch.setenv("FAKE_PI_STREAM", str(STREAMS / "failure.jsonl"))
     work = fake / "work"
     work.mkdir()
     result = make("pi", {**bound(), "web_search": False, "home": str(fake / "home")}).run("go", workspace=work)
-    assert result.exit_code == 1 and result.extra["cli_exit_code"] == 0
+    assert result.exit_code == 0 and result.extra["failed"]
     assert not result.extra["served"] and result.extra["unavailable"]
     assert result.usage == []                              # retried requests that used no tokens are no calls
     assert [s.kind for s in result.trajectory] == ["error"] * 4

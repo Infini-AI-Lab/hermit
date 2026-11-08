@@ -4,21 +4,27 @@ description: Harness² (Xu et al., arXiv:2610.14224) under the paper's own proto
   INV and a DOM editor session whose candidates are executed on the same task, a composer session whose composition is
   executed on the same task as the deliverable, and a reflection that adds the adopted harness and its lesson to a
   per-domain library, the only thing carried to the next task. The adapter is never changed. Editor sessions are
-  upstream's claude_cli channel on the bound model, each in its own sandbox; executions go through run_agent. No judge
-  score reaches any session.
+  upstream's claude_cli channel on the bound model or on a login, each in its own sandbox; executions go through
+  run_agent, with the run's acting agent (Codex or Claude Code). No judge score reaches any session.
 class: evolver.py:Harness2UpstreamEvolver
 needs: []
 params:
   backend: claude            # the editor sessions run Claude Code (upstream's claude_cli channel) on the bound model;
                              # codex: Codex (a model only Codex reaches: login: chatgpt with model a Codex model name)
-  model: null                # a <backend>/<model> reference; the backend must serve the Messages API
+  model: null                # a <backend>/<model> reference whose backend serves the Messages API; with a login, the
+                             # CLI's own model name (claude-haiku-5-5, gpt-5.6-luna)
   effort: medium             # Claude Code's --effort for every session
   k: 1                       # task-level recursion budget (the paper's main tables: 1)
   session_timeout_s: 3600    # wall clock per session attempt (upstream's ChannelSpec default)
   tools: Read,Write,Edit,Glob,Grep,Bash   # the session's tools: files and a shell inside its sandbox, no web
   claude_bin: null           # the sessions' CLI binary to pin for the run; null: the versioned path of `claude` (or
                              # `codex`) at start
-  login: null                # backend codex: chatgpt runs the editors on the user's ChatGPT login (its plan)
+  login: null                # the editors on the user's subscription, its plan's waits and holds (hermit.agent.base.login):
+                             # backend claude: claude (the token of `claude setup-token` in CLAUDE_CODE_OAUTH_TOKEN);
+                             # backend codex: chatgpt (the user's ChatGPT login)
+  plan_dir: null             # with a login: the plan's directory (null: the login's own under ~/.cache/hermit)
+  plan_max_wait_s: 43200     # with a login: the longest a session waits for the plan, in seconds (null: no limit)
+  usage_credits: null        # with login claude: true lets sessions go on after one drew usage credits
   slots: null                # YAML with the task's prompt slots (upstream BenchPrompts: work, domain_word,
                              # deliverable_word, inv_levers, dom_levers, yardstick, domain_guidance, selection_checks)
   sources: null              # file.py:function(task, dest) -> directory of the task's source material, or None

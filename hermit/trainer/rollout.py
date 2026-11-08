@@ -9,6 +9,7 @@ import threading
 import time
 import traceback
 
+from hermit.agent.base.interface import LoginFailed, login_failure
 from hermit.task import RunOutput, normalise_judge
 from hermit.trainer.budget import Budget, BudgetExceeded
 
@@ -20,11 +21,21 @@ def run_one(task: dict, adapter: Path | None, pipeline, judge) -> dict:
         if not isinstance(out, RunOutput):
             raise TypeError(f"the pipeline returned {type(out).__name__}, not RunOutput")
     except Exception as exc:
+        why = login_failure(exc)                     # as text from a sandbox's worker, or from a chat endpoint
+        if why is not None:
+            raise LoginFailed(why) from None
         return {"id": task["id"], "input": task, "status": "error", "error": f"{type(exc).__name__}: {exc}",
                 "traceback": traceback.format_exc()[-3000:], "output": None,
                 "judge": {"score": 0.0, "feedback": f"the pipeline failed: {type(exc).__name__}: {exc}"},
                 "cost_usd": None, "wall_s": round(time.time() - started, 2), "api_speed": None, "tokens": None,
                 "log": None, "messages": None}
+    failed = (out.extra or {}).get("session_failed")
+    if failed:                                           # no answer to judge; what it spent and its log still count
+        return {"id": task["id"], "input": task, "status": "error", "error": f"the agent's session failed: {failed}",
+                "output": None, "judge": {"score": 0.0, "feedback": f"the agent's session failed: {failed}"},
+                "cost_usd": out.cost_usd, "wall_s": round(out.wall_s or (time.time() - started), 2),
+                "api_speed": out.api_speed, "tokens": out.tokens, "log": str(out.log) if out.log else None,
+                "messages": out.messages, "pipeline_extra": out.extra}
     try:
         verdict = normalise_judge(judge(dict(task), out))
         judged = asdict(verdict)
@@ -47,7 +58,11 @@ def run_tasks(tasks: list[dict], adapter: Path | None, pipeline, judge, *, concu
     def work(task):
         if stop.is_set():
             return None
-        record = run_one(task, adapter, pipeline, judge)
+        try:
+            record = run_one(task, adapter, pipeline, judge)
+        except LoginFailed:
+            stop.set()                                   # the tasks waiting would fail the same way
+            raise
         if budget is not None:
             budget.add(part, usd=record["cost_usd"] or 0.0, tokens=record["tokens"] or 0)
             if record["cost_usd"] is None:

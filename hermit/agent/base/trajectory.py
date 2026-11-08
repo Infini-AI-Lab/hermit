@@ -124,6 +124,8 @@ def claude_steps(stream: list[dict]) -> list[Step]:
     steps, pending = [], {}
     for event in stream:
         kind, message = event.get("type"), event.get("message") or {}
+        if kind == "assistant" and event.get("is_api_error_message"):
+            continue                                  # the CLI's report of a failure, which the result repeats: no message
         if kind == "assistant":
             for block in _blocks(message.get("content")):
                 t = block.get("type")
@@ -145,8 +147,10 @@ def claude_steps(stream: list[dict]) -> list[Step]:
                 if step is not None and step.kind == "command":
                     step.output = _result_text(block.get("content"))
                     step.exit_code = 1 if block.get("is_error") else 0
-        elif kind == "result" and event.get("is_error"):
-            steps.append(Step("error", str(event.get("result") or event.get("subtype") or "")))
+        elif kind == "result" and (event.get("is_error") or str(event.get("subtype") or "").startswith("error")):
+            errors = event.get("errors") if isinstance(event.get("errors"), list) else []
+            steps.append(Step("error", str(event.get("result") or "; ".join(map(str, errors))
+                                           or event.get("subtype") or "")))
     return steps
 
 

@@ -5,10 +5,11 @@ task's pipeline), and the task's evidence store holds their records in the nativ
 the native wrapper ran after a block:
 
 1. maintenance on the adapter (journal roll, docket caps, gate advice, memory index; prompt.prepare_session);
-2. one Codex session with the native session prompt (prompt.build_prompt), started in the adapter directory with the
-   native mounts (the world model at /w, read-only at /world-model; /evidence, /environment, /skills, /patterns), in
-   its own network namespace (it reaches its model (the meter), the session's tool server with the venue's channels,
-   the MW_TOOLSRV gate and sandbox.evolver.allowed_hosts; every session measures that first);
+2. one session of the learner's CLI (`backend`: codex, as natively, or claude) with the native session prompt
+   (prompt.build_prompt), started in the adapter directory with the native mounts (the world model at /w, read-only
+   at /world-model; /evidence, /environment, /skills, /patterns), in its own network namespace (it reaches its model
+   (the meter, or a login's hosts), the session's tool server with the venue's channels, the MW_TOOLSRV gate and
+   sandbox.evolver.allowed_hosts; every session measures that first);
 3. executable admission (prompt.finalize: every tool's own test, failures parked in tools/_rejected/);
 4. the native retry: a session that produced nothing and did not time out is run once more.
 
@@ -29,7 +30,10 @@ venue texts (contract/<slot>.md, delegation, host.json, environment/) are the `d
 (default task-info/mwm/; see deployment.py for what the method fixes itself).
 
 Parameters (evolver.params):
-  model, args, home, price     as for the built-in codex Evolver (args carries the provider and reasoning settings)
+  backend                      the learner's CLI: codex (default) or claude
+  model, args, home, price,    as for the built-in codex and claude Evolvers (args carries Codex's provider and
+  login, effort, env           reasoning settings; a binding's Claude Code provider settings come in env), with
+                               plan_dir, plan_max_wait_s, plan_rerun and usage_credits for a login's plan
   evidence                     the run's evidence store (required; must be among evolver_access.environment)
   deployment                   the venue's texts for MWM, relative to the run config (default: task-info/mwm)
   learner_tools                task tools the learner also gets as MCP tools (default: all); every task tool is served
@@ -51,7 +55,7 @@ import sys
 import time
 import uuid
 
-from hermit.agent.base.interface import make
+from hermit.agent.base.interface import LoginFailed, make
 from hermit.agent.evolver.base import Context, Evolver, FinalResult, StepContext, StepResult, Usage
 
 HERE = Path(__file__).resolve().parent
@@ -120,7 +124,7 @@ def _native_text(result) -> str:
 
 
 class MwmEvolver(Evolver):
-    supports_resume = False          # every MWM session is a fresh Codex session, as natively
+    supports_resume = False          # every MWM session is a fresh CLI session, as natively
 
     # ------------------------------------------------------------------ inputs
     def _state(self, ctx: Context) -> dict:
@@ -232,19 +236,22 @@ class MwmEvolver(Evolver):
                                           HERE / "bin"])     # captest's PythonSandbox runs on hermit.sandbox
 
     def _settings(self, ctx: StepContext, home: Path, log: Path, box) -> dict:
-        """The `codex` Base Agent's settings for one learner session: Codex as natively (its own sandbox off, every
+        """The CLI Base Agent's settings for one learner session: the CLI as natively (Codex's own sandbox off, every
         variable for its commands, a fresh home, the session's clock), inside the native mounts, told /w as its
-        working directory, the channels' JSON entrance as MW_TOOLSRV (the venue's shell client)."""
+        working directory, the channels' JSON entrance as MW_TOOLSRV (the venue's shell client). `login` and `effort`
+        are the model's; a binding's Claude Code provider settings come in `env`."""
         params = ctx.params
         if not isinstance(params.get("web_search"), bool):
             raise ValueError("evolver.params.web_search must be set, true or false")
-        return {**{k: params[k] for k in ("model", "binding", "args") if params.get(k) is not None},
+        return {**{k: params[k] for k in ("model", "binding", "args", "login", "login_root", "effort", "price",
+                                          "plan_dir", "plan_max_wait_s", "plan_rerun", "usage_credits")
+                   if params.get(k) is not None or (k == "plan_max_wait_s" and k in params)},   # None: no limit
                 "web_search": params["web_search"], "isolation": "sandbox", "sandbox": box,
                 "codex_sandbox": "danger-full-access", "shell_env": "all", "home": home,
                 "home_files": params.get("home", []), "log": log, "cancel": ctx.cancel,
                 "timeout_s": float(params.get("session_timeout_s", 1800)),
                 "tools_name": "evolver_tools", "tools_env": "MW_TOOLSRV", "mcp_tools": self._mcp_tools(ctx),
-                "env": {"PYTHONPATH": str(Path(__file__).resolve().parents[5]) + os.pathsep
+                "env": {**(params.get("env") or {}), "PYTHONPATH": str(Path(__file__).resolve().parents[5]) + os.pathsep
                         + os.environ.get("PYTHONPATH", ""),
                         "PATH": str(HERE / "bin") + os.pathsep + os.environ.get("PATH", "")}}
 
@@ -267,14 +274,14 @@ class MwmEvolver(Evolver):
             shutil.rmtree(home)
         home.mkdir(parents=True)
         source = Path.home() / ".codex"
-        for name in ctx.params.get("home", []):
+        for name in ctx.params.get("home", []) if ctx.params.get("backend", "codex") == "codex" else []:
             if (source / name).is_file() and not (home / name).exists():
                 shutil.copy2(source / name, home / name)
                 os.chmod(home / name, 0o600)
         return home
 
     def _one_session(self, ctx: StepContext, *, block: int, tick: int, goal: str, notes: str, label: str) -> dict:
-        """Maintenance, one Codex session, admission. Restores the adapter when the session is not adopted."""
+        """Maintenance, one CLI session, admission. Restores the adapter when the session is not adopted."""
         adapter = ctx.workspace.adapter
         snapshot = ctx.workspace.scratch / f"{label}_before"
         _copy(adapter, snapshot)
@@ -293,7 +300,8 @@ class MwmEvolver(Evolver):
         prepared = _digest(adapter)                        # after maintenance: what the session is handed
         record["advice"] = state.get("advice")
         home = self._home(ctx)
-        log = ctx.workspace.output / f"{label}.codex.jsonl"
+        backend = ctx.params.get("backend", "codex")
+        log = ctx.workspace.output / f"{label}.{backend}.jsonl"
         try:
             box = self._view(ctx, session, self._evidence(ctx, block == 0))
         except Exception as exc:                               # noqa: BLE001
@@ -302,7 +310,7 @@ class MwmEvolver(Evolver):
             return record
         started = time.time()
         try:
-            result = make("codex", self._settings(ctx, home, log, box)).run(text, workspace=adapter,
+            result = make(backend, self._settings(ctx, home, log, box)).run(text, workspace=adapter,
                                                                            tools=self._learner_tools(ctx))
         finally:
             box.close()
@@ -312,13 +320,22 @@ class MwmEvolver(Evolver):
         launch = box.last_record
         record["isolation"] = (json.loads(launch.read_text()).get("probe") if launch and launch.exists() else None) \
             or {"passed": False, "error": "no probe result"}
+        if result.extra.get("login_failed"):
+            _restore(snapshot, adapter)
+            raise LoginFailed(f"a learner session: {result.extra.get('failure')}")
         session_id, usage = result.session, result.usage
         events = [json.loads(l) for l in log.read_text(errors="replace").splitlines() if l.startswith("{")] \
             if log.exists() else []
-        record.update(run, session=session_id, usage=[u.__dict__ for u in usage],
-                      turns=sum(1 for e in events if e.get("type") == "turn.completed"),
-                      tool_calls=sum(1 for e in events if e.get("type") == "item.completed"
-                                     and (e.get("item") or {}).get("type") in ACTIONS))
+        if backend == "codex":
+            turns = sum(1 for e in events if e.get("type") == "turn.completed")
+            actions = sum(1 for e in events if e.get("type") == "item.completed"
+                          and (e.get("item") or {}).get("type") in ACTIONS)
+        else:                                              # the standard steps (a CLI's events are its own)
+            turns = sum(u.calls for u in usage)
+            actions = sum(1 for step in result.trajectory if step.kind in ("command", "file_change", "tool_call"))
+        if result.extra.get("failed"):                     # exit 0 with no result: not a session that ended
+            run["exit_code"] = run["exit_code"] or 1
+        record.update(run, session=session_id, usage=[u.__dict__ for u in usage], turns=turns, tool_calls=actions)
         record["_usage"] = usage
         # The old port's adoption rule: a clean exit, no timeout, and at least one action taken (it required a
         # successful broker call; a session that only wrote a message is not adopted).
@@ -501,7 +518,7 @@ class MwmEvolver(Evolver):
         state.setdefault("sessions", []).extend({k: v for k, v in s.items() if k != "admission"} for s in sessions)
         self._save(ctx, state)
         (ctx.workspace.output / "sessions.json").write_text(json.dumps(sessions, indent=1, default=str))
-        merged = Usage(model=ctx.params.get("model") or "codex")
+        merged = Usage(model=ctx.params.get("model") or ctx.params.get("backend", "codex"))
         for u in usage:
             merged.input_tokens += u.input_tokens
             merged.cached_input_tokens += u.cached_input_tokens

@@ -49,6 +49,30 @@ for the editor sessions, and trains with the editor model bound to the meter. Ea
 `codex exec --json` event stream (`agent-codex.jsonl`), `task.md`, `prompt.txt`, `last_message.txt` and what the
 adapter deployed (`harness.json`).
 
+### On a Claude subscription
+
+`run_claude_haiku.yaml` is the luna stream's config (`run_codex_luna.yaml`) with Claude Haiku 5.5 in Claude Code as
+the executor and the editors, all on your Claude subscription (`login: claude`; no key, no meter): the same tree and
+H0, `slots_claude.yaml` naming Claude Code and its Read tool beside the shell where `slots_codex.yaml` names Codex's
+shell, each execution in a container of its own as Codex's are (the image `officeqa-claude:<version>` from
+`docker/claude/`, its egress proxy letting through `api.anthropic.com` only, Claude Code's own sandbox holding the
+session's commands: the [recipe](../../../docs/recipes/officeqa.md#claude-code-in-the-same-containers) builds them),
+and the editors' Claude Code pinned to one copy of the machine's (`runs/.claude-pin/<version>/`; build the image from
+the same version). Each rollout's log holds Claude Code's event stream (`agent-claude.jsonl`), which the editors read
+in upstream's grammar ([guide](../../../docs/guides/claude-subscription.md)):
+
+```bash
+claude setup-token                    # once; then export CLAUDE_CODE_OAUTH_TOKEN (read -r -s keeps it from the history)
+CONFIG=run_claude_haiku.yaml MAX_TASKS=2 TAG=haiku-h2-smoke examples/officeqa/harness2_stream/launch.sh   # smoke
+CONFIG=run_claude_haiku.yaml SEED=0 examples/officeqa/harness2_stream/launch.sh
+```
+
+Its stream (run `haiku-h2-s0`, from before the executions moved into containers: they ran in the bubblewrap sandbox of
+the rollout role, which #78 replaced by the task sandbox) was started and stopped during its third question; the
+first two ran end to end (each stage on Claude Code sessions on the login, none falling back), and the full stream has
+not been run on it ([the Flash row with Claude
+Haiku 5.5](../../../docs/recipes/officeqa.md#the-flash-row-with-claude-haiku-55)).
+
 ### Continuing a stream
 
 A finished stream can be continued on other questions, e.g. the questions after the first N of the same stream, or

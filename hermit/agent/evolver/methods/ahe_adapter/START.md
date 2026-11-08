@@ -49,7 +49,7 @@ Only `adapter/` is your playground. Everything else is read-only or off-limits.
 │   │       └── hook-state/            ← The middleware's final per-session state (<session_id>.json)
 │   └── step_NNNN/                     ← Earlier steps, same layout; index.jsonl shows the trend
 │
-└── workspace/                         ← your working directory (codex -C)
+└── workspace/                         ← your working directory
     ├── adapter/                       ← ★ MODIFY these files (a git working copy; the Trainer commits)
     │   ├── AGENTS.md                  ← System prompt + tool-usage guidance (seed rules non-deletable)
     │   ├── ADAPTER.md                 ← The framework's copy of AGENTS.md (kept equal by the Evolver)

@@ -27,7 +27,8 @@ pipeline:                     # the older spelling of `agent`: run -> name
 environment:                   # the task sandbox, where the acting agent runs (rollouts, eval, check)
   runner: sandbox              # sandbox: in the task sandbox | host: in the Trainer's process, for a task whose own
                                # code isolates what it runs (AgentDyn's hooks in containers); warned
-  image: null                  # a Docker image: a CLI acting agent runs in a container of its own (Codex)
+  image: null                  # a Docker image: a CLI acting agent runs in a container of its own (Codex or
+                               # Claude Code)
   container: {}                # with image: the container's network and egress proxy (hermit/agent/base/container.py)
   packages: []                 # no image: Python distributions shown besides the framework's environment (an editable
                                # install's package, one on PYTHONPATH), with their dependencies
@@ -35,7 +36,7 @@ environment:                   # the task sandbox, where the acting agent runs (
                                # judge or the runs
   write: []                    # paths the acting agent may write besides its own work directory
   env: []                      # environment variables passed in, names or patterns (MWM_*); the agent's model key
-                               # passes anyway
+                               # passes anyway; a Claude login's token passes by name to each call
   network: no-network          # no-network | allowlist | public; the agent's model and the tool endpoint stay reachable
   allowed_hosts: []            # allowlist: hosts reachable through the allowlist proxy
   resources: {}                # memory_mb, file_mb, cpu_s: per process
@@ -69,7 +70,8 @@ sandbox:                       # docs/developer/sandbox-design.md
                                # judge's (a benchmark's scoring the agent does not import): `pkg.scoring`
   evolver:                     # the learner's sandbox: a fixed layout under /w, its models, the tool endpoint
     allowed_hosts: []          # more hosts the learner may reach, through the allowlist proxy
-    env: []                    # environment variables passed to the learner's sessions (its models' keys pass anyway)
+    env: []                    # environment variables passed to the learner's sessions (its models' keys pass anyway;
+                               # a Claude login's token goes by name with each session on it)
     resources: {}              # memory_mb, file_mb, cpu_s: per process
 model: null                    # the run's default model, a `<backend>/<model id>` reference (see backends): what `llm`,
                                # agent.params.model and evolver.params.model use when they name none

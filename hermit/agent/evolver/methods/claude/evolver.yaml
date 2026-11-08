@@ -6,7 +6,11 @@ params:
   prompt: START.md
   resume_prompt: RESUME.md
   args: []
-  model: null                # the agent's model; null: its default
+  model: null                # the agent's model; null: its default. With login: claude, a Claude Code model name, which
+                             # the Base Agent requires (the CLI's default differs by sign-in)
+  login: null                # claude: the user's subscription, the token in CLAUDE_CODE_OAUTH_TOKEN
+                             # (docs/guides/claude-subscription.md); null: a bound model's key, or the CLI's own sign-in
+                             # (its hosts then in sandbox.evolver.allowed_hosts; prefer login: claude)
   price: null                # USD per million tokens {input, cached_input, output}
   home: [auth.json, .credentials.json]   # files of the agent's home copied into the run's
   tools: null                # the only Trainer tools the agent may use, e.g. [check_spec]; null: all

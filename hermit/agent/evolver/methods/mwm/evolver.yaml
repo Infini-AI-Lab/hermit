@@ -1,10 +1,10 @@
-description: The MetaWorld Model learner (MWM V2 default, docket on, hypothesis off). One Codex session per block
+description: The MetaWorld Model learner (MWM V2 default, docket on, hypothesis off). One CLI session per block
   with the native contract, agenda, skills, patterns and maintenance; reads the task's evidence store at /evidence.
 class: evolver.py:MwmEvolver
 needs: [environment]
 params:
-  backend: codex              # the learner is a Codex session (a model reference binds it, as for the codex Evolver)
-  model: null                 # the learner model; null: the Codex default
+  backend: codex              # the learner's CLI, codex or claude (a model reference binds it, as for those Evolvers)
+  model: null                 # the learner model; null: the CLI's default
   web_search: false           # web search, set explicitly: Codex's hosted search runs at the provider, past the
                               # network namespace
   args: []                    # extra codex arguments, e.g. -c model_reasoning_effort="high" (provider settings come

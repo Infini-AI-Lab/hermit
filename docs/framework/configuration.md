@@ -60,7 +60,7 @@ Use the same run name for training and evaluation. Unknown configuration keys ar
 | `evolver.params` | Parameters layered over that Evolver's defaults. |
 | `evolver.resume` | Request a continued learner session between steps; the Evolver must support it. |
 | `evolver_access` | Additional task resources and tools given to the learner. |
-| `llm` | Optional model endpoint, model ID, key environment variable, prices, and `extra_body` (fields added to every request, such as `reasoning_effort`) for the run's `llm` tool; or `cli: codex` with that Base Agent's settings (`model`, `login`, `effort`, `web_search`, ...), `isolation` and `timeout`, for a model only Codex reaches: each call is one session (the learner's model is an agent that can run commands) in a bubblewrap sandbox of its own (`isolation: sandbox`, the default: its empty workspace, its model's hosts through a proxy, its key, nothing of the run; its model is a `<backend>/<model>` reference or `login: chatgpt`, whose hosts it reaches) or in a container (`isolation: container` with `container`) ([Agent layers](agent-layers.md#layer-3-agent)). |
+| `llm` | Optional model endpoint, model ID, key environment variable, prices, and `extra_body` (fields added to every request, such as `reasoning_effort`) for the run's `llm` tool; or `cli: codex` or `cli: claude` with that Base Agent's settings (`model`, `login`, `effort`, `web_search`, ...), `isolation` and `timeout`, for a model only that CLI reaches: each call is one session in a bubblewrap sandbox of its own (`isolation: sandbox`, the default: its empty workspace, its model's hosts through a proxy, its key or the login's token, nothing of the run; its model is a `<backend>/<model>` reference, `login: chatgpt` (Codex) or `login: claude` (Claude Code), whose hosts it reaches) or in a container (`isolation: container` with `container`). A Codex session is an agent that can run commands; a Claude Code session has no tools and can only reply ([Agent layers](agent-layers.md#layer-3-agent), [Claude subscription](../guides/claude-subscription.md)). |
 | `trainer` | Run name and directories, epochs, budgets, checkpoint frequency, and recovery mode. |
 | `eval.repeats` | Repetitions per test task in the separate evaluation command. |
 
@@ -116,17 +116,18 @@ strict preset with the adapter read-only. A task's declared tools run with `envi
 | `environment.env` | Environment variables passed in: names or patterns (`MWM_*`). The agent's model key variable passes by itself. |
 | `environment.network` | `no-network` (default), `allowlist` (with `environment.allowed_hosts`, through a proxy), or `public`. The agent's model provider (as an allowed host) and the tool endpoint stay reachable. |
 | `environment.resources` | `memory_mb`, `file_mb`, `cpu_s` per process (positive whole numbers; null: no limit); not with `environment.image`, whose container keeps its own. |
-| `environment.image` | A Docker image: a Codex acting agent runs in a container of its own; `environment.container` gives its network and egress proxy. |
+| `environment.image` | A Docker image: a Codex or Claude Code acting agent runs in a container of its own; `environment.container` gives its network and egress proxy. |
 | `environment.runner: host` | The pipeline runs in the Trainer's process, for a task whose own code isolates the adapter's code it runs (AgentDyn's hooks in containers). Warned. `environment.read`, `write` and `packages` then build only the sandbox of the task's declared tools. |
 
 Each call gets a work directory of its own (its HOME, logs and workspaces), and a fresh directory in place of the
 `.logs` beside a task's agent file. The agent gets its model as Harbor's agents do: its key variable passes, its
 provider's host is allowed and a model server or meter on the loopback is forwarded. A Codex ChatGPT login is copied in;
-its hosts are allowed. What the run keeps (the learning material, the adapter) is scrubbed of key values. The adapter's
-modules, when the agent's code runs them (its tools, a CLI agent's deploy render), run in a nested strict sandbox. The
-result comes back on a pipe only the worker can write, and its `log` must lie where the call could write; a link is
-never followed. A Harbor task set (`agent.name: harbor`) runs in Harbor's container. `agent.timeout_min` stops a call
-that runs longer.
+its hosts are allowed. A Claude subscription (`login: claude`) copies nothing: `CLAUDE_CODE_OAUTH_TOKEN` passes by name
+for the call and `api.anthropic.com` is allowed. What the run keeps (the learning material, the adapter) is scrubbed of
+key values. The adapter's modules, when the agent's code runs them (its tools, a CLI agent's deploy render), run in a
+nested strict sandbox. The result comes back on a pipe only the worker can write, and its `log` must lie where the call
+could write; a link is never followed. A Harbor task set (`agent.name: harbor`) runs in Harbor's container.
+`agent.timeout_min` stops a call that runs longer.
 
 ### The judge: `judge.mode`
 
@@ -144,7 +145,8 @@ The learner works in `/w`: `/w/adapter`, `/w/material`, `/w/task-info`, `/w/hist
 `/w/output`, `/w/root`, `/w/method`, `/w/agent-logs` (the logs `run_agent` returns, read-only), and `evolver_access` as
 `/w/validation` and `/w/environment/<name>`; its prompt names them relative to `/w`. Its network reaches only its
 models (their providers' hosts, a meter on the loopback; their key variables pass), the Trainer's tool endpoint and the
-hosts below; a Codex ChatGPT login's hosts are added.
+hosts below; a login's hosts are added (a Codex ChatGPT login's; `api.anthropic.com` on `login: claude`, whose
+token passes by name with each session).
 
 | Setting | Effect |
 |---|---|

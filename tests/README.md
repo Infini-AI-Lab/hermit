@@ -22,16 +22,19 @@ under `methods/<name>/`. `core/test_selection.py` fails until it does, when a te
 framework module a shared layer or a method's tests import is not shared.
 
 A test marked `integration` runs an agent CLI installed on the machine (`codex`, `claude`) and holds what a release
-of it does; it is skipped unless `--integration` is given. Some methods' tests (`gepa`, `skillopt`, `harness2`,
-`rrsi`) skip themselves without the method's dependency group; the sandbox and MWM tests need Linux and a
-working bubblewrap, and some do not yet skip without it (CONTRIBUTING.md).
+of it does; it is skipped unless `--integration` is given (those that run Claude Code in its container also skip
+without Docker and the image `docker/claude/` builds, named by HERMIT_CLAUDE_IMAGE and HERMIT_CLAUDE_NETWORK). Some
+methods' tests (`gepa`, `skillopt`, `harness2`, `rrsi`) skip themselves without the method's dependency group; the
+sandbox and MWM tests need Linux and a working bubblewrap, and some do not yet skip without it (CONTRIBUTING.md).
 
 CI (`.github/workflows/tests.yml`) runs `--changed` on a pull request and the whole suite on main, daily and on
 demand.
 
 Shared helpers: the repository root's `conftest.py` (the options and the groups), `tests/conftest.py` (a private
-ChatGPT-login directory for every test), `fakes.py` (scripted
-models), `toy_task.py` (the toy task the Trainer tests run on), `fixtures/` (`pi/`: Pi's recorded streams, read by
+ChatGPT-login directory and Claude plan for every test, and no copy of the user's own sign-in), `fakes.py` (scripted
+models), `toy_task.py` (the toy task the Trainer tests run on), `claude_stand.py` (the stand-in `claude` that replays
+`fixtures/claude_streams/`, and the probe for a working bubblewrap, for core's and the methods' Claude tests),
+`fixtures/` (`pi/`: Pi's recorded streams, read by
 `core/test_pi_agent.py`).
 
 A new or changed test follows the [test checklist](../.agents/skills/prepare-pr/references/test-checklist.md): where it
