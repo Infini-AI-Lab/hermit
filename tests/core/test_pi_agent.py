@@ -32,7 +32,7 @@ import json, os, sys
 from pathlib import Path
 home = Path(os.environ["PI_CODING_AGENT_DIR"])
 files = {{p.name: p.read_text() for p in sorted(home.glob("*.json*")) if p.is_file()}}
-names = ("PI_CODING_AGENT_DIR", "HOME", "PI_OFFLINE", "PI_TELEMETRY", "FAKE_KEY")
+names = ("PI_CODING_AGENT_DIR", "HOME", "PI_OFFLINE", "PI_TELEMETRY", "PI_CODING_AGENT_SESSION_DIR", "FAKE_KEY")
 seen = {{"args": sys.argv[1:], "env": {{k: os.environ.get(k) for k in names}}, "files": files,
          "stdin": sys.stdin.read()}}
 with open(os.environ["FAKE_PI_SEEN"], "a") as f:
@@ -89,21 +89,23 @@ def test_a_bound_model_is_pis_provider_with_its_key_as_a_variable_in_the_dialect
     assert free["apiKey"] == "local"                       # a server that needs no key gets the placeholder
 
 
-def test_pi_runs_offline_in_its_home_with_its_model_and_the_tools_offered_directly(fake):
+def test_pi_runs_offline_in_its_home_with_its_model_and_the_tools_offered_directly(fake, monkeypatch):
     tmp_path = fake
     home, work = tmp_path / "home", tmp_path / "work"
     work.mkdir()
+    monkeypatch.setenv("PI_CODING_AGENT_SESSION_DIR", str(tmp_path / "elsewhere"))   # the caller's: not taken
     agent = make("pi", {**bound(), "web_search": False, "home": str(home), "log": str(tmp_path / "agent-pi.jsonl")})
     result = agent.run("-a prompt that starts with a dash", workspace=work, tools=[echo()])
     [call] = seen(tmp_path)
     assert call["args"][:6] == ["--mode", "json", "--provider", "hermit", "--model", "m-1"]
     assert call["args"][-2:] == ["--", "-a prompt that starts with a dash"]
     assert call["env"] == {"PI_CODING_AGENT_DIR": str(home), "HOME": str(home), "PI_OFFLINE": "1",
-                           "PI_TELEMETRY": "0", "FAKE_KEY": "sk-fake"}
+                           "PI_TELEMETRY": "0", "PI_CODING_AGENT_SESSION_DIR": "", "FAKE_KEY": "sk-fake"}
     models = json.loads(call["files"]["models.json"])["providers"]["hermit"]
     assert models["apiKey"] == "$FAKE_KEY" and "sk-fake" not in json.dumps(call["files"])
     [(server, entry)] = json.loads(call["files"]["mcp.json"])["mcpServers"].items()
     assert server == "hermit_tools" and entry["exposure"] == "direct" and entry["url"].startswith("http://127.0.0.1:")
+    assert entry["timeout"] == 1800                         # a Trainer tool runs longer than Pi's 60 s
     assert json.loads(call["files"]["settings.json"])["cacheWarming"] == "off"
     assert result.reply == "the answer" and result.exit_code == 0 and result.extra["served"]
     assert result.session == SESSION
@@ -131,6 +133,44 @@ def test_a_failed_request_fails_the_session_although_pi_exits_zero(fake, monkeyp
     assert [s.kind for s in result.trajectory] == ["error"] * 4
     assert result.trajectory[0].text.startswith("503: ")
 
+
+
+@pytest.mark.parametrize("event, old, new", [("message_end", '"stopReason":"stop"', '"stopReason":"length"'),
+                                             ("agent_settled", '"aborted":false', '"aborted":true')],
+                         ids=["cut at the limit", "aborted"])
+def test_a_cut_or_aborted_session_fails_although_pi_exits_zero(fake, monkeypatch, event, old, new):
+    """Pi's text mode exits 1 for a reply cut at the output limit and for an abort; its JSON mode exits 0."""
+    lines = (STREAMS / "success.jsonl").read_text().splitlines(keepends=True)
+    last = max(i for i, line in enumerate(lines) if f'"type":"{event}"' in line)
+    lines[last] = lines[last].replace(old, new)
+    (fake / "changed.jsonl").write_text("".join(lines))
+    monkeypatch.setenv("FAKE_PI_STREAM", str(fake / "changed.jsonl"))
+    work = fake / "work"
+    work.mkdir()
+    result = make("pi", {**bound(), "web_search": False, "home": str(fake / "home")}).run("go", workspace=work)
+    assert result.exit_code == 0 and result.extra["failed"]
+
+
+def test_a_model_bound_to_anthropic_costs_its_price_not_pis_figure(fake, monkeypatch):
+    """Claude Code's own cost is kept for an Anthropic model; Pi's is not: Pi counts a model its models.json gives
+    no cost as free, and the caller's price is not in that file."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fake")
+    work = fake / "work"
+    work.mkdir()
+    for price, cost in ((None, None), ({"input": 3.0, "cached_input": 0.3, "output": 15.0}, 0.00888)):
+        params = bind_agent_params({"model": "anthropic/claude-sonnet-4-5", "price": price}, "pi", registry())
+        result = make("pi", {**params, "web_search": False, "home": str(fake / "home")}).run("go", workspace=work)
+        assert result.usage[0].cost_usd == (pytest.approx(cost) if cost else None)
+
+
+def test_a_compactions_request_counts_as_a_call(tmp_path):
+    """Pi keeps the usage of a compaction's summary request in its `compaction_end`, not in a message."""
+    log = tmp_path / "events.jsonl"
+    usage = {"input": 900, "output": 100, "cacheRead": 100, "cacheWrite": 0, "cost": {"total": 0.5}}
+    log.write_text(json.dumps({"type": "compaction_end", "reason": "threshold", "aborted": False,
+                               "result": {"summary": "s", "usage": usage}}) + "\n")
+    [u] = base_cli.Pi.parse(log, "m")[1]
+    assert (u.input_tokens, u.cached_input_tokens, u.output_tokens, u.calls, u.cost_usd) == (1000, 100, 100, 1, 0.5)
 
 def test_a_resumed_session_is_opened_by_its_file_and_counts_only_its_new_usage(fake, monkeypatch):
     monkeypatch.setenv("FAKE_PI_STREAM", str(STREAMS / "resume.jsonl"))
@@ -203,7 +243,7 @@ def test_the_pi_acting_agent_deploys_the_adapter_and_trusts_its_project_for_the_
     [call] = seen(fake)
     assert "--approve" in call["args"] and out.output == "the answer" and out.extra["backend"] == "pi"
     mcp = json.loads((work / ".pi" / "mcp.json").read_text())["mcpServers"]
-    assert [entry["exposure"] for entry in mcp.values()] == ["direct"]
+    assert [(entry["exposure"], entry["timeout"]) for entry in mcp.values()] == [("direct", 120)]
     assert (work / ".pi" / "skills" / "verify-output" / "SKILL.md").is_file()
     assert "do it yourself" in (work / "AGENTS.md").read_text()      # roles stay files: Pi has no sub-agents
     assert (out.log / "agent-pi.jsonl").is_file()

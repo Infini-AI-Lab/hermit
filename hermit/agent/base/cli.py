@@ -1321,8 +1321,10 @@ class Pi(CliAgent):
 
     def home_env(self, home):
         """Every variable Pi reads goes here, so that it passes the sandbox's filter: its agent directory, its HOME
-        (Pi reads ~/.agents/skills), offline, no telemetry."""
-        return {"PI_CODING_AGENT_DIR": str(home), "HOME": str(home), "PI_OFFLINE": "1", "PI_TELEMETRY": "0"}
+        (Pi reads ~/.agents/skills), offline, no telemetry; a session directory of the caller's emptied, which Pi
+        reads as unset (its sessions stay in the home, where a resume finds them)."""
+        return {"PI_CODING_AGENT_DIR": str(home), "HOME": str(home), "PI_OFFLINE": "1", "PI_TELEMETRY": "0",
+                "PI_CODING_AGENT_SESSION_DIR": ""}
 
     @classmethod
     def user_home(cls) -> Path:
@@ -1343,7 +1345,8 @@ class Pi(CliAgent):
                 for model in provider.get("models") or []:
                     model["reasoning"] = True
             (home / "models.json").write_text(json.dumps({"providers": {PI_PROVIDER: provider}}, indent=1))
-        servers = {tools_name: {"url": tools_url, "exposure": "direct"}} if tools_url else {}
+        # A tool call may take minutes (a Trainer tool runs rollouts): Codex's tool_timeout_sec, not Pi's 60 s
+        servers = {tools_name: {"url": tools_url, "exposure": "direct", "timeout": 1800}} if tools_url else {}
         for name, data in (("mcp.json", {"mcpServers": servers}), ("settings.json", PI_SETTINGS)):
             _clear(home / name)
             (home / name).write_text(json.dumps(data, indent=1))
@@ -1389,12 +1392,22 @@ class Pi(CliAgent):
         return []
 
     def outcome(self, raw, stream, last_file):
-        """Pi's JSON mode exits 0 however the session ended: one whose last request failed or was aborted has failed."""
+        """Pi's JSON mode exits 0 however the session ended: one that did not settle, aborted, or whose last request
+        failed, was aborted or was cut at the output limit (Pi's text mode exits 1 for each) has failed."""
         notes, done = self.notices(raw), self.served(raw)
+        cut = self._last_assistant(raw).get("stopReason") == "length"
         return {"reply": self.last_message(stream, last_file), "served": done,
-                "unavailable": bool(UNAVAILABLE.search(notes)), "refused": False,
-                "failed": self._last_assistant(raw).get("stopReason") in ("error", "aborted"),
-                "failure": notes[-600:]}
+                "unavailable": bool(UNAVAILABLE.search(notes)), "refused": False, "failed": not done or cut,
+                "failure": (notes or ("the reply was cut at its output limit" if cut else "the session did not settle")
+                            )[-600:]}
+
+    def adjust_usage(self, home, handle, usage, resumed):
+        """A bound model's cost is left to its price (price_usage): Pi's own figure counts a model whose
+        models.json entry has no cost as free, and follows no price the caller gave."""
+        if self.settings.get("binding"):
+            for u in usage:
+                u.cost_usd = None
+        return usage
 
     @classmethod
     def last_message(cls, log, last=None):

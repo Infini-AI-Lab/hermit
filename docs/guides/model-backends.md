@@ -38,7 +38,8 @@ A reference's first segment is the backend; the rest is the model's id on it, wi
 uses (`fireworks/accounts/fireworks/models/glm-5p3-flash`, `vllm/Qwen/Qwen3-30B-A3B-Instruct-2507-FP8`). A
 backend may define aliases (`models: {qwen: Qwen/Qwen3-30B-A3B-Instruct-2507-FP8}`), so `vllm/qwen` works too.
 For Pi a reference becomes its `models.json` provider `hermit`: the backend's URL, the key as `$VARIABLE` (Pi reads it
-at each request, so no file holds the key), the backend's price (Pi's own cost figure follows it).
+at each request, so no file holds the key) and the backend's price. The cost recorded follows the price (the agent's
+own `price`, else the backend's), not Pi's own figure.
 
 A string whose first segment is no backend's name is not a reference: for a Codex or Claude Code agent it is a
 model of the CLI's own provider (`gpt-5.4`), as before. So a provider id that happens to start with a backend's
@@ -97,12 +98,12 @@ lab-sglang:                             # a new one, like the built-in sglang at
 
 ## Dialects: what Codex and Claude Code need
 
-The framework's own client, the react agent and the examples' task agents speak **chat completions**. The CLI
-agents do not: **Codex speaks the OpenAI Responses API only** (`wire_api = "chat"` is rejected since Codex 0.95),
-and **Claude Code speaks the Anthropic Messages API only**. A backend's `apis` says what it serves, and the
-framework checks a model's dialect against its backend before a run starts: `hermit check` reports it,
-`train` refuses to start on a mismatch, and `hermit backends check <ref>` sends one short request in each
-dialect (and lists `GET /models`) so a wrong claim shows up before anything is spent.
+The framework's own client, the react agent and the examples' task agents speak **chat completions**, and so does Pi
+where the backend serves them. Codex and Claude Code do not: **Codex speaks the OpenAI Responses API only**
+(`wire_api = "chat"` is rejected since Codex 0.95), and **Claude Code speaks the Anthropic Messages API only**. A
+backend's `apis` says what it serves, and the framework checks a model's dialect against its backend before a run
+starts: `hermit check` reports it, `train` refuses to start on a mismatch, and `hermit backends check <ref>` sends
+one short request in each dialect (and lists `GET /models`) so a wrong claim shows up before anything is spent.
 
 | Backend | chat | responses (Codex) | messages (Claude Code) |
 |---|---|---|---|

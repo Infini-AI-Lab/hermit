@@ -309,7 +309,7 @@ class Binding:
         """Pi's provider entry for this model (a `providers` value of its models.json): the backend's URL in the
         dialect Pi speaks to it, the key as `$VARIABLE`, which Pi reads at each request, so the file never holds the
         key (a placeholder for a server that needs none), and the model with its context window and the backend's
-        price, which Pi's own cost figure follows."""
+        price (the cost hermit records follows the price, not Pi's figure: Pi.adjust_usage)."""
         api = self.pi_dialect()
         key_env = self.key_env_if_set()
         model: dict = {"id": self.model}

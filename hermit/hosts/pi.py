@@ -52,7 +52,7 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
     audit = output / "tool-calls.jsonl"
     server = None
     if has_tools:
-        server = {"command": python, "exposure": "direct",
+        server = {"command": python, "exposure": "direct", "timeout": 120,     # Codex's tool_timeout_sec, not 60 s
                   "args": ["-m", "hermit.runtime.mcp_server", "--adapter", str(adapter), "--audit-log", str(audit)],
                   "env": {"PYTHONPATH": PACKAGE_ROOT}}
         if learning_material is not None:

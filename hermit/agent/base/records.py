@@ -91,14 +91,19 @@ def _add_claude_result(usage: Usage, event: dict) -> None:
 
 def _pi_event(event: dict, usage: Usage, session):
     """Pi: the session header's id, and each assistant message's usage as Pi kept it (`message_end`; the deltas'
-    running usage is left out). Pi's `input` leaves the cache out, so the input counted is input, cache reads and
-    cache writes, as Codex and Claude Code count it; its cost is Pi's own, at the price it was given. A request that
+    running usage is left out), and a compaction's request (`compaction_end`, whose summary is no message). Pi's
+    `input` leaves the cache out, so the input counted is input, cache reads and cache writes, as Codex and Claude
+    Code count it; its cost is Pi's own (for a bound model, Pi.adjust_usage leaves it to the price). A request that
     failed counts as a call only when it used tokens (Pi records each failed attempt it retries)."""
     if event.get("type") == "session":
         session = event.get("id") or session
     message = event.get("message") if isinstance(event.get("message"), dict) else {}
-    if event.get("type") == "message_end" and message.get("role") == "assistant" and \
-            isinstance(message.get("usage"), dict):
+    result = event.get("result") if isinstance(event.get("result"), dict) else {}
+    if event.get("type") == "compaction_end" and isinstance(result.get("usage"), dict):
+        message = {"usage": result["usage"]}
+    elif not (event.get("type") == "message_end" and message.get("role") == "assistant"):
+        return session
+    if isinstance(message.get("usage"), dict):
         u = message["usage"]
         cached = int(u.get("cacheRead") or 0)
         tokens = int(u.get("input") or 0) + cached + int(u.get("cacheWrite") or 0)

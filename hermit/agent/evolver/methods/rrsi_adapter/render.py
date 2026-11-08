@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from hermit.agent.base.trajectory import STREAMS, Step, claude_steps, codex_steps, events, log_steps
+from hermit.agent.base.trajectory import READERS, STREAM_HOSTS, STREAMS, Step, codex_steps, events, log_steps
 
 TASK_CAP = 6000
 OUTPUT_CAP = 2500
@@ -50,7 +50,7 @@ def _steps(trajectory: Path | None) -> list[Step]:
         hits = sorted(trajectory.rglob(name))
         if hits:
             stream = events(hits[0])
-            return claude_steps(stream) if name == STREAMS[1] else codex_steps(stream)
+            return READERS[STREAM_HOSTS[name]](stream) if name in STREAM_HOSTS else codex_steps(stream)
     return []
 
 
