@@ -373,7 +373,7 @@ def make_run(tmp: Path, params: dict) -> Config:
               "task_info": "task-info", "agent": {"name": "pipeline.py:run", "concurrency": 2},
               "judge": {"path": "judge.py"}, "template": str(TEMPLATE), "start_from": "start",
               "evolver": {"name": "opro", "params": params},
-              "sandbox": {"enabled": False, "network": "none", "env": []},
+              "sandbox": {"enabled": False},
               "trainer": {"run_name": "opro-toy", "output_dir": "runs", "epochs": 4, "budget": {"hours": 1}}}
     (tmp / "run.yaml").write_text(yaml.safe_dump(config))
     return Config.load(tmp / "run.yaml")
