@@ -1,0 +1,6 @@
+meta_prompt.py ports, function by function, code of google-deepmind/opro (https://github.com/google-deepmind/opro,
+commit a76bdce2cbf6d4a0d1e570a6fcfe17be9c2abdd7): opro/optimization/opt_utils.py (_bucketize_float,
+gen_ins_and_score_pairs_substr, the GPT-optimizer branch of gen_meta_prompt, the <INS> extraction of run_evolution)
+and opro/evaluation/eval_utils.py (polish_sentence, instruction_to_filename). evolver.py follows run_evolution's loop.
+The OPRO code is Copyright 2023 The OPRO Authors (Yang et al., "Large Language Models as Optimizers",
+arXiv:2309.03409), licensed under the Apache License, Version 2.0.
