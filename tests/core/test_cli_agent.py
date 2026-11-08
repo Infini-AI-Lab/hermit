@@ -1140,6 +1140,7 @@ def test_a_session_whose_bwrap_exits_before_the_relay_closes_its_report_listener
 def test_a_stopped_session_takes_a_descendant_in_a_session_of_its_own(tmp_path):
     """A session stopped at its timeout or on cancel ends with every process below it, one in a session of its own
     too (as a sandbox starts its program), with or without /proc."""
+    import signal
     import subprocess
     import time
     pid_file = tmp_path / "pid"
@@ -1147,20 +1148,29 @@ def test_a_stopped_session_takes_a_descendant_in_a_session_of_its_own(tmp_path):
                              "'-c', 'import time; time.sleep(60)'], start_new_session=True); "
                              f"open({str(pid_file)!r}, 'w').write(str(p.pid)); time.sleep(60)"],
                             start_new_session=True)
-    deadline = time.time() + 10
-    while not (pid_file.exists() and pid_file.read_text()) and time.time() < deadline:
-        time.sleep(0.05)
-    below = int(pid_file.read_text())
-    assert below in base_cli._descendants(proc.pid)
-    base_cli._stop(proc)
-    assert proc.poll() is not None
-    deadline = time.time() + 10
-    while time.time() < deadline:
-        try:
-            os.kill(below, 0)
-        except ProcessLookupError:
-            break
-        time.sleep(0.05)
-    else:
-        os.kill(below, 9)
-        raise AssertionError("the process in a session of its own outlived the stop")
+    below = None
+    try:
+        deadline = time.time() + 10
+        while not (pid_file.exists() and pid_file.read_text()) and time.time() < deadline:
+            time.sleep(0.05)
+        below = int(pid_file.read_text())
+        assert below in base_cli._descendants(proc.pid)
+        base_cli._stop(proc)
+        assert proc.poll() is not None
+        deadline = time.time() + 10
+        while time.time() < deadline:
+            try:
+                os.kill(below, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.05)
+        else:
+            raise AssertionError("the process in a session of its own outlived the stop")
+    finally:                                  # nothing left running, whatever failed
+        for group in (proc.pid, below):
+            if group is not None:
+                try:
+                    os.killpg(group, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass
+        proc.wait()
