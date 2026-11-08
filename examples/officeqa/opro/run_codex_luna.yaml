@@ -1,0 +1,63 @@
+# OfficeQA with OPRO in the GPT-5.6-Luna setting (the README's second column): GPT-5.6-Luna at medium effort acts
+# and optimizes on the machine's own ChatGPT login (`codex login`; no API key): the acting agent is Codex on the
+# login (`login: chatgpt`), and the optimizer is the same model, one Codex session per chat call
+# (`llm: {cli: codex}`). The image and the egress proxy: the recipe's "The Flash row with GPT-5.6-Luna".
+data:
+  tasks: ../utils/tasks.jsonl
+  train: ../utils/splits/train.txt
+  val: ../utils/splits/val.txt
+  test: ../utils/splits/test.txt
+  step_size: 50                        # every training question: one OPRO step per training step
+  shuffle_seed: 42
+task_info: ../utils/task-info/
+agent:
+  base: codex                          # Layer 2: Codex as a Base Agent (hermit/agent/base/cli.py)
+  concurrency: 4
+  params:                              # Layer 3: the Acting Agent with OfficeQA's task functions
+    prompt: ../utils/prompt.md
+    prepare: ../utils/task.py:prepare  # task.md and the corpus under docs/
+    answer: ../utils/task.py:answer    # the last <answer>...</answer>
+    collect: ../utils/task.py:collect  # task.md into the log
+    workspaces: ~/.cache/hermit/officeqa-opro-luna
+  model:                               # Layer 1
+    name: gpt-5.6-luna                 # a Codex model on the machine's ChatGPT login
+    login: chatgpt
+    effort: medium
+  codex:                               # Layer 2: how Codex runs
+    web_search: false                  # set explicitly: Codex's hosted search runs past the container
+    timeout_s: 3600
+    project_doc_max_bytes: 65536       # 64 KiB: the skill (up to 40 KB) with the deployment's notes; past
+                                       # Codex's default 32 KiB it would cut AGENTS.md (deploy refuses that)
+judge:
+  path: ../utils/judge.py
+template: prompt-only@1.0
+start_from: ../utils/seed_adapter     # SkillOpt's initial OfficeQA skill
+evolver:
+  name: opro
+  params:
+    question_field: question         # the problem as the authors show it: the question alone
+    n_candidates: 4
+    select: validation               # the best validation mean of the top 3 on training
+    top_k: 3
+llm:                                   # the optimizer: GPT-5.6-Luna at medium effort, the acting model
+  cli: codex                           # only Codex reaches the model: one session per chat call (base/endpoint.py)
+  model: gpt-5.6-luna
+  login: chatgpt
+  effort: medium
+  web_search: false
+  isolation: sandbox                   # a bubblewrap sandbox of its own: its empty workspace, the login's hosts
+  timeout: 3600                        # a Codex session answers more slowly than a chat completion
+environment:                         # the acting agent: Codex in a container of its own
+  image: "officeqa-codex:0.164.0"
+  container: {"network": "oq-sandbox", "proxy": "http://oq-egress-login:3128"}
+sandbox:
+  enabled: true
+trainer:
+  run_name: luna-opro
+  output_dir: runs
+  tree_dir: runs/trees/luna-opro
+  epochs: 3                            # OPRO steps
+  budget: {usd: null, hours: 24}
+  call_timeout_min: 720       # a step runs n_candidates x 50 questions
+eval:
+  repeats: 1

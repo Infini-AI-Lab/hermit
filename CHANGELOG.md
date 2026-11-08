@@ -50,6 +50,9 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   under Harbor's own venv. A Harbor task set's pipeline runs on the host, the task's container being its sandbox.
 - A test workflow (`.github/workflows/tests.yml`): a pull request runs the test groups it touches
   (`pytest --changed`); main, a daily schedule and a manual run run the whole suite.
+- The OPRO method (Yang et al., ICLR 2024, arXiv:2309.03409): the `opro` Evolver on the `prompt-only` template, one
+  OPRO step per training step, with the authors' meta-prompt verbatim; the optimizer is the run's `llm`
+  (`docs/methods/opro.md`). OPRO on OfficeQA: `examples/officeqa/opro/`, in the GPT-5.6-Luna setting.
 
 ### Changed
 

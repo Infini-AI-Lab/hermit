@@ -1,0 +1,22 @@
+description: OPRO, Optimization by PROmpting (Yang et al., ICLR 2024, arXiv:2309.03409; google-deepmind/opro) on the
+  `prompt-only` template, one OPRO step per training step. The run's `llm` tool reads OPRO's meta-prompt (the old
+  instructions with their training scores, ascending, and random training problems) and writes n_candidates new
+  instructions; each is scored with run_agent on every training task and joins the history. Set data.step_size to the
+  training split's size. finalize keeps the best on training, or the best on validation of the top_k on training.
+class: evolver.py:OPROEvolver
+needs: []
+params:
+  n_candidates: 8                 # new instructions per step, one optimizer call each (upstream: 8)
+  max_num_instructions: 20        # old instructions shown, the best ones (upstream: 20)
+  score_threshold: 0.0            # old instructions scoring below this are left out (upstream: 0.0 for text-bison
+                                  # scorers, 0.3 for GPT scorers)
+  num_score_buckets: 100          # scores shown as integers 0-100 (upstream: 100); null: rounded to 3 decimals
+  num_exemplars: 3                # random training problems per step (upstream: 3)
+  question_field: null            # the task field shown as the problem; null: the task's fields
+  success_score: 1.0              # a judge score at or above this shows the agent's answer as the exemplar's answer
+  max_instruction_chars: 0        # 0: no limit (upstream skips instructions over 500 characters)
+  select: validation              # validation: the best validation mean of the top_k on training; train: OPRO's
+  top_k: 3
+  max_tokens: null                # null: the endpoint's default (upstream: 512 for GPT optimizers)
+  temperature: 1.0                # upstream: 1.0
+  seed: 0
