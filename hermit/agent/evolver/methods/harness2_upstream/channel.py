@@ -97,7 +97,9 @@ class FrameworkProposer(Proposer):
         if result.log is None:              # never started: the plan held it past plan_max_wait_s, or no slot came
             return "", 0.0, f"not run: {result.extra.get('failure') or 'the session did not start'}"
         payload = _parse_json(_read_own(Path(result.log)))
-        text = str(payload.get("result") or payload.get("text") or "")
+        # A served session's reply as the Base Agent read it, as the Codex route takes it: the stream's final message
+        # whole, where the CLI's `result` keeps only the last part of a message it continued past its output limit.
+        text = result.reply if result.extra.get("served") else str(payload.get("result") or payload.get("text") or "")
         problem = ""
         if payload.get("is_error") or payload.get("subtype") not in (None, "success"):
             problem = f"CLI error: {payload.get('subtype')} {str(text)[:200]}"

@@ -82,8 +82,8 @@ def run_check(config: Config, *, probe: bool = True, log=print) -> bool:
         report(f"model: {who}", problems, note)
     # Subscriptions: whether each login's sign-in and CLI are there (no model call), and the spec of a model reached
     # through a CLI, which `train` would refuse only when it builds the endpoint.
-    for who, login, program, contained in subscription.logins_of(d, evolver_params):
-        report(f"login: {who}", subscription.problems_of(login, program, contained) +
+    for who, login, program, contained, root in subscription.logins_of(d, evolver_params):
+        report(f"login: {who}", subscription.problems_of(login, program, contained, root) +
                (subscription.evolver_problems(evolver_params) if who == "evolver" else []), login)
     params = d["agent"].get("params") or {}
     for who, spec in (("llm", d.get("llm")), ("agent's model", params.get("model"))):

@@ -33,6 +33,9 @@ def test_harness2s_claude_channel_signs_in_with_the_login(stand, tmp_path):
     stand.play("not_logged_in")
     with pytest.raises(LoginFailed):
         proposer._claude_cli(cwd, "the mission", "", wall=60)
+    # a reply the CLI continued past its output limit comes back whole: its `result` keeps only the last part
+    stand.play("cut_then_continued")
+    assert proposer._claude_cli(cwd, "the mission", "", wall=60)[:2] == ("part-one part-two", 0.0)
     (tmp_path / "plan" / "PAUSE").touch()                      # a session the plan never let start is no reply
     held = FrameworkProposer(spec=ChannelSpec(kind="claude_cli", model="claude-haiku-5-5"),
                              params={**params, "plan_max_wait_s": 0})

@@ -720,19 +720,23 @@ class CliAgent(BaseAgent):
                     return self._not_run("deadline", None)
                 result = self._session(prompt, workspace=workspace, tools=tools, limits=left, session=session,
                                        roles=roles)
-            report = result.extra.pop("plan_report", None)
-            if report is not None:                  # a report in the session's stream, not in its home
-                codex_login.note_usage(plan, None, report)
-                if report["using_credits"] and not s.get("usage_credits"):
-                    say("a session drew the account's usage credits, billed apart from the plan: sessions wait for the "
-                        "plan's window (usage_credits: true allows them)")
-                    # a hold for the sessions to come: this one does not wait on it
-                    codex_login.hold(plan, report["resets_at"], "usage_credits", cancel=cancel, max_s=0.0)
-            if result.extra.get("served") or not result.extra.get("refused"):
+                # What the session says of the plan is written before its slot is given back: a session waiting for
+                # the slot reads the plan the moment it has it, so with SLOTS: 1 the one after a session that drew
+                # credits (or was refused) is held, never started in between.
+                report = result.extra.pop("plan_report", None)
+                if report is not None:              # a report in the session's stream, not in its home
+                    codex_login.note_usage(plan, None, report)
+                    if report["using_credits"] and not s.get("usage_credits"):
+                        say("a session drew the account's usage credits, billed apart from the plan: sessions wait for "
+                            "the plan's window (usage_credits: true allows them)")
+                        # a hold for the sessions to come: this one does not wait on it
+                        codex_login.hold(plan, report["resets_at"], "usage_credits", cancel=cancel, max_s=0.0)
+                done = result.extra.get("served") or not result.extra.get("refused")
+                if not done:     # never ran: no answer; every session waits for the window (the refusal's reset)
+                    codex_login.hold(plan, until=result.extra.get("held_until") or None, cancel=cancel,
+                                     max_s=None if deadline is None else max(0.0, deadline - time.time()))
+            if done:
                 return result
-            # never ran: no answer; every session waits for the window (until the reset the refusal named, if it did)
-            codex_login.hold(plan, until=result.extra.get("held_until") or None, cancel=cancel,
-                             max_s=None if deadline is None else max(0.0, deadline - time.time()))
             if str(s.get("plan_rerun", True)).strip().lower() in ("false", "0", "no", "off"):
                 say("a session was refused for the plan's usage limit; it is returned (plan_rerun: false)")
                 return result

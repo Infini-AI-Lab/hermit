@@ -571,11 +571,12 @@ def _hold(plan: Path | str | None = None, until: float | None = None, why: str =
 
 # ---- what stops a run before its first session --------------------------------------------------------------------
 
-def logins_of(data: dict, evolver_params: dict | None = None) -> list[tuple[str, str, str | None, bool]]:
+def logins_of(data: dict, evolver_params: dict | None = None) -> list[tuple[str, str, str | None, bool, str | None]]:
     """Every subscription a run signs in to, from the normalized config: (who, login, the CLI's program if named,
     whether its sessions run in a container, with the image's CLI: the acting agent's with environment.image and the
     sandbox on, a model's through a CLI with isolation: container; never the learner's or its roles' (RRSI's, on the
-    learner's CLI), which run in the evolver sandbox on this machine's CLI)."""
+    learner's CLI), which run in the evolver sandbox on this machine's CLI; the Codex login's shared copy if named,
+    `login_root`). The program and the copy are the ones the sessions use: `bin`, or Harness²'s `claude_bin`."""
     params = (data.get("agent") or {}).get("params") or {}
     image = bool((data.get("environment") or {}).get("image")) and \
         bool((data.get("sandbox") or {}).get("enabled", True))          # agent_pipeline's container (ContainerAgent)
@@ -584,10 +585,12 @@ def logins_of(data: dict, evolver_params: dict | None = None) -> list[tuple[str,
     out = []
     for who, spec, contained in (("agent", params, image), ("agent's model", params.get("model"), None),
                                  ("llm", data.get("llm"), None), ("evolver", evolver_params, False),
-                                 ("evolver's roles", {"bin": learner.get("bin"), **roles}, False)):
+                                 ("evolver's roles", {"bin": learner.get("bin"), "login_root": learner.get("login_root"),
+                                                      **roles}, False)):
         if isinstance(spec, dict) and spec.get("login"):
-            out.append((who, spec["login"], spec.get("bin"),
-                        spec.get("isolation") == "container" if contained is None else contained))
+            out.append((who, spec["login"], spec.get("bin") or spec.get("claude_bin"),
+                        spec.get("isolation") == "container" if contained is None else contained,
+                        spec.get("login_root")))
     return out
 
 
@@ -611,16 +614,18 @@ def evolver_problems(params: dict | None) -> list[str]:
     return out
 
 
-def problems_of(login: str, program: str | None = None, contained: bool = False) -> list[str]:
-    """What stops a session on `login` before any request: no sign-in, no CLI, a CLI too old (the machine's; a session
-    in a container runs the image's, which the agent checks before its first session). Nothing here calls the model, or
+def problems_of(login: str, program: str | None = None, contained: bool = False,
+                root: Path | str | None = None) -> list[str]:
+    """What stops a session on `login` before any request: no sign-in (Codex's: the user's file or the shared copy under
+    `root`, the session's `login_root`, as `prepare` reads them), no CLI, a CLI too old (the machine's; a session in a
+    container runs the image's, which the agent checks before its first session). Nothing here calls the model, or
     reads a credential beyond whether it is there."""
     cli = LOGINS.get(login)
     if cli is None:
         return [f"login must be one of {sorted(LOGINS)}, not {login!r}"]
     if cli == "codex":
-        return [] if source().is_file() or master().is_file() else \
-            [f"login: chatgpt, but there is no Codex login at {source()} (run `codex login`)"]
+        return [] if source().is_file() or master(root).is_file() else \
+            [f"login: chatgpt, but there is no Codex login at {source()} or {master(root)} (run `codex login`)"]
     out = [] if os.environ.get(TOKEN_ENV) else [NO_TOKEN]
     if contained:
         return out

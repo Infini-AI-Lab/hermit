@@ -3,6 +3,7 @@ the run config, the `claude` Base Agent, the chat endpoint with the real client,
 and in a container of its own, the Trainer and its sandboxes, and the roles that used to be Codex's. The CLI is a
 stand-in that replays streams the real CLI printed (tests/fixtures/claude_streams); the last tests run the real CLI on
 a scripted local model when it is installed. No test uses a real login, and none reaches a real host."""
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -270,18 +271,41 @@ def test_a_session_in_a_container_needs_the_token_and_not_the_machines_cli(stand
     run's sandbox is on (with it off its pipeline runs on the host, on the machine's CLI). RRSI's roles sign in too."""
     data = {"agent": {"params": {"login": "claude"}}, "environment": {"image": "officeqa-claude:2.1.318"},
             "sandbox": {"enabled": True}, "llm": {"cli": "claude", "login": "claude", "isolation": "sandbox"}}
-    assert [(who, contained) for who, _, _, contained in subscription.logins_of(data)] == [("agent", True),
+    assert [(who, contained) for who, _, _, contained, _ in subscription.logins_of(data)] == [("agent", True),
                                                                                          ("llm", False)]
     off = {**data, "sandbox": {"enabled": False}}
-    assert [(who, contained) for who, _, _, contained in subscription.logins_of(off)] == [("agent", False),
+    assert [(who, contained) for who, _, _, contained, _ in subscription.logins_of(off)] == [("agent", False),
                                                                                         ("llm", False)]
     roles = subscription.logins_of({"agent": {"params": {}}}, {"roles": {"login": "claude"}})     # RRSI's sessions
-    assert [(login, contained) for _, login, _, contained in roles] == [("claude", False)]
+    assert [(login, contained) for _, login, _, contained, _ in roles] == [("claude", False)]
     assert subscription.problems_of("claude", "no-such-claude", contained=True) == []
     (stand.dir / "version").write_text("2.1.100 (Claude Code)")
     assert subscription.problems_of("claude", contained=True) == []
     monkeypatch.delenv(subscription.TOKEN_ENV)
     assert subscription.problems_of("claude", "no-such-claude", contained=True) == [subscription.NO_TOKEN]
+
+
+def test_the_check_reads_the_login_and_the_cli_the_sessions_use(stand, tmp_path, monkeypatch):
+    """The check before the first session reads what the sessions will: a Codex login kept only in the shared copy
+    under the session's `login_root` is a login (the session's home is given that copy), and Harness²'s `claude_bin` is
+    the CLI it checks, not a `claude` on PATH (before, both were refused at the start, though the sessions ran)."""
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "no-codex-home"))         # no user file
+    monkeypatch.setattr(subscription, "ROOT", tmp_path / "default-root")      # no copy where the default is
+    root = tmp_path / "own-root"
+    [(who, login, program, contained, named)] = subscription.logins_of(
+        {"agent": {"params": {"login": "chatgpt", "login_root": str(root)}}})
+    assert (who, named) == ("agent", str(root)) and subscription.problems_of(login, program, contained, named)
+    (root / "login").mkdir(parents=True)
+    (root / "login" / subscription.FILE).write_text("{}")
+    assert subscription.problems_of(login, program, contained, named) == []
+    assert subscription.problems_of(login, program, contained)                # the default's copy is still none
+    harness2 = {"login": "claude", "model": "claude-haiku-5-5", "claude_bin": str(stand.dir / "claude")}
+    [(who, login, program, contained, _)] = subscription.logins_of({"agent": {"params": {}}}, harness2)
+    assert (who, program) == ("evolver", str(stand.dir / "claude"))
+    monkeypatch.setenv("PATH", str(tmp_path / "no-bin"))                      # no `claude` on PATH
+    assert subscription.problems_of(login, program, contained) == []
+    (stand.dir / "version").write_text("2.1.100 (Claude Code)")               # the version is claude_bin's
+    assert "needs Claude Code 2.1.248 or later" in subscription.problems_of(login, program, contained)[0]
 
 
 # ---- a session -----------------------------------------------------------------------------------------------------
@@ -737,6 +761,29 @@ def test_a_session_on_usage_credits_holds_the_next_ones_unless_allowed(stand, tm
     assert subscription.held(tmp_path / "plan", credits=True) == ""
     result = session_agent(usage_credits=True, plan_max_wait_s=0).run("go", workspace=work)
     assert result.extra["served"] and "refused" in subscription.held(tmp_path / "plan")
+
+
+def test_a_credits_hold_is_written_before_the_session_gives_its_slot_back(stand, tmp_path, monkeypatch):
+    """With SLOTS: 1 the session waiting for the slot reads the plan the moment it has it: the hold of a session that
+    drew credits is in the plan before that session's slot is given back, so the next one waits instead of drawing them
+    too (the hold was written after, and a session that took the slot in between ran on credits as well)."""
+    plan = tmp_path / "plan"
+    plan.mkdir()
+    (plan / "SLOTS").write_text("1")
+    stand.play({"case": "usage_credits", "resets_in": 9000})
+    at_release, slot = [], subscription.slot
+
+    @contextmanager
+    def watched(*args, **kwargs):
+        with slot(*args, **kwargs) as got:
+            yield got
+            at_release.append(subscription.held(plan))     # what the next session sees when it takes this slot
+
+    monkeypatch.setattr(subscription, "slot", watched)
+    work = tmp_path / "w"
+    work.mkdir()
+    assert session_agent().run("go", workspace=work).extra["served"]
+    assert len(at_release) == 1 and "refused" in at_release[0]
 
 
 def test_a_refusal_after_a_credits_hold_holds_the_sessions_allowed_credits(tmp_path, monkeypatch):

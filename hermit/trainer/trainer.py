@@ -230,8 +230,8 @@ class Trainer:
         errors = needs_errors(self.config, self.spec.needs, self.evolver.supports_resume)
         for who, binding, api in bindings_of(d, self.params):
             errors += [f"{who}: {p}" for p in problems_of(binding, api)]
-        for who, login, program, contained in subscription.logins_of(d, self.params):
-            errors += [f"{who}: {p}" for p in subscription.problems_of(login, program, contained)]
+        for who, login, program, contained, root in subscription.logins_of(d, self.params):
+            errors += [f"{who}: {p}" for p in subscription.problems_of(login, program, contained, root)]
         errors += [f"evolver: {p}" for p in subscription.evolver_problems(self.params)]
         if errors:
             raise SystemExit("train refuses to start: " + "; ".join(errors))
