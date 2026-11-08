@@ -385,6 +385,44 @@ def test_without_a_container_a_mount_is_a_link(tmp_path):
     assert (source / "empty").is_dir() and (source / "link").is_symlink()      # nothing behind a link is touched
 
 
+@pytest.mark.parametrize("held_at", ["is_dir", "iterdir", "rmdir"])
+def test_a_mount_point_still_held_is_left_and_the_rest_tidied(tmp_path, monkeypatch, held_at):
+    """Docker Desktop can hold a bind mount's target a moment after its container exits (EACCES on reading or
+    removing it); tidying the kept workspace leaves that one directory and still removes the rest."""
+    work = tmp_path / "work"
+    (work / "docs" / "root_1").mkdir(parents=True)
+    (work / "empty").mkdir()
+    held = work / "docs" / "root_1"
+    real = getattr(Path, held_at)
+
+    def refuse(self, *args, **kwargs):
+        if self == held:
+            raise PermissionError(13, "Permission denied", str(self))
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, held_at, refuse)
+    cli._clean(work, [held])
+    monkeypatch.undo()
+    assert held.is_dir() and (work / "docs").is_dir() and not (work / "empty").exists()
+
+
+def test_a_directory_that_cannot_be_tidied_and_is_no_mount_point_fails_the_tidying(tmp_path, monkeypatch):
+    """Only a mount point is left untidied: a directory the session made and made unreadable could hold a link out
+    of the workspace, so tidying fails rather than keep it."""
+    work = tmp_path / "work"
+    (work / "locked").mkdir(parents=True)
+    real = Path.iterdir
+
+    def refuse(self):
+        if self == work / "locked":
+            raise PermissionError(13, "Permission denied", str(self))
+        return real(self)
+
+    monkeypatch.setattr(Path, "iterdir", refuse)
+    with pytest.raises(PermissionError):
+        cli._clean(work, [work / "docs" / "root_1"])
+
+
 def test_a_task_id_is_a_safe_directory_name(fake):
     out = cli.run({"id": "a/b c"}, None, params={"web_search": False, "prompt": "go", "workspaces": "ws"}, base=fake)
     assert out.log.parent.name.startswith("a_b_c-") and out.log.parent.parent == (fake / "ws").resolve()
