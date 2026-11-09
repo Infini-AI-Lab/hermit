@@ -35,7 +35,7 @@ import json, os, subprocess, sys
 args = sys.argv[1:]
 patches = {{args[i + 1]: open(args[i + 1]).read() for i, a in enumerate(args[:-1]) if a == "--patch"}}
 names = ("DSH_HOME", "HOME", "DSH_AGENTS_HOME", "DSH_TELEMETRY_DISABLED", "{base_cli.DSH_NO_KEY}", "FAKE_KEY",
-         "DSH_BUNDLED_SKILL_DIR", "DEEPSEEK_SEARCH_BASE_URL")
+         "DSH_BUNDLED_SKILL_DIR", "DEEPSEEK_BASE_URL", "DEEPSEEK_SEARCH_BASE_URL")
 seen = {{"args": args, "env": {{k: os.environ.get(k) for k in names}}, "patches": patches, "stdin": sys.stdin.read()}}
 with open(os.environ["FAKE_DSH_SEEN"], "a") as f:
     f.write(json.dumps(seen) + "\\n")
@@ -113,9 +113,12 @@ def test_a_bound_model_is_a_dsh_route_with_its_key_variable_in_the_dialect_the_b
 
 def test_dsh_runs_headless_in_its_home_with_its_model_and_the_tools_as_its_own(fake, monkeypatch):
     """Without the sandbox a session gets this process's environment: a dsh variable of the caller's (here a folder
-    of skills, and where its web search goes) does not reach it, so the session's settings are its own home's."""
+    of skills, and where DeepSeek's API is reached, for dsh's own provider and for its web search) does not reach it,
+    so the session's settings are its own home's. The call's tools are an MCP row whose server, if dsh cannot start
+    it, fails the session (failOnStartupError), and whose calls may take as long as a Trainer tool's rollouts."""
     tmp_path = fake
     monkeypatch.setenv("DSH_BUNDLED_SKILL_DIR", str(tmp_path / "callers-skills"))
+    monkeypatch.setenv("DEEPSEEK_BASE_URL", "http://127.0.0.1:9")
     monkeypatch.setenv("DEEPSEEK_SEARCH_BASE_URL", "http://127.0.0.1:9")
     home, work = tmp_path / "home", tmp_path / "work"
     work.mkdir()
@@ -129,11 +132,13 @@ def test_dsh_runs_headless_in_its_home_with_its_model_and_the_tools_as_its_own(f
     assert call["env"] == {"DSH_HOME": str(home), "HOME": str(home), "DSH_AGENTS_HOME": str(home / ".agents"),
                            "DSH_TELEMETRY_DISABLED": "1", base_cli.DSH_NO_KEY: "local",
                            "FAKE_KEY": "sk-fake", "DSH_BUNDLED_SKILL_DIR": None,   # none of the user's own skills
-                           "DEEPSEEK_SEARCH_BASE_URL": None}
+                           "DEEPSEEK_BASE_URL": None, "DEEPSEEK_SEARCH_BASE_URL": None}
     layer = rows(call, home)
     assert "sk-fake" not in json.dumps(layer)
-    assert {r["id"] for r in layer if r.get("disabled")} == {*base_cli.DSH_OFF, "tool-web"}
-    assert {"tool-subagent", "session-telemetry-otel", "session-title-llm"} <= set(base_cli.DSH_OFF)
+    assert {r["id"] for r in layer if r.get("disabled")} == {"session-telemetry-otel", "session-title-llm",
+                                                             "plugin-package-inventory-deepseek", "tool-subagent",
+                                                             "tool-subagent-fork", "tool-subagent-control",
+                                                             "tool-workflow", "tool-web"}
     assert row(layer, "session-log-deepseek")["config"] == {"enabled": False}
     route = row(layer, "llm-pi-ai")["config"]["providers"][base_cli.DSH_PROVIDER]
     assert route["apiKeyEnv"] == "FAKE_KEY" and route["models"] == [{"id": "m-1", "reasoningEfforts": {"high": "high"}}]
@@ -143,6 +148,7 @@ def test_dsh_runs_headless_in_its_home_with_its_model_and_the_tools_as_its_own(f
     [entry] = server["insert"]
     assert entry["name"] == "@deepseek-ai/dsh-mcp-client" and entry["config"]["serverName"] == "hermit_tools"
     assert entry["config"]["transport"] == "streamable-http" and entry["config"]["url"].startswith("http://127.0.0.1:")
+    assert entry["config"]["failOnStartupError"] is True and entry["config"]["toolCallTimeoutMs"] == 1_800_000
     assert result.reply == "the answer" and result.exit_code == 0 and result.extra["served"]
     assert not result.extra["failed"] and result.session == SESSION
     [usage] = result.usage
@@ -158,9 +164,10 @@ def test_dsh_runs_headless_in_its_home_with_its_model_and_the_tools_as_its_own(f
     assert result.trajectory[0] == trajectory.Step("reasoning", "Thinking it over.")
 
 
-def test_an_effort_is_a_level_the_bound_model_lists_and_off_is_a_model_that_does_not_reason(fake):
+def test_an_effort_is_a_level_the_bound_model_lists_and_off_asks_it_for_none(fake):
     """dsh refuses an effort its route does not list for the model (UNSUPPORTED_REASONING_EFFORT), and a list of
-    `off` alone (INVALID_CONFIG): effort off declares a model that does not reason, and gives no effort."""
+    `off` alone (INVALID_CONFIG): effort off declares the model with no levels and gives no effort, so dsh asks for
+    no reasoning level, which leaves the server's default (only dsh's own provider has a way to turn thinking off)."""
     work = fake / "work"
     work.mkdir()
     agent = make("dsh", {**bound(), "web_search": False, "home": str(fake / "home")})
@@ -172,9 +179,10 @@ def test_an_effort_is_a_level_the_bound_model_lists_and_off_is_a_model_that_does
         assert row(layer, "agent-default-model")["config"].get("reasoningEffort") == default
 
 
-def test_a_failed_run_is_an_error_and_an_outage_is_retried(fake, monkeypatch):
-    """dsh exits 1 for a run that did not complete; its error code tells an outage (SERVER, RATE_LIMIT, ...) from
-    a refusal, so the acting agent runs the task again only when the provider could not serve it."""
+def test_a_failed_run_is_an_error_and_only_an_outage_is_unavailable(fake, monkeypatch):
+    """dsh exits 1 for a run that did not complete; its error code tells an outage (the codes it retries, and a
+    stream the provider closed) from a refusal, and only an outage is `unavailable`: the acting agent runs the task
+    again only when the provider could not serve it."""
     monkeypatch.setenv("FAKE_DSH_STREAM", str(STREAMS / "failure.jsonl"))
     monkeypatch.setenv("FAKE_DSH_EXIT", "1")
     work = fake / "work"
@@ -187,8 +195,9 @@ def test_a_failed_run_is_an_error_and_an_outage_is_retried(fake, monkeypatch):
     refused = (STREAMS / "failure.jsonl").read_text().replace('"SERVER"', '"AUTH"').replace("dsh: SERVER:",
                                                                                          "dsh: AUTH:")
     assert not base_cli.UNAVAILABLE.search(base_cli.notices("dsh", refused))   # a bad key is no outage
-    closed = (STREAMS / "failure.jsonl").read_text().replace("SERVER", "STREAM_CLOSED")   # dsh does not retry it
-    assert base_cli.UNAVAILABLE.search(base_cli.notices("dsh", closed))
+    for code in ("RATE_LIMIT", "SERVER", "TIMEOUT", "TRANSPORT", "EMPTY_RESPONSE", "STREAM_CLOSED"):
+        outage = (STREAMS / "failure.jsonl").read_text().replace("SERVER", code)
+        assert base_cli.UNAVAILABLE.search(base_cli.notices("dsh", outage)), code
 
 
 def test_a_run_dsh_was_stopped_in_is_no_success_although_dsh_exits_0(fake, monkeypatch, tmp_path):
@@ -317,6 +326,9 @@ def test_an_effort_or_a_sandbox_dsh_has_not_is_refused_before_any_session(tmp_pa
     assert load("agent.model={name: deepseek-v4-flash, effort: max}", "sandbox.enabled=false")
     with pytest.raises(ValueError, match="agent.dsh.permission_mode is one of read-only, workspace-write"):
         load("agent.model=fake/m-1", "agent.dsh={permission_mode: bypass}")
+    assert load("agent.model=fake/m-1", "agent.dsh={instruction_files: true}")
+    with pytest.raises(ValueError, match="agent.dsh.instruction_files is not taken: the adapter's context reaches"):
+        load("agent.model=fake/m-1", "agent.dsh={instruction_files: false}")
 
     def problems(*more) -> list[str]:          # the Evolver's, from its params as the Trainer and the check have them
         config = load("agent.model=fake/m-1", *more)
@@ -329,9 +341,13 @@ def test_an_effort_or_a_sandbox_dsh_has_not_is_refused_before_any_session(tmp_pa
     assert problems(*layered, "evolver.model={ref: fake/m-1, effort: off}") == []
     assert problems(*flat, "evolver.params={model: fake/m-1, effort: xhigh}") == []
     assert problems("model=fake/m-1", *layered, "evolver.dsh={effort: high}") == []    # the run's model, its own
+    assert problems(*layered, "evolver.model=fake/m-1",                                    # what the Evolver uses
+                    "evolver.dsh={permission_mode: danger-full-access, instruction_files: false}") == []
     for more, said in (((*layered, "evolver.model={ref: fake/m-1, effort: ultra}"), "is one of off, minimal, low"),
                        ((*flat, "evolver.params={model: fake/m-1, effort: ultra}"), "is one of off, minimal, low"),
                        ((*flat, "evolver.params={effort: high}"), "evolver.model.effort needs evolver.model"),
+                       ((*flat, "evolver.params={model: deepseek-v4-flash, effort: medium}"),
+                        "is one of off, low, high, max for a model of dsh's own provider"),
                        ((*layered, "evolver.model=fake/m-1", "evolver.dsh={permission_mode: workspace-write}"),
                         "evolver.dsh.permission_mode is not taken"),
                        ((*flat, "evolver.params={model: fake/m-1, instruction_files: true}"),
@@ -590,8 +606,8 @@ def test_a_step_counts_as_a_call_whenever_it_made_one(tmp_path):
     usage for it; one that answered is a call even when the provider reported no usage, which dsh reports as zeros
     (no_usage.jsonl), and so is one dsh reports no usage for at all. A step dsh retried after the provider refused a
     request (retried.jsonl: a 503, then 1000 prompt tokens, 900 of them cached) reports its input and output but not
-    its cache counts, which its total holds: those tokens count as input, read from the cache or written to it, which
-    is unknown. parse_log reads a dsh stream as dsh's (it read every stream but Codex's as Claude Code's)."""
+    its cache counts, which its total holds: those tokens count as input, and the call as one whose tokens are known.
+    parse_log reads a dsh stream as dsh's (it read every stream but Codex's as Claude Code's)."""
     from hermit.agent.base.records import parse_dsh, parse_log
     assert parse_dsh(STREAMS / "failure.jsonl", "m")[1] == []
     assert parse_dsh(without_usage("failure.jsonl", tmp_path), "m")[1] == []
@@ -603,16 +619,19 @@ def test_a_step_counts_as_a_call_whenever_it_made_one(tmp_path):
     assert (unknown.calls, unknown.unreported_calls, unknown.input_tokens) == (1, 1, 0)
     [retried] = parse_dsh(STREAMS / "retried.jsonl", "m")[1]
     assert (retried.calls, retried.unreported_calls, retried.input_tokens, retried.cached_input_tokens,
-            retried.output_tokens) == (1, 1, 1000, 0, 10)
+            retried.output_tokens) == (1, 0, 1000, 0, 10)
 
 
 def test_calls_whose_tokens_were_not_reported_have_an_unknown_cost_not_a_free_one(fake, monkeypatch, tmp_path):
-    """dsh reports no cost, so the backend's price makes one from the tokens: a session with a call whose tokens it
-    did not report in full (a provider that reports no usage, an attempt that reported none, a step whose cache
-    counts dsh left out after a retry) cost what is unknown, which the run's budget counts as such, not $0.00 nor
-    the price of the rest, which may be far less (the successful attempt of a step whose usage dsh left out goes
-    unreported too). A session whose calls all reported tokens is priced from them. Only dsh's reader says so:
-    another CLI's call of no tokens (Claude Code's result of a refused request) keeps its price, $0.00."""
+    """dsh reports no cost, so the backend's price makes one from the tokens. A session with a call whose tokens it
+    did not report (a provider that reports no usage, an attempt that reported none) has an unknown cost (None), not
+    $0.00 nor the price of the rest, which may be far less (the successful attempt of a step whose usage dsh left out
+    goes unreported too): the run's budget counts its calls as of unknown cost, and none of its dollars. A session
+    whose tokens dsh reported is priced from them; a step whose cache counts dsh left out after a retry is priced
+    with those tokens as input, as a cache write is, never less than with the counts, so that a USD budget counts
+    the session. Only dsh's reader marks a call unreported: another CLI's call of no tokens (Claude Code's result of
+    a refused request) keeps its price, $0.00."""
+    from hermit.trainer.budget import Budget
     from hermit.agent.base.records import price_usage
     from hermit.agent.model.usage import Usage
     work = fake / "work"
@@ -624,13 +643,19 @@ def test_calls_whose_tokens_were_not_reported_have_an_unknown_cost_not_a_free_on
     lines[first] = json.dumps({k: v for k, v in json.loads(lines[first]).items() if k != "usage"})
     partial.write_text("\n".join(lines) + "\n")                  # one of six steps without usage
     for stream, tokens in ((STREAMS / "no_usage.jsonl", 0), (without_usage("success.jsonl", tmp_path), 0),
-                           (partial, 5000), (STREAMS / "retried.jsonl", 1000)):
+                           (partial, 5000)):
         monkeypatch.setenv("FAKE_DSH_STREAM", str(stream))
         [usage] = agent.run("go", workspace=work).usage
         assert usage.unreported_calls and usage.input_tokens == tokens and usage.cost_usd is None
     refused = [Usage(model="claude-x", calls=1)]
     price_usage(refused, {"price": {"input": 1.0, "output": 2.0}})
     assert refused[0].cost_usd == 0.0
+    monkeypatch.setenv("FAKE_DSH_STREAM", str(STREAMS / "retried.jsonl"))
+    [retried] = agent.run("go", workspace=work).usage
+    assert not retried.unreported_calls and retried.cost_usd == pytest.approx((1000 * 1.0 + 10 * 2.0) / 1e6)
+    budget = Budget(usd=0.001)
+    budget.add("rollout", retried)
+    assert budget.exceeded() and budget.unknown_cost_calls == 0
     monkeypatch.setenv("FAKE_DSH_STREAM", str(STREAMS / "resume.jsonl"))
     [usage] = agent.run("go", workspace=work).usage
     assert usage.input_tokens and usage.cost_usd == pytest.approx(
@@ -652,7 +677,7 @@ def test_a_model_whose_backend_declares_no_context_window_fails_with_what_to_dec
         result = make("dsh", {**bound(**backend), "web_search": False, "home": str(fake / "home")}).run(
             "go", workspace=work)
         assert result.extra["failed"] and "CONTEXT_WINDOW_EXCEEDED" in result.extra["failure"]
-        assert said.splitlines()[0] in result.extra["failure"]                        # dsh's error, whole
+        assert said.splitlines()[0] in result.extra["failure"]          # dsh's error line (this one fits whole)
         assert ("declare the backend's context_window" in result.extra["failure"]) is hinted
         assert result.usage == []                                  # the refused requests used nothing
 

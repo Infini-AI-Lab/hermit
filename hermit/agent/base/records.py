@@ -13,8 +13,8 @@ def price_usage(usage: list[Usage], params: dict) -> None:
     reported none. Claude Code reports a cost at Anthropic's prices; for a model bound to another backend that is not
     the bill, so the backend's price replaces it (no price: the cost is unknown). On a subscription (`login`) that
     figure is the same estimate at list prices, not what the session costs: none is kept. A usage that holds calls
-    whose tokens the CLI did not report, or not in full (`unreported_calls`), keeps an unknown cost: the price of
-    what was reported would not be the bill."""
+    whose tokens the CLI did not report (`unreported_calls`) keeps an unknown cost: its reported tokens' price would
+    be too little."""
     price = params.get("price")
     binding = params.get("binding") or {}
     foreign = bool(params.get("login")) or \
@@ -130,17 +130,19 @@ def _dsh_reader():
     """DeepSeek Harness: the session id (its opening `session` event), and each model step's usage (`status` events
     of phase `step_end`): the sum of its attempts' (a request dsh retried is an attempt). dsh's `inputTokens` leaves
     the cache out, so the input counted is input, cache reads and cache writes, as Codex and Claude Code count it. dsh
-    reports no cost: it is priced from the backend's price (price_usage). A step that produced nothing (its requests
-    all failed) is no call; one that produced a reply, a thought or a tool call is, even when its tokens are not
-    reported in full. Such a step is an unreported call, and the session's cost is unknown (price_usage), not the
-    price of what was reported:
-    - the provider reported no usage: dsh reports zeros, and the call adds no tokens;
-    - an attempt reported no usage at all (a stream that ended before its last event, an attempt a stop cut short, a
-      failed request of dsh's own provider): dsh leaves the step's usage out, and the call adds no tokens;
-    - an attempt reported no cache count (a request the provider refused, as for a rate limit dsh retried, reports
-      zeros, and a count of 0 is not reported): dsh leaves the step's cache counts out, which its `totalTokens`
-      still holds. What the total holds beyond the counts reported is counted as input; whether it was read from the
-      cache or written to it, which are priced apart, is unknown.
+    reports no cost: it is priced from the backend's price (price_usage), which prices a cache write as input.
+
+    A step that produced nothing (its requests all failed) is no call; one that produced a reply, a thought or a tool
+    call is, even when its tokens are not reported: the provider reported no usage (dsh then reports zeros), or an
+    attempt reported none at all (a stream that ended before its last event, an attempt a stop cut short, a failed
+    request of dsh's own provider: dsh then leaves the step's usage out). Such a step is an unreported call: it adds
+    no tokens, and the session's cost is unknown (price_usage), not the price of what was reported.
+
+    A step one of whose attempts reported no cache count (a request the provider refused, as for a rate limit dsh
+    retried, reports zeros, and pi-ai reports a count of 0 as none) has its cache counts left out by dsh, which its
+    `totalTokens` still holds. What the total holds beyond the counts reported is counted as input, priced as a cache
+    write is: the step's price is what it would be with the counts reported, or more if those tokens were read from
+    the cache, never less.
 
     What dsh's stream leaves out is not counted: a compaction's summary request, web searches (each a request of
     DeepSeek's own API), the title request (off in a session, hermit.agent.base.cli.DSH_OFF), sub-agents, and what a
@@ -169,7 +171,6 @@ def _dsh_reader():
         usage.cached_input_tokens += cached
         usage.output_tokens += output
         usage.calls += 1
-        usage.unreported_calls += 1 if dropped else 0
         return session
     return read
 

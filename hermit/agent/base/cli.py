@@ -71,11 +71,12 @@ Settings (given once; `configured(...)` for a call's own):
   model it does not know), append_system_prompt, effort (its --thinking level). Pi takes no roles, has no web search
   and runs under isolation none or sandbox.
   DeepSeek Harness (dsh) only: provider (its pi-ai route for a bound model, from the binding: Binding.dsh_provider),
-  image_input (as Pi's), effort (the default model's reasoningEffort; YAML's bare `off`, a boolean, is `off`),
-  permission_mode (its sandbox: read-only, workspace-write, the default, or danger-full-access; under workspace-write
-  the `writable` paths are granted to it with --add-dir), instruction_files (false: no AGENTS.md or CLAUDE.md of the
-  working directory or below it is given to the model; default true). dsh takes no roles here and runs under
-  isolation none or sandbox; `args` may hold its own options.
+  image_input (as Pi's), effort (the default model's reasoningEffort; YAML's bare `off`, a boolean, is `off`: dsh
+  then asks a bound model for no reasoning level, which leaves its server's default, and turns thinking off on its
+  own provider), permission_mode (its sandbox: read-only, workspace-write, the default, or danger-full-access; under
+  workspace-write the `writable` paths are granted to it with --add-dir), instruction_files (false: no AGENTS.md or
+  CLAUDE.md of the working directory or below it is given to the model; default true). dsh takes no roles here and
+  runs under isolation none or sandbox; `args` may hold its own options.
 
 Limits are enforced by the isolation, or the call is refused (Unsupported):
 
@@ -1510,10 +1511,10 @@ def dsh_problems(settings: dict, who: str) -> list[str]:
     """What every session of a dsh agent would refuse of its settings, found before the first one rather than at each
     session, after its task's or its learner step's rollouts: an effort its model's route has not (dsh's own, for a
     model of no binding, has fewer levels than a bound model's pi-ai route) or one with no model to take it; a sandbox
-    of dsh's own it has not. The Evolver runs dsh's sandbox off and gives its sessions no instruction file
-    (AgentEvolver.settings): a setting of either is refused rather than dropped. `settings` are the agent's params as
-    bound (the run's default model in; the Evolver's method's own params under the run's); `who` is its section of
-    the run config, agent or evolver."""
+    of dsh's own it has not. A setting the agent does not take is refused rather than dropped: the Evolver runs dsh's
+    sandbox off and gives its sessions no instruction file (AgentEvolver.settings), and the adapter's context reaches
+    the acting agent as its AGENTS.md. `settings` are the agent's params as bound (the run's default model in; the
+    Evolver's method's own params under the run's); `who` is its section of the run config, agent or evolver."""
     effort, mode = settings.get("effort"), settings.get("permission_mode")
     effort = "off" if effort is False else effort                       # YAML reads a bare `off` as false
     levels, route = (DSH_EFFORTS, "a bound model") if settings.get("provider") else \
@@ -1526,12 +1527,13 @@ def dsh_problems(settings: dict, who: str) -> list[str]:
     if who == "agent" and mode is not None and mode not in DSH_PERMISSION_MODES:
         out.append(f"agent.dsh.permission_mode is one of {', '.join(DSH_PERMISSION_MODES)} (dsh's own sandbox), "
                    f"not {mode!r}")
-    if who == "evolver" and mode is not None:
+    if who == "evolver" and mode not in (None, "danger-full-access"):
         out.append("evolver.dsh.permission_mode is not taken: the dsh Evolver runs dsh's own sandbox off "
                    "(danger-full-access), the evolver sandbox being the boundary, as for Codex")
-    if who == "evolver" and settings.get("instruction_files") is not None:
-        out.append("evolver.dsh.instruction_files is not taken: the dsh Evolver's sessions read no AGENTS.md (an "
-                   "adapter's is the acting agent's policy)")
+    if settings.get("instruction_files") not in (None, who == "agent"):         # what each takes: its default
+        out.append(f"{who}.dsh.instruction_files is not taken: " + (
+            "the adapter's context reaches the acting agent as its AGENTS.md" if who == "agent" else
+            "the dsh Evolver's sessions read no AGENTS.md (an adapter's is the acting agent's policy)"))
     return out
 
 
@@ -1570,9 +1572,11 @@ class Dsh(CliAgent):
 
     def dropped_env(self):
         """The caller's own dsh variables (`DSH_*`: another permission mode, a folder of skills, a telemetry endpoint,
-        a web provider, ...; and DEEPSEEK_SEARCH_BASE_URL, where its web search goes), which would change the session
-        without the sandbox: its own are home_env's."""
-        return tuple(name for name in os.environ if name.startswith("DSH_") or name == "DEEPSEEK_SEARCH_BASE_URL")
+        a web provider, ...; and the hosts of DeepSeek's API it reaches, DEEPSEEK_BASE_URL for its own provider's
+        requests and DEEPSEEK_SEARCH_BASE_URL for its web search), which would change the session without the
+        sandbox: its own are home_env's, and a variable the session is given (`env`) still passes."""
+        return tuple(name for name in os.environ
+                     if name.startswith("DSH_") or name in ("DEEPSEEK_BASE_URL", "DEEPSEEK_SEARCH_BASE_URL"))
 
     def prepare_home(self, home, roles, tools_url, tools_name):
         """The patch layer (DSH_PATCH): dsh's own rows, by their ids. A row's `config` replaces the row's, so a row is
@@ -1620,7 +1624,7 @@ class Dsh(CliAgent):
             provider = json.loads(json.dumps(s["provider"]))
             provider.setdefault("apiKeyEnv", DSH_NO_KEY)              # a server that needs no key: the placeholder
             for model in provider.get("models") or []:
-                if effort:       # a declared model reasons only at the levels it lists; off: it does not reason
+                if effort:       # a declared model is asked only the levels it lists; off: none, its server's default
                     model.setdefault("reasoningEfforts", False if effort == "off" else {effort: effort})
                 if s.get("image_input"):          # else dsh sends the model no image (a text-only model refuses them)
                     model["input"] = ["text", "image"]
@@ -1630,7 +1634,7 @@ class Dsh(CliAgent):
             default["provider"] = DSH_PROVIDER
         if s.get("model"):
             default["model"] = str(s["model"])
-            if effort and chosen.get("reasoningEfforts") is not False:    # a model that does not reason takes none
+            if effort and chosen.get("reasoningEfforts") is not False:    # a model declared with no levels takes none
                 default["reasoningEffort"] = effort
             rows.append({"id": "agent-default-model", "config": default})
         elif s.get("provider"):
@@ -1680,7 +1684,7 @@ class Dsh(CliAgent):
         failure = f"{down[0][0]} did not start, so the session ran without its tools: {down[0][1]}" if down else \
             notes or "the run did not finish (no completed `final` event)"
         if "CONTEXT_WINDOW_EXCEEDED" in notes and self.settings.get("binding") and \
-                not self.settings["binding"].get("context_window"):    # dsh's error (once), then what to do
+                not self.settings["binding"].get("context_window"):    # dsh's error line, then what to do
             hint = ("; the backend declares no context_window, so dsh sized the model by its own catalog or, for a "
                     "model it does not know, as 1,000,000 tokens with 128,000 output tokens a request, which a smaller "
                     "server refuses: declare the backend's context_window")
