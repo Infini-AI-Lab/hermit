@@ -656,6 +656,34 @@ def test_a_step_counts_as_a_call_whenever_it_made_one(tmp_path):
             retried.output_tokens) == (1, 0, 1000, 0, 10)
 
 
+
+
+def test_a_step_is_a_call_when_it_called_a_tool_or_thought_and_none_when_its_requests_then_failed(tmp_path):
+    """Which steps whose tokens dsh did not report are calls, from the recorded streams: a step whose only output is a
+    tool call (bash.jsonl's eight, recorded without reasoning) is one, and so is a step whose only output is a
+    thought (resume.jsonl's step without its reply); a step whose requests all failed (failure.jsonl's) after a step
+    that produced something is none: what a step produced does not carry over to the next."""
+    from hermit.agent.base.records import parse_dsh
+
+    def stream(name: str, events: list[dict]) -> Path:
+        path = tmp_path / name
+        path.write_text("".join(json.dumps(e) + "\n" for e in events))
+        return path
+
+    def read(name: str) -> list[dict]:
+        return [json.loads(line) for line in (STREAMS / name).read_text().splitlines() if line.startswith("{")]
+    [tools] = parse_dsh(without_usage("bash.jsonl", tmp_path), "m")[1]
+    assert (tools.calls, tools.unreported_calls) == (9, 9)
+    resume = read("resume.jsonl")
+    thought = [{k: v for k, v in e.items() if k != "usage"} for e in resume if e.get("type") != "text"]
+    [thinking] = parse_dsh(stream("thought.jsonl", thought), "m")[1]
+    assert (thinking.calls, thinking.unreported_calls) == (1, 1)
+    end = next(i for i, e in enumerate(resume) if e.get("phase") == "step_end")
+    failed = resume[:end + 1] + [e for e in read("failure.jsonl") if e.get("phase") in ("step_start", "step_end")]
+    [after] = parse_dsh(stream("failed_after.jsonl", failed), "m")[1]
+    assert (after.calls, after.unreported_calls, after.input_tokens) == (1, 0, 1000)
+
+
 def test_calls_whose_tokens_were_not_reported_have_an_unknown_cost_not_a_free_one(fake, monkeypatch, tmp_path):
     """dsh reports no cost, so the backend's price makes one from the tokens. A session with a call whose tokens it
     did not report (a provider that reports no usage, an attempt that reported none) has an unknown cost (None), not
@@ -663,8 +691,8 @@ def test_calls_whose_tokens_were_not_reported_have_an_unknown_cost_not_a_free_on
     goes unreported too): the run's budget counts its calls as of unknown cost, and none of its dollars. A session
     whose tokens dsh reported is priced from them; a step whose cache counts dsh left out after a retry is priced
     with those tokens as input, as a cache write is, never less than with the counts (the cached input being no
-    dearer than the input), so that a USD budget counts the session. Only dsh's reader marks a call unreported: another CLI's call of no tokens (Claude Code's result of
-    a refused request) keeps its price, $0.00."""
+    dearer than the input), so that a USD budget counts the session. Only dsh's reader marks a call unreported:
+    another CLI's call of no tokens (Claude Code's result of a refused request) keeps its price, $0.00."""
     from hermit.trainer.budget import Budget
     from hermit.agent.base.records import price_usage
     from hermit.agent.model.usage import Usage
