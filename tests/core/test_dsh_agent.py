@@ -586,22 +586,37 @@ def test_a_bash_result_is_read_as_dsh_marks_its_end():
 def test_a_command_whose_end_dsh_did_not_report_has_no_exit_code():
     """dsh's --json keeps 8 KiB of a string: a long result loses its end, where the marker is (recorded:
     big_bash.jsonl, 1,500 lines then exit 2), and read as exit 0 before; a command started in the background
-    (background.jsonl) has no status yet. A command that printed a marker of its own and exited 0 (fake_marker.jsonl)
-    is a clean exit, as dsh reads it: the marker counts only at the very end. A call that failed to run (a result
-    dsh marks `error`) has no exit status either, as dsh's own view of a bash result has none for it."""
+    (background.jsonl) has no status yet, nor has one still running at its timeout (60 s by default), which dsh moves
+    to a background job in a session unless its job limit is reached (promoted.jsonl): only DSH_BACKGROUND keeps it
+    from reading as exit 0. A command stopped from outside the call (the job stopped in dsh's UI) is marked
+    `[stopped: <reason>]` before any other marker, and may have trapped the signal and exited 0: no headless session
+    writes one, so its results are written here as dsh's bash tool renders them (tool-bash's render.ts,
+    dsh 0.2.2-rc.1). A command that printed a marker of its own and exited 0 (fake_marker.jsonl) is a clean exit, as
+    dsh reads it: the marker counts only at the very end. A call that failed to run (a result dsh marks `error`) has
+    no exit status either, as dsh's own view of a bash result has none for it."""
     def commands(name):
         stream = [json.loads(line) for line in (STREAMS / name).read_text().splitlines() if line.startswith("{")]
         return [s for s in trajectory.dsh_steps(stream) if s.kind == "command"]
+
+    def command(result, status="completed"):
+        [step] = trajectory.dsh_steps([
+            {"type": "tool_call", "callId": "call_0", "tool": "bash", "input": {"command": "make"}},
+            {"type": "tool_result", "callId": "call_0", "status": status, "result": result}])
+        return step
     [cut] = commands("big_bash.jsonl")
     assert cut.exit_code is None and cut.output.startswith("line 1 of a long build log\n")
     assert cut.output.endswith(trajectory.DSH_CUT) and "[exit code" not in cut.output
     [background] = commands("background.jsonl")
     assert background.exit_code is None and background.output.startswith("started background job ")
+    [promoted] = commands("promoted.jsonl")
+    assert promoted.exit_code is None and \
+        promoted.output.startswith("building\n[still running after 1000ms; moved to background job bash-")
+    for stopped in ("(no output)\n[stopped: cancelled by the user]",
+                    "cleaning up\n[stopped: cancelled by the user]\n[exit code: 143]"):
+        assert command(stopped).exit_code is None, stopped
     [printed] = commands("fake_marker.jsonl")
     assert (printed.exit_code, printed.output) == (0, "built\n[exit code: 7]\n")
-    [unrun] = [s for s in trajectory.dsh_steps([
-        {"type": "tool_call", "callId": "call_0", "tool": "bash", "input": {"command": "make"}},
-        {"type": "tool_result", "callId": "call_0", "status": "error", "result": "bash could not run"}])]
+    unrun = command("bash could not run", status="error")
     assert (unrun.kind, unrun.exit_code, unrun.output) == ("command", None, "bash could not run")
 
 

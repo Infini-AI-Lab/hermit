@@ -11,6 +11,10 @@ delta before each answer when it is asked for a reasoning effort.
 - `resume.jsonl`: the same session resumed (`--session-id`): one request.
 - `failure.jsonl`: every request answered 503; dsh retries five times, ends the run with the error `SERVER`, writes
   `dsh: SERVER: ...` on stderr (the last line, which the Base Agent keeps in the stream) and exits 1.
+- `promoted.jsonl`: bash `echo building; sleep 5` with `timeoutMs: 1000`, then the answer. The Base Agent's layer
+  leaves the `tool-bash` row's `promoteOnTimeout` at dsh's default, true, so at its timeout dsh moves the command to
+  a background job: the result is the output so far, then `[still running after 1000ms; moved to background job
+  <id>]`, with no exit marker.
 
 Recorded by running dsh directly (`dsh --profile headless --json --permission-mode danger-full-access`, with a patch
 layer like the Base Agent's) against a scripted chat-completions model:
