@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+import json
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -23,6 +24,34 @@ from hermit.agent.model.usage import Usage
 
 class Unsupported(ValueError):
     """A Base Agent cannot do what the call asks (a limit it cannot enforce, a setting that does not combine)."""
+
+
+LOGIN_FAILED = "hermit_login_failed"     # in a failure's text: it crosses a sandbox's worker and an endpoint as text
+
+
+def login_failure(exc: BaseException) -> str | None:
+    """What a failure says of a lost sign-in, or None: an endpoint error's body names it (`code`; the client's text
+    keeps only the start of the body), a sandbox's worker sends it as text."""
+    body = getattr(exc, "body", None)
+    if isinstance(body, (bytes, bytearray)):
+        try:
+            error = json.loads(body).get("error")
+        except (ValueError, AttributeError):
+            error = None
+        if isinstance(error, dict) and error.get("code") == LOGIN_FAILED:
+            return str(error.get("message") or "the sign-in cannot serve")
+    text = str(exc)
+    return text.split(f" [{LOGIN_FAILED}]")[0] if LOGIN_FAILED in text else None
+
+
+class LoginFailed(SystemExit):
+    """A subscription's sign-in cannot serve (no token, an expired or revoked one, a held account): no session will run
+    until the user restores it, and the tasks still to come would each fail the same way. The run ends here, unfinished
+    (`hermit train` resumes after the last step). A SystemExit: a method's or a benchmark's `except Exception` around a
+    model call never swallows it, and the command line ends with its message."""
+
+    def __init__(self, why: str):
+        super().__init__(f"{why} [{LOGIN_FAILED}]")
 
 
 @dataclass
@@ -70,6 +99,12 @@ class BaseAgent(ABC):
             limits: Limits | None = None, session: Any = None, roles: Sequence[dict] = ()) -> Result:
         """`prompt` is the instruction, or chat messages. `roles` are named sub-agents (name, description,
         instructions) the agent may delegate to, where it can."""
+
+    def instructed(self, system: str, prompt: str) -> tuple["BaseAgent", str]:
+        """(this agent for a call that takes `system` as its instructions, the prompt to give it): where a caller's
+        instructions go is the agent's own (Codex's developer instructions, Claude Code's system prompt)."""
+        raise NotImplementedError(f"the {self.name or type(self).__name__} Base Agent takes no instructions apart from "
+                                  "its prompt")
 
 
 def make(name: str, settings: dict | None = None, model: Any = None) -> BaseAgent:

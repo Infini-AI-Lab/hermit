@@ -12,7 +12,9 @@ tools limited to the question's source files, and Codex, a `codex exec` session 
 methods, Meta-Harness Adapter aside, are run a second time with Codex and GPT-5.6-Luna acting and learning on a
 ChatGPT login, the second column of the [Results](#results) table, where RRSI Adapter joins them, [ACE](ace/)
 also grows a playbook of bullets after that skill and [AHE Adapter](ahe_adapter/) evolves a Codex harness
-(system prompt, middleware, scripts, skills, sub-agents, memory) from it.
+(system prompt, middleware, scripts, skills, sub-agents, memory) from it. The no-skill evaluation is run a third time
+with Claude Haiku 5.5 acting in Claude Code on a Claude subscription, the third column, where Harness² is set up to act
+and learn the same way.
 
 ## Setup
 
@@ -93,34 +95,59 @@ python examples/officeqa/ahe_adapter/make_rows.py                               
 python examples/officeqa/ahe_adapter/make_seed.py                                                        # its H_0
 hermit train --config examples/officeqa/ahe_adapter/run_codex_luna.yaml                                  # 50 training questions x 2, ten iterations
 hermit eval  --config examples/officeqa/ahe_adapter/run_codex_luna.yaml --adapter final                  # the best-ever iteration
+hermit train --config examples/officeqa/opro/run_codex_luna.yaml                                         # OPRO: 3 steps of 4 instructions
+hermit eval  --config examples/officeqa/opro/run_codex_luna.yaml     --adapter final                     # the best validation of the top 3
 ```
 
 Sessions on the login share its plan; the files under `~/.cache/hermit/codex-login/plan/` steer every running session:
 `PAUSE` holds new ones back, `MAX_USED` caps the plan's usage (percent of its window), `SLOTS` caps the sessions at once
 on the machine. A session the plan refused is run again once the window resets, never scored.
 
+#### Claude Haiku 5.5 on a Claude subscription
+
+`skillopt/run_claude_haiku.yaml` and `harness2_stream/run_claude_haiku.yaml` are the luna configs with the agent and the
+models changed and nothing else of the protocol. Claude Haiku 5.5 at medium effort acts through Claude Code
+(`agent.base: claude`) on your own Claude subscription (`login: claude`: the token of `claude setup-token` in
+`CLAUDE_CODE_OAUTH_TOKEN`; no API key), and learns as Claude Code sessions on the same login (`llm: {cli: claude}`;
+Harness²'s editors, `evolver.params.backend: claude`). Each acting session runs in a container of its own
+(`environment.image`), as Codex's do: the image holds the machine's Claude Code, Claude Code's own sandbox holds the
+session's commands, and the egress proxy lets through api.anthropic.com only (build them once as the
+[recipe](../../docs/recipes/officeqa.md#claude-code-in-the-same-containers) shows). Each learner call is one Claude
+Code session in a bubblewrap sandbox of its own, as luna's are, and Harness²'s editors are Claude Code sessions in the
+evolver sandbox (the sign-in, the plan and the boundaries: [guide](../../docs/guides/claude-subscription.md)):
+
+```bash
+claude setup-token        # once; then export CLAUDE_CODE_OAUTH_TOKEN (read -r -s keeps it out of the history)
+hermit eval --config examples/officeqa/skillopt/run_claude_haiku.yaml --adapter none trainer.run_name=haiku-none
+CONFIG=run_claude_haiku.yaml examples/officeqa/harness2_stream/launch.sh             # Harness²
+```
+
+Sessions on the login share its plan, under `~/.cache/hermit/claude-login/plan/`, with the same files as Codex's.
+
 ## Results
 
-Agent and learner: GLM 5.3 Flash or GPT-5.6-Luna (reasoning effort medium), with Codex CLI 0.162.0 or 0.164.0 and one
-container per session. Each evaluation makes one pass over the 172 test questions.
+Agent and learner: GLM 5.3 Flash or GPT-5.6-Luna (reasoning effort medium) with Codex CLI 0.162.0 or 0.164.0, or Claude
+Haiku 5.5 (effort medium) with Claude Code 2.1.318, one container per session. Each evaluation makes one pass over the
+172 test questions.
 
 <table>
 <thead>
-<tr><th rowspan="2">Method</th><th colspan="2">Accuracy</th></tr>
-<tr><th>GLM 5.3 Flash</th><th>GPT-5.6-Luna</th></tr>
+<tr><th rowspan="2">Method</th><th colspan="3">Accuracy</th></tr>
+<tr><th>GLM 5.3 Flash</th><th>GPT-5.6-Luna</th><th>Claude Haiku 5.5</th></tr>
 </thead>
 <tbody>
-<tr><td>no skill</td><td>0.541</td><td>0.308</td></tr>
-<tr><td>initial skill</td><td>0.576</td><td>0.360</td></tr>
-<tr><td><b>GEPA</b></td><td>0.580</td><td>0.600</td></tr>
-<tr><td><b>SkillOpt</b></td><td>0.600</td><td>0.546</td></tr>
-<tr><td><b>Meta-Harness Adapter</b></td><td>0.640</td><td>not run</td></tr>
-<tr><td><b>RRSI Adapter</b></td><td>not run</td><td>0.616</td></tr>
-<tr><td><b>Continual Harness</b></td><td>0.634</td><td>0.477</td></tr>
-<tr><td><b>ReHarness</b></td><td>0.634</td><td>0.517</td></tr>
-<tr><td><b>Harness²</b></td><td>0.651</td><td>0.611</td></tr>
-<tr><td><b>ACE</b></td><td>not run</td><td>0.640</td></tr>
-<tr><td><b>AHE Adapter</b></td><td>not run</td><td>0.616</td></tr>
+<tr><td>no skill</td><td>0.541</td><td>0.308</td><td>0.599</td></tr>
+<tr><td>initial skill</td><td>0.576</td><td>0.360</td><td>not run</td></tr>
+<tr><td><b>GEPA</b></td><td>0.580</td><td>0.600</td><td>not run</td></tr>
+<tr><td><b>SkillOpt</b></td><td>0.600</td><td>0.546</td><td>not run</td></tr>
+<tr><td><b>Meta-Harness Adapter</b></td><td>0.640</td><td>not run</td><td>not run</td></tr>
+<tr><td><b>RRSI Adapter</b></td><td>not run</td><td>0.616</td><td>not run</td></tr>
+<tr><td><b>Continual Harness</b></td><td>0.634</td><td>0.477</td><td>not run</td></tr>
+<tr><td><b>ReHarness</b></td><td>0.634</td><td>0.517</td><td>not run</td></tr>
+<tr><td><b>Harness²</b></td><td>0.651</td><td>0.611</td><td>not run</td></tr>
+<tr><td><b>ACE</b></td><td>not run</td><td>0.640</td><td>not run</td></tr>
+<tr><td><b>AHE Adapter</b></td><td>not run</td><td>0.616</td><td>not run</td></tr>
+<tr><td><b>OPRO</b></td><td>not run</td><td>0.436</td><td>not run</td></tr>
 </tbody>
 </table>
 
@@ -143,6 +170,9 @@ Results use two settings:
   streams, through the framework's `codex` Base Agent with the adapter deployed (the streams' runs used this
   example's earlier Codex agent, `utils/agent/codex_agent.py`)
   ([`rrsi_adapter/run_luna.yaml`](rrsi_adapter/run_luna.yaml), [result](rrsi_adapter/#result)).
+  [OPRO](opro/) searches one `ADAPTER.md` from the initial skill on the 50, takes the best validation mean of its
+  top 3 and evaluates `final` once on the 172; one training, against the initial skill evaluated in the same setting
+  (0.355) ([result](opro/#result)).
 - **Test streaming:** [Continual Harness](../../docs/methods/continual_harness.md) and
   [Harness²](../../docs/methods/harness2.md) each process the 172 test questions once in the same order,
   updating the adapter as they go, without a separate training split or access to judge verdicts. These
@@ -183,6 +213,25 @@ used 2,100 rollouts and 148–179 M learner tokens. What differs from the GLM co
 differences and the check: the
 [recipe](../../docs/recipes/officeqa.md#the-flash-row-with-gpt-56-luna).
 
+The Claude Haiku 5.5 column is the no-skill evaluation with the model and the agent changed and nothing else of the
+protocol: Claude Haiku 5.5 acting in Claude Code on a Claude subscription, one container per session as in the luna
+column (`skillopt/run_claude_haiku.yaml --adapter none`), the same data, test questions, prompt, task functions and
+judge, one pass. It scores **0.599** [0.523, 0.669] (103 of 172), above both no-skill cells beside it, and most of the
+difference is again the answer's form: checked answer by answer as the luna column was, the share with the right value
+is 0.715, against 0.669 for luna's no skill (of the 69 misses, 20 have the right value in another form, 44 a wrong
+value, and in 5 the session said the corpus lacks an input and gave no value). Three earlier passes on earlier versions
+of this change scored 0.640 (in containers, before the review's last fixes) and 0.622 and 0.634 (in a bubblewrap sandbox
+instead of a container); none differs from this one beyond sampling (paired, −4.1 [−9.3, +1.2] at most), and both passes
+in containers have the value right in 0.715 of the questions. All four ran before the one sandbox design (#78), under
+its keys at the time: the containers were the acting agent's `isolation: container` (today `environment.image`), the
+bubblewrap sandbox the rollout role's (today the task sandbox). A fifth pass on this code after that change
+(`environment.image`, 2026-11-07) scores 0.616 [0.547, 0.686] (106 of 172), no error: against the four passes'
+mean per question, −0.7 [−4.9, +3.5]; the five average 0.622. Harness² is set up the same way
+(`harness2_stream/run_claude_haiku.yaml`: Claude Code runs the same tree, the editors are Claude Code sessions on the
+login); its stream (run `haiku-h2-s0`, from before the containers) was started and stopped during its third question,
+after the first two had run end to end, so its cell is empty. The sessions, the check and what the isolation refused:
+the [recipe](../../docs/recipes/officeqa.md#the-flash-row-with-claude-haiku-55).
+
 The earlier direct-chat runs (`run.yaml`, `stream.yaml`: SkillOpt's rollout, three passes) are in the recipe's
 [direct-chat table](../../docs/recipes/officeqa.md#results); they are not on this row.
 
@@ -191,18 +240,21 @@ The earlier direct-chat runs (`run.yaml`, `stream.yaml`: SkillOpt's rollout, thr
 ```text
 utils/agent/        OfficeQAAgent (agent.py): SkillOpt's rollout in direct chat, with ADAPTER.md as the skill
 utils/task.py       OfficeQA's task functions for the framework's Codex agent (task.md, the corpus, the answer), with
-                    utils/prompt.md; docker/codex/ builds the agent's image and egress proxy
+                    utils/prompt.md; docker/codex/ builds Codex's image and the egress proxy, docker/claude/ Claude
+                    Code's image
 utils/harbor/       the Codex harness through Harbor: build_tasks.py writes one Harbor task per question (private,
                     with the answers in tests/), judge.py is the exact-match judge run inside the container;
                     gepa/run_codex_harbor.yaml runs it (agent.name: harbor; recipe: "Through Harbor")
 utils/prepare.py    tasks.jsonl, the splits, data.json and seed_adapter/      utils/judge.py   SkillOpt's exact match
 utils/task-info/    the task for the learner
 gepa/ skillopt/     smoke.yaml and run.yaml per method, smoke_codex.yaml and run_codex.yaml for the Codex harness,
-                    run_codex_flash.yaml and run_codex_luna.yaml for the two columns of Results;
+                    run_codex_flash.yaml and run_codex_luna.yaml for the first two columns of Results, and
+                    skillopt/run_claude_haiku.yaml for the third (its no-skill evaluation);
                     adapter/ is the skill run.yaml trained (direct chat), with its .hermit/CARD.md
 harness2_stream/    Harness² under the paper's protocol, by the upstream code, with Codex as the acting agent
                     (run_codex.yaml, slots_codex.yaml; the framework's Codex agent with utils/task.py; the
-                    harness2-codex template); launch.sh starts a stream
+                    harness2-codex template), or Claude Code on the same tree (run_claude_haiku.yaml,
+                    slots_claude.yaml); launch.sh starts a stream
 reharness/          ReHarness: stream_codex.yaml (the 172 test questions as one stream, Codex as the acting agent),
                     run_codex_flash.yaml (the 50 as one stream, then the frozen bank on the 172), the direct-chat
                     smoke.yaml, run.yaml and stream.yaml; launch.sh starts the embedding relay and the command;
@@ -218,4 +270,7 @@ rrsi_adapter/       RRSI Adapter on the GPT-5.6-Luna column: run_luna.yaml and s
                     weights), domain.py and texts/ (the benchmark's rules and the roles' texts, adapted from
                     upstream's), trials.py and make_rows.py (two trials per training question as rows <id>#k),
                     make_seed.py
+opro/               OPRO on the prompt-only template: run_codex_luna.yaml and smoke_codex_luna.yaml in the
+                    GPT-5.6-Luna setting, starting from utils/seed_adapter/; adapter/ is the measured run's final
+                    instruction, with its .hermit/CARD.md
 ```

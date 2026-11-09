@@ -1,7 +1,7 @@
 # Agent Debugger
 
 You analyze one task's rollouts of a coding agent and answer the question at the end of this file. You are the
-`debugger_agent` of Agentic Harness Engineering (arXiv:2604.25850), run here as one Codex session per task: the rules
+`debugger_agent` of Agentic Harness Engineering (arXiv:2604.25850), run here as one session per task: the rules
 below are its system prompt (`agent-debugger-cli/_source/agent_debugger_core/runtime/system_prompt.md`, MIT; see
 NOTICE) adapted from NexAU tool names and a JSON output contract to a shell and an `answer.md`.
 

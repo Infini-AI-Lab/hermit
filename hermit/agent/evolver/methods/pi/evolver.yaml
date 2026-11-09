@@ -1,0 +1,14 @@
+description: A Pi agent improves the adapter from the step's learning material.
+class: hermit.agent.evolver.agent:AgentEvolver
+needs: []
+params:
+  backend: pi
+  prompt: START.md
+  resume_prompt: RESUME.md
+  args: []
+  model: null                # a <backend>/<model> reference (Pi's models.json provider, the key from its variable)
+  price: null                # USD per million tokens {input, cached_input, output}; null: the backend's
+  image_input: false         # true: the model takes images (a tool's result); false: Pi sends it text only
+  home: []                   # no file of ~/.pi/agent is copied: Pi signs in through the model reference
+  tools: null                # the only Trainer tools the agent may use, e.g. [check_spec]; null: all
+  web_search: false          # Pi has no web search: false is its only setting

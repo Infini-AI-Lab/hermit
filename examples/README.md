@@ -41,6 +41,7 @@ These show one part of the framework and report no number.
 | [`lean_swarm/`](lean_swarm/) | Check and deploy a finished adapter: five Codex agents prove one formal-conjectures theorem together; no training config |
 | [`docs/_examples/first_training/`](../docs/_examples/first_training/) | The whole loop offline, with a scripted learner and no model ([Quick Start](../docs/get-started/quickstart.md)) |
 | [`docs/_examples/first_model/`](../docs/_examples/first_model/) | A first training with a real model, on included data, without benchmark assets ([First real-model training](../docs/get-started/first-model.md)) |
+| [`claude_subscription/`](claude_subscription/) | Acting and learning on your Claude subscription with no API key: a text-reply learner, an acting pipeline on the same endpoint, and a workspace learner ([Claude subscription](../docs/guides/claude-subscription.md)) |
 
 The methods themselves are described in [`docs/methods/`](../docs/methods/).
 

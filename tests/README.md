@@ -10,7 +10,7 @@ python -m pytest --integration ...  # also the tests that run an agent CLI insta
 | Group | What it covers |
 |---|---|
 | `core/` | the framework: the Trainer, templates and `check_spec`, deployment and host exporters, the agent layers (Base Agents, CLI agents, model bindings), the sandbox and isolation, the generic AgentEvolvers |
-| `methods/<name>/` | one method: its Evolver, its template and its examples (`ace`, `ahe`, `continual_harness`, `evosafe`, `harness2`, `meta_harness_adapter`, `mwm`, `optimizers` for GEPA and SkillOpt, `reharness`, `rrsi_adapter`) |
+| `methods/<name>/` | one method: its Evolver, its template and its examples (`ace`, `ahe`, `continual_harness`, `evosafe`, `harness2`, `meta_harness_adapter`, `mwm`, `opro`, `optimizers` for GEPA and SkillOpt, `reharness`, `rrsi_adapter`) |
 
 `--changed` reads `selection.py`: `core/` runs for every change but documentation (its tests also read every
 method's template, manifest and packaging); a method's own files (its Evolver, its template, its examples, its tests)
@@ -22,16 +22,20 @@ under `methods/<name>/`. `core/test_selection.py` fails until it does, when a te
 framework module a shared layer or a method's tests import is not shared.
 
 A test marked `integration` runs an agent CLI installed on the machine (`codex`, `claude`) and holds what a release
-of it does; it is skipped unless `--integration` is given. Some methods' tests (`gepa`, `skillopt`, `harness2`,
-`rrsi`) skip themselves without the method's dependency group; the sandbox and MWM tests need Linux and a
-working bubblewrap, and some do not yet skip without it (CONTRIBUTING.md).
+of it does; it is skipped unless `--integration` is given (those that run Claude Code in its container also skip
+without Docker and the image `docker/claude/` builds, named by HERMIT_CLAUDE_IMAGE and HERMIT_CLAUDE_NETWORK). Some
+methods' tests (`gepa`, `skillopt`, `harness2`, `rrsi`) skip themselves without the method's dependency group; the
+sandbox and MWM tests need Linux and a working bubblewrap, and some do not yet skip without it (CONTRIBUTING.md).
 
 CI (`.github/workflows/tests.yml`) runs `--changed` on a pull request and the whole suite on main, daily and on
 demand.
 
 Shared helpers: the repository root's `conftest.py` (the options and the groups), `tests/conftest.py` (a private
-ChatGPT-login directory for every test), `fakes.py` (scripted
-models), `toy_task.py` (the toy task the Trainer tests run on), `fixtures/`.
+ChatGPT-login directory and Claude plan for every test, and no copy of the user's own sign-in), `fakes.py` (scripted
+models), `toy_task.py` (the toy task the Trainer tests run on), `claude_stand.py` (the stand-in `claude` that replays
+`fixtures/claude_streams/`, and the probe for a working bubblewrap, for core's and the methods' Claude tests),
+`fixtures/` (`pi/`: Pi's recorded streams, read by
+`core/test_pi_agent.py`).
 
 A new or changed test follows the [test checklist](../.agents/skills/prepare-pr/references/test-checklist.md): where it
 goes, how it is named and documented, what it asserts, and what it may touch.

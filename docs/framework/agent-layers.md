@@ -26,14 +26,17 @@ sandbox (`hermit/sandbox.py`).
 ## Layer 1: Model
 
 A model and the way to reach it: a `<backend>/<model>` reference (see [Model backends](../guides/model-backends.md))
-or a model name with a login (`login: chatgpt`), the reasoning effort and the price.
+or a model name with a login (`login: chatgpt` for Codex, `login: claude` for Claude Code), the reasoning effort and the
+price.
 
 API: `chat(messages, **request) → (message, usage)`, the chat-completions call of `hermit.agent.model.llm.ChatClient`
 (`request` holds the sampling and the tools). The Codex and Claude Code CLIs reach their model themselves; for them
 Layer 1 is the settings they are given (the binding, the login, the effort). Every Codex session on a ChatGPT login
 draws on the login's plan: it waits while the files under `~/.cache/hermit/codex-login/plan/` hold sessions back
 (`PAUSE`, a usage threshold in `MAX_USED`), takes one of the machine's session slots (`SLOTS`), keeps the plan's
-usage report, and is run again when the plan refused it (`hermit/agent/base/login.py`).
+usage report, and is run again when the plan refused it (`hermit/agent/base/login.py`). A Claude Code session on
+`login: claude` does the same under `~/.cache/hermit/claude-login/plan/`, signed in with the token the user exported
+([Claude subscription](../guides/claude-subscription.md)).
 
 ## Layer 2: Base Agent
 
@@ -45,6 +48,7 @@ How a model takes steps. Layer 2 holds only the framework's agents:
 | `react` | The framework's tool loop: call the model, run the tools it asks for, call it again |
 | `codex` | The Codex CLI, working in a workspace |
 | `claude` | The Claude Code CLI, working in a workspace |
+| `pi` | The Pi CLI, working in a workspace (no roles, no web search) |
 
 API, the only one Layer 3 sees:
 
@@ -53,6 +57,7 @@ agent = make("codex", settings, model)        # hermit.agent.base.interface
 agent.run(prompt, workspace=None, tools=(), limits=Limits(), session=None, roles=())
     → Result(reply, trajectory, usage, session, tool_calls, finish_reason, exit_code, timed_out, log, ...)
 agent.configured(**settings)                  # a copy with some settings changed, for one call
+agent, prompt = agent.instructed(system, prompt)   # a copy that takes `system` as its instructions (a CLI's own place)
 ```
 
 - `prompt`: what to do.
@@ -76,9 +81,10 @@ none), Codex's own sandbox mode, the CLI's home, the time limit (the full list i
 leaves the agent as it was. Running a task again when the provider could not serve it is Layer 3's: the workspace
 is placed anew first.
 
-Codex and Claude Code share one runner, `CliAgent`: the isolation, the home, the sign-in, the tool server and the
+Codex, Claude Code and Pi share one runner, `CliAgent`: the isolation, the home, the sign-in, the tool server and the
 process are the same for every CLI. Each CLI is a subclass whose hooks give what is its own: its command, its home,
-and how its event stream is read (the reply, the trajectory, the usage, whether the provider served it). A new CLI is
+and how its event stream is read (the reply, the trajectory, the usage, whether the provider served it, and what a
+session that was not served met: `outcome`). A new CLI is
 a subclass listed in `CLIS`, a reader of its stream in `hermit/agent/base/trajectory.py`, and its model binding in
 Layer 1.
 
@@ -93,8 +99,8 @@ What the Base Agent is used for. Two kinds:
   record).
 - The **Evolver Agent** learns. Its API to the Trainer is `step(ctx)` and `finalize(ctx)`. It reads the acting
   runs' trajectories and writes a new adapter, calling a Base Agent: `direct` for methods that decide every step in
-  their own code (GEPA, SkillOpt, ReHarness, Continual Harness), `codex` or `claude` for methods whose learner is an
-  agent (Meta-Harness Adapter, the `codex` and `claude` Evolvers). The run's model reaches an Evolver as
+  their own code (GEPA, SkillOpt, ReHarness, Continual Harness), `codex`, `claude` or `pi` for methods whose learner
+  is an agent (Meta-Harness Adapter, the `codex`, `claude` and `pi` Evolvers). The run's model reaches an Evolver as
   `ctx.agent`, a `direct` Base Agent metered against the budget; `ask(ctx.agent, messages, max_tokens=...)` returns
   the reply as the `llm` tool does.
 
@@ -106,11 +112,15 @@ or another, is given a local endpoint instead (`hermit/agent/base/endpoint.py`):
 relayed to the URL it would have reached with its body, key and reply unchanged (a streamed request is answered as a
 stream). CL-Bench's runner and ServeLearnBench's agent reach their model this way, through the launcher's meter as
 before. The same endpoint over a CLI Base Agent answers each request with one session of it (the system messages
-as its instructions, the rest as its prompt, its last message as the reply): `llm: {cli: codex, model: ...,
-login: chatgpt, ...}` makes the run's model one only the CLI reaches, such as a model on a ChatGPT login, for the
-Evolvers that call `ctx.agent` and the `llm` tool. Such a session works in an empty directory of its own: a chat call
-sees no files, so a role that is to read files runs a session itself (`make(...).run(prompt, workspace)`). Each call's
-event stream is kept under the run's `llm_sessions/`.
+as its instructions, the rest as its prompt, its reply as the reply): `llm: {cli: claude, model: ..., login: claude,
+...}` (or `cli: codex`, `login: chatgpt`) makes the run's model one only the CLI reaches, such as a model on a
+subscription, for the Evolvers that call `ctx.agent` and the `llm` tool, and `agent.model: {cli: ...}` the same for an
+acting pipeline, which sees a local URL. Such a session works in an empty directory of its own, in a bubblewrap
+sandbox of its own (`isolation: sandbox`, the default) or a container (`isolation: container`), and is given no tools
+(`text_only`): a Claude Code session can only reply, a Codex session can still run commands inside its sandbox. A chat
+call sees no files, so a role that is to read files runs a session itself (`make(...).run(prompt, workspace)`). What a
+session cannot do is refused, not dropped ([the model contract](../guides/claude-subscription.md#the-model-contract)).
+Each call's event stream is kept under the run's `llm_sessions/`.
 
 ## Tools
 
@@ -131,7 +141,7 @@ Each Base Agent offers the tools to the model in its own way:
 |---|---|---|
 | `direct` | Their schemas in the API request | Layer 3, which then calls `direct` again |
 | `react` | Their schemas in the API request | `react`, in its loop |
-| `codex`, `claude` | The framework's tool server, over MCP (streamable HTTP) | The tool server |
+| `codex`, `claude`, `pi` | The framework's tool server, over MCP (streamable HTTP) | The tool server |
 
 The tool server (`hermit/agent/base/tool_server.py`) is started for the one call and stopped after it. It carries a
 token in its URL, so that only the session it was started for can call it, and tells Codex to approve its tools
@@ -151,7 +161,7 @@ cannot enforce (`Unsupported`) rather than ignore it. For Codex and Claude Code:
 | Limit | In a container | In the run's sandbox | No isolation |
 |---|---|---|---|
 | `workspace` (read-write) | mounted read-write | as the sandbox shows it | the working directory |
-| `readable` (data, at its target; a relative target is in the workspace) | mounted read-only | shown read-only at its target (a bind) | linked into the workspace (not made read-only) |
+| `readable` (data, at its target; a relative target is in the workspace) | mounted read-only | shown read-only at its target (a bind) | Codex: linked into the workspace (not made read-only); Claude Code: bound there read-only by a nested bubblewrap, linked where bubblewrap cannot nest |
 | `hidden` (paths it must not see) | not mounted (refused inside the workspace or the data) | the sandbox is an allowlist: refused when the path lies in what the sandbox or the call shows | refused |
 | `network` (hosts besides the model; `None`: not limited) | `[]` only: the egress proxy's allowlist | `[]` only; refused when the network is open or the sandbox lets other hosts through | refused |
 | `timeout_s` | the container is removed | the process group is killed | the process group is killed |
@@ -159,7 +169,9 @@ cannot enforce (`Unsupported`) rather than ignore it. For Codex and Claude Code:
 A session is stopped the same way when the caller cancels it (the `cancel` setting) or is interrupted. `direct` and
 `react` read and write nothing and reach only their model, so `readable`, `hidden` and `network` hold for them; they
 refuse `timeout_s` (they cannot stop a model call midway: the client's own timeout applies), a workspace and roles. Codex's own sandbox mode is a setting: the Acting Agent keeps `workspace-write` (no network for
-the commands it runs), and the agent Evolver turns it off inside the run's sandbox, which is its boundary.
+the commands it runs), and the agent Evolver turns it off inside the run's sandbox, which is its boundary. In a
+container Claude Code's own sandbox runs too (`CLAUDE_SANDBOX` in `hermit/agent/base/cli.py`): the commands it runs
+have no network and write only the workspace and `/tmp`.
 
 ## Settings by layer
 
@@ -210,12 +222,14 @@ accepted; a key given in two layers is refused. On the command line a layer's se
 |---|---|---|
 | OfficeQA in Codex, every method | Acting Agent with OfficeQA's task functions (`utils/task.py`) | `codex` |
 | OfficeQA in direct chat | Acting Agent running SkillOpt's chat loop | `direct`, per turn |
-| GEPA, SkillOpt, ReHarness, Continual Harness | Evolver Agent | `direct` (`ctx.agent`) |
+| GEPA, SkillOpt, ReHarness, Continual Harness, OPRO | Evolver Agent | `direct` (`ctx.agent`); OPRO in OfficeQA: `codex` through `llm: {cli: codex}` |
 | Meta-Harness Adapter, `codex` and `claude` Evolvers | Evolver Agent | `codex` or `claude` |
-| RRSI Adapter | Evolver Agent: upstream's rules and roles, the proposer's prompt | `codex` or `claude` for the proposer; `codex`, one call per upstream `generate`, for the analyst, digesters and critic |
+| `pi` Evolver | Evolver Agent | `pi` |
+| RRSI Adapter | Evolver Agent: upstream's rules and roles, the proposer's prompt | `codex` or `claude` for the proposer, and the same, one call per upstream `generate`, for the analyst, digesters and critic |
+| AHE Adapter | Evolver Agent: the Evolve Agent and the Agent Debugger | `codex` or `claude`, one session per step and per task |
 | CL-Bench, ServeLearnBench | Acting Agent running the benchmark's loop | `direct`, per call, through the local endpoint |
-| MWM | Evolver Agent | `codex`, in a view of the run's sandbox with MWM's native mounts (`/w`, `/evidence`, ...) |
-| Harness² | Evolver Agent: upstream's proposer | `claude`, one call per upstream session |
+| MWM | Evolver Agent | `codex` or `claude`, in a view of the run's sandbox with MWM's native mounts (`/w`, `/evidence`, ...) |
+| Harness² | Evolver Agent: upstream's proposer | `claude`, one call per upstream session (or `codex`) |
 
 ## Outside the layers
 

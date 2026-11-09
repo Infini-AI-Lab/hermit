@@ -1,0 +1,43 @@
+# As run.yaml, with an acting pipeline that takes a model instead of working in a workspace: the framework's `react` agent,
+# whose model is a local endpoint in front of Claude Code (`agent.model: {cli: claude, ...}`). Each of its requests is one
+# session that can only reply, in a bubblewrap sandbox of its own started outside the task sandbox, which sees only the
+# endpoint's local URL. A pipeline fits this route when it needs text back: `react` here has no tools to offer; a
+# request with tools is refused (docs/guides/claude-subscription.md).
+data:
+  tasks: tasks.jsonl
+  train: train.txt
+  val: val.txt
+  test: test.txt
+  step_size: 3
+  shuffle: false
+task_info: task-info
+judge:
+  path: judge.py
+template: ace@1.0
+agent:
+  base: react
+  concurrency: 2
+  model: {cli: claude, model: claude-haiku-5-5, login: claude, effort: low, isolation: sandbox, timeout_s: 600, timeout: 700}
+  params:
+    prompt: Complete the user's request.
+llm:
+  cli: claude
+  model: claude-haiku-5-5
+  login: claude
+  effort: low
+  isolation: sandbox
+  timeout_s: 600
+  timeout: 700
+evolver:
+  name: ace
+  params:
+    max_num_rounds: 1
+    val_every: 0
+trainer:
+  run_name: claude-subscription-react
+  output_dir: runs
+  epochs: 1
+  call_timeout_min: 45
+  budget:
+    tokens: 1000000
+    hours: 1

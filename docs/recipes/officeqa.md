@@ -319,6 +319,26 @@ docker network connect oq-sandbox oq-egress-login
 cd -
 ```
 
+### Claude Code in the same containers
+
+Claude Code runs in this setup too ([the Flash row with Claude Haiku 5.5](#the-flash-row-with-claude-haiku-55)): a
+container per acting session on `oq-sandbox` (`environment.image`), an egress proxy of its own that lets through
+`api.anthropic.com` and nothing else, and Claude Code's own sandbox inside for the session's commands (bubblewrap, no
+network, writes to the workspace and `/tmp` only), as Codex's workspace-write sandbox runs in its. The image carries
+the machine's own Claude Code, one file of the version the image is named for; the login's token reaches Claude Code
+on a file descriptor, and the plan stays outside ([the guide](../guides/claude-subscription.md#execution-boundaries)).
+The learners' calls (`llm: {cli: claude, ...}`) are each one Claude Code session on the same login in a bubblewrap
+sandbox of its own, started by the Trainer (`isolation: container` gives it this image and proxy instead); Harness²'s
+editors are Claude Code sessions in the evolver sandbox (`evolver.params.backend: claude`):
+
+```bash
+cp ~/.local/share/claude/versions/2.1.318 docker/claude/claude      # the machine's Claude Code, the native build
+docker build --build-context codex=docker/codex -t officeqa-claude:2.1.318 docker/claude
+docker run -d --name oq-egress-claude --restart unless-stopped --read-only --network bridge officeqa-claude:2.1.318 \
+  python3 -u /opt/egress_proxy.py 3128 api.anthropic.com:443
+docker network connect oq-sandbox oq-egress-claude
+```
+
 ## ReHarness
 
 [ReHarness](https://arxiv.org/abs/2610.12668) (Xiao et al., 2026) learns a bank of reflections, one per question
@@ -493,6 +513,47 @@ Paired per question, 95% bootstrap intervals; bold where the interval lies above
   0.558 to 0.616: most of the gain is the answer's form.
 - Training pass@1 by iteration: 0.42, 0.61, 0.65, 0.66, 0.64, 0.64, 0.69, 0.67, 0.63, 0.65; no change was judged
   HARMFUL, so no automatic rollback ran.
+
+## OPRO
+
+[OPRO](https://arxiv.org/abs/2309.03409) (Yang et al., ICLR 2024) searches one instruction document, `ADAPTER.md` on
+the `prompt-only` template, from SkillOpt's initial skill (`utils/seed_adapter`). Its optimizer reads the best
+instructions scored so far with their training scores and three training problems, and writes four new ones per
+step, each scored on the 50 training questions; `final` is the best validation mean of the top 3 on training
+([OPRO](../methods/opro.md)).
+
+| Config | Steps | `run_name` | The number |
+|---|---|---|---|
+| `opro/smoke_codex_luna.yaml` | 2 | `smoke-luna-opro` | none: a smoke, 4 training questions |
+| `opro/run_codex_luna.yaml` | 3 | `luna-opro` | `mean_score` in `opro/runs/luna-opro/eval/final/summary.json` |
+
+Both are in [the GPT-5.6-Luna setting](#the-flash-row-with-gpt-56-luna): the acting sessions on the machine's
+ChatGPT login, the optimizer one Codex session per call (`llm: {cli: codex}`). The run below is one training with one
+evaluation pass, and one evaluation of the initial skill in the same setting.
+
+- Models: `gpt-5.6-luna` acting and learning, reasoning effort medium, on a ChatGPT login.
+- Harness: the Codex agent, a container per session, four at a time, 3,600 s each.
+- Data: the 50 / 24 / 172 split of SkillOpt `79124b3`, `data.shuffle_seed: 42`.
+- Spending: a subscription has no per-token price. The training took 2.4 h: 27.8 M tokens of training rollouts,
+  124.5 M of optimizer and candidate sessions. The evaluations took 30 min (`final`) and 57 min (the initial skill).
+
+| Adapter | accuracy | − the initial skill, points |
+|---|---|---|
+| the initial skill (`utils/seed_adapter`), this setting | 0.355 [0.285, 0.424] | |
+| OPRO `final` (candidate 2 of 13, validation 0.625) | 0.436 [0.366, 0.512] | **+8.1** [+1.7, +14.5] |
+
+Paired per question, 95% bootstrap intervals; bold where the interval excludes zero. 24 questions better and 10
+worse.
+
+- The difference is the answer's form. Answers that contain the reference value somewhere (an automatic reading that
+  misses some right values: [Results](#the-flash-row-with-gpt-56-luna)) are 118 for the initial skill and 112 for
+  OPRO; long or Markdown answers 55 and 13 of 172. OPRO's instruction ends "then return only the requested answer
+  format".
+- The training means are one pass each; the same instruction scored 0.54, 0.50 and 0.52 at the three steps.
+- The first evaluation of OPRO's `final` lost 10 of 172 answers to a pipeline error after the session had answered
+  (`PermissionError` tidying `docs/root_1`, fixed in the shared layer by a separate pull request); it was discarded
+  and the evaluation run again on the fix, as was the initial skill's. The training met the same error once; it was
+  run again and scored.
 
 ## Outputs and scoring
 
@@ -833,6 +894,91 @@ gains over the reference execution overlap GLM's intervals: they cannot be calle
   reconnects) as failure signatures in every step, where upstream sends tool failures to its sub-agent and skill
   passes only; the Refiner never sees the acting prompt, and from step 84 its policy banned the note writing that
   prompt asks for (the agent wrote notes in 83 of 83 sessions before, 8 of 89 after).
+
+### The Flash row with Claude Haiku 5.5
+
+The no-skill evaluation once more, with Claude Code 2.1.318 and Claude Haiku 5.5 (effort medium) acting on a Claude
+subscription instead of Codex on a ChatGPT login, in the same containers, and the Harness² stream set up to act **and**
+learn the same way. The
+[example's results](https://github.com/Infini-AI-Lab/hermit/tree/main/examples/officeqa#results) have the column and
+what it shows; `skillopt/run_claude_haiku.yaml` and `harness2_stream/run_claude_haiku.yaml` are the luna configs with
+the agent and the models changed, run with the commands in
+[Run](https://github.com/Infini-AI-Lab/hermit/tree/main/examples/officeqa#claude-haiku-55-on-a-claude-subscription)
+(the sign-in, the plan and the boundaries: [the guide](../guides/claude-subscription.md)). The data, the split, the
+seed skill, the judge, the prompt, the task functions, the Harness² stream order, H0, its parameters and stage prompts,
+the 3,600 s session clock and the one test pass are the luna column's. The runs below ran before the one sandbox design
+(#78), under its keys at the time: the acting agent's `isolation: container` with `container`, today
+`environment.image` and `environment.container`, and the rollout role's bubblewrap sandbox, today the task sandbox.
+What differs:
+
+| Setting | With GPT-5.6-Luna | With Claude Haiku 5.5 |
+|---|---|---|
+| acting agent | Codex 0.164.0 (`agent.base: codex`), a Docker container per session behind an egress proxy (chatgpt.com, auth.openai.com) | Claude Code 2.1.318 (`agent.base: claude`), a Docker container per session behind an egress proxy (api.anthropic.com): the image `officeqa-claude:2.1.318` ([Claude Code in the same containers](#claude-code-in-the-same-containers)) on the same network, with the same mounts and limits |
+| the agent's tools | Codex's code mode (a JavaScript `exec` tool calling `exec_command`), no web search; the commands had no network | Claude Code 2.1.318's default set (Bash, Read, Edit, Write, NotebookEdit, Task for sub-agents, Skill, ToolSearch and the rest it ships; no Glob or Grep in this build: search goes through Bash), WebSearch, WebFetch and the tools whose work outlives a session denied (the no-skill sessions called Bash and Read only); the commands ran in Claude Code's own sandbox, as Codex's in its, and had no network. The sessions also carry Claude Code's 17 built-in skills and 5 built-in agents: "no skill" is no adapter, not no skills |
+| sign-in and plan | `login: chatgpt`, a shared copy of the machine's Codex login; `~/.cache/hermit/codex-login/plan/` | `login: claude`, the token of `claude setup-token` in `CLAUDE_CODE_OAUTH_TOKEN`, to the container by name and to Claude Code on a file descriptor (no credential copied); `~/.cache/hermit/claude-login/plan/`, outside the containers, `MAX_USED` 90 during the runs |
+| no skill | SkillOpt's former Codex harness, 180 s sessions re-run up to 24 times without an `<answer>` (0.308) | the framework's agent (`skillopt/run_claude_haiku.yaml --adapter none`), 3,600 s, one session: no session reached 180 s (the longest 166.5 s) and every one answered, so the old harness's cap and re-runs would not have changed a question |
+| Harness² executions | Codex sessions, read by upstream's Codex renderer | Claude Code sessions, each in a container as above, running the same `harness2-codex` tree in its own places (`CLAUDE.md`, `.claude/skills/`, `.claude/agents/`, `.claude/settings.json`), read in upstream's grammar by `harness2_upstream/render.py`; Haiku's streams carry no thinking text, so the editors see no `[REASONING]` lines |
+| Harness² editors | Codex sessions (`backend: codex`, `login: chatgpt`) | Claude Code sessions (`backend: claude`, `login: claude`: upstream's `claude_cli` channel with Read, Write, Edit, Glob, Grep and Bash), told of upstream's Codex surface as before; `slots_claude.yaml` names Claude Code and its file tools where `slots_codex.yaml` names Codex's shell |
+| learner (`llm`) | `llm: {cli: codex, ...}`, one Codex session per call | `llm: {cli: claude, model: claude-haiku-5-5, login: claude}`, one Claude Code session per call that can only reply, in a bubblewrap sandbox of its own (`isolation: container` gives it the image and proxy above); no number below used it: the column is the no-skill evaluation, and the one learner call checked ran in a container |
+| run names | `luna-*` | `haiku-none` (`skillopt/runs/`), `haiku-h2-s0` (`harness2_stream/runs/`) |
+
+**No skill.** One pass (`--adapter none trainer.run_name=haiku-none`, 2026-11-05, every session in a container of its
+own): **0.599** [0.523, 0.669], 103 of 172, no error. The 172 sessions took 427 s, 8 at a time (13.7 s each at the
+median, 166.5 s at the longest, 4 turns at the median); they called Bash 637 times and Read 9 times, no other tool, and
+used 24.9 M tokens (20.5 M read from the prompt cache, 3.9 M written to it, 0.5 M of output; 97 K a question at the
+median). Claude Code's sandbox adds a section to each session's first message (how it is set up, and that a task that
+cannot be finished with what was given should say what is missing) and to the Bash tool's description: a session's first
+request was 18.9 K tokens at the median, against 15.6 K without it. Every session ran on the login
+(`apiKeySource: none`) and on Claude Haiku 5.5 alone (the CLI's `init` and `modelUsage`), none met a limit or drew usage
+credits, and no record holds the token. Three earlier passes, on earlier versions of this change, scored 0.640 [0.570,
+0.709] in containers, before the review's last fixes (they change a session's first request by one number), and 0.622
+[0.547, 0.692] and 0.634 [0.558, 0.703] in the rollout role's bubblewrap sandbox instead of a container, whose sessions
+were offered tools a session is now denied (all seven in the 0.634 pass, `ListAgents` and `SendMessage` in the 0.622
+one). The four average 0.624 (standard deviation 1.8 points). This pass less each, paired: −4.1 [−9.3, +1.2],
+−2.3 [−7.6, +2.9] and −3.5 [−8.7, +1.7]; the two passes in containers less the two without, per question: −0.9
+[−4.1, +2.3]. 89 questions are right in all four passes and 47 in none. The isolation moved the score no more than
+another sample does, and the samples differ in the answer's form, not in its value (below).
+
+**After the one sandbox design.** The same evaluation on this code after #78 (the acting agent's container from
+`environment.image` and `environment.container`, the learner in a bubblewrap sandbox of its own; 2026-11-07, run
+`haiku-none`): **0.616** [0.547, 0.686], 106 of 172, no error, 413 s at 8 at a time. Every session ran on the login
+and on Claude Haiku 5.5 alone, none on usage credits; Bash 655 and Read 9 calls; 26.0 M tokens (21.5 M read from the
+prompt cache; 88 K a question at the median); Claude Code's sandbox refused 13 connections to data hosts, the
+egress proxy let 519 through to `api.anthropic.com` and saw no other host; no record holds the token. Paired with
+the four passes above: +1.7 [−3.5, +7.0] against 0.599, −2.3 [−7.6, +2.9] against 0.640, −1.7 [−6.4, +3.5] against
+0.634, −0.6 [−5.8, +4.7] against 0.622, and −0.7 [−4.9, +3.5] against their mean per question; the five average
+0.622 (standard deviation 1.6 points). Its misses were not checked by hand.
+
+- **Where the points go.** The 69 misses were checked one by one, as the luna column's answers were (31 are the answer
+  an earlier pass gave to the same question, and kept its verdict):
+
+  | Cell | exact match | right value, other form | wrong value | no value | right value |
+  |---|---|---|---|---|---|
+  | Claude Haiku 5.5, no skill | 103 | 20 | 44 | 5 (the session said the corpus lacks an input) | 0.715 |
+  | GPT-5.6-Luna, no skill (above) | 53 | 62 | 53 | 4 (timed out) | 0.669 |
+
+  The 20 are a `%` the reference answer has or lacks (7), words or units around the value (6), trailing zeros (3), a
+  percent where the question asks for a decimal (2), a list separator (1) and a value not rounded as asked (1); four of
+  them (UID0160, 0225, 0089, 0120) are among the six reference answers that contradict the form their question asks for.
+  Both passes in containers have the value right in 0.715 of the questions (the 0.640 pass with 110 exact matches and 13
+  in another form), and the 0.622 pass, checked the same way, in 0.703: the passes differ in how often the value comes
+  in the judge's form, not in how often it is right. Without a skill Claude Haiku writes the value in the form the judge
+  accepts far more often than GPT-5.6-Luna, and has the value right a little more often (0.715 against 0.669, not
+  paired): its 29 points over luna's no skill are almost all the form, as the luna column's gains are.
+- **What the isolation refused.** The sessions' commands tried 14 connections, all for data the corpus lacks: FRED (7),
+  BLS (3), the World Bank (2), FRASER and Macrotrends. Claude Code's sandbox refused each inside the container, so none
+  reached the egress proxy, which let through 517 connections, all Claude Code's own to api.anthropic.com, and refused
+  none. The five sessions with no value each said which input they could not find or trust (a chart only in an image,
+  the January 2003 Aa yield, a 1968 gilt yield, 1961's unemployment rates, a 1959 exchange rate) instead of answering
+  without it.
+
+**Harness².** Not run in full. Its stream (run `haiku-h2-s0`, on this change before its review, with the executions in
+the rollout role's bubblewrap sandbox: before the containers) was started and stopped during its third question, with
+no summary. Its first two questions ran end to end: every stage on Claude Code sessions
+on the login, no stage falling back and no editor failing, and in the second the deliverable's composed skill deployed
+in `.claude/skills/` and called by its execution through Claude Code's Skill tool. A two-question smoke before it
+(`MAX_TASKS=2`, run `haiku-h2-smoke`) ran on a still earlier version, whose sessions had all of Claude Code's tools. The
+column has no Harness² cell.
 
 ## Included adapters
 

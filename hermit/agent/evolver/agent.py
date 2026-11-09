@@ -1,12 +1,15 @@
-"""AgentEvolver: a built-in agent (Codex or Claude Code) run on the workspace with a prompt; CommandEvolver: any program.
+"""AgentEvolver: a built-in agent (Codex, Claude Code or Pi) run on the workspace with a prompt; CommandEvolver: any
+program.
 
 AgentEvolver params:
-  backend: codex | claude
-  model: the model passed to the agent (optional: the agent's default); with `login: chatgpt`, Codex's model name
-         under the user's ChatGPT sign-in (the shared copy of it, hermit.agent.base.login, outside the run's
-         directory). A `<backend>/<model>` reference (see
-         hermit.agent.model.backends) binds it to that backend: the provider settings go into `args` (Codex) or `env`
-         (Claude Code) and `price` is taken from the backend
+  backend: codex | claude | pi
+  model: the model passed to the agent (optional: the agent's default); with `login`, the CLI's model name on the
+         user's subscription (hermit.agent.base.login: `chatgpt` for Codex, `claude` for Claude Code). A
+         `<backend>/<model>` reference (see
+         hermit.agent.model.backends) binds it to that backend: the provider settings go into `args` (Codex), `env`
+         (Claude Code) or `provider` (Pi's models.json entry) and `price` is taken from the backend
+  login, plan_dir, plan_max_wait_s, plan_rerun, usage_credits: the CLI's subscription and its plan
+         (hermit.agent.base.cli, hermit.agent.base.login; claude: the token in CLAUDE_CODE_OAUTH_TOKEN)
   env: environment variables set for the agent; a `$NAME` value is expanded from the environment at launch (Claude
        Code's ANTHROPIC_BASE_URL and token come from the binding this way, so the run's records hold no key)
   prompt: start prompt file, relative to the Evolver's directory (placeholders: {message} {epoch} {step} {adapter}
@@ -19,8 +22,8 @@ AgentEvolver params:
   tools: the only Trainer tools the agent may use (for example [check_spec]); null: all of them. With a list, the
          task message names no endpoint URL either
   web_search: the CLI's web search, true or false
-This is Layer 3 over the `codex` or `claude` Base Agent (docs/framework/agent-layers.md): it fills the prompt, picks
-the Trainer's tools and resumes the last session; the Base Agent runs the CLI in the run's evolver sandbox (the
+This is Layer 3 over the `codex`, `claude` or `pi` Base Agent (docs/framework/agent-layers.md): it fills the prompt,
+picks the Trainer's tools and resumes the last session; the Base Agent runs the CLI in the run's evolver sandbox (the
 workspace under /w, the paths in the prompt relative to it), with the tools as one MCP server (`evolver_tools`).
 """
 from __future__ import annotations
@@ -35,7 +38,7 @@ import subprocess
 
 import time
 
-from hermit.agent.base.interface import Limits, make
+from hermit.agent.base.interface import Limits, LoginFailed, make
 from hermit.agent.base.records import parse_log, price_usage   # noqa: F401 (re-exported)
 from hermit.agent.evolver.base import Context, Evolver, StepContext, StepResult, Usage
 
@@ -75,7 +78,7 @@ class AgentEvolver(Evolver):
     def step(self, ctx: StepContext) -> StepResult:
         params = ctx.params
         backend = params.get("backend", "codex")
-        if backend not in ("codex", "claude"):
+        if backend not in ("codex", "claude", "pi"):
             return StepResult("failed", f"unknown backend {backend!r}")
         if not isinstance(params.get("web_search"), bool):
             return StepResult("failed", "evolver.params.web_search must be set, true or false")
@@ -97,12 +100,17 @@ class AgentEvolver(Evolver):
         prompt = _fill((directory / prompt_file).read_text(), ctx)
         result = make(backend, self.settings(ctx, backend)).run(prompt, workspace=ctx.workspace.adapter.parent,
                                                                 tools=tools, limits=Limits(), session=ctx.session)
+        if result.extra.get("login_failed"):          # before a stop: a session that then hung is no step's failure
+            raise LoginFailed(f"evolver {backend}: {result.extra.get('failure')}")
         if ctx.cancel is not None and ctx.cancel.is_set():
             return StepResult("failed", "stopped by the Trainer", session=result.session, usage=result.usage)
         from hermit.sandbox import read_regular
         report = (read_regular(ctx.workspace.output / "report.md") or "").strip()   # never through a link or a pipe
         summary = report.splitlines()[0][:300] if report else f"{backend} session finished"
         code = result.exit_code
+        if code == 0 and result.extra.get("failed"):       # exit 0 with no result: its edit is not a finished one
+            return StepResult("failed", f"{backend} ended without a result: {result.extra.get('failure')}",
+                              session=result.session, usage=result.usage)
         return StepResult("done" if code == 0 else "failed", summary if code == 0 else f"{backend} exited with {code}",
                           session=result.session, usage=result.usage)
 
@@ -115,8 +123,10 @@ class AgentEvolver(Evolver):
         params = ctx.params
         env = {**(params.get("env") or {}),
                "PYTHONPATH": str(Path(__file__).resolve().parents[3]) + os.pathsep + os.environ.get("PYTHONPATH", "")}
-        return {**{k: params[k] for k in ("model", "binding", "login", "args", "price", "effort")
-                   if params.get(k) is not None},
+        return {**{k: params[k] for k in ("model", "binding", "login", "login_root", "plan_dir", "plan_max_wait_s",
+                                          "plan_rerun", "usage_credits", "args", "price", "effort", "provider",
+                                          "image_input")
+                   if params.get(k) is not None or (k == "plan_max_wait_s" and k in params)},   # None: no limit
                 "web_search": params["web_search"], "env": env,
                 "isolation": "sandbox" if ctx.sandbox is not None else "none", "sandbox": ctx.sandbox,
                 "codex_sandbox": "danger-full-access", "shell_env": "all",

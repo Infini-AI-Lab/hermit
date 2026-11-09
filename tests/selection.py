@@ -39,6 +39,7 @@ METHODS = {
     "meta_harness_adapter": ["hermit/agent/evolver/methods/meta_harness_adapter/*",
                              "hermit/adapter/templates/meta_harness_adapter/*", "examples/*/meta_harness_adapter/*"],
     "mwm": ["hermit/agent/evolver/methods/mwm/*", "hermit/adapter/templates/mwm/*", "examples/*/mwm/*"],
+    "opro": ["hermit/agent/evolver/methods/opro/*", "examples/*/opro/*"],
     "optimizers": ["hermit/agent/evolver/methods/gepa/*", "hermit/agent/evolver/methods/skillopt/*",
                    "examples/*/gepa/*", "examples/*/skillopt/*"],
     "reharness": ["hermit/agent/evolver/methods/reharness/*", "hermit/adapter/templates/reharness/*",
@@ -63,9 +64,10 @@ SHARED = ["hermit/agent/__init__.py", "hermit/agent/base/*", "hermit/agent/actin
           "hermit/task.py", "hermit/__init__.py", "hermit/adapter/templates/prompt_only/*",   # the toy task's
           "pyproject.toml", "conftest.py", "tests/conftest.py", "tests/fakes.py",
           "tests/toy_task.py", "tests/selection.py",
+          "tests/claude_stand.py", "tests/fixtures/claude_streams/*",   # the Claude stand-in: core's and the methods'
           ".github/workflows/tests.yml"]                    # how CI runs them: a change to it runs them all
 # the rest of the framework, the templates no method group owns, the documentation's examples: the core group
-CORE = ["hermit/*", "tests/core/*", "docs/_examples/*"]
+CORE = ["hermit/*", "tests/core/*", "tests/fixtures/pi/*", "docs/_examples/*"]
 # nothing to run: documentation, and files no test reads
 NONE = ["docs/*", "*.md", "tests/README.md", "LICENSE", "NOTICE", ".github/*", ".agents/*", "assets/*", ".gitignore"]
 

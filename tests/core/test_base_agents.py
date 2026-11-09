@@ -81,15 +81,14 @@ def test_a_cli_refuses_limits_it_cannot_keep(tmp_path, backend):
         make(backend, {}, None).run("go", workspace=tmp_path)
 
 
-def test_claude_takes_no_container_and_a_container_hides_nothing_it_is_given(tmp_path):
-    with pytest.raises(Unsupported, match="container runs Codex"):
-        make("claude", {"web_search": False, "isolation": "container"}).run("go", workspace=tmp_path)
+def test_a_container_hides_nothing_it_is_given(tmp_path):
     data = tmp_path / "data"
     data.mkdir()
-    with pytest.raises(Unsupported, match="lies in what the container is given"):
-        make("codex", {"web_search": False, "isolation": "container"}).run(
-            "go", workspace=tmp_path / "work", limits=Limits(readable=[Mount(data, Path("docs"))],
-                                                             hidden=[data / "answers"]))
+    for backend in ("codex", "claude"):                  # Claude Code's container is held to the same as Codex's
+        with pytest.raises(Unsupported, match="lies in what the container is given"):
+            make(backend, {"web_search": False, "isolation": "container"}).run(
+                "go", workspace=tmp_path / "work", limits=Limits(readable=[Mount(data, Path("docs"))],
+                                                                 hidden=[data / "answers"]))
     home = tmp_path / "home"                                               # the session's home is bound in too
     with pytest.raises(Unsupported, match="lies in what the container is given"):
         make("codex", {"web_search": False, "isolation": "container", "home": home}).run(
@@ -612,6 +611,58 @@ def test_without_isolation_data_is_linked_inside_the_workspace_only(tmp_path):
     assert (work / "docs").resolve() == new
 
 
+def test_without_isolation_claude_code_gets_data_bound_inside_the_workspace(tmp_path, monkeypatch):
+    """A search that walks the tree (`grep -r`, `find`, Claude Code's Glob and Grep) does not follow a link: without
+    isolation a mount inside a Claude Code workspace is bound there, a real read-only directory that `find` descends
+    into, as in a container (Codex keeps the link)."""
+    import os
+    from hermit.agent.base import cli as base_cli
+    if base_cli._bwrap_binds() is None:
+        pytest.skip("needs a working bubblewrap")
+    data, work, bin_dir, user = tmp_path / "data", tmp_path / "work", tmp_path / "bin", tmp_path / "user"
+    for d in (data / "deep", work, bin_dir, user):
+        d.mkdir(parents=True)
+    (data / "deep" / "a.txt").write_text("1934 557\n")
+    (work / "docs").symlink_to(tmp_path)                                   # a link an earlier call left
+    fake = bin_dir / "claude"
+    fake.write_text('#!/bin/sh\ncat > /dev/null\n{ find docs -name "*.txt"; [ -L docs ] && echo link; '
+                    'touch docs/new 2>/dev/null && echo writable; } > found.txt\n'
+                    'echo \'{"type":"result","subtype":"success","is_error":false,"result":"ok","num_turns":1}\'\n')
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("HOME", str(user))                                  # no sign-in of the user's to copy
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    result = make("claude", {"web_search": False}).run(
+        "go", workspace=work, limits=Limits(readable=[Mount(data, Path("docs"))]))
+    assert result.reply == "ok" and result.exit_code == 0 and result.extra["mounts"] == {str(work / "docs"): "bound"}
+    assert (work / "found.txt").read_text().split() == ["docs/deep/a.txt"]      # descended into; no link; read-only
+    assert (work / "docs").is_dir() and not (work / "docs").is_symlink() and not list((work / "docs").iterdir())
+
+
+def test_without_bubblewrap_claude_codes_data_is_linked_and_said_so(tmp_path, monkeypatch, capsys):
+    """Where bubblewrap cannot bind (no bwrap, no user namespaces), the mount is linked as for Codex, the result says so
+    and the process warns once: Claude Code's own Glob and Grep will not see inside it."""
+    import os
+    from hermit.agent.base import cli as base_cli
+    data, work, bin_dir, user = tmp_path / "data", tmp_path / "work", tmp_path / "bin", tmp_path / "user"
+    for d in (data, work, bin_dir, user):
+        d.mkdir(parents=True)
+    fake = bin_dir / "claude"
+    fake.write_text('#!/bin/sh\ncat > /dev/null\necho \'{"type":"result","subtype":"success","is_error":false,'
+                    '"result":"ok","num_turns":1}\'\n')
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setenv("HOME", str(user))
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    monkeypatch.setattr(base_cli, "_bwrap_binds", lambda: None)
+    monkeypatch.setattr(base_cli, "_WARNED", set())
+    for _ in range(2):
+        result = make("claude", {"web_search": False}).run(
+            "go", workspace=work, limits=Limits(readable=[Mount(data, Path("docs"))]))
+        assert result.extra["mounts"] == {str(work / "docs"): "linked"} and (work / "docs").is_symlink()
+    assert capsys.readouterr().err.count("linked, not bound") == 1
+
+
 def test_the_sandbox_shows_a_mount_at_its_target(tmp_path):
     """A mount is a bind in the run's sandbox: shown under its target (a relative one under the workspace), not at
     its own path."""
@@ -692,7 +743,7 @@ def test_a_login_sessions_plan_waits_come_off_its_callers_deadline(tmp_path, mon
     given = []
     monkeypatch.setattr(base_cli.codex_login, "wait", lambda *a: _time.sleep(2) or None)
     monkeypatch.setattr(base_cli.codex_login, "slot", lambda *a: contextlib.nullcontext(True))
-    monkeypatch.setattr(base_cli.codex_login, "held", lambda plan: False)
+    monkeypatch.setattr(base_cli.codex_login, "held", lambda plan, *_: False)
     agent = make("codex", {"web_search": False, "login": "chatgpt", "plan_dir": str(tmp_path / "plan"),
                            "deadline": _time.time() + 10}, None)
     monkeypatch.setattr(type(agent), "_session", lambda self, prompt, **kw: given.append(kw["limits"].timeout_s)
@@ -757,11 +808,11 @@ def test_the_logins_waits_never_sleep_past_what_the_caller_has_left(tmp_path, mo
     started = _time.time()
     assert L.wait(tmp_path, None, None, max_s=0.5) == "timeout"
     assert _time.time() - started < 5
-    def unwritable(plan=None):
+    def unwritable(*_, **__):
         raise OSError("read-only")
     monkeypatch.setattr(L, "_hold", unwritable)
     started = _time.time()
-    L.hold(tmp_path, threading.Event(), max_s=0.3)
+    L.hold(tmp_path, cancel=threading.Event(), max_s=0.3)
     assert _time.time() - started < 5
 
 

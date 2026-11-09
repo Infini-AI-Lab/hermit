@@ -1,0 +1,34 @@
+# As run.yaml, with a learner that works in a workspace: the `claude` Evolver, one Claude Code session per step that reads
+# the learning material and edits the adapter. It is the Base Agent's own route (tools, files, session continuation), in
+# the evolver sandbox (/w), which lets the session reach its model and nothing else.
+data:
+  tasks: tasks.jsonl
+  train: train.txt
+  val: val.txt
+  test: test.txt
+  step_size: 3
+  shuffle: false
+task_info: task-info
+judge:
+  path: judge.py
+template: prompt-only@1.0
+agent:
+  base: claude
+  concurrency: 2
+  model: {name: claude-haiku-5-5, login: claude, effort: low}
+  claude: {web_search: false, timeout_s: 600, retries: 2, retry_wait_s: 30}
+evolver:
+  name: claude
+  base: claude
+  model: {name: claude-haiku-5-5, login: claude, effort: low}
+  claude: {web_search: false}
+  params:
+    tools: [check_spec]
+trainer:
+  run_name: claude-subscription-workspace
+  output_dir: runs
+  epochs: 1
+  call_timeout_min: 30
+  budget:
+    tokens: 2000000
+    hours: 1

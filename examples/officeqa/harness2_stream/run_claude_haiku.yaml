@@ -1,0 +1,66 @@
+# OfficeQA with Harness² under the paper's own protocol on Claude Haiku 5.5 through Claude Code (set up for the README's
+# third column, not run in full): run_codex_luna.yaml with the agent and the models changed and nothing else of the
+# protocol. Claude Haiku 5.5 at medium effort acts and learns on the user's own Claude subscription (`claude
+# setup-token` once, the token exported as CLAUDE_CODE_OAUTH_TOKEN; no API key, no meter): the acting agent is Claude
+# Code on the login (`login: claude`), and so are the editors (`evolver.params.backend: claude` with `login: claude`:
+# upstream's claude_cli sessions, `claude -p`, on the model by its name), reaching api.anthropic.com through the evolver
+# sandbox's allowlist proxy. The executor runs the same harness2-codex tree from the same H0: Claude Code takes its
+# parts in its own places (AGENTS.md's text as CLAUDE.md, skills in .claude/skills, sub-agents in .claude/agents, hooks
+# in .claude/settings.json), and the editors read its event stream in upstream's grammar (harness2_upstream/render.py).
+# Each execution runs in a container of its own, as Codex's do: the image holds the machine's Claude Code
+# (docker/claude/Dockerfile), whose own sandbox holds the session's commands, and the egress proxy lets through
+# api.anthropic.com. Sessions on the login share the plan: the files under ~/.cache/hermit/claude-login/plan/ pause
+# them, cap the plan's usage and the sessions at once (hermit.agent.base.login). Started by launch.sh:
+# CONFIG=run_claude_haiku.yaml.
+data:
+  tasks: ../utils/tasks.jsonl
+  train: stream_s0.txt                 # launch.sh: upstream's order of ../utils/splits/test.txt for SEED
+  step_size: 1                         # one question per step
+  shuffle: false                       # the stream's own order
+task_info: ../utils/task-info
+agent:
+  base: claude                         # Layer 2: Claude Code as a Base Agent (hermit/agent/base/cli.py)
+  concurrency: 2                       # the INV and DOM probes of a question run side by side
+  params:                              # Layer 3: the Acting Agent with OfficeQA's task functions
+    prompt: ../utils/prompt.md
+    prepare: ../utils/task.py:prepare  # task.md and the corpus under docs/
+    answer: ../utils/task.py:answer    # the last <answer>...</answer>
+    collect: ../utils/task.py:collect  # task.md into the log
+    workspaces: ~/.cache/hermit/officeqa-h2-claude-haiku
+  model:                               # Layer 1
+    name: claude-haiku-5-5             # a Claude model on the user's Claude subscription, by its name
+    login: claude
+    effort: medium
+  claude:                              # Layer 2: how Claude Code runs
+    web_search: false                  # set explicitly: WebSearch and WebFetch denied (they run at Anthropic)
+    timeout_s: 3600                    # the paper's wall clock per execution
+judge:
+  path: ../utils/judge.py
+template: harness2-codex@1.1           # the same tree as the Codex columns: Claude Code takes each part in its place
+start_from: seed_adapter_codex         # H0 (launch.sh runs make_seed_codex.py)
+evolver:
+  name: harness2_upstream
+  params:
+    model: claude-haiku-5-5            # the editors' model, by its name on the login
+    backend: claude                    # upstream's claude_cli channel: Claude Code sessions (`claude -p`)
+    login: claude                      # on the user's subscription (CLAUDE_CODE_OAUTH_TOKEN): no key, no meter
+    effort: medium
+    k: 1
+    slots: slots_claude.yaml           # slots_codex.yaml naming Claude Code and its tools instead of Codex's shell
+    sources: sources.py:task_files
+    name: officeqa
+    leak_globs: ["answers.jsonl", "*.csv", "data.json"]  # not "*private*": "privately held debt" is a skill topic
+    verdict_markers: ["' but expected '"]                # the judge's feedback wording
+    probe_absent: []                                     # launch.sh: the answer files no session may see
+environment:                         # the acting agent: Claude Code in a container of its own
+  image: "officeqa-claude:2.1.318"
+  container: {"network": "oq-sandbox", "proxy": "http://oq-egress-claude:3128"}
+sandbox:
+  enabled: true                        # the editors' login host (api.anthropic.com) is allowed by itself
+trainer:
+  run_name: haiku-h2-s0
+  output_dir: runs
+  epochs: 1
+  call_timeout_min: 360                # one question's sessions and executions (executions up to 60 min each), retries included
+  save_freq: {steps: null, epochs: 1}
+  budget: {usd: null, tokens: null, hours: null}   # a session on a login has no price: usd would bound nothing

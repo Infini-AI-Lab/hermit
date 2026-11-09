@@ -1,4 +1,5 @@
-"""The Agent Debugger stage of the AHE Adapter (spec B.5): one Codex session per task over the step's rollouts.
+"""The Agent Debugger stage of the AHE Adapter (spec B.5): one CLI session (Codex or Claude Code) per task over the
+step's rollouts.
 
 Upstream (evolve.py:1216-1315, 1381-1543, 1722-1790) built one `TaskAnalysisJob` per task from the trial directories
 of a Harbor job and asked `adb ask` — a NexAU agent with a 20-iteration budget — one question per task, the first
@@ -22,8 +23,8 @@ text when every attempt failed. Here the same three phases run on Hermit's learn
    first, a Harbor trial's as the fallback). The middleware's per-session state (`hook-state/` in the log) is not
    copied: upstream's Debugger read the traces and the verifier output alone, and the Evolve Agent reads the state
    in the learning material, where START.md and the evolution query name it.
-3. `run_jobs(jobs, ctx, params, base=...)` — each attempt is one call of the codex Base Agent (Layer 2,
-   hermit.agent.base): `make("codex", settings).run(question, workspace=job_dir)`, with the Evolve Agent's settings
+3. `run_jobs(jobs, ctx, params, base=...)` — each attempt is one call of the Evolver's CLI Base Agent (Layer 2,
+   hermit.agent.base): `make(backend, settings).run(question, workspace=job_dir)`, with the Evolve Agent's settings
    (`base`: the run's sandbox as the isolation and Codex's own sandbox off, the login and its plan, web search, the
    price) and the Debugger's own model, effort, program and clock, the clock a deadline over the whole attempt (a wait
    for the login's plan included, as upstream's subprocess timeout) that the Trainer's cancel also sets; the question
@@ -49,7 +50,7 @@ import shutil
 import threading
 import time
 
-from hermit.agent.base.interface import make
+from hermit.agent.base.interface import LoginFailed, Unsupported, make
 from hermit.agent.base.trajectory import CODEX_STREAM, STREAMS, log_steps
 from hermit.agent.evolver.base import Usage
 from hermit.agent.evolver.methods.ahe_adapter import trajectory as _trajectory
@@ -175,7 +176,7 @@ def trace_source(log: Path | None) -> tuple[Path, str] | None:
 
 
 # The texts the learners read name the acting agent's event stream as the framework's Codex agent keeps it; with
-# another acting agent the same sentences name its own (the Debugger and the Evolve Agent run on codex either way).
+# another acting agent the same sentences name its own (the Debugger and the Evolve Agent run on the Evolver's CLI).
 STREAM_TEXTS = {"agent-claude.jsonl": (("agent-codex.jsonl", "agent-claude.jsonl"),
                                        ("the raw Codex event stream", "the raw Claude Code event stream"),
                                        ("the Codex event stream", "the Claude Code event stream"),
@@ -346,7 +347,7 @@ def prepare_job_dir(job: Job, scratch: Path, params: dict | None = None, texts=N
     return job_dir
 
 
-# ---------- running Codex: one call of the codex Base Agent per attempt ----------
+# ---------- running the CLI: one call of its Base Agent per attempt ----------
 
 ANSWER = "answer.md"                     # what the question asks the agent to write
 NOT_THE_DEBUGGERS = ("tools_name", "home", "log", "writable")   # the Evolve Agent's own settings in `base`
@@ -389,21 +390,23 @@ class Runner:
 
     def __init__(self, ctx, params: dict, base: dict, scratch: Path, texts=None):
         self.ctx, self.params, self.scratch, self.texts = ctx, params, Path(scratch), texts
+        self.backend = (getattr(ctx, "params", None) or {}).get("backend", "codex")
         self.base = {k: v for k, v in (base or {}).items() if k not in NOT_THE_DEBUGGERS}
         self.logs = Path(ctx.workspace.output) / "debugger"
         self.logs.mkdir(parents=True, exist_ok=True)
         self.homes = self.scratch / "debugger-homes"
         self.usage: list[Usage] = []
         self._lock = threading.Lock()
+        self.stopped: BaseException | None = None      # a lost sign-in or a refused setting: no job starts after it
 
     def agent_settings(self, job: Job, job_dir: Path, attempt: int, timeout_s: float, cancel=None) -> dict:
-        """The codex Base Agent's settings for one attempt: the Evolve Agent's (the isolation, the login, web search,
+        """The CLI Base Agent's settings for one attempt: the Evolve Agent's (the isolation, the login, web search,
         the price), the Debugger's model, effort, program and args (after a bound model's provider arguments), its
         clock, `cancel` (the attempt's deadline; the Trainer's cancel when None), the question on stdin, the job's
         own home and the attempt's own stream; the job directory writable."""
         p, name = self.params, task_file_name(job.task)
         args = list(p.get("args") or [])
-        if self.base.get("binding"):
+        if self.base.get("binding") and self.backend == "codex":
             # A bound model reaches its provider through Codex arguments only (the Evolver's `args` begin with them):
             # `debugger.args` given in place of the Evolve Agent's must not drop them.
             from hermit.agent.model.backends import Binding
@@ -427,8 +430,10 @@ class Runner:
         # `timeout_s` starts only once the CLI runs, after any wait for the login's plan or a session slot.
         deadline, stop = deadline_cancel(self.ctx.cancel, timeout_s)
         try:
-            result = make("codex", self.agent_settings(job, job_dir, attempt, timeout_s, deadline)).run(
+            result = make(self.backend, self.agent_settings(job, job_dir, attempt, timeout_s, deadline)).run(
                 question, workspace=job_dir)
+        except Unsupported:
+            raise                                                # the settings: every attempt would be refused alike
         except Exception as exc:                                 # noqa: BLE001 - no program, no login: this attempt's
             return None, f"{FAILURE_PREFIX} exception] {type(exc).__name__}: {str(exc)[:300]}"
         finally:
@@ -436,7 +441,9 @@ class Runner:
         with self._lock:
             self.usage.extend(result.usage)
         extra = result.extra or {}
-        tail = _last_line(extra.get("output_tail", ""))
+        tail = _last_line(extra.get("failure") or extra.get("output_tail", ""))
+        if extra.get("login_failed"):
+            raise LoginFailed(f"an Agent Debugger session: {extra.get('failure')}")
         if deadline.cause == "cancel" or (deadline.cause is None and extra.get("cancelled")):
             return None, f"{FAILURE_PREFIX} cancelled] stopped by the Trainer"
         if deadline.cause == "deadline" or result.timed_out:
@@ -444,7 +451,9 @@ class Runner:
         if not extra.get("started", True) and (extra.get("unavailable") or result.exit_code in (0, None)):
             # held back by the login's plan past its wait, or gone before a single event: nothing served it
             return None, f"{FAILURE_PREFIX} unavailable] {tail or 'the session never started'}"
-        if result.exit_code not in (0, None):
+        if extra.get("rejected"):                 # a retry would fail the same way (a refusal, a prompt too long)
+            return None, f"{FAILURE_PREFIX} rejected] {tail}"
+        if result.exit_code not in (0, None) or extra.get("failed"):
             return None, f"{FAILURE_PREFIX} error] exit={result.exit_code}: {tail}"
         written = answer.read_text(encoding="utf-8", errors="replace").strip() if answer.is_file() else ""
         if written or (result.reply or "").strip():              # the file the agent wrote, else its last message
@@ -467,7 +476,8 @@ class Runner:
                 break
             attempts += 1
             response, reason = self.attempt(job, job_dir, attempts, timeout_s)
-            if response is not None or reason.startswith(f"{FAILURE_PREFIX} cancelled]"):
+            final = (f"{FAILURE_PREFIX} cancelled]", f"{FAILURE_PREFIX} rejected]")   # no retry changes these
+            if response is not None or reason.startswith(final):
                 break
             if attempt < retries - 1:
                 if cancel is not None:
@@ -495,8 +505,13 @@ class Runner:
 def _crash_safe(runner: "Runner", job: Job, texts=None) -> dict:
     """runner.run(job), or the upstream fallback when it raises (a job directory that could not be prepared, say):
     one job's crash is its own."""
+    if runner.stopped is not None:                              # a job before it ended the stage: start no session
+        raise runner.stopped
     try:
         return runner.run(job)
+    except (LoginFailed, Unsupported) as exc:                   # the sign-in or the settings, not the job
+        runner.stopped = exc
+        raise
     except Exception as exc:                                    # noqa: BLE001 — one job's crash is its own
         q = _texts(texts)
         return Runner.result(job, q.fallback_response(
@@ -518,12 +533,22 @@ def run_jobs(jobs: list[Job], ctx, params: dict, *, base: dict | None = None, sc
     rest = jobs[1:]
     if rest:
         workers = max(1, int(params.get("concurrency", 16)))
+        fatal: BaseException | None = None
         with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
             futures = [pool.submit(_crash_safe, runner, job, texts) for job in rest]
             for future in concurrent.futures.as_completed(futures):
-                results.append(future.result())
+                if future.cancelled():                          # never started: a job before it ended the stage
+                    continue
+                try:
+                    results.append(future.result())
+                except (LoginFailed, Unsupported) as exc:       # every job still waiting would fail the same way
+                    fatal = fatal or exc
+                    for waiting in futures:
+                        waiting.cancel()
+        if fatal is not None:
+            raise fatal
     results.sort(key=lambda r: (r["mode"] == "summary", -r["n_fail"]))
-    usage = Usage(model=str(params.get("model") or "codex"))
+    usage = Usage(model=str(params.get("model") or runner.backend))
     for u in runner.usage:
         usage.calls += u.calls                          # the model calls each attempt's stream reported, retries too
         usage.input_tokens += u.input_tokens

@@ -246,7 +246,7 @@ def test_every_cli_base_agent_fills_in_its_hooks_and_is_made_by_each_of_its_name
     from inspect import getattr_static
     from hermit.agent.base.trajectory import READERS, STREAM_HOSTS
     from hermit.isolate import CLI_HOMES
-    hooks = ("command", "web_search_args", "system_settings", "last_message", "parse", "steps")
+    hooks = ("command", "web_search_args", "system_settings", "last_message", "parse", "steps", "outcome")
     for name, cls in base_cli.CLIS.items():
         assert type(make(name)) is cls and name in (cls.backend, *cls.aliases)
         for hook in hooks:                       # its own, not CliAgent's NotImplementedError
@@ -304,9 +304,12 @@ def test_web_search_is_set_explicitly_either_way(fake, tmp_path):
 def test_what_does_not_combine_is_refused(tmp_path):
     for params, match in [({"login": "chatgpt"}, "Codex model name"),
                           ({"login": "chatgpt", "model": "m", "binding": {"ref": "fw/m"}}, "Codex model name"),
-                          ({"login": "api"}, "chatgpt or absent"),
+                          ({"login": "api"}, "chatgpt or claude or absent"),
                           ({"backend": "claude-code", "login": "chatgpt", "model": "m"}, "Codex's sign-in"),
-                          ({"backend": "claude-code", "isolation": "container"}, "runs Codex"),
+                          ({"backend": "claude-code", "login": "claude"}, "Claude Code model name"),
+                          ({"login": "claude", "model": "m"}, "Claude Code's sign-in; agent codex"),
+                          ({"backend": "claude-code", "isolation": "container", "container": {"img": "x"}},
+                           "unknown keys"),
                           ({"deploy": "adapter"}, "deploy must be one of"),
                           ({"deploy": "tree"}, "deploy: tree is gone"),
                           ({"deploy": "files"}, "deploy: files is gone"),
@@ -316,6 +319,8 @@ def test_what_does_not_combine_is_refused(tmp_path):
     for value in (None, "no"):                         # web search is set explicitly, never left to a default
         with pytest.raises(ValueError, match="web_search must be set"):
             cli._check("codex", {} if value is None else {"web_search": value})
+    assert cli._check("codex", {"web_search": False, "backend": "claude-code", "isolation": "container",
+                                "container": {"image": "img:1"}}) == "claude"    # a container of its own, as Codex's
 
 
 def test_login_without_a_login_is_an_error(tmp_path):
@@ -383,6 +388,44 @@ def test_without_a_container_a_mount_is_a_link(tmp_path):
     cli._clean(work)
     assert not (work / "in").exists()
     assert (source / "empty").is_dir() and (source / "link").is_symlink()      # nothing behind a link is touched
+
+
+@pytest.mark.parametrize("held_at", ["is_dir", "iterdir", "rmdir"])
+def test_a_mount_point_still_held_is_left_and_the_rest_tidied(tmp_path, monkeypatch, held_at):
+    """Docker Desktop can hold a bind mount's target a moment after its container exits (EACCES on reading or
+    removing it); tidying the kept workspace leaves that one directory and still removes the rest."""
+    work = tmp_path / "work"
+    (work / "docs" / "root_1").mkdir(parents=True)
+    (work / "empty").mkdir()
+    held = work / "docs" / "root_1"
+    real = getattr(Path, held_at)
+
+    def refuse(self, *args, **kwargs):
+        if self == held:
+            raise PermissionError(13, "Permission denied", str(self))
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, held_at, refuse)
+    cli._clean(work, [held])
+    monkeypatch.undo()
+    assert held.is_dir() and (work / "docs").is_dir() and not (work / "empty").exists()
+
+
+def test_a_directory_that_cannot_be_tidied_and_is_no_mount_point_fails_the_tidying(tmp_path, monkeypatch):
+    """Only a mount point is left untidied: a directory the session made and made unreadable could hold a link out
+    of the workspace, so tidying fails rather than keep it."""
+    work = tmp_path / "work"
+    (work / "locked").mkdir(parents=True)
+    real = Path.iterdir
+
+    def refuse(self):
+        if self == work / "locked":
+            raise PermissionError(13, "Permission denied", str(self))
+        return real(self)
+
+    monkeypatch.setattr(Path, "iterdir", refuse)
+    with pytest.raises(PermissionError):
+        cli._clean(work, [work / "docs" / "root_1"])
 
 
 def test_a_task_id_is_a_safe_directory_name(fake):
@@ -474,9 +517,9 @@ def test_a_login_session_waits_for_the_plan_and_runs_again_when_refused(fake, mo
     (root / "login" / "auth.json").write_text(json.dumps({"auth_mode": "chatgpt",
                                                           "last_refresh": "2026-01-01T00:00:00Z"}))
     seen = {"waits": 0, "sessions": 0, "holds": 0}
-    monkeypatch.setattr(L, "wait", lambda plan=None, cancel=None, log=None, max_s=None:
+    monkeypatch.setattr(L, "wait", lambda plan=None, cancel=None, log=None, max_s=None, credits=False:
                         seen.__setitem__("waits", seen["waits"] + 1) or "")
-    monkeypatch.setattr(L, "hold", lambda plan=None, *_: seen.__setitem__("holds", seen["holds"] + 1))
+    monkeypatch.setattr(L, "hold", lambda plan=None, *_, **__: seen.__setitem__("holds", seen["holds"] + 1))
     agent = make("codex", {"web_search": False, "login": "chatgpt", "model": "gpt-x", "login_root": str(root),
                            "plan_dir": str(tmp_path / "plan")})
     real = type(agent)._session
@@ -516,11 +559,11 @@ def test_a_session_waiting_for_a_slot_waits_again_if_paused_meanwhile(fake, monk
     calls = {"held": 0}
     real_held = L.held
 
-    def held(p=None):                       # PAUSE appears while the session waits for its slot, then goes again
+    def held(p=None, credits=False):        # PAUSE appears while the session waits for its slot, then goes again
         calls["held"] += 1
-        return "paused" if calls["held"] == 1 else real_held(p)
+        return "paused" if calls["held"] == 1 else real_held(p, credits)
     monkeypatch.setattr(L, "held", held)
-    monkeypatch.setattr(L, "wait", lambda plan=None, cancel=None, log=None, max_s=None: "")
+    monkeypatch.setattr(L, "wait", lambda plan=None, cancel=None, log=None, max_s=None, credits=False: "")
     (tmp_path / "w").mkdir()
     agent = make("codex", {"web_search": False, "login": "chatgpt", "model": "gpt-x", "login_root": str(root),
                            "plan_dir": str(plan)})
@@ -678,11 +721,11 @@ def test_the_longest_wait_counts_over_every_wait_of_a_session(fake, monkeypatch)
                                                           "last_refresh": "2026-01-01T00:00:00Z"}))
     given = []
 
-    def wait(plan=None, cancel=None, log=None, max_s=None):
+    def wait(plan=None, cancel=None, log=None, max_s=None, credits=False):
         given.append(max_s)
         return "" if len(given) == 1 else "timeout"
     monkeypatch.setattr(L, "wait", wait)
-    monkeypatch.setattr(L, "hold", lambda plan=None, *_: None)
+    monkeypatch.setattr(L, "hold", lambda plan=None, *_, **__: None)
     agent = make("codex", {"web_search": False, "login": "chatgpt", "model": "gpt-x", "login_root": str(root),
                            "plan_dir": str(tmp_path / "plan"), "plan_max_wait_s": 1000})
     real = type(agent)._session
@@ -760,8 +803,8 @@ def test_a_refused_session_is_returned_when_plan_rerun_is_off(fake, monkeypatch)
     (root / "login" / "auth.json").write_text(json.dumps({"auth_mode": "chatgpt",
                                                           "last_refresh": "2026-01-01T00:00:00Z"}))
     holds = []
-    monkeypatch.setattr(L, "wait", lambda plan=None, cancel=None, log=None, max_s=None: "")
-    monkeypatch.setattr(L, "hold", lambda plan=None, *_: holds.append(1))
+    monkeypatch.setattr(L, "wait", lambda plan=None, cancel=None, log=None, max_s=None, credits=False: "")
+    monkeypatch.setattr(L, "hold", lambda plan=None, *_, **__: holds.append(1))
     monkeypatch.setenv("FAKE_REFUSED", "1")
     agent = make("codex", {"web_search": False, "login": "chatgpt", "model": "gpt-x", "login_root": str(root),
                            "plan_dir": str(fake / "plan"), "plan_rerun": False})
@@ -785,7 +828,7 @@ def test_links_a_session_leaves_in_its_home_are_never_followed(fake, monkeypatch
     forged.write_text(json.dumps({"auth_mode": "chatgpt", "last_refresh": now, "who": "else"}))
     outside = fake / "outside"
     outside.mkdir()
-    monkeypatch.setattr(L, "wait", lambda plan=None, cancel=None, log=None, max_s=None: "")
+    monkeypatch.setattr(L, "wait", lambda plan=None, cancel=None, log=None, max_s=None, credits=False: "")
     monkeypatch.setenv("FAKE_LINK_AUTH", str(forged))
     monkeypatch.setenv("FAKE_LINK_USAGE", str(outside))
     home = fake / "home"
@@ -808,7 +851,7 @@ def test_a_kept_home_is_not_written_through_what_the_last_session_left(fake, mon
     (root / "login").mkdir(parents=True)
     (root / "login" / "auth.json").write_text(json.dumps({"auth_mode": "chatgpt",
                                                           "last_refresh": "2026-01-01T00:00:00Z"}))
-    monkeypatch.setattr(L, "wait", lambda plan=None, cancel=None, log=None, max_s=None: "")
+    monkeypatch.setattr(L, "wait", lambda plan=None, cancel=None, log=None, max_s=None, credits=False: "")
     outside = fake / "outside"
     outside.mkdir()
     home = fake / "home"

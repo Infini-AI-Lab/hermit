@@ -86,7 +86,7 @@ agent:
 | `agent.name` | Agent | Settings |
 |---|---|---|
 | `react` | a chat-completions tool-calling loop over the task's tools and the adapter's tools | `model`, `prompt`, `tools`, `user`, `max_turns`, `max_output_tokens`, `max_tokens`, `temperature`, `answer_tag`, `tool_result_chars`, `logs` |
-| `codex`, `claude-code` | Codex or Claude Code run in a fresh workspace the adapter is deployed into | `model`, `login`, `effort`, `prompt`, `files`, `mounts`, `prepare`, `answer`, `collect`, `context_query`, `project_doc_max_bytes`, `args`, `env`, `price`, `timeout_s`, `retries`, `retry_wait_s`, `workspaces` |
+| `codex`, `claude-code`, `pi` | Codex, Claude Code or Pi run in a fresh workspace the adapter is deployed into (Pi: no `login`, no roles; its project's `.pi/` is trusted for the session) | `model`, `login`, `effort`, `prompt`, `files`, `mounts`, `prepare`, `answer`, `collect`, `context_query`, `project_doc_max_bytes`, `args`, `env`, `price`, `timeout_s`, `retries`, `retry_wait_s`, `workspaces` |
 
 ### A coding-agent CLI as the acting agent
 
@@ -98,7 +98,8 @@ does the rest. OfficeQA's Codex runs are one such configuration (`examples/offic
 agent:
   name: codex
   params:
-    model: fireworks/accounts/fireworks/models/glm-5p3-flash   # or a Codex model name with `login: chatgpt`
+    model: fireworks/accounts/fireworks/models/glm-5p3-flash   # or the CLI's model name with `login: chatgpt` (Codex)
+                                                               # or `login: claude` (Claude Code)
     effort: medium
     prompt: ../utils/prompt.md            # a template of the task's fields, or file.py:function (task) -> prompt
     prepare: ../utils/task.py:prepare     # (task, workspace[, params, base]) -> mounts: writes the task's files
@@ -125,31 +126,48 @@ What the agent does for every task:
   calls the adapter's tools without approvals and may start its sub-agents. An adapter with `memory/NOTES.md` (the
   continual-harness template) is told so in the prompt, and the notes the session leaves come back in the log
   (`log/memory/`). The context must fit `project_doc_max_bytes` (Codex reads no further): a longer one is refused.
-- **Isolate.** With `environment.image`, Codex runs in a container of its own: the workspace and the session's home
-  read-write, the mounts read-only at their targets, an internal network whose only way out is an egress proxy to
-  the provider's hosts, and Codex's workspace-write sandbox inside. `docker/codex/` builds the image and the proxy;
-  `environment.container` (or `HERMIT_CODEX_NETWORK`, `HERMIT_CODEX_PROXY`) names the network and the proxy. The agent
-  checks the image and the network before its first session. Without an image the agent runs in the task sandbox
-  (bubblewrap) and a mount is a link.
+- **Isolate.** With `environment.image`, the CLI runs in a container of its own, started from a worker on the host
+  that runs the adapter's code the deployment renders or serves in the strict sandbox: the workspace and the session's
+  home read-write, the mounts read-only at their targets, an internal network whose only way out is an egress proxy to
+  the provider's hosts, and the CLI's own sandbox inside for the commands it runs (Codex's workspace-write; Claude
+  Code's, with no network and writes to the workspace and `/tmp` only). `docker/codex/` builds Codex's image and the
+  proxy, `docker/claude/` Claude Code's image; `environment.container` (or `HERMIT_CODEX_NETWORK`, `HERMIT_CODEX_PROXY`,
+  and `HERMIT_CLAUDE_NETWORK`, `HERMIT_CLAUDE_PROXY` for Claude Code) names the network and the proxy. The agent checks
+  the image and the network before its first session (for Claude Code, also the CLI in the image and that its sandbox
+  starts there). Without an image the agent runs in the task sandbox (bubblewrap), where a mount inside the workspace
+  is a link for Codex; for Claude Code it is bound there by a nested bubblewrap, a real read-only directory as in a
+  container (a search that walks the tree, `grep -r`, `find` or Claude Code's Glob and Grep, does not follow a link),
+  and linked with a warning where bubblewrap cannot nest.
 - **Sign in.** A `<backend>/<model>` reference binds Codex to that backend's key; `login: chatgpt` uses the user's
   own ChatGPT login (`codex login`; `model` is then a Codex model name, the cost unknown), from one shared copy
   (`~/.cache/hermit/codex-login/`, outside every run's directory) that each session's refreshed token is written back
-  to, the task sandbox's sessions included. In the task sandbox one of the two is required: the CLI's own sign-in
-  from the user's home is not copied in (a model that is no reference uses it only where the pipeline runs on the
-  host). Each session has a home of its own: none of the user's Codex or Claude Code settings apply, and the session's
-  commands see only Codex's core variables (`shell_env: all` passes every variable).
+  to, the task sandbox's sessions included. On Claude Code `login: claude` signs in with the token of
+  `claude setup-token` in `CLAUDE_CODE_OAUTH_TOKEN`, passed by name (nothing is copied), and nothing else may pay
+  ([Claude subscription](../guides/claude-subscription.md)). In the task sandbox a reference or the CLI's own login is
+  required: the CLI's own sign-in from the user's home is not copied in (a model that is no reference uses it only
+  where the pipeline runs on the host). Each session has a home of its own: none of the user's Codex or Claude Code
+  settings apply, and a Codex session's commands see only Codex's core variables (`shell_env: all` passes every
+  variable).
 - **Web search.** `web_search` must be set, `true` or `false`: Codex's hosted search runs at the provider, past any
-  sandbox or proxy, so it is never left to a default. Claude Code's `WebSearch` and `WebFetch` follow it too.
+  sandbox or proxy, so it is never left to a default. Claude Code's `WebSearch` and `WebFetch` follow it too, and every
+  Claude Code session is denied the tools whose work outlives it or reaches past it: `RemoteTrigger`, `CronCreate`,
+  `CronDelete`, `CronList`, `ScheduleWakeup`, `ListAgents` and `SendMessage`
+  ([Claude subscription](../guides/claude-subscription.md#execution-boundaries)).
 - **Stop and retry.** One session per run, stopped at `timeout_s`. A session the provider could not serve (429, 5xx,
   a container that did not start) runs again after `retry_wait_s`, up to `retries`; then the run is an error, not a
-  wrong answer.
+  wrong answer. On Claude Code any failed session is an error, with its tokens and log kept and no judge call, and a
+  lost sign-in on a login ends the run, which `hermit train` resumes. A session past its clock is an attempt with no
+  answer.
 - **Record.** The run's directory holds `work/` (the workspace, kept for inspection without its links out),
   `home/` and `log/`. `RunOutput.log` is `log/`: the host's event stream (`agent-codex.jsonl`,
   `agent-claude.jsonl`), `prompt.txt`, `last_message.txt`, `deployment.json`, and what `collect` added. The output
   is what `answer` returned, with `fail_reason` when there is no answer; without `answer`, the last message. In a
-  run, a model key's value in what the call leaves is scrubbed (`<VARIABLE>`).
-  `RunOutput.extra` has the same keys for every task: `backend`, `model`, `effort`, `deploy`, `isolation`,
-  `deployed`, `exit_code`, `timed_out`, `attempts`, `workspace`, and `context_tool` and `task` when there are any.
+  run, a model key's value in what the call leaves is scrubbed (`<VARIABLE>`; the login's token too, as
+  `<CLAUDE_CODE_OAUTH_TOKEN>`).
+  `RunOutput.extra` has the same keys for every task: `backend`, `model`, `effort`, `web_search`, `deploy`,
+  `isolation`, `deployed`, `exit_code`, `timed_out`, `attempts`, `workspace`, `mounts` (each mount's target inside
+  the workspace, `bound` or `linked`), and `context_tool` and `task` when there are any; `session_failed` says why a
+  session failed, which makes the run an error record with no judge call.
 
 The agent records; the Evolver interprets. Every Evolver reads a host's stream through `hermit.agent.base.trajectory`
 (`read(record, step_dir)` gives the run's steps: messages, reasoning, commands with their exit codes and output,

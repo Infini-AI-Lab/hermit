@@ -1,8 +1,8 @@
 # MetaWorld Model (MWM)
 
 MWM maintains dated, scoped environment knowledge, a briefing, examples, an open-questions docket, and callable
-programs. Acting agents use its context and one `wm` tool. A Codex learner reviews evidence after each block
-of episodes and maintains the world model.
+programs. Acting agents use its context and one `wm` tool. A coding-agent learner (Codex by default, Claude Code with
+`evolver.params.backend: claude`) reviews evidence after each block of episodes and maintains the world model.
 
 Choose MWM for an ordered environment stream with a task-owned evidence store. It requires more task integration
 than a context-only optimizer; it is not a drop-in switch for an arbitrary prompt-only config.
@@ -16,7 +16,7 @@ than a context-only optimizer; it is not a drop-in switch for an arbitrary promp
 | Evidence | The pipeline writes the native evidence layout and returns `RunOutput.extra["mwm"]` |
 | Access | Evidence path in `evolver.params.evidence` and `evolver_access.environment` |
 | Deployment description | `task-info/mwm/` (or `evolver.params.deployment`) describing the venue, host, and environment |
-| Learner environment | Codex CLI and Linux namespace/sandbox support; model endpoint configured for the session |
+| Learner environment | The learner's CLI and Linux namespace/sandbox support; model endpoint or login configured for the session |
 | Channels | Task tools declared through `evolver_access.tools`, as required by the venue |
 
 Use [ServeLearnBench](../recipes/servelearnbench.md) or [CL-Bench](../recipes/clbench.md) as a complete integration
@@ -46,8 +46,8 @@ before that window's checkpoint is tested.
 
 `session_timeout_s` bounds a native session; the Trainer has its own call timeout. Provider arguments and model
 settings belong to the learner session, while acting-model settings belong to the task integration.
-The learner's network is the run's evolver sandbox's: its model (the meter), the tool endpoint and
-`sandbox.evolver.allowed_hosts` (the removed `network_isolation` setting is refused).
+The learner's network is the run's evolver sandbox's: its model (the meter, or `api.anthropic.com` on `login: claude`),
+the tool endpoint and `sandbox.evolver.allowed_hosts` (the removed `network_isolation` setting is refused).
 
 Use benchmark-specific scoring for streaming experiments. A single aggregate test call cannot express all
 per-window or environment-state protocols; see [Evaluation](../guides/evaluation.md#ordered-streams).

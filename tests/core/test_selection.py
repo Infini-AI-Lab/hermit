@@ -8,7 +8,7 @@ import pytest
 from selection import METHODS, READ_BY, NoBase, changed_paths, groups_for, select
 
 ROOT = Path(__file__).resolve().parents[2]
-BUILT_IN = {"codex", "claude"}                   # the generic AgentEvolvers: tests/core
+BUILT_IN = {"codex", "claude", "pi"}             # the generic AgentEvolvers: tests/core
 NO_METHOD = {"prompt_only", "lean_collab"}       # templates without an Evolver of their own: tests/core
 
 
@@ -36,7 +36,7 @@ def test_shared_layers_and_unknown_paths_run_everything():
                  "hermit/adapter/templates/ace/.hermit/adapter.yaml",      # every `<id>@<version>` is resolved
                                                                            # through all of them
                  "hermit/sandbox.py", "hermit/worker.py", "hermit/hosts/codex.py", "tests/conftest.py",
-                 "tests/toy_task.py",
+                 "tests/toy_task.py", "tests/claude_stand.py", "tests/fixtures/claude_streams/reply.jsonl",
                  "pyproject.toml", "hermit/adapter/templates/prompt_only/ADAPTER.md", "Makefile",
                  ".github/workflows/tests.yml"):
         assert groups_for(path) is None, path
@@ -57,7 +57,7 @@ def test_the_rest_of_the_framework_runs_core_and_documentation_runs_nothing():
 
 def test_a_benchmarks_shared_files_run_the_methods_with_an_example_there():
     assert groups_for("examples/officeqa/utils/task.py") == {
-        "ace", "ahe", "continual_harness", "harness2", "meta_harness_adapter", "optimizers", "reharness",
+        "ace", "ahe", "continual_harness", "harness2", "meta_harness_adapter", "opro", "optimizers", "reharness",
         "rrsi_adapter", "core"}
     assert groups_for("examples/servelearnbench/utils/x.py") == {"mwm", "core"}
     groups, why = select(["hermit/cli.py", "examples/officeqa/rrsi_adapter/README.md", "docs/index.md"])

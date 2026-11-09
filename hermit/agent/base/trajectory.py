@@ -8,8 +8,9 @@ logs, so that every Evolver reads the same steps:
     steps = read(record, step_dir)          # [] when the record's log holds no host stream
     text(steps, message=1200, output=600)   # one line per step, each field clipped from its start
 
-The streams read: Codex's `codex exec --json` events (`agent-codex.jsonl`) and Claude Code's stream-json
-(`agent-claude.jsonl`), also under another name below a log directory (Harbor's `agent/codex.txt`). A normalised
+The streams read: Codex's `codex exec --json` events (`agent-codex.jsonl`), Claude Code's stream-json
+(`agent-claude.jsonl`) and Pi's `--mode json` events (`agent-pi.jsonl`), also under another name below a log
+directory (Harbor's `agent/codex.txt`). A normalised
 message list (`RunOutput.messages`) is the pipeline's own rendering and is left to each Evolver.
 """
 from __future__ import annotations
@@ -20,7 +21,8 @@ from pathlib import Path
 
 CODEX_STREAM = "agent-codex.jsonl"
 CLAUDE_STREAM = "agent-claude.jsonl"
-STREAM_HOSTS = {CODEX_STREAM: "codex", CLAUDE_STREAM: "claude"}   # the file name a host's log keeps its events under
+PI_STREAM = "agent-pi.jsonl"
+STREAM_HOSTS = {CODEX_STREAM: "codex", CLAUDE_STREAM: "claude", PI_STREAM: "pi"}   # the file a host's log keeps
 STREAMS = tuple(STREAM_HOSTS)
 OTHER_STREAMS = ("agent/codex.txt", "codex.txt")   # a Harbor trial's Codex events: from the trial or its agent/
 
@@ -122,6 +124,8 @@ def claude_steps(stream: list[dict]) -> list[Step]:
     steps, pending = [], {}
     for event in stream:
         kind, message = event.get("type"), event.get("message") or {}
+        if kind == "assistant" and event.get("is_api_error_message"):
+            continue                                  # the CLI's report of a failure, which the result repeats: no message
         if kind == "assistant":
             for block in _blocks(message.get("content")):
                 t = block.get("type")
@@ -143,16 +147,78 @@ def claude_steps(stream: list[dict]) -> list[Step]:
                 if step is not None and step.kind == "command":
                     step.output = _result_text(block.get("content"))
                     step.exit_code = 1 if block.get("is_error") else 0
-        elif kind == "result" and event.get("is_error"):
-            steps.append(Step("error", str(event.get("result") or event.get("subtype") or "")))
+        elif kind == "result" and (event.get("is_error") or str(event.get("subtype") or "").startswith("error")):
+            errors = event.get("errors") if isinstance(event.get("errors"), list) else []
+            steps.append(Step("error", str(event.get("result") or "; ".join(map(str, errors))
+                                           or event.get("subtype") or "")))
+    return steps
+
+
+PI_FILE_TOOLS = ("edit", "write")
+
+
+def _pi_text(result) -> str:
+    """A Pi tool result's text: its content blocks' text, joined."""
+    return _result_text((result or {}).get("content")) if isinstance(result, dict) else _result_text(result)
+
+
+def pi_steps(stream: list[dict]) -> list[Step]:
+    """Pi's `--mode json` events: each assistant message's thinking, text and tool calls (`message_end`, the
+    message as it was kept), each call completed by its `tool_execution_end`: bash as a command with its exit code
+    and output, edit and write as file changes, an MCP tool (`mcp__<server>__<tool>`) as a tool call with its
+    server and arguments and its result as `output`, any other tool as a tool call; an assistant message that
+    ended in an error or an abort as an error. Deltas, turn and session events and usage are left out."""
+    steps, pending = [], {}
+    for event in stream:
+        kind = event.get("type")
+        if kind == "message_end" and (event.get("message") or {}).get("role") == "assistant":
+            message = event["message"]
+            for block in _blocks(message.get("content")):
+                t = block.get("type")
+                if t == "text" and str(block.get("text") or "").strip():
+                    steps.append(Step("message", str(block["text"])))
+                elif t == "thinking" and str(block.get("thinking") or "").strip():
+                    steps.append(Step("reasoning", str(block["thinking"])))
+                elif t == "toolCall":
+                    name, args = str(block.get("name") or ""), block.get("arguments") or {}
+                    if name == "bash":
+                        step = Step("command", command=str(args.get("command") or ""))
+                    elif name in PI_FILE_TOOLS:
+                        step = Step("file_change", json.dumps({"tool": name, "path": args.get("path")},
+                                                              ensure_ascii=False, default=str))
+                    elif name.startswith("mcp__") and name.count("__") >= 2:
+                        _, server, tool = name.split("__", 2)
+                        step = Step("tool_call", json.dumps({"arguments": args, "server": server, "tool": tool},
+                                                            ensure_ascii=False, default=str))
+                    else:
+                        step = Step("tool_call", json.dumps({"tool": name, "input": args}, ensure_ascii=False,
+                                                            default=str))
+                    steps.append(step)
+                    pending[block.get("id")] = step
+            if message.get("stopReason") in ("error", "aborted"):
+                steps.append(Step("error", str(message.get("errorMessage") or f"request {message['stopReason']}")))
+        elif kind == "tool_execution_end":
+            step = pending.pop(event.get("toolCallId"), None)
+            if step is None:
+                continue
+            result = event.get("result") if isinstance(event.get("result"), dict) else {}
+            structured = result.get("structuredContent") if isinstance(result.get("structuredContent"), dict) else {}
+            if step.kind == "command":
+                step.output = str(structured.get("output")) if "output" in structured else _pi_text(result)
+                # A timeout or an abort has no structured result: its exit code is unknown, as Codex reports it.
+                step.exit_code = structured.get("exit_code") if "exit_code" in structured else \
+                    (None if event.get("isError") else 0)
+            elif step.kind == "tool_call":
+                step.output = _pi_text(result)
     return steps
 
 
 # Each host's stream: the reader of its events, and the event types that mark it (tried in this order when a stream
 # is found by its events). A host's stream is added here and in STREAM_HOSTS.
-READERS = {"codex": codex_steps, "claude": claude_steps}
-MARKS =(("codex", {"thread.started", "turn.started", "turn.completed", "turn.failed", "item.completed"}),
-         ("claude", {"system", "assistant", "user", "result"}))
+READERS = {"codex": codex_steps, "claude": claude_steps, "pi": pi_steps}
+MARKS = (("codex", {"thread.started", "turn.started", "turn.completed", "turn.failed", "item.completed"}),
+         ("claude", {"system", "assistant", "user", "result"}),
+         ("pi", {"agent_start", "agent_settled", "message_end", "tool_execution_end"}))
 
 
 def _host(stream: list[dict]) -> str | None:

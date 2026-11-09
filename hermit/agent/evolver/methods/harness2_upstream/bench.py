@@ -32,6 +32,14 @@ class Substrate:
         return self.layout.surface
 
 
+def _redacted(text: str) -> str:
+    """`text` without a key value of this process (the login's token, a binding's key: hermit/redact.py's rule): a
+    command of the execution can read the token from its parent process, and the trajectory goes to the editor
+    sessions and into the step's records."""
+    from hermit.redact import redact_text
+    return redact_text(text)
+
+
 def _clip(text, limit: int) -> str:
     text = "" if text is None else str(text).replace("\x00", "")
     return text if limit <= 0 or len(text) <= limit else text[:limit] + TRUNCATED.format(n=len(text) - limit)
@@ -71,7 +79,7 @@ class FrameworkBench:
     def task_prompt(self, task_id: str) -> str:
         """The task as the agent received it: its first user prompt, else the task's own fields."""
         log = self._material_log()
-        if log is not None and (log / "task.md").is_file():            # a Codex session: its prompt and task.md
+        if log is not None and (log / "task.md").is_file():            # a CLI session: its prompt and task.md
             prompt = (log / "prompt.txt").read_text(errors="replace") if (log / "prompt.txt").is_file() else ""
             return (prompt.strip() + "\n\n" if prompt.strip() else "") + "# task.md\n\n" + \
                 (log / "task.md").read_text(errors="replace")
@@ -136,11 +144,14 @@ class FrameworkBench:
             run = {k: result.get(k) for k in ("status", "error", "output", "cost_usd", "wall_s")}
             self.private[run_id] = dict(result.get("judge") or {})
             self._keep_log(Path(result["log"]) if result.get("log") else None, out)
+        if run.get("status") == "error":   # it scores 0, as in the Trainer's records, and says why (not a wrong answer)
+            self.private[run_id]["error"] = str(run.get("error") or "the execution failed")
         (out / "run.json").write_text(json.dumps({"run_id": run_id, **run}, ensure_ascii=False, indent=1,
                                                  default=str))
         with self._lock, open(self.ctx.workspace.output / "scores.jsonl", "a") as f:   # survives a stopped step
+            failed = {"error": self.private[run_id]["error"]} if "error" in self.private[run_id] else {}
             f.write(json.dumps({"run_id": run_id, "answered": self.delivered(out),
-                                "score": self.private[run_id].get("score")}) + "\n")
+                                "score": self.private[run_id].get("score"), **failed}) + "\n")
         return out
 
     def _material_log(self) -> Path | None:
@@ -159,6 +170,11 @@ class FrameworkBench:
         else:
             (out / "log").mkdir()
             shutil.copy2(log, out / "log" / log.name)
+        for kept in (out / "log").rglob("*.jsonl"):     # the step's records keep no token a command printed
+            if kept.is_file() and not kept.is_symlink():
+                text = kept.read_text(encoding="utf-8", errors="replace")
+                if _redacted(text) != text:
+                    kept.write_text(_redacted(text), encoding="utf-8")
 
     @staticmethod
     def _run(run_dir: Path) -> dict:
@@ -171,10 +187,12 @@ class FrameworkBench:
         return bool(self.deliverable_text(run_dir).strip())
 
     def deliverable_text(self, run_dir: Path) -> str:
+        """The answer as the editors see it (the token redacted, as in the trajectory); the judge scored the original."""
         output = self._run(run_dir).get("output")
         if isinstance(output, dict):
-            return str(output.get("answer") or "")
-        return "" if output is None else output if isinstance(output, str) else json.dumps(output, ensure_ascii=False)
+            return _redacted(str(output.get("answer") or ""))
+        text = "" if output is None else output if isinstance(output, str) else json.dumps(output, ensure_ascii=False)
+        return _redacted(text)
 
     def deliverable_files(self, run_dir: Path) -> dict[str, str]:
         text = self.deliverable_text(run_dir)
@@ -182,15 +200,20 @@ class FrameworkBench:
 
     def trajectory(self, run_dir: Path, *, obs_trunc: int) -> str:
         run, log = self._run(run_dir), Path(run_dir) / "log"
+        limit = max(obs_trunc * 40, 2_000_000)
         if (log / "agent-codex.jsonl").is_file():                      # a Codex session: upstream's own renderer
             from harness2.substrate.codex import render_events
-            text = render_events(log / "agent-codex.jsonl", obs_trunc=obs_trunc, max_chars=max(obs_trunc * 40, 2_000_000))
-            output = run.get("output") if isinstance(run.get("output"), dict) else {}
-            reason = (output or {}).get("fail_reason") or ""
-            if reason:
-                text = text.rstrip() + f"\n[ERROR] {_clip(reason, 1000)}"
-            return text.strip() or "(no trajectory events recorded)"
-        return f"(no trajectory recorded for {Path(run_dir).name})"
+            text = render_events(log / "agent-codex.jsonl", obs_trunc=obs_trunc, max_chars=limit)
+        elif (log / "agent-claude.jsonl").is_file():                   # a Claude Code session, in upstream's grammar
+            from hermit.agent.evolver.methods.harness2_upstream.render import render_claude_events
+            text = render_claude_events(log / "agent-claude.jsonl", obs_trunc=obs_trunc, max_chars=limit)
+        else:
+            return f"(no trajectory recorded for {Path(run_dir).name})"
+        output = run.get("output") if isinstance(run.get("output"), dict) else {}
+        reason = (output or {}).get("fail_reason") or ""
+        if reason:
+            text = text.rstrip() + f"\n[ERROR] {_clip(reason, 1000)}"
+        return _redacted(text.strip()) or "(no trajectory events recorded)"
 
     # --- the judge (upstream calls it only after selection) --------------------------------------------------------
     def score(self, run_dir: Path, task_id: str) -> dict | None:

@@ -107,6 +107,7 @@ printf 'ANSWER 42' > "$last"
 '''
 FAKE_CLAUDE = '''#!/bin/sh
 printf '%s\\n' "$*" > .args
+cat > .stdin
 echo '{"type":"system","session_id":"s1"}'
 echo '{"type":"result","result":"ANSWER 43","num_turns":3,"total_cost_usd":0.5,"usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":0}}'
 '''
@@ -131,7 +132,11 @@ def test_cli_agent_with_fake_cli(tmp_path, monkeypatch, backend, script, answer)
     context_file = work / ("AGENTS.md" if backend == "codex" else "CLAUDE.md")
     assert "hermit:file-example:start" in context_file.read_text()     # the adapter was deployed
     args = (work.parent / ("home" if backend == "codex" else "work") / ".args").read_text()
-    assert "Solve 6*7 in this workspace." in args and "m1" in args
+    if backend == "codex":
+        assert "Solve 6*7 in this workspace." in args and "m1" in args
+    else:       # Claude Code reads the prompt on stdin: on the command line one starting with `-` would be an option
+        stdin = (work.parent / "work" / ".stdin").read_text()
+        assert stdin == "Solve 6*7 in this workspace." and "Solve" not in args and "m1" in args
     assert (log / f"agent-{'codex' if backend == 'codex' else 'claude'}.jsonl").is_file()
     assert (log / "prompt.txt").read_text() == "Solve 6*7 in this workspace." and (log / "last_message.txt").is_file()
     if backend == "codex":
