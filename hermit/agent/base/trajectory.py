@@ -220,11 +220,13 @@ DSH_FILE_TOOLS = ("write", "edit")
 # How dsh's bash tool ends a command's result (its own parseExitStatus reads it so, anchored at the very end, as
 # JavaScript's `$` is: \Z here): a nonzero exit or a signal is marked last, a clean exit is not; a command stopped by
 # its timeout or from outside is marked before that (a command that traps the signal may still exit 0), and one still
-# running was moved to the background, unfinished
+# running was moved to the background, unfinished (its marker is the whole result when it printed nothing yet). A
+# timeout is printed as the model gave it, a JavaScript number: `1000`, `1000.5`, `1e-7`
 DSH_EXIT = re.compile(r"\n\[exit code: (\d+)\]\Z")
 DSH_SIGNAL = re.compile(r"\n\[killed by signal: [^\]\n]+\]\Z")
-DSH_STOPPED = re.compile(r"\n\[(?:timed out after \d+ms|stopped: [^\]\n]*)\](?:\n\[[^\]\n]*\])*\Z")
-DSH_BACKGROUND = re.compile(r"\[still running after \d+ms; moved to background job [^\]\n]+\]\Z")
+DSH_STOPPED = re.compile(
+    r"\n\[(?:timed out after \d+(?:\.\d+)?(?:e[+-]\d+)?ms|stopped: [^\]\n]*)\](?:\n\[[^\]\n]*\])*\Z")
+DSH_BACKGROUND = re.compile(r"\[still running after \d+(?:\.\d+)?(?:e[+-]\d+)?ms; moved to background job [^\]\n]+\]\Z")
 DSH_NO_OUTPUT = "(no output)"     # what the result holds before its marker when the command printed nothing
 # dsh's --json keeps 8 KiB of each string and marks the event `truncated`: the end, where the marker was, is gone
 DSH_CUT = "\n[the rest was cut: dsh's --json keeps 8 KiB of a string]"

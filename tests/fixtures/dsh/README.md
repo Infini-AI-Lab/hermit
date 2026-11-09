@@ -11,19 +11,21 @@ delta before each answer when it is asked for a reasoning effort.
 - `resume.jsonl`: the same session resumed (`--session-id`): one request.
 - `failure.jsonl`: every request answered 503; dsh retries five times, ends the run with the error `SERVER`, writes
   `dsh: SERVER: ...` on stderr (the last line, which the Base Agent keeps in the stream) and exits 1.
-- `promoted.jsonl`: bash `echo building; sleep 5` with `timeoutMs: 1000`, then the answer. The Base Agent's layer
-  leaves the `tool-bash` row's `promoteOnTimeout` at dsh's default, true, so at its timeout dsh moves the command to
-  a background job: the result is the output so far, then `[still running after 1000ms; moved to background job
-  <id>]`, with no exit marker.
+- `promoted.jsonl`: bash `echo building; sleep 5` and `sleep 5` with `timeoutMs: 1000`, and the first again with
+  `timeoutMs: 1000.5`, then the answer. The Base Agent's layer leaves the `tool-bash` row's `promoteOnTimeout` at
+  dsh's default, true, so at its timeout dsh moves each command to a background job: the result is the output so
+  far, then `[still running after <timeoutMs>ms; moved to background job <id>]` (the marker alone for `sleep 5`,
+  which printed nothing), with no exit marker.
 
 Recorded by running dsh directly (`dsh --profile headless --json --permission-mode danger-full-access`, with a patch
 layer like the Base Agent's) against a scripted chat-completions model:
 
-- `bash.jsonl`: how dsh's bash tool marks a command's end. The model calls bash eight times: `exit 3`, `printf ''`,
+- `bash.jsonl`: how dsh's bash tool marks a command's end. The model calls bash nine times: `exit 3`, `printf ''`,
   `true`, `echo out; exit 4`, `kill -9 $$`, `printf 'no newline'; exit 5`, then with `timeoutMs: 1000`
-  `trap 'exit 0' TERM; sleep 5 & wait` (stopped by its timeout, it exits 0) and `sleep 5` (killed), then answers
-  `done`. The layer also sets the `tool-bash` row's `promoteOnTimeout: false`, so a timeout stops the command rather
-  than moving it to a background job.
+  `trap 'exit 0' TERM; sleep 5 & wait` (stopped by its timeout, it exits 0) and `sleep 5` (killed), and the first of
+  these again with `timeoutMs: 1000.5` (dsh prints the timeout as given), then answers `done`. The layer also sets
+  the `tool-bash` row's `promoteOnTimeout: false`, so a timeout stops the command rather than moving it to a
+  background job.
 - `max_tokens.jsonl`: the model's answer ends at its token limit (`finish_reason: length`): the run ends `max-tokens`
   and dsh exits 1, writing nothing on stderr.
 - `big_bash.jsonl`: bash prints 1,500 lines (about 42 KB) and exits 2; dsh's `--json` keeps 8 KiB of the result and

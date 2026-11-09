@@ -1,13 +1,23 @@
-{"type":"session","sessionId":"session-f5415a1e-694e-4496-a644-8cbc8f0f266f","cwd":"/run/work"}
+{"type":"session","sessionId":"session-89dbecd8-5170-42c8-85d6-b721d96c3364","cwd":"/run/work"}
 {"type":"status","phase":"turn_start","turn":1}
 {"type":"status","phase":"step_start","turn":1,"step":1}
 {"type":"thinking","text":"Thinking it over."}
 {"type":"tool_call","callId":"call_1","tool":"bash","input":{"command":"echo building; sleep 5","description":"Build","timeoutMs":1000}}
-{"type":"tool_result","callId":"call_1","status":"completed","result":"building\n[still running after 1000ms; moved to background job bash-1b164353b005474d]"}
+{"type":"tool_result","callId":"call_1","status":"completed","result":"building\n[still running after 1000ms; moved to background job bash-215d1b678a6b4016]"}
 {"type":"status","phase":"step_end","turn":1,"step":1,"usage":{"inputTokens":600,"outputTokens":20,"totalTokens":1020,"cacheReadTokens":400}}
 {"type":"status","phase":"step_start","turn":1,"step":2}
 {"type":"thinking","text":"Thinking it over."}
-{"type":"text","text":"the answer"}
+{"type":"tool_call","callId":"call_2","tool":"bash","input":{"command":"sleep 5","description":"Wait","timeoutMs":1000}}
+{"type":"tool_result","callId":"call_2","status":"completed","result":"[still running after 1000ms; moved to background job bash-05097e6c1e3f423d]"}
 {"type":"status","phase":"step_end","turn":1,"step":2,"usage":{"inputTokens":600,"outputTokens":20,"totalTokens":1020,"cacheReadTokens":400}}
+{"type":"status","phase":"step_start","turn":1,"step":3}
+{"type":"thinking","text":"Thinking it over."}
+{"type":"tool_call","callId":"call_3","tool":"bash","input":{"command":"echo building; sleep 5","description":"Build","timeoutMs":1000.5}}
+{"type":"tool_result","callId":"call_3","status":"completed","result":"building\n[still running after 1000.5ms; moved to background job bash-edd1522dc3ff48cf]"}
+{"type":"status","phase":"step_end","turn":1,"step":3,"usage":{"inputTokens":600,"outputTokens":20,"totalTokens":1020,"cacheReadTokens":400}}
+{"type":"status","phase":"step_start","turn":1,"step":4}
+{"type":"thinking","text":"Thinking it over."}
+{"type":"text","text":"the answer"}
+{"type":"status","phase":"step_end","turn":1,"step":4,"usage":{"inputTokens":600,"outputTokens":20,"totalTokens":1020,"cacheReadTokens":400}}
 {"type":"status","phase":"turn_end","turn":1,"reason":{"kind":"completed"}}
-{"type":"final","sessionId":"session-f5415a1e-694e-4496-a644-8cbc8f0f266f","reason":{"kind":"completed"},"text":"the answer"}
+{"type":"final","sessionId":"session-89dbecd8-5170-42c8-85d6-b721d96c3364","reason":{"kind":"completed"},"text":"the answer"}

@@ -573,14 +573,16 @@ def test_a_bash_result_is_read_as_dsh_marks_its_end():
     """dsh marks a nonzero exit (`[exit code: N]`) or a signal after a command's output and nothing after a clean
     exit; `(no output)` stands for an empty output, also before a marker. A command stopped by its timeout has no
     exit code to trust, even one that trapped the signal and exited 0 (it read as a clean exit before), as a
-    signal's has none: unknown, as Codex reports it."""
+    signal's has none: unknown, as Codex reports it. dsh prints the timeout as the model gave it, which need not be
+    a whole number of milliseconds (`1000.5ms`, read as a clean exit before)."""
     stream = [json.loads(line) for line in (STREAMS / "bash.jsonl").read_text().splitlines()]
     commands = [(s.command, s.exit_code, s.output) for s in trajectory.dsh_steps(stream) if s.kind == "command"]
     assert commands == [("exit 3", 3, ""), ("printf ''", 0, ""), ("true", 0, ""), ("echo out; exit 4", 4, "out"),
                         ("kill -9 $$", None, "(no output)\n[killed by signal: SIGKILL]"),
                         ("printf 'no newline'; exit 5", 5, "no newline"),
                         ("trap 'exit 0' TERM; sleep 5 & wait", None, "(no output)\n[timed out after 1000ms]"),
-                        ("sleep 5", None, "(no output)\n[timed out after 1000ms]\n[killed by signal: SIGTERM]")]
+                        ("sleep 5", None, "(no output)\n[timed out after 1000ms]\n[killed by signal: SIGTERM]"),
+                        ("trap 'exit 0' TERM; sleep 5 & wait", None, "(no output)\n[timed out after 1000.5ms]")]
 
 
 def test_a_command_whose_end_dsh_did_not_report_has_no_exit_code():
@@ -588,12 +590,14 @@ def test_a_command_whose_end_dsh_did_not_report_has_no_exit_code():
     big_bash.jsonl, 1,500 lines then exit 2), and read as exit 0 before; a command started in the background
     (background.jsonl) has no status yet, nor has one still running at its timeout (60 s by default), which dsh moves
     to a background job in a session unless its job limit is reached (promoted.jsonl): only DSH_BACKGROUND keeps it
-    from reading as exit 0. A command stopped from outside the call (the job stopped in dsh's UI) is marked
-    `[stopped: <reason>]` before any other marker, and may have trapped the signal and exited 0: no headless session
-    writes one, so its results are written here as dsh's bash tool renders them (tool-bash's render.ts,
-    dsh 0.2.2-rc.1). A command that printed a marker of its own and exited 0 (fake_marker.jsonl) is a clean exit, as
-    dsh reads it: the marker counts only at the very end. A call that failed to run (a result dsh marks `error`) has
-    no exit status either, as dsh's own view of a bash result has none for it."""
+    from reading as exit 0, also when its marker is the whole result (the command printed nothing yet) and when the
+    timeout is no whole number of milliseconds (`1000.5ms`, read as exit 0 before). A command stopped from outside
+    the call (the job stopped in dsh's UI) is marked `[stopped: <reason>]` before its signal or exit marker, and may
+    have trapped the signal and exited 0: no headless session writes one, so its results are written here as dsh's
+    bash tool renders them (tool-bash's render.ts, dsh 0.2.2-rc.1). A command that printed a marker of its own and
+    exited 0 (fake_marker.jsonl) is a clean exit, as dsh reads it: the marker counts only at the very end. A call
+    that failed to run (a result dsh marks `error`) has no exit status either, as dsh's own view of a bash result has
+    none for it."""
     def commands(name):
         stream = [json.loads(line) for line in (STREAMS / name).read_text().splitlines() if line.startswith("{")]
         return [s for s in trajectory.dsh_steps(stream) if s.kind == "command"]
@@ -608,9 +612,10 @@ def test_a_command_whose_end_dsh_did_not_report_has_no_exit_code():
     assert cut.output.endswith(trajectory.DSH_CUT) and "[exit code" not in cut.output
     [background] = commands("background.jsonl")
     assert background.exit_code is None and background.output.startswith("started background job ")
-    [promoted] = commands("promoted.jsonl")
-    assert promoted.exit_code is None and \
-        promoted.output.startswith("building\n[still running after 1000ms; moved to background job bash-")
+    [building, silent, fraction] = commands("promoted.jsonl")
+    for step, start in ((building, "building\n[still running after 1000ms"), (silent, "[still running after 1000ms"),
+                        (fraction, "building\n[still running after 1000.5ms")):
+        assert step.exit_code is None and step.output.startswith(f"{start}; moved to background job bash-"), start
     for stopped in ("(no output)\n[stopped: cancelled by the user]",
                     "cleaning up\n[stopped: cancelled by the user]\n[exit code: 143]"):
         assert command(stopped).exit_code is None, stopped
@@ -675,7 +680,7 @@ def test_a_step_counts_as_a_call_whenever_it_made_one(tmp_path):
 
 def test_a_step_is_a_call_when_it_called_a_tool_or_thought_and_none_when_its_requests_then_failed(tmp_path):
     """Which steps whose tokens dsh did not report are calls, from the recorded streams: a step whose only output is a
-    tool call (bash.jsonl's eight, recorded without reasoning) is one, and so is a step whose only output is a
+    tool call (bash.jsonl's nine, recorded without reasoning) is one, and so is a step whose only output is a
     thought (resume.jsonl's step without its reply); a step whose requests all failed (failure.jsonl's) after a step
     that produced something is none: what a step produced does not carry over to the next."""
     from hermit.agent.base.records import parse_dsh
@@ -688,7 +693,7 @@ def test_a_step_is_a_call_when_it_called_a_tool_or_thought_and_none_when_its_req
     def read(name: str) -> list[dict]:
         return [json.loads(line) for line in (STREAMS / name).read_text().splitlines() if line.startswith("{")]
     [tools] = parse_dsh(without_usage("bash.jsonl", tmp_path), "m")[1]
-    assert (tools.calls, tools.unreported_calls) == (9, 9)
+    assert (tools.calls, tools.unreported_calls) == (10, 10)
     resume = read("resume.jsonl")
     thought = [{k: v for k, v in e.items() if k != "usage"} for e in resume if e.get("type") != "text"]
     [thinking] = parse_dsh(stream("thought.jsonl", thought), "m")[1]
