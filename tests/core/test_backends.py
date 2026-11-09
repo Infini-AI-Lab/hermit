@@ -3,9 +3,15 @@ the run config is normalized, the preflight finds a dialect the backend does not
 dialect to a fake server."""
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
+import os
 from pathlib import Path
+import signal
+import socket
+import subprocess
 import sys
 import threading
+import time
+import urllib.request
 
 import pytest
 import yaml
@@ -401,6 +407,44 @@ def test_cli_dispatch_and_meter_buckets(capsys):
     assert split_bucket("/v1/chat/completions") == ("unattributed", "/v1/chat/completions")
     assert split_bucket("/anthropic/v1/messages") == ("unattributed", "/anthropic/v1/messages")
     assert split_bucket("/health") == ("unattributed", "/health")
+
+
+def test_a_meter_carries_on_the_ledger_an_earlier_one_left(tmp_path):
+    """A launcher stops its meter when its run ends and the next run on the port starts another on the same ledger
+    (#82): with LEDGER_RESUME=1 (the launchers set it) the new meter keeps the earlier totals instead of writing an
+    empty ledger over them; without it a meter starts empty, as lean_swarm's rerun of an attempt expects."""
+    ledger = tmp_path / "wire_ledger.json"
+    earlier = {"run_o0": {"input": 1000, "cacheRead": 200, "output": 50, "calls": 3}}
+    ledger.write_text(json.dumps({"ledger": earlier, "health": {}, "ts": 1}))
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    env = {**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[2]), "UPSTREAM": "http://127.0.0.1:9",
+           "PORT": str(port), "LEDGER": str(ledger), "FLUSH_S": "3600"}
+    env.pop("UPSTREAM_KEY_ENV", None)
+
+    def meter(**extra) -> dict:
+        """The ledger a meter serves once up, and the one it writes when stopped as a launcher stops it (SIGTERM)."""
+        proc = subprocess.Popen([sys.executable, "-m", "hermit.runtime.wire_meter"], env={**env, **extra},
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            for _ in range(50):
+                try:
+                    with urllib.request.urlopen(f"http://127.0.0.1:{port}/ledger", timeout=2) as response:
+                        live = json.loads(response.read())["ledger"]
+                    break
+                except OSError:
+                    time.sleep(0.2)
+            else:
+                raise AssertionError("the meter did not come up")
+        finally:
+            proc.send_signal(signal.SIGTERM)
+            proc.wait(timeout=10)
+        assert json.loads(ledger.read_text())["ledger"] == live
+        return live
+
+    assert meter(LEDGER_RESUME="1") == earlier
+    assert meter() == {}
 
 
 def test_a_task_agent_on_a_cli_base_is_bound_and_checked_like_the_cli():

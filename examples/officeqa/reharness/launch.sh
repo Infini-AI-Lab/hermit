@@ -75,18 +75,33 @@ if [ "${EMBED_KEY_REQUIRED:-1}" = 1 ] && [ -n "$KEY_ENV" ] && [ -z "${!KEY_ENV:-
 fi
 # The meter: one per port, started here if none answers; a meter facing another upstream is refused.
 mkdir -p runs
-# The meters this launch starts stop within a second or two of the processes it names ending (#82). A meter found
-# running belongs to the launch that started it: a launch reuses one only if it is still up on a second look.
-METERS=()
-stop_meters_after() {  # pid...
+# The meters this launch starts stop within a second or two of the processes that use them ending (#82): its own and
+# those of any launch that reuses one. Each launch on a port lists its processes in the port's users file, emptied
+# when the meter stops; a launch reuses a running meter only if it is still up on a second look (one being stopped is
+# gone by then).
+METERS=() OWNED=() PORTS=()
+meter_users() { echo "/tmp/hermit-wire-meter-$(id -u)-$1.users"; }   # port: /tmp, which every launch on it shares
+meter_started() {  # port pid: a meter this launch started, this launch one of its users
+  { echo $$ >> "$(meter_users "$1")" || true; } 2>/dev/null
+  METERS+=("$2"); OWNED+=("$1")
+}
+stop_meters_after() {  # pid...: what this launch leaves running; the meters it started stop after every user
+  local port files=()
+  [ $# -eq 0 ] || for port in ${PORTS[@]+"${PORTS[@]}"}; do
+    printf '%s\n' "$@" >> "$(meter_users "$port")" 2>/dev/null || true; done
   [ ${#METERS[@]} -gt 0 ] || return 0
-  setsid nohup bash -c 'for p in $1; do while kill -0 "$p" 2>/dev/null; do sleep 1; done; done
-    for m in $2; do kill -- "-$m" 2>/dev/null || kill "$m" 2>/dev/null || true; done' _ "$*" "${METERS[*]}" \
+  for port in "${OWNED[@]}"; do files+=("$(meter_users "$port")"); done
+  setsid nohup bash -c 'while :; do up=
+      for p in $(cat $1 2>/dev/null); do kill -0 "$p" 2>/dev/null && { up=1; break; }; done
+      [ -n "$up" ] || break; sleep 1; done
+    for f in $1; do : > "$f"; done 2>/dev/null    # a launch listed after this look finds the meter gone and starts one
+    for m in $2; do kill -- "-$m" 2>/dev/null || kill "$m" 2>/dev/null || true; done' _ "${files[*]}" "${METERS[*]}" \
     > /dev/null 2>&1 < /dev/null &
 }
-meter_health() {  # port: the /health of a meter still up three seconds on (one being stopped is gone by then)
-  curl -s -m 2 "http://127.0.0.1:$1/health" > /dev/null 2>&1 && sleep 3 \
-    && curl -s -m 2 "http://127.0.0.1:$1/health" 2>/dev/null
+meter_health() {  # port: the /health of a meter still up three seconds on, this launch listed as one of its users first
+  curl -s -m 2 "http://127.0.0.1:$1/health" > /dev/null 2>&1 \
+    && { echo $$ >> "$(meter_users "$1")" || true; } 2>/dev/null \
+    && sleep 3 && curl -s -m 2 "http://127.0.0.1:$1/health" 2>/dev/null
 }
 LEDGER=$HERE/runs/wire_ledger-$WM_PORT.json
 if health=$(meter_health $WM_PORT); then
@@ -99,10 +114,11 @@ if health=$(meter_health $WM_PORT); then
     *) echo "REFUSING: port $WM_PORT has a wire meter facing another or an unknown upstream ($health); choose another WM_PORT"; exit 1;;
   esac
 else
-  env PORT=$WM_PORT UPSTREAM=$EMBED_ORIGIN ${KEY_ENV:+UPSTREAM_KEY_ENV=$KEY_ENV} LEDGER=$LEDGER \
+  env PORT=$WM_PORT UPSTREAM=$EMBED_ORIGIN ${KEY_ENV:+UPSTREAM_KEY_ENV=$KEY_ENV} LEDGER=$LEDGER LEDGER_RESUME=1 \
     setsid nohup "$PY" -m hermit.runtime.wire_meter >> "runs/wire_meter-$WM_PORT.log" 2>&1 < /dev/null &
-  METERS+=("$!"); stop_meters_after $$   # $$: this launcher, then the hermit command it execs
-  echo "wire meter pid $! port $WM_PORT -> $EMBED_ORIGIN (ledger $LEDGER)"; sleep 2
+  meter_started $WM_PORT $!
+  echo "wire meter pid $! port $WM_PORT -> $EMBED_ORIGIN (ledger $LEDGER)"
+  stop_meters_after $$; sleep 2   # $$: this launcher, then the hermit command it execs
   curl -s -m 2 "http://127.0.0.1:$WM_PORT/health" > /dev/null \
     || { echo "REFUSING: the wire meter did not come up (runs/wire_meter-$WM_PORT.log)"; exit 1; }
 fi

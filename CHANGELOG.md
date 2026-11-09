@@ -204,9 +204,14 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   wrote none. The file (or a directory a session made in its place) is now removed before each Evolve session.
 - Nine example launchers left their wire meters running after the run (#82), so a later run on the same port
   reused one and wrote its records into the earlier run's ledger. The meters a launch starts now stop within a second
-  or two of its trainings (and, for ServeLearnBench, the tests after them) ending, the harness2 restart loop
-  included. A launch reuses a running meter only if it is still up three seconds on, so it never takes one that is
-  being stopped; a meter shared by two runs at once still stops when the run that started it ends.
+  or two of the runs that use them ending: its own trainings (and, for ServeLearnBench, the tests after them) and
+  those of any launch that reuses one, which each list their processes in the port's users file
+  (`/tmp/hermit-wire-meter-<uid>-<port>.users`); the harness2 restart loop is stopped with its meter. A
+  launch reuses a running meter only if it is still up three seconds on, so it never takes one that is being
+  stopped. A meter started on a ledger an earlier one left now carries its totals on (`LEDGER_RESUME=1` in
+  `hermit/runtime/wire_meter.py`, which these launchers set): the next run's meter on the port (`launch.sh run &&
+  launch.sh run eval`, a ServeLearnBench `test` run again, a CL-Bench tag refused because it exists) wrote an empty
+  ledger over the earlier run's bill.
 
 ## 0.2.0 - 2026-11-04
 
