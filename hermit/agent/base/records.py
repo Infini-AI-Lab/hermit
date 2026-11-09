@@ -135,5 +135,5 @@ def parse_claude(log: Path, model: str) -> tuple[str | None, list[Usage]]:
 
 
 def parse_log(log: Path, backend: str, model: str) -> tuple[str | None, list[Usage]]:
-    """Session handle and usage from the agent's JSON event stream: Codex's, else Claude Code's."""
-    return (parse_codex if backend == "codex" else parse_claude)(log, model)
+    """Session handle and usage from the agent's JSON event stream: Codex's, Pi's, else Claude Code's."""
+    return {"codex": parse_codex, "pi": parse_pi}.get(backend, parse_claude)(log, model)

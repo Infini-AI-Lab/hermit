@@ -220,7 +220,8 @@ def test_system_instructions_are_appended_and_a_long_one_goes_in_a_file(fake):
 
 
 def test_a_pi_stream_is_read_back_by_its_name_or_by_its_events(tmp_path):
-    """The learning material keeps the acting agent's log: an Evolver reads Pi's steps from it like Codex's."""
+    """The learning material keeps the acting agent's log: an Evolver reads Pi's steps from it like Codex's, and
+    records.parse_log reads its session and usage as Pi's (it read a Pi stream as Claude Code's: none of either)."""
     named = tmp_path / "log"
     named.mkdir()
     shutil.copy(STREAMS / "success.jsonl", named / trajectory.PI_STREAM)
@@ -231,6 +232,9 @@ def test_a_pi_stream_is_read_back_by_its_name_or_by_its_events(tmp_path):
     raw = (STREAMS / "failure.jsonl").read_text()
     assert not base_cli.served("pi", raw) and base_cli.notices("pi", raw).startswith("503: ")
     assert base_cli.served("pi", (STREAMS / "success.jsonl").read_text())
+    from hermit.agent.base.records import parse_log
+    session, [usage] = parse_log(STREAMS / "success.jsonl", "pi", "m")
+    assert session == SESSION and (usage.calls, usage.input_tokens, usage.output_tokens) == (4, 4000, 80)
 
 
 def test_the_pi_acting_agent_deploys_the_adapter_and_trusts_its_project_for_the_session(fake):
