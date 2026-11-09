@@ -217,37 +217,44 @@ def pi_steps(stream: list[dict]) -> list[Step]:
 
 
 DSH_FILE_TOOLS = ("write", "edit")
-# How dsh's bash tool ends a command's result (its own parseExitStatus reads it so): a nonzero exit or a signal is
-# marked last, a clean exit is not; a command stopped by its timeout or from outside is marked before that (a command
-# that traps the signal may still exit 0), and one still running was moved to the background, unfinished
-DSH_EXIT = re.compile(r"\n\[exit code: (\d+)\]$")
-DSH_SIGNAL = re.compile(r"\n\[killed by signal: [^\]\n]+\]$")
-DSH_STOPPED = re.compile(r"\n\[(?:timed out after \d+ms|stopped: [^\]\n]*)\](?:\n\[[^\]\n]*\])*$")
-DSH_BACKGROUND = re.compile(r"\[still running after \d+ms; moved to background job [^\]\n]+\]$")
+# How dsh's bash tool ends a command's result (its own parseExitStatus reads it so, anchored at the very end, as
+# JavaScript's `$` is: \Z here): a nonzero exit or a signal is marked last, a clean exit is not; a command stopped by
+# its timeout or from outside is marked before that (a command that traps the signal may still exit 0), and one still
+# running was moved to the background, unfinished
+DSH_EXIT = re.compile(r"\n\[exit code: (\d+)\]\Z")
+DSH_SIGNAL = re.compile(r"\n\[killed by signal: [^\]\n]+\]\Z")
+DSH_STOPPED = re.compile(r"\n\[(?:timed out after \d+ms|stopped: [^\]\n]*)\](?:\n\[[^\]\n]*\])*\Z")
+DSH_BACKGROUND = re.compile(r"\[still running after \d+ms; moved to background job [^\]\n]+\]\Z")
 DSH_NO_OUTPUT = "(no output)"     # what the result holds before its marker when the command printed nothing
+# dsh's --json keeps 8 KiB of each string and marks the event `truncated`: the end, where the marker was, is gone
+DSH_CUT = "\n[the rest was cut: dsh's --json keeps 8 KiB of a string]"
 
 
 def dsh_steps(stream: list[dict]) -> list[Step]:
     """DeepSeek Harness's `--json` events: its thinking and text as each model step committed them, and each
     `tool_call` completed by its `tool_result`: bash as a command whose exit code and output are read from the
     result as dsh reads them (`[exit code: N]` after the output; no marker: 0; a signal, a timeout, a stop, a command
-    moved to the background or a call that failed to run: unknown; `(no output)`: empty), write and edit as file
-    changes, an MCP tool (`mcp__<server>__<tool>`) as a tool call with its server and arguments and its result as
-    `output`, any other tool as a tool call; a run that did not complete (the `final` event's reason: an error, an
-    abort, the token limit, ...), or failed outside a turn (an `error` event), as an error. Status events and usage
-    are left out."""
-    steps, pending = [], {}
+    moved to or started in the background, a result dsh's --json cut (its marker is gone) or a call that failed to
+    run: unknown; `(no output)`: empty), write and edit as file changes, an MCP tool (`mcp__<server>__<tool>`) as a
+    tool call with its server and arguments and its result as `output`, any other tool as a tool call; a run that did
+    not complete (the `final` event's reason: an error, an abort, the token limit, ...), or failed outside a turn (an
+    `error` event), as an error. A text cut by --json says so at its end (DSH_CUT). Status events and usage are left
+    out."""
+    steps, pending, background = [], {}, set()
     for event in stream:
         kind = event.get("type")
+        cut = DSH_CUT if event.get("truncated") else ""
         if kind == "thinking" and str(event.get("text") or "").strip():
-            steps.append(Step("reasoning", str(event["text"])))
+            steps.append(Step("reasoning", str(event["text"]) + cut))
         elif kind == "text" and str(event.get("text") or "").strip():
-            steps.append(Step("message", str(event["text"])))
+            steps.append(Step("message", str(event["text"]) + cut))
         elif kind == "tool_call":
             name = str(event.get("tool") or "")
             args = event.get("input") if isinstance(event.get("input"), dict) else {}
             if name == "bash":
                 step = Step("command", command=str(args.get("command") or ""))
+                if args.get("run_in_background"):        # "started background job <id>": no exit status yet
+                    background.add(event.get("callId"))
             elif name in DSH_FILE_TOOLS:
                 step = Step("file_change", json.dumps({"tool": name, "path": args.get("file_path")},
                                                       ensure_ascii=False, default=str))
@@ -266,14 +273,14 @@ def dsh_steps(stream: list[dict]) -> list[Step]:
                 continue
             result = str(event.get("result") or "")
             if step.kind == "command":
-                found = DSH_EXIT.search(result)
+                found = None if cut else DSH_EXIT.search(result)
                 output = result[:found.start()] if found else result
-                step.output = "" if output == DSH_NO_OUTPUT else output
-                unknown = event.get("status") != "completed" or DSH_SIGNAL.search(result) or \
-                    DSH_STOPPED.search(result) or DSH_BACKGROUND.search(result)
+                step.output = ("" if output == DSH_NO_OUTPUT else output) + cut
+                unknown = cut or event.get("status") != "completed" or event.get("callId") in background or \
+                    DSH_SIGNAL.search(result) or DSH_STOPPED.search(result) or DSH_BACKGROUND.search(result)
                 step.exit_code = None if unknown else int(found.group(1)) if found else 0
             elif step.kind == "tool_call":
-                step.output = result
+                step.output = result + cut
         elif kind == "final" and isinstance(event.get("reason"), dict) and \
                 event["reason"].get("kind") not in (None, "completed"):
             error = event["reason"].get("error") if isinstance(event["reason"].get("error"), dict) else {}

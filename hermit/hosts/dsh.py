@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """Deploy an adapter into a DeepSeek Harness (dsh) workspace: the whole adapter under hermit/<id>/, and its exports
-connected to dsh's own places: AGENTS.md context, .dsh/skills, and the tools as a patch layer, .dsh/hermit.patch.yml.
+connected to dsh's own places: AGENTS.md context, .dsh/skills, and a patch layer, .dsh/hermit.patch.yml.
 
-dsh reads AGENTS.md at the project's root (the nearest folder above with a `.git`, else the working directory) and in
-the working directory, and the skills of .dsh/skills at the project's root only, without any trust prompt: a
-workspace that is not its project's root gets its skills only as the session's own, which the `dsh` acting agent
-gives it (hermit.agent.base.cli._dsh_skills). It has no project file for MCP servers: they are rows of its
-plugin tree, so the adapter's tool server is an `insert` row in a patch layer of the workspace, which a session
-loads with `dsh --patch .dsh/hermit.patch.yml` (what the `dsh` acting agent passes). dsh reads no hook file and has
-no role file: an adapter's roles and hooks stay files of its copy, which AGENTS.md names with what to do with them
-(hermit.hosts.inputs.resources), as it names the other files. dsh's own settings ($DSH_HOME) are never changed.
+dsh reads, without any trust prompt, the instruction files (AGENTS.md, CLAUDE.md and their .local overlays) of every
+folder from the project's root down to the working directory, and the skills of the root's .dsh/skills and
+.agents/skills; the root is the nearest folder above with a `.git`, else the working directory. It has no project
+file for MCP servers or for more skill folders: they are rows of its plugin tree, so the patch layer holds the
+adapter's tool server (an `insert` row) and names the workspace's .dsh/skills (the `skill-filesystem` row's
+customSkillDirs, so that a workspace below a repository's root keeps its skills), and a session loads it with `dsh
+--patch .dsh/hermit.patch.yml` from the workspace (what the `dsh` acting agent passes). dsh cuts a chain of
+instructions past 65,536 bytes (its agent-instructions maxBytes), so a longer AGENTS.md is refused. dsh runs no hook
+file of its own (its experimental bridge to Claude Code's hooks is not used) and has no role file: an adapter's roles
+and hooks stay files of its copy, which AGENTS.md names with what to do with them (hermit.hosts.inputs.resources), as
+it names the other files. dsh's own settings ($DSH_HOME) are never changed.
 """
 import argparse
 import json
@@ -19,13 +22,14 @@ import subprocess
 import sys
 
 from hermit.adapter.loader import agent_tools, hook_definitions, load_manifest, not_portable
+from hermit.agent.base.cli import DSH_INSTRUCTION_BYTES
 from hermit.hosts.context import PROJECT_CONTEXT, START, append_context
 from hermit.hosts.inputs import (MARKER, PACKAGE_ROOT, _adapter_sandbox_env, adapter_files, adapter_folder,
                                  check_workspace, copy_adapter, copy_skills, folder_note, render_exports, resources,
                                  server_name, source_label)
 
 NATIVE = {"skills"}
-PATCH = Path(".dsh") / "hermit.patch.yml"     # the workspace's patch layer: the adapter's tool server
+PATCH = Path(".dsh") / "hermit.patch.yml"     # the workspace's patch layer: the adapter's tool server and skills
 SERVER_NAME = re.compile(r"[A-Za-z0-9_-]{1,32}")   # what dsh takes as an MCP server's name
 
 
@@ -58,6 +62,11 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
                                       exports["context"] if context is None else context, listed) if t),
                                   source=source_label(manifest),
                                   version=manifest["version"], adapter_id=manifest["id"])
+    size = len(context_text.encode("utf-8"))
+    if size > DSH_INSTRUCTION_BYTES:
+        raise ValueError(f"AGENTS.md would be {size} bytes, past the {DSH_INSTRUCTION_BYTES} bytes dsh reads of a "
+                         "project's instructions (its agent-instructions maxBytes): dsh would cut the rest, telling "
+                         "only the model. Shorten the adapter's context")
     audit = output / "tool-calls.jsonl"
     server = None
     if has_tools:
@@ -67,18 +76,20 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
                   "toolCallTimeoutMs": 120_000}               # Codex's tool_timeout_sec, not dsh's 60 s
         if learning_material is not None:
             server["args"].extend(["--learning-material", str(Path(learning_material).resolve())])
-    rows = [{"insert": [{"id": f"mcp-{server_name(manifest)}", "name": "@deepseek-ai/dsh-mcp-client",
-                         "config": server}]}] if has_tools else []
+    skills = copy_skills(adapter, manifest, output / ".dsh" / "skills")
+    rows = [*([{"insert": [{"id": f"mcp-{server_name(manifest)}", "name": "@deepseek-ai/dsh-mcp-client",
+                            "config": server}]}] if has_tools else []),
+            # the workspace's own skills wherever it lies (dsh's other roots, the user's own, stay as they are)
+            *([{"id": "skill-filesystem", "config": {"customSkillDirs": [".dsh/skills"]}}] if skills else [])]
     (output / PATCH.parent).mkdir(exist_ok=True)
     # JSON is YAML: dsh reads the layer as YAML, and nothing in it is a `!!js` expression
     (output / PATCH).write_text(json.dumps(rows, indent=2) + "\n")
     context_path.write_text(context_text)
-    skills = copy_skills(adapter, manifest, output / ".dsh" / "skills")
     copy_adapter(adapter, output, manifest, files, previous)
     result = {"host": "dsh", "adapter_id": manifest["id"], "version": manifest["version"], "adapter": str(adapter),
               "workspace": str(output), "context_injected_via": "AGENTS.md",
               "server_name": server_name(manifest) if has_tools else None, "server": server,
-              "patch": str(output / PATCH) if has_tools else None, "roles": {}, "role_name_map": {},
+              "patch": str(output / PATCH) if rows else None, "roles": {}, "role_name_map": {},
               "skills_dir": str(output / ".dsh" / "skills") if skills else None, "skills": skills, "hooks": None,
               "audit_log": str(audit) if has_tools else None,
               "adapter_dir": str(adapter_folder(output, manifest)), "files": files, "placed": placed}

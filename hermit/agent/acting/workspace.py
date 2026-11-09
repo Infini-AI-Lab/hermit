@@ -289,6 +289,11 @@ def _check(backend: str, params: dict) -> str:
                              + (", or a model of dsh's own provider" if backend == "dsh" else ""))
         if params.get("isolation") == "container":
             raise ValueError(f"isolation: container runs Codex or Claude Code; agent {backend} takes isolation: none")
+        if backend == "dsh" and params.get("permission_mode") is not None:
+            from hermit.agent.base.cli import DSH_PERMISSION_MODES
+            if params["permission_mode"] not in DSH_PERMISSION_MODES:
+                raise ValueError(f"agent.dsh.permission_mode is one of {', '.join(DSH_PERMISSION_MODES)} (dsh's own "
+                                 f"sandbox), not {params['permission_mode']!r}")
         return backend
     login, label = params.get("login"), {"codex": "Codex", "claude": "Claude Code"}[backend]
     if login is not None and login not in LOGINS:
@@ -318,6 +323,8 @@ def base_agent(backend: str, params: dict) -> BaseAgent:
                 if k in params and (params[k] is not None or k == "plan_max_wait_s")}
     if params.get("claude_permission_mode"):
         settings["permission_mode"] = params["claude_permission_mode"]
+    if backend == "dsh" and params.get("permission_mode"):    # dsh's own sandbox (agent.dsh.permission_mode)
+        settings["permission_mode"] = params["permission_mode"]
     return make(backend, {**settings, "web_search": params["web_search"]})
 
 

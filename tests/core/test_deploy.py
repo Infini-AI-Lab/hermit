@@ -53,11 +53,15 @@ def test_pi(tmp_path):
 
 
 def test_dsh(tmp_path):
-    """dsh has no project file for MCP servers: the tools are an `insert` row of the workspace's patch layer, which a
-    session loads with --patch; the skills are dsh's project skills; roles stay files named in AGENTS.md."""
+    """dsh has no project file for MCP servers or skill folders: the tools are an `insert` row of the workspace's
+    patch layer, which a session loads with --patch, and the layer names the workspace's .dsh/skills (dsh reads a
+    project's skills only at the nearest folder with a .git); roles stay files named in AGENTS.md; a context longer
+    than dsh reads of a project's instructions is refused."""
     result = dsh_prepare(LEAN, tmp_path / "d", sys.executable)
-    [layer] = json.loads((tmp_path / "d" / ".dsh" / "hermit.patch.yml").read_text())
-    [row] = layer["insert"]
+    layer = json.loads((tmp_path / "d" / ".dsh" / "hermit.patch.yml").read_text())
+    [server] = [r for r in layer if "insert" in r]
+    assert {"id": "skill-filesystem", "config": {"customSkillDirs": [".dsh/skills"]}} in layer
+    [row] = server["insert"]
     assert row["name"] == "@deepseek-ai/dsh-mcp-client" and row["config"]["serverName"] == "lean_collab"
     assert row["config"]["transport"] == "stdio" and row["config"]["args"][:3] == ["-m", "hermit.runtime.mcp_server",
                                                                                   "--adapter"]
@@ -75,6 +79,11 @@ def test_dsh(tmp_path):
     assert result["placed"] == {"agents": "files"} and result["patch"] is None      # no tools: no server row
     assert json.loads((tmp_path / "s" / ".dsh" / "hermit.patch.yml").read_text()) == []
     assert "`reviewer`: Check a result against the task requirements." in (tmp_path / "s" / "AGENTS.md").read_text()
+    big = subagent_adapter(tmp_path / "big")
+    (big / "ADAPTER.md").write_text("Check the units.\n" * 4000)       # 68,000 bytes
+    with pytest.raises(ValueError, match="past the 65536 bytes dsh reads of a project's instructions"):
+        dsh_prepare(big, tmp_path / "b", sys.executable)
+    assert not (tmp_path / "b" / "AGENTS.md").exists()
 
 
 def subagent_adapter(tmp_path):

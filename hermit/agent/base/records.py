@@ -124,29 +124,47 @@ def parse_pi(log: Path, model: str) -> tuple[str | None, list[Usage]]:
     return _parse(log, model, _pi_event)
 
 
-def _dsh_event(event: dict, usage: Usage, session):
+def _dsh_reader():
     """DeepSeek Harness: the session id (its opening `session` event), and each model step's usage (`status` events
     of phase `step_end`). dsh's `inputTokens` leaves the cache out, so the input counted is input, cache reads and
-    cache writes, as Codex and Claude Code count it. A step that used no tokens (every request of it failed) is no
-    call. dsh reports no cost: it is priced from the backend's price (price_usage)."""
-    if event.get("type") == "session":
-        session = event.get("sessionId") or session
-    if event.get("type") == "status" and event.get("phase") == "step_end" and isinstance(event.get("usage"), dict):
-        u = event["usage"]
+    cache writes, as Codex and Claude Code count it. dsh reports no cost: it is priced from the backend's price
+    (price_usage). A step whose requests all failed reports no tokens and is no call; one that produced a reply, a
+    thought or a tool call is, even when the provider reported no usage for it (dsh then reports zeros).
+
+    What dsh's stream leaves out is not counted: a step one of whose attempts reported no usage carries none (dsh
+    omits a partial sum), so it counts as a call of unknown tokens, and a compaction's summary request, the title
+    request (off in a session, hermit.agent.base.cli.DSH_OFF) and sub-agents report nothing there."""
+    produced = False
+
+    def read(event: dict, usage: Usage, session):
+        nonlocal produced
+        kind = event.get("type")
+        if kind == "session":
+            session = event.get("sessionId") or session
+        if kind in ("text", "thinking", "tool_call"):
+            produced = True
+        if kind != "status" or event.get("phase") != "step_end":
+            return session
+        made, produced = produced, False
+        u = event.get("usage")
+        if not isinstance(u, dict):
+            usage.calls += 1
+            return session
         cached = int(u.get("cacheReadTokens") or 0)
         tokens = int(u.get("inputTokens") or 0) + cached + int(u.get("cacheWriteTokens") or 0)
-        if not tokens and not u.get("outputTokens"):
+        if not tokens and not u.get("outputTokens") and not made:
             return session
         usage.input_tokens += tokens
         usage.cached_input_tokens += cached
         usage.output_tokens += int(u.get("outputTokens") or 0)
         usage.calls += 1
-    return session
+        return session
+    return read
 
 
 def parse_dsh(log: Path, model: str) -> tuple[str | None, list[Usage]]:
-    """DeepSeek Harness's `--json` events: the session id, and every model step's usage."""
-    return _parse(log, model, _dsh_event)
+    """DeepSeek Harness's `--json` events: the session id, and every model step's usage (_dsh_reader)."""
+    return _parse(log, model, _dsh_reader())
 
 
 def parse_codex(log: Path, model: str) -> tuple[str | None, list[Usage]]:
@@ -160,5 +178,6 @@ def parse_claude(log: Path, model: str) -> tuple[str | None, list[Usage]]:
 
 
 def parse_log(log: Path, backend: str, model: str) -> tuple[str | None, list[Usage]]:
-    """Session handle and usage from the agent's JSON event stream: Codex's, else Claude Code's."""
-    return (parse_codex if backend == "codex" else parse_claude)(log, model)
+    """Session handle and usage from the agent's JSON event stream, read as its CLI writes it (Claude Code's for a
+    backend it does not know)."""
+    return {"codex": parse_codex, "pi": parse_pi, "dsh": parse_dsh}.get(backend, parse_claude)(log, model)

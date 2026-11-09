@@ -278,24 +278,88 @@ def test_system_instructions_go_at_the_top_of_the_prompt(fake):
     assert call["args"][-1] == "-" and call["stdin"] == prompt
 
 
-def test_the_workspaces_skills_are_the_sessions_own_and_the_last_calls_copy_is_replaced(fake):
-    """dsh reads a project's skills only at the project's root (the nearest folder above with a .git), so the
-    workspace's are copied to the session's own ($DSH_AGENTS_HOME/skills), which it reads wherever it runs; a skill
-    the last call copied is gone, and a link left in place of the folder is replaced, never written through."""
-    home, work = fake / "home", fake / "work"
-    (work / ".dsh" / "skills" / "check").mkdir(parents=True)
-    (work / ".dsh" / "skills" / "check" / "SKILL.md").write_text("---\nname: check\ndescription: Check.\n---\n")
-    (home / ".agents" / "skills" / "old").mkdir(parents=True)
-    agent = make("dsh", {**bound(), "web_search": False, "home": str(home)})
-    agent.run("go", workspace=work)
-    assert [p.name for p in (home / ".agents" / "skills").iterdir()] == ["check"]
-    outside = fake / "outside"
-    outside.mkdir()
-    shutil.rmtree(home / ".agents")
-    (home / ".agents").symlink_to(outside)
-    agent.run("go", workspace=work)
-    assert not (home / ".agents").is_symlink() and list(outside.iterdir()) == []
-    assert (home / ".agents" / "skills" / "check" / "SKILL.md").is_file()
+def test_the_workspace_is_the_sessions_project_wherever_it_lies(fake):
+    """dsh takes the nearest folder above with a .git for the project: a run's workspace inside a repository would
+    get the repository's skills (.dsh/skills, .agents/skills) and instructions, which outrank the adapter's, and lose
+    its own skills. The session's layer gives dsh the workspace's .dsh/skills alone and its instructions from the
+    deployment's root marker down, as the run's sandbox does by showing nothing above the workspace."""
+    work = fake / "work"
+    work.mkdir()
+    make("dsh", {**bound(), "web_search": False, "home": str(fake / "home")}).run("go", workspace=work)
+    layer = rows(seen(fake)[0], fake / "home")
+    assert row(layer, "skill-filesystem")["config"] == {"includeDefaultRoots": False, "customSkillDirs": [".dsh/skills"]}
+    assert row(layer, "agent-instructions")["config"] == {"maxBytes": 65536,
+                                                          "projectRootMarkers": [".hermit-deploy.json"]}
+
+
+def test_what_dsh_cannot_use_is_refused_rather_than_dropped(fake, monkeypatch, tmp_path):
+    """An effort without a model reaches no model (it is the default model's reasoningEffort); a writable path dsh's
+    sandbox cannot take (a link, a missing folder) failed every command and write of the session: dsh requires an
+    existing directory by its real path, which the session is given. The user's own dsh home is where its .env is
+    copied from."""
+    work = fake / "work"
+    work.mkdir()
+    with pytest.raises(ValueError, match="an effort needs its model"):
+        make("dsh", {"effort": "high", "web_search": False, "home": str(fake / "home")}).run("go", workspace=work)
+    real = tmp_path / "data"
+    real.mkdir()
+    (tmp_path / "link").symlink_to(real)
+    agent = make("dsh", {**bound(), "web_search": False, "home": str(fake / "home")})
+    agent.configured(writable=[str(tmp_path / "link")]).run("go", workspace=work)
+    args = seen(fake)[-1]["args"]
+    assert args[args.index("--add-dir") + 1] == os.path.realpath(real)
+    with pytest.raises(ValueError, match="a writable path is an existing directory"):
+        agent.configured(writable=[str(tmp_path / "missing")]).run("go", workspace=work)
+    monkeypatch.setenv("DSH_HOME", str(tmp_path / "users-dsh"))
+    assert base_cli.Dsh.user_home() == tmp_path / "users-dsh"
+
+
+def test_a_run_whose_tools_did_not_start_has_failed_although_dsh_completed_it(fake, monkeypatch):
+    """dsh reports an MCP row it could not start on stderr and runs on without its tools (recorded: tools_down.jsonl,
+    a server dsh could not reach, exit 0): the session ran without what it was given, so it has failed."""
+    monkeypatch.setenv("FAKE_DSH_STREAM", str(STREAMS / "tools_down.jsonl"))
+    work = fake / "work"
+    work.mkdir()
+    result = make("dsh", {**bound(), "web_search": False, "home": str(fake / "home")}).run("go", workspace=work,
+                                                                                         tools=[echo()])
+    assert result.exit_code == 0 and result.extra["served"] and result.extra["failed"]
+    assert result.extra["failure"].startswith("mcp-hermit_tools did not start, so the session ran without its tools")
+
+
+def test_a_run_dsh_refused_to_start_is_no_session(fake, monkeypatch):
+    """A usage error is an `error` event before any session (recorded: bad_option.jsonl), and a .env in the working
+    directory that sets a name dsh keeps for its launch stops it before any event (dotenv.jsonl): neither started
+    a session, so the acting agent reports it rather than taking every task for a wrong answer."""
+    from hermit.agent.acting import workspace as acting
+    monkeypatch.setenv("FAKE_DSH_EXIT", "1")
+    work = fake / "work"
+    work.mkdir()
+    agent = make("dsh", {**bound(), "web_search": False, "home": str(fake / "home")})
+    for stream, says in (("bad_option.jsonl", "unknown option"), ("dotenv.jsonl", 'sets "PYTHONPATH"')):
+        monkeypatch.setenv("FAKE_DSH_STREAM", str(STREAMS / stream))
+        result = agent.run("go", workspace=work)
+        assert result.exit_code == 1 and not result.extra["started"] and says in result.extra["output_tail"]
+    monkeypatch.setenv("FAKE_DSH_STREAM", str(STREAMS / "bad_option.jsonl"))
+    with pytest.raises(RuntimeError, match="before starting a session"):
+        acting.run({"id": "q1"}, None, params={**bound(), "backend": "dsh", "web_search": False, "prompt": "go",
+                                               "workspaces": "ws"}, base=fake)
+
+
+def test_dsh_permission_mode_reaches_the_acting_agents_session_or_is_refused(fake):
+    """agent.dsh.permission_mode picks dsh's own sandbox for the acting agent (it was dropped, so the session always
+    ran workspace-write); a mode dsh has not is refused when the call is checked."""
+    from hermit.agent.acting import workspace as acting
+    from hermit.config import layered
+    data = {"agent": {"base": "dsh", "model": "fake/m-1", "dsh": {"permission_mode": "danger-full-access"},
+                      "params": {"prompt": "go"}},
+            "evolver": {"name": "dsh", "base": "dsh", "model": "fake/m-1"}, "llm": None}
+    layered(data)
+    params = {**data["agent"]["params"], **bound(), "backend": "dsh", "web_search": False, "workspaces": "ws"}
+    acting.run({"id": "q1"}, None, params=params, base=fake)
+    args = seen(fake)[-1]["args"]
+    assert args[args.index("--permission-mode") + 1] == "danger-full-access"
+    with pytest.raises(ValueError, match="permission_mode is one of read-only, workspace-write"):
+        acting._check("dsh", {**params, "permission_mode": "bypassPermissions"})
 
 
 def test_a_dsh_stream_is_read_back_by_its_name_or_by_its_events(tmp_path):
@@ -325,6 +389,42 @@ def test_a_bash_result_is_read_as_dsh_marks_its_end():
                         ("printf 'no newline'; exit 5", 5, "no newline"),
                         ("trap 'exit 0' TERM; sleep 5 & wait", None, "(no output)\n[timed out after 1000ms]"),
                         ("sleep 5", None, "(no output)\n[timed out after 1000ms]\n[killed by signal: SIGTERM]")]
+
+
+def test_a_command_whose_end_dsh_did_not_report_has_no_exit_code():
+    """dsh's --json keeps 8 KiB of a string: a long result loses its end, where the marker is (recorded:
+    big_bash.jsonl, 1,500 lines then exit 2), and read as exit 0 before; a command started in the background
+    (background.jsonl) has no status yet. A command that printed a marker of its own and exited 0 (fake_marker.jsonl)
+    is a clean exit, as dsh reads it: the marker counts only at the very end."""
+    def commands(name):
+        stream = [json.loads(line) for line in (STREAMS / name).read_text().splitlines() if line.startswith("{")]
+        return [s for s in trajectory.dsh_steps(stream) if s.kind == "command"]
+    [cut] = commands("big_bash.jsonl")
+    assert cut.exit_code is None and cut.output.startswith("line 1 of a long build log\n")
+    assert cut.output.endswith(trajectory.DSH_CUT) and "[exit code" not in cut.output
+    [background] = commands("background.jsonl")
+    assert background.exit_code is None and background.output.startswith("started background job ")
+    [printed] = commands("fake_marker.jsonl")
+    assert (printed.exit_code, printed.output) == (0, "built\n[exit code: 7]\n")
+
+
+def test_a_step_counts_as_a_call_whenever_it_made_one(tmp_path):
+    """A step whose requests all failed reports no tokens and is no call (failure.jsonl); one that answered is a call
+    even when the provider reported no usage, which dsh reports as zeros (no_usage.jsonl), and so is a step dsh
+    reports no usage for at all (one of its attempts had none: dsh's json-stream.ts omits the partial sum, here taken
+    off a recorded step). parse_log reads a dsh stream as dsh's (it read every stream but Codex's as Claude Code's)."""
+    from hermit.agent.base.records import parse_dsh, parse_log
+    assert parse_dsh(STREAMS / "failure.jsonl", "m")[1] == []
+    _, [answered] = parse_dsh(STREAMS / "no_usage.jsonl", "m")
+    assert (answered.calls, answered.input_tokens, answered.output_tokens) == (1, 0, 0)
+    session, [resumed] = parse_log(STREAMS / "resume.jsonl", "dsh", "m")
+    assert session == SESSION and (resumed.calls, resumed.input_tokens) == (1, 1000)
+    partial = tmp_path / "partial.jsonl"
+    partial.write_text("".join(json.dumps({k: v for k, v in json.loads(line).items() if k != "usage"}) + "\n"
+                               if '"step_end"' in line else line + "\n"
+                               for line in (STREAMS / "resume.jsonl").read_text().splitlines()))
+    [unknown] = parse_dsh(partial, "m")[1]
+    assert (unknown.calls, unknown.input_tokens) == (1, 0)
 
 
 def test_a_run_that_ends_at_the_token_limit_is_an_error_the_learner_can_read():
@@ -360,13 +460,12 @@ def test_the_dsh_acting_agent_deploys_the_adapter_and_loads_its_patch_layer(fake
     patches = [call["args"][i + 1] for i, a in enumerate(call["args"]) if a == "--patch"]
     assert patches == [str(work / ".dsh" / "hermit.patch.yml"), str(work.parent / "home" / base_cli.DSH_PATCH)]
     assert call["args"].index("--json") > call["args"].index(patches[-1])  # the launcher's options come first
-    [layer] = json.loads((work / ".dsh" / "hermit.patch.yml").read_text())
-    [server] = layer["insert"]
+    layer = json.loads((work / ".dsh" / "hermit.patch.yml").read_text())
+    [server] = [r["insert"][0] for r in layer if "insert" in r]
     assert server["config"]["transport"] == "stdio" and server["config"]["args"][:2] == ["-m",
                                                                                          "hermit.runtime.mcp_server"]
-    skill = work / ".dsh" / "skills" / "verify-output" / "SKILL.md"
-    assert (work.parent / "home" / ".agents" / "skills" / "verify-output" / "SKILL.md").read_text() == \
-        skill.read_text()                                              # also the session's own: _dsh_skills
+    assert (work / ".dsh" / "skills" / "verify-output" / "SKILL.md").is_file()
+    assert (work / ".hermit-deploy.json").is_file()                   # the instructions' project root (the marker)
     assert "do it yourself" in (work / "AGENTS.md").read_text()       # roles stay files: none is passed to dsh
     assert out.output == "the answer" and out.extra["backend"] == "dsh"
     assert (out.log / "agent-dsh.jsonl").is_file()
@@ -490,16 +589,54 @@ def test_with_the_dsh_cli_a_session_reaches_its_model_and_its_tools(tmp_path, mo
 
 @pytest.mark.integration
 @pytest.mark.skipif(not shutil.which("dsh"), reason="needs the dsh CLI")
+def test_with_the_dsh_cli_a_command_runs_in_dshs_own_sandbox_inside_the_runs(tmp_path, monkeypatch):
+    """The acting agent keeps dsh's own sandbox (workspace-write) inside the run's: dsh starts it nested in the run's
+    bubblewrap sandbox (bubblewrap, else Landlock), and a command of the session writes its workspace there. Where
+    neither can start, dsh refuses every command (SANDBOX_UNAVAILABLE), which this would show."""
+    from hermit.sandbox import Sandbox
+    if not _bwrap_works():
+        pytest.skip("needs a working bubblewrap")
+
+    def script(body):
+        done = sum(1 for m in body.get("messages") or [] if m.get("role") == "tool")
+        return ("bash", {"command": "echo made > made.txt && cat made.txt", "description": "Write a file"}) \
+            if done == 0 else None
+
+    server, url = serve_chat(script)
+    monkeypatch.setenv("MOCK_KEY", "sk-mock")
+    params = bind_agent_params({"model": "mock/m-1"}, "dsh",
+                               registry({"mock": {"base_url": url, "api_key_env": "MOCK_KEY", "apis": ["chat"]}}))
+    work = tmp_path / "work"
+    work.mkdir()
+    box = Sandbox(network="isolated", env_allow=[], writable=[work], role="agent", record_dir=tmp_path / "records")
+    try:
+        result = make("dsh", {**params, "web_search": False, "home": str(tmp_path / "home"), "isolation": "sandbox",
+                              "sandbox": box, "timeout_s": 300}).run("Write the file.", workspace=work)
+    finally:
+        server.shutdown()
+    assert result.exit_code == 0 and result.extra["served"] and not result.extra["failed"]
+    [command] = [s for s in result.trajectory if s.kind == "command"]
+    assert (command.exit_code, command.output) == (0, "made\n") and (work / "made.txt").read_text() == "made\n"
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not shutil.which("dsh"), reason="needs the dsh CLI")
 @pytest.mark.skipif(not shutil.which("git"), reason="needs git")
 def test_with_the_dsh_cli_a_deployed_adapter_brings_its_skills_and_tools_into_a_git_repository(tmp_path, monkeypatch):
-    """The acting agent with the installed dsh, its workspaces inside a git repository (a config kept in a project).
-    dsh takes the repository for the project and reads project skills only from its .dsh/skills, so the deployed
-    skills reach it as the session's own (_dsh_skills; before, they were not offered there). The adapter's own tool
-    server (the deployment's stdio server, loaded from its patch layer) answers a call."""
+    """The acting agent with the installed dsh, its workspaces inside a git repository (a config kept in a project,
+    run without the sandbox). dsh takes the repository for the project: before, the deployed skill was not offered,
+    and the repository's own skills and AGENTS.md were, ahead of the adapter's. Now the session's layer makes the
+    workspace the project. The adapter's own tool server (the deployment's stdio server, loaded from its patch layer)
+    answers a call."""
     from hermit.agent.acting import workspace as acting
     repo = tmp_path / "repo"
     repo.mkdir()
     subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    (repo / "AGENTS.md").write_text("REPO-INSTRUCTIONS-MARKER\n")
+    for folder in (".dsh", ".agents"):
+        (repo / folder / "skills" / "repo-skill").mkdir(parents=True)
+        (repo / folder / "skills" / "repo-skill" / "SKILL.md").write_text(
+            f"---\nname: repo-skill{folder}\ndescription: REPO-SKILL-MARKER\n---\nbody\n")
     requests = []
 
     def script(body):
@@ -519,6 +656,8 @@ def test_with_the_dsh_cli_a_deployed_adapter_brings_its_skills_and_tools_into_a_
         server.shutdown()
     assert out.output == "the answer" and len(requests) == 2
     assert "Check a completed result against the task requirements." in json.dumps(requests[0])   # the skill
+    assert "REPO-SKILL-MARKER" not in json.dumps(requests[0]) and "REPO-INSTRUCTIONS-MARKER" not in json.dumps(
+        requests[0])                                                  # nothing of the repository the run lies in
     assert "mcp__file_example__count_words" in [t["function"]["name"] for t in requests[0].get("tools") or []]
     [answer] = [m for m in requests[1]["messages"] if m.get("role") == "tool"]
     assert json.loads(answer["content"] if isinstance(answer["content"], str) else

@@ -148,6 +148,16 @@ def make(tmp: Path, monkeypatch, steps: int = 2, deployment_param: bool = False)
     return path
 
 
+def test_a_learner_that_is_not_codex_or_claude_code_is_refused_at_setup():
+    """mwm's session is Codex's or Claude Code's (its texts, homes and sign-ins): another CLI Base Agent, which the
+    config takes as evolver.base (pi, dsh), is refused before any step rather than run without its model."""
+    from types import SimpleNamespace
+    from hermit.agent.evolver.methods.mwm.evolver import MwmEvolver
+    for backend in ("pi", "dsh"):
+        with pytest.raises(ValueError, match="backend is codex or claude, not"):
+            MwmEvolver().setup(SimpleNamespace(params={"backend": backend}))
+
+
 def test_bootstrap_review_mounts_and_records(tmp_path, monkeypatch):
     cfg = Config.load(make(tmp_path, monkeypatch), [])
     stale = tmp_path / "taskdir" / "evidence" / "block000"   # a record already in the store: hidden from the bootstrap

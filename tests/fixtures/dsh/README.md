@@ -22,6 +22,16 @@ layer like the Base Agent's) against a scripted chat-completions model:
   than moving it to a background job.
 - `max_tokens.jsonl`: the model's answer ends at its token limit (`finish_reason: length`): the run ends `max-tokens`
   and dsh exits 1, writing nothing on stderr.
+- `big_bash.jsonl`: bash prints 1,500 lines (about 42 KB) and exits 2; dsh's `--json` keeps 8 KiB of the result and
+  marks the event `truncated`, so the exit marker is cut off.
+- `background.jsonl`: bash with `run_in_background: true` returns `started background job <id>`, no exit marker.
+- `fake_marker.jsonl`: bash prints `built` and a line `[exit code: 7]` of its own, then exits 0.
+- `no_usage.jsonl`: the model sends no usage; dsh reports the step's usage as zeros.
+- `tools_down.jsonl`: the session's MCP row (`failOnStartupError: true`) points at a port nothing listens on: dsh
+  writes `warning: 1 entry did not activate` and the row's error on stderr, then completes the run and exits 0.
+- `bad_option.jsonl`: an unknown option after `--json`: one `error` event, no session, exit 1.
+- `dotenv.jsonl`: the working directory's `.env` sets `PYTHONPATH`: dsh stops before it writes an event (its
+  error on stderr) and exits 1.
 
-The streams are dsh's output unchanged; the run's directory was `/run` (`/run/bash` and `/run/max_tokens` for the
-last two).
+The streams are dsh's stdout unchanged, followed by its stderr's lines where it wrote any, as the Base Agent keeps
+them in one stream; the run's directory was `/run` (`/run/<name>` for the streams recorded directly).
