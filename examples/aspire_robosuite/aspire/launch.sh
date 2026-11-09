@@ -57,8 +57,8 @@ export ASPIRE_ROOT ASPIRE_OUT="$OUT" ASPIRE_SIM_ENV="$SIM_ENV_JSON"      # for t
 
 # The simulator service: the actors' engine, on the host (the task sandbox has no GPU).
 PORT="${ASPIRE_SIM_PORT:-8120}"
-"$HERMIT" ../utils/agent/sim_service.py --port "$PORT" --aspire-root "$ASPIRE_ROOT" --workspaces "$OUT/actor-logs" \
-  --state "$OUT/sim-service" --sim-env "$SIM_ENV_JSON" > "$OUT/sim-service.log" 2>&1 &
+"$HERMIT" ../utils/agent/sim_service.py --port "$PORT" --aspire-root "$ASPIRE_ROOT" --tasks ../utils/tasks.jsonl \
+  --workspaces "$OUT/actor-logs" --state "$OUT/sim-service" --sim-env "$SIM_ENV_JSON" > "$OUT/sim-service.log" 2>&1 &
 SERVICE=$!
 trap 'kill "$SERVICE" 2>/dev/null || true' EXIT
 for _ in $(seq 1 30); do

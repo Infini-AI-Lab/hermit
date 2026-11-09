@@ -2,8 +2,8 @@
 ASPIRE's own prompts run them. They run in the task sandbox with the session; the robot execution engine runs on the
 host, as the simulator service (sim_service.py), which the session reaches only through `bin/sim`.
 
-    prepare  the workspace: bin/sim and its registration with the service (the session's seeds and budget, which the
-             service holds), the API and artifact docs, the scene-snapshot program, task.md; for a verifier, the
+    prepare  the workspace: bin/sim and its registration with the service (the workspace and the task's id: the
+             service takes the seeds and the budget from its own copy of the task row), the API and artifact docs, the scene-snapshot program, task.md; for a verifier, the
              proposals under test as proposed_skills.md
     prompt   the adaptation page (prompts/codex_header.md), the assignment, then ASPIRE's template verbatim
     answer   the agent's last message (the record's output is the facts collect returns)
@@ -60,10 +60,8 @@ def prepare(task: dict, workspace: Path, params: dict, base: Path) -> list[dict]
     url = os.environ.get("ASPIRE_SIM_URL")
     if not url:
         raise ValueError("ASPIRE_SIM_URL: the simulator service's URL (launch.sh starts it; environment.env)")
-    # The session's seeds and budget, registered before the agent starts: the service holds them, not the workspace
-    register(url, {"workspace": str(work.resolve()), "role": s["role"], "suite": s["suite"], "task_id": s["task_id"],
-                   "dev_seeds": sim_seeds(s["dev"]), "unseen_seeds": sim_seeds(s["unseen"]),
-                   "max_programs": 2 if s["role"] == "verifier" else None, "max_steps": s["max_steps"]})
+    # The session, registered before the agent starts: the service takes its seeds and budget from the task's row
+    register(url, {"workspace": str(work.resolve()), "task": task["id"], "max_steps": s["max_steps"]})
     bin_dir = work / "bin"
     bin_dir.mkdir(exist_ok=True)
     shutil.copy2(HERE / "sim_cli.py", bin_dir / "sim_cli.py")

@@ -2,10 +2,13 @@
 
 The task sandbox has no GPU, so the simulator runs here, on the host, beside ASPIRE's perception and planning
 services; a session reaches it through `bin/sim` (sim_cli.py) on a forwarded 127.0.0.1 port (ASPIRE_SIM_URL in
-environment.env). The service is the trusted side of the session's rules:
+environment.env). The service is the trusted side of the session's rules, and it trusts nothing the session sends
+but the workspace and its task's id: the seeds, the role and the budget are the task row's (--tasks, read here on
+the host), and a rollout's directory (<workspaces>/<role>/<task id>-<hex>, made by the framework outside the
+sandbox, which can write only inside it) registers one session, of the task its name carries:
 
-    POST /register  {workspace, role, suite, task_id, dev_seeds, unseen_seeds, max_programs, max_steps}
-                    once per workspace, by the task's `prepare`, before the agent starts
+    POST /register  {workspace, task, max_steps}
+                    once per rollout, by the task's `prepare`, before the agent starts
     POST /run       {workspace, cmd: run | run-batch | validate, program, seeds, output_root, no_videos, max_steps}
                     runs cap-harness for the registered task: only its development and unseen-check seeds, the
                     unseen check once, a verifier's two programs (by content; a single run on the first seed is
@@ -15,8 +18,8 @@ environment.env). The service is the trusted side of the session's rules:
 Every refusal is a 200 with {ok: false, error}. The ledger (registrations, unseen checks, a verifier's programs) is
 kept in --state, outside every sandbox. Started by launch.sh:
 
-    python sim_service.py --port 8120 --aspire-root $ASPIRE_ROOT --workspaces <logs>/rollout --state <dir>
-        [--sim-env '{"MUJOCO_GL": "egl", ...}'] [--workers 4]
+    python sim_service.py --port 8120 --aspire-root $ASPIRE_ROOT --tasks utils/tasks.jsonl --workspaces <logs>
+        --state <dir> [--sim-env '{"MUJOCO_GL": "egl", ...}'] [--workers 4]
 """
 from __future__ import annotations
 
@@ -26,8 +29,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
+import sys
 import threading
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from sim import seeds_of  # noqa: E402
 
 
 class Ledger:
@@ -42,28 +50,36 @@ class Ledger:
 
 
 class Service:
-    def __init__(self, root: Path, workspaces: list[Path], ledger: Ledger, env: dict, workers: int):
-        self.root, self.workspaces, self.ledger = root, [w.resolve() for w in workspaces], ledger
+    def __init__(self, root: Path, tasks: dict, workspaces: list[Path], ledger: Ledger, env: dict, workers: int):
+        self.root, self.tasks, self.workspaces, self.ledger = root, tasks, [w.resolve() for w in workspaces], ledger
         self.env, self.workers = env, workers
         self.cli = root / ".venv-robosuite" / "bin" / "cap-harness"
         self.python = root / ".venv-robosuite" / "bin" / "python"
 
-    def _within(self, path: Path) -> bool:
-        return any(path.is_relative_to(w) for w in self.workspaces)
+    def _rollout(self, workspace: Path) -> Path | None:
+        """The rollout directory a workspace is in: <workspaces>/<role>/<name>, the sandbox's writable root."""
+        for served in self.workspaces:
+            if workspace.is_relative_to(served) and len(workspace.relative_to(served).parts) > 2:
+                return served.joinpath(*workspace.relative_to(served).parts[:2])
+        return None
 
     def register(self, body: dict) -> dict:
         workspace = Path(str(body.get("workspace", ""))).resolve()
-        if not self._within(workspace) or not workspace.is_dir():
+        rollout = self._rollout(workspace)
+        if rollout is None or not workspace.is_dir():
             return {"ok": False, "error": f"{workspace} is not a session workspace this service serves"}
+        row = self.tasks.get(str(body.get("task")))
+        if row is None or not re.fullmatch(re.escape(row["id"]) + r"-[0-9a-f]+", rollout.name):
+            return {"ok": False, "error": f"the rollout {rollout.name} is not one of task {body.get('task')}"}
         with self.ledger.lock:
-            if str(workspace) in self.ledger.data:
-                return {"ok": False, "error": "this workspace is registered already"}
+            if any(Path(w).is_relative_to(rollout) for w in self.ledger.data):
+                return {"ok": False, "error": "this rollout has registered its session already"}
+            verifier = row.get("role") == "verifier"
             self.ledger.data[str(workspace)] = {
-                "role": body.get("role"), "suite": str(body["suite"]), "task_id": int(body.get("task_id", 0)),
-                "dev": [int(s) for s in body.get("dev_seeds") or []],
-                "unseen": [int(s) for s in body.get("unseen_seeds") or []],
-                "max_programs": body.get("max_programs"), "max_steps": body.get("max_steps"),
-                "unseen_used": False, "programs": []}
+                "task": row["id"], "role": "verifier" if verifier else "actor", "suite": str(row["suite"]),
+                "task_id": int(row.get("task_id", 0)), "dev": seeds_of(row.get("debug_seeds")),
+                "unseen": seeds_of(row.get("unseen_seeds")), "max_programs": 2 if verifier else None,
+                "max_steps": body.get("max_steps"), "unseen_used": False, "programs": []}
             self.ledger.save()
         return {"ok": True}
 
@@ -153,6 +169,7 @@ def main() -> None:
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8120)
     ap.add_argument("--aspire-root", type=Path, required=True)
+    ap.add_argument("--tasks", type=Path, required=True, help="the task rows (utils/tasks.jsonl): their seeds")
     ap.add_argument("--workspaces", type=Path, action="append", required=True,
                     help="a directory whose sessions this service serves (repeatable)")
     ap.add_argument("--state", type=Path, required=True)
@@ -160,7 +177,8 @@ def main() -> None:
     ap.add_argument("--workers", type=int, default=4)
     a = ap.parse_args()
     a.state.mkdir(parents=True, exist_ok=True)
-    service = Service(a.aspire_root.resolve(), a.workspaces, Ledger(a.state / "ledger.json"),
+    tasks = {r["id"]: r for r in (json.loads(line) for line in a.tasks.read_text().splitlines() if line.strip())}
+    service = Service(a.aspire_root.resolve(), tasks, a.workspaces, Ledger(a.state / "ledger.json"),
                       json.loads(a.sim_env), a.workers)
     ThreadingHTTPServer((a.host, a.port), handler(service)).serve_forever()
 

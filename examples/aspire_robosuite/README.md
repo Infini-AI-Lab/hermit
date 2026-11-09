@@ -106,11 +106,12 @@ The actor runs in the task sandbox, which shows it only what the config declares
 (`utils/agent/`) and, of the ASPIRE checkout, the prompt templates, the docs and the snapshot program it is given.
 ASPIRE's shipped skill library, its worked solutions and examples, other sessions' workspaces, the task rows and the
 judge do not exist inside; its network reaches only its model and the simulator service's forwarded port. The
-simulator service is the trusted side of the seed rules: `prepare` registers the session's seeds before the agent
-starts, and the service runs only those, the unseen check once and a verifier's two programs, writing the runs into
-the workspace. The held-out seeds are run only by the judge, on the host (ASPIRE's Stage 2), on the program the
-session selected. The actor's Codex runs with its own sandbox off (`codex_sandbox: danger-full-access`), the task
-sandbox being the boundary.
+simulator service is the trusted side of the seed rules: it reads the task rows on the host, `prepare` registers the
+session (its workspace and task id; one session per rollout directory, which the sandbox cannot create) before the
+agent starts, and the service runs only the row's development and unseen-check seeds, the unseen check once and a
+verifier's two programs, writing the runs into the workspace. The held-out seeds are run only by the judge, on the
+host (ASPIRE's Stage 2), on the program the session selected. The actor's Codex runs with its own sandbox off
+(`codex_sandbox: danger-full-access`), the task sandbox being the boundary.
 
 ## Segmentation without SAM3
 

@@ -279,7 +279,8 @@ class _Service:
         S = _load("aspire_sim_service", EXAMPLE / "agent" / "sim_service.py")
         self.sessions = tmp / "sessions"
         self.sessions.mkdir()
-        service = S.Service(root, [self.sessions], S.Ledger(tmp / "ledger.json"), {}, 2)
+        service = S.Service(root, {r["id"]: r for r in (ROW, VERIFY)}, [self.sessions], S.Ledger(tmp / "ledger.json"),
+                            {}, 2)
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), S.handler(service))
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.url = f"http://127.0.0.1:{self.server.server_address[1]}"
@@ -296,14 +297,27 @@ def service(tmp_path, monkeypatch):
     svc.close()
 
 
+def _workspace(service, task: dict, hexa: str = "56d9fea2") -> Path:
+    """A session's workspace where the framework puts it: <logs>/<role>/<task>-<hex>/workspaces/<...>/work."""
+    work = service.sessions / "rollout" / f"{task['id']}-{hexa}" / "workspaces" / f"{task['id']}-da10428a" / "work"
+    (work / "hermit" / "aspire" / "skills").mkdir(parents=True)
+    return work
+
+
+def _register(url: str, body: dict) -> dict:
+    import urllib.request
+    request = urllib.request.Request(url + "/register", data=json.dumps(body).encode())
+    with urllib.request.urlopen(request) as reply:
+        return json.loads(reply.read())
+
+
 def _sim(work: Path, *args):
     return subprocess.run([str(work / "bin" / "sim"), *args], capture_output=True, text=True, cwd=work)
 
 
 def test_prepare_registers_the_session_and_the_service_holds_its_rules(tmp_path, service):
     T = _task_module()
-    work = service.sessions / "s1" / "work"
-    (work / "hermit" / "aspire" / "skills").mkdir(parents=True)
+    work = _workspace(service, ROW)
     params = {"aspire_root": str(tmp_path / "ASPIRE")}
     T.prepare(ROW, work, params, tmp_path)
     for name in ("task.md", "docs/api-reference.md", "docs/evosearch-iteration.md", "docs/task-exploration.md",
@@ -319,14 +333,37 @@ def test_prepare_registers_the_session_and_the_service_holds_its_rules(tmp_path,
     _sim(work, "run", "--seed", "126", "--program", "p.py", "--output-root", "u", "--init-mode", "saved")
     again = _sim(work, "run", "--seed", "126", "--program", "p.py", "--output-root", "u")
     assert again.returncode == 2 and "run once" in again.stderr
-    with pytest.raises(RuntimeError, match="registered already"):
+    with pytest.raises(RuntimeError, match="registered its session already"):
         T.prepare(ROW, work, params, tmp_path)                    # a session cannot register itself again
+
+
+def test_a_session_cannot_forge_a_registration_for_more_seeds(tmp_path, service):
+    T = _task_module()
+    work = _workspace(service, ROW)
+    T.prepare(ROW, work, {"aspire_root": str(tmp_path / "ASPIRE")}, tmp_path)
+    forged = work / "x"                                         # a fresh directory the session can write
+    forged.mkdir()
+    (forged / "p.py").write_text("result = {}\n")
+    answer = _register(service.url, {"workspace": str(forged), "task": ROW["id"], "dev_seeds": [1, 2, 3]})
+    assert not answer["ok"] and "registered its session already" in answer["error"]
+    other = _workspace(service, ROW, "0badc0de")                # another rollout (the framework's): the row's seeds,
+    assert _register(service.url, {"workspace": str(other), "task": ROW["id"], "dev_seeds": [1, 2, 3],
+                                   "max_programs": None})["ok"]   # whatever the request says
+    (other / "bin").mkdir()
+    shutil.copy2(EXAMPLE / "agent" / "sim_cli.py", other / "bin" / "sim_cli.py")
+    (other / "bin" / "sim.json").write_text(json.dumps({"workspace": str(other), "url": service.url}))
+    (other / "p.py").write_text("result = {}\n")
+    held_out = subprocess.run([sys.executable, str(other / "bin" / "sim_cli.py"), "run-batch", "--seeds", "1-3",
+                               "--program", "p.py", "--output-root", "out"], capture_output=True, text=True, cwd=other)
+    assert held_out.returncode == 2 and "not assigned to you" in held_out.stderr
+    mismatched = _workspace(service, VERIFY, "12345678")        # a rollout registers only the task its name carries
+    answer = _register(service.url, {"workspace": str(mismatched), "task": ROW["id"]})
+    assert not answer["ok"] and "is not one of task" in answer["error"]
 
 
 def test_a_verifier_may_run_two_programs_and_sees_the_staged_proposals(tmp_path, service):
     T = _task_module()
-    work = service.sessions / "v1" / "work"
-    (work / "hermit" / "aspire" / "skills").mkdir(parents=True)
+    work = _workspace(service, VERIFY)
     (work / "hermit" / "aspire" / "skills" / "proposed.md").write_text(ENTRY)
     T.prepare(VERIFY, work, {"aspire_root": str(tmp_path / "ASPIRE")}, tmp_path)
     assert (work / "proposed_skills.md").read_text() == ENTRY

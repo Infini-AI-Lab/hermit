@@ -44,11 +44,12 @@ The example's task functions (`examples/aspire_robosuite/utils/agent/task.py`) g
 task sandbox: `bin/sim`; ASPIRE's API, artifact and Robosuite docs; the scene-snapshot program; and a page that maps
 the template's paths and commands onto the workspace. The sandbox shows nothing else of ASPIRE's checkout: not its
 shipped library, worked solutions or examples. It has no GPU, so the simulator runs on the host as a service
-(`utils/agent/sim_service.py`), which `bin/sim` reaches on a forwarded loopback port; the session registers its seeds
-there before the agent starts, and the service runs only those, the unseen check once and a verifier's two programs.
-The judge (`utils/judge.py`, on the host) runs the selected program once on the held-out seeds: ASPIRE's Stage 2, the
-coordinator's in ASPIRE. The verifier is the same actor on the task's verifier row (`verify-<task>`, `data.val`):
-ASPIRE's verifier prompt, five seeds, two attempts, scored on its own seeds with its own verdict.
+(`utils/agent/sim_service.py`), which `bin/sim` reaches on a forwarded loopback port; the session registers there
+before the agent starts (its workspace and task id: one session per rollout), and the service runs only the seeds of
+the task row it reads on the host, the unseen check once and a verifier's two programs. The judge (`utils/judge.py`,
+on the host) runs the selected program once on the held-out seeds: ASPIRE's Stage 2, the coordinator's in ASPIRE. The
+verifier is the same actor on the task's verifier row (`verify-<task>`, `data.val`): ASPIRE's verifier prompt, five
+seeds, two attempts, scored on its own seeds with its own verdict.
 
 ## The step
 
