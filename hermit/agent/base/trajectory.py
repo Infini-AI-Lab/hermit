@@ -9,8 +9,8 @@ logs, so that every Evolver reads the same steps:
     text(steps, message=1200, output=600)   # one line per step, each field clipped from its start
 
 The streams read: Codex's `codex exec --json` events (`agent-codex.jsonl`), Claude Code's stream-json
-(`agent-claude.jsonl`) and Pi's `--mode json` events (`agent-pi.jsonl`), also under another name below a log
-directory (Harbor's `agent/codex.txt`). A normalised
+(`agent-claude.jsonl`), Pi's `--mode json` events (`agent-pi.jsonl`) and DeepSeek Harness's `--json` events
+(`agent-dsh.jsonl`), also under another name below a log directory (Harbor's `agent/codex.txt`). A normalised
 message list (`RunOutput.messages`) is the pipeline's own rendering and is left to each Evolver.
 """
 from __future__ import annotations
@@ -18,11 +18,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from pathlib import Path
+import re
 
 CODEX_STREAM = "agent-codex.jsonl"
 CLAUDE_STREAM = "agent-claude.jsonl"
 PI_STREAM = "agent-pi.jsonl"
-STREAM_HOSTS = {CODEX_STREAM: "codex", CLAUDE_STREAM: "claude", PI_STREAM: "pi"}   # the file a host's log keeps
+DSH_STREAM = "agent-dsh.jsonl"
+STREAM_HOSTS = {CODEX_STREAM: "codex", CLAUDE_STREAM: "claude", PI_STREAM: "pi",    # the file a host's log keeps
+                DSH_STREAM: "dsh"}
 STREAMS = tuple(STREAM_HOSTS)
 OTHER_STREAMS = ("agent/codex.txt", "codex.txt")   # a Harbor trial's Codex events: from the trial or its agent/
 
@@ -213,12 +216,80 @@ def pi_steps(stream: list[dict]) -> list[Step]:
     return steps
 
 
+DSH_FILE_TOOLS = ("write", "edit")
+# How dsh's bash tool ends a command's result (its own parseExitStatus reads it so): a nonzero exit or a signal is
+# marked last, a clean exit is not; a command stopped by its timeout or from outside is marked before that (a command
+# that traps the signal may still exit 0), and one still running was moved to the background, unfinished
+DSH_EXIT = re.compile(r"\n\[exit code: (\d+)\]$")
+DSH_SIGNAL = re.compile(r"\n\[killed by signal: [^\]\n]+\]$")
+DSH_STOPPED = re.compile(r"\n\[(?:timed out after \d+ms|stopped: [^\]\n]*)\](?:\n\[[^\]\n]*\])*$")
+DSH_BACKGROUND = re.compile(r"\[still running after \d+ms; moved to background job [^\]\n]+\]$")
+DSH_NO_OUTPUT = "(no output)"     # what the result holds before its marker when the command printed nothing
+
+
+def dsh_steps(stream: list[dict]) -> list[Step]:
+    """DeepSeek Harness's `--json` events: its thinking and text as each model step committed them, and each
+    `tool_call` completed by its `tool_result`: bash as a command whose exit code and output are read from the
+    result as dsh reads them (`[exit code: N]` after the output; no marker: 0; a signal, a timeout, a stop, a command
+    moved to the background or a call that failed to run: unknown; `(no output)`: empty), write and edit as file
+    changes, an MCP tool (`mcp__<server>__<tool>`) as a tool call with its server and arguments and its result as
+    `output`, any other tool as a tool call; a run that did not complete (the `final` event's reason: an error, an
+    abort, the token limit, ...), or failed outside a turn (an `error` event), as an error. Status events and usage
+    are left out."""
+    steps, pending = [], {}
+    for event in stream:
+        kind = event.get("type")
+        if kind == "thinking" and str(event.get("text") or "").strip():
+            steps.append(Step("reasoning", str(event["text"])))
+        elif kind == "text" and str(event.get("text") or "").strip():
+            steps.append(Step("message", str(event["text"])))
+        elif kind == "tool_call":
+            name = str(event.get("tool") or "")
+            args = event.get("input") if isinstance(event.get("input"), dict) else {}
+            if name == "bash":
+                step = Step("command", command=str(args.get("command") or ""))
+            elif name in DSH_FILE_TOOLS:
+                step = Step("file_change", json.dumps({"tool": name, "path": args.get("file_path")},
+                                                      ensure_ascii=False, default=str))
+            elif name.startswith("mcp__") and name.count("__") >= 2:
+                _, server, tool = name.split("__", 2)
+                step = Step("tool_call", json.dumps({"arguments": args, "server": server, "tool": tool},
+                                                    ensure_ascii=False, default=str))
+            else:
+                step = Step("tool_call", json.dumps({"tool": name, "input": event.get("input")}, ensure_ascii=False,
+                                                    default=str))
+            steps.append(step)
+            pending[event.get("callId")] = step
+        elif kind == "tool_result":
+            step = pending.pop(event.get("callId"), None)
+            if step is None:
+                continue
+            result = str(event.get("result") or "")
+            if step.kind == "command":
+                found = DSH_EXIT.search(result)
+                output = result[:found.start()] if found else result
+                step.output = "" if output == DSH_NO_OUTPUT else output
+                unknown = event.get("status") != "completed" or DSH_SIGNAL.search(result) or \
+                    DSH_STOPPED.search(result) or DSH_BACKGROUND.search(result)
+                step.exit_code = None if unknown else int(found.group(1)) if found else 0
+            elif step.kind == "tool_call":
+                step.output = result
+        elif kind == "final" and isinstance(event.get("reason"), dict) and \
+                event["reason"].get("kind") not in (None, "completed"):
+            error = event["reason"].get("error") if isinstance(event["reason"].get("error"), dict) else {}
+            steps.append(Step("error", str(error.get("message") or f"run {event['reason']['kind']}")))
+        elif kind == "error":
+            steps.append(Step("error", str(event.get("message") or "")))
+    return steps
+
+
 # Each host's stream: the reader of its events, and the event types that mark it (tried in this order when a stream
 # is found by its events). A host's stream is added here and in STREAM_HOSTS.
-READERS = {"codex": codex_steps, "claude": claude_steps, "pi": pi_steps}
+READERS = {"codex": codex_steps, "claude": claude_steps, "pi": pi_steps, "dsh": dsh_steps}
 MARKS = (("codex", {"thread.started", "turn.started", "turn.completed", "turn.failed", "item.completed"}),
          ("claude", {"system", "assistant", "user", "result"}),
-         ("pi", {"agent_start", "agent_settled", "message_end", "tool_execution_end"}))
+         ("pi", {"agent_start", "agent_settled", "message_end", "tool_execution_end"}),
+         ("dsh", {"status", "tool_call", "tool_result", "final"}))
 
 
 def _host(stream: list[dict]) -> str | None:

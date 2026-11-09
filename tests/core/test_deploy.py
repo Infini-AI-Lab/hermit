@@ -1,4 +1,4 @@
-"""Deploying the Lean template into Codex, Claude Code and Pi workspaces."""
+"""Deploying the Lean template into Codex, Claude Code, Pi and DeepSeek Harness workspaces."""
 import json
 from pathlib import Path
 import sys
@@ -8,6 +8,7 @@ import pytest
 
 from hermit.hosts.claude_code import prepare as claude_prepare
 from hermit.hosts.codex import prepare as codex_prepare
+from hermit.hosts.dsh import prepare as dsh_prepare
 from hermit.hosts.pi import prepare as pi_prepare
 
 LEAN = Path(__file__).resolve().parents[2] / "hermit" / "adapter" / "templates" / "lean_collab"
@@ -49,6 +50,31 @@ def test_pi(tmp_path):
     assert (tmp_path / "p" / "AGENTS.md").read_text().count("hermit:lean-collab:start") == 1
     with pytest.raises(ValueError, match="generated for another host"):
         codex_prepare(LEAN, tmp_path / "p", sys.executable)
+
+
+def test_dsh(tmp_path):
+    """dsh has no project file for MCP servers: the tools are an `insert` row of the workspace's patch layer, which a
+    session loads with --patch; the skills are dsh's project skills; roles stay files named in AGENTS.md."""
+    result = dsh_prepare(LEAN, tmp_path / "d", sys.executable)
+    [layer] = json.loads((tmp_path / "d" / ".dsh" / "hermit.patch.yml").read_text())
+    [row] = layer["insert"]
+    assert row["name"] == "@deepseek-ai/dsh-mcp-client" and row["config"]["serverName"] == "lean_collab"
+    assert row["config"]["transport"] == "stdio" and row["config"]["args"][:3] == ["-m", "hermit.runtime.mcp_server",
+                                                                                  "--adapter"]
+    assert row["config"]["toolCallTimeoutMs"] == 120_000           # Codex's tool_timeout_sec, not dsh's 60 s
+    assert result["patch"] == str(tmp_path / "d" / ".dsh" / "hermit.patch.yml")
+    assert "hermit:lean-collab:start" in (tmp_path / "d" / "AGENTS.md").read_text()
+    assert (tmp_path / "d" / ".dsh" / "skills" / "good-map" / "SKILL.md").exists()
+    assert result["context_injected_via"] == "AGENTS.md" and result["roles"] == {}
+    dsh_prepare(LEAN, tmp_path / "d", sys.executable)
+    assert (tmp_path / "d" / "AGENTS.md").read_text().count("hermit:lean-collab:start") == 1
+    with pytest.raises(ValueError, match="generated for another host"):
+        pi_prepare(LEAN, tmp_path / "d", sys.executable)
+    a = subagent_adapter(tmp_path)
+    result = dsh_prepare(a, tmp_path / "s", sys.executable)
+    assert result["placed"] == {"agents": "files"} and result["patch"] is None      # no tools: no server row
+    assert json.loads((tmp_path / "s" / ".dsh" / "hermit.patch.yml").read_text()) == []
+    assert "`reviewer`: Check a result against the task requirements." in (tmp_path / "s" / "AGENTS.md").read_text()
 
 
 def subagent_adapter(tmp_path):

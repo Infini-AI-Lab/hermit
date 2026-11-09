@@ -35,7 +35,7 @@ ChatGPT-login directory and Claude plan for every test, and no copy of the user'
 models), `toy_task.py` (the toy task the Trainer tests run on), `claude_stand.py` (the stand-in `claude` that replays
 `fixtures/claude_streams/`, and the probe for a working bubblewrap, for core's and the methods' Claude tests),
 `fixtures/` (`pi/`: Pi's recorded streams, read by
-`core/test_pi_agent.py`).
+`core/test_pi_agent.py`; `dsh/`: DeepSeek Harness's, read by `core/test_dsh_agent.py`).
 
 A new or changed test follows the [test checklist](../.agents/skills/prepare-pr/references/test-checklist.md): where it
 goes, how it is named and documented, what it asserts, and what it may touch.

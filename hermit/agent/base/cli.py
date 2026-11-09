@@ -1,4 +1,5 @@
-"""`codex`, `claude` and `pi`: a coding-agent CLI as a Base Agent (docs/framework/agent-layers.md#layer-2-base-agent).
+"""`codex`, `claude`, `pi` and `dsh`: a coding-agent CLI as a Base Agent
+(docs/framework/agent-layers.md#layer-2-base-agent).
 
 One `run` is one session of the CLI in print mode: the prompt is given, the CLI works in `workspace` with its own
 tools and the call's `tools` (served over MCP by the framework's tool server), and its last message is the reply.
@@ -69,6 +70,10 @@ Settings (given once; `configured(...)` for a call's own):
   image_input (true: the bound model takes images, such as a tool's result; default: text only, Pi's default for a
   model it does not know), append_system_prompt, effort (its --thinking level). Pi takes no roles, has no web search
   and runs under isolation none or sandbox.
+  DeepSeek Harness (dsh) only: provider (its pi-ai route for a bound model, from the binding: Binding.dsh_provider),
+  image_input (as Pi's), effort (the default model's reasoningEffort), permission_mode (its sandbox: read-only,
+  workspace-write, the default, or danger-full-access; under workspace-write the `writable` paths are granted to it
+  with --add-dir). dsh takes no roles here and runs under isolation none or sandbox; `args` may hold its own options.
 
 Limits are enforced by the isolation, or the call is refused (Unsupported):
 
@@ -96,9 +101,9 @@ from typing import Any, Sequence
 
 from hermit.agent.base import container, login as codex_login
 from hermit.agent.base.interface import BaseAgent, Limits, Mount, Result, Unsupported
-from hermit.agent.base.records import parse_claude, parse_codex, parse_pi, price_usage
+from hermit.agent.base.records import parse_claude, parse_codex, parse_dsh, parse_pi, price_usage
 from hermit.agent.base.tool import Tool
-from hermit.agent.base.trajectory import claude_steps, codex_steps, events, pi_steps
+from hermit.agent.base.trajectory import claude_steps, codex_steps, dsh_steps, events, pi_steps
 from hermit.agent.model.backends import CLAUDE_ENV
 
 ISOLATIONS = ("none", "sandbox", "container")
@@ -108,6 +113,8 @@ UNAVAILABLE = re.compile(r"unexpected status (?:429|5\d\d)|exceeded retry limit|
                          r"error sending request|too many requests|service unavailable|bad gateway|overloaded|"
                          r"model is at capacity|"
                          r"^(?:429|5\d\d): |"                     # Pi's report of a provider's status
+                         # dsh's, by its codes: those it retries itself, and a stream the provider closed
+                         r"^dsh: (?:RATE_LIMIT|SERVER|TIMEOUT|TRANSPORT|EMPTY_RESPONSE|STREAM_CLOSED): |"
                          r"error response from daemon|cannot connect to the docker daemon|"
                          + re.escape(container.MISSING), re.I | re.M)
 CODEX_HOME_SETTINGS = ["features.shell_snapshot = false",          # a snapshot would bring back the whole environment
@@ -1462,8 +1469,222 @@ def _pi_session(home: Path, handle) -> Path | None:
     return sorted(found)[-1] if found else None
 
 
+DSH_PROVIDER = "hermit"                 # the pi-ai route (`llm-pi-ai`) a bound model is given under
+DSH_ROUTE = "deepseek-official"         # dsh's own route, for a model of its own provider (no binding)
+DSH_PATCH = "hermit.patch.yml"          # the session's patch layer, in its home (`--patch`)
+# Rows of dsh's tree off in every session: no telemetry export, no title request and nothing sent along with a
+# request to DeepSeek's own API (its plugin list; the session log, a row of its own below), so the session's requests
+# are the only ones and carry only the session; and no sub-agents or workflows, whose usage dsh's stream does not
+# report (sub-agents are Codex's only when a role asks for them)
+DSH_OFF = ("session-telemetry-otel", "session-title-llm", "plugin-package-inventory-deepseek", "tool-subagent",
+           "tool-subagent-fork", "tool-subagent-control", "tool-workflow")
+DSH_PERMISSION_MODES = ("read-only", "workspace-write", "danger-full-access")
+# The variable a route names for a server that needs no key: a route that names none gets no key from pi-ai under
+# the name `hermit`, and dsh refuses the request (PI_AI_ERROR "No API key")
+DSH_NO_KEY = "HERMIT_DSH_NO_KEY"
+
+
+class Dsh(CliAgent):
+    """DeepSeek Harness (`dsh --profile headless --json`). Its home is DSH_HOME and its HOME (dsh reads ~/.agents),
+    where dsh makes the headless profile on first use. The session's settings are a patch layer of dsh's own (rows
+    of its plugin tree, `--patch`), written in the home: a bound model as the pi-ai route `hermit`, its key read by
+    dsh from the backend's variable, made the default model; the call's tools as an MCP server, whose tools the model
+    is offered as its own (`mcp__<server>__<tool>`); web search and fetch off unless asked for; no telemetry export
+    and no title request, no sub-agents (DSH_OFF). dsh runs commands in its own sandbox (`permission_mode`, default
+    workspace-write) and is never asked for an approval (`--approval-policy never`: what would need one is
+    refused). It exits 0 for a run SIGTERM stopped too: whether the run failed is read from its end (`outcome`).
+    The workspace's project skills (.dsh/skills) are also the session's own (`_dsh_skills`), so that a workspace
+    inside a git repository keeps them."""
+    name = backend = program = "dsh"
+    label = "DeepSeek Harness"
+    home_var, user_folder = "DSH_HOME", ".dsh"
+    home_files = (".env",)                        # dsh reads the keys of its own provider from $DSH_HOME/.env
+    turn_done = "final"
+
+    def home_env(self, home):
+        """Every variable dsh reads goes here, so that it passes the sandbox's filter: its home, HOME, and the shared
+        agents' folder dsh reads skills and AGENTS.md from (~/.agents unless DSH_AGENTS_HOME says another), so none of
+        the user's own is read; telemetry off (no anonymous id is made either); the placeholder key of a server that
+        needs none (DSH_NO_KEY)."""
+        from hermit.agent.model.backends import PLACEHOLDER_KEY
+        return {"DSH_HOME": str(home), "HOME": str(home), "DSH_AGENTS_HOME": str(home / ".agents"),
+                "DSH_TELEMETRY_DISABLED": "1", DSH_NO_KEY: PLACEHOLDER_KEY}
+
+    def dropped_env(self):
+        """The caller's own dsh variables (`DSH_*`: another permission mode, a folder of skills, a telemetry endpoint,
+        a web provider, ...), which would change the session without the sandbox: its own are home_env's."""
+        return tuple(name for name in os.environ if name.startswith("DSH_"))
+
+    def prepare_home(self, home, roles, tools_url, tools_name):
+        """The patch layer (DSH_PATCH): dsh's own rows, by their ids. A row's `config` replaces the row's, so the
+        default model is given whole. No host path is written in it: a sandbox translates only the command, the
+        environment and the prompt."""
+        if roles:
+            raise Unsupported("dsh: roles are not passed to DeepSeek Harness; give it none")
+        if tools_url and not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", tools_name):
+            raise ValueError(f"dsh takes an MCP server name of 32 characters at most ([A-Za-z0-9_-]), not "
+                             f"{tools_name!r}")
+        s = self.settings
+        rows: list[dict] = [*({"id": row, "disabled": True} for row in DSH_OFF),
+                            {"id": "session-log-deepseek", "config": {"enabled": False}}]
+        if not s.get("web_search"):
+            rows.append({"id": "tool-web", "disabled": True})          # web search and fetch, the model's tools
+        effort = str(s["effort"]) if s.get("effort") else None
+        default, chosen = {"provider": DSH_ROUTE}, {}
+        if s.get("provider"):
+            provider = json.loads(json.dumps(s["provider"]))
+            provider.setdefault("apiKeyEnv", DSH_NO_KEY)              # a server that needs no key: the placeholder
+            for model in provider.get("models") or []:
+                if effort:       # a declared model reasons only at the levels it lists; off: it does not reason
+                    model.setdefault("reasoningEfforts", False if effort == "off" else {effort: effort})
+                if s.get("image_input"):          # else dsh sends the model no image (a text-only model refuses them)
+                    model["input"] = ["text", "image"]
+                if model.get("id") == s.get("model"):
+                    chosen = model
+            rows.append({"id": "llm-pi-ai", "config": {"providers": {DSH_PROVIDER: provider}}})
+            default["provider"] = DSH_PROVIDER
+        if s.get("model"):
+            default["model"] = str(s["model"])
+            if effort and chosen.get("reasoningEfforts") is not False:    # a model that does not reason takes none
+                default["reasoningEffort"] = effort
+            rows.append({"id": "agent-default-model", "config": default})
+        elif s.get("provider"):
+            raise ValueError("dsh: a provider route needs its model (the `model` setting)")
+        if tools_url:
+            rows.append({"insert": [{"id": f"mcp-{tools_name}", "name": "@deepseek-ai/dsh-mcp-client",
+                                     "config": {"serverName": tools_name, "transport": "streamable-http",
+                                                "url": tools_url, "toolCallTimeoutMs": 1_800_000,
+                                                "failOnStartupError": True}}]})
+        _clear(home / DSH_PATCH)
+        (home / DSH_PATCH).write_text(json.dumps(rows, indent=1) + "\n")    # JSON is YAML: dsh reads it as such
+
+    @classmethod
+    def web_search_args(cls, enabled: bool) -> list[str]:
+        """dsh's web search and fetch are a row of its tree, set in the session's patch layer (prepare_home)."""
+        return []
+
+    def system_settings(self, system, prompt):
+        """dsh takes no system prompt for one run, and its persona text (the system-prompt row) takes only the
+        variables `{{provider}}` and `{{model}}`: any other `{{...}}`, which instructions may hold, fails the model's
+        step. The instructions go at the top of the prompt instead, as a marked block."""
+        return {}, f"# SYSTEM INSTRUCTIONS\n\n{system}\n\n# END\n\n{prompt}"
+
+    @staticmethod
+    def _reason(raw: str) -> dict:
+        """The last `final` event's reason ({} when there is none: the run never finished)."""
+        finals = [e for e in _objects(raw)[0] if e.get("type") == "final"]
+        reason = finals[-1].get("reason") if finals else None
+        return reason if isinstance(reason, dict) else {}
+
+    @classmethod
+    def served(cls, raw):
+        """The run's last turn completed (its `final` reason)."""
+        return cls._reason(raw).get("kind") == "completed"
+
+    def outcome(self, raw, stream, last_file):
+        """dsh exits 0 for a run whose `final` event is `completed`, and 1 for any other end (an error, an abort, the
+        token limit, ...), but also 0 when SIGTERM stops it: a run without a completed end has failed, whatever its
+        exit code."""
+        notes, done = self.notices(raw), self.served(raw)
+        return {"reply": self.last_message(stream, last_file), "served": done,
+                "unavailable": bool(UNAVAILABLE.search(notes)), "refused": False, "failed": not done,
+                "failure": (notes or "the run did not finish (no completed `final` event)")[-600:]}
+
+    @classmethod
+    def errors(cls, event):
+        """A run that did not complete: an error, as dsh writes it on stderr (`dsh: <code>: <message>`: the code is
+        how a provider that could not serve is told, UNAVAILABLE), or any other end (aborted, max-tokens, blocked,
+        interrupted, ...); a failure outside a turn."""
+        kind = event.get("type")
+        reason = event.get("reason") if isinstance(event.get("reason"), dict) else {}
+        if kind == "final" and reason.get("kind") not in (None, "completed"):
+            error = reason.get("error") if isinstance(reason.get("error"), dict) else {}
+            if error.get("code"):
+                return [f"dsh: {error['code']}: {error.get('message') or ''}"]
+            return [str(error.get("message") or f"run {reason['kind']}")]
+        if kind == "error":
+            return [str(event.get("message") or "")]
+        return []
+
+    @classmethod
+    def last_message(cls, log, last=None):
+        """The `final` event's answer (dsh's last assistant text, never cut)."""
+        text = ""
+        for event in events(log):
+            if event.get("type") == "final" and isinstance(event.get("text"), str):
+                text = event["text"]
+        return text
+
+    @classmethod
+    def parse(cls, log, model):
+        return parse_dsh(log, model)
+
+    @classmethod
+    def steps(cls, stream):
+        return dsh_steps(stream)
+
+    def command(self, prompt, workspace, last_file, *, session=None, roles=(), tools_url=None):
+        """The launcher's options first (the profile, the `--patch` layers: those in `args`, a deployment's, then
+        the session's own, which is applied last and so wins), then the headless app's; dsh's launcher reads its
+        own options only before the first one it does not know. The workspace's skills go into the home first."""
+        s, home = self.settings, last_file.parent                      # the session's home
+        mode = s.get("permission_mode") or "workspace-write"
+        if mode not in DSH_PERMISSION_MODES:
+            raise ValueError(f"dsh: permission_mode is one of {DSH_PERMISSION_MODES}, not {mode!r}")
+        patches, rest = _dsh_args(s.get("args") or [])
+        resume = _dsh_session(home, session) if session else None
+        _dsh_skills(Path(workspace), home)
+        return [str(s.get("bin") or self.program), "--profile", "headless", *patches,
+                "--patch", str(home / DSH_PATCH), "--json", "--permission-mode", mode,
+                "--approval-policy", "never",
+                *[a for w in (s.get("writable") or () if mode == "workspace-write" else ())
+                  for a in ("--add-dir", str(Path(w).absolute()))],            # what dsh's own sandbox lets it write
+                *(["--session-id", resume] if resume else []), *rest,
+                *(["-"] if s.get("stdin") else ["--", prompt])]
+
+
+def _dsh_args(args) -> tuple[list[str], list[str]]:
+    """(the `--patch` layers among `args`, the other arguments): dsh's launcher takes a layer only before the app's
+    options, so the layers go first, in their order."""
+    args, patches, rest, i = [str(a) for a in args], [], [], 0
+    while i < len(args):
+        if args[i] == "--patch" and i + 1 < len(args):
+            patches += args[i:i + 2]
+            i += 2
+            continue
+        (patches if args[i].startswith("--patch=") else rest).append(args[i])
+        i += 1
+    return patches, rest
+
+
+def _dsh_skills(workspace: Path, home: Path) -> None:
+    """The workspace's project skills (.dsh/skills) as the session's own ($DSH_AGENTS_HOME/skills, in its home). dsh
+    reads a project's skills only at the project's root, the nearest folder above with a `.git`, so a workspace
+    inside a git repository (a run's workspaces under a config kept in a project) would lose them; it reads the
+    session's own wherever it runs, and offers a skill found in both places once. The last call's copy is replaced."""
+    agents = home / ".agents"
+    if agents.is_symlink():                       # a link the last session left would take the copy elsewhere
+        agents.unlink()
+    target = agents / "skills"
+    _clear(target)
+    target.unlink(missing_ok=True)
+    source = workspace / ".dsh" / "skills"
+    if source.is_dir() and not source.is_symlink():
+        shutil.copytree(source, target, symlinks=True)
+
+
+def _dsh_session(home: Path, handle) -> str | None:
+    """Session `handle` when `home` keeps it (sessions/<its directory>/<id>/): dsh refuses an id it does not know, so
+    a call whose session is gone starts a new one."""
+    if not re.fullmatch(r"session-[A-Za-z0-9-]+", str(handle)):
+        return None
+    root = Path(home) / "sessions"
+    found = [p for p in root.glob(f"*/{handle}") if p.is_dir() and not p.is_symlink() and not p.parent.is_symlink()]
+    return str(handle) if found else None
+
+
 # Every CLI Base Agent, by each name make() takes for it.
-CLIS: dict[str, type[CliAgent]] = {n: c for c in (Codex, Claude, Pi) for n in (c.backend, *c.aliases)}
+CLIS: dict[str, type[CliAgent]] = {n: c for c in (Codex, Claude, Pi, Dsh) for n in (c.backend, *c.aliases)}
 
 
 def _this_call(home: Path, handle: str, reported, resumed: bool):

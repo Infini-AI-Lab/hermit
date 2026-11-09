@@ -1,13 +1,14 @@
-"""AgentEvolver: a built-in agent (Codex, Claude Code or Pi) run on the workspace with a prompt; CommandEvolver: any
-program.
+"""AgentEvolver: a built-in agent (Codex, Claude Code, Pi or DeepSeek Harness) run on the workspace with a prompt;
+CommandEvolver: any program.
 
 AgentEvolver params:
-  backend: codex | claude | pi
+  backend: codex | claude | pi | dsh
   model: the model passed to the agent (optional: the agent's default); with `login`, the CLI's model name on the
          user's subscription (hermit.agent.base.login: `chatgpt` for Codex, `claude` for Claude Code). A
          `<backend>/<model>` reference (see
          hermit.agent.model.backends) binds it to that backend: the provider settings go into `args` (Codex), `env`
-         (Claude Code) or `provider` (Pi's models.json entry) and `price` is taken from the backend
+         (Claude Code) or `provider` (Pi's models.json entry, DeepSeek Harness's pi-ai route) and `price` is taken
+         from the backend
   login, plan_dir, plan_max_wait_s, plan_rerun, usage_credits: the CLI's subscription and its plan
          (hermit.agent.base.cli, hermit.agent.base.login; claude: the token in CLAUDE_CODE_OAUTH_TOKEN)
   env: environment variables set for the agent; a `$NAME` value is expanded from the environment at launch (Claude
@@ -22,9 +23,10 @@ AgentEvolver params:
   tools: the only Trainer tools the agent may use (for example [check_spec]); null: all of them. With a list, the
          task message names no endpoint URL either
   web_search: the CLI's web search, true or false
-This is Layer 3 over the `codex`, `claude` or `pi` Base Agent (docs/framework/agent-layers.md): it fills the prompt,
-picks the Trainer's tools and resumes the last session; the Base Agent runs the CLI in the run's evolver sandbox (the
-workspace under /w, the paths in the prompt relative to it), with the tools as one MCP server (`evolver_tools`).
+This is Layer 3 over the `codex`, `claude`, `pi` or `dsh` Base Agent (docs/framework/agent-layers.md): it fills the
+prompt, picks the Trainer's tools and resumes the last session; the Base Agent runs the CLI in the run's evolver
+sandbox (the workspace under /w, the paths in the prompt relative to it), with the tools as one MCP server
+(`evolver_tools`).
 """
 from __future__ import annotations
 
@@ -78,7 +80,7 @@ class AgentEvolver(Evolver):
     def step(self, ctx: StepContext) -> StepResult:
         params = ctx.params
         backend = params.get("backend", "codex")
-        if backend not in ("codex", "claude", "pi"):
+        if backend not in ("codex", "claude", "pi", "dsh"):
             return StepResult("failed", f"unknown backend {backend!r}")
         if not isinstance(params.get("web_search"), bool):
             return StepResult("failed", "evolver.params.web_search must be set, true or false")
@@ -130,6 +132,7 @@ class AgentEvolver(Evolver):
                 "web_search": params["web_search"], "env": env,
                 "isolation": "sandbox" if ctx.sandbox is not None else "none", "sandbox": ctx.sandbox,
                 "codex_sandbox": "danger-full-access", "shell_env": "all",
+                **({"permission_mode": "danger-full-access"} if backend == "dsh" else {}),   # dsh's own sandbox
                 "home": ctx.workspace.state.parent / "agent_home", "home_files": params.get("home"),
                 "log": ctx.workspace.output / f"agent-{backend}.jsonl", "timeout_s": None, "cancel": ctx.cancel,
                 "tools_name": "evolver_tools"}

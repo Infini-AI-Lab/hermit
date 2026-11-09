@@ -124,6 +124,31 @@ def parse_pi(log: Path, model: str) -> tuple[str | None, list[Usage]]:
     return _parse(log, model, _pi_event)
 
 
+def _dsh_event(event: dict, usage: Usage, session):
+    """DeepSeek Harness: the session id (its opening `session` event), and each model step's usage (`status` events
+    of phase `step_end`). dsh's `inputTokens` leaves the cache out, so the input counted is input, cache reads and
+    cache writes, as Codex and Claude Code count it. A step that used no tokens (every request of it failed) is no
+    call. dsh reports no cost: it is priced from the backend's price (price_usage)."""
+    if event.get("type") == "session":
+        session = event.get("sessionId") or session
+    if event.get("type") == "status" and event.get("phase") == "step_end" and isinstance(event.get("usage"), dict):
+        u = event["usage"]
+        cached = int(u.get("cacheReadTokens") or 0)
+        tokens = int(u.get("inputTokens") or 0) + cached + int(u.get("cacheWriteTokens") or 0)
+        if not tokens and not u.get("outputTokens"):
+            return session
+        usage.input_tokens += tokens
+        usage.cached_input_tokens += cached
+        usage.output_tokens += int(u.get("outputTokens") or 0)
+        usage.calls += 1
+    return session
+
+
+def parse_dsh(log: Path, model: str) -> tuple[str | None, list[Usage]]:
+    """DeepSeek Harness's `--json` events: the session id, and every model step's usage."""
+    return _parse(log, model, _dsh_event)
+
+
 def parse_codex(log: Path, model: str) -> tuple[str | None, list[Usage]]:
     """Codex's `exec --json` events: the thread id, and each completed turn's usage."""
     return _parse(log, model, _codex_event)
