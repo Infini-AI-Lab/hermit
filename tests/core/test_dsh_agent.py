@@ -885,9 +885,11 @@ def test_with_the_dsh_cli_a_command_runs_in_dshs_own_sandbox_inside_the_runs(tmp
     lets a command write). Where neither can start, dsh refuses every command (SANDBOX_UNAVAILABLE), which this would
     show."""
     from hermit.sandbox import Sandbox
-    if not _bwrap_works() or not os.path.isdir("/var/tmp"):
-        pytest.skip("needs a working bubblewrap and /var/tmp")
-    home = Path(tempfile.mkdtemp(prefix="hermit-dsh-home-", dir="/var/tmp"))
+    if not _bwrap_works():
+        pytest.skip("needs a working bubblewrap")
+    base = Path.home() / ".cache" / "hermit-tests"        # outside /tmp, an empty tmpfs under bubblewrap
+    base.mkdir(parents=True, exist_ok=True)
+    home = Path(tempfile.mkdtemp(prefix="dsh-home-", dir=base))
     outside = home / "outside.txt"
     commands = [{"command": "echo made > made.txt && cat made.txt", "description": "Write a file"},
                 {"command": f"echo out > {outside}", "description": "Write the home"}]

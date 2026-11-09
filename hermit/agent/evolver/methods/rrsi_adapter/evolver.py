@@ -417,9 +417,9 @@ class RRSIAdapterEvolver(AgentEvolver):
         """What every step needs, checked once: a broken hyperparameter file or domain, or an unset web_search,
         stops the run here rather than failing each step."""
         _require_rrsi()
-        if ctx.params.get("backend", "codex") not in ("codex", "claude"):   # its roles' settings are those CLIs'
+        if ctx.params.get("backend") == "dsh":   # its roles' settings are Codex's or Claude Code's
             raise ValueError("the RRSI Adapter's proposer and roles are Codex or Claude Code sessions: "
-                             f"evolver.params.backend is codex or claude, not {ctx.params.get('backend')!r}")
+                             "evolver.params.backend is codex or claude, not 'dsh'")
         if not isinstance(ctx.params.get("web_search"), bool):
             raise ValueError("evolver.params.web_search must be set, true or false")
         role = ctx.params.get("roles") or {}

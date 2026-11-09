@@ -704,20 +704,19 @@ def test_the_evolvers_texts_name_the_acting_agents_stream(tmp_path):
     assert "`claude -p --output-format stream-json` event stream" in question and "codex exec --json" not in question
 
 
-def test_the_evolvers_texts_name_every_acting_agents_stream_it_reads():
-    """A Pi or DeepSeek Harness acting agent's sessions keep their own stream (agent-pi.jsonl, agent-dsh.jsonl), which
-    rollout_stream finds: the learners' texts name it, not Codex's file, which is not there."""
-    from hermit.agent.base.trajectory import CODEX_STREAM, STREAMS
+def test_the_evolvers_texts_name_a_dsh_acting_agents_stream():
+    """A DeepSeek Harness acting agent's sessions keep their own stream (agent-dsh.jsonl), which rollout_stream finds:
+    the learners' texts name it, not Codex's file, which is not there."""
+    from hermit.agent.base.trajectory import DSH_STREAM
     from hermit.agent.evolver.methods.ahe_adapter import debugger as D
     methods = T.ROOT / "hermit" / "agent" / "evolver" / "methods" / "ahe_adapter"
     texts = [(methods / name).read_text() for name in ("START.md", "DEBUGGER.md")]
-    for stream in set(STREAMS) - {CODEX_STREAM}:
-        for text in texts:
-            words = D.for_stream(text, stream)
-            assert "agent-codex.jsonl" not in words and "Codex event stream" not in words, stream
-            assert "codex exec --json" not in words, stream
-        assert stream in D.for_stream(texts[0], stream)
-    assert "`dsh --profile headless --json` event stream" in D.for_stream(texts[1], "agent-dsh.jsonl")
+    for text in texts:
+        words = D.for_stream(text, DSH_STREAM)
+        assert "agent-codex.jsonl" not in words and "Codex event stream" not in words
+        assert "codex exec --json" not in words
+    assert DSH_STREAM in D.for_stream(texts[0], DSH_STREAM)
+    assert "`dsh --profile headless --json` event stream" in D.for_stream(texts[1], DSH_STREAM)
 
 
 # --- the real CLIs, each on a scripted local model ----------------------------------------------------------------
