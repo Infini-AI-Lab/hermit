@@ -39,7 +39,8 @@ uses (`fireworks/accounts/fireworks/models/glm-5p3-flash`, `vllm/Qwen/Qwen3-30B-
 backend may define aliases (`models: {qwen: Qwen/Qwen3-30B-A3B-Instruct-2507-FP8}`), so `vllm/qwen` works too.
 For Pi a reference becomes its `models.json` provider `hermit`: the backend's URL, the key as `$VARIABLE` (Pi reads it
 at each request, so no file holds the key) and the backend's price. The cost recorded follows the price (the agent's
-own `price`, else the backend's), not Pi's own figure.
+own `price`, else the backend's), not Pi's own figure. Pi sends such a model text only; for a model that takes images
+(a tool's result, such as a screenshot), set `image_input: true` in `agent.pi` or `evolver.pi`.
 
 A string whose first segment is no backend's name is not a reference: for a Codex or Claude Code agent it is a
 model of the CLI's own provider (`gpt-5.4`), as before. So a provider id that happens to start with a backend's

@@ -66,8 +66,9 @@ Settings (given once; `configured(...)` for a call's own):
   home), append_system_prompt (a long one goes the same way), effort, permission_mode, usage_credits (true: sessions on
   `login: claude` may draw the account's usage credits; default: a session that did holds the next ones back)
   Pi only: provider (its models.json entry for a bound model, from the binding: Binding.pi_provider),
-  append_system_prompt, effort (its --thinking level). Pi takes no roles, has no web search and runs under isolation
-  none or sandbox.
+  image_input (true: the bound model takes images, such as a tool's result; default: text only, Pi's default for a
+  model it does not know), append_system_prompt, effort (its --thinking level). Pi takes no roles, has no web search
+  and runs under isolation none or sandbox.
 
 Limits are enforced by the isolation, or the call is refused (Unsupported):
 
@@ -1344,6 +1345,9 @@ class Pi(CliAgent):
             if s.get("effort") and s["effort"] != "off":          # --thinking applies to a reasoning model only
                 for model in provider.get("models") or []:
                     model["reasoning"] = True
+            if s.get("image_input"):          # else Pi sends the model no image (a text-only model refuses them)
+                for model in provider.get("models") or []:
+                    model["input"] = ["text", "image"]
             (home / "models.json").write_text(json.dumps({"providers": {PI_PROVIDER: provider}}, indent=1))
         # A tool call may take minutes (a Trainer tool runs rollouts): Codex's tool_timeout_sec, not Pi's 60 s
         servers = {tools_name: {"url": tools_url, "exposure": "direct", "timeout": 1800}} if tools_url else {}

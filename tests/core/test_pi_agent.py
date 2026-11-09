@@ -264,6 +264,29 @@ def test_pi_is_a_base_of_the_config_and_the_pi_evolver_binds_its_model():
     assert params["backend"] == "pi" and params["home"] == [] and params["provider"]["apiKey"] == "$FAKE_KEY"
 
 
+
+def test_a_model_that_takes_images_is_declared_so_to_pi(fake):
+    """Pi offers a model it does not know text only, and drops a tool's image for it: `image_input` (agent.pi or
+    evolver.pi) declares the bound model's images, through the acting agent's and the Evolver's settings."""
+    from hermit.agent.acting.workspace import base_agent
+    from hermit.agent.evolver.loader import find, instantiate
+    from hermit.config import layered
+    data = {"agent": {"base": "pi", "model": "fake/m-1", "pi": {"image_input": True}},
+            "evolver": {"name": "pi", "base": "pi", "model": "fake/m-1", "pi": {"image_input": True}}, "llm": None}
+    layered(data)
+    acting = base_agent("pi", {**data["agent"]["params"], **bound(), "web_search": False})
+    assert acting.settings["image_input"] is True
+    _, params = instantiate(find("pi", ROOT), data["evolver"]["params"], default_model="fake/m-1",
+                            backends=registry({"fake": {"base_url": "http://127.0.0.1:9/v1", "apis": ["chat"]}}))
+    assert params["image_input"] is True
+    work = fake / "work"
+    work.mkdir()
+    for image_input, declared in ((True, ["text", "image"]), (False, None)):
+        make("pi", {**bound(), "web_search": False, "home": str(fake / "home"), "image_input": image_input}).run(
+            "go", workspace=work)
+        [model] = json.loads(seen(fake)[-1]["files"]["models.json"])["providers"]["hermit"]["models"]
+        assert model.get("input") == declared
+
 # ---------- the installed pi (integration) ----------
 
 def serve_chat(script):

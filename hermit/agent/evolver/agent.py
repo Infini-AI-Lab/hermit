@@ -124,7 +124,8 @@ class AgentEvolver(Evolver):
         env = {**(params.get("env") or {}),
                "PYTHONPATH": str(Path(__file__).resolve().parents[3]) + os.pathsep + os.environ.get("PYTHONPATH", "")}
         return {**{k: params[k] for k in ("model", "binding", "login", "login_root", "plan_dir", "plan_max_wait_s",
-                                          "plan_rerun", "usage_credits", "args", "price", "effort", "provider")
+                                          "plan_rerun", "usage_credits", "args", "price", "effort", "provider",
+                                          "image_input")
                    if params.get(k) is not None or (k == "plan_max_wait_s" and k in params)},   # None: no limit
                 "web_search": params["web_search"], "env": env,
                 "isolation": "sandbox" if ctx.sandbox is not None else "none", "sandbox": ctx.sandbox,

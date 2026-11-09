@@ -31,7 +31,8 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 - Pi as a CLI Base Agent (`pi`): the acting agent `agent.base: pi` and the `pi` Evolver run Pi 1.5's `--mode json`
   in its own home, offline, with a model reference as Pi's `models.json` provider (the key as `$VARIABLE`); the
   call's tools are an MCP server offered directly; a failed request fails the session although Pi exits 0. Pi takes
-  no roles and has no web search. `hermit deploy --host pi` declares the adapter's tools `exposure: direct`.
+  no roles and has no web search; `image_input: true` declares a bound model that takes images. `hermit deploy
+  --host pi` declares the adapter's tools `exposure: direct`, with a 120 s timeout.
 - Models in sandboxes as Harbor's agents get theirs: each sandbox gets its models' key variables and provider hosts
   (an isolated network becomes an allowlist) and forwards a model meter on the loopback; what a run keeps (the
   learning material, the step records, the adapter) is scrubbed of key values (`hermit/redact.py`). The allowlist
@@ -156,6 +157,9 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 
 ### Fixed
 
+- A deployed workspace's tool server (`.codex/config.toml`, `.mcp.json`, `.pi/mcp.json`) in a task-sandboxed
+  acting run crashed at startup, so the adapter's tools never loaded: its sandboxed Session loads no adapter in
+  the server's process, and the server now reads the manifest from the Session.
 - A workspace agent's run failed after its session had answered when tidying the kept workspace could not read or
   remove an empty mount point yet (`PermissionError` on `docs/root_1`: Docker Desktop can hold a bind mount's target
   a moment after its container exits); the answer was scored as a pipeline failure. Tidying now leaves such a
