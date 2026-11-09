@@ -71,12 +71,15 @@ user chooses: `--adapter none` runs the acting agent with no harness adapter at 
 hermit deploy --adapter DIR --workspace WORKSPACE --host codex
 hermit deploy --adapter DIR --workspace WORKSPACE --host claude-code
 hermit deploy --adapter DIR --workspace WORKSPACE --host pi
+hermit deploy --adapter DIR --workspace WORKSPACE --host opencode
 ```
 
 This generates host instruction files, role/skill files, and tool configuration. It does not launch the acting
 agent. Pi has no subagents and reads no hook file, so `--host pi` names an adapter's roles and hooks in `AGENTS.md`
 instead; its `.pi/` files (tools, skills) load once the user trusts the project in Pi, while `AGENTS.md` needs no
-trust. `--context-limit BYTES` (Codex) is the `project_doc_max_bytes` your Codex configuration sets, 32768 (Codex's
+trust. `--host opencode` writes `AGENTS.md`, the project's `opencode.json` (the tools, offered directly) and
+`.opencode/skills`, which OpenCode loads with no trust step; it names roles and hooks in `AGENTS.md`, as for Pi.
+`--context-limit BYTES` (Codex) is the `project_doc_max_bytes` your Codex configuration sets, 32768 (Codex's
 default) when not given: a longer `AGENTS.md` is refused, since Codex would cut it; `0` skips the check. It is the per-project way to use an adapter; the per-agent way, `convert`, and how the two compare are in
 [What is a harness adapter?](what-is-a-harness-adapter.md#two-ways-to-use-an-adapter). The workspace must be an empty directory or one previously generated for the same host, separate from
 the adapter directory. See the [file mapping](adapter.md#acting-interface) for exact paths and update behavior.

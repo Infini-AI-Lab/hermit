@@ -1,4 +1,5 @@
-"""`codex`, `claude` and `pi`: a coding-agent CLI as a Base Agent (docs/framework/agent-layers.md#layer-2-base-agent).
+"""`codex`, `claude`, `pi` and `opencode`: a coding-agent CLI as a Base Agent
+(docs/framework/agent-layers.md#layer-2-base-agent).
 
 One `run` is one session of the CLI in print mode: the prompt is given, the CLI works in `workspace` with its own
 tools and the call's `tools` (served over MCP by the framework's tool server), and its last message is the reply.
@@ -69,6 +70,10 @@ Settings (given once; `configured(...)` for a call's own):
   image_input (true: the bound model takes images, such as a tool's result; default: text only, Pi's default for a
   model it does not know), append_system_prompt, effort (its --thinking level). Pi takes no roles, has no web search
   and runs under isolation none or sandbox.
+  OpenCode only: provider (its config's provider for the bound model, from the binding: Binding.opencode_provider;
+  required: OpenCode runs a model reference and takes no login), append_system_prompt (an instructions file in the
+  home), effort (the model's reasoningEffort). OpenCode takes no roles, has no web search and runs under isolation
+  none or sandbox.
 
 Limits are enforced by the isolation, or the call is refused (Unsupported):
 
@@ -96,9 +101,9 @@ from typing import Any, Sequence
 
 from hermit.agent.base import container, login as codex_login
 from hermit.agent.base.interface import BaseAgent, Limits, Mount, Result, Unsupported
-from hermit.agent.base.records import parse_claude, parse_codex, parse_pi, price_usage
+from hermit.agent.base.records import parse_claude, parse_codex, parse_opencode, parse_pi, price_usage
 from hermit.agent.base.tool import Tool
-from hermit.agent.base.trajectory import claude_steps, codex_steps, events, pi_steps
+from hermit.agent.base.trajectory import claude_steps, codex_steps, events, opencode_steps, pi_steps
 from hermit.agent.model.backends import CLAUDE_ENV
 
 ISOLATIONS = ("none", "sandbox", "container")
@@ -1462,8 +1467,195 @@ def _pi_session(home: Path, handle) -> Path | None:
     return sorted(found)[-1] if found else None
 
 
+OPENCODE_PROVIDER = "hermit"      # the config provider a bound model is given under
+# Tools a session is not offered: questions for a person (no one answers), its own sub-agents (OpenCode takes no
+# roles), code mode (the call's tools are offered directly) and what reaches the network past the run's sandbox.
+OPENCODE_DENIED = ("question", "subagent", "execute", "webfetch", "websearch", "opencode_*")
+# No update, catalog or language-server download; no Claude Code files (~/.claude) and no skills from .claude/ or
+# .agents/ folders (an adapter's skills are deployed to .opencode/skills)
+OPENCODE_ENV = {"OPENCODE_DISABLE_AUTOUPDATE": "1", "OPENCODE_DISABLE_MODELS_FETCH": "1",
+                "OPENCODE_DISABLE_LSP_DOWNLOAD": "1", "OPENCODE_DISABLE_CLAUDE_CODE": "1",
+                "OPENCODE_DISABLE_EXTERNAL_SKILLS": "1"}
+# OpenCode's reports (its error event's `type`) of a provider that could not serve, which it retries itself first
+OPENCODE_OUTAGES = ("provider.rate-limit", "provider.internal", "provider.transport", "provider.timeout")
+# ... and of a request that a retry would send to the same refusal
+OPENCODE_REJECTED = ("provider.auth", "provider.invalid-request", "provider.content-filter",
+                     "provider.unsupported-operation")
+OPENCODE_UNFINISHED = ("tool-calls", "length", "error", "content-filter")     # a last step's reason that is no answer
+
+
+def _part(event: dict) -> dict:
+    return event.get("part") if isinstance(event.get("part"), dict) else {}
+
+
+class OpenCode(CliAgent):
+    """OpenCode (`opencode run --format json`, 2.2). Its home is its HOME and XDG folders (config, data with its
+    sessions, cache, state), with no update, catalog or download requests. A bound model is the config's provider
+    `hermit`, its key read by OpenCode from the backend's variable; it runs a model reference only (no login). What
+    the session must hold is the inline config (OPENCODE_CONFIG_CONTENT), which outranks a workspace's opencode.json:
+    the provider, the permissions, no sharing or snapshots. The call's tools are an MCP server in the home's config
+    (OPENCODE_CONFIG), offered directly rather than through code mode. Whether the session failed, and whether its
+    provider could not serve, is read from its own error event (`outcome`)."""
+    name = backend = program = "opencode"
+    label = "OpenCode"
+    home_var, user_folder = "XDG_DATA_HOME", ".local/share"
+    home_files = ("auth.json",)        # its sign-in (under XDG_DATA_HOME/opencode), never copied: _sign_in
+    turn_done = "step_finish"
+
+    def home_env(self, home):
+        """Every variable OpenCode reads goes here, so that it passes the sandbox's filter: its HOME and XDG folders,
+        its two configs (the home's file, the inline one), no update, catalog or download requests."""
+        return {"HOME": str(home), "XDG_CONFIG_HOME": str(home / "config"), "XDG_DATA_HOME": str(home / "data"),
+                "XDG_CACHE_HOME": str(home / "cache"), "XDG_STATE_HOME": str(home / "state"),
+                "OPENCODE_CONFIG": str(home / "opencode.json"),
+                "OPENCODE_CONFIG_CONTENT": json.dumps(self._held(home), ensure_ascii=False), **OPENCODE_ENV}
+
+    def dropped_env(self):
+        """The caller's own OpenCode settings (another config, database, permission set or search): the session has
+        only its home's. And the caller's PWD: OpenCode works in the directory PWD names, before the one it is started
+        in (the workspace)."""
+        return ("PWD", *(k for k in os.environ if k.startswith("OPENCODE_")))
+
+    @classmethod
+    def user_home(cls) -> Path:
+        return Path(os.environ.get("XDG_DATA_HOME") or Path.home() / cls.user_folder) / "opencode"
+
+    def _sign_in(self, home):
+        """None: OpenCode runs a model reference, its key read from the backend's variable."""
+        s = self.settings
+        if s.get("login"):
+            raise Unsupported("opencode takes no login: its model is a <backend>/<model> reference")
+        if not s.get("provider") or not s.get("model"):
+            raise Unsupported("opencode runs a <backend>/<model> reference (agent.model or evolver.model): it signs "
+                              "in no other way")
+        return []
+
+    def _held(self, home: Path) -> dict:
+        """The inline config: the bound model (its reasoning effort), no other provider, the permissions, no update
+        check, sharing or snapshots, and the call's system instructions (a file in the home, named by its path, which
+        a sandbox spells as it is inside, as it does every variable)."""
+        s = self.settings
+        provider = json.loads(json.dumps(s.get("provider") or {}))
+        if s.get("effort") and s["effort"] != "off":
+            for entry in (provider.get("models") or {}).values():
+                if isinstance(entry, dict):
+                    entry.setdefault("options", {})["reasoningEffort"] = s["effort"]
+        ref = f"{OPENCODE_PROVIDER}/{s.get('model') or ''}"
+        return {"provider": {OPENCODE_PROVIDER: provider}, "model": ref, "small_model": ref,
+                "enabled_providers": [OPENCODE_PROVIDER], "autoupdate": False, "share": "disabled", "snapshot": False,
+                "permission": {"*": "allow", "external_directory": "allow", "doom_loop": "allow",
+                               **{tool: "deny" for tool in OPENCODE_DENIED}},
+                **({"instructions": [str(home / "system.md")]} if s.get("append_system_prompt") else {})}
+
+    def prepare_home(self, home, roles, tools_url, tools_name):
+        """The home's config (the call's tools, offered directly, with Codex's tool_timeout_sec rather than
+        OpenCode's 30 s: a Trainer tool runs rollouts) and the system instructions' file. No host path is written in
+        them: a sandbox translates only the command, the environment and the prompt."""
+        if roles:
+            raise Unsupported("opencode takes no roles: an adapter's roles stay files its AGENTS.md names")
+        servers = {tools_name: {"type": "remote", "url": tools_url, "codemode": False,
+                                "timeout": {"execution": 1800 * 1000}}} if tools_url else {}
+        _clear(home / "opencode.json")
+        (home / "opencode.json").write_text(json.dumps({"mcp": {"servers": servers}}, indent=1))
+        _clear(home / "system.md")
+        (home / "system.md").unlink(missing_ok=True)
+        if self.settings.get("append_system_prompt"):
+            (home / "system.md").write_text(str(self.settings["append_system_prompt"]))
+
+    @classmethod
+    def web_search_args(cls, enabled: bool) -> list[str]:
+        """OpenCode's web search and fetch reach the network past the run's sandbox: off is the only setting."""
+        if enabled:
+            raise Unsupported("opencode has no web search here: set web_search to false")
+        return []
+
+    def system_settings(self, system, prompt):
+        return {"append_system_prompt": system}, prompt
+
+    def on_stdin(self):
+        return False                   # the prompt is an argument, after `--`
+
+    @classmethod
+    def _finish(cls, objects) -> str | None:
+        finishes = [e for e in objects if e.get("type") == cls.turn_done]
+        return _part(finishes[-1]).get("reason") if finishes else None
+
+    @classmethod
+    def served(cls, raw):
+        """A request ended the session with an answer, and OpenCode reported no error."""
+        objects = _objects(raw)[0]
+        return not any(e.get("type") == "error" for e in objects) and \
+            cls._finish(objects) not in (None, *OPENCODE_UNFINISHED)
+
+    @classmethod
+    def errors(cls, event):
+        """The error a session ended with (its retries are `retry` events)."""
+        if event.get("type") != "error":
+            return []
+        error = event.get("error") if isinstance(event.get("error"), dict) else {}
+        return [": ".join(str(x) for x in (error.get("type"), error.get("message")) if x) or "the session failed"]
+
+    def outcome(self, raw, stream, last_file):
+        """From OpenCode's own error event: its `type` (provider.rate-limit, provider.internal, provider.transport,
+        provider.timeout: a provider that could not serve) and the HTTP status, never its wording."""
+        objects = _objects(raw)[0]
+        notes, done = self.notices(raw), self.served(raw)
+        error = next((e["error"] for e in reversed(objects)
+                      if e.get("type") == "error" and isinstance(e.get("error"), dict)), {})
+        kind, status = str(error.get("type") or ""), error.get("status")
+        status = status if isinstance(status, int) else None
+        busy = not done and (kind in OPENCODE_OUTAGES or status == 429 or (status or 0) >= 500)
+        cut = self._finish(objects) == "length"
+        return {"reply": self.last_message(stream, last_file), "served": done, "unavailable": busy,
+                "refused": False, "failed": not done,
+                "rejected": not done and not busy and (kind in OPENCODE_REJECTED or status in (400, 401, 403, 404)),
+                "finish_reason": "stop" if done else ("length" if cut else None),
+                "failure": "" if done else (notes or ("the reply was cut at its output limit" if cut else
+                                                      "the session ended without an answer"))[-600:]}
+
+    def adjust_usage(self, home, handle, usage, resumed):
+        """A bound model's cost is left to its price (price_usage): OpenCode counts a model whose config gives no
+        cost as free."""
+        if self.settings.get("binding") or self.settings.get("provider"):
+            for u in usage:
+                u.cost_usd = None
+        return usage
+
+    @classmethod
+    def last_message(cls, log, last=None):
+        """The text of the last message that has any."""
+        texts, current = [], None
+        for event in events(log):
+            if event.get("type") == "text":
+                part = _part(event)
+                if part.get("messageID") != current:
+                    texts, current = [], part.get("messageID")
+                texts.append(str(part.get("text") or ""))
+        return "".join(texts)
+
+    @classmethod
+    def parse(cls, log, model):
+        return parse_opencode(log, model)
+
+    @classmethod
+    def steps(cls, stream):
+        return opencode_steps(stream)
+
+    def command(self, prompt, workspace, last_file, *, session=None, roles=(), tools_url=None):
+        """`--standalone`: a server of the session's own, never OpenCode's background service, which other sessions
+        (other homes, other workspaces) would share. `--title` names the session, so no request is spent on a title;
+        `--thinking` keeps the model's reasoning in the stream. A session handle that is no OpenCode session id
+        starts a new session."""
+        s = self.settings
+        resume = str(session) if session and re.fullmatch(r"ses_[A-Za-z0-9]+", str(session)) else None
+        return [str(s.get("bin") or self.program), "run", "--standalone", "--format", "json",
+                "-m", f"{OPENCODE_PROVIDER}/{s.get('model') or ''}", "--title", "hermit", "--thinking",
+                *self.web_search_args(bool(s.get("web_search"))),
+                *(["--session", resume] if resume else []), *(s.get("args") or []), "--", prompt]
+
+
 # Every CLI Base Agent, by each name make() takes for it.
-CLIS: dict[str, type[CliAgent]] = {n: c for c in (Codex, Claude, Pi) for n in (c.backend, *c.aliases)}
+CLIS: dict[str, type[CliAgent]] = {n: c for c in (Codex, Claude, Pi, OpenCode) for n in (c.backend, *c.aliases)}
 
 
 def _this_call(home: Path, handle: str, reported, resumed: bool):

@@ -49,6 +49,7 @@ How a model takes steps. Layer 2 holds only the framework's agents:
 | `codex` | The Codex CLI, working in a workspace |
 | `claude` | The Claude Code CLI, working in a workspace |
 | `pi` | The Pi CLI, working in a workspace (no roles, no web search) |
+| `opencode` | The OpenCode CLI, working in a workspace (a model reference only; no roles, no web search) |
 
 API, the only one Layer 3 sees:
 
@@ -81,7 +82,7 @@ none), Codex's own sandbox mode, the CLI's home, the time limit (the full list i
 leaves the agent as it was. Running a task again when the provider could not serve it is Layer 3's: the workspace
 is placed anew first.
 
-Codex, Claude Code and Pi share one runner, `CliAgent`: the isolation, the home, the sign-in, the tool server and the
+Codex, Claude Code, Pi and OpenCode share one runner, `CliAgent`: the isolation, the home, the sign-in, the tool server and the
 process are the same for every CLI. Each CLI is a subclass whose hooks give what is its own: its command, its home,
 and how its event stream is read (the reply, the trajectory, the usage, whether the provider served it, and what a
 session that was not served met: `outcome`). A new CLI is
@@ -99,8 +100,8 @@ What the Base Agent is used for. Two kinds:
   record).
 - The **Evolver Agent** learns. Its API to the Trainer is `step(ctx)` and `finalize(ctx)`. It reads the acting
   runs' trajectories and writes a new adapter, calling a Base Agent: `direct` for methods that decide every step in
-  their own code (GEPA, SkillOpt, ReHarness, Continual Harness), `codex`, `claude` or `pi` for methods whose learner
-  is an agent (Meta-Harness Adapter, the `codex`, `claude` and `pi` Evolvers). The run's model reaches an Evolver as
+  their own code (GEPA, SkillOpt, ReHarness, Continual Harness), `codex`, `claude`, `pi` or `opencode` for methods
+  whose learner is an agent (Meta-Harness Adapter, the `codex`, `claude`, `pi` and `opencode` Evolvers). The run's model reaches an Evolver as
   `ctx.agent`, a `direct` Base Agent metered against the budget; `ask(ctx.agent, messages, max_tokens=...)` returns
   the reply as the `llm` tool does.
 
@@ -141,7 +142,7 @@ Each Base Agent offers the tools to the model in its own way:
 |---|---|---|
 | `direct` | Their schemas in the API request | Layer 3, which then calls `direct` again |
 | `react` | Their schemas in the API request | `react`, in its loop |
-| `codex`, `claude`, `pi` | The framework's tool server, over MCP (streamable HTTP) | The tool server |
+| `codex`, `claude`, `pi`, `opencode` | The framework's tool server, over MCP (streamable HTTP) | The tool server |
 
 The tool server (`hermit/agent/base/tool_server.py`) is started for the one call and stopped after it. It carries a
 token in its URL, so that only the session it was started for can call it, and tells Codex to approve its tools
@@ -225,6 +226,7 @@ accepted; a key given in two layers is refused. On the command line a layer's se
 | GEPA, SkillOpt, ReHarness, Continual Harness, OPRO | Evolver Agent | `direct` (`ctx.agent`); OPRO in OfficeQA: `codex` through `llm: {cli: codex}` |
 | Meta-Harness Adapter, `codex` and `claude` Evolvers | Evolver Agent | `codex` or `claude` |
 | `pi` Evolver | Evolver Agent | `pi` |
+| `opencode` Evolver | Evolver Agent | `opencode` |
 | RRSI Adapter | Evolver Agent: upstream's rules and roles, the proposer's prompt | `codex` or `claude` for the proposer, and the same, one call per upstream `generate`, for the analyst, digesters and critic |
 | AHE Adapter | Evolver Agent: the Evolve Agent and the Agent Debugger | `codex` or `claude`, one session per step and per task |
 | CL-Bench, ServeLearnBench | Acting Agent running the benchmark's loop | `direct`, per call, through the local endpoint |

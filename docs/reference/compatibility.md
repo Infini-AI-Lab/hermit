@@ -11,8 +11,8 @@ numbers alone may not distinguish unreleased changes.
 | Local deterministic Quick Start | No model account, GPU, external dataset, or host CLI |
 | Context-only workspace generation | macOS and Linux |
 | Sandboxed learner programs | Linux with bubblewrap and permitted namespaces |
-| Built-in methods | Prompt-only (the Codex learner on the prompt-only template), Codex, Claude, Pi, GEPA, SkillOpt, MWM, Harness², Continual Harness, ReHarness, Meta-Harness Adapter, ACE, AHE Adapter, RRSI Adapter, EvoSafeHarness, OPRO |
-| Workspace deployment | Codex, Claude Code, and Pi |
+| Built-in methods | Prompt-only (the Codex learner on the prompt-only template), Codex, Claude, Pi, OpenCode, GEPA, SkillOpt, MWM, Harness², Continual Harness, ReHarness, Meta-Harness Adapter, ACE, AHE Adapter, RRSI Adapter, EvoSafeHarness, OPRO |
+| Workspace deployment | Codex, Claude Code, Pi, and OpenCode |
 | A subscription instead of an API key | Codex (`login: chatgpt`) and Claude Code (`login: claude`, CLI 2.1.248 or later, tested on 2.1.318), acting and learning; see [Claude subscription](../guides/claude-subscription.md) |
 | Native plugin conversion | Claude Code, Codex, Pi, Hermes, with export restrictions |
 | Stdio tool server | `hermit serve DIR`; normally started by the host |

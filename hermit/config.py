@@ -44,10 +44,12 @@ def _merge(base: dict, extra: dict, prefix: str = "") -> dict:
 
 
 FREE = ("params", "llm", "backends", "container", "resources",   # sections whose keys the framework does not know
-        "model", *("codex", "claude", "pi", "react", "direct"))   # a layer's settings (docs/framework/agent-layers.md)
-BASES = {"codex": "codex", "claude": "claude-code", "claude-code": "claude-code", "pi": "pi", "react": "react",
+        "model", *("codex", "claude", "pi", "opencode", "react", "direct"))   # a layer's settings
+                                                                            # (docs/framework/agent-layers.md)
+BASES = {"codex": "codex", "claude": "claude-code", "claude-code": "claude-code", "pi": "pi", "opencode": "opencode",
+         "react": "react",
          "direct": None}
-CLI_BASES = ("codex", "claude-code", "pi")          # the bases that are a CLI (their Layer 1 settings: _model)
+CLI_BASES = ("codex", "claude-code", "pi", "opencode")   # the bases that are a CLI (their Layer 1 settings: _model)
 MODEL_KEYS = ("login", "effort", "price")           # Layer 1 settings a CLI takes beside its model
 # A login's plan settings: Layer 2's (agent.<base>, evolver.<base>), refused beside the model's name.
 PLAN_KEYS = {"plan_dir", "plan_max_wait_s", "plan_rerun", "usage_credits", "login_root"}
@@ -114,15 +116,16 @@ def layered(data: dict) -> None:
     agent = data["agent"]
     base = agent.pop("base", None)
     model = agent.pop("model", None)
-    sections = {b: agent.pop(b, None) for b in ("codex", "claude", "pi", "react", "direct")}
+    sections = {b: agent.pop(b, None) for b in ("codex", "claude", "pi", "opencode", "react", "direct")}
     if base is None:
         if model is not None or any(sections.values()):
-            raise ValueError("agent.model and agent.<base> need agent.base (codex, claude, pi, react or direct)")
+            raise ValueError("agent.model and agent.<base> need agent.base (codex, claude, pi, opencode, react or "
+                             "direct)")
     else:
         if base not in BASES:
             raise ValueError(f"agent.base must be one of {sorted(BASES)}, not {base!r}")
         builtin = {"codex": "codex", "claude-code": "claude-code", "claude": "claude-code", "pi": "pi",
-                   "react": "react", "cli": None}
+                   "opencode": "opencode", "react": "react", "cli": None}
         if not agent.get("name"):
             if BASES[base] is None:
                 raise ValueError("agent.base: direct needs agent.name (the task's own loop calls it)")
@@ -142,13 +145,14 @@ def layered(data: dict) -> None:
     evolver = data["evolver"]
     base = evolver.pop("base", None)
     model = evolver.pop("model", None)
-    sections = {b: evolver.pop(b, None) for b in ("codex", "claude", "pi", "react", "direct")}
+    sections = {b: evolver.pop(b, None) for b in ("codex", "claude", "pi", "opencode", "react", "direct")}
     if base is None:
         if model is not None or any(sections.values()):
-            raise ValueError("evolver.model and evolver.<base> need evolver.base (codex, claude, pi or direct)")
+            raise ValueError("evolver.model and evolver.<base> need evolver.base (codex, claude, pi, opencode or "
+                             "direct)")
         return
-    if base not in ("codex", "claude", "claude-code", "pi", "direct"):
-        raise ValueError(f"evolver.base must be codex, claude, pi or direct, not {base!r}")
+    if base not in ("codex", "claude", "claude-code", "pi", "opencode", "direct"):
+        raise ValueError(f"evolver.base must be codex, claude, pi, opencode or direct, not {base!r}")
     params = dict(evolver.get("params") or {})
     if base == "direct":
         if model is not None:

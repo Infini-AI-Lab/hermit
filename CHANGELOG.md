@@ -33,6 +33,15 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   call's tools are an MCP server offered directly; a failed request fails the session although Pi exits 0. Pi takes
   no roles and has no web search; `image_input: true` declares a bound model that takes images. `hermit deploy
   --host pi` declares the adapter's tools `exposure: direct`, with a 120 s timeout.
+- OpenCode as a CLI Base Agent (`opencode`): the acting agent `agent.base: opencode` and the `opencode` Evolver run
+  OpenCode 2.2's `run --format json --standalone` (a server of the session's own, never its shared background
+  service) in its own home and XDG folders, with no update, catalog or download requests. It runs a model reference
+  only, as OpenCode's provider `hermit` (the key as `{env:VARIABLE}`, chat completions); what the session must hold
+  (the provider, the permissions, no sharing) is its inline config, which outranks a workspace's `opencode.json`;
+  the call's tools are an MCP server offered directly (not through code mode). Whether its provider could not serve
+  is read from OpenCode's own error type (`provider.rate-limit`, `.internal`, `.transport`, `.timeout`), so the
+  acting agent runs such a task again. OpenCode takes no roles and has no web search. `hermit deploy --host opencode`
+  writes `AGENTS.md`, the project's `opencode.json` and `.opencode/skills`.
 - Models in sandboxes as Harbor's agents get theirs: each sandbox gets its models' key variables and provider hosts
   (an isolated network becomes an allowlist) and forwards a model meter on the loopback; what a run keeps (the
   learning material, the step records, the adapter) is scrubbed of key values (`hermit/redact.py`). The allowlist

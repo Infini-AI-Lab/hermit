@@ -32,7 +32,7 @@ manifest-driven service lifecycle remains a [proposal](../developer/service-desi
 
 | Route | Output | Use when |
 |---|---|---|
-| `deploy` | A Codex, Claude Code, or Pi workspace | You want project instructions, skills, roles, and tool configuration |
+| `deploy` | A Codex, Claude Code, Pi, or OpenCode workspace | You want project instructions, skills, roles, and tool configuration |
 | `convert` | A native plugin package for a supported target | You want host-native packaging and can accept that target's export limits |
 | Custom pipeline | Your agent receives the exports directly | You own the acting loop or need dynamic integration |
 
