@@ -22,6 +22,8 @@ test = ["pytest"]
 # The bubblewrap sandboxes show the framework's environment: what is installed here is what agents and learners can
 # import (python -m pip install "hermit-harness[sandbox]").
 sandbox = ["numpy>=1.26", "pandas>=2.2", "scipy>=1.13", "torch>=2.8"]
+# The mini-swe-agent Base Agent and deploy host (hermit.agent.base.mini_swe_agent); it brings litellm.
+mini-swe-agent = ["mini-swe-agent==2.4.6"]
 
 # Source-only method dependencies: groups are not included in PyPI package metadata.
 # From the checkout root, use pip >=25.1: python -m pip install -e . --group <method>.
@@ -64,7 +66,8 @@ Changelog = "https://github.com/Infini-AI-Lab/hermit/blob/main/CHANGELOG.md"
 include = ["hermit*"]
 
 [tool.setuptools.package-data]
-hermit = ["defaults.yaml", "agent/model/backends.yaml", "agent/evolver/methods/**/*", "adapter/templates/**/*",
+hermit = ["defaults.yaml", "agent/model/backends.yaml", "agent/base/mini_swe_agent.yaml",
+          "agent/evolver/methods/**/*", "adapter/templates/**/*",
           "agent/evolver/methods/**/.lint_blacklist",
           "adapter/templates/**/.agents/**/*", "adapter/templates/**/.codex/**/*",
           "adapter/templates/**/.hermit/**/*"]   # globs skip dot-directories

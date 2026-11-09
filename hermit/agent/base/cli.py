@@ -1,4 +1,5 @@
-"""`codex`, `claude` and `pi`: a coding-agent CLI as a Base Agent (docs/framework/agent-layers.md#layer-2-base-agent).
+"""`codex`, `claude`, `pi` and `mini-swe-agent`: a coding-agent CLI as a Base Agent
+(docs/framework/agent-layers.md#layer-2-base-agent).
 
 One `run` is one session of the CLI in print mode: the prompt is given, the CLI works in `workspace` with its own
 tools and the call's `tools` (served over MCP by the framework's tool server), and its last message is the reply.
@@ -69,6 +70,8 @@ Settings (given once; `configured(...)` for a call's own):
   image_input (true: the bound model takes images, such as a tool's result; default: text only, Pi's default for a
   model it does not know), append_system_prompt, effort (its --thinking level). Pi takes no roles, has no web search
   and runs under isolation none or sandbox.
+  mini-swe-agent only: model_class, config, step_limit (MiniSweAgent; hermit.agent.base.mini_swe_agent). It takes no
+  roles, no session and no login, has no web search and runs under isolation none or sandbox.
 
 Limits are enforced by the isolation, or the call is refused (Unsupported):
 
@@ -96,9 +99,9 @@ from typing import Any, Sequence
 
 from hermit.agent.base import container, login as codex_login
 from hermit.agent.base.interface import BaseAgent, Limits, Mount, Result, Unsupported
-from hermit.agent.base.records import parse_claude, parse_codex, parse_pi, price_usage
+from hermit.agent.base.records import parse_claude, parse_codex, parse_mini_swe_agent, parse_pi, price_usage
 from hermit.agent.base.tool import Tool
-from hermit.agent.base.trajectory import claude_steps, codex_steps, events, pi_steps
+from hermit.agent.base.trajectory import claude_steps, codex_steps, events, mini_swe_agent_steps, pi_steps
 from hermit.agent.model.backends import CLAUDE_ENV
 
 ISOLATIONS = ("none", "sandbox", "container")
@@ -1462,8 +1465,160 @@ def _pi_session(home: Path, handle) -> Path | None:
     return sorted(found)[-1] if found else None
 
 
+class MiniSweAgent(CliAgent):
+    """mini-swe-agent (hermit.agent.base.mini_swe_agent): one task in a process of its own
+    (hermit.agent.base.mini_swe_agent_run), whose stdout is the stream.
+
+    Settings (given once; `configured(...)` for a call's own), besides CliAgent's isolation, home, timeout_s, env, log,
+    bin and stdin:
+      model             a litellm model id (the provider's key from its usual variable, or from mini-swe-agent's own
+                        global config, whose `.env` is copied into the session's home), unless `binding` is given
+      binding           the resolved `<backend>/<model>` reference (hermit.agent.model.backends): its URL, key variable,
+                        extra body and price
+      model_class       litellm (its bash tool, the default) or litellm_textbased (one ```mswea_bash_command block per
+                        response); without a binding, any mini-swe-agent model class name
+      effort            sent as litellm's reasoning_effort
+      config            a mini-swe-agent config file merged over Hermit's (agent.step_limit, the templates,
+                        model.model_kwargs, environment.timeout, ...); not its model name or class, nor its environment
+                        class
+      step_limit        model calls per task (default 50; the config's agent.step_limit wins)
+      price             USD per million tokens (absent: the binding's; without one the cost is unknown)
+      web_search        must be false: mini-swe-agent has no web search
+
+    mini-swe-agent has no sub-agents and no resumable session: a call with `roles` or `session` is refused
+    (Unsupported), as one under a ChatGPT login is. It runs without isolation or in the run's sandbox, not in a
+    container.
+    """
+    name = backend = "mini-swe-agent"
+    label = "mini-swe-agent"
+    program = sys.executable                      # the runner is a module of this framework, run by its interpreter
+    isolations = ("none", "sandbox")
+    home_var, user_folder = "MSWEA_GLOBAL_CONFIG_DIR", ".mini-swe-agent"
+    home_files = (".env",)                        # its global config: the keys `mini-extra config` keeps
+    binding_classes = ("litellm", "litellm_textbased")   # the model classes that call a binding's endpoint (chat)
+    turn_done = "message"                         # an assistant's, which `served` looks for
+
+    def __init__(self, settings: dict | None = None, model: Any = None):
+        super().__init__({"stdin": True, "tools_env": "HERMIT_TOOLS_URL", **(settings or {})}, model)
+
+    @classmethod
+    def user_home(cls) -> Path:
+        """mini-swe-agent's own global config directory: MSWEA_GLOBAL_CONFIG_DIR, else platformdirs' user config
+        dir."""
+        if os.environ.get("MSWEA_GLOBAL_CONFIG_DIR"):
+            return Path(os.environ["MSWEA_GLOBAL_CONFIG_DIR"])
+        try:
+            from platformdirs import user_config_dir
+        except ImportError:                       # mini-swe-agent, which brings platformdirs, is not installed
+            return Path.home() / ".config" / "mini-swe-agent"
+        return Path(user_config_dir("mini-swe-agent"))
+
+    def run(self, prompt, *, workspace=None, tools: Sequence[Tool] = (), limits: Limits | None = None,
+            session: Any = None, roles: Sequence[dict] = ()) -> Result:
+        if session is not None:
+            raise Unsupported("mini-swe-agent cannot resume a session")
+        if roles:
+            raise Unsupported("mini-swe-agent has no sub-agents: it takes no roles")
+        if self.settings.get("login"):
+            raise Unsupported("mini-swe-agent has no login: give a <backend>/<model> reference or a litellm model")
+        if self.settings.get("web_search"):
+            raise Unsupported("mini-swe-agent has no web search: set web_search false")
+        if not (self.settings.get("binding") or self.settings.get("model")):
+            raise ValueError("mini-swe-agent needs a model: a <backend>/<model> reference or a litellm model id")
+        model_class = self.settings.get("model_class") or "litellm"
+        if self.settings.get("binding") and model_class not in self.binding_classes:
+            # another class sends what it is given to its own service: the binding's key and URL among it
+            raise Unsupported(f"mini-swe-agent's model_class {model_class!r} calls its own service; a "
+                              f"<backend>/<model> reference takes {' or '.join(self.binding_classes)}")
+        return super().run(prompt, workspace=workspace, tools=tools, limits=limits, session=session, roles=roles)
+
+    def prepare_home(self, home, roles, tools_url, tools_name):
+        """The task's settings for the runner, in its home: no key (the runner reads the key's variable), and of
+        `env` only the names (the runner passes those variables to the commands)."""
+        s = self.settings
+        run = {k: s[k] for k in ("model", "binding", "model_class", "effort", "step_limit", "system")
+               if s.get(k) is not None}
+        if s.get("config"):
+            run["config"] = str(Path(os.path.expanduser(str(s["config"]))).resolve())
+        run["env_names"] = sorted((s.get("env") or {}))
+        path = home / "mini-swe-agent.json"
+        if os.path.lexists(path) and not _regular(path):
+            os.unlink(path)
+        path.write_text(json.dumps(run, ensure_ascii=False))
+
+    def command(self, prompt, workspace, last_file, *, session=None, roles=(), tools_url=None):
+        s = self.settings
+        # -P: the workspace, its working directory, is not on its import path (a task's yaml.py is no `yaml`)
+        return [str(s.get("bin") or self.program), "-P", "-m", "hermit.agent.base.mini_swe_agent_run",
+                "--settings", str(last_file.with_name("mini-swe-agent.json")), "--cwd", str(s.get("cwd") or workspace),
+                "--last", str(last_file), *(["--stdin"] if s.get("stdin") else ["--prompt", prompt]),
+                *(s.get("args") or [])]
+
+    @classmethod
+    def web_search_args(cls, enabled: bool) -> list[str]:
+        return []
+
+    def system_settings(self, system, prompt):
+        """System instructions go at the end of the system message, with the adapter's block."""
+        return {"system": system}, prompt
+
+    @classmethod
+    def served(cls, raw: str) -> bool:
+        """Whether the provider served the session: it answered, and did not stop serving before the end (an error
+        the process marks `unavailable`, as Codex's turn that fails is no turn completed)."""
+        objects = _objects(raw)[0]
+        return any(e.get("type") == cls.turn_done and (e.get("message") or {}).get("role") == "assistant"
+                   for e in objects) and not any(e.get("type") == "error" and e.get("unavailable") for e in objects)
+
+    @classmethod
+    def errors(cls, event):
+        """The process's error; one from a provider that could not serve reads as such to UNAVAILABLE."""
+        if event.get("type") != "error":
+            return []
+        return [("service unavailable: " if event.get("unavailable") else "") + str(event.get("message") or "")]
+
+    def outcome(self, raw, stream, last_file):
+        """The process reports a model call that broke the session off (a context overflow, a provider that stopped
+        serving) as an `error` event and exits 1: that session failed, with no answer to judge, as Pi's failed
+        request does; one the provider could not serve is run again first. A session ends with mini-swe-agent's
+        `exit` message: one that started and has none was cut off (the process killed), and failed too. (At the
+        Base Agent's own timeout or cancel CliAgent does not count it failed.)"""
+        notes, done = self.notices(raw), self.served(raw)
+        objects = _objects(raw)[0]
+        ended = any(e.get("type") == "message" and (e.get("message") or {}).get("role") == "exit" for e in objects)
+        broke = any(e.get("type") == "error" for e in objects) or (bool(objects) and not ended)
+        return {"reply": self.last_message(stream, last_file), "served": done,
+                "unavailable": bool(UNAVAILABLE.search(notes)), "refused": False, "failed": broke,
+                "failure": notes[-600:]}
+
+    @classmethod
+    def last_message(cls, log, last=None):
+        """The runner's last-message file (never read through a link the session left): the submission, else the
+        last assistant message; else the same from the stream."""
+        if last is not None and _regular(last):
+            return last.read_text(errors="replace")
+        reply = ""
+        for event in events(log):
+            message = event.get("message") or {}
+            if event.get("type") != "message":
+                continue
+            if message.get("role") == "exit" and message.get("submission"):
+                return str(message["submission"])
+            if message.get("role") == "assistant" and str(message.get("content") or "").strip():
+                reply = str(message["content"])
+        return reply
+
+    @classmethod
+    def parse(cls, log, model):
+        return parse_mini_swe_agent(log, model)
+
+    @classmethod
+    def steps(cls, stream):
+        return mini_swe_agent_steps(stream)
+
+
 # Every CLI Base Agent, by each name make() takes for it.
-CLIS: dict[str, type[CliAgent]] = {n: c for c in (Codex, Claude, Pi) for n in (c.backend, *c.aliases)}
+CLIS: dict[str, type[CliAgent]] = {n: c for c in (Codex, Claude, Pi, MiniSweAgent) for n in (c.backend, *c.aliases)}
 
 
 def _this_call(home: Path, handle: str, reported, resumed: bool):

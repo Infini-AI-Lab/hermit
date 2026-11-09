@@ -32,7 +32,7 @@ guarantee that their consumer supports arbitrary fields.
 | `data.shuffle` | boolean / true | Shuffle training order; set false for ordered streams |
 | `data.shuffle_seed` | integer / 0 | Training shuffle seed; does not seed every model or method |
 | `task_info` | directory / null | Learner-facing task description; provide `README.md` |
-| `agent.name` | string / null; required | Built-in `react`, `codex`, `claude-code`, `pi`, `harbor` (a benchmark's task set in Harbor's format, see [Benchmarks](../framework/task.md#benchmarks)), an Agent class, or a `file.py:function` / `module:function` |
+| `agent.name` | string / null; required | Built-in `react`, `codex`, `claude-code`, `pi`, `mini-swe-agent`, `harbor` (a benchmark's task set in Harbor's format, see [Benchmarks](../framework/task.md#benchmarks)), an Agent class, or a `file.py:function` / `module:function` |
 | `agent.concurrency` | integer / 4 | Maximum concurrent rollout/evaluation task executions; use a positive value |
 | `agent.timeout_min` | number / null | A sandboxed task call (its worker) running longer is stopped and recorded as an error; null: no limit |
 | `agent.params` | mapping / {} | Passed to Agent constructors; plain functions receive it when they declare a `params` argument |
@@ -79,8 +79,10 @@ dialects it serves, prices). See [Model backends](../guides/model-backends.md).
 | `llm` | reference, mapping / null | The run's chat-completions `llm` tool: a reference, `{model: <reference>, price, extra_body}`, the endpoint itself (below), or a CLI's sessions, `{cli: ..., ...}` (below) |
 
 `agent.params.model` takes the same forms. For a Codex or Claude Code acting agent or Evolver a reference becomes
-the CLI's provider settings (`args` for Codex, `env` for Claude Code, `provider` for Pi) and the model's id; a plain id without a
-backend goes to the CLI's own provider as before.
+the CLI's provider settings (`args` for Codex, `env` for Claude Code, `provider` for Pi) and the model's id; a
+mini-swe-agent acting agent calls the backend through litellm with the key passed per request. A plain id without a
+backend goes to the CLI's own provider as before (for mini-swe-agent: a litellm model id, its key from litellm's
+usual variable).
 
 ### Learner model tool
 

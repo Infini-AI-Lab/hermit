@@ -33,6 +33,12 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   call's tools are an MCP server offered directly; a failed request fails the session although Pi exits 0. Pi takes
   no roles and has no web search; `image_input: true` declares a bound model that takes images. `hermit deploy
   --host pi` declares the adapter's tools `exposure: direct`, with a 120 s timeout.
+- mini-swe-agent as a CLI Base Agent (`mini-swe-agent`): the acting agent (`agent.name` or `agent.base:
+  mini-swe-agent`) runs one task through mini-swe-agent 2.4.6's Python API in a process of its own, whose JSON
+  events are the stream; a model reference is called through litellm with the key passed per request, and the
+  agent's commands get only `env`. The call's tools are one bash command, `hermit-tool`. `hermit deploy --host
+  mini-swe-agent` writes `mini-swe-agent.yaml`. Installed with the `mini-swe-agent` extra.
+  [Tutorial](docs/tutorials/mini-swe-agent.md).
 - Models in sandboxes as Harbor's agents get theirs: each sandbox gets its models' key variables and provider hosts
   (an isolated network becomes an allowlist) and forwards a model meter on the loopback; what a run keeps (the
   learning material, the step records, the adapter) is scrubbed of key values (`hermit/redact.py`). The allowlist
