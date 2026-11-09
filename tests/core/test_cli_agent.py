@@ -1137,12 +1137,26 @@ def test_a_session_whose_bwrap_exits_before_the_relay_closes_its_report_listener
     assert abandoned
 
 
-def test_a_stopped_session_takes_a_descendant_in_a_session_of_its_own(tmp_path):
+def _alive(pid: int) -> bool:
+    """Running, not an exited process left unreaped (by a subreaper, or a container's PID 1 that does not reap)."""
+    import subprocess
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    state = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+    return bool(state) and not state.startswith("Z")
+
+
+@pytest.mark.parametrize("proc_fs", [True, False], ids=["proc", "ps"])
+def test_a_stopped_session_takes_a_descendant_in_a_session_of_its_own(tmp_path, monkeypatch, proc_fs):
     """A session stopped at its timeout or on cancel ends with every process below it, one in a session of its own
-    too (as a sandbox starts its program), with or without /proc."""
+    too (as a sandbox starts its program), found through /proc or, as on macOS, through ps."""
     import signal
     import subprocess
     import time
+    if not proc_fs:
+        monkeypatch.setattr(base_cli, "Path", lambda p: Path("/no-proc") if p == "/proc/self/stat" else Path(p))
     pid_file = tmp_path / "pid"
     proc = subprocess.Popen([sys.executable, "-c", "import subprocess, sys, time; p = subprocess.Popen([sys.executable, "
                              "'-c', 'import time; time.sleep(60)'], start_new_session=True); "
@@ -1159,9 +1173,7 @@ def test_a_stopped_session_takes_a_descendant_in_a_session_of_its_own(tmp_path):
         assert proc.poll() is not None
         deadline = time.time() + 10
         while time.time() < deadline:
-            try:
-                os.kill(below, 0)
-            except ProcessLookupError:
+            if not _alive(below):
                 break
             time.sleep(0.05)
         else:
