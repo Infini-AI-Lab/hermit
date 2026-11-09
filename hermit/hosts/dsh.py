@@ -6,13 +6,16 @@ dsh reads, without any trust prompt, the instruction files (AGENTS.md, CLAUDE.md
 folder from the project's root down to the working directory, and the skills of the root's .dsh/skills and
 .agents/skills; the root is the nearest folder above with a `.git`, else the working directory. It has no project
 file for MCP servers or for more skill folders: they are rows of its plugin tree, so the patch layer holds the
-adapter's tool server (an `insert` row) and names the workspace's .dsh/skills (the `skill-filesystem` row's
-customSkillDirs, so that a workspace below a repository's root keeps its skills), and a session loads it with `dsh
---patch .dsh/hermit.patch.yml` from the workspace (what the `dsh` acting agent passes). dsh cuts a chain of
-instructions past 65,536 bytes (its agent-instructions maxBytes), so a longer AGENTS.md is refused. dsh runs no hook
-file of its own (its experimental bridge to Claude Code's hooks is not used) and has no role file: an adapter's roles
-and hooks stay files of its copy, which AGENTS.md names with what to do with them (hermit.hosts.inputs.resources), as
-it names the other files. dsh's own settings ($DSH_HOME) are never changed.
+adapter's tool server (an `insert` row, which fails at the start of a session that cannot start it, rather than
+leaving the session without its tools) and names the workspace's .dsh/skills (the `skill-filesystem` row's
+customSkillDirs, so that a workspace below a repository's root keeps its skills; the row replaces any
+`skill-filesystem` settings of the user's own while the layer is loaded, and dsh's web profile turns the row off). A
+session loads the layer from the workspace with `dsh --profile headless --patch .dsh/hermit.patch.yml`, as the `dsh`
+acting agent does. dsh gives the model 65,536 bytes of a project's instructions (its agent-instructions maxBytes),
+its own frame around them included, and cuts the rest, so a longer AGENTS.md is refused. dsh runs no hook file of its
+own (its experimental bridge to Claude Code's hooks is not used) and has no role file: an adapter's roles and hooks
+stay files of its copy, which AGENTS.md names with what to do with them (hermit.hosts.inputs.resources), as it names
+the other files. dsh's own settings ($DSH_HOME) are never changed.
 """
 import argparse
 import json
@@ -22,7 +25,7 @@ import subprocess
 import sys
 
 from hermit.adapter.loader import agent_tools, hook_definitions, load_manifest, not_portable
-from hermit.agent.base.cli import DSH_INSTRUCTION_BYTES
+from hermit.agent.base.cli import DSH_INSTRUCTION_BYTES, DSH_INSTRUCTION_FRAME
 from hermit.hosts.context import PROJECT_CONTEXT, START, append_context
 from hermit.hosts.inputs import (MARKER, PACKAGE_ROOT, _adapter_sandbox_env, adapter_files, adapter_folder,
                                  check_workspace, copy_adapter, copy_skills, folder_note, render_exports, resources,
@@ -62,24 +65,30 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
                                       exports["context"] if context is None else context, listed) if t),
                                   source=source_label(manifest),
                                   version=manifest["version"], adapter_id=manifest["id"])
+    # as dsh gives it to the model: in its frame, a `</system-reminder>` of the text escaped by one more character
     size = len(context_text.encode("utf-8"))
-    if size > DSH_INSTRUCTION_BYTES:
-        raise ValueError(f"AGENTS.md would be {size} bytes, past the {DSH_INSTRUCTION_BYTES} bytes dsh reads of a "
-                         "project's instructions (its agent-instructions maxBytes): dsh would cut the rest, telling "
-                         "only the model. Shorten the adapter's context")
+    if size + DSH_INSTRUCTION_FRAME + context_text.count("</system-reminder>") > DSH_INSTRUCTION_BYTES:
+        raise ValueError(f"AGENTS.md would be {size} bytes: with the {DSH_INSTRUCTION_FRAME} bytes dsh puts around "
+                         f"it, past the {DSH_INSTRUCTION_BYTES} bytes dsh gives the model of a project's instructions "
+                         "(its agent-instructions maxBytes): dsh would cut the rest, telling only the model. Shorten "
+                         "the adapter's context")
     audit = output / "tool-calls.jsonl"
     server = None
     if has_tools:
         server = {"serverName": server_name(manifest), "transport": "stdio", "command": python,
                   "args": ["-m", "hermit.runtime.mcp_server", "--adapter", str(adapter), "--audit-log", str(audit)],
                   "env": {"PYTHONPATH": PACKAGE_ROOT, **_adapter_sandbox_env(python)},
-                  "toolCallTimeoutMs": 120_000}               # Codex's tool_timeout_sec, not dsh's 60 s
+                  "toolCallTimeoutMs": 120_000,               # Codex's tool_timeout_sec, not dsh's 60 s
+                  # a server dsh cannot start fails its row, which dsh reports and the dsh acting agent reads as a
+                  # failed session (Codex's `required`), rather than being retried while the session runs without it
+                  "failOnStartupError": True}
         if learning_material is not None:
             server["args"].extend(["--learning-material", str(Path(learning_material).resolve())])
     skills = copy_skills(adapter, manifest, output / ".dsh" / "skills")
     rows = [*([{"insert": [{"id": f"mcp-{server_name(manifest)}", "name": "@deepseek-ai/dsh-mcp-client",
                             "config": server}]}] if has_tools else []),
-            # the workspace's own skills wherever it lies (dsh's other roots, the user's own, stay as they are)
+            # the workspace's own skills wherever it lies, beside dsh's default roots (the row's settings replace
+            # those of the user's own home layer while the layer is loaded: a row's `config` is replaced whole)
             *([{"id": "skill-filesystem", "config": {"customSkillDirs": [".dsh/skills"]}}] if skills else [])]
     (output / PATCH.parent).mkdir(exist_ok=True)
     # JSON is YAML: dsh reads the layer as YAML, and nothing in it is a `!!js` expression

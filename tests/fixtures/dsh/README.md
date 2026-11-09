@@ -32,6 +32,10 @@ layer like the Base Agent's) against a scripted chat-completions model:
 - `bad_option.jsonl`: an unknown option after `--json`: one `error` event, no session, exit 1.
 - `dotenv.jsonl`: the working directory's `.env` sets `PYTHONPATH`: dsh stops before it writes an event (its
   error on stderr) and exits 1.
+- `stopped.jsonl`: the model calls bash `sleep 60`; two seconds after dsh writes the call, it gets SIGTERM (as a
+  session's timeout or the Trainer's stop sends it): no `final` event, an `error` event and its stderr line
+  (`flush on a closed handle`), exit 0.
 
 The streams are dsh's stdout unchanged, followed by its stderr's lines where it wrote any, as the Base Agent keeps
-them in one stream; the run's directory was `/run` (`/run/<name>` for the streams recorded directly).
+them in one stream; the run's directory was `/run` (`/run/<name>` for the streams recorded directly, `/tmp/rec3` for
+`stopped.jsonl`).

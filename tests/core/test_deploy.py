@@ -56,7 +56,7 @@ def test_dsh(tmp_path):
     """dsh has no project file for MCP servers or skill folders: the tools are an `insert` row of the workspace's
     patch layer, which a session loads with --patch, and the layer names the workspace's .dsh/skills (dsh reads a
     project's skills only at the nearest folder with a .git); roles stay files named in AGENTS.md; a context longer
-    than dsh reads of a project's instructions is refused."""
+    than dsh gives the model of a project's instructions is refused."""
     result = dsh_prepare(LEAN, tmp_path / "d", sys.executable)
     layer = json.loads((tmp_path / "d" / ".dsh" / "hermit.patch.yml").read_text())
     [server] = [r for r in layer if "insert" in r]
@@ -66,6 +66,7 @@ def test_dsh(tmp_path):
     assert row["config"]["transport"] == "stdio" and row["config"]["args"][:3] == ["-m", "hermit.runtime.mcp_server",
                                                                                   "--adapter"]
     assert row["config"]["toolCallTimeoutMs"] == 120_000           # Codex's tool_timeout_sec, not dsh's 60 s
+    assert row["config"]["failOnStartupError"] is True             # a server that does not start fails the session
     assert result["patch"] == str(tmp_path / "d" / ".dsh" / "hermit.patch.yml")
     assert "hermit:lean-collab:start" in (tmp_path / "d" / "AGENTS.md").read_text()
     assert (tmp_path / "d" / ".dsh" / "skills" / "good-map" / "SKILL.md").exists()
@@ -81,9 +82,37 @@ def test_dsh(tmp_path):
     assert "`reviewer`: Check a result against the task requirements." in (tmp_path / "s" / "AGENTS.md").read_text()
     big = subagent_adapter(tmp_path / "big")
     (big / "ADAPTER.md").write_text("Check the units.\n" * 4000)       # 68,000 bytes
-    with pytest.raises(ValueError, match="past the 65536 bytes dsh reads of a project's instructions"):
+    with pytest.raises(ValueError, match="past the 65536 bytes dsh gives the model of a project's instructions"):
         dsh_prepare(big, tmp_path / "b", sys.executable)
     assert not (tmp_path / "b" / "AGENTS.md").exists()
+
+
+def test_dsh_refuses_an_agents_md_dsh_would_cut_and_a_server_name_it_would_refuse(tmp_path):
+    """dsh's 65,536 bytes are the instructions as the model is given them, in dsh's frame (304 bytes around one
+    AGENTS.md; a `</system-reminder>` in the text one byte longer): an AGENTS.md up to the difference is deployed, one
+    byte more is refused (it was deployed, and dsh cut its end, telling only the model). An adapter id that is no MCP
+    server name dsh takes is refused before anything is written."""
+    import shutil
+    from hermit.agent.base.cli import DSH_INSTRUCTION_BYTES, DSH_INSTRUCTION_FRAME
+    limit = DSH_INSTRUCTION_BYTES - DSH_INSTRUCTION_FRAME
+    edge = subagent_adapter(tmp_path / "edge")
+    dsh_prepare(edge, tmp_path / "e0", sys.executable)
+    rest = len((tmp_path / "e0" / "AGENTS.md").read_bytes()) - len("Check the units.\n")
+    (edge / "ADAPTER.md").write_text("x" * (limit - rest - 1) + "\n")
+    dsh_prepare(edge, tmp_path / "e1", sys.executable)
+    assert len((tmp_path / "e1" / "AGENTS.md").read_bytes()) == limit
+    for text in ("x" * (limit - rest) + "\n", "</system-reminder>" + "x" * (limit - rest - 19) + "\n"):
+        (edge / "ADAPTER.md").write_text(text)
+        with pytest.raises(ValueError, match=f"with the {DSH_INSTRUCTION_FRAME} bytes dsh puts around it"):
+            dsh_prepare(edge, tmp_path / "e2", sys.executable)
+    assert not (tmp_path / "e2" / "AGENTS.md").exists()
+    long_id = tmp_path / "long"
+    shutil.copytree(LEAN, long_id)
+    manifest = long_id / ".hermit" / "adapter.yaml"
+    manifest.write_text(manifest.read_text().replace("id: lean-collab", "id: lean-collab-" + "x" * 30))
+    with pytest.raises(ValueError, match="dsh takes an MCP server name of 32 characters at most"):
+        dsh_prepare(long_id, tmp_path / "l", sys.executable)
+    assert not (tmp_path / "l").exists()
 
 
 def subagent_adapter(tmp_path):

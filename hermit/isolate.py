@@ -182,6 +182,16 @@ def validate(config) -> None:
             if params["effort"] not in Claude.efforts:
                 raise ValueError(f"agent.model.effort is one of {', '.join(Claude.efforts)} for Claude Code, not "
                                  f"{params['effort']!r}")
+    if kind == "dsh":           # dsh's own settings, here too: else every session would be refused, one task at a time
+        from hermit.agent.base.cli import DSH_EFFORTS, DSH_PERMISSION_MODES
+        effort, mode = params.get("effort"), params.get("permission_mode")
+        if effort is not None and str(effort) not in DSH_EFFORTS:
+            raise ValueError(f"agent.model.effort is one of {', '.join(DSH_EFFORTS)} for dsh, not {effort!r}")
+        if effort is not None and not params.get("model"):
+            raise ValueError("agent.model.effort needs agent.model for dsh: it is that model's reasoningEffort")
+        if mode is not None and mode not in DSH_PERMISSION_MODES:
+            raise ValueError(f"agent.dsh.permission_mode is one of {', '.join(DSH_PERMISSION_MODES)} (dsh's own "
+                             f"sandbox), not {mode!r}")
     if env.get("image"):
         if kind not in ("codex", "claude"):
             raise ValueError("environment.image runs a CLI acting agent (codex or claude) in a container: agent.base "

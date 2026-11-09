@@ -967,7 +967,7 @@ class CliAgent(BaseAgent):
         raw = readable.read_text(encoding="utf-8", errors="replace") if readable is stream else ""
         said = self.outcome(raw, readable, last_file)
         said["failed"] = said.get("failed", False) and not timed_out and not cancelled
-        started = said.pop("started", None)            # the CLI's own word, else: it wrote an event
+        began = said.pop("started", None)              # the CLI's own word, else: it wrote an event
         handle, usage = self.parse(readable, (s.get("binding") or {}).get("ref") or s.get("model") or self.backend)
         usage = self.adjust_usage(home, handle, usage, resumed=bool(session))
         price_usage(usage, s)
@@ -978,7 +978,7 @@ class CliAgent(BaseAgent):
                       usage=usage, session=handle, exit_code=code, timed_out=timed_out, log=stream,
                       extra={"failed": False, "login_failed": False, "rejected": False, **said,
                              "started": any(line.lstrip().startswith("{") for line in raw.splitlines())
-                             if started is None else bool(started),
+                             if began is None else bool(began),
                              "cancelled": cancelled, "isolation": isolation, "wall_s": round(wall_s, 1),
                              "mounts": placed, "output_tail": raw[-2000:]})
 
@@ -1482,11 +1482,15 @@ DSH_PATCH = "hermit.patch.yml"          # the session's patch layer, in its home
 DSH_OFF = ("session-telemetry-otel", "session-title-llm", "plugin-package-inventory-deepseek", "tool-subagent",
            "tool-subagent-fork", "tool-subagent-control", "tool-workflow")
 DSH_PERMISSION_MODES = ("read-only", "workspace-write", "danger-full-access")
+DSH_EFFORTS = ("off", "minimal", "low", "medium", "high", "xhigh", "max")   # the reasoning levels of dsh's pi-ai routes
 # The variable a route names for a server that needs no key: a route that names none gets no key from pi-ai under
 # the name `hermit`, and dsh refuses the request (PI_AI_ERROR "No API key")
 DSH_NO_KEY = "HERMIT_DSH_NO_KEY"
-DSH_INSTRUCTION_BYTES = 65536           # dsh's cap on a chain of instruction files (agent-instructions' maxBytes)
-DSH_PROJECT_MARKER = ".hermit-deploy.json"   # what a deployment writes at its workspace's root (hermit.hosts.inputs)
+# dsh's cap on the project's instructions as the model is given them (agent-instructions' maxBytes), and what dsh puts
+# around one AGENTS.md at the project's root within it (its <system-reminder> block, the block's opening sentences and
+# the file's heading, 0.2.2): an AGENTS.md longer than the difference is cut, which dsh tells the model only
+DSH_INSTRUCTION_BYTES = 65536
+DSH_INSTRUCTION_FRAME = 304
 # dsh's report of an MCP row that did not start (`<id> (<package>): <error>`): the session then runs without its tools
 DSH_TOOLS_DOWN = re.compile(r"^(mcp-[A-Za-z0-9_-]{1,32}) \(@deepseek-ai/dsh-mcp-client\): (.*)$", re.M)
 
@@ -1496,9 +1500,10 @@ class Dsh(CliAgent):
     where dsh makes the headless profile on first use. The session's settings are a patch layer of dsh's own (rows
     of its plugin tree, `--patch`), written in the home: a bound model as the pi-ai route `hermit`, its key read by
     dsh from the backend's variable, made the default model; the call's tools as an MCP server, whose tools the model
-    is offered as its own (`mcp__<server>__<tool>`); web search and fetch off unless asked for; no telemetry export
-    and no title request, no sub-agents (DSH_OFF); the workspace as the project, as in the run's sandbox: its own
-    skills (.dsh/skills) and instructions only, never those of a repository it lies in. dsh runs commands in its own
+    is offered as its own (`mcp__<server>__<tool>`); web search and fetch off unless asked for (search is DeepSeek's
+    own service: with a model of another backend, fetch only); no telemetry export and no title request, no
+    sub-agents (DSH_OFF); the workspace as the project, as in the run's sandbox: its own skills (.dsh/skills) and
+    instructions only, never those of a folder above it (a repository it lies in). dsh runs commands in its own
     sandbox (`permission_mode`, default workspace-write) and is never asked for an approval (`--approval-policy
     never`: what would need one is refused). It exits 0 for a run SIGTERM stopped too: whether the run failed is read
     from its end (`outcome`)."""
@@ -1507,6 +1512,7 @@ class Dsh(CliAgent):
     home_var, user_folder = "DSH_HOME", ".dsh"
     home_files = (".env",)                        # dsh reads the keys of its own provider from $DSH_HOME/.env
     turn_done = "final"
+    binds_mounts = True                           # dsh's glob and grep run ripgrep without --follow
 
     def home_env(self, home):
         """The variables that set where dsh reads its own files from, here, so that they pass the sandbox's filter:
@@ -1541,14 +1547,22 @@ class Dsh(CliAgent):
                             {"id": "session-log-deepseek", "config": {"enabled": False}},
                             # The workspace is the project, wherever it lies: the skills of its own .dsh/skills only
                             # (not those of the nearest folder above with a .git, a repository the run sits in, nor
-                            # the user's), and the instructions from its root down (a deployment marks the root)
+                            # the user's), and the instructions of the working directory, the workspace (no root
+                            # marker: dsh reads none above it, a repository's or a deployment's around it)
                             {"id": "skill-filesystem", "config": {"includeDefaultRoots": False,
                                                                   "customSkillDirs": [".dsh/skills"]}},
                             {"id": "agent-instructions", "config": {"maxBytes": DSH_INSTRUCTION_BYTES,
-                                                                    "projectRootMarkers": [DSH_PROJECT_MARKER]}}]
+                                                                    "projectRootMarkers": []}}]
         if not s.get("web_search"):
             rows.append({"id": "tool-web", "disabled": True})          # web search and fetch, the model's tools
+        elif s.get("provider") and (s.get("binding") or {}).get("backend") != "deepseek":
+            # dsh's search is DeepSeek's own service (its Messages API on DEEPSEEK_API_KEY), whatever the session's
+            # model: with a model of another backend it would search on another provider and key than the run's,
+            # outside its usage. Fetch only, as Codex's hosted search is off for a backend other than OpenAI's
+            rows.append({"id": "tool-web", "config": {"search": False, "fetch": True}})
         effort = str(s["effort"]) if s.get("effort") else None
+        if effort and effort not in DSH_EFFORTS:
+            raise ValueError(f"dsh: an effort is one of {', '.join(DSH_EFFORTS)}, not {effort!r}")
         if effort and not s.get("model"):
             raise ValueError("dsh: an effort needs its model (the `model` setting): it is that model's reasoningEffort")
         default, chosen = {"provider": DSH_ROUTE}, {}

@@ -178,16 +178,34 @@ def test_a_failed_run_is_an_error_and_an_outage_is_retried(fake, monkeypatch):
 
 
 def test_a_run_dsh_was_stopped_in_is_no_success_although_dsh_exits_0(fake, monkeypatch, tmp_path):
-    """dsh exits 0 when SIGTERM stops it: its own rule for a completed run is exit 0 and a completed `final`, so a
-    run without one has failed (the acting agent records no answer, an AgentEvolver's step is not a done one)."""
-    cut = tmp_path / "cut.jsonl"
-    cut.write_text("".join((STREAMS / "success.jsonl").read_text().splitlines(keepends=True)[:12]))
-    monkeypatch.setenv("FAKE_DSH_STREAM", str(cut))
+    """dsh exits 0 when SIGTERM stops it (recorded: stopped.jsonl, a session stopped while its command ran): its own
+    rule for a completed run is exit 0 and a completed `final`, so a run without one has failed. The acting agent
+    records no answer, and an AgentEvolver's step is a failed one; so is a session whose tools did not start."""
+    from hermit.agent.acting import workspace as acting
+    from hermit.agent.evolver.agent import AgentEvolver
+    from hermit.agent.evolver.base import Access, StepContext, Workspace
+    monkeypatch.setenv("FAKE_DSH_STREAM", str(STREAMS / "stopped.jsonl"))
     work = fake / "work"
     work.mkdir()
     result = make("dsh", {**bound(), "web_search": False, "home": str(fake / "home")}).run("go", workspace=work)
-    assert result.exit_code == 0 and result.extra["failed"] and not result.extra["served"]
-    assert not result.extra["unavailable"] and result.reply == "" and "did not finish" in result.extra["failure"]
+    assert result.exit_code == 0 and result.extra["failed"] and not result.extra["served"] and result.extra["started"]
+    assert not result.extra["unavailable"] and result.reply == "" and "closed handle" in result.extra["failure"]
+    assert [s.kind for s in result.trajectory] == ["command", "error"] and result.trajectory[0].exit_code is None
+    out = acting.run({"id": "q1"}, None, params={**bound(), "backend": "dsh", "web_search": False, "prompt": "go",
+                                                 "workspaces": "ws"}, base=fake)
+    assert out.output is None and "closed handle" in out.extra["session_failed"]
+    ws = Workspace(*(tmp_path / "evolver" / n for n in ("adapter", "lm", "info", "hist", "state", "scratch", "out")))
+    for folder in (ws.adapter, ws.state, ws.output):
+        folder.mkdir(parents=True)
+    (tmp_path / "START.md").write_text("go")
+    evolver = AgentEvolver()
+    evolver.directory = tmp_path
+    for stream, says in (("stopped.jsonl", "closed handle"), ("tools_down.jsonl", "did not start"),
+                         ("success.jsonl", None)):
+        monkeypatch.setenv("FAKE_DSH_STREAM", str(STREAMS / stream))
+        step = evolver.step(StepContext(workspace=ws, access=Access(), tools={}, params={
+            **bound(), "backend": "dsh", "web_search": False, "prompt": "START.md", "home": []}))
+        assert (step.status, says is None or says in step.summary) == ("failed" if says else "done", True)
 
 
 def test_a_resumed_session_is_adopted_by_its_id_and_counts_only_its_new_usage(fake, monkeypatch):
@@ -206,8 +224,11 @@ def test_a_resumed_session_is_adopted_by_its_id_and_counts_only_its_new_usage(fa
     assert all("--session-id" not in call["args"] for call in seen(fake)[1:])
 
 
-def test_dsh_refuses_roles_and_a_container_and_keeps_web_search_when_asked(fake):
-    """Roles and a container are refused, never ignored; web search on leaves dsh's web tools as they are."""
+def test_dsh_refuses_roles_and_a_container_and_searches_only_on_deepseeks_own_provider(fake):
+    """Roles and a container are refused, never ignored. Web search on: dsh's search is DeepSeek's own service (its
+    Messages API on DEEPSEEK_API_KEY), so a session whose model is another backend's would search on a provider and
+    key the run did not bind, outside its usage: it gets fetch only, as Codex's hosted search is off for a backend
+    other than OpenAI's. A model of DeepSeek's API, or of dsh's own provider, keeps dsh's web tools as they are."""
     work = fake / "work"
     work.mkdir()
     agent = make("dsh", {**bound(), "web_search": False, "home": str(fake / "home")})
@@ -219,7 +240,12 @@ def test_dsh_refuses_roles_and_a_container_and_keeps_web_search_when_asked(fake)
     with pytest.raises(ValueError, match="permission_mode"):
         agent.configured(permission_mode="bypass").run("go", workspace=work)
     agent.configured(web_search=True).run("go", workspace=work)
-    assert all(r.get("id") != "tool-web" for r in rows(seen(fake)[-1], fake / "home"))
+    assert row(rows(seen(fake)[-1], fake / "home"), "tool-web") == {"id": "tool-web", "config": {"search": False,
+                                                                                               "fetch": True}}
+    deepseek = bind_agent_params({"model": "deepseek/deepseek-v4-flash"}, "dsh", registry({}))
+    for params in (deepseek, {}):
+        make("dsh", {**params, "web_search": True, "home": str(fake / "home")}).run("go", workspace=work)
+        assert all(r.get("id") != "tool-web" for r in rows(seen(fake)[-1], fake / "home"))
 
 
 def test_dsh_takes_no_login_and_no_container_wherever_the_run_is_checked():
@@ -241,6 +267,22 @@ def test_dsh_takes_no_login_and_no_container_wherever_the_run_is_checked():
     with pytest.raises(ValueError, match="agent dsh takes no login"):
         Config.load(run, [fake, "agent.name=null", "agent.base=dsh", "agent.model={ref: fake/m-1, login: chatgpt}",
                           "agent.params={prompt: go, web_search: false}"])
+
+
+def test_an_effort_or_a_sandbox_dsh_has_not_is_refused_when_the_run_is_loaded():
+    """dsh's effort levels and permission modes are its own: a value it has not would fail every session, one task
+    at a time, so the run config is refused as it loads (as a Claude Code effort is)."""
+    from hermit.config import Config
+    run = ROOT / "docs" / "_examples" / "first_training" / "run.yaml"
+    fake = "backends={fake: {base_url: 'http://127.0.0.1:9/v1', api_key_env: FAKE_KEY, apis: [chat]}}"
+    load = lambda *more: Config.load(run, [fake, "agent.name=null", "agent.base=dsh",
+                                           "agent.params={prompt: go, web_search: false}", *more])
+    loaded = load("agent.model={ref: fake/m-1, effort: xhigh}", "agent.dsh={permission_mode: read-only}")
+    assert loaded.data["agent"]["params"]["effort"] == "xhigh"
+    with pytest.raises(ValueError, match="agent.model.effort is one of off, minimal, low, medium, high, xhigh, max"):
+        load("agent.model={ref: fake/m-1, effort: ultra}")
+    with pytest.raises(ValueError, match="agent.dsh.permission_mode is one of read-only, workspace-write"):
+        load("agent.model=fake/m-1", "agent.dsh={permission_mode: bypass}")
 
 
 def test_a_model_that_takes_images_is_declared_so_to_dsh(fake):
@@ -281,15 +323,16 @@ def test_system_instructions_go_at_the_top_of_the_prompt(fake):
 def test_the_workspace_is_the_sessions_project_wherever_it_lies(fake):
     """dsh takes the nearest folder above with a .git for the project: a run's workspace inside a repository would
     get the repository's skills (.dsh/skills, .agents/skills) and instructions, which outrank the adapter's, and lose
-    its own skills. The session's layer gives dsh the workspace's .dsh/skills alone and its instructions from the
-    deployment's root marker down, as the run's sandbox does by showing nothing above the workspace."""
+    its own skills. The session's layer gives dsh the workspace's .dsh/skills alone, and no root marker, so its
+    instructions are the working directory's: none above it, a repository's or a deployment's (any host's deployment
+    leaves a .hermit-deploy.json, which a run without an adapter below it took for its root), as the run's sandbox
+    shows nothing above the workspace."""
     work = fake / "work"
     work.mkdir()
     make("dsh", {**bound(), "web_search": False, "home": str(fake / "home")}).run("go", workspace=work)
     layer = rows(seen(fake)[0], fake / "home")
     assert row(layer, "skill-filesystem")["config"] == {"includeDefaultRoots": False, "customSkillDirs": [".dsh/skills"]}
-    assert row(layer, "agent-instructions")["config"] == {"maxBytes": 65536,
-                                                          "projectRootMarkers": [".hermit-deploy.json"]}
+    assert row(layer, "agent-instructions")["config"] == {"maxBytes": 65536, "projectRootMarkers": []}
 
 
 def test_what_dsh_cannot_use_is_refused_rather_than_dropped(fake, monkeypatch, tmp_path):
@@ -301,6 +344,9 @@ def test_what_dsh_cannot_use_is_refused_rather_than_dropped(fake, monkeypatch, t
     work.mkdir()
     with pytest.raises(ValueError, match="an effort needs its model"):
         make("dsh", {"effort": "high", "web_search": False, "home": str(fake / "home")}).run("go", workspace=work)
+    with pytest.raises(ValueError, match="an effort is one of off, minimal, low, medium, high, xhigh, max"):
+        make("dsh", {**bound(), "effort": "ultra", "web_search": False, "home": str(fake / "home")}).run(
+            "go", workspace=work)
     real = tmp_path / "data"
     real.mkdir()
     (tmp_path / "link").symlink_to(real)
@@ -329,7 +375,8 @@ def test_a_run_whose_tools_did_not_start_has_failed_although_dsh_completed_it(fa
 def test_a_run_dsh_refused_to_start_is_no_session(fake, monkeypatch):
     """A usage error is an `error` event before any session (recorded: bad_option.jsonl), and a .env in the working
     directory that sets a name dsh keeps for its launch stops it before any event (dotenv.jsonl): neither started
-    a session, so the acting agent reports it rather than taking every task for a wrong answer."""
+    a session (the usage error's event read as one), so the acting agent stops the run and says so, rather than
+    recording the same failed session for every task."""
     from hermit.agent.acting import workspace as acting
     monkeypatch.setenv("FAKE_DSH_EXIT", "1")
     work = fake / "work"
@@ -408,23 +455,48 @@ def test_a_command_whose_end_dsh_did_not_report_has_no_exit_code():
     assert (printed.exit_code, printed.output) == (0, "built\n[exit code: 7]\n")
 
 
+def without_usage(stream: str, tmp_path: Path) -> Path:
+    """A recorded stream whose steps report no usage, as dsh writes a step one of whose attempts had none (its
+    json-stream.ts omits the partial sum)."""
+    out = tmp_path / f"no-usage-{stream}"
+    out.write_text("".join(json.dumps({k: v for k, v in json.loads(line).items() if k != "usage"}) + "\n"
+                           if '"step_end"' in line else line + "\n"
+                           for line in (STREAMS / stream).read_text().splitlines()))
+    return out
+
+
 def test_a_step_counts_as_a_call_whenever_it_made_one(tmp_path):
-    """A step whose requests all failed reports no tokens and is no call (failure.jsonl); one that answered is a call
-    even when the provider reported no usage, which dsh reports as zeros (no_usage.jsonl), and so is a step dsh
-    reports no usage for at all (one of its attempts had none: dsh's json-stream.ts omits the partial sum, here taken
-    off a recorded step). parse_log reads a dsh stream as dsh's (it read every stream but Codex's as Claude Code's)."""
+    """A step whose requests all failed produced nothing and is no call (failure.jsonl), also when dsh reports no
+    usage for it; one that answered is a call even when the provider reported no usage, which dsh reports as zeros
+    (no_usage.jsonl), and so is one dsh reports no usage for at all. parse_log reads a dsh stream as dsh's (it read
+    every stream but Codex's as Claude Code's)."""
     from hermit.agent.base.records import parse_dsh, parse_log
     assert parse_dsh(STREAMS / "failure.jsonl", "m")[1] == []
+    assert parse_dsh(without_usage("failure.jsonl", tmp_path), "m")[1] == []
     _, [answered] = parse_dsh(STREAMS / "no_usage.jsonl", "m")
     assert (answered.calls, answered.input_tokens, answered.output_tokens) == (1, 0, 0)
     session, [resumed] = parse_log(STREAMS / "resume.jsonl", "dsh", "m")
     assert session == SESSION and (resumed.calls, resumed.input_tokens) == (1, 1000)
-    partial = tmp_path / "partial.jsonl"
-    partial.write_text("".join(json.dumps({k: v for k, v in json.loads(line).items() if k != "usage"}) + "\n"
-                               if '"step_end"' in line else line + "\n"
-                               for line in (STREAMS / "resume.jsonl").read_text().splitlines()))
-    [unknown] = parse_dsh(partial, "m")[1]
+    [unknown] = parse_dsh(without_usage("resume.jsonl", tmp_path), "m")[1]
     assert (unknown.calls, unknown.input_tokens) == (1, 0)
+
+
+def test_calls_whose_tokens_were_not_reported_have_an_unknown_cost_not_a_free_one(fake, monkeypatch, tmp_path):
+    """dsh reports no cost, so the backend's price makes one from the tokens: a session none of whose calls reported
+    any tokens (a provider that reports no usage, or steps dsh left without) cost what is unknown, which the run's
+    budget counts as such, not $0.00. A session with tokens is priced from them."""
+    work = fake / "work"
+    work.mkdir()
+    agent = make("dsh", {**bound(), "web_search": False, "home": str(fake / "home")})
+    for stream in (STREAMS / "no_usage.jsonl", without_usage("success.jsonl", tmp_path)):
+        monkeypatch.setenv("FAKE_DSH_STREAM", str(stream))
+        [usage] = agent.run("go", workspace=work).usage
+        assert usage.calls and not usage.input_tokens and usage.cost_usd is None
+    monkeypatch.setenv("FAKE_DSH_STREAM", str(STREAMS / "resume.jsonl"))
+    [usage] = agent.run("go", workspace=work).usage
+    assert usage.input_tokens and usage.cost_usd == pytest.approx(
+        ((usage.input_tokens - usage.cached_input_tokens) * 1.0 + usage.cached_input_tokens * 0.1
+         + usage.output_tokens * 2.0) / 1e6)
 
 
 def test_a_run_that_ends_at_the_token_limit_is_an_error_the_learner_can_read():
@@ -664,6 +736,137 @@ def test_with_the_dsh_cli_a_deployed_adapter_brings_its_skills_and_tools_into_a_
                       "".join(p.get("text", "") for p in answer["content"])) == {"count": 3}
 
 
+def mock_model(monkeypatch, url: str) -> dict:
+    """The params of a `dsh` agent bound to the scripted model at `url`."""
+    monkeypatch.setenv("MOCK_KEY", "sk-mock")
+    return bind_agent_params({"model": "mock/m-1"}, "dsh",
+                             registry({"mock": {"base_url": url, "api_key_env": "MOCK_KEY", "apis": ["chat"]}}))
+
+
+def tool_texts(body: dict) -> list[str]:
+    """The tool results a request carries, as text."""
+    return [m["content"] if isinstance(m["content"], str) else "".join(p.get("text", "") for p in m["content"])
+            for m in body.get("messages") or [] if m.get("role") == "tool"]
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not shutil.which("dsh"), reason="needs the dsh CLI")
+def test_with_the_dsh_cli_a_tasks_data_is_found_by_dshs_own_search(tmp_path, monkeypatch):
+    """dsh's glob and grep run ripgrep without --follow, so a task's data linked into the workspace was never listed
+    or matched. Without isolation it is bound there, a real directory: dsh's own search finds it, and dsh's own
+    sandbox, nested in that mount namespace, runs a command that reads it."""
+    from hermit.agent.base.interface import Limits, Mount
+    if base_cli._bwrap_binds() is None:
+        pytest.skip("needs a working bubblewrap")
+    data, work = tmp_path / "data", tmp_path / "work"
+    (data / "deep").mkdir(parents=True)
+    work.mkdir()
+    (data / "deep" / "facts.txt").write_text("1934 557\n")
+    last = []
+
+    def script(body):
+        last[:] = tool_texts(body)
+        plan = [("glob", {"pattern": "**/*.txt"}), ("grep", {"pattern": "1934"}),
+                ("bash", {"command": "cat docs/deep/facts.txt", "description": "Read the facts"})]
+        return plan[len(last)] if len(last) < len(plan) else None
+
+    server, url = serve_chat(script)
+    try:
+        result = make("dsh", {**mock_model(monkeypatch, url), "web_search": False, "home": str(tmp_path / "home"),
+                              "timeout_s": 300}).run("Find the facts.", workspace=work,
+                                                     limits=Limits(readable=[Mount(data, Path("docs"))]))
+    finally:
+        server.shutdown()
+    assert result.extra["served"] and result.extra["mounts"] == {str(work / "docs"): "bound"}
+    found, matched, read = last
+    assert "docs/deep/facts.txt" in found and "1934 557" in matched and "1934 557" in read
+    [command] = [s for s in result.trajectory if s.kind == "command"]
+    assert (command.exit_code, command.output) == (0, "1934 557\n")
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not shutil.which("dsh"), reason="needs the dsh CLI")
+def test_with_the_dsh_cli_a_deployed_tool_server_that_does_not_start_fails_the_session(tmp_path, monkeypatch):
+    """The deployment's tool server is a stdio row of its patch layer: one dsh could not start was retried in the
+    background while the session ran on without the adapter's tools, and its answer was taken like any other. The
+    row now fails at the session's start, which dsh reports, so the session has failed."""
+    from hermit.hosts.dsh import prepare
+    work = tmp_path / "ws"
+    prepare(FILE_ADAPTER, work, sys.executable)
+    patch = work / ".dsh" / "hermit.patch.yml"
+    layer = json.loads(patch.read_text())
+    [server] = [r["insert"][0] for r in layer if "insert" in r]
+    server["config"]["command"] = str(tmp_path / "no-such-python")              # a server that cannot start
+    patch.write_text(json.dumps(layer))
+    server_http, url = serve_chat(lambda body: None)
+    try:
+        result = make("dsh", {**mock_model(monkeypatch, url), "web_search": False, "home": str(tmp_path / "home"),
+                              "args": ["--patch", str(patch)], "timeout_s": 300}).run("go", workspace=work)
+    finally:
+        server_http.shutdown()
+    assert result.extra["failed"] and result.extra["failure"].startswith("mcp-file_example did not start")
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not shutil.which("dsh"), reason="needs the dsh CLI")
+def test_with_the_dsh_cli_no_instructions_above_the_workspace_are_read(tmp_path, monkeypatch):
+    """A session whose workspace holds no deployment (a run without an adapter, an Evolver's) below a folder that
+    does (a project deployed into with `hermit deploy`, of any host): dsh took that folder, the nearest with a
+    .hermit-deploy.json, for the project's root and read its AGENTS.md too. Without a root marker the working
+    directory is the root, as the run's sandbox shows nothing above it."""
+    above = tmp_path / "deployed"
+    work = above / "runs" / "work"
+    work.mkdir(parents=True)
+    (above / ".hermit-deploy.json").write_text("{}\n")
+    (above / "AGENTS.md").write_text("ABOVE-INSTRUCTIONS-MARKER\n")
+    (work / "AGENTS.md").write_text("OWN-INSTRUCTIONS-MARKER\n")
+    requests = []
+    server, url = serve_chat(lambda body: requests.append(body))
+    try:
+        make("dsh", {**mock_model(monkeypatch, url), "web_search": False, "home": str(tmp_path / "home"),
+                     "timeout_s": 300}).run("go", workspace=work)
+    finally:
+        server.shutdown()
+    sent = json.dumps(requests[0])
+    assert "OWN-INSTRUCTIONS-MARKER" in sent and "ABOVE-INSTRUCTIONS-MARKER" not in sent
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not shutil.which("dsh"), reason="needs the dsh CLI")
+def test_with_the_dsh_cli_an_agents_md_at_the_deploy_limit_reaches_the_model_whole(tmp_path, monkeypatch):
+    """The deployment refuses an AGENTS.md past what dsh gives the model of a project's instructions, its frame
+    included (DSH_INSTRUCTION_FRAME): one at that size reaches the model whole, and one byte more is cut, which dsh
+    tells the model in a note of its budget."""
+    from hermit.hosts.dsh import prepare
+    adapter = tmp_path / "adapter"
+    (adapter / ".hermit").mkdir(parents=True)
+    (adapter / ".hermit" / "adapter.yaml").write_text("template: {id: edge, version: '1'}\n"
+                                                      "structure: {learnable: [exports.yaml, ADAPTER.md]}\n")
+    (adapter / "exports.yaml").write_text("{context: ADAPTER.md}\n")
+    (adapter / "ADAPTER.md").write_text("LAST-LINE-MARKER\n")
+    prepare(adapter, tmp_path / "small", sys.executable)
+    rest = len((tmp_path / "small" / "AGENTS.md").read_bytes()) - len("LAST-LINE-MARKER\n")
+    limit = base_cli.DSH_INSTRUCTION_BYTES - base_cli.DSH_INSTRUCTION_FRAME
+    (adapter / "ADAPTER.md").write_text("x" * (limit - rest - len("\nLAST-LINE-MARKER\n")) + "\nLAST-LINE-MARKER\n")
+    prepare(adapter, tmp_path / "edge", sys.executable)
+    whole = tmp_path / "edge" / "AGENTS.md"
+    assert len(whole.read_bytes()) == limit
+    over = tmp_path / "over"
+    over.mkdir()
+    (over / "AGENTS.md").write_text(whole.read_text().replace("x", "xx", 1))       # one byte more, by hand
+    requests = []
+    server, url = serve_chat(lambda body: requests.append(body))
+    try:
+        for work in (tmp_path / "edge", over):
+            make("dsh", {**mock_model(monkeypatch, url), "web_search": False, "home": str(tmp_path / "home"),
+                         "timeout_s": 300}).run("go", workspace=work)
+    finally:
+        server.shutdown()
+    edge, cut = json.dumps(requests[0]), json.dumps(requests[1])
+    assert "LAST-LINE-MARKER" in edge and "Workspace instruction budget" not in edge
+    assert "Workspace instruction budget 65536 bytes: truncated AGENTS.md" in cut
+
+
 @pytest.mark.integration
 @pytest.mark.skipif(not shutil.which("dsh"), reason="needs the dsh CLI")
 def test_with_the_dsh_cli_a_server_that_needs_no_key_is_reached_with_the_placeholder(tmp_path, monkeypatch):
@@ -693,11 +896,12 @@ def test_the_installed_dsh_has_every_row_the_session_patches(tmp_path):
     web tools, the route, the default model) is one of the installed dsh's, so none is silently left on."""
     home = tmp_path / "home"
     home.mkdir()
-    agent = make("dsh", {**bound(), "effort": "high", "web_search": False})
+    agent = make("dsh", {**bound(), "effort": "high", "web_search": True})       # web fetch only: a row's settings
     agent.prepare_home(home, (), "http://127.0.0.1:9/mcp", "hermit_tools")
     layer = json.loads((home / base_cli.DSH_PATCH).read_text())
     assert {r["id"] for r in layer if "id" in r} >= {*base_cli.DSH_OFF, "session-log-deepseek", "tool-web",
-                                                     "llm-pi-ai", "agent-default-model"}
+                                                     "llm-pi-ai", "agent-default-model", "skill-filesystem",
+                                                     "agent-instructions"}
     work = tmp_path / "work"
     work.mkdir()
     env = {**os.environ, **agent.home_env(home)}
@@ -705,3 +909,5 @@ def test_the_installed_dsh_has_every_row_the_session_patches(tmp_path):
                            "--dump-config"], cwd=work, env=env, capture_output=True, text=True, timeout=120)
     assert done.returncode == 0, done.stderr
     assert "not found" not in done.stderr and "id: llm-pi-ai" in done.stdout
+    assert "  config:\n    search: false\n    fetch: true\n" in done.stdout                  # web fetch, no search
+    assert "    projectRootMarkers: []\n" in done.stdout

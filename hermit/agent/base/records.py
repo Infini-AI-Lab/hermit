@@ -12,7 +12,8 @@ def price_usage(usage: list[Usage], params: dict) -> None:
     """Fill in each usage's cost from `price` (USD per million tokens: {input, cached_input, output}) where the agent
     reported none. Claude Code reports a cost at Anthropic's prices; for a model bound to another backend that is not
     the bill, so the backend's price replaces it (no price: the cost is unknown). On a subscription (`login`) that
-    figure is the same estimate at list prices, not what the session costs: none is kept."""
+    figure is the same estimate at list prices, not what the session costs: none is kept. Calls of which no token was
+    reported (a provider that reports no usage) are not priced: their cost stays unknown, not 0."""
     price = params.get("price")
     binding = params.get("binding") or {}
     foreign = bool(params.get("login")) or \
@@ -20,7 +21,7 @@ def price_usage(usage: list[Usage], params: dict) -> None:
     for u in usage:
         if foreign:
             u.cost_usd = None
-        if price and u.cost_usd is None:
+        if price and u.cost_usd is None and (u.input_tokens or u.output_tokens or not u.calls):
             u.cost_usd = ((u.input_tokens - u.cached_input_tokens) * price.get("input", 0)
                           + u.cached_input_tokens * price.get("cached_input", price.get("input", 0))
                           + u.output_tokens * price.get("output", 0)) / 1e6
@@ -128,12 +129,15 @@ def _dsh_reader():
     """DeepSeek Harness: the session id (its opening `session` event), and each model step's usage (`status` events
     of phase `step_end`). dsh's `inputTokens` leaves the cache out, so the input counted is input, cache reads and
     cache writes, as Codex and Claude Code count it. dsh reports no cost: it is priced from the backend's price
-    (price_usage). A step whose requests all failed reports no tokens and is no call; one that produced a reply, a
-    thought or a tool call is, even when the provider reported no usage for it (dsh then reports zeros).
+    (price_usage). A step that produced nothing (its requests all failed) is no call; one that produced a reply, a
+    thought or a tool call is, even when its tokens are not reported: the provider reported no usage (dsh then
+    reports zeros), or one of the step's attempts reported none (dsh then leaves the step's usage out). Such a step
+    adds no tokens: a session none of whose calls reported any has an unknown cost (price_usage), and one with
+    others costs at least what they reported.
 
-    What dsh's stream leaves out is not counted: a step one of whose attempts reported no usage carries none (dsh
-    omits a partial sum), so it counts as a call of unknown tokens, and a compaction's summary request, the title
-    request (off in a session, hermit.agent.base.cli.DSH_OFF) and sub-agents report nothing there."""
+    What dsh's stream leaves out is not counted: those steps' tokens, a compaction's summary request, web searches
+    (each a request of DeepSeek's own API), the title request (off in a session, hermit.agent.base.cli.DSH_OFF) and
+    sub-agents."""
     produced = False
 
     def read(event: dict, usage: Usage, session):
@@ -148,7 +152,7 @@ def _dsh_reader():
         made, produced = produced, False
         u = event.get("usage")
         if not isinstance(u, dict):
-            usage.calls += 1
+            usage.calls += 1 if made else 0
             return session
         cached = int(u.get("cacheReadTokens") or 0)
         tokens = int(u.get("inputTokens") or 0) + cached + int(u.get("cacheWriteTokens") or 0)
