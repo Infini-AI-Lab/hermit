@@ -132,7 +132,10 @@ class AgentEvolver(Evolver):
                 "web_search": params["web_search"], "env": env,
                 "isolation": "sandbox" if ctx.sandbox is not None else "none", "sandbox": ctx.sandbox,
                 "codex_sandbox": "danger-full-access", "shell_env": "all",
-                **({"permission_mode": "danger-full-access"} if backend == "dsh" else {}),   # dsh's own sandbox
+                # dsh's own sandbox off, as Codex's; and no instruction file of the evolver workspace: dsh adds a
+                # folder's AGENTS.md when its file tools touch it (an adapter's is the acting agent's policy), which
+                # Codex's learner is never given
+                **({"permission_mode": "danger-full-access", "instruction_files": False} if backend == "dsh" else {}),
                 "home": ctx.workspace.state.parent / "agent_home", "home_files": params.get("home"),
                 "log": ctx.workspace.output / f"agent-{backend}.jsonl", "timeout_s": None, "cancel": ctx.cancel,
                 "tools_name": "evolver_tools"}

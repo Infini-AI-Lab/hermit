@@ -34,8 +34,12 @@ layer like the Base Agent's) against a scripted chat-completions model:
   error on stderr) and exits 1.
 - `stopped.jsonl`: the model calls bash `sleep 60`; two seconds after dsh writes the call, it gets SIGTERM (as a
   session's timeout or the Trainer's stop sends it): no `final` event, an `error` event and its stderr line
-  (`flush on a closed handle`), exit 0.
+  (`flush on a closed handle`), exit 0. (With a task's data bound in the workspace, the binding's bubblewrap is what
+  the signal ends, and dsh with it: no event at all.)
+- `context_window.jsonl`: the route declares no `contextWindow`, and the server refuses a request whose prompt and
+  output tokens pass its model's 32,768, with vLLM's error: dsh asks for 128,000 output tokens, then 65,536, and ends
+  the run `CONTEXT_WINDOW_EXCEEDED` (exit 1). With `contextWindow: 32768` declared it asked for 22,503 and completed.
 
 The streams are dsh's stdout unchanged, followed by its stderr's lines where it wrote any, as the Base Agent keeps
 them in one stream; the run's directory was `/run` (`/run/<name>` for the streams recorded directly, `/tmp/rec3` for
-`stopped.jsonl`).
+`stopped.jsonl`, `/tmp/r4` for `context_window.jsonl`).

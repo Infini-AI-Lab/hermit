@@ -71,9 +71,11 @@ Settings (given once; `configured(...)` for a call's own):
   model it does not know), append_system_prompt, effort (its --thinking level). Pi takes no roles, has no web search
   and runs under isolation none or sandbox.
   DeepSeek Harness (dsh) only: provider (its pi-ai route for a bound model, from the binding: Binding.dsh_provider),
-  image_input (as Pi's), effort (the default model's reasoningEffort), permission_mode (its sandbox: read-only,
-  workspace-write, the default, or danger-full-access; under workspace-write the `writable` paths are granted to it
-  with --add-dir). dsh takes no roles here and runs under isolation none or sandbox; `args` may hold its own options.
+  image_input (as Pi's), effort (the default model's reasoningEffort; YAML's bare `off`, a boolean, is `off`),
+  permission_mode (its sandbox: read-only, workspace-write, the default, or danger-full-access; under workspace-write
+  the `writable` paths are granted to it with --add-dir), instruction_files (false: no AGENTS.md or CLAUDE.md of the
+  working directory or below it is given to the model; default true). dsh takes no roles here and runs under
+  isolation none or sandbox; `args` may hold its own options.
 
 Limits are enforced by the isolation, or the call is refused (Unsupported):
 
@@ -98,6 +100,7 @@ import tempfile
 import threading
 import time
 from typing import Any, Sequence
+import urllib.parse
 
 from hermit.agent.base import container, login as codex_login
 from hermit.agent.base.interface import BaseAgent, Limits, Mount, Result, Unsupported
@@ -559,8 +562,8 @@ class CliAgent(BaseAgent):
         return usage
 
     # Without isolation, a mount inside the workspace is a link to its source (`_link`); a CLI whose searches do not
-    # follow links (Claude Code's Glob and Grep run ripgrep without --follow; `grep -r` and `find` in its Bash neither)
-    # gets it bound there instead, a real directory, as a container gives it (`_bound`).
+    # follow links (Claude Code's Glob and Grep and dsh's glob and grep run ripgrep without --follow; `grep -r` and
+    # `find` in a shell neither) gets it bound there instead, a real directory, as a container gives it (`_bound`).
     binds_mounts = False
 
     # ---------- what the call may do ----------
@@ -1493,6 +1496,13 @@ DSH_INSTRUCTION_BYTES = 65536
 DSH_INSTRUCTION_FRAME = 304
 # dsh's report of an MCP row that did not start (`<id> (<package>): <error>`): the session then runs without its tools
 DSH_TOOLS_DOWN = re.compile(r"^(mcp-[A-Za-z0-9_-]{1,32}) \(@deepseek-ai/dsh-mcp-client\): (.*)$", re.M)
+# The session's transcripts as plain JSON lines (dsh compresses them with zstd), so that hermit.redact scrubs a key a
+# session wrote from its home as from every record; the row's root is dsh's own, an expression (`!!js`) of the home
+# as dsh sees it, which a sandbox shows at another path than this process's
+DSH_TRANSCRIPTS = ('{"id": "session-persistence-jsonl", "config": {"root": !!js "dshHomePath(\'sessions\')", '
+                   '"compression": "none"}}')
+# Where dsh's web search goes, whatever the session's model: DeepSeek's own API, on this key
+DSH_SEARCH_HOST, DSH_SEARCH_KEY = "api.deepseek.com", "DEEPSEEK_API_KEY"
 
 
 class Dsh(CliAgent):
@@ -1536,7 +1546,8 @@ class Dsh(CliAgent):
     def prepare_home(self, home, roles, tools_url, tools_name):
         """The patch layer (DSH_PATCH): dsh's own rows, by their ids. A row's `config` replaces the row's, so a row is
         given whole (the instructions' maxBytes is dsh's own). No host path is written in it: a sandbox translates
-        only the command, the environment and the prompt; the skills' folder is the working directory's."""
+        only the command, the environment and the prompt; the skills' folder is the working directory's, the
+        transcripts' root dsh's own expression (DSH_TRANSCRIPTS)."""
         if roles:
             raise Unsupported("dsh: roles are not passed to DeepSeek Harness; give it none")
         if tools_url and not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", tools_name):
@@ -1548,19 +1559,25 @@ class Dsh(CliAgent):
                             # The workspace is the project, wherever it lies: the skills of its own .dsh/skills only
                             # (not those of the nearest folder above with a .git, a repository the run sits in, nor
                             # the user's), and the instructions of the working directory, the workspace (no root
-                            # marker: dsh reads none above it, a repository's or a deployment's around it)
+                            # marker: dsh reads none above it, a repository's or a deployment's around it); none with
+                            # instruction_files false (dsh also adds a folder's AGENTS.md below the working directory
+                            # when its file tools touch the folder)
                             {"id": "skill-filesystem", "config": {"includeDefaultRoots": False,
                                                                   "customSkillDirs": [".dsh/skills"]}},
-                            {"id": "agent-instructions", "config": {"maxBytes": DSH_INSTRUCTION_BYTES,
-                                                                    "projectRootMarkers": []}}]
+                            {"id": "agent-instructions", "config": {
+                                "maxBytes": DSH_INSTRUCTION_BYTES if s.get("instruction_files", True) else 0,
+                                "projectRootMarkers": []}}]
+        binding = s.get("binding") or {}
         if not s.get("web_search"):
             rows.append({"id": "tool-web", "disabled": True})          # web search and fetch, the model's tools
-        elif s.get("provider") and (s.get("binding") or {}).get("backend") != "deepseek":
+        elif s.get("provider") and (urllib.parse.urlparse(str(binding.get("base_url") or "")).hostname,
+                                    binding.get("api_key_env")) != (DSH_SEARCH_HOST, DSH_SEARCH_KEY):
             # dsh's search is DeepSeek's own service (its Messages API on DEEPSEEK_API_KEY), whatever the session's
-            # model: with a model of another backend it would search on another provider and key than the run's,
-            # outside its usage. Fetch only, as Codex's hosted search is off for a backend other than OpenAI's
+            # model: with a model reached elsewhere or on another key it would search on another provider and key
+            # than the run's, outside its usage. Fetch only, as Codex's hosted search is off for a backend other than
+            # OpenAI's
             rows.append({"id": "tool-web", "config": {"search": False, "fetch": True}})
-        effort = str(s["effort"]) if s.get("effort") else None
+        effort = "off" if s.get("effort") is False else str(s["effort"]) if s.get("effort") else None
         if effort and effort not in DSH_EFFORTS:
             raise ValueError(f"dsh: an effort is one of {', '.join(DSH_EFFORTS)}, not {effort!r}")
         if effort and not s.get("model"):
@@ -1586,14 +1603,16 @@ class Dsh(CliAgent):
         elif s.get("provider"):
             raise ValueError("dsh: a provider route needs its model (the `model` setting)")
         if tools_url:
-            # failOnStartupError: a server dsh cannot reach fails its row at once (dsh says so, `outcome` reads it)
-            # rather than being retried while the session runs without the tools
+            # failOnStartupError: a server dsh cannot reach fails its row at once (dsh says so on stderr and goes on,
+            # and `outcome` fails the session) rather than being retried while the session runs without the tools
             rows.append({"insert": [{"id": f"mcp-{tools_name}", "name": "@deepseek-ai/dsh-mcp-client",
                                      "config": {"serverName": tools_name, "transport": "streamable-http",
                                                 "url": tools_url, "toolCallTimeoutMs": 1_800_000,
                                                 "failOnStartupError": True}}]})
         _clear(home / DSH_PATCH)
-        (home / DSH_PATCH).write_text(json.dumps(rows, indent=1) + "\n")    # JSON is YAML: dsh reads it as such
+        # JSON is YAML, which dsh reads: a flow sequence, to which the transcripts' row adds its `!!js` root
+        text = json.dumps(rows, indent=1)
+        (home / DSH_PATCH).write_text(f"{text[:text.rindex(']')].rstrip()},\n {DSH_TRANSCRIPTS}\n]\n")
 
     @classmethod
     def web_search_args(cls, enabled: bool) -> list[str]:
@@ -1627,6 +1646,12 @@ class Dsh(CliAgent):
         down = DSH_TOOLS_DOWN.findall(notes)
         failure = f"{down[0][0]} did not start, so the session ran without its tools: {down[0][1]}" if down else \
             notes or "the run did not finish (no completed `final` event)"
+        if "CONTEXT_WINDOW_EXCEEDED" in notes and self.settings.get("binding") and \
+                not self.settings["binding"].get("context_window"):          # dsh's error first, then what to do
+            failure = failure[:300] + ("; the backend declares no context_window, so dsh sized the model by its own "
+                                       "catalog or, for a model it does not know, as 1,000,000 tokens with 128,000 "
+                                       "output tokens a request, which a smaller server refuses: declare the "
+                                       "backend's context_window")
         return {"reply": self.last_message(stream, last_file), "served": done,
                 "unavailable": bool(UNAVAILABLE.search(notes)), "refused": False, "failed": not done or bool(down),
                 "failure": failure[-600:], "started": any(e.get("type") == "session" for e in _objects(raw)[0])}
@@ -1789,8 +1814,8 @@ def _bound(command: list[str], mounts: list[Mount], workspace: Path, hidden: lis
         if inside and "linked" not in _WARNED:
             _WARNED.add("linked")
             print("hermit: bubblewrap cannot make a mount namespace here, so a task's data in the workspace is linked, "
-                  "not bound: a search that walks the tree (`grep -r`, `find`, Claude Code's Glob and Grep) does not "
-                  "follow a link",
+                  "not bound: a search that walks the tree (`grep -r`, `find`, Claude Code's Glob and Grep, dsh's glob "
+                  "and grep) does not follow a link",
                   file=sys.stderr, flush=True)
         if hidden and "plan" not in _WARNED:
             _WARNED.add("plan")
