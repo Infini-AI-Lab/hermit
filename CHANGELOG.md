@@ -212,6 +212,11 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   `hermit/runtime/wire_meter.py`, which these launchers set): the next run's meter on the port (`launch.sh run &&
   launch.sh run eval`, a ServeLearnBench `test` run again, a CL-Bench tag refused because it exists) wrote an empty
   ledger over the earlier run's bill.
+- On macOS a CLI session stopped at its timeout or on cancel could leave processes behind or fail: the processes
+  below it were found through `/proc`, which macOS lacks, so one in a session of its own (as a sandbox starts its
+  program) was never stopped; and signalling a process group left with only exited, unreaped processes raises
+  `PermissionError` there. The processes are now found with `ps` where there is no `/proc`, and that error means the
+  group has ended. The same holds for the AgentDyn runner's and the Lean swarm launcher's stops.
 
 ## 0.2.0 - 2026-11-04
 
