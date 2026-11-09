@@ -1518,3 +1518,11 @@ def test_a_proposers_check_copies_its_candidate_inside_its_own_view(tmp_path, mo
     with pytest.raises(ValueError, match="could not be copied"):
         E._in_view("check_spec", Tool("check_spec", "x", check), work, failing)()
     assert list((tmp_path / "tmp").iterdir()) == []
+
+
+def test_a_hosts_log_below_the_trajectory_is_read_by_that_hosts_reader(tmp_path):
+    """A log directory that keeps the stream one level down (a task's own pipeline): Pi's is read as Pi's."""
+    from hermit.agent.evolver.methods.rrsi_adapter import render
+    (tmp_path / "log").mkdir()
+    shutil.copy(ROOT / "tests" / "fixtures" / "pi" / "success.jsonl", tmp_path / "log" / "agent-pi.jsonl")
+    assert [s.kind for s in render._steps(tmp_path)] == ["command", "tool_call", "file_change", "message"]

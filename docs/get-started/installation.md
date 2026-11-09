@@ -103,6 +103,7 @@ never shown).
 | Codex / Claude learner | Selected authenticated CLI and supported program-execution environment |
 | MWM | Linux learner environment, Codex or Claude Code, evidence store, task deployment contract, model access |
 | Acting and learning on a Claude subscription | Claude Code 2.1.248 or later, `claude setup-token`, Linux with bubblewrap for its sandboxes; see [Claude subscription](../guides/claude-subscription.md) |
+| Pi acting agent or learner | The `pi` release binary on `PATH` (GitHub release `pi-linux-x64.tar.gz`, checked against its `SHA256SUMS`) and a model reference |
 | Benchmark recipe | Its dataset, scorer, model settings, and environment; see [catalog](../recipes/index.md) |
 
 Core installation and the deterministic tutorial work on macOS. The sandboxes (the acting agent's, the judge's, the

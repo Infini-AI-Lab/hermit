@@ -165,6 +165,8 @@ def validate(config) -> None:
     login = params.get("login")
     if kind and login:            # wherever the pipeline runs: else every session would be refused, one task at a time
         own = codex_login.LOGINS.get(login)
+        if kind == "pi":
+            raise ValueError("agent pi takes no login: its model is a <backend>/<model> reference (agent.model)")
         if own is None:
             raise ValueError(f"agent.params.login is {' or '.join(sorted(codex_login.LOGINS))} or absent, not "
                              f"{login!r}")
@@ -533,7 +535,7 @@ class SandboxedAgent:
         if self.cli:
             folder, var, _ = CLI_HOMES[self.cli]
             agent_home = home / folder
-            agent_home.mkdir()
+            agent_home.mkdir(parents=True)               # a folder of more than one level (Pi's .pi/agent)
             if self.chatgpt:
                 codex_login.prepare(codex_login.ROOT, agent_home)      # the shared copy, refreshed by earlier calls
             env[var] = str(agent_home)

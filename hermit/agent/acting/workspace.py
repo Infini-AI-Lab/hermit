@@ -1,5 +1,5 @@
-"""The `codex` and `claude-code` agents: one task run by the agent CLI in a workspace the adapter is deployed into.
-They are the framework's one way to act with a coding-agent CLI; a task adds only what is its own.
+"""The `codex`, `claude-code` and `pi` agents: one task run by the agent CLI in a workspace the adapter is deployed
+into. They are the framework's one way to act with a coding-agent CLI; a task adds only what is its own.
 
     agent:
       name: codex                            # or claude-code; `cli` with params.backend is the same
@@ -69,7 +69,7 @@ from hermit.agent.base.interface import BaseAgent, Limits, LoginFailed, Mount, m
 from hermit.agent.base.login import LOGINS
 from hermit.task import RunOutput, load_callable
 
-BACKENDS = ("codex", "claude")
+BACKENDS = ("codex", "claude", "pi")
 DEPLOYS = ("host",)
 ISOLATIONS = ("none", "container")
 INPUT_FIELDS = ("question", "prompt", "instruction", "input", "query")
@@ -141,6 +141,9 @@ def deploy(adapter: Path, workspace: Path, backend: str, *, context: str | None 
         from hermit.hosts.codex import DOC_BYTES, prepare
         return prepare(adapter, workspace, sys.executable, context=context, context_limit=context_limit or DOC_BYTES,
                        approve_tools=approve_tools, serve_tools=serve_tools)
+    if backend == "pi":
+        from hermit.hosts.pi import prepare as prepare_pi
+        return prepare_pi(adapter, workspace, sys.executable, context=context)
     from hermit.hosts.claude_code import prepare
     return prepare(adapter, workspace, sys.executable, context=context, serve_tools=serve_tools)
 
@@ -166,7 +169,10 @@ def _deploy(task: dict, adapter: Path | None, work: Path, backend: str, params: 
 
 def _session_args(backend: str, deployed: dict, work: Path) -> list[str]:
     """What the session needs to use what the deployment connected: the workspace's own Codex configuration (its
-    tools, roles and hooks) trusted, as a person trusts a deployed project, and its sub-agents enabled."""
+    tools, roles and hooks) trusted, as a person trusts a deployed project, and its sub-agents enabled; Pi's project
+    configuration (.pi/mcp.json, .pi/skills) trusted for the session (--approve), without which Pi skips it."""
+    if backend == "pi":
+        return ["--approve"]
     if backend == "codex":
         return ["-c", f'projects={{"{work}" = {{ trust_level = "trusted" }} }}',
                 *(["--enable", "multi_agent"] if deployed.get("roles") else [])]
@@ -271,6 +277,12 @@ def _check(backend: str, params: dict) -> str:
     if not isinstance(params.get("web_search"), bool):
         raise ValueError("agent.params.web_search must be set, true or false: Codex's hosted search runs at the "
                          "provider, past any sandbox or proxy, so it is never left to a default")
+    if backend == "pi":                             # Pi signs in through a model reference, and runs on this machine
+        if params.get("login") is not None:
+            raise ValueError("agent pi takes no login: its model is a <backend>/<model> reference")
+        if params.get("isolation") == "container":
+            raise ValueError("isolation: container runs Codex or Claude Code; agent pi takes isolation: none")
+        return backend
     login, label = params.get("login"), {"codex": "Codex", "claude": "Claude Code"}[backend]
     if login is not None and login not in LOGINS:
         raise ValueError(f"agent.params.login is {' or '.join(sorted(LOGINS))} or absent, not {login!r}")
@@ -294,7 +306,8 @@ def base_agent(backend: str, params: dict) -> BaseAgent:
     """The Base Agent (Layer 2) these params describe: the CLI and how it is run, nothing of the task."""
     settings = {k: params[k] for k in ("model", "binding", "login", "plan_dir", "plan_max_wait_s", "usage_credits",
                                        "effort", "isolation", "container", "codex_sandbox", "shell_env",
-                                       "project_doc_max_bytes", "args", "env", "price")
+                                       "project_doc_max_bytes", "args", "env", "price", "provider",
+                                       "image_input")
                 if k in params and (params[k] is not None or k == "plan_max_wait_s")}
     if params.get("claude_permission_mode"):
         settings["permission_mode"] = params["claude_permission_mode"]

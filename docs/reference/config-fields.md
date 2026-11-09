@@ -32,13 +32,13 @@ guarantee that their consumer supports arbitrary fields.
 | `data.shuffle` | boolean / true | Shuffle training order; set false for ordered streams |
 | `data.shuffle_seed` | integer / 0 | Training shuffle seed; does not seed every model or method |
 | `task_info` | directory / null | Learner-facing task description; provide `README.md` |
-| `agent.name` | string / null; required | Built-in `react`, `codex`, `claude-code`, `harbor` (a benchmark's task set in Harbor's format, see [Benchmarks](../framework/task.md#benchmarks)), an Agent class, or a `file.py:function` / `module:function` |
+| `agent.name` | string / null; required | Built-in `react`, `codex`, `claude-code`, `pi`, `harbor` (a benchmark's task set in Harbor's format, see [Benchmarks](../framework/task.md#benchmarks)), an Agent class, or a `file.py:function` / `module:function` |
 | `agent.concurrency` | integer / 4 | Maximum concurrent rollout/evaluation task executions; use a positive value |
 | `agent.timeout_min` | number / null | A sandboxed task call (its worker) running longer is stopped and recorded as an error; null: no limit |
 | `agent.params` | mapping / {} | Passed to Agent constructors; plain functions receive it when they declare a `params` argument |
-| `agent.base` | string / null | Layer 2 in the per-layer form ([Agent layers](../framework/agent-layers.md#settings-by-layer)): `codex`, `claude`, `react`, or `direct` (with `agent.name`, a task's own loop); sets `agent.name` when unset |
+| `agent.base` | string / null | Layer 2 in the per-layer form ([Agent layers](../framework/agent-layers.md#settings-by-layer)): `codex`, `claude`, `pi`, `react`, or `direct` (with `agent.name`, a task's own loop); sets `agent.name` when unset |
 | `agent.model` | string / mapping / null | Layer 1: a `<backend>/<model>` reference, or `{ref` or `name, login, effort, price, ...}`; read into `agent.params` |
-| `agent.codex`, `agent.claude`, `agent.react`, `agent.direct` | mapping / null | Layer 2's settings for that Base Agent (the one `agent.base` names); read into `agent.params`. A key set in two layers is refused |
+| `agent.codex`, `agent.claude`, `agent.pi`, `agent.react`, `agent.direct` | mapping / null | Layer 2's settings for that Base Agent (the one `agent.base` names); read into `agent.params`. A key set in two layers is refused |
 | `pipeline.run` | string / null | Legacy alias for `agent.name`, applied only when `agent.name` is unset |
 | `pipeline.concurrency` | integer / null | Legacy concurrency override when the legacy pipeline alias is used |
 | `pipeline.params` | mapping / {} | Legacy parameters merged into `agent.params` when the pipeline alias is used |
@@ -57,9 +57,9 @@ Task row fields become training material, so private labels require judge-owned 
 | `evolver.name` | string / null; required | Built-in method or directory containing its Evolver definition |
 | `evolver.resume` | boolean / false | Request learner-session continuation; method must support it |
 | `evolver.params` | mapping / {} | Overrides merged with the chosen method's defaults |
-| `evolver.base` | string / null | Layer 2 the method runs on: `codex` or `claude` (an agent Evolver: sets `evolver.params.backend`) or `direct` |
+| `evolver.base` | string / null | Layer 2 the method runs on: `codex`, `claude` or `pi` (an agent Evolver: sets `evolver.params.backend`) or `direct` |
 | `evolver.model` | string / mapping / null | Layer 1, as `agent.model`; with `evolver.base: direct` it is the run's `llm` |
-| `evolver.codex`, `evolver.claude`, `evolver.direct` | mapping / null | Layer 2's settings, read into `evolver.params` |
+| `evolver.codex`, `evolver.claude`, `evolver.pi`, `evolver.direct` | mapping / null | Layer 2's settings, read into `evolver.params` |
 | `evolver_access.environment` | list / [] | Granted environment resources; required for MWM's evidence integration |
 | `evolver_access.tools` | list / [] | Task tool declarations offered to the learner |
 | `evolver_access.send_material_out` | boolean / false | Consent declaration checked for methods requesting that need; not a network filter |
@@ -79,7 +79,7 @@ dialects it serves, prices). See [Model backends](../guides/model-backends.md).
 | `llm` | reference, mapping / null | The run's chat-completions `llm` tool: a reference, `{model: <reference>, price, extra_body}`, the endpoint itself (below), or a CLI's sessions, `{cli: ..., ...}` (below) |
 
 `agent.params.model` takes the same forms. For a Codex or Claude Code acting agent or Evolver a reference becomes
-the CLI's provider settings (`args` for Codex, `env` for Claude Code) and the model's id; a plain id without a
+the CLI's provider settings (`args` for Codex, `env` for Claude Code, `provider` for Pi) and the model's id; a plain id without a
 backend goes to the CLI's own provider as before.
 
 ### Learner model tool

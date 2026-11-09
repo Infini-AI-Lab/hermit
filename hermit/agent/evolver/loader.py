@@ -72,7 +72,8 @@ def instantiate(spec: EvolverSpec, params: dict, *, backends: dict | None = None
     reference in `model` (or the run's default) becomes the provider settings in `args` or `env`. A param the
     Evolver class lists in `model_params` that holds a reference becomes that model's resolved spec."""
     merged = {**spec.params, **(params or {})}
-    if merged.get("backend") in ("codex", "claude") and (merged.get("model") or default_model) is not None:
+    from hermit.agent.model.backends import CLI_KINDS
+    if merged.get("backend") in CLI_KINDS and (merged.get("model") or default_model) is not None:
         from hermit.agent.model.backends import bind_agent_params, registry
         merged = bind_agent_params(merged, merged["backend"], backends if backends is not None else registry(),
                                    default_model)

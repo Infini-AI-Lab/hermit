@@ -612,6 +612,9 @@ def evolver_problems(params: dict | None) -> list[str]:
     own = LOGINS.get(login)
     backend = {"claude-code": "claude"}.get(params.get("backend"), params.get("backend"))
     out = []
+    if backend == "pi":
+        out.append(f"login: {login} is a Codex or Claude Code sign-in; the pi Evolver signs in through its model "
+                   "reference (evolver.model: <backend>/<model>)")
     if own is not None and backend in ("codex", "claude") and own != backend:
         out.append(f"login: {login} is {'Codex' if own == 'codex' else 'Claude Code'}'s sign-in; the Evolver's "
                    f"sessions run {'Codex' if backend == 'codex' else 'Claude Code'}, which takes login: "
