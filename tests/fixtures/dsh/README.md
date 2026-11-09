@@ -23,9 +23,9 @@ layer like the Base Agent's) against a scripted chat-completions model:
 - `bash.jsonl`: how dsh's bash tool marks a command's end. The model calls bash nine times: `exit 3`, `printf ''`,
   `true`, `echo out; exit 4`, `kill -9 $$`, `printf 'no newline'; exit 5`, then with `timeoutMs: 1000`
   `trap 'exit 0' TERM; sleep 5 & wait` (stopped by its timeout, it exits 0) and `sleep 5` (killed), and the first of
-  these again with `timeoutMs: 1000.5` (dsh prints the timeout as given), then answers `done`. The layer also sets
-  the `tool-bash` row's `promoteOnTimeout: false`, so a timeout stops the command rather than moving it to a
-  background job.
+  these again with `timeoutMs: 1000.5` (dsh prints the timeout it applied, here the model's), then answers `done`.
+  The layer also sets the `tool-bash` row's `promoteOnTimeout: false`, so a timeout stops the command rather than
+  moving it to a background job.
 - `max_tokens.jsonl`: the model's answer ends at its token limit (`finish_reason: length`): the run ends `max-tokens`
   and dsh exits 1, writing nothing on stderr.
 - `big_bash.jsonl`: bash prints 1,500 lines (about 42 KB) and exits 2; dsh's `--json` keeps 8 KiB of the result and

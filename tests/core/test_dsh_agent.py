@@ -573,8 +573,8 @@ def test_a_bash_result_is_read_as_dsh_marks_its_end():
     """dsh marks a nonzero exit (`[exit code: N]`) or a signal after a command's output and nothing after a clean
     exit; `(no output)` stands for an empty output, also before a marker. A command stopped by its timeout has no
     exit code to trust, even one that trapped the signal and exited 0 (it read as a clean exit before), as a
-    signal's has none: unknown, as Codex reports it. dsh prints the timeout as the model gave it, which need not be
-    a whole number of milliseconds (`1000.5ms`, read as a clean exit before)."""
+    signal's has none: unknown, as Codex reports it. dsh prints the timeout it applied (the model's, else 60 s, at
+    most 600 s), which need not be a whole number of milliseconds (`1000.5ms`, read as a clean exit before)."""
     stream = [json.loads(line) for line in (STREAMS / "bash.jsonl").read_text().splitlines()]
     commands = [(s.command, s.exit_code, s.output) for s in trajectory.dsh_steps(stream) if s.kind == "command"]
     assert commands == [("exit 3", 3, ""), ("printf ''", 0, ""), ("true", 0, ""), ("echo out; exit 4", 4, "out"),
