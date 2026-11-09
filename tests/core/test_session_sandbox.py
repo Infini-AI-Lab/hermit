@@ -148,3 +148,27 @@ def test_a_tool_that_breaks_its_channel_ends_in_an_error_not_a_hang(tmp_path):
         s._remote.call_timeout = 1                     # the garbled answer never comes: any timeout ends it
         with pytest.raises(ToolError, match="no answer"):
             s.call("garble", {})
+
+
+@pytest.mark.skipif(not _bwrap_works(), reason="needs a working bubblewrap (unprivileged user namespaces)")
+def test_a_deployed_tool_server_serves_from_its_sandbox(tmp_path):
+    """The stdio server a deployed workspace starts (`.codex/config.toml`, `.mcp.json`, `.pi/mcp.json`) inside a run:
+    HA_ADAPTER_SANDBOX makes its Session a sandboxed one, which loads no adapter in the server's process."""
+    import os
+    from mcp import ClientSession
+    from mcp.client.stdio import StdioServerParameters, stdio_client
+    from hermit.adapter.session import ENV_ENFORCE, ENV_PYTHON, ENV_SANDBOX
+
+    env = {**os.environ, ENV_SANDBOX: "1", ENV_ENFORCE: "required", ENV_PYTHON: sys.executable,
+           "PYTHONPATH": str(Path(__file__).resolve().parents[2])}
+    server = StdioServerParameters(command=sys.executable, args=["-m", "hermit.runtime.mcp_server", "--adapter",
+                                                                 str(EXAMPLE)], env=env)
+
+    async def call():
+        async with stdio_client(server) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                names = [t.name for t in (await session.list_tools()).tools]
+                return names, (await session.call_tool("count_words", {"text": "a b c"})).structured_content
+
+    assert asyncio.run(asyncio.wait_for(call(), 120)) == (["count_words"], {"count": 3})

@@ -21,7 +21,6 @@ async def serve(root: Path, audit_log: Path | None, learning_material: Path | No
     # The same Session a Python program uses; the audit record is its record.
     session = Session(root, resources=resources, deployment=deployment, learning_material=learning_material,
                       evidence=evidence, audit_log=audit_log)
-    adapter = session.adapter
     lock = asyncio.Lock()
 
     async def list_tools(context, params):
@@ -41,7 +40,8 @@ async def serve(root: Path, audit_log: Path | None, learning_material: Path | No
             except Exception as exc:
                 return CallToolResult(content=[TextContent(text=f"{type(exc).__name__}: {exc}")], isError=True)
 
-    server = Server(adapter.manifest["name"], version=adapter.manifest["version"],
+    # session.manifest: a sandboxed Session (HA_ADAPTER_SANDBOX, every task-sandboxed acting run) loads no adapter here
+    server = Server(session.manifest["name"], version=session.manifest["version"],
                     on_list_tools=list_tools, on_call_tool=call_tool)
     async with stdio_server() as (reader, writer):
         await server.run(reader, writer, server.create_initialization_options())
