@@ -202,6 +202,11 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 - The AHE Adapter Evolver took a `change_manifest.json` an earlier step left for the current step's: a manifest
   naming the next iteration was refused at its own step, then archived as the next step's when that step's session
   wrote none. The file (or a directory a session made in its place) is now removed before each Evolve session.
+- On macOS a CLI session stopped at its timeout or on cancel could leave processes behind or fail: the processes
+  below it were found through `/proc`, which macOS lacks, so one in a session of its own (as a sandbox starts its
+  program) was never stopped; and signalling a process group left with only exited, unreaped processes raises
+  `PermissionError` there. The processes are now found with `ps` where there is no `/proc`, and that error means the
+  group has ended. The same holds for the AgentDyn runner's and the Lean swarm launcher's stops.
 
 ## 0.2.0 - 2026-11-04
 
