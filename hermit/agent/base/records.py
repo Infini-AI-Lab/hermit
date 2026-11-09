@@ -13,8 +13,8 @@ def price_usage(usage: list[Usage], params: dict) -> None:
     reported none. Claude Code reports a cost at Anthropic's prices; for a model bound to another backend that is not
     the bill, so the backend's price replaces it (no price: the cost is unknown). On a subscription (`login`) that
     figure is the same estimate at list prices, not what the session costs: none is kept. A usage that holds calls
-    whose tokens the CLI did not report (`unreported_calls`) keeps an unknown cost: its reported tokens' price would
-    be too little."""
+    whose tokens the CLI did not report, or not in full (`unreported_calls`), keeps an unknown cost: the price of
+    what was reported would not be the bill."""
     price = params.get("price")
     binding = params.get("binding") or {}
     foreign = bool(params.get("login")) or \
@@ -128,16 +128,23 @@ def parse_pi(log: Path, model: str) -> tuple[str | None, list[Usage]]:
 
 def _dsh_reader():
     """DeepSeek Harness: the session id (its opening `session` event), and each model step's usage (`status` events
-    of phase `step_end`). dsh's `inputTokens` leaves the cache out, so the input counted is input, cache reads and
-    cache writes, as Codex and Claude Code count it. dsh reports no cost: it is priced from the backend's price
-    (price_usage). A step that produced nothing (its requests all failed) is no call; one that produced a reply, a
-    thought or a tool call is, even when its tokens are not reported: the provider reported no usage (dsh then
-    reports zeros), or one of the step's attempts reported none (dsh then leaves the step's usage out, the
-    successful attempt's included, as for any step a rate limit made dsh retry). Such a step is an unreported call:
-    it adds no tokens, and the session's cost is unknown (price_usage), not the price of what was reported.
+    of phase `step_end`): the sum of its attempts' (a request dsh retried is an attempt). dsh's `inputTokens` leaves
+    the cache out, so the input counted is input, cache reads and cache writes, as Codex and Claude Code count it. dsh
+    reports no cost: it is priced from the backend's price (price_usage). A step that produced nothing (its requests
+    all failed) is no call; one that produced a reply, a thought or a tool call is, even when its tokens are not
+    reported in full. Such a step is an unreported call, and the session's cost is unknown (price_usage), not the
+    price of what was reported:
+    - the provider reported no usage: dsh reports zeros, and the call adds no tokens;
+    - an attempt reported no usage at all (a stream that ended before its last event, an attempt a stop cut short, a
+      failed request of dsh's own provider): dsh leaves the step's usage out, and the call adds no tokens;
+    - an attempt reported no cache count (a request the provider refused, as for a rate limit dsh retried, reports
+      zeros, and a count of 0 is not reported): dsh leaves the step's cache counts out, which its `totalTokens`
+      still holds. What the total holds beyond the counts reported is counted as input; whether it was read from the
+      cache or written to it, which are priced apart, is unknown.
 
     What dsh's stream leaves out is not counted: a compaction's summary request, web searches (each a request of
-    DeepSeek's own API), the title request (off in a session, hermit.agent.base.cli.DSH_OFF) and sub-agents."""
+    DeepSeek's own API), the title request (off in a session, hermit.agent.base.cli.DSH_OFF), sub-agents, and what a
+    provider billed for an attempt it reported as zeros (one cut off mid-stream, before its usage)."""
     produced = False
 
     def read(event: dict, usage: Usage, session):
@@ -151,16 +158,18 @@ def _dsh_reader():
             return session
         made, produced = produced, False
         u = event.get("usage") if isinstance(event.get("usage"), dict) else {}
-        cached = int(u.get("cacheReadTokens") or 0)
+        cached, output = int(u.get("cacheReadTokens") or 0), int(u.get("outputTokens") or 0)
         tokens = int(u.get("inputTokens") or 0) + cached + int(u.get("cacheWriteTokens") or 0)
-        if not tokens and not u.get("outputTokens"):
+        dropped = max(int(u.get("totalTokens") or 0) - tokens - output, 0)     # cache counts dsh left out
+        if not tokens and not output and not dropped:
             usage.calls += 1 if made else 0
             usage.unreported_calls += 1 if made else 0
             return session
-        usage.input_tokens += tokens
+        usage.input_tokens += tokens + dropped
         usage.cached_input_tokens += cached
-        usage.output_tokens += int(u.get("outputTokens") or 0)
+        usage.output_tokens += output
         usage.calls += 1
+        usage.unreported_calls += 1 if dropped else 0
         return session
     return read
 

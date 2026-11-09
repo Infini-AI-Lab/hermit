@@ -1486,6 +1486,7 @@ DSH_OFF = ("session-telemetry-otel", "session-title-llm", "plugin-package-invent
            "tool-subagent-fork", "tool-subagent-control", "tool-workflow")
 DSH_PERMISSION_MODES = ("read-only", "workspace-write", "danger-full-access")
 DSH_EFFORTS = ("off", "minimal", "low", "medium", "high", "xhigh", "max")   # the reasoning levels of dsh's pi-ai routes
+DSH_OWN_EFFORTS = ("off", "low", "high", "max")      # those of its own route (DSH_ROUTE, DeepSeek's API): no binding
 # The variable a route names for a server that needs no key: a route that names none gets no key from pi-ai under
 # the name `hermit`, and dsh refuses the request (PI_AI_ERROR "No API key")
 DSH_NO_KEY = "HERMIT_DSH_NO_KEY"
@@ -1503,6 +1504,35 @@ DSH_TRANSCRIPTS = ('{"id": "session-persistence-jsonl", "config": {"root": !!js 
                    '"compression": "none"}}')
 # Where dsh's web search goes, whatever the session's model: DeepSeek's own API, on this key
 DSH_SEARCH_HOST, DSH_SEARCH_KEY = "api.deepseek.com", "DEEPSEEK_API_KEY"
+
+
+def dsh_problems(settings: dict, who: str) -> list[str]:
+    """What every session of a dsh agent would refuse of its settings, found before the first one rather than at each
+    session, after its task's or its learner step's rollouts: an effort its model's route has not (dsh's own, for a
+    model of no binding, has fewer levels than a bound model's pi-ai route) or one with no model to take it; a sandbox
+    of dsh's own it has not. The Evolver runs dsh's sandbox off and gives its sessions no instruction file
+    (AgentEvolver.settings): a setting of either is refused rather than dropped. `settings` are the agent's params as
+    bound (the run's default model in; the Evolver's method's own params under the run's); `who` is its section of
+    the run config, agent or evolver."""
+    effort, mode = settings.get("effort"), settings.get("permission_mode")
+    effort = "off" if effort is False else effort                       # YAML reads a bare `off` as false
+    levels, route = (DSH_EFFORTS, "a bound model") if settings.get("provider") else \
+        (DSH_OWN_EFFORTS, "a model of dsh's own provider (DeepSeek's API)")
+    out = []
+    if effort is not None and str(effort) not in levels:
+        out.append(f"{who}.model.effort is one of {', '.join(levels)} for {route}, not {effort!r}")
+    if effort is not None and not settings.get("model"):
+        out.append(f"{who}.model.effort needs {who}.model for dsh: it is that model's reasoningEffort")
+    if who == "agent" and mode is not None and mode not in DSH_PERMISSION_MODES:
+        out.append(f"agent.dsh.permission_mode is one of {', '.join(DSH_PERMISSION_MODES)} (dsh's own sandbox), "
+                   f"not {mode!r}")
+    if who == "evolver" and mode is not None:
+        out.append("evolver.dsh.permission_mode is not taken: the dsh Evolver runs dsh's own sandbox off "
+                   "(danger-full-access), the evolver sandbox being the boundary, as for Codex")
+    if who == "evolver" and settings.get("instruction_files") is not None:
+        out.append("evolver.dsh.instruction_files is not taken: the dsh Evolver's sessions read no AGENTS.md (an "
+                   "adapter's is the acting agent's policy)")
+    return out
 
 
 class Dsh(CliAgent):
@@ -1540,8 +1570,9 @@ class Dsh(CliAgent):
 
     def dropped_env(self):
         """The caller's own dsh variables (`DSH_*`: another permission mode, a folder of skills, a telemetry endpoint,
-        a web provider, ...), which would change the session without the sandbox: its own are home_env's."""
-        return tuple(name for name in os.environ if name.startswith("DSH_"))
+        a web provider, ...; and DEEPSEEK_SEARCH_BASE_URL, where its web search goes), which would change the session
+        without the sandbox: its own are home_env's."""
+        return tuple(name for name in os.environ if name.startswith("DSH_") or name == "DEEPSEEK_SEARCH_BASE_URL")
 
     def prepare_home(self, home, roles, tools_url, tools_name):
         """The patch layer (DSH_PATCH): dsh's own rows, by their ids. A row's `config` replaces the row's, so a row is
@@ -1578,8 +1609,10 @@ class Dsh(CliAgent):
             # OpenAI's
             rows.append({"id": "tool-web", "config": {"search": False, "fetch": True}})
         effort = "off" if s.get("effort") is False else str(s["effort"]) if s.get("effort") else None
-        if effort and effort not in DSH_EFFORTS:
-            raise ValueError(f"dsh: an effort is one of {', '.join(DSH_EFFORTS)}, not {effort!r}")
+        levels = DSH_EFFORTS if s.get("provider") else DSH_OWN_EFFORTS          # a bound model's route, or dsh's own
+        if effort and effort not in levels:
+            raise ValueError(f"dsh: an effort is one of {', '.join(levels)}"
+                             f"{'' if s.get('provider') else ' for a model of its own provider'}, not {effort!r}")
         if effort and not s.get("model"):
             raise ValueError("dsh: an effort needs its model (the `model` setting): it is that model's reasoningEffort")
         default, chosen = {"provider": DSH_ROUTE}, {}
@@ -1647,11 +1680,12 @@ class Dsh(CliAgent):
         failure = f"{down[0][0]} did not start, so the session ran without its tools: {down[0][1]}" if down else \
             notes or "the run did not finish (no completed `final` event)"
         if "CONTEXT_WINDOW_EXCEEDED" in notes and self.settings.get("binding") and \
-                not self.settings["binding"].get("context_window"):          # dsh's error first, then what to do
-            failure = failure[:300] + ("; the backend declares no context_window, so dsh sized the model by its own "
-                                       "catalog or, for a model it does not know, as 1,000,000 tokens with 128,000 "
-                                       "output tokens a request, which a smaller server refuses: declare the "
-                                       "backend's context_window")
+                not self.settings["binding"].get("context_window"):    # dsh's error (once), then what to do
+            hint = ("; the backend declares no context_window, so dsh sized the model by its own catalog or, for a "
+                    "model it does not know, as 1,000,000 tokens with 128,000 output tokens a request, which a smaller "
+                    "server refuses: declare the backend's context_window")
+            said = next(line for line in notes.splitlines() if "CONTEXT_WINDOW_EXCEEDED" in line)
+            failure = said[:600 - len(hint)] + hint
         return {"reply": self.last_message(stream, last_file), "served": done,
                 "unavailable": bool(UNAVAILABLE.search(notes)), "refused": False, "failed": not done or bool(down),
                 "failure": failure[-600:], "started": any(e.get("type") == "session" for e in _objects(raw)[0])}

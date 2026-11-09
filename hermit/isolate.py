@@ -182,25 +182,11 @@ def validate(config) -> None:
             if params["effort"] not in Claude.efforts:
                 raise ValueError(f"agent.model.effort is one of {', '.join(Claude.efforts)} for Claude Code, not "
                                  f"{params['effort']!r}")
-    # dsh's own settings, here too: else every session would be refused, one task (or one learner step) at a time
-    learner = d["evolver"].get("params") or {}
-    for where, own in (("agent", params if kind == "dsh" else None),
-                       ("evolver", learner if learner.get("backend") == "dsh" else None)):
-        if own is None:
-            continue
-        from hermit.agent.base.cli import DSH_EFFORTS, DSH_PERMISSION_MODES
-        effort, mode = own.get("effort"), own.get("permission_mode")
-        effort = "off" if effort is False else effort                  # YAML reads a bare `off` as false
-        if effort is not None and str(effort) not in DSH_EFFORTS:
-            raise ValueError(f"{where}.model.effort is one of {', '.join(DSH_EFFORTS)} for dsh, not {effort!r}")
-        if effort is not None and not own.get("model"):
-            raise ValueError(f"{where}.model.effort needs {where}.model for dsh: it is that model's reasoningEffort")
-        if where == "agent" and mode is not None and mode not in DSH_PERMISSION_MODES:
-            raise ValueError(f"agent.dsh.permission_mode is one of {', '.join(DSH_PERMISSION_MODES)} (dsh's own "
-                             f"sandbox), not {mode!r}")
-        if where == "evolver" and mode is not None:
-            raise ValueError("evolver.dsh.permission_mode is not taken: the dsh Evolver runs dsh's own sandbox off "
-                             "(danger-full-access), the evolver sandbox being the boundary, as for Codex")
+    if kind == "dsh":         # dsh's own settings, here too: else every session would be refused, one task at a time
+        from hermit.agent.base.cli import dsh_problems
+        problems = dsh_problems(params, "agent")         # the dsh Evolver's: login.evolver_problems, before its steps
+        if problems:
+            raise ValueError("; ".join(problems))
     if env.get("image"):
         if kind not in ("codex", "claude"):
             raise ValueError("environment.image runs a CLI acting agent (codex or claude) in a container: agent.base "

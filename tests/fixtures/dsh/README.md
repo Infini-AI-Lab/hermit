@@ -39,7 +39,10 @@ layer like the Base Agent's) against a scripted chat-completions model:
 - `context_window.jsonl`: the route declares no `contextWindow`, and the server refuses a request whose prompt and
   output tokens pass its model's 32,768, with vLLM's error: dsh asks for 128,000 output tokens, then 65,536, and ends
   the run `CONTEXT_WINDOW_EXCEEDED` (exit 1). With `contextWindow: 32768` declared it asked for 22,503 and completed.
+- `retried.jsonl`: the server answers the first request 503, then the retry with 1000 prompt tokens (900 of them
+  cached) and 10 output tokens: dsh sums the two attempts' usage into the step's, and leaves out the cache count the
+  refused attempt did not report (its zeros), so the step reports `inputTokens` 100 and `totalTokens` 1010.
 
 The streams are dsh's stdout unchanged, followed by its stderr's lines where it wrote any, as the Base Agent keeps
 them in one stream; the run's directory was `/run` (`/run/<name>` for the streams recorded directly, `/tmp/rec3` for
-`stopped.jsonl`, `/tmp/r4` for `context_window.jsonl`).
+`stopped.jsonl`, `/tmp/r4` for `context_window.jsonl`, `/tmp/r5` for `retried.jsonl`).
