@@ -61,7 +61,8 @@ FIELDS = {"from", "base_url", "api_key_env", "key_required", "apis", "messages_u
           "context_window", "developer_role", "models", "description"}
 DEVELOPER_ROLES = ("keep", "system")
 # What each consumer speaks: the dialect a backend must serve for it.
-NEEDS = {"chat": "chat", "react": "chat", "llm": "chat", "codex": "responses", "claude": "messages", "pi": "chat"}
+NEEDS = {"chat": "chat", "react": "chat", "llm": "chat", "codex": "responses", "claude": "messages", "pi": "chat",
+         "mini-swe-agent": "chat"}
 # Pi speaks several dialects: the one it is given is the first the backend serves (Binding.pi_dialect).
 PI_APIS = {"chat": "openai-completions", "messages": "anthropic-messages", "responses": "openai-responses"}
 # The variable litellm reads the key from, per route prefix (the examples' CL-Bench host calls through litellm).
@@ -396,11 +397,11 @@ def _spec_of(value, binding: Binding) -> dict:
 
 
 def bind_agent_params(params: dict, kind: str, backends: dict[str, Backend], default=None) -> dict:
-    """The params of a Codex (`kind` codex), Claude Code (`kind` claude) or Pi (`kind` pi) agent or Evolver with its
-    model bound: `model` becomes the id the endpoint expects, the provider settings go into `args` (Codex), `env`
-    (Claude Code) ahead of the user's own, or `provider` (Pi's models.json entry), `price` is filled from the
-    backend, and `binding` records the whole. A `model` that is no reference (the CLI's own provider) is left
-    alone."""
+    """The params of a Codex (`kind` codex), Claude Code (`kind` claude), Pi (`kind` pi) or mini-swe-agent (`kind`
+    mini-swe-agent) agent or Evolver with its model bound: `model` becomes the id the endpoint expects, the provider
+    settings go into `args` (Codex), `env` (Claude Code) ahead of the user's own, or `provider` (Pi's models.json
+    entry; mini-swe-agent reads them from `binding`), `price` is filled from the backend, and `binding` records the
+    whole. A `model` that is no reference (the CLI's own provider) is left alone."""
     binding = as_binding(params.get("model") or default, backends)
     if binding is None:
         return params
@@ -412,7 +413,7 @@ def bind_agent_params(params: dict, kind: str, backends: dict[str, Backend], def
         out["env"] = {**binding.claude_env(), **(params.get("env") or {})}
     elif kind == "pi":
         out["provider"] = params.get("provider") or binding.pi_provider()
-    else:
+    elif kind != "mini-swe-agent":
         raise ValueError(f"kind must be one of {CLI_KINDS}, not {kind!r}")
     if not out.get("price"):
         out["price"] = binding.price
@@ -422,8 +423,9 @@ def bind_agent_params(params: dict, kind: str, backends: dict[str, Backend], def
 
 # ---- the run config -------------------------------------------------------------------------------------------
 
-CLI_AGENTS = {"codex": "codex", "claude-code": "claude", "claude": "claude", "pi": "pi", "cli": None}
-CLI_KINDS = ("codex", "claude", "pi")         # the CLI Base Agents a model is bound for (bind_agent_params)
+CLI_AGENTS = {"codex": "codex", "claude-code": "claude", "claude": "claude", "pi": "pi",
+              "mini-swe-agent": "mini-swe-agent", "cli": None}
+CLI_KINDS = ("codex", "claude", "pi", "mini-swe-agent")   # the CLI Base Agents a model is bound for (bind_agent_params)
 
 
 def needs(kind: str, binding: Binding) -> str:
@@ -432,9 +434,10 @@ def needs(kind: str, binding: Binding) -> str:
 
 
 def _cli_kind(agent: dict, params: dict) -> str:
-    """codex, claude or pi for an acting agent that is a CLI (by its name, `cli`'s backend, or a task's own agent's
-    agent.base), else ""."""
-    names = {"codex": "codex", "claude": "claude", "claude-code": "claude", "pi": "pi"}
+    """codex, claude, pi or mini-swe-agent for an acting agent that is a CLI (by its name, `cli`'s backend, or a task's
+    own agent's agent.base), else ""."""
+    names = {"codex": "codex", "claude": "claude", "claude-code": "claude", "pi": "pi",
+             "mini-swe-agent": "mini-swe-agent"}
     kind = CLI_AGENTS.get(str(agent.get("name") or ""), "")
     if kind is None:                                        # `cli`: the backend is a param
         return names.get(params.get("backend", "codex"), "")
