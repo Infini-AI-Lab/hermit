@@ -13,6 +13,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 import threading
 
 import pytest
@@ -114,8 +115,9 @@ def test_a_bound_model_is_a_dsh_route_with_its_key_variable_in_the_dialect_the_b
 def test_dsh_runs_headless_in_its_home_with_its_model_and_the_tools_as_its_own(fake, monkeypatch):
     """Without the sandbox a session gets this process's environment: a dsh variable of the caller's (here a folder
     of skills, and where DeepSeek's API is reached, for dsh's own provider and for its web search) does not reach it,
-    so the session's settings are its own home's. The call's tools are an MCP row whose server, if dsh cannot start
-    it, fails the session (failOnStartupError), and whose calls may take as long as a Trainer tool's rollouts."""
+    so the session's settings are its own home's; one the session is given (`env`, here the caller's by name) does.
+    The call's tools are an MCP row whose server, if dsh cannot start it, fails the session (failOnStartupError), and
+    whose calls may take as long as a Trainer tool's rollouts."""
     tmp_path = fake
     monkeypatch.setenv("DSH_BUNDLED_SKILL_DIR", str(tmp_path / "callers-skills"))
     monkeypatch.setenv("DEEPSEEK_BASE_URL", "http://127.0.0.1:9")
@@ -162,6 +164,8 @@ def test_dsh_runs_headless_in_its_home_with_its_model_and_the_tools_as_its_own(f
     assert tool == {"arguments": {"text": "from dsh"}, "server": "hermit_tools", "tool": "echo"}
     assert json.loads(result.trajectory[5].output) == {"echoed": "from dsh"}
     assert result.trajectory[0] == trajectory.Step("reasoning", "Thinking it over.")
+    agent.configured(env={"DEEPSEEK_BASE_URL": "$DEEPSEEK_BASE_URL"}).run("go", workspace=work)
+    assert seen(tmp_path)[-1]["env"]["DEEPSEEK_BASE_URL"] == "http://127.0.0.1:9"
 
 
 def test_an_effort_is_a_level_the_bound_model_lists_and_off_asks_it_for_none(fake):
@@ -203,7 +207,9 @@ def test_a_failed_run_is_an_error_and_only_an_outage_is_unavailable(fake, monkey
 def test_a_run_dsh_was_stopped_in_is_no_success_although_dsh_exits_0(fake, monkeypatch, tmp_path):
     """dsh exits 0 when SIGTERM stops it (recorded: stopped.jsonl, a session stopped while its command ran): its own
     rule for a completed run is exit 0 and a completed `final`, so a run without one has failed. The acting agent
-    records no answer, and an AgentEvolver's step is a failed one; so is a session whose tools did not start."""
+    records no answer, and an AgentEvolver's step is a failed one; so is a session whose tools did not start. The
+    stopped step's request is not counted (dsh writes a step's usage at its end, which a stopped session never
+    writes): the session has no usage."""
     from hermit.agent.acting import workspace as acting
     from hermit.agent.evolver.agent import AgentEvolver
     from hermit.agent.evolver.base import Access, StepContext, Workspace
@@ -214,6 +220,7 @@ def test_a_run_dsh_was_stopped_in_is_no_success_although_dsh_exits_0(fake, monke
     assert result.exit_code == 0 and result.extra["failed"] and not result.extra["served"] and result.extra["started"]
     assert not result.extra["unavailable"] and result.reply == "" and "closed handle" in result.extra["failure"]
     assert [s.kind for s in result.trajectory] == ["command", "error"] and result.trajectory[0].exit_code is None
+    assert result.usage == []
     out = acting.run({"id": "q1"}, None, params={**bound(), "backend": "dsh", "web_search": False, "prompt": "go",
                                                  "workspaces": "ws"}, base=fake)
     assert out.output is None and "closed handle" in out.extra["session_failed"]
@@ -303,8 +310,10 @@ def test_an_effort_or_a_sandbox_dsh_has_not_is_refused_before_any_session(tmp_pa
     config loads (as a Claude Code effort is); the dsh Evolver's by `hermit check` and before `train`'s first step,
     from its params as the Trainer has them, whichever way the config names it (evolver.base: dsh, or the dsh method
     with its params) and with the run's model as its own. dsh's own provider (a model of no binding) has fewer
-    levels than a bound model's route. YAML reads a bare `off` as false, which is `off`. The Evolver runs dsh's own
-    sandbox off and gives its sessions no AGENTS.md: a setting of either is refused, not dropped."""
+    levels than a bound model's route. YAML reads a bare `off` as false, which is `off`. A setting an agent does not
+    take is refused, not dropped: the Evolver runs dsh's own sandbox off and gives its sessions no AGENTS.md (its own
+    danger-full-access and instruction_files false are taken, another value refused), and the acting agent's
+    sessions read the adapter's context as their AGENTS.md (instruction_files false is refused)."""
     from hermit.agent.base.login import evolver_problems
     from hermit.agent.evolver.loader import find, instantiate
     from hermit.config import Config
@@ -578,7 +587,8 @@ def test_a_command_whose_end_dsh_did_not_report_has_no_exit_code():
     """dsh's --json keeps 8 KiB of a string: a long result loses its end, where the marker is (recorded:
     big_bash.jsonl, 1,500 lines then exit 2), and read as exit 0 before; a command started in the background
     (background.jsonl) has no status yet. A command that printed a marker of its own and exited 0 (fake_marker.jsonl)
-    is a clean exit, as dsh reads it: the marker counts only at the very end."""
+    is a clean exit, as dsh reads it: the marker counts only at the very end. A call that failed to run (a result
+    dsh marks `error`) has no exit status either, as dsh's own view of a bash result has none for it."""
     def commands(name):
         stream = [json.loads(line) for line in (STREAMS / name).read_text().splitlines() if line.startswith("{")]
         return [s for s in trajectory.dsh_steps(stream) if s.kind == "command"]
@@ -589,11 +599,35 @@ def test_a_command_whose_end_dsh_did_not_report_has_no_exit_code():
     assert background.exit_code is None and background.output.startswith("started background job ")
     [printed] = commands("fake_marker.jsonl")
     assert (printed.exit_code, printed.output) == (0, "built\n[exit code: 7]\n")
+    [unrun] = [s for s in trajectory.dsh_steps([
+        {"type": "tool_call", "callId": "call_0", "tool": "bash", "input": {"command": "make"}},
+        {"type": "tool_result", "callId": "call_0", "status": "error", "result": "bash could not run"}])]
+    assert (unrun.kind, unrun.exit_code, unrun.output) == ("command", None, "bash could not run")
+
+
+def test_a_session_is_resumed_only_from_a_directory_of_the_home_itself(tmp_path):
+    """dsh keeps a session at sessions/<its directory>/<id>/ in its home, which the session's commands may write: a
+    link there (in place of the session's folder, or of the folder it lies in) is no session to resume, so a call
+    starts a new one; so is a handle that is no session id."""
+    home, elsewhere = tmp_path / "home", tmp_path / "elsewhere"
+    (home / "sessions" / "project" / SESSION).mkdir(parents=True)
+    (elsewhere / SESSION).mkdir(parents=True)
+    assert base_cli._dsh_session(home, SESSION) == SESSION
+    assert base_cli._dsh_session(home, f"../{SESSION}") is None
+    linked = tmp_path / "linked"
+    (linked / "sessions" / "project").mkdir(parents=True)
+    (linked / "sessions" / "project" / SESSION).symlink_to(elsewhere / SESSION)
+    assert base_cli._dsh_session(linked, SESSION) is None
+    parent = tmp_path / "parent"
+    (parent / "sessions").mkdir(parents=True)
+    (parent / "sessions" / "project").symlink_to(elsewhere)
+    assert base_cli._dsh_session(parent, SESSION) is None
 
 
 def without_usage(stream: str, tmp_path: Path) -> Path:
     """A recorded stream whose steps report no usage, as dsh writes a step one of whose attempts reported none (its
-    json-stream.ts omits the partial sum): a stream that ended before its last event, an attempt a stop cut short."""
+    json-stream.ts omits the partial sum): a stream that ended before its last event, a failed request of dsh's own
+    provider."""
     out = tmp_path / f"no-usage-{stream}"
     out.write_text("".join(json.dumps({k: v for k, v in json.loads(line).items() if k != "usage"}) + "\n"
                            if '"step_end"' in line else line + "\n"
@@ -628,8 +662,8 @@ def test_calls_whose_tokens_were_not_reported_have_an_unknown_cost_not_a_free_on
     $0.00 nor the price of the rest, which may be far less (the successful attempt of a step whose usage dsh left out
     goes unreported too): the run's budget counts its calls as of unknown cost, and none of its dollars. A session
     whose tokens dsh reported is priced from them; a step whose cache counts dsh left out after a retry is priced
-    with those tokens as input, as a cache write is, never less than with the counts, so that a USD budget counts
-    the session. Only dsh's reader marks a call unreported: another CLI's call of no tokens (Claude Code's result of
+    with those tokens as input, as a cache write is, never less than with the counts (the cached input being no
+    dearer than the input), so that a USD budget counts the session. Only dsh's reader marks a call unreported: another CLI's call of no tokens (Claude Code's result of
     a refused request) keeps its price, $0.00."""
     from hermit.trainer.budget import Budget
     from hermit.agent.base.records import price_usage
@@ -846,16 +880,21 @@ def test_with_the_dsh_cli_a_session_reaches_its_model_and_its_tools(tmp_path, mo
 @pytest.mark.skipif(not shutil.which("dsh"), reason="needs the dsh CLI")
 def test_with_the_dsh_cli_a_command_runs_in_dshs_own_sandbox_inside_the_runs(tmp_path, monkeypatch):
     """The acting agent keeps dsh's own sandbox (workspace-write) inside the run's: dsh starts it nested in the run's
-    bubblewrap sandbox (bubblewrap, else Landlock), and a command of the session writes its workspace there. Where
-    neither can start, dsh refuses every command (SANDBOX_UNAVAILABLE), which this would show."""
+    bubblewrap sandbox (bubblewrap, else Landlock), and a command of the session writes its workspace there, not the
+    session's home, which the run's sandbox lets the session write (the home lies outside /tmp, which workspace-write
+    lets a command write). Where neither can start, dsh refuses every command (SANDBOX_UNAVAILABLE), which this would
+    show."""
     from hermit.sandbox import Sandbox
-    if not _bwrap_works():
-        pytest.skip("needs a working bubblewrap")
+    if not _bwrap_works() or not os.path.isdir("/var/tmp"):
+        pytest.skip("needs a working bubblewrap and /var/tmp")
+    home = Path(tempfile.mkdtemp(prefix="hermit-dsh-home-", dir="/var/tmp"))
+    outside = home / "outside.txt"
+    commands = [{"command": "echo made > made.txt && cat made.txt", "description": "Write a file"},
+                {"command": f"echo out > {outside}", "description": "Write the home"}]
 
     def script(body):
         done = sum(1 for m in body.get("messages") or [] if m.get("role") == "tool")
-        return ("bash", {"command": "echo made > made.txt && cat made.txt", "description": "Write a file"}) \
-            if done == 0 else None
+        return ("bash", commands[done]) if done < len(commands) else None
 
     server, url = serve_chat(script)
     monkeypatch.setenv("MOCK_KEY", "sk-mock")
@@ -865,13 +904,16 @@ def test_with_the_dsh_cli_a_command_runs_in_dshs_own_sandbox_inside_the_runs(tmp
     work.mkdir()
     box = Sandbox(network="isolated", env_allow=[], writable=[work], role="agent", record_dir=tmp_path / "records")
     try:
-        result = make("dsh", {**params, "web_search": False, "home": str(tmp_path / "home"), "isolation": "sandbox",
-                              "sandbox": box, "timeout_s": 300}).run("Write the file.", workspace=work)
+        result = make("dsh", {**params, "web_search": False, "home": str(home), "isolation": "sandbox",
+                              "sandbox": box, "timeout_s": 300}).run("Write the files.", workspace=work)
+        escaped = outside.exists()
     finally:
         server.shutdown()
+        shutil.rmtree(home, ignore_errors=True)
     assert result.exit_code == 0 and result.extra["served"] and not result.extra["failed"]
-    [command] = [s for s in result.trajectory if s.kind == "command"]
-    assert (command.exit_code, command.output) == (0, "made\n") and (work / "made.txt").read_text() == "made\n"
+    [inside, written] = [s for s in result.trajectory if s.kind == "command"]
+    assert (inside.exit_code, inside.output) == (0, "made\n") and (work / "made.txt").read_text() == "made\n"
+    assert written.exit_code != 0 and not escaped
 
 
 @pytest.mark.integration

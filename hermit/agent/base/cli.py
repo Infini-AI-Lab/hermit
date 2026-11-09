@@ -76,7 +76,9 @@ Settings (given once; `configured(...)` for a call's own):
   own provider), permission_mode (its sandbox: read-only, workspace-write, the default, or danger-full-access; under
   workspace-write the `writable` paths are granted to it with --add-dir), instruction_files (false: no AGENTS.md or
   CLAUDE.md of the working directory or below it is given to the model; default true). dsh takes no roles here and
-  runs under isolation none or sandbox; `args` may hold its own options.
+  runs under isolation none or sandbox; `args` may hold its own options. The caller's DSH_* variables,
+  DEEPSEEK_BASE_URL and DEEPSEEK_SEARCH_BASE_URL never reach a session, whatever a sandbox lets through: `env`
+  gives them (Dsh.dropped_env).
 
 Limits are enforced by the isolation, or the call is refused (Unsupported):
 
@@ -1574,7 +1576,10 @@ class Dsh(CliAgent):
         """The caller's own dsh variables (`DSH_*`: another permission mode, a folder of skills, a telemetry endpoint,
         a web provider, ...; and the hosts of DeepSeek's API it reaches, DEEPSEEK_BASE_URL for its own provider's
         requests and DEEPSEEK_SEARCH_BASE_URL for its web search), which would change the session without the
-        sandbox: its own are home_env's, and a variable the session is given (`env`) still passes."""
+        sandbox: its own are home_env's. They are dropped whatever a sandbox lets through (sandbox.evolver.env,
+        environment.env), which may be for the run's other processes: hermit's own DEEPSEEK_BASE_URL moves its
+        `deepseek` backend, a chat completions root, and dsh reads it as its own provider's Messages root. A variable
+        the session is given (`env`, where `$DEEPSEEK_BASE_URL` is this process's own) still passes."""
         return tuple(name for name in os.environ
                      if name.startswith("DSH_") or name in ("DEEPSEEK_BASE_URL", "DEEPSEEK_SEARCH_BASE_URL"))
 

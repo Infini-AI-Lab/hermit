@@ -134,19 +134,23 @@ def _dsh_reader():
 
     A step that produced nothing (its requests all failed) is no call; one that produced a reply, a thought or a tool
     call is, even when its tokens are not reported: the provider reported no usage (dsh then reports zeros), or an
-    attempt reported none at all (a stream that ended before its last event, an attempt a stop cut short, a failed
-    request of dsh's own provider: dsh then leaves the step's usage out). Such a step is an unreported call: it adds
-    no tokens, and the session's cost is unknown (price_usage), not the price of what was reported.
+    attempt reported none at all (a stream that ended before its last event, a failed request of dsh's own provider:
+    dsh then leaves the step's usage out). Such a step is an unreported call: it adds no tokens, and the session's
+    cost is unknown (price_usage), not the price of what was reported.
 
     A step one of whose attempts reported no cache count (a request the provider refused, as for a rate limit dsh
-    retried, reports zeros, and pi-ai reports a count of 0 as none) has its cache counts left out by dsh, which its
-    `totalTokens` still holds. What the total holds beyond the counts reported is counted as input, priced as a cache
-    write is: the step's price is what it would be with the counts reported, or more if those tokens were read from
-    the cache, never less.
+    retried, reports zeros, and dsh keeps a cache count only when it is not 0) has its cache counts left out by dsh,
+    which its `totalTokens` still holds. What the total holds beyond the counts reported is counted as input, priced
+    as a cache write is: the step's price is what it would be with the counts reported, or more if those tokens were
+    read from the cache (a price whose cached input is no dearer than its input), never less. The total is the sum
+    of the counts on every route but the Responses API's, where it is the server's own `total_tokens`, trusted: what
+    it holds beyond the counts is priced as input, and a server that reports none leaves those tokens out.
 
     What dsh's stream leaves out is not counted: a compaction's summary request, web searches (each a request of
-    DeepSeek's own API), the title request (off in a session, hermit.agent.base.cli.DSH_OFF), sub-agents, and what a
-    provider billed for an attempt it reported as zeros (one cut off mid-stream, before its usage)."""
+    DeepSeek's own API), the title request (off in a session, hermit.agent.base.cli.DSH_OFF), sub-agents, what a
+    provider billed for an attempt it reported as zeros (one cut off mid-stream, before its usage), and the last
+    step of a session a stop (SIGTERM: a timeout, a cancelled call) cut short before that step's end: dsh writes a
+    step's usage at its end, after its tool calls ran, and a stopped session writes nothing more."""
     produced = False
 
     def read(event: dict, usage: Usage, session):
