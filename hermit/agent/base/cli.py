@@ -494,6 +494,16 @@ class CliAgent(BaseAgent):
         """The variables that point the CLI at the session's home."""
         return {self.home_var: str(home)}
 
+    def _prompt_file(self, flag: str, text: str, home: Path) -> list[str]:
+        """A system text for the command line, or past what one argument may hold in a file of the session's home, the
+        one place every isolation shows it."""
+        if len(text.encode()) <= ARG_MAX:
+            return [flag, text]
+        path = home / f"{flag.lstrip('-')}.md"         # system-prompt.md, append-system-prompt.md: one file each
+        _clear(path)                                 # a link the last session left would take the text elsewhere
+        path.write_text(text, encoding="utf-8")
+        return [f"{flag}-file", str(path)]
+
     def prepare_home(self, home: Path, roles: Sequence[dict], tools_url: str | None, tools_name: str) -> None:
         """The session's configuration in its home, before the call (nothing, for a CLI given it on its command
         line)."""
@@ -1152,16 +1162,6 @@ class Claude(CliAgent):
         commands' holds it (and the image's CLI is undumpable: nothing beside it reads it from its memory)."""
         return {codex_login.TOKEN_ENV: CLAUDE_TOKEN_FD} if self.settings.get("login") == "claude" else {}
 
-    def _prompt_file(self, flag: str, text: str, home: Path) -> list[str]:
-        """A system text for the command line, or past what one argument may hold in a file of the session's home, the
-        one place every isolation shows it."""
-        if len(text.encode()) <= ARG_MAX:
-            return [flag, text]
-        path = home / f"{flag.lstrip('-')}.md"         # system-prompt.md, append-system-prompt.md: one file each
-        _clear(path)                                 # a link the last session left would take the text elsewhere
-        path.write_text(text, encoding="utf-8")
-        return [f"{flag}-file", str(path)]
-
     def command(self, prompt, workspace, last_file, *, session=None, roles=(), tools_url=None):
         s = self.settings
         text = bool(s.get("text_only"))
@@ -1476,7 +1476,7 @@ class MiniSweAgent(CliAgent):
       binding           the resolved `<backend>/<model>` reference (hermit.agent.model.backends): its URL, key variable,
                         extra body and price
       model_class       litellm (its bash tool, the default) or litellm_textbased (one ```mswea_bash_command block per
-                        response); without a binding, any mini-swe-agent model class name
+                        response); another provider's model goes through litellm (`openrouter/<model>`)
       effort            sent as litellm's reasoning_effort
       config            a mini-swe-agent config file merged over Hermit's (agent.step_limit, the templates,
                         model.model_kwargs, environment.timeout, ...); not its model name or class, nor its environment
@@ -1530,16 +1530,24 @@ class MiniSweAgent(CliAgent):
             # another class sends what it is given to its own service: the binding's key and URL among it
             raise Unsupported(f"mini-swe-agent's model_class {model_class!r} calls its own service; a "
                               f"<backend>/<model> reference takes {' or '.join(self.binding_classes)}")
+        if model_class not in self.binding_classes:
+            # the others' messages (the *_response classes': the Responses API's) and errors (openrouter's, portkey's)
+            # are not litellm's: their usage, steps and a provider that could not serve would go unread
+            raise Unsupported(f"mini-swe-agent's model_class {model_class!r}: Hermit reads "
+                              f"{' and '.join(self.binding_classes)} only; another provider's model goes through "
+                              "litellm (openrouter/<model>, ...)")
         return super().run(prompt, workspace=workspace, tools=tools, limits=limits, session=session, roles=roles)
 
     def prepare_home(self, home, roles, tools_url, tools_name):
-        """The task's settings for the runner, in its home: no key (the runner reads the key's variable), and of
-        `env` only the names (the runner passes those variables to the commands)."""
+        """The task's settings for the runner, in its home: no key (the runner reads the key's variable), of `env`
+        only the names (the runner passes those variables to the commands), and no host path, as Pi's: a sandbox
+        translates only the command, the environment and the prompt, so the `config` file is read here and the
+        system instructions go on the command (a long one in a file, as Claude Code's)."""
+        import yaml
         s = self.settings
-        run = {k: s[k] for k in ("model", "binding", "model_class", "effort", "step_limit", "system")
-               if s.get(k) is not None}
+        run = {k: s[k] for k in ("model", "binding", "model_class", "effort", "step_limit") if s.get(k) is not None}
         if s.get("config"):
-            run["config"] = str(Path(os.path.expanduser(str(s["config"]))).resolve())
+            run["config"] = yaml.safe_load(Path(os.path.expanduser(str(s["config"]))).read_text()) or {}
         run["env_names"] = sorted((s.get("env") or {}))
         path = home / "mini-swe-agent.json"
         if os.path.lexists(path) and not _regular(path):
@@ -1552,6 +1560,7 @@ class MiniSweAgent(CliAgent):
         return [str(s.get("bin") or self.program), "-P", "-m", "hermit.agent.base.mini_swe_agent_run",
                 "--settings", str(last_file.with_name("mini-swe-agent.json")), "--cwd", str(s.get("cwd") or workspace),
                 "--last", str(last_file), *(["--stdin"] if s.get("stdin") else ["--prompt", prompt]),
+                *(self._prompt_file("--system", str(s["system"]), last_file.parent) if s.get("system") else []),
                 *(s.get("args") or [])]
 
     @classmethod

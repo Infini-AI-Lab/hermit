@@ -233,6 +233,8 @@ def mini_swe_agent_steps(stream: list[dict]) -> list[Step]:
             continue
         role, content = message.get("role"), str(message.get("content") or "")
         if role == "assistant":
+            if message.get("reasoning"):
+                steps.append(Step("reasoning", str(message["reasoning"])))
             if content.strip():
                 steps.append(Step("message", content))
             for command in message.get("actions") or []:

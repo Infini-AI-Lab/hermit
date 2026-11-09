@@ -46,6 +46,7 @@ PLACEHOLDER = "{{ adapter_context }}"
 _PLACEHOLDER = re.compile(r"\{\{-?\s*adapter_context\s*-?\}\}")
 _ENDRAW = re.compile(r"\{%[-+]?\s*endraw\s*[-+]?%\}")      # every spelling Jinja ends a raw block with
 STEP_LIMIT = 50
+MODEL_PROMPTS = ("format_error_template",)   # Hermit prompts that go in the model section
 INSTALL = ("mini-swe-agent is not installed: python -m pip install 'hermit-harness[mini-swe-agent]' "
            "(from a checkout: python -m pip install -e '.[mini-swe-agent]')")
 _LOADING = threading.Lock()
@@ -90,7 +91,10 @@ def render_config(base: str = "mini", *overrides: dict) -> dict:
     if base not in prompts:
         raise ValueError(f"no Hermit prompts for mini-swe-agent's {base!r} config; known: {sorted(prompts)}")
     shipped = Path(list(spec.submodule_search_locations)[0]) / "config" / f"{base}.yaml"
-    return _merge(yaml.safe_load(shipped.read_text()), {"agent": prompts[base]}, *(o for o in overrides if o))
+    agent = dict(prompts[base])
+    model = {k: agent.pop(k) for k in MODEL_PROMPTS if k in agent}    # the model section's, as mini-swe-agent has them
+    return _merge(yaml.safe_load(shipped.read_text()), {"agent": agent}, {"model": model},
+                  *(o for o in overrides if o))
 
 
 def _merge(*configs: dict) -> dict:

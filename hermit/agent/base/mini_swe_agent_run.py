@@ -1,7 +1,7 @@
 """One mini-swe-agent task, run as the `mini-swe-agent` Base Agent's process (hermit.agent.base.mini_swe_agent).
 
     python -m hermit.agent.base.mini_swe_agent_run --settings <home>/mini-swe-agent.json --cwd <workspace> \
-        --last <home>/last_message.txt --stdin < prompt
+        --last <home>/last_message.txt [--system <instructions> | --system-file <file>] --stdin < prompt
 
 The task runs as mini-swe-agent's batch runner runs one: a model, an environment and a DefaultAgent from its Python
 API, the config Hermit's prompts over mini-swe-agent's own (hermit.agent.base.mini_swe_agent.render_config) and the
@@ -56,6 +56,8 @@ def event_of(message: dict) -> dict:
     for key in ("tool_calls", "tool_call_id"):
         if message.get(key) is not None:
             out[key] = message[key]
+    if message.get("reasoning_content"):             # a thinking model's (litellm's field)
+        out["reasoning"] = str(message["reasoning_content"])
     if extra.get("actions"):
         out["actions"] = [str(a.get("command", "")) for a in extra["actions"] if isinstance(a, dict)]
     if "returncode" in extra:
@@ -112,8 +114,7 @@ def build(settings: dict, cwd: str, emit: Callable[[dict], None]):
 
     litellm.suppress_debug_info = True            # its help text would go to stdout, between the events
     model_class = str(settings.get("model_class") or "litellm")
-    user = yaml.safe_load(Path(settings["config"]).read_text()) if settings.get("config") else None
-    user = user or {}
+    user = settings.get("config") or {}               # the config file's settings, read by the Base Agent
     given = [f"model.{k}" for k in ("model_name", "model_class") if k in (user.get("model") or {})]
     given += ["environment.environment_class"] if "environment_class" in (user.get("environment") or {}) else []
     if given:
@@ -241,11 +242,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--last", type=Path, required=True)
     parser.add_argument("--prompt")
     parser.add_argument("--stdin", action="store_true")
+    parser.add_argument("--system", default="")      # the call's system instructions (a sandbox translates its paths)
+    parser.add_argument("--system-file", type=Path)  # or, past what one argument holds, the file they are in
     args = parser.parse_args(argv)
     _not_dumpable()
     signal.signal(signal.SIGTERM, _stop)
     prompt = sys.stdin.read() if args.stdin else (args.prompt or "")
-    settings = json.loads(args.settings.read_text())
+    system = args.system_file.read_text(encoding="utf-8") if args.system_file else args.system
+    settings = {**json.loads(args.settings.read_text()), "system": system}
     args.last.write_text("", encoding="utf-8")
     stream = Stream({"type": "session.started", "session": uuid.uuid4().hex,
                      "model": (settings.get("binding") or {}).get("litellm") or settings.get("model")})

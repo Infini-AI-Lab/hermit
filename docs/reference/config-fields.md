@@ -36,9 +36,9 @@ guarantee that their consumer supports arbitrary fields.
 | `agent.concurrency` | integer / 4 | Maximum concurrent rollout/evaluation task executions; use a positive value |
 | `agent.timeout_min` | number / null | A sandboxed task call (its worker) running longer is stopped and recorded as an error; null: no limit |
 | `agent.params` | mapping / {} | Passed to Agent constructors; plain functions receive it when they declare a `params` argument |
-| `agent.base` | string / null | Layer 2 in the per-layer form ([Agent layers](../framework/agent-layers.md#settings-by-layer)): `codex`, `claude`, `pi`, `react`, or `direct` (with `agent.name`, a task's own loop); sets `agent.name` when unset |
+| `agent.base` | string / null | Layer 2 in the per-layer form ([Agent layers](../framework/agent-layers.md#settings-by-layer)): `codex`, `claude`, `pi`, `mini-swe-agent`, `react`, or `direct` (with `agent.name`, a task's own loop); sets `agent.name` when unset |
 | `agent.model` | string / mapping / null | Layer 1: a `<backend>/<model>` reference, or `{ref` or `name, login, effort, price, ...}`; read into `agent.params` |
-| `agent.codex`, `agent.claude`, `agent.pi`, `agent.react`, `agent.direct` | mapping / null | Layer 2's settings for that Base Agent (the one `agent.base` names); read into `agent.params`. A key set in two layers is refused |
+| `agent.codex`, `agent.claude`, `agent.pi`, `agent.mini-swe-agent`, `agent.react`, `agent.direct` | mapping / null | Layer 2's settings for that Base Agent (the one `agent.base` names); read into `agent.params`. A key set in two layers is refused |
 | `pipeline.run` | string / null | Legacy alias for `agent.name`, applied only when `agent.name` is unset |
 | `pipeline.concurrency` | integer / null | Legacy concurrency override when the legacy pipeline alias is used |
 | `pipeline.params` | mapping / {} | Legacy parameters merged into `agent.params` when the pipeline alias is used |

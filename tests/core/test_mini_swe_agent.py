@@ -15,7 +15,10 @@ import subprocess
 import sys
 import threading
 
-from jinja2 import StrictUndefined, Template
+try:
+    from jinja2 import StrictUndefined, Template
+except ImportError:                 # mini-swe-agent brings jinja2: without either, the module is skipped (pytestmark)
+    StrictUndefined = Template = None
 import pytest
 import yaml
 
@@ -298,6 +301,10 @@ def test_what_mini_swe_agent_cannot_do_is_refused(tmp_path, monkeypatch, scripte
                                     "model_class": "openrouter"})
     with pytest.raises(Unsupported, match="calls its own service"):
         bound.run("x", workspace=tmp_path)
+    # without a binding too, a class whose messages or errors are not litellm's: usage, steps or retries unread
+    for model_class in ("litellm_response", "openrouter", "portkey_response"):
+        with pytest.raises(Unsupported, match="reads litellm and litellm_textbased only"):
+            agent.configured(model_class=model_class).run("x", workspace=tmp_path)
     # a config that names the model or the environment class fails every task: no session starts, and the acting
     # agent reports the error rather than score an empty answer
     server = scripted([])
@@ -383,6 +390,72 @@ def test_the_prompts_come_from_minis_package_not_a_mini_yaml_where_it_runs(tmp_p
     config = mini.render_config("mini")
     assert config["agent"]["system_template"].startswith("You are a helpful assistant") and config["model"]
     assert mini.base_config("litellm_textbased") == "mini_textbased" and mini.base_config("litellm") == "mini"
+
+
+def test_the_runners_settings_file_names_no_host_path_as_pis_does(tmp_path):
+    """Under isolation: sandbox the run's sandbox translates the command, the environment and the prompt, not a file
+    in the home: the config is read into the settings and the system instructions go on the command."""
+    config = tmp_path / "outside" / "mini.yaml"
+    config.parent.mkdir()
+    config.write_text("agent:\n  step_limit: 7\n")
+    agent = make("mini-swe-agent", {"web_search": False, "model": "openai/m", "config": str(config),
+                                    "system": f"Read {tmp_path}/outside/notes.md first."})
+    home = tmp_path / "home"
+    home.mkdir()
+    agent.prepare_home(home, (), None, "hermit_tools")
+    written = (home / "mini-swe-agent.json").read_text()
+    assert str(tmp_path) not in written and json.loads(written)["config"] == {"agent": {"step_limit": 7}}
+    command = agent.command("task", tmp_path / "work", home / "last_message.txt")
+    assert command[command.index("--system") + 1] == f"Read {tmp_path}/outside/notes.md first."
+    # past what one argument holds (Linux: 128 KiB), a file in the home, as Claude Code's
+    long = agent.configured(system="x" * 200_000).command("task", tmp_path / "work", home / "last_message.txt")
+    assert "--system" not in long and Path(long[long.index("--system-file") + 1]).read_text() == "x" * 200_000
+
+
+@needs_bwrap
+@pytest.mark.parametrize("size", [0, 200_000], ids=["short", "past-one-argument"])
+def test_under_its_own_sandbox_the_base_agent_reads_its_config_and_instructions(tmp_path, monkeypatch, scripted, size):
+    """isolation: sandbox, as Pi's: the config outside the workspace (its step_limit of 1) and the system
+    instructions reach the session, which the run's sandbox shows only its workspace and home."""
+    from hermit.sandbox import Sandbox
+    monkeypatch.setenv("HERMIT_TEST_KEY", KEY)
+    server = scripted([bash("echo 4 > answer.txt", "c1"), submit()])
+    config = tmp_path / "outside" / "mini.yaml"
+    config.parent.mkdir()
+    config.write_text("agent:\n  step_limit: 1\n")
+    work = tmp_path / "work"
+    work.mkdir()
+    settings = {**params(server, config=str(config)), "home": str(tmp_path / "home"), "isolation": "sandbox",
+                "timeout_s": 120, "sandbox": Sandbox(network="isolated", env_allow=[], writable=[work], role="agent",
+                                                     record_dir=tmp_path / "records")}
+    system = "Answer with one digit." + "\n" * size
+    agent, prompt = make("mini-swe-agent", settings).instructed(system, "What is 2 + 2?")
+    result = agent.run(prompt, workspace=work)
+    assert result.extra["served"] and len(server.requests) == 1             # the config's step_limit
+    assert "Answer with one digit." in server.requests[0]["messages"][0]["content"]
+    [record] = (tmp_path / "records").glob("agent-*.json")
+    assert json.loads(record.read_text())["network"] == "isolated"
+
+
+def test_a_thinking_models_reasoning_is_a_step_of_the_trajectory():
+    """Codex's, Claude Code's and Pi's readers keep the model's reasoning as steps; mini-swe-agent's events carry
+    litellm's reasoning_content so that its reader does too."""
+    from hermit.agent.base.mini_swe_agent_run import event_of
+    from hermit.agent.base.trajectory import mini_swe_agent_steps
+    event = event_of({"role": "assistant", "content": None, "reasoning_content": "The total is in column C.",
+                      "extra": {"actions": [{"command": "cut -d, -f3 inventory.csv"}]}})
+    steps = mini_swe_agent_steps([event])
+    assert [(s.kind, s.text or s.command) for s in steps] == [("reasoning", "The total is in column C."),
+                                                               ("command", "cut -d, -f3 inventory.csv")]
+
+
+def test_after_a_format_error_mini_is_told_to_end_by_submitting_its_answer():
+    """mini's own recovery message ends a task with the bare COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT, an empty
+    submission: Hermit's tells the model to submit answer.txt, as its instance template does."""
+    template = mini.render_config("mini")["model"]["format_error_template"]
+    told = Template(template).render(error="no tool call", finish_reason="stop", has_tool_calls=False)
+    assert "`echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat answer.txt`" in told
+    assert "COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT`\n" not in told
 
 
 def test_the_layered_config_names_mini_swe_agent_and_binds_its_model(tmp_path):

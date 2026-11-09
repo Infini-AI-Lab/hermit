@@ -56,7 +56,8 @@ settings in `agent.mini-swe-agent`. The task functions of the [CLI agents](../fr
 
 Each task runs in a fresh workspace (`work/`, with the log in `log/` beside it). The agent submits its answer as
 mini-swe-agent ends a task, `echo COMPLETE_TASK_AND_SUBMIT_FINAL_OUTPUT && cat answer.txt`, and the submission is the
-last message the judge scores; without one (the step limit, the time limit) it is the last assistant message. The
+last message the judge scores; without one (the step limit) it is the last assistant message, and a task stopped at
+the time limit has none. The
 log holds the session's events (`agent-mini-swe-agent.jsonl`), which every Evolver reads as steps: the messages, each
 command with its output and exit code, errors.
 
