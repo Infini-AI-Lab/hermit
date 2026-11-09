@@ -818,6 +818,8 @@ def test_setup_checks_what_every_step_needs(tmp_path):
     ev.setup(ctx)
     with pytest.raises(ValueError, match="web_search"):
         ev.setup(context(ws, 1, dom, tmp_path, web_search=None))
+    with pytest.raises(ValueError, match="backend is codex or claude, not 'pi'"):   # its roles' settings are not Pi's
+        ev.setup(context(ws, 1, dom, tmp_path, backend="pi"))
     with pytest.raises(Exception):
         ev.setup(context(ws, 1, str(tmp_path / "dom" / "missing.py") + ":ToyDomain", tmp_path))
     with pytest.raises(ValueError, match="roles.model"):

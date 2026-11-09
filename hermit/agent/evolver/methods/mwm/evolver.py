@@ -456,6 +456,9 @@ class MwmEvolver(Evolver):
 
     # ------------------------------------------------------------------ steps
     def setup(self, ctx: Context) -> None:
+        if ctx.params.get("backend", "codex") not in ("codex", "claude"):   # its session texts, homes and sign-ins
+            raise ValueError("the mwm Evolver's learner is a Codex or Claude Code session: evolver.params.backend is "
+                             f"codex or claude, not {ctx.params.get('backend')!r}")
         if "network_isolation" in ctx.params:
             raise ValueError("evolver.params.network_isolation was removed: the learner runs in the run's evolver "
                              "sandbox, whose network reaches only its models, the tool endpoint and "
