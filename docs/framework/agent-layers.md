@@ -231,7 +231,7 @@ accepted; a key given in two layers is refused. On the command line a layer's se
 | OfficeQA in Codex, every method | Acting Agent with OfficeQA's task functions (`utils/task.py`) | `codex` |
 | OfficeQA in direct chat | Acting Agent running SkillOpt's chat loop | `direct`, per turn |
 | GEPA, SkillOpt, ReHarness, Continual Harness, OPRO | Evolver Agent | `direct` (`ctx.agent`); OPRO in OfficeQA: `codex` through `llm: {cli: codex}`; with `evolver.base: pi`, `pi` through `llm: {cli: pi}` |
-| Meta-Harness Adapter, ASPIRE, `codex` and `claude` Evolvers | Evolver Agent | `codex`, `claude` or `pi` |
+| Meta-Harness Adapter, ASPIRE, `codex` and `claude` Evolvers | Evolver Agent | `codex`, `claude`, `pi` or `opencode` |
 | `pi` Evolver | Evolver Agent | `pi` |
 | `opencode` Evolver | Evolver Agent | `opencode` |
 | RRSI Adapter | Evolver Agent: upstream's rules and roles, the proposer's prompt | `codex`, `claude` or `pi` for the proposer, and the same, one call per upstream `generate`, for the analyst, digesters and critic |

@@ -17,7 +17,7 @@ params:
   evidence_chars_per_case: 2000   # initial summaries; complete TRAIN observations available through role tools
   robustness_task_ids: []
   # Prefer evolver.base/model/<base>; these fields keep old configurations readable.
-  proposer: llm               # llm | codex | claude | pi (a CLI with read-only TRAIN experience tools)
+  proposer: llm               # llm | codex | claude (a CLI with read-only TRAIN experience tools); Pi: evolver.base: pi
   codex_bin: codex
   codex_model: gpt-6-sol
   codex_timeout_s: 600

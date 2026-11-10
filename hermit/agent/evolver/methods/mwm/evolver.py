@@ -5,7 +5,7 @@ task's pipeline), and the task's evidence store holds their records in the nativ
 the native wrapper ran after a block:
 
 1. maintenance on the adapter (journal roll, docket caps, gate advice, memory index; prompt.prepare_session);
-2. one session of the learner's CLI (`backend`: codex, as natively, or claude) with the native session prompt
+2. one session of the learner's CLI (`backend`: codex, as natively, claude or pi) with the native session prompt
    (prompt.build_prompt), started in the adapter directory with the native mounts (the world model at /w, read-only
    at /world-model; /evidence, /environment, /skills, /patterns), in its own network namespace (it reaches its model
    (the meter, or a login's hosts), the session's tool server with the venue's channels, the MW_TOOLSRV gate and
@@ -30,9 +30,9 @@ venue texts (contract/<slot>.md, delegation, host.json, environment/) are the `d
 (default task-info/mwm/; see deployment.py for what the method fixes itself).
 
 Parameters (evolver.params):
-  backend                      the learner's CLI: codex (default) or claude
+  backend                      the learner's CLI: codex (default), claude or pi
   model, args, home, price,    as for the built-in codex and claude Evolvers (args carries Codex's provider and
-  login, effort, env           reasoning settings; a binding's Claude Code provider settings come in env), with
+  login, effort, env           reasoning settings; a binding's Claude Code provider settings come in env, Pi's in provider), with
                                plan_dir, plan_max_wait_s, plan_rerun and usage_credits for a login's plan
   evidence                     the run's evidence store (required; must be among evolver_access.environment)
   deployment                   the venue's texts for MWM, relative to the run config (default: task-info/mwm)

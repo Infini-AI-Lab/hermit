@@ -1,5 +1,5 @@
-"""The AHE Adapter's Evolve Agent and Agent Debugger on Pi (`evolver.base: pi`), against the stand-in `pi`
-(tests/pi_stand.py)."""
+"""The AHE Adapter's learners on Pi (`evolver.base: pi`): the Agent Debugger's session against the stand-in `pi`
+(tests/pi_stand.py), on the Evolve Agent's settings, which the agent Evolver's own Pi route runs (tests/core)."""
 from dataclasses import fields
 import json
 
@@ -15,7 +15,9 @@ def test_the_ahe_learners_run_on_pi_with_its_bound_model(pi_stand, tmp_path):  #
     ctx = roles_ctx(tmp_path, {"login": None, "prompt": "START.md", "k": 1, **bound_params()})
     evolver = AHEAdapterEvolver()
     evolver.setup(ctx)
-    runner = D.Runner(ctx, {"model": None}, evolver.settings(ctx, "pi"), tmp_path / "scratch")
+    base = evolver.settings(ctx, "pi")                                # the Evolve Agent's own
+    assert base["provider"]["apiKey"] == "$FAKE_KEY" and base["model"] == "m-1"
+    runner = D.Runner(ctx, {"model": None}, base, tmp_path / "scratch")
     job = D.Job.__new__(D.Job)
     for f in fields(D.Job):
         setattr(job, f.name, {"task": "t1"}.get(f.name) if f.name == "task" else None)
@@ -32,6 +34,7 @@ def test_the_ahe_learners_run_on_pi_with_its_bound_model(pi_stand, tmp_path):  #
 
 def test_an_effort_pi_does_not_take_is_refused_at_setup(tmp_path):
     from hermit.agent.evolver.methods.ahe_adapter.evolver import AHEAdapterEvolver
-    with pytest.raises(ValueError, match="evolver.params.effort is one of off, minimal.*for Pi, not 'max'"):
-        AHEAdapterEvolver().setup(roles_ctx(tmp_path, {"login": None, **bound_params(), "effort": "max"}))
+    with pytest.raises(ValueError, match="evolver.params.effort is one of off, minimal.*for Pi, not 'bogus'"):
+        AHEAdapterEvolver().setup(roles_ctx(tmp_path, {"login": None, **bound_params(), "effort": "bogus"}))
+    AHEAdapterEvolver().setup(roles_ctx(tmp_path, {"login": None, **bound_params(), "effort": "max"}))
 

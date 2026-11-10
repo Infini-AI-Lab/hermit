@@ -72,7 +72,7 @@ Settings (given once; `configured(...)` for a call's own):
   image_input (true: the bound model takes images, such as a tool's result; default: text only, Pi's default for a
   model it does not know), append_system_prompt, effort (its --thinking level), allowed_tools (Pi's own tools by name,
   its --tools: read, grep, find, ls, bash, edit, write; the call's tools stay; empty: none of its own), persist_session
-  (false: --no-session). Pi takes no roles, has no web search and runs under isolation none or sandbox.
+  (false: --no-session), sampling (fields for the bound model's samplingParams: a chat request's temperature, top_p). Pi takes no roles, has no web search and runs under isolation none or sandbox.
   mini-swe-agent only: model_class, config, step_limit (MiniSweAgent; hermit.agent.base.mini_swe_agent). It takes no
   roles, no session and no login, has no web search and runs under isolation none or sandbox.
   OpenCode only: provider (its config's provider for the bound model, from the binding: Binding.opencode_provider;
@@ -1349,7 +1349,15 @@ class Pi(CliAgent):
     home_var, user_folder = "PI_CODING_AGENT_DIR", ".pi/agent"
     home_files = ("auth.json",)
     turn_done = "agent_settled"
-    efforts = ("off", "minimal", "low", "medium", "high", "xhigh")   # what --thinking takes; it warns and ignores others
+    efforts = ("off", "minimal", "low", "medium", "high", "xhigh", "max")   # --thinking's levels; it ignores others
+    sampling = ("temperature", "top_p")     # request fields a session applies (models.json samplingParams)
+
+    def applied_fields(self) -> tuple[str, ...]:
+        """The request fields a session applies (the chat endpoint's contract_problems): a bound model's sampling
+        fields, which Pi sends to an OpenAI-compatible API as the model's samplingParams; the Messages API ignores
+        them, so there a request that asks for one is refused, as on the other CLIs."""
+        api = (self.settings.get("provider") or {}).get("api")
+        return self.sampling if api in ("openai-completions", "openai-responses") else ()
 
     def home_env(self, home):
         """Every variable Pi reads goes here, so that it passes the sandbox's filter: its agent directory, its HOME
@@ -1379,6 +1387,9 @@ class Pi(CliAgent):
             if s.get("image_input"):          # else Pi sends the model no image (a text-only model refuses them)
                 for model in provider.get("models") or []:
                     model["input"] = ["text", "image"]
+            if s.get("sampling"):             # a request's own (cli_answer), over the backend's extra_body
+                for model in provider.get("models") or []:
+                    model["samplingParams"] = {**(model.get("samplingParams") or {}), **s["sampling"]}
             (home / "models.json").write_text(json.dumps({"providers": {PI_PROVIDER: provider}}, indent=1))
         # A tool call may take minutes (a Trainer tool runs rollouts): Codex's tool_timeout_sec, not Pi's 60 s
         servers = {tools_name: {"url": tools_url, "exposure": "direct", "timeout": 1800}} if tools_url else {}
@@ -1436,6 +1447,7 @@ class Pi(CliAgent):
             notes, done = "the session was to have no tools, and it ran one", False
         return {"reply": self.last_message(stream, last_file), "served": done,
                 "unavailable": bool(UNAVAILABLE.search(notes)), "refused": False, "failed": not done or cut,
+                "finish_reason": "length" if cut else ("stop" if done else None),
                 "failure": (notes or ("the reply was cut at its output limit" if cut else "the session did not settle")
                             )[-600:]}
 

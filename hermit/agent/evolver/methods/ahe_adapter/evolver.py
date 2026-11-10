@@ -2,7 +2,7 @@
 8b2a55d, `evolve.py`) as an Evolver on the `ahe` template, confined to the adapter (the acting agent is fixed).
 
 On the agent layers (docs/framework/agent-layers.md) both of its agents are Layer 3 over the Evolver's CLI Base Agent
-(`codex` or `claude`, `backend`): the
+(`codex`, `claude` or `pi`, `backend`): the
 Evolve Agent is AgentEvolver's session (the prompt on stdin, the run's sandbox, `check_spec` as its only tool), and
 the Agent Debugger is one call of the same Base Agent per attempt of each task (debugger.py), with the Evolve Agent's
 settings (the login and its plan, web search, the isolation, the price) and its own model, clock and home.

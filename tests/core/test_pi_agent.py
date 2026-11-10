@@ -89,6 +89,10 @@ def test_a_bound_model_is_pis_provider_with_its_key_as_a_variable_in_the_dialect
     long = bound(max_output_tokens=64000)
     assert long["provider"]["models"][0]["maxTokens"] == 64000
     assert Binding.from_spec(long["binding"]).pi_provider()["models"][0]["maxTokens"] == 64000   # a role's own binding
+    # a backend's extra_body goes with every request to an OpenAI-compatible API; the Messages API takes none
+    assert bound(extra_body={"reasoning_effort": "low"})["provider"]["models"][0]["samplingParams"] == {
+        "reasoning_effort": "low"}
+    assert "samplingParams" not in bound(apis=["messages"], extra_body={"x": 1})["provider"]["models"][0]
     free = bound(api_key_env="NO_SUCH_KEY_VAR", key_required=False)["provider"]
     assert free["apiKey"] == "local"                       # a server that needs no key gets the placeholder
 
@@ -324,15 +328,16 @@ def test_allowed_tools_are_pis_own_and_keep_the_calls_tools(fake):
 
 
 def test_pi_refuses_an_effort_it_does_not_take_and_keeps_no_session_when_told(fake):
-    """Pi warns about an unknown --thinking level and goes on at its default: refused, as for Claude Code."""
+    """Pi 1.5.0 takes off, minimal, low, medium, high, xhigh and max (clamped to what the model supports); it warns
+    about any other --thinking level and goes on at its default: refused, as for Claude Code."""
     work = fake / "work"
     work.mkdir()
     agent = make("pi", {**bound(), "web_search": False, "home": str(fake / "home")})
-    with pytest.raises(Unsupported, match="Pi takes effort .*not 'max'"):
-        agent.configured(effort="max").run("go", workspace=work)
-    agent.configured(persist_session=False, effort="xhigh").run("go", workspace=work)
+    with pytest.raises(Unsupported, match="Pi takes effort .*not 'bogus'"):
+        agent.configured(effort="bogus").run("go", workspace=work)
+    agent.configured(persist_session=False, effort="max").run("go", workspace=work)
     args = seen(fake)[0]["args"]
-    assert "--no-session" in args and args[args.index("--thinking") + 1] == "xhigh"
+    assert "--no-session" in args and args[args.index("--thinking") + 1] == "max"
 
 
 def test_a_model_through_pi_answers_each_request_with_a_session_that_only_replies(fake, monkeypatch):
@@ -348,11 +353,55 @@ def test_a_model_through_pi_answers_each_request_with_a_session_that_only_replie
     assert call["args"][call["args"].index("--append-system-prompt") + 1] == "Be exact."
 
 
+def cut_stream(fake, text: bool = True):
+    """The recorded resume stream with its reply ended at the output limit, and with no text but its thinking."""
+    lines = (STREAMS / "resume.jsonl").read_text().splitlines(keepends=True)
+    last = max(i for i, line in enumerate(lines) if '"type":"message_end"' in line and '"assistant"' in line)
+    event = json.loads(lines[last])
+    event["message"]["stopReason"] = "length"
+    if not text:
+        event["message"]["content"] = [{"type": "thinking", "thinking": "a long thought"}]
+    lines[last] = json.dumps(event, separators=(",", ":")) + "\n"
+    (fake / "cut.jsonl").write_text("".join(lines))
+    return str(fake / "cut.jsonl")
+
+
+def test_a_reply_cut_at_the_output_limit_comes_back_through_the_chat_endpoint_marked_so(fake, monkeypatch):
+    """As from an API: the methods that call the run's model read `finish_reason: length` (GEPA, SkillOpt and ReHarness
+    discard or retry such a reply), and one with no text is no error to retry the same way."""
+    from hermit.agent.base.endpoint import cli_answer
+    agent = make("pi", {**bound(), "web_search": False})
+    request = {"messages": [{"role": "user", "content": "hello"}]}
+    for text, content in ((True, "the answer"), (False, "")):
+        monkeypatch.setenv("FAKE_PI_STREAM", cut_stream(fake, text))
+        status, body, _ = cli_answer(agent, request)
+        choice = json.loads(body)["choices"][0]
+        assert status == 200 and choice["finish_reason"] == "length" and choice["message"]["content"] == content
+    work = fake / "work"
+    work.mkdir()
+    result = make("pi", {**bound(), "web_search": False, "home": str(fake / "home")}).run("go", workspace=work)
+    assert result.finish_reason == "length" and result.extra["failed"]
+
+
+def test_a_requests_sampling_fields_reach_pis_model_where_its_api_takes_them(fake, monkeypatch):
+    """Pi sends a model's samplingParams to an OpenAI-compatible API: a request's temperature and top_p are applied
+    there, not refused; on the Messages API Pi would drop them, so there they are refused, as on the other CLIs."""
+    from hermit.agent.base.endpoint import cli_answer
+    monkeypatch.setenv("FAKE_PI_STREAM", str(STREAMS / "resume.jsonl"))
+    request = {"messages": [{"role": "user", "content": "hello"}], "temperature": 0.3, "top_p": 0.9}
+    status, body, _ = cli_answer(make("pi", {**bound(extra_body={"seed": 1}), "web_search": False}), request)
+    [model] = json.loads(seen(fake)[0]["files"]["models.json"])["providers"]["hermit"]["models"]
+    assert status == 200 and "unapplied" not in json.loads(body)
+    assert model["samplingParams"] == {"seed": 1, "temperature": 0.3, "top_p": 0.9}
+    status, body, _ = cli_answer(make("pi", {**bound(apis=["messages"]), "web_search": False}), request)
+    assert status == 400 and "temperature" in json.loads(body)["error"]["message"] and len(seen(fake)) == 1
+
+
 @pytest.mark.parametrize("spec, match", [({}, "needs a <backend>/<model> reference"),
                                          ({"login": "chatgpt"}, "not login: chatgpt"),
                                          ({"binding": {"x": 1}, "isolation": "container"}, "needs isolation: sandbox"),
                                          ({"binding": {"x": 1}, "web_search": True}, "web_search cannot be on"),
-                                         ({"binding": {"x": 1}, "effort": "max"}, "takes effort off")])
+                                         ({"binding": {"x": 1}, "effort": "bogus"}, "takes effort off")])
 def test_what_a_model_through_pi_cannot_be_is_said_before_any_session(spec, match):
     from hermit.agent.base.endpoint import cli_problems
     assert any(match in problem for problem in cli_problems({"cli": "pi", **spec}))
@@ -379,6 +428,48 @@ def test_evolver_base_pi_is_the_run_model_of_a_method_that_calls_it_and_the_lear
         assert data["evolver"]["params"]["backend"] == "pi" and data["llm"] is None, name
     with pytest.raises(ValueError, match="llm names it too"):
         layered({"agent": {}, "llm": "fake/m-1", "evolver": {"name": "opro", "base": "pi", "model": "fake/m-1", "params": {}}})
+    data = {"agent": {}, "llm": None, "model": "fake/m-1", "evolver": {"name": "ace", "base": "pi", "params": {}}}
+    layered(data)                                         # the run's default model, when evolver.model is not given
+    assert data["llm"] == {"cli": "pi", "model": "fake/m-1"}
+    data = {"agent": {}, "llm": None, "backends": {"anth": {"base_url": "http://127.0.0.1:9/v1", "api_key_env": "FAKE_KEY",
+                                                            "apis": ["messages"]}},
+            "evolver": {"name": "gepa", "base": "pi", "model": "anth/m-2", "params": {}}}
+    layered(data)
+    normalize_config(data)
+    [(_, _, dialect)] = bindings_of(data)                  # the dialect Pi speaks to this backend
+    assert dialect == "messages" and data["llm"]["provider"]["api"] == "anthropic-messages"
+
+
+def test_a_custom_evolver_takes_evolver_base_pi_as_its_cli_unless_its_manifest_says_it_calls_the_runs_model(tmp_path,
+                                                                                                         monkeypatch):
+    """A launcher of the agent Evolver (docs/framework/custom-evolver.md) names no backend in its manifest: Pi is its
+    CLI, as before. One whose manifest says `needs: [llm]` calls the run's model, which becomes Pi; a relative name is
+    found beside the config."""
+    import sys
+    sys.path.insert(0, str(ROOT / "tests"))
+    from toy_task import make_task
+    from hermit.config import Config
+    monkeypatch.setenv("FAKE_KEY", "sk-fake")
+    for name, needs in (("agentic", []), ("chatty", ["llm"])):
+        folder = tmp_path / name
+        folder.mkdir()
+        (folder / "evolver.yaml").write_text("class: hermit.agent.evolver.agent:AgentEvolver\n"
+                                             f"needs: {json.dumps(needs)}\nparams: {{prompt: START.md, web_search: false}}\n")
+    backends = {"fake": {"base_url": "http://127.0.0.1:9/v1", "api_key_env": "FAKE_KEY", "apis": ["chat"]}}
+    path = make_task(tmp_path, evolver={"name": "agentic", "base": "pi", "model": "fake/m-1"}, backends=backends)
+    agentic = Config.load(path).data
+    assert agentic["evolver"]["params"]["backend"] == "pi" and not agentic.get("llm")
+    chatty = Config.load(path, ["evolver.name=chatty"]).data
+    assert chatty["llm"]["cli"] == "pi" and "backend" not in chatty["evolver"]["params"]
+
+
+def test_a_pipelines_model_through_pi_is_bound_as_the_learners_is():
+    from hermit.agent.model.backends import normalize_config
+    data = {"agent": {"name": "react", "params": {"model": {"cli": "pi", "model": "fake/m-1"}}},
+            "backends": {"fake": {"base_url": "http://127.0.0.1:9/v1", "api_key_env": "FAKE_KEY", "apis": ["chat"]}}}
+    normalize_config(data)
+    spec = data["agent"]["params"]["model"]
+    assert spec["cli"] == "pi" and spec["provider"]["apiKey"] == "$FAKE_KEY" and spec["model"] == "m-1"
 
 
 # ---------- the installed pi (integration) ----------
@@ -495,3 +586,27 @@ def test_with_the_pi_cli_a_limited_session_is_offered_only_what_it_may_use(tmp_p
     finally:
         server.shutdown()
     assert result.extra["served"] and result.reply == "the answer" and asked == [offered]
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not shutil.which("pi"), reason="needs the pi CLI")
+def test_with_the_pi_cli_a_requests_temperature_and_the_backends_extra_body_reach_the_model(tmp_path, monkeypatch):
+    """The installed Pi behind the chat endpoint: what it sends is what the method asked and the backend adds."""
+    from hermit.agent.base.endpoint import cli_answer
+    bodies = []
+
+    def script(body):
+        bodies.append(body)
+
+    server, url = serve_chat(script)
+    monkeypatch.setenv("MOCK_KEY", "sk-mock")
+    params = bind_agent_params({"model": "mock/m-1"}, "pi", registry({"mock": {
+        "base_url": url, "api_key_env": "MOCK_KEY", "apis": ["chat"], "extra_body": {"reasoning_effort": "low"}}}))
+    try:
+        status, body, _ = cli_answer(make("pi", {**params, "web_search": False, "home": str(tmp_path / "home"),
+                                                 "timeout_s": 300}),
+                                     {"messages": [{"role": "user", "content": "hi"}], "temperature": 0.3})
+    finally:
+        server.shutdown()
+    [sent] = bodies
+    assert status == 200 and sent["temperature"] == 0.3 and sent["reasoning_effort"] == "low" and not sent.get("tools")

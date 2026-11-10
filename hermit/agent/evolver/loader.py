@@ -12,7 +12,7 @@ import yaml
 from hermit.agent.evolver.base import Evolver
 
 BUILTIN = Path(__file__).resolve().parent / "methods"
-NEEDS = {"validation_data", "environment", "send_material_out"}
+NEEDS = {"validation_data", "environment", "send_material_out", "llm"}   # llm: it calls the run's model
 
 
 @dataclass

@@ -96,7 +96,7 @@ lab-sglang:                             # a new one, like the built-in sglang at
 | `messages_url` | the root the Anthropic Messages API is under, when it is not `base_url` without its `/v1` |
 | `litellm` | the litellm route prefix, for task agents that call through litellm (`fireworks_ai`, `hosted_vllm`) |
 | `prices` | per model id, `{input, cached_input, output}` in USD per million tokens; a model without one has an unknown cost (never zero) |
-| `extra_body` | fields added to every chat request, such as `reasoning_effort` |
+| `extra_body` | fields added to every chat request, such as `reasoning_effort`; Pi sends them as its model's `samplingParams` to an OpenAI-compatible API |
 | `context_window` | tokens; Codex is told it as `model_context_window`, Claude Code as `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, Pi as `contextWindow` |
 | `max_output_tokens` | tokens one request may answer with; Pi is told it as `maxTokens`, and otherwise uses its default of 16384: a model that reasons long can be cut before it answers, and that session fails |
 | `developer_role` | `keep` (default), or `system`: a relay in front of the backend renames the `developer` role Codex uses, for an endpoint that refuses it (the built-in `fireworks` sets it, as the examples always did; Qwen3.6's chat template refuses a `system` message after the first, so a local server keeps the role) |

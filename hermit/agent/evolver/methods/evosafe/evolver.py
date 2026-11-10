@@ -31,6 +31,9 @@ class EvoSafeEvolver(Evolver):
         proposer = role_backend(ctx.params)
         if proposer not in {"llm", "codex", "claude", "pi"}:
             return StepResult("failed", "proposer must be llm, codex, claude or pi")
+        if proposer == "pi" and not ctx.params.get("provider"):
+            return StepResult("failed", "proposer pi takes its model from evolver.base: pi and evolver.model (a "
+                                        "<backend>/<model> reference)")
         if proposer == "llm" and "llm" not in ctx.tools:
             return StepResult("failed", "configure the run's llm tool for defense proposals")
         search_mode = ctx.params.get("search_mode", "single")

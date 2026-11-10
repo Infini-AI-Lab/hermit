@@ -18,8 +18,11 @@ def roles_of(tmp_path, **more):
     return evolver._roles(ctx)
 
 
-def test_a_role_on_pi_has_no_tools_a_digester_only_those_that_read_and_each_its_bound_model(pi_stand, tmp_path):  # noqa: F811
+def test_a_role_on_pi_has_no_tools_a_digester_only_those_that_read_and_each_its_bound_model(pi_stand, tmp_path,  # noqa: F811
+                                                                                             monkeypatch):
     pytest.importorskip("rrsi")
+    from hermit.agent.evolver.methods.rrsi_adapter import roles as R
+    monkeypatch.setattr(R.shutil, "which", lambda program: f"/usr/bin/{program}")     # rg and fd installed
     roles = roles_of(tmp_path)
     assert roles.backend == "pi"
     assert roles.generate("look at this", system="You are the analyst.") == "the answer"
@@ -35,6 +38,17 @@ def test_a_role_on_pi_has_no_tools_a_digester_only_those_that_read_and_each_its_
     [digester] = pi_stand.seen()
     assert digester["args"][digester["args"].index("--tools") + 1] == "read,grep,find,ls"
     assert "--no-tools" not in digester["args"] and digester["cwd"] == str(roles.traces.resolve())
+
+
+@pytest.mark.parametrize("found, tools", [(lambda p: None, ["read", "ls"]),
+                                          (lambda p: f"/home/u/.cargo/bin/{p}", ["read", "ls"]),
+                                          (lambda p: f"/usr/bin/{p}" if p == "rg" else None, ["read", "grep", "ls"])])
+def test_a_digester_on_pi_gets_grep_and_find_only_where_they_can_run(monkeypatch, found, tools):
+    """Pi's grep and find run rg and fd, which a Pi offline cannot fetch; a sandbox shows the system's programs only."""
+    pytest.importorskip("rrsi")
+    from hermit.agent.evolver.methods.rrsi_adapter import roles as R
+    monkeypatch.setattr(R.shutil, "which", found)
+    assert R.pi_digester_tools() == tools
 
 
 def test_the_roles_own_binding_is_their_provider_on_pi(pi_stand, tmp_path):  # noqa: F811

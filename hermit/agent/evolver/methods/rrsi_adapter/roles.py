@@ -32,6 +32,7 @@ import itertools
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import threading
 import time
@@ -42,7 +43,14 @@ from hermit.agent.evolver.base import Usage
 
 ROLE_MODULES = ("rrsi.analyst", "rrsi.digester", "rrsi.critic")
 DIGESTER_TOOLS = ["Read", "Grep", "Glob"]   # Claude Code's tools that only read, as Codex's read-only sandbox allows
-PI_DIGESTER_TOOLS = ["read", "grep", "find", "ls"]    # Pi's own
+
+
+
+def pi_digester_tools() -> list[str]:
+    """Pi's tools that only read, of those that work here: its grep and find run rg and fd, which a Pi offline cannot
+    fetch, so they are given only where the machine has them on the system paths a sandbox shows."""
+    found = {name: shutil.which(program) for name, program in (("grep", "rg"), ("find", "fd"))}
+    return ["read", *(n for n in ("grep", "find") if (found[n] or "").startswith(("/usr/", "/bin/"))), "ls"]
 LABELS = {"codex": "Codex", "claude": "Claude Code", "pi": "Pi"}
 
 
@@ -193,7 +201,7 @@ class Roles:
         cwd = self.traces if digester else work
         settings = {**self.settings, "home": call / "home", "log": rec / "events.jsonl", "stdin": True,
                     "cancel": self.ctx.cancel,
-                    **({"allowed_tools": PI_DIGESTER_TOOLS if self.backend == "pi" else DIGESTER_TOOLS}
+                    **({"allowed_tools": pi_digester_tools() if self.backend == "pi" else DIGESTER_TOOLS}
                        if digester else {"text_only": True})}
         # Each session sees only its own call directory and, a digester, the round's traces: not the run's records,
         # the other calls' homes or the records in progress.

@@ -5,7 +5,7 @@ description: Harness² (Xu et al., arXiv:2610.14224) under the paper's own proto
   executed on the same task as the deliverable, and a reflection that adds the adopted harness and its lesson to a
   per-domain library, the only thing carried to the next task. The adapter is never changed. Editor sessions are
   upstream's claude_cli channel on the bound model or on a login, each in its own sandbox; executions go through
-  run_agent, with the run's acting agent (Codex or Claude Code). No judge score reaches any session.
+  run_agent, with the run's acting agent (Codex, Claude Code or Pi). No judge score reaches any session.
 class: evolver.py:Harness2UpstreamEvolver
 needs: []
 params:
@@ -19,7 +19,7 @@ params:
   session_timeout_s: 3600    # wall clock per session attempt (upstream's ChannelSpec default)
   tools: Read,Write,Edit,Glob,Grep,Bash   # the session's tools: files and a shell inside its sandbox, no web
   claude_bin: null           # the sessions' CLI binary to pin for the run; null: the versioned path of `claude` (or
-                             # `codex`) at start
+                             # `codex`, `pi`) at start
   login: null                # the editors on the user's subscription, its plan's waits and holds (hermit.agent.base.login):
                              # backend claude: claude (the token of `claude setup-token` in CLAUDE_CODE_OAUTH_TOKEN);
                              # backend codex: chatgpt (the user's ChatGPT login)

@@ -17,11 +17,14 @@ On the single-file prompt-only template, the Codex learner is the [prompt-only](
 | `pi`, Meta-Harness Adapter, ASPIRE, MWM, AHE Adapter, Harness², RRSI Adapter, EvoSafe | The method's own sessions, as on Codex or Claude Code |
 | GEPA, SkillOpt, ACE, OPRO, ReHarness, Continual Harness | They call the run's model, so that model becomes Pi: each call is one session with no tools (the same as `llm: {cli: pi, model: <backend>/<model>}`) |
 
-Pi signs in only through the model reference and has no web search. A session cannot apply a request's `temperature`,
-and a request that asks for one is refused: OPRO, whose default is `1.0`, needs `evolver.pi: {unapplied: [temperature]}`
-or `evolver.params.temperature: null`. Pi has no sub-agents: an adapter's sub-agents stay files its acting agent can read.
-Pi caps one reply at 16384 tokens unless the backend says otherwise: where a long answer is due (EvoSafe's whole files)
-and the model reasons at length, give the backend a larger
+Pi signs in only through the model reference and has no web search. Where the backend speaks an OpenAI-compatible API
+(chat completions or the Responses API), a request's `temperature` and `top_p`, and the backend's `extra_body`, reach
+the model as Pi's `samplingParams`; on the Messages API Pi ignores them, so there a request that asks for a
+`temperature` is refused unless `evolver.pi.unapplied` names it. Pi has no sub-agents: an adapter's sub-agents stay
+files its acting agent can read. Pi's `grep` and `find` tools run `rg` and `fd`, which an offline Pi cannot fetch: RRSI's
+digesters get them only where the machine has them. Pi caps one reply at 16384 tokens unless the backend says otherwise:
+a reply cut there comes back with `finish_reason: length`, or fails the session that needed it whole. Where a long answer
+is due (EvoSafe's whole files) and the model reasons at length, give the backend a larger
 [`max_output_tokens`](../guides/model-backends.md).
 
 ## Requirements and setup

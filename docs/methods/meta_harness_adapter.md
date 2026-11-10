@@ -40,7 +40,7 @@ This fragment belongs in a complete [run config](../framework/configuration.md).
   ([What an adapter can rely on](../framework/adapter.md#what-an-adapter-can-rely-on)); what happens to the
   adapter's other files depends on the agent, and the task information must say so, because the proposer learns
   it from there.
-- A Codex, Claude Code or Pi CLI for the proposer, as the built-in [agent Evolvers](agent.md) run it.
+- A Codex, Claude Code, Pi or OpenCode CLI for the proposer, as the built-in [agent Evolvers](agent.md) run it.
 
 ## The template
 
@@ -80,7 +80,7 @@ first.
 | Paper (Algorithm 1) | Framework |
 |---|---|
 | The filesystem D | The Evolver's `state/`: `evolution_summary.jsonl` (one line per candidate: id, round, hypothesis, base, mean score, where its files and rollouts are), `candidates/<id>/adapter/`, and the learning material's `step_NNNN/` (for each task its input, the agent's output, the judge's score and feedback, the full trajectory) |
-| The proposer | An `AgentEvolver` session (Codex, Claude Code or Pi) started afresh each round with the round's prompt, `PROPOSE.md`; it reads D and writes into `scratch/candidates/` |
+| The proposer | An `AgentEvolver` session (Codex, Claude Code, Pi or OpenCode) started afresh each round with the round's prompt, `PROPOSE.md`; it reads D and writes into `scratch/candidates/` |
 | Interface validation | `check_spec` on each candidate, by the proposer and again by the Evolver |
 | Evaluation on the search set | The Trainer's rollouts of the next step, on the training split |
 | Selection | `finalize`: the best mean on the search set |
@@ -99,7 +99,7 @@ candidates, do not run the evaluation.
 |---|---|---|
 | `k` | Positive integer / 2 | Candidates per proposal round (the paper: 2-3; its TerminalBench-2 run: 1) |
 | `max_rounds` | Integer or null / null | Proposal rounds; null starts a new round whenever every proposed candidate was evaluated, including on the run's last step, whose candidates are then never evaluated. With `max_rounds` R, `trainer.epochs` = 1 + R x k evaluates each candidate once; more epochs re-evaluate the best |
-| `backend`, `model`, `args` | `codex`, `claude` or `pi`; `<backend>/<model id>`; CLI arguments | The proposer and its model, as for the built-in [agent Evolvers](agent.md) |
+| `backend`, `model`, `args` | `codex`, `claude`, `pi` or `opencode`; `<backend>/<model id>`; CLI arguments | The proposer and its model, as for the built-in [agent Evolvers](agent.md) |
 | `tools` | List / `[check_spec]` | The Trainer tools the proposer may call; `run_agent` is left out on purpose: the evaluation is the Trainer's |
 | `prompt` | File name / `PROPOSE.md` | The round's prompt; its placeholders (`{round}`, `{k}`, the paths) are filled per round |
 
@@ -112,7 +112,7 @@ The rollout cost is (1 + R x k) x |search set| rollouts for R rounds, plus one p
 | What the proposer may change | The whole harness program, including the acting agent's loop | Every file of the adapter outside `.hermit/`; the acting agent, its loop and the host stay fixed | forced by the framework |
 | Selection | A population with a Pareto frontier (for example accuracy against context length); the frontier is tested | The best mean on the search set; one candidate is tested | decision |
 | Parent selection | None fixed: the proposer chooses what to build on | The same: each candidate names its `base`, or none | matched |
-| Proposer | Claude Code with Claude Opus 4.6 at maximum effort | Codex, Claude Code or Pi with the run's choice of model | a setting |
+| Proposer | Claude Code with Claude Opus 4.6 at maximum effort | Codex, Claude Code, Pi or OpenCode with the run's choice of model | a setting |
 | Interface validation | The candidate imports | `check_spec` against the template | forced by the framework |
 | Isolation | — | The proposer runs in the run's sandbox; candidates with symbolic links are rejected, since they are copied outside it; a stored candidate changed in place (content or executable bit) is never handed back; the Evolver's own writes after a round never follow a link the proposer left | the reproduction's |
 

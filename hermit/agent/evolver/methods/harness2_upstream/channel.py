@@ -150,38 +150,37 @@ class FrameworkProposer(Proposer):
         """The session on Pi: the `pi` Base Agent on the bound model (its models.json provider), the mission on stdin,
         upstream's system text appended to Pi's own, Pi's own tools (read, bash, edit, write) inside the run's sandbox,
         no session kept."""
-        from hermit.agent.base.cli import EFFORTS
         own = {k: str(v) for k, v in (self.params.get("env") or {}).items()}
         err = Path(cwd) / ".session.err"
+        key = (self.params.get("binding") or {}).get("api_key_env")          # upstream drops Anthropic's for Claude
         settings = {"web_search": False, "bin": self.params.get("claude_bin") or "pi", "stdin": True,
-                    "effort": EFFORTS.get(self.spec.effort, self.spec.effort),     # Claude Code's max is Pi's xhigh
+                    "effort": self.spec.effort,                               # Claude Code's levels are Pi's too
                     "model": self.params.get("model") or self.spec.model, "binding": self.params.get("binding"),
                     "provider": self.params.get("provider"), "image_input": self.params.get("image_input"),
                     "price": self.params.get("price"), "args": self.params.get("args"),
                     "append_system_prompt": system or None, "persist_session": False,
                     "home": Path(cwd) / ".pi-home", "home_files": [], "log": Path(cwd) / ".session.out",
-                    "stderr_log": err, "env": {**QUIET, **own}, "env_drop": sorted(_DROP_ENV),
+                    "stderr_log": err, "env": {**QUIET, **own}, "env_drop": sorted(set(_DROP_ENV) - {key}),
                     "isolation": "sandbox" if self.sandbox is not None else "none", "sandbox": self.sandbox,
                     "writable": [Path(cwd)], "timeout_s": wall, "cancel": self.cancel}
         result = make("pi", {k: v for k, v in settings.items() if v is not None}).run(mission, workspace=Path(cwd))
         return self._reply("pi", result, err, wall)
 
     def _reply(self, program: str, result, err: Path, wall: int) -> tuple[str, float, str]:
-        """(reply, cost, problem) of a Codex or Pi session, its usage kept for the step."""
+        """(reply, cost, problem) of a Codex or Pi session. Its usage is kept for the step, a failed session's too; a
+        reply cut at the output limit is no reply."""
         if result.extra["cancelled"]:
             raise RuntimeError("the session was stopped by the Trainer (budget or timeout)")
         if result.timed_out:
             raise subprocess.TimeoutExpired([program], wall)
-        if not result.extra["served"] or not result.reply.strip():
-            tail = (_read_own(err) or result.extra.get("output_tail", ""))[-300:]
-            return "", 0.0, f"rc={result.exit_code}: {tail}"
-        cost = 0.0
+        with self._usage_lock:
+            self.usages.extend(result.usage)
+        cost = sum(float(u.cost_usd or 0.0) for u in result.usage)
+        if not result.extra["served"] or not result.reply.strip() or result.finish_reason == "length":
+            tail = (_read_own(err) or result.extra.get("failure") or result.extra.get("output_tail", ""))[-300:]
+            return "", cost, f"rc={result.exit_code}: {tail}"
         with self._usage_lock:
             self.served += 1
-        for usage in result.usage:
-            with self._usage_lock:
-                self.usages.append(usage)
-            cost += float(usage.cost_usd or 0.0)
         return result.reply, cost, ""
 
     def _harvest(self, tmp: Path, sub: str, label: str, cache_key: str = "") -> Path | None:

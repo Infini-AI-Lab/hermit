@@ -14,7 +14,7 @@ What is upstream's code, unchanged (the pinned `rrsi` package): the schedule (rr
 and its summaries (rrsi.history: L_t, T_t, U_t, sigma_t, E_t, g_t, B_t, the rendered rows), the component tags
 (rrsi.components.normalize), the scores (rrsi.evaluate), delta's calibration (rrsi.calibrate), the selection
 (rrsi.selection.select_round), the analyst with its digesters (rrsi.analyst.analyze) and the critic (rrsi.critic.
-review), the last two with `generate` rebound to one session of the proposer's CLI Base Agent (`codex` or `claude`)
+review), the last two with `generate` rebound to one session of the proposer's CLI Base Agent (`codex`, `claude` or `pi`)
 per call (roles.py). What
 is Hermit's:
 
@@ -573,7 +573,7 @@ class RRSIAdapterEvolver(AgentEvolver):
             provider = provider if list(base.get("args") or [])[:len(provider)] == provider else []
         if role.get("model") is not None:                    # nor its provider arguments
             args = list(base.get("args") or [])[len(provider):]
-            base = {k: v for k, v in base.items() if k not in ("binding", "price", "args", "provider")} | (
+            base = {k: v for k, v in base.items() if k not in ("binding", "price", "args")} | (
                 {"args": args} if args else {})
             base["env"] = {k: v for k, v in (base.get("env") or {}).items() if k not in CLAUDE_ENV}
             provider = []
@@ -1017,7 +1017,7 @@ class RRSIAdapterEvolver(AgentEvolver):
         return cdir
 
     def _session(self, ctx, prompt: str, path: Path, work: Path, session: str | None, log: Path) -> StepResult:
-        """One proposer session (or a resumed one) of the `codex` or `claude` Base Agent, in the variant's working
+        """One proposer session (or a resumed one) of the `codex`, `claude` or `pi` Base Agent, in the variant's working
         directory (its candidate under adapter/, its context under context/) and the task description, nothing else the
         run keeps (a view of the run's sandbox), the Trainer's allowed tools, and its event log at `log`. Its home is
         the variant's own: a later variant never reads an earlier one's sessions."""
@@ -1070,7 +1070,7 @@ class RRSIAdapterEvolver(AgentEvolver):
                 # the model's plan held the session back past its wait, or refused it: not the proposer's doing, so
                 # the variant is drafted again later, never recorded as a gate failure
                 raise Stop(f"the model's plan did not serve a proposer session: {tail[-200:]}")
-            if result.exit_code == 0 or extra.get("served") or not extra.get("unavailable"):
+            if extra.get("served") or not extra.get("unavailable"):          # Pi exits 0 when its provider failed
                 ended = result.exit_code == 0 and not extra.get("failed")    # exit 0 with no result is no finished edit
                 return StepResult("done" if ended else "failed",
                                   f"{backend} session exited with {result.exit_code}", session=result.session,

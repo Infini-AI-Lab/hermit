@@ -110,13 +110,12 @@ def _model(params: dict, model, where: str, cli: bool = True) -> None:
 
 def _calls_the_runs_model(name, base: Path | None) -> bool:
     """Whether the Evolver `name` decides each step in its own code and calls the run's model (`ctx.agent`, the `llm`
-    tool): its manifest names no CLI of its own (no `backend`, no `proposer`)."""
+    tool): its manifest says so (`needs: [llm]`). Any other Evolver takes `evolver.base` as its own CLI."""
     from hermit.agent.evolver.loader import find
     try:
-        params = find(str(name), base).params
+        return "llm" in find(str(name), base).needs
     except ValueError:                                     # no such Evolver: said where the Evolver is loaded
         return False
-    return "backend" not in params and "proposer" not in params
 
 
 def layered(data: dict, base_dir: Path | None = None) -> None:

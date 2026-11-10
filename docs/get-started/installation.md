@@ -109,12 +109,12 @@ python -m pip install "hermit-harness[mini-swe-agent]"
 | Prompt-only learner | The Codex CLI, Linux with bubblewrap, and a learner backend that serves the Responses API |
 | GEPA | `python -m pip install -e . --group gepa`, learner endpoint, validation split |
 | SkillOpt | `python -m pip install -e . --group skillopt`, learner endpoint, validation split |
-| Harness² | Python 3.12 or 3.13, `python -m pip install -e . --group harness2`, Claude Code, and the execution environment described in [Harness²](../methods/harness2.md) |
+| Harness² | Python 3.12 or 3.13, `python -m pip install -e . --group harness2`, Claude Code (or Codex or Pi), and the execution environment described in [Harness²](../methods/harness2.md) |
 | RRSI Adapter | `python -m pip install -e . --group rrsi`, a CLI for the proposer and its analyst, digesters and critic (Codex, Claude Code or Pi), a training split evaluated k times per task |
 | Codex / Claude learner | Selected authenticated CLI and supported program-execution environment |
 | MWM | Linux learner environment, Codex, Claude Code or Pi, evidence store, task deployment contract, model access |
 | Acting and learning on a Claude subscription | Claude Code 2.1.248 or later, `claude setup-token`, Linux with bubblewrap for its sandboxes; see [Claude subscription](../guides/claude-subscription.md) |
-| Pi acting agent or learner | The release's own directory on `PATH` (GitHub release `pi-linux-x64.tar.gz`, checked against its `SHA256SUMS`; the sandboxes follow no link from `/usr`) and a model reference |
+| Pi acting agent or learner | The `pi` release binary on `PATH` (GitHub release `pi-linux-x64.tar.gz`, checked against its `SHA256SUMS`) and a model reference. For a Pi acting agent put the release's directory on `PATH`, or link `pi` from outside `/usr`: its task sandbox shows a program's own directory and follows no link from `/usr` |
 | OpenCode acting agent or learner | The `opencode` 2.2 release binary on `PATH` (GitHub release `opencode-linux-x64.tar.gz` of `anomalyco/opencode`, checked against the release's sha256 digest) and a model reference |
 | Benchmark recipe | Its dataset, scorer, model settings, and environment; see [catalog](../recipes/index.md) |
 

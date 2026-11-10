@@ -649,6 +649,26 @@ def test_a_plan_refusal_in_a_proposer_session_is_not_a_gate_failure(tmp_path, mo
     assert not (ws.state / "rrsi" / "r0" / "A" / "prep.json").exists()
 
 
+def test_a_provider_outage_in_a_session_that_exits_zero_is_retried_and_never_a_gate_failure(tmp_path, monkeypatch):
+    """Pi's JSON mode exits 0 when its provider could not serve: the session is resumed after a pause, as Codex's and
+    Claude Code's are, and a provider that keeps failing stops the step without counting it toward max_failures."""
+    ws = workspace(tmp_path)
+    dom = domain_files(tmp_path)
+    ev = evolver(monkeypatch, Script({}))
+    calls = []
+
+    class Down(CodexSession):
+        def run(self, prompt, **kw):
+            calls.append(prompt)
+            return Result(reply="", exit_code=0, extra={"served": False, "unavailable": True, "started": True,
+                                                        "cancelled": False, "failed": True, "output_tail": "503: busy"})
+    monkeypatch.setattr(E, "make", lambda name, settings=None, model=None: Down(settings))
+    material(ws, 1, rows({"q1": [0, 1], "q2": [1, 0], "q3": [1, 1], "q4": [0, 0]}))
+    r = ev.step(context(ws, 1, dom, tmp_path, session_retries=1, session_retry_wait_s=0))
+    assert r.status == "failed" and "kept failing a proposer session" in r.summary
+    assert len(calls) == 2 and state(ws)["failures"] == 0
+
+
 def test_a_host_side_write_replaces_a_named_pipe_instead_of_waiting_on_it(tmp_path):
     import threading
     from hermit.agent.evolver.methods.rrsi_adapter.store import _write
@@ -825,6 +845,10 @@ def test_setup_checks_what_every_step_needs(tmp_path):
             ev.setup(context(ws, 1, dom, tmp_path, backend=other))
     with pytest.raises(ValueError, match="roles.model on Pi needs roles.binding"):
         ev.setup(context(ws, 1, dom, tmp_path, backend="pi", roles={"model": "m"}))
+    odd = {"backend": "x", "base_url": "http://x", "model": "m", "api_key_env": "K", "max_output_tokens": "64k"}
+    ev.setup(context(ws, 1, dom, tmp_path, roles={"binding": odd}))         # a limit Codex's arguments never read
+    with pytest.raises(ValueError, match="roles.binding"):                  # Pi's provider does: read as Pi reads it
+        ev.setup(context(ws, 1, dom, tmp_path, backend="pi", roles={"binding": odd}))
     with pytest.raises(Exception):
         ev.setup(context(ws, 1, str(tmp_path / "dom" / "missing.py") + ":ToyDomain", tmp_path))
     with pytest.raises(ValueError, match="roles.model"):
