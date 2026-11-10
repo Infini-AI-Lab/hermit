@@ -1,5 +1,5 @@
 """Inputs shared by the host deployers and by `convert`: rendered exports, names, roles, stale-role
-retirement, skills, the adapter's copy and its hooks."""
+retirement, skills and stale-skill retirement, the adapter's copy and its hooks."""
 import hashlib
 import json
 import os
@@ -64,7 +64,8 @@ def source_label(manifest):
 
 
 def copy_skills(adapter: Path, manifest: dict, target: Path) -> list[str]:
-    """Copy every skill directory (one containing SKILL.md) of the adapter's `skills` export into target."""
+    """Copy every skill directory (one containing SKILL.md) of the adapter's `skills` export into target, in place of
+    the copy an earlier deployment left there: no file the skill no longer has survives."""
     if not manifest.get("skills"):
         return []
     source = (adapter / manifest["skills"]).resolve()
@@ -72,9 +73,34 @@ def copy_skills(adapter: Path, manifest: dict, target: Path) -> list[str]:
     if source.is_dir():
         for child in sorted(source.iterdir()):
             if (child / "SKILL.md").is_file():
-                shutil.copytree(child, target / child.name, dirs_exist_ok=True, symlinks=True)
+                _remove(target / child.name)
+                shutil.copytree(child, target / child.name, symlinks=True)
                 names.append(child.name)
     return names
+
+
+def retire_skills(output, previous, current, target):
+    """Move the skills an earlier deployment copied into `target` (its record's `skills`) that this one does not
+    (`current`) out of host discovery; keep their contents. A skill the user put there is never in the record."""
+    names = previous.get("skills") or []
+    stale = [name for name in names if name not in current] if isinstance(names, list) else [None]
+    if any(not isinstance(name, str) or name in ("", ".", "..") or Path(name).name != name for name in stale):
+        raise ValueError("Previous skill metadata points outside the generated host workspace")
+    for name in stale:
+        path = target / name
+        if not os.path.lexists(path):
+            continue
+        archive = output / ".retired-skills" / uuid.uuid4().hex
+        archive.mkdir(parents=True)
+        path.rename(archive / name)
+
+
+def _remove(path: Path) -> None:
+    """`path` gone, whatever it is: a link is removed, never followed."""
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+    elif path.is_dir():
+        shutil.rmtree(path)
 
 
 def _adapter_sandbox_env(python: str) -> dict:

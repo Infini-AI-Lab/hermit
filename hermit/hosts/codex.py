@@ -17,8 +17,8 @@ from hermit.adapter.loader import agent_tools, hook_definitions, load_manifest, 
 from hermit.hosts.context import PROJECT_CONTEXT, append_context
 from hermit.hosts.inputs import (MARKER, PACKAGE_ROOT, _adapter_sandbox_env, adapter_files, adapter_folder,
                                  check_context_size, check_workspace, copy_adapter, copy_skills, folder_note,
-                                 hook_commands, native_hooks, render_exports, resources, retire_roles, role_body,
-                                 server_name, source_label)
+                                 hook_commands, native_hooks, render_exports, resources, retire_roles, retire_skills,
+                                 role_body, server_name, source_label)
 
 DOC_BYTES = 32 * 1024                     # Codex's project_doc_max_bytes when the user's config does not set it
 NATIVE = {"skills", "agents"}
@@ -106,6 +106,7 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
         hooks_path.unlink()
     retire_roles(output, previous, role_paths)
     skills = copy_skills(adapter, manifest, output / ".codex" / "skills")
+    retire_skills(output, previous, skills, output / ".codex" / "skills")
     copy_adapter(adapter, output, manifest, files, previous)
     result = {"host": "codex", "adapter_id": manifest["id"], "version": manifest["version"], "adapter": str(adapter),
               "workspace": str(output), "context_injected_via": "AGENTS.md",

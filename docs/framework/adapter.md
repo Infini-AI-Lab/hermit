@@ -179,7 +179,10 @@ and preserves project text outside it. Existing adapter headings are nested unde
 
 The deployment command prepares a workspace; it does not launch the agent. Its output must be empty or a workspace
 previously generated for the same host. The source adapter and output workspace cannot contain one another.
-A redeployment replaces the copy under `hermit/<id>/`: files the new version no longer has are removed. It refuses,
+A redeployment replaces the copy under `hermit/<id>/`: files the new version no longer has are removed. It also
+replaces each exported skill's copy in the host's skills folder, and moves a skill the last deployment copied there
+that the new version no longer exports to `.retired-skills/` (a stale role goes to `.retired-roles/`), out of the
+host's discovery; a skill you put there yourself stays. It refuses,
 before writing anything, when a copied file was changed or replaced (by a directory or a link) since the last
 deployment or another file is in the way, and
 names the file; an adapter link that leads outside the adapter is refused too.

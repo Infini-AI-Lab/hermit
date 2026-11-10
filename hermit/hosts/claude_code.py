@@ -13,8 +13,8 @@ from hermit.adapter.loader import agent_tools, hook_definitions, load_manifest, 
 from hermit.hosts.context import PROJECT_CONTEXT, START, append_context
 from hermit.hosts.inputs import (MARKER, PACKAGE_ROOT, _adapter_sandbox_env, adapter_files, adapter_folder,
                                  check_workspace, copy_adapter, copy_skills, folder_note, hook_commands, native_hooks,
-                                 render_exports, resources, retire_roles, role_body, server_name, source_label,
-                                 subagent_markdown, subagent_name)
+                                 render_exports, resources, retire_roles, retire_skills, role_body, server_name,
+                                 source_label, subagent_markdown, subagent_name)
 
 NATIVE = {"skills", "agents"}
 HOOK_TYPES = {"command", "prompt"}
@@ -88,6 +88,7 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
         settings_path.write_text(json.dumps(settings, indent=2) + "\n")
     retire_roles(output, previous, role_paths)
     skills = copy_skills(adapter, manifest, output / ".claude" / "skills")
+    retire_skills(output, previous, skills, output / ".claude" / "skills")
     copy_adapter(adapter, output, manifest, files, previous)
     result = {"host": "claude-code", "adapter_id": manifest["id"], "version": manifest["version"], "adapter": str(adapter),
               "workspace": str(output), "context_injected_via": "CLAUDE.md",

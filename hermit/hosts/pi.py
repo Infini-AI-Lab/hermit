@@ -18,7 +18,8 @@ import sys
 from hermit.adapter.loader import agent_tools, hook_definitions, load_manifest, not_portable
 from hermit.hosts.context import PROJECT_CONTEXT, START, append_context
 from hermit.hosts.inputs import (MARKER, PACKAGE_ROOT, adapter_files, adapter_folder, check_workspace, copy_adapter,
-                                 copy_skills, folder_note, render_exports, resources, server_name, source_label)
+                                 copy_skills, folder_note, render_exports, resources, retire_skills, server_name,
+                                 source_label)
 
 NATIVE = {"skills"}
 
@@ -62,6 +63,7 @@ def prepare(adapter: Path, output: Path, python: str, *, learning_material: Path
                                                         indent=2) + "\n")
     context_path.write_text(context_text)
     skills = copy_skills(adapter, manifest, output / ".pi" / "skills")
+    retire_skills(output, previous, skills, output / ".pi" / "skills")
     copy_adapter(adapter, output, manifest, files, previous)
     result = {"host": "pi", "adapter_id": manifest["id"], "version": manifest["version"], "adapter": str(adapter),
               "workspace": str(output), "context_injected_via": "AGENTS.md",
