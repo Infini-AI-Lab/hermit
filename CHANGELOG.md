@@ -33,6 +33,12 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   call's tools are an MCP server offered directly; a failed request fails the session although Pi exits 0. Pi takes
   no roles and has no web search; `image_input: true` declares a bound model that takes images. `hermit deploy
   --host pi` declares the adapter's tools `exposure: direct`, with a 120 s timeout.
+- mini-swe-agent as a CLI Base Agent (`mini-swe-agent`): the acting agent (`agent.name` or `agent.base:
+  mini-swe-agent`) runs one task through mini-swe-agent 2.4.6's Python API in a process of its own, whose JSON
+  events are the stream; a model reference is called through litellm with the key passed per request, and the
+  agent's commands get only `env`. The call's tools are one bash command, `hermit-tool`. `hermit deploy --host
+  mini-swe-agent` writes `mini-swe-agent.yaml`. Installed with the `mini-swe-agent` extra.
+  [Tutorial](docs/tutorials/mini-swe-agent.md).
 - Models in sandboxes as Harbor's agents get theirs: each sandbox gets its models' key variables and provider hosts
   (an isolated network becomes an allowlist) and forwards a model meter on the loopback; what a run keeps (the
   learning material, the step records, the adapter) is scrubbed of key values (`hermit/redact.py`). The allowlist
@@ -202,6 +208,21 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 - The AHE Adapter Evolver took a `change_manifest.json` an earlier step left for the current step's: a manifest
   naming the next iteration was refused at its own step, then archived as the next step's when that step's session
   wrote none. The file (or a directory a session made in its place) is now removed before each Evolve session.
+- Nine example launchers left their wire meters running after the run (#82), so a later run on the same port
+  reused one and wrote its records into the earlier run's ledger. The meters a launch starts now stop within a second
+  or two of the runs that use them ending: its own trainings (and, for ServeLearnBench, the tests after them) and
+  those of any launch that reuses one, which each list their processes in the port's users file
+  (`/tmp/hermit-wire-meter-<uid>-<port>.users`); the harness2 restart loop is stopped with its meter. A
+  launch reuses a running meter only if it is still up three seconds on, so it never takes one that is being
+  stopped. A meter started on a ledger an earlier one left now carries its totals on (`LEDGER_RESUME=1` in
+  `hermit/runtime/wire_meter.py`, which these launchers set): the next run's meter on the port (`launch.sh run &&
+  launch.sh run eval`, a ServeLearnBench `test` run again, a CL-Bench tag refused because it exists) wrote an empty
+  ledger over the earlier run's bill.
+- On macOS a CLI session stopped at its timeout or on cancel could leave processes behind or fail: the processes
+  below it were found through `/proc`, which macOS lacks, so one in a session of its own (as a sandbox starts its
+  program) was never stopped; and signalling a process group left with only exited, unreaped processes raises
+  `PermissionError` there. The processes are now found with `ps` where there is no `/proc`, and that error means the
+  group has ended. The same holds for the AgentDyn runner's and the Lean swarm launcher's stops.
 
 ## 0.2.0 - 2026-11-04
 

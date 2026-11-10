@@ -30,12 +30,12 @@ def main(argv=None) -> int:
             p.add_argument("--adapter", required=True, help="final | root | none | a tag | a commit | a local path")
         if name == "check":
             p.add_argument("--no-probe", action="store_true", help="skip running one task through the pipeline")
-    dep = sub.add_parser("deploy", help="deploy an adapter's exports into a Codex, Claude Code, Pi or DeepSeek Harness "
-                                        "workspace")
+    dep = sub.add_parser("deploy", help="deploy an adapter's exports into a Codex, Claude Code, Pi, mini-swe-agent "
+                                        "or DeepSeek Harness workspace")
     dep.add_argument("--adapter", type=Path, required=True)
     dep.add_argument("--workspace", "--output", dest="workspace", type=Path, required=True,
                      help="the project directory the agent will work in (--output is the older spelling)")
-    dep.add_argument("--host", choices=["codex", "claude-code", "pi", "dsh"], default="codex")
+    dep.add_argument("--host", choices=["codex", "claude-code", "pi", "mini-swe-agent", "dsh"], default="codex")
     dep.add_argument("--python", default=sys.executable)
     dep.add_argument("--context-limit", type=int, default=None,
                      help="codex: the project_doc_max_bytes your Codex config sets (default 32768, Codex's own); "
@@ -98,6 +98,8 @@ def main(argv=None) -> int:
             from hermit.hosts.codex import prepare
         elif args.host == "pi":
             from hermit.hosts.pi import prepare
+        elif args.host == "mini-swe-agent":
+            from hermit.hosts.mini_swe_agent import prepare
         elif args.host == "dsh":
             from hermit.hosts.dsh import prepare
         else:

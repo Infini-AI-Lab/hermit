@@ -44,10 +44,11 @@ def _merge(base: dict, extra: dict, prefix: str = "") -> dict:
 
 
 FREE = ("params", "llm", "backends", "container", "resources",   # sections whose keys the framework does not know
-        "model", *("codex", "claude", "pi", "dsh", "react", "direct"))   # a layer's settings (agent-layers.md)
-BASES = {"codex": "codex", "claude": "claude-code", "claude-code": "claude-code", "pi": "pi", "dsh": "dsh",
-         "react": "react", "direct": None}
-CLI_BASES = ("codex", "claude-code", "pi", "dsh")   # the bases that are a CLI (their Layer 1 settings: _model)
+        "model", *("codex", "claude", "pi", "mini-swe-agent", "dsh", "react", "direct"))   # a layer's (agent-layers.md)
+BASES = {"codex": "codex", "claude": "claude-code", "claude-code": "claude-code", "pi": "pi",
+         "mini-swe-agent": "mini-swe-agent", "dsh": "dsh", "react": "react", "direct": None}
+# The bases that are a CLI (their Layer 1 settings: _model)
+CLI_BASES = ("codex", "claude-code", "pi", "mini-swe-agent", "dsh")
 MODEL_KEYS = ("login", "effort", "price")           # Layer 1 settings a CLI takes beside its model
 # A login's plan settings: Layer 2's (agent.<base>, evolver.<base>), refused beside the model's name.
 PLAN_KEYS = {"plan_dir", "plan_max_wait_s", "plan_rerun", "usage_credits", "login_root"}
@@ -114,15 +115,16 @@ def layered(data: dict) -> None:
     agent = data["agent"]
     base = agent.pop("base", None)
     model = agent.pop("model", None)
-    sections = {b: agent.pop(b, None) for b in ("codex", "claude", "pi", "dsh", "react", "direct")}
+    sections = {b: agent.pop(b, None) for b in ("codex", "claude", "pi", "mini-swe-agent", "dsh", "react", "direct")}
     if base is None:
         if model is not None or any(sections.values()):
-            raise ValueError("agent.model and agent.<base> need agent.base (codex, claude, pi, dsh, react or direct)")
+            raise ValueError("agent.model and agent.<base> need agent.base (codex, claude, pi, mini-swe-agent, dsh, "
+                             "react or direct)")
     else:
         if base not in BASES:
             raise ValueError(f"agent.base must be one of {sorted(BASES)}, not {base!r}")
-        builtin = {"codex": "codex", "claude-code": "claude-code", "claude": "claude-code", "pi": "pi", "dsh": "dsh",
-                   "react": "react", "cli": None}
+        builtin = {"codex": "codex", "claude-code": "claude-code", "claude": "claude-code", "pi": "pi",
+                   "mini-swe-agent": "mini-swe-agent", "dsh": "dsh", "react": "react", "cli": None}
         if not agent.get("name"):
             if BASES[base] is None:
                 raise ValueError("agent.base: direct needs agent.name (the task's own loop calls it)")
