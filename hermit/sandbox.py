@@ -437,6 +437,19 @@ def _names(path) -> list[str]:
     return [given] if real == given else [given, real]
 
 
+def _granted_venv(found: str, granted) -> bool:
+    """Whether `found` is a virtual environment's interpreter (a pyvenv.cfg beside it or one directory up) and the
+    environment lies in a place `granted` shows at its own path, so that it exists inside under the name it is run
+    by. Its pyvenv.cfg is not read: the installation it was made from is shown, as for any program, by following the
+    interpreter's links (program_paths), never by a `home` a granted place could name."""
+    where = os.path.dirname(os.path.abspath(found))
+    venv = next((d for d in (where, os.path.dirname(where)) if os.path.isfile(os.path.join(d, "pyvenv.cfg"))), None)
+    if venv is None:
+        return False
+    places = {n.rstrip("/") for g in granted for n in _names(g)}
+    return any(n == w or n.startswith(w + "/") for n in _names(venv) for w in places)
+
+
 def _venv_paths() -> list[Path]:
     """The virtual environment's interpreter links and pyvenv.cfg. They are bound at their own path, unresolved: a
     Python started as the link finds pyvenv.cfg beside it and so its environment; started as the file the link leads
@@ -1128,7 +1141,11 @@ class Sandbox:
                    for first in (shutil.which(name, path=env["PATH"]) for name in ("python3", "python"))):
                 env["PATH"] = os.pathsep.join([own, *(p for p in env["PATH"].split(os.pathsep) if p and p != own)])
         found = shutil.which(command[0]) if command else None
-        if found:      # run the program by its real path: PATH entries outside the sandbox do not exist inside
+        if found and _granted_venv(found, [*self.readable, *readable, *self.writable, *writable, *interpreters]):
+            # a granted virtual environment's interpreter, run by its own name: its real file is the base
+            # installation's, which, run as itself, finds no pyvenv.cfg and so not the environment's packages
+            command = [os.path.abspath(found), *command[1:]]
+        elif found:    # run the program by its real path: PATH entries outside the sandbox do not exist inside
             real = Path(found).resolve()     # ... except this Python, which must keep its environment's path
             command = [sys.executable if real == Path(sys.executable).resolve() else str(real), *command[1:]]
         # A path given for this call at its own location but lying under the layout's root is shown where the

@@ -62,7 +62,9 @@ The pieces, in the order they are applied:
    on hermit's environment (unless that directory's `python3` is another version, as on the host). The sandbox's own
    command is found on the host's `PATH` before it starts: give a Python command as an absolute path
    (`sys.executable`).
-4. **Programs.** A command started by name is run by its real path. Its installation is shown (a CLI under
+4. **Programs.** A command started by name is run by its real path, except a virtual environment's interpreter whose
+   environment is granted (for the sandbox or for the call): it runs by its own name, so it finds its `pyvenv.cfg` and
+   the environment's packages. Its installation is shown (a CLI under
    `~/.local/bin` and the package it belongs to, the interpreter its `#!` line names), with that installation's
    Python packages emptied, unless the program itself runs on Python (a pipx or venv install keeps its own).
 5. **Declared paths.** Task paths, the call's work directory, the learner's workspace (bound under `/w`), and the

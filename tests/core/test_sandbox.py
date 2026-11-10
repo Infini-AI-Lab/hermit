@@ -1772,3 +1772,47 @@ def test_bubblewrap_is_started_by_its_path(tmp_path, monkeypatch):
                         str(tmp_path / "bin" / "bwrap") if name == "bwrap" else REAL_WHICH(name, *a, **k))
     args, _ = Sandbox(network="open").wrap(["true"])
     assert args[0] == str(tmp_path / "bin" / "bwrap")
+
+
+def test_a_granted_venvs_interpreter_is_run_by_its_own_name_and_an_ungranted_one_as_before(tmp_path, monkeypatch):
+    """A venv's bin/python is a link to its base interpreter, which, run by its real path, finds no pyvenv.cfg and so
+    none of the venv's packages (#95). Granted (for the sandbox or for one call), it is run by its own name; granted
+    for one call, its pyvenv.cfg still names no installation to show. Not granted, it runs by its real path, as
+    before."""
+    fake_bwrap(monkeypatch)
+    secret = tmp_path / "secret"
+    (secret / "bin").mkdir(parents=True)
+    venv = tmp_path / "venv"
+    (venv / "bin").mkdir(parents=True)
+    (venv / "pyvenv.cfg").write_text(f"home = {secret / 'bin'}\n")
+    (venv / "bin" / "python").symlink_to(sys.executable)
+    command = [str(venv / "bin" / "python"), "-c", "pass"]
+    args, _ = Sandbox(network="isolated", readable=[venv]).wrap(command)       # the sandbox's own, trusted grant
+    assert args[-3:] == command
+    args, _ = Sandbox(network="isolated").wrap(command, readable=[venv])       # one call's, which shows no home
+    assert args[-3:] == command and not any(a.startswith(str(secret)) for a in args)
+    args, _ = Sandbox(network="isolated").wrap(command)
+    assert args[-3:] == [sys.executable, "-c", "pass"]
+
+
+@pytest.mark.skipif(not _bwrap_works(), reason="needs a working bubblewrap (unprivileged user namespaces)")
+@pytest.mark.parametrize("base", [sys.executable, "/usr/bin/python3"],
+                         ids=["this-interpreter", "usr-bin-python3"])
+def test_a_granted_venvs_python_imports_the_venvs_packages_inside(tmp_path, base):
+    """End to end, for a venv made from this interpreter and one made from another: the module installed in the venv
+    imports inside the sandbox."""
+    if not os.path.exists(base) or (base != sys.executable and
+                                    Path(base).resolve() == Path(sys.executable).resolve()):
+        pytest.skip(f"no other interpreter at {base}")
+    venv = tmp_path / "venv"
+    subprocess.run([base, "-m", "venv", "--without-pip", str(venv)], check=True, capture_output=True)
+    [site] = venv.glob("lib/python3*/site-packages")
+    (site / "marker95.py").write_text("WHERE = 'the venv'\n")
+    box = Sandbox(network="isolated")
+    try:
+        args, env = box.wrap([str(venv / "bin" / "python"), "-c", "import marker95; print(marker95.WHERE)"],
+                             readable=[venv])
+        out = subprocess.run(args, env=env, capture_output=True, text=True, timeout=120)
+    finally:
+        box.close()
+    assert out.returncode == 0 and out.stdout.strip() == "the venv", out.stderr[-600:]
