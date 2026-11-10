@@ -148,14 +148,15 @@ def make(tmp: Path, monkeypatch, steps: int = 2, deployment_param: bool = False)
     return path
 
 
-def test_a_learner_that_is_not_codex_or_claude_code_is_refused_at_setup():
-    """mwm's session is Codex's or Claude Code's (its texts, homes and sign-ins): another CLI Base Agent, which the
-    config takes as evolver.base (pi), is refused before any step rather than run without its model (mwm's session
-    settings carry no `provider`)."""
-    from types import SimpleNamespace
-    from hermit.agent.evolver.methods.mwm.evolver import MwmEvolver
-    with pytest.raises(ValueError, match="backend is codex or claude, not 'pi'"):
-        MwmEvolver().setup(SimpleNamespace(params={"backend": "pi"}))
+@pytest.mark.parametrize("override, name", [("evolver.base=pi", "pi"),
+                                            ("evolver.params.backend=mini-swe-agent", "mini-swe-agent")])
+def test_a_learner_that_is_not_codex_or_claude_code_is_refused_at_setup(tmp_path, monkeypatch, override, name):
+    """From the config through the Trainer: mwm's session settings carry no `provider`, so a learner on another CLI
+    Base Agent could not use its bound model. The run stops at setup, naming the backends it takes, before any step."""
+    trainer = Trainer(Config.load(make(tmp_path, monkeypatch), [override]), log=lambda *_: None)
+    with pytest.raises(SystemExit, match=f"backend is codex or claude, not '{name}'"):
+        trainer.train()
+    assert not (tmp_path / "runs" / "mwm-test" / "steps.jsonl").exists()
 
 
 def test_bootstrap_review_mounts_and_records(tmp_path, monkeypatch):
