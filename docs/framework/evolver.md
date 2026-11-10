@@ -130,7 +130,7 @@ For selection guidance, setup, and the complete parameter defaults, use [Choose 
 
 | `evolver.name` | Method | Needs |
 |---|---|---|
-| `codex`, `claude`, `pi` | A Codex, Claude Code or Pi agent edits the adapter from the learning material; `codex` on the `prompt-only@1.0` template is the [prompt-only](../methods/prompt-only.md) method. | The agent CLI |
+| `codex`, `claude`, `pi`, `dsh` | A Codex, Claude Code, Pi or DeepSeek Harness agent edits the adapter from the learning material; `codex` on the `prompt-only@1.0` template is the [prompt-only](../methods/prompt-only.md) method. | The agent CLI |
 | `gepa` | [GEPA](https://github.com/gepa-ai/gepa): one iteration per step. It reflects on the step's trajectories, keeps a child that does better on the same tasks, scores it on validation, and hands back the next parent from its Pareto front. | `llm`, `data.val`, `python -m pip install -e . --group gepa` |
 | `skillopt` | [SkillOpt](https://github.com/microsoft/SkillOpt): one SkillOpt step per training step. It turns the step's trajectories into a few bounded edits under its learning rate (decaying when `total_steps` is set) and keeps them only if the validation score improves; the slow update and meta skill run at each epoch's end. | `llm`, `data.val`, `python -m pip install -e . --group skillopt` |
 | `ace` | [ACE](https://github.com/ace-agent/ace): per rollout, a Reflector tags the playbook bullets the agent named and diagnoses the attempt (a wrong answer is run again with the reflection, up to `max_num_rounds`), and a Curator adds bullets; the playbook grows by deltas. See `docs/methods/ace.md`. | `llm`; `data.val` to keep the best validation playbook |
@@ -168,8 +168,8 @@ ctx.tools["run_agent"](task_ids=["task-1"], adapter=str(candidate_directory))
 
 Only training or validation IDs are accepted, and the candidate directory must be inside the run directory.
 Omitting `adapter` tests the current working copy. The response contains per-task status, output, judge results,
-cost, and time, how the session ended when the pipeline reports it (`exit_code`, `timed_out`: the Codex and Claude
-Code agents do), and for training tasks the path of the run's log; it does not return the trajectories themselves. Its usage counts toward the run's Evolver budget.
+cost, and time, how the session ended when the pipeline reports it (`exit_code`, `timed_out`: the CLI agents do), and
+for training tasks the path of the run's log; it does not return the trajectories themselves. Its usage counts toward the run's Evolver budget.
 
 The Evolver may also call `check_spec` before returning. The Trainer still makes the acceptance decision from the
 returned files. Passing specification checks does not establish better performance.

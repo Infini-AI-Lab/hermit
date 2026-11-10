@@ -21,8 +21,8 @@ template, the test helpers) and any path the table does not know run every group
 under `methods/<name>/`. `core/test_selection.py` fails until it does, when a test file is in no group, and when a
 framework module a shared layer or a method's tests import is not shared.
 
-A test marked `integration` runs an agent CLI installed on the machine (`codex`, `claude`) and holds what a release
-of it does; it is skipped unless `--integration` is given (those that run Claude Code in its container also skip
+A test marked `integration` runs an agent CLI installed on the machine (`codex`, `claude`, `dsh`) and holds what a
+release of it does; it is skipped unless `--integration` is given (those that run Claude Code in its container also skip
 without Docker and the image `docker/claude/` builds, named by HERMIT_CLAUDE_IMAGE and HERMIT_CLAUDE_NETWORK). Some
 methods' tests (`gepa`, `skillopt`, `harness2`, `rrsi`) skip themselves without the method's dependency group; the
 sandbox and MWM tests need Linux and a working bubblewrap, and some do not yet skip without it (CONTRIBUTING.md).

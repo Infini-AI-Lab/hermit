@@ -1,9 +1,10 @@
-# Codex, Claude and Pi agent learners
+# Codex, Claude, Pi and DeepSeek Harness agent learners
 
-Use `evolver.name: codex`, `claude` or `pi` when a learner should inspect trajectories, use tools, and edit an
+Use `evolver.name: codex`, `claude`, `pi` or `dsh` when a learner should inspect trajectories, use tools, and edit an
 adapter directory over several actions. This is useful for skills, multiple files, and tool code that a single text
 rewrite does not capture well. The `pi` learner signs in through a model reference (`evolver.base: pi` with
 `evolver.model: <backend>/<model>`, or `evolver.params.model`); it copies no login from `~/.pi/agent` (`home: []`).
+The `dsh` learner signs in the same way (`evolver.base: dsh`) and copies no file of `~/.dsh` (`home: []`).
 On the single-file prompt-only template, the Codex learner is the [prompt-only](prompt-only.md) method.
 
 ## Requirements and setup

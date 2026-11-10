@@ -44,6 +44,14 @@ Changes are grouped by software version. Entries under Unreleased describe work 
   agent's commands get only `env`. The call's tools are one bash command, `hermit-tool`. `hermit deploy --host
   mini-swe-agent` writes `mini-swe-agent.yaml`. Installed with the `mini-swe-agent` extra.
   [Tutorial](docs/tutorials/mini-swe-agent.md).
+- DeepSeek Harness as a CLI Base Agent (`dsh`): the acting agent `agent.base: dsh` and the `dsh` Evolver run DeepSeek
+  Harness 0.2.2-rc.1's `dsh --profile headless --json` in its own home, with a model reference as its `llm-pi-ai`
+  provider (the key by its variable's name); the call's tools are an MCP server; a run with no completed end, or whose
+  tools did not start, fails even when `dsh` exits 0. DeepSeek Harness takes no roles and no login;
+  `agent.dsh.permission_mode` picks its own sandbox; `image_input: true` declares a bound model that takes images;
+  `web_search: true` gives web fetch only unless the model is reached through DeepSeek's API on `DEEPSEEK_API_KEY`. The
+  MWM and RRSI Adapter Evolvers refuse `evolver.params.backend: dsh`. `hermit deploy --host dsh` writes the adapter's
+  tools, with a 120 s timeout, in a patch layer, `.dsh/hermit.patch.yml`, which a session loads with `--patch`.
 - Models in sandboxes as Harbor's agents get theirs: each sandbox gets its models' key variables and provider hosts
   (an isolated network becomes an allowlist) and forwards a model meter on the loopback; what a run keeps (the
   learning material, the step records, the adapter) is scrubbed of key values (`hermit/redact.py`). The allowlist
@@ -173,6 +181,8 @@ Changes are grouped by software version. Entries under Unreleased describe work 
 - The CLI Base Agents share one runner, `CliAgent` (`hermit/agent/base/cli.py`): what differs per CLI (its command,
   its home, how its event stream is read) is its subclass's hooks, and `CLIS` names every CLI. `codex` and `claude`
   behave as before; a new CLI is one subclass.
+- `Usage` gains `unreported_calls`, the calls whose tokens a CLI did not report (only DeepSeek Harness's reader sets
+  it): a usage that has any keeps an unknown cost, not the price of the tokens reported.
 
 ### Fixed
 

@@ -72,6 +72,7 @@ hermit deploy --adapter DIR --workspace WORKSPACE --host codex
 hermit deploy --adapter DIR --workspace WORKSPACE --host claude-code
 hermit deploy --adapter DIR --workspace WORKSPACE --host pi
 hermit deploy --adapter DIR --workspace WORKSPACE --host mini-swe-agent
+hermit deploy --adapter DIR --workspace WORKSPACE --host dsh
 ```
 
 This generates host instruction files, role/skill files, and tool configuration. It does not launch the acting
@@ -80,10 +81,22 @@ instead; its `.pi/` files (tools, skills) load once the user trusts the project 
 trust. mini-swe-agent reads one config file, so `--host mini-swe-agent` writes `mini-swe-agent.yaml`: Hermit's
 prompts over mini-swe-agent's `mini` config, with the context, the names of the adapter's skills, roles, hooks and
 other files, and its tools as one bash command (`hermit-tool`) in the system template; run `mini -c
-mini-swe-agent.yaml` from the workspace ([tutorial](../tutorials/mini-swe-agent.md)). `--context-limit BYTES` (Codex) is the `project_doc_max_bytes` your Codex configuration sets, 32768 (Codex's
+mini-swe-agent.yaml` from the workspace ([tutorial](../tutorials/mini-swe-agent.md)). DeepSeek Harness has no file of
+its own for roles, hooks or a project's MCP servers, so `--host dsh` names an adapter's roles and hooks in `AGENTS.md`
+and writes its tools into a patch layer (an overlay of settings for a session), `.dsh/hermit.patch.yml`, which also
+names the folder of its skills (`.dsh/skills`). The layer loads only when named, while `AGENTS.md` needs no flag: run
+`dsh --profile headless --patch .dsh/hermit.patch.yml "TASK"` from the workspace.
+`--context-limit BYTES` (Codex) is the `project_doc_max_bytes` your Codex configuration sets, 32768 (Codex's
 default) when not given: a longer `AGENTS.md` is refused, since Codex would cut it; `0` skips the check. It is the per-project way to use an adapter; the per-agent way, `convert`, and how the two compare are in
 [What is a harness adapter?](what-is-a-harness-adapter.md#two-ways-to-use-an-adapter). The workspace must be an empty directory or one previously generated for the same host, separate from
 the adapter directory. See the [file mapping](adapter.md#acting-interface) for exact paths and update behavior.
+
+:::{warning}
+**The patch layer is not protected from the agent.** DeepSeek Harness's sandbox leaves `.dsh/hermit.patch.yml` writable,
+like any file of the workspace: a session started by hand can edit it, and a stdio tool server it adds there runs
+outside that sandbox in the next session started with `--patch`. Start such a session from a fresh deployment (a new
+folder), or read the layer first.
+:::
 
 ## convert
 
@@ -170,7 +183,7 @@ It is not an HTTP preview server or the proposed standalone-service launcher. `-
   `evolver_access.environment`) and that no declared path holds the data, the judge or the runs. It does not check
   the pipeline's host: adapters are meant to be usable by any acting agent, and each pipeline deploys the exports
   (context, tools, roles, skills) in its own way.
-- `hermit deploy --adapter DIR --workspace WORKSPACE --host codex|claude-code|pi` copies an adapter to
+- `hermit deploy --adapter DIR --workspace WORKSPACE --host codex|claude-code|pi|dsh` copies an adapter to
   `hermit/<id>/` in a host workspace and connects its exports there (context block, MCP tools, native roles, skills,
   hooks).
 - `hermit convert --adapter DIR --output OUT --target ...` emits a plugin in the host's native format instead,

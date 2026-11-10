@@ -203,5 +203,7 @@ modes need the bubblewrap task sandbox. With an image, a Harbor task set or `run
 
 :::{warning}
 **Nothing persists in `/tmp`.** Each sandbox gets an empty `/tmp`. Write what must outlive the call to the work
-directory or a declared writable path.
+directory or a declared writable path. Where DeepSeek Harness's own sandbox (`workspace-write`) uses bubblewrap, its
+commands get another empty `/tmp`, so they do not see a path declared under `/tmp` outside the workspace: keep such a
+path elsewhere, or mount it inside the workspace (`agent.params.mounts` with `at`).
 :::
